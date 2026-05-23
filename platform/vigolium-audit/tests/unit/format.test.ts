@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatDuration, formatTokens } from "../../src/cli/run.js";
+import { formatDuration, formatTokens } from "../../src/cli/run-render.js";
 
 describe("formatTokens", () => {
   test("returns raw integer below 1k", () => {

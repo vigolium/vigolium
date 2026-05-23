@@ -136,7 +136,12 @@ func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent) {
 		}
 
 		if err := e.repo.SaveFinding(ctx, result, recordUUIDs, e.scanUUID, e.projectUUID); err != nil {
-			zap.L().Debug("Failed to save finding to database", zap.Error(err))
+			// A dropped finding is a data-loss event for the operator, not a debug
+			// detail — surface it at Warn with enough context to locate the result.
+			zap.L().Warn("failed to persist finding to database; finding will be missing from stored results",
+				zap.String("module", result.ModuleID),
+				zap.String("url", result.URL),
+				zap.Error(err))
 		}
 	}
 
@@ -145,7 +150,10 @@ func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent) {
 	}
 
 	if e.cfg.Services != nil && e.cfg.Services.Notifier != nil && !result.DisableNotify {
-		_ = e.cfg.Services.Notifier.Send(result)
+		if err := e.cfg.Services.Notifier.Send(result); err != nil {
+			zap.L().Debug("notifier send failed for finding",
+				zap.String("module", result.ModuleID), zap.Error(err))
+		}
 	}
 }
 

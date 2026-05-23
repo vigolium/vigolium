@@ -76,8 +76,18 @@ func runOliumPromptWithThinking(ctx context.Context, cfg *config.OliumConfig, pr
 // buildOliumEngine constructs an oengine.Engine from olium config without
 // running anything. Useful when the same engine is reused for multiple
 // prompts (e.g., source-analysis explore -> 3 forked format calls) so the
-// conversation prefix stays warm in provider history.
+// conversation prefix stays warm in provider history. It is the standard,
+// tool-enabled session — a thin wrapper over buildOliumEngineWithSpec.
 func buildOliumEngine(cfg *config.OliumConfig, sourcePath string) (*oengine.Engine, error) {
+	return buildOliumEngineWithSpec(cfg, SessionSpec{SourcePath: sourcePath, IncludeTools: true})
+}
+
+// buildOliumEngineWithSpec is the general engine constructor behind the
+// AgentRuntime seam. It resolves the provider from olium config, then applies
+// the SessionSpec (system prompt, source-path suffix, turn cap, tool set,
+// prompt cache). Concrete olium engine/provider/tool types are confined to this
+// file so the rest of pkg/agent depends only on the AgentRuntime interface.
+func buildOliumEngineWithSpec(cfg *config.OliumConfig, spec SessionSpec) (*oengine.Engine, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("olium config is nil")
 	}
@@ -99,31 +109,31 @@ func buildOliumEngine(cfg *config.OliumConfig, sourcePath string) (*oengine.Engi
 		return nil, fmt.Errorf("olium provider: %w", err)
 	}
 
-	reg := tool.NewRegistry()
-	tool.RegisterBuiltins(reg, nil)
-
-	system := cfg.SystemPrompt
+	system := spec.System
 	if system == "" {
-		system = olium.DefaultSystemPrompt
+		system = cfg.SystemPrompt
+		if system == "" {
+			system = olium.DefaultSystemPrompt
+		}
 	}
-	if sourcePath != "" {
-		system += "\n\nApplication source code is available at: " + sourcePath
+	if spec.SourcePath != "" {
+		system += "\n\nApplication source code is available at: " + spec.SourcePath
 	}
 
-	return oengine.New(oengine.Config{
-		Provider: prov,
-		Tools:    reg,
-		Model:    model,
-		System:   system,
-	}), nil
-}
+	ecfg := oengine.Config{
+		Provider:          prov,
+		Model:             model,
+		System:            system,
+		MaxTurns:          spec.MaxTurns,
+		EnablePromptCache: spec.EnablePromptCache,
+	}
+	if spec.IncludeTools {
+		reg := tool.NewRegistry()
+		tool.RegisterBuiltins(reg, nil)
+		ecfg.Tools = reg
+	}
 
-// runOliumOnEngine executes a single prompt against an existing engine and
-// drains its event stream into captured text + usage. Bounds provider
-// concurrency via the global semaphore. Used both by runOliumPrompt
-// (per-call fresh engine) and by SA's session-based reuse path.
-func runOliumOnEngine(ctx context.Context, cfg *config.OliumConfig, eng *oengine.Engine, prompt string, streamWriter io.Writer) (oliumRunOutput, error) {
-	return runOliumOnEngineWithThinking(ctx, cfg, eng, prompt, streamWriter, nil, false)
+	return oengine.New(ecfg), nil
 }
 
 // runOliumOnEngineWithThinking is the full-fidelity version that also

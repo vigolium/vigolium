@@ -16,6 +16,19 @@ export function failCli(opts: { json?: boolean }, kind: string, msg: string, exi
   process.exit(exit);
 }
 
+/**
+ * Parse a `--max-cost` USD cap. `cac` delivers option values as strings, but
+ * `RunOptions.maxCost` is typed `number`, so callers may hand us either. Returns
+ * the parsed value when it's a finite positive number, or `null` for anything
+ * non-numeric, non-finite, or `<= 0`. Callers turn `null` into a user-facing
+ * error rather than silently dropping the cap — a mistyped `--max-cost` must
+ * never leave an audit running uncapped.
+ */
+export function parsePositiveUsd(raw: number | string): number | null {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 const STATUS_ARROW_COLORS: Record<string, (s: string) => string> = {
   Platform: chalk.cyan,
   Adapter: chalk.magenta,

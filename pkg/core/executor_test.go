@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -494,5 +495,194 @@ func TestRunActiveWithTimeout_CanceledCtxReturnsPromptly(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("expected prompt return on canceled ctx, took %s", elapsed)
+	}
+}
+
+// blockingPassiveModule wedges in ScanPerRequest until released, ignoring
+// context — it simulates a module stuck in a code path that does not honor
+// cancellation. Used to verify the post-EOF drain/wait is bounded.
+type blockingPassiveModule struct {
+	id      string
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (m *blockingPassiveModule) ID() string                                     { return m.id }
+func (m *blockingPassiveModule) Name() string                                   { return m.id }
+func (m *blockingPassiveModule) Description() string                            { return "" }
+func (m *blockingPassiveModule) ShortDescription() string                       { return "" }
+func (m *blockingPassiveModule) ConfirmationCriteria() string                   { return "" }
+func (m *blockingPassiveModule) Severity() severity.Severity                    { return 0 }
+func (m *blockingPassiveModule) Confidence() severity.Confidence                { return 0 }
+func (m *blockingPassiveModule) ScanScopes() modules.ScanScope                  { return modkit.ScanScopeRequest }
+func (m *blockingPassiveModule) Tags() []string                                 { return nil }
+func (m *blockingPassiveModule) CanProcess(_ *httpmsg.HttpRequestResponse) bool { return true }
+func (m *blockingPassiveModule) Scope() modules.PassiveScanScope {
+	return modkit.PassiveScanScopeBoth
+}
+func (m *blockingPassiveModule) ScanPerRequest(_ *httpmsg.HttpRequestResponse, _ *modules.ScanContext) ([]*output.ResultEvent, error) {
+	m.once.Do(func() { close(m.entered) })
+	<-m.release
+	return nil, nil
+}
+func (m *blockingPassiveModule) ScanPerHost(_ *httpmsg.HttpRequestResponse, _ *modules.ScanContext) ([]*output.ResultEvent, error) {
+	return nil, nil
+}
+
+// TestFeedbackDrainStallCapUnblocksStuckWorker verifies Execute returns promptly
+// even when a worker is wedged in a module that ignores cancellation. The
+// per-module timeout is set to an hour so it cannot rescue the worker during the
+// test; without the drain stall cap and the bounded wait for workers, the scan
+// would hang for that full hour.
+func TestFeedbackDrainStallCapUnblocksStuckWorker(t *testing.T) {
+	mod := &blockingPassiveModule{
+		id:      "blocking-passive",
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	// Release the wedged module after the test so the leaked worker/module
+	// goroutines exit instead of lingering for the whole test binary.
+	t.Cleanup(func() { close(mod.release) })
+
+	e, _ := newTestExecutor(ExecutorConfig{
+		Workers:               1,
+		PassiveModuleTimeout:  time.Hour,
+		FeedbackDrainMaxStall: 150 * time.Millisecond,
+	}, []modules.PassiveModule{mod})
+	e.feedbackCh = make(chan *work.WorkItem, 16)
+	e.scanCtx = &modules.ScanContext{}
+
+	item, _ := makeTestItem("example.com", "/stuck", "<html>x</html>")
+	e.source = &sliceSource{items: []*work.WorkItem{item}}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := e.Execute(context.Background())
+		done <- err
+	}()
+
+	// Ensure the worker actually wedged before asserting on the bound.
+	select {
+	case <-mod.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("blocking module was never entered")
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Execute() returned error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Execute did not return; drain/wait is not bounded against a stuck worker")
+	}
+}
+
+// hintingPassiveModule advertises a TimeoutHint via modules.TimeoutHinter.
+type hintingPassiveModule struct {
+	trackingPassiveModule
+	hint time.Duration
+}
+
+func (m *hintingPassiveModule) TimeoutHint() time.Duration { return m.hint }
+
+// TestFeedbackDrainMaxStallHonorsTimeoutHint verifies the default stall cap is
+// derived from the largest per-module timeout (including TimeoutHints), so a
+// legitimately slow module isn't mistaken for a wedged worker during the drain.
+func TestFeedbackDrainMaxStallHonorsTimeoutHint(t *testing.T) {
+	t.Parallel()
+	const hint = 20 * time.Minute
+	mod := &hintingPassiveModule{
+		trackingPassiveModule: trackingPassiveModule{id: "hinter"},
+		hint:                  hint,
+	}
+	// Small base timeouts; the module's hint dominates. FeedbackDrainMaxStall is
+	// left unset so the derived default is exercised.
+	e, _ := newTestExecutor(ExecutorConfig{
+		ActiveModuleTimeout:  10 * time.Second,
+		PassiveModuleTimeout: 5 * time.Second,
+	}, []modules.PassiveModule{mod})
+
+	if got, want := e.feedbackDrainMaxStall(), 2*hint; got != want {
+		t.Fatalf("feedbackDrainMaxStall() = %s, want 2x the module hint (%s)", got, want)
+	}
+}
+
+// flushTrackingModule records whether end-of-scan Flush ran.
+type flushTrackingModule struct {
+	trackingPassiveModule
+	flushed atomic.Bool
+}
+
+func (m *flushTrackingModule) Flush(_ *modules.ScanContext) { m.flushed.Store(true) }
+
+// TestPassiveFlushRunsOnCleanCompletion confirms the workersExited guard does
+// not break the normal path: after a clean scan, Flusher.Flush runs.
+func TestPassiveFlushRunsOnCleanCompletion(t *testing.T) {
+	t.Parallel()
+	flusher := &flushTrackingModule{trackingPassiveModule: trackingPassiveModule{id: "flusher"}}
+
+	e, _ := newTestExecutor(ExecutorConfig{Workers: 1}, []modules.PassiveModule{flusher})
+	e.feedbackCh = make(chan *work.WorkItem, 16)
+	e.scanCtx = &modules.ScanContext{}
+	item, _ := makeTestItem("example.com", "/ok", "<html>x</html>")
+	e.source = &sliceSource{items: []*work.WorkItem{item}}
+
+	if _, err := e.Execute(context.Background()); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if !flusher.flushed.Load() {
+		t.Fatal("Flush should run after a clean scan completion")
+	}
+}
+
+// TestPassiveFlushSkippedWhenWorkerAbandoned verifies that when the bounded wait
+// abandons a wedged worker, the end-of-scan passive flush is skipped — flushing
+// would otherwise race the still-running worker on the module's buffered state.
+func TestPassiveFlushSkippedWhenWorkerAbandoned(t *testing.T) {
+	t.Parallel()
+	flusher := &flushTrackingModule{trackingPassiveModule: trackingPassiveModule{id: "flusher"}}
+	blocker := &blockingPassiveModule{
+		id:      "blocker",
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	t.Cleanup(func() { close(blocker.release) })
+
+	// flusher runs first and returns; blocker then wedges the worker so the wait
+	// abandons. PassiveModuleTimeout is huge so the timeout wrapper can't rescue.
+	e, _ := newTestExecutor(ExecutorConfig{
+		Workers:               1,
+		PassiveModuleTimeout:  time.Hour,
+		FeedbackDrainMaxStall: 150 * time.Millisecond,
+	}, []modules.PassiveModule{flusher, blocker})
+	e.feedbackCh = make(chan *work.WorkItem, 16)
+	e.scanCtx = &modules.ScanContext{}
+	item, _ := makeTestItem("example.com", "/stuck", "<html>x</html>")
+	e.source = &sliceSource{items: []*work.WorkItem{item}}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := e.Execute(context.Background())
+		done <- err
+	}()
+
+	select {
+	case <-blocker.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("blocking module was never entered")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Execute() returned error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Execute did not return")
+	}
+
+	if flusher.flushed.Load() {
+		t.Fatal("Flush ran while a worker was still abandoned in flight — this is the race the guard must prevent")
 	}
 }

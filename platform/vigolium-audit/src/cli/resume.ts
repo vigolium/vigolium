@@ -2,7 +2,7 @@ import { existsSync } from "fs";
 import { resolve, join } from "path";
 import chalk from "chalk";
 import { StateStore } from "../engine/state.js";
-import { failCli } from "./util.js";
+import { failCli, parsePositiveUsd } from "./util.js";
 import type { AgentPlatform, AuditRecord, AuditMode, RunOptions } from "../engine/types.js";
 
 /**
@@ -111,8 +111,11 @@ function buildRunOptions(args: {
   if (opts.agent !== undefined) runOpts.agent = opts.agent as AgentPlatform;
   if (opts.strict !== undefined) runOpts.strict = opts.strict;
   if (opts.maxCost !== undefined) {
-    const n = typeof opts.maxCost === "number" ? opts.maxCost : Number(opts.maxCost);
-    if (!Number.isNaN(n)) runOpts.maxCost = n;
+    const n = parsePositiveUsd(opts.maxCost);
+    if (n === null) {
+      failCli(opts, "resume", `--max-cost must be a positive number (got ${JSON.stringify(opts.maxCost)})`);
+    }
+    runOpts.maxCost = n;
   }
   if (opts.output !== undefined) runOpts.output = opts.output;
   if (opts.oauthToken !== undefined) runOpts.oauthToken = opts.oauthToken;

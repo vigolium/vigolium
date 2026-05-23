@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Orchestrator } from "../../src/engine/orchestrator.js";
 import { makeContentLoader, resolveRoots } from "../../src/content-loader.js";
 import { StateStore } from "../../src/engine/state.js";
+import { writeAuditContext } from "../../src/engine/audit-context.js";
 import { resolveAuditContext } from "../../src/cli/run.js";
 import type { Adapter, AdapterEvent, AdapterRunInput } from "../../src/adapters/adapter.js";
 
@@ -121,6 +122,19 @@ describe("audit context — prompt injection + persistence", () => {
     const state = await new StateStore(join(target, "vigolium-results")).load();
     const audit = state.audits[0]!;
     expect(audit.context).toBeUndefined();
+  });
+});
+
+describe("audit context — handoff auto-confirm policy", () => {
+  test("resume context tells agents to continue, not start fresh", async () => {
+    const target = makeTarget();
+    const resultsDir = join(target, "vigolium-results");
+    await writeAuditContext(resultsDir, { resume: true });
+    const body = readFileSync(join(resultsDir, "audit-context.md"), "utf8");
+    expect(body).toContain("Explicit Resume Requested");
+    expect(body).toContain("Resume from last checkpoint");
+    expect(body).toContain("Do NOT start fresh");
+    expect(body).not.toContain("pick **\"Start fresh\"**");
   });
 });
 

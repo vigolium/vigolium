@@ -1,6 +1,4 @@
 import { spawnSync } from "child_process";
-import { existsSync } from "fs";
-import { join } from "path";
 
 export interface GitInfo {
   available: boolean;
@@ -10,10 +8,11 @@ export interface GitInfo {
 }
 
 export function probeGit(targetDir: string): GitInfo {
-  if (!existsSync(join(targetDir, ".git"))) {
+  if (runGit(["rev-parse", "--is-inside-work-tree"], targetDir) !== "true") {
     return { available: false, branch: null, commit: null, repository: null };
   }
-  const branch = runGit(["rev-parse", "--abbrev-ref", "HEAD"], targetDir);
+  const branchRaw = runGit(["rev-parse", "--abbrev-ref", "HEAD"], targetDir);
+  const branch = branchRaw === "HEAD" ? null : branchRaw;
   const commit = runGit(["rev-parse", "HEAD"], targetDir);
   const remote = runGit(["config", "--get", "remote.origin.url"], targetDir);
   return {

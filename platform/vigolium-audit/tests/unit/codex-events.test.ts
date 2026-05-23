@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeCodexEvent } from "../../src/adapters/codex-events.js";
+import { createCodexNormalizeState, normalizeCodexEvent, normalizeCodexSessionRecord } from "../../src/adapters/codex-events.js";
 import type { AdapterEvent } from "../../src/adapters/adapter.js";
 import type { ThreadEvent } from "@openai/codex-sdk";
 
 function collect(events: ThreadEvent[]): AdapterEvent[] {
   const out: AdapterEvent[] = [];
   const startedAt = Date.now();
+  const state = createCodexNormalizeState();
   for (const e of events) {
-    for (const a of normalizeCodexEvent(e, startedAt)) out.push(a);
+    for (const a of normalizeCodexEvent(e, startedAt, state)) out.push(a);
   }
   return out;
 }
@@ -39,7 +40,7 @@ describe("normalizeCodexEvent (Codex SDK / CLI ThreadEvent shape)", () => {
     expect(events[2].tokens).toEqual({ input: 5, output: 1 });
   });
 
-  test("command_execution start → toolCall, complete → toolResult with exit_code", () => {
+  test("command_execution start → toolCall, updates stream output, complete emits suffix", () => {
     const events = collect([
       {
         type: "item.started",
@@ -67,16 +68,22 @@ describe("normalizeCodexEvent (Codex SDK / CLI ThreadEvent shape)", () => {
           id: "cmd-1",
           type: "command_execution",
           command: "ls -la",
-          aggregated_output: "file1\nfile2\n",
+          aggregated_output: "partial...file1\nfile2\n",
           exit_code: 0,
           status: "completed",
         },
       },
     ]);
-    // item.updated is intentionally dropped to avoid noise.
-    expect(events.length).toBe(2);
+    expect(events.length).toBe(3);
     expect(events[0]).toEqual({ kind: "toolCall", id: "cmd-1", tool: "Bash", input: { command: "ls -la" } });
     expect(events[1]).toEqual({
+      kind: "toolResult",
+      id: "cmd-1",
+      output: "partial...",
+      isError: false,
+      partial: true,
+    });
+    expect(events[2]).toEqual({
       kind: "toolResult",
       id: "cmd-1",
       output: "file1\nfile2\n",
@@ -203,6 +210,91 @@ describe("normalizeCodexEvent (Codex SDK / CLI ThreadEvent shape)", () => {
     if (events[0]?.kind !== "thinking") throw new Error("type narrowing");
     expect(events[0].text).toContain("[x] Read login.py");
     expect(events[0].text).toContain("[ ] Find auth bypass");
+  });
+
+  test("session JSONL function_call surfaces subagent lifecycle", () => {
+    const state = createCodexNormalizeState();
+    const records = [
+      {
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "spawn_agent",
+          call_id: "call-1",
+          arguments: JSON.stringify({ agent_type: "vigolium-audit:cve-scout", message: "P1" }),
+        },
+      },
+      {
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-1",
+          output: JSON.stringify({ agent_id: "agent-1", nickname: "Ada" }),
+        },
+      },
+      {
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: '<subagent_notification>{"agent_path":"agent-1","status":{"completed":"Done"}}</subagent_notification>',
+            },
+          ],
+        },
+      },
+    ];
+    const events = records.flatMap((r) => [...normalizeCodexSessionRecord(r, state)]);
+    expect(events[0]).toEqual({
+      kind: "toolCall",
+      id: "call-1",
+      tool: "SpawnAgent",
+      input: { agent_type: "vigolium-audit:cve-scout", message: "P1" },
+    });
+    expect(events[1]).toEqual({
+      kind: "toolResult",
+      id: "call-1",
+      output: { agent_id: "agent-1", nickname: "Ada" },
+      isError: false,
+    });
+    expect(events[2]?.kind).toBe("toolResult");
+    if (events[2]?.kind !== "toolResult") throw new Error("type narrowing");
+    expect(String(events[2].output)).toContain("Subagent agent-1 completed: Done");
+  });
+
+  test("session JSONL duplicate function_call_output is suppressed", () => {
+    const state = createCodexNormalizeState();
+    const records = [
+      {
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "wait_agent",
+          call_id: "call-dupe",
+          arguments: JSON.stringify({ agent_id: "agent-1" }),
+        },
+      },
+      {
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-dupe",
+          output: JSON.stringify({ status: "done" }),
+        },
+      },
+      {
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-dupe",
+          output: JSON.stringify({ status: "done" }),
+        },
+      },
+    ];
+    const events = records.flatMap((r) => [...normalizeCodexSessionRecord(r, state)]);
+    expect(events.filter((e) => e.kind === "toolResult")).toHaveLength(1);
   });
 
   test("USD cost is reported as 0 — Codex doesn't expose dollar cost", () => {

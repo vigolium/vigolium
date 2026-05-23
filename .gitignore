@@ -32,6 +32,7 @@ bin
 *.cover
 coverage.out
 coverage.html
+coverage-combined.html
 
 # OS / editor
 .DS_Store

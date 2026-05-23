@@ -198,7 +198,6 @@ export function resolveRoots(): ResolvedRoots {
 function ensureExtractedBundle(): string {
   // Embedded as a static import; bun --compile inlines the JSON into the bin.
   // In dev mode this code path is never reached.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const bundle = require("./content-bundle.json") as {
     generated_at: string;
     files: Record<string, string>;

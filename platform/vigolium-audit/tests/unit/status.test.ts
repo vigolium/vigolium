@@ -53,6 +53,10 @@ describe("statusCommand", () => {
       ],
     });
     tempDirs.push(target);
+    mkdirSync(join(target, "vigolium-results", "findings", "H1-auth-bypass"), { recursive: true });
+    writeFileSync(join(target, "vigolium-results", "findings", "H1-auth-bypass", "report.md"), "# Auth bypass\n\nSeverity: High\n");
+    mkdirSync(join(target, "vigolium-results", "findings-theoretical", "M1-race"), { recursive: true });
+    writeFileSync(join(target, "vigolium-results", "findings-theoretical", "M1-race", "draft.md"), "# Race\n\nSeverity: Medium\n");
 
     await statusCommand(target, { json: true });
 
@@ -64,6 +68,9 @@ describe("statusCommand", () => {
     expect(parsed.audit.phases.complete).toBe(1);
     expect(parsed.audit.phases.skipped).toBe(1);
     expect(parsed.audit.durationMs).toBe(5 * 60 * 1000);
+    expect(parsed.findings.total).toBe(2);
+    expect(parsed.findings.bySeverity.High).toBe(1);
+    expect(parsed.findings.bySeverity.Medium).toBe(1);
   });
 
   test("fails cleanly when vigolium-results/ is missing", async () => {

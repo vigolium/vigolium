@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,8 +17,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	agentprompt "github.com/vigolium/vigolium/pkg/agent/prompt"
 	"github.com/vigolium/vigolium/pkg/database"
-	"github.com/vigolium/vigolium/pkg/httpmsg"
-	oengine "github.com/vigolium/vigolium/pkg/olium/engine"
 	"go.uber.org/zap"
 )
 
@@ -45,6 +42,11 @@ type Engine struct {
 	// populate SwarmResult.TokenUsage for cost / telemetry.
 	tokenUsageMu sync.Mutex
 	tokenUsage   agenttypes.TokenUsage
+
+	// runtime is the AI-dispatch seam. It defaults to the olium-backed runtime;
+	// tests may inject a fake. All AI calls go through it so the engine depends
+	// on the AgentRuntime interface, not the concrete olium engine.
+	runtime AgentRuntime
 }
 
 // NewEngine creates a new agent engine backed by the in-process olium runtime.
@@ -52,7 +54,17 @@ func NewEngine(settings *config.Settings, repo *database.Repository) *Engine {
 	return &Engine{
 		settings: settings,
 		repo:     repo,
+		runtime:  oliumRuntime{},
 	}
+}
+
+// rt returns the configured runtime, defaulting to the olium-backed runtime so
+// an Engine built directly as &Engine{} (e.g. in tests) still dispatches.
+func (e *Engine) rt() AgentRuntime {
+	if e.runtime == nil {
+		return oliumRuntime{}
+	}
+	return e.runtime
 }
 
 // Run executes a full agent pipeline: resolve prompt → render → execute → parse → ingest.
@@ -61,19 +73,19 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 	return e.runOnSession(ctx, opts, nil)
 }
 
-// RunOnOliumEngine is like Run but reuses an existing oengine.Engine so the
+// RunOnOliumEngine is like Run but reuses an existing AgentSession so the
 // caller's prior conversation history (system prompt, tool defs, earlier
 // turns) remains in the provider request and can hit prompt caches. Use
-// with oengine.Engine.Fork() for parallel sub-runs that share a prefix —
+// with AgentSession.Fork() for parallel sub-runs that share a prefix —
 // e.g., the source-analysis explore phase forks to 3 format/extension
 // goroutines that don't need to re-append the explore notes.
-func (e *Engine) RunOnOliumEngine(ctx context.Context, opts Options, eng *oengine.Engine) (*Result, error) {
-	return e.runOnSession(ctx, opts, eng)
+func (e *Engine) RunOnOliumEngine(ctx context.Context, opts Options, sess AgentSession) (*Result, error) {
+	return e.runOnSession(ctx, opts, sess)
 }
 
-// runOnSession is the unified Run implementation. eng=nil → fresh engine
-// per call (default); eng != nil → reuse the supplied engine.
-func (e *Engine) runOnSession(ctx context.Context, opts Options, eng *oengine.Engine) (*Result, error) {
+// runOnSession is the unified Run implementation. sess=nil → fresh session
+// per call (default); sess != nil → reuse the supplied session.
+func (e *Engine) runOnSession(ctx context.Context, opts Options, sess AgentSession) (*Result, error) {
 	// AgentName is informational now — all dispatch goes through olium. Retain
 	// the field so log lines and Result.AgentName keep their old semantics.
 	if opts.AgentName == "" {
@@ -138,10 +150,10 @@ func (e *Engine) runOnSession(ctx context.Context, opts Options, eng *oengine.En
 
 		var out oliumRunOutput
 		var runErr error
-		if eng != nil {
-			out, runErr = runOliumOnEngineWithThinking(ctx, oliumCfg, eng, runPrompt, opts.StreamWriter, thinkingSink.writer(), opts.Verbose)
+		if sess != nil {
+			out, runErr = e.rt().RunOnSession(ctx, oliumCfg, sess, runPrompt, opts.StreamWriter, thinkingSink.writer(), opts.Verbose)
 		} else {
-			out, runErr = runOliumPromptWithThinking(ctx, oliumCfg, runPrompt, opts.StreamWriter, thinkingSink.writer(), opts.SourcePath, opts.Verbose)
+			out, runErr = e.rt().RunPrompt(ctx, oliumCfg, runPrompt, opts.StreamWriter, thinkingSink.writer(), opts.SourcePath, opts.Verbose)
 		}
 		if runErr != nil {
 			return out, runErr
@@ -279,12 +291,12 @@ func (e *Engine) Preflight(agentName string) error {
 	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	eng, err := buildOliumEngine(&cfg, "")
+	sess, err := e.rt().NewSession(&cfg, "")
 	if err != nil {
 		return fmt.Errorf("preflight: cannot build olium engine (check agent.olium.provider / credentials): %w", err)
 	}
 
-	out, err := runOliumOnEngine(pingCtx, &cfg, eng, "Reply with the single word OK.", nil)
+	out, err := e.rt().RunOnSession(pingCtx, &cfg, sess, "Reply with the single word OK.", nil, nil, false)
 	if err != nil {
 		// Wrap so the caller can identify auth vs network vs other.
 		return fmt.Errorf("preflight: provider %q failed (model=%q): %w", cfg.Provider, cfg.Model, err)
@@ -393,12 +405,12 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		oc := e.settings.Agent.Olium
 		oliumCfg = &oc
 	}
-	sharedEngine, sharedErr := buildOliumEngine(oliumCfg, cfg.SourcePath)
+	sharedSession, sharedErr := e.rt().NewSession(oliumCfg, cfg.SourcePath)
 	if sharedErr != nil {
 		// Falls back to the per-call build path below — sub-calls use Run()
 		// instead of RunOnOliumEngine() and re-append context as before.
 		zap.L().Warn("source-analysis: failed to build shared engine, falling back to per-call engines", zap.Error(sharedErr))
-		sharedEngine = nil
+		sharedSession = nil
 	}
 
 	// --- Wave 1: Explore (reads source code once, produces notes for routes + auth) ---
@@ -427,8 +439,8 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		}
 		var result *Result
 		var exploreErr error
-		if sharedEngine != nil {
-			result, exploreErr = e.RunOnOliumEngine(ctx, opts, sharedEngine)
+		if sharedSession != nil {
+			result, exploreErr = e.RunOnOliumEngine(ctx, opts, sharedSession)
 		} else {
 			result, exploreErr = e.Run(ctx, opts)
 		}
@@ -523,8 +535,8 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		// no shared engine is available (e.g., provider build failed above).
 		var formatResult *Result
 		var formatErr error
-		if sharedEngine != nil {
-			formatResult, formatErr = e.RunOnOliumEngine(ctx, opts, sharedEngine.Fork())
+		if sharedSession != nil {
+			formatResult, formatErr = e.RunOnOliumEngine(ctx, opts, sharedSession.Fork())
 		} else {
 			opts.Append = "## Route Analysis Notes\n\n" + routesExploreContext
 			formatResult, formatErr = e.Run(ctx, opts)
@@ -579,8 +591,8 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		}
 		var formatResult *Result
 		var formatErr error
-		if sharedEngine != nil {
-			formatResult, formatErr = e.RunOnOliumEngine(ctx, opts, sharedEngine.Fork())
+		if sharedSession != nil {
+			formatResult, formatErr = e.RunOnOliumEngine(ctx, opts, sharedSession.Fork())
 		} else {
 			opts.Append = "## Authentication & Session Analysis Notes\n\n" + sessionExploreContext
 			formatResult, formatErr = e.Run(ctx, opts)
@@ -636,8 +648,8 @@ func (e *Engine) RunSourceAnalysisParallel(ctx context.Context, cfg SourceAnalys
 		}
 		var extResult *Result
 		var extErr error
-		if sharedEngine != nil {
-			extResult, extErr = e.RunOnOliumEngine(ctx, extOpts, sharedEngine.Fork())
+		if sharedSession != nil {
+			extResult, extErr = e.RunOnOliumEngine(ctx, extOpts, sharedSession.Fork())
 		} else {
 			// Fall back: extensions agent doesn't read source code, so always
 			// append explore notes when no shared engine is available.
@@ -1147,260 +1159,4 @@ func generateSkipGuidance() string {
 5. **Lock & checksum files** — package-lock.json, yarn.lock, bun.lock, Gemfile.lock, poetry.lock, go.sum, *.lock, *.sum
 6. **VCS, IDE & CI/CD config** — .git/, .svn/, .idea/, .vscode/, .github/, .gitlab/, .circleci/, .terraform/
 7. **Test fixtures & snapshots** — __snapshots__/, fixtures/ (but DO read test source files — they often contain credentials and auth patterns)`
-}
-
-// ingestFindings saves parsed findings to the database.
-func (e *Engine) ingestFindings(ctx context.Context, findings []AgentFinding, opts Options) (saved int, skipped int, err error) {
-	moduleID := "agent-" + opts.AgentName
-	if opts.PromptTemplate != "" {
-		moduleID = "agent-" + opts.PromptTemplate
-	}
-
-	for _, af := range findings {
-		dbFinding := parsing.ToDBFinding(af, moduleID, opts.ScanUUID, opts.ProjectUUID)
-		if saveErr := e.repo.SaveFindingDirect(ctx, dbFinding); saveErr != nil {
-			zap.L().Debug("Failed to save finding",
-				zap.String("title", af.Title),
-				zap.Error(saveErr))
-			skipped++
-			continue
-		}
-		saved++
-	}
-	return saved, skipped, nil
-}
-
-// ingestHTTPRecords saves parsed HTTP records to the database.
-// Notes from agent records are preserved as remarks via AppendRemarks.
-func (e *Engine) ingestHTTPRecords(ctx context.Context, records []AgentHTTPRecord, opts Options) (int, error) {
-	saved := 0
-	source := "agent"
-	if opts.Source != "" {
-		source = opts.Source
-	}
-
-	remarksMap := make(map[string][]string)
-
-	for _, rec := range records {
-		httpRR, err := ToHTTPRequestResponse(rec)
-		if err != nil {
-			zap.L().Warn("Skipping invalid HTTP record",
-				zap.String("url", rec.URL),
-				zap.Error(err))
-			continue
-		}
-		savedUUID, saveErr := e.repo.SaveRecord(ctx, httpRR, source, opts.ProjectUUID)
-		if saveErr != nil {
-			zap.L().Warn("Failed to save HTTP record",
-				zap.String("url", rec.URL),
-				zap.Error(saveErr))
-			continue
-		}
-		saved++
-		if rec.Notes != "" && savedUUID != "" {
-			remarksMap[savedUUID] = []string{rec.Notes}
-		}
-	}
-
-	// Batch-append notes as remarks
-	if len(remarksMap) > 0 {
-		if err := e.repo.AppendRemarks(ctx, remarksMap); err != nil {
-			zap.L().Warn("Failed to append remarks from agent notes", zap.Error(err))
-		}
-	}
-
-	return saved, nil
-}
-
-// ToHTTPRequestResponse converts an AgentHTTPRecord to an httpmsg.HttpRequestResponse.
-func ToHTTPRequestResponse(rec AgentHTTPRecord) (*httpmsg.HttpRequestResponse, error) {
-	if rec.URL == "" {
-		return nil, fmt.Errorf("URL is required")
-	}
-	if rec.Method == "" {
-		rec.Method = "GET"
-	}
-
-	parsedURL, parseErr := url.Parse(rec.URL)
-	if parseErr != nil {
-		return nil, fmt.Errorf("invalid URL %q: %w", rec.URL, parseErr)
-	}
-
-	// Use the relative path in the request line (standard HTTP/1.1 origin-form).
-	reqPath := parsedURL.RequestURI()
-	if reqPath == "" {
-		reqPath = "/"
-	}
-
-	rawReq := fmt.Sprintf("%s %s HTTP/1.1\r\n", rec.Method, reqPath)
-
-	// Auto-detect Content-Type from body when not explicitly set.
-	if rec.Body != "" {
-		hasContentType := false
-		for k := range rec.Headers {
-			if strings.EqualFold(k, "Content-Type") {
-				hasContentType = true
-				break
-			}
-		}
-		if !hasContentType {
-			if ct := inferContentType(rec.Body); ct != "" {
-				if rec.Headers == nil {
-					rec.Headers = make(map[string]string)
-				}
-				rec.Headers["Content-Type"] = ct
-			}
-		}
-	}
-
-	// Ensure a Host header is present (required by HTTP/1.1).
-	hasHost := false
-	for k, v := range rec.Headers {
-		rawReq += fmt.Sprintf("%s: %s\r\n", k, v)
-		if strings.EqualFold(k, "Host") {
-			hasHost = true
-		}
-	}
-	if !hasHost && parsedURL.Host != "" {
-		rawReq += fmt.Sprintf("Host: %s\r\n", parsedURL.Host)
-	}
-
-	rawReq += "\r\n"
-	if rec.Body != "" {
-		rawReq += rec.Body
-	}
-
-	return httpmsg.ParseRawRequestWithURL(rawReq, rec.URL)
-}
-
-// inferContentType detects the content type from a request body string.
-// Returns empty string if the format is unrecognizable.
-func inferContentType(body string) string {
-	trimmed := strings.TrimSpace(body)
-	if trimmed == "" {
-		return ""
-	}
-
-	// JSON: starts with { or [
-	if (trimmed[0] == '{' || trimmed[0] == '[') && parsing.IsJSON(trimmed) {
-		return "application/json"
-	}
-
-	// XML/HTML: starts with < and has a closing tag
-	if trimmed[0] == '<' {
-		lower := strings.ToLower(trimmed)
-		if strings.Contains(lower, "<?xml") || strings.Contains(lower, "<soap") {
-			return "application/xml"
-		}
-		if strings.Contains(lower, "<html") {
-			return "text/html"
-		}
-		return "application/xml"
-	}
-
-	// URL-encoded form: key=value pairs
-	if strings.Contains(trimmed, "=") && !strings.Contains(trimmed, "\n") {
-		// Heuristic: looks like key=value&key2=value2
-		parts := strings.Split(trimmed, "&")
-		if len(parts) > 0 {
-			allKV := true
-			for _, p := range parts {
-				if !strings.Contains(p, "=") {
-					allKV = false
-					break
-				}
-			}
-			if allKV {
-				return "application/x-www-form-urlencoded"
-			}
-		}
-	}
-
-	return ""
-}
-
-// collectSourceFiles walks a directory and returns paths to common source files.
-// The walk is bounded by ctx so that a hung or very large directory tree does not
-// block the caller indefinitely. Symlinks are skipped to avoid cycles.
-func collectSourceFiles(ctx context.Context, dir string) ([]string, error) {
-	sourceExts := map[string]bool{
-		".go": true, ".py": true, ".js": true, ".ts": true, ".jsx": true, ".tsx": true,
-		".java": true, ".rb": true, ".php": true, ".rs": true, ".c": true, ".cpp": true,
-		".cs": true, ".swift": true, ".kt": true, ".scala": true, ".vue": true, ".svelte": true,
-	}
-
-	type walkResult struct {
-		files []string
-		err   error
-	}
-	ch := make(chan walkResult, 1)
-
-	go func() {
-		var files []string
-		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return nil
-			}
-			// Bail out early if the context has been cancelled.
-			select {
-			case <-ctx.Done():
-				return filepath.SkipAll
-			default:
-			}
-			// Skip symlinks to avoid cycles
-			if d.Type()&os.ModeSymlink != 0 {
-				if d.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			// Skip non-source directories (dependencies, build output, etc.)
-			if d.IsDir() {
-				if shouldSkipDir(d.Name()) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			ext := filepath.Ext(d.Name())
-			if sourceExts[ext] && !shouldSkipFile(d.Name()) {
-				files = append(files, path)
-			}
-			return nil
-		})
-		ch <- walkResult{files, err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case result := <-ch:
-		return result.files, result.err
-	}
-}
-
-// detectLanguage guesses the primary language from file extensions.
-func detectLanguage(files []string) string {
-	counts := make(map[string]int)
-	extLang := map[string]string{
-		".go": "Go", ".py": "Python", ".js": "JavaScript", ".ts": "TypeScript",
-		".jsx": "JavaScript", ".tsx": "TypeScript", ".java": "Java", ".rb": "Ruby",
-		".php": "PHP", ".rs": "Rust", ".c": "C", ".cpp": "C++",
-		".cs": "C#", ".swift": "Swift", ".kt": "Kotlin", ".scala": "Scala",
-		".vue": "Vue", ".svelte": "Svelte",
-	}
-	for _, f := range files {
-		ext := filepath.Ext(f)
-		if lang, ok := extLang[ext]; ok {
-			counts[lang]++
-		}
-	}
-	best := ""
-	bestCount := 0
-	for lang, count := range counts {
-		if count > bestCount {
-			best = lang
-			bestCount = count
-		}
-	}
-	return best
 }

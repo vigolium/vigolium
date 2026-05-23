@@ -11,8 +11,6 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent/authsession"
 	"github.com/vigolium/vigolium/pkg/agent/parsing"
-	"github.com/vigolium/vigolium/pkg/olium"
-	oengine "github.com/vigolium/vigolium/pkg/olium/engine"
 	"go.uber.org/zap"
 )
 
@@ -68,36 +66,22 @@ func ClassifyPromptSafety(ctx context.Context, settings *config.Settings, userPr
 	}
 
 	oliumCfg := settings.Agent.Olium
-	prov, _, model, err := olium.ResolveProvider(olium.Options{
-		Provider:            oliumCfg.Provider,
-		OAuthCredPath:       oliumCfg.OAuthCredPath,
-		OAuthToken:          oliumCfg.OAuthToken,
-		LLMAPIKey:           oliumCfg.LLMAPIKey,
-		GoogleCloudProject:  oliumCfg.GoogleCloudProject,
-		GoogleCloudLocation: oliumCfg.GoogleCloudLocation,
-		Model:               oliumCfg.Model,
-		ReasoningEffort:     oliumCfg.ReasoningEffort,
-		CustomBaseURL:       oliumCfg.CustomProvider.BaseURL,
-		CustomModelID:       oliumCfg.CustomProvider.ModelID,
-		CustomAPIKey:        firstNonEmpty(oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
-		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeadersMap(),
+	// One-shot classifier session: custom system prompt, single turn, no tools.
+	// Routed through the AgentRuntime seam so guardrail carries no direct
+	// dependency on the concrete olium engine.
+	sess, err := defaultRuntime.NewSessionWithSpec(&oliumCfg, SessionSpec{
+		System:            guardrailSystemPrompt,
+		MaxTurns:          1,
+		EnablePromptCache: true,
 	})
 	if err != nil {
 		zap.L().Warn("guardrail: provider resolve failed, allowing prompt", zap.Error(err))
 		return GuardrailVerdict{Allowed: true, Reason: "guardrail unavailable: " + err.Error()}
 	}
 
-	eng := oengine.New(oengine.Config{
-		Provider:          prov,
-		Model:             model,
-		System:            guardrailSystemPrompt,
-		MaxTurns:          1,
-		EnablePromptCache: true,
-	})
-
 	callCtx, cancel := context.WithTimeout(ctx, guardrailCallTimeout)
 	defer cancel()
-	out, runErr := runOliumOnEngine(callCtx, &oliumCfg, eng, trimmed, nil)
+	out, runErr := defaultRuntime.RunOnSession(callCtx, &oliumCfg, sess, trimmed, nil, nil, false)
 	if runErr != nil {
 		zap.L().Warn("guardrail: classifier errored, allowing prompt", zap.Error(runErr))
 		return GuardrailVerdict{Allowed: true, Reason: "guardrail errored: " + runErr.Error()}

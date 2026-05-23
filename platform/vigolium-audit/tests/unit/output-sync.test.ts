@@ -76,6 +76,14 @@ describe("assertOutputNotNested", () => {
     expect(() => assertOutputNotNested(`/tmp/x/vigolium-results${sep}out`, "/tmp/x/vigolium-results")).toThrow(/inside the vigolium-results/);
   });
 
+  test("rejects target/project ancestor", () => {
+    expect(() => assertOutputNotNested("/tmp/x", "/tmp/x/vigolium-results")).toThrow(/ancestor of the vigolium-results/);
+  });
+
+  test("rejects filesystem root ancestor", () => {
+    expect(() => assertOutputNotNested(sep, `${sep}tmp${sep}x${sep}vigolium-results`)).toThrow(/ancestor of the vigolium-results/);
+  });
+
   test("allows sibling", () => {
     expect(() => assertOutputNotNested("/tmp/x/out", "/tmp/x/vigolium-results")).not.toThrow();
   });

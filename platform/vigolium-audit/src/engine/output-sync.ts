@@ -1,6 +1,6 @@
 import { cp, mkdir, readdir, rm, stat } from "fs/promises";
 import { existsSync } from "fs";
-import { join, relative, sep } from "path";
+import { isAbsolute, join, relative, sep } from "path";
 
 /**
  * Mirror `srcDir` → `destDir`. Files added/modified in src are copied to
@@ -65,11 +65,22 @@ export function assertOutputNotNested(outputDir: string, srcDir: string): void {
   if (outputDir === srcDir) {
     throw new Error(`--output cannot equal the vigolium-results working dir (${srcDir})`);
   }
-  if (outputDir.startsWith(srcDir + sep)) {
+  if (isSameOrDescendant(outputDir, srcDir)) {
     throw new Error(
       `--output ${outputDir} is inside the vigolium-results working dir (${srcDir}); pass a path outside <target>/vigolium-results/`,
     );
   }
+  if (isSameOrDescendant(srcDir, outputDir)) {
+    throw new Error(
+      `--output ${outputDir} is an ancestor of the vigolium-results working dir (${srcDir}); ` +
+        `mirroring there would delete project files. Pass a separate sibling directory instead.`,
+    );
+  }
+}
+
+function isSameOrDescendant(candidate: string, parent: string): boolean {
+  const rel = relative(parent, candidate);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 /**

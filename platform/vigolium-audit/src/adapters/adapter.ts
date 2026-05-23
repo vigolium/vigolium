@@ -8,7 +8,7 @@ import type { AgentPlatform } from "../engine/types.js";
 export type AdapterEvent =
   | { kind: "textDelta"; text: string }
   | { kind: "toolCall"; id: string; tool: string; input: unknown }
-  | { kind: "toolResult"; id: string; output: unknown; isError: boolean }
+  | { kind: "toolResult"; id: string; output: unknown; isError: boolean; partial?: boolean }
   | { kind: "thinking"; text: string }
   | {
       kind: "session";

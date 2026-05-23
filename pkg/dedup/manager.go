@@ -2,6 +2,8 @@ package dedup
 
 import (
 	"sync"
+
+	"go.uber.org/zap"
 )
 
 // Manager manages DiskSet and RequestHashManager instances.
@@ -28,6 +30,11 @@ func (m *Manager) GetDiskSet(key string) *DiskSet {
 	}
 	ds, err := NewDiskSet(DefaultDiskSetOptions)
 	if err != nil {
+		// Returning nil degrades gracefully — the caller (see Lazy.Get) treats a
+		// nil helper as "dedup disabled for this scan". But a silent disable hides
+		// real problems (disk full, bad temp dir), so surface it once per key.
+		zap.L().Warn("dedup disabled: failed to create DiskSet; deduplication is off for this key",
+			zap.String("key", key), zap.Error(err))
 		return nil
 	}
 	m.diskSets[key] = ds
@@ -48,6 +55,10 @@ func (m *Manager) GetRequestHashManager(key string, option Option) *RequestHashM
 	}
 	md, err := newRequestHashManager(option)
 	if err != nil {
+		// As with GetDiskSet, nil means "dedup disabled for this scan"; log so the
+		// silent degradation is visible rather than swallowed.
+		zap.L().Warn("dedup disabled: failed to create RequestHashManager; request dedup is off for this key",
+			zap.String("key", key), zap.Error(err))
 		return nil
 	}
 	m.requestHashManagerData[key] = md

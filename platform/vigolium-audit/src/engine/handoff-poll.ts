@@ -23,12 +23,14 @@ export function startHandoffPoller(args: {
   bus: OrchestratorBus;
   /** Audit IDs that already existed before the handoff started. New audits are reported. */
   knownAuditIds: Set<string>;
+  /** Existing audit IDs intentionally being resumed; treat them as ours. */
+  trackedAuditIds?: Set<string>;
   /** Provisional id used by the driver until the real audit-state record appears. */
   provisionalAuditId: string;
   /** Optional override; default 1500 ms is fast enough to feel live without thrashing disk. */
   intervalMs?: number;
 }): () => void {
-  const { resultsDir, bus, knownAuditIds, provisionalAuditId } = args;
+  const { resultsDir, bus, knownAuditIds, trackedAuditIds, provisionalAuditId } = args;
   const intervalMs = args.intervalMs ?? 1500;
   const store = new StateStore(resultsDir);
 
@@ -54,7 +56,7 @@ export function startHandoffPoller(args: {
       return;
     }
     for (const audit of state.audits) {
-      const isOurs = !knownAuditIds.has(audit.audit_id);
+      const isOurs = trackedAuditIds?.has(audit.audit_id) === true || !knownAuditIds.has(audit.audit_id);
       if (!isOurs) continue;
       let perPhase = seen.get(audit.audit_id);
       if (!perPhase) {
@@ -110,11 +112,22 @@ export function startHandoffPoller(args: {
     }
   };
 
-  // Use setInterval but coalesce ticks so a slow disk doesn't queue overlapping ones.
+  // Use setInterval but coalesce ticks so a slow disk doesn't queue overlapping
+  // ones. Bound each tick with a timeout: on a slow/stuck filesystem the
+  // in-flight slot frees after TICK_TIMEOUT_MS so the next interval can retry
+  // instead of the live view appearing frozen for the whole audit.
+  const TICK_TIMEOUT_MS = Math.max(intervalMs * 4, 5000);
   let inFlight: Promise<void> | null = null;
   const timer = setInterval(() => {
     if (inFlight) return;
-    inFlight = tick().finally(() => { inFlight = null; });
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((r) => {
+      timeoutHandle = setTimeout(r, TICK_TIMEOUT_MS);
+    });
+    inFlight = Promise.race([tick(), timeout]).finally(() => {
+      clearTimeout(timeoutHandle);
+      inFlight = null;
+    });
   }, intervalMs);
 
   // Reference the provisional id to silence the lint warning on a parameter

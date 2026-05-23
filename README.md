@@ -17,7 +17,7 @@
 
 Vigolium provides two complementary scanning modes:
 
-- **Native Scan** (`vigolium scan`) — **Fast, powerful, and flexible.** Deterministic, multi-phase scanning with 235 modules across content discovery, browser/SPA spidering, and active/passive audit — covering injection, access control, file/path, API/protocol, framework-specific, cloud/infra, and out-of-band (OAST) vulnerability classes.
+- **Native Scan** (`vigolium scan`) — **Fast, powerful, and flexible.** Deterministic, multi-phase scanning with 251 modules across content discovery, browser/SPA spidering, and active/passive audit — covering injection, access control, file/path, API/protocol, framework-specific, cloud/infra, and out-of-band (OAST) vulnerability classes.
 
 - **Agentic Scan** (`vigolium agent`) — **Thoroughly audits your codebase.** AI-driven scanning that autonomously plans attacks, selects modules, generates custom extensions, and triages results — combining deep source-code audit with autonomous and targeted vulnerability scanning.
 
@@ -212,7 +212,7 @@ The native scan pipeline is composed of modular layers, each documented separate
 | **Content Discovery (Deparos)** | Adaptive directory/file enumeration with fingerprint-based soft-404 detection | [docs.vigolium.com/native-scan/phases/discovery](https://docs.vigolium.com/native-scan/phases/discovery) |
 | **Browser Spider (Spitolas)** | Chromium-driven state-machine crawler with CDP traffic capture | [docs.vigolium.com/native-scan/phases/spidering](https://docs.vigolium.com/native-scan/phases/spidering) |
 | **Audit** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs.vigolium.com/native-scan/phases/audit](https://docs.vigolium.com/native-scan/phases/audit) |
-| **Scanner Modules** | 144 active and 91 passive modules covering OWASP Top 10 and beyond | [docs.vigolium.com/native-scan/modules-reference](https://docs.vigolium.com/native-scan/modules-reference) |
+| **Scanner Modules** | 154 active and 97 passive modules covering OWASP Top 10 and beyond | [docs.vigolium.com/native-scan/modules-reference](https://docs.vigolium.com/native-scan/modules-reference) |
 
 ## Documentation
 

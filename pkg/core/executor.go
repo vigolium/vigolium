@@ -115,37 +115,38 @@ type OASTFlusher interface {
 
 // ExecutorConfig configures the Executor behavior.
 type ExecutorConfig struct {
-	Workers              int
-	OnResult             func(*output.ResultEvent)
-	OnTraffic            func(method, url string, statusCode int, contentType string) // Optional: called for each processed item
-	Services             *services.Services
-	HTTPRequester        *http.Requester
-	Repository           *database.Repository   // Optional: database storage
-	RecordWriter         *database.RecordWriter // Optional: batched record writer (preferred over Repository.SaveRecord)
-	ScanUUID             string
-	ProjectUUID          string                                                                                                    // Optional: scan session UUID
-	Hooks                HookRunner                                                                                                // Optional: pre/post hooks
-	ScopeMatcher         *config.ScopeMatcher                                                                                      // Optional: scope filtering
-	ScopeOnIngest        bool                                                                                                      // When true, skip both save and scan for out-of-scope items
-	StaticFileMatcher    *config.ScopeMatcher                                                                                      // Optional: always-on static file filtering (independent of ScopeMatcher)
-	SkipBaseline         bool                                                                                                      // When true, skip HTTP fetch if response already attached (Phase 3 DB source)
-	OASTProvider         modkit.OASTProvider                                                                                       // Optional: OAST callback URL generator for blind vuln detection
-	OASTService          OASTFlusher                                                                                               // Optional: OAST service to flush after scanning
-	PauseCtrl            *PauseController                                                                                          // Optional: cooperative pause/resume controller
-	MaxFindingsPerModule int                                                                                                       // When > 0, suppress findings after this many per module
-	MaxDuration          time.Duration                                                                                             // When > 0, cancel execution after this duration
-	FeedbackDrainTimeout time.Duration                                                                                             // Idle timeout for draining feedback after source EOF (default: 100ms)
-	IPCacheSize          int                                                                                                       // LRU cache size for parsed insertion points (default: 4096)
-	IPCache              *lru.Cache[string, []httpmsg.InsertionPoint]                                                              // Optional: shared IP cache (if nil, a new one is created)
-	ParallelPassive      bool                                                                                                      // When true, run passive per-request modules concurrently
-	PassiveModuleTimeout time.Duration                                                                                             // Timeout per passive module call (default: 5s). 0 uses default.
-	ActiveModuleTimeout  time.Duration                                                                                             // Timeout per active module call (default: 90s). 0 uses default. Modules may raise via TimeoutHinter.
-	AdaptiveWorkers      bool                                                                                                      // When true, dynamically scale worker count based on queue depth
-	MinWorkers           int                                                                                                       // Floor for adaptive scaling (default: 2)
-	MaxWorkers           int                                                                                                       // Ceiling for adaptive scaling (default: Workers*4)
-	ActiveTaskLimit      int                                                                                                       // Max concurrent active module tasks across host/request/IP scopes
-	OnStatus             func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) // Optional: periodic status callback
-	StatusInterval       time.Duration                                                                                             // Interval for OnStatus callback (default: 30s)
+	Workers               int
+	OnResult              func(*output.ResultEvent)
+	OnTraffic             func(method, url string, statusCode int, contentType string) // Optional: called for each processed item
+	Services              *services.Services
+	HTTPRequester         *http.Requester
+	Repository            *database.Repository   // Optional: database storage
+	RecordWriter          *database.RecordWriter // Optional: batched record writer (preferred over Repository.SaveRecord)
+	ScanUUID              string
+	ProjectUUID           string                                                                                                    // Optional: scan session UUID
+	Hooks                 HookRunner                                                                                                // Optional: pre/post hooks
+	ScopeMatcher          *config.ScopeMatcher                                                                                      // Optional: scope filtering
+	ScopeOnIngest         bool                                                                                                      // When true, skip both save and scan for out-of-scope items
+	StaticFileMatcher     *config.ScopeMatcher                                                                                      // Optional: always-on static file filtering (independent of ScopeMatcher)
+	SkipBaseline          bool                                                                                                      // When true, skip HTTP fetch if response already attached (Phase 3 DB source)
+	OASTProvider          modkit.OASTProvider                                                                                       // Optional: OAST callback URL generator for blind vuln detection
+	OASTService           OASTFlusher                                                                                               // Optional: OAST service to flush after scanning
+	PauseCtrl             *PauseController                                                                                          // Optional: cooperative pause/resume controller
+	MaxFindingsPerModule  int                                                                                                       // When > 0, suppress findings after this many per module
+	MaxDuration           time.Duration                                                                                             // When > 0, cancel execution after this duration
+	FeedbackDrainTimeout  time.Duration                                                                                             // Idle timeout for draining feedback after source EOF (default: 100ms)
+	FeedbackDrainMaxStall time.Duration                                                                                             // Hard cap on draining with workers in-flight but making no progress (0 = 2x active module timeout). Guards against a module that ignores cancellation.
+	IPCacheSize           int                                                                                                       // LRU cache size for parsed insertion points (default: 4096)
+	IPCache               *lru.Cache[string, []httpmsg.InsertionPoint]                                                              // Optional: shared IP cache (if nil, a new one is created)
+	ParallelPassive       bool                                                                                                      // When true, run passive per-request modules concurrently
+	PassiveModuleTimeout  time.Duration                                                                                             // Timeout per passive module call (default: 5s). 0 uses default.
+	ActiveModuleTimeout   time.Duration                                                                                             // Timeout per active module call (default: 90s). 0 uses default. Modules may raise via TimeoutHinter.
+	AdaptiveWorkers       bool                                                                                                      // When true, dynamically scale worker count based on queue depth
+	MinWorkers            int                                                                                                       // Floor for adaptive scaling (default: 2)
+	MaxWorkers            int                                                                                                       // Ceiling for adaptive scaling (default: Workers*4)
+	ActiveTaskLimit       int                                                                                                       // Max concurrent active module tasks across host/request/IP scopes
+	OnStatus              func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) // Optional: periodic status callback
+	StatusInterval        time.Duration                                                                                             // Interval for OnStatus callback (default: 30s)
 	// FirstStatusInterval, when > 0 and shorter than StatusInterval, fires the
 	// very first status tick after this duration instead of waiting a full
 	// StatusInterval. Useful for long-cadence status (e.g., 2m) where users
@@ -533,7 +534,16 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 	drainTick := time.NewTicker(50 * time.Millisecond)
 	defer drainTick.Stop()
 	idleTimeout := e.cfg.FeedbackDrainTimeout
+	// stallTimeout bounds the drain when workers stay in-flight but make no
+	// forward progress. The idle branch below only fires once inFlight hits 0, so
+	// a module that ignores cancellation would otherwise pin inFlight > 0 and hang
+	// the drain forever. lastProgress is reset whenever a feedback item arrives or
+	// an in-flight item completes (inFlight decreases), so a healthy long-running
+	// drain is never truncated — only a genuine no-progress stall trips the cap.
+	stallTimeout := e.feedbackDrainMaxStall()
 	var idleSince time.Time
+	lastProgress := time.Now()
+	prevInFlight := e.inFlight.Load()
 drainLoop:
 	for {
 		select {
@@ -541,12 +551,25 @@ drainLoop:
 			break drainLoop
 		case fb := <-e.feedbackCh:
 			idleSince = time.Time{}
+			lastProgress = time.Now()
 			if !e.sendItem(ctx, fb, itemCh) {
 				break drainLoop
 			}
 		case <-drainTick.C:
-			if e.inFlight.Load() != 0 || len(e.feedbackCh) != 0 {
+			cur := e.inFlight.Load()
+			if cur < prevInFlight {
+				lastProgress = time.Now() // a worker completed an item
+			}
+			prevInFlight = cur
+			if cur != 0 || len(e.feedbackCh) != 0 {
 				idleSince = time.Time{}
+				if stallTimeout > 0 && time.Since(lastProgress) >= stallTimeout {
+					zap.L().Warn("feedback drain abandoned: workers still in flight but no progress within stall timeout (a module may be ignoring cancellation)",
+						zap.Int64("in_flight", cur),
+						zap.Int("feedback_queued", len(e.feedbackCh)),
+						zap.Duration("stall_timeout", stallTimeout))
+					break drainLoop
+				}
 				continue
 			}
 			if idleTimeout <= 0 {
@@ -568,34 +591,82 @@ drainLoop:
 	}
 
 	close(itemCh)
-	wg.Wait()
 
-	// Flush passive modules that buffer data (e.g., anomaly ranking)
-	for _, pm := range e.passiveModules {
-		if flusher, ok := pm.(modules.Flusher); ok {
-			flusher.Flush(e.scanCtx)
+	// Bound the wait for workers to exit. Healthy workers return immediately once
+	// itemCh is closed; only a worker stuck in a code path that ignores
+	// cancellation lingers. Without a bound, that single worker would hang Wait()
+	// — and the whole scan — forever (the drain stall cap above only breaks the
+	// drain loop; this is where an unresponsive worker would otherwise re-block).
+	// We run Wait() in a goroutine and forward any captured panic so conc's
+	// re-panic semantics are preserved on the normal path; on timeout we log
+	// loudly and proceed, leaking the stuck goroutine rather than hanging.
+	waitDone := make(chan struct{})
+	var waitPanic atomic.Value
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Never silently swallow a worker panic. Log it here so it stays
+				// visible even when the main goroutine has already abandoned the
+				// wait (the timeout branch below never reads waitPanic); also stash
+				// it so the normal path re-raises it with conc's semantics.
+				zap.L().Error("recovered panic while waiting for scan workers to exit",
+					zap.Any("panic", r))
+				waitPanic.Store(r)
+			}
+			close(waitDone)
+		}()
+		wg.Wait()
+	}()
+	maxStall := e.feedbackDrainMaxStall()
+	workersExited := true
+	select {
+	case <-waitDone:
+		if r := waitPanic.Load(); r != nil {
+			panic(r)
 		}
+	case <-time.After(maxStall):
+		workersExited = false
+		zap.L().Warn("abandoning scan worker(s) that did not exit within the stall timeout to avoid hanging the scan; leaking goroutine(s)",
+			zap.Int64("in_flight", e.inFlight.Load()),
+			zap.Duration("stall_timeout", maxStall))
 	}
 
-	// Flush batch passive modules that produce deferred findings (e.g., secret detection)
-	for _, pm := range e.passiveModules {
-		if bf, ok := pm.(modules.BatchFlusher); ok {
-			results, err := bf.FlushFindings(e.scanCtx)
-			if err != nil {
-				zap.L().Warn("BatchFlusher error",
-					zap.String("module", pm.ID()),
-					zap.Error(err))
-				continue
-			}
-			for _, r := range results {
-				if !e.moduleFindingAllowed(pm.ID()) {
-					continue
-				}
-				r.ModuleType = database.ModuleTypePassive
-				r.FindingSource = database.FindingSourceDynamicAssessment
-				e.emitResult(ctx, r)
+	// Passive-module flush must only run once every worker has exited. Flusher /
+	// BatchFlusher modules aggregate cross-request state that a worker mutates
+	// from ScanPerRequest; if we abandoned a still-running worker above, flushing
+	// here would race that worker on the module's buffer and the result pipeline.
+	// In that (pathological, already-degraded) case we skip the flush rather than
+	// risk corrupted findings — deferred findings may be incomplete.
+	if workersExited {
+		// Flush passive modules that buffer data (e.g., anomaly ranking)
+		for _, pm := range e.passiveModules {
+			if flusher, ok := pm.(modules.Flusher); ok {
+				flusher.Flush(e.scanCtx)
 			}
 		}
+
+		// Flush batch passive modules that produce deferred findings (e.g., secret detection)
+		for _, pm := range e.passiveModules {
+			if bf, ok := pm.(modules.BatchFlusher); ok {
+				results, err := bf.FlushFindings(e.scanCtx)
+				if err != nil {
+					zap.L().Warn("BatchFlusher error",
+						zap.String("module", pm.ID()),
+						zap.Error(err))
+					continue
+				}
+				for _, r := range results {
+					if !e.moduleFindingAllowed(pm.ID()) {
+						continue
+					}
+					r.ModuleType = database.ModuleTypePassive
+					r.FindingSource = database.FindingSourceDynamicAssessment
+					e.emitResult(ctx, r)
+				}
+			}
+		}
+	} else {
+		zap.L().Warn("skipping passive-module flush after abandoning workers; deferred findings (e.g. secret detection, anomaly ranking) may be incomplete")
 	}
 
 	// Flush OAST service: wait for grace period to catch late callbacks
@@ -1058,6 +1129,49 @@ func (e *Executor) activeModuleTimeout() time.Duration {
 		return e.cfg.ActiveModuleTimeout
 	}
 	return defaultActiveModuleTimeout
+}
+
+// maxModuleTimeout returns the longest a single module call can legitimately
+// run: the larger of the base active/passive timeouts and the largest
+// TimeoutHint any registered module advertises (both scan wrappers raise their
+// per-call timeout to the hint via modules.TimeoutHinter). The drain stall cap
+// is derived from this so a legitimately slow module — e.g. diffscan timing
+// analysis that raises its bound past the base timeout — running during the
+// post-EOF drain is not mistaken for a wedged worker.
+func (e *Executor) maxModuleTimeout() time.Duration {
+	maxT := e.activeModuleTimeout()
+	if pt := e.passiveModuleTimeout(); pt > maxT {
+		maxT = pt
+	}
+	consider := func(m modules.Module) {
+		if hinter, ok := m.(modules.TimeoutHinter); ok {
+			if hint := hinter.TimeoutHint(); hint > maxT {
+				maxT = hint
+			}
+		}
+	}
+	for _, m := range e.activeModules {
+		consider(m)
+	}
+	for _, m := range e.passiveModules {
+		consider(m)
+	}
+	return maxT
+}
+
+// feedbackDrainMaxStall returns the hard cap on how long the post-EOF feedback
+// drain will wait while workers are still in flight but making no forward
+// progress. The idle-detection branch in the drain loop only fires once
+// inFlight reaches 0, so without this bound a module that ignores context
+// cancellation (and never returns) would hang the drain — and the whole scan —
+// indefinitely. Defaults to twice the longest legitimate module call
+// (maxModuleTimeout, which includes per-module TimeoutHints) so a slow-but-not-
+// wedged module isn't abandoned, while a truly stuck worker still trips the cap.
+func (e *Executor) feedbackDrainMaxStall() time.Duration {
+	if e.cfg.FeedbackDrainMaxStall > 0 {
+		return e.cfg.FeedbackDrainMaxStall
+	}
+	return 2 * e.maxModuleTimeout()
 }
 
 // runPassiveWithTimeout executes a passive module scan function with a timeout guard.

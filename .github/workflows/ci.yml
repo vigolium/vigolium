@@ -62,6 +62,43 @@ jobs:
       - name: Enforce coverage floor
         run: make coverage-gate
 
+  coverage-report:
+    name: Combined coverage (report only)
+    runs-on: ubuntu-latest
+    # Report-only: this never gates a merge. The enforced floor lives in the
+    # build-and-test job above (coverage-gate over the -short unit profile).
+    # This job folds in the no-Docker e2e tier so the headline number reflects
+    # code exercised end-to-end (REST handlers, scan-runner orchestration) that
+    # per-package unit coverage can't credit. No Docker required.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build embedded jsscan binaries
+        run: make ensure-jsscan
+
+      - name: Combined coverage report
+        run: make coverage-combined
+
+      - name: Upload combined coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-combined
+          path: |
+            coverage-combined.html
+            coverage-combined.out
+          if-no-files-found: ignore
+
   govulncheck:
     name: Vulnerability scan
     runs-on: ubuntu-latest

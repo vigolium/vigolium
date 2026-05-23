@@ -186,8 +186,13 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}, retryOpts)
 
-	// Raw HTTP clients
-	rawOpts := rawhttp.DefaultOptions
+	// Raw HTTP clients. rawhttp.DefaultOptions is a shared package-level
+	// *Options; copy it by value so per-requester tuning stays local. The old
+	// `rawOpts := rawhttp.DefaultOptions` aliased the global pointer, so every
+	// field write below mutated the shared default — racing when requesters were
+	// constructed concurrently, and leaking the no-redirect tuning back onto the
+	// redirect client (both pointed at the same struct).
+	rawOpts := *rawhttp.DefaultOptions
 	rawOpts.Timeout = timeout
 	if proxyURL := getProxyURL(options.ProxyURL); proxyURL != "" {
 		rawOpts.Proxy = proxyURL
@@ -196,12 +201,12 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 	}
 	rawOpts.FollowRedirects = true
 	rawOpts.MaxRedirects = maxRedir
-	rawClient := rawhttp.NewClient(rawOpts)
+	rawClient := rawhttp.NewClient(&rawOpts)
 
 	rawOptsNoRedir := rawOpts
 	rawOptsNoRedir.FollowRedirects = false
 	rawOptsNoRedir.MaxRedirects = 0
-	rawClientNoRedir := rawhttp.NewClient(rawOptsNoRedir)
+	rawClientNoRedir := rawhttp.NewClient(&rawOptsNoRedir)
 
 	r := &Requester{
 		client:           client,

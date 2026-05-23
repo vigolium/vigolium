@@ -1,0 +1,20 @@
+name: CI
+
+# Manual-only: trigger from the Actions tab or `gh workflow run ci.yml`.
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run lint:eslint
+      - run: bun test --coverage
+      - run: VIGOLIUM_AUDIT_BUILD_NO_INSTALL=1 bun run build

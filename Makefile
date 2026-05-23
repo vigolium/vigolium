@@ -1,4 +1,4 @@
-.PHONY: build build-embedded build-all build-ingestor snapshot release public public-release prepare-public-scripts clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
+.PHONY: build build-embedded build-all build-ingestor snapshot release public public-release prepare-public-scripts clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
 
 # Go parameters
 GOCMD=go
@@ -24,7 +24,13 @@ GOLIST_EXCLUDE=/pkg/spitolas/rod|/platform/|/node_modules/
 # test-ci and test-coverage-check). A regression tripwire held at/just below the
 # current baseline; ratchet it upward as coverage improves.
 # Override on the CLI: `make test-coverage-check COVERAGE_MIN=35`.
-COVERAGE_MIN ?= 41
+COVERAGE_MIN ?= 45
+
+# Test selector for the no-Docker e2e leg of `coverage-combined`. These tiers
+# (server/agent REST handlers + the hermetic scan-runner orchestration tests)
+# run without Docker, so they're safe to fold into a CI-friendly report.
+# Override to widen/narrow the e2e contribution.
+COVERAGE_E2E_RUN ?= TestAPI_|TestAgentAPI_|TestScanRunnerHermetic
 
 # Console output prefix (cyan color)
 PREFIX=\033[36m[*]\033[0m
@@ -393,6 +399,43 @@ test-coverage-check: install-gotestsum ensure-jsscan
 	@echo "$(PREFIX) Checking coverage floor ($(COVERAGE_MIN)%)..."
 	@$(GOCMD) test -short -coverprofile=coverage.out $$($(GOCMD) list ./... | grep -Ev '$(GOLIST_EXCLUDE)') > /dev/null
 	@$(MAKE) --no-print-directory coverage-gate
+
+# coverage-combined produces a REPORT-ONLY combined coverage number — it is NOT
+# enforced (the COVERAGE_MIN tripwire stays on the fast -short unit profile via
+# `coverage-gate`). It folds the unit slice together with the no-Docker e2e tier
+# so the headline reflects code exercised end-to-end (REST handlers, the
+# scan-runner orchestration in internal/runner) that per-package unit coverage
+# can't credit. No Docker required.
+#
+# The unit leg uses normal per-package coverage (the same fast profile the gate
+# uses). ONLY the e2e leg uses -coverpkg, so it records a 0/1 block for EVERY
+# in-scope package — that profile defines the full statement universe. covmerge
+# folds the two by max-per-block (a logical OR for `set` mode), so a statement
+# covered by either leg counts. The two printed numbers use DIFFERENT
+# denominators: per-package unit is over packages-with-tests; whole-tree combined
+# is over every package (the e2e leg's untested-package blocks are in the base).
+# `set -e` makes any failing leg or merge abort the target (no silent stale report).
+coverage-combined: install-gotestsum ensure-jsscan
+	@echo "$(PREFIX) Combined coverage (unit + no-Docker e2e; report only, not gated)..."
+	@set -e; \
+	pkgs=$$($(GOCMD) list ./... | grep -Ev '$(GOLIST_EXCLUDE)'); \
+	cpkg=$$(echo "$$pkgs" | paste -sd, -); \
+	echo "$(PREFIX)   unit leg (per-package -short)..."; \
+	$(GOCMD) test -short -coverprofile=coverage-unit.out $$pkgs > /dev/null; \
+	echo "$(PREFIX)   no-Docker e2e leg (-coverpkg across the tree)..."; \
+	errlog=$$(mktemp); \
+	if ! $(GOCMD) test -tags=e2e -coverpkg="$$cpkg" -coverprofile=coverage-e2e.out -run '$(COVERAGE_E2E_RUN)' ./test/e2e/ >/dev/null 2>"$$errlog"; then \
+		grep -v 'no packages being tested depend on matches for pattern' "$$errlog" >&2 || true; \
+		rm -f "$$errlog"; \
+		echo "$(PREFIX) e2e coverage leg FAILED (see above)" >&2; exit 1; \
+	fi; \
+	rm -f "$$errlog"; \
+	$(GOCMD) run ./test/tools/covmerge -o coverage-combined.out coverage-unit.out coverage-e2e.out; \
+	$(GOCMD) tool cover -html=coverage-combined.out -o coverage-combined.html; \
+	unit=$$($(GOCMD) tool cover -func=coverage-unit.out | awk 'END{gsub(/%/,"",$$NF); print $$NF}'); \
+	total=$$($(GOCMD) tool cover -func=coverage-combined.out | awk 'END{gsub(/%/,"",$$NF); print $$NF}'); \
+	printf "$(PREFIX) coverage: %s%% per-package unit  |  %s%% whole-tree unit+e2e (report only, not gated)\n" "$$unit" "$$total"; \
+	echo "$(PREFIX) HTML report → coverage-combined.html"
 
 # --- SSH Testbed ---
 SSH_TESTBED_DIR=test/ssh-testbed
@@ -971,7 +1014,7 @@ npm-publish: npm-build
 clean:
 	@echo "$(PREFIX) Cleaning build artifacts..."
 	rm -rf $(BINARY_DIR)/
-	rm -f coverage.out coverage.html test-results.xml
+	rm -f coverage.out coverage.html test-results.xml coverage-unit.out coverage-e2e.out coverage-combined.out coverage-combined.html
 
 # Install to GOPATH/bin
 install: build
@@ -1101,6 +1144,7 @@ help:
 	@echo "    make test-agent-benchmark-e2e  Run agent E2E benchmarks (Docker required)"
 	@echo "    make benchmark-agent-generate  Generate agent fixtures (real LLM, expensive)"
 	@echo "    make test-coverage    Run tests with coverage report"
+	@echo "    make coverage-combined  Combined unit + no-Docker e2e coverage (report only, not gated)"
 	@echo "    make test-coverage-check  Enforce the COVERAGE_MIN coverage floor (default $(COVERAGE_MIN)%)"
 	@echo "    make test-ci          Run tests with JUnit XML output"
 	@echo ""

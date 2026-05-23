@@ -12,7 +12,8 @@ import { join } from "path";
  * regardless of whether `AskUserQuestion` is available. When the mode spec's
  * Pre-Flight Check would normally ask via `AskUserQuestion`, the default is
  * "Start fresh" — re-invocation signals the user wants a fresh run, not a
- * resume. Resume is opt-in via the explicit `--resume` flag.
+ * resume. Resume is opt-in via the explicit `--resume` flag; when that flag is
+ * present, writeAuditContext uses RESUME_CONFIRM_SECTION instead.
  */
 export const AUTO_CONFIRM_SECTION =
   `## Auto-Confirm Default — Invocation Is Authorization\n\n` +
@@ -46,7 +47,25 @@ export const AUTO_CONFIRM_SECTION =
   `- Only stop if a hard precondition genuinely cannot be satisfied (e.g. target directory ` +
   `unreadable) — in that case fail loudly with an explicit error rather than waiting for input.`;
 
+export const RESUME_CONFIRM_SECTION =
+  `## Auto-Confirm Default — Explicit Resume Requested\n\n` +
+  `The user invoked this run through \`vigolium-audit resume\` or \`vigolium-audit run --resume\`. ` +
+  `That invocation IS the authorization to continue the existing non-complete audit. Do not seek further ` +
+  `confirmation under any guise — whether or not \`AskUserQuestion\` is available.\n\n` +
+  `**Required defaults when the spec's Pre-Flight Check would normally ask via \`AskUserQuestion\`:**\n` +
+  `- Existing \`vigolium-results/audit-state.json\` (in-progress, failed, or aborted): pick **"Resume from last checkpoint"**. ` +
+  `Do NOT start fresh, do NOT delete \`audit-state.json\`, and do NOT wipe durable findings or attack-surface outputs.\n` +
+  `- Reset only stale \`in_progress\` phase markers that need to be retried, preserving completed phase outputs.\n` +
+  `- Any other resume-vs-fresh / scope-confirmation / model-attribution choice: pick the option that **continues the existing audit**.\n\n` +
+  `**Forbidden behaviors (zero tolerance):**\n` +
+  `- Do NOT emit a freelance text-based confirmation prompt — no "Should I proceed?", no numbered choices, no pause for confirmation.\n` +
+  `- Do NOT propose alternative modes or downshift.\n` +
+  `- Do NOT create or check out branches, commit, push, or mutate git state. Stay on the current branch and write under \`vigolium-results/\`.\n\n` +
+  `Only stop if a hard precondition genuinely cannot be satisfied; fail loudly with an explicit error rather than waiting for input.`;
+
 export interface AuditContextPayload {
+  /** True when launched by `vigolium-audit resume` / `run --resume`. */
+  resume?: boolean;
   /** Records `triggered_via` on the audit record (e.g. "refresh→deep"). */
   triggeredVia?: string;
   /** Phase IDs the orchestrator wants the agents to skip. */
@@ -68,7 +87,10 @@ export async function writeAuditContext(
   payload: AuditContextPayload,
 ): Promise<void> {
   await mkdir(resultsDir, { recursive: true });
-  const sections: string[] = [AUTO_CONFIRM_SECTION];
+  const sections: string[] = [payload.resume ? RESUME_CONFIRM_SECTION : AUTO_CONFIRM_SECTION];
+  if (payload.resume) {
+    sections.push(`## Resume Requested\n\nContinue the latest non-complete audit for this mode. Preserve the existing audit ID and completed phase state.`);
+  }
   if (payload.triggeredVia) {
     sections.push(`## Triggered Via\n\n${payload.triggeredVia}`);
   }

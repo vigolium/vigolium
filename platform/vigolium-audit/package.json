@@ -1,6 +1,7 @@
 {
   "name": "@vigolium/vigolium-audit",
-  "version": "0.1.7-alpha",
+  "version": "0.1.8-alpha",
+  "private": true,
   "description": "vigolium-audit — autonomous agent that performs thorough security audits on your codebase, part of Vigolium",
   "keywords": [
     "vigolium",
@@ -37,7 +38,10 @@
     "npm-publish": "bun run scripts/npm-publish.ts",
     "npm-publish:dry": "VIGOLIUM_AUDIT_NPM_DRY_RUN=1 bun run scripts/npm-publish.ts",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
+    "lint:eslint": "eslint .",
+    "preflight": "bun run typecheck && bun run lint && bun run lint:eslint && bun test && VIGOLIUM_AUDIT_BUILD_NO_INSTALL=1 bun run build"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.138",
@@ -49,7 +53,9 @@
   },
   "devDependencies": {
     "@types/bun": "^1.3.13",
-    "typescript": "^5.9.3"
+    "eslint": "^10.4.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.4"
   },
   "engines": {
     "bun": ">=1.3.0"

@@ -30,18 +30,53 @@ export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Suffix marking a staging file written by `atomicWrite`. */
+const TMP_SUFFIX = ".tmp-vigolium";
+
 /**
- * Atomic write: stage to `<path>.tmp.<pid>` then rename. Survives a crash
- * mid-write — partial files never appear at the final path. Caller is
- * responsible for ensuring the directory exists.
+ * Atomic write: stage to `<path><TMP_SUFFIX>.<pid>.<uuid>` then rename. The
+ * rename is atomic, so a partial file never appears at the final path even if
+ * the process crashes mid-write. The pid+uuid suffix keeps two concurrent
+ * writers (or a recycled pid) from clobbering each other's staging file. A
+ * crash *between* write and rename leaves the staging file behind;
+ * `sweepStaleTempFiles` cleans those up. Caller need not pre-create the dir.
  */
 export async function atomicWrite(path: string, contents: string): Promise<void> {
-  const { writeFile, rename, mkdir } = await import("fs/promises");
+  const { writeFile, rename, mkdir, unlink } = await import("fs/promises");
   const { dirname } = await import("path");
+  const { randomUUID } = await import("crypto");
   await mkdir(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp.${process.pid}`;
-  await writeFile(tmp, contents, "utf8");
-  await rename(tmp, path);
+  const tmp = `${path}${TMP_SUFFIX}.${process.pid}.${randomUUID()}`;
+  try {
+    await writeFile(tmp, contents, "utf8");
+    await rename(tmp, path);
+  } catch (err) {
+    // Don't leak the staging file if the rename (or write) failed partway.
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
+}
+
+/**
+ * Remove staging files left behind in `dir` by a crash mid-`atomicWrite`.
+ * Best-effort and non-throwing: a missing dir or unreadable entry is ignored.
+ * Called once when a results dir is opened so orphaned `*.tmp-vigolium.*`
+ * files don't accumulate across interrupted runs.
+ */
+export async function sweepStaleTempFiles(dir: string): Promise<void> {
+  const { readdir, unlink } = await import("fs/promises");
+  const { join } = await import("path");
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return;
+  }
+  await Promise.all(
+    entries
+      .filter((name) => name.includes(TMP_SUFFIX))
+      .map((name) => unlink(join(dir, name)).catch(() => {})),
+  );
 }
 
 /**

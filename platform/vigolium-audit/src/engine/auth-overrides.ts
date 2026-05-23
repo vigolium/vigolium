@@ -1,6 +1,6 @@
-import { copyFileSync, existsSync, realpathSync, renameSync, unlinkSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, realpathSync, renameSync, unlinkSync } from "fs";
 import { homedir } from "os";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { platformApiKeyEnv } from "../adapters/detect.js";
 import type { AgentPlatform } from "./types.js";
 
@@ -144,6 +144,7 @@ export function applyAuthOverrides(opts: AuthOverrideOpts): AuthOverrideHandle {
     // "no prior file" — backupPath stays null and we just write the override.
     let backupPath: string | null = null;
     try {
+      mkdirSync(dirname(target), { recursive: true });
       renameSync(target, backup);
       backupPath = backup;
     } catch (err) {

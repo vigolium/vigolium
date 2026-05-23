@@ -1,0 +1,22 @@
+# Root package is private; published artifacts are staged by scripts/npm-publish.ts.
+# Keep accidental root npm packs small and deterministic.
+.github/
+build/
+dist/
+node_modules/
+coverage/
+vigolium-results/
+vigolium-results-*/
+
+# Generated local build inputs/outputs
+src/content-bundle.json
+src/content/sdk-variants/
+
+# Tests and transient artifacts are not needed in a root tarball.
+tests/
+*.log
+.env
+.env.*
+.DS_Store
+__pycache__/
+*.pyc

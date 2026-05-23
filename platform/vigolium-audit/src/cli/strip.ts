@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "fs";
 import { resolve, basename, join } from "path";
 import chalk from "chalk";
-import { stripRawArtifacts } from "../engine/orchestrator.js";
+import { stripRawArtifacts } from "../engine/strip-artifacts.js";
 
 export interface StripOptions {
   json?: boolean;

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { stripRawArtifacts } from "../../src/engine/orchestrator.js";
+import { stripRawArtifacts } from "../../src/engine/strip-artifacts.js";
 
 function seedResultsDir(): { target: string; resultsDir: string } {
   const target = mkdtempSync(join(tmpdir(), "vigolium-audit-strip-unit-"));

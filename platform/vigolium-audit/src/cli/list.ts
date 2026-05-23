@@ -2,7 +2,7 @@ import chalk from "chalk";
 import { resolve, join } from "path";
 import { getContentLoader } from "../content-loader.js";
 import { StateStore } from "../engine/state.js";
-import { formatDuration } from "./run.js";
+import { formatDuration } from "./run-render.js";
 import type { AuditRecord, CommandDef } from "../engine/types.js";
 
 interface ListOptions {

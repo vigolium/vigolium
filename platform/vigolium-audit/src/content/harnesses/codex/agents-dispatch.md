@@ -189,7 +189,7 @@ If `vigolium-results/audit-state.json` exists, ask the user before proceeding:
 2. **Do NOT switch branches.** Stay on the current branch. Do NOT run `git checkout`, `git switch`, `git branch`, `git commit`, `git add`, or `git push` against the target repo at any point. The audit writes everything under `vigolium-results/` (untracked) — the user controls staging and commits.
 3. If `VIGOLIUM_AUDIT_GIT_AVAILABLE=false`, continue auditing the directory in place. Do NOT initialize a repo just for the audit.
 4. `mkdir -p vigolium-results/`
-5. Initialize `vigolium-results/audit-state.json` — append a new entry with `"mode": "full"`, `"repository": "<org/repo or folder name>"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, `"history_available": <true|false>`, and phases P1, P2, P3, P4, P6, P7, P9, P7, P10, P10a, P12 set to `pending`. Never remove earlier entries. Use the value of `$VIGOLIUM_AUDIT_REPOSITORY` (pre-computed by the CLI from git remote / package manifests / basename) for the `repository` field — substitute the literal string before writing.
+5. Initialize `vigolium-results/audit-state.json` — create top-level `{ "schema_version": 1, "audits": [] }` if missing, then append a new entry with `"mode": "deep"`, `"repository": "<org/repo or folder name>"`, `"branch": "<current branch or null>"`, `"commit": "<HEAD or null>"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, `"history_available": <true|false>`, `"completed_at": null`, and phases P1, P2, P3, P4, P6, P7, P9, P7, P10, P10a, P12 set to `pending`. Never remove earlier entries. Use `$VIGOLIUM_AUDIT_REPOSITORY` for `repository`; use `git rev-parse --abbrev-ref HEAD` only to read the branch, never `git branch`.
 6. If `VIGOLIUM_AUDIT_GIT_AVAILABLE=true`, update `.gitignore` with SAST artifact exclusions. Otherwise skip `.gitignore` edits.
 
 ### P1: Intelligence Gathering
@@ -358,7 +358,7 @@ If `vigolium-results/audit-state.json` exists, ask the user before proceeding:
 2. **Do NOT switch branches.** Stay on the current branch. Do NOT run `git checkout`, `git switch`, `git branch`, `git commit`, `git add`, or `git push` against the target repo at any point. The audit writes everything under `vigolium-results/` (untracked) — the user controls staging and commits.
 3. If `VIGOLIUM_AUDIT_GIT_AVAILABLE=false`, continue auditing the directory in place. Do NOT initialize a repo just for the audit.
 4. `mkdir -p vigolium-results/ vigolium-results/findings-draft/`
-5. Initialize `vigolium-results/audit-state.json` — append a new entry with `"mode": "lite"`, `"repository": "<org/repo or folder name>"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, `"history_available": <true|false>`, and phases L1–L3 set to `pending`. Never remove earlier entries.
+5. Initialize `vigolium-results/audit-state.json` — create top-level `{ "schema_version": 1, "audits": [] }` if missing, then append a new entry with `"mode": "lite"`, `"repository": "<org/repo or folder name>"`, `"branch": "<current branch or null>"`, `"commit": "<HEAD or null>"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, `"history_available": <true|false>`, `"completed_at": null`, and phases L1–L3 set to `pending`. Never remove earlier entries. Use `git rev-parse --abbrev-ref HEAD` only to read the branch, never `git branch`.
 
 ### L1: Quick Recon
 
@@ -467,7 +467,7 @@ If `vigolium-results/audit-state.json` exists, ask the user before proceeding:
 2. **Do NOT switch branches.** Stay on the current branch. Do NOT run `git checkout`, `git switch`, `git branch`, `git commit`, `git add`, or `git push` against the target repo at any point. The audit writes everything under `vigolium-results/` (untracked) — the user controls staging and commits.
 3. If `VIGOLIUM_AUDIT_GIT_AVAILABLE=false`, continue auditing the directory in place. Do NOT initialize a repo just for the audit.
 4. `mkdir -p vigolium-results/`
-5. Initialize `vigolium-results/audit-state.json` — append a new entry with `"mode": "balanced"`, `"repository": "<org/repo or folder name>"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, `"history_available": <true|false>`, and phases B1–B9 set to `pending`. Never remove earlier entries. Use the value of `$VIGOLIUM_AUDIT_REPOSITORY` (pre-computed by the CLI from git remote / package manifests / basename) for the `repository` field — substitute the literal string before writing.
+5. Initialize `vigolium-results/audit-state.json` — create top-level `{ "schema_version": 1, "audits": [] }` if missing, then append a new entry with `"mode": "balanced"`, `"repository": "<org/repo or folder name>"`, `"branch": "<current branch or null>"`, `"commit": "<HEAD or null>"`, `"model": "<model name>"`, `"agent_sdk": "codex"`, `"history_available": <true|false>`, `"completed_at": null`, and phases B1–B9 set to `pending`. Never remove earlier entries. Use `$VIGOLIUM_AUDIT_REPOSITORY` for `repository`; use `git rev-parse --abbrev-ref HEAD` only to read the branch, never `git branch`.
 6. If `VIGOLIUM_AUDIT_GIT_AVAILABLE=true`, update `.gitignore` with SAST artifact exclusions. Otherwise skip `.gitignore` edits.
 
 ### B1: Intelligence Gathering

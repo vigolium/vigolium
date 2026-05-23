@@ -14,9 +14,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/agent/authsession"
 	agentinput "github.com/vigolium/vigolium/pkg/agent/input"
 	"github.com/vigolium/vigolium/pkg/agent/parsing"
-	"github.com/vigolium/vigolium/pkg/olium"
-	oengine "github.com/vigolium/vigolium/pkg/olium/engine"
-	"github.com/vigolium/vigolium/pkg/olium/tool"
 	"go.uber.org/zap"
 )
 
@@ -309,51 +306,28 @@ func ParseScanIntentWithSetup(ctx context.Context, engine *Engine, prompt string
 	systemPrompt := fmt.Sprintf(setupIntentSystemPrompt, cloneDir)
 
 	oliumCfg := engine.settings.Agent.Olium
-	prov, providerName, model, err := olium.ResolveProvider(olium.Options{
-		Provider:            oliumCfg.Provider,
-		OAuthCredPath:       oliumCfg.OAuthCredPath,
-		LLMAPIKey:           oliumCfg.LLMAPIKey,
-		GoogleCloudProject:  oliumCfg.GoogleCloudProject,
-		GoogleCloudLocation: oliumCfg.GoogleCloudLocation,
-		Model:               oliumCfg.Model,
-		ReasoningEffort:     oliumCfg.ReasoningEffort,
-		CustomBaseURL:       oliumCfg.CustomProvider.BaseURL,
-		CustomModelID:       oliumCfg.CustomProvider.ModelID,
-		CustomAPIKey:        firstNonEmpty(oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
-		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeadersMap(),
+	// Setup agent: full builtin tools (git clone, docker), a custom system
+	// prompt, and a longer turn budget. Built and run through the AgentRuntime
+	// seam so this carries no direct dependency on the concrete olium engine.
+	sess, err := engine.rt().NewSessionWithSpec(&oliumCfg, SessionSpec{
+		System:       systemPrompt,
+		MaxTurns:     30,
+		IncludeTools: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("olium provider: %w", err)
 	}
 
-	reg := tool.NewRegistry()
-	tool.RegisterBuiltins(reg, nil)
-
-	eng := oengine.New(oengine.Config{
-		Provider: prov,
-		Tools:    reg,
-		Model:    model,
-		System:   systemPrompt,
-		MaxTurns: 30,
-	})
-
 	zap.L().Info("Running olium agent for environment setup",
 		zap.String("agenticScanUUID", agenticScanUUID),
-		zap.String("cloneDir", cloneDir),
-		zap.String("provider", providerName),
-		zap.String("model", model))
+		zap.String("cloneDir", cloneDir))
 
-	var captured strings.Builder
-	for ev := range eng.Run(ctx, prompt) {
-		switch ev.Type {
-		case oengine.EventTextDelta:
-			captured.WriteString(ev.Delta)
-		case oengine.EventError:
-			return nil, fmt.Errorf("olium setup agent failed: %s", ev.Err)
-		}
+	out, err := engine.rt().RunOnSession(ctx, &oliumCfg, sess, prompt, nil, nil, false)
+	if err != nil {
+		return nil, fmt.Errorf("olium setup agent failed: %w", err)
 	}
 
-	intent, err := parseSDKIntentOutput(captured.String())
+	intent, err := parseSDKIntentOutput(out.Text)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse setup output: %w", err)
 	}

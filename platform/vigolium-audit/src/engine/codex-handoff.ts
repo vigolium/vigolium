@@ -1,17 +1,5 @@
-import { mkdir } from "fs/promises";
-import { join } from "path";
-import type { Adapter } from "../adapters/adapter.js";
-import { writeAuditContext } from "./audit-context.js";
-import { OrchestratorBus, type OrchestratorEvent } from "./events.js";
-import {
-  startFindingsWatcher,
-  summarizeFindings,
-  type OrchestratorResult,
-} from "./orchestrator.js";
-import { StateStore } from "./state.js";
-import { deriveHandoffStatus, startHandoffPoller } from "./handoff-poll.js";
-import { round2 } from "./util.js";
-import type { AuditMode, AuditRecord, PhaseDef } from "./types.js";
+import { BaseHandoff, type BaseHandoffOptions, type HandoffDriveResult, type HandoffRunContext } from "./base-handoff.js";
+import type { AuditMode } from "./types.js";
 
 /**
  * Headless audit driver for the codex platform — analogue of `ClaudeHandoff`.
@@ -22,15 +10,20 @@ import type { AuditMode, AuditRecord, PhaseDef } from "./types.js";
  * every `codex exec`, which makes "register a known dispatch the agent will
  * follow when prompted" work the same way slash commands do for claude).
  *
- * Required pre-condition: `installCodexHarness` (or the ephemeral harness
- * handle held by the caller) must have already written:
+ * The common skeleton (context file, state snapshot, findings watcher, progress
+ * poller, finalize) lives in {@link BaseHandoff}. This subclass contributes the
+ * dispatch trigger prompt and a single-pass adapter drive (codex has no
+ * quota/transient retry policy).
+ *
+ * Required pre-condition: `installCodexHarness` (or the ephemeral harness handle
+ * held by the caller) must have already written:
  *   - `~/.codex/agents/vigolium-audit-*.toml` (subagent registry)
  *   - `~/.codex/skills/vigolium-audit-<skill>/` (skills the subagents reference)
  *   - the BEGIN/END vigolium-audit block in `~/.codex/AGENTS.md` (dispatch)
  *
  * Modes covered by the dispatch fragment: lite, balanced, deep, revisit,
- * confirm. `isCodexHandoffMode()` is the canonical predicate — keep in sync
- * if `agents-dispatch.md` is extended.
+ * confirm. `isCodexHandoffMode()` is the canonical predicate — keep in sync if
+ * `agents-dispatch.md` is extended.
  */
 
 const MODE_TRIGGER_PHRASE: Partial<Record<AuditMode, string>> = {
@@ -45,169 +38,51 @@ export function isCodexHandoffMode(mode: AuditMode): boolean {
   return mode in MODE_TRIGGER_PHRASE;
 }
 
-export interface CodexHandoffOptions {
-  adapter: Adapter;
-  targetDir: string;
-  mode: AuditMode;
-  abortSignal?: AbortSignal;
-  debug?: boolean;
-  focus?: string;
-  expectedBehaviors?: string;
-  liveTarget?: string;
-  excludePhases?: string[];
-  triggeredVia?: string;
-}
+export type CodexHandoffOptions = BaseHandoffOptions;
 
-export class CodexHandoff {
-  readonly bus = new OrchestratorBus();
-
-  constructor(private readonly opts: CodexHandoffOptions) {}
-
-  on(listener: (e: OrchestratorEvent) => void | Promise<void>): () => void {
-    return this.bus.on(listener);
+export class CodexHandoff extends BaseHandoff<CodexHandoffOptions> {
+  protected override phaseTitleSuffix(): string {
+    return "codex dispatch";
   }
 
-  async run(): Promise<OrchestratorResult> {
-    const resultsDir = join(this.opts.targetDir, "vigolium-results");
-    await mkdir(resultsDir, { recursive: true });
-
-    await writeAuditContext(resultsDir, {
-      ...(this.opts.triggeredVia !== undefined ? { triggeredVia: this.opts.triggeredVia } : {}),
-      ...(this.opts.excludePhases !== undefined ? { excludePhases: this.opts.excludePhases } : {}),
-      ...(this.opts.focus !== undefined ? { focus: this.opts.focus } : {}),
-      ...(this.opts.expectedBehaviors !== undefined ? { expectedBehaviors: this.opts.expectedBehaviors } : {}),
-    });
-
-    const stateStore = new StateStore(resultsDir);
-    const before = await stateStore.load().catch(() => ({
-      schema_version: 1 as const,
-      audits: [] as AuditRecord[],
-    }));
-    const knownIds = new Set(before.audits.map((a) => a.audit_id));
-
-    const provisionalAuditId = `handoff-${Date.now().toString(36)}`;
-    const phase: PhaseDef = {
-      id: "handoff",
-      title: `${this.opts.mode} (codex dispatch)`,
-      agent: null,
-      requires_git: false,
-      depends_on: [],
-      parallel_with: [],
-    };
-
-    await this.bus.emit({
-      kind: "auditStart",
-      auditId: provisionalAuditId,
-      mode: this.opts.mode,
-      totalPhases: 1,
-      runnablePhases: 1,
-    });
-    await this.bus.emit({
-      kind: "phaseStart",
-      auditId: provisionalAuditId,
-      phase,
-      index: 1,
-      total: 1,
-    });
-
-    const stopWatch = startFindingsWatcher({
-      resultsDir,
-      auditId: provisionalAuditId,
-      targetDir: this.opts.targetDir,
-      bus: this.bus,
-    });
-    const stopPoll = startHandoffPoller({
-      resultsDir,
-      bus: this.bus,
-      knownAuditIds: knownIds,
-      provisionalAuditId,
-    });
-
+  protected override async driveAdapter(ctx: HandoffRunContext): Promise<HandoffDriveResult> {
+    const { provisionalAuditId, phase } = ctx;
     const userPrompt = this.buildTriggerPrompt();
 
-    const startedAt = Date.now();
     let usd = 0;
     let tokens = { input: 0, output: 0 };
     let ok = false;
     let errorMsg: string | undefined;
 
-    try {
-      for await (const event of this.opts.adapter.run({
-        userPrompt,
-        cwd: this.opts.targetDir,
-        bypassPermissions: true,
-        ...(this.opts.abortSignal && { abortSignal: this.opts.abortSignal }),
-        ...(this.opts.debug ? { debug: true } : {}),
-        label: `${this.opts.mode}:codex-handoff`,
-      })) {
-        await this.bus.emit({
-          kind: "phaseAdapterEvent",
-          auditId: provisionalAuditId,
-          phase,
-          event,
-        });
-        if (event.kind === "finish") {
-          usd = event.usd;
-          tokens = event.tokens;
-          ok = event.ok;
-          if (!event.ok) errorMsg = event.reason;
-        }
+    for await (const event of this.opts.adapter.run({
+      userPrompt,
+      cwd: this.opts.targetDir,
+      bypassPermissions: true,
+      ...(this.opts.abortSignal && { abortSignal: this.opts.abortSignal }),
+      ...(this.opts.debug ? { debug: true } : {}),
+      label: `${this.opts.mode}:codex-handoff`,
+    })) {
+      await this.bus.emit({
+        kind: "phaseAdapterEvent",
+        auditId: provisionalAuditId,
+        phase,
+        event,
+      });
+      if (event.kind === "finish") {
+        usd = event.usd;
+        tokens = event.tokens;
+        ok = event.ok;
+        if (!event.ok) errorMsg = event.reason;
       }
-    } finally {
-      stopWatch();
-      stopPoll();
     }
 
-    const durationMs = Date.now() - startedAt;
-
-    const after = await stateStore.load().catch(() => ({
-      schema_version: 1 as const,
-      audits: [] as AuditRecord[],
-    }));
-    const newAudit = [...after.audits].reverse().find((a) => !knownIds.has(a.audit_id));
-    const finalAuditId = newAudit?.audit_id ?? provisionalAuditId;
-    const status = deriveHandoffStatus({
-      recordedStatus: newAudit?.status,
-      aborted: this.opts.abortSignal?.aborted === true,
-      ok,
-    });
-
-    const findings = await summarizeFindings(resultsDir);
-
-    await this.bus.emit({
-      kind: "phaseEnd",
-      auditId: finalAuditId,
-      phase,
-      ok,
-      usd,
-      tokens,
-      durationMs,
-      ...(errorMsg !== undefined ? { error: errorMsg } : {}),
-    });
-    await this.bus.emit({
-      kind: "auditEnd",
-      auditId: finalAuditId,
-      status,
-      usd: round2(usd),
-      tokens,
-      findings,
-    });
-
-    return {
-      auditId: finalAuditId,
-      status,
-      totalUsd: round2(usd),
-      totalTokens: tokens,
-      findings,
-      failedPhases: [],
-      skippedPhases: [],
-    };
+    return { usd, tokens, ok, errorMsg };
   }
 
   /**
    * Build the user prompt that tells codex to follow the AGENTS.md dispatch.
-   * Includes the mode-specific trigger phrase verbatim from the dispatch doc
-   * so codex's mode-selection rule resolves to the right pipeline rather than
+   * Includes the mode-specific trigger phrase verbatim from the dispatch doc so
+   * codex's mode-selection rule resolves to the right pipeline rather than
    * falling back to balanced.
    */
   private buildTriggerPrompt(): string {
@@ -225,6 +100,4 @@ export class CodexHandoff {
     }
     return lines.join("\n");
   }
-
 }
-

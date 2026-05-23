@@ -1,4 +1,5 @@
 import { resolve } from "path";
+import { failCli, parsePositiveUsd } from "./util.js";
 import type { AgentPlatform, RunOptions } from "../engine/types.js";
 
 /**
@@ -56,8 +57,11 @@ function buildRunOptions(args: { targetDir: string; opts: ConfirmOptions }): Run
   if (opts.interactive !== undefined) runOpts.interactive = opts.interactive;
   if (opts.fromAudit !== undefined) runOpts.fromAudit = opts.fromAudit;
   if (opts.maxCost !== undefined) {
-    const n = typeof opts.maxCost === "number" ? opts.maxCost : Number(opts.maxCost);
-    if (!Number.isNaN(n)) runOpts.maxCost = n;
+    const n = parsePositiveUsd(opts.maxCost);
+    if (n === null) {
+      failCli(opts, "confirm", `--max-cost must be a positive number (got ${JSON.stringify(opts.maxCost)})`);
+    }
+    runOpts.maxCost = n;
   }
   if (opts.strict !== undefined) runOpts.strict = opts.strict;
   if (opts.output !== undefined) runOpts.output = opts.output;

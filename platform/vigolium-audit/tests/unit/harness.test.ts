@@ -5,6 +5,13 @@ import { join } from "path";
 import { parse as parseYaml } from "yaml";
 import { installHarness, registerEphemeralHarness, uninstallHarness } from "../../src/engine/harness.js";
 
+// Every test here installs a harness, which copies the entire content tree
+// (30+ agents, 15+ skills with reference docs) to a fresh tmpdir. That's real
+// filesystem work that comfortably exceeds bun's 5s default timeout when the
+// machine is under load (e.g. the rest of the suite running in parallel in
+// CI). Give these I/O-bound tests explicit headroom so they don't flake.
+const INSTALL_TIMEOUT_MS = 30_000;
+
 let claudeDir: string;
 let codexDir: string;
 let codexSkillsDir: string;
@@ -55,7 +62,7 @@ describe("installHarness(claude)", () => {
     // commands/vigolium-audit/ resolve to `/vigolium-audit:vigolium-audit:<cmd>`.
     const manifest = JSON.parse(readFileSync(join(claudeDir, ".claude-plugin", "plugin.json"), "utf8"));
     expect(manifest.name).toBe("vigolium-audit");
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("agent frontmatter is merged from canonical + harness defaults + per-agent overrides", async () => {
     await installHarness("claude");
@@ -74,12 +81,12 @@ describe("installHarness(claude)", () => {
     // Always set:
     expect(fm.name).toBe("cve-scout");
     expect(fm.description).toBeTruthy();
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("excluded agents (e.g. deep-reviewer) are not written", async () => {
     await installHarness("claude");
     expect(existsSync(join(claudeDir, "agents", "deep-reviewer.md"))).toBe(false);
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("commands are namespaced under vigolium-audit/", async () => {
     await installHarness("claude");
@@ -89,7 +96,7 @@ describe("installHarness(claude)", () => {
     expect(commands).toContain("balanced.md");
     expect(commands).toContain("longshot.md");
     expect(commands.length).toBe(10);
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("idempotent — second install replaces first cleanly", async () => {
     await installHarness("claude");
@@ -97,7 +104,7 @@ describe("installHarness(claude)", () => {
     await installHarness("claude");
     const after = readdirSync(join(claudeDir, "agents")).length;
     expect(after).toBe(before);
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("uninstall removes the entire plugin dir", async () => {
     await installHarness("claude");
@@ -105,7 +112,7 @@ describe("installHarness(claude)", () => {
     const { removed } = await uninstallHarness("claude");
     expect(removed).toEqual([claudeDir]);
     expect(existsSync(claudeDir)).toBe(false);
-  });
+  }, INSTALL_TIMEOUT_MS);
 });
 
 describe("installHarness(codex)", () => {
@@ -123,13 +130,13 @@ describe("installHarness(codex)", () => {
     expect(advisory).toContain("developer_instructions");
     // Body is wrapped in TOML literal-string triple quotes.
     expect(advisory).toMatch(/developer_instructions = '''[\s\S]+'''/);
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("subagent_overrides win — code-scanner gets danger-full-access", async () => {
     await installHarness("codex");
     const sa = readFileSync(join(codexDir, "vigolium-audit-code-scanner.toml"), "utf8");
     expect(sa).toContain(`sandbox_mode = 'danger-full-access'`);
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("uninstall removes only vigolium-audit-*.toml files (preserves other agents)", async () => {
     await installHarness("codex");
@@ -140,7 +147,7 @@ describe("installHarness(codex)", () => {
     const { removed } = await uninstallHarness("codex");
     expect(removed.length).toBeGreaterThan(0);
     expect(existsSync(unrelated)).toBe(true);
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("installs skills under vigolium-audit-<skill>/ — gives codex the methodology agents reference", async () => {
     const result = await installHarness("codex");
@@ -156,7 +163,7 @@ describe("installHarness(codex)", () => {
       expect(name.startsWith("vigolium-audit-")).toBe(true);
     }
     expect(existsSync(join(codexSkillsDir, "vigolium-audit-audit", "SKILL.md"))).toBe(true);
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("rewrites legacy ~/.config/vigolium-audit/skills/ paths to ~/.codex/skills/vigolium-audit- in agent bodies", async () => {
     await installHarness("codex");
@@ -166,7 +173,7 @@ describe("installHarness(codex)", () => {
     const sa = readFileSync(join(codexDir, "vigolium-audit-code-scanner.toml"), "utf8");
     expect(sa).not.toContain("~/.config/vigolium-audit/skills/");
     expect(sa).toContain("~/.codex/skills/vigolium-audit-audit/");
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("splices the dispatch fragment into AGENTS.md between BEGIN/END markers", async () => {
     const result = await installHarness("codex");
@@ -179,7 +186,7 @@ describe("installHarness(codex)", () => {
     expect(begins.length).toBe(1);
     expect(ends.length).toBe(1);
     expect(md).toContain("vigolium-audit:cve-scout");
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("AGENTS.md splice preserves user-authored content above and below the block", async () => {
     writeFileSync(codexAgentsMdPath, "# my notes\n\nuser content\n");
@@ -187,7 +194,7 @@ describe("installHarness(codex)", () => {
     const md = readFileSync(codexAgentsMdPath, "utf8");
     expect(md.startsWith("# my notes\n\nuser content\n")).toBe(true);
     expect(md).toContain("# BEGIN vigolium-audit");
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("AGENTS.md splice is idempotent — second install replaces the block in place", async () => {
     writeFileSync(codexAgentsMdPath, "user prefix\n");
@@ -198,7 +205,7 @@ describe("installHarness(codex)", () => {
     // No accumulating duplicate blocks across reinstalls.
     expect((second.match(/# BEGIN vigolium-audit/g) ?? []).length).toBe(1);
     expect(second).toBe(first);
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("uninstall removes the AGENTS.md block and the vigolium-audit-*/ skills", async () => {
     writeFileSync(codexAgentsMdPath, "user prefix\n");
@@ -212,7 +219,7 @@ describe("installHarness(codex)", () => {
     const md = readFileSync(codexAgentsMdPath, "utf8");
     expect(md).not.toContain("# BEGIN vigolium-audit");
     expect(md).toContain("user prefix");
-  });
+  }, INSTALL_TIMEOUT_MS);
 });
 
 describe("registerEphemeralHarness", () => {
@@ -227,12 +234,27 @@ describe("registerEphemeralHarness", () => {
     expect(existsSync(claudeDir)).toBe(false);
     // Listener should be removed after cleanup so the `exit` event won't re-trigger it.
     expect(process.listenerCount("exit")).toBe(before);
-  });
+  }, INSTALL_TIMEOUT_MS);
 
   test("cleanup is idempotent", async () => {
     const handle = await registerEphemeralHarness("claude");
     handle.cleanup();
     // Second call must not throw — uninstallHarness is also a no-op when dir is gone.
     expect(() => handle.cleanup()).not.toThrow();
-  });
+  }, INSTALL_TIMEOUT_MS);
+
+  test("codex cleanup synchronously removes agents, skills, and AGENTS.md block", async () => {
+    writeFileSync(codexAgentsMdPath, "user prefix\n");
+    const handle = await registerEphemeralHarness("codex");
+    expect(existsSync(join(codexDir, "vigolium-audit-cve-scout.toml"))).toBe(true);
+    expect(existsSync(join(codexSkillsDir, "vigolium-audit-audit"))).toBe(true);
+    expect(readFileSync(codexAgentsMdPath, "utf8")).toContain("# BEGIN vigolium-audit");
+
+    handle.cleanup();
+
+    expect(existsSync(join(codexDir, "vigolium-audit-cve-scout.toml"))).toBe(false);
+    expect(existsSync(join(codexSkillsDir, "vigolium-audit-audit"))).toBe(false);
+    expect(readFileSync(codexAgentsMdPath, "utf8")).not.toContain("# BEGIN vigolium-audit");
+    expect(readFileSync(codexAgentsMdPath, "utf8")).toContain("user prefix");
+  }, INSTALL_TIMEOUT_MS);
 });

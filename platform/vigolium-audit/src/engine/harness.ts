@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, rmSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { copyFile, mkdir, readFile, readdir, stat, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join, relative } from "path";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
 import { getContentLoader } from "../content-loader.js";
 
@@ -89,8 +89,6 @@ const CodexHarnessSchema = z.object({
   subagent_overrides: z.record(z.string(), z.record(z.string(), z.unknown())).default({}),
   exclude: z.array(z.string()).default([]),
 });
-
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 export async function installHarness(platform: "claude" | "codex"): Promise<SetupResult> {
   const loader = getContentLoader();
@@ -316,6 +314,30 @@ async function unspliceAgentsMd(path: string): Promise<boolean> {
   return true;
 }
 
+function unspliceAgentsMdSync(path: string): boolean {
+  let existing: string;
+  try {
+    existing = readFileSync(path, "utf8");
+  } catch {
+    return false;
+  }
+  const beginIdx = existing.indexOf(CODEX_AGENTS_BEGIN);
+  const endIdx = existing.indexOf(CODEX_AGENTS_END);
+  if (beginIdx < 0 || endIdx <= beginIdx) return false;
+  const after = endIdx + CODEX_AGENTS_END.length;
+  const next = (existing.slice(0, beginIdx) + existing.slice(after)).replace(/\n{3,}/g, "\n\n").trimEnd();
+  if (next.length === 0) {
+    try {
+      unlinkSync(path);
+    } catch {
+      /* best effort */
+    }
+  } else {
+    writeFileSync(path, next + "\n", "utf8");
+  }
+  return true;
+}
+
 function renderCodexAgentToml(args: {
   name: string;
   description: string;
@@ -397,6 +419,33 @@ export async function uninstallHarness(platform: "claude" | "codex"): Promise<{ 
   return { removed };
 }
 
+function uninstallHarnessSync(platform: "claude" | "codex"): void {
+  if (platform === "claude") {
+    const dir = claudePluginDir();
+    if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+    return;
+  }
+  const dir = codexAgentsDir();
+  if (existsSync(dir)) {
+    for (const entry of readdirSync(dir)) {
+      if (entry.startsWith("vigolium-audit-") && entry.endsWith(".toml")) {
+        rmSync(join(dir, entry), { force: true });
+      }
+    }
+  }
+
+  const skillsDst = codexSkillsDir();
+  if (existsSync(skillsDst)) {
+    for (const entry of readdirSync(skillsDst)) {
+      if (entry.startsWith("vigolium-audit-")) {
+        rmSync(join(skillsDst, entry), { recursive: true, force: true });
+      }
+    }
+  }
+
+  unspliceAgentsMdSync(codexAgentsMdPath());
+}
+
 export interface EphemeralHarnessHandle {
   /** Where the harness was installed for this run. */
   installResult: SetupResult;
@@ -424,9 +473,7 @@ export async function registerEphemeralHarness(
     cleaned = true;
     process.removeListener("exit", hookExit);
     try {
-      // Synchronous-best-effort: uninstallHarness uses sync rmSync internally,
-      // so calling it without awaiting is safe inside an `exit` listener.
-      void uninstallHarness(platform);
+      uninstallHarnessSync(platform);
     } catch {
       /* best effort */
     }

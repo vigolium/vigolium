@@ -2,8 +2,8 @@ import { existsSync } from "fs";
 import { resolve, join } from "path";
 import chalk from "chalk";
 import { StateStore } from "../engine/state.js";
-import { summarizeFindings } from "../engine/orchestrator.js";
-import { formatDuration } from "./run.js";
+import { summarizeFindings } from "../engine/findings.js";
+import { formatDuration } from "./run-render.js";
 import { failCli, severityColor, statusArrow } from "./util.js";
 import type { AuditRecord } from "../engine/types.js";
 

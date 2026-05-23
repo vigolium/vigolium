@@ -1,6 +1,6 @@
-import { mkdir, readdir, readFile, rename, rm, stat, unlink } from "fs/promises";
-import { join, relative } from "path";
-import { existsSync, readdirSync, statSync, watch as fsWatch } from "fs";
+import { mkdir, rename } from "fs/promises";
+import { join } from "path";
+import { existsSync, readdirSync } from "fs";
 import type { Adapter } from "../adapters/adapter.js";
 import type { ContentLoader, ContentVariant } from "../content-loader.js";
 import { OrchestratorBus, type OrchestratorEvent } from "./events.js";
@@ -8,8 +8,12 @@ import { scheduleBatches, topologicalOrder } from "./phase.js";
 import { StateStore, buildAuditId, newAuditRecord } from "./state.js";
 import type { AuditContext, AuditMode, AuditRecord, CommandDef, PhaseDef } from "./types.js";
 import { listTrackedFiles, probeGit } from "./git.js";
-import { atomicWrite, compact, parseIntEnv, round2, sleepInterruptible } from "./util.js";
+import { compact, parseIntEnv, round2, sleepInterruptible } from "./util.js";
 import { adapterEventHasQuotaLimit, adapterEventHasRetryableError, isTransientError, valueContainsQuotaLimit } from "../adapters/claude-events.js";
+import { CheckpointStore } from "./checkpoint.js";
+import { detectDraftOwner, startFindingsWatcher, summarizeFindings } from "./findings.js";
+import { stripRawArtifacts } from "./strip-artifacts.js";
+import { composeUserPrompt, parseToolsField } from "./prompts.js";
 
 export interface OrchestratorOptions {
   adapter: Adapter;
@@ -134,10 +138,16 @@ export interface OrchestratorResult {
 export class Orchestrator {
   readonly bus = new OrchestratorBus();
   private readonly state: StateStore;
+  private readonly checkpoints: CheckpointStore;
   private totalUsd = 0;
   private totalIn = 0;
   private totalOut = 0;
   private warnedAtUsd = 0;
+  /**
+   * Phase IDs of the running command, cached from `run()` so per-failure
+   * quarantine doesn't re-parse the command YAML on every failed phase.
+   */
+  private allPhaseIds: string[] | null = null;
   /**
    * Internal abort controller fired when the cost cap is breached. Composed
    * with `opts.abortSignal` so adapters see a single signal that fires on
@@ -146,7 +156,9 @@ export class Orchestrator {
   private readonly costAbort = new AbortController();
 
   constructor(private readonly opts: OrchestratorOptions) {
-    this.state = new StateStore(opts.resultsDir ?? join(opts.targetDir, "vigolium-results"));
+    const resultsDir = opts.resultsDir ?? join(opts.targetDir, "vigolium-results");
+    this.state = new StateStore(resultsDir);
+    this.checkpoints = new CheckpointStore(resultsDir);
   }
 
   /**
@@ -169,6 +181,7 @@ export class Orchestrator {
     await mkdir(resultsDir, { recursive: true });
 
     const command = await this.opts.loader.loadCommand(this.opts.mode, { variant: this.contentVariant() });
+    this.allPhaseIds = command.phases.map((p) => p.id);
     const ordered = topologicalOrder(command.phases);
     const git = this.opts.noGit
       ? { available: false, branch: null, commit: null, repository: null }
@@ -270,7 +283,7 @@ export class Orchestrator {
         const phaseStatus = auditBefore?.phases[phase.id]?.status;
         if (phaseStatus === "complete" || phaseStatus === "skipped") continue;
         if (phaseStatus === "in_progress") {
-          const checkpoint = await this.loadCheckpoint(auditId, phase.id);
+          const checkpoint = await this.checkpoints.load(auditId, phase.id);
           if (checkpoint) {
             this.totalUsd += checkpoint.usd;
             this.totalIn += checkpoint.tokens.input;
@@ -289,7 +302,7 @@ export class Orchestrator {
                   ` — retrying from scratch\n`,
               },
             });
-            await this.clearCheckpoint(auditId, phase.id).catch(() => {});
+            await this.checkpoints.clear(auditId, phase.id).catch(() => {});
           }
           await this.state.updatePhase(auditId, phase.id, {
             status: "pending",
@@ -639,7 +652,7 @@ export class Orchestrator {
     let lastTool: string | undefined;
     const checkpointEvery = 5; // tool calls between checkpoint flushes
     const flushCheckpoint = async (): Promise<void> => {
-      await this.writeCheckpoint(args.auditId, args.phase.id, {
+      await this.checkpoints.write(args.auditId, args.phase.id, {
         startedAt,
         toolCalls,
         ...(lastTool !== undefined ? { lastTool } : {}),
@@ -703,7 +716,7 @@ export class Orchestrator {
     // On success: drop the checkpoint. On failure / abort: keep it so the
     // next resume can surface what was lost.
     if (ok) {
-      await this.clearCheckpoint(args.auditId, args.phase.id).catch(() => {});
+      await this.checkpoints.clear(args.auditId, args.phase.id).catch(() => {});
     } else {
       await flushCheckpoint().catch(() => {});
     }
@@ -736,7 +749,11 @@ export class Orchestrator {
     // Longest-prefix prevents phase "1" from quarantining a "1a-…" draft when
     // both phases exist (deep.md has 1a/1b/2-15, no bare "1", but the rule
     // future-proofs us).
-    const allPhaseIds = (await this.opts.loader.loadCommand(this.opts.mode, { variant: this.contentVariant() })).phases.map((p) => p.id);
+    // Cached by run(); fall back to a load only if quarantine is somehow
+    // reached before the command was parsed (defensive — shouldn't happen).
+    const allPhaseIds =
+      this.allPhaseIds ??
+      (await this.opts.loader.loadCommand(this.opts.mode, { variant: this.contentVariant() })).phases.map((p) => p.id);
     const matches: string[] = [];
     for (const entry of readdirSync(draftsDir)) {
       const owner = await detectDraftOwner({ draftsDir, entry, allPhaseIds });
@@ -753,74 +770,6 @@ export class Orchestrator {
     }
   }
 
-  private checkpointPath(auditId: string, phaseId: string): string {
-    const resultsDir = this.opts.resultsDir ?? join(this.opts.targetDir, "vigolium-results");
-    return join(resultsDir, ".checkpoint", encodePathSegment(auditId), `${encodePathSegment(phaseId)}.json`);
-  }
-
-  /**
-   * Persist phase progress mid-stream so an interrupted phase leaves a record
-   * the next run can surface and bill against the chained budget. The phase
-   * itself still has to restart from scratch — adapters don't expose
-   * conversation replay so we can't resume mid-conversation.
-   */
-  private async writeCheckpoint(
-    auditId: string,
-    phaseId: string,
-    data: { startedAt: number; toolCalls: number; lastTool?: string; usd: number; tokens: { input: number; output: number }; sawProgress: boolean },
-  ): Promise<void> {
-    const payload = {
-      audit_id: auditId,
-      phase_id: phaseId,
-      started_at_ms: data.startedAt,
-      updated_at_ms: Date.now(),
-      tool_calls: data.toolCalls,
-      ...(data.lastTool !== undefined ? { last_tool: data.lastTool } : {}),
-      usd: round2(data.usd),
-      tokens: data.tokens,
-      saw_progress: data.sawProgress,
-    };
-    await atomicWrite(this.checkpointPath(auditId, phaseId), JSON.stringify(payload, null, 2) + "\n");
-  }
-
-  private async clearCheckpoint(auditId: string, phaseId: string): Promise<void> {
-    try {
-      await unlink(this.checkpointPath(auditId, phaseId));
-    } catch {
-      /* missing is fine */
-    }
-  }
-
-  /**
-   * Read a checkpoint left behind by a prior interrupted attempt, if any.
-   * Returns the cost+tokens that should be rolled into the audit total even
-   * though the phase itself will run again from scratch.
-   */
-  private async loadCheckpoint(
-    auditId: string,
-    phaseId: string,
-  ): Promise<{ usd: number; tokens: { input: number; output: number }; toolCalls: number; lastTool: string | null } | null> {
-    const path = this.checkpointPath(auditId, phaseId);
-    if (!existsSync(path)) return null;
-    try {
-      const raw = await readFile(path, "utf8");
-      const json = JSON.parse(raw) as {
-        usd?: number;
-        tokens?: { input: number; output: number };
-        tool_calls?: number;
-        last_tool?: string;
-      };
-      return {
-        usd: typeof json.usd === "number" ? json.usd : 0,
-        tokens: json.tokens ?? { input: 0, output: 0 },
-        toolCalls: json.tool_calls ?? 0,
-        lastTool: json.last_tool ?? null,
-      };
-    } catch {
-      return null;
-    }
-  }
-
   private maybeWarnCost(auditId: string): void {
     if (this.opts.maxCost === undefined) return;
     const cap = this.opts.maxCost;
@@ -829,7 +778,9 @@ export class Orchestrator {
       const at = cap * t;
       if (this.totalUsd >= at && this.warnedAtUsd < at) {
         this.warnedAtUsd = at;
-        void this.bus.emit({ kind: "costWarn", auditId, usd: round2(this.totalUsd), cap });
+        // Fire-and-forget: a cost-warning listener must never abort the audit.
+        // Swallow listener failures so an unhandled rejection can't crash us.
+        void this.bus.emit({ kind: "costWarn", auditId, usd: round2(this.totalUsd), cap }).catch(() => {});
       }
     }
     // At-or-over the cap: fire the internal abort signal so any pending /
@@ -847,333 +798,3 @@ export class Orchestrator {
     });
   }
 }
-
-/**
- * Watch `vigolium-results/findings-draft/` and `vigolium-results/findings/` for new `.md` files
- * and emit `findingDiscovered` events on the bus. Used by both the per-phase
- * orchestrator and the slash-command handoff driver.
- *
- * Uses `fs.watch(dir, { recursive: true })`. macOS supports this natively;
- * Linux requires Node ≥ 20.0.0 (the recursive flag was finalized then and is
- * implemented via inotify). On older Node or unusual filesystems the watch
- * may silently stop reporting nested events — drafts written to subdirs
- * won't show up as `+ finding:` lines, but quarantine and final reporting
- * are unaffected because they read the directory directly.
- */
-export function startFindingsWatcher(args: {
-  resultsDir: string;
-  auditId: string;
-  targetDir: string;
-  bus: OrchestratorBus;
-}): () => void {
-  const { resultsDir, auditId, targetDir, bus } = args;
-  const findingsDraft = join(resultsDir, "findings-draft");
-  const findingsFinal = join(resultsDir, "findings");
-  const findingsTheoretical = join(resultsDir, "findings-theoretical");
-  const seen = new Set<string>();
-  const watchers: Array<{ close: () => void }> = [];
-  for (const dir of [findingsDraft, findingsFinal, findingsTheoretical]) {
-    mkdir(dir, { recursive: true }).catch(() => {});
-    try {
-      const w = fsWatch(dir, { recursive: true }, (_eventType, filename) => {
-        if (!filename) return;
-        if (typeof filename !== "string") return;
-        if (!filename.endsWith(".md")) return;
-        const full = join(dir, filename);
-        // macOS FSEvents prefix-matches paths, so a watcher on `findings/`
-        // also fires for sibling `findings-draft/` writes with a filename
-        // like `-draft/foo.md` — producing a phantom `findings/-draft/foo.md`
-        // that doesn't exist on disk. Drop events whose resolved path isn't
-        // a real file inside the watched dir.
-        if (!existsSync(full)) return;
-        if (seen.has(full)) return;
-        seen.add(full);
-        void bus.emit({
-          kind: "findingDiscovered",
-          auditId,
-          phaseId: null,
-          path: full,
-          relPath: relative(targetDir, full),
-        });
-      });
-      watchers.push({ close: () => w.close() });
-    } catch {
-      /* dir may not exist yet on this platform; ignore */
-    }
-  }
-  return () => watchers.forEach((w) => w.close());
-}
-
-/**
- * Decide which phase produced a draft entry. Reads frontmatter from the
- * entry (or its primary `.md` file if it's a directory) and, failing that,
- * falls back to longest-prefix match against the known phase IDs. Returns
- * null when no signal is available so the entry isn't quarantined by mistake.
- */
-async function detectDraftOwner(args: {
-  draftsDir: string;
-  entry: string;
-  allPhaseIds: string[];
-}): Promise<string | null> {
-  const { draftsDir, entry, allPhaseIds } = args;
-  const full = join(draftsDir, entry);
-
-  // 1. Frontmatter signal: scan a representative .md inside the entry.
-  const mdPaths: string[] = [];
-  try {
-    const s = statSync(full);
-    if (s.isFile() && entry.toLowerCase().endsWith(".md")) {
-      mdPaths.push(full);
-    } else if (s.isDirectory()) {
-      for (const child of readdirSync(full)) {
-        if (child.toLowerCase().endsWith(".md")) mdPaths.push(join(full, child));
-      }
-    }
-  } catch {
-    return null;
-  }
-  for (const p of mdPaths) {
-    try {
-      const head = (await readFile(p, "utf8")).slice(0, 2048);
-      const m = head.match(/^[ \t]*(?:phase[_-]?id|phase)\s*:\s*["']?([\w.-]+)["']?\s*$/im);
-      if (m && m[1] && allPhaseIds.includes(m[1])) return m[1];
-    } catch {
-      /* keep trying */
-    }
-  }
-
-  // 2. Filename-prefix signal: longest matching phase id wins. Case-insensitive
-  // because draft naming conventions drift across agents (V1 vs v1, etc.).
-  const lower = entry.toLowerCase();
-  let best: string | null = null;
-  for (const id of allPhaseIds) {
-    const pfx = `${id.toLowerCase()}-`;
-    if (lower.startsWith(pfx) && (best === null || id.length > best.length)) {
-      best = id;
-    }
-  }
-  return best;
-}
-
-export function parseToolsField(raw: string | undefined): string[] {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-export function composeUserPrompt(
-  phase: PhaseDef,
-  command: CommandDef,
-  auditId: string,
-  targetDir: string,
-  context: { focus?: string; expectedBehaviors?: string; liveTarget?: string } = {},
-): string {
-  // The command body uses $ARGUMENTS as a placeholder for trailing slash-command
-  // args. In headless mode there's no slash command, so we substitute the live
-  // target (or empty string) before truncating — leaving the literal token
-  // would mislead the agent.
-  const argSubstitution = context.liveTarget ?? "";
-  const bodyWithArgs = command.body.replace(/\$ARGUMENTS\b/g, argSubstitution);
-  const lines = [
-    `Audit ID: ${auditId}`,
-    `Mode: ${command.mode}`,
-    `Phase: ${phase.id} — ${phase.title}`,
-    `Target directory: ${targetDir}`,
-    `State file: vigolium-results/audit-state.json`,
-  ];
-  if (typeof context.liveTarget === "string" && context.liveTarget.length > 0) {
-    lines.push(`Live target: ${context.liveTarget}`);
-  }
-  lines.push(
-    ``,
-    `Execute this phase as defined in the command-def's prose body.`,
-    `When finished, mark phase ${phase.id} complete in vigolium-results/audit-state.json.`,
-    ``,
-    `--- COMMAND-DEF BODY (for reference) ---`,
-    bodyWithArgs,
-  );
-  if (typeof context.focus === "string" && context.focus.length > 0) {
-    lines.push(
-      ``,
-      `--- AUDIT FOCUS (user-supplied) ---`,
-      `Prioritize the following areas. This is a hint, not a hard restriction —`,
-      `if you discover a high-severity issue outside these areas, still report it.`,
-      ``,
-      context.focus,
-    );
-  }
-  if (typeof context.expectedBehaviors === "string" && context.expectedBehaviors.length > 0) {
-    lines.push(
-      ``,
-      `--- EXPECTED BEHAVIORS (user-supplied) ---`,
-      `The behaviors described below are intentional design decisions, NOT`,
-      `vulnerabilities. Do not file findings for issues that match these`,
-      `descriptions. If a finding overlaps, note the overlap and exclude it.`,
-      ``,
-      context.expectedBehaviors,
-    );
-  }
-  return lines.join("\n");
-}
-
-/**
- * Make an audit-id or phase-id safe to use as a filename. Audit IDs are ISO
- * timestamps, which contain `:` (illegal on Windows / awkward in shells), so
- * replace anything outside [A-Za-z0-9._-] with `_`.
- */
-function encodePathSegment(s: string): string {
-  return s.replace(/[^A-Za-z0-9._-]+/g, "_");
-}
-
-/**
- * Strip raw audit byproducts so the user is left with just the artifacts they
- * care about. Always preserved at the top level of `vigolium-results/`:
- *   - durable state files (`audit-state.json`, `file-state.json`, revisit state)
- *   - `findings/` (finalized confirmed findings)
- *   - `findings-theoretical/` (finalized theoretical / unconfirmed findings)
- *   - `attack-surface/` (recon outputs)
- *   - `confirm-workspace/` when requested (confirmation evidence + staging)
- *   - `quarantine/` (merge/manual-review output)
- *   - `*.md` (mode reports: final-audit-report.md, confirmation-report.md, …)
- *
- * Legacy lite runs can opt into promoting leftover markdown drafts into
- * `findings/` before deleting `findings-draft/`. Deep/balanced/confirm output
- * must not promote drafts: raw drafts are intermediate workspace state, while
- * finalized findings live in bucket directories with `draft.md` + `report.md`.
- */
-export interface StripRawArtifactsOptions {
-  /** Promote leftover top-level markdown drafts into findings/ before pruning. */
-  promoteDrafts?: boolean;
-  /** Preserve confirm-workspace/ evidence and verdict staging. */
-  keepConfirmWorkspace?: boolean;
-}
-
-export async function stripRawArtifacts(
-  resultsDir: string,
-  options: StripRawArtifactsOptions = {},
-): Promise<void> {
-  const promoteDrafts = options.promoteDrafts ?? true;
-  const keepConfirmWorkspace = options.keepConfirmWorkspace ?? true;
-  const findingsDraft = join(resultsDir, "findings-draft");
-  const findingsFinal = join(resultsDir, "findings");
-
-  // Promote any leftover drafts only for modes where drafts are the final-ish
-  // output shape (historically lite). Deep/balanced/chamber drafts should be
-  // discarded after their canonical finding directories have been written.
-  if (promoteDrafts) {
-    try {
-      const drafts = await readdir(findingsDraft);
-      if (drafts.length > 0) {
-        await mkdir(findingsFinal, { recursive: true });
-        for (const name of drafts) {
-          if (!name.toLowerCase().endsWith(".md")) continue;
-          const src = join(findingsDraft, name);
-          const dst = join(findingsFinal, name);
-          try {
-            await stat(dst);
-            // Final already exists — leave it; don't clobber.
-          } catch {
-            await rename(src, dst).catch(() => {});
-          }
-        }
-      }
-    } catch {
-      // findings-draft may not exist; nothing to promote.
-    }
-  }
-
-  let entries: string[];
-  try {
-    entries = await readdir(resultsDir);
-  } catch {
-    return;
-  }
-
-  for (const name of entries) {
-    if (shouldKeep(name, { keepConfirmWorkspace })) continue;
-    await rm(join(resultsDir, name), { recursive: true, force: true }).catch(() => {});
-  }
-}
-
-/** Finalized finding buckets: confirmed (`findings/`) + theoretical (`findings-theoretical`). */
-const FINALIZED_FINDING_DIRS: readonly string[] = ["findings", "findings-theoretical"];
-
-const DURABLE_STATE_FILES = new Set([
-  "audit-state.json",
-  "file-state.json",
-  "revisit-audit-state.json",
-]);
-
-const DURABLE_DIRS = new Set([
-  "attack-surface",
-  "findings",
-  "findings-theoretical",
-  "quarantine",
-]);
-
-function shouldKeep(
-  name: string,
-  options: { keepConfirmWorkspace: boolean },
-): boolean {
-  if (DURABLE_STATE_FILES.has(name)) return true;
-  if (DURABLE_DIRS.has(name)) return true;
-  if (options.keepConfirmWorkspace && name === "confirm-workspace") return true;
-  if (name.toLowerCase().endsWith(".md")) return true;
-  return false;
-}
-
-const SEVERITY_ORDER = ["Critical", "High", "Medium", "Low", "Info"];
-
-export async function summarizeFindings(
-  resultsDir: string,
-): Promise<{ total: number; bySeverity: Record<string, number> }> {
-  const bySeverity: Record<string, number> = {};
-  let total = 0;
-  for (const sub of [...FINALIZED_FINDING_DIRS, "findings-draft"]) {
-    const dir = join(resultsDir, sub);
-    let entries: string[];
-    try {
-      entries = await readdir(dir);
-    } catch {
-      continue;
-    }
-    for (const name of entries) {
-      if (!name.toLowerCase().endsWith(".md")) continue;
-      total++;
-      let body = "";
-      try {
-        body = await readFile(join(dir, name), "utf8");
-      } catch {
-        continue;
-      }
-      const sev = parseSeverity(body) ?? "Unknown";
-      bySeverity[sev] = (bySeverity[sev] ?? 0) + 1;
-    }
-  }
-  return { total, bySeverity: sortSeverity(bySeverity) };
-}
-
-function parseSeverity(body: string): string | null {
-  // Matches both "**Severity**: High" and "- Severity: High" / "Severity: High".
-  const m = body.match(/severity\s*\*?\*?\s*:\s*\*?\*?\s*([A-Za-z]+)/i);
-  if (!m || !m[1]) return null;
-  const raw = m[1].toLowerCase();
-  for (const canonical of SEVERITY_ORDER) {
-    if (canonical.toLowerCase() === raw) return canonical;
-  }
-  return m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
-}
-
-function sortSeverity(counts: Record<string, number>): Record<string, number> {
-  const ordered: Record<string, number> = {};
-  for (const k of SEVERITY_ORDER) {
-    if (counts[k] !== undefined) ordered[k] = counts[k];
-  }
-  for (const k of Object.keys(counts)) {
-    if (!SEVERITY_ORDER.includes(k)) ordered[k] = counts[k]!;
-  }
-  return ordered;
-}
-

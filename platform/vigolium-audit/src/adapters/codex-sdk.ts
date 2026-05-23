@@ -1,7 +1,7 @@
 import { Codex, type ModelReasoningEffort } from "@openai/codex-sdk";
 import type { Adapter, AdapterEvent, AdapterRunInput } from "./adapter.js";
 import { isTransientError } from "./claude-events.js";
-import { normalizeCodexEvent } from "./codex-events.js";
+import { createCodexNormalizeState, normalizeCodexEvent } from "./codex-events.js";
 
 export interface CodexSdkAdapterOptions {
   /** Absolute path to the `codex` binary. Falls back to SDK auto-resolve. */
@@ -73,6 +73,7 @@ export class CodexSdkAdapter implements Adapter {
   async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
     const startedAt = Date.now();
     const cwd = input.cwd ?? process.cwd();
+    const normalizeState = createCodexNormalizeState();
 
     // Codex bypass = approvalPolicy:'never' + sandboxMode:'danger-full-access'.
     // The CLI exposes this combo as `--dangerously-bypass-approvals-and-sandbox`;
@@ -106,7 +107,7 @@ export class CodexSdkAdapter implements Adapter {
         ...(input.abortSignal && { signal: input.abortSignal }),
       });
       for await (const event of turn.events) {
-        for (const evt of normalizeCodexEvent(event, startedAt)) yield evt;
+        for (const evt of normalizeCodexEvent(event, startedAt, normalizeState)) yield evt;
       }
     } catch (err) {
       yield {

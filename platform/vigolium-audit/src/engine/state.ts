@@ -2,7 +2,7 @@ import { readFile } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { z } from "zod";
-import { atomicWrite, sha256OfFile } from "./util.js";
+import { atomicWrite, sha256OfFile, sweepStaleTempFiles } from "./util.js";
 import type { AuditContext, AuditMode, AuditRecord, AuditState, PhaseStatus } from "./types.js";
 
 const PhaseRecordSchema = z.object({
@@ -15,16 +15,21 @@ const PhaseRecordSchema = z.object({
 
 const AuditRecordSchema = z.object({
   audit_id: z.string(),
-  commit: z.string().nullable(),
-  branch: z.string().nullable(),
-  repository: z.string().nullable(),
+  commit: z.string().nullable().default(null),
+  // Older Codex handoff dispatches wrote audit-state.json without branch.
+  // Defaulting keeps the handoff poller live instead of silently dropping
+  // all per-phase progress on schema mismatch.
+  branch: z.string().nullable().default(null),
+  repository: z.string().nullable().default(null),
   mode: z.string(),
   model: z.string().nullable(),
   agent_sdk: z.string(),
   started_at: z.string(),
-  completed_at: z.string().nullable(),
+  // In-progress audits legitimately have no completion timestamp yet; tolerate
+  // missing values from agent-written state and normalize to null.
+  completed_at: z.string().nullable().default(null),
   status: z.enum(["in_progress", "complete", "failed", "aborted"]),
-  phases: z.record(z.string(), PhaseRecordSchema),
+  phases: z.record(z.string(), PhaseRecordSchema).default({}),
   usage: z
     .object({
       input_tokens: z.number(),
@@ -39,12 +44,44 @@ const AuditRecordSchema = z.object({
     })
     .optional(),
   triggered_via: z.string().optional(),
-});
+}).passthrough();
+
+/**
+ * Schema version this build reads and writes. Bump when the on-disk shape
+ * changes and add a migration step to `migrateAuditState`. A file tagged with
+ * a *higher* version is rejected with a clear message rather than a cryptic
+ * schema error (see `load`).
+ */
+export const CURRENT_AUDIT_SCHEMA_VERSION = 1;
 
 const AuditStateSchema = z.object({
   schema_version: z.literal(1).default(1),
   audits: z.array(AuditRecordSchema),
-});
+}).passthrough();
+
+/** Read `schema_version` without full validation, for the forward-compat guard. */
+function peekSchemaVersion(json: unknown): number | null {
+  if (json && typeof json === "object" && "schema_version" in json) {
+    const v = (json as { schema_version?: unknown }).schema_version;
+    if (typeof v === "number") return v;
+  }
+  return null;
+}
+
+/**
+ * Bring a freshly-loaded AuditState up to the current schema, in place. This is
+ * the single seam for on-disk migrations; add cases here as the schema evolves
+ * rather than scattering normalization across readers.
+ */
+function migrateAuditState(data: AuditState): void {
+  for (const audit of data.audits) {
+    // Early Codex dispatch builds used `mode: "full"` for deep audits. The CLI
+    // only accepts `deep`, so normalize on read to keep status/resume flows alive.
+    if ((audit as { mode?: string }).mode === "full") {
+      (audit as { mode: string }).mode = "deep";
+    }
+  }
+}
 
 const FILENAME_AUDIT = "audit-state.json";
 const FILENAME_FILE = "file-state.json";
@@ -71,7 +108,16 @@ export class StateStore {
    */
   private writeChain: Promise<unknown> = Promise.resolve();
 
+  /** One-shot cleanup of staging files orphaned by a crash mid-write. */
+  private sweepOnce: Promise<void> | null = null;
+
   constructor(private readonly resultsDir: string) {}
+
+  /** Sweep orphaned `atomicWrite` staging files once, before the first write. */
+  private sweep(): Promise<void> {
+    if (!this.sweepOnce) this.sweepOnce = sweepStaleTempFiles(this.resultsDir);
+    return this.sweepOnce;
+  }
 
   private auditPath(): string {
     return join(this.resultsDir, FILENAME_AUDIT);
@@ -87,6 +133,7 @@ export class StateStore {
     this.writeChain = new Promise((r) => { release = r; });
     try {
       await prev.catch(() => {});
+      await this.sweep();
       return await fn();
     } finally {
       release(undefined);
@@ -104,11 +151,22 @@ export class StateStore {
     } catch (err) {
       throw new Error(`audit-state.json: invalid JSON: ${(err as Error).message}`);
     }
+    // Forward-compat: a file written by a newer build may carry a structure
+    // this build can't safely interpret. Detect that explicitly so users get an
+    // actionable "upgrade" message instead of a cryptic schema error.
+    const version = peekSchemaVersion(json);
+    if (version !== null && version > CURRENT_AUDIT_SCHEMA_VERSION) {
+      throw new Error(
+        `audit-state.json: schema_version ${version} is newer than this build supports (${CURRENT_AUDIT_SCHEMA_VERSION}); upgrade vigolium-audit`,
+      );
+    }
     const parsed = AuditStateSchema.safeParse(json);
     if (!parsed.success) {
       throw new Error(`audit-state.json: schema mismatch: ${parsed.error.message}`);
     }
-    return parsed.data as AuditState;
+    const data = parsed.data as AuditState;
+    migrateAuditState(data);
+    return data;
   }
 
   async save(state: AuditState): Promise<void> {

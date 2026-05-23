@@ -4,7 +4,8 @@ dist
 .env
 .env.local
 *.log
-bun.lock
+__pycache__/
+*.pyc
 
 # Generated SDK-safe variants of content
 src/content/sdk-variants/
