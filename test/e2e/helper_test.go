@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
@@ -184,7 +183,7 @@ func StartContainer(ctx context.Context, config ContainerConfig) (*VulnerableApp
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
-	mappedPort, err := container.MappedPort(ctx, nat.Port(port))
+	mappedPort, err := container.MappedPort(ctx, port)
 	if err != nil {
 		_ = container.Terminate(ctx)
 		return nil, fmt.Errorf("failed to get mapped port: %w", err)

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -56,7 +55,7 @@ func StartContainer(ctx context.Context, config ContainerConfig) (*VulnerableApp
 		port = port[:len(port)-4]
 	}
 
-	mappedPort, err := container.MappedPort(ctx, nat.Port(port))
+	mappedPort, err := container.MappedPort(ctx, port)
 	if err != nil {
 		_ = container.Terminate(ctx)
 		return nil, fmt.Errorf("failed to get mapped port: %w", err)
@@ -115,7 +114,7 @@ func ContainerConfigFromApp(app AppConfig) ContainerConfig {
 		Image:       app.Image,
 		ExposedPort: exposedPort,
 		WaitStrategy: wait.ForHTTP(waitEndpoint).
-			WithPort(nat.Port(portStr)).
+			WithPort(portStr).
 			WithStartupTimeout(startupTimeout),
 		Env:           app.Env,
 		ReadyEndpoint: waitEndpoint,
