@@ -23,7 +23,7 @@ jobs:
     name: Lint, vet & unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -72,7 +72,7 @@ jobs:
     # per-package unit coverage can't credit. No Docker required.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -106,7 +106,7 @@ jobs:
     # here should prompt a triage rather than hard-fail every unrelated PR.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -133,7 +133,7 @@ jobs:
     # directly, so this needs neither a build nor the embedded jsscan binaries.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Generate CycloneDX SBOM
         uses: anchore/sbom-action@v0
@@ -152,7 +152,7 @@ jobs:
     # for triage rather than hard-failing unrelated PRs.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Review dependency changes
         uses: actions/dependency-review-action@v4
