@@ -10,12 +10,12 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/projectdiscovery/fastdialer v0.5.7
 	github.com/projectdiscovery/hmap v0.0.100 // indirect
-	github.com/projectdiscovery/networkpolicy v0.1.37
-	github.com/projectdiscovery/ratelimit v0.0.86
+	github.com/projectdiscovery/networkpolicy v0.1.38
+	github.com/projectdiscovery/ratelimit v0.0.87
 	github.com/projectdiscovery/rawhttp v0.1.90
-	github.com/projectdiscovery/retryablehttp-go v1.3.10
+	github.com/projectdiscovery/retryablehttp-go v1.3.11
 	github.com/projectdiscovery/useragent v0.0.107
-	github.com/projectdiscovery/utils v0.10.1
+	github.com/projectdiscovery/utils v0.11.0
 	github.com/samber/lo v1.53.0
 	github.com/stretchr/testify v1.11.1
 	github.com/weppos/publicsuffix-go v0.50.3
@@ -33,7 +33,7 @@ require (
 	github.com/antchfx/htmlquery v1.3.6
 	github.com/evanw/esbuild v0.28.0
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/getkin/kin-openapi v0.133.0
+	github.com/getkin/kin-openapi v0.138.0
 	github.com/go-shiori/dom v0.0.0-20230515143342-73569d674e1c
 	github.com/gofiber/contrib/v3/swaggerui v1.0.6
 	github.com/gofiber/fiber/v3 v3.3.0
@@ -87,6 +87,7 @@ require (
 	github.com/moby/moby/client v0.4.0 // indirect
 	github.com/moby/sys/atomicwriter v0.1.0 // indirect
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/ysmood/fetchup v0.2.3 // indirect
 	github.com/ysmood/goob v0.4.0 // indirect
 	github.com/ysmood/got v0.40.0 // indirect
@@ -355,8 +356,8 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/nwaples/rardecode/v2 v2.2.2 // indirect
-	github.com/oasdiff/yaml v0.0.0-20250309154309-f31be36b4037 // indirect
-	github.com/oasdiff/yaml3 v0.0.0-20250309153720-d2182401db90 // indirect
+	github.com/oasdiff/yaml v0.0.9 // indirect
+	github.com/oasdiff/yaml3 v0.0.12 // indirect
 	github.com/olekukonko/cat v0.0.0-20250911104152-50322a0618f6 // indirect
 	github.com/olekukonko/errors v1.2.0 // indirect
 	github.com/olekukonko/ll v0.1.6 // indirect
