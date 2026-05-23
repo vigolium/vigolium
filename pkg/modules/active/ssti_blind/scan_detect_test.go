@@ -65,7 +65,9 @@ func TestScanPerInsertionPoint_DetectsTimeBlindSSTI(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping multi-second timing test in -short mode")
 	}
-	t.Parallel()
+	// Not parallel: the interleaved slow/fast probes compare wall-clock timings
+	// against a fixed threshold, so this must not contend with sibling tests for
+	// CPU/the shared dialer.
 	srv := httptest.NewServer(vulnerableTemplateHandler())
 	defer srv.Close()
 

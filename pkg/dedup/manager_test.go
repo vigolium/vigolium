@@ -138,7 +138,9 @@ func TestManager_GetDiskSet_ConcurrentSameKey(t *testing.T) {
 	for i, r := range results {
 		assert.Samef(t, results[0], r, "concurrent callers must share one DiskSet (idx %d)", i)
 	}
-	assert.Len(t, m.diskSets, 1, "racing on one key must create exactly one DiskSet")
+	// A later lookup must return the same cached instance (no duplicate created),
+	// asserted via the public API rather than reading the unexported map.
+	assert.Same(t, results[0], m.GetDiskSet("hot-key"), "a later GetDiskSet must return the cached instance")
 }
 
 // TestManager_GetRHM_ConcurrentSameKey mirrors the concurrency guarantee for
@@ -163,5 +165,7 @@ func TestManager_GetRHM_ConcurrentSameKey(t *testing.T) {
 	for i, r := range results {
 		assert.Samef(t, results[0], r, "concurrent callers must share one RHM (idx %d)", i)
 	}
-	assert.Len(t, m.requestHashManagerData, 1)
+	// A later lookup must return the same cached instance (no duplicate created),
+	// asserted via the public API rather than reading the unexported map.
+	assert.Same(t, results[0], m.GetDefaultRequestHashManager("hot-rhm"), "a later lookup must return the cached RHM")
 }

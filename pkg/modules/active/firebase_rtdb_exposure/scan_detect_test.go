@@ -74,9 +74,17 @@ func TestSecretPatterns(t *testing.T) {
 		"Private Key":    "-----BEGIN PRIVATE KEY-----",
 		"Slack Token":    "xoxb-1234-abcd",
 	}
-	for _, sp := range secretPatterns {
-		if want, ok := samples[sp.name]; ok {
-			assert.True(t, sp.pattern.MatchString(want), "pattern %s should match its sample", sp.name)
+	// Drive from the known samples (not the pattern list) so a renamed or removed
+	// pattern fails the test instead of silently asserting nothing.
+	for name, want := range samples {
+		var found bool
+		for _, sp := range secretPatterns {
+			if sp.name == name {
+				found = true
+				assert.Truef(t, sp.pattern.MatchString(want), "pattern %s should match its sample", name)
+				break
+			}
 		}
+		assert.Truef(t, found, "no secret pattern named %q (renamed or removed?)", name)
 	}
 }

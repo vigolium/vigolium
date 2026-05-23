@@ -68,7 +68,9 @@ func TestScanPerRequest_DetectsTimeBlindSQLi(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping multi-second timing test in -short mode")
 	}
-	t.Parallel()
+	// Not parallel: the triple-verify (sleep → no-sleep → sleep) compares
+	// wall-clock timings against a fixed threshold, so it must not contend with
+	// sibling tests for CPU/the shared dialer.
 	srv := httptest.NewServer(vulnerableHandler())
 	defer srv.Close()
 

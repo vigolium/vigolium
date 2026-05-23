@@ -245,6 +245,7 @@ func TestRHM_Concurrent_SameRequest(t *testing.T) {
 			defer wg.Done()
 			u, err := urlutil.Parse("https://example.com/path?id=1")
 			if err != nil {
+				t.Errorf("parse URL: %v", err)
 				return
 			}
 			req := httpmsg.NewHttpRequest([]byte("GET /path?id=1 HTTP/1.1\r\nHost: example.com\r\n\r\n"))
