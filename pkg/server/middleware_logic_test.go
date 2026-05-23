@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -266,9 +267,11 @@ func TestProjectUUIDMiddleware_HeaderAndDefault(t *testing.T) {
 			t.Fatalf("call: %v", err)
 		}
 		defer func() { _ = resp.Body.Close() }()
-		buf := make([]byte, 256)
-		n, _ := resp.Body.Read(buf)
-		return string(buf[:n])
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		return string(bodyBytes)
 	}
 
 	if got := call(""); got != database.DefaultProjectUUID {

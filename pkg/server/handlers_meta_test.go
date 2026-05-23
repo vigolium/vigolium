@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -250,9 +251,11 @@ func TestHandleUpdateConfig_Validation(t *testing.T) {
 			t.Fatalf("post: %v", err)
 		}
 		defer func() { _ = resp.Body.Close() }()
-		buf := make([]byte, 4096)
-		n, _ := resp.Body.Read(buf)
-		return resp.StatusCode, buf[:n]
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		return resp.StatusCode, bodyBytes
 	}
 
 	t.Run("nil settings → 500", func(t *testing.T) {
