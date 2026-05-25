@@ -69,6 +69,14 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
+	// Detect blanket OPTIONS handlers before probing.
+	// If a completely unrelated path returns 200 + Allow with POST,
+	// the server responds to OPTIONS uniformly on all paths —
+	// OPTIONS-based evidence is meaningless on this host.
+	if m.detectBlanketOptions(ctx, httpClient) {
+		return nil, nil
+	}
+
 	fp := m.fingerprint404(ctx, httpClient)
 
 	var results []*output.ResultEvent
@@ -79,6 +87,52 @@ func (m *Module) ScanPerRequest(
 	}
 
 	return results, nil
+}
+
+// detectBlanketOptions sends OPTIONS to a random non-Rails path.
+// If the server returns 200 with an Allow header containing POST,
+// it has a catch-all OPTIONS responder (e.g. Apache mod_headers,
+// reverse proxy config, or middleware) and OPTIONS probing will
+// produce false positives on every path.
+func (m *Module) detectBlanketOptions(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+) bool {
+	randomPath := "/vigolium-not-rails-" + utils.RandomString(12)
+
+	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "OPTIONS")
+	if err != nil {
+		return false
+	}
+	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, randomPath)
+	if err != nil {
+		return false
+	}
+
+	fuzzedReq, err := httpmsg.ParseRawRequest(string(modifiedRaw))
+	if err != nil {
+		return false
+	}
+	fuzzedReq = fuzzedReq.WithService(ctx.Service())
+
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	if err != nil {
+		return false
+	}
+	defer resp.Close()
+
+	if resp.Response() == nil {
+		return false
+	}
+
+	if resp.Response().StatusCode == 200 || resp.Response().StatusCode == 204 {
+		allow := resp.Response().Header.Get("Allow")
+		if allow != "" && strings.Contains(strings.ToUpper(allow), "POST") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (m *Module) fingerprint404(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) *notFoundFingerprint {
