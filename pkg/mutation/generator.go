@@ -514,7 +514,7 @@ func adjustDay(value string, delta int) string {
 func daysInMonth(year, month int) int {
 	switch month {
 	case 1, 3, 5, 7, 8, 10, 12:
-			return 31
+		return 31
 	case 4, 6, 9, 11:
 		// What hapends if the number of days of these months is 31?
 		// We set the ratio to 20% for the above case
