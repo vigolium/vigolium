@@ -99,6 +99,44 @@ vigolium config set agent.olium.custom_provider.extra_headers.add 'HTTP-Referer:
 vigolium config set agent.olium.custom_provider.extra_headers.add 'X-Title: vigolium'
 ```
 
+#### Provider routing (OpenRouter)
+
+Pin or restrict the upstream provider via the typed `provider_routing` block:
+
+```bash
+vigolium config set agent.olium.custom_provider.provider_routing.order.add deepseek
+vigolium config set agent.olium.custom_provider.provider_routing.allow_fallbacks false
+vigolium config set agent.olium.custom_provider.provider_routing.sort throughput
+```
+
+Or as YAML:
+
+```yaml
+agent:
+  olium:
+    custom_provider:
+      provider_routing:
+        order: [deepseek]
+        allow_fallbacks: false
+        sort: throughput
+```
+
+Supported fields: `order`, `only`, `ignore`, `allow_fallbacks` (default `true` on OpenRouter), `sort` (`price` / `throughput` / `latency`), `quantizations`, `data_collection` (`allow` / `deny`), `require_parameters`, `zdr`. See [OpenRouter's provider routing docs](https://openrouter.ai/docs/features/provider-routing) for field semantics.
+
+For fields the typed knob doesn't cover (`max_price`, `preferred_min_throughput`, `preferred_max_latency`) or other openai-compatible backend extensions, use `extra_body` (YAML-only — `config set` doesn't traverse arbitrary nested maps):
+
+```yaml
+agent:
+  olium:
+    custom_provider:
+      extra_body:
+        provider:
+          max_price: { prompt: 0.0001, completion: 0.0002 }
+        transforms: [middle-out]
+```
+
+The keys `model`, `messages`, `tools`, `stream`, `stream_options` are reserved and rejected at request time. Setting both `provider_routing` and `extra_body.provider` is also rejected.
+
 ### LM Studio
 
 ```bash
