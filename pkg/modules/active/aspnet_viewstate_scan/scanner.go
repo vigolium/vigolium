@@ -221,7 +221,7 @@ func (m *Module) testMACDisabled(
 					URL:      urlx.Scheme + "://" + urlx.Host + formAction,
 					Matched:  urlx.Scheme + "://" + urlx.Host + formAction,
 					Request:  string(modifiedRaw),
-					Response: resp.FullResponse().String(),
+					Response: resp.FullResponseString(),
 					ExtractedResults: []string{
 						"Verbose ViewState MAC error with stack trace",
 					},
@@ -248,7 +248,7 @@ func (m *Module) testMACDisabled(
 			URL:      urlx.Scheme + "://" + urlx.Host + formAction,
 			Matched:  urlx.Scheme + "://" + urlx.Host + formAction,
 			Request:  string(modifiedRaw),
-			Response: resp.FullResponse().String(),
+			Response: resp.FullResponseString(),
 			ExtractedResults: []string{
 				"Tampered ViewState accepted without MAC validation error",
 			},
@@ -348,7 +348,7 @@ func (m *Module) testEventValidationDisabled(
 			URL:      urlx.Scheme + "://" + urlx.Host + formAction,
 			Matched:  urlx.Scheme + "://" + urlx.Host + formAction,
 			Request:  string(modifiedRaw),
-			Response: resp.FullResponse().String(),
+			Response: resp.FullResponseString(),
 			ExtractedResults: []string{
 				"Forged __EVENTTARGET=FakeControl123 accepted without validation error",
 			},

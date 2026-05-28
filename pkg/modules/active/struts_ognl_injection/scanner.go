@@ -119,7 +119,7 @@ func (m *Module) ScanPerRequest(
 
 		// Check for OGNL evaluation evidence
 		body := resp.Body().String()
-		fullResp := resp.FullResponse().String()
+		fullResp := resp.FullResponseString()
 
 		if strings.Contains(body, ognlResult) || strings.Contains(fullResp, "X-Struts-Test") && strings.Contains(fullResp, ognlResult) {
 			result := &output.ResultEvent{
@@ -188,7 +188,7 @@ func (m *Module) ScanPerInsertionPoint(
 				URL:              urlx.String(),
 				Matched:          urlx.String(),
 				Request:          string(fuzzedRaw),
-				Response:         resp.FullResponse().String(),
+				Response:         resp.FullResponseString(),
 				FuzzingParameter: ip.Name(),
 				ExtractedResults: []string{ognlResult},
 				Info: output.Info{

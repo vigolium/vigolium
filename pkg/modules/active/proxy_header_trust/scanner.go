@@ -184,7 +184,7 @@ func (m *Module) testForwardedHost(
 	return &output.ResultEvent{
 		URL:      targetURL,
 		Request:  string(modifiedRaw),
-		Response: resp.FullResponse().String(),
+		Response: resp.FullResponseString(),
 		ExtractedResults: []string{
 			"Header: X-Forwarded-Host: " + injectedHost,
 			"Finding: " + finding,
@@ -260,7 +260,7 @@ func (m *Module) testForwardedProto(
 	return &output.ResultEvent{
 		URL:      targetURL,
 		Request:  string(modifiedRaw),
-		Response: resp.FullResponse().String(),
+		Response: resp.FullResponseString(),
 		ExtractedResults: []string{
 			"Header: X-Forwarded-Proto: https",
 			"Finding: " + finding,
@@ -348,7 +348,7 @@ func (m *Module) testForwardedFor(
 	return &output.ResultEvent{
 		URL:      targetURL,
 		Request:  string(modifiedRaw),
-		Response: resp.FullResponse().String(),
+		Response: resp.FullResponseString(),
 		ExtractedResults: []string{
 			"Header: X-Forwarded-For: " + injectedIP,
 			"Finding: " + finding,

@@ -556,7 +556,7 @@ func (h *Handlers) runBackgroundURLScan(scanID, target string, rr *httpmsg.HttpR
 			}
 			emitScanLine(sl, formatFindingLine(scanID, result))
 		},
-		OnStatus: func(processed, total, findingsCount, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) {
+		OnStatus: func(processed, total, findingsCount, distinctModules, activeCount, passiveCount, timedOut int64, elapsed time.Duration) {
 			if scanDone.Load() {
 				return
 			}
@@ -568,17 +568,15 @@ func (h *Handlers) runBackgroundURLScan(scanID, target string, rr *httpmsg.HttpR
 			// `Records: P` is the executor's processed count; for
 			// scan-request this moves 0 → 1 but the field is kept for
 			// parity with scan-on-receive and multi-record endpoints.
-			// `Modules: X/Y (A active, P passive)` shows considered/
-			// registered with the split so operators can see at a glance
-			// whether passive modules are running.
-			emitScanLine(sl, fmt.Sprintf("%s %s Records: %s | Findings: %s | Modules: %s (%s active, %s passive) | Runtime: %s\n",
+			// `Modules: X/Y (A active, P passive[, T timed out])` shows
+			// considered/registered with the active/passive split (and any
+			// timed-out skips) so operators can see at a glance what ran.
+			emitScanLine(sl, fmt.Sprintf("%s %s Records: %s | Findings: %s | Modules: %s | Runtime: %s\n",
 				scanPrefix,
 				terminal.BoldCyan("[status]"),
 				terminal.HiBlue(fmt.Sprintf("%d", processed)),
 				terminal.Orange(fmt.Sprintf("%d", findingsCount)),
-				terminal.Yellow(fmt.Sprintf("%d/%d", scannedModules, totalModules)),
-				terminal.Yellow(fmt.Sprintf("%d", activeCount)),
-				terminal.Yellow(fmt.Sprintf("%d", passiveCount)),
+				terminal.Yellow(terminal.FormatModuleProgress(scannedModules, totalModules, activeCount, passiveCount, timedOut)),
 				terminal.Gray(elapsed.Round(time.Second).String())))
 		},
 	}

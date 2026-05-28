@@ -129,7 +129,7 @@ func probeTarget(_ context.Context, requester *http.Requester, rootURL string, l
 		return result
 	}
 
-	fullResp := respChain.FullResponse().Bytes()
+	fullResp := respChain.FullResponseBytes()
 	if len(fullResp) == 0 {
 		result.ContentType = "blank"
 		result.SkipSpidering = true
@@ -319,7 +319,7 @@ func confirmBlank(requester *http.Requester, rootURL string) bool {
 		if err != nil {
 			continue
 		}
-		fullResp := respChain.FullResponse().Bytes()
+		fullResp := respChain.FullResponseBytes()
 		if len(fullResp) == 0 {
 			continue
 		}

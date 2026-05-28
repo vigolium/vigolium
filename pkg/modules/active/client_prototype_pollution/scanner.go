@@ -298,7 +298,7 @@ func sendProbe(probeURL string, httpClient *http.Requester, ctx *httpmsg.HttpReq
 	}
 	sc := resp.Response().StatusCode
 	if sc >= 200 && sc < 400 {
-		return raw, resp.FullResponse().String(), true
+		return raw, resp.FullResponseString(), true
 	}
 	return "", "", false
 }

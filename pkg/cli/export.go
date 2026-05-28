@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -97,6 +96,17 @@ type exportEnvelope struct {
 	Data interface{} `json:"data"`
 }
 
+// scopeProjectBun applies a project_uuid filter to a single-table bun query when
+// projectUUID is non-empty. An empty projectUUID means whole-DB (the default
+// `vigolium export` / stateless temp-DB behavior); a non-empty value scopes the
+// query to one project (the per-scan `--format jsonl` export).
+func scopeProjectBun(q *bun.SelectQuery, projectUUID string) *bun.SelectQuery {
+	if projectUUID != "" {
+		return q.Where("project_uuid = ?", projectUUID)
+	}
+	return q
+}
+
 func runExportCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 
@@ -164,7 +174,7 @@ func runExportWithGenerator(formatLabel, defaultTitle string, generate func([]an
 	defer closeDatabaseOnExit()
 
 	ctx := context.Background()
-	items, err := queryExportData(ctx, db, topExportOmitResponse)
+	items, err := queryExportData(ctx, db, topExportOmitResponse, "")
 	if err != nil {
 		return err
 	}
@@ -301,7 +311,7 @@ func runExportJSONL() error {
 	}
 
 	ctx := context.Background()
-	items, err := queryExportData(ctx, db, topExportOmitResponse)
+	items, err := queryExportData(ctx, db, topExportOmitResponse, "")
 	if err != nil {
 		return err
 	}
@@ -319,12 +329,8 @@ func runExportJSONL() error {
 		w = os.Stdout
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	for _, item := range items {
-		if err := enc.Encode(item); err != nil {
-			return fmt.Errorf("failed to encode record: %w", err)
-		}
+	if _, err := encodeJSONL(w, items); err != nil {
+		return fmt.Errorf("failed to encode record: %w", err)
 	}
 
 	printExportStats("jsonl", topExportOutput, items)
@@ -370,14 +376,17 @@ func runExportMarkdown() error {
 // queryExportData queries all enabled tables and returns a slice of exportEnvelope
 // items ready for serialization. Both HTML and JSONL paths share this function.
 // When omitResponse is true, HTTP records keep all metadata but drop the bulky
-// raw request/response byte fields, yielding much smaller output files.
-func queryExportData(ctx context.Context, db *database.DB, omitResponse bool) ([]any, error) {
+// raw request/response byte fields, yielding much smaller output files. When
+// projectUUID is non-empty, every DB-backed query is scoped to that project
+// (used by the per-scan `--format jsonl` export); empty means the whole DB
+// (the `vigolium export` and stateless temp-DB behavior).
+func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, projectUUID string) ([]any, error) {
 	var items []any
 
 	// --- Scans ---
 	if shouldExport("scans") && db != nil {
 		var scans []*database.Scan
-		q := db.NewSelect().Model(&scans).OrderExpr("created_at DESC")
+		q := scopeProjectBun(db.NewSelect().Model(&scans).OrderExpr("created_at DESC"), projectUUID)
 		if topExportSearch != "" {
 			p := "%" + topExportSearch + "%"
 			q = q.Where("(uuid LIKE ? OR status LIKE ? OR error_message LIKE ?)", p, p, p)
@@ -397,8 +406,9 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool) ([
 	// --- HTTP Records ---
 	if shouldExport("http") && db != nil {
 		qb := database.NewQueryBuilder(db, database.QueryFilters{
-			FuzzyTerm: topExportSearch,
-			Limit:     topExportLimit,
+			ProjectUUID: projectUUID,
+			FuzzyTerm:   topExportSearch,
+			Limit:       topExportLimit,
 		})
 		records, err := qb.Execute(ctx)
 		if err != nil {
@@ -428,7 +438,7 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool) ([
 	// --- Findings ---
 	if shouldExport("findings") && db != nil {
 		var findings []*database.Finding
-		q := db.NewSelect().Model(&findings).OrderExpr("found_at DESC")
+		q := scopeProjectBun(db.NewSelect().Model(&findings).OrderExpr("found_at DESC"), projectUUID)
 		if topExportSearch != "" {
 			p := "%" + topExportSearch + "%"
 			q = q.Where("(module_id LIKE ? OR module_name LIKE ? OR description LIKE ? OR matched_at LIKE ? OR severity LIKE ? OR url LIKE ? OR hostname LIKE ? OR extracted_results LIKE ?)", p, p, p, p, p, p, p, p)
@@ -488,7 +498,7 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool) ([
 	// --- OAST Interactions ---
 	if shouldExport("oast") && db != nil {
 		var interactions []*database.OASTInteraction
-		q := db.NewSelect().Model(&interactions).OrderExpr("interacted_at DESC")
+		q := scopeProjectBun(db.NewSelect().Model(&interactions).OrderExpr("interacted_at DESC"), projectUUID)
 		if topExportSearch != "" {
 			p := "%" + topExportSearch + "%"
 			q = q.Where("(protocol LIKE ? OR module_id LIKE ? OR unique_id LIKE ? OR full_id LIKE ? OR target_url LIKE ?)", p, p, p, p, p)
@@ -508,7 +518,7 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool) ([
 	// --- Scopes ---
 	if shouldExport("scopes") && db != nil {
 		var scopes []*database.Scope
-		q := db.NewSelect().Model(&scopes).Where("enabled = ?", true).OrderExpr("priority ASC")
+		q := scopeProjectBun(db.NewSelect().Model(&scopes).Where("enabled = ?", true).OrderExpr("priority ASC"), projectUUID)
 		if topExportSearch != "" {
 			p := "%" + topExportSearch + "%"
 			q = q.Where("(name LIKE ? OR host_pattern LIKE ? OR path_pattern LIKE ?)", p, p, p)

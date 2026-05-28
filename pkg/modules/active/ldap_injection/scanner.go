@@ -156,7 +156,7 @@ func (m *Module) ScanPerInsertionPoint(
 				URL:              urlx.String(),
 				Matched:          urlx.String(),
 				Request:          string(fuzzedRaw),
-				Response:         resp.FullResponse().String(),
+				Response:         resp.FullResponseString(),
 				FuzzingParameter: ip.Name(),
 				ExtractedResults: []string{findLDAPError(body)},
 				Info: output.Info{
@@ -304,7 +304,7 @@ func (m *Module) probeSignature(
 
 	body := resp.Body().String()
 	sig := newResponseSignature(resp.Response().StatusCode, body)
-	full := resp.FullResponse().String()
+	full := resp.FullResponseString()
 	return sig, full, true
 }
 

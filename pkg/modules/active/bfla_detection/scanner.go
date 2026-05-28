@@ -187,7 +187,7 @@ func (m *Module) testNoAuth(
 
 	respStatus := resp.Response().StatusCode
 	respBodyBytes := resp.Body().Bytes()
-	respBody := resp.FullResponse().String()
+	respBody := resp.FullResponseString()
 	respBodyLen := len(respBody)
 
 	// Reject responses that match the wildcard shell — those are the same
@@ -262,7 +262,7 @@ func (m *Module) testDowngradedAuth(
 
 	respStatus := resp.Response().StatusCode
 	respBodyBytes := resp.Body().Bytes()
-	respBody := resp.FullResponse().String()
+	respBody := resp.FullResponseString()
 	respBodyLen := len(respBody)
 
 	if wildcard.MatchesBody(respStatus, respBodyBytes) {
@@ -338,7 +338,7 @@ func (m *Module) testMethodSwitching(
 
 		if resp.Response() != nil && resp.Response().StatusCode >= 200 && resp.Response().StatusCode < 300 &&
 			!wildcard.MatchesBody(resp.Response().StatusCode, resp.Body().Bytes()) {
-			respBody := resp.FullResponse().String()
+			respBody := resp.FullResponseString()
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Matched:          urlx.String(),

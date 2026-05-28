@@ -1,9 +1,9 @@
 # Confirm Mode — Output Structure
 
-`vigolium-audit run --mode confirm [--target <url>]` verifies existing findings
-in `vigolium-results/findings/` by booting the target (or pointing at a remote
-URL), executing each finding's PoC, and falling back to a generated reproducer
-test for anything the PoC could not confirm. It walks 7 phases: `V1`, `V1.5`,
+`vigolium-audit run --mode confirm [--target <url>]` verifies existing finalized findings
+from BOTH `vigolium-results/findings/` and `vigolium-results/findings-theoretical/` by booting the target (or pointing at a remote
+URL), executing each finding's PoC when present, and falling back to a generated reproducer
+test for anything the PoC could not confirm or for theoretical findings that never had a PoC. It walks 7 phases: `V1`, `V1.5`,
 `V2`-`V6`. When `--target <url>` is supplied, V2 and V3 are skipped.
 
 This document describes only what confirm mode writes. For the global audit
@@ -17,17 +17,21 @@ vigolium-results/
   confirmation-report.md            # V6 — human-readable verdict report
   audit-state.json                  # updated when present (optional input)
   findings/
-    <ID>-<slug>/                    # canonical source of truth (annotated in-place)
+    <ID>-<slug>/                    # confirmed bucket; annotated in-place when in scope
+      draft.md
       report.md                     # gets Confirm-* + optional Documented-Intent fields
-      confirm-evidence/             # V4 PoC run logs
-        attempts.log
-        env-info.txt
-        exploit.log
+      confirm-evidence/             # V4 PoC run logs (when V4 runs)
       confirm-test.<ext>            # V5 generated reproducer (when fallback runs)
       confirm-test-output.log
-    FP-<ID>-<slug>/                 # original dir renamed when confirm-fp verdict reached
+  findings-theoretical/
+    <ID>-<slug>/                    # theoretical/unconfirmed bucket; also confirmable
+      draft.md                      # V1 repairs missing report.md from this when possible
+      report.md                     # preferred source after repair
+      confirm-evidence/             # V4 PoC run logs if a PoC exists and runs
+      confirm-test.<ext>            # V5 generated reproducer for no-PoC/fallback cases
+      confirm-test-output.log
   confirm-workspace/
-    findings-inventory.json         # V1
+    findings-inventory.json         # V1, includes dir + original_bucket for each candidate
     intent-corpus.json              # V1.5 — optional
     intent-verdicts.json            # V1.5 — optional
     env-strategies.json             # V2 — skipped on --target
@@ -46,15 +50,11 @@ vigolium-results/
     .lock                           # present only during an active/stale run
     report-ready/                   # V6 — regenerated, derived copies (ship list)
       live-verified/                # PoC ran against live target
-        <ID>-<slug>/
-          report.md
-          poc.<ext>
-          confirm-evidence/
       test-verified/                # generated test demonstrated the bug
       analytical/                   # structural agreement (e.g. weak RNG, missing header)
       false-positive/               # drained from severity counts
     needs-review/                   # V6 — regenerated, derived copies (followup queue)
-      not-reproduced/               # PoC ran, didn't trigger
+      not-reproduced/               # PoC/test ran, didn't trigger
       flaky/                        # inconclusive (race didn't fire deterministically)
       blocked/                      # app unreachable / missing auth / interpreter / timeout
       no-poc/                       # no PoC script and no testable fallback
@@ -70,12 +70,12 @@ the audit modes that produced the findings being confirmed.
 
 | Phase | Agent | Writes |
 | --- | --- | --- |
-| `V1` Findings Inventory | (inline) | `confirm-workspace/findings-inventory.json` |
-| `V1.5` Intent Cross-Check | `context-reviewer` | `confirm-workspace/intent-corpus.json`, `confirm-workspace/intent-verdicts.json`, in-place `Documented-Intent*` fields on each `findings/<ID>-<slug>/report.md`. Skip-and-continue — absent on failure. |
+| `V1` Findings Inventory + report repair | (inline + `finding-writer` for missing reports) | `confirm-workspace/findings-inventory.json`; missing `report.md` repaired from `draft.md` in either bucket when possible |
+| `V1.5` Intent Cross-Check | `context-reviewer` | `confirm-workspace/intent-corpus.json`, `confirm-workspace/intent-verdicts.json`, in-place `Documented-Intent*` fields on each inventory `report.md` (either bucket). Skip-and-continue — absent on failure. |
 | `V2` Environment Discovery | `env-profiler` | `confirm-workspace/env-strategies.json`; `confirm-workspace/auth-spec.json` only when auth scaffolding is detected. Skipped on `--target`. |
 | `V3` Environment Provisioning | `env-builder` | `confirm-workspace/env-connection.json`, `app.pid` (local process only), `setup.log`/`migration.log`/`seed.log`/`healthcheck.log`, optional `db-snapshot.*` + `snapshot-spec.json`. On failure: `healthcheck-failure.log` and `env-connection.json` with `status: "failed"`. Skipped on `--target` (synthetic `env-connection.json` with `status: "remote"` is written instead). |
-| `V4` PoC Execution | `poc-runner` (parallel) | `findings/<ID>-<slug>/confirm-evidence/` and appended `Confirm-Status` / `Confirm-Method` / `Confirm-Evidence` fields on the canonical `report.md`. |
-| `V5` Test-Based Fallback | `test-locator` (parallel) | `findings/<ID>-<slug>/confirm-test.<ext>` + `confirm-test-output.log`; appended `Confirm-Status` / `Confirm-Test` fields on `report.md`. Skipped on `--target`. |
+| `V4` PoC Execution | `poc-runner` (parallel) | `<inventory.dir>/confirm-evidence/` and appended `Confirm-Status` / `Confirm-Method` / `Confirm-Evidence` fields on the canonical `report.md`. |
+| `V5` Test-Based Fallback | `test-locator` (parallel) | `<inventory.dir>/confirm-test.<ext>` + `confirm-test-output.log`; appended `Confirm-Status` / `Confirm-Test` fields on `report.md`. Skipped on `--target`. |
 | `V6` Confirmation Report | `confirm-writer` | `vigolium-results/confirmation-report.md`; regenerated `confirm-workspace/report-ready/` + `needs-review/` staging buckets; `audit-state.json` updates (when present). |
 
 Cleanup (EXIT/INT/TERM trap) writes `confirm-workspace/cleanup.log` and removes
@@ -114,6 +114,13 @@ The single human-readable deliverable. Section order written by `confirm-writer`
 **Confirmation rate**: X/Y findings confirmed (Z%)
   — false-positive and analytical excluded from the denominator.
 
+## Breakdown by Original Bucket
+| Original Bucket | Total | live-verified | test-verified | analytical | needs-review | errored |
+| findings | ... |
+| findings-theoretical | ... |
+
+Verified theoretical findings are not moved automatically; their original bucket is shown so a reviewer can promote/regenerate explicitly if desired.
+
 ## Breakdown by Exploitability Class
 | Class | Total | live-verified | test-verified | not-reproduced | blocked | analytical |
 | network-exploitable | ... |
@@ -121,8 +128,8 @@ The single human-readable deliverable. Section order written by `confirm-writer`
 | non-exploitable     | ... |
 
 ## Pre-Auth Exposure                    # findings where Auth-Required: no — exploitable without credentials
-| ID | Title | Severity | Verdict | Vector |
-| C1 | ... | CRITICAL | live-verified | unauthenticated HTTP |
+| ID | Original Bucket | Title | Severity | Verdict | Vector |
+| C1 | findings-theoretical | ... | CRITICAL | live-verified | unauthenticated HTTP |
 
 ## Report-Ready — Live Verified         # per-finding block: vuln class, method, evidence path, timing, observation
 ## Report-Ready — Test Verified         # per-finding block: vuln class, framework, test file, output log, observation
@@ -140,10 +147,10 @@ report-ready/needs-review bucket their confirmation outcome put them in. It
 exists because unauthenticated-exploitable findings are the highest-priority
 items for a client report regardless of whether the PoC ran.
 
-### `vigolium-results/findings/<ID>-<slug>/` (annotated in place)
+### `vigolium-results/findings/<ID>-<slug>/` and `vigolium-results/findings-theoretical/<ID>-<slug>/` (annotated in place)
 
-Confirm mode does not move or restructure finding directories — it appends
-metadata fields and writes side-by-side evidence files. Per-finding artifacts
+Confirm mode does not move or restructure finding directories by default — it appends
+metadata fields and writes side-by-side evidence files in the finding's original bucket. Per-finding artifacts
 contributed by confirm:
 
 | File | Phase | Description |
@@ -153,15 +160,15 @@ contributed by confirm:
 | `confirm-test.<ext>` | V5 | Generated reproducer test (`.py` / `.js` / `.go` / `.rb`) following the project's test framework. |
 | `confirm-test-output.log` | V5 | Stdout/stderr of the reproducer test execution. |
 
-A `false-positive` verdict causes the directory to be renamed with an `FP-`
-prefix (`FP-H2-idor-checkout/`). False positives are tracked but excluded from
-the confirmation-rate denominator.
+A `false-positive` verdict may cause the directory to be renamed with an `FP-`
+prefix (`FP-H2-idor-checkout/`) by implementations that support FP promotion. False positives are tracked but excluded from
+the confirmation-rate denominator. Verified theoretical findings are not moved to `findings/` automatically.
 
 ### `vigolium-results/confirm-workspace/` JSON artifacts
 
 | File | Phase | Shape (key fields) |
 | --- | --- | --- |
-| `findings-inventory.json` | V1 | `{ session, findings[]: { id, slug, dir, severity, vuln_class, poc_script, poc_status, protocol, auth_required, exploitability_class, confirm_status }, total, with_poc, without_poc, by_severity, by_class }` |
+| `findings-inventory.json` | V1 | `{ session, findings[]: { id, slug, dir, bucket, original_bucket, source_file, source_kind, has_report, has_draft, repair_status, severity, vuln_class, poc_script, poc_status, protocol, auth_required, exploitability_class, confirm_status }, total, with_poc, without_poc, by_bucket, by_severity, by_class, repair }` |
 | `intent-corpus.json` | V1.5 | `intentional_behaviors[]` + `acknowledged_risks[]` extracted from SECURITY.md / README / docs / ADRs / inline pragmas, with quotes and `source:line`. Optional. |
 | `intent-verdicts.json` | V1.5 | Per-finding `{ id, match: "yes"\|"partial"\|"no"\|"contested", corpus_refs[], confidence, quote }`. Annotate-only — never overrides `Confirm-Status`. Optional. |
 | `env-strategies.json` | V2 | Ranked startup strategies, build steps, ports + fallback ports, env vars, datastores, migrations/seeds, test framework, multi-tenancy hints. |
@@ -172,8 +179,8 @@ the confirmation-rate denominator.
 ### `vigolium-results/confirm-workspace/{report-ready,needs-review}/` staging
 
 V6 mirrors every finding into **exactly one** verdict bucket — wiped and
-rebuilt on every confirm run. `vigolium-results/findings/` remains authoritative;
-these copies exist so a reviewer can see the verdict at a glance from the
+rebuilt on every confirm run. The inventory `dir` remains authoritative, whether under
+`vigolium-results/findings/` or `vigolium-results/findings-theoretical/`; these copies exist so a reviewer can see the verdict at a glance from the
 filesystem. `report-ready/` is the ship list; `needs-review/` is the followup
 queue.
 
@@ -226,9 +233,9 @@ skipped — confirm mode never creates the file on its own.
 ## What to read first
 
 1. `vigolium-results/confirmation-report.md` — the verdict report. Start with the `Pre-Auth Exposure` section if the target has an internet-facing attack surface.
-2. `vigolium-results/confirm-workspace/report-ready/` — the ship list. Each subfolder is one verdict tier.
-3. `vigolium-results/confirm-workspace/needs-review/` — the followup queue. Everything that did not confirm cleanly.
-4. `vigolium-results/findings/<ID>-<slug>/report.md` — canonical source; look for the appended `Confirm-*` block.
-5. `vigolium-results/findings/<ID>-<slug>/confirm-evidence/` or `confirm-test*` — proof artifacts.
-6. `vigolium-results/confirm-workspace/findings-inventory.json` — what the run was asked to verify and how each finding was classified.
+2. `vigolium-results/confirm-workspace/findings-inventory.json` — what the run was asked to verify, including actual `dir` and `original_bucket`.
+3. `vigolium-results/confirm-workspace/report-ready/` — the ship list. Each subfolder is one verdict tier.
+4. `vigolium-results/confirm-workspace/needs-review/` — the followup queue. Everything that did not confirm cleanly.
+5. The inventory entry's `<dir>/report.md` — canonical source; look for the appended `Confirm-*` block.
+6. The inventory entry's `<dir>/confirm-evidence/` or `confirm-test*` — proof artifacts.
 7. `vigolium-results/confirm-workspace/env-connection.json` + `healthcheck-failure.log` — when something went wrong during provisioning.

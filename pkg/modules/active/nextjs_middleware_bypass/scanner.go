@@ -162,7 +162,7 @@ func (m *Module) executeAndCheck(
 		URL:      target,
 		Matched:  target,
 		Request:  string(modifiedRaw),
-		Response: resp.FullResponse().String(),
+		Response: resp.FullResponseString(),
 		ExtractedResults: []string{
 			fmt.Sprintf("Bypass: %s", desc),
 			fmt.Sprintf("Payload: %s", payload),

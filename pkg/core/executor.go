@@ -125,30 +125,35 @@ type ExecutorConfig struct {
 	Repository            *database.Repository   // Optional: database storage
 	RecordWriter          *database.RecordWriter // Optional: batched record writer (preferred over Repository.SaveRecord)
 	ScanUUID              string
-	ProjectUUID           string                                                                                                    // Optional: scan session UUID
-	Hooks                 HookRunner                                                                                                // Optional: pre/post hooks
-	ScopeMatcher          *config.ScopeMatcher                                                                                      // Optional: scope filtering
-	ScopeOnIngest         bool                                                                                                      // When true, skip both save and scan for out-of-scope items
-	StaticFileMatcher     *config.ScopeMatcher                                                                                      // Optional: always-on static file filtering (independent of ScopeMatcher)
-	SkipBaseline          bool                                                                                                      // When true, skip HTTP fetch if response already attached (Phase 3 DB source)
-	OASTProvider          modkit.OASTProvider                                                                                       // Optional: OAST callback URL generator for blind vuln detection
-	OASTService           OASTFlusher                                                                                               // Optional: OAST service to flush after scanning
-	PauseCtrl             *PauseController                                                                                          // Optional: cooperative pause/resume controller
-	MaxFindingsPerModule  int                                                                                                       // When > 0, suppress findings after this many per module
-	MaxDuration           time.Duration                                                                                             // When > 0, cancel execution after this duration
-	FeedbackDrainTimeout  time.Duration                                                                                             // Idle timeout for draining feedback after source EOF (default: 100ms)
-	FeedbackDrainMaxStall time.Duration                                                                                             // Hard cap on draining with workers in-flight but making no progress (0 = 2x active module timeout). Guards against a module that ignores cancellation.
-	IPCacheSize           int                                                                                                       // LRU cache size for parsed insertion points (default: 4096)
-	IPCache               *lru.Cache[string, []httpmsg.InsertionPoint]                                                              // Optional: shared IP cache (if nil, a new one is created)
-	ParallelPassive       bool                                                                                                      // When true, run passive per-request modules concurrently
-	PassiveModuleTimeout  time.Duration                                                                                             // Timeout per passive module call (default: 5s). 0 uses default.
-	ActiveModuleTimeout   time.Duration                                                                                             // Timeout per active module call (default: 90s). 0 uses default. Modules may raise via TimeoutHinter.
-	AdaptiveWorkers       bool                                                                                                      // When true, dynamically scale worker count based on queue depth
-	MinWorkers            int                                                                                                       // Floor for adaptive scaling (default: 2)
-	MaxWorkers            int                                                                                                       // Ceiling for adaptive scaling (default: Workers*4)
-	ActiveTaskLimit       int                                                                                                       // Max concurrent active module tasks across host/request/IP scopes
-	OnStatus              func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) // Optional: periodic status callback
-	StatusInterval        time.Duration                                                                                             // Interval for OnStatus callback (default: 30s)
+	ProjectUUID           string                                                                                                              // Optional: scan session UUID
+	Hooks                 HookRunner                                                                                                          // Optional: pre/post hooks
+	ScopeMatcher          *config.ScopeMatcher                                                                                                // Optional: scope filtering
+	ScopeOnIngest         bool                                                                                                                // When true, skip both save and scan for out-of-scope items
+	StaticFileMatcher     *config.ScopeMatcher                                                                                                // Optional: always-on static file filtering (independent of ScopeMatcher)
+	SkipBaseline          bool                                                                                                                // When true, skip HTTP fetch if response already attached (Phase 3 DB source)
+	OASTProvider          modkit.OASTProvider                                                                                                 // Optional: OAST callback URL generator for blind vuln detection
+	OASTService           OASTFlusher                                                                                                         // Optional: OAST service to flush after scanning
+	PauseCtrl             *PauseController                                                                                                    // Optional: cooperative pause/resume controller
+	MaxFindingsPerModule  int                                                                                                                 // When > 0, suppress findings after this many per module
+	MaxDuration           time.Duration                                                                                                       // When > 0, cancel execution after this duration
+	FeedbackDrainTimeout  time.Duration                                                                                                       // Idle timeout for draining feedback after source EOF (default: 100ms)
+	FeedbackDrainMaxStall time.Duration                                                                                                       // Hard cap on draining with workers in-flight but making no progress (0 = 2x active module timeout). Guards against a module that ignores cancellation.
+	IPCacheSize           int                                                                                                                 // LRU cache size for parsed insertion points (default: 4096)
+	IPCache               *lru.Cache[string, []httpmsg.InsertionPoint]                                                                        // Optional: shared IP cache (if nil, a new one is created)
+	ParallelPassive       bool                                                                                                                // When true, run passive per-request modules concurrently
+	PassiveModuleTimeout  time.Duration                                                                                                       // Timeout per passive module call (default: 5s). 0 uses default.
+	ActiveModuleTimeout   time.Duration                                                                                                       // Timeout per active module call (default: 90s). 0 uses default. Modules may raise via TimeoutHinter.
+	AdaptiveWorkers       bool                                                                                                                // When true, dynamically scale worker count based on queue depth
+	MinWorkers            int                                                                                                                 // Floor for adaptive scaling (default: 2)
+	MaxWorkers            int                                                                                                                 // Ceiling for adaptive scaling (default: Workers*4)
+	ActiveTaskLimit       int                                                                                                                 // Max concurrent active module tasks across host/request/IP scopes
+	OnStatus              func(processed, total, findings, distinctModules, activeCount, passiveCount, timedOut int64, elapsed time.Duration) // Optional: periodic status callback
+	StatusInterval        time.Duration                                                                                                       // Interval for OnStatus callback (default: 30s)
+	// ModuleTimeouts, when non-nil, is an externally-owned counter the executor
+	// increments on each active-module timeout (instead of its own private one).
+	// A multi-round phase passes one shared counter so the timed-out total in the
+	// status line accumulates across the per-round executors it creates.
+	ModuleTimeouts *atomic.Int64
 	// FirstStatusInterval, when > 0 and shorter than StatusInterval, fires the
 	// very first status tick after this duration instead of waiting a full
 	// StatusInterval. Useful for long-cadence status (e.g., 2m) where users
@@ -212,6 +217,15 @@ type Executor struct {
 	results       atomic.Bool
 	statsTracker  *stats.Tracker
 	moduleMetrics *stats.ModuleMetrics
+
+	// moduleTimeouts counts active-module invocations that hit the per-module
+	// timeout and were skipped. Surfaced via the OnStatus callback so the status
+	// line can show how many modules are timing out without flooding stderr with
+	// a WARN per skip (those are logged at debug level instead). This is the
+	// executor's own tally; a multi-round phase can instead supply a shared
+	// counter via ExecutorConfig.ModuleTimeouts so the total accumulates across
+	// rounds — see recordModuleTimeout / timedOutCount, which pick the right one.
+	moduleTimeouts atomic.Int64
 
 	// Database storage (optional)
 	repo         *database.Repository
@@ -502,6 +516,7 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 				e.moduleMetrics.DistinctCount(),
 				activeCount,
 				passiveCount,
+				e.timedOutCount(),
 				time.Since(statusStart),
 			)
 		}
@@ -1044,7 +1059,7 @@ func (e *Executor) fetchBaselineResponse(ctx context.Context, req *httpmsg.HttpR
 		return nil, nil, nil, false
 	}
 
-	fullResp := respChain.FullResponse().Bytes()
+	fullResp := respChain.FullResponseBytes()
 	rawResponseCopy := getResponseBuffer(len(fullResp))
 	copy(rawResponseCopy, fullResp)
 	respChain.Close()
@@ -1340,12 +1355,43 @@ func (e *Executor) runActiveWithTimeout(
 		return r.events, true
 	case <-callCtx.Done():
 		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
-		zap.L().Warn("Active module timed out — skipping",
+		// callCtx.Done() trips on a genuine per-module timeout AND on parent
+		// cancellation (Ctrl-C, --scanning-max-duration, phase deadline). Only the
+		// former is a "timed out" module — count it when the parent is still alive,
+		// so cancelling a scan with many modules in flight doesn't inflate the
+		// status-line count with modules that were merely interrupted.
+		if ctx.Err() == nil {
+			e.recordModuleTimeout()
+		}
+		// Logged at debug level: a per-skip WARN floods stderr on slow targets.
+		// The running count is surfaced in the status line via OnStatus instead.
+		zap.L().Debug("Active module timed out — skipping",
 			zap.String("module", module.ID()),
 			zap.String("url", item.Target()),
 			zap.Duration("timeout", timeout))
 		return nil, false
 	}
+}
+
+// recordModuleTimeout increments the active-module timeout counter — the shared
+// phase counter when one was supplied via ExecutorConfig.ModuleTimeouts (so the
+// total accumulates across a multi-round phase's per-round executors), otherwise
+// this executor's own tally.
+func (e *Executor) recordModuleTimeout() {
+	if e.cfg.ModuleTimeouts != nil {
+		e.cfg.ModuleTimeouts.Add(1)
+		return
+	}
+	e.moduleTimeouts.Add(1)
+}
+
+// timedOutCount returns the active-module timeout total reported in the status
+// line: the shared phase counter when present, else this executor's own tally.
+func (e *Executor) timedOutCount() int64 {
+	if e.cfg.ModuleTimeouts != nil {
+		return e.cfg.ModuleTimeouts.Load()
+	}
+	return e.moduleTimeouts.Load()
 }
 
 // isLevelDBClosed returns true if the error is caused by a closed LevelDB instance,

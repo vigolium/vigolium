@@ -218,7 +218,7 @@ func (m *Module) probeEndpoint(
 				URL:              targetURL,
 				Matched:          targetURL,
 				Request:          string(modifiedRaw),
-				Response:         resp.FullResponse().String(),
+				Response:         resp.FullResponseString(),
 				ExtractedResults: []string{"WWW-Authenticate: " + wwwAuth},
 				Info: output.Info{
 					Name:        fmt.Sprintf("Tomcat Admin Interface: %s (Auth Required)", p.name),
@@ -287,7 +287,7 @@ func (m *Module) probeEndpoint(
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
 			Name:        fmt.Sprintf("Tomcat Admin Interface: %s", p.name),

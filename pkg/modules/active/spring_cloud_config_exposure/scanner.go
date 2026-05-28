@@ -266,7 +266,7 @@ func (m *Module) probeEndpoint(
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
 			Name:        fmt.Sprintf("Spring Cloud Config: %s", p.name),

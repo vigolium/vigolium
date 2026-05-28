@@ -47,7 +47,7 @@ func probeHeaders(
 			change := detectChange(baseline, resp.Body().String(), resp.Response().StatusCode)
 			if change.IsInteresting {
 				results = append(results, buildProbeResult(
-					urlStr, raw, resp.FullResponse().String(),
+					urlStr, raw, resp.FullResponseString(),
 					header, "header", value, change,
 				))
 			}
@@ -79,7 +79,7 @@ func probeHeaders(
 		change := detectChange(baseline, resp.Body().String(), resp.Response().StatusCode)
 		if change.IsInteresting {
 			results = append(results, buildProbeResult(
-				urlStr, raw, resp.FullResponse().String(),
+				urlStr, raw, resp.FullResponseString(),
 				name, "weird_header", "127.0.0.1", change,
 			))
 		}

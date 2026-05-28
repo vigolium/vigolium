@@ -94,7 +94,8 @@ var (
 	globalExtDir     string   // --ext-dir
 
 	// Stateless mode
-	globalStateless bool
+	globalStateless   bool
+	globalSplitByHost bool
 
 	// Request clustering
 	globalNoClustering bool

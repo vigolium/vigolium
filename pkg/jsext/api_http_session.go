@@ -1113,7 +1113,7 @@ func doRawRequestBytes(httpClient *gohttp.Requester, rawReq string) respSlot {
 		return respSlot{err: true}
 	}
 
-	fullResp := respChain.FullResponse().Bytes()
+	fullResp := respChain.FullResponseBytes()
 	rawResponseCopy := make([]byte, len(fullResp))
 	copy(rawResponseCopy, fullResp)
 	respChain.Close()

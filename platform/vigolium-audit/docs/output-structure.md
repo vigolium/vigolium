@@ -302,9 +302,10 @@ for debugging.
 `/vigolium-audit:confirm` (V1-V6, with optional V1.5 intent cross-check where
 enabled) stores its run inputs, environment/provisioning state, and a
 regenerated verdict index under `vigolium-results/confirm-workspace/`. The canonical
-finding records remain `vigolium-results/findings/<ID>-<slug>/report.md`; the workspace
-contains supporting JSON/logs plus disposable copies grouped by confirmation
-outcome.
+finding records remain in their original finalized bucket — either
+`vigolium-results/findings/<ID>-<slug>/` or
+`vigolium-results/findings-theoretical/<ID>-<slug>/`; the workspace contains
+supporting JSON/logs plus disposable copies grouped by confirmation outcome.
 
 Typical layout after a completed confirm run:
 
@@ -347,7 +348,7 @@ vigolium-results/confirm-workspace/
 
 | File | Produced by | Description |
 | --- | --- | --- |
-| `findings-inventory.json` | confirm V1 | Extracted finding metadata sorted by severity: ID, slug, title, severity, vulnerability class, PoC path, `Protocol`, `Auth-Required`, and `exploitability_class` (`network-exploitable`, `local-exploitable`, or `non-exploitable`). Also feeds the report's by-class breakdown. |
+| `findings-inventory.json` | confirm V1 | Extracted finding metadata sorted by severity from BOTH `findings/` and `findings-theoretical/`: ID, slug, actual `dir`, `bucket`/`original_bucket`, `source_file`, `source_kind`, report-repair status, title, severity, vulnerability class, PoC path, `Protocol`, `Auth-Required`, and `exploitability_class` (`network-exploitable`, `local-exploitable`, or `non-exploitable`). Also feeds the report's by-bucket and by-class breakdowns. |
 | `intent-corpus.json` / `intent-verdicts.json` | confirm V1.5 / `context-reviewer` | Documented-intent corpus + per-finding `Documented-Intent` verdicts under the annotate-only confirm contract. Optional — absent if the intent pass is skipped or fails. These annotations do not change confirmation status. |
 | `env-strategies.json` | confirm V2 / `env-profiler` | Ranked startup strategies, build steps, ports and fallback ports, env vars, datastores, migrations/seeds, test framework, and multi-tenancy hints. |
 | `auth-spec.json` | confirm V2 / `env-profiler` | Auth scaffolding and identities to seed. Written as `{"supported": false}` when no auth wiring is detected. |
@@ -364,7 +365,8 @@ At V6, `confirm-writer` mirrors each finding directory into exactly one derived
 category under `report-ready/` (ship list) or `needs-review/` (followup queue).
 These folders are wiped and rebuilt on every confirm run, so they are a
 convenience index for reviewers, not the source of truth.
-`vigolium-results/findings/` remains authoritative.
+The inventory entry's original `dir` remains authoritative, whether it is under
+`vigolium-results/findings/` or `vigolium-results/findings-theoretical/`.
 
 | Bucket | Categories | Meaning |
 | --- | --- | --- |
@@ -425,7 +427,7 @@ vigolium-results/tmp/on-demand.bqrs
 | `lite` | `attack-surface/lite-recon.md`, `findings-draft/l2-*.md`, `findings-draft/l3-*.md`, severity-prefixed `findings/<C\|H\|M><N>-<slug>/` (`draft.md`, `poc.*`, `evidence/`) |
 | `balanced` | `attack-surface/knowledge-base-report.md` + advisory/KB/SAST/probe/chamber sections, `attack-surface/intent-reconciliation.md`, `findings/<id>-<slug>/`, `findings-theoretical/<id>-<slug>/`, `final-audit-report.md` |
 | `deep` | Full `attack-surface/` corpus (incl. `intent-corpus.json` + `intent-reconciliation.md`), `findings/`, `findings-theoretical/`, `file-state.json`, `final-audit-report.md`; raw chamber/SAST workspaces exist only until successful cleanup |
-| `confirm` | `confirmation-report.md`, `confirm-workspace/*.json`, verdict-grouped `confirm-workspace/report-ready/` + `needs-review/` staging copies, updated `findings/<id>/report.md`, evidence under `findings/<id>/confirm-evidence/`, optional `confirm-test*` fallback artifacts |
+| `confirm` | `confirmation-report.md`, `confirm-workspace/*.json`, verdict-grouped `confirm-workspace/report-ready/` + `needs-review/` staging copies, updated `<inventory.dir>/report.md` in either `findings/` or `findings-theoretical/`, evidence under `<inventory.dir>/confirm-evidence/`, optional `confirm-test*` fallback artifacts |
 | `diff` | Re-runs a subset of deep phases against a changed-file scope; produces deltas under the same paths the underlying deep phases use |
 | `revisit` | `revisit-audit-state.json`, anti-anchored `chamber-workspace/r<N>-*/`, new entries under `findings/`, regenerated `final-audit-report.md` |
 | `reinvest` | `findings/<id>/wave-<N>-verdict.md` per finding, top-level `reinvest-report.md` |
@@ -437,7 +439,7 @@ vigolium-results/tmp/on-demand.bqrs
 For a completed audit, start with:
 
 1. `vigolium-results/final-audit-report.md`
-2. `vigolium-results/findings/<ID>-<slug>/report.md`
+2. `vigolium-results/findings/<ID>-<slug>/report.md` and `vigolium-results/findings-theoretical/<ID>-<slug>/report.md`
 3. `vigolium-results/attack-surface/knowledge-base-report.md`
 4. `vigolium-results/attack-surface/intent-reconciliation.md` (balanced/deep — why a finding was treated as intentional/feature vs a real bug)
 5. `vigolium-results/attack-surface/authz-matrix.md` (if deep)
@@ -447,9 +449,9 @@ For confirmation results, start with:
 
 1. `vigolium-results/confirmation-report.md`
 2. `vigolium-results/confirm-workspace/report-ready/` and `vigolium-results/confirm-workspace/needs-review/` (verdict-grouped copies for quick triage)
-3. `vigolium-results/findings/<ID>-<slug>/report.md` (canonical source; look for the appended `Confirm-*` block)
-4. `vigolium-results/findings/<ID>-<slug>/confirm-evidence/` or `confirm-test*` artifacts
-5. `vigolium-results/confirm-workspace/findings-inventory.json`
+3. `vigolium-results/confirm-workspace/findings-inventory.json` (actual `dir` and `original_bucket` for each candidate)
+4. `<inventory.dir>/report.md` (canonical source; look for the appended `Confirm-*` block)
+5. `<inventory.dir>/confirm-evidence/` or `confirm-test*` artifacts
 
 For a reinvest pass, start with:
 

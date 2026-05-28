@@ -197,7 +197,7 @@ func (m *Module) ScanPerRequest(
 				URL:      urlx.String(),
 				Matched:  urlx.String(),
 				Request:  string(modifiedRaw),
-				Response: resp2.FullResponse().String(),
+				Response: resp2.FullResponseString(),
 				ExtractedResults: []string{
 					fmt.Sprintf("Technique: %s", tech.desc),
 					fmt.Sprintf("Confused path: %s", confusedPath),

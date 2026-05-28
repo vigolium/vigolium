@@ -233,7 +233,7 @@ func (m *Module) runTest(
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		ExtractedResults: []string{test.path},
 		Info: output.Info{
 			Name:        fmt.Sprintf("PHP PATH_INFO Misconfiguration: %s", test.name),

@@ -204,7 +204,7 @@ func (m *Module) ScanPerRequest(
 			URL:              targetURL,
 			Matched:          targetURL,
 			Request:          string(modifiedRaw),
-			Response:         resp.FullResponse().String(),
+			Response:         resp.FullResponseString(),
 			ExtractedResults: extracted,
 			Info: output.Info{
 				Name:        fmt.Sprintf("FastAPI Auth Inconsistency: %d unprotected operations", len(unprotected)),

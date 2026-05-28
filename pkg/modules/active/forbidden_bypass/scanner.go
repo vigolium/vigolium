@@ -140,7 +140,7 @@ func bypassPath(urlx *urlutil.URL, ctx *httpmsg.HttpRequestResponse, httpClient 
 			continue
 		}
 		if resp.Response().StatusCode == 200 {
-			respDump := resp.FullResponse().String()
+			respDump := resp.FullResponseString()
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.Scheme + "://" + urlx.Host + payload,
 				Request:          string(modifiedRaw),
@@ -219,7 +219,7 @@ func bypassHeaders(
 			continue
 		}
 		if resp.Response().StatusCode == 200 {
-			respDump := resp.FullResponse().String()
+			respDump := resp.FullResponseString()
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.Scheme + "://" + urlx.Host + newPath,
 				Request:          string(modifiedRaw),
@@ -277,8 +277,8 @@ func bypassMethod(
 			continue
 		}
 
-		if resp.Response() != nil && isMethodBypassStatus(method, resp.Response().StatusCode, resp.FullResponse().String()) {
-			respDump := resp.FullResponse().String()
+		if resp.Response() != nil && isMethodBypassStatus(method, resp.Response().StatusCode, resp.FullResponseString()) {
+			respDump := resp.FullResponseString()
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Request:          string(modifiedRaw),
@@ -321,7 +321,7 @@ func bypassMethod(
 		}
 
 		if resp.Response() != nil && resp.Response().StatusCode == 200 {
-			body := resp.FullResponse().String()
+			body := resp.FullResponseString()
 			if !strings.Contains(strings.ToLower(body), "method not allowed") {
 				results = append(results, &output.ResultEvent{
 					URL:              urlx.String(),

@@ -100,7 +100,7 @@ func (m *Module) ScanPerInsertionPoint(
 				results = append(results, &output.ResultEvent{
 					URL:              urlx.String(),
 					Request:          string(fuzzedRaw),
-					Response:         resp.FullResponse().String(),
+					Response:         resp.FullResponseString(),
 					FuzzingParameter: ip.Name(),
 					ExtractedResults: []string{payload},
 				})

@@ -162,7 +162,7 @@ func (m *Module) ScanPerRequest(
 		respBody := ""
 		if resp.Response() != nil {
 			statusCode = resp.Response().StatusCode
-			respBody = resp.FullResponse().String()
+			respBody = resp.FullResponseString()
 		}
 
 		// Server returned validation error — skip (server properly rejects unknown fields)

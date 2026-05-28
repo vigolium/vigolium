@@ -210,7 +210,7 @@ func (m *Module) probeEndpoint(
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
 			Name:        fmt.Sprintf("ASP.NET Diagnostic Exposed: %s", p.name),
@@ -286,7 +286,7 @@ func (m *Module) probeYSoD(
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
 			Name:        "ASP.NET Verbose Error Page (YSoD)",

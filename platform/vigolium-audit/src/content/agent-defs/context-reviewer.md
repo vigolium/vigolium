@@ -31,7 +31,9 @@ were given:
   routing.
 - **Confirm contract** (confirm phase V1.5): you are given
   `vigolium-results/confirm-workspace/findings-inventory.json` and a confirm-workspace
-  output path. You evaluate **finalized `report.md` files** and are
+  output path. You evaluate finalized finding entries from either `findings/` or
+  `findings-theoretical/`, reading each entry's `source_file` (normally
+  `report.md`; `draft.md` only when report repair failed), and are
   **strictly annotate-only**.
 
 If both a draft directory and an inventory are somehow present, treat it as the
@@ -99,7 +101,10 @@ Enumerate the findings for your contract:
   (the chamber writes `p10-` drafts regardless of NNN range — iterate the whole
   directory, do not filter by prefix). Skip drafts whose `Verdict` is not `VALID`.
 - **Confirm contract**: every finding in `findings-inventory.json` →
-  `findings[]`; read each finding's `<dir>/report.md`.
+  `findings[]`; read each finding's `source_file`. Prefer entries whose
+  `source_kind` is `report`; if `source_kind` is `draft`, annotate the generated
+  `intent-verdicts.json` but only edit `report.md` when it exists. Do not create
+  or repair reports here — V1 owns report repair.
 
 For each finding:
 
@@ -161,7 +166,9 @@ triage pass already assigned.
 ### Confirm contract (V1.5) — strictly annotate-only
 
 Append (or replace) near the top of each finding's `report.md`, AFTER existing
-metadata fields and BEFORE the prose body:
+metadata fields and BEFORE the prose body. If an inventory entry has no
+`report.md` because V1 repair failed, do not write to `draft.md`; record the
+verdict in `intent-verdicts.json` only:
 
 ```
 Documented-Intent: <yes | partial | no | contested>
@@ -171,9 +178,10 @@ Documented-Intent-Quote: <≤240 char quote | n/a>
 
 Map verdicts: `intentional-design`/`documented-feature` → `yes`; a `medium`-only
 overlap → `partial`; `genuine-vuln` → `no`; `contested` → `contested`. You MUST
-NOT change `Severity-Final`, `Confirm-Status`, `Triage-Priority`, or any other
-field, and you MUST NOT cause V4/V5 to be skipped — the PoC still runs. Documented
-intent is recorded for the human reviewer; live execution is the arbiter.
+NOT change `Severity-Final`, `Confirm-Status`, `Triage-Priority`, bucket,
+directory path, or any other field, and you MUST NOT cause V4/V5 to be skipped —
+the PoC/test still runs. Documented intent is recorded for the human reviewer;
+live execution or generated tests are the arbiter.
 
 ## Step 4 — Write outputs
 

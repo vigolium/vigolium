@@ -117,20 +117,42 @@ type StandardWriter struct {
 
 func NewStandardWriter(options *types.Options) (*StandardWriter, error) {
 	var outputFile io.WriteCloser
-	// Create file output for JSONL streaming during scan. Skip when the only format is html
-	// (HTML reports are generated post-scan from the database).
-	needsFileOutput := options.Output != "" && (options.HasFormat("jsonl") || options.HasFormat("console"))
+	// Create file output for live result streaming during the scan. Skip html
+	// (generated post-scan from the database) and deferred jsonl (emitted post-scan
+	// as the unified {"type":...,"data":...} envelope — see DeferredJSONLExport).
+	liveJSONLFile := options.HasFormat("jsonl") && !options.DeferredJSONLExport
+	needsFileOutput := options.Output != "" && (liveJSONLFile || options.HasFormat("console"))
 	if needsFileOutput {
-		output, err := newFileOutputWriter(options.Output, true)
+		// With a single format, write to the literal -o path. With multiple
+		// formats, use the format-specific path so the live file never collides
+		// with a post-scan export at the same -o base (e.g. console live file vs
+		// the deferred jsonl/html/report files when -o ends in .jsonl/.html).
+		filePath := options.Output
+		if len(options.OutputFormats) > 1 {
+			if liveJSONLFile {
+				filePath = options.OutputPathForFormat("jsonl")
+			} else {
+				filePath = options.OutputPathForFormat("console")
+			}
+		}
+		output, err := newFileOutputWriter(filePath, true)
 		if err != nil {
 			return nil, errors.Wrap(err, "could not create output file")
 		}
 		outputFile = output
 	}
 
+	// Deferred jsonl emits its envelope once the scan finishes, so suppress the
+	// live nuclei-style ResultEvent stream on stdout too — unless console output
+	// was also requested, which keeps its own live stream.
+	disableStdout := options.Silent
+	if options.DeferredJSONLExport && !options.HasFormat("console") {
+		disableStdout = true
+	}
+
 	return &StandardWriter{
 		outputFile:              outputFile,
-		DisableStdout:           options.Silent,
+		DisableStdout:           disableStdout,
 		IncludeResponseInOutput: options.IncludeResponseInOutput,
 		JSONOutput:              options.JSONOutput,
 	}, nil

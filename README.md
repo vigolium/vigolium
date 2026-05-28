@@ -153,20 +153,22 @@ Vigolium supports multi-session authenticated scanning for IDOR/BOLA testing and
 ```bash
 # Inline session via CLI flag (name:Header:value)
 vigolium scan -t https://example.com \
-  --session "admin:Cookie:session_id=abc123" \
-  --session "user:Cookie:session_id=xyz789"
+  --auth "admin:Cookie:session_id=abc123" \
+  --auth "user:Cookie:session_id=xyz789"
 
-# Load session from YAML/JSON file
-vigolium scan -t https://example.com --session-file ./admin-session.yaml
+# Load session(s) from a YAML/JSON file
+vigolium scan -t https://example.com --auth-file ./admin-session.yaml
 
-# Full auth configuration with login flows
-vigolium scan -t https://example.com --auth-config ./auth-config.yaml
+# Auth file with an automated login flow (token extraction, etc.)
+vigolium scan -t https://example.com --auth-file ./login-flow.yaml
 
 # Add custom headers (works with sessions)
 vigolium scan -t https://example.com -H "Authorization: Bearer token123"
 ```
 
-Session files support static headers, bearer tokens, and automated login flows with token extraction from cookies, JSON responses, or headers. Preset examples are available in `public/presets/sessions/`. See [docs.vigolium.com/native-scan/authentication](https://docs.vigolium.com/native-scan/authentication) for the full guide.
+Auth files support static headers, bearer tokens, and automated login flows with token extraction from cookies, JSON responses, or headers. Preset examples are available in `public/presets/sessions/`. See [docs.vigolium.com/native-scan/authentication](https://docs.vigolium.com/native-scan/authentication) for the full guide.
+
+> The `--auth` / `--auth-file` flags were previously named `--session` / `--session-file`. The old names still work as deprecated aliases.
 
 ## Agentic Scan
 
@@ -236,7 +238,7 @@ Run JavaScript/TypeScript code directly or write custom scan modules and hooks w
 
 ```bash
 # Execute inline JavaScript
-vigolium js --code 'let r = vigolium.http.get(TARGET); console.log(r.statusCode)' -t https://example.com
+vigolium js --code 'let r = vigolium.http.get(TARGET); console.log(r.status)' -t https://example.com
 
 # Run a JS file with timeout
 vigolium js --code-file ./my-script.js -t https://example.com --timeout 60s
@@ -250,9 +252,14 @@ vigolium ext preset            # install starter scripts
 The JS engine exposes session-aware HTTP APIs for authenticated testing:
 
 ```javascript
-// Create a persistent session with shared cookie jar
+// Create a persistent session with shared cookie jar.
+// post() takes a string body — serialize objects yourself.
 let session = vigolium.http.session();
-session.post("https://app.example.com/login", { user: "admin", pass: "secret" });
+session.post(
+  "https://app.example.com/login",
+  JSON.stringify({ user: "admin", pass: "secret" }),
+  { headers: { "Content-Type": "application/json" } }
+);
 session.get("https://app.example.com/dashboard"); // cookies auto-sent
 
 // Automated login flow with token extraction
@@ -313,21 +320,22 @@ Agentic scan (in-process olium engine):
 Server & ingestion:
   vigolium server              Start the API server with traffic ingestion
   vigolium ingest              Ingest traffic to a running server
+  vigolium storage             Interact with cloud object storage (uploads, downloads)
 
 Data & projects:
   vigolium db                  Database operations (list, stats, export, clean, seed)
   vigolium finding             Browse and manage findings (load, tui)
   vigolium traffic             Browse and replay HTTP records (tui, replay)
+  vigolium replay              Mutate a stored/supplied HTTP request and diff baseline vs replay
   vigolium project             Manage projects (create, list, use, config)
   vigolium scope               Manage scope rules
-  vigolium source              Manage source repositories (add, scan)
   vigolium import              Import findings/data from external sources
   vigolium export              Export scan results
 
-Extensions & sessions:
+Extensions & auth:
   vigolium js                  Execute JavaScript/TypeScript code
   vigolium ext                 Manage JavaScript extensions (eval, lint)
-  vigolium session             Manage authentication sessions (load, ls, lint, totp)
+  vigolium auth                Manage authentication sessions (list, load, lint, totp)
 
 Setup & introspection:
   vigolium init                Initialize a Vigolium workspace
@@ -335,7 +343,6 @@ Setup & introspection:
   vigolium strategy            Inspect scanning strategies and phases
   vigolium module              Inspect/enable scanner modules
   vigolium doctor              Diagnose environment & dependencies
-  vigolium examples            Show usage examples
   vigolium version             Show version info
 ```
 
@@ -354,9 +361,8 @@ Native Scan (vigolium scan / run):
                          external-harvest, spa, audit
 
 Authentication:
-      --session           Inline session definition (name:Header:value, repeatable)
-      --session-file      Session YAML/JSON file path (repeatable)
-      --auth-config       Full auth configuration file path
+      --auth              Inline session definition (name:Header:value, repeatable)
+      --auth-file         Session YAML/JSON file path, supports login flows (repeatable)
   -H, --header           Custom HTTP header (repeatable)
 
 Performance:

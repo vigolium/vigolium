@@ -625,19 +625,34 @@ func (s *Session) HeaderSlice() []string {
 	return result
 }
 
-// ParseInlineSession parses a CLI --session flag value in "name:Header:value" format.
+// ParseInlineSession parses a CLI --auth flag value in "name:Header:value" format.
 // Example: "admin:Cookie:session=abc" → Session{Name:"admin", Headers:{"Cookie":"session=abc"}}
 func ParseInlineSession(s string) (*Session, error) {
 	// Format: name:HeaderName:HeaderValue
 	parts := strings.SplitN(s, ":", 3)
 	if len(parts) < 3 {
-		return nil, fmt.Errorf("invalid --session format %q: expected name:Header:value (e.g. admin:Cookie:session=abc)", s)
+		// Common mistake: "name:value" without the header-name field in the
+		// middle (e.g. "user1:session=abc" instead of "user1:Cookie:session=abc").
+		// When the second field looks like a header *value* rather than a header
+		// name, point at the missing field and suggest a copy-pasteable fix.
+		if len(parts) == 2 {
+			name := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			if name != "" && looksLikeAuthValue(value) {
+				suggestion := fmt.Sprintf("%s:%s:%s", name, guessAuthHeader(value), value)
+				return nil, fmt.Errorf("invalid --auth format %q: missing the header-name field — "+
+					"the format is name:Header:value, but you provided only name:value. "+
+					"Did you mean %q? (the header name, e.g. Cookie, goes between the session name and the value)",
+					s, suggestion)
+			}
+		}
+		return nil, fmt.Errorf("invalid --auth format %q: expected name:Header:value (e.g. admin:Cookie:session=abc)", s)
 	}
 	name := strings.TrimSpace(parts[0])
 	headerName := strings.TrimSpace(parts[1])
 	headerValue := strings.TrimSpace(parts[2])
 	if name == "" || headerName == "" {
-		return nil, fmt.Errorf("invalid --session format %q: name and header name cannot be empty", s)
+		return nil, fmt.Errorf("invalid --auth format %q: name and header name cannot be empty", s)
 	}
 	return &Session{
 		Name: name,
@@ -646,4 +661,27 @@ func ParseInlineSession(s string) (*Session, error) {
 			headerName: headerValue,
 		},
 	}, nil
+}
+
+// looksLikeAuthValue reports whether s appears to be a header *value* (a cookie
+// string, bearer token, etc.) rather than a header *name*. HTTP header names are
+// RFC 7230 tokens — letters, digits, and a few symbols, but never '=', ' ', ';',
+// or '/'. Any of those characters means the user almost certainly pasted a value
+// and omitted the header-name field.
+func looksLikeAuthValue(s string) bool {
+	return strings.ContainsAny(s, "= ;/")
+}
+
+// guessAuthHeader infers the most likely header name for an inline auth value
+// whose header field was omitted, so the error message can suggest a concrete
+// correction. Bearer/Basic credentials map to Authorization; everything else
+// defaults to Cookie, by far the most common case.
+func guessAuthHeader(value string) string {
+	lower := strings.ToLower(value)
+	switch {
+	case strings.HasPrefix(lower, "bearer "), strings.HasPrefix(lower, "basic "):
+		return "Authorization"
+	default:
+		return "Cookie"
+	}
 }

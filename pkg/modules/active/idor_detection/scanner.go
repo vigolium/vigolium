@@ -228,7 +228,7 @@ func (m *Module) probeNeighbor(
 	// is a use-after-free that races with concurrent module execution.
 	probeBody := append([]byte(nil), resp.Body().Bytes()...)
 	probeRequest := string(fuzzedRaw)
-	probeResponse := resp.FullResponse().String()
+	probeResponse := resp.FullResponseString()
 	resp.Close()
 
 	// Hard denial: 401, 403 → authorization enforced

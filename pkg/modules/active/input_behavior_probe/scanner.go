@@ -150,7 +150,7 @@ func (m *Module) probePolyglot(
 		}
 		return []*output.ResultEvent{
 			buildProbeResult(
-				urlStr, fuzzedRaw, fuzzedResp.FullResponse().String(),
+				urlStr, fuzzedRaw, fuzzedResp.FullResponseString(),
 				ip.Name(), "polyglot_fuzz", fuzzPayload, change,
 			),
 		}

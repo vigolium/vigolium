@@ -172,7 +172,7 @@ func (m *Module) testPayload(
 		URL:              urlx.String(),
 		Matched:          urlx.String(),
 		Request:          string(fuzzedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		FuzzingParameter: ip.Name(),
 		ExtractedResults: []string{p.payload},
 		Info: output.Info{

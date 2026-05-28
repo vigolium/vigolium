@@ -120,23 +120,25 @@ Usage: `vigolium-audit run --mode confirm [--from-audit <id>] [--target <url>]`
 
 Phase count: 7 (`V1`, `V1.5`, `V2`-`V6`)
 
-Confirm executes the existing PoCs in `vigolium-results/findings/` against a live
-target. When a remote URL is supplied via `--target https://…`, V2 and V3 are
+Confirm executes existing PoCs from BOTH `vigolium-results/findings/` and
+`vigolium-results/findings-theoretical/` against a live target. Theoretical
+findings without PoCs are routed to generated-test fallback instead of being
+ignored. When a remote URL is supplied via `--target https://…`, V2 and V3 are
 skipped and the URL is treated as the already-running target. Remote mode
 also skips local test fallback in V5 by default. `V1.5` (Intent Cross-Check)
 runs `context-reviewer` under its strictly annotate-only confirm contract — it
-records documented intent against findings but never changes a verdict and
-never causes V4/V5 to be skipped.
+records documented intent against findings but never changes a verdict, bucket,
+or directory path and never causes V4/V5 to be skipped.
 
 | Phase | Name | Agent | What it does | Main outputs |
 | --- | --- | --- | --- | --- |
-| `V1` | Findings Inventory | (inline) | Reads `vigolium-results/findings/*/report.md`, classifies findings, extracts PoC paths, sorts by severity. | `vigolium-results/confirm-workspace/findings-inventory.json` |
+| `V1` | Findings Inventory + Report Repair | (inline + `finding-writer` for missing reports) | Reads candidates from BOTH `vigolium-results/findings/*/` and `vigolium-results/findings-theoretical/*/`. Prefers `report.md`; if only `draft.md` exists, repairs by authoring `report.md`; classifies findings, extracts PoC paths, records `bucket`/`original_bucket`, sorts by severity. | `vigolium-results/confirm-workspace/findings-inventory.json`; repaired per-finding `report.md` when possible |
 | `V1.5` | Intent Cross-Check | `context-reviewer` | Confirm contract: scans documented intent (SECURITY.md/README/docs/ADRs/inline pragmas), cross-checks each finding (bounded read of its cited code), annotates `report.md` with `Documented-Intent` fields. Strictly annotate-only — never changes severity/verdict/`Confirm-Status`, never skips V4/V5. Skip-and-continue. | `vigolium-results/confirm-workspace/intent-corpus.json`; `vigolium-results/confirm-workspace/intent-verdicts.json`; `Documented-Intent` annotations on `report.md` |
 | `V2` | Environment Discovery | `env-profiler` | Discovers startup strategies, ports, env vars, datastores, migrations, test framework, optional auth scaffolding. | `vigolium-results/confirm-workspace/env-strategies.json`; `vigolium-results/confirm-workspace/auth-spec.json` (only when auth detected) |
 | `V3` | Environment Provisioning | `env-builder` | Starts the target locally, applies migrations + seed data, snapshots datastores, seeds test identities, records connection details. | `vigolium-results/confirm-workspace/env-connection.json` (or `healthcheck-failure.log` on a bad boot); `app.pid`; `setup.log`/`migration.log`/`seed.log`; `db-snapshot.*` + `snapshot-spec.json` |
-| `V4` | PoC Execution | `poc-runner` | Runs each finding's existing PoC against the target, captures evidence, appends a confirmation block to its `report.md`. | `vigolium-results/findings/<id>-<slug>/confirm-evidence/`; updated `vigolium-results/findings/<id>-<slug>/report.md` |
-| `V5` | Test-Based Fallback | `test-locator` | Generates and runs focused reproducer tests for not-reproduced / flaky / blocked / no-PoC / local-only findings. | `vigolium-results/findings/<id>-<slug>/confirm-test.<ext>`; `vigolium-results/findings/<id>-<slug>/confirm-test-output.log`; updated `report.md` |
-| `V6` | Confirmation Report | `confirm-writer` | Compiles confirmation verdicts and renames false positives with an `FP-` prefix. | `vigolium-results/confirmation-report.md`; `vigolium-results/confirm-workspace/cleanup.log` |
+| `V4` | PoC Execution | `poc-runner` | Runs each finding's existing PoC against the target using the actual inventory `dir`, captures evidence, appends a confirmation block to its `report.md`. | `<inventory.dir>/confirm-evidence/`; updated `<inventory.dir>/report.md` |
+| `V5` | Test-Based Fallback | `test-locator` | Generates and runs focused reproducer tests for not-reproduced / flaky / blocked / no-PoC / local-only findings, including theoretical findings without PoCs. | `<inventory.dir>/confirm-test.<ext>`; `<inventory.dir>/confirm-test-output.log`; updated `<inventory.dir>/report.md` |
+| `V6` | Confirmation Report | `confirm-writer` | Compiles confirmation verdicts from `findings-inventory.json`, stages copies by verdict, preserves each entry's original bucket, and does not move verified theoretical findings automatically. | `vigolium-results/confirmation-report.md`; `vigolium-results/confirm-workspace/report-ready/`; `vigolium-results/confirm-workspace/needs-review/`; `vigolium-results/confirm-workspace/cleanup.log` |
 
 ## `vigolium-audit run --mode diff`
 

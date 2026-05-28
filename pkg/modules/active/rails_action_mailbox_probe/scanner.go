@@ -260,7 +260,7 @@ func (m *Module) probeEndpoint(
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		ExtractedResults: evidence,
 		Info: output.Info{
 			Name:        fmt.Sprintf("Rails %s", p.name),

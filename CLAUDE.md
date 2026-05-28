@@ -83,7 +83,7 @@ All scan data is scoped to a **project** via `project_uuid` on all data tables (
 
 - `cmd/vigolium/` — Main CLI (Cobra-based, commands in `pkg/cli/`)
 
-Top-level commands registered in `pkg/cli/root.go`: `scan`, `scan-url`, `scan-request`, `run`, `agent`, `olium` / `ol` (alias for `agent olium`), `server`, `ingest`, `db`, `project`, `scope`, `source`, `traffic`, `finding`, `strategy`, `session`, `module`, `import`, `export`, `js`, `ext`, `init`, `config`, `license`, `version`, `update`, `doctor`, `examples`, `log`. Agent subcommands (registered in `pkg/cli/agent_*.go`): `query`, `autopilot`, `swarm`, `olium`, `audit`, `session`.
+Top-level commands registered in `pkg/cli/root.go`: `scan`, `scan-url`, `scan-request`, `run`, `replay`, `agent`, `olium` / `ol` (alias for `agent olium`), `server`, `ingest`, `db`, `storage`, `project`, `scope`, `traffic`, `finding`, `strategy`, `auth`, `module`, `import`, `export`, `js`, `extensions` (alias `ext`), `init`, `config`, `version`, `update`, `doctor`, `log`. The `auth` command (`auth list`/`load`/`lint`/`totp`) manages authentication sessions; its source files are named `pkg/cli/session_*.go` for historical reasons. Agent subcommands (registered in `pkg/cli/agent_*.go`): `query`, `autopilot`, `swarm`, `olium`, `audit`, `session`.
 
 ### Testing Tiers
 

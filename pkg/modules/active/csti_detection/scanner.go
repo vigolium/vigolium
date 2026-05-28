@@ -109,7 +109,7 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 
 		attackBody := resp.Body().String()
-		fullResponse := resp.FullResponse().String()
+		fullResponse := resp.FullResponseString()
 		resp.Close()
 
 		// Check for literal reflection (not HTML-encoded)

@@ -52,7 +52,7 @@ func runExportBundle() error {
 	defer closeDatabaseOnExit()
 
 	ctx := context.Background()
-	items, err := queryExportData(ctx, db, topExportOmitResponse)
+	items, err := queryExportData(ctx, db, topExportOmitResponse, "")
 	if err != nil {
 		return err
 	}

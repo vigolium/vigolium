@@ -142,7 +142,7 @@ func (m *Module) ScanPerRequest(
 			URL:      urlx.String(),
 			Matched:  urlx.Scheme + "://" + host + dataPath,
 			Request:  string(modifiedRaw),
-			Response: resp.FullResponse().String(),
+			Response: resp.FullResponseString(),
 			ExtractedResults: []string{
 				fmt.Sprintf("Data route: %s", dataPath),
 				fmt.Sprintf("BuildID: %s", buildID),

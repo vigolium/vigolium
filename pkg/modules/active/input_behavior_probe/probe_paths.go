@@ -88,7 +88,7 @@ func testPathVariant(
 	change := detectChange(baseline, resp.Body().String(), resp.Response().StatusCode)
 	if change.IsInteresting {
 		return buildProbeResult(
-			urlStr, raw, resp.FullResponse().String(),
+			urlStr, raw, resp.FullResponseString(),
 			"path", probeType, payload, change,
 		)
 	}

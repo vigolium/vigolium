@@ -130,7 +130,7 @@ func (m *Module) ScanPerRequest(
 
 		// Check for directory listing indicators
 		if isDirectoryListing(body) {
-			results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponse().String()))
+			results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponseString()))
 		}
 
 		resp.Close()

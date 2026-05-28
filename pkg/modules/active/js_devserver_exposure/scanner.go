@@ -104,7 +104,7 @@ func (m *Module) ScanPerRequest(
 		// Check expected status
 		if probe.expectedStatus > 0 {
 			if statusCode == probe.expectedStatus {
-				results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponse().String()))
+				results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponseString()))
 				resp.Close()
 				continue
 			}
@@ -129,7 +129,7 @@ func (m *Module) ScanPerRequest(
 
 		// Check expected Content-Type
 		if probe.expectedCT != "" && strings.Contains(strings.ToLower(ct), probe.expectedCT) {
-			results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponse().String()))
+			results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponseString()))
 			resp.Close()
 			continue
 		}
@@ -138,7 +138,7 @@ func (m *Module) ScanPerRequest(
 		if len(probe.markers) > 0 {
 			for _, marker := range probe.markers {
 				if strings.Contains(body, marker) {
-					results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponse().String()))
+					results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponseString()))
 					break
 				}
 			}
@@ -149,7 +149,7 @@ func (m *Module) ScanPerRequest(
 		// For probes without markers or expectedCT (open-in-editor, remix dev),
 		// a non-404 2xx with different body from 404 is enough
 		if len(probe.markers) == 0 && probe.expectedCT == "" && body != "" {
-			results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponse().String()))
+			results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponseString()))
 		}
 
 		resp.Close()

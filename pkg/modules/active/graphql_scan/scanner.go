@@ -277,7 +277,7 @@ func (m *Module) sendGraphQLQuery(
 	}
 	defer resp.Close()
 
-	return resp.FullResponse().String(), nil
+	return resp.FullResponseString(), nil
 }
 
 // sendGraphQLGET sends a GraphQL query via GET with a query parameter.
@@ -316,7 +316,7 @@ func (m *Module) sendGraphQLGET(
 	}
 	defer resp.Close()
 
-	return resp.FullResponse().String(), nil
+	return resp.FullResponseString(), nil
 }
 
 // escapeJSON escapes a string for use inside a JSON string value.

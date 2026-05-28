@@ -179,12 +179,12 @@ func (m *Module) testDangerousMethods(
 			continue
 		}
 
-		if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.FullResponse().String()) &&
+		if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.FullResponseString()) &&
 			!looksLikeWildcardShell(resp.Response().StatusCode, resp.Body().Bytes(), wildcard, baseline) {
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Request:          string(modifiedRaw),
-				Response:         resp.FullResponse().String(),
+				Response:         resp.FullResponseString(),
 				FuzzingParameter: "method",
 				ExtractedResults: []string{method + " method returned 2xx"},
 				Info: output.Info{
@@ -235,12 +235,12 @@ func (m *Module) testMethodOverrideHeaders(
 				continue
 			}
 
-			if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.FullResponse().String()) &&
+			if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.FullResponseString()) &&
 				!looksLikeWildcardShell(resp.Response().StatusCode, resp.Body().Bytes(), wildcard, baseline) {
 				results = append(results, &output.ResultEvent{
 					URL:              urlx.String(),
 					Request:          string(modifiedRaw),
-					Response:         resp.FullResponse().String(),
+					Response:         resp.FullResponseString(),
 					FuzzingParameter: header,
 					ExtractedResults: []string{"POST with " + header + ": " + overrideMethod},
 					Info: output.Info{

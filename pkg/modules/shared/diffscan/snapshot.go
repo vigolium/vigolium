@@ -84,7 +84,7 @@ func filterResponse(response *httputil.ResponseChain) []byte {
 		anomaly.ContentTypeCSS,
 		anomaly.ContentTypeXML,
 	) {
-		filteredResponse = bytes.ToLower(response.FullResponse().Bytes())
+		filteredResponse = bytes.ToLower(response.FullResponseBytes())
 	} else if mime.Is(anomaly.ContentTypeJSON, anomaly.ContentTypeScript) {
 		headers := response.Headers().String()
 		body := response.Body().String()

@@ -62,6 +62,13 @@ type Options struct {
 	OutputFormats []string
 	// CIOutput enables CI-friendly output: JSONL findings only, no color, no banners
 	CIOutput bool
+	// DeferredJSONLExport routes jsonl output through the post-scan, project-scoped
+	// envelope export ({"type":...,"data":...}) instead of the live, nuclei-style
+	// ResultEvent stream. Set for `--format jsonl` outside CI mode so the scan,
+	// stateless, and `export` paths all emit the same unified schema. When true,
+	// StandardWriter suppresses its live jsonl file/stdout output (unless console
+	// is also requested, which keeps its own live output).
+	DeferredJSONLExport bool
 
 	Timeout time.Duration
 	Retries int
@@ -202,6 +209,12 @@ type Options struct {
 	// Stateless uses a temporary SQLite database that is deleted after the scan completes.
 	// Requires --output to be set. Incompatible with --db.
 	Stateless bool
+
+	// SplitByHost, in stateless multi-target mode (-S -T file), scans each target
+	// in its own temporary database and writes a separate per-host output file
+	// (base-<host>.<ext>). When false (default), all targets share one pass and
+	// one unified output file. No effect outside stateless + target-file scans.
+	SplitByHost bool
 
 	// NoTechFilter disables the tech-stack allowlist gate so every module runs
 	// regardless of the host's detected stack. Set by --no-tech-filter and

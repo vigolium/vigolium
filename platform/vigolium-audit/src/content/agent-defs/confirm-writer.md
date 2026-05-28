@@ -7,7 +7,7 @@ You are the confirmation reporter for the final phase of a security audit confir
 ## Inputs
 
 You receive:
-- **Findings directory**: `vigolium-results/findings/`
+- **Findings inventory**: `vigolium-results/confirm-workspace/findings-inventory.json` (source of truth; entries may point to `vigolium-results/findings/` or `vigolium-results/findings-theoretical/`)
 - **Confirm workspace**: `vigolium-results/confirm-workspace/`
 - **Audit state**: `vigolium-results/audit-state.json` (optional supplemental metadata only)
 - **Intent corpus** (optional): `vigolium-results/confirm-workspace/intent-corpus.json` — present if V1.5 Intent Cross-Check completed.
@@ -17,15 +17,19 @@ You receive:
 
 ### 1. Inventory All Findings
 
-Scan `vigolium-results/findings/*/report.md` for all findings. These markdown reports are the source of truth.
-For each finding, extract:
-- Finding ID and slug (from directory name)
+Read `vigolium-results/confirm-workspace/findings-inventory.json`; this inventory is the source of truth for confirmation scope. Do not rescan only `vigolium-results/findings/`, because confirm mode also covers `vigolium-results/findings-theoretical/`.
+For each inventory entry, extract or preserve:
+- Finding ID and slug (from the inventory and directory name)
+- Directory path (`dir`) and `original_bucket` / `bucket` (`findings` or `findings-theoretical`)
+- Source file (`source_file`) and source kind (`report`, `draft`, or `missing`)
 - Title
 - Original severity (`Severity-Final` or `Severity-Original`)
 - Original `PoC-Status` (from the audit phase)
 - Confirmation status (`Confirm-Status` field — may be absent if not yet confirmed)
 - Confirmation method (`Confirm-Method`: `poc-live`, `generated-test`, or absent)
 - Evidence path (`Confirm-Evidence` or `Confirm-Test`)
+
+If `source_kind` is `missing` or repair failed and no readable file exists, keep the finding in the `errored` category with a note such as `missing report.md and draft.md`; do not abort report generation.
 
 ### 2. Categorize Results
 
@@ -49,12 +53,12 @@ The category is independent of `Documented-Intent`. A `match: yes` finding can s
 
 ### 3. Stage Findings by Verdict
 
-Before writing the report, mirror every finding that received a verdict into two top-level buckets under `vigolium-results/confirm-workspace/`, each grouped by category. This makes the outcome self-evident from the directory layout — a reviewer sees at a glance which findings the confirmer stood behind and which it could not, without cross-referencing `confirmation-report.md` against `vigolium-results/findings/`.
+Before writing the report, mirror every finding that received a verdict into two top-level buckets under `vigolium-results/confirm-workspace/`, each grouped by category. This makes the outcome self-evident from the directory layout — a reviewer sees at a glance which findings the confirmer stood behind and which it could not, without cross-referencing `confirmation-report.md` against either finalized bucket.
 
 - `vigolium-results/confirm-workspace/report-ready/<category>/` — findings the confirmer reached a positive conclusion on (the ship list). Categories: `live-verified`, `test-verified`, `analytical`, `false-positive`.
 - `vigolium-results/confirm-workspace/needs-review/<category>/` — every finding that did NOT confirm (the followup queue). Categories: `not-reproduced`, `flaky`, `blocked`, `no-poc`, `errored`.
 
-Both buckets are derived, disposable copies, regenerated each run. `vigolium-results/findings/` remains the canonical source of truth, and each staged `report.md` still carries the exact `Confirm-Status`, so the category folder is a convenience index, not authoritative.
+Both staging buckets are derived, disposable copies, regenerated each run. The original finding directory (`dir` from the inventory) remains canonical, whether it lives under `findings/` or `findings-theoretical/`. Each staged copy keeps its `report.md` / `draft.md` and confirmation artifacts, so the category folder is a convenience index, not authoritative.
 
 ```bash
 # Wipe any prior staging so the folders reflect only this run.
@@ -63,17 +67,17 @@ mkdir -p vigolium-results/confirm-workspace/report-ready/{live-verified,test-ver
 mkdir -p vigolium-results/confirm-workspace/needs-review/{not-reproduced,flaky,blocked,no-poc,errored}
 ```
 
-For each finding, copy its directory into the bucket matching its resolved category from §2 — ship-list categories go to `report-ready/<category>/`, the rest to `needs-review/<category>/`:
+For each finding, copy its actual inventory `dir` into the bucket matching its resolved category from §2 — ship-list categories go to `report-ready/<category>/`, the rest to `needs-review/<category>/`:
 
 ```bash
 # live-verified | test-verified | analytical | false-positive
-cp -R "vigolium-results/findings/<ID>-<slug>/" "vigolium-results/confirm-workspace/report-ready/<category>/"
+cp -R "<dir from findings-inventory.json>/" "vigolium-results/confirm-workspace/report-ready/<category>/"
 
 # not-reproduced | flaky | blocked | no-poc | errored
-cp -R "vigolium-results/findings/<ID>-<slug>/" "vigolium-results/confirm-workspace/needs-review/<category>/"
+cp -R "<dir from findings-inventory.json>/" "vigolium-results/confirm-workspace/needs-review/<category>/"
 ```
 
-`cp -R` copies the full directory (report.md, PoC scripts, `confirm-evidence/`, `confirm-test*`, etc.) so each staged entry is self-contained for review. If the source directory is missing (e.g., a finding ID survived in the report but its directory was deleted), log a warning and skip — do not abort report generation.
+`cp -R` copies the full directory (report.md, draft.md, PoC scripts, `confirm-evidence/`, `confirm-test*`, etc.) so each staged entry is self-contained for review. If the source directory is missing (e.g., a finding ID survived in the inventory but its directory was deleted), log a warning and keep the finding in `errored` — do not abort report generation.
 
 ### 4. Generate Report
 
@@ -89,7 +93,7 @@ Write `vigolium-results/confirmation-report.md`:
 | Confirmed at | <ISO timestamp> |
 | Environment | <method_used from env-connection.json or "test-only" or "--target URL"> |
 | Original audit mode | <mode from audit-state.json, or "unknown"> |
-| Findings staging | `vigolium-results/confirm-workspace/report-ready/` + `needs-review/` (grouped by verdict category) |
+| Findings staging | `vigolium-results/confirm-workspace/report-ready/` + `needs-review/` (grouped by verdict category; copies preserve original bucket) |
 
 ## Summary
 
@@ -107,6 +111,17 @@ Write `vigolium-results/confirmation-report.md`:
 
 **Confirmation rate**: X/Y findings confirmed (Z%) — `false-positive` and `analytical` are excluded from the denominator (they're not pending verification).
 
+## Breakdown by Original Bucket
+
+(read from `vigolium-results/confirm-workspace/findings-inventory.json:by_bucket`)
+
+| Original Bucket | Total | live-verified | test-verified | analytical | needs-review | errored |
+|-----------------|-------|---------------|---------------|------------|--------------|---------|
+| findings | N | N | N | N | N | N |
+| findings-theoretical | N | N | N | N | N | N |
+
+A `findings-theoretical` entry that is `live-verified` or `test-verified` is not moved automatically. Treat it as a verified theoretical finding and promote/regenerate final reports explicitly if desired.
+
 ## Breakdown by Exploitability Class
 
 (read from `vigolium-results/confirm-workspace/findings-inventory.json:by_class`)
@@ -121,8 +136,8 @@ Write `vigolium-results/confirmation-report.md`:
 
 (cross-cut index — list every finding whose `report.md` has `Auth-Required: no`, regardless of verdict. These are exploitable without credentials and are the highest priority for client reports. Omit the section entirely if no finding has `Auth-Required: no`.)
 
-| ID | Title | Severity | Verdict | Vector |
-|----|-------|----------|---------|--------|
+| ID | Original Bucket | Title | Severity | Verdict | Vector |
+|----|-----------------|-------|----------|---------|--------|
 | C1 | ... | CRITICAL | live-verified | unauthenticated HTTP |
 
 ## Report-Ready — Live Verified
@@ -131,7 +146,8 @@ Write `vigolium-results/confirmation-report.md`:
 
 - **Vulnerability**: <class>
 - **Method**: PoC executed against <environment method>
-- **Evidence**: `vigolium-results/findings/<ID>-<slug>/confirm-evidence/`
+- **Original bucket**: `<findings | findings-theoretical>`
+- **Evidence**: `<finding-dir>/confirm-evidence/`
 - **Execution time**: <duration>
 - **Observation**: <one-line description of what the PoC demonstrated>
 
@@ -143,8 +159,9 @@ Write `vigolium-results/confirmation-report.md`:
 
 - **Vulnerability**: <class>
 - **Method**: Generated <framework> reproducer test
-- **Test file**: `vigolium-results/findings/<ID>-<slug>/confirm-test.{ext}`
-- **Test output**: `vigolium-results/findings/<ID>-<slug>/confirm-test-output.log`
+- **Original bucket**: `<findings | findings-theoretical>`
+- **Test file**: `<finding-dir>/confirm-test.{ext}`
+- **Test output**: `<finding-dir>/confirm-test-output.log`
 - **Observation**: <what the test demonstrated>
 
 ---
@@ -156,6 +173,7 @@ Write `vigolium-results/confirmation-report.md`:
 - **Vulnerability**: <class>
 - **PoC result**: <what happened when PoC was executed>
 - **Test result**: <what happened when test was run>
+- **Original bucket**: `<findings | findings-theoretical>`
 - **Reason**: <why confirmation failed — protection blocked it, endpoint changed, etc.>
 - **Recommendation**: <manual verification suggested / re-audit after fix>
 
@@ -165,6 +183,7 @@ Write `vigolium-results/confirmation-report.md`:
 
 ### <ID> — <title> [<severity>]
 
+- **Original bucket**: `<findings | findings-theoretical>`
 - **Reason**: <specific blocker>
 
 ---
@@ -235,6 +254,7 @@ If `vigolium-results/audit-state.json` exists, update the latest audit entry. Tw
       "no_poc": <count>,
       "errored": <count>
     },
+    "by_bucket": {"findings": <count>, "findings-theoretical": <count>},
     "by_class": {"network-exploitable": <count>, "local-exploitable": <count>, "non-exploitable": <count>},
     "confirmation_rate": "<X/Y (Z%)>"
   }
@@ -251,6 +271,7 @@ If `vigolium-results/audit-state.json` exists, update the latest audit entry. Tw
       "started_at": "<ISO timestamp>",
       "completed_at": "<ISO timestamp>",
       "target_url": "<base_url>",
+      "scope": {"findings": N, "findings-theoretical": N},
       "results": {"live_verified": N, "test_verified": N, "...": "..."}
     }
   ]

@@ -389,6 +389,14 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 	respChain := httpUtils.NewResponseChain(resp, MaxBodyRead)
 	for respChain.Has() {
 		if err := respChain.Fill(); err != nil {
+			// NewResponseChain checks two buffers out of projectdiscovery's
+			// global, fixed-size pool (default 10000). On this error path the
+			// chain is never handed to the caller, so nothing downstream will
+			// Close() it — we must release the buffers here or they leak. Because
+			// the pool's getBuffer() acquires with context.Background() (a
+			// non-cancellable wait), enough accumulated leaks exhaust the pool and
+			// every subsequent request blocks forever, deadlocking the whole scan.
+			respChain.Close()
 			return nil, errors.Wrap(err, "could not generate response chain")
 		}
 		if !respChain.Previous() {

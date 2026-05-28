@@ -148,7 +148,7 @@ func (m *Module) ScanPerInsertionPoint(
 
 		// Method 3: check if CRLF+body injection succeeded (canary in body after double CRLF)
 		if strings.Contains(p.name, "body-break") {
-			fullResp := resp.FullResponse().String()
+			fullResp := resp.FullResponseString()
 			if strings.Contains(fullResp, "<injected>"+m.canary+"</injected>") {
 				results = append(results, m.buildResult(urlx.String(), ip.Name(), p.name, "response_body_injection", string(fuzzedRaw), fullResp))
 				resp.Close()

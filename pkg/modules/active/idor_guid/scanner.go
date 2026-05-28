@@ -176,7 +176,7 @@ func (m *Module) tryPredictedID(
 			URL:              urlStr,
 			Matched:          urlStr,
 			Request:          string(fuzzedRaw),
-			Response:         resp.FullResponse().String(),
+			Response:         resp.FullResponseString(),
 			FuzzingParameter: paramName,
 			ExtractedResults: []string{fmt.Sprintf("technique=%s predicted_id=%s", technique, predictedID)},
 			Info: output.Info{

@@ -97,7 +97,7 @@ func (m *Module) ScanPerRequest(
 		respBody := ""
 		if resp.Response() != nil {
 			respStatus = resp.Response().StatusCode
-			respBody = resp.FullResponse().String()
+			respBody = resp.FullResponseString()
 		}
 		resp.Close()
 
@@ -225,5 +225,5 @@ func (m *Module) fetchPath(
 		return "", fmt.Errorf("non-200 response: %d", resp.Response().StatusCode)
 	}
 
-	return resp.FullResponse().String(), nil
+	return resp.FullResponseString(), nil
 }

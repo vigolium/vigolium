@@ -44,7 +44,7 @@ func probeParamFuzz(
 		change := detectChange(baseline, resp.Body().String(), resp.Response().StatusCode)
 		if change.IsInteresting {
 			results = append(results, buildProbeResult(
-				urlStr, fuzzedRaw, resp.FullResponse().String(),
+				urlStr, fuzzedRaw, resp.FullResponseString(),
 				ip.Name(), "param_char_fuzz", payload, change,
 			))
 		}

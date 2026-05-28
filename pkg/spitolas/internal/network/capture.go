@@ -456,6 +456,17 @@ func (c *Capture) writeEntry(entry *TrafficEntry) {
 
 	c.mu.Lock()
 
+	// Drop late events that arrive after Close() niled the writer. The browser's
+	// CDP event goroutine keeps delivering NetworkLoadingFailed/Finished events
+	// after the crawl loop terminates, and onLoadingFailed/onLoadingFinished
+	// release the lock before calling writeEntry — so Close() can win the race
+	// and set c.writer = nil. Without this guard, c.writer.Write below panics
+	// with a nil-pointer dereference.
+	if c.stopped || c.writer == nil {
+		c.mu.Unlock()
+		return
+	}
+
 	// Check if hash already written to file
 	_, alreadyWritten := c.seenHashes[entry.Hash]
 	if alreadyWritten {

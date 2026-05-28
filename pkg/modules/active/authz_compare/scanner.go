@@ -246,7 +246,7 @@ func (m *Module) probeWithSession(
 	// buffer that Close() returns to a process-global pool, so reading them
 	// afterwards is a use-after-free that races with concurrent module execution.
 	compareBody := append([]byte(nil), resp.Body().Bytes()...)
-	fullResp := resp.FullResponse().String()
+	fullResp := resp.FullResponseString()
 	resp.Close()
 
 	// Authorization enforced: 401, 403

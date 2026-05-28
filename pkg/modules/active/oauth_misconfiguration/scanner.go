@@ -201,7 +201,7 @@ func (m *Module) testRedirectURIManipulation(
 
 		if statusCode == 302 || statusCode == 301 || statusCode == 303 || statusCode == 307 {
 			if strings.Contains(location, "evil.example.com") {
-				respBody := resp.FullResponse().String()
+				respBody := resp.FullResponseString()
 				results = append(results, &output.ResultEvent{
 					URL:              urlx.String(),
 					Matched:          urlx.String(),
@@ -311,7 +311,7 @@ func (m *Module) testResponseTypeDowngrade(
 	}
 
 	statusCode := resp.Response().StatusCode
-	respBody := resp.FullResponse().String()
+	respBody := resp.FullResponseString()
 	bodyLower := strings.ToLower(respBody)
 
 	// If the server accepts (200 or 302 without error), report

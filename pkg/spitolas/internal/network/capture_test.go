@@ -230,6 +230,63 @@ func TestWriteEntryConcurrency(t *testing.T) {
 	}
 }
 
+// TestWriteEntryAfterClose verifies that writeEntry drops entries (rather than
+// panicking) when called after Close() has niled the writer. This reproduces
+// the nil-pointer dereference seen at the end of spider runs, where the
+// browser's CDP event goroutine delivers a late NetworkLoadingFailed event
+// after Close() has already torn down the writer.
+func TestWriteEntryAfterClose(t *testing.T) {
+	mock := &mockWriter{}
+	capture := &Capture{
+		writer:     mock,
+		logged:     make(map[string]struct{}),
+		seenHashes: make(map[string]bool),
+		noColor:    true,
+		silent:     true,
+	}
+
+	if err := capture.Close(); err != nil {
+		t.Fatalf("Close() returned error: %v", err)
+	}
+
+	// Must not panic even though c.writer is now nil.
+	capture.writeEntry(createTestEntry("https://example.com/late-event"))
+
+	if mock.getWriteCount() != 0 {
+		t.Errorf("Expected no writes after Close(), got %d", mock.getWriteCount())
+	}
+}
+
+// TestWriteEntryCloseRace exercises the close-vs-writeEntry race under the race
+// detector: concurrent writeEntry calls overlapping a Close() must never panic.
+func TestWriteEntryCloseRace(t *testing.T) {
+	mock := &mockWriter{}
+	capture := &Capture{
+		writer:     mock,
+		logged:     make(map[string]struct{}),
+		seenHashes: make(map[string]bool),
+		noColor:    true,
+		silent:     true,
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			capture.writeEntry(createTestEntry(fmt.Sprintf("https://example.com/race/%d", i)))
+		}(i)
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = capture.Close()
+	}()
+
+	wg.Wait()
+}
+
 // TestCloseStatistics tests that Close() logs correct statistics.
 func TestCloseStatistics(t *testing.T) {
 	// Create zaptest logger to capture logs

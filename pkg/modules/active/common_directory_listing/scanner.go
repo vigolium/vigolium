@@ -141,7 +141,7 @@ func (m *Module) ScanPerRequest(
 
 		// Check for directory listing indicators
 		if serverType := detectDirectoryListing(body); serverType != "" {
-			results = append(results, buildResult(target, host, probe, serverType, string(probeRaw), resp.FullResponse().String()))
+			results = append(results, buildResult(target, host, probe, serverType, string(probeRaw), resp.FullResponseString()))
 		}
 
 		resp.Close()

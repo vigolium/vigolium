@@ -130,6 +130,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 
 	// Stateless mode validation
 	scanOpts.Stateless = globalStateless
+	scanOpts.SplitByHost = globalSplitByHost
 	if scanOpts.Stateless {
 		if globalDB != "" {
 			return fmt.Errorf("--stateless and --db are mutually exclusive")
@@ -401,8 +402,25 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Multi-target stateless: iterate per line with a fresh temp DB each time
-	if scanOpts.Stateless && scanOpts.TargetsFilePath != "" {
+	// A target file that yields no targets is a misconfiguration in every mode;
+	// fail loudly rather than running a zero-target scan that reports "completed".
+	// (The --split-by-host path re-checks this in runStatelessTargetFile; the
+	// shared fall-through below otherwise has no such guard.)
+	if scanOpts.TargetsFilePath != "" {
+		fileTargets, terr := readTargetFileLines(scanOpts.TargetsFilePath)
+		if terr != nil {
+			return terr
+		}
+		if len(fileTargets) == 0 {
+			return fmt.Errorf("target file %q contains no targets", scanOpts.TargetsFilePath)
+		}
+	}
+
+	// Multi-target stateless with --split-by-host: iterate per line with a fresh
+	// temp DB each time, writing one per-host output file per target. Without the
+	// flag, fall through to a single shared pass so the whole target file scans
+	// into one temp DB and exports to one unified output file (all formats).
+	if scanOpts.Stateless && scanOpts.TargetsFilePath != "" && scanOpts.SplitByHost {
 		return runStatelessTargetFile(cmd, settings, strategyName)
 	}
 
@@ -412,7 +430,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 // executeNativeScan runs one full native scan pass against the current
 // scanOpts. In stateless mode it allocates a fresh temporary SQLite database
 // and tears it down on return so callers can invoke it once per target.
-func executeNativeScan(cmd *cobra.Command, settings *config.Settings, strategyName string) error {
+func executeNativeScan(cmd *cobra.Command, settings *config.Settings, strategyName string) (err error) {
 	// Wall-clock anchor for the whole scan pass, surfaced in the completion
 	// summary. Captured before DB setup so it reflects total time, not just the
 	// scanning legs.
@@ -500,6 +518,29 @@ func executeNativeScan(cmd *cobra.Command, settings *config.Settings, strategyNa
 	// a transcript is being captured, skip the console export so it does not
 	// truncate and clobber the transcript file at the same path.
 	defer func() { finishStatelessExport(db, scanOpts, statelessOutputPath, transcriptActive) }()
+	// Persisted (non-stateless) --format jsonl emits the same project-scoped
+	// unified envelope post-scan instead of StandardWriter's live nuclei stream
+	// (suppressed via DeferredJSONLExport). No-ops for stateless and CI runs.
+	defer func() {
+		// Skip the deferred jsonl envelope when it would be misleading or
+		// redundant:
+		//  - stateless WITH -o: finishStatelessExport already materializes every
+		//    format to the file, and scanOpts.Output is temporarily blanked here,
+		//    so finishScanJSONLExport can't detect this case itself — without this
+		//    guard it would also stream the envelope to stdout (double output).
+		//  - a hard-failed persisted scan: don't write a success-looking
+		//    file/stream of stale or partial project data (mirrors the skipped
+		//    "completed" banner). Stateless is exempt — its temp DB is discarded
+		//    after the run, so the stdout stream is the only chance to surface
+		//    whatever was found.
+		if scanOpts.Stateless && statelessOutputPath != "" {
+			return
+		}
+		if err != nil && !scanOpts.Stateless {
+			return
+		}
+		finishScanJSONLExport(db, scanOpts)
+	}()
 
 	// If -i was explicitly provided, use two-phase ingest-then-scan
 	hasInputFile := globalInput != "" && globalInput != "-"
@@ -538,7 +579,6 @@ func executeNativeScan(cmd *cobra.Command, settings *config.Settings, strategyNa
 				if runnerErr != nil {
 					return fmt.Errorf("failed to create scan runner: %w", runnerErr)
 				}
-				defer scanRunner.Close()
 
 				scanRunner.SetSettings(settings)
 				if repo != nil {
@@ -547,17 +587,14 @@ func executeNativeScan(cmd *cobra.Command, settings *config.Settings, strategyNa
 
 				setupScanSignalHandler(scanRunner)
 
-				if err := scanRunner.RunNativeScan(); err != nil {
-					zap.L().Info("Could not run scanner", zap.Error(err))
+				// Close before reporting (so any flush lands in the DB the reports
+				// read) — matching the main runner.New path below.
+				scanErr := scanRunner.RunNativeScan()
+				scanRunner.Close()
+				if scanErr != nil {
+					return scanErr
 				}
-
-				maybeGenerateReports(db, scanOpts)
-				uploadNativeScanResults(settings, scanOpts, repo)
-
-				if !scanOpts.Silent {
-					fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
-					printScanCompletionSummary(repo, time.Since(scanStart))
-				}
+				reportNativeScanSuccess(db, settings, repo, scanStart)
 				return nil
 			}
 		}
@@ -588,30 +625,44 @@ func executeNativeScan(cmd *cobra.Command, settings *config.Settings, strategyNa
 
 	setupScanSignalHandler(scanRunner)
 
-	if err := scanRunner.RunNativeScan(); err != nil {
-		zap.L().Info("Could not run scanner", zap.Error(err))
-	}
+	scanErr := scanRunner.RunNativeScan()
 	scanRunner.Close()
+	// A failed scan must abort visibly: returning the error makes cobra print it
+	// (it's an ErrorLevel-and-above world by default, so the old INFO log was
+	// invisible without --verbose) and exit non-zero, and skips the "completed"
+	// banner below — which would otherwise claim success over stale/partial DB
+	// data (e.g. a session-init failure where no scanning ran at all).
+	if scanErr != nil {
+		return scanErr
+	}
 
-	// Generate reports if requested
+	reportNativeScanSuccess(db, settings, repo, scanStart)
+	return nil
+}
+
+// reportNativeScanSuccess runs the post-scan tail shared by every native-scan
+// entry point: report-file generation, result upload, and the completion
+// summary banner. It is invoked only when RunNativeScan returned no error — a
+// failed scan returns its error to the caller instead, so this success banner
+// never paints over a scan that didn't actually run. A scan curtailed by
+// --scanning-max-duration returns nil (graceful), so time-boxed partial scans
+// still reach this path and keep their reports.
+func reportNativeScanSuccess(db *database.DB, settings *config.Settings, repo *database.Repository, scanStart time.Time) {
 	maybeGenerateReports(db, scanOpts)
-
 	uploadNativeScanResults(settings, scanOpts, repo)
-
-	// Print completion message with summary stats
 	if !scanOpts.Silent {
 		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
 		printScanCompletionSummary(repo, time.Since(scanStart))
 	}
-
-	return nil
 }
 
 // runStatelessTargetFile iterates over each non-blank line in
 // scanOpts.TargetsFilePath, allocating an isolated temporary database per
 // target and tearing it down before moving on. When --output is provided, the
 // output path is suffixed with the target's hostname so per-target results do
-// not overwrite each other.
+// not overwrite each other. This is the --split-by-host path; without that flag
+// runScanCmd instead runs a single shared pass over the whole target file for a
+// unified output file.
 func runStatelessTargetFile(cmd *cobra.Command, settings *config.Settings, strategyName string) error {
 	targets, err := readTargetFileLines(scanOpts.TargetsFilePath)
 	if err != nil {
@@ -781,19 +832,14 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 
 	setupScanSignalHandler(scanRunner)
 
+	// A failed scan must abort visibly (return non-zero, skip the success
+	// banner) rather than logging at INFO and claiming completion — matching the
+	// direct-target path. See reportNativeScanSuccess.
 	if err := scanRunner.RunNativeScan(); err != nil {
-		zap.L().Info("Could not run scanner", zap.Error(err))
+		return err
 	}
 
-	// Generate reports if requested
-	maybeGenerateReports(db, scanOpts)
-	uploadNativeScanResults(settings, scanOpts, repo)
-
-	if !scanOpts.Silent {
-		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
-		printScanCompletionSummary(repo, time.Since(scanStart))
-	}
-
+	reportNativeScanSuccess(db, settings, repo, scanStart)
 	return nil
 }
 
@@ -813,19 +859,14 @@ func runDBScan(settings *config.Settings, db *database.DB, repo *database.Reposi
 
 	setupScanSignalHandler(scanRunner)
 
+	// A failed scan must abort visibly (return non-zero, skip the success
+	// banner) rather than logging at INFO and claiming completion — matching the
+	// direct-target path. See reportNativeScanSuccess.
 	if err := scanRunner.RunNativeScan(); err != nil {
-		zap.L().Info("Could not run scanner", zap.Error(err))
+		return err
 	}
 
-	// Generate reports if requested
-	maybeGenerateReports(db, scanOpts)
-	uploadNativeScanResults(settings, scanOpts, repo)
-
-	if !scanOpts.Silent {
-		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
-		printScanCompletionSummary(repo, time.Since(scanStart))
-	}
-
+	reportNativeScanSuccess(db, settings, repo, scanStart)
 	return nil
 }
 
@@ -836,10 +877,13 @@ type emptySource struct{}
 func (e *emptySource) Next(_ context.Context) (*work.WorkItem, error) { return nil, io.EOF }
 func (e *emptySource) Close() error                                   { return nil }
 
-// generateReportFromDB queries all data from the database and generates a
-// report at the specified output path using the given generator function.
-func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, generate func([]any, string, output.HTMLReportMeta) error) error {
-	items, err := queryExportData(ctx, db, omitResponse)
+// generateReportFromDB queries data from the database and generates a report at
+// the specified output path using the given generator function. projectUUID
+// scopes the query: "" exports the whole DB (stateless temp DB), a non-empty
+// value scopes to one project so a persisted report matches the sibling jsonl
+// export and never leaks other projects' findings.
+func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, projectUUID string, generate func([]any, string, output.HTMLReportMeta) error) error {
+	items, err := queryExportData(ctx, db, omitResponse, projectUUID)
 	if err != nil {
 		return err
 	}
@@ -892,6 +936,11 @@ func reconcileOutputFormats(opts *types.Options) error {
 			return fmt.Errorf("invalid --format value %q; valid formats: console, jsonl, html, report, pdf", f)
 		}
 	}
+	// Route jsonl through the post-scan project-scoped envelope export so the
+	// scan output matches `vigolium export`/stateless. CI output keeps its own
+	// findings-only emitter (see outputScanResult), so leave it on the legacy
+	// live path.
+	opts.DeferredJSONLExport = opts.HasFormat("jsonl") && !opts.CIOutput
 	return nil
 }
 
@@ -923,7 +972,7 @@ func maybeGenerateReports(db *database.DB, opts *types.Options) {
 		if rf.beforeMsg != "" {
 			fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
 		}
-		if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, rf.generate); err != nil {
+		if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, exportProjectScope(opts), rf.generate); err != nil {
 			fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
 		} else {
 			fmt.Fprintf(os.Stderr, "%s %s: %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
@@ -962,7 +1011,8 @@ func finishStatelessExport(db *database.DB, opts *types.Options, outputPath stri
 				if rf.beforeMsg != "" {
 					fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
 				}
-				if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, rf.generate); err != nil {
+				// Stateless temp DB holds only this run → whole-DB report ("").
+				if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, "", rf.generate); err != nil {
 					fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
 				} else {
 					fmt.Fprintf(os.Stderr, "%s %s exported to %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
@@ -972,9 +1022,53 @@ func finishStatelessExport(db *database.DB, opts *types.Options, outputPath stri
 	}
 }
 
-// exportStatelessJSONL writes all database records to a JSONL file.
+// exportProjectScope returns the project filter for a post-scan export: empty
+// (whole DB) for stateless runs, whose temp DB holds only this scan; the run's
+// project (defaulting to DefaultProjectUUID) for persisted runs, so the export
+// is scoped to this scan's project on a shared DB. Shared by the jsonl and
+// report post-scan exporters so their scopes stay in sync.
+func exportProjectScope(opts *types.Options) string {
+	if opts.Stateless {
+		return ""
+	}
+	if opts.ProjectUUID != "" {
+		return opts.ProjectUUID
+	}
+	return database.DefaultProjectUUID
+}
+
+// encodeJSONL writes each item to w as a unified {"type":...,"data":...} envelope
+// line, returning the number written. Callers query first (so a query failure
+// never leaves a created-but-empty output file) and encode into an already-open
+// writer here.
+func encodeJSONL(w io.Writer, items []any) (int, error) {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	for _, item := range items {
+		if err := enc.Encode(item); err != nil {
+			return 0, err
+		}
+	}
+	return len(items), nil
+}
+
+// writeJSONLExport queries the (optionally project-scoped) database and streams
+// the envelope to w. projectUUID == "" exports the whole DB. Used for the stdout
+// path, where there is no output file to leave half-written on error.
+func writeJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitResponse bool, projectUUID string) (int, error) {
+	items, err := queryExportData(ctx, db, omitResponse, projectUUID)
+	if err != nil {
+		return 0, err
+	}
+	return encodeJSONL(w, items)
+}
+
+// exportStatelessJSONL writes all records in the (temporary) database to a JSONL
+// file. Used only in stateless mode, where the temp DB holds just this run, so
+// the whole-DB export is implicitly scoped to the current scan. The query runs
+// before the file is created so a query failure leaves no empty output file.
 func exportStatelessJSONL(ctx context.Context, db *database.DB, opts *types.Options, outputPath string) {
-	items, err := queryExportData(ctx, db, opts.OmitResponse)
+	items, err := queryExportData(ctx, db, opts.OmitResponse, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to export data: %v\n", terminal.ErrorPrefix(), err)
 		return
@@ -986,21 +1080,66 @@ func exportStatelessJSONL(ctx context.Context, db *database.DB, opts *types.Opti
 	}
 	defer func() { _ = f.Close() }()
 
-	enc := json.NewEncoder(f)
-	enc.SetEscapeHTML(false)
-	var writeErr error
-	for _, item := range items {
-		if err := enc.Encode(item); err != nil {
-			writeErr = err
-			break
+	n, err := encodeJSONL(f, items)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to write export data: %v\n", terminal.ErrorPrefix(), err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "%s Results exported to %s (%d records)\n",
+		terminal.InfoSymbol(), terminal.Cyan(outputPath), n)
+}
+
+// finishScanJSONLExport emits the post-scan unified JSONL envelope for a scan
+// run with --format jsonl. Persisted runs are scoped to the scan's project;
+// stateless runs export the whole temp DB. Output goes to the -o file or, when
+// no -o was given, to stdout. Stateless runs WITH -o are materialized by
+// finishStatelessExport (all formats), so only the stateless no-output case is
+// handled here (otherwise jsonl results would be silently discarded with the
+// temp DB). CI output keeps its own emitter and never sets DeferredJSONLExport.
+func finishScanJSONLExport(db *database.DB, opts *types.Options) {
+	if !opts.DeferredJSONLExport {
+		return
+	}
+	if opts.Stateless && opts.Output != "" {
+		return
+	}
+	ctx := context.Background()
+	projectUUID := exportProjectScope(opts)
+
+	if opts.Output == "" {
+		// No -o: stream the envelope to stdout once the scan completes.
+		if _, err := writeJSONLExport(ctx, db, os.Stdout, opts.OmitResponse, projectUUID); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to export results: %v\n", terminal.ErrorPrefix(), err)
 		}
+		return
 	}
-	if writeErr != nil {
-		fmt.Fprintf(os.Stderr, "%s Failed to write export data: %v\n", terminal.ErrorPrefix(), writeErr)
-	} else {
-		fmt.Fprintf(os.Stderr, "%s Results exported to %s (%d records)\n",
-			terminal.InfoSymbol(), terminal.Cyan(outputPath), len(items))
+
+	items, err := queryExportData(ctx, db, opts.OmitResponse, projectUUID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to export results: %v\n", terminal.ErrorPrefix(), err)
+		return
 	}
+	// Single format honors the literal -o path the user gave; with multiple
+	// formats each writes to its own extension-qualified path so the jsonl
+	// export never collides with the live console / html / report files.
+	outPath := opts.Output
+	if len(opts.OutputFormats) > 1 {
+		outPath = opts.OutputPathForFormat("jsonl")
+	}
+	f, err := os.Create(outPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to create output file: %v\n", terminal.ErrorPrefix(), err)
+		return
+	}
+	defer func() { _ = f.Close() }()
+
+	n, err := encodeJSONL(f, items)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to export results: %v\n", terminal.ErrorPrefix(), err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "%s Results exported to %s (%d records)\n",
+		terminal.InfoSymbol(), terminal.Cyan(outPath), n)
 }
 
 // exportStatelessConsole writes all database records to a plain-text file using
@@ -1010,7 +1149,7 @@ func exportStatelessJSONL(ctx context.Context, db *database.DB, opts *types.Opti
 // when the phase only ingests HTTP records (e.g. discovery) and emits no
 // findings.
 func exportStatelessConsole(ctx context.Context, db *database.DB, outputPath string, omitResponse bool) {
-	items, err := queryExportData(ctx, db, omitResponse)
+	items, err := queryExportData(ctx, db, omitResponse, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to export data: %v\n", terminal.ErrorPrefix(), err)
 		return
@@ -1188,8 +1327,10 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 
 	fmt.Fprintf(os.Stderr, "\n  %s %s %s %s %s %s\n",
 		terminal.TipPrefix(), terminal.Gray("run"), terminal.HiCyan("vigolium traffic list"), terminal.Gray("and"), terminal.HiCyan("vigolium findings list"), terminal.Gray("to view ingested data and vulnerabilities"))
-	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n\n",
+	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n",
 		terminal.TipPrefix(), terminal.Gray("run each phase separately via"), terminal.HiCyan("vigolium run <phase>"), terminal.Gray("(e.g. vigolium run dynamic-assessment)"))
+	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n\n",
+		terminal.TipPrefix(), terminal.Gray("skip phases you don't need via"), terminal.HiCyan("--skip <phase>"), terminal.Gray("(e.g. --skip discovery,known-issue-scan)"))
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.Green(terminal.SymbolStart), terminal.BoldHiBlue("Native Scan Configuration"))
 	if opts.Stateless {
 		statelessLine := "Stateless mode: using temporary database"

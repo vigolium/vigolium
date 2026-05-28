@@ -220,7 +220,7 @@ func (m *Module) sendPayload(
 		return "", responseSignature{}, nil
 	}
 
-	body := resp.FullResponse().String()
+	body := resp.FullResponseString()
 	sig := newResponseSignature(resp.Response().StatusCode, body)
 	return body, sig, nil
 }

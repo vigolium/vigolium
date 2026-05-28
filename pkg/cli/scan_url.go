@@ -485,16 +485,17 @@ func runScanWithRR(rr *httpmsg.HttpRequestResponse, target, method string) error
 	// Periodic status line so the user can tell the scan is alive during long
 	// runs (some modules can take minutes per insertion point).
 	if !globalSilent {
-		executorCfg.OnStatus = func(processed, total, findingsCount, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) {
+		executorCfg.OnStatus = func(processed, total, findingsCount, distinctModules, activeCount, passiveCount, timedOut int64, elapsed time.Duration) {
 			totalModules := activeCount + passiveCount
 			scannedModules := distinctModules
 			if scanExecutor != nil {
 				scannedModules = scanExecutor.ConsideredModuleCount()
 			}
+			modulesStr := terminal.FormatModuleCount(scannedModules, totalModules, timedOut)
 			fmt.Fprintf(os.Stderr, "  %s %s Modules: %s | Findings: %s | Elapsed: %s\n",
 				terminal.InfoSymbol(),
 				terminal.BoldCyan("[status]"),
-				terminal.Yellow(fmt.Sprintf("%d / %d", scannedModules, totalModules)),
+				terminal.Yellow(modulesStr),
 				terminal.Orange(fmt.Sprintf("%d", findingsCount)),
 				terminal.Gray(elapsed.Round(time.Second).String()))
 		}
@@ -605,7 +606,7 @@ func buildPhaseOptions(target string) *types.Options {
 // runPhaseMode delegates scanning to the Runner when any phase flag is set.
 // This enables full-pipeline phases (discover, spider, external-harvest, known-issue-scan)
 // from the lightweight scan-url and scan-request commands.
-func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) error {
+func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) (err error) {
 	scanStart := time.Now()
 	opts := buildPhaseOptions(target)
 
@@ -666,6 +667,19 @@ func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) error {
 		return fmt.Errorf("phase mode requires a database; use --db <path> or configure vigolium-configs.yaml: %w", err)
 	}
 	defer func() { _ = db.Close() }()
+	// Persisted --format jsonl emits the unified project-scoped envelope post-scan
+	// (live nuclei output is suppressed via DeferredJSONLExport). Registered before
+	// the runner so it runs after scanRunner.Close() flushes records, but before
+	// db.Close().
+	defer func() {
+		// Skip the export on a hard-failed scan so a failed run doesn't write a
+		// success-looking file/stream of stale project data (phase mode is always
+		// persisted, never stateless).
+		if err != nil {
+			return
+		}
+		finishScanJSONLExport(db, opts)
+	}()
 
 	ctx := context.Background()
 	if err := db.CreateSchema(ctx); err != nil {
@@ -688,8 +702,11 @@ func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) error {
 
 	setupScanSignalHandler(scanRunner)
 
-	if err := scanRunner.RunNativeScan(); err != nil {
-		zap.L().Info("Could not run scanner", zap.Error(err))
+	// A failed scan must abort visibly (return non-zero, skip the success
+	// banner) rather than logging at INFO and claiming completion — matching the
+	// direct-target path in executeNativeScan.
+	if scanErr := scanRunner.RunNativeScan(); scanErr != nil {
+		return scanErr
 	}
 
 	if !opts.Silent {

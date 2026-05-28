@@ -55,7 +55,7 @@ func (sc *ScanContext) GetOrFetchBaseline(
 			return nil, err
 		}
 
-		fullResp := respChain.FullResponse().Bytes()
+		fullResp := respChain.FullResponseBytes()
 		rawCopy := make([]byte, len(fullResp))
 		copy(rawCopy, fullResp)
 		respChain.Close()

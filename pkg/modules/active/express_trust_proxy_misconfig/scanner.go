@@ -184,7 +184,7 @@ func (m *Module) ScanPerRequest(
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Request:          string(modifiedRaw),
-				Response:         resp.FullResponse().String(),
+				Response:         resp.FullResponseString(),
 				ExtractedResults: extracted,
 				Info: output.Info{
 					Name:        fmt.Sprintf("Express Trust Proxy Misconfiguration: %s", probe.headerName),

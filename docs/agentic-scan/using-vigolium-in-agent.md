@@ -1341,7 +1341,7 @@ vigolium scope view host
 > Show available strategies and their phases
 ```
 ```bash
-vigolium strategy ls
+vigolium strategy
 ```
 
 **Create and manage projects:**

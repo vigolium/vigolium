@@ -124,7 +124,7 @@ func (m *Module) ScanPerRequest(
 					URL:      urlx.String(),
 					Matched:  urlx.String(),
 					Request:  string(modifiedRaw),
-					Response: resp.FullResponse().String(),
+					Response: resp.FullResponseString(),
 					ExtractedResults: []string{
 						fmt.Sprintf("Auth header %s moved to URL parameter ?%s=", ah.header, paramName),
 						fmt.Sprintf("Original status: %d, URL param status: %d", originalStatus, resp.Response().StatusCode),

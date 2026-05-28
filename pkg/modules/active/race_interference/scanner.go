@@ -325,7 +325,7 @@ func (m *Module) sendProbe(
 	result.StatusCode = resp.Response().StatusCode
 	result.Headers = resp.Response().Header.Clone()
 	result.Request = string(fuzzedRaw)
-	result.Response = resp.FullResponse().String()
+	result.Response = resp.FullResponseString()
 	resp.Close()
 
 	// Check for wrong ID

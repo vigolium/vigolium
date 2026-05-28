@@ -171,7 +171,7 @@ func (m *Module) probeWithAcceptHTML(
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
 			Name:        fmt.Sprintf("Django Browsable API Exposure: %s", name),
