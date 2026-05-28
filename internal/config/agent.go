@@ -83,6 +83,92 @@ type CustomProviderConfig struct {
 	ModelID      string          `yaml:"model_id"`      // default model when olium.model and --model are empty
 	APIKey       string          `yaml:"api_key"`       // optional; supports ${ENV_VAR} expansion. Empty = no Authorization header sent
 	ExtraHeaders ExtraHeaderList `yaml:"extra_headers"` // curl-style "Key: Value" entries applied to every request; can override standard headers
+
+	// ProviderRouting is the typed convenience knob for OpenRouter's provider
+	// routing object. Plays cleanly with `vigolium config set
+	// ...provider_routing.<field>` because every field exists as a leaf in
+	// the marshaled YAML. Merged into the request body as the "provider"
+	// key. See ProviderRoutingConfig for the field list. Use ExtraBody for
+	// non-OpenRouter backends or for OpenRouter fields not covered here
+	// (max_price, preferred_min_throughput, preferred_max_latency).
+	ProviderRouting ProviderRoutingConfig `yaml:"provider_routing"`
+
+	// ExtraBody is a generic JSON-body passthrough merged into every
+	// openai-compatible request. The canonical use case is OpenRouter
+	// extensions the typed knob doesn't cover, and other backends'
+	// body-level options (vLLM, Together's "transforms", etc.). Reserved
+	// top-level keys (model, messages, tools, stream, stream_options) are
+	// rejected at request time. Setting both this and ProviderRouting with
+	// a `provider` key here raises a conflict error — use one or the other.
+	ExtraBody map[string]any `yaml:"extra_body,omitempty"`
+}
+
+// ProviderRoutingConfig is the typed knob for OpenRouter's provider routing
+// object — the JSON `provider` field documented at
+// https://openrouter.ai/docs/features/provider-routing.
+//
+// YAML tags deliberately omit `omitempty` so every field exists as a leaf in
+// the marshaled config, which is what `vigolium config set
+// ...provider_routing.<field>` needs to navigate to. The trade-off is that
+// saved configs show unset fields as YAML nulls; the runtime emit path
+// (ProviderRoutingMap) drops those, so the wire body stays clean.
+//
+// Pointer types are used for bools where false != unset (OpenRouter's
+// default for `allow_fallbacks` is true; a user setting `false` alone has
+// a real semantic intent).
+//
+// Fields not covered here (max_price, preferred_min_throughput,
+// preferred_max_latency) are intentionally deferred; use
+// custom_provider.extra_body as the escape hatch.
+type ProviderRoutingConfig struct {
+	Order             []string `yaml:"order"`              // upstream provider slugs in preference order
+	Only              []string `yaml:"only"`               // restrict to these provider slugs
+	Ignore            []string `yaml:"ignore"`             // exclude these provider slugs
+	AllowFallbacks    *bool    `yaml:"allow_fallbacks"`    // default unset (OpenRouter defaults to true); false = strict
+	Sort              string   `yaml:"sort"`               // "price" | "throughput" | "latency"
+	Quantizations     []string `yaml:"quantizations"`      // e.g. ["fp8", "int8"]
+	DataCollection    string   `yaml:"data_collection"`    // "allow" | "deny"
+	RequireParameters *bool    `yaml:"require_parameters"` // only providers that honour every request parameter
+	ZDR               *bool    `yaml:"zdr"`                // Zero Data Retention only
+}
+
+// ProviderRoutingMap returns the routing config as a map[string]any with
+// only the fields the user actually set. Returns nil if every field is at
+// its zero value, signalling "no routing preferences — let OpenRouter
+// decide". Slices are emitted only when non-empty.
+func (c *ProviderRoutingConfig) ProviderRoutingMap() map[string]any {
+	out := map[string]any{}
+	if len(c.Order) > 0 {
+		out["order"] = c.Order
+	}
+	if len(c.Only) > 0 {
+		out["only"] = c.Only
+	}
+	if len(c.Ignore) > 0 {
+		out["ignore"] = c.Ignore
+	}
+	if c.AllowFallbacks != nil {
+		out["allow_fallbacks"] = *c.AllowFallbacks
+	}
+	if c.Sort != "" {
+		out["sort"] = c.Sort
+	}
+	if len(c.Quantizations) > 0 {
+		out["quantizations"] = c.Quantizations
+	}
+	if c.DataCollection != "" {
+		out["data_collection"] = c.DataCollection
+	}
+	if c.RequireParameters != nil {
+		out["require_parameters"] = *c.RequireParameters
+	}
+	if c.ZDR != nil {
+		out["zdr"] = *c.ZDR
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // ExtraHeaderList is a list of curl-style "Key: Value" header strings. It
@@ -155,6 +241,44 @@ func (c *CustomProviderConfig) ExtraHeadersMap() map[string]string {
 		return nil
 	}
 	return out
+}
+
+// ExtraBodyMap returns the extra_body map, or nil if unset. Provided so
+// callers stay symmetric with ExtraHeadersMap and so future validation
+// (e.g. ${ENV_VAR} expansion) has a single hook point.
+func (c *CustomProviderConfig) ExtraBodyMap() map[string]any {
+	if len(c.ExtraBody) == 0 {
+		return nil
+	}
+	return c.ExtraBody
+}
+
+// EffectiveExtraBody combines the typed ProviderRouting knob with the
+// generic ExtraBody passthrough into a single body-extension map. The
+// typed knob becomes the "provider" key. Returns nil if neither field is
+// set. Returns an error if both set a "provider" key (the operator must
+// pick one path — typed is recommended).
+func (c *CustomProviderConfig) EffectiveExtraBody() (map[string]any, error) {
+	routing := c.ProviderRouting.ProviderRoutingMap()
+	extra := c.ExtraBodyMap()
+	if routing == nil && extra == nil {
+		return nil, nil
+	}
+	if routing != nil {
+		if extra != nil {
+			if _, conflict := extra["provider"]; conflict {
+				return nil, fmt.Errorf("custom_provider: both provider_routing and extra_body.provider are set; remove one (provider_routing is the recommended typed form)")
+			}
+		}
+	}
+	out := make(map[string]any, len(extra)+1)
+	for k, v := range extra {
+		out[k] = v
+	}
+	if routing != nil {
+		out["provider"] = routing
+	}
+	return out, nil
 }
 
 // EffectiveCallTimeout returns the per-call timeout. 0 → 10m default,
