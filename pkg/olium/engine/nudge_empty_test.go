@@ -28,7 +28,7 @@ func TestEngine_NudgesOnEmptyToolCallsThenExits(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil)
+	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil, nil)
 	eng := New(Config{
 		Provider:              prov,
 		Tools:                 tool.NewRegistry(),
@@ -102,7 +102,7 @@ func TestEngine_NudgeResetsAfterProductiveTurn(t *testing.T) {
 	reg := tool.NewRegistry()
 	reg.Register(&fakeTool{name: "ping", out: "pong"})
 
-	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil)
+	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil, nil)
 	eng := New(Config{
 		Provider:              prov,
 		Tools:                 reg,
@@ -148,7 +148,7 @@ func TestEngine_NudgeDisabledByDefault(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil)
+	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil, nil)
 	eng := New(Config{
 		Provider: prov,
 		Tools:    tool.NewRegistry(),

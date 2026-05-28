@@ -29,6 +29,7 @@ type OpenAI struct {
 	apiKey       secret
 	baseURL      string // full chat-completions URL
 	extraHeaders map[string]string
+	extraBody    map[string]any // merged into every request body; nil = no-op
 	name         string
 	client       *http.Client
 }
@@ -55,11 +56,17 @@ func NewOpenAI(apiKey string) *OpenAI {
 // Authorization header — required for unauthenticated local servers like
 // Ollama. extraHeaders are applied after standard headers so callers can
 // override Authorization for backends with non-Bearer schemes.
-func NewOpenAICompatible(baseURL, apiKey string, extraHeaders map[string]string) *OpenAI {
+//
+// extraBody is a generic JSON-body extension merged into every outgoing
+// request after the typed oaiRequest is marshaled. The five reserved keys
+// (model, messages, tools, stream, stream_options) trigger a request-time
+// error. Pass nil to disable.
+func NewOpenAICompatible(baseURL, apiKey string, extraHeaders map[string]string, extraBody map[string]any) *OpenAI {
 	return &OpenAI{
 		apiKey:       secret(apiKey),
 		baseURL:      normalizeOpenAIBaseURL(baseURL),
 		extraHeaders: extraHeaders,
+		extraBody:    extraBody,
 		name:         "openai-compatible",
 		client:       newHTTPClient(),
 	}
@@ -77,6 +84,48 @@ func normalizeOpenAIBaseURL(raw string) string {
 		return u
 	}
 	return u + "/chat/completions"
+}
+
+// reservedOpenAIBodyKeys are top-level JSON body fields owned by the typed
+// oaiRequest. extra_body is not allowed to set them — accidentally
+// shadowing `model` or `messages` would silently break the request. The
+// merge step returns a clear error instead.
+//
+// Keep this set in sync with the json tags on oaiRequest below.
+var reservedOpenAIBodyKeys = map[string]struct{}{
+	"model":          {},
+	"messages":       {},
+	"tools":          {},
+	"stream":         {},
+	"stream_options": {},
+}
+
+// mergeExtraBody overlays extra onto the marshaled typed payload by
+// JSON-round-tripping through a map. Keys in reservedOpenAIBodyKeys are
+// rejected with a clear error. A nil/empty extra is a no-op (returns
+// payload unchanged). Cost is one extra unmarshal + marshal per request,
+// negligible against an LLM round-trip.
+func mergeExtraBody(payload []byte, extra map[string]any) ([]byte, error) {
+	if len(extra) == 0 {
+		return payload, nil
+	}
+	for k := range extra {
+		if _, reserved := reservedOpenAIBodyKeys[k]; reserved {
+			return nil, fmt.Errorf("custom_provider.extra_body key %q is reserved (owned by the typed request body — remove it from your config)", k)
+		}
+	}
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return nil, fmt.Errorf("merge extra_body: re-decode typed payload: %w", err)
+	}
+	for k, v := range extra {
+		body[k] = v
+	}
+	out, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("merge extra_body: re-encode: %w", err)
+	}
+	return out, nil
 }
 
 func (o *OpenAI) Name() string {
@@ -124,6 +173,13 @@ type oaiMessage struct {
 	Name       string        `json:"name,omitempty"`
 }
 
+// oaiRequest is the wire shape of the OpenAI Chat Completions request body.
+//
+// INVARIANT: every json tag on this struct must appear in
+// reservedOpenAIBodyKeys (declared next to mergeExtraBody). The reserved
+// set is what prevents custom_provider.extra_body from silently overriding
+// typed fields. When you add a field here, update reservedOpenAIBodyKeys
+// in lockstep — otherwise extra_body becomes a footgun.
 type oaiRequest struct {
 	Model    string       `json:"model"`
 	Messages []oaiMessage `json:"messages"`
@@ -147,6 +203,10 @@ func (a *OpenAI) Stream(ctx context.Context, req Request) (<-chan stream.Event, 
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
+	}
+	payload, err = mergeExtraBody(payload, a.extraBody)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", a.Name(), err)
 	}
 
 	url := a.baseURL

@@ -128,7 +128,7 @@ func TestEngine_RecoversFromMidStreamTransientError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil)
+	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil, nil)
 	eng := New(Config{
 		Provider:            prov,
 		Tools:               tool.NewRegistry(),
@@ -171,7 +171,7 @@ func TestEngine_GivesUpAfterMaxAttempts(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil)
+	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil, nil)
 	eng := New(Config{
 		Provider:            prov,
 		Tools:               tool.NewRegistry(),
@@ -217,7 +217,7 @@ func TestEngine_DoesNotRetryAfterToolCallStart(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil)
+	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "", nil, nil)
 	eng := New(Config{
 		Provider:            prov,
 		Tools:               tool.NewRegistry(),
@@ -255,7 +255,7 @@ func TestEngine_DoesNotRetryNonTransientError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "bad-key", nil)
+	prov := provider.NewOpenAICompatible(srv.URL+"/v1", "bad-key", nil, nil)
 	eng := New(Config{
 		Provider:            prov,
 		Tools:               tool.NewRegistry(),
