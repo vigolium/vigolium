@@ -322,6 +322,10 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	if r.engine != nil && r.engine.settings != nil {
 		oliumCfg = r.engine.settings.Agent.Olium
 	}
+	effectiveExtraBody, err := oliumCfg.CustomProvider.EffectiveExtraBody()
+	if err != nil {
+		return nil, fmt.Errorf("olium custom_provider: %w", err)
+	}
 	prov, _, model, provErr := olium.ResolveProvider(olium.Options{
 		Provider:            oliumCfg.Provider,
 		OAuthCredPath:       oliumCfg.OAuthCredPath,
@@ -335,6 +339,7 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		CustomModelID:       oliumCfg.CustomProvider.ModelID,
 		CustomAPIKey:        firstNonEmpty(oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
 		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeadersMap(),
+		CustomExtraBody:     effectiveExtraBody,
 	})
 	if provErr != nil {
 		return nil, fmt.Errorf("autonomous agent: resolve olium provider: %w", provErr)

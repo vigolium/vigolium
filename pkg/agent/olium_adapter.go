@@ -91,6 +91,10 @@ func buildOliumEngineWithSpec(cfg *config.OliumConfig, spec SessionSpec) (*oengi
 	if cfg == nil {
 		return nil, fmt.Errorf("olium config is nil")
 	}
+	effectiveExtraBody, err := cfg.CustomProvider.EffectiveExtraBody()
+	if err != nil {
+		return nil, fmt.Errorf("olium custom_provider: %w", err)
+	}
 	prov, _, model, err := olium.ResolveProvider(olium.Options{
 		Provider:            cfg.Provider,
 		OAuthCredPath:       cfg.OAuthCredPath,
@@ -104,6 +108,7 @@ func buildOliumEngineWithSpec(cfg *config.OliumConfig, spec SessionSpec) (*oengi
 		CustomModelID:       cfg.CustomProvider.ModelID,
 		CustomAPIKey:        firstNonEmpty(cfg.CustomProvider.APIKey, cfg.LLMAPIKey),
 		CustomExtraHeaders:  cfg.CustomProvider.ExtraHeadersMap(),
+		CustomExtraBody:     effectiveExtraBody,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("olium provider: %w", err)

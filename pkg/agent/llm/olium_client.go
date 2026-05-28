@@ -34,14 +34,22 @@ func NewOliumClient(cfg *config.OliumConfig) (Client, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("olium config is nil")
 	}
-	prov, _, model, err := olium.ResolveProvider(oliumOptions(cfg))
+	opts, err := oliumOptions(cfg)
+	if err != nil {
+		return nil, err
+	}
+	prov, _, model, err := olium.ResolveProvider(opts)
 	if err != nil {
 		return nil, fmt.Errorf("olium provider: %w", err)
 	}
 	return &oliumClient{cfg: cfg, prov: prov, model: model}, nil
 }
 
-func oliumOptions(cfg *config.OliumConfig) olium.Options {
+func oliumOptions(cfg *config.OliumConfig) (olium.Options, error) {
+	effectiveExtraBody, err := cfg.CustomProvider.EffectiveExtraBody()
+	if err != nil {
+		return olium.Options{}, fmt.Errorf("olium custom_provider: %w", err)
+	}
 	return olium.Options{
 		Provider:            cfg.Provider,
 		OAuthCredPath:       cfg.OAuthCredPath,
@@ -55,7 +63,8 @@ func oliumOptions(cfg *config.OliumConfig) olium.Options {
 		CustomModelID:       cfg.CustomProvider.ModelID,
 		CustomAPIKey:        firstNonEmpty(cfg.CustomProvider.APIKey, cfg.LLMAPIKey),
 		CustomExtraHeaders:  cfg.CustomProvider.ExtraHeadersMap(),
-	}
+		CustomExtraBody:     effectiveExtraBody,
+	}, nil
 }
 
 // Complete runs one tool-less olium turn and returns the model's text. The
