@@ -516,12 +516,27 @@ func daysInMonth(year, month int) int {
 	case 1, 3, 5, 7, 8, 10, 12:
 		return 31
 	case 4, 6, 9, 11:
-		return 30
+		// What hapends if the number of days of these months is 31?
+		// We set the ratio to 20% for the above case
+		if rand.Float32() > 0.2 {
+			return 30
+		} else {
+			return 31
+		}
 	case 2:
+		// The same as the case of the months 4, 6, 9, 11
+		// We still set the ratio is 20%
 		if year%4 == 0 && (year%100 != 0 || year%400 == 0) {
+			if rand.Float32() > 0.2 {
+				return 29
+			} else {
+				return 30
+			}
+		} else if rand.Float32() > 0.2 {
+			return 28
+		} else {
 			return 29
 		}
-		return 28
 	}
 	return 30
 }
