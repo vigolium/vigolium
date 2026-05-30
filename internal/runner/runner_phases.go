@@ -176,21 +176,13 @@ func (r *Runner) RunNativeScan() error {
 	// Log scan configuration snapshot as structured metadata.
 	r.logConfigSnapshot()
 
-	// Banner the scan lifecycle on stderr so operators see at a glance when
-	// scanning kicks off and wraps up. Suppressed by --silent; defers to the
-	// printScanConfig banner above for CLI runs (which already shows targets),
-	// so this marker is most useful for scan-on-receive where the server is
-	// otherwise quiet between 2-minute status ticks.
+	// Banner the end of the scan lifecycle on stderr so operators see at a glance
+	// when scanning wraps up, with wall-clock duration and finding count.
+	// Suppressed by --silent. The scan kickoff is already announced by the Scan ID
+	// line in the configuration banner above, so there is no separate "started"
+	// marker here.
 	scanStartedAt := time.Now()
 	if !r.options.Silent {
-		target := strings.Join(r.options.Targets, ", ")
-		if target == "" {
-			target = "(continuous, awaiting ingested records)"
-		}
-		fmt.Fprintf(os.Stderr, "  %s Scan started %s %s\n",
-			terminal.Green(terminal.SymbolStart),
-			terminal.BoldCyan(infra.scanUUID),
-			terminal.Gray("target: "+target))
 		defer func() {
 			duration := time.Since(scanStartedAt)
 			findingSummary := ""
@@ -1388,9 +1380,16 @@ func (r *Runner) runDynamicAssessmentRound(
 	roundElapsed := time.Since(roundStart)
 	r.printPhaseComplete("DynamicAssessment",
 		fmt.Sprintf("round %d — %s items in %s", round+1, terminal.Orange(fmt.Sprintf("%d", processed)), terminal.HiPurple(fmtDuration(roundElapsed))))
-	zap.L().Info("DynamicAssessment: round completed",
+	fields := []zap.Field{
 		zap.Int("round", round+1),
-		zap.Int64("processed", processed))
+		zap.Int64("processed", processed),
+	}
+	// Surface how many candidate findings the body-differential safety net
+	// dropped, so a quiet target is distinguishable from a confirmed-clean one.
+	if suppressed := executor.SuppressedFindings(); suppressed > 0 {
+		fields = append(fields, zap.Int64("findings_dropped_unconfirmed", suppressed))
+	}
+	zap.L().Info("DynamicAssessment: round completed", fields...)
 	return processed, nil
 }
 

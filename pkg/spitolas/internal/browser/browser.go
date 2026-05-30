@@ -152,9 +152,14 @@ func (b *Browser) launch() error {
 		l = l.Headless(false)
 	}
 
-	// Set proxy if configured
+	// Set proxy if configured. Force HTTP/1.1 alongside it: intercepting proxies
+	// (Burp, ZAP) routinely mishandle HTTP/2 frame translation, which Chrome
+	// surfaces as net::ERR_HTTP2_PROTOCOL_ERROR and which fails navigation
+	// outright rather than degrading gracefully.
 	if b.config.ProxyURL != "" {
-		l = l.Proxy(b.config.ProxyURL)
+		l = applyProxy(l, b.config.ProxyURL)
+		zap.L().Debug("Proxy configured — forcing HTTP/1.1 (disable-http2, disable-quic)",
+			zap.String("proxy", b.config.ProxyURL))
 	}
 
 	// Launch the browser
@@ -174,6 +179,20 @@ func (b *Browser) launch() error {
 	b.rodBrowser = browser
 
 	return nil
+}
+
+// applyProxy points the launcher at proxyURL and forces HTTP/1.1 over it.
+// disable-http2 stops Chrome from negotiating HTTP/2 with the proxy (the source
+// of net::ERR_HTTP2_PROTOCOL_ERROR through Burp/ZAP), and disable-quic stops it
+// from routing around the proxy over QUIC/HTTP3, which an HTTP proxy can't
+// intercept. No-op when proxyURL is empty so non-proxied scans keep HTTP/2.
+func applyProxy(l *launcher.Launcher, proxyURL string) *launcher.Launcher {
+	if proxyURL == "" {
+		return l
+	}
+	return l.Proxy(proxyURL).
+		Set("disable-http2").
+		Set("disable-quic")
 }
 
 // NewPage creates a new page (tab).

@@ -227,6 +227,13 @@ type Executor struct {
 	// rounds — see recordModuleTimeout / timedOutCount, which pick the right one.
 	moduleTimeouts atomic.Int64
 
+	// suppressedFindings counts candidate findings that were dropped by the
+	// body-differential safety net (the payload-vs-baseline re-confirmation could
+	// not establish a real, reproducible difference). Surfaced via
+	// SuppressedFindings() so a quiet target doesn't look identical to a
+	// confirmed-clean one — re-confirmation never truncates silently.
+	suppressedFindings atomic.Int64
+
 	// Database storage (optional)
 	repo         *database.Repository
 	recordWriter *database.RecordWriter // batched record writer (preferred over repo.SaveRecord)
@@ -446,6 +453,13 @@ func (e *Executor) FeedbackDropped() int64 {
 		return e.pool.feeder.Dropped()
 	}
 	return 0
+}
+
+// SuppressedFindings returns the number of candidate findings dropped by the
+// body-differential safety net because a real payload-vs-baseline difference
+// could not be re-confirmed.
+func (e *Executor) SuppressedFindings() int64 {
+	return e.suppressedFindings.Load()
 }
 
 // InFlight returns the number of worker goroutines currently processing items.

@@ -64,6 +64,32 @@ func TestScanPerInsertionPoint_NoFalsePositive(t *testing.T) {
 	assert.Empty(t, res, "a server that never leaks a DB error must not yield a NoSQLi finding")
 }
 
+// TestScanPerInsertionPoint_SkipsWAFChallenge reproduces a real false positive:
+// a Cloudflare 403 "Just a moment..." challenge whose base64 token contained the
+// substring "bSON", matching the MongoDB error pattern. A WAF/challenge response
+// must never be mistaken for an application-emitted DB error.
+func TestScanPerInsertionPoint_SkipsWAFChallenge(t *testing.T) {
+	t.Parallel()
+	// The literal token from the observed Cloudflare challenge body that the
+	// (?i)BSON pattern matched: "...WqVZzyifbSONOgi1jV6J...".
+	const cfBody = `<!DOCTYPE html><html><head><title>Just a moment...</title></head>` +
+		`<body><script>window._cf_chl_opt={md:'iMQ_6kBnAtoBSYBDz0zw...WqVZzyifbSONOgi1jV6JfU_Yj6osB8oy64IDs'};</script></body></html>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Server", "cloudflare")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(cfBody))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/?q=hello")
+	ip := modtest.InsertionPoint(t, rr, "q")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a Cloudflare WAF challenge must not be reported as NoSQLi")
+}
+
 // TestCheckNoSQLError exercises the pure error-matching helper, including the
 // baseline-suppression branch.
 func TestCheckNoSQLError(t *testing.T) {

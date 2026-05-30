@@ -15,6 +15,8 @@ type DiscoveryConfig struct {
 	Engine                   DiscoveryEngineConfig    `yaml:"engine"`
 	SaveResponseBody         bool                     `yaml:"save_response_body"`
 	EnableMalformedPathProbe bool                     `yaml:"enable_malformed_path_probe"`
+	DedupClusterCap          *int                     `yaml:"dedup_cluster_cap"`   // cap near-identical discovery responses (same host/status/content-type, size & words within 0.5%) per cluster; nil=default(10), 0=disabled, N=keep at most N
+	AutoFuzzLowYield         *bool                    `yaml:"auto_fuzz_low_yield"` // auto-enable FUZZ fuzzing on the original target when spidering came up low-yield or hit an SSO/login wall; nil=default(on)
 	EnrichTargets            bool                     `yaml:"enrich_targets"`      // enrich discovery targets with paths from previous phases (spidering, external harvest)
 	ExpandSeedParents        bool                     `yaml:"expand_seed_parents"` // expand each seed URL into its parent directories (e.g., /a/b/c -> /, /a/, /a/b/, /a/b/c) and feed them as additional targets to discovery and spidering
 	PassiveModuleTags        []string                 `yaml:"passive_module_tags"` // run passive modules matching these tags during discovery (e.g., ["fingerprint"])

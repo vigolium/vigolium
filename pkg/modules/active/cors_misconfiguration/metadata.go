@@ -24,7 +24,7 @@ credentials, and subdomain bypass patterns.
 - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/07-Testing_Cross_Origin_Resource_Sharing`
 
 	ModuleConfirmation = "Confirmed when the server reflects a controlled Origin value in the Access-Control-Allow-Origin header, indicating permissive CORS policy"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"misconfiguration", "auth-bypass", "moderate"}
 )

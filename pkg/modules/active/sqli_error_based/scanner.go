@@ -9,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/utils"
@@ -104,6 +105,12 @@ func (m *Module) ScanPerInsertionPoint(
 			if regExp != nil && originalResponseBody != "" && regExp.MatchString(originalResponseBody) {
 				resp.Close()
 				continue
+			}
+
+			// Record the identified backend for this host so the blind SQLi
+			// modules can prioritize matching payloads (DBMS narrowing).
+			if dbType := infra.NormalizeDBMS(dbms); dbType != "" {
+				scanCtx.MarkTech(urlx.Host, infra.DBMSTechTag(dbType))
 			}
 
 			results = append(results, &output.ResultEvent{

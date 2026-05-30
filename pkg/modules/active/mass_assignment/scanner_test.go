@@ -1,7 +1,19 @@
 package mass_assignment
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
 
 func TestToString(t *testing.T) {
@@ -36,4 +48,149 @@ func TestNew(t *testing.T) {
 	if m.IncludesBaseCanProcess() {
 		t.Error("IncludesBaseCanProcess() should return false")
 	}
+}
+
+func TestKeyNewlyReflected(t *testing.T) {
+	base := `{"username":"bob"}`
+	if !keyNewlyReflected("role", `{"username":"bob","role":"admin"}`, base) {
+		t.Error("role injected into response but not baseline should be newly reflected")
+	}
+	if keyNewlyReflected("username", `{"username":"bob","role":"admin"}`, base) {
+		t.Error("username present in baseline must not count as newly reflected")
+	}
+	if keyNewlyReflected("role", base, base) {
+		t.Error("role absent from injected response is not reflected")
+	}
+}
+
+func TestIsRejected(t *testing.T) {
+	if !isRejected(400, "") || !isRejected(422, "") {
+		t.Error("400/422 should be treated as rejection")
+	}
+	if !isRejected(200, "Error: unknown field role") {
+		t.Error("unknown field message should be treated as rejection")
+	}
+	if isRejected(200, `{"ok":true}`) {
+		t.Error("clean 2xx must not be a rejection")
+	}
+}
+
+// jsonPost builds a POST application/json request/response pair targeting rawURL,
+// attaching baselineBody as the captured (un-injected) baseline response.
+func jsonPost(t *testing.T, rawURL, reqBody, baselineBody string) *httpmsg.HttpRequestResponse {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse %q: %v", rawURL, err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatalf("port %q: %v", u.Port(), err)
+	}
+	svc, err := httpmsg.NewService(u.Hostname(), port, u.Scheme)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	raw := fmt.Sprintf(
+		"POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
+		u.RequestURI(), u.Host, len(reqBody), reqBody,
+	)
+	req := httpmsg.NewHttpRequestWithService(svc, []byte(raw))
+	rr := httpmsg.NewHttpRequestResponse(req, nil)
+	return modtest.Response(rr, "application/json", baselineBody)
+}
+
+// decodeBody returns the JSON object of a request body, or an empty map.
+func decodeBody(r *http.Request) map[string]any {
+	out := map[string]any{}
+	b, _ := io.ReadAll(r.Body)
+	_ = json.Unmarshal(b, &out)
+	return out
+}
+
+func TestScanPerRequest_Differential(t *testing.T) {
+	// /selective accepts known privilege fields (the vuln) but drops truly-unknown
+	// fields like the canary — the genuine mass-assignment case.
+	// /ignore always returns a fixed body regardless of input (server silently ignores
+	// the injected field — the false positive we must NOT flag).
+	// /mirror echoes the entire received body back (blind reflection — also not a real
+	// finding, and the canary control must suppress it).
+	// /reject refuses unknown fields with 400.
+	allow := map[string]bool{
+		"username": true, "role": true, "admin": true, "is_admin": true,
+		"isAdmin": true, "permissions": true, "verified": true,
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/selective", func(w http.ResponseWriter, r *http.Request) {
+		in := decodeBody(r)
+		echo := map[string]any{}
+		for k, v := range in {
+			if allow[k] {
+				echo[k] = v
+			}
+		}
+		_ = json.NewEncoder(w).Encode(echo)
+	})
+	mux.HandleFunc("/ignore", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"status":"ok","username":"bob"}`)
+	})
+	mux.HandleFunc("/mirror", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(decodeBody(r))
+	})
+	mux.HandleFunc("/reject", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":"unknown field"}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	mod := New()
+
+	t.Run("selective accept is reported", func(t *testing.T) {
+		rr := jsonPost(t, srv.URL+"/selective", `{"username":"bob"}`, `{"username":"bob"}`)
+		res, err := mod.ScanPerRequest(rr, client, &modkit.ScanContext{})
+		if err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if len(res) == 0 {
+			t.Fatal("expected a finding when the server accepts and reflects a privilege key")
+		}
+		if !strings.Contains(res[0].FuzzingParameter, "role") && res[0].FuzzingParameter == "" {
+			t.Errorf("unexpected fuzzing parameter: %q", res[0].FuzzingParameter)
+		}
+	})
+
+	t.Run("silently ignored field is NOT reported", func(t *testing.T) {
+		rr := jsonPost(t, srv.URL+"/ignore", `{"username":"bob"}`, `{"status":"ok","username":"bob"}`)
+		res, err := mod.ScanPerRequest(rr, client, &modkit.ScanContext{})
+		if err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if len(res) != 0 {
+			t.Fatalf("expected no finding when server ignores the injected key, got %d", len(res))
+		}
+	})
+
+	t.Run("blindly mirrored input is NOT reported", func(t *testing.T) {
+		rr := jsonPost(t, srv.URL+"/mirror", `{"username":"bob"}`, `{"username":"bob"}`)
+		res, err := mod.ScanPerRequest(rr, client, &modkit.ScanContext{})
+		if err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if len(res) != 0 {
+			t.Fatalf("expected no finding when server reflects arbitrary input (canary control), got %d", len(res))
+		}
+	})
+
+	t.Run("rejected unknown field is NOT reported", func(t *testing.T) {
+		rr := jsonPost(t, srv.URL+"/reject", `{"username":"bob"}`, `{"username":"bob"}`)
+		res, err := mod.ScanPerRequest(rr, client, &modkit.ScanContext{})
+		if err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if len(res) != 0 {
+			t.Fatalf("expected no finding when server rejects unknown fields, got %d", len(res))
+		}
+	})
 }

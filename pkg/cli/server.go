@@ -164,6 +164,12 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		settings = config.DefaultSettings()
 	}
 
+	// Override SQLite path if --db flag is set, matching scan/ingest/etc.
+	// Without this the server ignores --db and opens the default database.
+	if globalDB != "" {
+		settings.Database.SQLite.Path = globalDB
+	}
+
 	// Warm sessions no longer exist — the olium engine is in-process, so
 	// --disable-warm-session is a no-op retained for flag compatibility.
 	_ = serverOpts.DisableWarmSession

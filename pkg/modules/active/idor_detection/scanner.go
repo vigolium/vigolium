@@ -270,6 +270,26 @@ func (m *Module) probeNeighbor(
 		return nil, nil
 	}
 
+	// Determinism gate: re-issue the ORIGINAL id a couple of times to measure how
+	// much this endpoint varies its response for an UNCHANGED id. Analytics /
+	// tracking endpoints (randomized JS beacons, ad rotators) return different
+	// content on every request regardless of the object id, so a changed-id
+	// response looks like an IDOR when it is just per-request dynamic noise. Keep
+	// the finding only when the changed-id difference exceeds the endpoint's own
+	// same-id variation. Fail open (keep) if the refetch could not run.
+	idVerdict := modkit.ConfirmCrossIDDifferential(
+		httpClient,
+		ctx.Service(),
+		ip.BuildRequest([]byte(ip.BaseValue())),
+		string(baseline.Summary.Body),
+		baseline.StatusCode,
+		string(probeBody),
+		modkit.CrossIDConfig{},
+	)
+	if idVerdict.Ran && !idVerdict.Trustworthy {
+		return nil, nil
+	}
+
 	// Structurally similar + content differs → potential IDOR
 	confidence := severity.Tentative
 	if comparison.UserFieldsDiffer {
@@ -323,6 +343,9 @@ func (m *Module) probeNeighbor(
 			"content_identical":  comparison.ContentIdentical,
 			"user_fields_differ": comparison.UserFieldsDiffer,
 			"differing_fields":   comparison.DifferingFields,
+			"self_id_ratio":      idVerdict.SelfRatio,
+			"cross_id_ratio":     idVerdict.CrossRatio,
+			"determinism_gate":   idVerdict.Reason,
 		},
 	}, nil
 }

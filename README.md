@@ -17,9 +17,9 @@
 
 Vigolium provides two complementary scanning modes:
 
-- **Native Scan** (`vigolium scan`): **Fast, powerful, and flexible.** Deterministic, multi-phase scanning with 251 modules across content discovery, browser/SPA spidering, and active/passive audit, covering injection, access control, file/path, API/protocol, framework-specific, cloud/infra, and out-of-band (OAST) vulnerability classes.
+- **Native Scan** (`vigolium scan`): **Fast, powerful, and flexible.** Deterministic, multi-phase scanning with 250+ modules across content discovery, browser/SPA spidering, and active/passive audit, covering injection, access control, file/path, API/protocol, framework-specific, cloud/infra, and out-of-band (OAST) vulnerability classes.
 
-- **Agentic Scan** (`vigolium agent`): **Thoroughly audits your codebase.** AI-driven scanning that autonomously plans attacks, selects modules, generates custom extensions, and triages results, combining deep source-code audit with autonomous and targeted vulnerability scanning.
+- **Agentic Scan** (`vigolium agent`): **Thoroughly audits your codebase.** AI-driven scanning that autonomously plans attacks, selects modules, generates custom extensions, and triages results, combining [deep source-code audit](https://github.com/vigolium/vigolium-audit) with autonomous and targeted vulnerability scanning.
 
 
 ## Installation
@@ -442,7 +442,7 @@ See [HACKING.md](HACKING.md) for the full build guide, codebase map, and module 
 
 ## Security
 
-Vigolium is an offensive security tool, and two parts of it are intentionally permissive: **agent mode runs with no sandbox** (the LLM has full shell, file, and network access on the host) and **extensions can run arbitrary commands**. Run agent mode in a disposable container/VM scoped to the engagement, and treat untrusted extensions like untrusted code. See [SECURITY.md](SECURITY.md) (or [docs.vigolium.com/others/security-warning](https://docs.vigolium.com/others/security-warning)) before you start, and report vulnerabilities in Vigolium itself privately to [contact@vigolium.com](mailto:contact@vigolium.com).
+Vigolium is an offensive security tool, and two parts of it are intentionally permissive: **agent mode runs with no sandbox** (the LLM has full shell, file, and network access on the host) and **extensions can run arbitrary commands**. Run agent mode in a disposable container/VM scoped to the engagement, and treat untrusted extensions like untrusted code. See [SECURITY.md](SECURITY.md) before you start, and report vulnerabilities in Vigolium itself privately to [contact@vigolium.com](mailto:contact@vigolium.com).
 
 ## License
 

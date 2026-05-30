@@ -29,7 +29,7 @@ var probes = []corsProbe{
 		check: func(acao, _ string) bool {
 			return acao == "https://evil.example.com"
 		},
-		sev:  severity.High,
+		sev:  severity.Low,
 		desc: "The server reflects arbitrary Origin values in Access-Control-Allow-Origin, allowing any site to read cross-origin responses.",
 	},
 	{
@@ -38,7 +38,7 @@ var probes = []corsProbe{
 		check: func(acao, _ string) bool {
 			return acao == "null"
 		},
-		sev:  severity.Medium,
+		sev:  severity.Low,
 		desc: "The server allows the null origin, which can be exploited via sandboxed iframes or redirects to perform cross-origin requests.",
 	},
 	{
@@ -47,7 +47,7 @@ var probes = []corsProbe{
 		check: func(acao, acac string) bool {
 			return acao == "*" && strings.EqualFold(acac, "true")
 		},
-		sev:  severity.Medium,
+		sev:  severity.Low,
 		desc: "The server sets Access-Control-Allow-Origin to wildcard (*) while also allowing credentials, which is a misconfiguration that browsers should reject but may indicate insecure CORS logic.",
 	},
 	{
@@ -59,7 +59,7 @@ var probes = []corsProbe{
 			// acao must match the injected origin; checked by caller with the actual sent origin
 			return acao != ""
 		},
-		sev:  severity.High,
+		sev:  severity.Low,
 		desc: "The server trusts subdomains of the target host as allowed origins. An attacker controlling any subdomain (e.g. via subdomain takeover) can read cross-origin responses.",
 	},
 	{
@@ -70,7 +70,7 @@ var probes = []corsProbe{
 		check: func(acao, _ string) bool {
 			return acao != ""
 		},
-		sev:  severity.High,
+		sev:  severity.Low,
 		desc: "The server uses incorrect prefix matching for origin validation. An attacker can register a domain prefixed with the target host to bypass CORS restrictions.",
 	},
 	{
@@ -81,7 +81,7 @@ var probes = []corsProbe{
 		check: func(acao, _ string) bool {
 			return acao != ""
 		},
-		sev:  severity.High,
+		sev:  severity.Low,
 		desc: "The server uses incorrect suffix matching for origin validation. An attacker can use a subdomain of their own domain that ends with the target hostname to bypass CORS restrictions.",
 	},
 	{
@@ -92,7 +92,7 @@ var probes = []corsProbe{
 		check: func(acao, _ string) bool {
 			return acao != ""
 		},
-		sev:  severity.Medium,
+		sev:  severity.Low,
 		desc: "The server trusts origins on non-standard ports of the target host, which may be exploitable if other services run on those ports.",
 	},
 	{
@@ -101,7 +101,7 @@ var probes = []corsProbe{
 		check: func(acao, _ string) bool {
 			return acao == "http://evil.example.com"
 		},
-		sev:  severity.Medium,
+		sev:  severity.Low,
 		desc: "The server reflects HTTP-scheme origins in ACAO, enabling mixed-content cross-origin attacks.",
 	},
 }

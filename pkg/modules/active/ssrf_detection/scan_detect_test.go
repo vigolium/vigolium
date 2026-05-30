@@ -1,10 +1,12 @@
 package ssrf_detection
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -76,4 +78,33 @@ func TestScanPerInsertionPoint_NoFalsePositive(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "identical responses must not yield an SSRF finding")
+}
+
+// TestScanPerInsertionPoint_AmbientMarker reproduces the reported false positive:
+// a non-deterministic endpoint whose live response ALWAYS carries a weak marker
+// (`<html`) plus a rotating token, while the captured baseline happened to miss
+// it. The stale-baseline marker check trips, but the reproducibility+control
+// gate fetches the original value fresh, finds the same marker there, and so
+// reports nothing.
+func TestScanPerInsertionPoint_AmbientMarker(t *testing.T) {
+	var n int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Every response — for ANY url, including the original benign one — carries
+		// an `<html` marker and a rotating token.
+		c := atomic.AddInt64(&n, 1)
+		_, _ = fmt.Fprintf(w, "<html><body>edge challenge token=%020d</body></html>", c)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// Stale captured baseline that lacks the `<html` marker the live page now carries.
+	rr := modtest.Response(
+		modtest.Request(t, srv.URL+"/?url=https://images.example.com/logo.png"),
+		"text/plain", "loading edge protection please wait",
+	)
+	ip := modtest.InsertionPoint(t, rr, "url")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a marker the live page always carries (present in a fresh control too) must not be reported as SSRF")
 }

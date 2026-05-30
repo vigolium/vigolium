@@ -323,7 +323,68 @@ func checkWithAllModules(rawRequest []byte, ip httpmsg.InsertionPoint, urlx *url
 	if len(results) == 0 {
 		return results, false, nil
 	}
+
+	// Re-confirm before reporting: prove the redirect is attacker-controlled by
+	// injecting a FRESH random domain and requiring the response to redirect to
+	// THAT domain across multiple rounds. A redirect that doesn't track the
+	// changing injected value (a coincidental string match, or a fixed/cached
+	// redirect) is rejected as a false positive. Fails open on a transient error
+	// so a flaky host doesn't drop a real finding.
+	confirmed, cerr := confirmAttackerControlledRedirect(ip, httpService, httpClient)
+	if cerr != nil {
+		return results, true, nil
+	}
+	if !confirmed {
+		return nil, false, nil
+	}
 	return results, true, nil
+}
+
+// confirmAttackerControlledRedirect injects a fresh random redirect domain into
+// the insertion point and reports whether the response redirects to that exact
+// domain, repeated across multiple rounds with a new domain each time (via
+// modkit.ConfirmReflection). This confirms the redirect target genuinely tracks
+// attacker input rather than coincidentally matching a probe domain.
+func confirmAttackerControlledRedirect(ip httpmsg.InsertionPoint, httpService *httpmsg.Service, httpClient *http.Requester) (bool, error) {
+	return modkit.ConfirmReflection(2, func(canary string) (bool, error) {
+		redirectDomain := canary + ".com"
+		payloads := []string{
+			"https://" + redirectDomain,
+			"//" + redirectDomain,
+			redirectDomain,
+			`/\` + redirectDomain,
+		}
+		re := getDomainRedirectRegex(redirectDomain)
+		for _, payload := range payloads {
+			fuzzedRaw := ip.BuildRequest([]byte(payload))
+			req, perr := httpmsg.ParseRawRequest(string(fuzzedRaw))
+			if perr != nil {
+				continue
+			}
+			req.WithService(httpService)
+
+			resp, _, rerr := httpClient.Execute(req, http.Options{NoRedirects: true})
+			if rerr != nil {
+				if errors.Is(rerr, hosterrors.ErrUnresponsiveHost) {
+					return false, rerr
+				}
+				continue
+			}
+			matched := false
+			checkOutput(resp, func(nextLoc string) bool {
+				if re.MatchString(nextLoc) {
+					matched = true
+					return false
+				}
+				return true
+			})
+			resp.Close()
+			if matched {
+				return true, nil // this round's fresh domain was reflected in the redirect
+			}
+		}
+		return false, nil
+	})
 }
 
 // https://xxx.{target.com}

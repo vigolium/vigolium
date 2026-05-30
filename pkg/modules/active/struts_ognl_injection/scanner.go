@@ -75,6 +75,12 @@ func New() *Module {
 	return m
 }
 
+// ConfirmsByBodyDifferential opts this module into the executor's body-
+// differential safety net: a candidate finding is re-confirmed by replaying the
+// OGNL payload request and verifying the evaluated result reproducibly appears
+// as content absent from the clean baseline before being reported.
+func (m *Module) ConfirmsByBodyDifferential() bool { return true }
+
 // ScanPerRequest tests Content-Type header OGNL injection (CVE-2017-5638 style).
 func (m *Module) ScanPerRequest(
 	ctx *httpmsg.HttpRequestResponse,

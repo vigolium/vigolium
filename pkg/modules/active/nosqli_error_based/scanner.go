@@ -6,10 +6,12 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	httputil "github.com/projectdiscovery/utils/http"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 )
@@ -117,6 +119,17 @@ func (m *Module) ScanPerInsertionPoint(
 			continue
 		}
 
+		// A WAF/CDN challenge, auth gate, rate-limit, or maintenance response is
+		// not produced by the application stack, so any DB-error substring it
+		// carries is noise rather than an injection leak. The motivating false
+		// positive: a Cloudflare 403 "Just a moment..." page whose base64
+		// challenge token happened to contain "bSON", matching the MongoDB
+		// pattern. Skip such responses before error matching.
+		if isBlockedResponse(resp) {
+			resp.Close()
+			continue
+		}
+
 		body := resp.Body().String()
 		if dbms, matched := checkNoSQLError(body, origBody); matched {
 			results = append(results, &output.ResultEvent{
@@ -136,6 +149,23 @@ func (m *Module) ScanPerInsertionPoint(
 	}
 
 	return results, nil
+}
+
+// isBlockedResponse reports whether resp came from a WAF/CDN challenge, auth
+// gate, rate limiter, or maintenance page rather than the application. Genuine
+// error-based NoSQLi leaks are emitted by the app stack (typically a 500), so a
+// denied or challenged response can only yield false matches. It combines the
+// vendor-aware block detector (Cloudflare, Akamai, Incapsula, ...) with a plain
+// status gate that also catches generic WAFs the detector does not recognize.
+func isBlockedResponse(resp *httputil.ResponseChain) bool {
+	if infra.GetBlockDetectionValidator().Validate(resp) != nil {
+		return true
+	}
+	switch resp.Response().StatusCode {
+	case 401, 403, 429, 503:
+		return true
+	}
+	return false
 }
 
 // checkNoSQLError checks if response contains NoSQL error patterns not in original.

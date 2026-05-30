@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
@@ -264,6 +265,7 @@ func (m *Module) testMissingState(
 		Info: output.Info{
 			Name:        "OAuth Missing State Parameter (CSRF)",
 			Description: "The OAuth authorization request does not include a state parameter, making the flow vulnerable to CSRF attacks. An attacker can forge authorization requests to link their account to a victim's session.",
+			Severity:    severity.Medium,
 		},
 	}, nil
 }

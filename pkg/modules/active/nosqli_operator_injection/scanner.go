@@ -184,7 +184,10 @@ func (m *Module) testPayload(
 			detectionDesc = fmt.Sprintf("Auth bypass: status changed from %d to %d", baselineStatus, probeStatus)
 		}
 	case detectSizeChange:
-		if analyzeSizeIncrease(len(baselineBody), len(body)) {
+		// Require a real captured baseline. Without one (baselineStatus == 0) any
+		// non-trivial response would be misread as a size increase from zero.
+		if baselineStatus != 0 && analyzeSizeIncrease(len(baselineBody), len(body)) &&
+			m.confirmSizeIncrease(ctx, ip, httpClient, fuzzedValue, len(body)) {
 			detected = true
 			detectionDesc = fmt.Sprintf("Data exfiltration: body size increased from %d to %d bytes", len(baselineBody), len(body))
 		}
@@ -210,6 +213,44 @@ func (m *Module) testPayload(
 			Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection"},
 		},
 	}, nil
+}
+
+// confirmSizeIncrease re-confirms a detectSizeChange hit by checking the body
+// growth is payload-driven rather than the endpoint's own per-request size
+// variance. It fetches the ORIGINAL value twice (taking the largest clean
+// response) and re-sends the payload once; the SMALLER of the two payload
+// responses must still exceed the LARGEST clean response by the size-increase
+// thresholds. A non-deterministic or large-by-default endpoint — where a fresh
+// clean fetch is just as big as the payload response — fails this and is
+// dropped. Fails open on a transport error so a transient failure never
+// suppresses a true positive.
+func (m *Module) confirmSizeIncrease(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	httpClient *http.Requester,
+	payloadValue string,
+	firstProbeLen int,
+) bool {
+	maxClean := 0
+	for i := 0; i < 2; i++ {
+		_, body, _, err := m.measureDuration(ctx, ip, httpClient, ip.BaseValue())
+		if err != nil {
+			return true
+		}
+		if len(body) > maxClean {
+			maxClean = len(body)
+		}
+	}
+
+	_, probeBody, _, err := m.measureDuration(ctx, ip, httpClient, payloadValue)
+	if err != nil {
+		return true
+	}
+	smallestProbe := firstProbeLen
+	if len(probeBody) < smallestProbe {
+		smallestProbe = len(probeBody)
+	}
+	return analyzeSizeIncrease(maxClean, smallestProbe)
 }
 
 // testTimeBasedPayload confirms a time-based NoSQL injection by measuring a
@@ -354,34 +395,51 @@ func (m *Module) testBooleanDiff(
 			continue
 		}
 
-		// Check: true condition should differ from false condition
-		// AND true condition should be more similar to baseline (or produce a valid response)
-		if analyzeBooleanDiff(trueBody, falseBody) && trueStatus >= 200 && trueStatus < 400 {
-			urlx, _ := ctx.URL()
-			return &output.ResultEvent{
-				URL:              urlx.String(),
-				Matched:          urlx.String(),
-				Request:          string(ip.BuildRequest([]byte(ip.BaseValue() + truePayload.value))),
-				FuzzingParameter: ip.Name(),
-				ExtractedResults: []string{truePayload.value, falsePayload.value},
-				Info: output.Info{
-					Name:        "NoSQL Boolean-based Injection",
-					Description: fmt.Sprintf("Boolean differential detected: true/false conditions produce different responses via parameter %q — %s", ip.Name(), truePayload.desc),
-					Severity:    severity.High,
-					Confidence:  severity.Firm,
-					Tags:        []string{"nosqli", "boolean-injection", "mongodb"},
-					Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection"},
-				},
-				Metadata: map[string]any{
-					"true_body_len":  len(trueBody),
-					"false_body_len": len(falseBody),
-					"baseline_len":   len(baselineBody),
-				},
-			}, nil
+		// The always-true condition must yield a valid (served) response.
+		if trueStatus < 200 || trueStatus >= 400 {
+			continue
 		}
+
+		// Stability re-probe: send the always-true payload a second time to measure
+		// the endpoint's intrinsic per-request variance. Endpoints that embed a fresh
+		// token/nonce/timestamp in every response (e.g. bot-detection/challenge pages)
+		// would otherwise make any true/false difference look like a boolean signal.
+		trueBody2, _, err := m.sendPayload(ctx, ip, httpClient, truePayload.value)
+		if err != nil {
+			return nil, err
+		}
+		if containsNoSQLError(trueBody2) {
+			continue
+		}
+
+		if !confirmBooleanDiff(trueBody, trueBody2, falseBody, baselineBody) {
+			continue
+		}
+
+		urlx, _ := ctx.URL()
+		return &output.ResultEvent{
+			URL:              urlx.String(),
+			Matched:          urlx.String(),
+			Request:          string(ip.BuildRequest([]byte(ip.BaseValue() + truePayload.value))),
+			FuzzingParameter: ip.Name(),
+			ExtractedResults: []string{truePayload.value, falsePayload.value},
+			Info: output.Info{
+				Name:        "NoSQL Boolean-based Injection",
+				Description: fmt.Sprintf("Boolean differential confirmed: always-true and always-false conditions produce structurally different responses (beyond the endpoint's own per-request variance) via parameter %q — %s", ip.Name(), truePayload.desc),
+				Severity:    severity.High,
+				Confidence:  severity.Firm,
+				Tags:        []string{"nosqli", "boolean-injection", "mongodb"},
+				Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection"},
+			},
+			Metadata: map[string]any{
+				"true_body_len":  len(trueBody),
+				"false_body_len": len(falseBody),
+				"baseline_len":   len(baselineBody),
+			},
+		}, nil
 	}
 
-	_ = baselineStatus // used for context in future enhancements
+	_ = baselineStatus // baseline status reserved for future auth-state checks
 
 	return nil, nil
 }

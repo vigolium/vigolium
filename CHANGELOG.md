@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.18-beta] - 2026-05-30
+
+A false-positive reduction release: high/critical active modules now re-confirm findings (replay payload vs. clean baseline) before reporting, plus discovery and crawler robustness fixes.
+
+### Re-confirmation safety net
+
+- Executor-level net (`modkit.ConfirmBodyDifferential` + opt-in `BodyDifferentialConfirmable`) replays a finding's payload vs. a clean baseline and drops it without a reproducible difference, fails *open* on anything inconclusive. Opted in by `host-header-injection`, `reflected-ssti`, `struts-ognl-injection`, `web-cache-poisoning`.
+- Dropped findings counted and surfaced via `SuppressedFindings()`.
+
+### SQL & NoSQL injection
+
+- **`sqli-boolean-blind`** — single-shot comparison replaced by a multi-round, multi-factor logic battery (operator probing, alternating comparisons, per-branch stability, invalid-syntax probe) + WAF payload mutation.
+- **`sqli-time-blind`** — multi-round, delay-scaling confirmation to separate injection from network jitter.
+- **`nosqli-operator-injection`, `nosqli-error-based`** — size-change hits re-confirmed against per-request variance; now require a captured baseline.
+- New `pkg/modules/infra` SQLi helpers: `sqldbms.go`, `sqlvalue.go`, `sqlwaf.go`.
+
+### Active module confirmation
+
+- **`crlf-injection`, `response-header-injection`** — replay with fresh canaries across rounds.
+- **`open-redirect`** — require the redirect to track a fresh injected domain across rounds.
+- **`ssrf-detection`** — verify matched markers are payload-introduced, not ambient.
+- **`idor-detection`, `idor-guid`** — determinism gate vs. per-request variance (skips analytics/beacon endpoints).
+- **`mass-assignment`** — canary field detects endpoints that echo arbitrary keys.
+- **`http-method-tampering`** — catch-all guard drops endpoints that accept *any* method.
+
+### Discovery & spidering
+
+- Built-in wordlists materialized to disk and used as defaults (`internal/resources/wordlists`).
+- `dedup_cluster_cap` (default 10) collapses near-identical responses so catch-all/SPA targets don't flood the scan; `auto_fuzz_low_yield` (default on) enables `FUZZ` brute-forcing on low-yield/SSO-walled spidering.
+- Initial navigation retries on transient transport errors; proxied scans force Chrome to HTTP/1.1 (fixes `net::ERR_HTTP2_PROTOCOL_ERROR` through Burp/ZAP); off-host start redirects classified as SSO wall vs. relocated app (host adopted into scope).
+
 ## [v0.1.17-beta] - 2026-05-29
 
 Expand XSS detection with additive modules that sit alongside the existing scanners rather than changing them. The WAF-aware evasion and encoding-payload work takes inspiration from [dalfox](https://github.com/hahwul/dalfox).

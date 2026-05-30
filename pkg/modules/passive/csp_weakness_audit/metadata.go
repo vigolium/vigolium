@@ -30,7 +30,7 @@ in sensitive directives.
 - https://csp-evaluator.withgoogle.com/`
 
 	ModuleConfirmation = "Confirmed when CSP header contains directives that significantly weaken its protection"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"header-security", "misconfiguration", "xss", "light"}
 )

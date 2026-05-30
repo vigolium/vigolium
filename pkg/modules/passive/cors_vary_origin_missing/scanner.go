@@ -86,7 +86,6 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	// Determine severity: upgrade to Medium if credentials are enabled
 	acac := ctx.Response().Header("Access-Control-Allow-Credentials")
 	resultSeverity := severity.Low
 	var issues []string
@@ -94,7 +93,6 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	issues = append(issues, fmt.Sprintf("Dynamic ACAO (%s) without Vary: Origin header", acao))
 
 	if strings.EqualFold(acac, "true") {
-		resultSeverity = severity.Medium
 		issues = append(issues, "Access-Control-Allow-Credentials: true amplifies cache poisoning risk")
 	}
 

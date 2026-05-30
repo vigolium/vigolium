@@ -1,120 +1,46 @@
 package sqli_boolean_blind
 
-import (
-	"crypto/sha256"
+import "github.com/vigolium/vigolium/pkg/modules/modkit"
+
+// The response-comparison machinery for boolean-blind detection now lives in
+// pkg/modules/modkit (reconfirm.go) so the executor's re-confirmation safety net
+// and other modules share one battle-tested differential. These thin aliases and
+// wrappers keep this module's call sites and tests unchanged.
+
+const (
+	upperRatioBound    = modkit.UpperRatioBound
+	lowerRatioBound    = modkit.LowerRatioBound
+	ratioDiffTolerance = modkit.RatioDiffTolerance
+
+	// httpStatusOK is the only status a boolean-blind differential is trusted in.
+	httpStatusOK = 200
 )
 
-// responseSignature captures key response attributes for comparison.
-type responseSignature struct {
-	statusCode int
-	bodyLength int
-	bodyHash   [32]byte
+// responseSignature aliases the shared modkit signature so existing call sites
+// and tests in this package continue to compile unchanged.
+type responseSignature = modkit.ResponseSignature
+
+// statusOK reports whether a response is HTTP 200. Boolean-blind detection only
+// trusts differentials between successful responses; a differential that is
+// actually a status flip (200↔3xx/4xx/5xx) is a classic false positive.
+func statusOK(sig responseSignature) bool {
+	return sig.StatusCode == httpStatusOK
 }
 
-// newResponseSignature creates a signature from response attributes.
-func newResponseSignature(statusCode int, body string) responseSignature {
-	return responseSignature{
-		statusCode: statusCode,
-		bodyLength: len(body),
-		bodyHash:   sha256.Sum256([]byte(body)),
-	}
+func newResponseSignature(statusCode int, body, reflect string) responseSignature {
+	return modkit.NewResponseSignature(statusCode, body, reflect)
 }
 
-// isDifferent returns true if two signatures are meaningfully different.
-// Used to determine if TRUE/FALSE payloads produce different responses.
-func isDifferent(a, b responseSignature) bool {
-	// Different status codes are a strong signal
-	if a.statusCode != b.statusCode {
-		return true
-	}
+func normalizeForRatio(body, reflect string) string { return modkit.NormalizeForRatio(body, reflect) }
 
-	// Same content hash means identical responses
-	if a.bodyHash == b.bodyHash {
-		return false
-	}
+func tokenize(normalized string) (map[string]int, int) { return modkit.Tokenize(normalized) }
 
-	// Check body length differential: >20% or >100 bytes
-	diff := a.bodyLength - b.bodyLength
-	if diff < 0 {
-		diff = -diff
-	}
+func quickRatio(a, b responseSignature) float64 { return modkit.QuickRatio(a, b) }
 
-	if diff > 100 {
-		return true
-	}
+func ratioSimilar(a, b responseSignature) bool { return modkit.RatioSimilar(a, b) }
 
-	// Percentage-based check (avoid division by zero)
-	maxLen := a.bodyLength
-	if b.bodyLength > maxLen {
-		maxLen = b.bodyLength
-	}
-	if maxLen > 0 && float64(diff)/float64(maxLen) > 0.20 {
-		return true
-	}
+func isDifferent(a, b responseSignature) bool { return modkit.IsDifferent(a, b) }
 
-	return false
-}
-
-// hasSubstantialBodyDifference returns true when two responses have a strong,
-// content-driven length differential. Stricter than isDifferent: it ignores
-// status-code changes entirely and requires the body lengths to diverge by both
-// an absolute (>100 bytes) and a relative (>=20%) threshold.
-//
-// Used as the final gate before declaring boolean SQLi to filter false positives
-// where the only signal is a status flip (e.g., baseline 200 → FALSE 302
-// redirect) without a real content-level differential.
 func hasSubstantialBodyDifference(a, b responseSignature) bool {
-	if a.bodyHash == b.bodyHash {
-		return false
-	}
-	diff := a.bodyLength - b.bodyLength
-	if diff < 0 {
-		diff = -diff
-	}
-	if diff <= 100 {
-		return false
-	}
-	maxLen := a.bodyLength
-	if b.bodyLength > maxLen {
-		maxLen = b.bodyLength
-	}
-	if maxLen == 0 {
-		return false
-	}
-	return float64(diff)/float64(maxLen) >= 0.20
-}
-
-// isSimilar returns true if two signatures are effectively the same response.
-// Used to confirm that repeated requests produce consistent results.
-func isSimilar(a, b responseSignature) bool {
-	// Must have same status code
-	if a.statusCode != b.statusCode {
-		return false
-	}
-
-	// Identical content
-	if a.bodyHash == b.bodyHash {
-		return true
-	}
-
-	// Allow small variance (dynamic content like timestamps, CSRF tokens)
-	diff := a.bodyLength - b.bodyLength
-	if diff < 0 {
-		diff = -diff
-	}
-
-	// Similar if body length difference is <5% and <50 bytes
-	if diff > 50 {
-		return false
-	}
-
-	maxLen := a.bodyLength
-	if b.bodyLength > maxLen {
-		maxLen = b.bodyLength
-	}
-	if maxLen > 0 && float64(diff)/float64(maxLen) > 0.05 {
-		return false
-	}
-
-	return true
+	return modkit.HasSubstantialBodyDifference(a, b)
 }

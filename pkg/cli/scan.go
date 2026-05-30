@@ -498,6 +498,9 @@ func executeNativeScan(cmd *cobra.Command, settings *config.Settings, strategyNa
 		}
 	}
 
+	// Pin the scan UUID before the banner so the config summary can show it and
+	// the runner reuses the same identifier instead of minting its own.
+	scanOpts.ScanUUID = pinnedOrNewUUID(scanOpts.ScanUUID)
 	// Print scan summary banner (after DB init so we can show HTTP record count)
 	printScanSummary(scanOpts, settings, strategyName, repo)
 	scanOpts.ScanConfigPrinted = true
@@ -1332,6 +1335,9 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 	fmt.Fprintf(os.Stderr, "  %s %s %s %s\n\n",
 		terminal.TipPrefix(), terminal.Gray("skip phases you don't need via"), terminal.HiCyan("--skip <phase>"), terminal.Gray("(e.g. --skip discovery,known-issue-scan)"))
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.Green(terminal.SymbolStart), terminal.BoldHiBlue("Native Scan Configuration"))
+	if opts.ScanUUID != "" {
+		fmt.Fprintf(os.Stderr, "  %s Scan ID: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.ScanUUID))
+	}
 	if opts.Stateless {
 		statelessLine := "Stateless mode: using temporary database"
 		if globalVerbose && settings.Database.SQLite.Path != "" {

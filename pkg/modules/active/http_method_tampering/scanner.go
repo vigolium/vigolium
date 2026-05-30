@@ -123,11 +123,28 @@ func (m *Module) ScanPerRequest(
 	wildcard, _ := scanCtx.WildcardProbe(ctx, httpClient)
 	baseline, _ := scanCtx.GetOrFetchBaseline(ctx, httpClient)
 
+	// Catch-all guard, evaluated lazily and memoized: only when a phase finds a
+	// candidate do we probe with an unsupported sentinel method. If THAT also
+	// looks "successful" and non-shell, the endpoint accepts ANY method
+	// (analytics beacon / permissive edge handler) and a 2xx for a dangerous
+	// method or honored override proves nothing — so the candidate is dropped.
+	catchAll := -1 // -1 unknown, 0 no, 1 yes
+	isCatchAll := func() bool {
+		if catchAll == -1 {
+			if m.endpointAcceptsAnyMethod(ctx, httpClient, wildcard, baseline) {
+				catchAll = 1
+			} else {
+				catchAll = 0
+			}
+		}
+		return catchAll == 1
+	}
+
 	var results []*output.ResultEvent
 
 	// Phase 1: Test dangerous methods on 2xx endpoints
 	if origStatus >= 200 && origStatus < 300 {
-		r, err := m.testDangerousMethods(urlx, ctx, httpClient, wildcard, baseline)
+		r, err := m.testDangerousMethods(urlx, ctx, httpClient, wildcard, baseline, isCatchAll)
 		if err != nil {
 			return nil, err
 		}
@@ -135,13 +152,48 @@ func (m *Module) ScanPerRequest(
 	}
 
 	// Phase 2: Test method override headers
-	r, err := m.testMethodOverrideHeaders(urlx, ctx, httpClient, wildcard, baseline)
+	r, err := m.testMethodOverrideHeaders(urlx, ctx, httpClient, wildcard, baseline, isCatchAll)
 	if err != nil {
 		return nil, err
 	}
 	results = append(results, r...)
 
 	return results, nil
+}
+
+// endpointAcceptsAnyMethod sends a syntactically valid but unsupported sentinel
+// method and reports whether the endpoint still returns a "successful",
+// non-shell response. Such catch-all endpoints respond 2xx to anything, so a
+// dangerous method or honored override returning 2xx is meaningless. Uses the
+// SAME success+shell criteria as the real checks, so a bogus method getting the
+// same treatment as a dangerous one is exactly what flags a catch-all. Returns
+// false on a transport error so it never suppresses on a transient failure.
+func (m *Module) endpointAcceptsAnyMethod(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	wildcard *modkit.WildcardEntry,
+	baseline *modkit.BaselineEntry,
+) bool {
+	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "VIGOLIUMX")
+	if err != nil {
+		return false
+	}
+	fuzzedReq, err := httpmsg.ParseRawRequest(string(modifiedRaw))
+	if err != nil {
+		return false
+	}
+	fuzzedReq = fuzzedReq.WithService(ctx.Service())
+
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true})
+	if err != nil {
+		return false
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return false
+	}
+	return isSuccessfulMethod(resp.Response().StatusCode, resp.FullResponseString()) &&
+		!looksLikeWildcardShell(resp.Response().StatusCode, resp.Body().Bytes(), wildcard, baseline)
 }
 
 // testDangerousMethods sends PUT/DELETE/PATCH to see if they are unexpectedly enabled.
@@ -151,6 +203,7 @@ func (m *Module) testDangerousMethods(
 	httpClient *http.Requester,
 	wildcard *modkit.WildcardEntry,
 	baseline *modkit.BaselineEntry,
+	isCatchAll func() bool,
 ) ([]*output.ResultEvent, error) {
 	var results []*output.ResultEvent
 
@@ -181,6 +234,10 @@ func (m *Module) testDangerousMethods(
 
 		if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.FullResponseString()) &&
 			!looksLikeWildcardShell(resp.Response().StatusCode, resp.Body().Bytes(), wildcard, baseline) {
+			if isCatchAll() {
+				resp.Close()
+				return results, nil // endpoint 2xx-es any method — not a real finding
+			}
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Request:          string(modifiedRaw),
@@ -207,6 +264,7 @@ func (m *Module) testMethodOverrideHeaders(
 	httpClient *http.Requester,
 	wildcard *modkit.WildcardEntry,
 	baseline *modkit.BaselineEntry,
+	isCatchAll func() bool,
 ) ([]*output.ResultEvent, error) {
 	var results []*output.ResultEvent
 
@@ -237,6 +295,10 @@ func (m *Module) testMethodOverrideHeaders(
 
 			if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.FullResponseString()) &&
 				!looksLikeWildcardShell(resp.Response().StatusCode, resp.Body().Bytes(), wildcard, baseline) {
+				if isCatchAll() {
+					resp.Close()
+					return results, nil // endpoint 2xx-es any method — override proves nothing
+				}
 				results = append(results, &output.ResultEvent{
 					URL:              urlx.String(),
 					Request:          string(modifiedRaw),

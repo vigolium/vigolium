@@ -1,6 +1,8 @@
 package sqli_time_blind
 
 import (
+	"fmt"
+	"math"
 	"time"
 
 	"github.com/pkg/errors"
@@ -14,10 +16,26 @@ import (
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
-// sleepThreshold is the minimum response time differential to consider
-// a timing-based injection confirmed. Set high (8s) to avoid false positives
-// from slow servers or network jitter.
-const sleepThreshold = 8 * time.Second
+const (
+	// baselineSamples is how many unmodified requests are sent per insertion
+	// point to model the target's normal response-time distribution before any
+	// sleep payload is tested.
+	baselineSamples = 4
+	// timeStdevCoeff multiplies the baseline standard deviation when deriving
+	// the delay threshold. sqlmap uses 7 (≈99.9999% confidence); 5 keeps us
+	// sensitive while staying clear of normal network/server jitter.
+	timeStdevCoeff = 5
+	// minSleepMargin is the minimum absolute delay above the baseline mean that
+	// a sleep payload must add before it is believed (guards low-variance hosts).
+	minSleepMargin = 3 * time.Second
+	// absoluteFloor is a hard lower bound on the threshold so a near-instant
+	// baseline can never let trivial jitter masquerade as an injection.
+	absoluteFloor = 2 * time.Second
+	// maxThreshold caps the derived threshold: if a host is so slow/jittery that
+	// the threshold would exceed this, the (10s) sleep payloads can't clear it,
+	// so we skip rather than risk a false positive on an unstable target.
+	maxThreshold = 9 * time.Second
+)
 
 // Module implements the time-based blind SQL injection active scanner.
 type Module struct {
@@ -81,13 +99,25 @@ ipScan:
 	for _, ip := range points {
 		baseValue := ip.BaseValue()
 
-		payloads := getPayloadsForValue(baseValue)
+		// Model the target's normal latency for this insertion point and derive
+		// a per-target delay threshold, instead of a single fixed cutoff. This
+		// makes detection adaptive: fast targets can be confirmed with a modest
+		// margin, while slow/jittery targets raise the bar (or are skipped).
+		threshold, err := m.deriveThreshold(ctx, httpClient, ip)
+		if err != nil {
+			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+				return results, nil
+			}
+			continue
+		}
+		if threshold > maxThreshold {
+			continue // Target too slow/jittery to time-test reliably
+		}
+
+		payloads := prioritizeByDBMS(getPayloadsForValue(baseValue), scanCtx, urlx.Host)
 
 		for _, pair := range payloads {
-			sleepPayload := baseValue + pair.sleepVal
-			noSleepPayload := baseValue + pair.noSleep
-
-			result, err := m.testTimingPair(ctx, httpClient, ip, sleepPayload, noSleepPayload, pair.dbType)
+			result, err := m.confirmTiming(ctx, httpClient, ip, pair, baseValue, threshold)
 			if err != nil {
 				if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 					return results, nil
@@ -106,53 +136,133 @@ ipScan:
 	return results, nil
 }
 
-// testTimingPair implements the triple verification algorithm: sleep → no-sleep → sleep.
-func (m *Module) testTimingPair(
+// deriveThreshold samples the insertion point's unmodified latency a few times
+// and returns the delay a sleep payload must exceed to be believed:
+// max(absoluteFloor, mean + max(coeff·stdev, minSleepMargin)).
+func (m *Module) deriveThreshold(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	ip httpmsg.InsertionPoint,
-	sleepPayload, noSleepPayload, dbType string,
+) (time.Duration, error) {
+	base := ip.BaseValue()
+	samples := make([]time.Duration, 0, baselineSamples)
+	for i := 0; i < baselineSamples; i++ {
+		d, err := m.sendTimedPayload(ctx, httpClient, ip, base)
+		if err != nil {
+			return 0, err
+		}
+		samples = append(samples, d)
+	}
+
+	mean, stdev := meanStdev(samples)
+	margin := time.Duration(timeStdevCoeff) * stdev
+	if margin < minSleepMargin {
+		margin = minSleepMargin
+	}
+	threshold := mean + margin
+	if threshold < absoluteFloor {
+		threshold = absoluteFloor
+	}
+	return threshold, nil
+}
+
+// meanStdev computes the mean and (population) standard deviation of durations.
+func meanStdev(samples []time.Duration) (mean, stdev time.Duration) {
+	if len(samples) == 0 {
+		return 0, 0
+	}
+	var sum float64
+	for _, s := range samples {
+		sum += float64(s)
+	}
+	m := sum / float64(len(samples))
+	var variance float64
+	for _, s := range samples {
+		d := float64(s) - m
+		variance += d * d
+	}
+	variance /= float64(len(samples))
+	return time.Duration(m), time.Duration(math.Sqrt(variance))
+}
+
+const (
+	// sleepHigh / sleepLow are the two requested sleep durations used to prove
+	// the response delay scales with the injected sleep value.
+	sleepHigh = 6
+	sleepLow  = 2
+	// timeRounds is how many independent confirmation rounds must all pass.
+	timeRounds = 2
+)
+
+// confirmTiming confirms a time-based blind SQLi across multiple rounds and
+// verifies the observed delay tracks the requested sleep duration. The scaling
+// factor is the decisive false-positive killer: random server slowness or a
+// fixed-timeout/retry sink does not produce a delay that grows linearly with
+// the SLEEP argument.
+//
+// Per round:
+//   - the no-sleep payload must stay under the threshold (else the host is just slow);
+//   - the high-sleep payload must exceed the threshold;
+//   - the low-sleep payload must itself add a partial delay AND the high−low
+//     differential must track the requested (high−low) seconds.
+func (m *Module) confirmTiming(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	ip httpmsg.InsertionPoint,
+	pair timePair,
+	baseValue string,
+	threshold time.Duration,
 ) (*output.ResultEvent, error) {
-	// Step 1: Send sleep payload (should be slow)
-	elapsed1, err := m.sendTimedPayload(ctx, httpClient, ip, sleepPayload)
-	if err != nil {
-		return nil, err
-	}
-	if elapsed1 < sleepThreshold {
-		return nil, nil // No delay observed
+	render := func(seconds int) string { return baseValue + pair.render(seconds) }
+
+	for round := 0; round < timeRounds; round++ {
+		noSleep, err := m.sendTimedPayload(ctx, httpClient, ip, render(0))
+		if err != nil {
+			return nil, err
+		}
+		if noSleep >= threshold {
+			return nil, nil // Host is uniformly slow — not a reliable signal
+		}
+
+		high, err := m.sendTimedPayload(ctx, httpClient, ip, render(sleepHigh))
+		if err != nil {
+			return nil, err
+		}
+		if high < threshold {
+			return nil, nil // No delay from the high sleep payload
+		}
+
+		low, err := m.sendTimedPayload(ctx, httpClient, ip, render(sleepLow))
+		if err != nil {
+			return nil, err
+		}
+		// The low sleep must itself add a partial delay (rules out a one-off
+		// spike on the high request)...
+		if low < time.Duration(sleepLow)*time.Second/2 {
+			return nil, nil
+		}
+		// ...and the high−low differential must track the requested (high−low)
+		// seconds (at least half, allowing for overhead/jitter).
+		observed := high - low
+		expected := time.Duration(sleepHigh-sleepLow) * time.Second
+		if observed < expected/2 {
+			return nil, nil
+		}
 	}
 
-	// Step 2: Send no-sleep payload (should be fast)
-	elapsedNoSleep, err := m.sendTimedPayload(ctx, httpClient, ip, noSleepPayload)
-	if err != nil {
-		return nil, err
-	}
-	if elapsedNoSleep >= sleepThreshold {
-		return nil, nil // Server is just slow, not injectable
-	}
-
-	// Step 3: Send sleep payload again (should be slow again)
-	elapsed2, err := m.sendTimedPayload(ctx, httpClient, ip, sleepPayload)
-	if err != nil {
-		return nil, err
-	}
-	if elapsed2 < sleepThreshold {
-		return nil, nil // Inconsistent — likely false positive
-	}
-
-	// All checks passed — confirmed time-based blind SQLi
+	// All rounds passed — confirmed time-based blind SQLi.
+	sleepPayload := render(sleepHigh)
 	fuzzedRaw := ip.BuildRequest([]byte(sleepPayload))
 	return &output.ResultEvent{
 		Request:          string(fuzzedRaw),
 		FuzzingParameter: ip.Name(),
-		ExtractedResults: []string{sleepPayload, noSleepPayload, dbType},
+		ExtractedResults: []string{sleepPayload, render(0), pair.dbType},
 		Info: output.Info{
-			Description: "Time-based blind SQL injection confirmed via triple verification " +
-				"(sleep/no-sleep/sleep). Database type: " + dbType,
-			// Time-based inference is prone to backend-delay false positives —
-			// flag as suspect/tentative rather than the module default.
-			Severity:   severity.Suspect,
-			Confidence: severity.Tentative,
+			Description: fmt.Sprintf(
+				"Time-based blind SQL injection confirmed over %d rounds; the response delay "+
+					"scales with the injected sleep duration. Database type: %s", timeRounds, pair.dbType),
+			Severity:   severity.High,
+			Confidence: severity.Firm,
 		},
 	}, nil
 }

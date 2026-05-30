@@ -174,24 +174,82 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 
 		body := resp.Body().String()
-		if matched := checkSSRFMarkers(body, origBody, p.markers); matched != "" {
+		matched := checkSSRFMarkers(body, origBody, p.markers)
+		fullResp := ""
+		if matched != "" {
+			fullResp = resp.FullResponseString()
+		}
+		resp.Close()
+
+		// The SSRF markers (`<html`, `localhost`, `root:`, …) are deliberately
+		// broad, so a single hit is weak: a non-deterministic endpoint can echo one
+		// by chance, and a stale baseline can miss one the live page always carries.
+		// Confirm the marker is genuinely payload-introduced before reporting.
+		if matched != "" && m.confirmSSRFMarker(ctx, ip, httpClient, fuzzedRaw, matched) {
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Request:          string(fuzzedRaw),
-				Response:         resp.FullResponseString(),
+				Response:         fullResp,
 				FuzzingParameter: ip.Name(),
 				ExtractedResults: []string{p.payload, matched},
 				Info: output.Info{
 					Description: fmt.Sprintf("SSRF: %s — marker %q found in response", p.desc, matched),
 				},
 			})
-			resp.Close()
 			return results, nil
 		}
-		resp.Close()
 	}
 
 	return results, nil
+}
+
+// confirmSSRFMarker verifies a matched marker is genuinely introduced by the
+// payload rather than ambient or random. It requires the marker to (1) reappear
+// when the payload request is re-sent (reproducible — not per-request noise) and
+// (2) be ABSENT from a fresh fetch of the ORIGINAL value (the control — so a
+// marker the live page always carries, regardless of the payload, is rejected
+// even when the captured baseline happened to miss it). Fails open on a
+// transport error so a transient failure never suppresses a true positive.
+func (m *Module) confirmSSRFMarker(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	httpClient *http.Requester,
+	payloadRaw []byte,
+	marker string,
+) bool {
+	markerLower := strings.ToLower(marker)
+
+	// (1) Reproducible under the payload.
+	body, ok := m.fetchBody(ctx, httpClient, payloadRaw)
+	if !ok {
+		return true
+	}
+	if !strings.Contains(strings.ToLower(body), markerLower) {
+		return false
+	}
+
+	// (2) Absent from a fresh control fetch of the original value.
+	controlBody, ok := m.fetchBody(ctx, httpClient, ip.BuildRequest([]byte(ip.BaseValue())))
+	if !ok {
+		return true
+	}
+	return !strings.Contains(strings.ToLower(controlBody), markerLower)
+}
+
+// fetchBody re-issues a raw request and returns its response body. The bool is
+// false on any parse/HTTP error.
+func (m *Module) fetchBody(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, raw []byte) (string, bool) {
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	if err != nil {
+		return "", false
+	}
+	req = req.WithService(ctx.Service())
+	resp, _, err := httpClient.Execute(req, http.Options{})
+	if err != nil {
+		return "", false
+	}
+	defer resp.Close()
+	return resp.Body().String(), true
 }
 
 // looksLikeURLParam checks if a parameter name or value suggests URL input.

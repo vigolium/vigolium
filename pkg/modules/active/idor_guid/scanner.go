@@ -172,6 +172,26 @@ func (m *Module) tryPredictedID(
 	// 2. The response body length > 100 (not empty/trivial)
 	// 3. The status matches the original but body content differs (different resource)
 	if respStatus == 200 && len(respBody) > 100 && respStatus == baselineStatus && respBody != baselineBody {
+		// Determinism gate: many endpoints (analytics beacons, randomized JS
+		// bundles) return different content on every request regardless of the
+		// id, so a predicted-id response that "differs from the baseline" is just
+		// per-request noise, not a real object reference. Re-issue the ORIGINAL id
+		// a couple of times and keep the finding only when the predicted-id
+		// difference exceeds the endpoint's own same-id variation. Fail open
+		// (keep) if the refetch could not run.
+		verdict := modkit.ConfirmCrossIDDifferential(
+			httpClient,
+			ctx.Service(),
+			ip.BuildRequest([]byte(ip.BaseValue())),
+			baselineBody,
+			baselineStatus,
+			respBody,
+			modkit.CrossIDConfig{},
+		)
+		if verdict.Ran && !verdict.Trustworthy {
+			return nil, nil
+		}
+
 		return &output.ResultEvent{
 			URL:              urlStr,
 			Matched:          urlStr,

@@ -80,6 +80,12 @@ func New() *Module {
 	return m
 }
 
+// ConfirmsByBodyDifferential opts this module into the executor's body-
+// differential safety net: a candidate finding is re-confirmed by replaying the
+// unkeyed-header request and verifying it reproducibly introduces content absent
+// from the clean baseline before being reported.
+func (m *Module) ConfirmsByBodyDifferential() bool { return true }
+
 // ScanPerRequest tests the request for web cache poisoning via unkeyed headers.
 func (m *Module) ScanPerRequest(
 	ctx *httpmsg.HttpRequestResponse,

@@ -302,7 +302,7 @@ func ensureCoreDeps() error {
 	// terminal doesn't look frozen while the sweep runs.
 	fmt.Fprintf(os.Stderr, "%s %s\n",
 		terminal.InfoSymbol(),
-		terminal.BoldCyan("First-time scan detected — checking mandatory dependencies first..."))
+		"First-time scan detected — checking mandatory dependencies first...")
 	report := diagnostics.Run(diagnostics.Deps{Settings: settings})
 
 	chromiumMissing := report.Tools["chromium"] == nil || report.Tools["chromium"].Status != diagnostics.StatusOK
@@ -311,7 +311,7 @@ func ensureCoreDeps() error {
 	if !chromiumMissing && !nucleiMissing {
 		// Both already present — backfill the marker so subsequent runs
 		// skip the diagnostic entirely. No need to invoke RunFixes.
-		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.SuccessSymbol(), terminal.Green("All mandatory dependencies present"))
+		fmt.Fprintf(os.Stderr, "%s %s\n", terminal.SuccessSymbol(), terminal.Green("All mandatory dependencies present"))
 		if err := writeInitMarker(vigoliumDir); err != nil {
 			zap.L().Debug("Failed to write init marker", zap.Error(err))
 		}
