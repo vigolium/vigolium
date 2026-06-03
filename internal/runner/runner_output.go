@@ -284,6 +284,9 @@ func (r *Runner) printScanConfig() {
 	settings := r.settings
 
 	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Green(terminal.SymbolStart), terminal.BoldHiBlue("Scan Configuration"))
+	if opts.ScanUUID != "" {
+		fmt.Fprintf(os.Stderr, "  %s Scan ID: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.ScanUUID))
+	}
 	if opts.Stateless {
 		statelessLine := "Stateless mode: using temporary database"
 		if opts.Verbose && settings.Database.SQLite.Path != "" {

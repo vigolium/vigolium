@@ -46,6 +46,8 @@ type Runner struct {
 	dedupManager      *dedup.Manager
 	repository        *database.Repository // Optional: database storage
 	heuristicsResults map[string]*HeuristicsResult
+	spidering         spideringOutcome     // cross-phase signals captured after Spidering (drives Discovery auto-fuzz)
+	autoFuzzDiscovery bool                 // set by runDiscoveryPhase when low-yield/SSO auto-enables FUZZ fuzzing
 	scanLogger        *database.ScanLogger // Optional: structured scan logging
 	teeWriter         *teeWriter           // Optional: captures stderr for trace logging
 	sessionLogFile    *os.File             // Optional: runtime.log handle for verbose file-only writes
@@ -56,6 +58,17 @@ type Runner struct {
 	cancel    context.CancelFunc    // cancels ctx to signal workers to stop
 	done      chan struct{}         // closed when RunNativeScan finishes
 	pauseCtrl *core.PauseController // cooperative pause/resume for workers
+}
+
+// spideringOutcome captures cross-phase signals from the Spidering phase that
+// later phases consult. Currently it drives the Discovery phase's low-yield
+// auto-fuzz decision: when spidering finds little (or bounces off-host to an
+// SSO/login wall), Discovery auto-enables FUZZ fuzzing on the original target.
+type spideringOutcome struct {
+	ran      bool     // spidering actually executed (vs skipped / not in plan)
+	records  int      // total records saved across all spidered targets
+	sawSSO   bool     // at least one target redirected off-host to a login wall
+	ssoHosts []string // the off-host login/SSO hosts (excluded from fuzzing scope)
 }
 
 // phaseInfra holds shared resources across all scan phases.

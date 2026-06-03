@@ -2,14 +2,25 @@ package http_request_smuggling
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
+	httputil "github.com/projectdiscovery/utils/http"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
+)
+
+// Timing-anomaly thresholds. A probe must be both relatively (vs the host
+// baseline) and absolutely slow before it is even considered — and then it
+// still has to clear the confirmation gates in confirmTimingDesync.
+const (
+	timingMultiplier = 5
+	timingFloor      = 5 * time.Second
 )
 
 // smugglingProbe defines a request smuggling test case.
@@ -130,38 +141,31 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 
-	// First, measure baseline response time
+	// First, measure baseline response time.
 	baselineStart := time.Now()
 	baseResp, _, err := httpClient.Execute(ctx, http.Options{})
 	if err != nil {
 		return nil, nil
 	}
+	baselineBlocked := isBlockedResponse(baseResp)
 	baseResp.Close()
 	baselineDuration := time.Since(baselineStart)
+
+	// If the host's normal response is already an edge/CDN/WAF rejection
+	// (e.g. a Cloudflare 403 "Edge IP Restricted" page), requests never reach
+	// an origin frontend/backend parser chain. Every probe will be blocked the
+	// same way and the timing reading just measures edge processing, not a
+	// desync — so timing-based detection cannot produce a trustworthy result
+	// here. Skip the host rather than emit a guaranteed false positive.
+	if baselineBlocked {
+		return nil, nil
+	}
 
 	var results []*output.ResultEvent
 
 	for _, probe := range probes {
-		modifiedRaw := ctx.Request().Raw()
-		var modErr error
-
-		// Set method to POST for smuggling tests
-		modifiedRaw, modErr = httpmsg.SetMethod(modifiedRaw, "POST")
-		if modErr != nil {
-			continue
-		}
-
-		// Set the smuggling headers
-		for k, v := range probe.headers {
-			modifiedRaw, modErr = httpmsg.AddOrReplaceHeader(modifiedRaw, k, v)
-			if modErr != nil {
-				continue
-			}
-		}
-
-		// Set the body
-		modifiedRaw, modErr = httpmsg.SetBody(modifiedRaw, []byte(probe.body))
-		if modErr != nil {
+		modifiedRaw, ok := buildProbeRequest(ctx, probe)
+		if !ok {
 			continue
 		}
 
@@ -175,47 +179,241 @@ func (m *Module) ScanPerHost(
 		resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
 		elapsed := time.Since(start)
 		if err != nil {
-			// A timeout itself can be an indicator of smuggling
-			if elapsed > baselineDuration*5 && elapsed > 5*time.Second {
-				results = append(results, &output.ResultEvent{
-					URL:     ctx.Target(),
-					Matched: ctx.Target(),
-					Request: string(modifiedRaw),
-					ExtractedResults: []string{
-						fmt.Sprintf("Probe: %s", probe.name),
-						fmt.Sprintf("Baseline: %s, Probe: %s (timeout)", baselineDuration, elapsed),
-					},
-					Info: output.Info{
-						Name:        fmt.Sprintf("HTTP Request Smuggling: %s (Timeout)", probe.name),
-						Description: probe.desc,
-						Severity:    severity.High,
-						Confidence:  severity.Tentative,
-					},
-				})
+			// A timeout itself can be an indicator of a backend hanging on the
+			// smuggled bytes — but only after it survives confirmation (the
+			// re-probe and a fast well-formed control), otherwise it is just a
+			// slow/erroring host.
+			if isTimingAnomaly(elapsed, baselineDuration) &&
+				m.confirmTimingDesync(ctx, modifiedRaw, httpClient, baselineDuration) {
+				results = append(results, buildResult(ctx, modifiedRaw, probe, baselineDuration, elapsed, true))
 			}
 			continue
 		}
 
-		// Check for timing anomaly: probe takes significantly longer than baseline
-		if elapsed > baselineDuration*5 && elapsed > 5*time.Second {
-			results = append(results, &output.ResultEvent{
-				URL:     ctx.Target(),
-				Matched: ctx.Target(),
-				Request: string(modifiedRaw),
-				ExtractedResults: []string{
-					fmt.Sprintf("Probe: %s", probe.name),
-					fmt.Sprintf("Baseline: %s, Probe: %s", baselineDuration, elapsed),
-				},
-				Info: output.Info{
-					Name:        fmt.Sprintf("HTTP Request Smuggling: %s", probe.name),
-					Description: probe.desc,
-					Severity:    severity.Suspect,
-					Confidence:  severity.Tentative,
-				},
-			})
-		}
+		anomaly := isTimingAnomaly(elapsed, baselineDuration)
+		blocked := isBlockedResponse(resp)
 		resp.Close()
+
+		if !anomaly {
+			continue
+		}
+		// Edge/CDN/WAF block: the slow response is the edge rejecting the probe,
+		// not a frontend/backend desync. This is the direct fix for the
+		// Cloudflare 403 "Edge IP Restricted" false positive.
+		if blocked {
+			continue
+		}
+
+		if m.confirmTimingDesync(ctx, modifiedRaw, httpClient, baselineDuration) {
+			results = append(results, buildResult(ctx, modifiedRaw, probe, baselineDuration, elapsed, false))
+		}
 	}
 
 	return results, nil
+}
+
+// isTimingAnomaly reports whether elapsed is slow enough — both relative to the
+// host baseline and in absolute terms — to be worth confirming as a desync.
+func isTimingAnomaly(elapsed, baseline time.Duration) bool {
+	return elapsed > baseline*timingMultiplier && elapsed > timingFloor
+}
+
+// confirmTimingDesync re-validates a probe that produced an initial timing
+// anomaly. A single slow response is not enough on its own: it is most often
+// network jitter, a transient backend stall, or general host/path latency. We
+// only keep the finding when:
+//
+//  1. the slowness reproduces on a second send of the same probe (rules out
+//     one-off jitter), and the re-send is not an edge/CDN/WAF block, and
+//  2. a well-formed control POST of similar shape (no conflicting CL/TE, valid
+//     body) returns quickly — if the control is ALSO slow the host/path is
+//     simply slow for POST traffic and the anomaly is not a desync.
+func (m *Module) confirmTimingDesync(
+	ctx *httpmsg.HttpRequestResponse,
+	modifiedRaw []byte,
+	httpClient *http.Requester,
+	baseline time.Duration,
+) bool {
+	// 1. Reconfirm the anomaly with a fresh send of the same probe.
+	probeReq, err := httpmsg.ParseRawRequest(string(modifiedRaw))
+	if err != nil {
+		return false
+	}
+	probeReq = probeReq.WithService(ctx.Service())
+
+	reStart := time.Now()
+	reResp, _, reErr := httpClient.Execute(probeReq, http.Options{})
+	reElapsed := time.Since(reStart)
+	if reErr == nil {
+		// A reproduced block means the edge is rejecting us, not a desync.
+		blocked := isBlockedResponse(reResp)
+		reResp.Close()
+		if blocked {
+			return false
+		}
+	}
+	if !isTimingAnomaly(reElapsed, baseline) {
+		return false
+	}
+
+	// 2. A well-formed control POST must be fast. If we cannot build one, fall
+	// back to the (already reconfirmed) anomaly rather than dropping it.
+	controlRaw, ok := buildControlRequest(ctx)
+	if !ok {
+		return true
+	}
+	controlReq, err := httpmsg.ParseRawRequest(string(controlRaw))
+	if err != nil {
+		return true
+	}
+	controlReq = controlReq.WithService(ctx.Service())
+
+	ctrlStart := time.Now()
+	ctrlResp, _, ctrlErr := httpClient.Execute(controlReq, http.Options{})
+	ctrlElapsed := time.Since(ctrlStart)
+	if ctrlErr != nil {
+		// The control errored where the probe returned: inconclusive, and a
+		// host that errors on a plain POST is not safe to call desynced.
+		return false
+	}
+	ctrlResp.Close()
+
+	// If a plain, unambiguous POST is just as slow, the latency is general and
+	// not attributable to CL/TE desync.
+	return !isTimingAnomaly(ctrlElapsed, baseline)
+}
+
+// buildProbeRequest turns the host's request into a smuggling probe: forced to
+// POST, with the probe's conflicting CL/TE headers and crafted body.
+func buildProbeRequest(ctx *httpmsg.HttpRequestResponse, probe smugglingProbe) ([]byte, bool) {
+	raw := ctx.Request().Raw()
+
+	var err error
+	raw, err = httpmsg.SetMethod(raw, "POST")
+	if err != nil {
+		return nil, false
+	}
+	for k, v := range probe.headers {
+		raw, err = httpmsg.AddOrReplaceHeader(raw, k, v)
+		if err != nil {
+			return nil, false
+		}
+	}
+	raw, err = httpmsg.SetBody(raw, []byte(probe.body))
+	if err != nil {
+		return nil, false
+	}
+	return raw, true
+}
+
+// buildControlRequest produces a well-formed POST of similar shape to the
+// probes but with no conflicting framing: Transfer-Encoding removed and a small
+// valid body whose Content-Length SetBody recomputes correctly. Such a request
+// can never trigger a CL/TE desync, so it serves as the "should always be fast"
+// baseline for the timing differential.
+func buildControlRequest(ctx *httpmsg.HttpRequestResponse) ([]byte, bool) {
+	raw := ctx.Request().Raw()
+
+	var err error
+	raw, err = httpmsg.SetMethod(raw, "POST")
+	if err != nil {
+		return nil, false
+	}
+	raw, err = httpmsg.RemoveHeader(raw, "Transfer-Encoding")
+	if err != nil {
+		return nil, false
+	}
+	raw, err = httpmsg.SetBody(raw, []byte("1"))
+	if err != nil {
+		return nil, false
+	}
+	return raw, true
+}
+
+// buildResult constructs the finding for a confirmed timing anomaly.
+func buildResult(
+	ctx *httpmsg.HttpRequestResponse,
+	modifiedRaw []byte,
+	probe smugglingProbe,
+	baseline, elapsed time.Duration,
+	timeout bool,
+) *output.ResultEvent {
+	name := fmt.Sprintf("HTTP Request Smuggling: %s", probe.name)
+	timing := fmt.Sprintf("Baseline: %s, Probe: %s", baseline, elapsed)
+	if timeout {
+		name = fmt.Sprintf("HTTP Request Smuggling: %s (Timeout)", probe.name)
+		timing = fmt.Sprintf("Baseline: %s, Probe: %s (timeout)", baseline, elapsed)
+	}
+
+	return &output.ResultEvent{
+		URL:     ctx.Target(),
+		Matched: ctx.Target(),
+		Request: string(modifiedRaw),
+		ExtractedResults: []string{
+			fmt.Sprintf("Probe: %s", probe.name),
+			timing,
+			"Confirmation: anomaly reproduced and well-formed control returned fast (not an edge/CDN block)",
+		},
+		Info: output.Info{
+			Name:        name,
+			Description: probe.desc,
+			// Timing inference is prone to backend-delay false positives, so
+			// even a confirmed anomaly is reported as suspect/tentative.
+			Severity:   severity.Suspect,
+			Confidence: severity.Tentative,
+		},
+	}
+}
+
+// isBlockedResponse reports whether the response is an edge/CDN/WAF rejection
+// rather than an origin backend response. A timing anomaly on a blocked request
+// is the edge processing (or rate-limiting) the request, not a frontend/backend
+// desync, so such responses must never back a smuggling finding. It combines
+// the vendor-aware block detector (Cloudflare, Akamai, Incapsula, …) with a
+// body-marker check that also catches generic edge error pages the
+// header-based detector does not recognize.
+func isBlockedResponse(resp *httputil.ResponseChain) bool {
+	if resp == nil || resp.Response() == nil {
+		return false
+	}
+	if infra.GetBlockDetectionValidator().Validate(resp) != nil {
+		return true
+	}
+	switch resp.Response().StatusCode {
+	case 401, 403, 429, 503:
+		if looksLikeEdgeBlockPage(resp.BodyString()) {
+			return true
+		}
+	}
+	return false
+}
+
+// looksLikeEdgeBlockPage detects common CDN/WAF interstitial block pages (e.g.
+// Cloudflare edge errors such as "Edge IP Restricted" / error 1034) by body
+// markers. These pages are served by the edge before the origin chain is ever
+// reached, so any timing measured against them is meaningless for desync.
+func looksLikeEdgeBlockPage(body string) bool {
+	if body == "" {
+		return false
+	}
+	lower := strings.ToLower(body)
+	markers := []string{
+		"cf-error-details",                   // Cloudflare error page container
+		"cloudflare ray id",                  // Cloudflare footer
+		"/cdn-cgi/",                          // Cloudflare edge asset path
+		"edge ip restricted",                 // Cloudflare error 1034
+		"attention required",                 // Cloudflare challenge/block
+		"error 1020",                         // Cloudflare access denied
+		"access denied",                      // Akamai / generic WAF
+		"akamaighost",                        // Akamai
+		"request unsuccessful. incapsula",    // Imperva Incapsula
+		"_incapsula_resource",                // Imperva Incapsula
+		"the request could not be satisfied", // CloudFront
+	}
+	for _, mk := range markers {
+		if strings.Contains(lower, mk) {
+			return true
+		}
+	}
+	return false
 }

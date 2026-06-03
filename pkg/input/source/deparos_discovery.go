@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,18 +85,53 @@ type DeparosDiscoveryConfig struct {
 	// Malformed path probe
 	EnableMalformedPathProbe bool
 
+	// DedupClusterCap caps the number of near-identical responses kept per
+	// cluster (same host/status/content-type, body size & word count within
+	// 0.5%). 0 = use default (defaultDedupClusterCap); negative = disabled;
+	// positive = that cap. Resolved via resolveClusterCap.
+	DedupClusterCap int
+
 	// DB import: if set, results are saved to vigolium's http_records table
 	Repository  RecordSaver
 	ProjectUUID string
 }
 
+const (
+	// defaultDedupClusterCap is the per-cluster cap applied when a run does not
+	// configure DedupClusterCap. Catch-all/SPA targets that answer 200 with the
+	// same page for every path otherwise flood the report and the downstream
+	// scan with hundreds of near-identical records.
+	defaultDedupClusterCap = 10
+
+	// dedupClusterTolerance is the relative band (0.5%) within which two
+	// responses' body size and word count are treated as the same shape.
+	dedupClusterTolerance = 0.005
+)
+
+// resolveClusterCap resolves the effective near-identical response cap.
+// 0 => default (defaultDedupClusterCap); negative => disabled (returns 0);
+// positive => that value.
+func (c DeparosDiscoveryConfig) resolveClusterCap() int {
+	switch {
+	case c.DedupClusterCap == 0:
+		return defaultDedupClusterCap
+	case c.DedupClusterCap < 0:
+		return 0
+	default:
+		return c.DedupClusterCap
+	}
+}
+
 // DiscoveryStats tracks status code statistics for discovered and deduplicated records.
 type DiscoveryStats struct {
-	TotalDiscovered  int
-	HardDedupRemoved int
-	Imported         int
-	AllCodes         [5]int // index 0=1xx, 1=2xx, 2=3xx, 3=4xx, 4=5xx
-	DedupedCodes     [5]int // status codes of hard-dedup removed records
+	TotalDiscovered    int
+	HardDedupRemoved   int
+	FuzzyCappedRemoved int // records dropped by the near-identical cluster cap
+	ClusterCap         int // effective per-cluster cap used (0 = disabled)
+	Imported           int
+	AllCodes           [5]int // index 0=1xx, 1=2xx, 2=3xx, 3=4xx, 4=5xx
+	DedupedCodes       [5]int // status codes of hard-dedup removed records
+	CappedCodes        [5]int // status codes of cluster-capped removed records
 }
 
 // statusCodeBucket returns the bucket index (0-4) for a status code.
@@ -116,6 +153,123 @@ type hardDedupKey struct {
 	status   int
 	length   int64
 	respHash string
+}
+
+// collectedRecord is a discovered record plus the metadata used for exact
+// deduplication and near-identical clustering. rr is nil for records evicted by
+// exact dedup (the zero value acts as a tombstone during compaction). status is
+// 0 for records with no response — those bypass clustering.
+type collectedRecord struct {
+	rr     *httpmsg.HttpRequestResponse
+	path   string
+	host   string
+	status int
+	ctype  string
+	size   int64
+	words  int64
+}
+
+// respCluster is a running representative for a group of near-identical
+// responses during greedy clustering.
+type respCluster struct {
+	host    string
+	status  int
+	ctype   string
+	repSize int64
+	repWord int64
+	count   int
+}
+
+// capNearIdenticalClusters keeps at most capN records per near-identical
+// cluster. Two records share a cluster when they have the same host, status,
+// and content-type, and their body size and word count are each within
+// dedupClusterTolerance (0.5%) of the cluster's representative. Records are
+// processed shortest-path-first so the kept representatives are the shallowest
+// (most likely real) paths. Records without a response (status 0) bypass
+// clustering and are always kept.
+//
+// Returns the kept records (re-ordered shortest-path-first), the number of
+// records capped (dropped), and per-status-bucket counts of the capped records.
+func capNearIdenticalClusters(records []collectedRecord, capN int) ([]collectedRecord, int, [5]int) {
+	var cappedCodes [5]int
+	if capN <= 0 {
+		return records, 0, cappedCodes
+	}
+
+	sorted := make([]collectedRecord, len(records))
+	copy(sorted, records)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if len(sorted[i].path) != len(sorted[j].path) {
+			return len(sorted[i].path) < len(sorted[j].path)
+		}
+		return sorted[i].path < sorted[j].path
+	})
+
+	var clusters []*respCluster
+	kept := make([]collectedRecord, 0, len(sorted))
+	capped := 0
+
+	for _, rec := range sorted {
+		// No-response records can't be clustered by body shape — always keep.
+		if rec.status == 0 {
+			kept = append(kept, rec)
+			continue
+		}
+
+		var match *respCluster
+		for _, cl := range clusters {
+			if cl.status != rec.status || cl.host != rec.host || cl.ctype != rec.ctype {
+				continue
+			}
+			if withinDedupTolerance(cl.repSize, rec.size) && withinDedupTolerance(cl.repWord, rec.words) {
+				match = cl
+				break
+			}
+		}
+
+		if match == nil {
+			clusters = append(clusters, &respCluster{
+				host:    rec.host,
+				status:  rec.status,
+				ctype:   rec.ctype,
+				repSize: rec.size,
+				repWord: rec.words,
+				count:   1,
+			})
+			kept = append(kept, rec)
+			continue
+		}
+
+		if match.count < capN {
+			match.count++
+			kept = append(kept, rec)
+		} else {
+			capped++
+			cappedCodes[statusCodeBucket(rec.status)]++
+		}
+	}
+
+	return kept, capped, cappedCodes
+}
+
+// withinDedupTolerance reports whether a and b are within dedupClusterTolerance
+// (0.5%) of each other, relative to the larger value. Equal values (including
+// both zero) always match. The relative band means small bodies require a
+// near-exact match (0.5% of a few hundred bytes is <1 byte), so distinct small
+// responses are not collapsed — only large near-identical pages cluster.
+func withinDedupTolerance(a, b int64) bool {
+	if a == b {
+		return true
+	}
+	maxv := max(a, b)
+	if maxv <= 0 {
+		return true
+	}
+	diff := a - b
+	if diff < 0 {
+		diff = -diff
+	}
+	return float64(diff)/float64(maxv) <= dedupClusterTolerance
 }
 
 // DeparosDiscoverySource uses the deparos library to discover content,
@@ -386,10 +540,6 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	engine.Stop()
 
 	// Collect all results into memory for in-memory hard dedup
-	type collectedRecord struct {
-		rr   *httpmsg.HttpRequestResponse
-		path string
-	}
 	var allRecords []collectedRecord
 	dedupMap := make(map[hardDedupKey]int) // key → index in allRecords
 
@@ -415,11 +565,21 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 		resp := node.Response()
 		hasResp := resp != nil && resp.StatusCode > 0
 
+		rec := collectedRecord{rr: rr, path: nodeURL.Path, host: nodeURL.Hostname()}
+
 		// Attach response data if available
 		if hasResp {
 			rawResp := httpmsg.BuildRawResponse(resp.StatusCode, resp.Headers, string(resp.Body))
 			httpResp := httpmsg.NewHttpResponse(rawResp)
 			rr = rr.WithResponse(httpResp)
+			rec.rr = rr
+			rec.status = resp.StatusCode
+			rec.ctype = resp.MIMEType
+			rec.size = int64(len(resp.Body))
+			rec.words = resp.Words
+			if rec.words == 0 && len(resp.Body) > 0 {
+				rec.words = int64(len(strings.Fields(string(resp.Body))))
+			}
 		}
 
 		localStats.TotalDiscovered++
@@ -427,40 +587,42 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 			localStats.AllCodes[statusCodeBucket(resp.StatusCode)]++
 		}
 
-		// Skip dedup for records without response (no hash to compare)
+		// Skip dedup for records without response (no body to hash)
 		if !hasResp {
-			allRecords = append(allRecords, collectedRecord{rr: rr, path: nodeURL.Path})
+			allRecords = append(allRecords, rec)
 			return nil
 		}
 
-		// Compute dedup key
-		respRaw := rr.Response().Raw()
-		h := sha256.Sum256(respRaw)
+		// Exact dedup keyed on the response BODY hash (not the full raw
+		// response): volatile headers like Date/Set-Cookie and Go's randomized
+		// header-map ordering otherwise make every raw response hash unique,
+		// defeating the dedup. Body-only collapses byte-identical bodies served
+		// across different paths regardless of header noise.
+		h := sha256.Sum256(resp.Body)
 		key := hardDedupKey{
-			hostname: nodeURL.Hostname(),
+			hostname: rec.host,
 			method:   "GET",
 			status:   resp.StatusCode,
-			length:   int64(len(resp.Body)),
+			length:   rec.size,
 			respHash: hex.EncodeToString(h[:]),
 		}
 
 		if existingIdx, exists := dedupMap[key]; exists {
 			// Keep the shorter path
 			existingPath := allRecords[existingIdx].path
-			newPath := nodeURL.Path
-			if len(newPath) < len(existingPath) {
+			if len(rec.path) < len(existingPath) {
 				// Evict existing, keep new
 				localStats.DedupedCodes[statusCodeBucket(resp.StatusCode)]++
-				allRecords[existingIdx] = collectedRecord{} // mark as nil
+				allRecords[existingIdx] = collectedRecord{} // mark as tombstone
 				dedupMap[key] = len(allRecords)
-				allRecords = append(allRecords, collectedRecord{rr: rr, path: newPath})
+				allRecords = append(allRecords, rec)
 			} else {
 				// Keep existing, discard new
 				localStats.DedupedCodes[statusCodeBucket(resp.StatusCode)]++
 			}
 		} else {
 			dedupMap[key] = len(allRecords)
-			allRecords = append(allRecords, collectedRecord{rr: rr, path: nodeURL.Path})
+			allRecords = append(allRecords, rec)
 		}
 
 		return nil
@@ -469,15 +631,34 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 		return err
 	}
 
-	// Compact: collect survivors
-	survivors := make([]*httpmsg.HttpRequestResponse, 0, len(allRecords))
+	// Compact: drop exact-dedup tombstones.
+	compacted := make([]collectedRecord, 0, len(allRecords))
 	for _, rec := range allRecords {
 		if rec.rr != nil {
-			survivors = append(survivors, rec.rr)
+			compacted = append(compacted, rec)
 		}
 	}
+	localStats.HardDedupRemoved = localStats.TotalDiscovered - len(compacted)
 
-	localStats.HardDedupRemoved = localStats.TotalDiscovered - len(survivors)
+	// Near-identical cluster cap: backstop for catch-all/SPA targets that the
+	// exact hash and the engine's soft-404 detection can't collapse because each
+	// response differs by a few bytes/words. Keeps at most clusterCap records per
+	// (host, status, content-type, ~size, ~words) cluster.
+	clusterCap := d.cfg.resolveClusterCap()
+	localStats.ClusterCap = clusterCap
+	if clusterCap > 0 {
+		var capped int
+		var cappedCodes [5]int
+		compacted, capped, cappedCodes = capNearIdenticalClusters(compacted, clusterCap)
+		localStats.FuzzyCappedRemoved = capped
+		localStats.CappedCodes = cappedCodes
+	}
+
+	// Collect survivors (records + spec endpoints below).
+	survivors := make([]*httpmsg.HttpRequestResponse, 0, len(compacted))
+	for _, rec := range compacted {
+		survivors = append(survivors, rec.rr)
+	}
 
 	// Parse API specs (OpenAPI/Swagger/Postman) found among survivors and add parsed endpoints
 	specEndpoints := extractSpecEndpoints(survivors)
@@ -510,6 +691,8 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 			zap.String("target", target),
 			zap.Int("discovered", localStats.TotalDiscovered),
 			zap.Int("hard_dedup_removed", localStats.HardDedupRemoved),
+			zap.Int("fuzzy_capped_removed", localStats.FuzzyCappedRemoved),
+			zap.Int("cluster_cap", localStats.ClusterCap),
 			zap.Int("imported", localStats.Imported))
 	}
 
@@ -517,10 +700,13 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	d.mu.Lock()
 	d.stats.TotalDiscovered += localStats.TotalDiscovered
 	d.stats.HardDedupRemoved += localStats.HardDedupRemoved
+	d.stats.FuzzyCappedRemoved += localStats.FuzzyCappedRemoved
+	d.stats.ClusterCap = localStats.ClusterCap
 	d.stats.Imported += localStats.Imported
 	for i := range d.stats.AllCodes {
 		d.stats.AllCodes[i] += localStats.AllCodes[i]
 		d.stats.DedupedCodes[i] += localStats.DedupedCodes[i]
+		d.stats.CappedCodes[i] += localStats.CappedCodes[i]
 	}
 	d.mu.Unlock()
 

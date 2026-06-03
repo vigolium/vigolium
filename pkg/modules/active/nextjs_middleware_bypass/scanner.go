@@ -156,13 +156,38 @@ func (m *Module) executeAndCheck(
 		return nil, nil
 	}
 
+	// Capture the bypass (attack) response before it is consumed/closed by the
+	// confirmation rounds below; it stays the finding's primary Response.
+	attackResp := resp.FullResponseString()
+
+	// Each finding gets its own evidence collector. Record the ORIGINAL,
+	// pre-bypass 401/403 pair (the baseline that proves middleware enforcement
+	// was in place) and let confirmBypass append the reproduction rounds.
+	ev := modkit.NewEvidenceCollector()
+	if origReq := ctx.Request(); origReq != nil {
+		var origRespStr string
+		if origResp := ctx.Response(); origResp != nil {
+			origRespStr = string(origResp.Raw())
+		}
+		ev.Add(fmt.Sprintf("original-%d", origStatus), string(origReq.Raw()), origRespStr)
+	}
+
+	// Confirm the bypass is real and reproducible, not a transient flap: the
+	// captured 401/403 is a crawl-time snapshot that may have been a momentary
+	// rate-limit/WAF block (or the endpoint may simply return 200 for everything
+	// now). Re-verify with the bypass payload as the only variable.
+	if !m.confirmBypass(ctx, httpClient, modifiedRaw, ev) {
+		return nil, nil
+	}
+
 	target := ctx.Target()
 	return &output.ResultEvent{
-		ModuleID: ModuleID,
-		URL:      target,
-		Matched:  target,
-		Request:  string(modifiedRaw),
-		Response: resp.FullResponse().String(),
+		ModuleID:           ModuleID,
+		URL:                target,
+		Matched:            target,
+		Request:            string(modifiedRaw),
+		Response:           attackResp,
+		AdditionalEvidence: ev.Entries(),
 		ExtractedResults: []string{
 			fmt.Sprintf("Bypass: %s", desc),
 			fmt.Sprintf("Payload: %s", payload),
@@ -177,6 +202,62 @@ func (m *Module) executeAndCheck(
 			Reference:   []string{"https://github.com/advisories/GHSA-f82v-jwr5-mffw"},
 		},
 	}, nil
+}
+
+// confirmBypass re-runs the pair interleaved, with the bypass payload as the only
+// variable, to rule out a transient flap or a host that simply 200s everything:
+// each round the ORIGINAL (unmodified) request must STILL be denied (401/403) and
+// the bypass request must STILL return a non-login/non-error 200. The fetches
+// bypass the response cache so a stale replay can't mask instability. Fails
+// closed (drops) on a fetch error — a CVE-class claim should not rest on an
+// unverifiable transition.
+func (m *Module) confirmBypass(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	modifiedRaw []byte,
+	ev *modkit.EvidenceCollector,
+) bool {
+	const rounds = 2
+	origRaw := ctx.Request().Raw()
+	for round := 1; round <= rounds; round++ {
+		status, _, fullResp, ok := m.freshProbe(ctx, httpClient, origRaw)
+		if !ok || (status != 401 && status != 403) {
+			return false // original request not denied → the 401/403 wasn't stable
+		}
+		ev.Add(fmt.Sprintf("confirm round %d (original denied)", round), string(origRaw), fullResp)
+
+		status, body, fullResp, ok := m.freshProbe(ctx, httpClient, modifiedRaw)
+		if !ok || status != 200 || isLoginOrErrorPage(strings.ToLower(body)) {
+			return false // bypass not reproducibly allowed with real content
+		}
+		ev.Add(fmt.Sprintf("confirm round %d (bypass allowed)", round), string(modifiedRaw), fullResp)
+	}
+	return true
+}
+
+// freshProbe issues raw with redirects disabled and the response cache bypassed,
+// returning the status, body, and full raw response string. The full response is
+// captured before Close so callers can record it as confirmation evidence. ok is
+// false on parse/transport error or nil response.
+func (m *Module) freshProbe(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	raw []byte,
+) (int, string, string, bool) {
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	if err != nil {
+		return 0, "", "", false
+	}
+	req = req.WithService(ctx.Service())
+	resp, _, err := httpClient.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
+	if err != nil {
+		return 0, "", "", false
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return 0, "", "", false
+	}
+	return resp.Response().StatusCode, resp.Body().String(), resp.FullResponseString(), true
 }
 
 // isLoginOrErrorPage checks if the body looks like a login or error page.

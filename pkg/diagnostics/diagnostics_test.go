@@ -93,6 +93,28 @@ func TestComputeOverallStatus(t *testing.T) {
 			t.Errorf("got %q, want degraded", got)
 		}
 	})
+	t.Run("failing embedded jsscan degrades", func(t *testing.T) {
+		r := &Report{
+			Database: &CheckResult{Status: StatusOK},
+			EmbeddedBinaries: map[string]*CheckResult{
+				"jsscan": {Status: StatusError},
+			},
+		}
+		if got := computeOverallStatus(r); got != "degraded" {
+			t.Errorf("got %q, want degraded", got)
+		}
+	})
+	t.Run("failing embedded audit does not degrade", func(t *testing.T) {
+		r := &Report{
+			Database: &CheckResult{Status: StatusOK},
+			EmbeddedBinaries: map[string]*CheckResult{
+				"vigolium-audit": {Status: StatusError},
+			},
+		}
+		if got := computeOverallStatus(r); got != "ready" {
+			t.Errorf("got %q, want ready", got)
+		}
+	})
 	t.Run("browser warning does not degrade", func(t *testing.T) {
 		// A disabled browser (warning) is a user choice, not a failure.
 		r := &Report{

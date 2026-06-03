@@ -27,9 +27,8 @@ module.exports = {
   tags: ["<vuln-tag>", "agent-generated"],
   scanPerRequest: function(ctx) {
     if (ctx.request.path !== "/target/path") return [];
-    var resp = vigolium.http.post(ctx.request.url, {
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({/* payload */})
+    var resp = vigolium.http.post(ctx.request.url, JSON.stringify({/* payload */}), {
+      headers: {"Content-Type": "application/json"}
     });
     if (resp && /* condition */) {
       return [{
@@ -46,10 +45,10 @@ module.exports = {
 
 Available vigolium extension APIs:
 - `vigolium.http.get(url, options)` — HTTP GET
-- `vigolium.http.post(url, options)` — HTTP POST
-- `vigolium.http.request(method, url, options)` — Any method
-- Options: `{headers: {}, body: "", timeout: 5000}`
-- Response: `{statusCode, body, headers}`
+- `vigolium.http.post(url, body, options)` — HTTP POST; `body` is a string (use `JSON.stringify(...)` for JSON)
+- `vigolium.http.request({method, url, headers, body})` — any method; single options object
+- Options (get/post): `{headers: {}}`
+- Response: `{status, body, headers, raw, elapsed_ms}`
 
 ## Output Format
 

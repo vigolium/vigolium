@@ -128,7 +128,7 @@ func (m *Module) ScanPerHost(
 		}
 
 		if resp.Response() != nil {
-			body := resp.FullResponse().String()
+			body := resp.FullResponseString()
 			if p.match(resp.Response().StatusCode, body) {
 				results = append(results, &output.ResultEvent{
 					URL:      target,

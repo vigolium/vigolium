@@ -785,7 +785,7 @@ The `agent.llm` section is unrelated to olium — it configures the lightweight 
 agent:
   llm:
     provider: anthropic    # or openai
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     api_key_env: ANTHROPIC_API_KEY
     max_tokens: 4096
     temperature: 0.0

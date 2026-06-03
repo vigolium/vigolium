@@ -251,7 +251,7 @@ func (m *Module) probeFile(
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
 			Name:        fmt.Sprintf("Sensitive File: %s", sf.name),
@@ -356,7 +356,7 @@ func (m *Module) probeGenericFile(
 		URL:      targetURL,
 		Matched:  targetURL,
 		Request:  string(modifiedRaw),
-		Response: resp.FullResponse().String(),
+		Response: resp.FullResponseString(),
 		Info: output.Info{
 			Name:        fmt.Sprintf("Exposed %s: %s", categoryName, filename),
 			Description: categoryDesc,

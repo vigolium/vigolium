@@ -42,6 +42,11 @@ program
       console.log(JSON.stringify(req));
     }
 
+    // Output DOM-XSS source→sink taint flows as JSON lines
+    for (const flow of result.domFlows) {
+      console.log(JSON.stringify(flow));
+    }
+
     // Output code as JSON line to stdout
     const codeRecord = { type: 'code', filename, content: result.code };
     console.log(JSON.stringify(codeRecord));

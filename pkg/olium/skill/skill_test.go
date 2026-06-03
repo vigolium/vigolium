@@ -1,6 +1,8 @@
 package skill
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,7 +19,7 @@ description: does a thing
 
 body text here
 `)
-	s, err := Parse(raw, "/tmp/my-skill/SKILL.md", "/tmp/my-skill", SourceProjectAgent)
+	s, err := Parse(raw, "/tmp/my-skill/SKILL.md", "/tmp/my-skill", SourceProjectAgents)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -112,6 +114,66 @@ func TestExpandInlineInvocation(t *testing.T) {
 
 	if _, ok := ExpandInlineInvocation(reg, "missing", ""); ok {
 		t.Fatal("expected miss")
+	}
+}
+
+// writeSkill drops a minimal valid SKILL.md at <tmp>/<rel>/SKILL.md whose
+// frontmatter name + description are both set to name.
+func writeSkill(t *testing.T, tmp, rel, name string) {
+	t.Helper()
+	dir := filepath.Join(tmp, rel)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: " + name + "\ndescription: " + name + "\n---\nbody for " + name
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLoadProjectDiskScopes asserts the loader scans .agents/skills/ (plural)
+// and .claude/skills/, and that the old misspelled .agent/skills/ (singular)
+// is no longer recognized.
+func TestLoadProjectDiskScopes(t *testing.T) {
+	tmp := t.TempDir()
+	writeSkill(t, tmp, filepath.Join(".agents", "skills", "from-agents"), "from-agents")
+	writeSkill(t, tmp, filepath.Join(".claude", "skills", "from-claude"), "from-claude")
+	writeSkill(t, tmp, filepath.Join(".agent", "skills", "from-agent-singular"), "from-agent-singular")
+
+	reg, err := Load(LoadOptions{WorkingDir: tmp})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	if reg.Get("from-agents") == nil {
+		t.Errorf(".agents/skills not loaded; registered: %v", names(reg))
+	}
+	if reg.Get("from-claude") == nil {
+		t.Errorf(".claude/skills not loaded; registered: %v", names(reg))
+	}
+	if reg.Get("from-agent-singular") != nil {
+		t.Errorf(".agent/skills (singular) should NOT be loaded — it's the removed misspelling")
+	}
+}
+
+// TestLoadProjectScopePrecedence confirms .agents wins over .claude on a
+// name collision, and that the surviving skill carries the .agents source.
+func TestLoadProjectScopePrecedence(t *testing.T) {
+	tmp := t.TempDir()
+	// Same name in both scopes; .agents is loaded first so it should win.
+	writeSkill(t, tmp, filepath.Join(".agents", "skills", "dup"), "dup")
+	writeSkill(t, tmp, filepath.Join(".claude", "skills", "dup"), "dup")
+
+	reg, err := Load(LoadOptions{WorkingDir: tmp})
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	s := reg.Get("dup")
+	if s == nil {
+		t.Fatal("dup not registered")
+	}
+	if s.Source != SourceProjectAgents {
+		t.Errorf("source = %q, want %q (.agents should win)", s.Source, SourceProjectAgents)
 	}
 }
 

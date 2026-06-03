@@ -14,6 +14,15 @@ builds:
   - id: vigolium
     main: ./cmd/vigolium
     binary: vigolium
+    # Stage the matching vigolium-audit blob into the go:embed path before
+    # each target builds. The embed path is a single shared file, so builds
+    # MUST run sequentially — see `--parallelism 1` in the snapshot/release
+    # make targets. Without this, every cross-compiled binary embeds the host
+    # blob (e.g. a macOS arm64 audit binary shipped inside a linux/amd64
+    # build).
+    hooks:
+      pre:
+        - cmd: bash build/scripts/stage-audit-blob.sh {{ .Os }} {{ .Arch }}
     env:
       - CGO_ENABLED=0
     flags:

@@ -123,6 +123,12 @@ var scanExamples = FormatExamples(
 	"vigolium scan --stateless -t https://example.com --format jsonl,html -o scan-output",
 	"# Stateless scan: omit raw request/response bytes to keep the JSONL small",
 	"vigolium scan --stateless -t https://example.com --format jsonl -o sample.jsonl --omit-response",
+	"# Stateless multi-target: all targets in one unified output file",
+	"vigolium scan -S -T targets.txt --format jsonl -o unify-output",
+	"# Stateless multi-target: one output file per host (unify-output-<host>.jsonl)",
+	"vigolium scan -S -T targets.txt --format jsonl -o unify-output --split-by-host",
+	"# Stateless multi-target: scan 4 hosts at once (each keeps its own --concurrency)",
+	"vigolium scan -S -T targets.txt --format jsonl,html -o scan-out --split-by-host -P 4",
 	"",
 	"# Scope all operations to a project",
 	"vigolium scan -t https://example.com --project-name my-project",
@@ -712,19 +718,12 @@ var sessionTotpExamples = FormatExamples(
 )
 
 var strategyExamples = FormatExamples(
-	"# List strategies and phases (default action)",
+	"# Show strategies, phases, intensities, and agent modes",
 	"vigolium strategy",
-	"# Same, via the explicit ls subcommand",
-	"vigolium strategy ls",
 	"# Use a strategy in a scan",
 	"vigolium scan -t https://example.com --strategy deep",
 	"# Set the default strategy in config",
 	"vigolium config set scanning_strategy.default_strategy balanced",
-)
-
-var strategyLsExamples = FormatExamples(
-	"# List every strategy and the phases it enables",
-	"vigolium strategy ls",
 )
 
 var versionExamples = FormatExamples(

@@ -207,7 +207,7 @@ func (m *Module) probeRTDB(
 	}
 
 	// Truncate response for storage
-	responseStr := resp.FullResponse().String()
+	responseStr := resp.FullResponseString()
 	if len(responseStr) > 4096 {
 		responseStr = responseStr[:4096] + "\n... (truncated)"
 	}

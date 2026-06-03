@@ -327,7 +327,7 @@ agent:
   # This `llm:` block is retained only for backward compatibility.
   llm:
     provider: anthropic            # anthropic | openai
-    model: claude-sonnet-4-20250514
+    model: claude-sonnet-4-6
     api_key: ""                    # inline key (prefer api_key_env)
     api_key_env: ""                # env var name (default: ANTHROPIC_API_KEY or OPENAI_API_KEY)
     base_url: ""                   # custom endpoint for OpenAI-compatible providers

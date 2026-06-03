@@ -269,6 +269,13 @@ func printDoctorReport(r *diagnostics.Report) {
 		printDetails(true, r.NucleiTemplates.Details)
 		printTip(r.NucleiTemplates.Tip)
 	}
+	if c := embeddedBinaryCheck(r, "jsscan"); c != nil {
+		printCheck("Embedded jsscan", c.Status, c.Message)
+		if c.Status != diagnostics.StatusOK {
+			printDetails(true, c.Details)
+			printTip(c.Tip)
+		}
+	}
 
 	// ── Agentic scan ──
 	printDoctorSection("Agentic scan", "")
@@ -355,6 +362,13 @@ func toolMessage(t *diagnostics.ToolCheck) string {
 	return t.Message
 }
 
+func embeddedBinaryCheck(r *diagnostics.Report, name string) *diagnostics.CheckResult {
+	if r == nil || r.EmbeddedBinaries == nil {
+		return nil
+	}
+	return r.EmbeddedBinaries[name]
+}
+
 // printAuditSection renders the two independent audit driver paths plus a
 // header status that's green when *either* path is usable. The Path A/B
 // labels match the language used in the user-facing tip text.
@@ -380,6 +394,14 @@ func printAuditSection(r *diagnostics.Report) {
 		headerMsg = "Path B (piolium) ready"
 	}
 	printSubCheck("Audit", headerStatus, headerMsg)
+
+	if c := embeddedBinaryCheck(r, "vigolium-audit"); c != nil {
+		printSubCheck("Embedded audit", c.Status, c.Message)
+		if c.Status != diagnostics.StatusOK {
+			printSubDetails(true, c.Details)
+			printSubTip(c.Tip)
+		}
+	}
 
 	// Path A: claude CLI + embedded vigolium-audit binary.
 	if pathA.OK {

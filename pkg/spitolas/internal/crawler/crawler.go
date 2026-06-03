@@ -84,6 +84,13 @@ type Crawler struct {
 	// Writer for network traffic capture output
 	writer network.Writer
 
+	// adoptedHost is an off-host redirect target that the start URL bounced to
+	// and that did NOT look like a login/SSO wall. When set, isInScope treats it
+	// as in-scope (alongside the configured target host) so the crawl can follow
+	// an app that simply relocated to another domain. Only ever set under the
+	// default host-scope rule — an explicit CrawlScope is never widened.
+	adoptedHost string
+
 	mu      sync.Mutex
 	stats   Stats
 	running bool
@@ -101,6 +108,17 @@ type Stats struct {
 	InvariantFails      int
 	StartTime           time.Time
 	EndTime             time.Time
+
+	// Start-redirect observations (default host-scope rule only).
+	// OffHostLanding is true when the start URL redirected the browser to a host
+	// outside the target's scope. LandingURL is that post-redirect URL.
+	// LandingIsLogin marks it as an apparent login/SSO wall (crawl can't proceed
+	// unauthenticated). HostAdopted marks a non-login landing whose host was
+	// pulled into scope so the crawl continued.
+	OffHostLanding bool
+	LandingURL     string
+	LandingIsLogin bool
+	HostAdopted    bool
 }
 
 // New creates a new crawler.
@@ -343,11 +361,19 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 	zap.L().Debug("Navigating to target", zap.String("url", c.config.URL.String()))
 	zap.L().Debug("Navigation URL prepared", zap.String("url", url))
 
-	if err := page.NavigateCtx(ctx, url); err != nil {
+	// Retry the very first navigation a few times. A transient transport error
+	// (e.g. net::ERR_CONNECTION_RESET, common on the first connect through an
+	// intercepting proxy like Burp) can fail an otherwise-reachable target, and
+	// aborting here kills the whole spidering run for that target. Retrying rules
+	// out a one-off browser/network hiccup before we give up.
+	navErr := navigateWithRetry(ctx, url, initNavRetryBackoff, func() error {
+		return page.NavigateCtx(ctx, url)
+	})
+	if navErr != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return fmt.Errorf("failed to navigate: %w", err)
+		return fmt.Errorf("failed to navigate: %w", navErr)
 	}
 
 	// Check wait conditions
@@ -396,6 +422,11 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 
 	zap.L().Debug("Index state captured", zap.String("state", indexState.Name))
 
+	// Decide what to do about an off-host start redirect (SSO wall vs. relocated
+	// app) before extracting actions, so an adopted host is in scope by the time
+	// the crawl loop starts following links.
+	c.evaluateStartRedirect(page, indexState)
+
 	// Extract fragments
 	c.extractFragments(page, indexState)
 
@@ -415,6 +446,53 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// initNavAttempts is the total number of times the initial target navigation is
+// attempted (1 initial try + 2 retries) before the crawl gives up on a target.
+const initNavAttempts = 3
+
+// initNavRetryBackoff is the pause between initial-navigation attempts.
+const initNavRetryBackoff = 2 * time.Second
+
+// navigateWithRetry calls navFn up to initNavAttempts times, pausing backoff
+// between attempts, to ride out transient navigation failures (connection
+// resets, proxy hiccups). Context cancellation aborts immediately and is never
+// retried; the navigation error is returned only after every attempt fails. The
+// navigation itself is injected so the retry policy can be unit-tested without a
+// browser. url is used for logging only.
+func navigateWithRetry(ctx context.Context, url string, backoff time.Duration, navFn func() error) error {
+	var lastErr error
+	for attempt := 1; attempt <= initNavAttempts; attempt++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		err := navFn()
+		if err == nil {
+			if attempt > 1 {
+				zap.L().Info("Initial navigation succeeded on retry",
+					zap.String("url", url), zap.Int("attempt", attempt))
+			}
+			return nil
+		}
+		// A cancelled/expired context surfaces as a navigation error; don't
+		// retry it — the run is over.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		lastErr = err
+		if attempt < initNavAttempts {
+			zap.L().Warn("Initial navigation failed, retrying",
+				zap.String("url", url),
+				zap.Int("attempt", attempt),
+				zap.Int("max_attempts", initNavAttempts),
+				zap.Error(err))
+			if sleepErr := sleepWithContext(ctx, backoff); sleepErr != nil {
+				return sleepErr
+			}
+		}
+	}
+	return lastErr
 }
 
 // crawlLoop is the main crawl loop.
@@ -1653,12 +1731,136 @@ func (c *Crawler) isInScope(page *browser.Page) bool {
 		return true // Can't parse config URL, allow
 	}
 
-	// Check same domain or subdomain
-	currentHost := strings.ToLower(parsedCurrent.Host)
-	targetHost := strings.ToLower(parsedTarget.Host)
+	// Check same domain or subdomain (port-agnostic).
+	currentHost := strings.ToLower(parsedCurrent.Hostname())
+	targetHost := strings.ToLower(parsedTarget.Hostname())
 
-	return currentHost == targetHost ||
-		strings.HasSuffix(currentHost, "."+targetHost)
+	if sameOrSubdomain(currentHost, targetHost) {
+		return true
+	}
+
+	// A non-login off-host redirect target adopted at start-up is in scope too.
+	return c.adoptedHost != "" && sameOrSubdomain(currentHost, c.adoptedHost)
+}
+
+// sameOrSubdomain reports whether host equals base or is a subdomain of it.
+func sameOrSubdomain(host, base string) bool {
+	if host == "" || base == "" {
+		return false
+	}
+	return host == base || strings.HasSuffix(host, "."+base)
+}
+
+// evaluateStartRedirect inspects the index (start) page after the browser has
+// followed any initial redirects. When the start URL bounced to a different
+// host (a common SSO/login pattern), the default same-host scope would trap the
+// crawler on the landing page and yield almost nothing. If that landing is NOT
+// a login/SSO wall, we adopt its host into scope so the crawl can proceed
+// against the relocated app; login walls are left out of scope (nothing useful
+// to crawl unauthenticated) but recorded so the caller can advise on auth.
+//
+// Only applies under the default host-scope rule — an explicit CrawlScope is
+// the operator's own boundary and is never widened here.
+func (c *Crawler) evaluateStartRedirect(page *browser.Page, indexState *state.State) {
+	if c.config.CrawlScope != nil || indexState == nil {
+		return
+	}
+
+	landing, err := url.Parse(indexState.URL)
+	if err != nil {
+		return
+	}
+	landHost := strings.ToLower(landing.Hostname())
+	tgtHost := strings.ToLower(c.config.URL.Hostname())
+	if landHost == "" || tgtHost == "" || sameOrSubdomain(landHost, tgtHost) {
+		return // no off-host redirect
+	}
+
+	c.stats.OffHostLanding = true
+	c.stats.LandingURL = indexState.URL
+
+	if c.landingLooksLikeLogin(page, landing) {
+		c.stats.LandingIsLogin = true
+		zap.L().Warn("Spidering: start URL redirected to an off-host login wall",
+			zap.String("target", c.config.URL.String()),
+			zap.String("landing", indexState.URL))
+		return
+	}
+
+	// Non-login off-host landing: adopt it so the crawl can continue.
+	c.adoptedHost = landHost
+	c.stats.HostAdopted = true
+	zap.L().Info("Spidering: adopting off-host redirect target into scope",
+		zap.String("target", c.config.URL.String()),
+		zap.String("landing", indexState.URL),
+		zap.String("adopted_host", landHost))
+}
+
+// landingLooksLikeLogin classifies an off-host start-redirect landing as a
+// login/SSO wall. A URL that matches a known identity-provider host or a
+// login/authorize path is treated as a wall outright; otherwise a visible
+// password field on the rendered page is the strongest remaining signal.
+func (c *Crawler) landingLooksLikeLogin(page *browser.Page, landing *url.URL) bool {
+	if looksLikeLoginURL(landing) {
+		return true
+	}
+	if page == nil {
+		return false
+	}
+	// A visible password field is the strongest remaining login signal. Eval
+	// runs a JS expression and returns the value by-value; treat any error or
+	// non-true result as "not a login page" so a flaky probe never blocks a
+	// crawl we'd otherwise proceed with.
+	val, err := page.Eval(`(function(){return !!document.querySelector('input[type=password]')})()`)
+	if err != nil {
+		return false
+	}
+	hasPassword, _ := val.(bool)
+	return hasPassword
+}
+
+// loginHostPrefixes are subdomain prefixes that conventionally front an
+// authentication endpoint (e.g. login.example.com, sso.example.com).
+var loginHostPrefixes = []string{
+	"login.", "signin.", "sso.", "adfs.", "auth.", "accounts.", "idp.", "sts.",
+}
+
+// loginIDPHosts are registrable hosts of common identity providers. Matched
+// exactly or as a parent suffix (e.g. tenant.okta.com matches okta.com).
+var loginIDPHosts = []string{
+	"login.microsoftonline.com", "login.live.com", "login.windows.net",
+	"accounts.google.com", "okta.com", "auth0.com", "onelogin.com",
+	"pingidentity.com", "login.salesforce.com", "fs.gov",
+}
+
+// loginPathMarkers are substrings of an authentication URL's path/query.
+var loginPathMarkers = []string{
+	"/oauth2/authorize", "/oauth/authorize", "/connect/authorize",
+	"/adfs/", "/saml", "/signin", "/login", "/openid", "/sso",
+	"response_type=code", "response_type=token",
+}
+
+// looksLikeLoginURL reports whether u points at an authentication endpoint,
+// based on its host and path/query alone (no page load required).
+func looksLikeLoginURL(u *url.URL) bool {
+	host := strings.ToLower(u.Hostname())
+	for _, p := range loginHostPrefixes {
+		if strings.HasPrefix(host, p) {
+			return true
+		}
+	}
+	for _, idp := range loginIDPHosts {
+		if host == idp || strings.HasSuffix(host, "."+idp) {
+			return true
+		}
+	}
+	pathQ := strings.ToLower(u.Path + "?" + u.RawQuery)
+	for _, m := range loginPathMarkers {
+		if strings.Contains(pathQ, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // visitAnchorHref navigates directly to an anchor's href URL.

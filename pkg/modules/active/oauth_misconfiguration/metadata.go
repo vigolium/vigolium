@@ -27,7 +27,7 @@ state parameter, and response_type downgrade to implicit flow.
 - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/05-Testing_for_OAuth_Weaknesses`
 
 	ModuleConfirmation = "Confirmed when an OAuth endpoint accepts a manipulated redirect_uri, is missing CSRF state protection, or accepts implicit flow downgrade"
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"authentication", "session", "moderate"}
 )

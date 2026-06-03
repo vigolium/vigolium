@@ -167,7 +167,7 @@ func (m *Module) probeFirebaseStorage(
 		sev = severity.High
 	}
 
-	responseStr := resp.FullResponse().String()
+	responseStr := resp.FullResponseString()
 	if len(responseStr) > 4096 {
 		responseStr = responseStr[:4096] + "\n... (truncated)"
 	}
@@ -224,7 +224,7 @@ func (m *Module) probeGCSEndpoint(
 		return nil
 	}
 
-	responseStr := resp.FullResponse().String()
+	responseStr := resp.FullResponseString()
 	if len(responseStr) > 4096 {
 		responseStr = responseStr[:4096] + "\n... (truncated)"
 	}

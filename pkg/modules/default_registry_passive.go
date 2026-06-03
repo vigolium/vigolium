@@ -12,7 +12,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/build_misconfig_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cache_auth_misconfiguration"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cache_data_leak"
-	"github.com/vigolium/vigolium/pkg/modules/passive/cacheable_https_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/client_auth_guard"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cloud_signed_url_leak"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cloud_storage_error_info"
@@ -27,6 +26,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/directory_listing_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/django_fingerprint"
 	"github.com/vigolium/vigolium/pkg/modules/passive/dom_xss_detect"
+	"github.com/vigolium/vigolium/pkg/modules/passive/dom_xss_taint"
 	"github.com/vigolium/vigolium/pkg/modules/passive/drupal_api_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/drupal_fingerprint"
 	"github.com/vigolium/vigolium/pkg/modules/passive/endpoint_classifier"
@@ -73,7 +73,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/rails_active_storage_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/rails_debug_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/rails_fingerprint"
-	"github.com/vigolium/vigolium/pkg/modules/passive/referrer_policy_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/remix_loader_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/passive/secret_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/security_headers_missing"
@@ -105,6 +104,7 @@ import (
 func registerPassiveModules(r *Registry) {
 	// Passive modules
 	r.RegisterPassive(dom_xss_detect.New())
+	r.RegisterPassive(dom_xss_taint.New())
 	r.RegisterPassive(auth_headers_detect.New())
 	r.RegisterPassive(openredirect_params.New())
 	r.RegisterPassive(oauth_facebook_detect.New())
@@ -129,7 +129,6 @@ func registerPassiveModules(r *Registry) {
 	r.RegisterPassive(error_message_detect.New())
 	r.RegisterPassive(base64_data_detect.New())
 	r.RegisterPassive(password_autocomplete_detect.New())
-	r.RegisterPassive(cacheable_https_detect.New())
 	r.RegisterPassive(input_reflection_detect.New())
 	r.RegisterPassive(graphql_introspection_detect.New())
 	// Passive modules - JS Framework Security
@@ -157,7 +156,6 @@ func registerPassiveModules(r *Registry) {
 	// Security Headers Audit
 	r.RegisterPassive(csp_weakness_audit.New())
 	r.RegisterPassive(hsts_preload_audit.New())
-	r.RegisterPassive(referrer_policy_detect.New())
 	r.RegisterPassive(permissions_policy_detect.New())
 	r.RegisterPassive(subresource_integrity_detect.New())
 	// Protocol & Technology Detection

@@ -19,7 +19,6 @@
 
 import { spawnSync } from "node:child_process";
 import {
-  createReadStream,
   createWriteStream,
   existsSync,
   readdirSync,
@@ -30,6 +29,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 import path from "node:path";
@@ -134,6 +134,50 @@ function findSourceBinary(goos, goarch) {
   return path.join(DIST_DIR, dirs[0], "vigolium");
 }
 
+// --- embedded audit blob verification -------------------------------------
+
+// Loader strings that uniquely fingerprint an embedded executable's OS. The
+// vigolium-audit blob and the jsscan blob are dynamically-linked native
+// binaries that carry their platform's loader path. jsscan is embedded with
+// per-platform go:build tags (internal/resources/deparos/embed_jsscan_*.go),
+// so for any cross-compile only the matching-OS jsscan is present — the audit
+// blob is the only other native binary. Verified empirically: a correct-OS
+// vigolium build carries ZERO foreign-OS loader markers, so a foreign marker
+// can only come from a mis-staged audit blob.
+//
+// Note: Linux ELF interpreter strings are NOT used as arch discriminators —
+// the Go runtime itself bakes in "/lib64/ld-linux-x86-64.so.2" on every Linux
+// build regardless of GOARCH, so it is not a reliable signal. Same-OS arch
+// swaps (linux x64<->arm64, darwin x64<->arm64) are left to the runtime guard
+// in pkg/audit/bin and the staging script's own format assertion.
+const MACHO_MARKERS = ["/usr/lib/libSystem.B.dylib", "/usr/lib/dyld"];
+const ELF_INTERP_MARKERS = [
+  "/lib64/ld-linux-x86-64.so.2",
+  "/lib/ld-linux-aarch64.so.1",
+];
+
+// verifyEmbeddedAudit is the release backstop for the per-target go:embed
+// staging. It fails the npm build if a packaged binary embeds an audit blob
+// for the wrong OS — the v0.1.15-beta bug, where a macOS arm64 audit binary
+// was baked into the linux-x64 package.
+function verifyEmbeddedAudit(buf, p) {
+  const has = (s) => buf.indexOf(Buffer.from(s, "latin1")) !== -1;
+
+  let foreign = [];
+  if (p.os === "linux") foreign = MACHO_MARKERS.filter(has);
+  else if (p.os === "darwin") foreign = ELF_INTERP_MARKERS.filter(has);
+
+  if (foreign.length) {
+    fail(
+      `${p.tag}: WRONG-OS vigolium-audit blob embedded — found foreign loader ` +
+        `marker(s) [${foreign.join(", ")}] in the ${p.tag} binary. A non-${p.os} ` +
+        `audit blob was baked in at build time (cross-compile packaging bug — ` +
+        `check the goreleaser audit staging hook in .goreleaser.yaml).`,
+    );
+  }
+  info(`verified ${p.tag} embeds no foreign-OS vigolium-audit blob`);
+}
+
 // --- staging --------------------------------------------------------------
 
 function writeJson(file, obj) {
@@ -145,10 +189,10 @@ function humanSize(bytes) {
   return `${(bytes / 1048576).toFixed(0)} MB`;
 }
 
-async function gzipFile(src, dest) {
+async function gzipBuffer(buf, dest) {
   mkdirSync(path.dirname(dest), { recursive: true });
   await pipeline(
-    createReadStream(src),
+    Readable.from([buf]),
     createGzip({ level: 9 }),
     createWriteStream(dest),
   );
@@ -169,11 +213,14 @@ async function stagePlatformPackage(p) {
     );
   }
 
+  const binBuf = readFileSync(src);
+  verifyEmbeddedAudit(binBuf, p);
+
   const pkgDir = path.join(OUT_DIR, `vigolium-${p.tag}`);
   const gzPath = path.join(pkgDir, "vendor", p.tag, "vigolium.gz");
 
-  info(`packaging ${p.tag} (${humanSize(statSync(src).size)} -> gzip)`);
-  await gzipFile(src, gzPath);
+  info(`packaging ${p.tag} (${humanSize(binBuf.length)} -> gzip)`);
+  await gzipBuffer(binBuf, gzPath);
 
   writeJson(path.join(pkgDir, "package.json"), {
     name: NPM_NAME,

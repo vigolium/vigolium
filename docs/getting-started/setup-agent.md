@@ -91,7 +91,7 @@ export OPENROUTER_API_KEY=sk-or-…
 
 vigolium config set agent.olium.provider openai-compatible
 vigolium config set agent.olium.custom_provider.base_url https://openrouter.ai/api/v1
-vigolium config set agent.olium.custom_provider.model_id anthropic/claude-3.5-sonnet
+vigolium config set agent.olium.custom_provider.model_id anthropic/claude-sonnet-4.6
 vigolium config set agent.olium.custom_provider.api_key '${OPENROUTER_API_KEY}'
 
 # Optional: OpenRouter ranking signal (shows your app on the leaderboard).

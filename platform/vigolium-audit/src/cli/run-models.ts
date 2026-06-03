@@ -1,17 +1,27 @@
-import type { AgentPlatform } from "../engine/types.js";
+/**
+ * Model selection.
+ *
+ * By default vigolium-audit does NOT force a model — it lets the underlying agent
+ * runtime (the `claude` / `codex` CLI or SDK) use its own configured default
+ * (subscription default, `~/.claude` settings, etc.). A model is forwarded only
+ * when the user opts in explicitly. Precedence:
+ *
+ *   1. `--model <name>` flag (highest priority)
+ *   2. `VIGOLIUM_AUDIT_MODEL` env var
+ *   3. unset → inherit the runtime default (no `--model` passed)
+ *
+ * Reasoning effort is likewise left to the runtime default; it is no longer
+ * coupled to a hardcoded model choice.
+ */
+export const MODEL_ENV_VAR = "VIGOLIUM_AUDIT_MODEL";
 
 /**
- * Per-platform default model. Overridable via `--model`. The `[1m]` suffix on
- * the Claude default selects the 1M-context Opus 4.7 variant. The codex default
- * also gets `xhigh` reasoning effort applied to the adapter; both pieces are
- * dropped when `--model` is set so a custom model isn't silently paired with a
- * default reasoning policy.
+ * Resolve the model to forward to the agent runtime, or `undefined` to inherit
+ * the runtime's own default. `override` is the value of the `--model` flag.
  */
-export const DEFAULT_CLAUDE_MODEL = "claude-opus-4-7[1m]";
-export const DEFAULT_CODEX_MODEL = "gpt-5.5";
-export const DEFAULT_CODEX_REASONING_EFFORT = "xhigh" as const;
-
-export function resolveDefaultModel(platform: AgentPlatform, override?: string): string {
+export function resolveModel(override?: string): string | undefined {
   if (override !== undefined && override.length > 0) return override;
-  return platform === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_CODEX_MODEL;
+  const env = process.env[MODEL_ENV_VAR];
+  if (env !== undefined && env.length > 0) return env;
+  return undefined;
 }

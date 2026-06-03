@@ -53,6 +53,11 @@ func TestParseInlineSession(t *testing.T) {
 			input:   ":Cookie:value",
 			wantErr: true,
 		},
+		{
+			name:    "missing header field",
+			input:   "user1:session=abc; AWSALB=xyz",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -68,6 +73,26 @@ func TestParseInlineSession(t *testing.T) {
 			assert.Equal(t, tt.want.Headers, got.Headers)
 		})
 	}
+}
+
+func TestParseInlineSessionMissingHeaderHint(t *testing.T) {
+	// "name:value" (cookie) without the middle Header field should suggest the
+	// corrected, copy-pasteable form with Cookie inserted.
+	_, err := ParseInlineSession("user1:session=PD; AWSALB=xyz/abc")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing the header-name field")
+	assert.Contains(t, err.Error(), `"user1:Cookie:session=PD; AWSALB=xyz/abc"`)
+
+	// A bearer token maps to Authorization rather than Cookie.
+	_, err = ParseInlineSession("user2:Bearer eyJabc")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"user2:Authorization:Bearer eyJabc"`)
+
+	// "name:Header" (missing value, header name is a bare token) is a different
+	// mistake — keep the generic message, don't suggest "Cookie" as a value.
+	_, err = ParseInlineSession("admin:Cookie")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "missing the header-name field")
 }
 
 func TestSessionValidate(t *testing.T) {

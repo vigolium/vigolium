@@ -75,6 +75,27 @@ func TestScanPerHost_ShortBodyNoFinding(t *testing.T) {
 	assert.Empty(t, res, "a body under the minimum length must not yield a finding")
 }
 
+// TestScanPerHost_WildcardHostNoFalsePositive reproduces the catch-all false
+// positive: a host that returns the same 200 shell for EVERY path (including the
+// random wildcard probe). Without the soft-404 guard every sensitive path would
+// be reported; ConfirmNotSoft404 must recognize the wildcard shell and stay silent.
+func TestScanPerHost_WildcardHostNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	const shell = "<html><body>Generic catch-all landing page for this bucket — no listing available here, move along.</body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(shell))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", shell)
+
+	res, err := New().ScanPerHost(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a catch-all host that 200s every path must not be reported as public-read")
+}
+
 // TestCanProcess_OnlyCloudStorageHosts verifies the module gates on cloud-storage
 // hostnames and requires a baseline response.
 func TestCanProcess_OnlyCloudStorageHosts(t *testing.T) {

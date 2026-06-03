@@ -160,7 +160,7 @@ func (m *Module) ScanPerHost(
 					URL:      target,
 					Matched:  target,
 					Request:  string(probeRaw),
-					Response: resp.FullResponse().String(),
+					Response: resp.FullResponseString(),
 					ExtractedResults: []string{
 						fmt.Sprintf("Endpoint: %s", probe.path),
 						fmt.Sprintf("Token: %s", tokenDesc),

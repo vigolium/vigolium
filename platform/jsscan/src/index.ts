@@ -10,9 +10,12 @@ import {
 import concatToPlus from './deobfuscate/concat-to-plus';
 import controlFlowObject from './deobfuscate/control-flow-object';
 import mergeStrings from './deobfuscate/merge-strings';
+import { analyzeDomXss, type DomFlow } from './domxss/taint';
 import { buildFunctionMap, clearFunctionMap, getWebpackExtractedRequests } from './mapping';
 import { createGlobalVariableTracking, clearTrackedVariables, getTrackedVariablesMap } from './requestpattern/globalVariableTracking';
 import { createFetchRequestTransform } from './requestpattern/fetchRequest';
+import { createAxiosRequestTransform, clearAxiosInstances } from './requestpattern/axiosRequest';
+import { createProtocolRequestTransform } from './requestpattern/protocolRequest';
 import { createGenericRequestPattern1Transform } from './requestpattern/genericRequestPattern1';
 import { createGenericRequestPattern2Transform } from './requestpattern/genericRequestPattern2';
 import { createGenericRequestPattern3Transform } from './requestpattern/genericRequestPattern3';
@@ -30,6 +33,7 @@ export { getTrackedVariablesMap, clearTrackedVariables } from './requestpattern/
 export interface JsscanResult {
   code: string;
   extractedRequests: ExtractedRequest[];
+  domFlows: DomFlow[];
 }
 
 export interface Options {
@@ -58,6 +62,7 @@ export async function jsscan(
   clearExtractedRequests();
   clearTrackedVariables();
   clearFunctionMap();
+  clearAxiosInstances();
 
   const isBookmarklet = /^javascript:./.test(code);
   if (isBookmarklet) {
@@ -70,6 +75,7 @@ export async function jsscan(
 
   let ast: ParseResult<t.File> = null!;
   let outputCode = '';
+  let domFlows: DomFlow[] = [];
 
   const stages = [
     // Parse
@@ -84,16 +90,30 @@ export async function jsscan(
         debug('jsscan:parse')('Errors', ast.errors);
       }
     },
+    // DOM-XSS taint analysis on the pristine AST, so snippet offsets and line
+    // numbers line up with the original source. Isolated in try/catch: this
+    // stage runs before request extraction/deobfuscation, so a failure here
+    // must never abort the rest of the pipeline.
+    () => {
+      try {
+        domFlows = analyzeDomXss(ast, code);
+      } catch (err) {
+        debug('jsscan:domxss')('analysis failed', err);
+        domFlows = [];
+      }
+    },
     // Essential deobfuscation (concat->plus, string merging, control flow object inlining)
     () => applyTransforms(ast, [concatToPlus, mergeStrings, controlFlowObject]),
     // Build function map (framework-aware mapping) BEFORE request extraction
     () => buildFunctionMap(ast, code),
     // Global variable tracking
     () => applyTransforms(ast, [createGlobalVariableTracking()]),
-    // Request patterns (XHR, Fetch, jQuery)
+    // Request patterns (XHR, Fetch, axios, jQuery)
     () => applyTransforms(ast, [
       createXhrRequestTransform(ast, code),
       createFetchRequestTransform(ast, code),
+      createAxiosRequestTransform(ast, code),
+      createProtocolRequestTransform(ast, code),
       createJqueryAjaxTransform(ast, code),
       createJqueryMethodTransform(ast, code)] as Transform<unknown>[]),
     // Request patterns (Generic)
@@ -160,5 +180,6 @@ export async function jsscan(
   return {
     code: outputCode,
     extractedRequests: allRequests,
+    domFlows,
   };
 }

@@ -119,7 +119,11 @@ func (m *Module) ScanPerRequest(
 				fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
 				content, success := m.check(testCase, fuzzedReq, httpClient)
-				if success {
+				// Soft-404 guard: reject when the matched actuator response is just
+				// the host's wildcard shell (a server that 200s every path). Compares
+				// against a cached host-wide random-path fingerprint; fails open on
+				// probe error so a real actuator is never suppressed by a flaky probe.
+				if success && modkit.ConfirmNotSoft404(scanCtx, httpClient, ctx, 200, []byte(content), "") {
 					results = append(results, &output.ResultEvent{
 						URL:              urlx.Scheme + "://" + urlx.Host + newPath,
 						Request:          string(modifiedRaw),

@@ -30,7 +30,7 @@ import { cloneRemoteTarget, isRemoteTargetUrl } from "./clone-target.js";
 import type { ResumeOptions } from "./resume.js";
 import { compact } from "../engine/util.js";
 import { parsePositiveUsd, statusArrow } from "./util.js";
-import { DEFAULT_CODEX_REASONING_EFFORT, resolveDefaultModel } from "./run-models.js";
+import { resolveModel } from "./run-models.js";
 import { runInteractive } from "./run-interactive.js";
 import {
   emitChainSummary,
@@ -481,34 +481,25 @@ async function runHeadless(args: {
     process.exit(2);
   }
 
-  const effectiveModel = resolveDefaultModel(platform, opts.model);
-  // Reasoning effort is only meaningful for codex; only apply the xhigh
-  // default when the user hasn't picked a custom model, so a non-gpt-5.5
-  // model isn't silently paired with the default policy.
-  const codexReasoning =
-    platform === "codex" && opts.model === undefined ? DEFAULT_CODEX_REASONING_EFFORT : undefined;
+  const effectiveModel = resolveModel(opts.model);
+  // Leave `defaultModel` unset unless the user opted in (flag or env), so the
+  // agent runtime uses its own configured default rather than a forced model.
+  const modelSpread = effectiveModel ? { defaultModel: effectiveModel } : {};
 
   const adapter: Adapter =
     platform === "claude"
       ? choice.flavor === "cli"
-        ? new ClaudeCliAdapter({ pathToClaudeCodeExecutable: choice.binaryPath, defaultModel: effectiveModel })
-        : new ClaudeSdkAdapter({ pathToClaudeCodeExecutable: choice.binaryPath, defaultModel: effectiveModel })
+        ? new ClaudeCliAdapter({ pathToClaudeCodeExecutable: choice.binaryPath, ...modelSpread })
+        : new ClaudeSdkAdapter({ pathToClaudeCodeExecutable: choice.binaryPath, ...modelSpread })
       : choice.flavor === "cli"
-        ? new CodexCliAdapter({
-            pathToCodexExecutable: choice.binaryPath,
-            defaultModel: effectiveModel,
-            ...(codexReasoning ? { defaultReasoningEffort: codexReasoning } : {}),
-          })
-        : new CodexSdkAdapter({
-            codexPathOverride: choice.binaryPath,
-            defaultModel: effectiveModel,
-            ...(codexReasoning ? { defaultReasoningEffort: codexReasoning } : {}),
-          });
+        ? new CodexCliAdapter({ pathToCodexExecutable: choice.binaryPath, ...modelSpread })
+        : new CodexSdkAdapter({ codexPathOverride: choice.binaryPath, ...modelSpread });
 
   if (!json) {
-    const modelLabel = chalk.cyan(effectiveModel) +
-      (codexReasoning ? chalk.dim(` (reasoning=${codexReasoning})`) : "") +
-      (opts.model === undefined ? chalk.dim(" (default)") : "");
+    const modelLabel = effectiveModel
+      ? chalk.cyan(effectiveModel) +
+        (opts.model === undefined ? chalk.dim(" (VIGOLIUM_AUDIT_MODEL)") : "")
+      : chalk.dim("runtime default");
     console.log(`${statusArrow("Model")} Model:     ${modelLabel}`);
   }
 
@@ -743,7 +734,7 @@ async function runHeadless(args: {
                     targetDir,
                     resultsDir,
                     mode: m,
-                    defaultModel: effectiveModel,
+                    ...modelSpread,
                     failurePolicy: opts.strict ? "strict" : "skip-and-continue",
                     interactive: false,
                     abortSignal: abortController.signal,
@@ -893,7 +884,7 @@ async function runHeadless(args: {
                 loader: getContentLoader(),
                 targetDir,
                 mode,
-                defaultModel: effectiveModel,
+                ...modelSpread,
                 failurePolicy: opts.strict ? "strict" : "skip-and-continue",
                 interactive: false,
                 abortSignal: abortController.signal,

@@ -110,3 +110,4 @@ internal/resources/spitolas/chromium/*
 build/dist-license/
 build/dist-public/
 build/dist-npm/
+build/public-install.sh

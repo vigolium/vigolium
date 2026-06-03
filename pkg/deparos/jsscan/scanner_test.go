@@ -12,7 +12,7 @@ import (
 )
 
 func TestParseJsscanOutput_EmptyOutput(t *testing.T) {
-	requests, code, err := parseJsscanOutput([]byte{})
+	requests, code, _, err := parseJsscanOutput([]byte{})
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -29,7 +29,7 @@ func TestParseJsscanOutput_ExtractedRequests(t *testing.T) {
 	output := `{"type":"extractedRequest","url":"/api/users","method":"GET","params":"","body":"","headers":null,"cookies":null}
 {"type":"extractedRequest","url":"/api/posts","method":"POST","params":"","body":"{\"title\":\"test\"}","headers":["Content-Type: application/json"],"cookies":null}`
 
-	requests, code, err := parseJsscanOutput([]byte(output))
+	requests, code, _, err := parseJsscanOutput([]byte(output))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -67,7 +67,7 @@ func TestParseJsscanOutput_ExtractedRequests(t *testing.T) {
 func TestParseJsscanOutput_CodeRecord(t *testing.T) {
 	output := `{"type":"code","filename":"bundle.js","content":"function test() { return 1; }"}`
 
-	requests, code, err := parseJsscanOutput([]byte(output))
+	requests, code, _, err := parseJsscanOutput([]byte(output))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -88,12 +88,35 @@ func TestParseJsscanOutput_CodeRecord(t *testing.T) {
 	}
 }
 
+func TestParseJsscanOutput_DomFlows(t *testing.T) {
+	output := `{"type":"extractedRequest","url":"/api","method":"GET","params":"","body":"","headers":null,"cookies":null}
+{"type":"domFlow","source":"location.hash","sink":"innerHTML","snippet":"el.innerHTML = x","line":12}
+{"type":"domFlow","source":"document.cookie","sink":"eval","snippet":"eval(c)","line":34}`
+
+	requests, _, domFlows, err := parseJsscanOutput([]byte(output))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(requests))
+	}
+	if len(domFlows) != 2 {
+		t.Fatalf("expected 2 dom flows, got %d", len(domFlows))
+	}
+	if domFlows[0].Source != "location.hash" || domFlows[0].Sink != "innerHTML" || domFlows[0].Line != 12 {
+		t.Errorf("domFlows[0] = %+v", domFlows[0])
+	}
+	if domFlows[1].Source != "document.cookie" || domFlows[1].Sink != "eval" {
+		t.Errorf("domFlows[1] = %+v", domFlows[1])
+	}
+}
+
 func TestParseJsscanOutput_MixedRecords(t *testing.T) {
 	output := `{"type":"extractedRequest","url":"/api/v1","method":"GET","params":"","body":"","headers":null,"cookies":null}
 {"type":"code","filename":"app.js","content":"const API = '/api/v1';"}
 {"type":"extractedRequest","url":"/api/v2","method":"POST","params":"","body":"","headers":null,"cookies":null}`
 
-	requests, code, err := parseJsscanOutput([]byte(output))
+	requests, code, _, err := parseJsscanOutput([]byte(output))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -115,7 +138,7 @@ func TestParseJsscanOutput_InvalidJSON(t *testing.T) {
 this is not valid json
 {"type":"extractedRequest","url":"/api/also-valid","method":"POST","params":"","body":"","headers":null,"cookies":null}`
 
-	requests, _, err := parseJsscanOutput([]byte(output))
+	requests, _, _, err := parseJsscanOutput([]byte(output))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -134,7 +157,7 @@ func TestParseJsscanOutput_EmptyLines(t *testing.T) {
 {"type":"extractedRequest","url":"/api/test2","method":"GET","params":"","body":"","headers":null,"cookies":null}
 `
 
-	requests, _, err := parseJsscanOutput([]byte(output))
+	requests, _, _, err := parseJsscanOutput([]byte(output))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -150,7 +173,7 @@ func TestParseJsscanOutput_UnknownType(t *testing.T) {
 {"type":"unknownType","foo":"bar"}
 {"type":"extractedRequest","url":"/api/test2","method":"GET","params":"","body":"","headers":null,"cookies":null}`
 
-	requests, _, err := parseJsscanOutput([]byte(output))
+	requests, _, _, err := parseJsscanOutput([]byte(output))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -167,7 +190,7 @@ func TestParseJsscanOutput_MalformedRequest(t *testing.T) {
 {"type":"extractedRequest","url":123}
 {"type":"extractedRequest","url":"/api/also-valid","method":"POST","params":"","body":"","headers":null,"cookies":null}`
 
-	requests, _, err := parseJsscanOutput([]byte(output))
+	requests, _, _, err := parseJsscanOutput([]byte(output))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -182,7 +205,7 @@ func TestParseJsscanOutput_MalformedRequest(t *testing.T) {
 func TestParseJsscanOutput_SpecialCharacters(t *testing.T) {
 	output := `{"type":"extractedRequest","url":"/api/search?q=hello%20world","method":"GET","params":"q=hello world","body":"","headers":["X-Custom: value with \"quotes\""],"cookies":null}`
 
-	requests, _, err := parseJsscanOutput([]byte(output))
+	requests, _, _, err := parseJsscanOutput([]byte(output))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -200,7 +223,7 @@ func TestParseJsscanOutput_SpecialCharacters(t *testing.T) {
 func TestParseJsscanOutput_CompleteRequest(t *testing.T) {
 	output := `{"type":"extractedRequest","url":"https://api.example.com/users","method":"POST","params":"page=1","body":"{\"name\":\"test\",\"email\":\"test@example.com\"}","headers":["Content-Type: application/json","Authorization: Bearer token123"],"cookies":["session=abc123","csrf=xyz789"]}`
 
-	requests, _, err := parseJsscanOutput([]byte(output))
+	requests, _, _, err := parseJsscanOutput([]byte(output))
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

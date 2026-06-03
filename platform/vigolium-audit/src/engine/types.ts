@@ -23,9 +23,10 @@ export interface RunOptions {
   modes?: string;
   agent?: AgentPlatform;
   /**
-   * Model name forwarded to the agent runtime. Defaults: claude →
-   * `claude-opus-4-7[1m]`, codex → `gpt-5.5` (with `xhigh` reasoning effort).
-   * Forwarded to the underlying CLI / SDK as `--model` (or equivalent).
+   * Model name forwarded to the agent runtime. When unset (and
+   * `VIGOLIUM_AUDIT_MODEL` is also unset), no `--model` is passed and the
+   * underlying CLI / SDK uses its own configured default. Set this (or the env
+   * var) to forward an explicit model.
    */
   model?: string;
   /**

@@ -5,6 +5,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -283,14 +284,34 @@ func runActiveScan(t *testing.T, mod modules.ActiveModule, rr *httpmsg.HttpReque
 // injected quote produces a detectable error-vs-baseline difference.
 func seedVAmPIDatabase(t *testing.T, baseURL string) {
 	t.Helper()
-	resp, err := http.Get(baseURL + "/createdb")
-	if err != nil {
-		t.Fatalf("VAmPI /createdb request failed: %v", err)
+	// The container's readiness probe only checks that "/" responds; VAmPI's
+	// /createdb (drop + recreate SQLite tables) can still transiently 500 for a
+	// moment after that while the app finishes warming up. Retry until it seeds
+	// rather than failing the whole scan on a startup-timing blip.
+	client := &http.Client{Timeout: 5 * time.Second}
+	deadline := time.Now().Add(30 * time.Second)
+	var lastStatus int
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(baseURL + "/createdb")
+		if err != nil {
+			lastErr = err
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		status := resp.StatusCode
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if status == http.StatusOK {
+			return
+		}
+		lastStatus, lastErr = status, nil
+		time.Sleep(500 * time.Millisecond)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("VAmPI /createdb returned HTTP %d, want 200", resp.StatusCode)
+	if lastErr != nil {
+		t.Fatalf("VAmPI /createdb never succeeded within 30s: last error: %v", lastErr)
 	}
+	t.Fatalf("VAmPI /createdb never returned 200 within 30s: last status HTTP %d", lastStatus)
 }
 
 // waitForEndpoint waits for an HTTP endpoint to become available

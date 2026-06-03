@@ -89,6 +89,22 @@ type VulnClassifier interface {
 	VulnClass() string // e.g., "xss", "sqli", "ssti"
 }
 
+// BodyDifferentialConfirmable is an optional interface for active modules whose
+// findings should be re-confirmed by the executor's safety net before being
+// reported. When a module implementing it returns true, the executor replays the
+// finding's payload-applied request and compares it against a clean (no-payload)
+// baseline (the pre-scan baseline already on the item, plus one fresh fetch),
+// requiring a reproducible, payload-driven in-band difference and rejecting
+// status flips and dynamic-noise diffs (via modkit.ConfirmBodyDifferential).
+//
+// Only modules whose true-positive signal IS an in-band body/header difference
+// should opt in. Modules whose signal is out-of-band (OAST), timing-based, a
+// small error string, or whose payload mutates server state (and so must not be
+// replayed) must NOT implement this — they keep their own confirmation.
+type BodyDifferentialConfirmable interface {
+	ConfirmsByBodyDifferential() bool
+}
+
 // TechAware is an optional interface for modules that only make sense against
 // certain technology stacks. Implement it on framework-specific modules
 // (e.g. Spring, Rails, Django) to skip them on incompatible targets.

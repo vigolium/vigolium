@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -92,6 +93,12 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 	}
 	if output.IsFuzzingResult && output.FuzzingParameter != "" {
 		suffix += " [" + output.FuzzingParameter + "]"
+	}
+	// Hint that the finding carries extra comparison evidence (baseline,
+	// confirmation rounds). The console is the only output that doesn't show the
+	// pairs inline; the other formats (jsonl/html/markdown/UI) render them in full.
+	if n := len(output.AdditionalEvidence); n > 0 {
+		suffix += " (+" + strconv.Itoa(n) + " evidence pairs)"
 	}
 
 	// Truncate URL + suffix to fit terminal width

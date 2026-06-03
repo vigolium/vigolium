@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vigolium/vigolium/pkg/modules/shared/diffscan"
 	"go.uber.org/goleak"
 )
 
@@ -680,6 +681,120 @@ func TestFullPathInsertionPoint_NoEncoding(t *testing.T) {
 	resultStr := string(result)
 	assert.Contains(t, resultStr, "GET /path%2e%2e/..;/test HTTP/1.1")
 	assert.NotContains(t, resultStr, "%252e")
+}
+
+// =============================================================================
+// Test validateAttacks Confirmation Gates (Layer 5 + Layer 6)
+// =============================================================================
+
+// mkAttack builds a minimal diffscan.Attack carrying just the status code,
+// content length and comparison fingerprint that validateAttacks reads.
+func mkAttack(status, length int, fp map[string]any) *diffscan.Attack {
+	return &diffscan.Attack{
+		FirstSnapshot: &diffscan.ResponseSnapshot{StatusCode: status, ContentLength: length},
+		Fingerprint:   fp,
+	}
+}
+
+// TestValidateAttacks_ConfirmationGates exercises the reached-resource (Layer 5)
+// and substantive-difference (Layer 6) gates that confirm a path escape.
+//
+// All cases are constructed to pass Layers 0–4 (errorBase distinct from
+// softBase, break differs from softBase/errorBase/escape, escape matches
+// softBase) so that only the new gates decide the outcome.
+func TestValidateAttacks_ConfirmationGates(t *testing.T) {
+	m := New()
+	probe := diffscan.NewProbe("test", SeverityMedium, "x")
+
+	// Fingerprints: "s" lives in softBase+escape so escape is Similar to softBase
+	// (Layer 2); break carries a disjoint key so it differs from everything else.
+	softFP := func(status int) map[string]any { return map[string]any{"s": status} }
+	breakFP := map[string]any{"b": 1}
+	errorFP := map[string]any{"e": 1}
+
+	tests := []struct {
+		name            string
+		traversalLevels int
+		softBase        *diffscan.Attack
+		errorBase       *diffscan.Attack
+		breakAttack     *diffscan.Attack
+		escapeAttack    *diffscan.Attack
+		wantFinding     bool
+	}{
+		{
+			// The reported false positive: /cdn-cgi/ 404s everything, so
+			// softBase/escape/break are all 404/0 differing only in header noise.
+			name:            "traversal escape is 404 → rejected (Layer 5)",
+			traversalLevels: 1,
+			softBase:        mkAttack(404, 0, softFP(404)),
+			errorBase:       mkAttack(404, 0, errorFP),
+			breakAttack:     mkAttack(404, 0, breakFP),
+			escapeAttack:    mkAttack(404, 0, softFP(404)),
+			wantFinding:     false,
+		},
+		{
+			name:            "traversal break and escape share status+length → rejected (Layer 6)",
+			traversalLevels: 1,
+			softBase:        mkAttack(200, 1500, softFP(200)),
+			errorBase:       mkAttack(404, 0, errorFP),
+			breakAttack:     mkAttack(200, 1500, breakFP),
+			escapeAttack:    mkAttack(200, 1500, softFP(200)),
+			wantFinding:     false,
+		},
+		{
+			name:            "genuine traversal: escape 2xx, break differs in length → finding",
+			traversalLevels: 1,
+			softBase:        mkAttack(200, 1500, softFP(200)),
+			errorBase:       mkAttack(404, 0, errorFP),
+			breakAttack:     mkAttack(200, 4200, breakFP),
+			escapeAttack:    mkAttack(200, 1500, softFP(200)),
+			wantFinding:     true,
+		},
+		{
+			name:            "genuine traversal: escape 2xx, break differs in status → finding",
+			traversalLevels: 1,
+			softBase:        mkAttack(200, 1500, softFP(200)),
+			errorBase:       mkAttack(404, 0, errorFP),
+			breakAttack:     mkAttack(301, 1500, breakFP),
+			escapeAttack:    mkAttack(200, 1500, softFP(200)),
+			wantFinding:     true,
+		},
+		{
+			// ACL-bypass probes (traversalLevels == 0) treat the break side as the
+			// reached resource — the bypass must reach a real 2xx, not a 404 stub.
+			name:            "ACL bypass break is 404 → rejected (Layer 5)",
+			traversalLevels: 0,
+			softBase:        mkAttack(200, 1500, softFP(200)),
+			errorBase:       mkAttack(404, 0, errorFP),
+			breakAttack:     mkAttack(404, 0, breakFP),
+			escapeAttack:    mkAttack(200, 1500, softFP(200)),
+			wantFinding:     false,
+		},
+		{
+			name:            "genuine ACL bypass: break 2xx differs in length → finding",
+			traversalLevels: 0,
+			softBase:        mkAttack(200, 1500, softFP(200)),
+			errorBase:       mkAttack(404, 0, errorFP),
+			breakAttack:     mkAttack(200, 9000, breakFP),
+			escapeAttack:    mkAttack(200, 1500, softFP(200)),
+			wantFinding:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			attacks := []*diffscan.Attack{tt.breakAttack, tt.escapeAttack}
+			f := m.validateAttacks("N3", "merge_slashes off", attacks,
+				tt.softBase, tt.errorBase, nil, probe, tt.traversalLevels)
+
+			if tt.wantFinding {
+				require.NotNil(t, f, "expected a confirmed finding")
+				assert.Equal(t, "N3", f.ProbeInfo.ID)
+			} else {
+				assert.Nil(t, f, "expected the finding to be rejected by a confirmation gate")
+			}
+		})
+	}
 }
 
 // =============================================================================

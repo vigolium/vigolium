@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
 // extensionMap maps file extensions to programming languages.
@@ -202,6 +203,13 @@ ipScan:
 					Request:          string(fuzzedRaw),
 					FuzzingParameter: ip.Name(),
 					ExtractedResults: []string{payload},
+					Info: output.Info{
+						// Detection is purely time-based (sleep/ping/timeout), so it
+						// is prone to backend-delay false positives — flag as
+						// suspect/tentative rather than the module default.
+						Severity:   severity.Suspect,
+						Confidence: severity.Tentative,
+					},
 				})
 				continue ipScan
 			}

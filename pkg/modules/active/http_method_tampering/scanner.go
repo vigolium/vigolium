@@ -123,11 +123,28 @@ func (m *Module) ScanPerRequest(
 	wildcard, _ := scanCtx.WildcardProbe(ctx, httpClient)
 	baseline, _ := scanCtx.GetOrFetchBaseline(ctx, httpClient)
 
+	// Catch-all guard, evaluated lazily and memoized: only when a phase finds a
+	// candidate do we probe with an unsupported sentinel method. If THAT also
+	// looks "successful" and non-shell, the endpoint accepts ANY method
+	// (analytics beacon / permissive edge handler) and a 2xx for a dangerous
+	// method or honored override proves nothing — so the candidate is dropped.
+	catchAll := -1 // -1 unknown, 0 no, 1 yes
+	isCatchAll := func() bool {
+		if catchAll == -1 {
+			if m.endpointAcceptsAnyMethod(ctx, httpClient, wildcard, baseline) {
+				catchAll = 1
+			} else {
+				catchAll = 0
+			}
+		}
+		return catchAll == 1
+	}
+
 	var results []*output.ResultEvent
 
 	// Phase 1: Test dangerous methods on 2xx endpoints
 	if origStatus >= 200 && origStatus < 300 {
-		r, err := m.testDangerousMethods(urlx, ctx, httpClient, wildcard, baseline)
+		r, err := m.testDangerousMethods(urlx, ctx, httpClient, wildcard, baseline, isCatchAll)
 		if err != nil {
 			return nil, err
 		}
@@ -135,13 +152,48 @@ func (m *Module) ScanPerRequest(
 	}
 
 	// Phase 2: Test method override headers
-	r, err := m.testMethodOverrideHeaders(urlx, ctx, httpClient, wildcard, baseline)
+	r, err := m.testMethodOverrideHeaders(urlx, ctx, httpClient, wildcard, baseline, isCatchAll)
 	if err != nil {
 		return nil, err
 	}
 	results = append(results, r...)
 
 	return results, nil
+}
+
+// endpointAcceptsAnyMethod sends a syntactically valid but unsupported sentinel
+// method and reports whether the endpoint still returns a "successful",
+// non-shell response. Such catch-all endpoints respond 2xx to anything, so a
+// dangerous method or honored override returning 2xx is meaningless. Uses the
+// SAME success+shell criteria as the real checks, so a bogus method getting the
+// same treatment as a dangerous one is exactly what flags a catch-all. Returns
+// false on a transport error so it never suppresses on a transient failure.
+func (m *Module) endpointAcceptsAnyMethod(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	wildcard *modkit.WildcardEntry,
+	baseline *modkit.BaselineEntry,
+) bool {
+	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "VIGOLIUMX")
+	if err != nil {
+		return false
+	}
+	fuzzedReq, err := httpmsg.ParseRawRequest(string(modifiedRaw))
+	if err != nil {
+		return false
+	}
+	fuzzedReq = fuzzedReq.WithService(ctx.Service())
+
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true})
+	if err != nil {
+		return false
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return false
+	}
+	return isSuccessfulMethod(resp.Response().StatusCode, resp.BodyString()) &&
+		!looksLikeWildcardShell(resp.Response().StatusCode, resp.Body().Bytes(), wildcard, baseline)
 }
 
 // testDangerousMethods sends PUT/DELETE/PATCH to see if they are unexpectedly enabled.
@@ -151,6 +203,7 @@ func (m *Module) testDangerousMethods(
 	httpClient *http.Requester,
 	wildcard *modkit.WildcardEntry,
 	baseline *modkit.BaselineEntry,
+	isCatchAll func() bool,
 ) ([]*output.ResultEvent, error) {
 	var results []*output.ResultEvent
 
@@ -179,14 +232,21 @@ func (m *Module) testDangerousMethods(
 			continue
 		}
 
-		if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.FullResponse().String()) &&
+		if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.BodyString()) &&
 			!looksLikeWildcardShell(resp.Response().StatusCode, resp.Body().Bytes(), wildcard, baseline) {
+			if isCatchAll() {
+				resp.Close()
+				return results, nil // endpoint 2xx-es any method — not a real finding
+			}
+			ev := modkit.NewEvidenceCollector()
+			ev.Add("baseline", string(ctx.Request().Raw()), baselineFullResponse(baseline))
 			results = append(results, &output.ResultEvent{
-				URL:              urlx.String(),
-				Request:          string(modifiedRaw),
-				Response:         resp.FullResponse().String(),
-				FuzzingParameter: "method",
-				ExtractedResults: []string{method + " method returned 2xx"},
+				URL:                urlx.String(),
+				Request:            string(modifiedRaw),
+				Response:           resp.FullResponseString(),
+				AdditionalEvidence: ev.Entries(),
+				FuzzingParameter:   "method",
+				ExtractedResults:   []string{method + " method returned 2xx"},
 				Info: output.Info{
 					Description: "Dangerous HTTP method " + method + " is enabled on this endpoint",
 				},
@@ -207,8 +267,27 @@ func (m *Module) testMethodOverrideHeaders(
 	httpClient *http.Requester,
 	wildcard *modkit.WildcardEntry,
 	baseline *modkit.BaselineEntry,
+	isCatchAll func() bool,
 ) ([]*output.ResultEvent, error) {
 	var results []*output.ResultEvent
+
+	// Lazily fetch (once) a plain-POST control: the SAME request as the override
+	// probe but WITHOUT the override header. The override is only "respected" if
+	// it materially changes the response relative to this control — so an ignored
+	// override that returns the same page (e.g. a body-less 200 from an SSO/auth
+	// endpoint that answers POST identically with or without the header) is not a
+	// finding. Memoized so we issue at most one control request per endpoint, and
+	// only when a candidate is actually found.
+	controlFetched := false
+	var control postControl
+	var controlOK bool
+	getControl := func() (postControl, bool) {
+		if !controlFetched {
+			controlFetched = true
+			control, controlOK = m.fetchPostControl(ctx, httpClient)
+		}
+		return control, controlOK
+	}
 
 	for _, header := range methodOverrideHeaders {
 		for _, overrideMethod := range []string{"DELETE", "PUT"} {
@@ -235,14 +314,35 @@ func (m *Module) testMethodOverrideHeaders(
 				continue
 			}
 
-			if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.FullResponse().String()) &&
+			if resp.Response() != nil && isSuccessfulMethod(resp.Response().StatusCode, resp.BodyString()) &&
 				!looksLikeWildcardShell(resp.Response().StatusCode, resp.Body().Bytes(), wildcard, baseline) {
+				if isCatchAll() {
+					resp.Close()
+					return results, nil // endpoint 2xx-es any method — override proves nothing
+				}
+
+				// Differential confirmation: the override must change the response
+				// versus a plain POST. If it returns effectively the same page, the
+				// header was ignored — drop the candidate and try the next variant.
+				overrideSig := modkit.NewResponseSignature(resp.Response().StatusCode, resp.BodyString(), "")
+				ctrl, ctrlOK := getControl()
+				if ctrlOK && modkit.RatioSimilar(ctrl.sig, overrideSig) {
+					resp.Close()
+					continue
+				}
+
+				ev := modkit.NewEvidenceCollector()
+				ev.Add("baseline", string(ctx.Request().Raw()), baselineFullResponse(baseline))
+				if ctrlOK {
+					ev.Add("control: plain POST without "+header, ctrl.reqRaw, ctrl.respRaw)
+				}
 				results = append(results, &output.ResultEvent{
-					URL:              urlx.String(),
-					Request:          string(modifiedRaw),
-					Response:         resp.FullResponse().String(),
-					FuzzingParameter: header,
-					ExtractedResults: []string{"POST with " + header + ": " + overrideMethod},
+					URL:                urlx.String(),
+					Request:            string(modifiedRaw),
+					Response:           resp.FullResponseString(),
+					AdditionalEvidence: ev.Entries(),
+					FuzzingParameter:   header,
+					ExtractedResults:   []string{"POST with " + header + ": " + overrideMethod + " changes the response vs a plain POST"},
 					Info: output.Info{
 						Description: "Method override header " + header + " is respected (overrides to " + overrideMethod + ")",
 					},
@@ -255,6 +355,49 @@ func (m *Module) testMethodOverrideHeaders(
 	}
 
 	return results, nil
+}
+
+// postControl is a memoized plain-POST control response (no method-override
+// header) used as the differential baseline for the override check.
+type postControl struct {
+	sig     modkit.ResponseSignature
+	reqRaw  string
+	respRaw string
+}
+
+// fetchPostControl issues the request as a plain POST WITHOUT any method-override
+// header and returns its response signature plus the raw request/response for
+// evidence. ok is false on any transport/parse error so the caller falls back to
+// the success+shell gates rather than dropping a finding on a transient failure.
+// NoClustering bypasses the response cache so the control is a genuinely fresh
+// observation rather than a replay of a previously-cached probe.
+func (m *Module) fetchPostControl(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+) (postControl, bool) {
+	controlRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "POST")
+	if err != nil {
+		return postControl{}, false
+	}
+	req, err := httpmsg.ParseRawRequest(string(controlRaw))
+	if err != nil {
+		return postControl{}, false
+	}
+	req = req.WithService(ctx.Service())
+
+	resp, _, err := httpClient.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
+	if err != nil {
+		return postControl{}, false
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return postControl{}, false
+	}
+	return postControl{
+		sig:     modkit.NewResponseSignature(resp.Response().StatusCode, resp.BodyString(), ""),
+		reqRaw:  string(controlRaw),
+		respRaw: resp.FullResponseString(),
+	}, true
 }
 
 // isSuccessfulMethod checks if a response indicates the method was accepted.
@@ -278,6 +421,15 @@ func isSuccessfulMethod(statusCode int, body string) bool {
 	}
 
 	return true
+}
+
+// baselineFullResponse renders the cached same-method baseline as a full raw
+// response string for evidence capture, returning "" when no baseline is present.
+func baselineFullResponse(baseline *modkit.BaselineEntry) string {
+	if baseline == nil || baseline.Response == nil {
+		return ""
+	}
+	return string(baseline.Response.Raw())
 }
 
 // markAndShouldContinue limits checks per host.

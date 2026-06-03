@@ -17,7 +17,7 @@ import (
 // point every olium caller should use (TUI, headless, autopilot, swarm).
 //
 //   - includeUser=false for generic `vigolium agent olium` (chat/dev): only
-//     .agent/skills, .claude/skills, and embedded built-ins.
+//     .agents/skills, .claude/skills, and embedded built-ins.
 //   - includeUser=true  for autopilot/swarm: adds ~/.vigolium/skills/ so
 //     security-scan-specific skills are available without polluting chat.
 //

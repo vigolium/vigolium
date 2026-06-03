@@ -269,6 +269,21 @@ build_tarball_url() {
 	TARBALL_URL="${BASE_URL}/${TARBALL_FILENAME}"
 }
 
+cache_busted_url() {
+	local url="$1"
+	local key="${2:-}"
+
+	if [[ -z "$key" ]]; then
+		key="$(date +%s)"
+	fi
+
+	if [[ "$url" == *\?* ]]; then
+		echo "${url}&cache_key=${key}"
+	else
+		echo "${url}?cache_key=${key}"
+	fi
+}
+
 # Fetch checksums.txt from the CDN and extract the SHA-256 line for
 # TARBALL_FILENAME. A missing checksums.txt or an unlisted file degrades to
 # an unverified download (warning printed); a stale CDN with no checksums
@@ -395,7 +410,7 @@ install_vigolium_binary() {
 	rm -rf "$extract_dir"
 	mkdir -p "$extract_dir"
 
-	download_file "$TARBALL_URL" "$tarball_path" "$VERSION"
+	download_file "$(cache_busted_url "$TARBALL_URL" "$TARBALL_SHA256")" "$tarball_path" "$VERSION"
 	verify_checksum "$tarball_path" "$TARBALL_SHA256"
 
 	log "Extracting tarball..."

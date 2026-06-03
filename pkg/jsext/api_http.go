@@ -190,7 +190,7 @@ func doRawRequest(vm *sobek.Runtime, httpClient *http.Requester, rawReq string) 
 		return sobek.Undefined()
 	}
 
-	fullResp := respChain.FullResponse().Bytes()
+	fullResp := respChain.FullResponseBytes()
 	rawResponseCopy := make([]byte, len(fullResp))
 	copy(rawResponseCopy, fullResp)
 	respChain.Close()

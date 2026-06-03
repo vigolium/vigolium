@@ -123,7 +123,7 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 
 		body := resp.Body().String()
-		contentType := resp.FullResponse().String()
+		contentType := resp.FullResponseString()
 
 		isPDF := isPDFResponse(body, contentType)
 		markerFound := rp.marker != "" && strings.Contains(body, rp.marker)
@@ -144,7 +144,7 @@ func (m *Module) ScanPerInsertionPoint(
 				URL:              urlx.String(),
 				Matched:          urlx.String(),
 				Request:          string(fuzzedRaw),
-				Response:         resp.FullResponse().String(),
+				Response:         resp.FullResponseString(),
 				FuzzingParameter: ip.Name(),
 				ExtractedResults: []string{rp.payload, detail},
 				Info: output.Info{

@@ -62,6 +62,13 @@ type Options struct {
 	OutputFormats []string
 	// CIOutput enables CI-friendly output: JSONL findings only, no color, no banners
 	CIOutput bool
+	// DeferredJSONLExport routes jsonl output through the post-scan, project-scoped
+	// envelope export ({"type":...,"data":...}) instead of the live, nuclei-style
+	// ResultEvent stream. Set for `--format jsonl` outside CI mode so the scan,
+	// stateless, and `export` paths all emit the same unified schema. When true,
+	// StandardWriter suppresses its live jsonl file/stdout output (unless console
+	// is also requested, which keeps its own live output).
+	DeferredJSONLExport bool
 
 	Timeout time.Duration
 	Retries int
@@ -203,6 +210,29 @@ type Options struct {
 	// Requires --output to be set. Incompatible with --db.
 	Stateless bool
 
+	// SplitByHost, in stateless multi-target mode (-S -T file), scans each target
+	// in its own temporary database and writes a separate per-host output file
+	// (base-<host>.<ext>). When false (default), all targets share one pass and
+	// one unified output file. No effect outside stateless + target-file scans.
+	SplitByHost bool
+
+	// DBIsolate scans into a private temporary SQLite database and merges the
+	// results into the destination --db (or the default DB) once the scan
+	// finishes, then discards the temp database. Lets many parallel scan
+	// processes target the same --db without contending on a single SQLite
+	// writer during the scan: contention collapses to a short, serialized,
+	// retrying bulk merge at the end. Requires a SQLite destination and is
+	// mutually exclusive with --stateless (which discards results entirely).
+	DBIsolate bool
+
+	// Parallel is how many targets to scan at once in stateless multi-target
+	// mode (-S -T file --split-by-host). Each target runs as an isolated child
+	// vigolium process that keeps its own --concurrency worker pool, so the real
+	// in-flight request count is roughly Parallel × Concurrency. Default 1
+	// (sequential). Values > 1 require --stateless, a target file, and
+	// --split-by-host; outside that combination the flag is rejected up front.
+	Parallel int
+
 	// NoTechFilter disables the tech-stack allowlist gate so every module runs
 	// regardless of the host's detected stack. Set by --no-tech-filter and
 	// applied automatically when Intensity == "deep".
@@ -221,6 +251,7 @@ func DefaultOptions() *Options {
 		PassiveModules:       []string{"all"},
 		ClusterRequests:      true,
 		ShutdownTimeout:      30 * time.Second,
+		Parallel:             1,
 	}
 }
 func (options *Options) ShouldUseHostError() bool {

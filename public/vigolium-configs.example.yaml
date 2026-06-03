@@ -1252,7 +1252,7 @@ agent:
 
       # Default model id. Used when olium.model is empty and --model is not
       # passed. Examples: "gemma4:latest" (Ollama, default below),
-      # "qwen2.5-coder:32b" (Ollama), "anthropic/claude-3.5-sonnet" (OpenRouter),
+      # "qwen2.5-coder:32b" (Ollama), "anthropic/claude-sonnet-4.6" (OpenRouter),
       # "meta-llama/Llama-3.1-70B-Instruct-Turbo" (Together).
       model_id: gemma4:latest
 

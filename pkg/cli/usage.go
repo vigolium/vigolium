@@ -77,7 +77,6 @@ func init() {
 	sessionLsCmd.Example = sessionLsExamples
 	sessionTotpCmd.Example = sessionTotpExamples
 	strategyCmd.Example = strategyExamples
-	strategyLsCmd.Example = strategyLsExamples
 	versionCmd.Example = versionExamples
 	storageCmd.Example = storageExamples
 	storageLsCmd.Example = storageLsExamples

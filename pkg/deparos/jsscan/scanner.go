@@ -110,7 +110,7 @@ func (s *Scanner) Scan(ctx context.Context, content []byte) (*ScanResult, error)
 		return nil, fmt.Errorf("write temp file: %w", err)
 	}
 
-	requests, code, err := s.executeJsscan(ctx, binary.Path, tmpPath)
+	requests, code, domFlows, err := s.executeJsscan(ctx, binary.Path, tmpPath)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +118,7 @@ func (s *Scanner) Scan(ctx context.Context, content []byte) (*ScanResult, error)
 	return &ScanResult{
 		Requests:     requests,
 		Code:         code,
+		DomFlows:     domFlows,
 		ScanDuration: time.Since(startTime),
 		BytesScanned: len(content),
 	}, nil
@@ -138,7 +139,7 @@ func (s *Scanner) ScanFile(ctx context.Context, filePath string) (*ScanResult, e
 		return nil, err
 	}
 
-	requests, code, err := s.executeJsscan(ctx, binary.Path, filePath)
+	requests, code, domFlows, err := s.executeJsscan(ctx, binary.Path, filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +147,7 @@ func (s *Scanner) ScanFile(ctx context.Context, filePath string) (*ScanResult, e
 	return &ScanResult{
 		Requests:     requests,
 		Code:         code,
+		DomFlows:     domFlows,
 		ScanDuration: time.Since(startTime),
 		BytesScanned: int(info.Size()),
 	}, nil
@@ -190,7 +192,7 @@ func (s *Scanner) getBinary() (*CachedBinary, error) {
 
 // executeJsscan runs the jsscan binary and parses output.
 // Uses pooled buffers for stdout/stderr to reduce GC pressure.
-func (s *Scanner) executeJsscan(ctx context.Context, binaryPath, inputPath string) ([]ExtractedRequest, *CodeRecord, error) {
+func (s *Scanner) executeJsscan(ctx context.Context, binaryPath, inputPath string) ([]ExtractedRequest, *CodeRecord, []DomFlow, error) {
 	ctx, cancel := context.WithTimeout(ctx, MaxScanTimeout)
 	defer cancel()
 
@@ -209,12 +211,12 @@ func (s *Scanner) executeJsscan(ctx context.Context, binaryPath, inputPath strin
 	err := cmd.Run()
 
 	if ctx.Err() != nil {
-		return nil, nil, ctx.Err()
+		return nil, nil, nil, ctx.Err()
 	}
 
 	if err != nil {
 		if stdout.Len() == 0 {
-			return nil, nil, fmt.Errorf("%w: %w, stderr: %s", ErrScanFailed, err, stderr.String())
+			return nil, nil, nil, fmt.Errorf("%w: %w, stderr: %s", ErrScanFailed, err, stderr.String())
 		}
 	}
 
@@ -228,14 +230,15 @@ type rawRecord struct {
 
 // parseJsscanOutput parses the JSONL output from jsscan.
 // jsscan outputs one JSON object per line (JSONL format).
-// Supports two record types: 'extractedRequest' and 'code'.
-func parseJsscanOutput(output []byte) ([]ExtractedRequest, *CodeRecord, error) {
+// Supports three record types: 'extractedRequest', 'code', and 'domFlow'.
+func parseJsscanOutput(output []byte) ([]ExtractedRequest, *CodeRecord, []DomFlow, error) {
 	if len(output) == 0 {
-		return []ExtractedRequest{}, nil, nil
+		return []ExtractedRequest{}, nil, nil, nil
 	}
 
 	var requests []ExtractedRequest
 	var code *CodeRecord
+	var domFlows []DomFlow
 
 	lines := bytes.Split(output, []byte("\n"))
 	for _, line := range lines {
@@ -262,10 +265,16 @@ func parseJsscanOutput(output []byte) ([]ExtractedRequest, *CodeRecord, error) {
 				continue
 			}
 			code = &c
+		case "domFlow":
+			var f DomFlow
+			if err := json.Unmarshal(line, &f); err != nil {
+				continue
+			}
+			domFlows = append(domFlows, f)
 		}
 	}
 
-	return requests, code, nil
+	return requests, code, domFlows, nil
 }
 
 // Checksum returns the checksum of the cached/extracted jsscan binary.

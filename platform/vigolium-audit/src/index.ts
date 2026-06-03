@@ -118,7 +118,7 @@ const runCmd = cli
   .option("--mode <mode>", "Audit mode (lite|balanced|deep|diff|confirm|merge|revisit|reinvest|longshot|refresh|resume). 'resume' is an alias for `vigolium-audit resume`: auto-detect the latest non-complete audit and continue it.")
   .option("--modes <list>", "Run multiple modes in sequence (comma-separated, e.g. deep,refresh,confirm). Mutually exclusive with --mode. Stops on first non-complete mode; --max-cost is an aggregate cap.")
   .option("--agent <agent>", "Agent platform (claude|codex)", { default: "claude" })
-  .option("--model <model>", "Model name forwarded to the agent runtime. Defaults: claude → claude-opus-4-7[1m], codex → gpt-5.5 (with xhigh reasoning effort).")
+  .option("--model <model>", "Model name forwarded to the agent runtime. Defaults to the agent's own configured model; set this flag or the VIGOLIUM_AUDIT_MODEL env var to override.")
   .option("--target <path-or-url>", "Target directory, or a remote git URL (https://github.com/..., https://gitlab.com/..., git@host:owner/repo, git://, ssh://). A URL is cloned with --depth=1 into ./<owner-repo>/ under the current working directory and used as the audit target; an existing same-remote checkout there is reused in place.", { default: "." })
   .option("--source <path-or-url>", "Alias of --target (parity with `vigolium agent audit --source`); accepts the same path or remote git URL forms.")
   .option("-i, --interactive", "Enable Ink TUI (auto-disabled when stdout is not a TTY)")

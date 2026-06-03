@@ -160,7 +160,7 @@ func probeRandomEndpoint(
 
 	return buildResult(target, host, "Random 404 Endpoint", probePath,
 		"Default error handler leaks debug information",
-		evidence, string(probeRaw), resp.FullResponse().String())
+		evidence, string(probeRaw), resp.FullResponseString())
 }
 
 // probeMalformedJSON sends a POST with malformed JSON to trigger parsing errors.
@@ -205,7 +205,7 @@ func probeMalformedJSON(
 	path := ctx.Request().Path()
 	return buildResult(target, host, "Malformed JSON", path,
 		"Malformed JSON body triggers verbose error response",
-		evidence, string(probeRaw), resp.FullResponse().String())
+		evidence, string(probeRaw), resp.FullResponseString())
 }
 
 // probeTypeMismatch replaces numeric path segments with non-numeric values.
@@ -267,7 +267,7 @@ func probeTypeMismatch(
 
 	results = append(results, buildResult(target, host, "Type Mismatch", mutatedPath,
 		"Type-mismatch parameter triggers verbose error response",
-		evidence, string(probeRaw), resp.FullResponse().String()))
+		evidence, string(probeRaw), resp.FullResponseString()))
 
 	return results
 }

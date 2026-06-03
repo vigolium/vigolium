@@ -77,7 +77,7 @@ func (m *Module) ScanPerRequest(
 
 	var results []*output.ResultEvent
 	for _, p := range probes {
-		if result := m.probeEndpoint(ctx, httpClient, p, fp); result != nil {
+		if result := m.probeEndpoint(ctx, httpClient, scanCtx, p, fp); result != nil {
 			results = append(results, result)
 		}
 	}
@@ -122,6 +122,7 @@ func (m *Module) fingerprint404(
 func (m *Module) probeEndpoint(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
+	scanCtx *modkit.ScanContext,
 	p probe,
 	fp *notFoundFingerprint,
 ) *output.ResultEvent {
@@ -202,8 +203,15 @@ func (m *Module) probeEndpoint(
 			return nil
 		}
 	} else {
-		// For the /up probe (no markers): accept any 200 with small body (< 1024 bytes).
+		// For the /up probe (no markers): accept any 200 with small body (< 1024 bytes)...
 		if len(body) >= 1024 {
+			return nil
+		}
+		// ...but only if it isn't just the host's wildcard / soft-404 shell. A
+		// server that returns a small 200 for every path would otherwise make a
+		// markerless /up "hit" meaningless. ConfirmNotSoft404 compares against a
+		// cached host-wide random-path fingerprint and fails open on probe error.
+		if !modkit.ConfirmNotSoft404(scanCtx, httpClient, ctx, status, []byte(body), "") {
 			return nil
 		}
 	}
@@ -215,7 +223,7 @@ func (m *Module) probeEndpoint(
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
-		Response:         resp.FullResponse().String(),
+		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
 			Name:        fmt.Sprintf("Rails Info Exposed: %s", p.name),

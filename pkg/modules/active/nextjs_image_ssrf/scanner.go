@@ -184,7 +184,7 @@ func (m *Module) ScanPerHost(
 						URL:      target,
 						Matched:  target,
 						Request:  string(probeRaw),
-						Response: resp.FullResponse().String(),
+						Response: resp.FullResponseString(),
 						ExtractedResults: []string{
 							fmt.Sprintf("SSRF URL: %s", probe.url),
 							fmt.Sprintf("Marker: %s", marker),

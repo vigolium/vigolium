@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -83,6 +84,15 @@ type ProbeConfig struct {
 	// `web_fetch mode=browser` tool flips this on so the model gets the
 	// rendered page in the tool result.
 	CollectHTML bool
+
+	// Cookies are applied to the page before navigation. Zero value = none, so
+	// existing callers are unaffected. Lets the probe replay an authenticated
+	// retrieval URL (e.g. stored-XSS confirmation) under the scan's session.
+	Cookies []*http.Cookie
+
+	// Headers are extra request headers (key→value) applied to the navigation.
+	// Zero value = none.
+	Headers map[string]string
 }
 
 // ProbeResult carries dialog events that opened during navigation. A non-empty
@@ -169,6 +179,26 @@ func ProbeURL(ctx context.Context, cfg ProbeConfig) (*ProbeResult, error) {
 	page, err := br.NewPage()
 	if err != nil {
 		return nil, fmt.Errorf("ProbeURL: open page: %w", err)
+	}
+
+	// Apply session context (cookies/headers) before navigation. Failures are
+	// non-fatal — an unauthenticated probe still runs, it just won't see
+	// behind-login content.
+	if len(cfg.Cookies) > 0 {
+		if cerr := page.SetCookies(cfg.Cookies); cerr != nil {
+			zap.L().Debug("ProbeURL: set cookies failed", zap.Error(cerr))
+		}
+	}
+	if len(cfg.Headers) > 0 {
+		dict := make([]string, 0, len(cfg.Headers)*2)
+		for k, v := range cfg.Headers {
+			dict = append(dict, k, v)
+		}
+		if cleanup, herr := page.RodPage().SetExtraHeaders(dict); herr != nil {
+			zap.L().Debug("ProbeURL: set extra headers failed", zap.Error(herr))
+		} else if cleanup != nil {
+			defer cleanup()
+		}
 	}
 
 	if err := page.NavigateCtx(ctx, cfg.URL); err != nil {

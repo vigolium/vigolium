@@ -1,6 +1,6 @@
 # Scanner Modules Reference
 
-Vigolium ships with **251 scanner modules** — 154 active and 97 passive — covering the OWASP Top 10 and beyond. The full list below is curated; consult `vigolium module ls` for the live registry, since modules are added regularly.
+Vigolium ships with **249 scanner modules** — 154 active and 95 passive — covering the OWASP Top 10 and beyond. The full list below is curated; consult `vigolium module ls` for the live registry, since modules are added regularly.
 
 ## Severity Scale
 
@@ -60,10 +60,13 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
 | `active-code-exec` | Code Execution (RCE) | OS command injection via time-based blind (sleep/delay measurement) | Critical | Certain | `rce`, `injection` |
+| `active-command-injection-echo` | OS Command Injection (Results-Based) | In-band proof: shell evaluates a unique random arithmetic expression echoed back; two rounds + baseline comparison | Critical | Certain | `rce`, `command-injection`, `injection` |
+| `active-command-injection-oast` | OS Command Injection (Out-of-Band) | Blind command injection via nslookup/ping/curl callbacks to a unique OAST domain | Critical | Certain | `rce`, `command-injection`, `oast` |
+| `active-command-injection-timing` | OS Command Injection (Time-Based) | Delay-scaling blind detection: adaptive per-target threshold + sleep(N) vs sleep(2N) scaling over multiple independent rounds; timing-only so Tentative | Critical | Tentative | `rce`, `command-injection`, `injection` |
 | `active-crlf-injection` | CRLF Injection | CRLF injection in HTTP headers via CR/LF character sequences | Medium | Firm | `injection` |
 | `active-xxe-generic` | XXE Generic | XML external entity injection in generic XML endpoints | Critical | Certain | `xxe`, `injection` |
 | `active-insecure-deserialization` | Insecure Deserialization | Error-based detection for Java, PHP, Python, Ruby, and .NET deserialization | High | Firm | `injection` |
-| `active-input-behavior-probe` | Input Behavior Probe | Behavior change detection via header, path, debug param, and char probing | Suspect | Tentative | `injection` |
+| `active-input-behavior-probe` | Input Behavior Probe | Behavior change detection via header, path, debug param, and char probing | Info | Tentative | `injection` |
 
 ### SSRF & Out-of-Band (OAST)
 
@@ -99,13 +102,13 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 |---|---|---|---|---|---|
 | `active-path-normalization` | Path Normalization | Path normalization vulnerabilities via traversal payloads against middleware/reverse proxy | High | Firm | `misconfiguration` |
 | `active-nginx-off-by-slash` | Nginx Off-by-Slash | Nginx alias traversal via missing trailing slash | High | Tentative | `misconfiguration` |
-| `active-nginx-path-escape` | Nginx Path Escape Detection | Diff-based detection for alias traversal, URL encoding bypass, semicolon injection | High | Firm | `misconfiguration` |
+| `active-nginx-path-escape` | Nginx Path Escape Detection | Diff-based detection for alias traversal, URL encoding bypass, semicolon injection | Info | Tentative | `misconfiguration` |
 
 ### Differential & Behavior Detection
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-smart-behavior-detection` | Smart Behavior Detection | Diff-based injection detection via true/false behavioral payload pairs | Suspect | Firm | `detection` |
+| `active-smart-behavior-detection` | Smart Behavior Detection | Diff-based injection detection via true/false behavioral payload pairs | Info | Tentative | `detection` |
 | `active-suspect-transform` | Suspect Transform Detection | Expression evaluation, quote consumption, and unicode normalizations | Suspect | Firm | `detection` |
 | `active-backslash-transformation` | Backslash Transformation | Escape sequence interpretation, backslash consumption, character handling | Suspect | Firm | `detection` |
 
@@ -291,7 +294,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 
 ---
 
-## Passive Modules (93)
+## Passive Modules (91)
 
 Passive modules analyze existing request/response pairs without sending new traffic.
 
@@ -308,7 +311,6 @@ Passive modules analyze existing request/response pairs without sending new traf
 | `passive-auth-headers-detect` | Auth Headers Detect | Authorization headers (Bearer tokens, API keys) in requests | High | Firm | `session`, `auth` |
 | `passive-jwt-weak-secret` | JWT Weak Secret Detection | Offline brute-force of JWT HMAC secrets against ~104K wordlist | High | Firm | `session`, `auth` |
 | `passive-cookie-security-detect` | Cookie Security Detect | Insecure cookie attributes (missing Secure, HttpOnly, SameSite) | Low | Certain | `session`, `auth` |
-| `passive-cacheable-https-detect` | Cacheable HTTPS Response | Sensitive HTTPS responses without proper Cache-Control | Low | Firm | `session`, `auth` |
 | `passive-password-autocomplete-detect` | Password Autocomplete | Password fields without `autocomplete="off"` | Info | Certain | `session`, `auth` |
 
 ### Injection Signals
@@ -335,7 +337,7 @@ Passive modules analyze existing request/response pairs without sending new traf
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-security-headers-missing` | Security Headers Missing | Missing X-Content-Type-Options, X-Frame-Options, HSTS, CSP, Permissions-Policy | Info | Certain | `header-security` |
+| `passive-security-headers-missing` | Security Headers Missing | Missing X-Content-Type-Options, X-Frame-Options, HSTS, CSP, Permissions-Policy; missing/weak Referrer-Policy; cacheable sensitive HTTPS responses | Info | Certain | `header-security` |
 | `passive-mixed-content-detect` | Mixed Content Detect | HTTP resources loaded on HTTPS pages (src, href, action attributes) | Low | Certain | `header-security` |
 
 ### CORS & Redirect
@@ -420,7 +422,6 @@ Passive modules analyze existing request/response pairs without sending new traf
 | `passive-csp-weakness-audit` | CSP Weakness Audit | Content-Security-Policy weaknesses and bypasses | Medium | Firm | `header-security` |
 | `passive-permissions-policy-detect` | Permissions-Policy Detect | Missing or weak Permissions-Policy/Feature-Policy | Info | Certain | `header-security` |
 | `passive-hsts-preload-audit` | HSTS Preload Audit | HSTS header configuration and preload readiness | Info | Firm | `header-security` |
-| `passive-referrer-policy-detect` | Referrer-Policy Detect | Missing or weak Referrer-Policy | Info | Firm | `header-security` |
 | `passive-subresource-integrity-detect` | Subresource Integrity Detect | Scripts/styles loaded without SRI attributes | Low | Firm | `header-security` |
 | `passive-cors-vary-origin-missing` | CORS Vary: Origin Missing | CORS responses without Vary: Origin header | Low | Firm | `cors`, `header-security` |
 

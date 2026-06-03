@@ -36,7 +36,12 @@ at both request scope and insertion-point scope.
 - https://portswigger.net/research/backslash-powered-scanning`
 
 	ModuleConfirmation = "Indicated when probed requests cause structural changes in the response HTML tag tree or notable status code transitions compared to the baseline"
-	ModuleSeverity     = severity.Suspect
-	ModuleConfidence   = severity.Tentative
-	ModuleTags         = []string{"injection", "probe", "moderate"}
+	// ModuleSeverity is Info: this diff-based behavior-probing module compares
+	// HTML tag structure and status codes against a baseline, which is an
+	// inherently noisy, low-confidence triage signal. Findings do not set a
+	// per-result severity, so they inherit this declared Info severity (see
+	// buildProbeResult in detect.go) and are surfaced as informational leads.
+	ModuleSeverity   = severity.Info
+	ModuleConfidence = severity.Tentative
+	ModuleTags       = []string{"injection", "probe", "moderate"}
 )

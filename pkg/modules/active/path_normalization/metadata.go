@@ -18,11 +18,14 @@ against expected internal/public patterns.
 - Compares response fingerprints between public and internal path variations
 - Uses iterative payload application with auto-slashing heuristics
 - Targets middleware and reverse proxy path normalization inconsistencies
+- Requires the backed-off path to actually reach a resource (2xx) and to
+  reproduce, so a host's generic 403/404/500 handling for malformed paths is not
+  mistaken for an internal resource
 
 ## References
 - https://i.blackhat.com/us-18/Wed-August-8/us-18-Orange-Tsai-Breaking-Parser-Logic-Take-Your-Path-Normalization-Off-And-Pop-0days-Out-2.pdf`
 
-	ModuleConfirmation = "Confirmed when traversal payloads produce response fingerprints matching internal resources that differ from public access patterns"
+	ModuleConfirmation = "Confirmed when a traversal payload is rejected (HTTP 400) while the backed-off path reproducibly reaches a 2xx resource whose fingerprint differs from the baseline, root, and non-existent reference responses"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"misconfiguration", "lfi", "moderate"}

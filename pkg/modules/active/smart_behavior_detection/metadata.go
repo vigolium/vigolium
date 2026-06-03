@@ -21,7 +21,12 @@ of semantically equivalent and different payloads and compares response behavior
 - https://portswigger.net/bappstore/3123d5b5f25c4128894d97ea1571571c`
 
 	ModuleConfirmation = "Indicated when semantically different payloads produce measurably different response behaviors while equivalent payloads produce identical responses"
-	ModuleSeverity     = severity.Suspect
-	ModuleConfidence   = severity.Tentative
-	ModuleTags         = []string{"behavior-analysis", "injection", "moderate"}
+	// ModuleSeverity is Info: diff-based behavioral injection detection is an
+	// inherently noisy, low-confidence triage heuristic (per-request response
+	// volatility, reflection echoes), so every finding is surfaced as an
+	// informational lead for a human to confirm rather than an actionable issue.
+	// See ScanPerInsertionPoint.
+	ModuleSeverity   = severity.Info
+	ModuleConfidence = severity.Tentative
+	ModuleTags       = []string{"behavior-analysis", "injection", "moderate"}
 )

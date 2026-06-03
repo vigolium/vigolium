@@ -17,6 +17,7 @@ import { getSeverityColors, getConfidenceColors, getChartColors } from "../utils
 import { sanitizeHtml, escapeHtml } from "../utils/sanitize";
 import FilterDropdown from "./FilterDropdown";
 import HostSitemap from "./HostSitemap";
+import ColumnChooser, { type ColumnOption } from "./ColumnChooser";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -77,6 +78,40 @@ const SEVERITY_ORDER: Record<string, number> = {
   info: 4,
   "n/a": 5,
 };
+
+// Distinct color per module type so active/passive/whitebox stand out at a glance.
+function getModuleTypeColor(type: string, theme: "light" | "dark"): string {
+  const dark = theme === "dark";
+  switch (type.toLowerCase()) {
+    case "active":
+      return dark ? "#5aa9e6" : "#1d6fb8"; // blue
+    case "passive":
+      return dark ? "#3fbf8f" : "#0f8a5f"; // green
+    case "whitebox":
+      return dark ? "#b98cf0" : "#7c3aed"; // purple
+    default:
+      return dark ? "#c9a16b" : "#a16207"; // amber fallback
+  }
+}
+
+const ALL_COLUMN_OPTIONS: ColumnOption[] = [
+  { field: "id", label: "#" },
+  { field: "severity", label: "Severity" },
+  { field: "module", label: "Module" },
+  { field: "description", label: "Description" },
+  { field: "confidence", label: "Confidence" },
+  { field: "finding_source", label: "Source" },
+  { field: "module_type", label: "Module Type" },
+  { field: "repo_name", label: "Repository" },
+  { field: "source_file", label: "Source File" },
+  { field: "matched_at", label: "Location" },
+  { field: "tags", label: "Tags" },
+];
+
+const DEFAULT_COLUMNS = new Set([
+  "id", "severity", "module", "description", "confidence",
+  "finding_source", "repo_name", "source_file", "matched_at", "tags",
+]);
 
 // Convert a raw HTTP request string to a curl command
 function rawRequestToCurl(raw: string): string {
@@ -282,9 +317,19 @@ function FindingDetail({ finding }: { finding: Finding }) {
           </div>
         )}
         {finding.module_type && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <DetailLabel>module_type:</DetailLabel>
-            <DetailValue>{finding.module_type}</DetailValue>
+            {(() => {
+              const color = getModuleTypeColor(finding.module_type, theme);
+              return (
+                <span
+                  className="inline-block px-1.5 py-0.5 text-[10px] font-sans font-bold uppercase rounded"
+                  style={{ color, backgroundColor: `${color}18` }}
+                >
+                  {finding.module_type}
+                </span>
+              );
+            })()}
           </div>
         )}
         {finding.finding_source && (
@@ -438,10 +483,12 @@ export default function FindingsTable({ data, httpRecords }: Props) {
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [confidenceFilter, setConfidenceFilter] = useState<string>("all");
   const [moduleFilter, setModuleFilter] = useState<string>("all");
+  const [moduleTypeFilter, setModuleTypeFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedHosts, setSelectedHosts] = useState<Set<string>>(new Set());
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_COLUMNS));
 
   const onGridReady = useCallback((params: GridReadyEvent) => {
     setGridApi(params.api);
@@ -473,6 +520,11 @@ export default function FindingsTable({ data, httpRecords }: Props) {
 
   const modules = useMemo(() => {
     const s = new Set(data.map((f) => f.module_short || f.module_name));
+    return Array.from(s).sort();
+  }, [data]);
+
+  const moduleTypes = useMemo(() => {
+    const s = new Set(data.map((f) => f.module_type).filter(Boolean) as string[]);
     return Array.from(s).sort();
   }, [data]);
 
@@ -519,6 +571,9 @@ export default function FindingsTable({ data, httpRecords }: Props) {
     if (moduleFilter !== "all") {
       result = result.filter((f) => (f.module_short || f.module_name) === moduleFilter);
     }
+    if (moduleTypeFilter !== "all") {
+      result = result.filter((f) => f.module_type === moduleTypeFilter);
+    }
     if (sourceFilter !== "all") {
       result = result.filter((f) => f.finding_source === sourceFilter);
     }
@@ -526,12 +581,13 @@ export default function FindingsTable({ data, httpRecords }: Props) {
       result = result.filter((f) => f.tags?.includes(tagFilter));
     }
     return result;
-  }, [data, selectedHosts, hostToUuids, severityFilter, confidenceFilter, moduleFilter, sourceFilter, tagFilter]);
+  }, [data, selectedHosts, hostToUuids, severityFilter, confidenceFilter, moduleFilter, moduleTypeFilter, sourceFilter, tagFilter]);
 
-  const columnDefs = useMemo<ColDef<Finding>[]>(
+  const allColumnDefs = useMemo<ColDef<Finding>[]>(
     () => [
-      { field: "id", headerName: "#", width: 60 },
+      { colId: "id", field: "id", headerName: "#", width: 60 },
       {
+        colId: "severity",
         field: "severity",
         headerName: "Severity",
         width: 110,
@@ -547,6 +603,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         comparator: (a: string, b: string) => (SEVERITY_ORDER[a] ?? 99) - (SEVERITY_ORDER[b] ?? 99),
       },
       {
+        colId: "module",
         headerName: "Module",
         width: 200,
         valueGetter: ({ data }: { data: Finding | undefined }) =>
@@ -554,6 +611,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         cellClass: "text-xs",
       },
       {
+        colId: "description",
         field: "description",
         headerName: "Description",
         flex: 1,
@@ -563,6 +621,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
           value ? extractSummary(value) : "",
       },
       {
+        colId: "confidence",
         field: "confidence",
         headerName: "Confidence",
         width: 110,
@@ -572,12 +631,21 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         },
       },
       {
+        colId: "finding_source",
         field: "finding_source",
         headerName: "Source",
         width: 110,
         cellClass: "text-xs capitalize",
       },
       {
+        colId: "module_type",
+        field: "module_type",
+        headerName: "Module Type",
+        width: 120,
+        cellClass: "text-xs capitalize",
+      },
+      {
+        colId: "repo_name",
         field: "repo_name",
         headerName: "Repository",
         width: 160,
@@ -588,6 +656,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         },
       },
       {
+        colId: "source_file",
         field: "source_file",
         headerName: "Source File",
         width: 180,
@@ -598,6 +667,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         },
       },
       {
+        colId: "matched_at",
         field: "matched_at",
         headerName: "Location",
         width: 200,
@@ -612,6 +682,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         },
       },
       {
+        colId: "tags",
         field: "tags",
         headerName: "Tags",
         width: 180,
@@ -632,6 +703,11 @@ export default function FindingsTable({ data, httpRecords }: Props) {
       },
     ],
     [severityColors, confidenceColors, tagPalette]
+  );
+
+  const columnDefs = useMemo<ColDef<Finding>[]>(
+    () => allColumnDefs.filter((c) => c.colId && visibleColumns.has(c.colId)),
+    [allColumnDefs, visibleColumns]
   );
 
   const onSearchChange = useCallback(
@@ -733,10 +809,24 @@ export default function FindingsTable({ data, httpRecords }: Props) {
           options={[{ value: "all", label: "All Tags" }, ...allTags.map((t) => ({ value: t, label: t }))]}
           shortLabel="Tags"
         />
+        {moduleTypes.length > 0 && (
+          <FilterDropdown
+            value={moduleTypeFilter}
+            onChange={setModuleTypeFilter}
+            options={[{ value: "all", label: "All Module Types" }, ...moduleTypes.map((t) => ({ value: t, label: t }))]}
+            shortLabel="Module Type"
+          />
+        )}
         <div className="flex-1" />
         <span className="text-xs text-text-muted font-sans">
           {filteredData.length} of {data.length} findings
         </span>
+        <ColumnChooser
+          allColumns={ALL_COLUMN_OPTIONS}
+          visible={visibleColumns}
+          onChange={setVisibleColumns}
+          defaults={DEFAULT_COLUMNS}
+        />
         <button
           onClick={onExport}
           className="flex items-center gap-1.5 text-xs font-sans font-semibold text-terracotta hover:text-charcoal transition-colors px-2.5 py-1.5 border border-warm-border rounded-md hover:border-terracotta/30"

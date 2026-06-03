@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/resources/wordlists"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/harvester"
 	"github.com/vigolium/vigolium/pkg/input/source"
@@ -192,6 +193,172 @@ func buildDiscoveryTargetsFromPaths(paths []database.PathTarget) []string {
 	return targets
 }
 
+// defaultWordlistDir is where the embedded default wordlists are materialized so
+// deparos (which loads wordlists from file paths only) can use them.
+// wordlistDirEnv overrides it (absolute or ~-relative).
+const (
+	defaultWordlistDir = "~/.vigolium/wordlists"
+	wordlistDirEnv     = "VIGOLIUM_WORDLIST_DIR"
+)
+
+// wordlistDir resolves the directory the embedded default wordlists are written to.
+func wordlistDir() string {
+	if dir := os.Getenv(wordlistDirEnv); dir != "" {
+		return config.ExpandPath(dir)
+	}
+	return config.ExpandPath(defaultWordlistDir)
+}
+
+// resolvedDiscoveryWordlists holds the effective deparos wordlist paths after
+// layering: YAML config → CLI --fuzz-wordlist → embedded defaults. The two
+// usingX flags drive the header label so it can distinguish operator-supplied
+// lists from the bundled fallbacks.
+type resolvedDiscoveryWordlists struct {
+	shortFile, longFile, shortDir, longDir, fuzz string
+	usingEmbedded                                bool // at least one path came from the embedded defaults
+	usingConfigured                              bool // at least one path came from YAML / CLI
+}
+
+// resolveDiscoveryWordlists computes the wordlist paths feeding deparos. Operator
+// config (YAML, then the --fuzz-wordlist CLI override) wins; any gap is filled
+// from the embedded defaults — short file/dir lists on every scan, and the heavy
+// long lists plus fuzz.txt (which deparos turns into a full /FUZZ brute of the
+// root) only at --intensity deep. This is shared by buildDeparosConfig and the
+// Discovery phase header so the two never disagree on what is actually running.
+func (r *Runner) resolveDiscoveryWordlists() resolvedDiscoveryWordlists {
+	var w resolvedDiscoveryWordlists
+	expand := func(p string) string {
+		if p == "" {
+			return ""
+		}
+		w.usingConfigured = true
+		return config.ExpandPath(p)
+	}
+
+	if r.settings != nil {
+		wl := r.settings.Discovery.Wordlists
+		w.shortFile = expand(wl.ShortFilePath)
+		w.longFile = expand(wl.LongFilePath)
+		w.shortDir = expand(wl.ShortDirPath)
+		w.longDir = expand(wl.LongDirPath)
+		w.fuzz = expand(wl.FuzzWordlistPath)
+	}
+	// --fuzz-wordlist is an explicit operator override and wins over YAML.
+	if r.options.FuzzWordlistPath != "" {
+		w.fuzz = config.ExpandPath(r.options.FuzzWordlistPath)
+		w.usingConfigured = true
+	}
+
+	deep := strings.EqualFold(r.options.Intensity, "deep")
+	fuzzOn, _ := r.discoveryFuzzingState()
+	needShortFile := w.shortFile == ""
+	needShortDir := w.shortDir == ""
+	needLongFile := w.longFile == "" && deep
+	needLongDir := w.longDir == "" && deep
+	needFuzz := w.fuzz == "" && fuzzOn
+	needAny := needShortFile || needShortDir || needLongFile || needLongDir || needFuzz
+	if !needAny {
+		return w
+	}
+
+	paths, err := wordlists.EnsureOnDisk(wordlistDir())
+	if err != nil {
+		zap.L().Warn("Discovery: failed to materialize embedded wordlists; deparos falls back to observed-only", zap.Error(err))
+		return w
+	}
+	if needShortFile {
+		w.shortFile = paths.ShortFile
+		w.usingEmbedded = true
+	}
+	if needShortDir {
+		w.shortDir = paths.ShortDir
+		w.usingEmbedded = true
+	}
+	if needLongFile {
+		w.longFile = paths.LongFile
+		w.usingEmbedded = true
+	}
+	if needLongDir {
+		w.longDir = paths.LongDir
+		w.usingEmbedded = true
+	}
+	if needFuzz {
+		w.fuzz = paths.Fuzz
+		w.usingEmbedded = true
+	}
+	return w
+}
+
+// discoveryFuzzingState reports whether deparos FUZZ fuzzing is enabled for this
+// run, with a short reason for the header. Fuzzing makes deparos auto-append
+// /FUZZ and brute-force the (large) fuzz wordlist at each directory, so it is ON
+// only when the operator clearly wants it: --fuzz-wordlist supplied, --intensity
+// deep, or discovery selected as an explicit phase (e.g. `vigolium run discover`,
+// which sets Options.OnlyPhase). It stays OFF on balanced/lite full scans.
+func (r *Runner) discoveryFuzzingState() (bool, string) {
+	switch {
+	case r.options.FuzzWordlistPath != "":
+		return true, "via --fuzz-wordlist"
+	case strings.EqualFold(r.options.Intensity, "deep"):
+		return true, "intensity=deep"
+	case r.options.OnlyPhase != "" && OnlyPhaseSet(r.options.OnlyPhase)["discovery"]:
+		return true, "discovery-only run"
+	case r.autoFuzzDiscovery:
+		return true, "auto-enabled (low-yield/SSO target)"
+	default:
+		return false, "off on balanced/lite full scans (enable via `run discover`, --intensity deep, or --fuzz-wordlist)"
+	}
+}
+
+// lowYieldSpideringRecords is the spidering record count below which the
+// Discovery phase treats the target as "found almost nothing" and auto-enables
+// FUZZ fuzzing (the SSO/login-wall case triggers regardless of this count).
+const lowYieldSpideringRecords = 10
+
+// shouldAutoFuzzDiscovery decides whether to auto-enable discovery FUZZ fuzzing
+// based on the prior Spidering phase outcome. It fires only when fuzzing isn't
+// already on, deparos discovery is active with CLI targets, spidering actually
+// ran, and spidering came up low-yield — either it bounced off-host to an
+// SSO/login wall or returned fewer than lowYieldSpideringRecords records. Gated
+// by discovery.auto_fuzz_low_yield (nil/absent = on).
+func (r *Runner) shouldAutoFuzzDiscovery() bool {
+	if r.settings != nil && r.settings.Discovery.AutoFuzzLowYield != nil && !*r.settings.Discovery.AutoFuzzLowYield {
+		return false
+	}
+	if !r.options.DiscoverEnabled || len(r.options.Targets) == 0 {
+		return false
+	}
+	// Don't override an already-on fuzzing mode (it would just relabel the reason).
+	if on, _ := r.discoveryFuzzingState(); on {
+		return false
+	}
+	if !r.spidering.ran {
+		return false
+	}
+	return r.spidering.sawSSO || r.spidering.records < lowYieldSpideringRecords
+}
+
+// filterOutHosts drops target URLs whose host matches any host in block
+// (case-insensitive). Used to keep off-host SSO/login domains out of the
+// discovery/fuzzing scope so auto-fuzz only hits the original target host(s).
+func filterOutHosts(targets, block []string) []string {
+	if len(block) == 0 || len(targets) == 0 {
+		return targets
+	}
+	blocked := make(map[string]bool, len(block))
+	for _, h := range block {
+		blocked[strings.ToLower(h)] = true
+	}
+	out := make([]string, 0, len(targets))
+	for _, t := range targets {
+		u, err := neturl.Parse(t)
+		if err != nil || u.Host == "" || !blocked[strings.ToLower(u.Host)] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // buildDeparosConfig maps YAML DiscoveryConfig + CLI flags into a DeparosDiscoveryConfig.
 // additionalTargets are merged (deduplicated) with CLI targets to expand the discovery scope.
 func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDiscoveryConfig {
@@ -239,22 +406,8 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		}
 		cfg.SaveResponseBody = dc.SaveResponseBody
 
-		// Wordlists (expand ~ paths)
-		if dc.Wordlists.ShortFilePath != "" {
-			cfg.ShortFilePath = config.ExpandPath(dc.Wordlists.ShortFilePath)
-		}
-		if dc.Wordlists.LongFilePath != "" {
-			cfg.LongFilePath = config.ExpandPath(dc.Wordlists.LongFilePath)
-		}
-		if dc.Wordlists.ShortDirPath != "" {
-			cfg.ShortDirPath = config.ExpandPath(dc.Wordlists.ShortDirPath)
-		}
-		if dc.Wordlists.LongDirPath != "" {
-			cfg.LongDirPath = config.ExpandPath(dc.Wordlists.LongDirPath)
-		}
-		if dc.Wordlists.FuzzWordlistPath != "" {
-			cfg.FuzzWordlistPath = config.ExpandPath(dc.Wordlists.FuzzWordlistPath)
-		}
+		// Wordlist paths are resolved below (outside this block) so the embedded
+		// defaults apply even when no YAML config is loaded.
 		cfg.UseObservedNames = dc.Wordlists.UseObservedNames
 		cfg.UseObservedPaths = dc.Wordlists.UseObservedPaths
 		cfg.UseObservedFiles = dc.Wordlists.UseObservedFiles
@@ -290,13 +443,30 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		// Malformed path probe
 		cfg.EnableMalformedPathProbe = dc.EnableMalformedPathProbe
 
+		// Near-identical response cluster cap. nil = leave 0 so the source applies
+		// its default (on, 10); an explicit non-positive value disables it (mapped
+		// to -1 since the source treats 0 as "use default").
+		if dc.DedupClusterCap != nil {
+			if *dc.DedupClusterCap <= 0 {
+				cfg.DedupClusterCap = -1
+			} else {
+				cfg.DedupClusterCap = *dc.DedupClusterCap
+			}
+		}
+
 		// MaxDuration is resolved via scanning_pace (applied to r.options by scan.go)
 	}
 
-	// CLI --fuzz-wordlist override (takes precedence over YAML config)
-	if r.options.FuzzWordlistPath != "" {
-		cfg.FuzzWordlistPath = config.ExpandPath(r.options.FuzzWordlistPath)
-	}
+	// Resolve wordlist paths: YAML config → CLI --fuzz-wordlist → embedded
+	// defaults (short file/dir always; long lists + fuzz.txt only at --intensity
+	// deep). Done here, outside the settings block above, so the embedded defaults
+	// still apply when no YAML config is loaded.
+	wls := r.resolveDiscoveryWordlists()
+	cfg.ShortFilePath = wls.shortFile
+	cfg.LongFilePath = wls.longFile
+	cfg.ShortDirPath = wls.shortDir
+	cfg.LongDirPath = wls.longDir
+	cfg.FuzzWordlistPath = wls.fuzz
 
 	// CLI --no-prefix-breaker override (takes precedence over YAML config)
 	if r.options.NoPrefixBreaker {

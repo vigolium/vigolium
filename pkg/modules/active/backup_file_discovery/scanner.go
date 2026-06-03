@@ -288,7 +288,7 @@ func (m *Module) probePath(
 		URL:      targetURL,
 		Matched:  targetURL,
 		Request:  string(modifiedRaw),
-		Response: resp.FullResponse().String(),
+		Response: resp.FullResponseString(),
 		Info: output.Info{
 			Name:        fmt.Sprintf("Backup File Exposed: %s", filename),
 			Description: fmt.Sprintf("Publicly accessible backup file found at %s. Backup archives may contain source code, database dumps, credentials, or other sensitive data.", path),

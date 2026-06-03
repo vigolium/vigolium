@@ -96,6 +96,12 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
+	// Retain the clean-path baseline request/response so each finding can carry the
+	// differential it was judged against (the confused-path probe is the attack
+	// pair; this is the authenticated content it's compared to).
+	baselineReqStr := string(ctx.Request().Raw())
+	baselineRespStr := string(baseline.Response.Raw())
+
 	// Skip redirect responses — not useful for cache deception
 	if baseline.StatusCode >= 300 && baseline.StatusCode < 400 {
 		return nil, nil
@@ -130,18 +136,26 @@ func (m *Module) ScanPerRequest(
 		}
 		fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
-		// First request — potentially caches the response
-		resp1, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+		// First request — potentially caches the response.
+		// NoClustering: the requester de-duplicates identical requests and replays
+		// the first response for the second within a 500ms window. That would make
+		// the second request never hit the wire, so the target's cache-HIT-on-replay
+		// (the whole signal this module needs) could never be observed. Each probe
+		// must really reach the origin/CDN.
+		resp1, _, err := httpClient.Execute(fuzzedReq, http.Options{NoClustering: true})
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return results, nil
 			}
 			continue
 		}
+		// Capture the priming (confused-path) request/response before Close frees
+		// the buffer, so a finding can show the round that seeded the cache.
+		primeRespStr := resp1.FullResponseString()
 		resp1.Close()
 
 		// Second request — check if it was served from cache
-		resp2, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+		resp2, _, err := httpClient.Execute(fuzzedReq, http.Options{NoClustering: true})
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return results, nil
@@ -193,11 +207,15 @@ func (m *Module) ScanPerRequest(
 
 		// Report if BOTH conditions met: response matches original AND cache indicators present
 		if bodyMatch && cacheHit {
+			ev := modkit.NewEvidenceCollector()
+			ev.Add("baseline", baselineReqStr, baselineRespStr)
+			ev.Add("cache-prime", string(modifiedRaw), primeRespStr)
 			results = append(results, &output.ResultEvent{
-				URL:      urlx.String(),
-				Matched:  urlx.String(),
-				Request:  string(modifiedRaw),
-				Response: resp2.FullResponse().String(),
+				URL:                urlx.String(),
+				Matched:            urlx.String(),
+				Request:            string(modifiedRaw),
+				Response:           resp2.FullResponseString(),
+				AdditionalEvidence: ev.Entries(),
 				ExtractedResults: []string{
 					fmt.Sprintf("Technique: %s", tech.desc),
 					fmt.Sprintf("Confused path: %s", confusedPath),

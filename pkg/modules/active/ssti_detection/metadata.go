@@ -22,7 +22,11 @@ Sends valid and invalid template expressions and compares response differences.
 - https://portswigger.net/research/server-side-template-injection`
 
 	ModuleConfirmation = "Confirmed when valid template expressions produce different responses than syntactically invalid ones, indicating server-side evaluation"
-	ModuleSeverity     = severity.High
-	ModuleConfidence   = severity.Certain
-	ModuleTags         = []string{"injection", "ssti", "moderate"}
+	// ModuleSeverity is Info: this diff-based, error-response heuristic is
+	// false-positive-prone (reflection echoes, per-request volatility, generic
+	// error pages), so every finding is surfaced as an informational lead for a
+	// human to confirm rather than an actionable issue. See ScanPerInsertionPoint.
+	ModuleSeverity   = severity.Info
+	ModuleConfidence = severity.Certain
+	ModuleTags       = []string{"injection", "ssti", "moderate"}
 )

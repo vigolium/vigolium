@@ -68,7 +68,7 @@ func (m *Module) ScanPerHost(
 	var results []*output.ResultEvent
 
 	for _, sp := range sensitivePaths {
-		result, err := m.probePath(ctx, httpClient, sp.path, sp.desc)
+		result, err := m.probePath(ctx, httpClient, scanCtx, sp.path, sp.desc)
 		if err != nil {
 			continue
 		}
@@ -83,6 +83,7 @@ func (m *Module) ScanPerHost(
 func (m *Module) probePath(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
+	scanCtx *modkit.ScanContext,
 	path string,
 	desc string,
 ) (*output.ResultEvent, error) {
@@ -126,17 +127,43 @@ func (m *Module) probePath(
 		return nil, nil
 	}
 
+	// Reject hosts that return a 2xx shell for ANY path (SPA / wildcard /
+	// catch-all CDN) and redirects to a login page — otherwise every sensitive
+	// path "exists". WildcardProbe fingerprints a random path on the host and
+	// ConfirmNotSoft404 fails open on a probe error so a real exposure is never
+	// suppressed by a transient failure.
+	location := resp.Response().Header.Get("Location")
+	if !modkit.ConfirmNotSoft404(scanCtx, httpClient, ctx, statusCode, []byte(body), location) {
+		return nil, nil
+	}
+
 	target := ctx.Target()
 	host := ""
 	if ctx.Service() != nil {
 		host = ctx.Service().Host()
 	}
 
+	// Each finding gets its own collector. The original crawl-time pair for this
+	// cloud-storage host is the baseline the public-read probe was issued against;
+	// attaching it as supporting context shows what the host returned before the
+	// sensitive-path access. The wildcard/soft-404 probe lives inside the shared
+	// ConfirmNotSoft404 helper and is not exposed at this emit site, so it cannot
+	// be captured here without modifying shared code.
+	ev := modkit.NewEvidenceCollector()
+	if origReq := ctx.Request(); origReq != nil {
+		var origRespStr string
+		if origResp := ctx.Response(); origResp != nil {
+			origRespStr = string(origResp.Raw())
+		}
+		ev.Add("baseline", string(origReq.Raw()), origRespStr)
+	}
+
 	return &output.ResultEvent{
-		URL:      target,
-		Matched:  target,
-		Request:  string(modifiedRaw),
-		Response: truncate(body, 2000),
+		URL:                target,
+		Matched:            target,
+		Request:            string(modifiedRaw),
+		Response:           truncate(body, 2000),
+		AdditionalEvidence: ev.Entries(),
 		ExtractedResults: []string{
 			fmt.Sprintf("Path: %s", path),
 			fmt.Sprintf("Description: %s", desc),

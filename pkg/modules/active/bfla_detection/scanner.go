@@ -115,7 +115,7 @@ func (m *Module) ScanPerRequest(
 	var results []*output.ResultEvent
 
 	// Test a) Remove Authorization and Cookie headers
-	result, err := m.testNoAuth(ctx, httpClient, urlx, origStatus, origBodyLen, wildcard)
+	result, err := m.testNoAuth(ctx, httpClient, urlx, origStatus, origBody, origBodyLen, wildcard)
 	if err != nil {
 		if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 			return nil, nil
@@ -127,7 +127,7 @@ func (m *Module) ScanPerRequest(
 	}
 
 	// Test b) Downgrade role with empty/generic token
-	result, err = m.testDowngradedAuth(ctx, httpClient, urlx, origStatus, origBodyLen, wildcard)
+	result, err = m.testDowngradedAuth(ctx, httpClient, urlx, origStatus, origBody, origBodyLen, wildcard)
 	if err != nil {
 		if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 			return nil, nil
@@ -157,6 +157,7 @@ func (m *Module) testNoAuth(
 	httpClient *http.Requester,
 	urlx *urlutil.URL,
 	origStatus int,
+	origBody []byte,
 	origBodyLen int,
 	wildcard *modkit.WildcardEntry,
 ) (*output.ResultEvent, error) {
@@ -187,7 +188,7 @@ func (m *Module) testNoAuth(
 
 	respStatus := resp.Response().StatusCode
 	respBodyBytes := resp.Body().Bytes()
-	respBody := resp.FullResponse().String()
+	respBody := resp.FullResponseString()
 	respBodyLen := len(respBody)
 
 	// Reject responses that match the wildcard shell — those are the same
@@ -196,15 +197,22 @@ func (m *Module) testNoAuth(
 		return nil, nil
 	}
 
-	// Report if original was 200 AND unauthenticated request is also 200
-	// AND body length is within 50% of original
-	if origStatus == 200 && respStatus == 200 && isBodyLengthSimilar(origBodyLen, respBodyLen) {
+	// Report if original was 200 AND unauthenticated request is also 200 AND the
+	// unauthenticated body is the SAME privileged content (not just a similar
+	// length). Requiring content similarity, not only a length band, rejects the
+	// common false positive where removing auth yields a 200 login/landing page
+	// that merely happens to be a comparable size to the protected page.
+	if origStatus == 200 && respStatus == 200 && isBodyLengthSimilar(origBodyLen, respBodyLen) &&
+		bodiesContentSimilar(origStatus, origBody, respStatus, respBodyBytes) {
+		ev := modkit.NewEvidenceCollector()
+		ev.Add("original-auth", modkit.CtxRequestRaw(ctx), modkit.CtxResponseRaw(ctx))
 		return &output.ResultEvent{
-			URL:              urlx.String(),
-			Matched:          urlx.String(),
-			Request:          string(modifiedRaw),
-			Response:         respBody,
-			FuzzingParameter: "Authorization",
+			URL:                urlx.String(),
+			Matched:            urlx.String(),
+			Request:            string(modifiedRaw),
+			Response:           respBody,
+			AdditionalEvidence: ev.Entries(),
+			FuzzingParameter:   "Authorization",
 			ExtractedResults: []string{
 				fmt.Sprintf("Original status: %d, Unauthenticated status: %d", origStatus, respStatus),
 				fmt.Sprintf("Original body length: %d, Unauthenticated body length: %d", origBodyLen, respBodyLen),
@@ -225,6 +233,7 @@ func (m *Module) testDowngradedAuth(
 	httpClient *http.Requester,
 	urlx *urlutil.URL,
 	origStatus int,
+	origBody []byte,
 	origBodyLen int,
 	wildcard *modkit.WildcardEntry,
 ) (*output.ResultEvent, error) {
@@ -262,20 +271,24 @@ func (m *Module) testDowngradedAuth(
 
 	respStatus := resp.Response().StatusCode
 	respBodyBytes := resp.Body().Bytes()
-	respBody := resp.FullResponse().String()
+	respBody := resp.FullResponseString()
 	respBodyLen := len(respBody)
 
 	if wildcard.MatchesBody(respStatus, respBodyBytes) {
 		return nil, nil
 	}
 
-	if origStatus == 200 && respStatus == 200 && isBodyLengthSimilar(origBodyLen, respBodyLen) {
+	if origStatus == 200 && respStatus == 200 && isBodyLengthSimilar(origBodyLen, respBodyLen) &&
+		bodiesContentSimilar(origStatus, origBody, respStatus, respBodyBytes) {
+		ev := modkit.NewEvidenceCollector()
+		ev.Add("original-auth", modkit.CtxRequestRaw(ctx), modkit.CtxResponseRaw(ctx))
 		return &output.ResultEvent{
-			URL:              urlx.String(),
-			Matched:          urlx.String(),
-			Request:          string(modifiedRaw),
-			Response:         respBody,
-			FuzzingParameter: "Authorization",
+			URL:                urlx.String(),
+			Matched:            urlx.String(),
+			Request:            string(modifiedRaw),
+			Response:           respBody,
+			AdditionalEvidence: ev.Entries(),
+			FuzzingParameter:   "Authorization",
 			ExtractedResults: []string{
 				fmt.Sprintf("Original status: %d, Downgraded token status: %d", origStatus, respStatus),
 				"Token replaced with invalid_downgraded_token",
@@ -338,13 +351,16 @@ func (m *Module) testMethodSwitching(
 
 		if resp.Response() != nil && resp.Response().StatusCode >= 200 && resp.Response().StatusCode < 300 &&
 			!wildcard.MatchesBody(resp.Response().StatusCode, resp.Body().Bytes()) {
-			respBody := resp.FullResponse().String()
+			respBody := resp.FullResponseString()
+			ev := modkit.NewEvidenceCollector()
+			ev.Add("original-auth", modkit.CtxRequestRaw(ctx), modkit.CtxResponseRaw(ctx))
 			results = append(results, &output.ResultEvent{
-				URL:              urlx.String(),
-				Matched:          urlx.String(),
-				Request:          string(modifiedRaw),
-				Response:         respBody,
-				FuzzingParameter: "method",
+				URL:                urlx.String(),
+				Matched:            urlx.String(),
+				Request:            string(modifiedRaw),
+				Response:           respBody,
+				AdditionalEvidence: ev.Entries(),
+				FuzzingParameter:   "method",
 				ExtractedResults: []string{
 					fmt.Sprintf("Method %s accepted without authentication on admin path", tryMethod),
 				},
@@ -371,6 +387,22 @@ func isAdminPath(path string) bool {
 		}
 	}
 	return false
+}
+
+// bflaContentSimilarityMin is the minimum normalized token similarity between the
+// authenticated and the auth-stripped response bodies for them to count as "the
+// same privileged content". High enough to separate the real protected page from
+// a login/landing/error page, low enough to tolerate per-request dynamic bits
+// (usernames, CSRF tokens, timestamps — which NewResponseSignature already
+// collapses) on a genuine bypass.
+const bflaContentSimilarityMin = 0.8
+
+// bodiesContentSimilar reports whether two response bodies are substantially the
+// same content by normalized token similarity (dynamic hex/digit runs collapsed).
+func bodiesContentSimilar(statusA int, bodyA []byte, statusB int, bodyB []byte) bool {
+	a := modkit.NewResponseSignature(statusA, string(bodyA), "")
+	b := modkit.NewResponseSignature(statusB, string(bodyB), "")
+	return modkit.QuickRatio(a, b) >= bflaContentSimilarityMin
 }
 
 // isBodyLengthSimilar returns true if the two body lengths are within 50% of each other.

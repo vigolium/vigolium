@@ -164,7 +164,7 @@ Instructional prose the model reads after calling load_skill.
 
 `Load()` (`pkg/olium/skill/registry.go:77`) walks four scopes — first-found-by-name wins:
 
-1. **Project** — `.agent/skills/` and `.claude/skills/` in the working directory and every ancestor, closest first.
+1. **Project** — `.agents/skills/` and `.claude/skills/` in the working directory and every ancestor, closest first.
 2. **User** — `~/.vigolium/skills/` (only when `IncludeUserSkills=true`).
 3. **Embedded** — shipped in the binary under `public/presets/skills/` via `go:embed`.
 

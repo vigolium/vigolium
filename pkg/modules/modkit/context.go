@@ -86,6 +86,7 @@ type ScanContext struct {
 	InsertionPoints     InsertionPointProvider
 	ParamFindings       *ParameterFindingRegistry // Cross-module finding dedup
 	TechStack           *TechRegistry             // Per-host tech-stack detections (populated by *_fingerprint passive modules)
+	WAFStack            *WAFRegistry              // Per-host WAF/CDN detections (populated by XSS modules on block responses)
 
 	baselineOnce   sync.Once
 	baselineCache  *lru.Cache[string, *BaselineEntry]
@@ -161,6 +162,24 @@ func (sc *ScanContext) MarkTech(host, tag string) {
 		return
 	}
 	sc.TechStack.Mark(host, tag)
+}
+
+// MarkWAF records the WAF/CDN type observed fronting host. No-op when the
+// registry is unset (e.g. tests with a bare ScanContext).
+func (sc *ScanContext) MarkWAF(host, wafType string) {
+	if sc == nil || sc.WAFStack == nil {
+		return
+	}
+	sc.WAFStack.Mark(host, wafType)
+}
+
+// DetectedWAF returns the WAF/CDN type observed fronting host during the scan,
+// or "" if none was seen or the registry is unset.
+func (sc *ScanContext) DetectedWAF(host string) string {
+	if sc == nil || sc.WAFStack == nil {
+		return ""
+	}
+	return sc.WAFStack.Get(host)
 }
 
 // MutGen returns the MutationGenerator or a default implementation if nil.

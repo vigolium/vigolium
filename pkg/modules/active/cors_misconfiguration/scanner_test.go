@@ -19,7 +19,7 @@ func TestNew(t *testing.T) {
 	m := New()
 	assert.Equal(t, "cors-misconfiguration", m.ID())
 	assert.Equal(t, "CORS Misconfiguration", m.Name())
-	assert.Equal(t, severity.Medium, m.Severity())
+	assert.Equal(t, severity.Low, m.Severity())
 	assert.Equal(t, severity.Firm, m.Confidence())
 	assert.Equal(t, modkit.ScanScopeHost, m.ScanScopes())
 }
@@ -58,7 +58,7 @@ func TestProbeChecks(t *testing.T) {
 	t.Run("reflected origin", func(t *testing.T) {
 		p := probes[0]
 		assert.Equal(t, "Reflected Origin", p.name)
-		assert.Equal(t, severity.High, p.sev)
+		assert.Equal(t, severity.Low, p.sev)
 
 		// Positive: ACAO matches evil origin
 		assert.True(t, p.check("https://evil.example.com", ""))
@@ -73,7 +73,7 @@ func TestProbeChecks(t *testing.T) {
 	t.Run("null origin", func(t *testing.T) {
 		p := probes[1]
 		assert.Equal(t, "Null Origin", p.name)
-		assert.Equal(t, severity.Medium, p.sev)
+		assert.Equal(t, severity.Low, p.sev)
 
 		// Positive: ACAO is null
 		assert.True(t, p.check("null", ""))
@@ -88,7 +88,7 @@ func TestProbeChecks(t *testing.T) {
 	t.Run("wildcard with credentials", func(t *testing.T) {
 		p := probes[2]
 		assert.Equal(t, "Wildcard with Credentials", p.name)
-		assert.Equal(t, severity.Medium, p.sev)
+		assert.Equal(t, severity.Low, p.sev)
 
 		// Positive: ACAO is * and ACAC is true
 		assert.True(t, p.check("*", "true"))
@@ -104,7 +104,7 @@ func TestProbeChecks(t *testing.T) {
 	t.Run("subdomain bypass check function", func(t *testing.T) {
 		p := probes[3]
 		assert.Equal(t, "Subdomain Bypass", p.name)
-		assert.Equal(t, severity.High, p.sev)
+		assert.Equal(t, severity.Low, p.sev)
 
 		// The check function just verifies ACAO is non-empty
 		// (actual origin matching is done by the caller in runProbe)

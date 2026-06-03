@@ -72,6 +72,19 @@ describe('extractedRequest', () => {
     expect(result.extractedRequests).toMatchInlineSnapshot(`
       [
         {
+          "body": "{"appoverGUID":"\${approverGUID}"}",
+          "cookies": [],
+          "headers": [
+            "Content-type: application/json; charset=utf-8",
+            "Content-length: \${length}",
+            "Connection: close",
+          ],
+          "method": "POST",
+          "params": "",
+          "type": "extractedRequest",
+          "url": "/api/get",
+        },
+        {
           "body": "",
           "cookies": [],
           "headers": [],
@@ -82,6 +95,49 @@ describe('extractedRequest', () => {
         },
       ]
     `);
+  });
+
+  test('xhrCorrelation - GET with query params, cookie splitting, no body', async () => {
+    const code = await readFile(join(TESTDATA_DIR, 'xhrCorrelation.js'), 'utf8');
+    const result = await jsscan(code);
+    const requests = result.extractedRequests.filter(r => r.type === 'extractedRequest');
+
+    const req = requests.find(r => r.url === '/api/xhr/items' && r.method === 'GET');
+    expect(req).toBeDefined();
+    expect(req!.params).toBe('page=1');
+    expect(req!.body).toBe('');
+    expect(req!.headers).toContain('Accept: application/json');
+    // Cookie header is split out into the cookies array, not headers.
+    expect(req!.headers.some(h => h.toLowerCase().startsWith('cookie'))).toBe(false);
+    expect(req!.cookies).toEqual(['session=xyz', 'theme=dark']);
+  });
+
+  test('protocolRequest - WebSocket, EventSource, sendBeacon, GraphQL-over-fetch', async () => {
+    const code = await readFile(join(TESTDATA_DIR, 'protocolRequest.js'), 'utf8');
+    const result = await jsscan(code);
+    const requests = result.extractedRequests.filter(r => r.type === 'extractedRequest');
+
+    // WebSocket -> pseudo-method WS, query params split out
+    const ws = requests.find(r => r.url === 'wss://realtime.example.com/socket' && r.method === 'WS');
+    expect(ws).toBeDefined();
+    expect(ws!.params).toBe('token=abc');
+
+    // window.WebSocket(...) is also detected
+    expect(requests.some(r => r.url === 'wss://realtime.example.com/v2' && r.method === 'WS')).toBe(true);
+
+    // EventSource -> pseudo-method SSE
+    expect(requests.some(r => r.url === 'https://events.example.com/stream' && r.method === 'SSE')).toBe(true);
+
+    // navigator.sendBeacon -> POST with body
+    const beacon = requests.find(r => r.url === '/analytics/collect' && r.method === 'POST');
+    expect(beacon).toBeDefined();
+    expect(beacon!.body).toContain('"event":"pageview"');
+
+    // GraphQL over fetch is captured with the operation in the body
+    const gql = requests.find(r => r.url === '/graphql' && r.method === 'POST');
+    expect(gql).toBeDefined();
+    expect(gql!.body).toContain('"operationName":"GetUser"');
+    expect(gql!.body).toContain('GetUser { user { id } }');
   });
 
   test('jqueryAjax', async () => {
@@ -772,5 +828,53 @@ describe('extractedRequest', () => {
     expect(configRequest!.body).toContain('"path":"/services/auth"');
     expect(configRequest!.body).toContain('"maxCount":"100"');
     expect(configRequest!.body).toContain('"debug":"true"');
+  });
+
+  test('axiosRequest - global, config-form, and baseURL-joined instance calls', async () => {
+    const code = await readFile(join(TESTDATA_DIR, 'axiosRequest.js'), 'utf8');
+    const result = await jsscan(code);
+    const requests = result.extractedRequests.filter(r => r.type === 'extractedRequest');
+
+    const find = (url: string, method: string) =>
+      requests.find(r => r.url === url && r.method === method);
+
+    // Global axios.METHOD(url[, data])
+    expect(find('/api/global/users', 'GET')).toBeDefined();
+    const globalPost = find('/api/global/users', 'POST');
+    expect(globalPost).toBeDefined();
+    expect(globalPost!.body).toContain('"name":"alice"');
+    expect(find('/api/global/users/42', 'DELETE')).toBeDefined();
+
+    // axios({ url, method, data, headers })
+    const configForm = find('/api/config-form/login', 'POST');
+    expect(configForm).toBeDefined();
+    expect(configForm!.body).toContain('"username":"bob"');
+    expect(configForm!.headers).toContain('X-App: demo');
+
+    // axios(url, config)
+    const urlConfig = find('/api/url-config/profile', 'PUT');
+    expect(urlConfig).toBeDefined();
+    expect(urlConfig!.params).toContain('expand=all');
+
+    // Instance baseURL joining
+    expect(find('https://api.example.com/v2/users', 'GET')).toBeDefined();
+    const instPost = find('https://api.example.com/v2/users', 'POST');
+    expect(instPost).toBeDefined();
+    expect(instPost!.body).toContain('"email":"carol@example.com"');
+    // Instance default headers are carried onto the request
+    expect(instPost!.headers).toContain('Authorization: Bearer token123');
+
+    // Instance call with params object
+    const instItems = find('https://api.example.com/v2/items', 'GET');
+    expect(instItems).toBeDefined();
+    expect(instItems!.params).toContain('page=2');
+
+    // Absolute URL ignores baseURL
+    expect(find('https://other.example.com/health', 'GET')).toBeDefined();
+
+    // instance.request(config)
+    const reqForm = find('https://api.example.com/v2/request-form/data', 'PATCH');
+    expect(reqForm).toBeDefined();
+    expect(reqForm!.body).toContain('"ok":true');
   });
 });

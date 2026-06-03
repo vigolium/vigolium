@@ -99,3 +99,30 @@ parameter names and checks if values are echoed back, then tests for XSS.
 	ParamDiscoveryModuleSeverity     = severity.High
 	ParamDiscoveryModuleConfidence   = severity.Firm
 )
+
+// XSS Light - Pre-encoded Injection
+const (
+	EncodedModuleID    = "xss-light-encoded"
+	EncodedModuleName  = "XSS Light - Pre-encoded Injection"
+	EncodedModuleShort = "Detects XSS where the app decodes a parameter (base64 / double-URL) before reflecting"
+)
+
+var (
+	EncodedModuleDesc = `## Description
+Character-based Reflected XSS detection for parameters the application decodes before
+reflecting. The same survival-probe canary is wrapped in an encoding (base64, double-URL)
+and only fires when the application reconstitutes — and reflects — the decoded payload.
+
+## Notes
+- Complements xss-light: targets filters that pass an encoded value the app later decodes
+- A finding still requires the decoded probe to reflect in an exploitable context, so the
+  encoding layer cannot produce false positives
+- Runs per-request with internal insertion point iteration
+
+## References
+- https://portswigger.net/burp/documentation/scanner/xss`
+
+	EncodedModuleConfirmation = "Confirmed when an encoded parameter value is decoded by the application and reflected in an exploitable context"
+	EncodedModuleSeverity     = severity.High
+	EncodedModuleConfidence   = severity.Firm
+)

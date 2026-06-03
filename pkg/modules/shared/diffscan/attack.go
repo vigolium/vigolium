@@ -235,20 +235,23 @@ func fingerprintValuesEqual(a, b any) bool {
 	return a == b
 }
 
-func GetNonMatchingFingerprints(attack1, attack2 *Attack) map[string]bool {
-	allKeys := make(map[string]bool)
+// nonMatchingFingerprints returns the keys whose value differs between two
+// fingerprint maps: present in only one, or present in both with unequal values
+// (quantitative values compared via fingerprintValuesEqual).
+func nonMatchingFingerprints(fp1, fp2 map[string]any) map[string]bool {
+	allKeys := make(map[string]bool, len(fp1)+len(fp2))
 	nonMatching := make(map[string]bool)
 
-	for key := range attack1.LastFingerprint {
+	for key := range fp1 {
 		allKeys[key] = true
 	}
-	for key := range attack2.LastFingerprint {
+	for key := range fp2 {
 		allKeys[key] = true
 	}
 
 	for key := range allKeys {
-		val1, ok1 := attack1.LastFingerprint[key]
-		val2, ok2 := attack2.LastFingerprint[key]
+		val1, ok1 := fp1[key]
+		val2, ok2 := fp2[key]
 
 		if ok1 != ok2 || (ok1 && ok2 && !fingerprintValuesEqual(val1, val2)) {
 			nonMatching[key] = true
@@ -256,4 +259,22 @@ func GetNonMatchingFingerprints(attack1, attack2 *Attack) map[string]bool {
 	}
 
 	return nonMatching
+}
+
+// GetNonMatchingFingerprints returns the keys whose last-sample fingerprint
+// value differs between the two attacks. LastFingerprint is the single most
+// recent sample and so includes per-request jitter; callers that need the stable
+// signal the detection fired on should use GetMergedNonMatchingFingerprints.
+func GetNonMatchingFingerprints(attack1, attack2 *Attack) map[string]bool {
+	return nonMatchingFingerprints(attack1.LastFingerprint, attack2.LastFingerprint)
+}
+
+// GetMergedNonMatchingFingerprints returns the keys whose merged (stable)
+// fingerprint value differs between the two attacks: the merged Fingerprint that
+// survived every confirmation, rather than the transient last sample compared by
+// GetNonMatchingFingerprints. Callers that explain or gate a finding (the report
+// Diff Signal, the body-reflection gate) use this so the reported evidence
+// matches what actually drove the decision.
+func GetMergedNonMatchingFingerprints(attack1, attack2 *Attack) map[string]bool {
+	return nonMatchingFingerprints(attack1.Fingerprint, attack2.Fingerprint)
 }

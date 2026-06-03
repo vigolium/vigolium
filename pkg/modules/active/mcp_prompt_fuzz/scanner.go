@@ -153,6 +153,12 @@ func (m *Module) ScanPerHost(
 }
 
 func (m *Module) makeFinding(targetURL, promptName, argName string, p payload, evidence string) *output.ResultEvent {
+	sev, conf := p.severity, severity.Firm
+	if p.timed {
+		// Time-based (sleep) detection is prone to backend-delay false
+		// positives — flag as suspect/tentative rather than the payload default.
+		sev, conf = severity.Suspect, severity.Tentative
+	}
 	return &output.ResultEvent{
 		URL:              targetURL,
 		Matched:          targetURL,
@@ -161,8 +167,8 @@ func (m *Module) makeFinding(targetURL, promptName, argName string, p payload, e
 		Info: output.Info{
 			Name:        fmt.Sprintf("MCP Prompt Argument %s", capitalise(p.vulnTag)),
 			Description: fmt.Sprintf("MCP prompt %q argument %q vulnerable to %s. Evidence: %s.", promptName, argName, p.name, evidence),
-			Severity:    p.severity,
-			Confidence:  severity.Firm,
+			Severity:    sev,
+			Confidence:  conf,
 			Tags:        []string{"mcp", p.vulnTag, "injection"},
 			Reference:   []string{"https://modelcontextprotocol.io/specification/2025-11-25/server/prompts"},
 		},

@@ -39,6 +39,21 @@ type RequestVariant struct {
 	ContentType string // application/json or application/x-www-form-urlencoded
 }
 
+// nonReplayableMethods are pseudo-methods jsscan emits for non-HTTP protocols
+// (WebSocket, Server-Sent Events). They are recorded as extracted requests for
+// discovery/reporting but must never be replayed as HTTP request variants.
+var nonReplayableMethods = map[string]struct{}{
+	"WS":  {}, // new WebSocket(url)
+	"SSE": {}, // new EventSource(url)
+}
+
+// isReplayableMethod reports whether an extracted request method maps to a real
+// HTTP verb that can safely be replayed against the target.
+func isReplayableMethod(method string) bool {
+	_, skip := nonReplayableMethods[strings.ToUpper(method)]
+	return !skip
+}
+
 // NewJSExtractedRequestTask creates a new JS extracted request task with cached hash.
 func NewJSExtractedRequestTask(cfg *JSExtractedRequestTaskConfig) *JSExtractedRequestTask {
 	task := &JSExtractedRequestTask{
@@ -177,6 +192,11 @@ func (t *JSExtractedRequestTask) generateVariants(req *jsscan.ExtractedRequest) 
 	method := strings.ToUpper(req.Method)
 	if method == "" {
 		method = "GET"
+	}
+
+	// Non-HTTP pseudo-methods (WS/SSE) are recorded but never replayed as HTTP.
+	if !isReplayableMethod(method) {
+		return nil
 	}
 
 	var variants []RequestVariant

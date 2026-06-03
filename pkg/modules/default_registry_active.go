@@ -26,8 +26,12 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/cloud_storage_listing"
 	"github.com/vigolium/vigolium/pkg/modules/active/cms_installer_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/code_exec"
+	"github.com/vigolium/vigolium/pkg/modules/active/command_injection_echo"
+	"github.com/vigolium/vigolium/pkg/modules/active/command_injection_oast"
+	"github.com/vigolium/vigolium/pkg/modules/active/command_injection_timing"
 	"github.com/vigolium/vigolium/pkg/modules/active/common_directory_listing"
 	"github.com/vigolium/vigolium/pkg/modules/active/cors_misconfiguration"
+	"github.com/vigolium/vigolium/pkg/modules/active/cpdos"
 	"github.com/vigolium/vigolium/pkg/modules/active/crlf_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/csrf_verify"
 	"github.com/vigolium/vigolium/pkg/modules/active/csti_detection"
@@ -102,6 +106,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/oast_probe"
 	"github.com/vigolium/vigolium/pkg/modules/active/oauth_misconfiguration"
 	"github.com/vigolium/vigolium/pkg/modules/active/open_redirect"
+	"github.com/vigolium/vigolium/pkg/modules/active/open_redirect_confusion"
 	"github.com/vigolium/vigolium/pkg/modules/active/path_normalization"
 	"github.com/vigolium/vigolium/pkg/modules/active/pdf_generation_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/php_composer_exposure"
@@ -120,6 +125,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/rails_sensitive_files"
 	"github.com/vigolium/vigolium/pkg/modules/active/reflected_ssti"
 	"github.com/vigolium/vigolium/pkg/modules/active/response_header_injection"
+	"github.com/vigolium/vigolium/pkg/modules/active/reverse_proxy_path_confusion"
 	"github.com/vigolium/vigolium/pkg/modules/active/sensitive_file_discovery"
 	"github.com/vigolium/vigolium/pkg/modules/active/smart_behavior_detection"
 	"github.com/vigolium/vigolium/pkg/modules/active/spring_actuator_misconfig"
@@ -135,6 +141,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/sqli_time_blind"
 	"github.com/vigolium/vigolium/pkg/modules/active/ssrf_blind"
 	"github.com/vigolium/vigolium/pkg/modules/active/ssrf_detection"
+	"github.com/vigolium/vigolium/pkg/modules/active/ssrf_filter_bypass"
+	"github.com/vigolium/vigolium/pkg/modules/active/ssrf_protocol_smuggling"
 	"github.com/vigolium/vigolium/pkg/modules/active/ssti_blind"
 	"github.com/vigolium/vigolium/pkg/modules/active/ssti_detection"
 	"github.com/vigolium/vigolium/pkg/modules/active/struts_ognl_injection"
@@ -153,18 +161,22 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/ws_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/xml_saml_security"
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_dom_confirm"
+	"github.com/vigolium/vigolium/pkg/modules/active/xss_stored"
 	"github.com/vigolium/vigolium/pkg/modules/active/xxe_generic"
 )
 
 // registerActiveModules registers every built-in active scanner module.
 // Split out of default_registry.go; order is preserved from the original chain.
 func registerActiveModules(r *Registry) {
-	// Active modules - XSS Light (3 specialized scanners)
+	// Active modules - XSS Light (4 specialized scanners)
 	r.RegisterActive(xsslightscanner.NewURLParamsScanner())
 	r.RegisterActive(xsslightscanner.NewPathScanner())
 	r.RegisterActive(xsslightscanner.NewParamDiscoveryScanner())
+	r.RegisterActive(xsslightscanner.NewEncodedScanner())
 	// Active modules - XSS DOM Confirm (browser-confirmed reflected + DOM)
 	r.RegisterActive(xss_dom_confirm.New())
+	// Active modules - Stored XSS (browser-confirmed persistent)
+	r.RegisterActive(xss_stored.New())
 	// Active modules - Injection
 	r.RegisterActive(reflected_ssti.New())
 	r.RegisterActive(ssti_detection.New())
@@ -180,12 +192,17 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(crlf_injection.New())
 	r.RegisterActive(response_header_injection.New())
 	r.RegisterActive(code_exec.New())
+	r.RegisterActive(command_injection_echo.New())
+	r.RegisterActive(command_injection_oast.New())
+	r.RegisterActive(command_injection_timing.New())
 	r.RegisterActive(input_behavior_probe.New())
 	r.RegisterActive(xxe_generic.New())
 	r.RegisterActive(insecure_deserialization.New())
 	// Active modules - SSRF
 	r.RegisterActive(ssrf_detection.New())
 	r.RegisterActive(ssrf_blind.New())
+	r.RegisterActive(ssrf_filter_bypass.New())
+	r.RegisterActive(ssrf_protocol_smuggling.New())
 	// Active modules - SSTI (Blind)
 	r.RegisterActive(ssti_blind.New())
 	// Active modules - OAST (Out-of-Band)
@@ -202,6 +219,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(path_normalization.New())
 	r.RegisterActive(nginx_off_by_slash.New())
 	r.RegisterActive(nginx_path_escape.New())
+	r.RegisterActive(reverse_proxy_path_confusion.New())
 	r.RegisterActive(smart_behavior_detection.New())
 	r.RegisterActive(suspect_transform.New())
 	r.RegisterActive(backslash_transformation.New())
@@ -234,6 +252,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(jsonp_callback.New())
 	// Active modules - Open Redirect
 	r.RegisterActive(open_redirect.New())
+	r.RegisterActive(open_redirect_confusion.New())
 	// Active modules - WebSocket
 	r.RegisterActive(websocket_security.New())
 	r.RegisterActive(ws_injection.New())
@@ -313,6 +332,8 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(idor_guid.New())
 	// Active modules - Cache Deception
 	r.RegisterActive(cache_deception.New())
+	// Active modules - Cache-Poisoned DoS (CPDoS)
+	r.RegisterActive(cpdos.New())
 	// Active modules - Subdomain Takeover
 	r.RegisterActive(subdomain_takeover.New())
 	// Active modules - PDF Generation Injection

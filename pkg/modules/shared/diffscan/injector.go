@@ -142,6 +142,15 @@ func (s *PayloadInjector) Fuzz(
 						return nil, errors.New("attack blocked by WAF")
 					}
 				}
+				// Suppress the finding when the confirmed difference cannot be
+				// template evaluation: redirect-only, non-rendered (empty/404),
+				// or fully explained by verbatim payload reflection.
+				if reason := nonEvaluableReason(verifiedAttacks); reason != "" {
+					zap.L().Debug("diffscan.Fuzz: BAIL - "+reason,
+						zap.String("probe", probe.Name),
+					)
+					return nil, nil
+				}
 				return verifiedAttacks, nil
 			}
 		}

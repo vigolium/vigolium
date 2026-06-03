@@ -87,7 +87,7 @@ func (m *Module) ScanPerInsertionPoint(
 	anchor := utils.GenerateCanary()
 
 	// Phase 1: Baseline - check if input is reflected
-	baseline, reflected := m.buildBaseline(ctx, ip, httpClient, anchor)
+	baseline, reflected, baselineReq, baselineResp := m.buildBaseline(ctx, ip, httpClient, anchor)
 	if baseline == nil {
 		return nil, nil // Host error or no response
 	}
@@ -119,8 +119,16 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 		// Check for divergence from baseline
 		if !baseline.Matches(result.StatusCode, result.Body, result.Headers) {
-			// Filter 403->421 FP
-			if !status403To421Filter(baseline.statusCode, result.StatusCode) {
+			// A WAF/rate-limit response (notably a 429) to a PARALLEL burst is the
+			// edge throttling concurrency, not request interference — exclude it
+			// alongside the existing 403->421 filter, or every rate-limited host
+			// yields a spurious "request interference" finding.
+			serverHeader := ""
+			if vals := result.Headers["Server"]; len(vals) > 0 {
+				serverHeader = vals[0]
+			}
+			if !status403To421Filter(baseline.statusCode, result.StatusCode) &&
+				!isWafBlocked(result.StatusCode, serverHeader) {
 				parallelDivergent = append(parallelDivergent, result)
 			}
 		}
@@ -156,7 +164,10 @@ func (m *Module) ScanPerInsertionPoint(
 			Request:     result.Request,
 			Response:    result.Response,
 		}
-		results = append(results, m.buildResult(finding, urlx.String(), ip.Name()))
+		ev := modkit.NewEvidenceCollector()
+		ev.Add("baseline", baselineReq, baselineResp)
+		ev.Add("sequential-probe", result.Request, result.Response)
+		results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 	}
 
 	// Cross-contamination: wrongId only in parallel, not in sequential
@@ -173,7 +184,10 @@ func (m *Module) ScanPerInsertionPoint(
 			Request:     result.Request,
 			Response:    result.Response,
 		}
-		results = append(results, m.buildResult(finding, urlx.String(), ip.Name()))
+		ev := modkit.NewEvidenceCollector()
+		ev.Add("baseline", baselineReq, baselineResp)
+		ev.Add("parallel-probe", result.Request, result.Response)
+		results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 	}
 
 	// Request Interference: no wrongId but divergent responses in parallel.
@@ -192,35 +206,42 @@ func (m *Module) ScanPerInsertionPoint(
 			Request:   result.Request,
 			Response:  result.Response,
 		}
-		results = append(results, m.buildResult(finding, urlx.String(), ip.Name()))
+		ev := modkit.NewEvidenceCollector()
+		ev.Add("baseline", baselineReq, baselineResp)
+		ev.Add("parallel-probe", result.Request, result.Response)
+		results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 	}
 
 	return results, nil
 }
 
-// buildBaseline sends sequential baseline requests and checks reflection.
+// buildBaseline sends sequential baseline requests and checks reflection. It
+// also returns the first valid (non-WAF-blocked) baseline request/response pair
+// as raw strings for finding evidence (empty if none was captured); this is
+// observation-only and does not affect the baseline grouping or race logic.
 func (m *Module) buildBaseline(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
 	httpClient *http.Requester,
 	anchor string,
-) (*ResponseGroup, bool) {
+) (*ResponseGroup, bool, string, string) {
 	var group *ResponseGroup
 	var reflected bool
+	var baselineReq, baselineResp string
 
 	for i := 0; i < m.options.BaselineRequestCount; i++ {
 		payload := anchor + "BASE"
 		fuzzedRaw := ip.BuildRequest([]byte(payload))
 		fuzzedReq, err := httpmsg.ParseRawRequest(string(fuzzedRaw))
 		if err != nil {
-			return nil, false
+			return nil, false, "", ""
 		}
 		fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
 		resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
-				return nil, false
+				return nil, false, "", ""
 			}
 			continue
 		}
@@ -228,15 +249,22 @@ func (m *Module) buildBaseline(
 		body := resp.Body().String()
 		statusCode := resp.Response().StatusCode
 		headers := resp.Response().Header.Clone()
+		// Capture the first valid baseline pair for evidence before Close().
+		fullResp := resp.FullResponseString()
 		resp.Close()
 
 		// Check WAF blocking
 		serverHeader := ""
-		if sv := resp.Response().Header.Get("Server"); sv != "" {
+		if sv := headers.Get("Server"); sv != "" {
 			serverHeader = sv
 		}
 		if isWafBlocked(statusCode, serverHeader) {
 			continue
+		}
+
+		if baselineReq == "" {
+			baselineReq = string(fuzzedRaw)
+			baselineResp = fullResp
 		}
 
 		// Check reflection on first valid response
@@ -252,7 +280,7 @@ func (m *Module) buildBaseline(
 		}
 	}
 
-	return group, reflected
+	return group, reflected, baselineReq, baselineResp
 }
 
 // sendParallelProbes sends concurrent probe requests.
@@ -325,7 +353,7 @@ func (m *Module) sendProbe(
 	result.StatusCode = resp.Response().StatusCode
 	result.Headers = resp.Response().Header.Clone()
 	result.Request = string(fuzzedRaw)
-	result.Response = resp.FullResponse().String()
+	result.Response = resp.FullResponseString()
 	resp.Close()
 
 	// Check for wrong ID
@@ -336,16 +364,18 @@ func (m *Module) sendProbe(
 	return result
 }
 
-// buildResult creates a ResultEvent from a finding.
-func (m *Module) buildResult(finding *Finding, url, param string) *output.ResultEvent {
+// buildResult creates a ResultEvent from a finding. evidence carries the
+// baseline and probe context pairs collected while proving the finding.
+func (m *Module) buildResult(finding *Finding, url, param string, evidence []string) *output.ResultEvent {
 	return &output.ResultEvent{
-		ModuleID:         m.ID(),
-		URL:              url,
-		Matched:          url,
-		FuzzingParameter: param,
-		Request:          finding.Request,
-		Response:         finding.Response,
-		ExtractedResults: []string{finding.Anchor, finding.WrongIdSeen},
+		ModuleID:           m.ID(),
+		URL:                url,
+		Matched:            url,
+		FuzzingParameter:   param,
+		Request:            finding.Request,
+		Response:           finding.Response,
+		ExtractedResults:   []string{finding.Anchor, finding.WrongIdSeen},
+		AdditionalEvidence: evidence,
 		Info: output.Info{
 			Name:        m.Name(),
 			Severity:    finding.Severity(),

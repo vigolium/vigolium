@@ -17,7 +17,7 @@ origins, enabling cache poisoning attacks.
 
 ## Notes
 - Flags responses where ACAO is a specific origin (not wildcard) without Vary: Origin
-- Severity is upgraded to Medium when Access-Control-Allow-Credentials: true is also present
+- Access-Control-Allow-Credentials: true is noted as amplifying cache poisoning risk
 - Cache poisoning with credentials amplifies the impact significantly
 - Complements CORS header detection with cache-specific misconfiguration checks
 

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/modules/shared/diffscan"
-	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
 // finding represents a detected Nginx path escape vulnerability.
@@ -80,26 +79,4 @@ func escapeMarkdown(s string) string {
 	s = strings.ReplaceAll(s, "`", "\\`")
 	s = strings.ReplaceAll(s, "|", "\\|")
 	return s
-}
-
-// getBestSeverity returns the highest severity from findings.
-func getBestSeverity(findings []*finding) severity.Severity {
-	bestSeverity := 0
-	for _, f := range findings {
-		if f.ProbeInfo.Probe != nil && f.ProbeInfo.Probe.Severity > bestSeverity {
-			bestSeverity = f.ProbeInfo.Probe.Severity
-		}
-	}
-	return intToSeverity(bestSeverity)
-}
-
-// intToSeverity converts probe severity int to severity.Severity.
-// Capped at medium to match the module's declared severity.
-func intToSeverity(sev int) severity.Severity {
-	switch {
-	case sev >= 4:
-		return severity.Medium
-	default:
-		return severity.Low
-	}
 }

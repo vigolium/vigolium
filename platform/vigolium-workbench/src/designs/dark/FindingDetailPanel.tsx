@@ -328,21 +328,29 @@ export default function FindingDetailPanel({ findingId, onClose }: Props) {
             const needsCollapse = allItems.length > EVIDENCE_LIMIT;
             const visibleItems = needsCollapse && !evidenceExpanded ? allItems.slice(0, EVIDENCE_LIMIT) : allItems;
             const evidence = allItems[evidenceTab] || allItems[0];
+            // A labeled entry begins with a "# [label]" marker line (baseline /
+            // attack / confirm round N). Surface it on the tab button, and strip it
+            // from the request pane so it isn't shown twice.
+            const evidenceLabel = (item: string, i: number) => {
+              const m = item.match(/^# \[([^\]]+)\]/);
+              return m ? m[1] : `#${i + 1}`;
+            };
             const parts = evidence.split('\n---------\n');
-            const reqPart = parts[0] || '';
+            let reqPart = parts[0] || '';
+            reqPart = reqPart.replace(/^# \[[^\]]+\]\n?/, '');
             const resPart = parts[1] || '';
             return (
               <div>
                 <div className="flex items-start gap-2 mb-0.5">
                   <span className="text-[#918175] shrink-0 pt-0.5">additional_evidence: <span className="text-[#403d38]">({allItems.length})</span></span>
                   <div className="flex flex-wrap gap-0.5">
-                    {visibleItems.map((_, i) => (
+                    {visibleItems.map((item, i) => (
                       <button
                         key={i}
                         onClick={() => setEvidenceTab(i)}
                         className={`px-1.5 py-0.5 text-[10px] border ${evidenceTab === i ? 'border-[#7fd962] text-[#7fd962] bg-[#141310]' : 'border-[#2e2b26] text-[#918175] hover:text-[#fce8c3]'}`}
                       >
-                        #{i + 1}
+                        {evidenceLabel(item, i)}
                       </button>
                     ))}
                     {needsCollapse && (

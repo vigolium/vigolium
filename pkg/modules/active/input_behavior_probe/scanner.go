@@ -67,6 +67,7 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 	baseline := newDetectionBaseline(entry)
+	calibrateTagJitter(ctx, httpClient, baseline)
 
 	var results []*output.ResultEvent
 	results = append(results, probeHeaders(ctx, httpClient, baseline)...)
@@ -105,6 +106,7 @@ func (m *Module) ScanPerInsertionPoint(
 		return nil, nil
 	}
 	baseline := newDetectionBaseline(entry)
+	calibrateTagJitter(ctx, httpClient, baseline)
 
 	var results []*output.ResultEvent
 
@@ -142,7 +144,7 @@ func (m *Module) probePolyglot(
 	defer fuzzedResp.Close()
 
 	change := detectChange(baseline, fuzzedResp.Body().String(), fuzzedResp.Response().StatusCode)
-	if change.IsInteresting {
+	if confirmChange(ctx, httpClient, baseline, fuzzedRaw, change) {
 		urlx, _ := ctx.URL()
 		urlStr := ""
 		if urlx != nil {
@@ -150,7 +152,7 @@ func (m *Module) probePolyglot(
 		}
 		return []*output.ResultEvent{
 			buildProbeResult(
-				urlStr, fuzzedRaw, fuzzedResp.FullResponse().String(),
+				urlStr, fuzzedRaw, fuzzedResp.FullResponseString(),
 				ip.Name(), "polyglot_fuzz", fuzzPayload, change,
 			),
 		}

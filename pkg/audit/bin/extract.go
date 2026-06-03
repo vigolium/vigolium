@@ -78,6 +78,9 @@ func extract() (string, error) {
 	if len(data) == 0 {
 		return "", fmt.Errorf("%w: run `make build-audit` and rebuild vigolium", ErrBinaryMissing)
 	}
+	if err := verifyBlobForHost(data); err != nil {
+		return "", err
+	}
 
 	sum := sha256.Sum256(data)
 	hash := hex.EncodeToString(sum[:])[:12]

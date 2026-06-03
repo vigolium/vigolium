@@ -1,4 +1,4 @@
-.PHONY: build build-embedded build-all snapshot release public public-release prepare-public-scripts clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
+.PHONY: build build-embedded build-all snapshot release public public-release prepare-public-scripts clean test test-unit test-integration test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit ensure-audit-dist restage-host-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
 
 # Go parameters
 GOCMD=go
@@ -164,17 +164,20 @@ test-e2e-postgres: install-gotestsum
 	@echo "$(PREFIX) Running PostgreSQL E2E tests..."
 	$(TESTCMD) $(TESTFLAGS) -tags=e2e -run TestPg_ ./test/e2e/...
 
-# Run canary tests - DVWA, VAmPI, Juice Shop (requires Docker, slower)
+# Run canary tests - DVWA, VAmPI, Juice Shop (requires Docker, slower).
+# The full canary suite (nuclei known-issue-scan + dynamic assessment against
+# several live targets) exceeds Go's default 10m binary timeout, so raise it
+# to match test-e2e.
 test-canary: install-gotestsum
 	@echo "$(PREFIX) Running canary tests (requires Docker)..."
-	$(TESTCMD) $(TESTFLAGS) -tags=canary ./test/e2e/...
+	$(TESTCMD) $(TESTFLAGS) -tags=canary -timeout 60m ./test/e2e/...
 
 # Run canary tests against PostgreSQL (requires 'make postgres-up' first).
 # Per-test: drops+recreates the shared PG schema for isolation.
 test-canary-postgres: export VIGOLIUM_TEST_DB_DRIVER=postgres
 test-canary-postgres: install-gotestsum
 	@echo "$(PREFIX) Running canary tests against PostgreSQL..."
-	$(TESTCMD) $(TESTFLAGS) -tags=canary ./test/e2e/...
+	$(TESTCMD) $(TESTFLAGS) -tags=canary -timeout 60m ./test/e2e/...
 
 # One-shot pre-deploy validation: spin up PG, run PG e2e + canary against it,
 # then tear down (even on test failure). Run locally before prod deploys.
@@ -712,6 +715,41 @@ ensure-audit:
 # Alias for ensure-audit used by build targets — kept short for readability.
 build-audit: update-audit
 
+# Ensure ALL cross-compile vigolium-audit blobs exist under the dist dir.
+# The release path cross-compiles every target from one tree; the goreleaser
+# per-target pre-hook (build/scripts/stage-audit-blob.sh) stages the matching
+# blob into _bin/ before each build, so all four source blobs must be present.
+# Rebuilds via update-audit only when a target is missing (cheap when warm).
+ensure-audit-dist:
+	@missing=0; \
+	for target in $(AUDIT_BIN_TARGETS); do \
+		if [ ! -x "$(AUDIT_DIST_DIR)/vigolium-audit-$$target" ]; then missing=1; fi; \
+	done; \
+	if [ "$$missing" = "1" ]; then \
+		echo "$(PREFIX) vigolium-audit cross-compile blobs missing, building all targets..."; \
+		$(MAKE) update-audit; \
+	else \
+		echo "$(PREFIX) vigolium-audit cross-compile blobs present in $(AUDIT_DIST_DIR)"; \
+	fi
+
+# Restore the host-platform vigolium-audit blob into the shared go:embed path.
+# The per-target staging (stage-audit-blob.sh) overwrites _bin/vigolium-audit
+# with each cross target's blob, so a release leaves it on the LAST-built
+# (non-host) blob. That file is gitignored, so the drift is silent — and a
+# later `make build`/`make test` would embed the wrong-platform blob (caught
+# only at runtime by verifyBlobForHost). Release targets call this at the end
+# to leave the working tree with the host blob. No-op when the host dist blob
+# is absent (fresh tree); ensure-audit-dist guarantees it exists in the release
+# flow.
+restage-host-audit:
+	@host_arch=$$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'); \
+	host_os=$$(uname | tr '[:upper:]' '[:lower:]'); \
+	host_bin="$(AUDIT_DIST_DIR)/vigolium-audit-$$host_os-$$host_arch"; \
+	if [ -f "$$host_bin" ]; then \
+		cp "$$host_bin" $(AUDIT_BIN_HOST); chmod +x $(AUDIT_BIN_HOST); \
+		echo "$(PREFIX) Restored host vigolium-audit blob ($$host_os-$$host_arch) to $(AUDIT_BIN_HOST)"; \
+	fi
+
 # Copy fresh UI builds into embedded public/ paths
 update-ui:
 	@echo "$(PREFIX) Updating static report template..."
@@ -743,7 +781,7 @@ DOCKER_BUILDX_BUILDER?=vigolium-builder
 # Build Docker image
 docker: docker-build
 
-docker-build:
+docker-build: ensure-audit-dist
 	@echo "$(PREFIX) Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
 	docker build \
 		--build-arg VERSION=$(VERSION) \
@@ -806,7 +844,7 @@ docker-buildx-setup:
 # Requires `docker login` beforehand, and QEMU/binfmt for emulating the
 # non-host architecture (bundled with Docker Desktop; on plain Linux run
 # `docker run --privileged --rm tonistiigi/binfmt --install all` once).
-docker-publish: docker-buildx-setup
+docker-publish: ensure-audit-dist docker-buildx-setup
 	@echo "$(PREFIX) Building and publishing multi-arch image to Docker Hub: $(DOCKER_HUB_IMAGE) ($(DOCKER_PLATFORMS))..."
 	docker buildx build \
 		--platform $(DOCKER_PLATFORMS) \
@@ -822,9 +860,13 @@ docker-publish: docker-buildx-setup
 # GoReleaser snapshot (local build without publishing)
 GORELEASER_VERSION=$(patsubst v%,%,$(VERSION))
 
-snapshot:
+# --parallelism 1 is REQUIRED: the per-target pre-hook stages the matching
+# vigolium-audit blob into a single shared go:embed path, so cross builds must
+# run sequentially or they race and embed the wrong-arch blob.
+snapshot: ensure-audit-dist
 	@echo "$(PREFIX) Building snapshot release..."
-	VIGOLIUM_VERSION=$(GORELEASER_VERSION) goreleaser --verbose release --snapshot --clean
+	VIGOLIUM_VERSION=$(GORELEASER_VERSION) goreleaser --verbose release --snapshot --clean --parallelism 1
+	@$(MAKE) restage-host-audit
 
 # Bump the single source-of-truth version in pkg/cli/version.go. npm versions
 # are immutable, so every release needs a new number here before npm-publish.
@@ -840,12 +882,14 @@ prepare-release-scripts:
 	@perl -0pi -e 's|^BASE_URL="[^"]*"|BASE_URL="$(INSTALL_BASE_URL)"|m' build/scripts/nightly-install.sh
 	@echo "$(PREFIX) Release scripts updated for $(INSTALL_BASE_URL)"
 
-# Stamp the public install script with the public/stable R2 prefix so the
+# Stamp a public CDN installer copy with the public/stable R2 prefix so the
 # uploaded copy at cdn.vigolium.com/vigolium-release/install.sh resolves
-# binaries from the matching prefix. Mutates build/scripts/install.sh in place.
+# binaries from the matching prefix without mutating the source npm installer.
 prepare-public-scripts:
 	@echo "$(PREFIX) Updating public release scripts..."
-	@perl -0pi -e 's|^BASE_URL="[^"]*"|BASE_URL="$(PUBLIC_INSTALL_BASE_URL)"|m' build/scripts/install.sh
+	@cp build/scripts/install.sh build/public-install.sh
+	@perl -0pi -e 's|^BASE_URL="[^"]*"|BASE_URL="$(PUBLIC_INSTALL_BASE_URL)"|m; s|^INSTALL_MODE="[^"]*"|INSTALL_MODE="\$${VIGOLIUM_INSTALL_MODE:-cdn}"|m' build/public-install.sh
+	@chmod +x build/public-install.sh
 	@echo "$(PREFIX) Public release scripts updated for $(PUBLIC_INSTALL_BASE_URL)"
 
 # Generate build/dist/metadata.json from the Go version file
@@ -856,9 +900,10 @@ generate-metadata:
 		"$(VERSION)" "$(COMMIT_HASH)" "$(BUILD_TIME)" > build/dist/metadata.json
 
 # GoReleaser release and upload to R2
-release: prepare-release-scripts
+release: prepare-release-scripts ensure-audit-dist
 	@echo "$(PREFIX) Building release..."
-	VIGOLIUM_VERSION=$(GORELEASER_VERSION) goreleaser --verbose release --snapshot --clean
+	VIGOLIUM_VERSION=$(GORELEASER_VERSION) goreleaser --verbose release --snapshot --clean --parallelism 1
+	@$(MAKE) restage-host-audit
 	@$(MAKE) generate-metadata
 	@echo "$(PREFIX) Cleaning old files on R2..."
 	@mc rm --recursive --force r2/vigolium-dist/$(R2_PREFIX)/ || true
@@ -890,7 +935,7 @@ public:
 	@echo "\033[31m[!] Use 'make public-release' for public release uploads.\033[0m"
 	@exit 1
 
-public-release: prepare-public-scripts
+public-release: prepare-public-scripts ensure-audit-dist
 	@echo "$(PREFIX) Building public artifacts for: $(PUBLIC_TARGETS)"
 	@rm -rf $(PUBLIC_DIST_DIR)
 	@mkdir -p $(PUBLIC_DIST_DIR)
@@ -901,6 +946,7 @@ public-release: prepare-public-scripts
 		stage_dir="$(PUBLIC_DIST_DIR)/$${pkg_name}"; \
 		echo "$(PREFIX)   -> $${GOOS}/$${GOARCH}"; \
 		mkdir -p $${stage_dir}; \
+		bash build/scripts/stage-audit-blob.sh $${GOOS} $${GOARCH} || exit 1; \
 		GOOS=$${GOOS} GOARCH=$${GOARCH} CGO_ENABLED=0 \
 			$(GOBUILD) $(LDFLAGS) \
 			-o $${stage_dir}/$${bin_name} ./cmd/vigolium \
@@ -909,6 +955,7 @@ public-release: prepare-public-scripts
 			|| exit 1; \
 		rm -rf $${stage_dir}; \
 	done
+	@$(MAKE) restage-host-audit
 	@echo "$(PREFIX) Writing checksums.txt..."
 	@cd $(PUBLIC_DIST_DIR) && \
 		(command -v shasum >/dev/null 2>&1 && shasum -a 256 *.tar.gz > checksums.txt \
@@ -922,7 +969,7 @@ public-release: prepare-public-scripts
 	mc cp $(PUBLIC_DIST_DIR)/*.tar.gz r2/vigolium-dist/$(R2_PUBLIC_PREFIX)/
 	mc cp $(PUBLIC_DIST_DIR)/checksums.txt r2/vigolium-dist/$(R2_PUBLIC_PREFIX)/
 	mc cp $(PUBLIC_DIST_DIR)/metadata.json r2/vigolium-dist/$(R2_PUBLIC_PREFIX)/
-	mc cp build/scripts/install.sh r2/vigolium-dist/$(R2_PUBLIC_PREFIX)/
+	mc cp build/public-install.sh r2/vigolium-dist/$(R2_PUBLIC_PREFIX)/install.sh
 	@echo "$(PREFIX) Public release uploaded to $(PUBLIC_INSTALL_BASE_URL)/"
 
 # Sync scripts to R2 CDN without rebuilding

@@ -227,7 +227,7 @@ func (m *Module) runCheck(
 
 		attackFingerprint := createFingerprint(attackResp)
 		attackRespBody := attackResp.Body().String()
-		attackRespFull := attackResp.FullResponse().String()
+		attackRespFull := attackResp.FullResponseString()
 		attackResp.Close()
 
 		// Skip if fingerprint is nil

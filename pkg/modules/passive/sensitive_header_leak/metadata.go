@@ -31,7 +31,7 @@ sensitive patterns:
 - CWE-200 Information Exposure`
 
 	ModuleConfirmation = "Confirmed when a non-standard response header carries a value matching known sensitive token formats or a high-entropy key-shaped string"
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"info-disclosure", "secrets", "headers", "light"}
 )

@@ -15,10 +15,13 @@ These endpoints receive inbound emails via HTTP and may be accessible without pr
 authentication or provider signature validation.
 
 ## Notes
-- Uses OPTIONS and POST requests to check for accessible ingress endpoints
-- Tests relay, SendGrid, Mailgun, Mandrill, and Postmark ingress paths
-- Checks for WWW-Authenticate headers indicating basic auth protection
-- Fingerprints 404 responses to avoid false positives
+- The conductor UI is confirmed by GETting the page and matching the actual
+  rendered Action Mailbox conductor content — never on status or headers alone
+- POST-only ingress routes (relay, SendGrid, Mailgun, Mandrill, Postmark) have
+  no rendered body; they are confirmed via a genuine Rails Allow: POST on OPTIONS
+- Rejects generic CORS preflights (Access-Control-Allow-* with no Allow header),
+  the API-gateway/proxy reply to OPTIONS on every path
+- Fingerprints 404 responses and strips reflected request paths to avoid false positives
 
 ## References
 - https://guides.rubyonrails.org/action_mailbox_basics.html

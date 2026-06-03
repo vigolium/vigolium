@@ -2,20 +2,28 @@
 set -euo pipefail
 
 # Vigolium CLI Installation Script
-# Resolves the latest @vigolium/vigolium release from the npm registry and
-# downloads the matching per-platform tarball (no npm/node required).
+# By default, resolves the latest @vigolium/vigolium release from the npm
+# registry and downloads the matching per-platform tarball (no npm/node
+# required). When INSTALL_MODE is stamped to "cdn" by `make public-release`
+# or VIGOLIUM_INSTALL_MODE=cdn is set, it installs from the public CDN release
+# artifacts in the same format as the nightly installer.
 
 # Configuration
 VIGOLIUM_HOME="${VIGOLIUM_HOME:-$HOME/.vigolium}"
 BIN_DIR="$HOME/.local/bin"
+INSTALL_MODE="${VIGOLIUM_INSTALL_MODE:-npm}"
+BASE_URL="https://cdn.vigolium.com/vigolium-release"
+BASE_URL="${VIGOLIUM_INSTALL_BASE_URL:-$BASE_URL}"
 NPM_REGISTRY="${VIGOLIUM_NPM_REGISTRY:-https://registry.npmjs.org}"
 NPM_PKG="@vigolium/vigolium"
 NPM_PKG_ENC="@vigolium%2Fvigolium"   # URL-encoded scoped name
 NPM_DIST_TAG="${VIGOLIUM_NPM_TAG:-latest}"  # which dist-tag to install
-VERSION=""        # base version, resolved from the npm dist-tag
+VERSION="${VIGOLIUM_VERSION:-}"  # npm base version or CDN metadata version
 PLATFORM_TAG=""   # npm platform tag, e.g. darwin-arm64
 TARBALL_URL=""    # resolved per-platform tarball URL
+TARBALL_FILENAME=""
 TARBALL_SHA1=""   # dist.shasum (sha1) from the registry
+TARBALL_SHA256="" # sha256 from CDN checksums.txt
 
 # Retry configuration
 MAX_RETRIES=6
@@ -74,6 +82,8 @@ need_cmd() {
 }
 
 JQ=""
+SHA1_CMD=""
+SHA256_CMD=""
 
 # Check all prerequisite commands upfront
 check_prereqs() {
@@ -89,6 +99,15 @@ check_prereqs() {
 		SHA1_CMD="sha1sum"
 	else
 		error "need 'shasum' or 'sha1sum' (command not found)"
+	fi
+
+	# CDN release artifacts are verified against checksums.txt SHA-256 values.
+	if command_exists shasum; then
+		SHA256_CMD="shasum -a 256"
+	elif command_exists sha256sum; then
+		SHA256_CMD="sha256sum"
+	elif [[ "$INSTALL_MODE" == "cdn" ]]; then
+		error "need 'shasum' or 'sha256sum' (command not found)"
 	fi
 
 	# jq is optional: used when present for robust JSON parsing, otherwise a
@@ -235,6 +254,21 @@ json_field() {
 	fi
 }
 
+cache_busted_url() {
+	local url="$1"
+	local key="${2:-}"
+
+	if [[ -z "$key" ]]; then
+		key="$(date +%s)"
+	fi
+
+	if [[ "$url" == *\?* ]]; then
+		echo "${url}&cache_key=${key}"
+	else
+		echo "${url}?cache_key=${key}"
+	fi
+}
+
 # Resolve the base version that the requested dist-tag points to.
 fetch_latest_version() {
 	local tag="$1"
@@ -275,6 +309,55 @@ fetch_platform_manifest() {
 	fi
 }
 
+# Resolve the latest public CDN version from metadata.json. The public release
+# Makefile writes a leading-v version here, matching pkg/cli/version.go.
+resolve_cdn_version() {
+	if [[ -n "$VERSION" ]]; then
+		log "Using pinned version: ${LIGHT_GREEN}${VERSION}${NC} (VIGOLIUM_VERSION override)"
+		return 0
+	fi
+
+	local manifest_url="${BASE_URL}/metadata.json?t=$(date +%s)"
+	local tmp_manifest
+	tmp_manifest=$(mktemp)
+
+	log "Resolving latest public release from ${BASE_URL}/metadata.json..."
+	downloader "$manifest_url" "$tmp_manifest"
+
+	VERSION=$(json_field "$tmp_manifest" '.version' 'version')
+	rm -f "$tmp_manifest"
+
+	if [[ -z "$VERSION" ]]; then
+		error "Failed to resolve latest public release from ${BASE_URL}/metadata.json"
+	fi
+
+	log "Latest public release: ${LIGHT_GREEN}${VERSION}${NC}"
+}
+
+build_cdn_tarball_url() {
+	local ver_no_v="${VERSION#v}"
+	TARBALL_FILENAME="vigolium_${ver_no_v}_${PLATFORM_TAG}.tar.gz"
+	TARBALL_URL="${BASE_URL}/${TARBALL_FILENAME}"
+}
+
+fetch_cdn_checksum() {
+	local checksum_url="${BASE_URL}/checksums.txt?t=$(date +%s)"
+	local tmp_checksums
+	tmp_checksums=$(mktemp)
+
+	log "Fetching checksums.txt..."
+	downloader "$checksum_url" "$tmp_checksums"
+
+	TARBALL_SHA256=$(grep -E "[[:space:]]${TARBALL_FILENAME}\$" "$tmp_checksums" \
+		| awk '{print $1}' \
+		| head -1)
+	rm -f "$tmp_checksums"
+
+	if [[ -z "$TARBALL_SHA256" ]]; then
+		error "Checksum for ${TARBALL_FILENAME} not found in checksums.txt"
+	fi
+}
+
 # Download file with progress
 download_file() {
 	local url="$1"
@@ -312,6 +395,26 @@ verify_checksum() {
 
 	local actual_checksum
 	actual_checksum=$($SHA1_CMD "$file" | cut -d' ' -f1)
+
+	if [[ "$actual_checksum" != "$expected_checksum" ]]; then
+		error "Checksum verification failed!\nExpected: $expected_checksum\nActual: $actual_checksum"
+	fi
+
+	success "Checksum verified"
+}
+
+verify_cdn_checksum() {
+	local file="$1"
+	local expected_checksum="$2"
+
+	if [[ -z "$expected_checksum" ]]; then
+		error "No SHA-256 checksum available for ${TARBALL_FILENAME}"
+	fi
+
+	log "Verifying checksum (SHA-256)..."
+
+	local actual_checksum
+	actual_checksum=$($SHA256_CMD "$file" | cut -d' ' -f1)
 
 	if [[ "$actual_checksum" != "$expected_checksum" ]]; then
 		error "Checksum verification failed!\nExpected: $expected_checksum\nActual: $actual_checksum"
@@ -430,6 +533,64 @@ install_vigolium_binary() {
 	fi
 }
 
+# Install Vigolium CLI binary from the public CDN tarball produced by
+# `make public-release`.
+install_vigolium_binary_from_cdn() {
+	local binary_name="vigolium"
+
+	check_existing_installation
+
+	build_cdn_tarball_url
+	fetch_cdn_checksum
+
+	log "Installing version: ${LIGHT_GREEN}${VERSION}${NC} (${PLATFORM_TAG})"
+
+	local tarball_path="$VIGOLIUM_HOME/vigolium-install-tarball.tgz"
+	local extract_dir="$VIGOLIUM_HOME/vigolium-install-extract"
+
+	mkdir -p "$VIGOLIUM_HOME"
+	mkdir -p "$BIN_DIR"
+	rm -rf "$extract_dir"
+	mkdir -p "$extract_dir"
+
+	download_file "$(cache_busted_url "$TARBALL_URL" "$TARBALL_SHA256")" "$tarball_path" "$VERSION"
+	verify_cdn_checksum "$tarball_path" "$TARBALL_SHA256"
+
+	log "Extracting tarball..."
+	tar -xzf "$tarball_path" -C "$extract_dir"
+
+	local binary_path="$BIN_DIR/$binary_name"
+	local extracted_binary
+	extracted_binary=$(find "$extract_dir" -type f -name "${binary_name}" -print 2>/dev/null | head -1)
+	if [[ -z "$extracted_binary" ]]; then
+		error "Could not find '${binary_name}' binary in the tarball"
+	fi
+
+	local staged="${binary_path}.new"
+	rm -f "$staged"
+	mv "$extracted_binary" "$staged"
+	chmod +x "$staged"
+	mv "$staged" "$binary_path"
+
+	rm -f "$tarball_path"
+	rm -rf "$extract_dir"
+
+	success "Vigolium CLI binary installed to ${LIGHT_GREEN}${binary_path}${NC}"
+
+	local version_output
+	version_output=$("$binary_path" version 2>/dev/null || true)
+	if [[ -n "$version_output" ]]; then
+		local build_info commit_info
+		build_info=$(echo "$version_output" | grep 'Build:' || true)
+		commit_info=$(echo "$version_output" | grep 'Commit:' || true)
+		if [[ -n "$build_info" || -n "$commit_info" ]]; then
+			log "Installed binary info:"
+			[[ -n "$build_info" ]] && echo -e "  ${LIGHT_GREEN}${build_info}${NC}"
+			[[ -n "$commit_info" ]] && echo -e "  ${LIGHT_GREEN}${commit_info}${NC}"
+		fi
+	fi
+}
+
 # Update PATH in shell profile
 update_shell_profile() {
 	# Detect shell from $SHELL or default
@@ -531,14 +692,62 @@ fallback_to_cdn() {
 	fi
 
 	log "Running CDN installer..."
-	VIGOLIUM_FROM_CDN_FALLBACK=1 bash "$installer_tmp"
+	VIGOLIUM_FROM_CDN_FALLBACK=1 VIGOLIUM_INSTALL_MODE=cdn VIGOLIUM_INSTALL_BASE_URL="$BASE_URL" bash "$installer_tmp"
 	local rc=$?
 	rm -f "$installer_tmp"
 	exit $rc
 }
 
+main_cdn() {
+	log "Starting Vigolium CLI public CDN installation..."
+	log "Source: ${LIGHT_GREEN}${BASE_URL}${NC}"
+
+	check_prereqs
+	resolve_cdn_version
+
+	local platform
+	platform=$(detect_platform)
+	PLATFORM_TAG="$platform"
+	log "Detected platform: ${PLATFORM_TAG}"
+
+	local bin_dir_was_in_path=0
+	if echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
+		bin_dir_was_in_path=1
+	fi
+
+	install_vigolium_binary_from_cdn
+	update_shell_profile
+	export PATH="$BIN_DIR:$PATH"
+
+	echo ""
+	success "Vigolium CLI installed successfully!"
+	if [[ $bin_dir_was_in_path -eq 0 ]]; then
+		warn "${LIGHT_GREEN}${BIN_DIR}${NC} was not in your PATH before this installation"
+		log "Run this to use vigolium immediately without restarting your shell:"
+		echo -e "  ${LIGHT_GREEN}export PATH=\"$BIN_DIR:\$PATH\" && vigolium doctor${NC}"
+	else
+		log "Run ${LIGHT_GREEN}vigolium doctor${NC} to validate your setup"
+	fi
+
+	echo ""
+	log "Visit ${LIGHT_GREEN}https://docs.vigolium.com${NC} for more details"
+	log "Or check out the cloud version at ${LIGHT_GREEN}https://console.vigolium.com${NC}"
+}
+
 # Main installation
 main() {
+	case "$INSTALL_MODE" in
+		cdn)
+			main_cdn "$@"
+			return
+			;;
+		npm | "")
+			;;
+		*)
+			error "Unsupported VIGOLIUM_INSTALL_MODE: $INSTALL_MODE"
+			;;
+	esac
+
 	log "Starting Vigolium CLI installation..."
 
 	# Check prerequisites

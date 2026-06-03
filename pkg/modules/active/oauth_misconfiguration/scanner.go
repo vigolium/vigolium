@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
@@ -201,7 +202,7 @@ func (m *Module) testRedirectURIManipulation(
 
 		if statusCode == 302 || statusCode == 301 || statusCode == 303 || statusCode == 307 {
 			if strings.Contains(location, "evil.example.com") {
-				respBody := resp.FullResponse().String()
+				respBody := resp.FullResponseString()
 				results = append(results, &output.ResultEvent{
 					URL:              urlx.String(),
 					Matched:          urlx.String(),
@@ -264,6 +265,7 @@ func (m *Module) testMissingState(
 		Info: output.Info{
 			Name:        "OAuth Missing State Parameter (CSRF)",
 			Description: "The OAuth authorization request does not include a state parameter, making the flow vulnerable to CSRF attacks. An attacker can forge authorization requests to link their account to a victim's session.",
+			Severity:    severity.Medium,
 		},
 	}, nil
 }
@@ -311,7 +313,7 @@ func (m *Module) testResponseTypeDowngrade(
 	}
 
 	statusCode := resp.Response().StatusCode
-	respBody := resp.FullResponse().String()
+	respBody := resp.FullResponseString()
 	bodyLower := strings.ToLower(respBody)
 
 	// If the server accepts (200 or 302 without error), report

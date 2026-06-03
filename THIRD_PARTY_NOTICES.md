@@ -60,6 +60,7 @@ Vigolium's own source code, not to these independently obtained tools.
 | [1ndianl33t/Gf-Patterns](https://github.com/1ndianl33t/Gf-Patterns) | Interesting-parameter and error-pattern reference source for passive detections and extensions. |
 | [tomnomnom/gf examples](https://github.com/tomnomnom/gf) | Base64 and pattern-detection reference material for passive data discovery. |
 | [PayloadsAllTheThings](https://github.com/swisskyrepo/PayloadsAllTheThings) | Payload and technique references for file inclusion/path traversal and NoSQL injection modules. |
+| [dalfox](https://github.com/hahwul/dalfox) | XSS WAF-evasion and encoding payload technique references for the `xssencode` mutators/encoding ladder and WAF-aware XSS modules. |
 | [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/) | Security guidance references for extensions and module remediation text. |
 
 ## Agentic Audit And Prompt Resources

@@ -13,6 +13,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/shared/diffscan"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
 	"go.uber.org/zap"
 )
@@ -154,8 +155,6 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
-	bestSeverity := getBestSeverity(allFindings)
-
 	zap.L().Debug("NginxPathEscape: Found vulnerabilities",
 		zap.String("url", urlx.String()),
 		zap.Int("count", len(allFindings)))
@@ -166,13 +165,18 @@ func (m *Module) ScanPerRequest(
 		modifiedRaw = rawRequest
 	}
 
+	// All findings from this module are emitted at Info severity. Diff-based
+	// path-escape detection compares response fingerprints between a baseline
+	// and escape payloads, a noisy false-positive-prone heuristic, so it is
+	// surfaced as an informational lead for a human to confirm. The per-probe
+	// severity remains in the report body for triage context.
 	return []*output.ResultEvent{{
 		URL:              urlx.String(),
 		Host:             urlx.Host,
 		Request:          string(modifiedRaw),
 		FuzzingParameter: "PATH",
 		Info: output.Info{
-			Severity:    bestSeverity,
+			Severity:    severity.Info,
 			Description: report,
 		},
 	}}, nil
@@ -607,6 +611,58 @@ func (m *Module) validateAttacks(
 			zap.Int("escape_status", escapeAttack.FirstSnapshot.StatusCode),
 		)
 		return nil
+	}
+
+	// Layer 5: Reached-resource gate. A genuine path escape must resolve to a
+	// real, served resource (2xx) — not an error/not-found/redirect stub.
+	//
+	// For traversal probes (traversalLevels > 0) the escape control payload
+	// (e.g. "seg/.") is supposed to normalize back to the segment directory, so
+	// the *escape* side is the reached resource and must be a 2xx success. When
+	// every probe under a path (softBase/escape/break) is the same empty 404 —
+	// as on a CDN-internal prefix like /cdn-cgi/ that 404s everything — nothing
+	// is actually reached and the Layer-4 break/escape diff is pure header
+	// jitter (Ray-ID/ETag/Set-Cookie), not an escape. diffscan's WafBlocked gate
+	// already drops 401/403/429/503 upstream; this also drops 404/3xx/5xx, which
+	// it deliberately does not.
+	//
+	// For ACL-bypass probes (traversalLevels == 0, N7/N16) the bypass attempt is
+	// the *break* side, so that is the reached resource and must be 2xx.
+	reached, reachedSide := escapeAttack, "escape"
+	if traversalLevels == 0 {
+		reached, reachedSide = breakAttack, "break"
+	}
+	if reached.FirstSnapshot == nil || !reached.FirstSnapshot.IsSuccess() {
+		reachedStatus := 0
+		if reached.FirstSnapshot != nil {
+			reachedStatus = reached.FirstSnapshot.StatusCode
+		}
+		zap.L().Debug("NginxPathEscape: Layer5 REJECT - reached resource is not a 2xx success",
+			zap.String("id", id), zap.String("probe", name),
+			zap.String("reached_side", reachedSide),
+			zap.Int("reached_status", reachedStatus),
+		)
+		return nil
+	}
+
+	// Layer 6: Substantive-difference gate. Break and escape must differ in an
+	// observable that reflects a genuinely different served resource — the status
+	// code or the body length — not only volatile response-fingerprint noise. The
+	// reported false positive passed Layer 4 with break and escape both 404 and
+	// both zero-length, differing only in a header CRC. Requiring a status or
+	// content-length delta drops that class without losing real escapes, where
+	// reaching a different resource changes the status or the body size.
+	if breakAttack.FirstSnapshot != nil && escapeAttack.FirstSnapshot != nil {
+		sameStatus := breakAttack.FirstSnapshot.StatusCode == escapeAttack.FirstSnapshot.StatusCode
+		sameLength := breakAttack.FirstSnapshot.ContentLength == escapeAttack.FirstSnapshot.ContentLength
+		if sameStatus && sameLength {
+			zap.L().Debug("NginxPathEscape: Layer6 REJECT - break and escape share status and length (fingerprint-noise-only diff)",
+				zap.String("id", id), zap.String("probe", name),
+				zap.Int("status", breakAttack.FirstSnapshot.StatusCode),
+				zap.Int("length", breakAttack.FirstSnapshot.ContentLength),
+			)
+			return nil
+		}
 	}
 
 	zap.L().Debug("NginxPathEscape: probe PASSED all layers",

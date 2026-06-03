@@ -50,6 +50,26 @@ type SpiderResult struct {
 	FormsSubmitted   int
 	Duration         time.Duration
 	RecordsSaved     int
+
+	// LandingURL is the final URL of the index (start) page after any redirects
+	// the browser followed during initial navigation. When the start URL issues
+	// a cross-host redirect (e.g. to an SSO/login provider), this is the
+	// post-redirect URL, which differs from the configured TargetURL.
+	LandingURL string
+
+	// OffHostRedirect is true when the start URL redirected the browser to a
+	// host outside the target's scope (a classic SSO/auth-wall bounce).
+	OffHostRedirect bool
+
+	// LandingIsLogin is true when an off-host landing looked like a login/SSO
+	// wall. The crawler can't proceed unauthenticated, so the run yields almost
+	// nothing — the caller should advise supplying authentication.
+	LandingIsLogin bool
+
+	// HostAdopted is true when an off-host landing did NOT look like a login
+	// wall and its host was pulled into scope so the crawl could continue
+	// against the relocated app.
+	HostAdopted bool
 }
 
 // RunSpider executes browser-based spidering against the target URL,
@@ -104,6 +124,9 @@ func RunSpider(ctx context.Context, cfg SpiderConfig, repo RecordSaver) (*Spider
 		return nil, err
 	}
 
+	// Start-redirect handling is decided inside the crawler (it alone has the
+	// rendered landing page to classify login vs. relocated app); surface its
+	// verdict verbatim so the caller can report it without re-deriving anything.
 	return &SpiderResult{
 		StatesDiscovered: result.Stats.StatesDiscovered,
 		ActionsExecuted:  result.Stats.ActionsExecuted,
@@ -111,5 +134,9 @@ func RunSpider(ctx context.Context, cfg SpiderConfig, repo RecordSaver) (*Spider
 		FormsSubmitted:   result.Stats.FormsSubmitted,
 		Duration:         result.Duration(),
 		RecordsSaved:     writer.Count(),
+		LandingURL:       result.Stats.LandingURL,
+		OffHostRedirect:  result.Stats.OffHostLanding,
+		LandingIsLogin:   result.Stats.LandingIsLogin,
+		HostAdopted:      result.Stats.HostAdopted,
 	}, nil
 }

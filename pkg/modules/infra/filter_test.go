@@ -59,3 +59,19 @@ func TestIsValidForInjectionVulns(t *testing.T) {
 		})
 	}
 }
+
+func TestLooksLikeURLParam(t *testing.T) {
+	// Name-based matches.
+	require.True(t, LooksLikeURLParam("redirect_url", "anything"))
+	require.True(t, LooksLikeURLParam("callback", "x"))
+	require.True(t, LooksLikeURLParam("image_url", "x"))
+	require.True(t, LooksLikeURLParam("proxy", "x"))
+	// Value-based matches.
+	require.True(t, LooksLikeURLParam("q", "http://internal/"))
+	require.True(t, LooksLikeURLParam("q", "https://internal/"))
+	require.True(t, LooksLikeURLParam("q", "//internal/"))
+	// Neither name nor value suggests a URL.
+	require.False(t, LooksLikeURLParam("q", "hello"))
+	require.False(t, LooksLikeURLParam("name", "alice"))
+	require.False(t, LooksLikeURLParam("count", "42"))
+}

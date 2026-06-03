@@ -125,14 +125,3 @@ func escapeMarkdown(s string) string {
 	s = strings.ReplaceAll(s, "|", "\\|")
 	return s
 }
-
-// getBestSeverity finds the highest severity from attack results.
-func getBestSeverity(attacks []*diffscan.Attack) int {
-	bestSeverity := 0
-	for _, att := range attacks {
-		if att != nil && att.Probe != nil && att.Probe.Severity > bestSeverity {
-			bestSeverity = att.Probe.Severity
-		}
-	}
-	return bestSeverity
-}

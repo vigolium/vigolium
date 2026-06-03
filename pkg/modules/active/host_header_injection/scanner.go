@@ -89,6 +89,12 @@ func New() *Module {
 	return m
 }
 
+// ConfirmsByBodyDifferential opts this module into the executor's body-
+// differential safety net: a candidate finding is re-confirmed by replaying the
+// injected-Host request and verifying it reproducibly introduces content absent
+// from the clean baseline before being reported.
+func (m *Module) ConfirmsByBodyDifferential() bool { return true }
+
 // ScanPerRequest tests the request for host header injection.
 func (m *Module) ScanPerRequest(
 	ctx *httpmsg.HttpRequestResponse,
@@ -164,7 +170,7 @@ func (m *Module) ScanPerRequest(
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Request:          string(modifiedRaw),
-				Response:         resp.FullResponse().String(),
+				Response:         resp.FullResponseString(),
 				ExtractedResults: extracted,
 				Info: output.Info{
 					Name:        fmt.Sprintf("Host Header Injection: %s", probe.headerName),

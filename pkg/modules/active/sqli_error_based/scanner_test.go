@@ -83,3 +83,72 @@ func TestScanPerInsertionPoint_ErrorAlreadyInBaseline(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, res, "error present in baseline must not be reported as injection")
 }
+
+// TestScanPerInsertionPoint_RateLimitChallengeNotSQLi reproduces the reported
+// false positive: a Cloudflare 429 "challenge" page (Cf-Mitigated: challenge)
+// whose body happened to carry a token matching the TiDB error signature was
+// reported as Critical/Certain SQLi. A WAF/CDN/rate-limit response is not the
+// application surfacing a database error, so it must yield no finding.
+func TestScanPerInsertionPoint_RateLimitChallengeNotSQLi(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Server", "cloudflare")
+		w.Header().Set("Cf-Mitigated", "challenge")
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		w.WriteHeader(http.StatusTooManyRequests)
+		// The challenge body carries a token that matches the TiDB error pattern.
+		_, _ = io.WriteString(w, "<html><body>Just a moment... TiKV / TiDB server</body></html>")
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/?id=1")
+	ip := modtest.InsertionPoint(t, rr, "id")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a 429 Cloudflare challenge page must not be reported as SQLi")
+}
+
+// TestScanPerInsertionPoint_BareRateLimitNotSQLi covers a plain 429 with no
+// vendor headers (a generic rate limiter the vendor detector would not recognize)
+// whose body matches a SQL-error pattern. The status gate must still suppress it.
+func TestScanPerInsertionPoint_BareRateLimitNotSQLi(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, mysqlSyntaxError)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/?id=1")
+	ip := modtest.InsertionPoint(t, rr, "id")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a 429 rate-limit page must not be reported as SQLi even when it contains a SQL-error string")
+}
+
+// TestScanPerInsertionPoint_StaleBaselineFreshControl exercises the new
+// confirmation gate: the captured baseline is clean (stale), but the live
+// endpoint now returns the SQL error for EVERY value, including a benign one (e.g.
+// the database is down). The fresh control fetch of the original value reproduces
+// the error, proving it is not payload-introduced, so no finding is reported.
+func TestScanPerInsertionPoint_StaleBaselineFreshControl(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Returns the MySQL error unconditionally now, regardless of the value.
+		_, _ = io.WriteString(w, mysqlSyntaxError)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// Captured baseline from before: a clean page lacking the error.
+	rr := modtest.Response(
+		modtest.Request(t, srv.URL+"/?id=1"),
+		"text/html", "<html>welcome</html>",
+	)
+	ip := modtest.InsertionPoint(t, rr, "id")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "an error the live page returns for any value (fresh control included) must not be reported as injection")
+}

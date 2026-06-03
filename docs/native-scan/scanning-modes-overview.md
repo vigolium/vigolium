@@ -145,13 +145,13 @@ vigolium scan -t https://example.com --scanning-profile api-pentest
 # Use a profile by path
 vigolium scan -t https://example.com --scanning-profile ~/profiles/custom.yaml
 
-# List available profiles and strategies
-vigolium strategy ls
+# Show strategies, phases, intensities, agent modes, and available profiles
+vigolium strategy
 ```
 
 ### Creating a Custom Profile
 
-Create a YAML file in `~/.vigolium/profiles/`. The first line can contain a `# description:` comment that appears in `vigolium strategy ls`.
+Create a YAML file in `~/.vigolium/profiles/`. The first line can contain a `# description:` comment that appears in `vigolium strategy`.
 
 A profile can override any combination of these config sections (omitted sections keep their main config values):
 

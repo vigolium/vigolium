@@ -81,7 +81,6 @@ func printFullExamples() {
 
 	printSection("Strategy & Phases", []string{
 		"vigolium strategy",
-		"vigolium strategy ls",
 		"vigolium phase",
 	})
 

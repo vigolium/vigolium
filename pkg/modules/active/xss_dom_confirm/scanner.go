@@ -3,15 +3,18 @@ package xss_dom_confirm
 import (
 	"context"
 	"fmt"
+	nethttp "net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/vigolium/vigolium/pkg/dedup"
+	"github.com/vigolium/vigolium/pkg/deparos/waf"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/infra"
+	"github.com/vigolium/vigolium/pkg/modules/infra/xssencode"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/spitolas"
@@ -95,34 +98,91 @@ func (m *Module) ScanPerInsertionPoint(
 		return nil, errors.Wrap(err, "failed to generate payload")
 	}
 
-	fuzzedRaw := ip.BuildRequest([]byte(payload.Body))
+	// Plain attempt — same build → send → prefilter → browser-confirm path as
+	// before. Factored into attempt() so the fallback can reuse it verbatim.
+	evt, plain := m.attempt(ctx, ip, httpClient, urlx.Host, payload, payload.Body)
+	if evt != nil {
+		m.markFound(scanCtx, hostPath, ip.Name())
+		return []*output.ResultEvent{evt}, nil
+	}
+
+	// Fallback (additive): only reached when the plain attempt produced no
+	// finding. If a WAF fronts the host — observed on this very response or a
+	// prior request — retry with execution-preserving, WAF-tuned mutations.
+	// With no WAF detected, MutateForWAF yields nothing and we return as before.
+	wafType := scanCtx.DetectedWAF(urlx.Host)
+	if wafType == "" && plain != nil {
+		if br := waf.ClassifyParts(plain.status, plain.header, []byte(plain.body)); br != nil {
+			wafType = br.WAFType
+			scanCtx.MarkWAF(urlx.Host, wafType)
+		}
+	}
+	for _, v := range xssencode.MutateForWAF(wafType, payload.Body) {
+		mevt, _ := m.attempt(ctx, ip, httpClient, urlx.Host, payload, v.Value)
+		if mevt != nil {
+			mevt.Info.Description += fmt.Sprintf(" [waf-bypass: %s/%s]", wafType, v.Name)
+			m.markFound(scanCtx, hostPath, ip.Name())
+			return []*output.ResultEvent{mevt}, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (m *Module) markFound(scanCtx *modkit.ScanContext, hostPath, name string) {
+	if reg := scanCtx.ParamFindingsRegistry(); reg != nil {
+		reg.MarkFound(hostPath, name, vulnClass)
+	}
+}
+
+// capturedResp holds the response parts the fallback needs to classify a WAF
+// block when an attempt fails the prefilter.
+type capturedResp struct {
+	status int
+	header nethttp.Header
+	body   string
+}
+
+// attempt injects bodyPayload at ip, prefilters the reflection, and on a pass
+// confirms execution in a headless browser. It returns the finding on success
+// (else nil) and always returns the captured HTTP response so the caller can
+// classify a block on a failed plain attempt.
+func (m *Module) attempt(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	httpClient *http.Requester,
+	host string,
+	payload *Payload,
+	bodyPayload string,
+) (*output.ResultEvent, *capturedResp) {
+	fuzzedRaw := ip.BuildRequest([]byte(bodyPayload))
 	fuzzedReq, err := httpmsg.ParseRawRequest(string(fuzzedRaw))
 	if err != nil {
 		return nil, nil
 	}
 	fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
-	body, err := sendAndReadBody(httpClient, fuzzedReq)
-	if err != nil || body == "" {
-		return nil, nil
+	plain, err := sendAndCapture(httpClient, fuzzedReq)
+	if err != nil || plain == nil {
+		return nil, plain
 	}
 
-	pass, reason := passesPrefilter(body, payload.Canary)
+	pass, reason := passesPrefilter(plain.body, payload.Canary)
 	if !pass {
-		return nil, nil
+		return nil, plain
 	}
 
 	probeURL, err := navigableURL(fuzzedReq, payload.Hash)
 	if err != nil {
-		return nil, nil
+		return nil, plain
 	}
 
 	bgCtx, cancel := context.WithTimeout(context.Background(), probeNavTimeout+5*time.Second)
 	defer cancel()
 
-	release, ok := m.budget.Reserve(bgCtx, urlx.Host)
+	release, ok := m.budget.Reserve(bgCtx, host)
 	if !ok {
-		return nil, nil
+		return nil, plain
 	}
 	defer release()
 
@@ -132,19 +192,15 @@ func (m *Module) ScanPerInsertionPoint(
 		NavTimeout: probeNavTimeout,
 	})
 	if !probeUsable(res, err) {
-		return nil, nil
+		return nil, plain
 	}
 
 	dialog := matchCanary(res.Dialogs, payload.Canary)
 	if dialog == nil {
-		return nil, nil
+		return nil, plain
 	}
 
-	if reg := scanCtx.ParamFindingsRegistry(); reg != nil {
-		reg.MarkFound(hostPath, ip.Name(), vulnClass)
-	}
-
-	return []*output.ResultEvent{m.buildResult(ctx, ip, fuzzedRaw, payload, probeURL, reason, *dialog)}, nil
+	return m.buildResult(ctx, ip, fuzzedRaw, payload, probeURL, reason, *dialog), plain
 }
 
 // probeUsable reports whether a probe result carries enough information to
@@ -160,17 +216,23 @@ func probeUsable(res *spitolas.ProbeResult, err error) bool {
 	return true
 }
 
-func sendAndReadBody(httpClient *http.Requester, req *httpmsg.HttpRequestResponse) (string, error) {
+// sendAndCapture executes req and returns the response status, headers, and
+// body. Unlike a body-only read, the status/headers let the caller classify a
+// WAF block when the prefilter fails.
+func sendAndCapture(httpClient *http.Requester, req *httpmsg.HttpRequestResponse) (*capturedResp, error) {
 	resp, _, err := httpClient.Execute(req, http.Options{})
 	if err != nil || resp == nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Close()
-	body := resp.Body().Bytes()
-	if len(body) == 0 {
-		return "", nil
+
+	cr := &capturedResp{}
+	if r := resp.Response(); r != nil {
+		cr.status = r.StatusCode
+		cr.header = r.Header
 	}
-	return string(body), nil
+	cr.body = resp.Body().String()
+	return cr, nil
 }
 
 // navigableURL turns a fuzzed request into the URL string a browser can

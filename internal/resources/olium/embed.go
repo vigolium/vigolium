@@ -1,6 +1,6 @@
 // Package olium exposes the skills shipped as built-ins with the olium
 // agent. The embedded FS is consumed by pkg/olium/skill's Loader; user
-// skills in .agent/skills/, .claude/skills/, or ~/.vigolium/skills/
+// skills in .agents/skills/, .claude/skills/, or ~/.vigolium/skills/
 // take precedence on name collision.
 package olium
 

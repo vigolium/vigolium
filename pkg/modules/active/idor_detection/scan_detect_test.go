@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,4 +78,42 @@ func TestScanPerInsertionPoint_NoFalsePositive(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "403 for neighbor user_ids means authorization is enforced — no finding")
+}
+
+// noiseBody renders a fixed-length body whose only variable part is a 20-digit
+// counter token. Two such bodies are always structurally identical (same status,
+// identical length) yet byte-different — the shape of an analytics/tracking
+// endpoint that returns different content on every request regardless of the id.
+func noiseBody(n int64) string {
+	return fmt.Sprintf("{\"data\":\"%020d\",\"pad\":%q}", n, strings.Repeat("x", 200))
+}
+
+// TestScanPerInsertionPoint_NonDeterministicEndpoint is the regression for the
+// classic IDOR false positive: the backend returns different content on every
+// request regardless of user_id (a tracking beacon / randomized JS bundle), so a
+// neighbor id looks "structurally similar but different" exactly like a real
+// BOLA. The determinism gate re-issues the ORIGINAL id, sees the same-id response
+// vary just as much, and suppresses the finding.
+func TestScanPerInsertionPoint_NonDeterministicEndpoint(t *testing.T) {
+	t.Parallel()
+	var counter int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Ignore user_id entirely: every request — same id or not — gets fresh content.
+		n := atomic.AddInt64(&counter, 1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(noiseBody(n)))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(
+		modtest.Request(t, srv.URL+"/api/profile?user_id=12345"),
+		"application/json",
+		noiseBody(0),
+	)
+	ip := modtest.InsertionPoint(t, rr, "user_id")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a non-deterministic endpoint (same id → different content) must not be reported as IDOR")
 }

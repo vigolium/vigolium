@@ -152,7 +152,7 @@ func (m *Module) ScanPerRequest(
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Request:          string(modifiedRaw),
-				Response:         resp.FullResponse().String(),
+				Response:         resp.FullResponseString(),
 				ExtractedResults: []string{p.payload, evidence},
 				Info: output.Info{
 					Name:        fmt.Sprintf("Prototype Pollution: %s", p.desc),

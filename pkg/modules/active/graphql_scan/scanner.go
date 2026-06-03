@@ -6,10 +6,12 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	httputil "github.com/projectdiscovery/utils/http"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -211,12 +213,28 @@ func (m *Module) testInjection(
 		query := fmt.Sprintf(`{"query":"{ %s(%s: \"%s\") { __typename } }"}`,
 			field.fieldName, field.argName, escapeJSON(sqliPayload))
 
-		body, err := m.sendGraphQLQuery(ctx, httpClient, endpointPath, query)
+		body, blocked, err := m.sendGraphQLQueryEx(ctx, httpClient, endpointPath, query)
 		if err != nil {
+			continue
+		}
+		// A WAF/CDN/rate-limit page can carry tokens that trip the SQL-error
+		// patterns; it is not the GraphQL backend surfacing a DB error, so skip it
+		// (the Cloudflare 429 "challenge" false-positive class).
+		if blocked {
 			continue
 		}
 
 		if containsSQLError(body) {
+			// Confirm the error is payload-introduced: a benign value for the same
+			// field must NOT produce it (and must not itself be a blocked page).
+			// Guards against endpoints that return an error string for any input.
+			benignQuery := fmt.Sprintf(`{"query":"{ %s(%s: \"%s\") { __typename } }"}`,
+				field.fieldName, field.argName, escapeJSON("vigolium"))
+			controlBody, controlBlocked, cerr := m.sendGraphQLQueryEx(ctx, httpClient, endpointPath, benignQuery)
+			if cerr == nil && !controlBlocked && containsSQLError(controlBody) {
+				continue
+			}
+
 			results = append(results, &output.ResultEvent{
 				URL:     target,
 				Matched: target + endpointPath,
@@ -239,45 +257,79 @@ func (m *Module) testInjection(
 	return results
 }
 
-// sendGraphQLQuery sends a GraphQL query to the specified path.
+// sendGraphQLQuery sends a GraphQL query to the specified path and returns the
+// full response. The blocked status is discarded for callers that do not need it.
 func (m *Module) sendGraphQLQuery(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	path, queryBody string,
 ) (string, error) {
+	body, _, err := m.sendGraphQLQueryEx(ctx, httpClient, path, queryBody)
+	return body, err
+}
+
+// sendGraphQLQueryEx sends a GraphQL query and additionally reports whether the
+// response was a WAF/CDN/rate-limit page, so SQL-error detection can skip pages
+// that are not the GraphQL backend (a Cloudflare 429 challenge can carry tokens
+// that trip the SQL-error patterns).
+func (m *Module) sendGraphQLQueryEx(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	path, queryBody string,
+) (string, bool, error) {
 	raw := ctx.Request().Raw()
 
 	// Build POST request to GraphQL endpoint
 	modified, err := httpmsg.SetPath(raw, path)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	modified, err = httpmsg.SetMethod(modified, "POST")
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	modified, err = httpmsg.AddOrReplaceHeader(modified, "Content-Type", "application/json")
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	modified, err = httpmsg.SetBodyString(modified, queryBody)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	fuzzedReq, err := httpmsg.ParseRawRequest(string(modified))
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
 	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer resp.Close()
 
-	return resp.FullResponse().String(), nil
+	return resp.FullResponseString(), isBlockedResponse(resp), nil
+}
+
+// isBlockedResponse reports whether resp came from a WAF/CDN challenge, auth gate,
+// rate limiter, or maintenance page rather than the GraphQL backend. Genuine
+// error-based SQLi leaks are emitted by the app stack, so a denied or challenged
+// response can only yield false matches. It combines the vendor-aware block
+// detector (Cloudflare, Akamai, Incapsula, …) with a plain status gate that also
+// catches generic WAFs the detector does not recognize.
+func isBlockedResponse(resp *httputil.ResponseChain) bool {
+	if resp == nil || resp.Response() == nil {
+		return false
+	}
+	if infra.GetBlockDetectionValidator().Validate(resp) != nil {
+		return true
+	}
+	switch resp.Response().StatusCode {
+	case 401, 403, 429, 503:
+		return true
+	}
+	return false
 }
 
 // sendGraphQLGET sends a GraphQL query via GET with a query parameter.
@@ -316,7 +368,7 @@ func (m *Module) sendGraphQLGET(
 	}
 	defer resp.Close()
 
-	return resp.FullResponse().String(), nil
+	return resp.FullResponseString(), nil
 }
 
 // escapeJSON escapes a string for use inside a JSON string value.

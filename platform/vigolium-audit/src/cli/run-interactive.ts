@@ -8,7 +8,7 @@ import { probeGit } from "../engine/git.js";
 import { writeAuditContext } from "../engine/audit-context.js";
 import { claudePluginDir, codexAgentsDir, registerEphemeralHarness } from "../engine/harness.js";
 import type { AgentPlatform, AuditMode } from "../engine/types.js";
-import { DEFAULT_CODEX_REASONING_EFFORT, resolveDefaultModel } from "./run-models.js";
+import { resolveModel } from "./run-models.js";
 import { statusArrow } from "./util.js";
 
 /**
@@ -30,11 +30,9 @@ export async function runInteractive(args: {
   expectedBehaviors?: string;
 }): Promise<void> {
   const { platform, mode, targetDir, noGit, liveTarget } = args;
-  const effectiveModel = resolveDefaultModel(platform, args.model);
-  // Match the headless rule: only apply the codex reasoning default when the
-  // user didn't pick a custom model.
-  const codexReasoning =
-    platform === "codex" && args.model === undefined ? DEFAULT_CODEX_REASONING_EFFORT : undefined;
+  // Unset unless the user opted in (flag or VIGOLIUM_AUDIT_MODEL) so the agent
+  // runtime uses its own configured default model.
+  const effectiveModel = resolveModel(args.model);
   const probe = platform === "claude" ? probeClaudeBinary() : probeCodexBinary();
   if (!probe.path) {
     const installHint =
@@ -74,7 +72,8 @@ export async function runInteractive(args: {
     const pluginDir = claudePluginDir();
     const slashArgs = liveTarget !== undefined ? ` ${liveTarget}` : "";
     const slash = `/vigolium-audit:vigolium-audit:${mode}${slashArgs}`;
-    const cmdArgs = ["--plugin-dir", pluginDir, "--dangerously-skip-permissions", "--model", effectiveModel];
+    const cmdArgs = ["--plugin-dir", pluginDir, "--dangerously-skip-permissions"];
+    if (effectiveModel) cmdArgs.push("--model", effectiveModel);
 
     printBanner({
       platform,
@@ -99,10 +98,8 @@ export async function runInteractive(args: {
   // no plugin-dir nor /slash-command system, so we just exec interactively
   // and instruct the user how to invoke the audit.
   const codexAgents = codexAgentsDir();
-  const cmdArgs: string[] = ["--model", effectiveModel];
-  if (codexReasoning) {
-    cmdArgs.push("-c", `model_reasoning_effort="${codexReasoning}"`);
-  }
+  const cmdArgs: string[] = [];
+  if (effectiveModel) cmdArgs.push("--model", effectiveModel);
 
   printBanner({
     platform,

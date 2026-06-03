@@ -155,18 +155,22 @@ func (m *Module) ScanPerInsertionPoint(
 		return nil, nil
 	}
 
-	bestSeverity := getBestSeverity(results)
-
 	zap.L().Info("SmartBehavior: Found issues",
 		zap.String("param", paramName),
 		zap.Int("count", len(results)/2))
 
+	// All findings from this module are emitted at Info severity. Diff-based
+	// behavioral injection detection is a low-confidence triage heuristic
+	// (it compares response behavior between semantically equivalent vs.
+	// different payloads), so it is surfaced as an informational lead for a
+	// human to confirm rather than an actionable issue. The per-probe
+	// break/escape payloads and response metrics remain in the report body.
 	return []*output.ResultEvent{{
 		URL:              urlx.String(),
 		Request:          string(ctx.Request().Raw()),
 		FuzzingParameter: paramName,
 		Info: output.Info{
-			Severity:    intToSeverity(bestSeverity),
+			Severity:    severity.Info,
 			Description: report,
 		},
 	}}, nil
@@ -341,15 +345,4 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
-}
-
-func intToSeverity(sev int) severity.Severity {
-	switch {
-	case sev >= 7:
-		return severity.High
-	case sev >= 3:
-		return severity.Medium
-	default:
-		return severity.Low
-	}
 }

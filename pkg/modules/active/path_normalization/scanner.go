@@ -57,15 +57,12 @@ var (
 	// Number of times to repeat the payload prefix, relative to original path depth
 	payloadRepetitionDepth = 5
 
-	// Status codes based on pathbuster description
+	// Status codes based on pathbuster description.
+	//
+	// pubStatus: the over-traversed ("public"/proxy) path is rejected as a
+	// malformed request.
 	pubStatus = map[int]bool{
 		400: true,
-	}
-	intStatus = map[int]bool{
-		404: true,
-		403: true,
-		500: true,
-		200: true,
 	}
 
 	// Define the fingerprint types to use for comparison
@@ -241,7 +238,18 @@ func (m *Module) ScanPerRequest(
 				}
 
 				s2 := resp2.Response().StatusCode
-				if _, ok := intStatus[s2]; !ok {
+				// Require the backed-off path to actually REACH A RESOURCE (a 2xx
+				// success). The earlier oracle also accepted 403/404/500, but on
+				// hardened hosts (WAF / CIAM / identity gateways) those are
+				// default-deny / not-found responses emitted for almost any
+				// malformed or disallowed path, so a 400 (over-traversal) -> 403
+				// (backed-off) transition was reported as a normalization bypass
+				// when it was just the host's normal error handling — the reported
+				// false positive. Demanding a real resource reach preserves the
+				// canonical Orange-Tsai signal (normalize through the proxy to
+				// fetch an internal resource you cannot reach directly) while
+				// removing the error-status FP class.
+				if !isResourceReached(s2) {
 					resp2.Close()
 					continue
 				}
@@ -259,6 +267,16 @@ func (m *Module) ScanPerRequest(
 				isDifferentFromRoot := rootFingerprint == nil || !rootFingerprint.IsSimilar(req2Fingerprint)
 
 				if !isDifferentFromBaseline || !isDifferentFromNonExistent || !isDifferentFromRoot {
+					continue
+				}
+
+				// Reproducibility gate: re-fetch the backed-off path and require
+				// the same resource-reached status with a matching fingerprint.
+				// A genuine normalization bypass is deterministic; a one-off 2xx
+				// from a dynamic/error page (rotating tokens, load-balanced error
+				// pages) will not reproduce identically and is dropped.
+				confirmStatus, confirmFingerprint := m.fetchStatusFingerprint(rawRequest, backedOffPath, httpService, httpClient)
+				if !isResourceReached(confirmStatus) || confirmFingerprint == nil || !req2Fingerprint.IsSimilar(confirmFingerprint) {
 					continue
 				}
 
@@ -283,7 +301,7 @@ func (m *Module) ScanPerRequest(
 
 				// Report vulnerability
 				desc := fmt.Sprintf(
-					"Path normalization vulnerability detected. Payload '%s' repetition led to path '%s' (status %d matching pubStatus), and accessing backed-off path '%s' resulted in status %d (matching intStatus).",
+					"Path normalization vulnerability detected. Payload '%s' repetition led to path '%s' (rejected with status %d), while the backed-off path '%s' reproducibly reached a resource (status %d) whose response differs from the baseline, root, and non-existent reference pages.",
 					payload, fuzzedPath, s1, vulnURLString, s2,
 				)
 
@@ -321,30 +339,52 @@ func (m *Module) ScanPerRequest(
 	return results, nil
 }
 
-// fetchFingerprint fetches fingerprint for a given path
+// isResourceReached reports whether a backed-off path response represents
+// actually reaching a resource — a 2xx success — rather than a default-deny
+// (403), not-found (404) or server-error (500) response. Those error statuses
+// are emitted indiscriminately by hardened hosts for malformed/disallowed
+// paths, so treating them as "internal resource reached" produced the reported
+// path-normalization false positives.
+func isResourceReached(status int) bool {
+	return status >= 200 && status < 300
+}
+
+// fetchFingerprint fetches the response fingerprint for a given path.
 func (m *Module) fetchFingerprint(
 	rawRequest []byte,
 	path string,
 	httpService *httpmsg.Service,
 	httpClient *http.Requester,
 ) *anomaly.Fingerprint {
+	_, fp := m.fetchStatusFingerprint(rawRequest, path, httpService, httpClient)
+	return fp
+}
+
+// fetchStatusFingerprint fetches both the status code and response fingerprint
+// for a given path. Returns (0, nil) on any request/parse error.
+func (m *Module) fetchStatusFingerprint(
+	rawRequest []byte,
+	path string,
+	httpService *httpmsg.Service,
+	httpClient *http.Requester,
+) (int, *anomaly.Fingerprint) {
 	modifiedRaw, err := httpmsg.SetPath(rawRequest, path)
 	if err != nil {
-		return nil
+		return 0, nil
 	}
 	modifiedRaw, _ = httpmsg.ClearQueryString(modifiedRaw)
 
 	req, err := httpmsg.ParseRawRequest(string(modifiedRaw))
 	if err != nil {
-		return nil
+		return 0, nil
 	}
 	req.WithService(httpService)
 
 	resp, _, err := httpClient.Execute(req, http.Options{})
 	if err != nil {
-		return nil
+		return 0, nil
 	}
 	defer resp.Close()
 
-	return anomaly.NewFingerprint4(resp.Response(), fingerprintTypes)
+	return resp.Response().StatusCode, anomaly.NewFingerprint4(resp.Response(), fingerprintTypes)
 }

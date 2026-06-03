@@ -277,7 +277,7 @@ func (m *Module) recordAndClassify(
 	defer resp.Close()
 
 	body := resp.Body().Bytes()
-	fullResp := resp.FullResponse().String()
+	fullResp := resp.FullResponseString()
 
 	transformations := ExtractBetweenAnchors(body, ap.SearchAnchor(), ap.RightAnchor)
 
@@ -349,7 +349,7 @@ func (m *Module) buildResults(
 			resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
 			if err == nil {
 				reqRaw = fuzzedRaw
-				respFull = resp.FullResponse().String()
+				respFull = resp.FullResponseString()
 				resp.Close()
 			}
 		}

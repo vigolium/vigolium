@@ -74,10 +74,21 @@ type CodeRecord struct {
 	Content  string `json:"content"`
 }
 
+// DomFlow is a DOM-XSS source→sink taint flow reported by jsscan. Unlike a
+// "source and sink both present" heuristic, each DomFlow means the analyzer
+// traced the same data from a DOM-controlled source into a dangerous sink.
+type DomFlow struct {
+	Source  string `json:"source"`
+	Sink    string `json:"sink"`
+	Snippet string `json:"snippet"`
+	Line    int    `json:"line"`
+}
+
 // ScanResult contains the complete output from a jsscan analysis.
 type ScanResult struct {
 	Requests     []ExtractedRequest `json:"requests"`
 	Code         *CodeRecord        `json:"code,omitempty"`
+	DomFlows     []DomFlow          `json:"dom_flows,omitempty"`
 	ScanDuration time.Duration      `json:"scan_duration"`
 	BytesScanned int                `json:"bytes_scanned"`
 }
@@ -90,6 +101,11 @@ func (r *ScanResult) HasRequests() bool {
 // HasCode returns true if code was extracted.
 func (r *ScanResult) HasCode() bool {
 	return r.Code != nil
+}
+
+// HasDomFlows returns true if any DOM-XSS taint flows were reported.
+func (r *ScanResult) HasDomFlows() bool {
+	return len(r.DomFlows) > 0
 }
 
 // Config configures the jsscan scanner behavior.

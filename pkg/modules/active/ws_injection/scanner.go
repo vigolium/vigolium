@@ -192,7 +192,7 @@ func (m *Module) ScanPerInsertionPoint(
 			continue
 		}
 
-		body := resp.FullResponse().String()
+		body := resp.FullResponseString()
 		resp.Close()
 
 		bodyLower := strings.ToLower(body)

@@ -14,7 +14,7 @@ func TestNew(t *testing.T) {
 	m := New()
 	assert.Equal(t, ModuleID, m.ID())
 	assert.Equal(t, ModuleName, m.Name())
-	assert.Equal(t, severity.High, m.Severity())
+	assert.Equal(t, severity.Info, m.Severity())
 	assert.Equal(t, severity.Certain, m.Confidence())
 	assert.Equal(t, modkit.ScanScopeInsertionPoint, m.ScanScopes())
 }
@@ -31,30 +31,6 @@ func TestEscapeMarkdown(t *testing.T) {
 	assert.Equal(t, "\\`code\\`", escapeMarkdown("`code`"))
 	assert.Equal(t, "a\\|b", escapeMarkdown("a|b"))
 	assert.Equal(t, "plain", escapeMarkdown("plain"))
-}
-
-func TestGetBestSeverity(t *testing.T) {
-	t.Run("picks the maximum", func(t *testing.T) {
-		attacks := []*diffscan.Attack{
-			mkAttack("p1", 4, 200, 10, "a"),
-			mkAttack("p2", 7, 200, 10, "b"),
-			mkAttack("p3", 5, 200, 10, "c"),
-		}
-		assert.Equal(t, 7, getBestSeverity(attacks))
-	})
-
-	t.Run("tolerates nil attacks and nil probes", func(t *testing.T) {
-		attacks := []*diffscan.Attack{
-			nil,
-			{Probe: nil, Payload: "x"},
-			mkAttack("p", 3, 200, 10, "y"),
-		}
-		assert.Equal(t, 3, getBestSeverity(attacks))
-	})
-
-	t.Run("empty input", func(t *testing.T) {
-		assert.Equal(t, 0, getBestSeverity(nil))
-	})
 }
 
 func TestExtractAttackPairs(t *testing.T) {

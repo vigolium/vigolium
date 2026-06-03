@@ -41,6 +41,12 @@ func New() *Module {
 	return m
 }
 
+// ConfirmsByBodyDifferential opts this module into the executor's body-
+// differential safety net: a candidate finding is re-confirmed by replaying the
+// template payload request and verifying the evaluated math result reproducibly
+// appears as content absent from the clean baseline before being reported.
+func (m *Module) ConfirmsByBodyDifferential() bool { return true }
+
 // ScanPerInsertionPoint tests a single insertion point for SSTI.
 func (m *Module) ScanPerInsertionPoint(
 	ctx *httpmsg.HttpRequestResponse,
@@ -90,7 +96,7 @@ func (m *Module) ScanPerInsertionPoint(
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Request:          string(fuzzedRaw),
-				Response:         resp.FullResponse().String(),
+				Response:         resp.FullResponseString(),
 				FuzzingParameter: ip.Name(),
 				ExtractedResults: []string{ip.BaseValue()},
 			})

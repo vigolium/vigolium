@@ -18,6 +18,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/audit/bin"
 	"github.com/vigolium/vigolium/pkg/cftbrowser"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
 	"github.com/vigolium/vigolium/pkg/olium/auth"
 	"github.com/vigolium/vigolium/pkg/piolium"
 	"github.com/vigolium/vigolium/pkg/queue"
@@ -73,19 +74,20 @@ type ToolCheck struct {
 
 // Report is the complete diagnostic report.
 type Report struct {
-	Status          Status                `json:"status"` // "ready", "degraded", "not_ready"
-	Timestamp       string                `json:"timestamp"`
-	Database        *CheckResult          `json:"database"`
-	Initialized     *CheckResult          `json:"initialized"`
-	Queue           *CheckResult          `json:"queue,omitempty"`
-	Agent           *AgentCheck           `json:"agent"`
-	Browser         *CheckResult          `json:"browser"`
-	SessionsDir     *CheckResult          `json:"sessions_dir"`
-	Audit           *CheckResult          `json:"audit,omitempty"`   // omitted when audit integration is disabled
-	Piolium         *CheckResult          `json:"piolium,omitempty"` // soft check — feature-gates audit --driver=piolium
-	Tools           map[string]*ToolCheck `json:"tools"`
-	TemplatesDir    *CheckResult          `json:"templates_dir"`
-	NucleiTemplates *CheckResult          `json:"nuclei_templates"`
+	Status           Status                  `json:"status"` // "ready", "degraded", "not_ready"
+	Timestamp        string                  `json:"timestamp"`
+	Database         *CheckResult            `json:"database"`
+	Initialized      *CheckResult            `json:"initialized"`
+	Queue            *CheckResult            `json:"queue,omitempty"`
+	Agent            *AgentCheck             `json:"agent"`
+	Browser          *CheckResult            `json:"browser"`
+	SessionsDir      *CheckResult            `json:"sessions_dir"`
+	EmbeddedBinaries map[string]*CheckResult `json:"embedded_binaries,omitempty"`
+	Audit            *CheckResult            `json:"audit,omitempty"`   // omitted when audit integration is disabled
+	Piolium          *CheckResult            `json:"piolium,omitempty"` // soft check — feature-gates audit --driver=piolium
+	Tools            map[string]*ToolCheck   `json:"tools"`
+	TemplatesDir     *CheckResult            `json:"templates_dir"`
+	NucleiTemplates  *CheckResult            `json:"nuclei_templates"`
 }
 
 // Deps provides the dependencies needed to run diagnostics.
@@ -216,7 +218,11 @@ func Run(deps Deps) *Report {
 	}
 
 	r.SessionsDir = checkSessionsDir(settings)
-	r.Audit = checkAudit(settings)
+	r.EmbeddedBinaries = map[string]*CheckResult{
+		"jsscan":         checkJSScanBinary(),
+		"vigolium-audit": checkAuditBinary(),
+	}
+	r.Audit = checkAudit(settings, r.EmbeddedBinaries["vigolium-audit"])
 	r.Piolium = checkPiolium()
 	// When claude (Path A) is available, frame a missing piolium as optional
 	// rather than a problem to fix — the user already has a working audit
@@ -678,26 +684,162 @@ func probeWritable(dir string) error {
 	return nil
 }
 
-// checkAudit validates the embedded vigolium-audit binary was staged at
-// vigolium build time. Returns nil when the integration is disabled so
-// the caller can omit the section from the report entirely.
-func checkAudit(settings *config.Settings) *CheckResult {
+// checkAudit reports whether audit mode is configured and has a working
+// embedded vigolium-audit binary. Returns nil when the integration is disabled
+// so the caller can omit the mode-level section from the report entirely; the
+// raw embedded-binary check still appears under EmbeddedBinaries.
+func checkAudit(settings *config.Settings, auditBinary *CheckResult) *CheckResult {
 	if !settings.Agent.Audit.IsEnabled() {
 		return nil
 	}
 	mode := settings.Agent.Audit.EffectiveMode()
 	details := []string{fmt.Sprintf("mode: %s", mode)}
+	if auditBinary == nil {
+		auditBinary = checkAuditBinary()
+	}
+	details = append(details, auditBinary.Details...)
+	if auditBinary.Status != StatusOK {
+		return &CheckResult{
+			Status:  auditBinary.Status,
+			Message: auditBinary.Message,
+			Details: details,
+			Tip:     auditBinary.Tip,
+		}
+	}
+	return &CheckResult{
+		Status:  StatusOK,
+		Message: fmt.Sprintf("mode=%s, embedded binary ok", mode),
+		Details: details,
+	}
+}
+
+func checkJSScanBinary() *CheckResult {
+	details := []string{
+		fmt.Sprintf("runtime: %s/%s", runtime.GOOS, runtime.GOARCH),
+		"extracting embedded jsscan and validating cache checksum",
+	}
+
+	scanner, err := jsscan.NewScanner(jsscan.DefaultConfig())
+	if err != nil {
+		return &CheckResult{
+			Status:  StatusError,
+			Message: fmt.Sprintf("not available: %v", err),
+			Details: details,
+			Tip:     "This installed Vigolium binary does not contain a usable jsscan for this platform. Reinstall the latest release; if it persists, report the package platform and `vigolium version` output.",
+		}
+	}
+	if err := scanner.EnsureBinary(); err != nil {
+		return &CheckResult{
+			Status:  StatusError,
+			Message: fmt.Sprintf("extract failed: %v", err),
+			Details: details,
+			Tip:     "Check that your user cache directory is writable, then rerun `vigolium doctor`. If extraction still fails, reinstall Vigolium.",
+		}
+	}
+
+	path := scanner.BinaryPath()
+	checksum := scanner.Checksum()
+	details = append(details,
+		fmt.Sprintf("path: %s", config.ContractPath(path)),
+		fmt.Sprintf("sha256: %s", checksum),
+		"running JavaScript extraction probe",
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := scanner.Scan(ctx, []byte(`fetch("/vigolium-doctor-jsscan", {method: "POST", body: JSON.stringify({ok: true})});`))
+	if err != nil {
+		return &CheckResult{
+			Status:  StatusError,
+			Message: fmt.Sprintf("probe failed: %v", err),
+			Details: details,
+			Tip:     "The embedded jsscan extracted but could not execute. Reinstall the correct platform build; if it persists, report the package platform and this doctor output.",
+		}
+	}
+
+	requests := 0
+	bytesScanned := 0
+	if result != nil {
+		requests = len(result.Requests)
+		bytesScanned = result.BytesScanned
+	}
+	details = append(details, fmt.Sprintf("probe: ok, requests=%d, bytes=%d", requests, bytesScanned))
+
+	return &CheckResult{
+		Status:  StatusOK,
+		Message: fmt.Sprintf("runtime=%s/%s, probe=ok", runtime.GOOS, runtime.GOARCH),
+		Details: details,
+	}
+}
+
+func checkAuditBinary() *CheckResult {
+	details := []string{
+		fmt.Sprintf("runtime: %s/%s", runtime.GOOS, runtime.GOARCH),
+		"extracting embedded vigolium-audit and validating executable platform",
+	}
+
 	if !bin.Available() {
 		return &CheckResult{
 			Status:  StatusError,
 			Message: "vigolium-audit binary not embedded",
 			Details: details,
-			Tip:     "Run `make build-audit` and rebuild vigolium to embed the vigolium-audit binary.",
+			Tip:     "This installed Vigolium binary does not contain vigolium-audit. Reinstall the latest release; source builds should use `make build` or `make release`, not raw `go build`.",
 		}
 	}
+
+	path, err := bin.Path()
+	if err != nil {
+		tip := "Reinstall the correct platform build. If this came from an official release, report the package platform and this doctor output."
+		if errors.Is(err, bin.ErrBinaryMissing) {
+			tip = "This installed Vigolium binary does not contain vigolium-audit. Reinstall the latest release; source builds should use `make build` or `make release`, not raw `go build`."
+		}
+		if errors.Is(err, bin.ErrBinaryPlatformMismatch) {
+			tip = "The installed Vigolium package embedded a vigolium-audit binary for the wrong OS/arch. Reinstall the latest release; if it persists, report this as a packaging bug."
+		}
+		return &CheckResult{
+			Status:  StatusError,
+			Message: fmt.Sprintf("extract failed: %v", err),
+			Details: details,
+			Tip:     tip,
+		}
+	}
+	details = append(details,
+		fmt.Sprintf("path: %s", config.ContractPath(path)),
+		"running `vigolium-audit list` probe",
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "list")
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return &CheckResult{
+			Status:  StatusError,
+			Message: "probe timed out",
+			Details: append(details, "timeout: 5s"),
+			Tip:     "The embedded vigolium-audit binary extracted but did not respond to `list`. Reinstall Vigolium; if it persists, report this doctor output.",
+		}
+	}
+	if err != nil {
+		trimmed := strings.TrimSpace(string(out))
+		if len(trimmed) > 500 {
+			trimmed = trimmed[:500] + "..."
+		}
+		if trimmed != "" {
+			details = append(details, fmt.Sprintf("probe output: %s", trimmed))
+		}
+		return &CheckResult{
+			Status:  StatusError,
+			Message: fmt.Sprintf("probe failed: %v", err),
+			Details: details,
+			Tip:     "The embedded vigolium-audit extracted but could not run `list`. Reinstall the correct platform build; if it persists, report this doctor output.",
+		}
+	}
+
+	details = append(details, fmt.Sprintf("probe: ok, output_bytes=%d", len(out)))
 	return &CheckResult{
 		Status:  StatusOK,
-		Message: fmt.Sprintf("mode=%s", mode),
+		Message: fmt.Sprintf("runtime=%s/%s, list=ok", runtime.GOOS, runtime.GOARCH),
 		Details: details,
 	}
 }
@@ -861,9 +1003,9 @@ func checkNucleiTemplates(settings *config.Settings) *CheckResult {
 //
 //   - Core: only Database. A DB failure is the single condition that drops
 //     the system to "not_ready" — every scan path needs storage.
-//   - Native scan (vigolium scan / vigolium run): chromium + nuclei templates.
-//     Failures here drop to "degraded" — native scans are partially broken
-//     but the rest of the system still works.
+//   - Native scan (vigolium scan / vigolium run): chromium, nuclei templates,
+//     and the embedded jsscan binary. Failures here drop to "degraded" —
+//     native scans are partially broken but the rest of the system still works.
 //   - Olium-based agentic modes (autopilot + swarm + query): olium provider,
 //     sessions dir, prompt templates dir, and (when explicitly enabled) the
 //     agent browser. Failures drop to "degraded".
@@ -885,6 +1027,11 @@ func computeOverallStatus(r *Report) Status {
 	}
 	if t := r.Tools["chromium"]; t != nil && t.Status != StatusOK {
 		return "degraded"
+	}
+	if r.EmbeddedBinaries != nil {
+		if c := r.EmbeddedBinaries["jsscan"]; c != nil && c.Status != StatusOK {
+			return "degraded"
+		}
 	}
 
 	// Olium-based modes (autopilot + swarm + query).

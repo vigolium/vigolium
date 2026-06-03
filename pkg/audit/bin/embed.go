@@ -5,7 +5,10 @@
 // which runs `bun run build` and copies the host-platform output to
 // _bin/vigolium-audit. Cross-compiling vigolium requires staging the
 // matching vigolium-audit-<os>-<arch> blob at _bin/vigolium-audit before
-// `go build`.
+// `go build`; the release does this per-target via the goreleaser pre-hook
+// build/scripts/stage-audit-blob.sh (builds run with --parallelism 1 because
+// the embed path is a single shared file). verifyBlobForHost (verify.go)
+// guards against a wrong-platform blob slipping through at runtime.
 package bin
 
 import (

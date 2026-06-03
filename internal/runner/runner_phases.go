@@ -9,6 +9,7 @@ import (
 	goruntime "runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -175,21 +176,13 @@ func (r *Runner) RunNativeScan() error {
 	// Log scan configuration snapshot as structured metadata.
 	r.logConfigSnapshot()
 
-	// Banner the scan lifecycle on stderr so operators see at a glance when
-	// scanning kicks off and wraps up. Suppressed by --silent; defers to the
-	// printScanConfig banner above for CLI runs (which already shows targets),
-	// so this marker is most useful for scan-on-receive where the server is
-	// otherwise quiet between 2-minute status ticks.
+	// Banner the end of the scan lifecycle on stderr so operators see at a glance
+	// when scanning wraps up, with wall-clock duration and finding count.
+	// Suppressed by --silent. The scan kickoff is already announced by the Scan ID
+	// line in the configuration banner above, so there is no separate "started"
+	// marker here.
 	scanStartedAt := time.Now()
 	if !r.options.Silent {
-		target := strings.Join(r.options.Targets, ", ")
-		if target == "" {
-			target = "(continuous, awaiting ingested records)"
-		}
-		fmt.Fprintf(os.Stderr, "  %s Scan started %s %s\n",
-			terminal.Green(terminal.SymbolStart),
-			terminal.BoldCyan(infra.scanUUID),
-			terminal.Gray("target: "+target))
 		defer func() {
 			duration := time.Since(scanStartedAt)
 			findingSummary := ""
@@ -576,6 +569,27 @@ func coversAllSeverities(sevs []string) bool {
 	return true
 }
 
+// formatKnownIssueScanTemplateScope renders the nuclei template selection (tags,
+// excluded tags, and any custom templates dir) as a compact colored string for
+// the KnownIssueScan phase header. Returns "all built-in" when no filters narrow
+// the default template set.
+func formatKnownIssueScanTemplateScope(cfg *config.KnownIssueScanConfig) string {
+	var parts []string
+	if len(cfg.Tags) > 0 {
+		parts = append(parts, "tags="+terminal.HiTeal(strings.Join(cfg.Tags, ",")))
+	}
+	if len(cfg.ExcludeTags) > 0 {
+		parts = append(parts, "exclude="+terminal.HiPurple(strings.Join(cfg.ExcludeTags, ",")))
+	}
+	if cfg.TemplatesDir != "" {
+		parts = append(parts, "dir="+terminal.HiCyan(terminal.ShortenHome(config.ExpandPath(cfg.TemplatesDir))))
+	}
+	if len(parts) == 0 {
+		return terminal.Gray("all built-in")
+	}
+	return strings.Join(parts, " ")
+}
+
 // runKnownIssueScanPhase orchestrates nuclei + kingfisher batch scanning.
 func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) error {
 	phaseStart := time.Now()
@@ -595,6 +609,16 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 			}
 			r.printPhaseDetail(detail)
 		}
+
+		// Surface the active severity filter and template scope as static detail
+		// lines so the operator can see exactly what nuclei will run, not just how
+		// many targets it runs against.
+		sevDetail := terminal.Gray("all")
+		if sevs := r.settings.KnownIssueScan.Severities; len(sevs) > 0 {
+			sevDetail = terminal.HiTeal(strings.Join(sevs, ", "))
+		}
+		r.printPhaseDetail(fmt.Sprintf("Severities: %s", sevDetail))
+		r.printPhaseDetail(fmt.Sprintf("Templates: %s", formatKnownIssueScanTemplateScope(&r.settings.KnownIssueScan)))
 	}
 
 	// bookkeepingCtx is the un-bounded parent context (still cancelled if the whole
@@ -980,6 +1004,11 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		defer recordWriter.Close()
 	}
 
+	// phaseModuleTimeouts is shared across every per-round executor so the
+	// timed-out total in the status line accumulates over the whole phase rather
+	// than resetting each feedback round (Records/Findings are per-round by design).
+	var phaseModuleTimeouts atomic.Int64
+
 	baseExecutorCfg := core.ExecutorConfig{
 		Workers:              daConcurrency,
 		Services:             infra.svc,
@@ -988,6 +1017,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		RecordWriter:         recordWriter,
 		ScanUUID:             infra.scanUUID,
 		ScopeMatcher:         infra.scopeMatcher,
+		ModuleTimeouts:       &phaseModuleTimeouts,
 		SkipBaseline:         true,
 		PauseCtrl:            r.pauseCtrl,
 		MaxFindingsPerModule: r.options.MaxFindingsPerModule,
@@ -1018,7 +1048,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 				zap.L().Error("Failed to write result", zap.Error(err))
 			}
 		},
-		OnStatus: func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) {
+		OnStatus: func(processed, total, findings, distinctModules, activeCount, passiveCount, timedOut int64, elapsed time.Duration) {
 			if r.options.Silent {
 				return
 			}
@@ -1030,8 +1060,9 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 				recordsStr = fmt.Sprintf("%d", processed)
 			}
 			totalModules := activeCount + passiveCount
-			modulesStr := fmt.Sprintf("%d/%d (%d active, %d passive)",
-				distinctModules, totalModules, activeCount, passiveCount)
+			// timedOut is phase-cumulative (shared across feedback rounds); the
+			// helper appends it to the breakdown only when > 0.
+			modulesStr := terminal.FormatModuleProgress(distinctModules, totalModules, activeCount, passiveCount, timedOut)
 			fmt.Fprintf(os.Stderr, "%s %s Records: %s | Findings: %s | Modules: %s | Runtime: %s\n",
 				prefix,
 				terminal.BoldCyan("[status]"),
@@ -1164,7 +1195,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		// only from the ticker goroutine, so no locking needed.
 		var prevIngestedCount int64 = -1
 
-		sorCfg.OnStatus = func(processed, total, findings, distinctModules, activeCount, passiveCount int64, elapsed time.Duration) {
+		sorCfg.OnStatus = func(processed, total, findings, distinctModules, activeCount, passiveCount, timedOut int64, elapsed time.Duration) {
 			// Use the phase context (captured from the enclosing function) so
 			// these periodic status DB reads stop once the scan is cancelled
 			// rather than outliving it on a detached context.Background().
@@ -1217,7 +1248,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 			if sorExecutor != nil {
 				scannedModules = sorExecutor.ConsideredModuleCount()
 			}
-			modulesStr := fmt.Sprintf("%d / %d", scannedModules, totalModules)
+			modulesStr := terminal.FormatModuleCount(scannedModules, totalModules, timedOut)
 
 			// Optional suffix: when no workers are in-flight and the source has
 			// been quiet for a while, surface "idle <duration>" so the user knows
@@ -1349,9 +1380,16 @@ func (r *Runner) runDynamicAssessmentRound(
 	roundElapsed := time.Since(roundStart)
 	r.printPhaseComplete("DynamicAssessment",
 		fmt.Sprintf("round %d — %s items in %s", round+1, terminal.Orange(fmt.Sprintf("%d", processed)), terminal.HiPurple(fmtDuration(roundElapsed))))
-	zap.L().Info("DynamicAssessment: round completed",
+	fields := []zap.Field{
 		zap.Int("round", round+1),
-		zap.Int64("processed", processed))
+		zap.Int64("processed", processed),
+	}
+	// Surface how many candidate findings the body-differential safety net
+	// dropped, so a quiet target is distinguishable from a confirmed-clean one.
+	if suppressed := executor.SuppressedFindings(); suppressed > 0 {
+		fields = append(fields, zap.Int64("findings_dropped_unconfirmed", suppressed))
+	}
+	zap.L().Info("DynamicAssessment: round completed", fields...)
 	return processed, nil
 }
 

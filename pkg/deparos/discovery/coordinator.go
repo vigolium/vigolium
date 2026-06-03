@@ -294,8 +294,18 @@ func (c *PayloadCoordinator) executeWorkItem(ctx context.Context, item *WorkItem
 	}
 }
 
-// maxJSSize is the maximum size of JS files to process (30MB).
-const maxJSSize = 30 * 1024 * 1024
+// maxJSSize is the maximum size of JS files to process (50MB).
+const maxJSSize = 50 * 1024 * 1024
+
+// hasJavaScriptExtension reports whether the URL path looks like a JavaScript
+// file by extension. Used as a fallback when the server serves a bundle with a
+// non-JS content-type (e.g. text/plain or application/octet-stream).
+func hasJavaScriptExtension(u *url.URL) bool {
+	p := strings.ToLower(u.Path)
+	return strings.HasSuffix(p, ".js") ||
+		strings.HasSuffix(p, ".mjs") ||
+		strings.HasSuffix(p, ".cjs")
+}
 
 // executeJSFetchItem handles JSFetchTask responses with custom validation.
 // Validates status 200 + JS content-type, extracts paths, and calls OnResult.
@@ -318,87 +328,100 @@ func (c *PayloadCoordinator) executeJSFetchItem(
 		return
 	}
 
-	// Validate: status 200
-	if resp.StatusCode != stdhttp.StatusOK {
-		logger.Debug("JS returned non-200 status",
+	// Validate: status — accept 200/203 (success) and 304 (cached). 304 normally
+	// carries no body and is filtered by the empty-body check below; it is
+	// allowed here only so a spec-violating server that does return a body still
+	// gets parsed. Other statuses are dropped.
+	if resp.StatusCode != stdhttp.StatusOK &&
+		resp.StatusCode != stdhttp.StatusNonAuthoritativeInfo &&
+		resp.StatusCode != stdhttp.StatusNotModified {
+		logger.Debug("JS returned non-success status",
 			zap.String("url", item.URL),
 			zap.Int("status", resp.StatusCode))
 		return
 	}
 
-	// Validate: JavaScript content-type
-	if !isJavaScriptContentType(resp.Header.Get("Content-Type")) {
-		logger.Debug("JS returned non-JS content-type",
+	// Validate: JavaScript content-type, with a .js-extension fallback for
+	// bundles served as text/plain or application/octet-stream.
+	if !isJavaScriptContentType(resp.Header.Get("Content-Type")) && !hasJavaScriptExtension(jsURL) {
+		logger.Debug("JS returned non-JS content-type and lacks a JS extension",
 			zap.String("url", item.URL),
 			zap.String("content-type", resp.Header.Get("Content-Type")))
 		return
 	}
 
-	// Check if we should skip path extraction (CDN/library files)
-	// Still record the finding, but don't parse for paths
-	if spider.ShouldSkipJSPathExtraction(jsURL) {
-		logger.Debug("Skipping path extraction for CDN/library JS",
+	body := rc.BodyBytes()
+
+	// CDN/library bundles still get jsscan endpoint extraction (the API calls
+	// they make are real regardless of where the JS is hosted); only their
+	// path→wordlist extraction is suppressed to avoid flooding the bruteforcer.
+	skipPathExtraction := spider.ShouldSkipJSPathExtraction(jsURL)
+
+	switch {
+	case len(body) == 0:
+		logger.Debug("JS response had empty body, skipping parse",
 			zap.String("url", item.URL))
-	} else {
-		body := rc.BodyBytes()
+	case len(body) > maxJSSize:
+		logger.Debug("JS too large, skipping parse",
+			zap.String("url", item.URL),
+			zap.Int("size", len(body)))
+	default:
+		// Content to pass to linkfinder (default: raw body, may be replaced by CodeRecord)
+		contentForLinkfinder := body
 
-		// Size check - skip path extraction for very large files
-		if len(body) > maxJSSize {
-			logger.Debug("JS too large, skipping path extraction",
-				zap.String("url", item.URL),
-				zap.Int("size", len(body)))
-		} else {
-			// Content to pass to linkfinder (default: raw body, may be replaced by CodeRecord)
-			contentForLinkfinder := body
-
-			// Run jsscan to extract HTTP requests and transformed code
-			if cb.JSScanScanner != nil && cb.JSScanSem != nil {
-				// Acquire semaphore
-				select {
-				case cb.JSScanSem <- struct{}{}:
-					defer func() { <-cb.JSScanSem }()
-				case <-ctx.Done():
-					return
-				}
-
-				// Run jsscan
-				scanResult, err := cb.JSScanScanner.Scan(ctx, body)
-				if err != nil {
-					logger.Debug("jsscan failed",
-						zap.String("url", item.URL),
-						zap.Error(err))
-				} else {
-					// Store extracted requests with dedup
-					newRequests := 0
-					if cb.AddExtractedRequest != nil {
-						for i := range scanResult.Requests {
-							if cb.AddExtractedRequest(&scanResult.Requests[i]) {
-								newRequests++
-							}
-						}
-					}
-
-					// Persist to database
-					if cb.StoreJSScanRequests != nil && len(scanResult.Requests) > 0 {
-						cb.StoreJSScanRequests(jsURL, scanResult.Requests)
-					}
-
-					logger.Debug("jsscan extracted requests",
-						zap.String("url", item.URL),
-						zap.Int("total", len(scanResult.Requests)),
-						zap.Int("new", newRequests))
-
-					// Use CodeRecord.Content if available (transformed JS code)
-					if scanResult.HasCode() {
-						contentForLinkfinder = []byte(scanResult.Code.Content)
-						logger.Debug("Using jsscan transformed code for linkfinder",
-							zap.String("url", item.URL),
-							zap.Int("original_size", len(body)),
-							zap.Int("transformed_size", len(contentForLinkfinder)))
-					}
-				}
+		// Run jsscan to extract HTTP requests and transformed code (always,
+		// even for CDN-hosted bundles).
+		if cb.JSScanScanner != nil && cb.JSScanSem != nil {
+			// Acquire semaphore
+			select {
+			case cb.JSScanSem <- struct{}{}:
+				defer func() { <-cb.JSScanSem }()
+			case <-ctx.Done():
+				return
 			}
 
+			// Run jsscan
+			scanResult, err := cb.JSScanScanner.Scan(ctx, body)
+			if err != nil {
+				logger.Debug("jsscan failed",
+					zap.String("url", item.URL),
+					zap.Error(err))
+			} else {
+				// Store extracted requests with dedup
+				newRequests := 0
+				if cb.AddExtractedRequest != nil {
+					for i := range scanResult.Requests {
+						if cb.AddExtractedRequest(&scanResult.Requests[i]) {
+							newRequests++
+						}
+					}
+				}
+
+				// Persist to database
+				if cb.StoreJSScanRequests != nil && len(scanResult.Requests) > 0 {
+					cb.StoreJSScanRequests(jsURL, scanResult.Requests)
+				}
+
+				logger.Debug("jsscan extracted requests",
+					zap.String("url", item.URL),
+					zap.Int("total", len(scanResult.Requests)),
+					zap.Int("new", newRequests))
+
+				// Use CodeRecord.Content if available (transformed JS code)
+				if scanResult.HasCode() {
+					contentForLinkfinder = []byte(scanResult.Code.Content)
+					logger.Debug("Using jsscan transformed code for linkfinder",
+						zap.String("url", item.URL),
+						zap.Int("original_size", len(body)),
+						zap.Int("transformed_size", len(contentForLinkfinder)))
+				}
+			}
+		}
+
+		if skipPathExtraction {
+			logger.Debug("Skipping path→wordlist extraction for CDN/library JS (endpoints still extracted)",
+				zap.String("url", item.URL))
+		} else {
 			// Extract paths and add to observed collections
 			paths := jsTask.ExtractPathsFromContent(contentForLinkfinder)
 			namesAdded := 0

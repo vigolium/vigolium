@@ -225,6 +225,8 @@ function isValidHttpUrl(url: string): boolean {
     const validPatterns = [
         // Absolute URLs
         /^https?:\/\//i,
+        // WebSocket / SSE endpoints (ws://, wss://)
+        /^wss?:\/\//i,
         // Protocol-relative URLs
         /^\/\//,
         // Absolute paths starting with /

@@ -125,6 +125,12 @@ func (m *Module) ScanPerRequest(
 	baselineHasSecureCookie := strings.Contains(baselineHeaders, "Secure")
 	_ = baselineLocation
 
+	// Retain the no-header baseline request/response so each finding can carry the
+	// differential it was judged against (the spoofed-header probe is the attack
+	// pair; this is what it's compared to). Capture before Close frees the buffer.
+	baselineReqStr := string(ctx.Request().Raw())
+	baselineRespStr := baselineResp.FullResponseString()
+
 	baselineResp.Close()
 
 	var results []*output.ResultEvent
@@ -169,7 +175,7 @@ func (m *Module) ScanPerRequest(
 			finding = checkHostInjection(probeBody, probeHeaders, probeLocation)
 
 		case "X-Forwarded-For":
-			finding = checkIPBypass(baselineStatus, probeStatus, baselineBody, probeBody)
+			finding = m.checkIPBypass(ctx, httpClient, modifiedRaw, baselineStatus, probeStatus, baselineBody, probeBody)
 
 		case "X-Forwarded-Port":
 			finding = checkPortInjection(probeBody, probeLocation)
@@ -181,11 +187,15 @@ func (m *Module) ScanPerRequest(
 				fmt.Sprintf("Finding: %s", finding),
 			}
 
+			ev := modkit.NewEvidenceCollector()
+			ev.Add("baseline", baselineReqStr, baselineRespStr)
+
 			results = append(results, &output.ResultEvent{
-				URL:              urlx.String(),
-				Request:          string(modifiedRaw),
-				Response:         resp.FullResponse().String(),
-				ExtractedResults: extracted,
+				URL:                urlx.String(),
+				Request:            string(modifiedRaw),
+				Response:           resp.FullResponseString(),
+				AdditionalEvidence: ev.Entries(),
+				ExtractedResults:   extracted,
 				Info: output.Info{
 					Name:        fmt.Sprintf("Express Trust Proxy Misconfiguration: %s", probe.headerName),
 					Description: probe.desc,
@@ -251,38 +261,121 @@ func checkHostInjection(
 
 // checkIPBypass detects if X-Forwarded-For: 127.0.0.1 causes a different
 // response status or significantly different content, indicating IP-based
-// access control bypass.
-func checkIPBypass(
+// access control bypass. Both signals are confirmed before reporting: a single
+// baseline status is unreliable (a transient 429/503 that simply cleared by the
+// probe reads as a bypass), and a one-shot body-length delta is dominated by the
+// page's natural per-request jitter (rotating tokens, ads, view counts).
+func (m *Module) checkIPBypass(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	modifiedRaw []byte,
 	baselineStatus, probeStatus int,
 	baselineBody, probeBody string,
 ) string {
 	// A real bypass goes blocked→allowed (the spoofed IP was trusted). The reverse
-	// (200→429/403/503) is the WAF rejecting the spoofed header — not trust.
-	baselineBlocked := isAccessDenied(baselineStatus)
-	probeAllowed := probeStatus >= 200 && probeStatus < 300
-	if baselineBlocked && probeAllowed {
-		return fmt.Sprintf("IP spoofing bypassed access control (status %d → %d)", baselineStatus, probeStatus)
+	// (200→429/403/503) is the WAF rejecting the spoofed header — not trust. Confirm
+	// the split is reproducible and header-attributable before asserting it.
+	if isAccessDenied(baselineStatus) && probeStatus >= 200 && probeStatus < 300 {
+		if m.confirmIPBypass(ctx, httpClient, modifiedRaw) {
+			return fmt.Sprintf("IP spoofing bypassed access control (status %d → %d)", baselineStatus, probeStatus)
+		}
+		return ""
 	}
 
-	// Significant body length difference suggests different content served.
-	baseLen := len(baselineBody)
-	probeLen := len(probeBody)
-	if baseLen > 0 {
-		diff := probeLen - baseLen
-		if diff < 0 {
-			diff = -diff
-		}
-		// Flag if body length differs by more than 30%.
-		threshold := baseLen * 30 / 100
-		if threshold < 50 {
-			threshold = 50
-		}
-		if diff > threshold {
-			return fmt.Sprintf("IP spoofing caused significant response size change (baseline=%d, probe=%d)", baseLen, probeLen)
+	// Significant body length difference suggests different content served — but
+	// only when it reproducibly exceeds the page's natural jitter. Skip when either
+	// side is a WAF/denied page (that size is noise, not the app's content).
+	if !isAccessDenied(baselineStatus) && !isAccessDenied(probeStatus) && len(baselineBody) > 0 {
+		if shift, ok := m.confirmSizeShift(ctx, httpClient, modifiedRaw, len(baselineBody), len(probeBody)); ok {
+			return shift
 		}
 	}
 
 	return ""
+}
+
+// confirmIPBypass verifies an apparent blocked→allowed transition is genuinely
+// caused by trusting the spoofed X-Forwarded-For header, not transient
+// rate-limit/maintenance flapping. It re-runs the pair interleaved, with the
+// spoofed header as the only variable: each round the unmodified control must
+// STILL be denied and the spoofed-IP probe must STILL be allowed. Drops on any
+// miss or fetch error so an unverifiable transition is never reported.
+func (m *Module) confirmIPBypass(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, modifiedRaw []byte) bool {
+	const rounds = 2
+	for range rounds {
+		if _, status, ok := doFetch(ctx, httpClient, ctx.Request().Raw()); !ok || !isAccessDenied(status) {
+			return false // not denied WITHOUT the header → the block isn't header-attributable
+		}
+		if _, status, ok := doFetch(ctx, httpClient, modifiedRaw); !ok || status < 200 || status >= 300 {
+			return false // not allowed WITH the header → not a reproducible bypass
+		}
+	}
+	return true
+}
+
+// confirmSizeShift decides whether the spoofed X-Forwarded-For header is
+// responsible for a response-size change, rather than ordinary per-request
+// jitter. It fetches a fresh unmodified control (natural variance) and re-sends
+// the spoofed-IP probe (reproducibility), then reports a hit only when BOTH probe
+// responses land on the same side of, and clearly outside, the no-header size
+// band by more than a meaningful margin.
+func (m *Module) confirmSizeShift(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	modifiedRaw []byte,
+	baselineLen, probeLen int,
+) (string, bool) {
+	controlLen, ok := fetchBodyLen(ctx, httpClient, ctx.Request().Raw())
+	if !ok {
+		return "", false
+	}
+	probe2Len, ok := fetchBodyLen(ctx, httpClient, modifiedRaw)
+	if !ok {
+		return "", false
+	}
+
+	// Attribute the shift to the header only when both spoofed-IP samples land on
+	// the same side of, and clear of, the no-header band by more than its variance.
+	if _, ok := modkit.SizeShiftGap(baselineLen, controlLen, probeLen, probe2Len); !ok {
+		return "", false
+	}
+
+	noHdrMin, noHdrMax := min(baselineLen, controlLen), max(baselineLen, controlLen)
+	probeMin, probeMax := min(probeLen, probe2Len), max(probeLen, probe2Len)
+	return fmt.Sprintf(
+		"IP spoofing reproducibly shifted response size outside natural variance (no-header %d–%d bytes, spoofed-IP %d–%d bytes)",
+		noHdrMin, noHdrMax, probeMin, probeMax,
+	), true
+}
+
+// fetchBodyLen returns the body length of a clean (non-denied) fresh sample of
+// raw; ok is false on transport error, nil response, or a WAF/denied status.
+func fetchBodyLen(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, raw []byte) (int, bool) {
+	bodyLen, status, ok := doFetch(ctx, httpClient, raw)
+	if !ok || isAccessDenied(status) {
+		return 0, false
+	}
+	return bodyLen, true
+}
+
+// doFetch re-issues raw with the response cache bypassed (NoClustering) so each
+// confirmation sample is a genuinely fresh render, and returns the body length
+// and status. ok is false only on a build/parse/transport error or nil response.
+func doFetch(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, raw []byte) (bodyLen, status int, ok bool) {
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	if err != nil {
+		return 0, 0, false
+	}
+	req = req.WithService(ctx.Service())
+	resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true})
+	if err != nil {
+		return 0, 0, false
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return 0, 0, false
+	}
+	return len(resp.Body().String()), resp.Response().StatusCode, true
 }
 
 // checkPortInjection detects if X-Forwarded-Port value appears in generated

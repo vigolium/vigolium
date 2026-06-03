@@ -3,75 +3,73 @@ package sqli_time_blind
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
 
-const (
-	// sleepDelay is just above the module's 8s sleepThreshold.
-	sleepDelay = 9 * time.Second
-	// noSleepDelay stays under the threshold but exceeds the requester's 500ms
-	// clustering cache TTL, so the module's third (byte-identical) sleep probe
-	// is re-executed against the server instead of served from cache.
-	noSleepDelay = 700 * time.Millisecond
-)
+// baseDelay is the short latency for non-sleeping requests: under the derived
+// threshold, but long enough to bust the requester's ~500ms clustering cache so
+// byte-identical no-sleep probes are re-executed.
+const baseDelay = 600 * time.Millisecond
 
-// queryHasSleep reports whether any query parameter carries a heavy SQL sleep
-// payload (SLEEP(10)/pg_sleep(10)/WAITFOR/RANDOMBLOB/DBMS_PIPE 10) rather than
-// its paired no-sleep variant.
-func queryHasSleep(r *http.Request) bool {
-	for _, vals := range r.URL.Query() {
-		for _, v := range vals {
-			if strings.Contains(v, "SLEEP(10)") ||
-				strings.Contains(v, "pg_sleep(10)") ||
-				strings.Contains(v, "WAITFOR DELAY '0:0:10'") ||
-				strings.Contains(v, "RANDOMBLOB") ||
-				strings.Contains(v, "RECEIVE_MESSAGE('a',10)") {
-				return true
-			}
+var sleepArgRe = regexp.MustCompile(`SLEEP\((\d+)\)|pg_sleep\((\d+)\)|0:0:(\d+)|RECEIVE_MESSAGE\('a',(\d+)\)`)
+
+// requestedSleep extracts the sleep seconds encoded in the injected payload, or
+// 0 when none is present.
+func requestedSleep(r *http.Request) int {
+	m := sleepArgRe.FindStringSubmatch(r.URL.Query().Get("id"))
+	if m == nil {
+		return 0
+	}
+	for _, g := range m[1:] {
+		if g != "" {
+			n, _ := strconv.Atoi(g)
+			return n
 		}
 	}
-	return false
+	return 0
 }
 
-// vulnerableHandler emulates a time-based blind SQLi sink: the sleep payload
-// stalls the response past the detection threshold while the no-sleep variant
-// returns after a short cache-busting delay. Status flushes immediately to keep
-// the response within the requester's 5s ResponseHeaderTimeout.
-func vulnerableHandler() http.HandlerFunc {
+// flushAndSleep writes a 200, flushes headers (so the body delay stays clear of
+// the requester's 5s ResponseHeaderTimeout), sleeps d, then writes the body.
+func flushAndSleep(w http.ResponseWriter, d time.Duration) {
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	time.Sleep(d)
+	_, _ = w.Write([]byte("ok"))
+}
+
+// scalingHandler emulates a genuine time-based blind SQLi sink: the response
+// delay equals the requested sleep duration (and is near-instant otherwise).
+func scalingHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		slow := queryHasSleep(r)
-		w.WriteHeader(http.StatusOK)
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
+		if n := requestedSleep(r); n > 0 {
+			flushAndSleep(w, time.Duration(n)*time.Second)
+			return
 		}
-		if slow {
-			time.Sleep(sleepDelay)
-		} else {
-			time.Sleep(noSleepDelay)
-		}
-		_, _ = w.Write([]byte("ok"))
+		flushAndSleep(w, baseDelay)
 	}
 }
 
-// TestScanPerRequest_DetectsTimeBlindSQLi drives the real scan method against a
-// server that honours an injectable numeric parameter sleep payload. Triple
-// verification (sleep → no-sleep → sleep) must confirm the finding.
+// TestScanPerRequest_DetectsTimeBlindSQLi drives the real scan against a sink
+// whose delay scales with the injected sleep value; the multi-round scaling
+// confirmation must report a finding.
 func TestScanPerRequest_DetectsTimeBlindSQLi(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping multi-second timing test in -short mode")
 	}
-	// Not parallel: the triple-verify (sleep → no-sleep → sleep) compares
-	// wall-clock timings against a fixed threshold, so it must not contend with
-	// sibling tests for CPU/the shared dialer.
-	srv := httptest.NewServer(vulnerableHandler())
+	srv := httptest.NewServer(scalingHandler())
 	defer srv.Close()
 
 	client := modtest.Requester(t)
@@ -79,8 +77,9 @@ func TestScanPerRequest_DetectsTimeBlindSQLi(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a time-based blind SQLi finding when sleep payload stalls the response")
+	require.NotEmpty(t, res, "expected a time-based blind SQLi finding when the delay scales with the sleep value")
 	assert.Equal(t, "id", res[0].FuzzingParameter)
+	assert.Equal(t, "mysql", res[0].ExtractedResults[2])
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a uniformly fast server never
@@ -101,15 +100,54 @@ func TestScanPerRequest_NoFalsePositive(t *testing.T) {
 	assert.Empty(t, res, "a server that never stalls must not yield a time-based blind SQLi finding")
 }
 
-// TestIsNumericValue exercises the pure numeric-context classifier.
-func TestIsNumericValue(t *testing.T) {
+// TestScanPerRequest_NoFalsePositive_FixedDelay is the key scaling-factor test:
+// a sink that stalls a FIXED amount on any sleep payload (e.g. a timeout/retry
+// path) — not proportional to the requested duration — must be rejected because
+// the high−low differential does not track the requested factor.
+func TestScanPerRequest_NoFalsePositive_FixedDelay(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-second timing test in -short mode")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestedSleep(r) > 0 {
+			flushAndSleep(w, time.Duration(sleepHigh)*time.Second) // fixed, non-scaling
+			return
+		}
+		flushAndSleep(w, baseDelay)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/item?id=1")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a fixed (non-scaling) delay must not be reported as time-based SQLi")
+}
+
+// TestPrioritizeByDBMS confirms a recorded backend hint moves matching payloads
+// to the front while preserving the rest (no coverage dropped).
+func TestPrioritizeByDBMS(t *testing.T) {
 	t.Parallel()
-	assert.True(t, isNumericValue("123"))
-	assert.True(t, isNumericValue("-42"))
-	assert.True(t, isNumericValue("3.14"))
-	assert.False(t, isNumericValue(""))
-	assert.False(t, isNumericValue("abc"))
-	assert.False(t, isNumericValue("12a"))
+	host := "db.example.com"
+
+	// No registry → unchanged.
+	assert.Equal(t, numericPayloads, prioritizeByDBMS(numericPayloads, &modkit.ScanContext{}, host))
+
+	sc := &modkit.ScanContext{TechStack: modkit.NewTechRegistry()}
+	sc.MarkTech(host, infra.DBMSTechTag("postgres"))
+
+	got := prioritizeByDBMS(numericPayloads, sc, host)
+	require.Len(t, got, len(numericPayloads), "reordering must not drop payloads")
+	assert.Equal(t, "postgres", got[0].dbType, "matching DBMS payloads must come first")
+	// Every original payload is still present.
+	counts := map[string]int{}
+	for _, p := range got {
+		counts[p.template]++
+	}
+	for _, p := range numericPayloads {
+		assert.Equal(t, 1, counts[p.template], "payload %q preserved exactly once", p.template)
+	}
 }
 
 // TestGetPayloadsForValue confirms numeric vs string payload selection.

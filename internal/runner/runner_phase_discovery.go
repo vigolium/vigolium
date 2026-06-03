@@ -1,9 +1,12 @@
 package runner
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	neturl "net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,11 +33,31 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		expandSeedParents = r.settings.Discovery.ExpandSeedParents
 	}
 
+	// Decide up front whether to auto-enable FUZZ fuzzing (must be set before
+	// buildDeparosConfig/resolveDiscoveryWordlists read discoveryFuzzingState).
+	// Reset first so shouldAutoFuzzDiscovery's "already fuzzing" check reads the
+	// explicit modes only, not a value left over from a prior run on a reused
+	// Runner (agent rescans).
+	r.autoFuzzDiscovery = false
+	r.autoFuzzDiscovery = r.shouldAutoFuzzDiscovery()
+
 	var discoverSrc *source.DeparosDiscoverySource
 	if r.options.DiscoverEnabled && len(r.options.Targets) > 0 {
 		additionalTargets, err := r.getInScopeHostURLs(ctx, infra.scopeMatcher)
 		if err != nil {
 			zap.L().Warn("Discovery: failed to get DB hosts for deparos expansion", zap.Error(err))
+		}
+
+		// When auto-fuzzing, keep the off-host SSO/login domain(s) the target
+		// redirected to out of scope — fuzz the original target host for hidden
+		// routes, not the identity provider.
+		if r.autoFuzzDiscovery && len(r.spidering.ssoHosts) > 0 {
+			before := len(additionalTargets)
+			additionalTargets = filterOutHosts(additionalTargets, r.spidering.ssoHosts)
+			if removed := before - len(additionalTargets); removed > 0 {
+				zap.L().Info("Discovery: excluded SSO redirect host(s) from fuzzing scope",
+					zap.Int("removed", removed), zap.Strings("hosts", r.spidering.ssoHosts))
+			}
 		}
 
 		if expandSeedParents {
@@ -100,6 +123,28 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 	}
 	r.printPhaseDetail(speedDetail)
 
+	// Content-discovery status: whether deparos runs this phase (vs. plain input
+	// ingestion), the dictionary wordlists feeding it, and whether FUZZ fuzzing is
+	// on — each on its own line. Shown unconditionally because "is this scan
+	// discovering/fuzzing, and with what" is the first thing operators ask of the
+	// Discovery phase.
+	r.printDiscoveryStatusLines(discoverSrc != nil)
+
+	if r.autoFuzzDiscovery && !r.options.Silent {
+		reason := fmt.Sprintf("spidering found little content (%d records)", r.spidering.records)
+		if r.spidering.sawSSO {
+			reason = "spidering hit an SSO/login wall"
+		}
+		msg := fmt.Sprintf("%s Fuzzing auto-enabled — %s; brute-forcing %s for hidden routes",
+			terminal.Yellow(terminal.SymbolArrow),
+			reason,
+			terminal.Orange("the original target(s)"))
+		if len(r.spidering.ssoHosts) > 0 {
+			msg += terminal.Gray(fmt.Sprintf(" (excluding SSO host(s): %s)", strings.Join(r.spidering.ssoHosts, ", ")))
+		}
+		r.printPhaseDetail(msg)
+	}
+
 	showDiscoveryConfig := r.options.Verbose || strings.EqualFold(r.options.Intensity, "deep")
 	if r.settings != nil && showDiscoveryConfig {
 		discCfg := &r.settings.Discovery
@@ -107,10 +152,15 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		if discCfg.Recursion.Enabled {
 			recursion = fmt.Sprintf("max_depth=%d", discCfg.Recursion.MaxDepth)
 		}
-		configDetail := fmt.Sprintf("Config: mode=%s, scope=%s, recursion=%s, malformed_path_probe=%s, backup_ext=%s, numeric_fuzz=%s, enrich_targets=%s, expand_seed_parents=%s",
+		intensity := r.options.Intensity
+		if intensity == "" {
+			intensity = "default"
+		}
+		configDetail := fmt.Sprintf("Config: mode=%s, scope=%s, recursion=%s, intensity=%s, malformed_path_probe=%s, backup_ext=%s, numeric_fuzz=%s, enrich_targets=%s, expand_seed_parents=%s",
 			terminal.HiTeal(discCfg.Mode),
 			terminal.HiTeal(discCfg.ScopeMode),
 			terminal.HiTeal(recursion),
+			terminal.HiTeal(intensity),
 			terminal.HiTeal(fmt.Sprintf("%v", discCfg.EnableMalformedPathProbe)),
 			terminal.HiTeal(fmt.Sprintf("%v", discCfg.Extensions.TestBackupExtensions)),
 			terminal.HiTeal(fmt.Sprintf("%v", discCfg.Wordlists.EnableNumericFuzzing)),
@@ -121,6 +171,11 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 
 	r.printTargetDetail(r.formatTargetCounts(ctx, len(r.options.Targets)))
 	r.printVerboseTargets(discoveryTargets)
+
+	if fuzzEnabled, _ := r.discoveryFuzzingState(); !fuzzEnabled && !r.options.Silent {
+		fmt.Fprintf(os.Stderr, "  %s %s %s\n",
+			terminal.TipPrefix(), terminal.Gray("enable on-the-fly directory fuzzing with a custom wordlist via"), terminal.HiCyan("--fuzz-wordlist <path>"))
+	}
 
 	enrichTargetsEnabled := false
 	if r.settings != nil {
@@ -202,9 +257,160 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 				terminal.Orange(fmt.Sprintf("%d", stats.HardDedupRemoved)),
 				formatStatusCodeArray(stats.DedupedCodes)))
 		}
+		if stats.FuzzyCappedRemoved > 0 {
+			r.printPhaseFeedback("Discovery", fmt.Sprintf("capped %s near-identical responses (max %s kept per cluster) — %s",
+				terminal.Orange(fmt.Sprintf("%d", stats.FuzzyCappedRemoved)),
+				terminal.HiTeal(fmt.Sprintf("%d", stats.ClusterCap)),
+				formatStatusCodeArray(stats.CappedCodes)))
+		}
 	}
 
 	return nil
+}
+
+// printDiscoveryStatusLines prints the Discovery phase's content-discovery status
+// and, when deparos is active, its wordlist and fuzzing lines as separate detail
+// rows. deparosActive mirrors the runDiscoveryPhase gate (DiscoverEnabled &&
+// targets present && source init succeeded).
+func (r *Runner) printDiscoveryStatusLines(deparosActive bool) {
+	if !deparosActive {
+		r.printPhaseDetail(fmt.Sprintf("Content discovery: %s — %s",
+			terminal.Orange("disabled"), terminal.Gray(r.discoveryDisabledReason())))
+		return
+	}
+	r.printPhaseDetail(fmt.Sprintf("Content discovery: %s (deparos)", terminal.HiTeal("enabled")))
+	r.printPhaseDetail("Wordlists: " + r.discoveryWordlistSummary())
+	r.printPhaseDetail("Fuzzing: " + r.discoveryFuzzingSummary())
+}
+
+// discoveryDisabledReason explains why deparos content discovery is not running,
+// so a plain ingest-only Discovery phase doesn't read as a silent no-op.
+func (r *Runner) discoveryDisabledReason() string {
+	switch {
+	case !r.options.DiscoverEnabled:
+		return "deparos off for this run (enable with --discover or a deeper strategy) — ingest-only"
+	case len(r.options.Targets) == 0:
+		return "no CLI seed targets for deparos — ingest-only"
+	default:
+		return "deparos unavailable (init failed, see runtime log) — ingest-only"
+	}
+}
+
+// discoveryWordlistSummary names the dictionary wordlists (short/long file & dir)
+// feeding deparos, plus which "observed" token sources (names/paths/files
+// harvested while crawling) are on. Lists are tagged embedded vs operator-supplied
+// by comparing their directory to the materialized-defaults dir. The fuzz list is
+// reported separately by discoveryFuzzingSummary, so it is excluded here.
+func (r *Runner) discoveryWordlistSummary() string {
+	w := r.resolveDiscoveryWordlists()
+	embeddedDir := wordlistDir()
+
+	var dicts []string
+	var anyEmbedded, anyConfigured bool
+	for _, p := range []string{w.shortFile, w.longFile, w.shortDir, w.longDir} {
+		if p == "" {
+			continue
+		}
+		dicts = append(dicts, formatWordlistEntry(p))
+		if filepath.Dir(p) == embeddedDir {
+			anyEmbedded = true
+		} else {
+			anyConfigured = true
+		}
+	}
+
+	var observed []string
+	if r.settings != nil {
+		wl := r.settings.Discovery.Wordlists
+		if wl.UseObservedNames {
+			observed = append(observed, "names")
+		}
+		if wl.UseObservedPaths {
+			observed = append(observed, "paths")
+		}
+		if wl.UseObservedFiles {
+			observed = append(observed, "files")
+		}
+	}
+
+	var parts []string
+	if len(dicts) > 0 {
+		// Each dict is already colored (name + orange count), so join without an
+		// outer color wrap and append the source tag in gray.
+		label := strings.Join(dicts, ", ")
+		switch {
+		case anyEmbedded && anyConfigured:
+			label += " " + terminal.Gray("(incl. embedded defaults)")
+		case anyEmbedded:
+			label += " " + terminal.Gray("(embedded defaults)")
+		}
+		parts = append(parts, label)
+	} else {
+		parts = append(parts, terminal.Orange("observed-only (no dictionary resolved)"))
+	}
+	if len(observed) > 0 {
+		parts = append(parts, terminal.Gray("observed "+strings.Join(observed, "+")))
+	}
+	return strings.Join(parts, " | ")
+}
+
+// formatWordlistEntry renders a wordlist path as "<basename> (<count>)" with the
+// basename in teal and the entry count in orange. The count is omitted when the
+// file can't be read.
+func formatWordlistEntry(path string) string {
+	entry := terminal.HiTeal(filepath.Base(path))
+	if n := wordlistEntryCount(path); n >= 0 {
+		entry += " " + terminal.Orange(fmt.Sprintf("(%d)", n))
+	}
+	return entry
+}
+
+// wordlistEntryCount counts non-empty, whitespace-trimmed lines in a wordlist
+// file, matching how deparos loads it (pkg/deparos/discovery/payload loadWordlist).
+// Returns -1 on read error so callers can omit the count rather than show a wrong 0.
+func wordlistEntryCount(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return -1
+	}
+	defer func() { _ = f.Close() }()
+
+	count := 0
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+	for sc.Scan() {
+		if strings.TrimSpace(sc.Text()) != "" {
+			count++
+		}
+	}
+	if sc.Err() != nil {
+		return -1
+	}
+	return count
+}
+
+// discoveryFuzzingSummary reports whether deparos FUZZ fuzzing is on (it appends
+// /FUZZ and brute-forces the fuzz wordlist), the wordlist in play, and why.
+func (r *Runner) discoveryFuzzingSummary() string {
+	enabled, reason := r.discoveryFuzzingState()
+	if !enabled {
+		return fmt.Sprintf("%s — %s", terminal.Orange("disabled"), terminal.Gray(reason))
+	}
+
+	w := r.resolveDiscoveryWordlists()
+	src := "embedded default"
+	if r.options.FuzzWordlistPath != "" {
+		src = "via --fuzz-wordlist"
+	}
+	list := terminal.HiTeal("fuzz.txt")
+	if w.fuzz != "" {
+		list = formatWordlistEntry(w.fuzz)
+	}
+	return fmt.Sprintf("%s — %s (%s), appends /FUZZ %s",
+		terminal.HiTeal("enabled"),
+		list,
+		terminal.Gray(src),
+		terminal.Gray("["+reason+"]"))
 }
 
 // seedCLITargets ingests CLI targets into the database without running deparos or modules.
@@ -312,10 +518,17 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 		}
 	}
 
-	configDetail := fmt.Sprintf("Config: max-duration=%s, strategy=%s, headless=%s",
-		terminal.HiTeal(maxDuration.String()),
+	formsState := "on"
+	if settingsCfg.NoForms {
+		formsState = "off"
+	}
+	configDetail := fmt.Sprintf("Config: strategy=%s, max-depth=%s, max-states=%s, forms=%s, headless=%s, max-duration=%s",
 		terminal.HiTeal(settingsCfg.Strategy),
-		terminal.HiTeal(fmt.Sprintf("%v", settingsCfg.Headless)))
+		terminal.HiTeal(fmt.Sprintf("%d", settingsCfg.MaxDepth)),
+		terminal.HiTeal(fmt.Sprintf("%d", settingsCfg.MaxStates)),
+		terminal.HiTeal(formsState),
+		terminal.HiTeal(fmt.Sprintf("%v", settingsCfg.Headless)),
+		terminal.HiTeal(maxDuration.String()))
 	if r.settings != nil {
 		spiderPace := r.settings.ScanningPace.ResolvePhase("spidering")
 		if spiderPace.DurationFactor > 0 {
@@ -327,6 +540,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	r.printVerboseTargets(targets)
 
 	var totalStates, totalActions, totalRecords int
+	var ssoHosts []string
 	for _, target := range targets {
 		zap.L().Info("Spidering target", zap.String("target", target))
 
@@ -378,6 +592,49 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			zap.Int("states", result.StatesDiscovered),
 			zap.Int("actions", result.ActionsExecuted),
 			zap.Int("records_saved", result.RecordsSaved))
+
+		// The start URL bounced the browser off-host. Two cases: a login/SSO wall
+		// (the crawler can't go past it unauthenticated, so the run yields next
+		// to nothing — advise auth), or a relocated app on another host (the
+		// crawler adopts that host and crawls it). Either way, say so — a silent
+		// near-empty result otherwise reads like the site has no content.
+		switch {
+		case result.OffHostRedirect && result.LandingIsLogin:
+			if lu, perr := neturl.Parse(result.LandingURL); perr == nil && lu.Host != "" {
+				ssoHosts = append(ssoHosts, lu.Host)
+			}
+			zap.L().Warn("Spidering: start URL redirected off-host to a login wall",
+				zap.String("target", target),
+				zap.String("landing", result.LandingURL))
+			r.printPhaseDetail(fmt.Sprintf("%s %s redirected off-host to %s — likely an SSO/login wall. The crawler stays in scope, so little was discovered. Supply authentication (--auth) or add the redirect host to scope to crawl behind the login.",
+				terminal.Yellow(terminal.SymbolArrow),
+				terminal.Gray(target),
+				terminal.Yellow(result.LandingURL)))
+		case result.OffHostRedirect && result.HostAdopted:
+			zap.L().Info("Spidering: adopted off-host redirect target into scope",
+				zap.String("target", target),
+				zap.String("landing", result.LandingURL))
+			r.printPhaseDetail(fmt.Sprintf("%s %s redirected off-host to %s — not a login page, so its host was added to scope and crawled.",
+				terminal.Purple(terminal.SymbolArrow),
+				terminal.Gray(target),
+				terminal.Orange(result.LandingURL)))
+		case result.OffHostRedirect:
+			zap.L().Info("Spidering: start URL redirected off-host",
+				zap.String("target", target),
+				zap.String("landing", result.LandingURL))
+			r.printPhaseDetail(fmt.Sprintf("%s %s redirected off-host to %s.",
+				terminal.Purple(terminal.SymbolArrow),
+				terminal.Gray(target),
+				terminal.Orange(result.LandingURL)))
+		}
+	}
+
+	// Record the outcome for the Discovery phase's low-yield auto-fuzz decision.
+	r.spidering = spideringOutcome{
+		ran:      true,
+		records:  totalRecords,
+		sawSSO:   len(ssoHosts) > 0,
+		ssoHosts: ssoHosts,
 	}
 
 	if r.repository != nil && totalRecords > 0 {

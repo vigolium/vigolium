@@ -153,7 +153,7 @@ func (m *Module) ScanPerRequest(
 			compareName = m.compareNames[i]
 		}
 
-		result, err := m.probeWithSession(ctx, compareClient, primary, compareOpts, host, urlStr, compareName)
+		result, err := m.probeWithSession(ctx, httpClient, compareClient, primary, compareOpts, host, urlStr, compareName)
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return results, nil
@@ -173,6 +173,10 @@ type responseSummary struct {
 	StatusCode int
 	BodyLength int
 	Summary    *authzutil.ResponseSummary
+	// FullResponse is the primary (authenticated) session's full raw response,
+	// retained so a finding can carry the baseline side of the cross-session
+	// differential as evidence (the compare-session response is the attack pair).
+	FullResponse string
 }
 
 // getPrimaryResponse obtains the primary session's response.
@@ -191,9 +195,10 @@ func (m *Module) getPrimaryResponse(
 			body,
 		)
 		return &responseSummary{
-			StatusCode: resp.StatusCode(),
-			BodyLength: len(body),
-			Summary:    summary,
+			StatusCode:   resp.StatusCode(),
+			BodyLength:   len(body),
+			Summary:      summary,
+			FullResponse: string(resp.Raw()),
 		}, nil
 	}
 
@@ -213,15 +218,17 @@ func (m *Module) getPrimaryResponse(
 		body,
 	)
 	return &responseSummary{
-		StatusCode: entry.StatusCode,
-		BodyLength: entry.BodyLen,
-		Summary:    summary,
+		StatusCode:   entry.StatusCode,
+		BodyLength:   entry.BodyLen,
+		Summary:      summary,
+		FullResponse: string(entry.Response.Raw()),
 	}, nil
 }
 
 // probeWithSession replays the request with a compare session and evaluates the result.
 func (m *Module) probeWithSession(
 	ctx *httpmsg.HttpRequestResponse,
+	primaryClient *http.Requester,
 	compareClient *http.Requester,
 	primary *responseSummary,
 	compareOpts authzutil.CompareOptions,
@@ -246,7 +253,7 @@ func (m *Module) probeWithSession(
 	// buffer that Close() returns to a process-global pool, so reading them
 	// afterwards is a use-after-free that races with concurrent module execution.
 	compareBody := append([]byte(nil), resp.Body().Bytes()...)
-	fullResp := resp.FullResponse().String()
+	fullResp := resp.FullResponseString()
 	resp.Close()
 
 	// Authorization enforced: 401, 403
@@ -288,6 +295,32 @@ func (m *Module) probeWithSession(
 		return nil, nil
 	}
 
+	// Determinism gate: an endpoint that returns different content on EVERY request
+	// regardless of session (analytics beacons, ad rotators, randomized/obfuscated
+	// JS bundles) produces a "structurally similar but different" primary-vs-compare
+	// pair that looks exactly like a real cross-session IDOR. Re-issue the ORIGINAL
+	// request with the PRIMARY session a couple of times; keep the finding only when
+	// the cross-session difference exceeds the endpoint's own same-session variance.
+	// Fail open (keep) when the refetch could not run.
+	// Collect the differential evidence: the primary (authenticated) session's
+	// baseline pair, plus — via the config below — the same-id determinism
+	// refetches. The compare-session response (fullResp) stays the primary pair.
+	ev := modkit.NewEvidenceCollector()
+	ev.Add("baseline (primary session)", string(ctx.Request().Raw()), primary.FullResponse)
+
+	verdict := modkit.ConfirmCrossIDDifferential(
+		primaryClient,
+		ctx.Service(),
+		ctx.Request().Raw(),
+		string(primary.Summary.Body),
+		primary.StatusCode,
+		string(compareBody),
+		modkit.CrossIDConfig{Evidence: ev},
+	)
+	if verdict.Ran && !verdict.Trustworthy {
+		return nil, nil
+	}
+
 	// Structurally similar + different content → IDOR/BOLA
 	confidence := severity.Firm
 	if comparison.UserFieldsDiffer {
@@ -305,12 +338,13 @@ func (m *Module) probeWithSession(
 	}
 
 	return &output.ResultEvent{
-		ModuleID: ModuleID,
-		Host:     host,
-		URL:      urlStr,
-		Matched:  urlStr,
-		Request:  string(ctx.Request().Raw()),
-		Response: fullResp,
+		ModuleID:           ModuleID,
+		Host:               host,
+		URL:                urlStr,
+		Matched:            urlStr,
+		Request:            string(ctx.Request().Raw()),
+		Response:           fullResp,
+		AdditionalEvidence: ev.Entries(),
 		Info: output.Info{
 			Name:        "Cross-Session IDOR / Broken Object Level Authorization",
 			Description: desc,

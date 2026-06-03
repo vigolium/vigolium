@@ -68,6 +68,19 @@ func NewDetector() Detector {
 	}
 }
 
+// defaultDetector is a shared rule-based detector backing the package-level
+// ClassifyParts helper. Rules are immutable after construction, so a single
+// shared instance is safe for concurrent use.
+var defaultDetector = &detector{rules: defaultRules()}
+
+// ClassifyParts detects a WAF/CDN block from raw response primitives, returning
+// nil when the response is not a block. It exists for callers (e.g. scan
+// modules) that hold an httpmsg response — status, headers, body — rather than
+// a responsechain.ResponseChain. The detection logic is identical to Detect.
+func ClassifyParts(statusCode int, header http.Header, body []byte) *BlockResult {
+	return defaultDetector.classify(statusCode, header, body)
+}
+
 // Detect analyzes an HTTP response for WAF/CDN blocking patterns.
 // Returns nil if response is not detected as a WAF block.
 func (d *detector) Detect(rc *responsechain.ResponseChain) *BlockResult {
@@ -76,9 +89,11 @@ func (d *detector) Detect(rc *responsechain.ResponseChain) *BlockResult {
 	}
 
 	resp := rc.Response()
-	body := rc.BodyBytes()
-	statusCode := resp.StatusCode
+	return d.classify(resp.StatusCode, resp.Header, rc.BodyBytes())
+}
 
+// classify runs the rule set against response primitives.
+func (d *detector) classify(statusCode int, header http.Header, body []byte) *BlockResult {
 	// Fast path: skip non-blocking status codes
 	if !isBlockingStatusCode(statusCode) {
 		return nil
@@ -86,7 +101,7 @@ func (d *detector) Detect(rc *responsechain.ResponseChain) *BlockResult {
 
 	// Check each rule in priority order
 	for _, rule := range d.rules {
-		if result := d.matchRule(rule, resp, body, statusCode); result != nil {
+		if result := d.matchRule(rule, header, body, statusCode); result != nil {
 			return result
 		}
 	}
@@ -95,7 +110,7 @@ func (d *detector) Detect(rc *responsechain.ResponseChain) *BlockResult {
 }
 
 // matchRule checks if a response matches a specific WAF rule.
-func (d *detector) matchRule(rule Rule, resp *http.Response, body []byte, statusCode int) *BlockResult {
+func (d *detector) matchRule(rule Rule, header http.Header, body []byte, statusCode int) *BlockResult {
 	// Check status code if rule has specific codes
 	if len(rule.StatusCodes) > 0 && !containsInt(rule.StatusCodes, statusCode) {
 		return nil
@@ -106,7 +121,7 @@ func (d *detector) matchRule(rule Rule, resp *http.Response, body []byte, status
 	// Check headers first (faster)
 	headerMatched := false
 	for _, check := range rule.HeaderChecks {
-		if indicator := matchHeader(resp.Header, check); indicator != "" {
+		if indicator := matchHeader(header, check); indicator != "" {
 			indicators = append(indicators, indicator)
 			headerMatched = true
 		}

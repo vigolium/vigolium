@@ -724,16 +724,19 @@ Read `revisits[-1].phases`. Walk in order: 1, 2, 3, 4, 5, 6, 7, 8, 9. First phas
 # Confirmation Mode (6-Phase Pipeline: V1-V6)
 
 When the user's prompt contains "Confirm mode", "confirm findings", or "verify findings",
-use this pipeline. It reads existing findings from `vigolium-results/findings/`, boots the target
-application, executes PoC scripts, and falls back to generated test cases.
+use this pipeline. It reads existing finalized finding candidates from BOTH
+`vigolium-results/findings/` and `vigolium-results/findings-theoretical/`, boots the target
+application, executes PoC scripts where present, and falls back to generated test cases.
 
-**Prerequisites**: `vigolium-results/findings/` must contain finding directories with `report.md`.
-`vigolium-results/audit-state.json` is optional supplemental metadata only.
+**Prerequisites**: at least one severity-prefixed finding directory exists under either
+`vigolium-results/findings/` or `vigolium-results/findings-theoretical/` with `report.md`
+or `draft.md`. `vigolium-results/audit-state.json` is optional supplemental metadata only.
 
 ## Confirmation Agents
 
 | Phase | Agent | Role |
 |-------|-------|------|
+| V1 repair | `vigolium-audit:finding-writer` | Author missing `report.md` from `draft.md` before inventory (one at a time) |
 | V2 -- Environment Discovery | `vigolium-audit:env-profiler` | Scan repo for Dockerfile, docker-compose, Makefile, test frameworks |
 | V3 -- Environment Provisioning | `vigolium-audit:env-builder` | Start the app, run healthchecks, output connection details |
 | V4 -- PoC Execution | `vigolium-audit:poc-runner` | Run existing PoC scripts against live environment |
@@ -744,23 +747,31 @@ application, executes PoC scripts, and falls back to generated test cases.
 
 ### Pre-Flight
 
-1. Verify `vigolium-results/findings/` has at least one `report.md`. Abort if not.
-2. If `vigolium-results/audit-state.json` exists, use it only as optional metadata and update its `confirmation` object when present.
-3. `mkdir -p vigolium-results/confirm-workspace/`
-4. **Workspace lock**: if `vigolium-results/confirm-workspace/.lock` exists, read its `pid` — if alive, abort; if stale, remove. Then write a new lock with the current PID and a fresh session UUID.
-5. **Generate session UUID**: `VIGOLIUM_AUDIT_SESSION_UUID=$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')`. Export it. Every spawned agent prompt MUST include the session UUID. Every container/process MUST be stamped with `vigolium-audit.session=<UUID>` so cleanup is label-based, not stored-cmd-based.
-6. **Trap cleanup**: install a shell trap on EXIT/INT/TERM that removes containers labelled with this session, kills any PID in `vigolium-results/confirm-workspace/app.pid`, and removes the lock — so Ctrl-C never leaks resources.
-7. Check if user prompt includes a target URL. If yes, set `REMOTE_TARGET` and skip V2/V3.
+1. Verify at least one candidate directory exists under `vigolium-results/findings/` OR `vigolium-results/findings-theoretical/` with `report.md` or `draft.md`. Abort only if both buckets have no candidates.
+2. Do NOT move findings between buckets in confirm mode. A verified theoretical finding stays under `findings-theoretical/`; V6 reports `original_bucket` so the user can promote/regenerate explicitly later.
+3. If `vigolium-results/audit-state.json` exists, use it only as optional metadata and update its `confirmation` object when present.
+4. `mkdir -p vigolium-results/confirm-workspace/`
+5. **Workspace lock**: if `vigolium-results/confirm-workspace/.lock` exists, read its `pid` — if alive, abort; if stale, remove. Then write a new lock with the current PID and a fresh session UUID.
+6. **Generate session UUID**: `VIGOLIUM_AUDIT_SESSION_UUID=$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')`. Export it. Every spawned agent prompt MUST include the session UUID. Every container/process MUST be stamped with `vigolium-audit.session=<UUID>` so cleanup is label-based, not stored-cmd-based.
+7. **Trap cleanup**: install a shell trap on EXIT/INT/TERM that removes containers labelled with this session, kills any PID in `vigolium-results/confirm-workspace/app.pid`, and removes the lock — so Ctrl-C never leaks resources.
+8. Check if user prompt includes a target URL. If yes, set `REMOTE_TARGET` and skip V2/V3.
 
-### V1: Findings Inventory (inline — no agent needed)
+### V1: Findings Inventory + report repair (inline plus optional finding-writer)
 
-Scan `vigolium-results/findings/*/report.md`. `report.md` is the source of truth for confirmation.
-For each finding, record: ID, slug, severity, vulnerability class, title, PoC script path (if exists), `Protocol` field (default: http), `Auth-Required` field (default: no), and `exploitability_class` (network-exploitable | local-exploitable | non-exploitable — derived from vuln_class + Protocol). Write inventory to `vigolium-results/confirm-workspace/findings-inventory.json`. Sort by severity (CRITICAL first).
+Scan both buckets: `vigolium-results/findings/*/` and `vigolium-results/findings-theoretical/*/`.
+For each severity-prefixed candidate directory:
+- Prefer `report.md` as the source of truth.
+- If `report.md` is missing/truncated but `draft.md` exists, spawn `vigolium-audit:finding-writer` **sequentially** with prompt:
+  > `"V1 confirm repair: author report.md for <ID>-<slug>. Input: <actual finding dir>. Output: <actual finding dir>/report.md"`
+- If repair still fails, keep an inventory entry with `source_kind: draft`, `repair_status: failed`, and `confirm_status: errored`; do not abort the run.
+
+For each candidate, record: ID, slug, actual `dir`, `bucket`/`original_bucket`, `source_file`, `source_kind`, severity, vulnerability class, title, PoC script path (if exists), `Protocol` (default: http), `Auth-Required` (default: no), and `exploitability_class` (network-exploitable | local-exploitable | non-exploitable). Write `vigolium-results/confirm-workspace/findings-inventory.json`. Sort by severity (CRITICAL first), then bucket, then ID.
 
 **Class routing** (applies to V4 and V5):
-- `non-exploitable` findings: write `Confirm-Status: analytical` directly in `report.md` and skip both V4 and V5.
+- `non-exploitable` findings: write `Confirm-Status: analytical` directly in `report.md` (or draft fallback if repair failed) and skip both V4 and V5.
 - `local-exploitable` findings: skip V4, send to V5 with mode `local`.
-- `network-exploitable` findings: V4 → V5 fallback as today.
+- `network-exploitable` findings with PoC: V4 → V5 fallback as needed.
+- `network-exploitable` findings without PoC, including theoretical-only findings: skip V4 and enter V5 fallback.
 
 ### V2: Environment Discovery (skip if REMOTE_TARGET)
 
@@ -774,28 +785,28 @@ Wait for completion.
 Spawn `vigolium-audit:env-builder` with prompt:
 > `"V3 session=$VIGOLIUM_AUDIT_SESSION_UUID: Start app, label all containers vigolium-audit.session=$VIGOLIUM_AUDIT_SESSION_UUID, honour IMAGE_PULL_TIMEOUT/SERVICE_BOOT_TIMEOUT/HEALTHCHECK_TIMEOUT, allocate port with fallback range, seed identities from auth-spec.json, snapshot DB unless SKIP_ISOLATION=1. Output: vigolium-results/confirm-workspace/env-connection.json"`
 
-Wait for completion. If `status: failed`, skip V4 and run V5 for ALL network-exploitable findings.
+Wait for completion. If `status: failed`, skip V4 and run V5 for ALL non-analytical findings.
 
 ### V4: PoC Execution
 
 **Reachability gate**: before any per-finding spawn, hit `base_url` once (`curl -sf -o /dev/null --max-time 5 "$base_url"`). If unreachable, mark every queued finding `Confirm-Status: blocked` with reason `app-unreachable-at-V4-start` and skip directly to V5.
 
-For each `network-exploitable` finding with a PoC script, spawn `vigolium-audit:poc-runner` **sequentially** (codex constraint — no concurrent fan-out):
-> `"V4 session=$VIGOLIUM_AUDIT_SESSION_UUID: Execute PoC for <ID>-<slug>. Per-variant timeout 30s (max 2 variants). Connection: vigolium-results/confirm-workspace/env-connection.json. Parse structured PoC output (final JSON line {status,evidence,notes}). On not-reproduced→fp-check the draft."`
+For each `network-exploitable` finding with a PoC script, spawn `vigolium-audit:poc-runner` **sequentially** using the actual inventory `dir`:
+> `"V4 session=$VIGOLIUM_AUDIT_SESSION_UUID: Execute PoC for <ID>-<slug>. Finding directory: <dir from findings-inventory.json>. Connection: vigolium-results/confirm-workspace/env-connection.json. Per-variant timeout 30s (max 2 variants). Parse structured final JSON. Do NOT move buckets."`
 
-Spawn one, wait, then next. Collect verdicts by re-reading each finding's `report.md` `Confirm-*` fields.
+Spawn one, wait, then next. Collect verdicts by re-reading each finding's inventory `source_file` / `report.md` `Confirm-*` fields.
 
 ### V5: Test-Based Fallback (skip if REMOTE_TARGET)
 
-For each not-reproduced/flaky/blocked/no-poc/local-exploitable finding, spawn `vigolium-audit:test-locator` **sequentially**:
-> `"V5 session=$VIGOLIUM_AUDIT_SESSION_UUID: Generate reproducer test for <ID>-<slug>. Strategies: vigolium-results/confirm-workspace/env-strategies.json. Connection (auth identities): vigolium-results/confirm-workspace/env-connection.json. Mode: <full|fallback|local>. Per-test timeout 60s."`
+For each not-reproduced/flaky/blocked/no-poc/local-exploitable/theoretical-without-PoC finding, spawn `vigolium-audit:test-locator` **sequentially** using the actual inventory `dir`:
+> `"V5 session=$VIGOLIUM_AUDIT_SESSION_UUID: Test fallback for <ID>-<slug>. Dir=<inventory.dir>; mode=<full|fallback|local>; use confirm-workspace strategies/connection. Timeout 60s. No bucket moves."`
 
 Spawn one, wait, then next.
 
 ### V6: Confirmation Report
 
 Spawn `vigolium-audit:confirm-writer` with prompt:
-> `"V6 session=$VIGOLIUM_AUDIT_SESSION_UUID: Compile confirmation report grouped by exploitability_class. Stage findings into report-ready/{live-verified,test-verified,analytical,false-positive} and needs-review/{not-reproduced,flaky,blocked,no-poc,errored}. Dedupe by ID (priority: live-verified > test-verified > false-positive > analytical > not-reproduced > flaky > blocked > no-poc > errored). Audit state optional — if present, append to confirmation_history[] (do NOT overwrite). Output: vigolium-results/confirmation-report.md"`
+> `"V6 session=$VIGOLIUM_AUDIT_SESSION_UUID: Report from findings-inventory.json; preserve original_bucket; no moves. Stage verdict buckets; append confirmation_history. Output: vigolium-results/confirmation-report.md"`
 
 ### Cleanup
 

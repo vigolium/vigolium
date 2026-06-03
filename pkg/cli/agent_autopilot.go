@@ -119,6 +119,7 @@ func init() {
 
 	f.StringVarP(&autopilotTarget, "target", "t", "", "Target URL (derived from --input if not set)")
 	f.StringVar(&autopilotInput, "input", "", "Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped")
+	f.BoolVar(&globalDBIsolate, "db-isolate", false, dbIsolateAgentFlagUsage)
 	f.StringVar(&autopilotRecordUUID, "record-uuid", "", "Use an HTTP record from the database as the seed input (looked up by UUID)")
 	f.StringVar(&autopilotOliumProvider, "provider", "", "Olium provider override: openai-codex-oauth | openai-api-key | anthropic-api-key | anthropic-oauth | anthropic-cli | anthropic-vertex | google-vertex | openai-compatible (falls back to agent.olium.provider config)")
 	f.StringVar(&autopilotOliumModel, "model", "", "Olium model id override (falls back to agent.olium.model)")
@@ -159,7 +160,7 @@ func init() {
 	f.BoolVarP(&autopilotVerbose, "verbose", "v", false, "Show a per-tool head/tail preview of each tool result alongside the standard one-liner")
 }
 
-func runAgentAutopilot(cmd *cobra.Command, args []string) error {
+func runAgentAutopilot(cmd *cobra.Command, args []string) (err error) {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
 
@@ -256,6 +257,17 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) error {
 	if autopilotOliumLLMAPIKey != "" {
 		settings.Agent.Olium.LLMAPIKey = autopilotOliumLLMAPIKey
 	}
+
+	// --db-isolate: run into a private temp DB and merge into the real --db (or
+	// default DB) at the end, so parallel autopilot runs can share one --db
+	// without contending on a single SQLite writer. Repoints globalDB at the
+	// scratch so the getDB() call below opens it; the merge defer runs after the
+	// run completes (all writes committed) and reads the scratch via ATTACH.
+	finish, dErr := dbIsolateBegin(settings, globalSilent)
+	if dErr != nil {
+		return dErr
+	}
+	defer func() { err = finish(err) }()
 
 	// Open DB for context enrichment. The repo is also needed during input
 	// resolution so --input <record-uuid> and the --record-uuid flag can

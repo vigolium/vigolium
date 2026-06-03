@@ -128,6 +128,7 @@ func init() {
 
 	f.StringVarP(&swarmTarget, "target", "t", "", "Target URL (required when --source is used)")
 	f.StringVar(&swarmInput, "input", "", "Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped")
+	f.BoolVar(&globalDBIsolate, "db-isolate", false, dbIsolateAgentFlagUsage)
 	f.StringSliceVar(&swarmRecordUUIDs, "record-uuid", nil, "HTTP record UUID from database (repeatable, or comma-separated)")
 	f.BoolVar(&swarmAllRecords, "all-records", false, "Use every HTTP record in the active project as input")
 	f.StringVar(&swarmRecordsFrom, "records-from", "", "Filter ingested HTTP records by spec (e.g. \"host=example.com,status=200,method=GET,path=/api,since=2026-04-01\")")
@@ -196,7 +197,7 @@ func init() {
 	f.BoolVarP(&swarmVerbose, "verbose", "v", false, "Show a per-tool head/tail preview of each tool result alongside the standard one-liner")
 }
 
-func runAgentSwarm(cmd *cobra.Command, args []string) error {
+func runAgentSwarm(cmd *cobra.Command, args []string) (err error) {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
 
@@ -355,6 +356,16 @@ func runAgentSwarm(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to apply scanning profile %q: %w", swarmProfile, err)
 		}
 	}
+
+	// --db-isolate: scan into a private temp DB and merge into the real --db
+	// (or default DB) at the end, so parallel swarm runs can share one --db
+	// without contending on a single SQLite writer. Registered before the DB
+	// opens so the merge defer runs after db.Close() (LIFO).
+	finish, dErr := dbIsolateBegin(settings, globalSilent)
+	if dErr != nil {
+		return dErr
+	}
+	defer func() { err = finish(err) }()
 
 	// Open DB
 	db, err := database.NewDB(&settings.Database)

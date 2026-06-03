@@ -51,7 +51,7 @@ type ResultEvent struct {
 	// Request/Response data
 	Request            string   `json:"request,omitempty"`
 	Response           string   `json:"response,omitempty"`
-	AdditionalEvidence []string `json:"additional-evidence,omitempty"`
+	AdditionalEvidence []string `json:"additional_evidence,omitempty"`
 
 	// Metadata
 	Metadata  map[string]interface{} `json:"meta,omitempty"`
@@ -69,6 +69,29 @@ type ResultEvent struct {
 	ModuleType    string `json:"-"`
 	FindingSource string `json:"-"`
 	ModuleShort   string `json:"-"`
+}
+
+// EvidenceSeparator delimits the request and response halves of a single
+// evidence entry. The primary Request/Response pair and every AdditionalEvidence
+// entry share this format. This is the single source of truth for the delimiter;
+// the storage layer's dedup/merge path references it (see pkg/database) so stored
+// evidence stays splittable the same way modules emit it.
+const EvidenceSeparator = "\n---------\n"
+
+// BuildEvidence renders one request/response pair into a single AdditionalEvidence
+// entry. When label is non-empty it is prefixed as a "# [label]" marker line so a
+// reviewer — and the UI's evidence tabs — can tell a baseline pair from an attack
+// pair from a confirmation round. Returns "" when both halves are empty (so an
+// empty pair is never recorded).
+func BuildEvidence(label, request, response string) string {
+	if request == "" && response == "" {
+		return ""
+	}
+	body := request + EvidenceSeparator + response
+	if label == "" {
+		return body
+	}
+	return "# [" + label + "]\n" + body
 }
 
 // sha1Pool recycles SHA-1 hashers to avoid allocating one per ResultEvent.ID() call.
@@ -117,20 +140,42 @@ type StandardWriter struct {
 
 func NewStandardWriter(options *types.Options) (*StandardWriter, error) {
 	var outputFile io.WriteCloser
-	// Create file output for JSONL streaming during scan. Skip when the only format is html
-	// (HTML reports are generated post-scan from the database).
-	needsFileOutput := options.Output != "" && (options.HasFormat("jsonl") || options.HasFormat("console"))
+	// Create file output for live result streaming during the scan. Skip html
+	// (generated post-scan from the database) and deferred jsonl (emitted post-scan
+	// as the unified {"type":...,"data":...} envelope — see DeferredJSONLExport).
+	liveJSONLFile := options.HasFormat("jsonl") && !options.DeferredJSONLExport
+	needsFileOutput := options.Output != "" && (liveJSONLFile || options.HasFormat("console"))
 	if needsFileOutput {
-		output, err := newFileOutputWriter(options.Output, true)
+		// With a single format, write to the literal -o path. With multiple
+		// formats, use the format-specific path so the live file never collides
+		// with a post-scan export at the same -o base (e.g. console live file vs
+		// the deferred jsonl/html/report files when -o ends in .jsonl/.html).
+		filePath := options.Output
+		if len(options.OutputFormats) > 1 {
+			if liveJSONLFile {
+				filePath = options.OutputPathForFormat("jsonl")
+			} else {
+				filePath = options.OutputPathForFormat("console")
+			}
+		}
+		output, err := newFileOutputWriter(filePath, true)
 		if err != nil {
 			return nil, errors.Wrap(err, "could not create output file")
 		}
 		outputFile = output
 	}
 
+	// Deferred jsonl emits its envelope once the scan finishes, so suppress the
+	// live nuclei-style ResultEvent stream on stdout too — unless console output
+	// was also requested, which keeps its own live stream.
+	disableStdout := options.Silent
+	if options.DeferredJSONLExport && !options.HasFormat("console") {
+		disableStdout = true
+	}
+
 	return &StandardWriter{
 		outputFile:              outputFile,
-		DisableStdout:           options.Silent,
+		DisableStdout:           disableStdout,
 		IncludeResponseInOutput: options.IncludeResponseInOutput,
 		JSONOutput:              options.JSONOutput,
 	}, nil

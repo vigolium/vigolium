@@ -73,7 +73,7 @@ func (h *Handlers) fetchResponseIfNeeded(rr *httpmsg.HttpRequestResponse) *httpm
 		return rr
 	}
 
-	fullResp := respChain.FullResponse().Bytes()
+	fullResp := respChain.FullResponseBytes()
 	raw := make([]byte, len(fullResp))
 	copy(raw, fullResp)
 	respChain.Close()

@@ -53,7 +53,7 @@ func (r *Registry) Len() int {
 type LoadOptions struct {
 	// WorkingDir is the starting point for project-scope skill discovery.
 	// Defaults to os.Getwd(). Ancestor directories are searched too, so
-	// running olium from a subfolder still picks up repo-root .agent/skills/.
+	// running olium from a subfolder still picks up repo-root .agents/skills/.
 	WorkingDir string
 
 	// IncludeUserSkills enables ~/.vigolium/skills/ discovery. Enabled
@@ -86,10 +86,10 @@ func Load(opts LoadOptions) (*Registry, error) {
 		cwd, _ = os.Getwd()
 	}
 
-	// Walk: project-scope (.agent/skills/, .claude/skills/) across cwd
+	// Walk: project-scope (.agents/skills/, .claude/skills/) across cwd
 	// and ancestors. Closer to cwd wins on conflict.
 	for _, dir := range ancestorDirs(cwd) {
-		loadDiskDir(reg, filepath.Join(dir, ".agent", "skills"), SourceProjectAgent, opts.Warnings)
+		loadDiskDir(reg, filepath.Join(dir, ".agents", "skills"), SourceProjectAgents, opts.Warnings)
 		loadDiskDir(reg, filepath.Join(dir, ".claude", "skills"), SourceProjectClaude, opts.Warnings)
 	}
 

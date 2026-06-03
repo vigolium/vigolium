@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         make \
         curl \
         unzip \
+        file \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,10 +40,27 @@ RUN go mod download
 
 COPY . .
 
+ARG TARGETOS
+ARG TARGETARCH
+
 # Use `make build` (not raw `go build`) so the embedded archon + jsscan
 # binaries are staged before compile. Version/commit/build-time are derived
 # inside the Makefile from pkg/cli/version.go + git rev-parse.
-RUN make ensure-jsscan \
+RUN set -e; \
+    target_os="${TARGETOS:-$(go env GOOS)}"; \
+    target_arch="${TARGETARCH:-$(go env GOARCH)}"; \
+    case "$target_arch" in \
+        amd64) audit_arch="x64" ;; \
+        arm64) audit_arch="arm64" ;; \
+        *) echo "unsupported Docker target arch for vigolium-audit: $target_arch" >&2; exit 1 ;; \
+    esac; \
+    audit_blob="platform/vigolium-audit/build/dist/vigolium-audit-${target_os}-${audit_arch}"; \
+    if [ -f "$audit_blob" ]; then \
+        bash build/scripts/stage-audit-blob.sh "$target_os" "$target_arch"; \
+    else \
+        echo "prebuilt $audit_blob not found; make build will rebuild vigolium-audit"; \
+    fi; \
+    make ensure-jsscan \
     && make build \
     && mkdir -p /out \
     && cp bin/vigolium /out/vigolium

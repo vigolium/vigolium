@@ -199,7 +199,7 @@ func (m *Module) runCheck(
 		}
 
 		attackResponse := resp.Body().String()
-		fullResponse := resp.FullResponse().String()
+		fullResponse := resp.FullResponseString()
 		resp.Close()
 
 		// Check if any expected value is found in response but not in initial response

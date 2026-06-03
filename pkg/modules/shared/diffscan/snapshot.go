@@ -20,9 +20,7 @@ type ResponseSnapshot struct {
 	Fingerprint *anomaly.Fingerprint
 
 	// WAF detection metadata
-	StatusCode   int
-	ServerHeader string
-	CDNHeader    string
+	StatusCode int
 
 	// Report generation metadata
 	RequestDump   string
@@ -44,8 +42,6 @@ func NewResponseSnapshot(respChain *httputil.ResponseChain) *ResponseSnapshot {
 	// 1. WAF detection metadata
 	resp := respChain.Response()
 	snap.StatusCode = resp.StatusCode
-	snap.ServerHeader = resp.Header.Get("Server")
-	snap.CDNHeader = resp.Header.Get("X-CDN")
 
 	// 2. Report metadata
 	if req := respChain.Request(); req != nil {
@@ -84,7 +80,7 @@ func filterResponse(response *httputil.ResponseChain) []byte {
 		anomaly.ContentTypeCSS,
 		anomaly.ContentTypeXML,
 	) {
-		filteredResponse = bytes.ToLower(response.FullResponse().Bytes())
+		filteredResponse = bytes.ToLower(response.FullResponseBytes())
 	} else if mime.Is(anomaly.ContentTypeJSON, anomaly.ContentTypeScript) {
 		headers := response.Headers().String()
 		body := response.Body().String()
@@ -189,31 +185,88 @@ func parseHexRune(hex string) rune {
 	return r
 }
 
-// WafBlocked checks if the response indicates WAF blocking.
+// WafBlocked reports whether the response is a denial / throttle / unavailable
+// page — a WAF/CDN/auth/rate-limit layer rejecting the request — rather than the
+// application actually processing the injected payload. Diff-based detection
+// keys off how the app *reacts* to a payload, so a response that never reached
+// the app is not a vulnerability signal and must not count as a "diff".
+//
+// Any 401/403/429/503 is treated as blocked regardless of vendor: the previous
+// vendor-gated check (cloudflare/akamai/cloudfront/incapsula only) let a generic
+// app/proxy 403 "Forbidden", 401 auth challenge, or 503 maintenance page slip
+// through as a payload-driven difference — the reported diff-based false
+// positive. A 5xx *application* error such as 500 is deliberately NOT treated as
+// blocked: error-based SSTI/behaviour detection legitimately relies on it.
 func (s *ResponseSnapshot) WafBlocked() bool {
 	if s == nil {
 		return false
 	}
 
 	switch s.StatusCode {
-	case 429:
+	case 401, 403, 429, 503:
 		return true
-	case 403:
-		switch {
-		case len(s.ServerHeader) >= 10 && s.ServerHeader[:10] == "cloudflare":
-			return true
-		case len(s.ServerHeader) >= 10 && s.ServerHeader[:10] == "AkamaiGHos":
-			return true
-		case s.ServerHeader == "CloudFront":
-			return true
-		case s.CDNHeader == "Incapsula":
-			return true
-		}
-	case 503:
-		if len(s.ServerHeader) >= 10 && s.ServerHeader[:10] == "cloudflare" {
-			return true
-		}
 	}
 
 	return false
+}
+
+// IsSuccess reports whether the response is a 2xx success — i.e. the server
+// actually served a real resource rather than an error/not-found/redirect stub.
+//
+// Diff-based path-escape and normalization detection compares how the server
+// resolves a "control" path that should reach a genuine resource against an
+// exploit path. When the reached side is a 4xx/5xx (e.g. an empty 404 emitted
+// for everything under a CDN-internal prefix like /cdn-cgi/) or a 3xx, nothing
+// was actually reached: any break-vs-escape difference is header jitter
+// (Ray-ID / ETag / Date / Set-Cookie), not evidence of a path escape. Callers
+// gate on this to require the reached resource be a served 2xx body. (WafBlocked
+// already drops 401/403/429/503; this is the complementary "did we reach a real
+// resource" check that also excludes 404/3xx/5xx.)
+func (s *ResponseSnapshot) IsSuccess() bool {
+	if s == nil {
+		return false
+	}
+	return s.StatusCode >= 200 && s.StatusCode < 300
+}
+
+// IsRedirect reports whether the response is an HTTP redirect (3xx).
+//
+// A redirect carries no observable evidence of how the application *processed*
+// an injected payload: the body is a fixed stub and the only payload-dependent
+// part is the echoed Location header. Diff-based, error-based detection
+// (SSTI / behaviour probing) therefore cannot use a redirect as an evaluation
+// signal — a break-vs-escape difference between two redirects is the literal
+// payload being reflected back into the redirect target, not the template
+// engine evaluating it. This was the source of the reported diff-based SSTI
+// false positives on identity/CIAM hosts that 301-redirect every request:
+// break `{{7/0}}` and escape `{{7/1}}` produced identical 301s with identical
+// body length, differing only in the CRC32 of the echoed Location header.
+//
+// A status *transition* (e.g. 200 → 301) is still a legitimate signal: it
+// shows up in the STATUS_CODE fingerprint attribute, and at least one side of
+// the comparison is not a redirect, so it is never suppressed by this gate.
+func (s *ResponseSnapshot) IsRedirect() bool {
+	if s == nil {
+		return false
+	}
+	return s.StatusCode >= 300 && s.StatusCode < 400
+}
+
+// IsEmptyBody reports whether the response carried no body. Error-based,
+// diff-based detection needs the payload to reach something that produces
+// output: when a confirmed response has a 0-length body there is nothing
+// rendered that could have evaluated the payload, so a break-vs-escape
+// difference across empty responses can only be header/cookie jitter, not
+// template evaluation.
+func (s *ResponseSnapshot) IsEmptyBody() bool {
+	return s != nil && s.ContentLength == 0
+}
+
+// IsNotFound reports whether the response is a 404. A pair of 404s means the
+// route/template was never reached — in most stacks the router rejects the path
+// before any template layer runs — so a difference between two 404s is not
+// evidence the payload was evaluated. (Reflection into a custom 404 page is
+// still caught separately by the body-reflection gate.)
+func (s *ResponseSnapshot) IsNotFound() bool {
+	return s != nil && s.StatusCode == 404
 }

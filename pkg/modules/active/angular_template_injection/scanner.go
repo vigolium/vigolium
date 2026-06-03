@@ -147,7 +147,7 @@ func (m *Module) tryProbeTemplate(
 		}
 
 		attackBody := resp.Body().String()
-		fullResponse := resp.FullResponse().String()
+		fullResponse := resp.FullResponseString()
 		resp.Close()
 
 		// Check if the COMPUTED result appears in the response but not in the baseline

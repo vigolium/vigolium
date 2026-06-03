@@ -442,7 +442,7 @@ func (c *AuditAgentConfig) EffectiveSyncInterval() int {
 // Deprecated: configure agent.olium; this block is ignored.
 type LLMConfig struct {
 	Provider    string  `yaml:"provider"`    // "anthropic" (default) or "openai"
-	Model       string  `yaml:"model"`       // e.g. "claude-sonnet-4-20250514", "gpt-4o"
+	Model       string  `yaml:"model"`       // e.g. "claude-sonnet-4-6", "gpt-4o"
 	APIKey      string  `yaml:"api_key"`     // inline key (prefer api_key_env)
 	APIKeyEnv   string  `yaml:"api_key_env"` // env var name; defaults to ANTHROPIC_API_KEY / OPENAI_API_KEY
 	BaseURL     string  `yaml:"base_url"`    // custom endpoint for OpenAI-compatible providers
@@ -495,7 +495,7 @@ func (c *AgentConfig) Validate() error {
 func DefaultLLMConfig() LLMConfig {
 	return LLMConfig{
 		Provider:  "anthropic",
-		Model:     "claude-sonnet-4-20250514",
+		Model:     "claude-sonnet-4-6",
 		CacheSize: 256,
 		CacheTTL:  300,
 		MaxTokens: 4096,

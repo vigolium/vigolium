@@ -156,7 +156,7 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 		weaknesses = append(weaknesses, cspWeakness{
 			name:      "unsafe-inline in Script Source",
 			directive: directive,
-			severity:  severity.High,
+			severity:  severity.Medium,
 			desc:      "CSP allows 'unsafe-inline' for scripts, which permits inline script execution and largely negates XSS protection",
 		})
 	}
@@ -170,7 +170,7 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 		weaknesses = append(weaknesses, cspWeakness{
 			name:      "unsafe-eval in Script Source",
 			directive: directive,
-			severity:  severity.Medium,
+			severity:  severity.Low,
 			desc:      "CSP allows 'unsafe-eval' for scripts, which permits eval() and similar dynamic code execution",
 		})
 	}
@@ -208,7 +208,7 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 		weaknesses = append(weaknesses, cspWeakness{
 			name:      "blob: URI in Script Source",
 			directive: directive,
-			severity:  severity.Medium,
+			severity:  severity.Low,
 			desc:      "CSP allows blob: URIs for scripts, which may be leveraged for script execution",
 		})
 	}
@@ -218,7 +218,7 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 		weaknesses = append(weaknesses, cspWeakness{
 			name:      "Missing frame-ancestors",
 			directive: "frame-ancestors",
-			severity:  severity.Medium,
+			severity:  severity.Low,
 			desc:      "CSP does not define frame-ancestors, leaving the application potentially vulnerable to clickjacking attacks",
 		})
 	}
@@ -240,7 +240,7 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 			weaknesses = append(weaknesses, cspWeakness{
 				name:      "Permissive object-src",
 				directive: "object-src",
-				severity:  severity.Medium,
+				severity:  severity.Low,
 				desc:      "CSP object-src is not set to 'none', allowing potentially dangerous plugin content (Flash, Java applets)",
 			})
 		}
@@ -248,7 +248,7 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 		weaknesses = append(weaknesses, cspWeakness{
 			name:      "Missing object-src Restriction",
 			directive: "object-src",
-			severity:  severity.Medium,
+			severity:  severity.Low,
 			desc:      "CSP does not explicitly restrict object-src and default-src is not 'none', allowing potentially dangerous plugin content",
 		})
 	}

@@ -253,6 +253,41 @@ type Result struct {
 	Reentries int
 }
 
+// logSkillsLoaded prints a one-line summary of the skills available to the
+// agent: the total plus a per-source breakdown, then the names of any
+// project/user skills (the ones the operator dropped in .agents/skills/,
+// .claude/skills/, or ~/.vigolium/skills/) so a mis-placed or empty skill
+// folder is obvious at a glance.
+func logSkillsLoaded(w io.Writer, skills *skill.Registry) {
+	if skills == nil || skills.Len() == 0 {
+		_, _ = fmt.Fprintf(w, "[autopilot] loaded 0 skills\n")
+		return
+	}
+	bySource := map[skill.Source]int{}
+	var local []string
+	for _, s := range skills.List() {
+		bySource[s.Source]++
+		if s.Source != skill.SourceEmbedded {
+			local = append(local, fmt.Sprintf("%s (%s)", s.Name, s.Source))
+		}
+	}
+	parts := make([]string, 0, 4)
+	for _, src := range []skill.Source{
+		skill.SourceProjectAgents,
+		skill.SourceProjectClaude,
+		skill.SourceUserVigolium,
+		skill.SourceEmbedded,
+	} {
+		if n := bySource[src]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s: %d", src, n))
+		}
+	}
+	_, _ = fmt.Fprintf(w, "[autopilot] loaded %d skills (%s)\n", skills.Len(), strings.Join(parts, ", "))
+	if len(local) > 0 {
+		_, _ = fmt.Fprintf(w, "[autopilot] project/user skills: %s\n", strings.Join(local, ", "))
+	}
+}
+
 // Run executes one autopilot session. It returns when the underlying
 // engine's multi-turn loop completes — either because the model stopped
 // calling tools, because halt_scan fired, or because MaxTurns was hit.
@@ -282,6 +317,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	for _, w := range warnings {
 		_, _ = fmt.Fprintf(opts.ToolLog, "[autopilot] %s\n", w)
 	}
+	logSkillsLoaded(opts.ToolLog, skills)
 
 	// Autopilot-specific tool wiring.
 	halt := &HaltSignal{}

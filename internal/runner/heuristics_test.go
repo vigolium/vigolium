@@ -1,10 +1,17 @@
 package runner
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/vigolium/vigolium/pkg/core/network"
+	"github.com/vigolium/vigolium/pkg/core/services"
+	vighttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/types"
 )
 
 func TestNormalizeToRoot(t *testing.T) {
@@ -218,6 +225,45 @@ func TestLooksLikeHTMLTag(t *testing.T) {
 				t.Errorf("looksLikeHTMLTag(%q) = %v, want %v", tt.body, got, tt.expected)
 			}
 		})
+	}
+}
+
+// TestProbeTargetUnfollowedRedirectNotSkipped guards the fix for an off-host
+// root redirect (classic SSO/login) being mistaken for a blank/empty root page.
+// With FollowHostRedirects=true a cross-host 302 is not followed, so the bare
+// 302 — typically an empty body — surfaces to probeTarget. The body-only
+// classification would otherwise call it "[blank]", confirm via robots/index
+// (which also 302 to nowhere), and skip spidering. The 3xx guard must retain it.
+func TestProbeTargetUnfollowedRedirectNotSkipped(t *testing.T) {
+	opts := types.DefaultOptions()
+	opts.FollowHostRedirects = true // same-host-only → cross-host 302 is NOT followed
+	if err := network.Init(opts); err != nil {
+		t.Fatalf("network.Init: %v", err)
+	}
+	svc := &services.Services{Options: opts}
+	r, err := vighttp.NewRequester(opts, svc)
+	if err != nil {
+		t.Fatalf("NewRequester: %v", err)
+	}
+
+	// Root (and every path) issues an empty-bodied 302 to a different host.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Location", "https://login.other-host.invalid/")
+		w.WriteHeader(http.StatusFound) // 302, no body
+	}))
+	defer srv.Close()
+
+	result := probeTarget(context.Background(), r, srv.URL+"/", "basic")
+
+	if result.StatusCode != 302 {
+		t.Fatalf("expected the unfollowed 302 to surface, got status %d (content_type=%q)",
+			result.StatusCode, result.ContentType)
+	}
+	if result.SkipSpidering {
+		t.Errorf("a redirecting root must not be skipped, got SkipSpidering=true reason=%q", result.Reason)
+	}
+	if result.ContentType != "redirect" {
+		t.Errorf("expected ContentType=redirect, got %q", result.ContentType)
 	}
 }
 

@@ -328,6 +328,14 @@ func classifyInteraction(protocol string, pctx PayloadContext) (severity.Severit
 		injectionDesc += " via parameter " + pctx.ParameterName
 	}
 
+	// Command-injection OAST payloads (nslookup/ping/curl/wget of a unique,
+	// unguessable subdomain) carry a different meaning than the generic
+	// SSRF/XXE interpretation: a callback means a shell command actually ran, so
+	// even a DNS-only interaction is high-confidence command execution.
+	if strings.Contains(strings.ToLower(pctx.InjectionType), "command") {
+		return classifyCommandInjection(proto, injectionDesc)
+	}
+
 	switch proto {
 	case "http", "https":
 		return severity.High, "Blind SSRF confirmed: target made outbound HTTP request to OAST server (" + injectionDesc + ")"
@@ -335,6 +343,20 @@ func classifyInteraction(protocol string, pctx PayloadContext) (severity.Severit
 		return severity.Info, "DNS interaction detected: target resolved OAST domain (" + injectionDesc + "). May indicate blind SSRF/XXE but DNS alone is lower confidence."
 	default:
 		return severity.Medium, "Out-of-band " + protocol + " interaction detected (" + injectionDesc + ")"
+	}
+}
+
+// classifyCommandInjection rates out-of-band interactions triggered by an
+// injected OS command. The per-payload subdomain is random and unguessable, so a
+// correlated callback is unforgeable proof that the injected command executed.
+func classifyCommandInjection(proto, injectionDesc string) (severity.Severity, string) {
+	switch proto {
+	case "http", "https":
+		return severity.Critical, "Blind OS command injection confirmed: target executed an injected fetch command (curl/wget) calling the OAST server over HTTP (" + injectionDesc + ")"
+	case "dns":
+		return severity.High, "Blind OS command injection confirmed: target executed an injected DNS-resolving command (nslookup/host/ping) for a unique OAST subdomain (" + injectionDesc + "). The unguessable per-payload subdomain rules out coincidental resolution."
+	default:
+		return severity.High, "Blind OS command injection confirmed via out-of-band " + proto + " interaction (" + injectionDesc + ")"
 	}
 }
 

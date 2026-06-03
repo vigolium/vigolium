@@ -57,6 +57,26 @@ func New() *Module {
 	return m
 }
 
+// isCSRFReachableContentType reports whether a cross-site HTML form / simple
+// fetch could produce a request with this Content-Type without triggering a CORS
+// preflight. Only the three CORS "simple" content types (and an absent header,
+// which a form defaults to form-urlencoded) qualify; anything else — notably
+// application/json — cannot be forged cross-site by classic CSRF.
+func isCSRFReachableContentType(ct string) bool {
+	ct = strings.ToLower(strings.TrimSpace(ct))
+	if ct == "" {
+		return true
+	}
+	if i := strings.IndexByte(ct, ';'); i >= 0 { // drop "; charset=…" / "; boundary=…"
+		ct = strings.TrimSpace(ct[:i])
+	}
+	switch ct {
+	case "application/x-www-form-urlencoded", "multipart/form-data", "text/plain":
+		return true
+	}
+	return false
+}
+
 // ScanPerRequest analyzes state-changing requests for missing CSRF protections.
 func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	urlx, err := ctx.URL()
@@ -70,10 +90,25 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	// Skip JSON APIs with Origin header (CORS-protected)
-	ct := strings.ToLower(ctx.Request().Header("Content-Type"))
-	origin := ctx.Request().Header("Origin")
-	if strings.Contains(ct, "application/json") && origin != "" {
+	// CSRF preconditions: the attack only works against requests a browser will
+	// replay cross-site using AMBIENT credentials. A "missing token" on a request
+	// that fails any of these is not a vulnerability, so skip it rather than
+	// flagging it (the reported false positives: JSON APIs, Bearer-token APIs, and
+	// requests with no session cookie).
+	//
+	//  1. A non-simple content type (e.g. application/json) cannot be produced by a
+	//     cross-site HTML form and forces a CORS preflight — not classic CSRF.
+	//  2. Header-based auth (Authorization: Bearer/Basic …) is never attached
+	//     automatically cross-site, so the endpoint is not CSRF-able.
+	//  3. No Cookie header means there is no ambient session for an attacker to
+	//     ride, so a missing anti-CSRF token is moot.
+	if !isCSRFReachableContentType(ctx.Request().Header("Content-Type")) {
+		return nil, nil
+	}
+	if ctx.Request().Header("Authorization") != "" {
+		return nil, nil
+	}
+	if ctx.Request().Header("Cookie") == "" {
 		return nil, nil
 	}
 

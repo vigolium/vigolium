@@ -129,7 +129,7 @@ func probeTarget(_ context.Context, requester *http.Requester, rootURL string, l
 		return result
 	}
 
-	fullResp := respChain.FullResponse().Bytes()
+	fullResp := respChain.FullResponseBytes()
 	if len(fullResp) == 0 {
 		result.ContentType = "blank"
 		result.SkipSpidering = true
@@ -138,6 +138,20 @@ func probeTarget(_ context.Context, requester *http.Requester, rootURL string, l
 	}
 
 	result.StatusCode = httpmsg.GetStatusCode(fullResp)
+
+	// A 3xx surfacing here means a redirect was not followed (e.g. a cross-host
+	// redirect under FollowHostRedirects, or one past the redirect cap). The body
+	// of such a response is usually empty or a tiny stub, which the body-only
+	// classification below would mistake for a "blank/empty root page" and skip
+	// spidering — even though the redirect points at a live app (a classic
+	// off-host SSO/login redirect). A redirect inherently points at content worth
+	// crawling, so never skip on it.
+	if result.StatusCode >= 300 && result.StatusCode < 400 {
+		result.ContentType = "redirect"
+		result.SkipSpidering = false
+		result.Reason = "root redirects (3xx) — spidering retained"
+		return result
+	}
 
 	// Classify using GetStartType
 	startType := httpmsg.GetStartType(fullResp)
@@ -319,7 +333,7 @@ func confirmBlank(requester *http.Requester, rootURL string) bool {
 		if err != nil {
 			continue
 		}
-		fullResp := respChain.FullResponse().Bytes()
+		fullResp := respChain.FullResponseBytes()
 		if len(fullResp) == 0 {
 			continue
 		}

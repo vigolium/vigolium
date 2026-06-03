@@ -129,7 +129,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			Info: output.Info{
 				Name:        "Sensitive Data in Response Headers",
 				Description: fmt.Sprintf("Response from %s discloses %d sensitive value(s) in custom response headers.", urlx.String(), len(hits)),
-				Severity:    severity.High,
+				Severity:    severity.Medium,
 				Confidence:  severity.Firm,
 				Tags:        []string{"info-disclosure", "secrets", "headers"},
 				Reference:   []string{"https://github.com/0xJacky/nginx-ui/security/advisories/GHSA-g9w5-qffc-6762"},

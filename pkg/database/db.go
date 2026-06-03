@@ -200,6 +200,20 @@ func (db *DB) Driver() string {
 	return db.driver
 }
 
+// SQLDB returns the underlying *sql.DB. Used by callers that need a pinned
+// *sql.Conn for connection-scoped operations (e.g. ATTACH DATABASE during a
+// SQLite-to-SQLite merge) that must run on a single physical connection.
+func (db *DB) SQLDB() *sql.DB {
+	return db.DB.DB
+}
+
+// ExpandPath resolves ~ and environment variables in a filesystem path using
+// the same rules as the SQLite DSN builder. Exported so callers (e.g. the
+// merge lock) can derive sidecar paths next to the real database file.
+func ExpandPath(path string) string {
+	return expandPath(path)
+}
+
 // HasFTS returns true if full-text search is available (FTS5 for SQLite, tsvector for PostgreSQL).
 func (db *DB) HasFTS() bool {
 	return db.hasFTS

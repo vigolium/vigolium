@@ -2,6 +2,8 @@ package database
 
 import (
 	"errors"
+
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // Repository handles HTTP record and finding storage
@@ -33,16 +35,17 @@ func defaultProjectUUID(v string) string {
 func (r *Repository) DB() *DB { return r.db }
 
 // buildEvidence creates an evidence string from a request/response pair.
-// Returns empty string if both are empty.
+// Returns empty string if both are empty. Delegates to output.BuildEvidence (the
+// single source of truth for the evidence format) with no label, matching the
+// unlabeled pairs the merge path appends from duplicate findings.
 func buildEvidence(request, response string) string {
-	if request == "" && response == "" {
-		return ""
-	}
-	return request + EvidenceSeparator + response
+	return output.BuildEvidence("", request, response)
 }
 
-// EvidenceSeparator is the delimiter between request and response inside an AdditionalEvidence entry.
-const EvidenceSeparator = "\n---------\n"
+// EvidenceSeparator is the delimiter between request and response inside an
+// AdditionalEvidence entry. Re-exported from pkg/output (the canonical owner) so
+// the storage-layer dedup/merge path splits evidence the same way modules emit it.
+const EvidenceSeparator = output.EvidenceSeparator
 
 // mergeUniqueStrings returns the deduplicated union of two string slices.
 func mergeUniqueStrings(a, b []string) []string {

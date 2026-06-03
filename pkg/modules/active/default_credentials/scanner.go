@@ -171,7 +171,7 @@ func (m *Module) sendCredentials(
 		cr.statusCode = resp.Response().StatusCode
 		cr.hasSetCookie = resp.Response().Header.Get("Set-Cookie") != ""
 	}
-	cr.body = resp.FullResponse().String()
+	cr.body = resp.FullResponseString()
 
 	return cr, nil
 }

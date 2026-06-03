@@ -135,7 +135,9 @@ func (m *Module) ScanPerInsertionPoint(
 
 		if result != nil {
 			result.URL = urlx.String()
-			// Time-delay findings get Tentative confidence (lower than OAST)
+			// Time-delay findings are prone to backend-delay false positives, so
+			// (unlike the OAST path) they are downgraded to suspect/tentative.
+			result.Info.Severity = severity.Suspect
 			result.Info.Confidence = severity.Tentative
 			results = append(results, result)
 			return results, nil

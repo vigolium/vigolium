@@ -81,3 +81,37 @@ func TestScanPerRequest_NoFalsePositive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, res, "an admin page that requires auth must not yield a BFLA finding")
 }
+
+// TestScanPerRequest_LoginPageOnUnauthNoFalsePositive reproduces the loose-length
+// false positive: stripping auth returns a 200 LOGIN page of similar LENGTH but
+// entirely different CONTENT than the admin page. The old "body length within
+// 50%" check flagged it; the content-similarity gate must reject it because the
+// privileged content was not actually served unauthenticated.
+func TestScanPerRequest_LoginPageOnUnauthNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	loginBody := "<html><body>Please sign in to continue. " + strings.Repeat("username password forgot ", 35) + "</body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "-vigolium-wp/") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not found"))
+			return
+		}
+		// Only GET is enabled, so method-switching probes (POST/PUT/DELETE) get a
+		// 405 and don't fire — isolating the auth-strip content check.
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		// Auth stripped → a 200 login page: similar size, totally different content.
+		_, _ = w.Write([]byte(loginBody))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// Seed the authenticated admin page as the baseline.
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/admin/users"), "text/html", adminBody)
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a 200 login page of similar length but different content must not be flagged as BFLA")
+}
