@@ -371,6 +371,28 @@ Target appears to be Express.js on port 3000. No auth headers present.
 	}
 }
 
+func TestParseSwarmPlanMarkdownRecommendedSkills(t *testing.T) {
+	input := `## FOCUS_AREAS
+- XSS in search results via q
+- IDOR in basket endpoint
+
+## RECOMMENDED_SKILLS
+- xss-browser-confirm
+- ` + "`idor-blast-radius`" + ` — confirm and size the basket IDOR
+`
+	plan, err := ParseSwarmPlan(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(plan.RecommendedSkills) != 2 {
+		t.Fatalf("expected 2 recommended skills, got %d: %v", len(plan.RecommendedSkills), plan.RecommendedSkills)
+	}
+	// Names only — backtick wrapping and a trailing "— why" description stripped.
+	if plan.RecommendedSkills[0] != "xss-browser-confirm" || plan.RecommendedSkills[1] != "idor-blast-radius" {
+		t.Fatalf("unexpected recommended skills: %v", plan.RecommendedSkills)
+	}
+}
+
 func TestParseSwarmPlanMarkdownMinimal(t *testing.T) {
 	// Only the required section
 	input := `## MODULE_TAGS

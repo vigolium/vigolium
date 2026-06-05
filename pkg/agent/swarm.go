@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,8 @@ import (
 	agentprompt "github.com/vigolium/vigolium/pkg/agent/prompt"
 	"github.com/vigolium/vigolium/pkg/audit/claudecost"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/olium"
+	"github.com/vigolium/vigolium/pkg/olium/skill"
 
 	"go.uber.org/zap"
 )
@@ -36,6 +39,11 @@ type SwarmConfig struct {
 	// plan agent decides built-in modules are sufficient. Bound to --with-extensions
 	// on the CLI. Has no effect when DryRun is true (DryRun still skips Phase 2).
 	ForceExtensions bool
+
+	// Skill selection (planner-driven loading overrides)
+	SkillNames    []string // --skill: force-include these skills, bypassing planner judgement
+	SkillTags     []string // --skill-tag: force-include every skill carrying one of these tags
+	NoSkillFilter bool     // --no-skill-filter: load the full skill set, ignore planner selection
 
 	// Scanning parameters
 	VulnType         string   // optional: focus on specific vulnerability type
@@ -153,6 +161,12 @@ type SwarmRunner struct {
 	engine *Engine
 	repo   *database.Repository
 
+	// skills is the full skill registry loaded once at the start of Run
+	// (~/.vigolium/skills + project scopes + embedded). The plan phase sees
+	// the full menu; the triage phase gets a planner-filtered subset. nil when
+	// loading failed — phases then run without skills.
+	skills *skill.Registry
+
 	// extensionCache memoises successful runExtensionAgent results within
 	// a process lifetime, keyed by a hash of (target + focus areas +
 	// module tags). Keeps repeat planner runs on the same target — e.g.
@@ -182,6 +196,41 @@ func NewSwarmRunner(engine *Engine, repo *database.Repository) *SwarmRunner {
 		engine: engine,
 		repo:   repo,
 	}
+}
+
+// selectTriageSkills computes the planner-filtered skill registry handed to
+// the triage agent: the plan's recommended_skills unioned with the always-on
+// set and any operator override (--skill / --skill-tag), or the full set under
+// --no-skill-filter. Returns nil when no skills are loaded. Emits a one-line
+// summary of the selection to stderr so the operator sees what triage will use.
+func (s *SwarmRunner) selectTriageSkills(cfg SwarmConfig, result *SwarmResult) *skill.Registry {
+	if s.skills == nil || s.skills.Len() == 0 {
+		return nil
+	}
+	var picks []string
+	if result != nil && result.SwarmPlan != nil {
+		picks = result.SwarmPlan.RecommendedSkills
+	}
+	var alwaysOn []string
+	if s.engine != nil && s.engine.settings != nil {
+		alwaysOn = s.engine.settings.Agent.Olium.EffectiveAlwaysOnSkills()
+	}
+	sel, warnings := s.skills.Select(skill.SelectOptions{
+		Picks:         picks,
+		AlwaysOn:      alwaysOn,
+		Forced:        cfg.SkillNames,
+		ForcedTags:    cfg.SkillTags,
+		DisableFilter: cfg.NoSkillFilter,
+	})
+	for _, w := range warnings {
+		zap.L().Warn(w)
+	}
+	if sel == nil || sel.Len() == 0 {
+		return sel
+	}
+	fmt.Fprintf(os.Stderr, "[swarm] triage loading %d of %d skill(s): %s\n",
+		sel.Len(), s.skills.Len(), strings.Join(sel.Names(), ", "))
+	return sel
 }
 
 // persistPhase updates the agent run's current phase in the database.
@@ -225,6 +274,16 @@ func (s *SwarmRunner) Run(ctx context.Context, cfg SwarmConfig) (*SwarmResult, e
 	// Resolve agent name to default if empty — ensures the DB record has the effective name
 	if cfg.AgentName == "" && s.engine != nil && s.engine.settings != nil {
 		cfg.AgentName = s.engine.settings.Agent.DefaultAgent
+	}
+
+	// Load the skill registry once for the whole run. The plan phase sees the
+	// full menu and selects a subset (plan.recommended_skills); the triage
+	// phase loads the planner-selected subset plus the always-on set. includeUser
+	// surfaces ~/.vigolium/skills/. Loading is best-effort — a failure just runs
+	// the phases without skills.
+	s.skills, _ = olium.LoadSkillsFor(true)
+	if s.skills != nil && s.skills.Len() > 0 {
+		fmt.Fprintf(os.Stderr, "[swarm] %d skills available (planner selects a subset for triage)\n", s.skills.Len())
 	}
 	var protocol, model string
 	if s.engine != nil && s.engine.settings != nil {

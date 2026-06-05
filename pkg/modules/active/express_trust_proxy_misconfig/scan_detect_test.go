@@ -125,6 +125,51 @@ func TestScanPerRequest_IPSizeJitterNoFalsePositive(t *testing.T) {
 	assert.Empty(t, res, "natural per-request body growth must not be reported as an X-Forwarded-For size change")
 }
 
+// TestScanPerRequest_DetectsPortReflection echoes X-Forwarded-Port into a
+// generated URL. The port is absent from the no-header baseline and reflects
+// reproducibly, so the confirmation gate must keep the finding.
+func TestScanPerRequest_DetectsPortReflection(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if port := r.Header.Get("X-Forwarded-Port"); port != "" {
+			_, _ = w.Write([]byte("<a href=\"https://host:" + port + "/cb\">link</a>"))
+			return
+		}
+		_, _ = w.Write([]byte("<html><body>no port here</body></html>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/account")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "expected a finding when X-Forwarded-Port is reflected and reproducible")
+	assert.Contains(t, res[0].Info.Name, "X-Forwarded-Port")
+}
+
+// TestScanPerRequest_NoFalsePositive_PortAlreadyInBaseline reproduces the FP the
+// confirmation gate exists to catch: the injected port string appears in EVERY
+// response (including the no-header baseline) because it is pre-existing page
+// content, not a header reflection. The baseline-absence check must drop it.
+func TestScanPerRequest_NoFalsePositive_PortAlreadyInBaseline(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		// The ":1337" string is baked into the page regardless of any header.
+		_, _ = w.Write([]byte("<a href=\"https://cdn.example:" + injectedPort + "/asset\">static</a>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/account")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a port string present in the no-header baseline must not be reported as injection")
+}
+
 // TestCheckHostInjection exercises the pure host-reflection helper directly.
 func TestCheckHostInjection(t *testing.T) {
 	t.Parallel()

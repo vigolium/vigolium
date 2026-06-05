@@ -26,6 +26,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/notify/webhook"
 	"github.com/vigolium/vigolium/pkg/queue"
 	"github.com/vigolium/vigolium/pkg/server"
+	"github.com/vigolium/vigolium/pkg/server/mitm"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
 	"github.com/vigolium/vigolium/public"
@@ -40,6 +41,11 @@ type serverOptions struct {
 	IngestProxyPort int
 	APIKeys         []string
 	NoAuth          bool
+
+	// Ingest-proxy TLS interception (MITM)
+	ProxyMITM     bool   // Intercept HTTPS via a generated CA (records + scans TLS traffic)
+	ProxyInsecure bool   // Skip upstream TLS verification when intercepting HTTPS
+	ExportCA      string // Write the MITM CA cert to this path and exit
 
 	// Queue
 	MemBufferSize int
@@ -97,6 +103,12 @@ func init() {
 	flags.StringVar(&serverOpts.Host, "host", "0.0.0.0", "Bind address for the API server")
 	flags.IntVar(&serverOpts.ServicePort, "service-port", 9002, "Port for the REST API server")
 	flags.IntVar(&serverOpts.IngestProxyPort, "ingest-proxy-port", 0, "Transparent HTTP proxy port for recording traffic (0 = disabled)")
+	flags.BoolVar(&serverOpts.ProxyMITM, "proxy-mitm", false,
+		"Intercept HTTPS through --ingest-proxy-port using a generated CA so TLS traffic is recorded (and scanned with -S). Trust the CA printed at startup")
+	flags.BoolVar(&serverOpts.ProxyInsecure, "proxy-insecure", false,
+		"When intercepting HTTPS (--proxy-mitm), skip verification of the upstream server's TLS certificate")
+	flags.StringVar(&serverOpts.ExportCA, "export-ca", "",
+		"Write the ingest-proxy MITM CA certificate to this path and exit (generates the CA if needed)")
 	flags.StringSliceVar(&serverOpts.APIKeys, "alternative-ingest-key", nil, "Additional API key for ingestion endpoints (repeatable)")
 	flags.BoolVarP(&serverOpts.NoAuth, "no-auth", "A", false, "Run server without API key authentication")
 
@@ -105,6 +117,12 @@ func init() {
 
 	// Output group
 	flags.StringVarP(&serverOpts.Output, "output", "o", "", "Write findings to specified output file")
+
+	// Scan-on-receive group (runServerCmd reads these globals)
+	flags.BoolVarP(&globalScanOnReceive, "scan-on-receive", "S", false,
+		"Continuously scan new HTTP records as they arrive in the database")
+	flags.BoolVar(&globalFullNativeScanOnReceive, "full-native-scan-on-receive", false,
+		"Run the full native scan pipeline (discovery + spidering + dynamic-assessment) continuously on received records, instead of dynamic-assessment only")
 
 	// Catchup scan group
 	flags.IntVar(&serverOpts.CatchupThreads, "catchup-threads", 4,
@@ -154,8 +172,37 @@ func newServerRunnerOptions(so *serverOptions, concurrency, maxPerHost, maxHostE
 	}
 }
 
+// proxyCADir is the directory holding the ingest-proxy MITM CA. It resolves the
+// same default the server uses (server.DefaultIngestProxyCADir) so --export-ca
+// and the running proxy always agree on the CA location.
+func proxyCADir() string { return config.ExpandPath(server.DefaultIngestProxyCADir) }
+
+// exportProxyCA loads-or-creates the MITM CA and writes its certificate to dst,
+// printing trust instructions. Backs the --export-ca flag.
+func exportProxyCA(dst string) error {
+	ca, err := mitm.LoadOrCreateCA(proxyCADir())
+	if err != nil {
+		return fmt.Errorf("initialize MITM CA: %w", err)
+	}
+	dst = config.ExpandPath(dst)
+	if err := ca.ExportCert(dst); err != nil {
+		return fmt.Errorf("export CA certificate: %w", err)
+	}
+	if !globalSilent {
+		fmt.Printf("%s Ingest-proxy CA certificate written to %s\n",
+			terminal.InfoSymbol(), terminal.Cyan(dst))
+		fmt.Printf("  Trust it to capture HTTPS, e.g.:\n    curl --proxy http://127.0.0.1:9090 --cacert %s https://target/\n", dst)
+	}
+	return nil
+}
+
 func runServerCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
+
+	// --export-ca: generate (if needed) and write the MITM CA cert, then exit.
+	if serverOpts.ExportCA != "" {
+		return exportProxyCA(serverOpts.ExportCA)
+	}
 
 	// Load settings early so config values are available for API key resolution
 	settings, err := config.LoadSettings(globalConfig)
@@ -319,6 +366,8 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	apiServer := server.NewServer(server.ServerConfig{
 		ServiceAddr:          serviceAddr,
 		IngestProxyAddr:      ingestProxyAddr,
+		IngestProxyMITM:      serverOpts.ProxyMITM,
+		IngestProxyInsecure:  serverOpts.ProxyInsecure,
 		APIKeys:              apiKeys,
 		UserStore:            userStore,
 		NoAuth:               serverOpts.NoAuth,
@@ -501,6 +550,16 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s Ingest proxy %s\n",
 				terminal.InfoSymbol(),
 				terminal.Cyan(fmt.Sprintf("http://%s", ingestProxyAddr)))
+			if caPath := apiServer.ProxyCACertPath(); caPath != "" {
+				fmt.Printf("  %s HTTPS intercept %s  %s trust %s\n",
+					terminal.InfoSymbol(),
+					terminal.Cyan("on"),
+					sep,
+					terminal.Cyan(fmt.Sprintf("curl --cacert %s", caPath)))
+			}
+		} else if serverOpts.ProxyMITM {
+			fmt.Printf("  %s %s --proxy-mitm has no effect without --ingest-proxy-port\n",
+				terminal.WarningSymbol(), terminal.Yellow("warning:"))
 		}
 		if globalScanOnReceive && !serverOpts.DisableCatchup {
 			fmt.Printf("  %s Scan workers %s  %s Catchup workers %s\n",

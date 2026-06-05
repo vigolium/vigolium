@@ -28,6 +28,7 @@ var (
 	logFull      bool
 	logFollow    bool
 	logStripANSI bool
+	logRaw       bool
 )
 
 var logCmd = &cobra.Command{
@@ -43,7 +44,11 @@ scanning_strategy.scan_logs.sessions_dir (default ~/.vigolium/native-sessions/).
 When scanning_strategy.scan_logs.persist_logs is disabled or the runtime.log file is
 missing, output falls back to the scan_logs database table.
 
-Agentic scan logs are read from agent.sessions_dir/{uuid}/runtime.log.
+Agentic scan logs are read from agent.sessions_dir/{uuid}/. Completed agentic
+sessions render their Pi-style transcript (transcript.jsonl) as a conversation
+replay — assistant prose, thinking, tool cards, and results — with long lines
+truncated for the terminal. Pass --raw for the verbatim JSONL, or --follow to
+tail the live runtime.log stream of a still-running session instead.
 
 Pass --tui to open the interactive picker.`,
 	Args: cobra.MaximumNArgs(1),
@@ -65,6 +70,7 @@ func init() {
 	logCmd.Flags().BoolVar(&logFull, "full", false, "Show the full log (shortcut for --tail -1)")
 	logCmd.Flags().BoolVarP(&logFollow, "follow", "f", false, "Follow log output as it is written (tail -f)")
 	logCmd.Flags().BoolVar(&logStripANSI, "strip-ansi", false, "Strip ANSI color codes from output")
+	logCmd.Flags().BoolVar(&logRaw, "raw", false, "For agentic sessions, print the raw transcript JSONL verbatim instead of the rendered replay")
 	tui.AddFlags(logCmd, &logLsTUI, &logLsNoTUI)
 	tui.AddFlags(logLsCmd, &logLsTUI, &logLsNoTUI)
 }
@@ -304,6 +310,19 @@ func showLogForUUID(uuid string, followExplicit bool) error {
 		follow = true
 	}
 
+	// Agentic sessions render their Pi-style transcript as a conversation
+	// replay by default (assistant prose, ⋈ thinking, ▶ tool cards, ✓/✗
+	// results) — closest to what the operator saw live. `--raw` prints the
+	// verbatim JSONL. Live follow stays on the runtime.log stream below, since
+	// the transcript is flushed at turn boundaries and isn't meant for tailing.
+	if src.transcriptPath != "" && !follow {
+		printTranscriptBanner(src.transcriptPath, src.status, logRaw)
+		if logRaw {
+			return dumpFile(src.transcriptPath)
+		}
+		return renderTranscriptFile(src.transcriptPath)
+	}
+
 	printLogBanner(src, follow)
 
 	if src.fromDB {
@@ -315,11 +334,12 @@ func showLogForUUID(uuid string, followExplicit bool) error {
 // logSource describes where a log for a given UUID lives and whether the
 // underlying scan/agent run is still active.
 type logSource struct {
-	kind     string // "native" or "agentic"
-	status   string // run status from DB (running, completed, failed, ...)
-	filePath string // absolute path to runtime.log (empty when fromDB)
-	fromDB   bool   // true when falling back to scan_logs table
-	scanUUID string // UUID used for DB queries
+	kind           string // "native" or "agentic"
+	status         string // run status from DB (running, completed, failed, ...)
+	filePath       string // absolute path to runtime.log (empty when fromDB)
+	transcriptPath string // absolute path to transcript.jsonl (agentic only, "" when absent)
+	fromDB         bool   // true when falling back to scan_logs table
+	scanUUID       string // UUID used for DB queries
 }
 
 func (s *logSource) originLabel() string {
@@ -372,7 +392,7 @@ func resolveLogSource(uuid string, settings *config.Settings) (*logSource, error
 		return &logSource{kind: "native", status: nativeStatus(), filePath: nativeLog, scanUUID: uuid}, nil
 	}
 	if agenticLog != "" {
-		return &logSource{kind: "agentic", status: agenticStatus(), filePath: agenticLog, scanUUID: uuid}, nil
+		return &logSource{kind: "agentic", status: agenticStatus(), filePath: agenticLog, transcriptPath: resolveTranscriptPath(agenticDir), scanUUID: uuid}, nil
 	}
 
 	// Neither convention path (~/.vigolium/agent-sessions/<uuid>/) has a
@@ -382,7 +402,7 @@ func resolveLogSource(uuid string, settings *config.Settings) (*logSource, error
 	if repo != nil {
 		if run, err := repo.GetAgenticScan(ctx, uuid); err == nil && run != nil && run.SessionDir != "" && run.SessionDir != agenticDir {
 			if altLog := resolveSessionLogPath(run.SessionDir); altLog != "" {
-				return &logSource{kind: "agentic", status: run.Status, filePath: altLog, scanUUID: uuid}, nil
+				return &logSource{kind: "agentic", status: run.Status, filePath: altLog, transcriptPath: resolveTranscriptPath(run.SessionDir), scanUUID: uuid}, nil
 			}
 		}
 	}

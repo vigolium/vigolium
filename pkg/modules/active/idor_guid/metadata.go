@@ -14,7 +14,7 @@ Detects Insecure Direct Object Reference (IDOR) vulnerabilities arising from pre
 UUIDv1 encodes a timestamp and MAC address, making sequential IDs guessable. This module identifies
 parameters containing UUIDv1 values, extracts their timestamps, generates time-neighbor UUIDs, and
 checks if the application returns valid responses for those predicted identifiers.`
-	ModuleConfirmation = "Confirmed when a time-neighbor UUID generated from UUIDv1 timestamp extraction returns a valid (non-error) response different from the original"
+	ModuleConfirmation = "Confirmed when a predicted neighbor identifier returns a 200 response that is a distinct application object — not a login/SSO challenge or access-denied page, and differing from the baseline by more than the endpoint's own per-request variation"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"idor", "auth-bypass", "moderate"}

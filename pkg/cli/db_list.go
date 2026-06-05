@@ -30,7 +30,6 @@ var (
 	listLimit   int
 	listOffset  int
 	listColumns []string
-	listExclude []string
 
 	// Filter flags
 	listHost     string
@@ -83,7 +82,6 @@ func registerListFlags(cmd *cobra.Command) {
 
 	// Column selection flags
 	cmd.Flags().StringSliceVar(&listColumns, "columns", nil, "Columns to include in output, comma-separated")
-	cmd.Flags().StringSliceVar(&listExclude, "exclude-columns", nil, "Columns to exclude from output, comma-separated")
 
 	// Filter flags
 	cmd.Flags().StringVar(&listHost, "host", "", "Filter records by hostname pattern (wildcard supported)")

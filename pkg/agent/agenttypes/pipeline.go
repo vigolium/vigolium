@@ -249,16 +249,21 @@ type Snippet struct {
 // SwarmPlan is the structured output from the master agent in agent swarm mode.
 // The agent analyzes the target request, selects modules, and generates custom extensions.
 type SwarmPlan struct {
-	ModuleTags            []string             `json:"module_tags,omitempty"`
-	ModuleIDs             []string             `json:"module_ids,omitempty"`
-	Extensions            []GeneratedExtension `json:"extensions,omitempty"`
-	QuickChecks           []QuickCheck         `json:"quick_checks,omitempty"`
-	Snippets              []Snippet            `json:"snippets,omitempty"`
-	FocusAreas            []string             `json:"focus_areas,omitempty"`
-	Notes                 string               `json:"notes,omitempty"`
-	NeedsExtensions       bool                 `json:"needs_extensions,omitempty"`
-	NeedsExtensionsReason string               `json:"needs_extensions_reason,omitempty"`
-	ExtensionAgentError   string               `json:"extension_agent_error,omitempty"`
+	ModuleTags  []string             `json:"module_tags,omitempty"`
+	ModuleIDs   []string             `json:"module_ids,omitempty"`
+	Extensions  []GeneratedExtension `json:"extensions,omitempty"`
+	QuickChecks []QuickCheck         `json:"quick_checks,omitempty"`
+	Snippets    []Snippet            `json:"snippets,omitempty"`
+	FocusAreas  []string             `json:"focus_areas,omitempty"`
+	// RecommendedSkills is the planner's context-driven selection of skill
+	// names (from the <available_skills> menu) that the triage phase should
+	// load for confirmation/escalation. Unioned with the always-on set and any
+	// operator override before the triage engine is built.
+	RecommendedSkills     []string `json:"recommended_skills,omitempty"`
+	Notes                 string   `json:"notes,omitempty"`
+	NeedsExtensions       bool     `json:"needs_extensions,omitempty"`
+	NeedsExtensionsReason string   `json:"needs_extensions_reason,omitempty"`
+	ExtensionAgentError   string   `json:"extension_agent_error,omitempty"`
 }
 
 // BatchProvenance tracks which batch contributed each item to a merged plan.

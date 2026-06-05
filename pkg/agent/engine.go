@@ -17,6 +17,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	agentprompt "github.com/vigolium/vigolium/pkg/agent/prompt"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"go.uber.org/zap"
 )
 
@@ -70,7 +71,29 @@ func (e *Engine) rt() AgentRuntime {
 // Run executes a full agent pipeline: resolve prompt → render → execute → parse → ingest.
 // Each call constructs a fresh in-process olium engine.
 func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
-	return e.runOnSession(ctx, opts, nil)
+	return e.runOnSession(ctx, opts, nil, nil)
+}
+
+// RunWithSkills is Run with a skill registry surfaced to the agent: the
+// fresh-per-call engine gets an <available_skills> block and the load_skill
+// tool for exactly the skills in reg. A nil/empty reg behaves like Run.
+func (e *Engine) RunWithSkills(ctx context.Context, opts Options, reg *skill.Registry) (*Result, error) {
+	return e.runOnSession(ctx, opts, nil, reg)
+}
+
+// RunWithExtraSkills merges extra template data (like RunWithExtra) and also
+// surfaces the given skill registry to the agent. Used by the swarm plan phase
+// to give the planner the full skill menu.
+func (e *Engine) RunWithExtraSkills(ctx context.Context, opts Options, extra map[string]string, reg *skill.Registry) (*Result, error) {
+	if extra != nil {
+		if opts.Extra == nil {
+			opts.Extra = make(map[string]string)
+		}
+		for k, v := range extra {
+			opts.Extra[k] = v
+		}
+	}
+	return e.runOnSession(ctx, opts, nil, reg)
 }
 
 // RunOnOliumEngine is like Run but reuses an existing AgentSession so the
@@ -80,12 +103,16 @@ func (e *Engine) Run(ctx context.Context, opts Options) (*Result, error) {
 // e.g., the source-analysis explore phase forks to 3 format/extension
 // goroutines that don't need to re-append the explore notes.
 func (e *Engine) RunOnOliumEngine(ctx context.Context, opts Options, sess AgentSession) (*Result, error) {
-	return e.runOnSession(ctx, opts, sess)
+	return e.runOnSession(ctx, opts, sess, nil)
 }
 
 // runOnSession is the unified Run implementation. sess=nil → fresh session
-// per call (default); sess != nil → reuse the supplied session.
-func (e *Engine) runOnSession(ctx context.Context, opts Options, sess AgentSession) (*Result, error) {
+// per call (default); sess != nil → reuse the supplied session. skills, when
+// non-nil and non-empty, is surfaced via a per-call session carrying the
+// <available_skills> block + load_skill tool (only on the fresh path; the
+// session-reuse path already baked in whatever skills its session was built
+// with).
+func (e *Engine) runOnSession(ctx context.Context, opts Options, sess AgentSession, skills *skill.Registry) (*Result, error) {
 	// AgentName is informational now — all dispatch goes through olium. Retain
 	// the field so log lines and Result.AgentName keep their old semantics.
 	if opts.AgentName == "" {
@@ -150,11 +177,37 @@ func (e *Engine) runOnSession(ctx context.Context, opts Options, sess AgentSessi
 
 		var out oliumRunOutput
 		var runErr error
-		if sess != nil {
+		switch {
+		case sess != nil:
 			// Session-reuse path: the recorder (if any) is attached to the
 			// session's engine and flushed by the caller's sess.Close().
 			out, runErr = e.rt().RunOnSession(ctx, oliumCfg, sess, runPrompt, opts.StreamWriter, thinkingSink.writer(), opts.Verbose)
-		} else {
+		case skills != nil && skills.Len() > 0:
+			// Fresh-per-call path WITH skills: build a per-call session carrying
+			// the <available_skills> block + load_skill tool, run on it, then
+			// flush its transcript via Close (the recorder buffers the final
+			// turn until close). A build failure surfaces as a retryable error.
+			rec := RecordSpec{SessionDir: opts.SessionDir, Template: opts.PromptTemplate}
+			// When a repo is wired, also give the skill-driven agent the
+			// read+replay tool subset so its skills can actually confirm against
+			// scan records (not just reason over prompt context).
+			var vigTools *VigToolSpec
+			if e.repo != nil {
+				vigTools = &VigToolSpec{Repo: e.repo, ProjectUUID: opts.ProjectUUID}
+			}
+			skillSess, sErr := e.rt().NewSessionWithSpec(oliumCfg, SessionSpec{
+				SourcePath:   opts.SourcePath,
+				IncludeTools: true,
+				Skills:       skills,
+				VigTools:     vigTools,
+				Record:       rec,
+			})
+			if sErr != nil {
+				return oliumRunOutput{}, sErr
+			}
+			out, runErr = e.rt().RunOnSession(ctx, oliumCfg, skillSess, runPrompt, opts.StreamWriter, thinkingSink.writer(), opts.Verbose)
+			_ = skillSess.Close()
+		default:
 			// Fresh-per-call path: record a per-phase transcript when a session
 			// dir is wired, named by template so concurrent phases don't clash.
 			rec := RecordSpec{SessionDir: opts.SessionDir, Template: opts.PromptTemplate}

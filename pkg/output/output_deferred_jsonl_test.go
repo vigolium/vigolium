@@ -78,6 +78,54 @@ func TestNewStandardWriterDeferredJSONL(t *testing.T) {
 		}
 	})
 
+	t.Run("captured-console keeps the live finding stream on stdout", func(t *testing.T) {
+		// The -P/--parallel fan-out captures each child's stdout/stderr to a
+		// per-target <output>.console.log. CapturedConsole keeps the live finding
+		// stream alive (the captured file is the record), even though jsonl is
+		// deferred and console is not among the formats. No extra live file is
+		// opened — the findings simply stream to the captured stdout.
+		opts := &types.Options{
+			Output:              filepath.Join(t.TempDir(), "out.jsonl"),
+			OutputFormats:       []string{"jsonl", "html"},
+			JSONOutput:          true, // set by reconcileOutputFormats for any jsonl format
+			DeferredJSONLExport: true,
+			CapturedConsole:     true,
+		}
+		w, err := NewStandardWriter(opts)
+		if err != nil {
+			t.Fatalf("NewStandardWriter: %v", err)
+		}
+		defer w.Close()
+		if w.DisableStdout {
+			t.Error("expected live stdout kept enabled under CapturedConsole")
+		}
+		if w.outputFile != nil {
+			t.Error("did not expect an extra live output file under CapturedConsole (findings go to captured stdout)")
+		}
+		if w.JSONOutput {
+			t.Error("expected human-readable console rendering (not raw JSON) under CapturedConsole")
+		}
+	})
+
+	t.Run("captured-console still honors --silent", func(t *testing.T) {
+		// Silent is authoritative: a captured child run with --silent stays quiet.
+		opts := &types.Options{
+			Output:              filepath.Join(t.TempDir(), "out.jsonl"),
+			OutputFormats:       []string{"jsonl", "html"},
+			DeferredJSONLExport: true,
+			CapturedConsole:     true,
+			Silent:              true,
+		}
+		w, err := NewStandardWriter(opts)
+		if err != nil {
+			t.Fatalf("NewStandardWriter: %v", err)
+		}
+		defer w.Close()
+		if !w.DisableStdout {
+			t.Error("expected stdout suppressed when --silent is set, even with CapturedConsole")
+		}
+	})
+
 	t.Run("legacy jsonl (CI) keeps the live file", func(t *testing.T) {
 		opts := &types.Options{
 			Output:              filepath.Join(t.TempDir(), "ci.jsonl"),

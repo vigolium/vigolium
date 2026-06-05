@@ -30,6 +30,9 @@ var (
 	autopilotSource           string
 	autopilotFiles            []string
 	autopilotFocus            string
+	autopilotSkills           []string
+	autopilotSkillTags        []string
+	autopilotNoSkillFilter    bool
 	autopilotMaxDuration      time.Duration
 	autopilotDryRun           bool
 	autopilotShowPrompt       bool
@@ -131,6 +134,9 @@ func init() {
 	f.StringVar(&autopilotSource, "source", "", "Path to application source code for source-aware scanning")
 	f.StringSliceVar(&autopilotFiles, "files", nil, "Specific files to include (relative to --source)")
 	f.StringVar(&autopilotFocus, "focus", "", "Focus area hint (e.g. 'API injection', 'auth bypass')")
+	f.StringSliceVar(&autopilotSkills, "skill", nil, "Force-load these skills by name, bypassing the pre-flight selection (repeatable or comma-separated)")
+	f.StringSliceVar(&autopilotSkillTags, "skill-tag", nil, "Force-load every skill carrying one of these tags (e.g. xss,idor)")
+	f.BoolVar(&autopilotNoSkillFilter, "no-skill-filter", false, "Load the full skill set; skip the pre-flight skill selection")
 	f.DurationVar(&autopilotMaxDuration, "max-duration", 6*time.Hour, "Maximum wall-clock duration for the autopilot session (e.g. 1h, 6h)")
 	f.BoolVar(&autopilotDryRun, "dry-run", false, "Render the system prompt without launching the agent")
 	f.BoolVar(&autopilotShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")

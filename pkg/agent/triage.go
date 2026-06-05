@@ -9,6 +9,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/agent/parsing"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"go.uber.org/zap"
 )
 
@@ -32,6 +33,12 @@ type TriageLoopConfig struct {
 	AgenticScanUUID string // when set, triage verdicts are written back to Finding.Status
 	StreamWriter    io.Writer
 	Verbose         bool // forwarded to agent.Options.Verbose for the per-tool result preview
+
+	// Skills, when non-nil and non-empty, is the planner-filtered skill set the
+	// triage agent loads (via load_skill) to confirm/escalate findings. Built
+	// by the swarm triage step from the plan's recommended_skills + always-on
+	// set. nil → triage runs without skills (e.g. the pipeline triage path).
+	Skills *skill.Registry
 
 	// Loop control
 	MaxRounds                 int
@@ -200,7 +207,13 @@ func RunTriageLoop(ctx context.Context, cfg TriageLoopConfig) (*TriageLoopResult
 			const maxTriageRetries = 3
 			for triageAttempt := 1; triageAttempt <= maxTriageRetries; triageAttempt++ {
 				var runErr error
-				agentResult, runErr = cfg.Engine.Run(ctx, opts)
+				// With a planner-filtered skill set, surface it (and the
+				// load_skill tool) to the triage agent; otherwise plain Run.
+				if cfg.Skills != nil && cfg.Skills.Len() > 0 {
+					agentResult, runErr = cfg.Engine.RunWithSkills(ctx, opts, cfg.Skills)
+				} else {
+					agentResult, runErr = cfg.Engine.Run(ctx, opts)
+				}
 				if runErr == nil {
 					break
 				}

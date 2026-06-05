@@ -142,6 +142,33 @@ func (m *Module) ScanPerRequest(
 				continue
 			}
 
+			// Differential confirmation — the dominant off-by-slash false positive.
+			// A genuine alias traversal serves a SPECIFIC resource from OUTSIDE the
+			// alias directory, so its body must differ from the in-alias equivalent
+			// path /{segment}/{suffix}. When they match, the backend simply
+			// routed/normalized /{segment}{injection}/{suffix} the same as
+			// /{segment}/{suffix} — e.g. a prefixed auth middleware / API gateway
+			// that returns one generic body (`{"message":"User not logged in"}`,
+			// an SPA shell, a 404-as-200) for the entire /{segment} path space. The
+			// ".." escaped nothing. Because `segment` is fixed for this request, a
+			// suffix-independent generic prefix means no other suffix can be a real
+			// escape either, so stop probing this request entirely.
+			normalizedPath := "/" + segment + "/" + suffix
+			if bodySimilarToControl(httpClient, ctx.Service(), rawHttp, normalizedPath, body) {
+				return results, nil
+			}
+
+			// A real file read is suffix-specific. Confirm the hit body actually
+			// depends on the suffix by traversing to a random, non-existent suffix
+			// under the same escaped prefix; if that returns the same 2xx body the
+			// handler is suffix-invariant (a catch-all under /{segment}{injection}/,
+			// not a file read). Drop this hit but keep trying other suffixes — a
+			// distinct one may still be a genuine escape under the same parent.
+			randomPath := "/" + segment + injection + "/" + modkit.FreshCanary()
+			if bodySimilarToControl(httpClient, ctx.Service(), rawHttp, randomPath, body) {
+				continue
+			}
+
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.Scheme + "://" + urlx.Host + newPath,
 				Request:          string(modifiedRaw),
@@ -188,6 +215,30 @@ func confirmStableOffBySlash(
 		}
 	}
 	return true
+}
+
+// bodySimilarToControl fetches controlPath on the same service and reports
+// whether its 2xx response body is textually similar to refBody (the traversal
+// hit). It is the core of the off-by-slash differential gate: a control whose
+// body matches the hit means the hit was NOT actually produced by the
+// traversal. It fails CLOSED toward "not similar" — any transport/parse error
+// or a non-2xx control returns false so that a flaky, failed, or 404 control
+// can never suppress a real finding; only a genuine matching 2xx body does.
+func bodySimilarToControl(
+	client *http.Requester,
+	service *httpmsg.Service,
+	rawHttp []byte,
+	controlPath, refBody string,
+) bool {
+	modified, err := httpmsg.SetPath(rawHttp, controlPath)
+	if err != nil {
+		return false
+	}
+	status, body, ok := modkit.ExecuteRaw(client, service, modified, http.Options{NoRedirects: true, NoClustering: true})
+	if !ok || status < 200 || status >= 300 {
+		return false
+	}
+	return modkit.BodiesSimilar(refBody, body)
 }
 
 // firstPathSegment extracts the first non-empty path segment from a URL path.

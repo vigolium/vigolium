@@ -119,6 +119,34 @@ If you have **source code** and a **target URL**, both work; `swarm --source --t
 - **Session dir:** `~/.vigolium/agent-sessions/` (override via `agent.sessions_dir` in `vigolium-configs.yaml`).
 - **Prompt templates:** `~/.vigolium/prompts/` or embedded under `public/presets/prompts/`.
 - **Output schemas:** `findings`, `http_records`, `attack_plan`, `triage_result`, `source_analysis`.
+
+### Skills
+
+Skills are instructional, attack-vector playbooks (e.g. `idor-blast-radius`,
+`xss-browser-confirm`, `sqli-to-data-exfil`) the agent loads on demand via the
+`load_skill` tool. Built-ins ship embedded and are materialized to
+`~/.vigolium/skills/` on `vigolium init` (override the directory with
+`VIGOLIUM_SKILLS_DIR`); operator edits there are preserved and `vigolium init
+--force` resets them. Drop your own `SKILL.md` files (with frontmatter `name`,
+`description`, optional `tags`) into that dir, `.agents/skills/`, or
+`.claude/skills/` — closer scopes win on name collision.
+
+**Loading per mode:**
+- **olium TUI** — all skills loaded; a count line prints at startup; invoke
+  inline with `/skill:<name>`.
+- **autopilot** — a best-effort pre-flight call selects the skills matching the
+  target; the operator agent loads bodies on demand. Falls back to the full set
+  on any failure.
+- **swarm** — the **plan** phase sees the full menu and emits
+  `RECOMMENDED_SKILLS`; the **triage** phase loads that selection plus the
+  always-on set, and gets the read+replay tool subset (`query_records`,
+  `inspect_record`, `replay_request`, `attack_kit`; `browser_probe` is always a
+  builtin) so the skills are actionable.
+
+**Selection overrides** (autopilot + swarm): `--skill <name>` (repeatable) and
+`--skill-tag <tag>` force-include and bypass planner judgement; `--no-skill-filter`
+loads the full set. Always-on skills (default `triage-finding`, `write-jsext`)
+are configurable via `agent.olium.always_on_skills`.
 - **Engine:** every agent run is dispatched through the in-process olium runtime (`pkg/olium/`). Provider selection lives at `agent.olium.provider` in `vigolium-configs.yaml` — see [`docs/architecture/agentic-scan.md`](../architecture/agentic-scan.md) for the provider list.
 - **Source flag:** `--source` is the canonical source-code flag across all modes; the legacy `--repo`/`--repo-url` flags have been removed.
 

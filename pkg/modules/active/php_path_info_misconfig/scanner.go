@@ -47,6 +47,16 @@ type notFoundFingerprint struct {
 	contentType string
 }
 
+// catchAllProbe records the response to a random, definitely-non-existent
+// `*.php`/PATH_INFO control path. When the host answers it with a 200, it serves
+// a generic body for any script-shaped path (an SPA/catch-all router or a
+// blanket rewrite), so a 200 on the real PATH_INFO tests proves nothing about
+// cgi.fix_pathinfo routing.
+type catchAllProbe struct {
+	is200 bool
+	body  string
+}
+
 // Module implements the PHP PATH_INFO Misconfiguration active scanner.
 type Module struct {
 	modkit.BaseActiveModule
@@ -106,13 +116,55 @@ func (m *Module) ScanPerRequest(
 	// Fingerprint 404 page
 	fp := m.fingerprint404(ctx, httpClient)
 
+	// Probe a random script-shaped path to learn whether the host blanket-serves
+	// 200 for any `*.php`/PATH_INFO URL (a catch-all that no PATH_INFO test can
+	// distinguish from a real cgi.fix_pathinfo routing acceptance).
+	catchAll := m.probeCatchAll(ctx, httpClient)
+
 	var results []*output.ResultEvent
 	for _, test := range tests {
-		if result := m.runTest(ctx, httpClient, test, fp); result != nil {
+		if result := m.runTest(ctx, httpClient, test, fp, catchAll); result != nil {
 			results = append(results, result)
 		}
 	}
 	return results, nil
+}
+
+// probeCatchAll requests a random, definitely-non-existent `*.php` script WITH a
+// random PATH_INFO segment. A 200 here means the host returns a generic body for
+// any script-shaped path; the captured body is later compared (similarity-
+// tolerant) against each candidate to drop catch-all false positives.
+func (m *Module) probeCatchAll(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+) *catchAllProbe {
+	randomPath := "/vigolium-pathinfo-catchall-" + utils.RandomString(8) + ".php/" + utils.RandomString(8)
+
+	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
+	if err != nil {
+		return &catchAllProbe{}
+	}
+	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, randomPath)
+	if err != nil {
+		return &catchAllProbe{}
+	}
+
+	fuzzedReq, err := httpmsg.ParseRawRequest(string(modifiedRaw))
+	if err != nil {
+		return &catchAllProbe{}
+	}
+	fuzzedReq = fuzzedReq.WithService(ctx.Service())
+
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoClustering: true})
+	if err != nil {
+		return &catchAllProbe{}
+	}
+	defer resp.Close()
+
+	if resp.Response() == nil || resp.Response().StatusCode != 200 {
+		return &catchAllProbe{}
+	}
+	return &catchAllProbe{is200: true, body: resp.Body().String()}
 }
 
 // fingerprint404 fetches a non-existent path to learn what a 404 looks like.
@@ -167,6 +219,7 @@ func (m *Module) runTest(
 	httpClient *http.Requester,
 	test pathInfoTest,
 	fp *notFoundFingerprint,
+	catchAll *catchAllProbe,
 ) *output.ResultEvent {
 	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
 	if err != nil {
@@ -224,6 +277,17 @@ func (m *Module) runTest(
 		if strings.Contains(body, "404") || strings.Contains(body, "Not Found") {
 			return nil
 		}
+	}
+
+	// Catch-all guard: if a random non-existent `*.php`/PATH_INFO control also
+	// returned 200 with a body similar to this candidate, the host serves a
+	// generic body for any script-shaped path — the PATH_INFO "acceptance" is an
+	// artifact of that catch-all (an SPA router, a blanket rewrite, a prefixed
+	// handler), not a cgi.fix_pathinfo routing bug. Mirrors the off-by-slash
+	// suffix-invariance gate; uses similarity-tolerant comparison so per-request
+	// volatile content (timestamps, tokens) does not mask the match.
+	if catchAll != nil && catchAll.is200 && modkit.BodiesSimilar(catchAll.body, body) {
+		return nil
 	}
 
 	urlx, _ := ctx.URL()

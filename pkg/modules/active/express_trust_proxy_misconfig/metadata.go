@@ -23,6 +23,9 @@ headers to cause protocol confusion, IP-based access control bypass, and port in
 - X-Forwarded-For can bypass IP-based rate limiting or access controls
 - X-Forwarded-Port can inject unexpected ports into generated URLs and redirects
 - Compares each probe response against a baseline to detect behavioral changes
+- Host reflection is re-confirmed with a fresh random canary each round (must
+  track the header value, not a coincidental static string); port reflection
+  must be absent from the no-header baseline and reproduce on replay
 
 ## References
 - https://expressjs.com/en/guide/behind-proxies.html

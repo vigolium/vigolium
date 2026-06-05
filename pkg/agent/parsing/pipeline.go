@@ -278,6 +278,18 @@ func parseSwarmPlanMarkdown(raw string) (*agenttypes.SwarmPlan, error) {
 		plan.FocusAreas = parseBulletList(faRaw)
 	}
 
+	if skillsRaw, ok := sections["RECOMMENDED_SKILLS"]; ok {
+		// Skill names have no spaces, so keep only the leading token of each
+		// bullet — tolerant of the model appending "- name — why it applies".
+		for _, item := range parseBulletList(skillsRaw) {
+			if f := strings.Fields(item); len(f) > 0 {
+				if name := strings.Trim(f[0], "`*:"); name != "" {
+					plan.RecommendedSkills = append(plan.RecommendedSkills, name)
+				}
+			}
+		}
+	}
+
 	if notes, ok := sections["NOTES"]; ok {
 		plan.Notes = strings.TrimSpace(notes)
 	}

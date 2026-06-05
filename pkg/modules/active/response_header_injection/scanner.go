@@ -23,6 +23,25 @@ type payload struct {
 	rawInject bool   // if true, inject directly into raw request bytes (skip URL encoding)
 }
 
+// Detection-location kinds returned by probePayload, ordered from the strongest
+// to the weakest evidence of a genuine CRLF response-header injection.
+const (
+	// locResponseHeader: the injected canary landed in the response HEADER block
+	// — a header value was split, or an injected header was parsed as a real
+	// key/value pair. Unambiguous response-header injection.
+	locResponseHeader = "response_header"
+	// locBodyInjection: the injected CRLF actually terminated the header block,
+	// so the canary marker is the *leading* content of the parsed response body.
+	// Genuine HTTP response splitting.
+	locBodyInjection = "response_body_injection"
+	// locBodyReflection: the canary marker is reflected *inside* the legitimate
+	// response body (CRLF bytes preserved as data, header block intact and well
+	// formed). This is plain value reflection — e.g. the value echoed into a
+	// JSON/XML string — NOT a confirmed CRLF response-header injection. Reported
+	// at Suspect/Tentative and never escalated to RQP.
+	locBodyReflection = "response_body_reflection"
+)
+
 type Module struct {
 	modkit.BaseActiveModule
 	canary        string
@@ -105,7 +124,7 @@ func (m *Module) ScanPerInsertionPoint(
 	var results []*output.ResultEvent
 
 	for i, p := range m.payloads {
-		location, fuzzedRawStr, evidence, found, err := m.probePayload(ctx, ip, httpClient, p, m.canary, m.headerPattern)
+		location, fuzzedRawStr, evidence, contentType, found, err := m.probePayload(ctx, ip, httpClient, p, m.canary, m.headerPattern)
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return results, nil
@@ -131,10 +150,16 @@ func (m *Module) ScanPerInsertionPoint(
 			continue
 		}
 
-		// RQP-amplification consult: only enriches an already-confirmed finding —
-		// the detection flow above is untouched.
-		rqpAmplified, rqpEvidence := infra.RQPAmplification(ctx.Response())
-		results = append(results, m.buildResult(urlx.String(), ip.Name(), p.name, location, fuzzedRawStr, evidence, rqpAmplified, rqpEvidence))
+		// RQP-amplification consult: only enriches an already-confirmed *header*
+		// injection — the detection flow above is untouched. A body-reflection
+		// match never split the header stream, so it is not RQP-escalatable and
+		// the amplification check is skipped entirely.
+		var rqpAmplified bool
+		var rqpEvidence string
+		if location != locBodyReflection {
+			rqpAmplified, rqpEvidence = infra.RQPAmplification(ctx.Response())
+		}
+		results = append(results, m.buildResult(urlx.String(), ip.Name(), p.name, location, contentType, fuzzedRawStr, evidence, rqpAmplified, rqpEvidence))
 		return results, nil
 	}
 
@@ -143,8 +168,11 @@ func (m *Module) ScanPerInsertionPoint(
 
 // probePayload sends payload p (already built for `canary`) into the insertion
 // point and reports whether the canary was reflected as an injected response
-// header or body, using all three detection methods. The returned location and
-// evidence describe the match.
+// header or body, using all three detection methods. The returned location,
+// content type and evidence describe the match. The body-break method
+// distinguishes a genuine header/body split from plain value reflection (see
+// classifyBodyBreak), so a canary echoed into a JSON/XML body is not mistaken
+// for a CRLF response-header injection.
 func (m *Module) probePayload(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
@@ -152,7 +180,7 @@ func (m *Module) probePayload(
 	p payload,
 	canary string,
 	pattern *regexp.Regexp,
-) (location, fuzzedRawStr, evidence string, found bool, err error) {
+) (location, fuzzedRawStr, evidence, contentType string, found bool, err error) {
 	var fuzzedRaw []byte
 	if p.rawInject {
 		// For URL-encoded payloads (%0d%0a), inject directly into the raw request
@@ -162,50 +190,94 @@ func (m *Module) probePayload(
 		fuzzedRaw = ip.BuildRequest([]byte(fmt.Sprintf(p.tmpl, ip.BaseValue())))
 	}
 	if fuzzedRaw == nil {
-		return "", "", "", false, nil
+		return "", "", "", "", false, nil
 	}
 
 	fuzzedReq, perr := httpmsg.ParseRawRequest(string(fuzzedRaw))
 	if perr != nil {
-		return "", "", "", false, nil
+		return "", "", "", "", false, nil
 	}
 	fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
 	resp, _, rerr := httpClient.Execute(fuzzedReq, http.Options{})
 	if rerr != nil {
-		return "", "", "", false, rerr
+		return "", "", "", "", false, rerr
 	}
 	defer resp.Close()
 
-	headersStr := resp.Headers().String()
+	headersStr := resp.HeadersString()
+	if nativeResp := resp.Response(); nativeResp != nil {
+		contentType = nativeResp.Header.Get("Content-Type")
+	}
 
 	// Method 1: regex match on raw header dump (works for HTTP/1.1)
 	if pattern.MatchString(headersStr) {
-		return "response_header", string(fuzzedRaw), headersStr, true, nil
+		return locResponseHeader, string(fuzzedRaw), headersStr, contentType, true, nil
 	}
 
 	// Method 2: check parsed response headers for the injected header (works for HTTP/2
 	// where Go's client parses injected headers as proper key-value pairs)
 	if nativeResp := resp.Response(); nativeResp != nil {
 		if v := nativeResp.Header.Get("X-Injected"); strings.Contains(v, canary) {
-			return "response_header", string(fuzzedRaw), headersStr, true, nil
+			return locResponseHeader, string(fuzzedRaw), headersStr, contentType, true, nil
 		}
 		for _, cookie := range nativeResp.Cookies() {
 			if cookie.Name == "injected" && strings.Contains(cookie.Value, canary) {
-				return "response_header", string(fuzzedRaw), headersStr, true, nil
+				return locResponseHeader, string(fuzzedRaw), headersStr, contentType, true, nil
 			}
 		}
 	}
 
-	// Method 3: check if CRLF+body injection succeeded (canary in body after double CRLF)
+	// Method 3: body-break. The %0d%0a%0d%0a payload tries to terminate the header
+	// block early so "<injected>canary</injected>" lands as raw response content.
+	// The marker can surface in the full response for two very different reasons,
+	// so classifyBodyBreak separates a genuine split from plain reflection.
 	if strings.Contains(p.name, "body-break") {
-		fullResp := resp.FullResponseString()
-		if strings.Contains(fullResp, "<injected>"+canary+"</injected>") {
-			return "response_body_injection", string(fuzzedRaw), fullResp, true, nil
+		if loc, ev, ok := classifyBodyBreak(resp.HeadersString(), resp.BodyString(), resp.FullResponseString(), canary); ok {
+			return loc, string(fuzzedRaw), ev, contentType, true, nil
 		}
 	}
 
-	return "", string(fuzzedRaw), headersStr, false, nil
+	return "", string(fuzzedRaw), headersStr, contentType, false, nil
+}
+
+// classifyBodyBreak inspects a body-break probe response for the injected marker
+// and returns the location kind describing *how* it appeared:
+//
+//   - locResponseHeader  — the marker is in the parsed HEADER block: the CRLF
+//     split the header stream (genuine header injection).
+//   - locBodyInjection   — the marker is the *leading* content of the parsed
+//     body: the injected CRLF terminated the header block, so the original
+//     value was consumed into a header and everything after the split became
+//     body (genuine HTTP response splitting).
+//   - locBodyReflection  — the marker is reflected *within* the legitimate body
+//     (e.g. a JSON/XML string value) with its CRLF bytes preserved as data; the
+//     header block was never split. Plain reflection, NOT a CRLF injection.
+//
+// ok is false when the marker is absent.
+func classifyBodyBreak(headersStr, bodyStr, fullResp, canary string) (location, evidence string, ok bool) {
+	marker := "<injected>" + canary + "</injected>"
+	switch {
+	case strings.Contains(headersStr, marker):
+		return locResponseHeader, headersStr, true
+	case markerLeadsBody(bodyStr, marker):
+		return locBodyInjection, fullResp, true
+	case strings.Contains(bodyStr, marker):
+		return locBodyReflection, fullResp, true
+	default:
+		return "", "", false
+	}
+}
+
+// markerLeadsBody reports whether the injected marker is the leading content of
+// the response body (ignoring any leading CR/LF/whitespace left at the split
+// point). In a genuine body-break the original parameter value is consumed into
+// the header whose value the CRLF terminated, so the parsed body *begins* with
+// the injected marker. When the server merely echoes the value into a structured
+// body, the marker is preceded by the legitimate body (e.g. `{"id":"…`) and this
+// returns false.
+func markerLeadsBody(body, marker string) bool {
+	return strings.HasPrefix(strings.TrimLeft(body, "\r\n \t"), marker)
 }
 
 // confirmInjection replays the technique at index techniqueIdx with a fresh
@@ -219,7 +291,7 @@ func (m *Module) confirmInjection(
 ) (bool, error) {
 	return modkit.ConfirmReflection(2, func(canary string) (bool, error) {
 		p := buildHeaderPayloads(canary)[techniqueIdx]
-		_, _, _, found, perr := m.probePayload(ctx, ip, httpClient, p, canary, headerPatternFor(canary))
+		_, _, _, _, found, perr := m.probePayload(ctx, ip, httpClient, p, canary, headerPatternFor(canary))
 		return found, perr
 	})
 }
@@ -246,12 +318,42 @@ func (m *Module) injectRawPayload(rawRequest []byte, ip httpmsg.InsertionPoint, 
 	return []byte(result)
 }
 
-func (m *Module) buildResult(url, paramName, payloadName, location, request, response string, rqpAmplified bool, rqpEvidence string) *output.ResultEvent {
+func (m *Module) buildResult(url, paramName, payloadName, location, contentType, request, response string, rqpAmplified bool, rqpEvidence string) *output.ResultEvent {
 	extracted := []string{
 		"payload=" + payloadName,
 		"canary=" + m.canary,
 		"location=" + location,
 	}
+	if contentType != "" {
+		extracted = append(extracted, "content-type="+contentType)
+	}
+
+	// Reflection-only: the canary was echoed into the legitimate response body
+	// (CRLF bytes preserved as data) but the header block was never split. This
+	// is value reflection, not a confirmed CRLF response-header injection, so it
+	// is reported at Suspect/Tentative and is NOT eligible for RQP escalation.
+	if location == locBodyReflection {
+		ctClause := ""
+		if contentType != "" {
+			ctClause = fmt.Sprintf(" (Content-Type %q indicates the value was echoed as a data string, not interpreted as headers)", contentType)
+		}
+		desc := fmt.Sprintf("Parameter %q is reflected into the response BODY using the %s payload: the injected canary %q, including its CRLF bytes, appeared inside the response body%s, but the HTTP header block was not split. "+
+			"This is value reflection, not a confirmed CRLF/HTTP response-header injection — the server did not copy the input into a response header. Manual verification is recommended before treating this as response splitting.",
+			paramName, payloadName, m.canary, ctClause)
+		return &output.ResultEvent{
+			URL:              url,
+			Request:          request,
+			Response:         response,
+			FuzzingParameter: paramName,
+			ExtractedResults: extracted,
+			Info: output.Info{
+				Description: desc,
+				Severity:    severity.Suspect,
+				Confidence:  severity.Tentative,
+			},
+		}
+	}
+
 	desc := fmt.Sprintf("HTTP response header injection via parameter %q using %s payload. "+
 		"The injected canary %q appeared in the %s, confirming the server copies user input into response headers without sanitizing CRLF sequences.",
 		paramName, payloadName, m.canary, location)

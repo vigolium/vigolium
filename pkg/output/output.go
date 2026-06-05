@@ -167,17 +167,26 @@ func NewStandardWriter(options *types.Options) (*StandardWriter, error) {
 
 	// Deferred jsonl emits its envelope once the scan finishes, so suppress the
 	// live nuclei-style ResultEvent stream on stdout too — unless console output
-	// was also requested, which keeps its own live stream.
+	// was also requested, which keeps its own live stream. CapturedConsole also
+	// keeps the stream alive: the stdout is a captured per-target log file, not a
+	// terminal, so the findings belong in it (this is the -P fan-out's child).
 	disableStdout := options.Silent
-	if options.DeferredJSONLExport && !options.HasFormat("console") {
+	if options.DeferredJSONLExport && !options.HasFormat("console") && !options.CapturedConsole {
 		disableStdout = true
 	}
+
+	// CapturedConsole renders the live finding stream in the human-readable
+	// console format even when jsonl set JSONOutput: the captured per-target log
+	// (the -P fan-out's <output>.console.log) should read like a console scan, not
+	// a run of raw JSON objects. The machine-readable form is still in the .jsonl
+	// export, written separately post-scan.
+	jsonStdout := options.JSONOutput && !options.CapturedConsole
 
 	return &StandardWriter{
 		outputFile:              outputFile,
 		DisableStdout:           disableStdout,
 		IncludeResponseInOutput: options.IncludeResponseInOutput,
-		JSONOutput:              options.JSONOutput,
+		JSONOutput:              jsonStdout,
 	}, nil
 }
 

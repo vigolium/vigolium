@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/olium"
 	"github.com/vigolium/vigolium/pkg/olium/engine"
@@ -107,6 +108,15 @@ type Options struct {
 	// Scope optionally narrows the agent's attention (URL patterns,
 	// paths, subsystems). Joined into the system prompt verbatim.
 	Scope []string
+
+	// Skill selection (planner-driven loading). When SkillNames/SkillTags are
+	// set, they force-include those skills and bypass the pre-flight selection.
+	// NoSkillFilter loads the full set. AlwaysOnSkills are kept regardless of
+	// selection (empty falls back to config.DefaultAlwaysOnSkills).
+	SkillNames     []string
+	SkillTags      []string
+	NoSkillFilter  bool
+	AlwaysOnSkills []string
 
 	// Focus is a short operator-supplied directive, e.g. "prioritize
 	// the authentication and payments flows". Empty = agent decides.
@@ -255,23 +265,26 @@ type Result struct {
 	Reentries int
 }
 
-// logSkillsLoaded prints a one-line summary of the skills available to the
-// agent: the total plus a per-source breakdown, then the names of any
-// project/user skills (the ones the operator dropped in .agents/skills/,
-// .claude/skills/, or ~/.vigolium/skills/) so a mis-placed or empty skill
-// folder is obvious at a glance.
+// skillTag is the muted "❯ autopilot │" phase prefix shared by the skill log
+// lines — matches the native-scan phase output style (terminal.PhasePrefix).
+// Colors auto-disable when the tool log is not a TTY (or NO_COLOR is set).
+func skillTag() string { return terminal.PhasePrefix("autopilot") }
+
+// logSkillsLoaded prints a one-line, color-highlighted summary of the skills
+// available to the agent: the total plus a per-source *count* breakdown. Skill
+// names are deliberately not enumerated here — they show up only on the
+// "selected" line (logSkillsSelected) so the operator sees exactly what was
+// loaded for the target instead of a wall of names up front. A source missing
+// from the breakdown (count 0) makes a mis-placed or empty skill folder
+// obvious at a glance.
 func logSkillsLoaded(w io.Writer, skills *skill.Registry) {
 	if skills == nil || skills.Len() == 0 {
-		_, _ = fmt.Fprintf(w, "[autopilot] loaded 0 skills\n")
+		_, _ = fmt.Fprintf(w, "%s loaded %s skills\n", skillTag(), terminal.BoldYellow("0"))
 		return
 	}
 	bySource := map[skill.Source]int{}
-	var local []string
 	for _, s := range skills.List() {
 		bySource[s.Source]++
-		if s.Source != skill.SourceEmbedded {
-			local = append(local, fmt.Sprintf("%s (%s)", s.Name, s.Source))
-		}
 	}
 	parts := make([]string, 0, 4)
 	for _, src := range []skill.Source{
@@ -281,13 +294,181 @@ func logSkillsLoaded(w io.Writer, skills *skill.Registry) {
 		skill.SourceEmbedded,
 	} {
 		if n := bySource[src]; n > 0 {
-			parts = append(parts, fmt.Sprintf("%s: %d", src, n))
+			// source name muted, count highlighted — the count is the point.
+			parts = append(parts, fmt.Sprintf("%s: %s", terminal.Muted(string(src)), terminal.Cyan(fmt.Sprintf("%d", n))))
 		}
 	}
-	_, _ = fmt.Fprintf(w, "[autopilot] loaded %d skills (%s)\n", skills.Len(), strings.Join(parts, ", "))
-	if len(local) > 0 {
-		_, _ = fmt.Fprintf(w, "[autopilot] project/user skills: %s\n", strings.Join(local, ", "))
+	_, _ = fmt.Fprintf(w, "%s loaded %s skills (%s)\n",
+		skillTag(), terminal.BoldCyan(fmt.Sprintf("%d", skills.Len())), strings.Join(parts, ", "))
+}
+
+// skillsPerLine caps how many skill names print on one continuation line so a
+// large selected set wraps instead of running off the right edge of the
+// terminal.
+const skillsPerLine = 4
+
+// logSkillsSelected prints which skills survived planner-driven filtering,
+// color-highlighted, and is the only place skill *names* are listed. The names
+// wrap at skillsPerLine per line (each line re-stamped with the phase prefix)
+// so a dozen-skill set stays readable. A no-op when filtering didn't reduce the
+// set (selected == all) so unfiltered runs stay quiet.
+func logSkillsSelected(w io.Writer, all, selected *skill.Registry) {
+	if selected == nil || all == nil || selected.Len() == 0 || selected.Len() == all.Len() {
+		return
 	}
+	// Header line carries the counts; names follow on wrapped continuation
+	// lines below it.
+	_, _ = fmt.Fprintf(w, "%s selected %s of %s skills for this target:\n",
+		skillTag(),
+		terminal.BoldGreen(fmt.Sprintf("%d", selected.Len())),
+		terminal.BoldCyan(fmt.Sprintf("%d", all.Len())))
+
+	names := selected.Names()
+	for i := 0; i < len(names); i += skillsPerLine {
+		end := min(i+skillsPerLine, len(names))
+		chunk := names[i:end]
+		colored := make([]string, len(chunk))
+		for j, n := range chunk {
+			colored[j] = terminal.Cyan(n)
+		}
+		line := strings.Join(colored, ", ")
+		if end < len(names) {
+			line += "," // trailing comma signals the list continues on the next line
+		}
+		_, _ = fmt.Fprintf(w, "%s   %s\n", skillTag(), line)
+	}
+}
+
+// logSkillsTip nudges the operator toward the skill-selection knobs. Shown
+// only when no explicit override is in play — a run that already passed
+// --skill / --skill-tag / --no-skill-filter doesn't need the hint. A no-op
+// when no skills are loaded at all.
+func logSkillsTip(w io.Writer, opts Options, skills *skill.Registry) {
+	if skills == nil || skills.Len() == 0 {
+		return
+	}
+	if opts.NoSkillFilter || len(opts.SkillNames) > 0 || len(opts.SkillTags) > 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "%s %s pick exact skills with %s, by tag with %s, or skip filtering (load all) with %s\n",
+		skillTag(),
+		terminal.TipPrefix(),
+		terminal.Yellow("--skill <name>"),
+		terminal.Yellow("--skill-tag <tag>"),
+		terminal.Yellow("--no-skill-filter"))
+}
+
+// selectAutopilotSkills returns the skill subset to surface to the operator
+// agent. Resolution order: --no-skill-filter → full set; --skill/--skill-tag →
+// operator override (∪ always-on); otherwise a best-effort pre-flight LLM pick
+// (∪ always-on). Any failure or empty result falls back to the full set so a
+// long autonomous run never loses access to a skill it might need.
+func selectAutopilotSkills(ctx context.Context, opts Options, all *skill.Registry) *skill.Registry {
+	if all == nil || all.Len() == 0 || opts.NoSkillFilter {
+		return all
+	}
+	alwaysOn := opts.AlwaysOnSkills
+	if len(alwaysOn) == 0 {
+		alwaysOn = config.DefaultAlwaysOnSkills
+	}
+
+	logWarn := func(warnings []string) {
+		for _, w := range warnings {
+			_, _ = fmt.Fprintf(opts.ToolLog, "%s %s\n", skillTag(), w)
+		}
+	}
+
+	// Operator hard override bypasses the LLM pre-flight entirely.
+	if len(opts.SkillNames) > 0 || len(opts.SkillTags) > 0 {
+		sel, warnings := all.Select(skill.SelectOptions{
+			Forced:     opts.SkillNames,
+			ForcedTags: opts.SkillTags,
+			AlwaysOn:   alwaysOn,
+		})
+		logWarn(warnings)
+		if sel == nil || sel.Len() == 0 {
+			return all
+		}
+		return sel
+	}
+
+	picks := preflightSkillPicks(ctx, opts, all)
+	if len(picks) == 0 {
+		return all // pre-flight unavailable/empty — keep everything
+	}
+	sel, warnings := all.Select(skill.SelectOptions{Picks: picks, AlwaysOn: alwaysOn})
+	logWarn(warnings)
+	if sel == nil || sel.Len() == 0 {
+		return all
+	}
+	return sel
+}
+
+// preflightSkillPicks runs one cheap, tool-less model call that maps the target
+// to matching skill names from the menu. Returns only names that resolve to a
+// registered skill; returns nil on any error (the caller then keeps the full
+// set). Bounded by a 60s timeout so a hung provider can't stall startup.
+func preflightSkillPicks(ctx context.Context, opts Options, all *skill.Registry) []string {
+	if opts.Provider == nil {
+		return nil
+	}
+	var menu strings.Builder
+	for _, s := range all.List() {
+		fmt.Fprintf(&menu, "- %s", s.Name)
+		if len(s.Tags) > 0 {
+			fmt.Fprintf(&menu, " [tags: %s]", strings.Join(s.Tags, ", "))
+		}
+		fmt.Fprintf(&menu, ": %s\n", s.Description)
+	}
+
+	sys := "You are a security-scan planner. You are given a target and a menu of skills " +
+		"(confirmation/escalation playbooks). Output ONLY the names of the skills whose description " +
+		"or tags match this target's likely attack surface — comma-separated, names only, no prose. " +
+		"When unsure, include a skill rather than omit it. Output nothing if none clearly apply."
+
+	var user strings.Builder
+	fmt.Fprintf(&user, "Target: %s\n", opts.Target)
+	if opts.SourcePath != "" {
+		user.WriteString("Application source code is available locally (whitebox).\n")
+	}
+	if opts.Focus != "" {
+		fmt.Fprintf(&user, "Operator focus: %s\n", opts.Focus)
+	}
+	if len(opts.Scope) > 0 {
+		fmt.Fprintf(&user, "Scope: %s\n", strings.Join(opts.Scope, ", "))
+	}
+	fmt.Fprintf(&user, "\nAvailable skills:\n%s\nReturn the matching skill names, comma-separated.", menu.String())
+
+	eng := engine.New(engine.Config{Provider: opts.Provider, Model: opts.Model, System: sys, MaxTurns: 1})
+	selCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	var text strings.Builder
+	for ev := range eng.Run(selCtx, user.String()) {
+		switch ev.Type {
+		case engine.EventTextDelta:
+			text.WriteString(ev.Delta)
+		case engine.EventError:
+			return nil
+		}
+	}
+
+	// Extract name-like tokens ([a-z0-9-]) and keep those that resolve to a
+	// registered skill — robust to the model wrapping names in backticks,
+	// bullets, or trailing prose.
+	lower := strings.ToLower(text.String())
+	seen := map[string]bool{}
+	var picks []string
+	isNameRune := func(r rune) bool {
+		return (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-'
+	}
+	for _, tok := range strings.FieldsFunc(lower, func(r rune) bool { return !isNameRune(r) }) {
+		if !seen[tok] && all.Get(tok) != nil {
+			seen[tok] = true
+			picks = append(picks, tok)
+		}
+	}
+	return picks
 }
 
 // Run executes one autopilot session. It returns when the underlying
@@ -315,11 +496,18 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// Skills: include ~/.vigolium/skills/ for autopilot (scan-specific
 	// security workflows belong here). Warnings are surfaced to the
 	// tool log but don't abort the run.
-	skills, warnings := olium.LoadSkillsFor(true)
+	allSkills, warnings := olium.LoadSkillsFor(true)
 	for _, w := range warnings {
-		_, _ = fmt.Fprintf(opts.ToolLog, "[autopilot] %s\n", w)
+		_, _ = fmt.Fprintf(opts.ToolLog, "%s %s\n", skillTag(), w)
 	}
-	logSkillsLoaded(opts.ToolLog, skills)
+	logSkillsLoaded(opts.ToolLog, allSkills)
+
+	// Planner-driven filtering: pick the subset relevant to this target (or
+	// honor operator overrides). Best-effort — any failure falls back to the
+	// full set, so a long autonomous run is never starved of a skill.
+	skills := selectAutopilotSkills(ctx, opts, allSkills)
+	logSkillsSelected(opts.ToolLog, allSkills, skills)
+	logSkillsTip(opts.ToolLog, opts, allSkills)
 
 	// Autopilot-specific tool wiring.
 	halt := &HaltSignal{}
@@ -468,7 +656,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			provName = opts.Provider.Name()
 		}
 		cwd, _ := os.Getwd()
-		if rec, rerr := sessionlog.New(filepath.Join(opts.SessionDir, "transcript.jsonl"), sessionlog.Meta{
+		if rec, rerr := sessionlog.New(filepath.Join(opts.SessionDir, sessionlog.Filename), sessionlog.Meta{
 			SessionID: filepath.Base(opts.SessionDir),
 			Provider:  provName,
 			Model:     opts.Model,

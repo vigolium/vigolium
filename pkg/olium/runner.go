@@ -128,7 +128,7 @@ func newSessionRecorder(opts Options, providerName, model string) engine.EventRe
 		return nil
 	}
 	cwd, _ := os.Getwd()
-	rec, err := sessionlog.New(filepath.Join(opts.SessionDir, "transcript.jsonl"), sessionlog.Meta{
+	rec, err := sessionlog.New(filepath.Join(opts.SessionDir, sessionlog.Filename), sessionlog.Meta{
 		// Align the session id with the run dir name (matching autopilot) so
 		// the transcript's id ties back to its on-disk location.
 		SessionID:     filepath.Base(opts.SessionDir),
@@ -158,12 +158,13 @@ func RunTUI(opts Options) error {
 	reg := tool.NewRegistry()
 	tool.RegisterBuiltins(reg, nil)
 
-	// Skills for interactive mode: project-local + embedded. User-scope
-	// vigolium skills (~/.vigolium/skills) stay out of chat to avoid
-	// surfacing scan-specific workflows in casual use.
-	skills, _ := LoadSkillsFor(false)
+	// Skills for interactive mode: project-local + embedded + user-scope
+	// (~/.vigolium/skills, where the materialized + operator-authored skills
+	// live). Surfaced so the operator can /skill:<name> them interactively.
+	skills, _ := LoadSkillsFor(true)
 	if skills != nil && skills.Len() > 0 {
 		reg.Register(skill.NewLoadTool(skills))
+		fmt.Fprintf(os.Stderr, "Loaded %d skills (invoke with /skill:<name>)\n", skills.Len())
 	}
 
 	eng := engine.New(engine.Config{

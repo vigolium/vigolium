@@ -1049,7 +1049,9 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 			}
 		},
 		OnStatus: func(processed, total, findings, distinctModules, activeCount, passiveCount, timedOut int64, elapsed time.Duration) {
-			if r.options.Silent {
+			// CapturedConsole drops the periodic ticker — it's repetitive noise in a
+			// captured per-target log file (the -P fan-out's child console.log).
+			if r.options.Silent || r.options.CapturedConsole {
 				return
 			}
 			prefix := terminal.Muted(terminal.SymbolChevron + " dynamic-assessment " + terminal.SymbolPipe)

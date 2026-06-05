@@ -69,6 +69,15 @@ type Options struct {
 	// StandardWriter suppresses its live jsonl file/stdout output (unless console
 	// is also requested, which keeps its own live output).
 	DeferredJSONLExport bool
+	// CapturedConsole marks a scan whose stdout/stderr is being captured to a file
+	// rather than shown on a live terminal (the per-target <output>.console.log the
+	// `-P`/--parallel fan-out writes for each child). It makes the captured log a
+	// useful standalone record: the live finding stream is emitted to stdout even
+	// when jsonl is deferred and console isn't among --format (so findings land in
+	// the file, not only in the jsonl/html exports), and the periodic "[status]"
+	// progress ticker is suppressed (it's repetitive noise in a file). Set by the
+	// parent on each child via the hidden --captured-console flag; never user-set.
+	CapturedConsole bool
 
 	Timeout time.Duration
 	Retries int

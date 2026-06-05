@@ -196,7 +196,9 @@ func TestPerHostOutputPattern(t *testing.T) {
 	assert.Equal(t, "acme-vig-<host>", perHostOutputPattern("acme-vig"))
 	assert.Equal(t, "out-<host>.jsonl", perHostOutputPattern("out.jsonl"))
 	assert.Equal(t, "scan-<host>.html", perHostOutputPattern("scan.html"))
-	assert.Equal(t, "", perHostOutputPattern(""))
+	// No base (--split-by-host without -o): the banner shows the bare host
+	// placeholder, so per-format paths read "<host>.jsonl" not just an extension.
+	assert.Equal(t, "<host>", perHostOutputPattern(""))
 }
 
 // perTargetConsolePath derives a sibling .console.log from a resolved output
@@ -282,6 +284,22 @@ func TestStatsSegment(t *testing.T) {
 
 	some := terminal.StripANSI(statsSegment(childStats{records: 12, findings: 3, sev: map[string]int{"high": 1, "medium": 2}}, true))
 	assert.Equal(t, "12 records · 3 findings (1 high, 2 med) · ", some)
+}
+
+// childScanArgs reconstructs only the operator's *changed* flags. --captured-console
+// is internal and never set by the operator, so it must not appear here — the
+// parallel parent appends it to each child's argv explicitly. This guards against
+// it being re-emitted (and thus duplicated, or leaking into a non-captured run).
+func TestChildScanArgsExcludesCapturedConsole(t *testing.T) {
+	cmd := newParallelTestCmd()
+	require.NoError(t, cmd.ParseFlags([]string{
+		"-S", "-T", "targets.txt", "-P", "4", "--split-by-host",
+		"-o", "acme-vig", "--format", "jsonl,html",
+	}))
+
+	got := childScanArgs(cmd)
+	assert.NotContains(t, got, "--captured-console",
+		"childScanArgs must not emit the internal --captured-console; the parent adds it explicitly")
 }
 
 // assertFlagPair asserts that args contains flag immediately followed by value.

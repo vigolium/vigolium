@@ -62,6 +62,24 @@ type OliumConfig struct {
 	CacheSize           int                  `yaml:"cache_size"`            // LRU entries; default 1024, 0 disables
 	MaxConcurrent       int                  `yaml:"max_concurrent"`        // global cap on simultaneous in-flight provider calls; default 4, 0 disables (unbounded)
 	CallTimeoutSec      int                  `yaml:"call_timeout_sec"`      // per-call deadline in seconds (default 600 = 10m). Negative = inherit only the parent ctx (no enforced timeout).
+	AlwaysOnSkills      []string             `yaml:"always_on_skills"`      // skills always loaded regardless of planner selection (autopilot/swarm); empty = built-in default [triage-finding, write-jsext]
+}
+
+// DefaultAlwaysOnSkills are the general-purpose skills kept available in
+// every planner-filtered agentic run, even when the planner doesn't pick
+// them. They aren't tied to a single vulnerability class, so filtering them
+// out would only ever hurt.
+var DefaultAlwaysOnSkills = []string{"triage-finding", "write-jsext"}
+
+// EffectiveAlwaysOnSkills returns the configured always-on skill names, or the
+// built-in default when unset. A configured empty list (explicit `[]`) is
+// indistinguishable from unset in YAML, so the default applies — to truly opt
+// out of always-on skills, use --no-skill-filter or rely on planner picks.
+func (c *OliumConfig) EffectiveAlwaysOnSkills() []string {
+	if c == nil || len(c.AlwaysOnSkills) == 0 {
+		return DefaultAlwaysOnSkills
+	}
+	return c.AlwaysOnSkills
 }
 
 // CustomProviderConfig configures the `openai-compatible` provider — any

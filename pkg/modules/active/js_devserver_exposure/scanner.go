@@ -146,9 +146,16 @@ func (m *Module) ScanPerRequest(
 			continue
 		}
 
-		// For probes without markers or expectedCT (open-in-editor, remix dev),
-		// a non-404 2xx with different body from 404 is enough
-		if len(probe.markers) == 0 && probe.expectedCT == "" && body != "" {
+		// For probes without markers or expectedCT (open-in-editor, remix dev,
+		// esbuild, parcel), a non-404 2xx with a different body from the 404 was
+		// historically enough. That false-positives on a single-page-app behind a
+		// catch-all reverse proxy that serves the same index.html shell for every
+		// path: the dev path returns the app HTML shell and, when the shell varies
+		// even slightly per path, the exact-hash 404 check above does not catch it.
+		// A real dev-server endpoint never returns the application's HTML index
+		// shell (it streams SSE, serves JS/JSON, or returns a terse status), so
+		// reject any HTML-document response here.
+		if len(probe.markers) == 0 && probe.expectedCT == "" && body != "" && !isHTMLShell(ct, body) {
 			results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponseString()))
 		}
 
@@ -156,6 +163,18 @@ func (m *Module) ScanPerRequest(
 	}
 
 	return results, nil
+}
+
+// isHTMLShell reports whether a response looks like an HTML document — the
+// hallmark of a single-page-app catch-all that serves index.html for every
+// path. Dev-server HMR/debug endpoints never return the application HTML shell,
+// so an HTML response on a marker-less probe is the catch-all, not a dev server.
+func isHTMLShell(contentType, body string) bool {
+	if strings.Contains(strings.ToLower(contentType), "text/html") {
+		return true
+	}
+	head := strings.ToLower(strings.TrimSpace(body))
+	return strings.HasPrefix(head, "<!doctype html") || strings.HasPrefix(head, "<html")
 }
 
 // get404Hash fetches a known-missing path to fingerprint the 404 page.

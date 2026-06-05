@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
@@ -71,6 +74,100 @@ func TestScanPerInsertionPoint_NoFalsePositive(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "404 for neighbor ids means authorization is enforced — no finding")
+}
+
+// keycloakLoginBody is a trimmed Keycloak Sign-In form — the page the predicted
+// header value returned in the reported false positive. It contains login-form
+// markers (password input, login-actions/authenticate action) and a per-request
+// session token so two fetches always "differ".
+func keycloakLoginBody(sessionCode string) string {
+	return fmt.Sprintf(`<!DOCTYPE html><html><body>
+<form id="kc-form-login" action="/realms/master/login-actions/authenticate?session_code=%s&execution=fc587d0a" method="post">
+  <input id="username" name="username" value="" type="text" autocomplete="username"/>
+  <input id="password" name="password" value="" type="password" autocomplete="current-password"/>
+  <button name="login" id="kc-login" type="submit">Sign In</button>
+</form>
+<div>%s</div>
+</body></html>`, sessionCode, strings.Repeat("x", 120))
+}
+
+// rawRequestWithHeader builds an HttpRequestResponse for rawURL carrying the
+// given extra header line (e.g. "Upgrade-Insecure-Requests: 1"), so a test can
+// target a header insertion point that modtest.Request does not synthesize.
+func rawRequestWithHeader(t *testing.T, rawURL, headerLine string) *httpmsg.HttpRequestResponse {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(u.Port())
+	require.NoError(t, err)
+	svc, err := httpmsg.NewService(u.Hostname(), port, u.Scheme)
+	require.NoError(t, err)
+
+	target := u.RequestURI()
+	if target == "" {
+		target = "/"
+	}
+	raw := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\n%s\r\n\r\n", target, u.Host, headerLine)
+	req := httpmsg.NewHttpRequestWithService(svc, []byte(raw))
+	return httpmsg.NewHttpRequestResponse(req, nil)
+}
+
+// TestScanPerInsertionPoint_SkipsNonIDHeader is the regression for the reported
+// false positive: the scanner treated the numeric value of the standard request
+// header Upgrade-Insecure-Requests as an object reference and fuzzed neighbor
+// "0". A standard request header is never an object reference, so the module
+// must skip it without sending a single probe.
+func TestScanPerInsertionPoint_SkipsNonIDHeader(t *testing.T) {
+	t.Parallel()
+	var hits int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt64(&hits, 1)
+		_, _ = w.Write([]byte(keycloakLoginBody("sess-" + strconv.FormatInt(atomic.LoadInt64(&hits), 10))))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := rawRequestWithHeader(t, srv.URL+"/realms/master/protocol/openid-connect/auth", "Upgrade-Insecure-Requests: 1")
+	ip := modtest.InsertionPoint(t, rr, "Upgrade-Insecure-Requests")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a standard request header is not an IDOR candidate")
+	assert.Zero(t, atomic.LoadInt64(&hits), "the module must not probe a non-ID header at all")
+}
+
+// TestScanPerInsertionPoint_AuthChallengePageNotIDOR ensures the confirmation
+// content gate rejects a neighbor id that returns a login / SSO page. The
+// owner's id (100) serves a real JSON object; any other id serves the Keycloak
+// Sign-In form. Without the gate this looks like a textbook predictable-id IDOR
+// (200, body > 100, differs from baseline, and the same-id refetch is stable so
+// the determinism gate passes) — but the "leaked object" is just the login page.
+func TestScanPerInsertionPoint_AuthChallengePageNotIDOR(t *testing.T) {
+	t.Parallel()
+	var sess int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("id") == "100" {
+			_, _ = fmt.Fprintf(w, "{\"id\":\"100\",\"owner\":\"user-100\",\"pad\":%q}", strings.Repeat("x", 120))
+			return
+		}
+		// Neighbor ids redirect (unauthenticated) to the login shell, with a fresh
+		// session token per request so the body always differs.
+		n := atomic.AddInt64(&sess, 1)
+		_, _ = w.Write([]byte(keycloakLoginBody("sess-" + strconv.FormatInt(n, 10))))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(
+		modtest.Request(t, srv.URL+"/api/objects?id=100"),
+		"application/json",
+		"{\"id\":\"100\",\"owner\":\"user-100\",\"pad\":\""+strings.Repeat("x", 120)+"\"}",
+	)
+	ip := modtest.InsertionPoint(t, rr, "id")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a neighbor id that returns a login/SSO page is not a leaked object")
 }
 
 // noiseBody renders a body (comfortably over the module's 100-byte floor) whose

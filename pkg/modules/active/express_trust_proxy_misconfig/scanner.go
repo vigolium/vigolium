@@ -182,6 +182,27 @@ func (m *Module) ScanPerRequest(
 		}
 
 		if finding != "" {
+			// Reflection findings (host, port) must be re-confirmed against the
+			// original request: a genuine trust-proxy reflection tracks the value
+			// we inject and is ABSENT from the no-header baseline, whereas a
+			// coincidental static string — or per-request volatile content that
+			// merely happened to contain the fixed probe value — does not. The
+			// X-Forwarded-For probe already self-confirms (confirmIPBypass /
+			// confirmSizeShift) and X-Forwarded-Proto is a behavioral baseline
+			// diff, so only the reflection probes need this extra gate.
+			switch probe.headerName {
+			case "X-Forwarded-Host":
+				if !m.confirmHostReflection(ctx, httpClient) {
+					resp.Close()
+					continue
+				}
+			case "X-Forwarded-Port":
+				if !m.confirmPortReflection(ctx, httpClient, baselineRespStr) {
+					resp.Close()
+					continue
+				}
+			}
+
 			extracted := []string{
 				fmt.Sprintf("Header: %s: %s", probe.headerName, probe.value),
 				fmt.Sprintf("Finding: %s", finding),
@@ -236,6 +257,76 @@ func checkProtocolConfusion(
 	}
 
 	return ""
+}
+
+// confirmHostReflection re-sends X-Forwarded-Host with a FRESH random host each
+// round and requires it to reflect (in the status line, headers, or body) every
+// time. A real trust-proxy reflection tracks the header value we send; a static
+// string that merely matched the fixed probe host, or per-request volatile
+// content, does not — and a fresh canary is by construction absent from the
+// no-header baseline. Fails OPEN on a fetch error so a transient failure never
+// suppresses a real finding.
+func (m *Module) confirmHostReflection(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) bool {
+	confirmed, err := modkit.ConfirmReflection(2, func(canary string) (bool, error) {
+		host := canary + ".vgn-trust.example"
+		raw, herr := httpmsg.AddOrReplaceHeader(ctx.Request().Raw(), "X-Forwarded-Host", host)
+		if herr != nil {
+			return false, herr
+		}
+		full, ok := doFetchFull(ctx, httpClient, raw)
+		if !ok {
+			return false, fmt.Errorf("x-forwarded-host confirmation fetch failed")
+		}
+		return strings.Contains(full, host), nil
+	})
+	if err != nil {
+		return true // fail open — never suppress on a probe failure
+	}
+	return confirmed
+}
+
+// confirmPortReflection re-confirms an X-Forwarded-Port reflection against the
+// original request: the injected port must be ABSENT from the no-header baseline
+// (so its appearance is attributable to the header, not pre-existing content)
+// AND must reproducibly reflect when the header is re-sent. Fails OPEN on a
+// fetch error.
+func (m *Module) confirmPortReflection(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, baselineResp string) bool {
+	portPattern := ":" + injectedPort
+	// If the port already appears in the clean baseline, the reflection is not
+	// introduced by our header — it is pre-existing (or volatile) content.
+	if strings.Contains(baselineResp, portPattern) {
+		return false
+	}
+	raw, err := httpmsg.AddOrReplaceHeader(ctx.Request().Raw(), "X-Forwarded-Port", injectedPort)
+	if err != nil {
+		return true // fail open
+	}
+	full, ok := doFetchFull(ctx, httpClient, raw)
+	if !ok {
+		return true // fail open
+	}
+	return strings.Contains(full, portPattern)
+}
+
+// doFetchFull re-issues raw with the response cache bypassed (NoClustering) and
+// returns the full raw response string (status line + headers + body) so a
+// reflected value is visible wherever it lands. ok is false on a build/parse/
+// transport error or a nil response.
+func doFetchFull(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, raw []byte) (string, bool) {
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	if err != nil {
+		return "", false
+	}
+	req = req.WithService(ctx.Service())
+	resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true})
+	if err != nil {
+		return "", false
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return "", false
+	}
+	return resp.FullResponseString(), true
 }
 
 // checkHostInjection detects if X-Forwarded-Host value appears in response

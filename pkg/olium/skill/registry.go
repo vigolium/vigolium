@@ -8,7 +8,29 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/vigolium/vigolium/internal/config"
 )
+
+// SkillsDirEnv overrides the user-scope skills directory. When unset, the
+// default is ~/.vigolium/skills. Mirrors VIGOLIUM_WORDLIST_DIR.
+const SkillsDirEnv = "VIGOLIUM_SKILLS_DIR"
+
+// UserSkillsDir resolves the user-scope skills directory: VIGOLIUM_SKILLS_DIR
+// (with ~ and env-var expansion) when set, else ~/.vigolium/skills. Both the
+// loader (read) and the init-time materializer (write) call this so the two
+// never diverge. Returns "" only if the home directory can't be resolved and
+// no override is set.
+func UserSkillsDir() string {
+	if v := os.Getenv(SkillsDirEnv); v != "" {
+		return config.ExpandPath(v)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".vigolium", "skills")
+}
 
 // Registry holds skills loaded for a single olium session. First-found-by-name
 // wins across scopes, following the precedence declared at Load time.
@@ -36,6 +58,20 @@ func (r *Registry) List() []*Skill {
 	for _, n := range r.order {
 		if s, ok := r.skills[n]; ok {
 			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// Names returns the registered skill names in the same stable order as List().
+func (r *Registry) Names() []string {
+	if r == nil {
+		return nil
+	}
+	out := make([]string, 0, len(r.order))
+	for _, n := range r.order {
+		if _, ok := r.skills[n]; ok {
+			out = append(out, n)
 		}
 	}
 	return out
@@ -93,10 +129,10 @@ func Load(opts LoadOptions) (*Registry, error) {
 		loadDiskDir(reg, filepath.Join(dir, ".claude", "skills"), SourceProjectClaude, opts.Warnings)
 	}
 
-	// User scope (autopilot/swarm only).
+	// User scope (autopilot/swarm only). Honors VIGOLIUM_SKILLS_DIR.
 	if opts.IncludeUserSkills {
-		if home, err := os.UserHomeDir(); err == nil {
-			loadDiskDir(reg, filepath.Join(home, ".vigolium", "skills"), SourceUserVigolium, opts.Warnings)
+		if dir := UserSkillsDir(); dir != "" {
+			loadDiskDir(reg, dir, SourceUserVigolium, opts.Warnings)
 		}
 	}
 

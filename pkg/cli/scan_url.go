@@ -43,7 +43,6 @@ var (
 	scanURLBody      string
 	scanURLHeaders   []string
 	scanURLNoPassive bool
-	scanURLNoIP      bool
 )
 
 // Phase enable flags (shared by scan-url and scan-request)
@@ -86,7 +85,6 @@ func init() {
 	flags.StringVar(&scanURLBody, "body", "", "Request body")
 	flags.StringSliceVarP(&scanURLHeaders, "header", "H", nil, "Custom header (repeatable, e.g. -H 'Cookie: x=1')")
 	flags.BoolVar(&scanURLNoPassive, "no-passive", false, "Skip passive modules")
-	flags.BoolVar(&scanURLNoIP, "no-insertion-points", false, "Skip insertion point testing")
 	registerScanModuleFlags(flags)
 	registerHTTPClientFlags(flags)
 	registerPhaseFlags(flags)

@@ -17,7 +17,11 @@ requesting "/static../etc/passwd" to read files outside /var/www/assets/.
 
 ## Notes
 - Operates on path segments, testing each first-level directory for alias traversal
-- Compares response body against baseline to confirm the traversal resolved to the same content
+- Requires the traversal response to be a stable, non-wildcard 200 across rounds
+- Differentially confirms the escape actually happened: the hit body must differ
+  from both the in-alias equivalent path (/{segment}/{suffix}) and a random-suffix
+  traversal, so a prefix-wide generic response (auth wall, SPA shell, catch-all)
+  is not mistaken for a real file read
 - Skips media/JS URLs, non-GET requests, and very small baseline responses
 
 ## References
@@ -26,7 +30,7 @@ requesting "/static../etc/passwd" to read files outside /var/www/assets/.
 - https://github.com/yandex/gixy
 - https://github.com/hakaioffsec/nginx-alias-traversal`
 
-	ModuleConfirmation = "Confirmed when a path-traversal request using the off-by-slash pattern returns status 200 with a body matching a known valid suffix endpoint"
+	ModuleConfirmation = "Confirmed when an off-by-slash traversal path returns a stable, non-wildcard 200 whose body differs from both the in-alias equivalent path and a random-suffix traversal — proving the response depends on the escaped path rather than a prefix-wide generic handler"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nginx", "misconfiguration", "lfi", "moderate"}

@@ -34,7 +34,6 @@ func init() {
 	flags.StringVarP(&scanReqInput, "input", "i", "-", "Input file or - for stdin")
 	flags.StringVar(&scanReqTarget, "target", "", "Override target URL (scheme://host)")
 	flags.BoolVar(&scanURLNoPassive, "no-passive", false, "Skip passive modules")
-	flags.BoolVar(&scanURLNoIP, "no-insertion-points", false, "Skip insertion point testing")
 	registerScanModuleFlags(flags)
 	registerHTTPClientFlags(flags)
 	registerPhaseFlags(flags)

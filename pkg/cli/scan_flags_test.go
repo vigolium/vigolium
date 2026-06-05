@@ -84,6 +84,34 @@ func TestSplitByHostFlag(t *testing.T) {
 	})
 }
 
+// --captured-console is the hidden, internal flag the -P/--parallel parent sets
+// on each child so the per-target <output>.console.log captures the live finding
+// stream and drops the [status] ticker. It must be registered, hidden from help,
+// default off, and bind to Options.CapturedConsole when passed.
+func TestCapturedConsoleFlag(t *testing.T) {
+	fs := pflag.NewFlagSet("scan", pflag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	registerNativeScanFlags(fs, true)
+
+	flag := fs.Lookup("captured-console")
+	require.NotNil(t, flag, "--captured-console must be registered")
+	assert.True(t, flag.Hidden, "--captured-console must be hidden from help")
+
+	t.Run("defaults to false", func(t *testing.T) {
+		scanOpts.CapturedConsole = false
+		require.NoError(t, fs.Parse(nil))
+		assert.False(t, scanOpts.CapturedConsole)
+	})
+
+	t.Run("--captured-console sets the option", func(t *testing.T) {
+		scanOpts.CapturedConsole = false
+		require.NoError(t, fs.Parse([]string{"--captured-console"}))
+		assert.True(t, scanOpts.CapturedConsole)
+	})
+
+	scanOpts.CapturedConsole = false // don't leak into other tests
+}
+
 // perTargetOutputPath drives the --split-by-host file naming: the sanitized
 // host[:port] is inserted before the format extension so per-target stateless
 // exports do not clobber each other.
@@ -99,6 +127,11 @@ func TestPerTargetOutputPath(t *testing.T) {
 		{"jsonl extension preserved after host", "out.jsonl", "https://etempo-bcn.example.com", 1, "out-etempo-bcn.example.com.jsonl"},
 		{"host with port sanitized", "out.jsonl", "http://localhost:8080", 2, "out-localhost_8080.jsonl"},
 		{"unparseable target falls back to index", "out.jsonl", "::::", 4, "out-005.jsonl"},
+		// --split-by-host with no -o: the file is named by the host alone, no
+		// leading "-" separator (the host already disambiguates files).
+		{"empty base names file by host", "", "https://insurance.grab-sure.com", 0, "insurance.grab-sure.com"},
+		{"empty base keeps bare extension", ".jsonl", "https://insurance.grab-sure.com", 0, "insurance.grab-sure.com.jsonl"},
+		{"empty base unparseable falls back to index", "", "::::", 3, "004"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

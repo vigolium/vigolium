@@ -469,7 +469,6 @@ func EnrichContextCommands(data *agenttypes.TemplateData, templateVars []string)
       --body <BODY>        Request body
       -H, --header <HDR>   Custom header (repeatable, e.g. -H 'Cookie: x=1')
       --no-passive         Skip passive modules
-      --no-insertion-points  Skip insertion point testing
       --json               Output results as JSON
 
   vigolium scan-request [flags]

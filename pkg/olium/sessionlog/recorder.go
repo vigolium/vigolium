@@ -37,6 +37,11 @@ import (
 	"github.com/vigolium/vigolium/pkg/olium/stream"
 )
 
+// Filename is the conventional name of the transcript file within a session
+// directory. The writers (pkg/olium runner + autopilot) and the `vigolium log`
+// reader all reference this single const so the name can't drift between them.
+const Filename = "transcript.jsonl"
+
 // sessionFormatVersion matches the Pi session log schema version so Pi
 // viewers accept the file.
 const sessionFormatVersion = 3

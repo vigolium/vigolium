@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/public"
 )
@@ -86,11 +87,18 @@ func runInitCmd(cmd *cobra.Command, args []string) error {
 		for _, sub := range []string{"profiles", "extensions", "prompts"} {
 			_ = os.RemoveAll(filepath.Join(vigoliumDir, sub))
 		}
+		// Skills may live outside vigoliumDir (VIGOLIUM_SKILLS_DIR), so resolve
+		// and wipe the actual dir before re-extracting. --force resets to
+		// defaults, discarding any operator edits.
+		if sk := skill.UserSkillsDir(); sk != "" {
+			_ = os.RemoveAll(sk)
+		}
 	}
 
 	bootstrapDefaultProfiles(vigoliumDir)
 	bootstrapExtensions(vigoliumDir)
 	bootstrapPrompts(vigoliumDir)
+	bootstrapSkills()
 
 	// Trigger the core dep install (chromium + nuclei templates) inline so
 	// explicit `vigolium init` is a complete first-run setup. Without --force

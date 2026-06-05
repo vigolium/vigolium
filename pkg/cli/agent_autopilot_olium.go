@@ -203,6 +203,10 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 		Verbose:          autopilotVerbose,
 		SystemPrompt:     effectiveSystemPrompt,
 		BrowserAvailable: autopilotBrowser || settings.Agent.Browser.IsEnabled(),
+		SkillNames:       autopilotSkills,
+		SkillTags:        autopilotSkillTags,
+		NoSkillFilter:    autopilotNoSkillFilter,
+		AlwaysOnSkills:   settings.Agent.Olium.EffectiveAlwaysOnSkills(),
 	})
 
 	finalizeOliumAutopilotRun(repo, parentAgenticScanUUID, model, startedAt, result, runErr)
@@ -405,6 +409,10 @@ func runAutopilotOliumPipeline(
 		Files:                 autopilotFiles,
 		Instruction:           instruction,
 		Focus:                 autopilotFocus,
+		SkillNames:            autopilotSkills,
+		SkillTags:             autopilotSkillTags,
+		NoSkillFilter:         autopilotNoSkillFilter,
+		AlwaysOnSkills:        settings.Agent.Olium.EffectiveAlwaysOnSkills(),
 		SystemPrompt:          systemPrompt,
 		AgentName:             "olium",
 		MaxCommands:           autopilotMaxCommands,
@@ -718,6 +726,9 @@ func printAutopilotBanner(in autopilotBannerInputs) {
 		_, _ = fmt.Fprintf(w, "  %s Session: %s\n",
 			terminal.Purple(terminal.SymbolInfo),
 			terminal.Muted(terminal.ShortenHome(in.SessionDir)))
+		_, _ = fmt.Fprintf(w, "  %s Transcript: %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.Muted(terminal.ShortenHome(filepath.Join(in.SessionDir, transcriptFilename))))
 	}
 
 	if in.AgenticScanUUID != "" {
@@ -745,21 +756,35 @@ func printOliumAutopilotSummary(result *autopilot.Result, sessionDir string, rep
 	}
 	fmt.Println()
 	fmt.Printf("%s autopilot complete\n", terminal.InfoSymbol())
-	fmt.Printf("  findings:  %s%s\n",
+	// Labels padded to a 12-char field so the longest ("transcript:") still
+	// leaves a space before its value and the whole column stays aligned.
+	fmt.Printf("  findings:   %s%s\n",
 		terminal.BoldGreen(fmt.Sprintf("%d", total)),
 		breakdown)
-	fmt.Printf("  duration:  %s\n", result.Elapsed.Round(time.Second))
+	fmt.Printf("  duration:   %s\n", result.Elapsed.Round(time.Second))
 	if result.Halted {
-		fmt.Printf("  halt:      %s\n", result.HaltReason)
+		fmt.Printf("  halt:       %s\n", result.HaltReason)
 	} else {
-		fmt.Printf("  halt:      %s\n", terminal.Muted("(natural stop — engine max turns or no more tool calls)"))
+		fmt.Printf("  halt:       %s\n", terminal.Muted("(natural stop — engine max turns or no more tool calls)"))
 	}
 	if result.Reentries > 0 {
-		fmt.Printf("  re-entry:  %s\n",
+		fmt.Printf("  re-entry:   %s\n",
 			terminal.Muted(fmt.Sprintf("%d coverage-verify re-prompt(s)", result.Reentries)))
 	}
 	if sessionDir != "" {
-		fmt.Printf("  session:   %s\n", terminal.Muted(terminal.ShortenHome(sessionDir)))
+		fmt.Printf("  session:    %s\n", terminal.Muted(terminal.ShortenHome(sessionDir)))
+		// Re-surface the transcript path at the end so it's easy to grab for
+		// post-hoc review without scrolling back to the startup banner.
+		fmt.Printf("  transcript: %s\n",
+			terminal.Muted(terminal.ShortenHome(filepath.Join(sessionDir, transcriptFilename))))
+	}
+	// Point at the session log so it's one command away — `vigolium log <id>`
+	// renders the transcript as a conversation replay (add --raw for JSONL).
+	if agenticScanUUID != "" {
+		fmt.Printf("  %s %s %s\n",
+			terminal.Yellow(terminal.SymbolDiamond),
+			terminal.Gray("replay session with"),
+			terminal.HiCyan(fmt.Sprintf("vigolium log %s", agenticScanUUID)))
 	}
 }
 

@@ -28,6 +28,9 @@ func InjectIntoSystemPrompt(base string, reg *Registry) string {
 		fmt.Fprintf(&b, "  <skill>\n")
 		fmt.Fprintf(&b, "    <name>%s</name>\n", s.Name)
 		fmt.Fprintf(&b, "    <description>%s</description>\n", s.Description)
+		if len(s.Tags) > 0 {
+			fmt.Fprintf(&b, "    <tags>%s</tags>\n", strings.Join(s.Tags, ", "))
+		}
 		fmt.Fprintf(&b, "    <location>%s</location>\n", s.Path)
 		fmt.Fprintf(&b, "  </skill>\n")
 	}

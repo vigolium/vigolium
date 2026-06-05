@@ -193,8 +193,10 @@ func runStatelessTargetsParallel(cmd *cobra.Command, settings *config.Settings, 
 	}
 
 	// The shared child flags are derived once from the command's changed flags;
-	// only the per-target -t/-o differ between children.
-	baseChildArgs := childScanArgs(cmd)
+	// only the per-target -t/-o differ between children. Each child's console is
+	// captured to a per-target file, so --captured-console makes that file a useful
+	// record (live findings included, no [status] ticker noise).
+	baseChildArgs := append(childScanArgs(cmd), "--captured-console")
 
 	if !scanOpts.Silent {
 		budget := parallel * scanOpts.Concurrency
@@ -413,7 +415,9 @@ func runIsolatedTargetsParallel(cmd *cobra.Command, settings *config.Settings, s
 	}
 	defer func() { _ = os.RemoveAll(stagingDir) }()
 
-	baseChildArgs := childScanArgs(cmd)
+	// Each child's console is captured to a per-target file; --captured-console
+	// makes that file a useful record (live findings included, no [status] noise).
+	baseChildArgs := append(childScanArgs(cmd), "--captured-console")
 
 	if !scanOpts.Silent {
 		budget := parallel * scanOpts.Concurrency
@@ -745,7 +749,9 @@ func perTargetConsolePath(output string) string {
 // — rather than the literal "acme-vig.jsonl" that no per-host file uses.
 func perHostOutputPattern(output string) string {
 	if output == "" {
-		return output
+		// No base path: per-host files are named by the host alone (<host>.<ext>),
+		// so the banner shows the "<host>" placeholder rather than an empty dest.
+		return "<host>"
 	}
 	stripped := types.StripFormatExtension(output)
 	rest := strings.TrimPrefix(output, stripped)

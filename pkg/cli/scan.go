@@ -133,6 +133,15 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	scanOpts.SplitByHost = globalSplitByHost
 	scanOpts.DBIsolate = globalDBIsolate
 	scanOpts.Parallel = globalParallel
+
+	// --split-by-host names each per-host output file after the target's hostname
+	// (acme-<host>.jsonl with a base, or just <host>.jsonl when no -o is given), so
+	// the host already disambiguates files and -o/--output is OPTIONAL in that mode.
+	// Only true when the flag will actually take effect (the dispatch only takes the
+	// split path for a stateless multi-target file scan), so file-based formats still
+	// require -o everywhere else.
+	splitByHostNaming := scanOpts.SplitByHost && scanOpts.Stateless && scanOpts.TargetsFilePath != ""
+
 	if scanOpts.DBIsolate && scanOpts.Stateless {
 		return fmt.Errorf("--db-isolate and --stateless are mutually exclusive (--stateless discards results; --db-isolate merges them into --db)")
 	}
@@ -143,7 +152,7 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		if globalDB != "" {
 			return fmt.Errorf("--stateless and --db are mutually exclusive")
 		}
-		if scanOpts.Output == "" && !scanOpts.Silent {
+		if scanOpts.Output == "" && !scanOpts.Silent && !splitByHostNaming {
 			fmt.Fprintf(os.Stderr,
 				"%s %s: no %s set — scan results will be discarded with the temporary database. "+
 					"Pass %s %s and %s %s to persist results.\n",
@@ -274,10 +283,11 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		zap.L().Info("Phases skipped", zap.Strings("skip", scanOpts.SkipPhases))
 	}
 
-	// Validate HTML output format constraints
+	// Validate HTML output format constraints. -o is required EXCEPT under
+	// --split-by-host, where each per-host file is named by the target's hostname.
 	if scanOpts.HasFormat("html") {
-		if scanOpts.Output == "" {
-			return fmt.Errorf("--format html requires -o/--output to specify the report file path")
+		if scanOpts.Output == "" && !splitByHostNaming {
+			return fmt.Errorf("--format html requires -o/--output to specify the report file path (or pass --split-by-host to name per-host files by hostname)")
 		}
 		if phases := runner.OnlyPhaseSet(scanOpts.OnlyPhase); len(phases) > 0 {
 			for p := range phases {
@@ -289,14 +299,15 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, f := range []string{"report", "pdf"} {
-		if scanOpts.HasFormat(f) && scanOpts.Output == "" {
-			return fmt.Errorf("--format %s requires -o/--output to specify the report file path", f)
+		if scanOpts.HasFormat(f) && scanOpts.Output == "" && !splitByHostNaming {
+			return fmt.Errorf("--format %s requires -o/--output to specify the report file path (or pass --split-by-host to name per-host files by hostname)", f)
 		}
 	}
 
-	// Multi-format requires -o/--output for file-based formats
-	if len(scanOpts.OutputFormats) > 1 && scanOpts.Output == "" {
-		return fmt.Errorf("multiple --format values require -o/--output to specify the base output path")
+	// Multi-format requires -o/--output for file-based formats — unless
+	// --split-by-host supplies a per-host base from each target's hostname.
+	if len(scanOpts.OutputFormats) > 1 && scanOpts.Output == "" && !splitByHostNaming {
+		return fmt.Errorf("multiple --format values require -o/--output to specify the base output path (or pass --split-by-host to name per-host files by hostname)")
 	}
 
 	// Override scanning_pace.max_duration if --scanning-max-duration flag is set.
@@ -727,9 +738,16 @@ func runStatelessTargetFile(cmd *cobra.Command, settings *config.Settings, strat
 		scanOpts.Targets = []string{target}
 		// Force the scan summary banner to print per target.
 		scanOpts.ScanConfigPrinted = false
-		if multi && origOutput != "" {
+		// This function is only reached on the --split-by-host path, so name each
+		// output file by host. With a base path that's "<base>-<host>.<ext>"; with
+		// no -o it's just "<host>.<ext>" (perTargetOutputPath handles the empty
+		// base). A single target with a base keeps the literal -o (no host suffix).
+		switch {
+		case origOutput == "":
+			scanOpts.Output = perTargetOutputPath("", target, i)
+		case multi:
 			scanOpts.Output = perTargetOutputPath(origOutput, target, i)
-		} else {
+		default:
 			scanOpts.Output = origOutput
 		}
 
@@ -786,6 +804,11 @@ func perTargetOutputPath(basePath, target string, idx int) string {
 	stripped := types.StripFormatExtension(basePath)
 	suffix := perTargetSuffix(target, idx)
 	rest := strings.TrimPrefix(basePath, stripped)
+	// No base path (e.g. --split-by-host without -o): the per-host file is named by
+	// the host alone (<host><ext>), with no leading "-" separator to a base.
+	if stripped == "" {
+		return suffix + rest
+	}
 	return stripped + "-" + suffix + rest
 }
 

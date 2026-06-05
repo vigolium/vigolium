@@ -15,9 +15,11 @@ import (
 	oengine "github.com/vigolium/vigolium/pkg/olium/engine"
 	"github.com/vigolium/vigolium/pkg/olium/provider"
 	"github.com/vigolium/vigolium/pkg/olium/sessionlog"
+	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"github.com/vigolium/vigolium/pkg/olium/stream"
 	"github.com/vigolium/vigolium/pkg/olium/tool"
 	"github.com/vigolium/vigolium/pkg/olium/toollog"
+	"github.com/vigolium/vigolium/pkg/olium/vigtool"
 )
 
 // oliumRunOutput is the structured return of runOliumPrompt — text plus the
@@ -125,10 +127,31 @@ func buildOliumEngineWithSpec(cfg *config.OliumConfig, spec SessionSpec) (*oengi
 		System:            system,
 		MaxTurns:          spec.MaxTurns,
 		EnablePromptCache: spec.EnablePromptCache,
+		// Skills, when set, are rendered into the system prompt as an
+		// <available_skills> block by engine.New. The load_skill tool that
+		// serves their bodies is registered below (requires IncludeTools).
+		Skills: spec.Skills,
 	}
 	if spec.IncludeTools {
 		reg := tool.NewRegistry()
 		tool.RegisterBuiltins(reg, nil)
+		if spec.Skills != nil && spec.Skills.Len() > 0 {
+			reg.Register(skill.NewLoadTool(spec.Skills))
+		}
+		// Read+replay subset: lets a skill-driven agent confirm/escalate against
+		// prior scan records (explore → inspect → craft → replay). Stateless
+		// tools only — no oast_mint (it owns an interactsh Service needing
+		// Shutdown the per-call engine can't run).
+		if spec.VigTools != nil && spec.VigTools.Repo != nil {
+			sessCtx := &vigtool.SessionsContext{
+				Repo:        spec.VigTools.Repo,
+				ProjectUUID: spec.VigTools.ProjectUUID,
+			}
+			reg.Register(vigtool.NewQueryRecordsTool(sessCtx))
+			reg.Register(vigtool.NewInspectRecordTool(sessCtx))
+			reg.Register(vigtool.NewReplayRequestTool(sessCtx))
+			reg.Register(vigtool.NewAttackKitTool())
+		}
 		ecfg.Tools = reg
 	}
 

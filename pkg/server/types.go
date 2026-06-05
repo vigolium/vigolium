@@ -12,6 +12,9 @@ import (
 type ServerConfig struct {
 	ServiceAddr          string   // e.g. "0.0.0.0:9002"
 	IngestProxyAddr      string   // e.g. "0.0.0.0:9003" (empty = disabled)
+	IngestProxyMITM      bool     // Intercept HTTPS via a generated CA (records + scans TLS traffic)
+	IngestProxyInsecure  bool     // Skip upstream TLS verification when intercepting HTTPS
+	IngestProxyCADir     string   // Directory holding the MITM CA (empty = ~/.vigolium/ca)
 	APIKeys              []string // Valid Bearer tokens
 	NoAuth               bool     // If true, skip auth
 	ScanOnReceive        bool

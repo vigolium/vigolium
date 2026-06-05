@@ -81,6 +81,8 @@ var (
 type Module struct {
 	modkit.BaseActiveModule
 	rhm dedup.Lazy[dedup.RequestHashManager]
+	// ds gates the static-root traversal branch to once per (host, mount-segment).
+	ds dedup.Lazy[dedup.DiskSet]
 }
 
 func New() *Module {
@@ -100,6 +102,7 @@ func New() *Module {
 			Host: true,
 			Path: true,
 		}),
+		ds: dedup.LazyDiskSet("path_normalization_static"),
 	}
 	m.ModuleTags = ModuleTags
 	return m
@@ -115,6 +118,18 @@ func (m *Module) ScanPerRequest(
 	urlx, err := ctx.URL()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get URL")
+	}
+
+	// Static-root traversal oracle (matrix-parameter + encoded-slash bypass of
+	// static file handlers — express.static / send and similar). It has its own
+	// per-(host, mount-segment) dedup and a file-content/listing oracle, distinct
+	// from the normalization status oracle below, and deliberately runs on
+	// static-asset URLs. A confirmed file read is the higher-signal finding, so
+	// return it immediately.
+	if staticRes, fatal := m.scanStaticRootTraversal(ctx, httpClient, scanCtx, urlx); len(staticRes) > 0 {
+		return staticRes, nil
+	} else if fatal {
+		return results, nil
 	}
 
 	rhm := m.rhm.Get(scanCtx.DedupMgr())

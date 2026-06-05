@@ -14,20 +14,28 @@ import (
 	vhttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/metrics"
 	"github.com/vigolium/vigolium/pkg/queue"
+	"github.com/vigolium/vigolium/pkg/server/mitm"
 	"go.uber.org/zap"
 )
 
+// DefaultIngestProxyCADir is the default directory for the ingest-proxy MITM
+// CA (used when ServerConfig.IngestProxyCADir is empty). It is the single
+// source of truth shared with the CLI's --export-ca path so a CA exported
+// out-of-band matches the one the running proxy uses.
+const DefaultIngestProxyCADir = "~/.vigolium/ca"
+
 // Server is the HTTP API server.
 type Server struct {
-	serviceApp    *fiber.App
-	proxyServer   *http.Server // nil if proxy disabled
-	handlers      *Handlers
-	recordWriter  *database.RecordWriter
-	configWatcher *config.ConfigWatcher
-	config        ServerConfig
-	queue         queue.Queue
-	db            *database.DB
-	repo          *database.Repository
+	serviceApp      *fiber.App
+	proxyServer     *http.Server // nil if proxy disabled
+	proxyCACertPath string       // MITM CA cert path when HTTPS interception is on
+	handlers        *Handlers
+	recordWriter    *database.RecordWriter
+	configWatcher   *config.ConfigWatcher
+	config          ServerConfig
+	queue           queue.Queue
+	db              *database.DB
+	repo            *database.Repository
 }
 
 // NewServer creates a new HTTP API server.
@@ -124,11 +132,34 @@ func NewServer(cfg ServerConfig, q queue.Queue, db *database.DB, repo *database.
 
 	// Create proxy server if configured (disabled in view-only mode)
 	if cfg.IngestProxyAddr != "" && !cfg.ViewOnly {
-		s.proxyServer = newIngestProxy(cfg.IngestProxyAddr, db, repo, recordWriter, settings, handlers.getScopeMatcher)
+		var mitmCA *mitm.CA
+		if cfg.IngestProxyMITM {
+			caDir := cfg.IngestProxyCADir
+			if caDir == "" {
+				caDir = config.ExpandPath(DefaultIngestProxyCADir)
+			}
+			ca, err := mitm.LoadOrCreateCA(caDir)
+			if err != nil {
+				zap.L().Error("Failed to initialize ingest-proxy MITM CA; HTTPS interception disabled",
+					zap.Error(err))
+			} else {
+				mitmCA = ca
+				s.proxyCACertPath = ca.CertPath()
+				zap.L().Info("Ingest-proxy HTTPS interception enabled",
+					zap.String("ca_cert", ca.CertPath()))
+			}
+		}
+		s.proxyServer = newIngestProxy(cfg.IngestProxyAddr, db, repo, recordWriter, settings,
+			handlers.getScopeMatcher, mitmCA, cfg.IngestProxyInsecure)
 	}
 
 	return s
 }
+
+// ProxyCACertPath returns the on-disk path of the ingest-proxy MITM CA
+// certificate, or "" when HTTPS interception is not enabled. Used by the CLI to
+// surface the trust anchor at startup.
+func (s *Server) ProxyCACertPath() string { return s.proxyCACertPath }
 
 // Start starts the API server (and proxy if configured).
 // Blocks until the server is stopped.

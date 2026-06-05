@@ -19,6 +19,9 @@ execution by appending arbitrary paths to valid PHP endpoints.
 - Runs once per host to avoid redundant probing
 - Sends requests to deliberately invalid script paths
 - Compares responses to establish if PATH_INFO rewriting is active
+- Drops catch-all hosts: a candidate 200 whose body matches a random
+  "*.php"/PATH_INFO control (similarity-tolerant) is a blanket SPA/rewrite
+  handler, not real cgi.fix_pathinfo routing
 - Low false positive rate due to multi-step validation
 
 ## References
@@ -26,7 +29,7 @@ execution by appending arbitrary paths to valid PHP endpoints.
 - https://www.php.net/manual/en/ini.core.php#ini.cgi.fix-pathinfo
 - https://owasp.org/www-project-web-security-testing-guide/`
 
-	ModuleConfirmation = "Confirmed when requests to non-existent PHP scripts with PATH_INFO return valid responses instead of 404"
+	ModuleConfirmation = "Confirmed when PATH_INFO requests return a valid 200 that differs from both the random-path 404 fingerprint and a random script-shaped catch-all control, ruling out blanket SPA/rewrite handlers that serve a generic body for any path"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"php", "misconfiguration", "light"}

@@ -37,6 +37,44 @@ body text here
 	}
 }
 
+func TestParseTags(t *testing.T) {
+	raw := []byte(`---
+name: tagged
+description: has tags
+tags:
+  - XSS
+  - " dom "
+  - xss
+  - browser-confirm
+  - ""
+---
+body
+`)
+	s, err := Parse(raw, "", "", SourceEmbedded)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	want := []string{"xss", "dom", "browser-confirm"}
+	if len(s.Tags) != len(want) {
+		t.Fatalf("tags = %v, want %v (lowercased, trimmed, deduped, empties dropped)", s.Tags, want)
+	}
+	for i := range want {
+		if s.Tags[i] != want[i] {
+			t.Fatalf("tags = %v, want %v", s.Tags, want)
+		}
+	}
+}
+
+func TestParseNoTagsIsNil(t *testing.T) {
+	s, err := Parse([]byte("---\nname: untagged\ndescription: d\n---\nbody"), "", "", SourceEmbedded)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if s.Tags != nil {
+		t.Fatalf("expected nil tags, got %v", s.Tags)
+	}
+}
+
 func TestParseRejectsBadNames(t *testing.T) {
 	cases := []string{
 		"Bad_Name",
@@ -96,6 +134,22 @@ func TestInjectIntoSystemPromptWithSkills(t *testing.T) {
 	}
 	if !strings.Contains(out, "<name>a</name>") {
 		t.Fatalf("missing name: %q", out)
+	}
+}
+
+func TestInjectIntoSystemPromptRendersTags(t *testing.T) {
+	reg := &Registry{skills: map[string]*Skill{}, order: []string{}}
+	reg.skills["tagged"] = &Skill{Name: "tagged", Description: "d", Tags: []string{"xss", "dom"}, Path: "/p/SKILL.md"}
+	reg.skills["plain"] = &Skill{Name: "plain", Description: "d", Path: "/p2/SKILL.md"}
+	reg.order = append(reg.order, "tagged", "plain")
+
+	out := InjectIntoSystemPrompt("base", reg)
+	if !strings.Contains(out, "<tags>xss, dom</tags>") {
+		t.Fatalf("missing tags render: %q", out)
+	}
+	// A tagless skill must not emit an empty <tags> element.
+	if strings.Contains(out, "<tags></tags>") {
+		t.Fatalf("empty tags element should be omitted: %q", out)
 	}
 }
 
@@ -177,10 +231,4 @@ func TestLoadProjectScopePrecedence(t *testing.T) {
 	}
 }
 
-func names(r *Registry) []string {
-	var out []string
-	for _, s := range r.List() {
-		out = append(out, s.Name)
-	}
-	return out
-}
+func names(r *Registry) []string { return r.Names() }

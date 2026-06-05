@@ -1226,6 +1226,15 @@ agent:
     # Default: 600 (10 minutes)
     call_timeout_sec: 600
 
+    # Skills always loaded in planner-filtered agentic runs (autopilot/swarm),
+    # regardless of what the planner selects. General-purpose playbooks belong
+    # here so filtering can never starve them. Empty = built-in default
+    # [triage-finding, write-jsext]. Per-run overrides: --skill / --skill-tag /
+    # --no-skill-filter. Skills live in ~/.vigolium/skills (or VIGOLIUM_SKILLS_DIR).
+    # always_on_skills:
+    #   - triage-finding
+    #   - write-jsext
+
     # --------------------------------------------------------------------------
     # custom_provider — settings for provider: openai-compatible
     # --------------------------------------------------------------------------

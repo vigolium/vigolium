@@ -15,7 +15,7 @@ to authenticated URLs causes reverse proxies or CDNs to cache sensitive response
 a victim into visiting a crafted URL, causing their authenticated response to be cached and subsequently
 accessible to the attacker.`
 	ModuleConfirmation = "Confirmed when a path-confused request returns the same successful (2xx) authenticated content as the original and cache indicators (Age, X-Cache, CF-Cache-Status) suggest the response was cached. Cached CDN error pages (e.g. a 5xx with 'X-Cache: Error') are not deception and are excluded."
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"cache-poisoning", "auth-bypass", "moderate"}
 )

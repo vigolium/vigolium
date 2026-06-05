@@ -6,8 +6,22 @@ import (
 	"io"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/database"
 	oengine "github.com/vigolium/vigolium/pkg/olium/engine"
+	"github.com/vigolium/vigolium/pkg/olium/skill"
 )
+
+// VigToolSpec, when set on a SessionSpec built with IncludeTools, registers the
+// vigolium read+replay tool subset — query_records, inspect_record,
+// replay_request, attack_kit — so a skill-driven agent (swarm triage) can run
+// an explore → inspect → craft → replay confirmation loop against prior scan
+// records. Requires Repo. OAST tools are intentionally excluded: oast_mint owns
+// an interactsh Service that needs an explicit Shutdown the per-call engine
+// can't manage.
+type VigToolSpec struct {
+	Repo        *database.Repository
+	ProjectUUID string
+}
 
 // AgentSession is an opaque, reusable agent conversation whose prefix (system
 // prompt, tool definitions, prior turns) stays warm across prompts so the
@@ -56,6 +70,15 @@ type SessionSpec struct {
 	MaxTurns          int    // 0 = engine default
 	IncludeTools      bool   // register the builtin tool set
 	EnablePromptCache bool
+	// Skills, when non-nil and non-empty, injects an <available_skills> block
+	// into the system prompt and registers the load_skill tool (requires
+	// IncludeTools). Used by swarm plan/triage phases for planner-driven skill
+	// loading; nil for phases that don't surface skills.
+	Skills *skill.Registry
+	// VigTools, when non-nil with a Repo (and IncludeTools), registers the
+	// vigolium read+replay tool subset so a skill can actually confirm/escalate
+	// against scan records. nil for phases that only reason over prompt context.
+	VigTools *VigToolSpec
 	// Record, when its SessionDir is set, attaches a Pi-style JSONL transcript
 	// recorder to the built engine so the session's turns (including model
 	// reasoning) persist for debugging. Zero value = no transcript.

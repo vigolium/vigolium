@@ -43,6 +43,14 @@ type AutopilotPipelineConfig struct {
 	Instruction string
 	Focus       string
 
+	// Skill selection forwarded to the operator agent's planner-driven
+	// loading. SkillNames/SkillTags force-include; NoSkillFilter loads the
+	// full set; AlwaysOnSkills are kept regardless of selection.
+	SkillNames     []string
+	SkillTags      []string
+	NoSkillFilter  bool
+	AlwaysOnSkills []string
+
 	// SystemPrompt, when non-empty, fully replaces the built-in autopilot
 	// system prompt at the olium runtime layer. Empty falls back to
 	// agent.olium.system_prompt in settings, then to the embedded persona.
@@ -378,6 +386,10 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		BrowserAvailable:     cfg.BrowserEnabled,
 		PostHaltVerify:       cfg.PostHaltVerify && postHaltProbe != nil,
 		PostHaltGapThreshold: cfg.PostHaltGapThreshold,
+		SkillNames:           cfg.SkillNames,
+		SkillTags:            cfg.SkillTags,
+		NoSkillFilter:        cfg.NoSkillFilter,
+		AlwaysOnSkills:       cfg.AlwaysOnSkills,
 	}
 	if postHaltProbe != nil {
 		autopilotOpts.CoverageProbe = postHaltProbe

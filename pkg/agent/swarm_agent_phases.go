@@ -176,11 +176,13 @@ func (s *SwarmRunner) runPlanAgent(ctx context.Context, cfg SwarmConfig, records
 			extraContext = retryTruncateContext(records)
 		}
 
-		result, runErr := s.engine.RunWithExtra(ctx, opts, map[string]string{
+		// Pass the full skill registry so the planner sees the <available_skills>
+		// menu and can populate recommended_skills for the triage phase.
+		result, runErr := s.engine.RunWithExtraSkills(ctx, opts, map[string]string{
 			"RequestContext": extraContext,
 			"VulnType":       effectiveVulnType,
 			"TechStack":      techStackMd,
-		})
+		}, s.skills)
 		if runErr != nil {
 			if isRetryableAgentError(ctx, runErr) && attempt < maxAttempts {
 				zap.L().Warn("plan agent execution failed (retryable), will retry",

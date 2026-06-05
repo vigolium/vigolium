@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/authzutil"
 	"github.com/vigolium/vigolium/pkg/output"
 )
 
@@ -68,8 +69,8 @@ func (m *Module) ScanPerInsertionPoint(
 	paramValue := ip.BaseValue()
 	paramName := ip.Name()
 
-	// Only test params whose name suggests an object reference or whose value is a UUID/numeric
-	if !isIDRelatedParam(paramName) && !uuidPattern.MatchString(paramValue) && !isNumeric(paramValue) {
+	// Only test parameters that plausibly carry an object reference.
+	if !qualifiesAsIDORCandidate(ip, paramName, paramValue) {
 		return nil, nil
 	}
 
@@ -172,6 +173,18 @@ func (m *Module) tryPredictedID(
 	// 2. The response body length > 100 (not empty/trivial)
 	// 3. The status matches the original but body content differs (different resource)
 	if respStatus == 200 && len(respBody) > 100 && respStatus == baselineStatus && respBody != baselineBody {
+		// Content gate: a predicted-id response that is itself a login / SSO
+		// challenge (or an access-denied notice) is NOT a distinct object — it is
+		// the generic unauthenticated shell every protected endpoint returns, and
+		// it "differs from the baseline" only by the per-request CSRF/session
+		// tokens (session_code, KC_RESTART, …) the login form embeds. This is the
+		// Keycloak /openid-connect/auth false positive: the predicted id returned
+		// the same Sign-In page with a fresh nonce. Reject before the (more
+		// expensive) determinism refetch.
+		if authzutil.IsAuthChallengePage(respBody) {
+			return nil, nil
+		}
+
 		// Determinism gate: many endpoints (analytics beacons, randomized JS
 		// bundles) return different content on every request regardless of the
 		// id, so a predicted-id response that "differs from the baseline" is just
@@ -289,6 +302,44 @@ func generateUUIDv1Neighbors(uuid string) []string {
 	}
 
 	return neighbors
+}
+
+// qualifiesAsIDORCandidate reports whether an insertion point plausibly carries
+// an enumerable object reference worth predicting neighbors for.
+//
+// It exists to suppress the broad class of false positives where a non-object
+// value happens to look numeric or UUID-shaped:
+//   - Standard request headers (Upgrade-Insecure-Requests, DNT, Sec-Fetch-*,
+//     Cache-Control, …) carry flag/protocol values that address nothing, so a
+//     predicted "neighbor" just re-fetches the same page. A header only
+//     qualifies when its NAME names an identifier (X-User-Id, Account-Id, …).
+//   - A bare flag value (0 or 1) on a non-ID-named parameter is a boolean
+//     toggle, not an enumerable identifier.
+func qualifiesAsIDORCandidate(ip httpmsg.InsertionPoint, name, value string) bool {
+	idNamed := isIDRelatedParam(name)
+
+	// Request headers are object references only when the header name says so.
+	if ip.Type() == httpmsg.INS_HEADER && !idNamed {
+		return false
+	}
+
+	// An ID-named parameter is always worth testing, whatever the value shape.
+	if idNamed {
+		return true
+	}
+
+	// Otherwise the VALUE must itself look like an object reference: a UUID, or a
+	// numeric id whose magnitude is plausible for an identifier (not a flag).
+	if uuidPattern.MatchString(value) {
+		return true
+	}
+	return isNumeric(value) && !isFlagValue(value)
+}
+
+// isFlagValue reports whether a numeric string is a boolean/flag value (0 or 1)
+// rather than an enumerable object identifier.
+func isFlagValue(s string) bool {
+	return s == "0" || s == "1"
 }
 
 // isIDRelatedParam checks if a parameter name suggests an object reference.

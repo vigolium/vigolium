@@ -25,10 +25,16 @@ func (s *SwarmRunner) runTriageLoop(ctx context.Context, cfg SwarmConfig, agenti
 			zap.Int64("finding_floor", triageFindingFloor))
 	}
 
+	// Build the planner-filtered skill set the triage agent loads: the plan's
+	// recommended_skills ∪ the always-on set ∪ operator overrides (--skill /
+	// --skill-tag), or the full set under --no-skill-filter.
+	triageSkills := s.selectTriageSkills(cfg, result)
+
 	triageCfg := TriageLoopConfig{
 		Engine:                    s.engine,
 		Repository:                s.repo,
 		AgentName:                 cfg.AgentName,
+		Skills:                    triageSkills,
 		PromptTemplate:            SwarmPromptTriage,
 		TargetURL:                 agenticScan.TargetURL,
 		Hostname:                  hostnameFromURL(agenticScan.TargetURL),

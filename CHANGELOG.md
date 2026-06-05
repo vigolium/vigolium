@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.22-beta] - 2026-06-06
+
+An agentic-scan and traffic-capture release: attack-vector skills wired into autopilot and swarm with planner-driven selection, an HTTPS-intercepting ingest proxy, sturdier olium stream recovery, a static-root traversal file-read oracle, and cleaner parallel-scan output.
+
+### Added
+
+- **Attack-vector skills for agentic scan** — confirmation/escalation playbooks the agent loads to confirm and escalate findings (new `xss-browser-confirm`, upgraded `idor-blast-radius`). Built-in skills are materialized to `~/.vigolium/skills` (override `VIGOLIUM_SKILLS_DIR`) on `vigolium init` as editable copies, which the loader prefers over the embedded fallback.
+- **Planner-driven skill selection** — the swarm planner picks skills matching the target's attack surface (`RECOMMENDED_SKILLS`) and the triage phase loads just that subset; autopilot runs an equivalent best-effort pre-flight pick before its run. `--skill`, `--skill-tag`, and `--no-skill-filter` (on `agent autopilot` / `agent swarm`) override the selection per run, and `agent.olium.always_on_skills` (default `triage-finding`, `write-jsext`) pins general-purpose playbooks that stay available regardless of filtering.
+- **HTTPS-intercepting ingest proxy** — `vigolium server --ingest-proxy-port N --proxy-mitm` terminates TLS with a generated CA so HTTPS traffic is recorded (and scanned with `-S`); trust the CA printed at startup or write it out with `--export-ca <path>`, and use `--proxy-insecure` to skip upstream TLS verification. Plain HTTP and un-intercepted CONNECT tunnels still pass through untouched.
+
+### Changed
+
+- **Active module improvements** — additional detection coverage and false-positive hardening across the active modules (including a new static-root file-read oracle in `path-normalization`).
+- **Sturdier olium stream recovery** — transient upstream stream failures (HTTP/2 `INTERNAL_ERROR`/`GOAWAY`/idle reset and content-less codex `error` frames) now retry even mid-tool-call instead of tearing down the run, recovering exactly the in-flight-tool-call blips that previously killed autopilot/swarm runs.
+- **Parallel scan output** — each `-P`/`--parallel` child now writes a self-contained `<output>.console.log` that captures the live finding stream (even with deferred JSONL and no `console` format) and drops the repetitive `[status]` progress ticker, so per-target logs read like a normal console scan.
+
 ## [v0.1.21-beta] - 2026-06-05
 
 A false-positive-reduction and observability release: broad confirmation-hardening across the active and passive modules, full secret disclosure in findings, and Pi-compatible JSONL transcripts for every olium agent mode.

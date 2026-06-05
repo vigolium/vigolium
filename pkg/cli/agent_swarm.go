@@ -36,6 +36,9 @@ var (
 	swarmFiles               []string
 	swarmVulnType            string
 	swarmFocus               string
+	swarmSkills              []string
+	swarmSkillTags           []string
+	swarmNoSkillFilter       bool
 	swarmModules             []string
 	swarmMaxIterations       int
 	swarmAgentLabel          string
@@ -136,6 +139,9 @@ func init() {
 	f.StringSliceVar(&swarmFiles, "files", nil, "Specific source files to include (relative to --source)")
 	f.StringVar(&swarmVulnType, "vuln-type", "", "Vulnerability type focus (e.g. sqli, xss, ssrf)")
 	f.StringVar(&swarmFocus, "focus", "", "Focus area hint for the agent (e.g. 'API injection', 'auth bypass')")
+	f.StringSliceVar(&swarmSkills, "skill", nil, "Force-load these skills by name into triage, bypassing planner selection (repeatable or comma-separated)")
+	f.StringSliceVar(&swarmSkillTags, "skill-tag", nil, "Force-load every skill carrying one of these tags into triage (e.g. xss,idor)")
+	f.BoolVar(&swarmNoSkillFilter, "no-skill-filter", false, "Load the full skill set into triage; ignore planner selection")
 	f.StringSliceVarP(&swarmModules, "modules", "m", nil, "Explicit module names to include")
 	f.IntVar(&swarmMaxIterations, "max-iterations", 3, "Maximum triage-rescan iterations")
 	f.StringVar(&swarmAgentLabel, "agent-label", "", "Label recorded on the AgenticScan DB row; agent dispatch always uses olium")
@@ -504,6 +510,9 @@ func runAgentSwarm(cmd *cobra.Command, args []string) (err error) {
 		DiffContext:        swarmDiffCtx,
 		VulnType:           swarmVulnType,
 		Focus:              swarmFocus,
+		SkillNames:         swarmSkills,
+		SkillTags:          swarmSkillTags,
+		NoSkillFilter:      swarmNoSkillFilter,
 		ModuleNames:        swarmModules,
 		OnlyPhase:          swarmOnlyPhase,
 		SkipPhases:         swarmSkipPhases,

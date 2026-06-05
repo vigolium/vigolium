@@ -44,6 +44,7 @@ type Skill struct {
 	Description  string   // one-line hook for the system prompt
 	License      string   // optional
 	AllowedTools []string // optional restriction (frontmatter: allowed-tools)
+	Tags         []string // optional classification labels (frontmatter: tags), normalized lowercase
 
 	Path    string // absolute path to SKILL.md (empty for embedded)
 	BaseDir string // directory containing SKILL.md (for relative refs)
@@ -63,6 +64,33 @@ type frontmatter struct {
 	Description  string   `yaml:"description"`
 	License      string   `yaml:"license"`
 	AllowedTools []string `yaml:"allowed-tools"`
+	Tags         []string `yaml:"tags"`
+}
+
+// normalizeTags lowercases, trims, drops empties, and de-duplicates the raw
+// frontmatter tags while preserving first-seen order. Returns nil for an
+// empty result so a tagless skill keeps a nil slice.
+func normalizeTags(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, t := range raw {
+		t = strings.ToLower(strings.TrimSpace(t))
+		if t == "" {
+			continue
+		}
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Parse decodes a SKILL.md byte blob into a Skill. path/baseDir/source
@@ -102,6 +130,7 @@ func Parse(raw []byte, path, baseDir string, source Source) (*Skill, error) {
 		Description:  fm.Description,
 		License:      fm.License,
 		AllowedTools: fm.AllowedTools,
+		Tags:         normalizeTags(fm.Tags),
 		Path:         path,
 		BaseDir:      baseDir,
 		Body:         body,

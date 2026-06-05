@@ -173,9 +173,6 @@ var serverExamples = FormatExamples(
 	"vigolium server --disable-warm-session",
 	"# Disable Swagger UI",
 	"vigolium server --no-swagger",
-	"",
-	"# Production-like setup: localhost, proxy, scan on receive, custom port",
-	"vigolium server --host 127.0.0.1 --service-port 8080 --ingest-proxy-port 8081 --scan-on-receive",
 )
 
 var ingestExamples = FormatExamples(

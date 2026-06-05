@@ -42,7 +42,8 @@ Prioritize analysis targeting this vulnerability class. Still include other rele
 1. **Analyze the request and recon findings** — identify technology stack, interesting parameters, injection points, content types, authentication patterns
 2. **Identify attack vectors** — document specific areas of focus for the scan (endpoints, parameters, vulnerability types)
 3. **Pick module tags when the stack is clear** — when reconnaissance or the request itself strongly suggests a specific stack (Spring, WordPress, GraphQL, Express, etc.), emit `MODULE_TAGS` so the scanner focuses on stack-relevant modules
-4. **Determine if custom extensions are needed** — only if built-in modules cannot cover the target's unusual behavior
+4. **Recommend skills for triage** — if an `<available_skills>` block was provided to you, pick the skills whose description/tags match the attack surface you identified, and list their names in `RECOMMENDED_SKILLS`. These are confirmation/escalation playbooks the triage phase will load. Pick only what fits the target — don't list all of them.
+5. **Determine if custom extensions are needed** — only if built-in modules cannot cover the target's unusual behavior
 
 ## Output Format
 
@@ -78,6 +79,19 @@ Pick tags from the catalog below (auto-generated from the live scanner registry 
 
 Use lowercase tags only. Common ones: `spring`, `wordpress`, `graphql`, `aspnet`, `laravel`, `django`, `rails`, `express`, `nextjs`, `nginx`, `php`, `injection`, `xss`, `sqli`, `idor`, `jwt`, `auth-bypass`.
 {{end}}
+
+```
+## RECOMMENDED_SKILLS
+- xss-browser-confirm
+- idor-blast-radius
+```
+
+Skill names (one per bullet, name only) chosen from the `<available_skills>`
+block in your context — the confirmation/escalation playbooks the triage phase
+should load for this target. Match on the skills' descriptions/tags against the
+attack surface in FOCUS_AREAS. Emit ONLY when an `<available_skills>` block was
+provided AND a skill clearly fits; omit otherwise (general-purpose skills load
+automatically regardless).
 
 ```
 ## NOTES

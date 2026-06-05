@@ -10,8 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	oliumresources "github.com/vigolium/vigolium/internal/resources/olium"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/diagnostics"
+	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/public"
 	"go.uber.org/zap"
@@ -108,7 +110,7 @@ func initializeVigolium() error {
 			zap.String("path", settings.Database.SQLite.Path))
 	}
 
-	fmt.Fprintf(os.Stderr, "  %s Installing default profiles, extensions, and prompts...\n", terminal.InfoSymbol())
+	fmt.Fprintf(os.Stderr, "  %s Installing default profiles, extensions, prompts, and skills...\n", terminal.InfoSymbol())
 
 	// Bootstrap default profiles
 	bootstrapDefaultProfiles(vigoliumDir)
@@ -118,6 +120,9 @@ func initializeVigolium() error {
 
 	// Bootstrap prompt templates
 	bootstrapPrompts(vigoliumDir)
+
+	// Bootstrap agentic-scan skills (~/.vigolium/skills or VIGOLIUM_SKILLS_DIR)
+	bootstrapSkills()
 
 	// Note: the ~/.vigolium/initialized marker is intentionally NOT written
 	// here. The marker tracks core dep installation (chromium + nuclei
@@ -182,6 +187,26 @@ func bootstrapPrompts(vigoliumDir string) {
 // bootstrapExtensions copies embedded preset extensions to the extensions directory.
 func bootstrapExtensions(vigoliumDir string) {
 	bootstrapEmbeddedDir(vigoliumDir, "extensions", "presets/extensions", "preset extensions")
+}
+
+// bootstrapSkills materializes the embedded built-in olium skills into the
+// user-scope skills directory (~/.vigolium/skills, or VIGOLIUM_SKILLS_DIR) so
+// operators get editable copies that the autopilot/swarm loader prefers over
+// the embedded fallback. Write-if-missing — re-runs and operator edits are
+// preserved. Best-effort: skills still load from the embed if this fails.
+func bootstrapSkills() {
+	dir := skill.UserSkillsDir()
+	if dir == "" {
+		return
+	}
+	n, err := oliumresources.EnsureOnDisk(dir)
+	if err != nil {
+		zap.L().Debug("Failed to materialize skills", zap.String("dir", dir), zap.Error(err))
+		return
+	}
+	if n > 0 {
+		zap.L().Info("Bootstrapped skills", zap.String("dir", dir), zap.Int("written", n))
+	}
 }
 
 // bootstrapEmbeddedDir copies files from an embedded FS path into a subdirectory

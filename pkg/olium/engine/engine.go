@@ -381,17 +381,14 @@ func (e *Engine) run(ctx context.Context, userPrompt string, out chan<- Event) {
 }
 
 // streamOnce runs a single provider stream and forwards its events.
-// toolStarted=true means a tool-call-start was emitted without a matching
-// end — the retry guard uses this to avoid producing a phantom
-// announcement on a fresh attempt.
 func (e *Engine) streamOnce(
 	ctx context.Context,
 	req provider.Request,
 	out chan<- Event,
-) (stopReason stream.StopReason, usage *stream.Usage, toolCalls []provider.ToolCall, text string, toolStarted bool, err error) {
+) (stopReason stream.StopReason, usage *stream.Usage, toolCalls []provider.ToolCall, text string, err error) {
 	ch, err := e.cfg.Provider.Stream(ctx, req)
 	if err != nil {
-		return "", nil, nil, "", false, err
+		return "", nil, nil, "", err
 	}
 
 	var (
@@ -427,7 +424,6 @@ func (e *Engine) streamOnce(
 					ToolCallID: ev.ToolCall.ID,
 					ToolName:   ev.ToolCall.Name,
 				}
-				toolStarted = true
 			}
 
 		case stream.EventToolCallDelta:
@@ -441,10 +437,6 @@ func (e *Engine) streamOnce(
 				toolCalls = append(toolCalls, *currentTC)
 				currentTC = nil
 				currentTCBuf = ""
-				// Matching end clears the in-flight start so a later
-				// failure on the same stream (after one fully resolved
-				// tool call) doesn't gate retry on a stale start.
-				toolStarted = false
 			}
 
 		case stream.EventDone:
@@ -452,20 +444,26 @@ func (e *Engine) streamOnce(
 			usage = ev.Usage
 
 		case stream.EventError:
-			return stopReason, usage, toolCalls, text, toolStarted, fmt.Errorf("%s", ev.Err)
+			return stopReason, usage, toolCalls, text, fmt.Errorf("%s", ev.Err)
 		}
 	}
 
-	return stopReason, usage, toolCalls, text, toolStarted, nil
+	return stopReason, usage, toolCalls, text, nil
 }
 
 // streamOnceWithRetry wraps streamOnce so a transient upstream stream
-// failure (HTTP/2 INTERNAL_ERROR, REFUSED_STREAM, GOAWAY, idle reset)
-// retries instead of tearing down the whole multi-turn loop. Text and
-// thinking deltas are safe to dup on retry (cosmetic only — the operator
-// sees a notice line followed by the fresh attempt's output). The one
-// terminal case is an in-flight tool-call-start without a matching end:
-// retrying then would leave a phantom announcement with no exec.
+// failure (HTTP/2 INTERNAL_ERROR, REFUSED_STREAM, GOAWAY, idle reset, or a
+// content-less codex `error` frame) retries instead of tearing down the
+// whole multi-turn loop. Text, thinking, AND tool-call-start deltas are all
+// safe to dup on retry: they're cosmetic only (the operator sees a notice
+// line followed by the fresh attempt's output), the assistant message is
+// only committed to history from the successful attempt (see run loop), and
+// no consumer commits a tool card until EventToolExecEnd — which a failed
+// attempt never reaches. We deliberately retry even when a tool-call-start
+// was already forwarded: in agentic mode a turn almost always ends in a
+// tool call, so gating retry on an in-flight start (the previous behavior)
+// defeated recovery in exactly the workload that needs it — a transient
+// blip mid-tool-call would tear down the entire run.
 func (e *Engine) streamOnceWithRetry(
 	ctx context.Context,
 	req provider.Request,
@@ -481,12 +479,12 @@ func (e *Engine) streamOnceWithRetry(
 	}
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		stopReason, usage, toolCalls, text, toolStarted, err := e.streamOnce(ctx, req, out)
+		stopReason, usage, toolCalls, text, err := e.streamOnce(ctx, req, out)
 		if err == nil {
 			return stopReason, usage, toolCalls, text, nil
 		}
 		lastErr = err
-		if !stream.IsTransientErr(err) || toolStarted || ctx.Err() != nil {
+		if !stream.IsTransientErr(err) || ctx.Err() != nil {
 			return stopReason, usage, toolCalls, text, err
 		}
 		if attempt == maxAttempts-1 {
