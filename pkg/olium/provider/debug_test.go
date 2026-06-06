@@ -50,7 +50,7 @@ func TestOpenAICompatibleDebugTracing(t *testing.T) {
 		}
 		os.Stderr = w
 
-		p := NewOpenAICompatible(srv.URL+"/v1", "", nil)
+		p := NewOpenAICompatible(srv.URL+"/v1", "", nil, nil)
 		events, err := p.Stream(context.Background(), Request{
 			Model:    "qwen3.6:latest",
 			Messages: []Message{{Role: RoleUser, Text: "ping"}},

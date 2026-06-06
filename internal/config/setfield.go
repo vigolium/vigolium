@@ -112,7 +112,12 @@ func marshalBack(raw map[string]any, settings *Settings) error {
 	return nil
 }
 
-// coerceValue converts a string value to match the type of the existing value
+// coerceValue converts a string value to match the type of the existing value.
+// When existing is nil — which happens for pointer fields (e.g. *bool) whose
+// initial value marshals to YAML null — the value's shape is sniffed:
+// "true"/"false" → bool, integers → int, decimals → float64, otherwise the
+// raw string is returned. The sniff is conservative: only unambiguous shapes
+// coerce; anything else falls through unchanged.
 func coerceValue(value string, existing any) any {
 	switch existing.(type) {
 	case bool:
@@ -135,6 +140,23 @@ func coerceValue(value string, existing any) any {
 			result[i] = strings.TrimSpace(p)
 		}
 		return result
+	case nil:
+		// Pointer field (e.g. *bool) whose initial value is nil — round-tripped
+		// through YAML as null. Infer the type from the value's shape.
+		// ParseBool is tried first because *bool is the only pointer scalar
+		// in use today; if a *int or *float64 field is ever added, this
+		// ordering must be revisited — values like "0" / "1" would coerce
+		// to bool rather than the intended numeric type.
+		if b, err := strconv.ParseBool(value); err == nil {
+			return b
+		}
+		if n, err := strconv.Atoi(value); err == nil {
+			return n
+		}
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
+		}
+		return value
 	default:
 		return value
 	}

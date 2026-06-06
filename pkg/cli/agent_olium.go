@@ -74,6 +74,10 @@ func runAgentOlium(cmd *cobra.Command, args []string) error {
 		sessionsDir = settings.Agent.EffectiveSessionsDir()
 	}
 
+	effectiveExtraBody, err := oliumCfg.CustomProvider.EffectiveExtraBody()
+	if err != nil {
+		return fmt.Errorf("olium custom_provider: %w", err)
+	}
 	opts := olium.Options{
 		Provider:            firstNonEmptyString(oliumProvider, oliumCfg.Provider),
 		OAuthCredPath:       firstNonEmptyString(oliumOAuthCredPath, oliumCfg.OAuthCredPath),
@@ -93,6 +97,7 @@ func runAgentOlium(cmd *cobra.Command, args []string) error {
 		CustomModelID:      oliumCfg.CustomProvider.ModelID,
 		CustomAPIKey:       firstNonEmptyString(oliumLLMAPIKey, oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
 		CustomExtraHeaders: oliumCfg.CustomProvider.ExtraHeadersMap(),
+		CustomExtraBody:    effectiveExtraBody,
 	}
 
 	// Record a Pi-style JSONL transcript (transcript.jsonl) under the agent

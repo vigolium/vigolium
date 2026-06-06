@@ -79,7 +79,7 @@ func TestOpenAICompatible_RoutingAndHeaders(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			p := NewOpenAICompatible(srv.URL+tc.baseURLPath, tc.apiKey, tc.extraHeaders)
+			p := NewOpenAICompatible(srv.URL+tc.baseURLPath, tc.apiKey, tc.extraHeaders, nil)
 
 			events, err := p.Stream(context.Background(), Request{
 				Model:    "test-model",

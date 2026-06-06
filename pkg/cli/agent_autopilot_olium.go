@@ -86,6 +86,10 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 		return sysErr
 	}
 	effectiveSystemPrompt := firstNonEmptyString(systemPrompt, oliumCfg.SystemPrompt)
+	effectiveExtraBody, err := oliumCfg.CustomProvider.EffectiveExtraBody()
+	if err != nil {
+		return fmt.Errorf("olium custom_provider: %w", err)
+	}
 	prov, providerName, model, err := olium.ResolveProvider(olium.Options{
 		Provider:            firstNonEmptyString(autopilotOliumProvider, oliumCfg.Provider),
 		OAuthCredPath:       firstNonEmptyString(autopilotOliumOAuthCred, oliumCfg.OAuthCredPath),
@@ -99,6 +103,7 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 		CustomModelID:       oliumCfg.CustomProvider.ModelID,
 		CustomAPIKey:        firstNonEmptyString(autopilotOliumLLMAPIKey, oliumCfg.CustomProvider.APIKey, oliumCfg.LLMAPIKey),
 		CustomExtraHeaders:  oliumCfg.CustomProvider.ExtraHeadersMap(),
+		CustomExtraBody:     effectiveExtraBody,
 	})
 	if err != nil {
 		return fmt.Errorf("autopilot: resolve provider: %w", err)

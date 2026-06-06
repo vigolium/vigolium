@@ -137,7 +137,7 @@ func newOpenAICompatibleProvider(opts Options, model string) (provider.Provider,
 	if model == "" {
 		return nil, "", "", fmt.Errorf("openai-compatible: model is required (set agent.olium.model, agent.olium.custom_provider.model_id, or pass --model)")
 	}
-	return provider.NewOpenAICompatible(baseURL, opts.CustomAPIKey, opts.CustomExtraHeaders), "openai-compatible", model, nil
+	return provider.NewOpenAICompatible(baseURL, opts.CustomAPIKey, opts.CustomExtraHeaders, opts.CustomExtraBody), "openai-compatible", model, nil
 }
 
 // resolveVertexCredPath applies the project's documented credential

@@ -67,7 +67,8 @@ Use them freely to explore code, run commands, and make changes. Be concise.`
 //   - Provider="google-vertex"      → OAuthCredPath (SA JSON, or $GOOGLE_APPLICATION_CREDENTIALS),
 //     plus GoogleCloudProject and GoogleCloudLocation; routes gemini-* models.
 //   - Provider="openai-compatible"  → CustomBaseURL (required), CustomAPIKey
-//     (optional), CustomModelID (fallback for Model), CustomExtraHeaders.
+//     (optional), CustomModelID (fallback for Model), CustomExtraHeaders,
+//     CustomExtraBody.
 //     Covers Ollama / OpenRouter / LM Studio / vLLM / Together / Groq /
 //     LocalAI / custom proxies.
 type Options struct {
@@ -89,11 +90,18 @@ type Options struct {
 
 	// openai-compatible knobs (Ollama / OpenRouter / LM Studio / vLLM / etc.).
 	// Mirrors agent.olium.custom_provider in YAML. CustomBaseURL is required
-	// when Provider=="openai-compatible"; the other three are optional.
+	// when Provider=="openai-compatible"; the rest are optional.
 	CustomBaseURL      string
 	CustomModelID      string
 	CustomAPIKey       string
 	CustomExtraHeaders map[string]string
+	// CustomExtraBody is a generic JSON-body extension merged into every
+	// outgoing request. Vigolium populates it from
+	// custom_provider.EffectiveExtraBody() which combines the typed
+	// provider_routing knob with the raw extra_body passthrough. Reserved
+	// top-level keys (model, messages, tools, stream, stream_options) trigger
+	// a request-time error.
+	CustomExtraBody map[string]any
 
 	// ReasoningEffort is shown in the TUI banner alongside the model id.
 	// Plumbed from agent.olium.reasoning_effort. Display-only today; the
