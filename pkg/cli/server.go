@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/core/network"
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/core/services"
@@ -194,6 +196,48 @@ func exportProxyCA(dst string) error {
 		fmt.Printf("  Trust it to capture HTTPS, e.g.:\n    curl --proxy http://127.0.0.1:9090 --cacert %s https://target/\n", dst)
 	}
 	return nil
+}
+
+// armForceQuit installs a last-resort escape hatch for a graceful shutdown that
+// hangs. Once signal.Notify captures SIGINT, Go no longer terminates the
+// process on Ctrl+C — so if the shutdown sequence blocks (e.g. on a stuck
+// connection), further Ctrl+C presses are swallowed and only SIGKILL would end
+// it. Call this right after the first shutdown signal is received: it spawns a
+// goroutine that force-exits on either a second interrupt (Ctrl+C again) or a
+// hard deadline that backstops the server's own shutdown timeout. sigChan must
+// be the same channel signal.Notify is delivering to. The goroutine leaks
+// harmlessly if shutdown completes first — the process exits and reclaims it.
+func armForceQuit(sigChan <-chan os.Signal, deadline time.Duration) {
+	go func() {
+		select {
+		case <-sigChan:
+			fmt.Fprintln(os.Stderr, "\nForce quit — second interrupt received, exiting now.")
+			os.Exit(1)
+		case <-time.After(deadline):
+			fmt.Fprintf(os.Stderr, "\nGraceful shutdown exceeded %s, forcing exit.\n", deadline)
+			os.Exit(1)
+		}
+	}()
+}
+
+// printConfigReload renders a friendly console line when the config watcher
+// hot-reloads sections at runtime, mirroring the startup banner style. Runs on
+// the watcher goroutine and respects --silent. Agent reloads also echo the new
+// olium provider/model so the operator can confirm the switch took effect.
+func printConfigReload(settings *config.Settings, changed []string) {
+	if globalSilent || len(changed) == 0 {
+		return
+	}
+	sym := terminal.Cyan(terminal.SymbolBowtie)
+	fmt.Printf("\n  %s Config reloaded: %s\n",
+		sym,
+		terminal.Cyan(strings.Join(changed, ", ")))
+	if slices.Contains(changed, "agent") {
+		fmt.Printf("  %s Agent olium (provider: %s, model: %s)\n",
+			sym,
+			terminal.Cyan(settings.Agent.Olium.DisplayProvider()),
+			terminal.Cyan(settings.Agent.Olium.DisplayModel()))
+	}
 }
 
 func runServerCmd(cmd *cobra.Command, args []string) error {
@@ -393,7 +437,14 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		Author:               Author,
 		Commit:               Commit,
 		BuildTime:            BuildTime,
+		ConfigPath:           clicommon.EffectiveConfigPath(globalConfig),
 	}, taskQueue, db, repo, settings, httpRequester, svc)
+
+	// Echo a friendly console line whenever the watcher hot-reloads config
+	// (e.g. after `vigolium config set agent.olium.provider ...`).
+	apiServer.OnConfigReload(func(changed []string) {
+		printConfigReload(settings, changed)
+	})
 
 	// In view-only or demo-only mode, print banner early and skip runner/catchup entirely
 	if serverOpts.ViewOnly || serverOpts.DemoOnly {
@@ -431,6 +482,9 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		select {
 		case <-sigChan:
 			zap.L().Info("Shutdown signal received")
+			// A second Ctrl+C (or a hard deadline) force-exits if the graceful
+			// path below hangs — SIGINT is captured now, so the OS won't.
+			armForceQuit(sigChan, 35*time.Second)
 		case <-serverDone:
 			zap.L().Info("API server exited, shutting down")
 		}
@@ -591,18 +645,10 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		if serverOpts.NoAgent {
 			fmt.Printf("  %s %s\n", terminal.InfoSymbol(), terminal.BoldYellow("Agent disabled — all agent endpoints skipped"))
 		} else {
-			provider := settings.Agent.Olium.Provider
-			if provider == "" {
-				provider = "openai-codex-oauth"
-			}
-			model := settings.Agent.Olium.Model
-			if model == "" {
-				model = "(provider default)"
-			}
 			fmt.Printf("  %s Agent olium (provider: %s, model: %s)\n",
 				terminal.InfoSymbol(),
-				terminal.Cyan(provider),
-				terminal.Cyan(model))
+				terminal.Cyan(settings.Agent.Olium.DisplayProvider()),
+				terminal.Cyan(settings.Agent.Olium.DisplayModel()))
 		}
 		fmt.Printf("  %s Docs %s\n",
 			terminal.InfoSymbol(),
@@ -658,8 +704,14 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	select {
 	case <-sigChan:
 		zap.L().Info("Shutdown signal received, initiating graceful shutdown...")
+		// A second Ctrl+C (or a hard deadline) force-exits if the graceful
+		// path below hangs — SIGINT is captured now, so the OS won't.
+		armForceQuit(sigChan, 35*time.Second)
 	case <-ctx.Done():
 		zap.L().Info("Context cancelled, initiating graceful shutdown...")
+		// No OS signal yet (Listen error path), but the operator may still
+		// Ctrl+C during a slow shutdown — arm the same escape hatch.
+		armForceQuit(sigChan, 35*time.Second)
 	}
 
 	// Cancel context (idempotent; safe if already cancelled above)

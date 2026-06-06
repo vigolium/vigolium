@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/core/network"
@@ -64,7 +65,12 @@ func Requester(t testing.TB) *httpRequester.Requester {
 	t.Helper()
 
 	opts := types.DefaultOptions()
-	opts.Timeout = 30
+	// Timeout is a time.Duration: a bare `30` is 30 NANOSECONDS, which the rawhttp
+	// client (Options.RawRequest) honours strictly as an instant connection
+	// deadline — making every raw request fail with "context deadline exceeded".
+	// The retryablehttp path tolerated it, which hid the bug. Use a real 30s so
+	// both transports work against the loopback test server.
+	opts.Timeout = 30 * time.Second
 	opts.Retries = 1
 	opts.MaxHostError = 100
 	opts.MaxPerHost = 10

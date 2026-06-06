@@ -299,6 +299,27 @@ func (c *CustomProviderConfig) EffectiveExtraBody() (map[string]any, error) {
 	return out, nil
 }
 
+// DisplayProvider returns the olium provider name for operator-facing output
+// (startup banner, hot-reload log), substituting the implicit default when
+// unset. Display-only: actual per-provider runtime resolution lives in the
+// olium runner, so don't use this to drive provider selection.
+func (c *OliumConfig) DisplayProvider() string {
+	if c == nil || c.Provider == "" {
+		return "openai-codex-oauth"
+	}
+	return c.Provider
+}
+
+// DisplayModel returns the olium model for operator-facing output, or a
+// "(provider default)" placeholder when unset (the concrete model is chosen
+// per-provider at runtime). Pairs with DisplayProvider.
+func (c *OliumConfig) DisplayModel() string {
+	if c == nil || c.Model == "" {
+		return "(provider default)"
+	}
+	return c.Model
+}
+
 // EffectiveCallTimeout returns the per-call timeout. 0 → 10m default,
 // negative → no enforced timeout (parent ctx only).
 func (c *OliumConfig) EffectiveCallTimeout() time.Duration {

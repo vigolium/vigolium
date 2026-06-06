@@ -7,7 +7,7 @@ import type { AgentSession, AgentSessionDetail } from '@/api/types';
 import { formatDate, formatDuration, truncate } from '@/lib/formatters';
 import PageShell from './PageShell';
 import Dropdown from './Dropdown';
-import { useAgentsLogic, AGENT_OPTIONS, ARCHON_MODE_OPTIONS, INTENSITY_OPTIONS, AUDIT_MODE_OPTIONS, type ScanProfile, type AdvancedMode, type DetectedInputType } from '@/hooks/useAgentsLogic';
+import { useAgentsLogic, AGENT_OPTIONS, AUDIT_PREP_MODE_OPTIONS, INTENSITY_OPTIONS, AUDIT_MODE_OPTIONS, type ScanProfile, type AdvancedMode, type DetectedInputType } from '@/hooks/useAgentsLogic';
 
 const INPUT_TYPE_LABELS: Record<DetectedInputType, { label: string; color: string }> = {
   url: { label: 'URL', color: '#00b368' },
@@ -423,8 +423,8 @@ export default function AgentsPage() {
                         <Dropdown value={h.swarmIntensity} onChange={h.setSwarmIntensity} options={INTENSITY_OPTIONS} />
                       </div>
                       <div>
-                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Archon</label>
-                        <Dropdown value={h.swarmArchon} onChange={h.setSwarmArchon} options={ARCHON_MODE_OPTIONS} />
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Vigolium Audit</label>
+                        <Dropdown value={h.swarmAudit} onChange={h.setSwarmAudit} options={AUDIT_PREP_MODE_OPTIONS} />
                       </div>
                     </div>
                     <div className="flex flex-wrap items-end gap-1">
@@ -497,8 +497,8 @@ export default function AgentsPage() {
                         <Dropdown value={h.autopilotIntensity} onChange={h.setAutopilotIntensity} options={INTENSITY_OPTIONS} />
                       </div>
                       <div>
-                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Archon Mode</label>
-                        <Dropdown value={h.autopilotArchonMode} onChange={h.setAutopilotArchonMode} options={ARCHON_MODE_OPTIONS} />
+                        <label className="text-[#708e8e] text-[10px] block mb-0.5">Vigolium Audit Mode</label>
+                        <Dropdown value={h.autopilotAuditMode} onChange={h.setAutopilotAuditMode} options={AUDIT_PREP_MODE_OPTIONS} />
                       </div>
                     </div>
                     <div>
@@ -508,7 +508,7 @@ export default function AgentsPage() {
                     <div className="flex items-center gap-1">
                       {([
                         ['Dry Run', h.autopilotDryRun, h.setAutopilotDryRun] as const,
-                        ['No Archon', h.autopilotNoArchon, h.setAutopilotNoArchon] as const,
+                        ['Skip Audit', h.autopilotNoAudit, h.setAutopilotNoAudit] as const,
                       ]).map(([label, value, setter]) => (
                         <button key={label} type="button" onClick={() => setter(!value)}
                           className={`px-2 py-0.5 text-[9px] font-bold border transition-colors ${

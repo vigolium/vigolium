@@ -140,8 +140,13 @@ func (h *Handlers) runCombinedAuditBackground(plan combinedAuditPlan) {
 		defer setup.cleanup()
 	}
 
+	ctx, cancel := context.WithCancel(h.runContext())
+	defer cancel()
+	h.registerRunCancel(plan.parentUUID, cancel)
+	defer h.unregisterRunCancel(plan.parentUUID)
+
 	startedAt := time.Now()
-	results := h.runDriversSequentially(context.Background(), plan, setup, nil)
+	results := h.runDriversSequentially(ctx, plan, setup, nil)
 	h.finalizeCombinedAuditRun(plan, setup, results, startedAt)
 }
 
@@ -166,12 +171,17 @@ func (h *Handlers) handleCombinedAuditSSE(c fiber.Ctx, plan combinedAuditPlan) e
 			defer setup.cleanup()
 		}
 
+		ctx, cancel := context.WithCancel(h.runContext())
+		defer cancel()
+		h.registerRunCancel(plan.parentUUID, cancel)
+		defer h.unregisterRunCancel(plan.parentUUID)
+
 		startedAt := time.Now()
 		// w is shared with the per-driver SSE pump goroutine; the pump's
 		// pumpDone channel guarantees it has exited before we write the
 		// closing aggregate event below, so concurrent writes to w never
 		// overlap.
-		results := h.runDriversSequentially(context.Background(), plan, setup, w)
+		results := h.runDriversSequentially(ctx, plan, setup, w)
 		h.finalizeCombinedAuditRun(plan, setup, results, startedAt)
 
 		anyErr := false
@@ -408,7 +418,10 @@ func buildDriverStreamWriter(sseWriter *bufio.Writer, logFile *os.File) (io.Writ
 	}
 	pr, pw := io.Pipe()
 	if logFile != nil {
-		return io.MultiWriter(pw, logFile), pr, pw
+		// Log file FIRST so the per-driver runtime.log is never gated on the
+		// SSE client (runDriverSSEPump keeps draining pr after a disconnect, so
+		// pw.Write stays unblocked regardless).
+		return io.MultiWriter(logFile, pw), pr, pw
 	}
 	return pw, pr, pw
 }
@@ -533,7 +546,7 @@ func (h *Handlers) buildCombinedDriverCfg(name string, plan combinedAuditPlan, s
 
 func (h *Handlers) finalizeCombinedAuditRun(plan combinedAuditPlan, setup combinedAuditSetup, results []driverResult, startedAt time.Time) {
 	if !plan.req.NoDedup && h.repo != nil && plan.projectUUID != "" {
-		dedupCtx, cancel := context.WithTimeout(context.Background(), agent.AuditDedupTimeout)
+		dedupCtx, cancel := context.WithTimeout(h.runContext(), agent.AuditDedupTimeout)
 		_, _, dedupErr := h.repo.DeduplicateFindings(dedupCtx, plan.projectUUID)
 		cancel()
 		if dedupErr != nil {

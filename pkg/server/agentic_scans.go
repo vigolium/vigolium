@@ -285,8 +285,10 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, agenticScanUUID string, opts agen
 			defer byokCleanup()
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(h.runContext(), timeout)
 		defer cancel()
+		h.registerRunCancel(agenticScanUUID, cancel)
+		defer h.unregisterRunCancel(agenticScanUUID)
 
 		// Pre-create the session dir under the API run UUID (matching the
 		// async path) so SSE-mode query runs also leave a runtime.log on
@@ -303,13 +305,19 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, agenticScanUUID string, opts agen
 			})
 		}
 
+		// Log file FIRST in the MultiWriter so runtime.log is never gated on the
+		// SSE client; drainAgentPipeToSSE keeps reading pr after a disconnect so
+		// pw.Write never blocks and the agent keeps logging to disk.
 		pr, pw := io.Pipe()
 		var streamWriter io.Writer = pw
 		if logFile := h.openSessionRuntimeLog(sessionDir, agenticScanUUID); logFile != nil {
-			streamWriter = io.MultiWriter(pw, logFile)
+			streamWriter = io.MultiWriter(logFile, pw)
 			defer func() { _ = logFile.Close() }()
 		}
 		opts.StreamWriter = streamWriter
+
+		// All SSE events for this run go through one sink (see sseSink).
+		sink := newSSESink(w)
 
 		type runResult struct {
 			result *agent.Result
@@ -322,35 +330,25 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, agenticScanUUID string, opts agen
 			done <- runResult{result: result, err: err}
 		}()
 
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := pr.Read(buf)
-			if n > 0 {
-				if writeErr := writeSSE(w, sseEvent{Type: "chunk", Text: string(buf[:n])}); writeErr != nil {
-					_ = pr.Close()
-					<-done
-					return
-				}
-			}
-			if readErr != nil {
-				break
-			}
-		}
+		// On client disconnect, keep draining to EOF so the finalization below
+		// (DB status → completed/failed) always runs.
+		clientConnected := drainAgentPipeToSSE(sink, pr, cancel)
 
 		res := <-done
 		now := time.Now()
 		h.agentMu.Lock()
 		status := h.agenticScanStatus[agenticScanUUID]
 		if res.err != nil {
+			runStatus := terminalStatusForRunErr(res.err)
 			if status != nil {
-				status.Status = "failed"
+				status.Status = runStatus
 				status.Error = res.err.Error()
 				status.CompletedAt = &now
 			}
 			h.agentMu.Unlock()
 
 			h.enrichAgenticScanRecord(agenticScanUUID, func(run *database.AgenticScan) {
-				run.Status = "failed"
+				run.Status = runStatus
 				run.ErrorMessage = res.err.Error()
 				run.CompletedAt = now
 				run.DurationMs = now.Sub(run.StartedAt).Milliseconds()
@@ -358,7 +356,9 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, agenticScanUUID string, opts agen
 
 			webhook.FireAgenticScan(h.settings, h.repo, agenticScanUUID)
 
-			_ = writeSSE(w, sseEvent{Type: "error", Error: res.err.Error()})
+			if clientConnected {
+				_ = sink.send(sseEvent{Type: "error", Error: res.err.Error()})
+			}
 			zap.L().Error("Agent run failed (streaming)",
 				zap.String("agentic_scan_uuid", agenticScanUUID),
 				zap.Error(res.err))
@@ -387,7 +387,9 @@ func (h *Handlers) handleAgentSSE(c fiber.Ctx, agenticScanUUID string, opts agen
 
 		webhook.FireAgenticScan(h.settings, h.repo, agenticScanUUID)
 
-		_ = writeSSE(w, sseEvent{Type: "done", Result: res.result})
+		if clientConnected {
+			_ = sink.send(sseEvent{Type: "done", Result: res.result})
+		}
 		zap.L().Info("Agent run completed (streaming)",
 			zap.String("agentic_scan_uuid", agenticScanUUID),
 			zap.String("agent", res.result.AgentName),
@@ -403,8 +405,10 @@ func (h *Handlers) runBackgroundAgentWithOpts(agenticScanUUID string, opts agent
 		defer byokCleanup()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(h.runContext(), timeout)
 	defer cancel()
+	h.registerRunCancel(agenticScanUUID, cancel)
+	defer h.unregisterRunCancel(agenticScanUUID)
 
 	sessionDir, sessionErr := agent.EnsureSessionDir(h.settings.Agent.EffectiveSessionsDir(), agenticScanUUID)
 	if sessionErr != nil {

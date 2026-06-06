@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -201,7 +202,11 @@ type sseEvent struct {
 	Driver          string                         `json:"driver,omitempty"`           // for /agent/run/audit driver=auto/both: tags chunk/driver_start/driver_end events with "audit" or "piolium"
 }
 
-// writeSSE marshals an event to JSON and writes it as an SSE data line, then flushes.
+// writeSSE marshals an event to JSON and writes it as an SSE data line, then
+// flushes. It is the low-level primitive: callers with a single writer
+// goroutine (e.g. tailSessionLog, the sequential audit-combined driver mux)
+// may use it directly, but any handler with multiple concurrent producers must
+// go through an sseSink instead — see sseSink for why.
 func writeSSE(w *bufio.Writer, evt sseEvent) error {
 	data, err := json.Marshal(evt)
 	if err != nil {
@@ -211,6 +216,76 @@ func writeSSE(w *bufio.Writer, evt sseEvent) error {
 		return err
 	}
 	return w.Flush()
+}
+
+// sseSink serializes SSE writes to a single bufio.Writer. The streaming agent
+// handlers have multiple producers feeding one HTTP response: the chunk-drain
+// loop (drainAgentPipeToSSE) plus, in swarm, phase/progress callbacks fired
+// from the runner's own goroutines. A bufio.Writer is not safe for concurrent
+// use, so without serialization those producers race on the writer and can
+// interleave a half-written event. Every handler that streams routes all its
+// events through one sseSink. Safe for concurrent use.
+type sseSink struct {
+	mu sync.Mutex
+	w  *bufio.Writer
+}
+
+// newSSESink wraps w in a concurrency-safe sink.
+func newSSESink(w *bufio.Writer) *sseSink { return &sseSink{w: w} }
+
+// send marshals and writes one event under the lock.
+func (s *sseSink) send(evt sseEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return writeSSE(s.w, evt)
+}
+
+// drainAgentPipeToSSE forwards bytes from an agent's stream pipe to the SSE
+// client as "chunk" events via sink. It is the resilient replacement for a
+// naive read→writeSSE→close-and-return-on-error loop: on the first client
+// write error (typically a disconnect, or a connection stalled long enough —
+// e.g. during a long model "thinking" pause — for a proxy/LB to drop it) it
+// stops writing to the client but KEEPS draining pr until the agent goroutine
+// closes pw (EOF).
+//
+// This matters for two reasons:
+//   - Callers tee the agent's StreamWriter as io.MultiWriter(logFile, pw) with
+//     the log file FIRST, so as long as pr keeps being read, pw.Write never
+//     blocks and the agent never stalls. Closing pr early (the old behavior)
+//     instead made the agent's pw.Write fail, which short-circuited the
+//     MultiWriter before the log file and froze runtime.log mid-run while the
+//     agent kept running detached.
+//   - Because the loop runs to EOF instead of returning early, the caller's
+//     post-loop status finalization (DB row → "completed"/"failed") always
+//     runs, even when the client vanished. The old early return left the row
+//     stuck on "running" until the detached agent eventually timed out.
+//
+// onDisconnect, when non-nil, is invoked exactly once the moment the client is
+// first detected gone (the first write error). Callers pass their run's
+// context cancel here so a closed browser tab stops the run instead of letting
+// it burn its full budget against nobody — while the loop still drains pr to
+// EOF so pw.Write never blocks and finalization still runs.
+//
+// Never closes pr; the agent goroutine owns pw and closes it on completion.
+// Returns true if the client stayed connected for the whole stream (no write
+// error), so the caller can skip the trailing done/error event.
+func drainAgentPipeToSSE(sink *sseSink, pr *io.PipeReader, onDisconnect func()) (clientConnected bool) {
+	clientConnected = true
+	buf := make([]byte, 4096)
+	for {
+		n, readErr := pr.Read(buf)
+		if n > 0 && clientConnected {
+			if writeErr := sink.send(sseEvent{Type: "chunk", Text: string(buf[:n])}); writeErr != nil {
+				clientConnected = false
+				if onDisconnect != nil {
+					onDisconnect()
+				}
+			}
+		}
+		if readErr != nil {
+			return clientConnected
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +371,28 @@ func (h *Handlers) HandleAgenticScanStatus(c fiber.Ctx) error {
 
 	return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 		Error: ErrAgentNotFound.Error(),
+	})
+}
+
+// HandleAgentCancel handles POST /api/agent/scans/:uuid/cancel — aborts an
+// in-flight agent run (autopilot/swarm/query/audit). It cancels the run's
+// context, which unwinds the run and lets its finalization record the terminal
+// "cancelled" status. Returns 404 when no run with that UUID is currently
+// running in this process (already finished, never started, or unknown).
+func (h *Handlers) HandleAgentCancel(c fiber.Ctx) error {
+	agenticScanUUID := c.Params("uuid")
+	if agenticScanUUID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{Error: "missing run uuid"})
+	}
+	if !h.cancelRun(agenticScanUUID) {
+		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+			Error: "run not found or already finished",
+		})
+	}
+	return c.JSON(AgenticScanResponse{
+		AgenticScanUUID: agenticScanUUID,
+		Status:          "cancelling",
+		Message:         "cancellation requested",
 	})
 }
 
@@ -851,6 +948,19 @@ func isTerminalAgentStatus(status string) bool {
 	return false
 }
 
+// terminalStatusForRunErr maps a streaming run's terminal error to its status
+// label. A context cancellation — a client disconnect (the run is cancelled to
+// stop burning budget for a vanished client) or a server shutdown — is recorded
+// as "cancelled", not "failed", so an operator-initiated stop isn't surfaced as
+// an error. Anything else stays "failed". Best-effort: it relies on the run
+// propagating context.Canceled; an unwrapped error just falls back to "failed".
+func terminalStatusForRunErr(err error) string {
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	return "failed"
+}
+
 // tailSessionLog reads logPath and writes SSE chunk events into w, polling for
 // new bytes every pollInterval until isDone reports the run has finished. A
 // safetyTimeout backstop prevents the loop from running forever if isDone is
@@ -1005,7 +1115,7 @@ func (h *Handlers) HandleChatCompletions(c fiber.Ctx) error {
 	}
 	defer h.releaseAgentSlot(h.agentLightSem)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(h.runContext(), 10*time.Minute)
 	defer cancel()
 
 	eng, cleanup, err := h.engineForRequest(req.AgentBYOK)

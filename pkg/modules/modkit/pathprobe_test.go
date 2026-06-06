@@ -134,3 +134,64 @@ func TestSiblingPathCatchAll_RootPathSkipped(t *testing.T) {
 	assert.False(t, modkit.SiblingPathCatchAll(rr, client, "/admin", match),
 		"a root-level probe path must be skipped (no sibling request)")
 }
+
+// TestMatchAndConfirmSibling exercises the combined match + catch-all guard the
+// marker-based exposure modules call: a genuine endpoint confirms (siblings 404),
+// a non-matching body is rejected outright, and a sub-directory catch-all is
+// suppressed even when the body matches.
+func TestMatchAndConfirmSibling(t *testing.T) {
+	t.Parallel()
+	markers := [][]string{{`"registration"`}, {`"managementUrl"`}}
+
+	t.Run("genuine endpoint confirms", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/admin/instances" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"registration":{"managementUrl":"x"}}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		body := `{"registration":{"managementUrl":"x"}}`
+
+		matched, ok := modkit.MatchAndConfirmSibling(rr, client, "/admin/instances", body, markers)
+		require.True(t, ok, "a real endpoint whose siblings 404 must confirm")
+		assert.Equal(t, []string{`"registration"`, `"managementUrl"`}, matched)
+	})
+
+	t.Run("non-matching body rejected", func(t *testing.T) {
+		t.Parallel()
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, "http://example.invalid/")
+
+		matched, ok := modkit.MatchAndConfirmSibling(rr, client, "/admin/instances", `{"name":"x"}`, markers)
+		assert.False(t, ok, "a body missing a marker group must not confirm")
+		assert.Nil(t, matched)
+	})
+
+	t.Run("sub-directory catch-all suppressed", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/admin/") {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"registration":{"managementUrl":"x"}}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		body := `{"registration":{"managementUrl":"x"}}`
+
+		matched, ok := modkit.MatchAndConfirmSibling(rr, client, "/admin/instances", body, markers)
+		assert.False(t, ok, "a sub-directory catch-all that serves the markers for every child must be suppressed")
+		assert.Nil(t, matched)
+	})
+}

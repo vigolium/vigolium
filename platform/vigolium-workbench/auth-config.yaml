@@ -1,0 +1,5 @@
+sessions:
+  - name: browser_primary
+    role: primary
+    headers:
+      Cookie: "AWSALBCORS=9wOVedpl5uKiFiS6AxFof79QqdrWdqC/Wju/msWZacIRSaqlMW5Qe9BSyvk+Pb+H/9AjeE61V1fa44RGl5KBF4jKWboSAkGidNwrRwxtC5gGb6MwKIOmG9mtC2wb; session=9alJvm2Fi101m7V1yl4AmYasfCXmZcPD; AWSALB=9wOVedpl5uKiFiS6AxFof79QqdrWdqC/Wju/msWZacIRSaqlMW5Qe9BSyvk+Pb+H/9AjeE61V1fa44RGl5KBF4jKWboSAkGidNwrRwxtC5gGb6MwKIOmG9mtC2wb"

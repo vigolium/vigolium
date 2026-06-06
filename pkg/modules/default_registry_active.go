@@ -126,6 +126,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/reflected_ssti"
 	"github.com/vigolium/vigolium/pkg/modules/active/response_header_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/reverse_proxy_path_confusion"
+	"github.com/vigolium/vigolium/pkg/modules/active/routing_ssrf"
 	"github.com/vigolium/vigolium/pkg/modules/active/sensitive_file_discovery"
 	"github.com/vigolium/vigolium/pkg/modules/active/smart_behavior_detection"
 	"github.com/vigolium/vigolium/pkg/modules/active/spring_actuator_misconfig"
@@ -151,6 +152,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/swagger_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/symfony_misconfig"
 	"github.com/vigolium/vigolium/pkg/modules/active/tomcat_manager_exposure"
+	"github.com/vigolium/vigolium/pkg/modules/active/upgrade_routing_ssrf"
 	"github.com/vigolium/vigolium/pkg/modules/active/web_cache_poisoning"
 	"github.com/vigolium/vigolium/pkg/modules/active/websocket_security"
 	"github.com/vigolium/vigolium/pkg/modules/active/wp_ajax_exposure"
@@ -203,6 +205,9 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(ssrf_blind.New())
 	r.RegisterActive(ssrf_filter_bypass.New())
 	r.RegisterActive(ssrf_protocol_smuggling.New())
+	// Active modules - Routing-based SSRF (request-line; "Cracking the lens")
+	r.RegisterActive(routing_ssrf.New())
+	r.RegisterActive(upgrade_routing_ssrf.New())
 	// Active modules - SSTI (Blind)
 	r.RegisterActive(ssti_blind.New())
 	// Active modules - OAST (Out-of-Band)

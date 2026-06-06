@@ -46,6 +46,11 @@ type ServerConfig struct {
 	Author               string
 	Commit               string
 	BuildTime            string
+	// ConfigPath is the effective config file the server loaded settings from
+	// (honors the --config flag). The config watcher watches this file for
+	// hot-reload. Empty falls back to config.ConfigFilePath() (the default
+	// ~/.vigolium/vigolium-configs.yaml).
+	ConfigPath string
 }
 
 // DefaultServerConfig returns sensible defaults.

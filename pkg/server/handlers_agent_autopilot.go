@@ -338,8 +338,10 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, agenticScanUUID string, req A
 			defer byokCleanup()
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(h.runContext(), timeout)
 		defer cancel()
+		h.registerRunCancel(agenticScanUUID, cancel)
+		defer h.unregisterRunCancel(agenticScanUUID)
 
 		cfg := h.buildAutopilotPipelineConfig(req, projectUUID, agenticScanUUID)
 
@@ -363,16 +365,22 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, agenticScanUUID string, req A
 
 		// Set up stream writer pipe AND tee to runtime.log so the SSE
 		// client gets chunks live and disk-based consumers (logs / artifacts
-		// endpoints, agent_raw_output snapshot) see the same content.
+		// endpoints, agent_raw_output snapshot) see the same content. The log
+		// file is FIRST in the MultiWriter so the disk record is never gated on
+		// the SSE client — if the client disconnects, drainAgentPipeToSSE keeps
+		// reading pr so pw.Write never blocks and runtime.log keeps growing.
 		pr, pw := io.Pipe()
 		var streamWriter io.Writer = pw
 		var streamFile *os.File
 		if logFile := h.openSessionRuntimeLog(sessionDir, agenticScanUUID); logFile != nil {
 			streamFile = logFile
-			streamWriter = io.MultiWriter(pw, logFile)
+			streamWriter = io.MultiWriter(logFile, pw)
 			defer func() { _ = logFile.Close() }()
 		}
 		cfg.StreamWriter = streamWriter
+
+		// All SSE events for this run go through one sink (see sseSink).
+		sink := newSSESink(w)
 
 		type autopilotRunResult struct {
 			result *agent.AutopilotPipelineResult
@@ -387,21 +395,10 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, agenticScanUUID string, req A
 			done <- autopilotRunResult{result: result, err: runErr}
 		}()
 
-		// Stream chunks.
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := pr.Read(buf)
-			if n > 0 {
-				if writeErr := writeSSE(w, sseEvent{Type: "chunk", Text: string(buf[:n])}); writeErr != nil {
-					_ = pr.Close()
-					<-done
-					return
-				}
-			}
-			if readErr != nil {
-				break
-			}
-		}
+		// Stream chunks. On client disconnect this keeps draining the pipe to
+		// EOF (so the agent never blocks and the finalization below still runs)
+		// rather than returning early.
+		clientConnected := drainAgentPipeToSSE(sink, pr, cancel)
 
 		res := <-done
 		now := time.Now()
@@ -409,21 +406,24 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, agenticScanUUID string, req A
 		status := h.agenticScanStatus[agenticScanUUID]
 
 		if res.err != nil {
+			runStatus := terminalStatusForRunErr(res.err)
 			if status != nil {
-				status.Status = "failed"
+				status.Status = runStatus
 				status.Error = res.err.Error()
 				status.CompletedAt = &now
 			}
 			h.agentMu.Unlock()
 
 			h.enrichAgenticScanRecord(agenticScanUUID, func(run *database.AgenticScan) {
-				run.Status = "failed"
+				run.Status = runStatus
 				run.ErrorMessage = res.err.Error()
 				run.CompletedAt = now
 				run.DurationMs = now.Sub(run.StartedAt).Milliseconds()
 			})
 
-			_ = writeSSE(w, sseEvent{Type: "error", Error: res.err.Error()})
+			if clientConnected {
+				_ = sink.send(sseEvent{Type: "error", Error: res.err.Error()})
+			}
 			zap.L().Error("Autopilot run failed (streaming)",
 				zap.String("agentic_scan_uuid", agenticScanUUID),
 				zap.Error(res.err))
@@ -465,7 +465,9 @@ func (h *Handlers) handleAutopilotSSE(c fiber.Ctx, agenticScanUUID string, req A
 			}
 		})
 
-		_ = writeSSE(w, sseEvent{Type: "done", AutopilotResult: res.result})
+		if clientConnected {
+			_ = sink.send(sseEvent{Type: "done", AutopilotResult: res.result})
+		}
 		zap.L().Info("Autopilot run completed (streaming)",
 			zap.String("agentic_scan_uuid", agenticScanUUID),
 			zap.Int("audit_findings", res.result.FindingsCount),
@@ -480,8 +482,10 @@ func (h *Handlers) runBackgroundAutopilot(agenticScanUUID string, req AgentAutop
 		defer byokCleanup()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(h.runContext(), timeout)
 	defer cancel()
+	h.registerRunCancel(agenticScanUUID, cancel)
+	defer h.unregisterRunCancel(agenticScanUUID)
 
 	cfg := h.buildAutopilotPipelineConfig(req, projectUUID, agenticScanUUID)
 

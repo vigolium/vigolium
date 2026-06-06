@@ -108,9 +108,14 @@ func NewServer(cfg ServerConfig, q queue.Queue, db *database.DB, repo *database.
 		repo:         repo,
 	}
 
-	// Create config watcher for hot reload
+	// Create config watcher for hot reload. Watch the same file the server
+	// loaded settings from (honors --config); fall back to the default path.
 	if settings != nil {
-		cw, err := config.NewConfigWatcher(config.ConfigFilePath(), settings)
+		watchPath := cfg.ConfigPath
+		if watchPath == "" {
+			watchPath = config.ConfigFilePath()
+		}
+		cw, err := config.NewConfigWatcher(watchPath, settings)
 		if err != nil {
 			zap.L().Warn("Failed to create config watcher, hot reload disabled",
 				zap.Error(err))
@@ -118,7 +123,10 @@ func NewServer(cfg ServerConfig, q queue.Queue, db *database.DB, repo *database.
 			s.configWatcher = cw
 			handlers.configWatcher = cw
 
-			// Invalidate cached scope matcher when scope config changes
+			// Invalidate the cached scope matcher when scope config hot-reloads.
+			// Agent changes need no rewiring here — the cached agent engine
+			// re-reads settings.Agent.Olium on the next run. User-facing reload
+			// feedback is emitted by the CLI via OnConfigReload.
 			cw.OnReload(func(changed []string) {
 				for _, section := range changed {
 					if section == "scope" {
@@ -160,6 +168,16 @@ func NewServer(cfg ServerConfig, q queue.Queue, db *database.DB, repo *database.
 // certificate, or "" when HTTPS interception is not enabled. Used by the CLI to
 // surface the trust anchor at startup.
 func (s *Server) ProxyCACertPath() string { return s.proxyCACertPath }
+
+// OnConfigReload registers fn to run after the config watcher hot-reloads one
+// or more sections at runtime; fn receives the changed section names. No-op
+// when the watcher failed to start. Register before Start(). Used by the CLI
+// to print operator-facing reload feedback.
+func (s *Server) OnConfigReload(fn func(changed []string)) {
+	if s.configWatcher != nil {
+		s.configWatcher.OnReload(fn)
+	}
+}
 
 // Start starts the API server (and proxy if configured).
 // Blocks until the server is stopped.
@@ -212,7 +230,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// Close handler resources (agent engine pool, cleanup goroutine)
+	// Close handler resources (agent engine pool, cleanup goroutine). This
+	// cancels the handlers' run context first, so in-flight agent runs
+	// (autopilot/swarm/audit) stop and release their SSE connections before we
+	// wait on the HTTP server below — otherwise a live stream keeps a
+	// connection non-idle and graceful shutdown blocks on it.
 	if s.handlers != nil {
 		s.handlers.Close()
 	}
@@ -222,7 +244,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.recordWriter.Close()
 	}
 
-	return s.serviceApp.Shutdown()
+	// Honor the caller's deadline: ShutdownWithContext force-closes any
+	// connections still open when ctx expires, instead of waiting forever for
+	// them to go idle (which plain Shutdown() does — it ignores ctx entirely).
+	return s.serviceApp.ShutdownWithContext(ctx)
 }
 
 // Queue returns the underlying queue.

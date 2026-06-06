@@ -620,8 +620,10 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, agenticScanUUID string, req Agent
 			defer byokCleanup()
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(h.runContext(), timeout)
 		defer cancel()
+		h.registerRunCancel(agenticScanUUID, cancel)
+		defer h.unregisterRunCancel(agenticScanUUID)
 
 		cfg := h.buildSwarmConfig(req, projectUUID)
 
@@ -646,6 +648,13 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, agenticScanUUID string, req Agent
 			})
 		}
 
+		// All SSE writes for this run funnel through one sink: the phase and
+		// progress callbacks below fire from the swarm runner's goroutines,
+		// concurrently with the chunk-drain loop and the finalization writes —
+		// a bufio.Writer is not safe for concurrent use, so the sink serializes
+		// them.
+		sink := newSSESink(w)
+
 		// Wire phase callback for SSE events
 		cfg.PhaseCallback = func(phase string) {
 			h.agentMu.Lock()
@@ -654,19 +663,21 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, agenticScanUUID string, req Agent
 			}
 			h.agentMu.Unlock()
 
-			_ = writeSSE(w, sseEvent{Type: "phase", Phase: phase})
+			_ = sink.send(sseEvent{Type: "phase", Phase: phase})
 		}
 
 		// Wire progress callback for SSE events
 		cfg.ProgressCallback = func(evt agent.ProgressEvent) {
-			_ = writeSSE(w, sseEvent{Type: "progress", Progress: &evt})
+			_ = sink.send(sseEvent{Type: "progress", Progress: &evt})
 		}
 
-		// Set up stream writer pipe AND tee to runtime.log.
+		// Set up stream writer pipe AND tee to runtime.log. Log file FIRST so
+		// the disk record is never gated on the SSE client; drainAgentPipeToSSE
+		// keeps reading pr after a disconnect so pw.Write never blocks.
 		pr, pw := io.Pipe()
 		var streamWriter io.Writer = pw
 		if logFile := h.openSessionRuntimeLog(sessionDir, agenticScanUUID); logFile != nil {
-			streamWriter = io.MultiWriter(pw, logFile)
+			streamWriter = io.MultiWriter(logFile, pw)
 			defer func() { _ = logFile.Close() }()
 		}
 		cfg.StreamWriter = streamWriter
@@ -684,21 +695,9 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, agenticScanUUID string, req Agent
 			done <- swarmRunResult{result: result, err: runErr}
 		}()
 
-		// Stream chunks
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := pr.Read(buf)
-			if n > 0 {
-				if writeErr := writeSSE(w, sseEvent{Type: "chunk", Text: string(buf[:n])}); writeErr != nil {
-					_ = pr.Close()
-					<-done
-					return
-				}
-			}
-			if readErr != nil {
-				break
-			}
-		}
+		// Stream chunks. On client disconnect, keep draining to EOF so the
+		// finalization below (DB status → completed/failed) always runs.
+		clientConnected := drainAgentPipeToSSE(sink, pr, cancel)
 
 		res := <-done
 		now := time.Now()
@@ -706,8 +705,9 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, agenticScanUUID string, req Agent
 		status := h.agenticScanStatus[agenticScanUUID]
 
 		if res.err != nil {
+			runStatus := terminalStatusForRunErr(res.err)
 			if status != nil {
-				status.Status = "failed"
+				status.Status = runStatus
 				status.Error = res.err.Error()
 				status.CompletedAt = &now
 			}
@@ -719,13 +719,15 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, agenticScanUUID string, req Agent
 			// preflight failure). With UpdateAgenticScan's OmitZero, the
 			// re-write is idempotent if the runner already wrote.
 			h.enrichAgenticScanRecord(agenticScanUUID, func(run *database.AgenticScan) {
-				run.Status = "failed"
+				run.Status = runStatus
 				run.ErrorMessage = res.err.Error()
 				run.CompletedAt = now
 				run.DurationMs = now.Sub(run.StartedAt).Milliseconds()
 			})
 
-			_ = writeSSE(w, sseEvent{Type: "error", Error: res.err.Error()})
+			if clientConnected {
+				_ = sink.send(sseEvent{Type: "error", Error: res.err.Error()})
+			}
 			zap.L().Error("Agent swarm failed (streaming)",
 				zap.String("agentic_scan_uuid", agenticScanUUID),
 				zap.Error(res.err))
@@ -747,7 +749,9 @@ func (h *Handlers) handleSwarmSSE(c fiber.Ctx, agenticScanUUID string, req Agent
 
 		webhook.FireAgenticScan(h.settings, h.repo, agenticScanUUID)
 
-		_ = writeSSE(w, sseEvent{Type: "done", SwarmResult: res.result})
+		if clientConnected {
+			_ = sink.send(sseEvent{Type: "done", SwarmResult: res.result})
+		}
 		zap.L().Info("Agent swarm completed (streaming)",
 			zap.String("agentic_scan_uuid", agenticScanUUID),
 			zap.Int("findings", res.result.TotalFindings))
@@ -761,8 +765,10 @@ func (h *Handlers) runBackgroundAgentSwarm(agenticScanUUID string, req AgentSwar
 		defer byokCleanup()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(h.runContext(), timeout)
 	defer cancel()
+	h.registerRunCancel(agenticScanUUID, cancel)
+	defer h.unregisterRunCancel(agenticScanUUID)
 
 	cfg := h.buildSwarmConfig(req, projectUUID)
 	// Pin the swarm runner's DB record UUID to our agenticScanUUID so its internal

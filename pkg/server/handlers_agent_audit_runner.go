@@ -187,8 +187,10 @@ func (h *Handlers) runBackgroundAudit(plan auditRunPlan) {
 		defer plan.authCleanup()
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), plan.timeout)
+	ctx, cancel := context.WithTimeout(h.runContext(), plan.timeout)
 	defer cancel()
+	h.registerRunCancel(plan.agenticScanUUID, cancel)
+	defer h.unregisterRunCancel(plan.agenticScanUUID)
 
 	setup := h.prepareAuditRun(plan)
 	if setup.cleanup != nil {
@@ -236,8 +238,13 @@ func (h *Handlers) handleAuditSSE(c fiber.Ctx, plan auditRunPlan) error {
 			defer plan.authCleanup()
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), plan.timeout)
+		ctx, cancel := context.WithTimeout(h.runContext(), plan.timeout)
 		defer cancel()
+		h.registerRunCancel(plan.agenticScanUUID, cancel)
+		defer h.unregisterRunCancel(plan.agenticScanUUID)
+
+		// All SSE events for this run go through one sink (see sseSink).
+		sink := newSSESink(w)
 
 		setup := h.prepareAuditRun(plan)
 		if setup.cleanup != nil {
@@ -248,7 +255,7 @@ func (h *Handlers) handleAuditSSE(c fiber.Ctx, plan auditRunPlan) error {
 		}
 		if setup.failure != nil {
 			h.recordAuditFailure(plan.agenticScanUUID, setup.failure)
-			_ = writeSSE(w, sseEvent{Type: "error", Error: setup.failure.Error()})
+			_ = sink.send(sseEvent{Type: "error", Error: setup.failure.Error()})
 			return
 		}
 
@@ -258,17 +265,20 @@ func (h *Handlers) handleAuditSSE(c fiber.Ctx, plan auditRunPlan) error {
 			run.SessionDir = setup.sessionDir
 		})
 
+		// Log file FIRST in the MultiWriter so runtime.log is never gated on the
+		// SSE client; drainAgentPipeToSSE keeps reading pr after a disconnect so
+		// pw.Write never blocks the audit subprocess.
 		pr, pw := io.Pipe()
 		var streamWriter io.Writer = pw
 		if setup.logFile != nil {
-			streamWriter = io.MultiWriter(pw, setup.logFile)
+			streamWriter = io.MultiWriter(setup.logFile, pw)
 		}
 
 		runner, startErr := h.startAuditRunner(ctx, plan, setup, streamWriter)
 		if startErr != nil {
 			h.recordAuditFailure(plan.agenticScanUUID, startErr)
 			_ = pw.Close()
-			_ = writeSSE(w, sseEvent{Type: "error", Error: "failed to start " + plan.harness.Name})
+			_ = sink.send(sseEvent{Type: "error", Error: "failed to start " + plan.harness.Name})
 			return
 		}
 
@@ -280,29 +290,22 @@ func (h *Handlers) handleAuditSSE(c fiber.Ctx, plan auditRunPlan) error {
 			_ = pw.Close()
 		}()
 
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := pr.Read(buf)
-			if n > 0 {
-				if writeErr := writeSSE(w, sseEvent{Type: "chunk", Text: string(buf[:n])}); writeErr != nil {
-					_ = pr.Close()
-					<-done
-					return
-				}
-			}
-			if readErr != nil {
-				break
-			}
-		}
+		// On client disconnect, keep draining to EOF so finalizeAuditRun below
+		// always runs (DB status → completed/failed) instead of leaving the row
+		// stuck on "running".
+		clientConnected := drainAgentPipeToSSE(sink, pr, cancel)
 
 		runErr := <-done
 		h.finalizeAuditRun(plan, runner, runErr, setup.sessionDir)
 
-		if runErr != nil {
-			_ = writeSSE(w, sseEvent{Type: "error", Error: runErr.Error()})
+		if !clientConnected {
 			return
 		}
-		_ = writeSSE(w, sseEvent{Type: "done"})
+		if runErr != nil {
+			_ = sink.send(sseEvent{Type: "error", Error: runErr.Error()})
+			return
+		}
+		_ = sink.send(sseEvent{Type: "done"})
 	})
 }
 

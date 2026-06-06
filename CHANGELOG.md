@@ -4,16 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [v0.1.23-beta] - 2026-06-06
 
-A false-positive-hardening release centered on the Spring module family, with invalid-date mutation payloads and cleaner parallel-scan interrupt handling.
+A combined detection and agentic-scan reliability release: routing-based SSRF detection from PortSwigger's "Cracking the lens" research, OpenRouter provider routing for the olium agent, resilient agent streaming with run cancellation and graceful shutdown, plus continued Spring/false-positive hardening.
 
 ### Added
 
+- **Routing-based SSRF detection ("Cracking the lens")** — two new active modules. `routing-ssrf` writes an attacker-chosen host on the request line (absolute-URI `http://internal/`, `@`-userinfo, protocol-relative `//host/`) while still connecting to the victim host, confirming via an out-of-band OAST callback or a self-evidencing internal/metadata marker that reproduces, is absent from a baseline, and is absent for a benign decoy. `upgrade-routing-ssrf` detects internal/metadata endpoints reachable only when a WebSocket-upgrade handshake bypasses a proxy URL filter, confirmed by a with-vs-without differential. Backed by a new `http.Options.RawRequestTarget` request-line primitive (rawhttp, Host/target mismatch preserved) and shared `infra` payload ladders.
+- **"Collaborator Everywhere" OAST headers** — `oast-probe` expands its blind-callback header fan-out (`True-Client-IP`, `CF-Connecting-IP`, `Forwarded`, `X-WAP-Profile`, …) with per-header value shaping and a `Cache-Control: no-transform` hint, surfacing SSRF in routing/analytics headers that backends behind a reverse proxy commonly fetch.
+- **OpenRouter provider routing** — a typed `agent.olium.custom_provider.provider_routing` knob (provider order, fallbacks, data-collection, quantization, …) plus a generic `extra_body` JSON passthrough merged into every openai-compatible request, for steering OpenRouter and other OpenAI-compatible backends.
+- **Agent run cancellation** — `POST /api/agent/scans/:uuid/cancel` aborts an in-flight autopilot/swarm/query/audit run (recorded as `cancelled`), wired to a Stop control in the workbench UI.
+- **Agent config hot-reload** — the `agent` config section now reloads at runtime, so `vigolium config set agent.olium.*` (provider/model/credentials) takes effect on the next run without a server restart; the CLI echoes a reload line.
 - **Invalid-date mutation payloads** — the mutation engine now emits explicit, labeled invalid-date boundary values (impossible day-of-month, out-of-range month 13) for date parameters to probe lenient date parsers/validators, deterministically and reproducibly.
 
 ### Changed
 
-- **Spring module false-positive hardening** — `spring-actuator-misconfig` now confirms each endpoint by its actuator-specific JSON structure (`"status":"UP"` for `/health`, the `propertySources` envelope for `/env`, dotted Micrometer metric ids for `/metrics`, …) instead of a generic word match, and the seven sibling exposure modules (boot-admin, cloud-config, data-rest, debug, gateway, h2-console, jolokia) now require co-occurring marker groups rather than any single weak token. All eight probe a guaranteed-nonexistent sibling under the same directory to reject catch-all handlers (e.g. Keycloak i18n message bundles, SPA fallbacks) that 200 every child path. New shared `modkit` primitives back this: `MatchAllGroups` (AND-of-OR groups) and `SiblingPathCatchAll`.
+- **Spring module false-positive hardening** — `spring-actuator-misconfig` now confirms each endpoint by its actuator-specific JSON structure (`"status":"UP"` for `/health`, the `propertySources` envelope for `/env`, dotted Micrometer metric ids for `/metrics`, …) instead of a generic word match, and the seven sibling exposure modules (boot-admin, cloud-config, data-rest, debug, gateway, h2-console, jolokia) now require co-occurring marker groups rather than any single weak token. All eight probe a guaranteed-nonexistent sibling under the same directory to reject catch-all handlers (e.g. Keycloak i18n message bundles, SPA fallbacks) that 200 every child path. New shared `modkit` primitives back this: `MatchAllGroups` (AND-of-OR groups) and `SiblingPathCatchAll`, folded into a single `MatchAndConfirmSibling` helper.
 - **Parallel-scan interrupts** — Ctrl-C during a `-P`/`--parallel` batch now treats un-started and cut-short targets as "not scanned" rather than failures: a muted per-target line, no `ERROR` log spam, a `Parallel scan interrupted · N not scanned` roll-up, and an exit status that distinguishes an operator stop from a genuine all-failed batch.
+
+### Fixed
+
+- **Streaming agent disconnects** — a streaming (`stream: true`) agent run no longer freezes `runtime.log` or hangs in `running` when the SSE client disconnects (e.g. a connection dropped during a long model "thinking" pause). Writes now drain the agent pipe to EOF so logging and DB finalization always complete, a vanished client cancels the run instead of burning its full budget, and a client disconnect or server shutdown is recorded as `cancelled` rather than `failed`. Concurrent SSE producers (swarm phase callbacks) are serialized through a single sink to stop interleaved/half-written events.
+- **Graceful server shutdown** — shutdown now cancels in-flight agent runs first so live SSE streams release their connections, honors the caller's deadline (`ShutdownWithContext`) instead of waiting indefinitely for connections to go idle, and a second Ctrl+C (or a hard deadline) force-quits a hung shutdown. The config watcher also watches the actual `--config` file rather than only the default path.
 
 ## [v0.1.22-beta] - 2026-06-06
 

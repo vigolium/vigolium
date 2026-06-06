@@ -3,8 +3,9 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useSearchParamsClient } from '@/lib/useSearchParamsClient';
 import { zipSync } from 'fflate';
-import { useAgentSessions, useAgentSessionDetail, useUploadRepo, useStartAutopilotRun, useAgentRunStatus } from '@/api/hooks';
+import { useAgentSessions, useAgentSessionDetail, useUploadRepo, useStartAutopilotRun, useStartAgentRun, useCancelAgentRun, useAgentRunStatus } from '@/api/hooks';
 import { withDemoKey } from '@/api/client';
+import { isTerminalAgentStatus } from '@/api/types';
 import { fetchSSE } from '@/lib/sse';
 import { useAgentSessionLogs } from '@/lib/useAgentSessionLogs';
 
@@ -35,7 +36,7 @@ export const PROFILE_OPTIONS: { value: ScanProfile; label: string; description: 
   { value: 'autopilot', label: 'Autopilot', description: 'AI agent drives the CLI autonomously', icon: 'bot' },
 ];
 
-export const ARCHON_MODE_OPTIONS = [
+export const AUDIT_PREP_MODE_OPTIONS = [
   { value: '', label: 'Default' },
   { value: 'lite', label: 'Lite' },
   { value: 'scan', label: 'Scan' },
@@ -116,7 +117,7 @@ export function useAgentsLogic() {
   const [swarmSkipPhases, setSwarmSkipPhases] = useState('');
   const [swarmStartFrom, setSwarmStartFrom] = useState('');
   const [swarmShowPrompt, setSwarmShowPrompt] = useState(false);
-  const [swarmArchon, setSwarmArchon] = useState('');
+  const [swarmAudit, setSwarmAudit] = useState('');
   const [swarmIntensity, setSwarmIntensity] = useState('');
 
   // Autopilot advanced fields
@@ -130,8 +131,8 @@ export function useAgentsLogic() {
   const [autopilotFiles, setAutopilotFiles] = useState('');
   const [autopilotScanUuid, setAutopilotScanUuid] = useState('');
   const [autopilotDiff, setAutopilotDiff] = useState('');
-  const [autopilotArchonMode, setAutopilotArchonMode] = useState('');
-  const [autopilotNoArchon, setAutopilotNoArchon] = useState(false);
+  const [autopilotAuditMode, setAutopilotAuditMode] = useState('');
+  const [autopilotNoAudit, setAutopilotNoAudit] = useState(false);
   const [autopilotIntensity, setAutopilotIntensity] = useState('');
 
   // Audit advanced fields
@@ -183,14 +184,28 @@ export function useAgentsLogic() {
     });
   }, [targetPrompt, startAutopilotRun]);
 
-  // Streaming state (scan)
-  const [scanOutput, setScanOutput] = useState('');
-  const [scanResult, setScanResult] = useState<Record<string, unknown> | null>(null);
+  // Async scan-run state. The scan is fire-and-poll (stream:false): the POST
+  // returns a run UUID, we track its status via useAgentRunStatus and tail its
+  // runtime.log through the watched session (expandedSessionUuid), and Stop hits
+  // the cancel endpoint. No client-held SSE drives the run, so closing the tab
+  // or navigating away no longer interrupts it.
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [scanError, setScanError] = useState('');
-  const [isScanStreaming, setIsScanStreaming] = useState(false);
   const [streamingOpen, setStreamingOpen] = useState(false);
-  const scanAbortRef = useRef<AbortController | null>(null);
   const scanOutputRef = useRef<HTMLPreElement>(null);
+  const startAgentRun = useStartAgentRun();
+  const cancelAgentRun = useCancelAgentRun();
+  const { data: activeRunStatus } = useAgentRunStatus(activeRunId);
+  const activeRunTerminal = isTerminalAgentStatus(activeRunStatus?.status);
+  // The Start/Stop toggle and the spinner treat a run as "streaming" while we're
+  // submitting or while the active run hasn't reached a terminal status
+  // (including the brief "cancelling" window after Stop).
+  const isScanStreaming = startAgentRun.isPending || (!!activeRunId && !activeRunTerminal);
+  // Findings/saved counts come from the run status once it finishes.
+  const scanResult: Record<string, unknown> | null =
+    activeRunId && activeRunTerminal && activeRunStatus
+      ? (activeRunStatus as unknown as Record<string, unknown>)
+      : null;
 
   // Chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -254,29 +269,27 @@ export function useAgentsLogic() {
 
   useEffect(scrollChatToBottom, [messages, scrollChatToBottom]);
 
-  // SSE callbacks factory
-  const makeScanCallbacks = useCallback(() => ({
-    onChunk: (text: string) => {
-      setScanOutput((prev) => prev + text);
-      setTimeout(scrollScanOutput, 0);
-    },
-    onDone: (result: unknown) => {
-      setIsScanStreaming(false);
-      scanAbortRef.current = null;
-      if (result && typeof result === 'object') setScanResult(result as Record<string, unknown>);
-    },
-    onError: (err: Error) => {
-      setIsScanStreaming(false);
-      scanAbortRef.current = null;
-      setScanError(err.message);
-    },
-  }), [scrollScanOutput]);
+  // Fire an async run and start observing it: track its status (isScanStreaming
+  // / scanResult) and tail its runtime.log by pointing the watched session at
+  // the new run UUID. Replaces the old client-held SSE consumption.
+  const startScan = useCallback((endpoint: string, body: Record<string, unknown>) => {
+    setScanError('');
+    setActiveRunId(null);
+    setStreamingOpen(true);
+    startAgentRun.mutate({ endpoint, body }, {
+      onSuccess: (data) => {
+        setActiveRunId(data.agentic_scan_uuid);
+        setExpandedSessionUuid(data.agentic_scan_uuid);
+      },
+      onError: (err) => {
+        setScanError(err instanceof Error ? err.message : 'Failed to start run');
+      },
+    });
+  }, [startAgentRun]);
 
   const handleScanCancel = useCallback(() => {
-    scanAbortRef.current?.abort();
-    scanAbortRef.current = null;
-    setIsScanStreaming(false);
-  }, []);
+    if (activeRunId) cancelAgentRun.mutate(activeRunId);
+  }, [activeRunId, cancelAgentRun]);
 
   const handleChatCancel = useCallback(() => {
     chatAbortRef.current?.abort();
@@ -284,29 +297,23 @@ export function useAgentsLogic() {
     setIsChatStreaming(false);
   }, []);
 
-  // Profile-based submit (the main "Start Scan" action)
+  // Profile-based submit (the main "Start Scan" action). Async: builds the
+  // request body and fires startScan, which POSTs without stream:true and then
+  // observes the run via status polling + runtime.log tailing.
   const handleProfileSubmit = useCallback(() => {
     const url = targetUrl.trim();
     const sharedSource = auditSource || swarmSource;
     const needsSourceOnly = scanProfile === 'audit';
     if (isScanStreaming || (needsSourceOnly ? !sharedSource : (!url && !sharedSource))) return;
-    setScanOutput('');
-    setScanResult(null);
-    setScanError('');
-    setIsScanStreaming(true);
-
-    const abort = new AbortController();
-    scanAbortRef.current = abort;
-    const callbacks = makeScanCallbacks();
 
     if (scanProfile === 'autopilot') {
-      const apBody: Record<string, unknown> = { stream: true };
+      const apBody: Record<string, unknown> = {};
       if (url) apBody.target = url;
       if (swarmSource) apBody.source = swarmSource;
       if (autopilotIntensity) apBody.intensity = autopilotIntensity;
-      fetchSSE('/api/agent/run/autopilot', apBody, callbacks, abort.signal);
+      startScan('/api/agent/run/autopilot', apBody);
     } else if (scanProfile === 'audit') {
-      const body: Record<string, unknown> = { stream: true, source: sharedSource };
+      const body: Record<string, unknown> = { source: sharedSource };
       if (url) body.target = url;
       if (auditIntensity) body.intensity = auditIntensity;
       if (auditMode) body.mode = auditMode;
@@ -318,17 +325,17 @@ export function useAgentsLogic() {
       if (auditPiProvider) body.pi_provider = auditPiProvider;
       if (auditPiModel) body.pi_model = auditPiModel;
       if (auditUploadResults) body.upload_results = true;
-      fetchSSE('/api/agent/run/audit', body, callbacks, abort.signal);
+      startScan('/api/agent/run/audit', body);
     } else {
       // Custom mode — use advancedMode to decide endpoint
-      handleCustomSubmit(url, abort, callbacks);
+      handleCustomSubmit(url);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetUrl, scanProfile, isScanStreaming, makeScanCallbacks, swarmSource, autopilotIntensity, auditSource, auditMode, auditIntensity, auditTimeout, auditDiff, auditLastCommits, auditCommitDepth, auditFiles, auditPiProvider, auditPiModel, auditUploadResults]);
+  }, [targetUrl, scanProfile, isScanStreaming, startScan, swarmSource, autopilotIntensity, auditSource, auditMode, auditIntensity, auditTimeout, auditDiff, auditLastCommits, auditCommitDepth, auditFiles, auditPiProvider, auditPiModel, auditUploadResults]);
 
-  const handleCustomSubmit = useCallback((url: string, abort: AbortController, callbacks: ReturnType<typeof makeScanCallbacks>) => {
+  const handleCustomSubmit = useCallback((url: string) => {
     if (advancedMode === 'swarm') {
-      const body: Record<string, unknown> = { stream: true };
+      const body: Record<string, unknown> = {};
       if (url) {
         if (detectedInputType === 'raw') {
           body.http_request_base64 = btoa(url);
@@ -360,11 +367,11 @@ export function useAgentsLogic() {
       if (swarmSkipPhases) body.skip_phases = swarmSkipPhases.split(',').map((s) => s.trim()).filter(Boolean);
       if (swarmStartFrom) body.start_from = swarmStartFrom;
       if (swarmShowPrompt) body.show_prompt = true;
-      if (swarmArchon) body.audit = swarmArchon;
+      if (swarmAudit) body.audit = swarmAudit;
       if (swarmIntensity) body.intensity = swarmIntensity;
-      fetchSSE('/api/agent/run/swarm', body, callbacks, abort.signal);
+      startScan('/api/agent/run/swarm', body);
     } else if (advancedMode === 'autopilot') {
-      const body: Record<string, unknown> = { stream: true };
+      const body: Record<string, unknown> = {};
       if (url) body.target = url;
       if (autopilotAgent) body.agent = autopilotAgent;
       if (autopilotFocus) body.focus = autopilotFocus;
@@ -376,13 +383,13 @@ export function useAgentsLogic() {
       if (autopilotFiles) body.files = autopilotFiles.split(',').map((f) => f.trim()).filter(Boolean);
       if (autopilotScanUuid) body.scan_uuid = autopilotScanUuid;
       if (autopilotDiff) body.diff = autopilotDiff;
-      if (autopilotArchonMode) body.audit_mode = autopilotArchonMode;
-      if (autopilotNoArchon) body.no_audit = true;
+      if (autopilotAuditMode) body.audit_mode = autopilotAuditMode;
+      if (autopilotNoAudit) body.no_audit = true;
       if (autopilotIntensity) body.intensity = autopilotIntensity;
-      fetchSSE('/api/agent/run/autopilot', body, callbacks, abort.signal);
+      startScan('/api/agent/run/autopilot', body);
     } else {
       // query
-      const body: Record<string, unknown> = { stream: true };
+      const body: Record<string, unknown> = {};
       if (scanMode === 'template') {
         if (agentName) body.agent = agentName;
         if (promptTemplate) body.prompt_template = promptTemplate;
@@ -396,9 +403,9 @@ export function useAgentsLogic() {
       if (queryScanUuid) body.scan_uuid = queryScanUuid;
       if (queryInstruction) body.instruction = queryInstruction;
       if (querySourceLabel) body.source_label = querySourceLabel;
-      fetchSSE('/api/agent/run/query', body, callbacks, abort.signal);
+      startScan('/api/agent/run/query', body);
     }
-  }, [advancedMode, detectedInputType, swarmInputs, swarmSource, swarmModuleTags, swarmAgent, swarmVulnType, swarmMaxIterations, swarmTimeout, swarmDryRun, swarmScanUuid, swarmProjectUuid, swarmInstruction, swarmFiles, swarmFocus, swarmProfile, swarmSourceAnalysisOnly, swarmDiscover, swarmCodeAudit, swarmDiff, swarmLastCommits, swarmTriage, swarmOnlyPhase, swarmSkipPhases, swarmStartFrom, swarmShowPrompt, swarmArchon, swarmIntensity, autopilotAgent, autopilotFocus, autopilotTimeout, autopilotInstruction, autopilotMaxCommands, autopilotDryRun, autopilotSource, autopilotFiles, autopilotScanUuid, autopilotDiff, autopilotArchonMode, autopilotNoArchon, autopilotIntensity, scanMode, agentName, promptTemplate, customPrompt, repoPath, queryFiles, append, querySource, queryScanUuid, queryInstruction, querySourceLabel]);
+  }, [advancedMode, detectedInputType, swarmInputs, swarmSource, swarmModuleTags, swarmAgent, swarmVulnType, swarmMaxIterations, swarmTimeout, swarmDryRun, swarmScanUuid, swarmProjectUuid, swarmInstruction, swarmFiles, swarmFocus, swarmProfile, swarmSourceAnalysisOnly, swarmDiscover, swarmCodeAudit, swarmDiff, swarmLastCommits, swarmTriage, swarmOnlyPhase, swarmSkipPhases, swarmStartFrom, swarmShowPrompt, swarmAudit, swarmIntensity, autopilotAgent, autopilotFocus, autopilotTimeout, autopilotInstruction, autopilotMaxCommands, autopilotDryRun, autopilotSource, autopilotFiles, autopilotScanUuid, autopilotDiff, autopilotAuditMode, autopilotNoAudit, autopilotIntensity, scanMode, agentName, promptTemplate, customPrompt, repoPath, queryFiles, append, querySource, queryScanUuid, queryInstruction, querySourceLabel, startScan]);
 
   // Chat
   const handleChatSend = useCallback(() => {
@@ -596,7 +603,7 @@ export function useAgentsLogic() {
     swarmSkipPhases, setSwarmSkipPhases,
     swarmStartFrom, setSwarmStartFrom,
     swarmShowPrompt, setSwarmShowPrompt,
-    swarmArchon, setSwarmArchon,
+    swarmAudit, setSwarmAudit,
     swarmIntensity, setSwarmIntensity,
 
     // Autopilot fields
@@ -610,8 +617,8 @@ export function useAgentsLogic() {
     autopilotFiles, setAutopilotFiles,
     autopilotScanUuid, setAutopilotScanUuid,
     autopilotDiff, setAutopilotDiff,
-    autopilotArchonMode, setAutopilotArchonMode,
-    autopilotNoArchon, setAutopilotNoArchon,
+    autopilotAuditMode, setAutopilotAuditMode,
+    autopilotNoAudit, setAutopilotNoAudit,
     autopilotIntensity, setAutopilotIntensity,
 
     // Audit fields
@@ -648,16 +655,25 @@ export function useAgentsLogic() {
     targetRunId, targetRunStatus, targetError,
     startAutopilotRun, handleTargetSubmit,
 
-    // Scan streaming (live local SSE)
-    scanOutput, scanResult, scanError,
+    // Async scan run (status-polled; output tailed from the run's runtime.log).
+    // scanOutput is the active run's tailed log (drives the sessions-list
+    // default-collapse); scanResult/scanError surface the run's terminal
+    // outcome (a failed/errored run's message included alongside submit errors).
+    scanOutput: activeRunId ? sessionLogs : '',
+    scanResult,
+    scanError: scanError
+      || (activeRunId && (activeRunStatus?.status === 'failed' || activeRunStatus?.status === 'error')
+        ? (activeRunStatus?.error || 'run failed')
+        : ''),
     isScanStreaming, handleScanCancel,
     streamingOpen, setStreamingOpen,
     scanOutputRef,
 
-    // Live local scan output wins; otherwise tail the selected session's runtime.log.
-    panelOutput: (isScanStreaming || scanOutput || scanResult) ? scanOutput : sessionLogs,
-    panelIsStreaming: isScanStreaming || (!scanOutput && !scanResult && isSessionLogStreaming),
-    panelError: scanError || (!scanOutput && !scanResult && sessionLogError) || '',
+    // The panel always tails the watched session's runtime.log; "streaming"
+    // covers both the submit round-trip and the live log tail.
+    panelOutput: sessionLogs,
+    panelIsStreaming: isScanStreaming || isSessionLogStreaming,
+    panelError: scanError || sessionLogError || '',
     panelPlaceholder: sessionsData?.data && sessionsData.data.length > 0
       ? 'Select a session above or start a new scan...'
       : 'agent output will appear here...',

@@ -223,19 +223,12 @@ func (m *Module) probeEndpoint(
 		return nil
 	}
 
-	matchedMarkers, ok := modkit.MatchAllGroups(body, p.markers)
+	// Confirm the marker groups, then drop the finding if a sub-directory
+	// catch-all serves the same markers for a nonexistent sibling (a handler that
+	// 200s every child path). Root-level probes are covered by the random-path 404
+	// fingerprint above, so the sibling probe is a no-op for them.
+	matchedMarkers, ok := modkit.MatchAndConfirmSibling(ctx, httpClient, p.path, body, p.markers)
 	if !ok {
-		return nil
-	}
-
-	// Sub-directory catch-all guard: drop the finding if a guaranteed-nonexistent
-	// sibling under the same parent directory returns the same markers (a catch-all
-	// handler that 200s every child path). Root-level probes are already covered by
-	// the random-path 404 fingerprint above, so this is a no-op for them.
-	if modkit.SiblingPathCatchAll(ctx, httpClient, p.path, func(b string) bool {
-		_, ok := modkit.MatchAllGroups(b, p.markers)
-		return ok
-	}) {
 		return nil
 	}
 

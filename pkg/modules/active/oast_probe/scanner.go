@@ -14,14 +14,57 @@ import (
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
-// Headers to inject OAST URLs into for blind detection.
-var oastHeaders = []string{
-	"Referer",
-	"X-Forwarded-For",
-	"X-Forwarded-Host",
-	"Origin",
-	"X-Original-URL",
-	"Authorization",
+// shapeKind selects how an OAST host is rendered into a header value. Different
+// headers expect different forms: a URL, a bare host (IP-style routing headers
+// that trigger a DNS lookup), a UAProf XML URL, or an RFC 7239 "for=" token.
+type shapeKind int
+
+const (
+	shapeURL       shapeKind = iota // http://<host>
+	shapeBare                       // <host>           (DNS-pingback routing headers)
+	shapeWAP                        // http://<host>/wap.xml
+	shapeForwarded                  // for=<host>       (RFC 7239 Forwarded)
+)
+
+func (k shapeKind) render(host string) string {
+	switch k {
+	case shapeBare:
+		return host
+	case shapeWAP:
+		return "http://" + host + "/wap.xml"
+	case shapeForwarded:
+		return "for=" + host
+	default:
+		return "http://" + host
+	}
+}
+
+// oastHeader is a header to inject an OAST callback into, plus how to shape it.
+type oastHeader struct {
+	name string
+	kind shapeKind
+}
+
+// oastHeaders is the "Collaborator Everywhere" header fan-out (PortSwigger,
+// "Cracking the lens"): routing, analytics, and proxy headers that backends behind
+// a reverse proxy commonly fetch or resolve. The first six are the original set
+// (URL-shaped, unchanged); the rest add the True-Client-IP / X-WAP-Profile /
+// Forwarded family that the research found especially productive.
+var oastHeaders = []oastHeader{
+	{"Referer", shapeURL},
+	{"X-Forwarded-For", shapeURL},
+	{"X-Forwarded-Host", shapeURL},
+	{"Origin", shapeURL},
+	{"X-Original-URL", shapeURL},
+	{"Authorization", shapeURL},
+	// Collaborator-Everywhere additions:
+	{"True-Client-IP", shapeBare},
+	{"CF-Connecting-IP", shapeBare},
+	{"X-Client-IP", shapeBare},
+	{"X-ProxyUser-Ip", shapeBare},
+	{"Forwarded", shapeForwarded},
+	{"X-WAP-Profile", shapeWAP},
+	{"Profile", shapeWAP},
 }
 
 // Module implements the OAST probe active scanner.
@@ -87,16 +130,25 @@ func (m *Module) ScanPerRequest(
 
 	requestHash := ctx.Request().ID()
 
+	// Cache-Control: no-transform discourages intermediaries from mangling the
+	// injected payload before it reaches the backend (the "Cracking the lens"
+	// trick). It is identical for every probe, so build the base once instead of
+	// re-inserting (and re-parsing the raw) on each header iteration.
+	base, err := httpmsg.AddOrReplaceHeader(ctx.Request().Raw(), "Cache-Control", "no-transform")
+	if err != nil {
+		return nil, nil
+	}
+
 	for _, header := range oastHeaders {
-		oastURL := oast.GenerateURL(urlx.String(), header, "header", ModuleID, requestHash)
+		oastURL := oast.GenerateURL(urlx.String(), header.name, "header", ModuleID, requestHash)
 		if oastURL == "" {
 			continue
 		}
 
-		// Wrap in http:// for headers that expect URLs
-		payload := "http://" + oastURL
+		// Shape the OAST host for this header (URL / bare host / wap.xml / for=).
+		payload := header.kind.render(oastURL)
 
-		modifiedRaw, err := httpmsg.AddOrReplaceHeader(ctx.Request().Raw(), header, payload)
+		modifiedRaw, err := httpmsg.AddOrReplaceHeader(base, header.name, payload)
 		if err != nil {
 			continue
 		}

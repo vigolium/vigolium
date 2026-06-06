@@ -247,9 +247,12 @@ func computeClusterKey(input *httpmsg.HttpRequestResponse, opts Options) string 
 	if req := input.Request(); req != nil {
 		h.Write(req.Raw())
 	}
-	// Encode option flags that affect HTTP behavior
-	_, _ = fmt.Fprintf(h, "\x00noRedir=%t\x00raw=%t\x00ignTimeout=%t",
-		opts.NoRedirects, opts.RawRequest, opts.IgnoreTimeoutTracking)
+	// Encode option flags that affect HTTP behavior. RawRequestTarget must be
+	// part of the key: two probes can share identical raw bytes and differ only by
+	// the literal request-line target (routing-based SSRF), and collapsing them
+	// would serve the first probe's response for every target.
+	_, _ = fmt.Fprintf(h, "\x00noRedir=%t\x00raw=%t\x00ignTimeout=%t\x00rawTarget=%s",
+		opts.NoRedirects, opts.RawRequest, opts.IgnoreTimeoutTracking, opts.RawRequestTarget)
 	return hex.EncodeToString(h.Sum(nil))
 }
 

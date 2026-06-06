@@ -4,6 +4,7 @@ import {
   apiGet, apiPost, apiPut, apiPatch, apiDelete, apiUpload, getProjectUUID, setDemoMode, assertNotDemo, withDemoKey,
 } from './client';
 import { isStaticBuild } from '@/lib/buildMode';
+import { isTerminalAgentStatus } from './types';
 import type {
   Project,
   CreateProjectRequest,
@@ -559,8 +560,8 @@ export function useAgentSessions(params: AgentSessionsQueryParams) {
     refetchInterval: (query) => {
       const data = query.state.data as PaginatedResponse<AgentSession> | undefined;
       if (!data?.data) return false;
-      const hasRunning = data.data.some((s) => s.status === 'running' || s.status === 'pending');
-      return hasRunning ? 30_000 : false;
+      const hasActive = data.data.some((s) => !isTerminalAgentStatus(s.status));
+      return hasActive ? 30_000 : false;
     },
   });
 }
@@ -570,8 +571,11 @@ export function useAgentSessionDetail(uuid: string | null) {
     queryKey: projectKey('agent-session-detail', uuid),
     queryFn: () => apiGet<AgentSessionDetail>(`/api/agent/sessions/${uuid}`),
     enabled: uuid !== null,
+    // Poll while the run is still active. Keying off "not terminal" (rather than
+    // just "running") keeps polling through the transient "cancelling" state so
+    // the UI sees the final "cancelled".
     refetchInterval: (query) =>
-      query.state.data?.status === 'running' ? 5_000 : false,
+      isTerminalAgentStatus(query.state.data?.status) ? false : 5_000,
   });
 }
 
@@ -580,9 +584,10 @@ export function useAgentRunStatus(runId: string | null) {
     queryKey: projectKey('agent-run-status', runId),
     queryFn: () => apiGet<AgentRunStatusResponse>(`/api/agent/status/${runId}`),
     enabled: runId !== null,
-    refetchInterval: (query) => {
-      return query.state.data?.status === 'running' ? 3_000 : false;
-    },
+    // Poll until the run reaches a terminal status (covers running, cancelling,
+    // pending, etc.) so a cancel resolves to its final state in the UI.
+    refetchInterval: (query) =>
+      isTerminalAgentStatus(query.state.data?.status) ? false : 3_000,
   });
 }
 
@@ -590,6 +595,31 @@ export function useStartAutopilotRun() {
   return useMutation({
     mutationFn: (body: { prompt: string }) =>
       apiPost<AgentRunResponse>('/api/agent/run/autopilot', body),
+  });
+}
+
+// Starts any agent run (autopilot/audit/swarm/query) in async mode — the POST
+// returns a run UUID immediately and the caller observes it via the run-status
+// poll + the session's runtime.log tail. Invalidates the sessions list so the
+// new run shows up without waiting for the next poll.
+export function useStartAgentRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ endpoint, body }: { endpoint: string; body: Record<string, unknown> }) =>
+      apiPost<AgentRunResponse>(endpoint, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: projectKey('agent-sessions') });
+    },
+  });
+}
+
+// Cancels an in-flight agent run by UUID (POST /api/agent/scans/:uuid/cancel).
+// The run unwinds and its finalization records the terminal "cancelled" status,
+// which the status poll picks up.
+export function useCancelAgentRun() {
+  return useMutation({
+    mutationFn: (runId: string) =>
+      apiPost<AgentRunResponse>(`/api/agent/scans/${runId}/cancel`),
   });
 }
 

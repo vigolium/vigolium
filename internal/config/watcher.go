@@ -30,6 +30,12 @@ type ConfigWatcher struct {
 
 // reloadableSections lists config sections that can be hot-reloaded at runtime.
 // server and database require a restart.
+//
+// agent is reloadable: the server-wide agent engine reads settings.Agent.Olium
+// fresh on every run and builds a new provider from it, so swapping the agent
+// section in the shared Settings pointer makes the next agent request pick up
+// the new olium provider/model/credentials without a restart. (Route
+// registration — e.g. --no-agent — is still fixed at startup.)
 var reloadableSections = map[string]bool{
 	"scope":              true,
 	"notify":             true,
@@ -38,6 +44,7 @@ var reloadableSections = map[string]bool{
 	"scanning_strategy":  true,
 	"scanning_pace":      true,
 	"storage":            true,
+	"agent":              true,
 }
 
 // NewConfigWatcher creates a watcher for the given config file.
@@ -203,6 +210,8 @@ func (cw *ConfigWatcher) reload() {
 			cw.settings.ScanningPace = newSettings.ScanningPace
 		case "storage":
 			cw.settings.Storage = newSettings.Storage
+		case "agent":
+			cw.settings.Agent = newSettings.Agent
 		}
 	}
 

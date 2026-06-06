@@ -39,6 +39,14 @@ type Options struct {
 	IgnoreTimeoutTracking bool
 	NoClustering          bool
 	DisableCompression    bool // skip Accept-Encoding header so Go auto-decompresses
+	// RawRequestTarget, when non-empty, is written verbatim as the HTTP
+	// request-line target (request-URI) while the TCP/TLS connection still goes
+	// to the request's real host. It enables routing-based SSRF / "Cracking the
+	// lens" request-line attacks — e.g. connecting to a victim proxy but writing
+	// an absolute-form target "http://127.0.0.1:8080/", a userinfo trick
+	// "@collab.net/", or a protocol-relative "//collab.net/". Requires
+	// RawRequest=true (it is routed through the rawhttp client); ignored otherwise.
+	RawRequestTarget string
 }
 
 // Requester executes HTTP requests with rate limiting and host error tracking
@@ -361,10 +369,33 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 
 	var resp *http.Response
 	if opts.RawRequest {
+		rawClient := r.rawClient
 		if opts.NoRedirects {
-			resp, err = r.rawClientNoRedir.Dor(req)
+			rawClient = r.rawClientNoRedir
+		}
+		if opts.RawRequestTarget != "" {
+			// Routing-based SSRF / request-line attacks ("Cracking the lens"):
+			// connect to the real host (req.URL) but emit an attacker-chosen,
+			// literal request target on the wire — rawhttp sends the uripath arg
+			// verbatim. AutomaticHostHeader is disabled for this call so the
+			// request's own Host header (carried in req.Header by
+			// BuildRetryableRequest) is sent as-is instead of being overwritten
+			// with the connection host; the Host/target mismatch is the whole
+			// point of these attacks. The client's options are copied so the
+			// shared rawhttp default (used by the smuggling module via Dor) is
+			// left untouched.
+			rawOpts := *rawClient.Options
+			rawOpts.AutomaticHostHeader = false
+			// req embeds *urlutil.URL (retryablehttp.Request), so req.String() is the
+			// promoted request URL — rawhttp dials its host while RawRequestTarget
+			// overrides the on-the-wire request-line target.
+			connURL := req.String()
+			resp, err = rawClient.DoRawWithOptions(
+				req.Method, connURL, opts.RawRequestTarget,
+				req.Header, req.Body, &rawOpts,
+			)
 		} else {
-			resp, err = r.rawClient.Dor(req)
+			resp, err = rawClient.Dor(req)
 		}
 	} else {
 		if opts.NoRedirects {

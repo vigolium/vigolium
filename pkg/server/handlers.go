@@ -120,6 +120,22 @@ type Handlers struct {
 	// Background cleanup for completed agent run statuses
 	agentCleanupStop chan struct{}
 
+	// runCtx is the server-lifecycle context for background agent runs.
+	// Autopilot/swarm/audit/query handlers derive their per-run timeout
+	// contexts from it (instead of a detached context.Background()) so a server
+	// shutdown — which cancels runCtx via Close() — stops in-flight scans and
+	// lets their streaming connections go idle, rather than leaving them to run
+	// against a context that nothing can cancel.
+	runCtx    context.Context
+	runCancel context.CancelFunc
+
+	// runCancels holds the per-run cancel func for each in-flight agent run,
+	// keyed by agenticScanUUID, so POST /api/agent/scans/:uuid/cancel can abort
+	// one specific run (vs runCancel, which stops every run on shutdown). Entries
+	// are registered when a run acquires its context and removed when it returns.
+	runCancelMu sync.Mutex
+	runCancels  map[string]context.CancelFunc
+
 	// Cached COUNT query results for server-info endpoint
 	counts *countCache
 
@@ -151,6 +167,8 @@ func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *
 		lightMax = 10
 	}
 
+	runCtx, runCancel := context.WithCancel(context.Background())
+
 	h := &Handlers{
 		queue:              q,
 		db:                 db,
@@ -169,6 +187,9 @@ func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *
 		projectHeavyActive: make(map[string]int),
 		agentCleanupStop:   make(chan struct{}),
 		counts:             newCountCache(10 * time.Second),
+		runCtx:             runCtx,
+		runCancel:          runCancel,
+		runCancels:         make(map[string]context.CancelFunc),
 	}
 	h.findings = &findingsHandlers{db: db, repo: repo}
 	if !cfg.NoAgent {
@@ -348,7 +369,66 @@ func (h *Handlers) scanQueueWorker(projectUUID string, ch chan *queuedScan) {
 }
 
 // Close releases handler resources including the agent engine pool.
+// runContext returns the server-lifecycle context that background agent runs
+// derive their per-run timeouts from. It falls back to context.Background()
+// when the handler was constructed directly (e.g. in tests) without NewHandlers
+// wiring runCtx, so callers never pass a nil parent to context.WithTimeout.
+func (h *Handlers) runContext() context.Context {
+	if h.runCtx != nil {
+		return h.runCtx
+	}
+	return context.Background()
+}
+
+// registerRunCancel records a run's cancel func so it can be aborted by UUID via
+// the cancel endpoint. Pair every call with a deferred unregisterRunCancel.
+func (h *Handlers) registerRunCancel(uuid string, cancel context.CancelFunc) {
+	if uuid == "" || cancel == nil {
+		return
+	}
+	h.runCancelMu.Lock()
+	if h.runCancels == nil {
+		h.runCancels = make(map[string]context.CancelFunc)
+	}
+	h.runCancels[uuid] = cancel
+	h.runCancelMu.Unlock()
+}
+
+// unregisterRunCancel drops a run's cancel func once it has finished.
+func (h *Handlers) unregisterRunCancel(uuid string) {
+	if uuid == "" {
+		return
+	}
+	h.runCancelMu.Lock()
+	delete(h.runCancels, uuid)
+	h.runCancelMu.Unlock()
+}
+
+// cancelRun aborts an in-flight run by UUID and returns true if one was found.
+// It also flips the in-memory status to "cancelling" for immediate feedback;
+// the run's own finalization writes the terminal "cancelled" as it unwinds.
+func (h *Handlers) cancelRun(uuid string) bool {
+	h.runCancelMu.Lock()
+	cancel := h.runCancels[uuid]
+	h.runCancelMu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	h.agentMu.Lock()
+	if st := h.agenticScanStatus[uuid]; st != nil && !isTerminalAgentStatus(st.Status) {
+		st.Status = "cancelling"
+	}
+	h.agentMu.Unlock()
+	cancel()
+	return true
+}
+
 func (h *Handlers) Close() {
+	// Cancel in-flight agent runs first so their streaming connections drain
+	// and go idle before the HTTP server's graceful shutdown waits on them.
+	if h.runCancel != nil {
+		h.runCancel()
+	}
 	close(h.agentCleanupStop)
 	h.scanMu.Lock()
 	for _, ch := range h.scanQueues {

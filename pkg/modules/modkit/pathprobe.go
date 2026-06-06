@@ -104,3 +104,33 @@ func SiblingPathCatchAll(
 	}
 	return match(resp.Body().String())
 }
+
+// MatchAndConfirmSibling is the combined marker-match + catch-all guard used by
+// the marker-based path-probing exposure modules. It confirms body satisfies the
+// marker groups (MatchAllGroups), then drops the finding if a guaranteed-
+// nonexistent sibling under the same parent directory returns the same markers
+// (SiblingPathCatchAll) — a catch-all handler that 200s every child path. Root-
+// level probe paths are already covered by the caller's root soft-404
+// fingerprint, so the sibling probe is a no-op for them.
+//
+// matched carries the evidence substrings for ExtractedResults; ok is false (and
+// matched nil) when the body doesn't satisfy the groups or the sibling reveals a
+// catch-all.
+func MatchAndConfirmSibling(
+	ctx *httpmsg.HttpRequestResponse,
+	client *http.Requester,
+	probePath, body string,
+	markers [][]string,
+) (matched []string, ok bool) {
+	matched, ok = MatchAllGroups(body, markers)
+	if !ok {
+		return nil, false
+	}
+	if SiblingPathCatchAll(ctx, client, probePath, func(b string) bool {
+		_, sibOK := MatchAllGroups(b, markers)
+		return sibOK
+	}) {
+		return nil, false
+	}
+	return matched, true
+}

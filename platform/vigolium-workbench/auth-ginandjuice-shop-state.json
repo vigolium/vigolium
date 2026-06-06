@@ -1,0 +1,51 @@
+{
+  "cookies": [
+    {
+      "name": "NID",
+      "value": "532=R1SZZ-BW2rk9cn53cs2qMblx-3J333wp0zzneHH4AYMjdELT8_mDef52hPF5HsfpWxqeYL8xBcqscBttT0rLXfB9yaRjMYa4rTOGEpSNhe1x7DrHPU1khL5wF924OU-pgEWGq7Z03pNbI9zh7jNH980PmUUkLzj9FJsxsqMfimdpOnwgbeLsAeU50VSEkaXkH6zc8Yw",
+      "domain": ".google.com",
+      "path": "/",
+      "expires": 1796572096.604364,
+      "size": 206,
+      "httpOnly": true,
+      "secure": false,
+      "session": false
+    },
+    {
+      "name": "session",
+      "value": "9alJvm2Fi101m7V1yl4AmYasfCXmZcPD",
+      "domain": "ginandjuice.shop",
+      "path": "/",
+      "expires": -1.0,
+      "size": 39,
+      "httpOnly": true,
+      "secure": true,
+      "session": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "AWSALB",
+      "value": "9wOVedpl5uKiFiS6AxFof79QqdrWdqC/Wju/msWZacIRSaqlMW5Qe9BSyvk+Pb+H/9AjeE61V1fa44RGl5KBF4jKWboSAkGidNwrRwxtC5gGb6MwKIOmG9mtC2wb",
+      "domain": "ginandjuice.shop",
+      "path": "/",
+      "expires": 1781365713.133222,
+      "size": 130,
+      "httpOnly": false,
+      "secure": false,
+      "session": false
+    },
+    {
+      "name": "AWSALBCORS",
+      "value": "9wOVedpl5uKiFiS6AxFof79QqdrWdqC/Wju/msWZacIRSaqlMW5Qe9BSyvk+Pb+H/9AjeE61V1fa44RGl5KBF4jKWboSAkGidNwrRwxtC5gGb6MwKIOmG9mtC2wb",
+      "domain": "ginandjuice.shop",
+      "path": "/",
+      "expires": 1781365713.133314,
+      "size": 134,
+      "httpOnly": false,
+      "secure": true,
+      "session": false,
+      "sameSite": "None"
+    }
+  ],
+  "origins": []
+}
