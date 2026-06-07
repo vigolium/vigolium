@@ -1,6 +1,7 @@
 package knownissuescan
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/projectdiscovery/gologger"
@@ -167,6 +168,56 @@ func TestParseSeverity(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("parseSeverity(%q) = %v, want %v", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestNormalizeSeverityOverrides(t *testing.T) {
+	// nil/empty in → nil out (no allocation, cheap "no overrides" path).
+	if got := normalizeSeverityOverrides(nil); got != nil {
+		t.Errorf("normalizeSeverityOverrides(nil) = %v, want nil", got)
+	}
+	if got := normalizeSeverityOverrides(map[string]string{}); got != nil {
+		t.Errorf("normalizeSeverityOverrides(empty) = %v, want nil", got)
+	}
+
+	in := map[string]string{
+		"config-json-exposure-fuzz": "medium",
+		"  Some-Mixed-Case  ":       " HIGH ", // keys lowercased+trimmed, values parsed
+		"bogus-template":            "not-a-severity",
+	}
+	got := normalizeSeverityOverrides(in)
+
+	if got["config-json-exposure-fuzz"] != vigsev.Medium {
+		t.Errorf("config-json-exposure-fuzz = %v, want Medium", got["config-json-exposure-fuzz"])
+	}
+	if got["some-mixed-case"] != vigsev.High {
+		t.Errorf("some-mixed-case = %v, want High", got["some-mixed-case"])
+	}
+	if _, ok := got["bogus-template"]; ok {
+		t.Error("entries with an unparseable severity should be dropped")
+	}
+}
+
+func TestConvertResultSeverityOverrideApplies(t *testing.T) {
+	// The override is applied after convertResult in the callback; this exercises
+	// the same lookup+assignment the callback performs.
+	nr := &nucleiOutput.ResultEvent{
+		TemplateID:    "config-json-exposure-fuzz",
+		Info:          model.Info{Name: "Exposed JSON Configuration Files", SeverityHolder: severity.Holder{Severity: severity.Critical}},
+		Host:          "https://example.com",
+		MatcherStatus: true,
+	}
+	result := convertResult(nr)
+	if result.Info.Severity != vigsev.Critical {
+		t.Fatalf("precondition: convertResult severity = %v, want Critical", result.Info.Severity)
+	}
+
+	overrides := normalizeSeverityOverrides(map[string]string{"config-json-exposure-fuzz": "medium"})
+	if override, ok := overrides[strings.ToLower(result.ModuleID)]; ok {
+		result.Info.Severity = override
+	}
+	if result.Info.Severity != vigsev.Medium {
+		t.Errorf("after override severity = %v, want Medium", result.Info.Severity)
 	}
 }
 

@@ -41,13 +41,17 @@ type Config struct {
 	RequestTimeout time.Duration
 	// Retries is the nuclei per-request retry count (default: 1). Fewer retries
 	// shrink the post-deadline drain tail.
-	Retries     int
-	Headers     []string                  // custom headers
-	ProxyURL    string                    // proxy URL
-	OnResult    func(*output.ResultEvent) // callback per finding
-	Repository  *database.Repository      // for saving findings
-	ScanUUID    string
-	ProjectUUID string
+	Retries int
+	Headers []string // custom headers
+	// SeverityOverrides remaps a finding's severity by nuclei template ID
+	// (matched case-insensitively). Applied to each match before OnResult and
+	// persistence, so output, severity counts, and the stored finding all agree.
+	SeverityOverrides map[string]string
+	ProxyURL          string                    // proxy URL
+	OnResult          func(*output.ResultEvent) // callback per finding
+	Repository        *database.Repository      // for saving findings
+	ScanUUID          string
+	ProjectUUID       string
 }
 
 // Run executes the known-issue scan using the nuclei Go library.
@@ -121,6 +125,11 @@ func Run(ctx context.Context, cfg Config) error {
 	// Load targets
 	ne.LoadTargets(cfg.Targets, false)
 
+	// Normalize severity-override keys to lowercase once so per-finding lookups
+	// are a cheap case-insensitive map hit (nuclei template IDs are lowercase by
+	// convention, but operators may not type them that way in config).
+	severityOverrides := normalizeSeverityOverrides(cfg.SeverityOverrides)
+
 	// done flips once Run has moved past the deadline. The callback checks it (and
 	// scanCtx.Err()) so the abandoned nuclei goroutine stops emitting findings /
 	// DB writes after we've returned. findingCount is atomic because nuclei fires
@@ -144,6 +153,11 @@ func Run(ctx context.Context, cfg Config) error {
 		result := convertResult(event)
 		result.ModuleType = database.ModuleTypeKnownIssueScan
 		result.FindingSource = database.FindingSourceKnownIssueScan
+		// Apply any operator-configured severity remap before OnResult and
+		// persistence so output, severity counts, and the stored finding agree.
+		if override, ok := severityOverrides[strings.ToLower(result.ModuleID)]; ok {
+			result.Info.Severity = override
+		}
 		findingCount.Add(1)
 
 		// Invoke user callback
@@ -400,6 +414,22 @@ func ensureTemplates(customDir string) error {
 
 	zap.L().Info("KnownIssueScan: nuclei templates downloaded successfully", zap.String("path", dir))
 	return nil
+}
+
+// normalizeSeverityOverrides parses the operator's template-ID→severity remap
+// once, lowercasing keys for case-insensitive matching and dropping entries whose
+// target severity is unparseable. Returns nil when there is nothing to apply.
+func normalizeSeverityOverrides(in map[string]string) map[string]severity.Severity {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]severity.Severity, len(in))
+	for tmpl, sev := range in {
+		if parsed := parseSeverity(sev); parsed != severity.Undefined {
+			out[strings.ToLower(strings.TrimSpace(tmpl))] = parsed
+		}
+	}
+	return out
 }
 
 // parseSeverity maps a nuclei severity string to vigolium severity.

@@ -26,7 +26,7 @@ from a DOM-controlled source (location.hash, document.cookie, …) into a danger
 - https://owasp.org/www-community/attacks/DOM_Based_XSS`
 
 	ModuleConfirmation = "Reported when AST taint analysis traces a DOM-controlled source into a dangerous sink within the same script"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"xss", "dom", "taint"}
 )

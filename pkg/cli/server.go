@@ -240,6 +240,28 @@ func printConfigReload(settings *config.Settings, changed []string) {
 	}
 }
 
+// printServerEndpoints renders the "where to reach me" lines shown at
+// startup: one for the API base, one for the dashboard UI. Each label is
+// plain (default terminal color) and padded to a common width so the URLs
+// line up in a column, and the URL itself is orange so the address an
+// operator wants to click stands out. When showAPIKeyHint is set, an orange
+// "how to get the API key" command is printed directly below the dashboard
+// line so an operator has the address and the credential together.
+func printServerEndpoints(serviceAddr string, showAPIKeyHint bool) {
+	port := serviceAddr[strings.LastIndex(serviceAddr, ":")+1:]
+	row := func(label, value string) {
+		fmt.Printf("  %s %-26s %s\n",
+			terminal.InfoSymbol(),
+			label,
+			value)
+	}
+	row("Server running at", terminal.Orange(fmt.Sprintf("http://%s", serviceAddr)))
+	row("Dashboard UI available at", terminal.Orange(fmt.Sprintf("http://localhost:%s/", port)))
+	if showAPIKeyHint {
+		row("Get the API key", terminal.Orange("vigolium config ls server.auth_api_key --force"))
+	}
+}
+
 func runServerCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 
@@ -267,6 +289,11 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 
 	// Resolve API keys with priority: -A flag > --alternative-ingest-key flag > env var > config file
 	var apiKeys []string
+	// Whether to surface the "how to get the API key" hint at startup. Only
+	// when auth is on and the operator didn't pass the key via -A (so it came
+	// from env/config and they may not have it handy). Printed below the
+	// dashboard line by printServerEndpoints.
+	var showAPIKeyHint bool
 	if serverOpts.NoAuth {
 		if !globalSilent {
 			fmt.Println()
@@ -286,11 +313,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		if len(apiKeys) == 0 {
 			zap.L().Fatal("No API keys configured. Set auth_api_key in config, use VIGOLIUM_API_KEY env, or pass --alternative-ingest-key")
 		}
-		if !globalSilent && len(serverOpts.APIKeys) == 0 {
-			fmt.Printf("  %s To view your API key: %s\n",
-				terminal.InfoSymbol(),
-				terminal.Cyan("vigolium config ls server.auth_api_key --force"))
-		}
+		showAPIKeyHint = len(serverOpts.APIKeys) == 0
 	}
 
 	// Initialize database for storing scan results
@@ -455,12 +478,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 				bannerText = "Demo-only mode — exposing read-only allowlist (findings, http-records, modules, stats, extensions)"
 			}
 			fmt.Printf("  %s %s\n", terminal.InfoSymbol(), terminal.BoldYellow(bannerText))
-			port := serviceAddr[strings.LastIndex(serviceAddr, ":")+1:]
-			fmt.Printf("  %s Server %s  %s UI %s\n",
-				terminal.InfoSymbol(),
-				terminal.Cyan(fmt.Sprintf("http://%s", serviceAddr)),
-				terminal.Gray("│"),
-				terminal.Cyan(fmt.Sprintf("http://localhost:%s/", port)))
+			printServerEndpoints(serviceAddr, showAPIKeyHint)
 			fmt.Printf("  %s Docs %s\n",
 				terminal.InfoSymbol(),
 				terminal.Cyan("https://docs.vigolium.com"))
@@ -593,13 +611,8 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 
 	// Print startup info before starting
 	if !globalSilent {
-		port := serviceAddr[strings.LastIndex(serviceAddr, ":")+1:]
 		sep := terminal.Gray("│")
-		fmt.Printf("  %s Server %s  %s UI %s\n",
-			terminal.InfoSymbol(),
-			terminal.Cyan(fmt.Sprintf("http://%s", serviceAddr)),
-			sep,
-			terminal.Cyan(fmt.Sprintf("http://localhost:%s/", port)))
+		printServerEndpoints(serviceAddr, showAPIKeyHint)
 		if ingestProxyAddr != "" {
 			fmt.Printf("  %s Ingest proxy %s\n",
 				terminal.InfoSymbol(),

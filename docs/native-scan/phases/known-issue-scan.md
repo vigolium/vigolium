@@ -56,6 +56,8 @@ known_issue_scan:
   severities: []        # filter by severity: critical, high, medium, low, info (empty = all)
   templates_dir: ""     # custom templates directory (empty = built-in)
   enrich_targets: true  # enrich targets with paths from previous phases
+  severity_overrides:   # remap a finding's severity by template ID (case-insensitive)
+    config-json-exposure-fuzz: medium
 ```
 
 ### Key Options
@@ -67,6 +69,7 @@ known_issue_scan:
 | `severities` | `[]` (all) | Filter results by severity level |
 | `templates_dir` | built-in | Path to custom Nuclei templates |
 | `enrich_targets` | `true` | Append discovered paths to target URLs for broader coverage |
+| `severity_overrides` | `{config-json-exposure-fuzz: medium}` | Remap a finding's recorded severity by nuclei template ID. Applied before output/persistence (output, counts, and the stored finding all agree). Lets you right-size noisy or context-dependent templates without forking the upstream template (which reverts on `nuclei -update-templates`). Set an entry back to the template's severity to undo a default remap. |
 
 ## Runtime Defaults
 

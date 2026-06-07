@@ -758,6 +758,25 @@ func printAuditModeTips(w io.Writer, mode string) {
 	}
 }
 
+// printAuditDurationHint warns that the recon-heavy modes (balanced, deep)
+// can run for a long time on large source trees, so an operator who walks
+// away isn't surprised by a multi-hour run. Lighter modes (lite/quick)
+// finish quickly enough that the note would just be noise, so only the
+// heavy modes trigger it. Split is safe because modes can't contain commas.
+func printAuditDurationHint(w io.Writer, mode string) {
+	for _, m := range strings.Split(mode, ",") {
+		m = strings.TrimSpace(m)
+		switch m {
+		case "balanced", "deep":
+			_, _ = fmt.Fprintf(w, "  %s %s %s\n",
+				terminal.Yellow(terminal.SymbolBowtie),
+				terminal.HiTeal(m+" mode"),
+				terminal.Gray("might take a couple of hours depending on the size of the codebase"))
+			return
+		}
+	}
+}
+
 // printAuditDispatchBanner renders the audit startup banner. It mirrors
 // printAutopilotBanner's shape (title "<X> Configuration", Purple ◆
 // bullets, HiTeal values, home-shortened/Muted paths, and the yellow ◇
@@ -775,6 +794,7 @@ func printAuditDispatchBanner(driver, mode, target, parentSessionDir string, age
 		terminal.Orange(clicommon.ValueOrNone(mode)))
 
 	printAuditModeTips(w, mode)
+	printAuditDurationHint(w, mode)
 
 	// Agent: render one driver per line. The first row carries the
 	// "Agent:" label and bullet; subsequent rows indent to the same

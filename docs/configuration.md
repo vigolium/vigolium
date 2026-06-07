@@ -393,7 +393,17 @@ known_issue_scan:
   severities: []                   # filter: critical, high, medium, low, info
   templates_dir: ""                # custom templates path
   enrich_targets: true             # feed discovered paths into known-issue scan
+  severity_overrides:              # remap recorded severity by template ID (case-insensitive)
+    config-json-exposure-fuzz: medium
 ```
+
+> **Right-sizing template severities:** `severity_overrides` remaps the severity a
+> finding is recorded with, keyed by nuclei template ID, applied before output and
+> persistence so the stored finding, console output, and severity counts all agree.
+> Use it for noisy or context-dependent templates (an exposed `config.json` often
+> ships only public base URLs / feature flags) instead of forking the upstream
+> template, which reverts on `nuclei -update-templates`. Set an entry back to the
+> template's own severity to undo a default remap.
 
 > **Single-phase runs sweep all severities:** the balanced default narrows
 > `severities` to `critical,high`. When known-issue-scan is the **only** phase

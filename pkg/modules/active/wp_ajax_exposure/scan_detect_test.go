@@ -84,6 +84,47 @@ func TestScanPerRequest_NoFalsePositive(t *testing.T) {
 	assert.Empty(t, res, "a WordPress host with no exposed actions must not yield a finding")
 }
 
+// TestScanPerRequest_GenericErrorPageNoFalsePositive reproduces the reported
+// false positive: a WordPress-ish host whose admin-ajax.php returns the small
+// "0" control body for unregistered actions but answers ai1wm_export with a
+// generic "load-failed … Refresh" HTML error page (as help.grab.com did). The
+// response differs from the control probe yet carries no All-in-One WP
+// Migration marker, so it must NOT be reported as an exposed export handler.
+func TestScanPerRequest_GenericErrorPageNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	// The exact shape of the page that triggered the FP — note it contains
+	// </html> (not the opening <html>) and no plugin tokens.
+	loadFailed := `<div class="err"><h1>Error</h1><h3 id="load-failed-url"></h3>` +
+		`<a onclick="window.location.reload(!0)" href="#" ` +
+		`style="color:#00a5cf;text-decoration:none">Refresh</a></div></div></body></html>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.URL.Path == "/wp-admin/admin-ajax.php" {
+			if readAction(r) == "ai1wm_export" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(loadFailed))
+				return
+			}
+			// Every other action (including the random control probe) → "0".
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("0"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", "<html></html>")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a generic load-failed HTML error page must not be flagged as an exposed AJAX action")
+}
+
 // TestScanPerRequest_NotWordPress ensures a non-WordPress host (admin-ajax.php
 // returns an HTML shell, not the small "0" control body) is rejected.
 func TestScanPerRequest_NotWordPress(t *testing.T) {

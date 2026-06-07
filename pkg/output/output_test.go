@@ -139,14 +139,19 @@ func TestFormatJSONStripsResponseByDefault(t *testing.T) {
 	data, err := w.formatJSON(ev)
 	require.NoError(t, err)
 
-	// Response is cleared on the event and absent from the marshaled JSON.
-	assert.Empty(t, ev.Response, "formatJSON clears Response when not included")
+	// The response is omitted from the marshaled JSON when not included...
 	assert.NotContains(t, string(data), "secret-body")
-
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(data, &decoded))
 	_, hasResponse := decoded["response"]
-	assert.False(t, hasResponse, "response key omitted when empty")
+	assert.False(t, hasResponse, "response key omitted from output")
+
+	// ...but the caller's event MUST keep its Response. The same *ResultEvent is
+	// written to output and then persisted to the DB (e.g. the known-issue scan
+	// callback runs before SaveFinding/SaveRecord); mutating it here would wipe
+	// the response body from the stored finding and HTTP record.
+	assert.Equal(t, "HTTP/1.1 200 OK\r\n\r\nsecret-body", ev.Response,
+		"formatJSON must not mutate the caller's event")
 }
 
 func TestStandardWriterWriteSetsDefaults(t *testing.T) {

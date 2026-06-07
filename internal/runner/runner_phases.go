@@ -1477,6 +1477,7 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, onResult func(*output.Re
 		cfg.Tags = knownIssueScanCfg.Tags
 		cfg.ExcludeTags = knownIssueScanCfg.ExcludeTags
 		cfg.Severities = knownIssueScanCfg.Severities
+		cfg.SeverityOverrides = knownIssueScanCfg.SeverityOverrides
 		if knownIssueScanCfg.TemplatesDir != "" {
 			cfg.TemplatesDir = config.ExpandPath(knownIssueScanCfg.TemplatesDir)
 		}

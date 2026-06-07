@@ -1041,6 +1041,17 @@ known_issue_scan:
   # Default: "" (uses nuclei default templates)
   templates_dir: ""
 
+  # Remap the severity a finding is recorded with, keyed by nuclei template ID
+  # (case-insensitive). Applied after a match but before output/persistence, so the
+  # stored finding, console output, and severity counts all reflect the new value.
+  # Use it to right-size noisy or context-dependent templates without forking the
+  # upstream template (which reverts on `nuclei -update-templates`).
+  # Default: config-json-exposure-fuzz is recorded as medium — an exposed config.json
+  # often ships only public base URLs / feature flags, not always-critical secrets.
+  # Set an entry back to its template severity (e.g. critical) to undo a default remap.
+  severity_overrides:
+    config-json-exposure-fuzz: medium
+
   # Enrich known-issue-scan targets with paths discovered in previous phases.
   # When true, nuclei templates are run against individual path prefixes
   # found during discovery/spidering (increases coverage but can slow down scans).

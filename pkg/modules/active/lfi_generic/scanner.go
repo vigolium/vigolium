@@ -96,6 +96,17 @@ func (m *Module) ScanPerInsertionPoint(
 				continue
 			}
 
+			// A successful include returns the file content with a 2xx/3xx
+			// status. A 4xx/5xx is the server rejecting the path (the payload
+			// became a non-existent route) — its error/404 body must never be
+			// mistaken for leaked file content, even if that body happens to
+			// carry matching tokens or base64 (e.g. CDN 404 pages with data-URI
+			// images).
+			if r := resp.Response(); r != nil && r.StatusCode >= 400 {
+				resp.Close()
+				continue
+			}
+
 			if rule.MatchWithBaseline(resp.Body().String(), origBody) {
 				results = append(results, &output.ResultEvent{
 					URL:              urlx.String(),
@@ -188,15 +199,19 @@ func getRules() []*rule {
 			"php://filter/convert.base64-encode/resource=index.php",
 			"php://filter/convert.base64-encode/resource=../index.php",
 			"php://filter/convert.base64-encode/resource=../../index.php",
-			"data://text/plain;base64,PD9waHAgZWNobyAidmlnZW5pdW0tdGVzdCI7ID8+",
+			// data:// wrapper: executes the embedded PHP, echoing the marker.
+			// Decodes to: <?php echo "vigolium-test"; ?>
+			"data://text/plain;base64,PD9waHAgZWNobyAidmlnb2xpdW0tdGVzdCI7ID8+",
 			"expect://id",
 			"php://input",
 		},
-		[]*regexp.Regexp{
-			regexp.MustCompile(`^[A-Za-z0-9+/=]{50,}`),
-		},
+		// The convert.base64-encode reads are confirmed by decoding the returned
+		// blob and requiring real PHP source (see confirmPHPFilterBase64), not by
+		// a bare base64 charset regex — that fired on incidental base64 (data-URI
+		// images) in ordinary CDN/static 404 pages.
+		[]*regexp.Regexp{},
 		[]string{"vigolium-test"},
-	)
+	).withConfirm(confirmPHPFilterBase64)
 	rules = append(rules, phpWrapperRule)
 	/* ------------------------------------------------------------------------- */
 	appConfigRule := newRule(

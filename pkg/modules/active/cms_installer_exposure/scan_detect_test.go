@@ -38,6 +38,40 @@ func TestScanPerRequest_DetectsWordPressInstaller(t *testing.T) {
 	require.NotEmpty(t, res, "expected a CMS installer finding when the WordPress installer is exposed")
 }
 
+// TestScanPerRequest_WeakWordNoFalsePositive ensures a normal 200 page that
+// merely contains a generic word (here "language" and "database" in ordinary
+// page copy/navigation) is NOT mistaken for an exposed installer. The old
+// single-marker logic would have flagged this as a critical "WordPress
+// Installer Exposed" because "language" was a standalone marker; the
+// CMS-anchor + installer-context co-occurrence requirement rejects it.
+func TestScanPerRequest_WeakWordNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	page := "<html><head><title>Our Product</title></head><body>" +
+		"<nav><a href=\"/language\">Language</a> <a href=\"/docs/database\">Database</a></nav>" +
+		"<p>Choose your preferred language. Configure the database for installation.</p>" +
+		"</body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Every installer path returns the same generic 200 marketing page;
+		// the random 404-fingerprint path returns a distinct not-found body.
+		switch r.URL.Path {
+		case "/wp-admin/install.php", "/wp-admin/setup-config.php",
+			"/install.php", "/core/install.php", "/installation/index.php":
+			_, _ = w.Write([]byte(page))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("<html><body>distinct 404 body padding padding padding</body></html>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a generic page containing a weak word must not be flagged as an exposed installer")
+}
+
 // TestScanPerRequest_NoFalsePositive ensures a host that returns 404 for every
 // installer path yields no finding.
 func TestScanPerRequest_NoFalsePositive(t *testing.T) {

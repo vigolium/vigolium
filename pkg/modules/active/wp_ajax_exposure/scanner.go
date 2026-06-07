@@ -201,6 +201,40 @@ func looksLikeWPControl(c *controlProbe) bool {
 	return true
 }
 
+// genericErrorMarkers are substrings (lowercase) that identify a generic HTML
+// error / challenge / SPA-shell page served by a CDN, WAF, or front-end router
+// rather than by WordPress's admin-ajax. The reported false positive was
+// help.grab.com answering every admin-ajax POST with a "load-failed … Refresh"
+// HTML page; any of these in the body marks the response as untrusted.
+var genericErrorMarkers = []string{
+	"load-failed",
+	"load_failed",
+	"window.location.reload",
+	"location.reload",
+	"<!doctype",
+	"<html",
+	"</html>",
+	"</body>",
+	"please enable javascript",
+	"enable javascript to run",
+	"access denied",
+	"request blocked",
+	"are unable to process",
+	"cloudflare",
+	"captcha",
+	"ray id",
+}
+
+// containsAny reports whether body contains any of the (lowercase) substrings.
+func containsAny(body string, subs []string) bool {
+	for _, s := range subs {
+		if s != "" && strings.Contains(body, s) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Module) probeAction(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
@@ -255,12 +289,25 @@ func (m *Module) probeAction(
 		return nil
 	}
 
-	// Check for anti-markers (generic error pages)
 	lowerBody := strings.ToLower(respBody)
-	if strings.Contains(lowerBody, "<!doctype") || strings.Contains(lowerBody, "<html") {
-		if !strings.Contains(lowerBody, "admin-ajax") {
-			return nil
-		}
+
+	// Positive confirmation: the response must contain a substring that ties it
+	// to THIS plugin/action. This is the core gate against false positives — a
+	// generic error page contains none of these, while a genuinely exposed
+	// nopriv handler echoes them even in its error/permission responses.
+	matched, ok := modkit.MatchAllGroups(lowerBody, action.markers)
+	if !ok {
+		return nil
+	}
+
+	// Defense in depth: drop generic error / challenge / SPA-shell pages. A
+	// CDN/WAF/app router serves a boilerplate HTML page (the help.grab.com
+	// "load-failed … Refresh" page that produced a false positive is one) for
+	// every admin-ajax POST regardless of action. If such a page also matched a
+	// plugin token by coincidence, only trust it when it's clearly an
+	// admin-ajax response rather than a router/error shell.
+	if containsAny(lowerBody, genericErrorMarkers) && !strings.Contains(lowerBody, "admin-ajax") {
+		return nil
 	}
 
 	targetURL := scheme + "://" + host + path + "?action=" + action.name
@@ -275,7 +322,7 @@ func (m *Module) probeAction(
 		Matched:          targetURL,
 		Request:          rawReq,
 		Response:         respBody,
-		ExtractedResults: []string{action.name, action.plugin},
+		ExtractedResults: append([]string{action.name, action.plugin}, matched...),
 		Info: output.Info{
 			Name:        fmt.Sprintf("WordPress AJAX Action Exposed: %s", action.name),
 			Description: fmt.Sprintf("The wp_ajax_nopriv_%s action (plugin: %s) responds to unauthenticated requests. %s", action.name, action.plugin, action.desc),

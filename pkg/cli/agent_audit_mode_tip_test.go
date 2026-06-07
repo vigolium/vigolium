@@ -65,3 +65,37 @@ func TestPrintAuditModeTips_Chain(t *testing.T) {
 		t.Errorf("unknown mode should be skipped, got:\n%s", out)
 	}
 }
+
+// TestPrintAuditDurationHint verifies the multi-hour heads-up fires only for
+// the recon-heavy modes (balanced, deep — including when they lead a chain)
+// and stays silent for the light/fast modes where it would just be noise.
+func TestPrintAuditDurationHint(t *testing.T) {
+	wantHint := []string{"balanced", "deep", "deep,confirm", "balanced,scan"}
+	for _, mode := range wantHint {
+		var buf bytes.Buffer
+		printAuditDurationHint(&buf, mode)
+		out := buf.String()
+		if !strings.Contains(out, "couple of hours") {
+			t.Errorf("mode %q: expected duration hint, got:\n%s", mode, out)
+		}
+		// One-line status: exactly one non-empty line, never repeated per mode.
+		lines := 0
+		for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+			if strings.TrimSpace(ln) != "" {
+				lines++
+			}
+		}
+		if lines != 1 {
+			t.Errorf("mode %q: expected a single status line, got %d:\n%s", mode, lines, out)
+		}
+	}
+
+	noHint := []string{"lite", "quick", "confirm", "diff", "", "bogus"}
+	for _, mode := range noHint {
+		var buf bytes.Buffer
+		printAuditDurationHint(&buf, mode)
+		if out := buf.String(); strings.TrimSpace(out) != "" {
+			t.Errorf("mode %q: expected no duration hint, got:\n%s", mode, out)
+		}
+	}
+}

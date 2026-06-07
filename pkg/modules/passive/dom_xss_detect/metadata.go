@@ -22,7 +22,7 @@ responses for dangerous source-to-sink data flows.
 - https://owasp.org/www-community/attacks/DOM_Based_XSS`
 
 	ModuleConfirmation = "Indicated when response JavaScript contains known source-to-sink patterns that could enable DOM-based XSS"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"xss", "javascript", "light"}
 )

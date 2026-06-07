@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.24-beta] - 2026-06-07
+
+A false-positive-reduction and severity-recalibration release: per-template severity overrides for known-issue scan, decode-confirmed LFI and marker-confirmed WordPress detection, right-sized passive DOM-XSS severities, and a fix for response bodies being dropped from stored known-issue findings.
+
+### Added
+
+- **Known-issue-scan severity overrides** — a new `known_issue_scan.severity_overrides` map remaps a finding's recorded severity by nuclei template ID (case-insensitive), applied after a match but before output/persistence so the stored finding, console output, and severity counts all agree. Lets you right-size noisy or context-dependent templates without forking the upstream template (which reverts on `nuclei -update-templates`). Ships a default `config-json-exposure-fuzz: medium` — an exposed `config.json` often carries only public base URLs / feature flags rather than always-critical secrets; set an entry back to the template's own severity to undo a remap.
+
+### Changed
+
+- **WordPress module false-positive hardening** — `wp-ajax-exposure` now requires plugin/action-specific markers (AND-of-OR groups via `modkit.MatchAllGroups`) in the response body and rejects generic CDN/WAF/SPA error pages, so an unrelated "load-failed … Refresh" page is no longer mislabelled as a critical export vulnerability. `cms-installer-exposure` now requires the CMS-name anchor and installer-specific context to co-occur (instead of any single generic word like "language" or "database") and adds a soft-404 / SPA-shell gate (`ConfirmNotSoft404`) to reject wildcard catch-all hosts.
+- **LFI base64-read confirmation** — the `php://filter/convert.base64-encode` read is now confirmed by actually decoding the returned base64 and requiring real PHP source (a PHP open tag, not already present in the baseline), replacing a bare `^[A-Za-z0-9+/=]{50,}` charset regex that fired on incidental base64 (data-URI images/fonts) embedded in ordinary CDN/static 404 pages. LFI matches are additionally gated to 2xx/3xx responses, so a 4xx/5xx error/404 body is never mistaken for leaked file content.
+- **Passive DOM-XSS severity recalibration** — `dom-xss-detect`, `dom-xss-taint`, and `unsafe-html-sink` (and each of its per-sink patterns) are lowered from Medium to Low, reflecting that these are static source/sink indicators without runtime confirmation.
+
+### Fixed
+
+- **Known-issue-scan findings lost their response body** — `formatJSON` zeroed `Response` in place on the shared `*ResultEvent` before `SaveFinding`/`SaveRecord` ran, wiping the response body from the stored finding and its HTTP record. It now serializes a shallow copy with `Response` cleared, leaving the persisted finding and record intact.
+
 ## [v0.1.23-beta] - 2026-06-06
 
 A combined detection and agentic-scan reliability release: routing-based SSRF detection from PortSwigger's "Cracking the lens" research, OpenRouter provider routing for the olium agent, resilient agent streaming with run cancellation and graceful shutdown, plus continued Spring/false-positive hardening.

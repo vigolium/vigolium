@@ -33,7 +33,7 @@ code injection patterns via eval() and new Function().
 - https://cwe.mitre.org/data/definitions/79.html`
 
 	ModuleConfirmation = "Confirmed when response JavaScript or template code contains known unsafe HTML injection sinks"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"xss", "javascript", "light"}
 )
