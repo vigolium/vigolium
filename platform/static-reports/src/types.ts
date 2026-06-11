@@ -46,6 +46,10 @@ export interface HttpRecord {
   request_content_type: string | null;
   request_content_length: number;
   request_body: string | null;
+  // Set by the HTML report generator when the body was capped/dropped to keep
+  // the embedded payload small (the full body is in the JSONL export).
+  request_body_trimmed?: boolean;
+  request_body_note?: string | null;
   request_authorization: string | null;
   request_hash: string;
   parameters: Record<string, string[]> | null;
@@ -59,6 +63,10 @@ export interface HttpRecord {
   response_content_length: number;
   response_title: string | null;
   response_body: string | null;
+  // Set by the HTML report generator when the body was capped/dropped to keep
+  // the embedded payload small (the full body is in the JSONL export).
+  response_body_trimmed?: boolean;
+  response_body_note?: string | null;
   response_hash: string;
   response_time_ms: number;
   response_words: number;

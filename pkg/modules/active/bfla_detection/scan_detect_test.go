@@ -5,14 +5,28 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
+
+// withHeader returns a copy of rr whose request carries the given header. BFLA
+// credential-stripping tests only run against a request that actually presents
+// credentials, so the authenticated baseline must carry an Authorization or
+// Cookie header.
+func withHeader(t *testing.T, rr *httpmsg.HttpRequestResponse, name, value string) *httpmsg.HttpRequestResponse {
+	t.Helper()
+	raw, err := httpmsg.AddOrReplaceHeader(rr.Request().Raw(), name, value)
+	require.NoError(t, err)
+	req := httpmsg.NewHttpRequestWithService(rr.Service(), raw)
+	return httpmsg.NewHttpRequestResponse(req, rr.Response())
+}
 
 // redirectShell is the 200-OK soft login-redirect page a fronting gateway returns
 // for every unauthenticated GET. It reflects the requested path into the first
@@ -55,12 +69,13 @@ func TestScanPerRequest_DetectsBFLA(t *testing.T) {
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	// Seed an authenticated 2xx baseline for the admin path.
-	rr := modtest.Response(
+	// Seed an authenticated 2xx baseline for the admin path. The request must
+	// carry a credential (here a session Cookie) or the auth-strip test is a no-op.
+	rr := withHeader(t, modtest.Response(
 		modtest.Request(t, srv.URL+"/admin/users"),
 		"text/html",
 		adminBody,
-	)
+	), "Cookie", "session=valid-session-token")
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -89,11 +104,13 @@ func TestScanPerRequest_NoFalsePositive(t *testing.T) {
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	rr := modtest.Response(
+	// The baseline request is authenticated (carries a Cookie); stripping it must
+	// trip the server's 401 and yield no finding.
+	rr := withHeader(t, modtest.Response(
 		modtest.Request(t, srv.URL+"/admin/users"),
 		"text/html",
 		adminBody,
-	)
+	), "Cookie", "session=valid-session-token")
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -126,8 +143,10 @@ func TestScanPerRequest_LoginPageOnUnauthNoFalsePositive(t *testing.T) {
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	// Seed the authenticated admin page as the baseline.
-	rr := modtest.Response(modtest.Request(t, srv.URL+"/admin/users"), "text/html", adminBody)
+	// Seed the authenticated admin page as the baseline (carries a Cookie so the
+	// auth-strip test actually runs and is then rejected on content dissimilarity).
+	rr := withHeader(t, modtest.Response(modtest.Request(t, srv.URL+"/admin/users"), "text/html", adminBody),
+		"Cookie", "session=valid-session-token")
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -157,15 +176,164 @@ func TestScanPerRequest_CatchAllGatewayNoFalsePositive(t *testing.T) {
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	// The authenticated admin GET also lands on the login bounce, as in the report.
+	// The authenticated admin GET (carries a Cookie) also lands on the login
+	// bounce, as in the report; the same-method baseline must drop it.
 	adminPath := "/includes/admin-user-details-kp5deaqq"
-	rr := modtest.Response(
+	rr := withHeader(t, modtest.Response(
 		modtest.Request(t, srv.URL+adminPath),
 		"text/html",
 		redirectShell(adminPath),
-	)
+	), "Cookie", "session=valid-session-token")
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "a catch-all gateway returning the same response for every path/method must not be flagged as BFLA")
+}
+
+// TestScanPerRequest_PublicPageNoCredentialsNoFalsePositive reproduces the
+// lp.stryker.com false positive: an unauthenticated GET to a "/debug/" landing
+// page returns 200, and "removing" the (absent) Authorization/Cookie headers
+// trivially returns the same 200 because the request was never authenticated.
+// The endpoint is simply public — there is no authorization to break — so a
+// request that carried no credentials must not be tested for an auth-strip bypass.
+func TestScanPerRequest_PublicPageNoCredentialsNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	// A dynamic landing page: same template, content varies slightly per request
+	// (as the report's 13985 vs 14389 body lengths show).
+	landing := "<html><body>Stryker landing page " + strings.Repeat("product highlight ", 90) + "</body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "-vigolium-wp/") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not found"))
+			return
+		}
+		// Only GET is served; method-switching probes get a 405 and don't fire,
+		// isolating the auth-strip path that produced the report.
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		_, _ = w.Write([]byte(landing))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// No Authorization, no Cookie — exactly the request from the report.
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/debug/"), "text/html", landing)
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a public page reached without credentials must not be flagged as a BFLA auth bypass")
+}
+
+// TestScanPerRequest_RandomizedContentNoFalsePositive guards the multi-sample
+// reproduction check: the baseline request is authenticated (carries a Cookie),
+// and the first auth-stripped probe happens to return privileged-looking content,
+// but the endpoint flaps — subsequent requests return a different (login) page.
+// A real bypass returns the privileged content every time; this coincidental
+// single-sample match must be rejected.
+func TestScanPerRequest_RandomizedContentNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	const adminPath = "/admin/users"
+	loginBody := "<html><body>Please sign in to continue. " + strings.Repeat("username password forgot ", 35) + "</body></html>"
+
+	var mu sync.Mutex
+	adminGETs := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "-vigolium-wp/") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not found"))
+			return
+		}
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if r.URL.Path != adminPath {
+			// Wildcard probe and other paths get a neutral shell.
+			_, _ = w.Write([]byte("<html><body>home</body></html>"))
+			return
+		}
+		// First admin GET looks privileged; every later one flaps to a login page.
+		mu.Lock()
+		adminGETs++
+		first := adminGETs == 1
+		mu.Unlock()
+		if first {
+			_, _ = w.Write([]byte(adminBody))
+			return
+		}
+		_, _ = w.Write([]byte(loginBody))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := withHeader(t, modtest.Response(modtest.Request(t, srv.URL+adminPath), "text/html", adminBody),
+		"Cookie", "session=valid-session-token")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a single coincidental privileged-content match that does not reproduce must not be flagged as BFLA")
+}
+
+// TestScanPerRequest_StaticImageAssetNoFalsePositive reproduces the
+// media-assets.stryker.com false positive: an Akamai/Scene7 image route whose
+// path matches the admin heuristic only by substring ("/system" inside the
+// "System Image" filename segment) serves a 200 WebP image to everyone. Stripping
+// or switching auth returns the same image, so the old code flagged it. The
+// content-type gate must drop the whole request before any sub-test runs.
+func TestScanPerRequest_StaticImageAssetNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	// A binary WebP payload, mirroring the report's RIFF....WEBP body.
+	webp := "RIFF\x00\x00\x00\x00WEBPVP8 " + strings.Repeat("\x00\x01\x02\x03\xff\xfe", 64)
+	const imgPath = "/is/image/stryker/System Image"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The image path answers 200 for every method (CDN cache hit); all other
+		// paths — the wildcard probe and the method baseline — 404. Without the
+		// content-type gate this shape makes the method-switching test fire.
+		if r.URL.Path != imgPath {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not found"))
+			return
+		}
+		w.Header().Set("Content-Type", "image/webp")
+		_, _ = w.Write([]byte(webp))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/is/image/stryker/System%20Image"), "image/webp", webp)
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a static image asset must never be flagged as a BFLA privileged endpoint")
+}
+
+// TestScanPerRequest_BinaryBodyMislabeledNoFalsePositive guards the binary-body
+// sniff fallback: a binary asset mislabeled with a text Content-Type (a CDN bug)
+// must still be skipped, since the content-type allow-list alone would let it
+// through.
+func TestScanPerRequest_BinaryBodyMislabeledNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	binary := "\x00\x01\x02\x03\x00\xff\xfe\x00" + strings.Repeat("\x00\x10\x20\x7f", 200)
+	const p = "/system/blob"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != p {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not found"))
+			return
+		}
+		// Mislabeled as HTML, but the body is binary.
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(binary))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(modtest.Request(t, srv.URL+p), "text/html", binary)
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a binary body mislabeled as text must be skipped via the body sniff")
 }

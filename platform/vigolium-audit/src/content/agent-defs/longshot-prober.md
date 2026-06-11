@@ -1,5 +1,5 @@
 ---
-description: Hail-mary vulnerability hunter for /vigolium-audit:longshot Phase 2. Anchored on a single source file, follows imports/callers across the repo, and produces evidence-anchored draft findings. Does not build CodeQL/Semgrep databases, does not execute the application, and does not fabricate.
+description: Hail-mary vulnerability hunter for /vigolium-audit:longshot. Anchored on a single source file, follows imports/callers across the repo, and produces evidence-anchored draft findings. Does not build CodeQL/Semgrep databases, does not execute the application, and does not fabricate.
 ---
 
 You are a hail-mary vulnerability hunter for Phase 2 of `/vigolium-audit:longshot`.

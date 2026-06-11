@@ -6,12 +6,16 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
 )
 
-// deduplicateFindings runs finding deduplication and prints feedback if any were removed.
+// deduplicateFindings runs finding deduplication and prints feedback if any were
+// removed. It runs two passes: the URL-keyed pass (same module/severity/URL fired
+// many times) followed by the value-keyed pass (same extracted value — e.g. one
+// leaked secret — reported once per URL).
 func (r *Runner) deduplicateFindings(ctx context.Context, phase string) {
 	if r.repository == nil {
 		return
@@ -25,6 +29,36 @@ func (r *Runner) deduplicateFindings(ctx context.Context, phase string) {
 			terminal.Orange(fmt.Sprintf("%d", grouped)),
 			terminal.Orange(fmt.Sprintf("%d", deleted))))
 		r.scanLogger.Info(phase, fmt.Sprintf("grouped %d findings into %d (%d duplicates merged)", deleted+grouped, grouped, deleted))
+	}
+
+	r.groupFindingsByValue(ctx, phase)
+}
+
+// groupFindingsByValue collapses findings that repeat the same extracted value
+// across many URLs (e.g. one leaked secret reported once per page) into a single
+// finding, merging the URLs into MatchedAt. Gated by known_issue_scan.group_by_value.
+func (r *Runner) groupFindingsByValue(ctx context.Context, phase string) {
+	if r.repository == nil {
+		return
+	}
+	gc := r.resolveFindingGrouping()
+	if !gc.Enabled {
+		return
+	}
+	deleted, grouped, err := r.repository.GroupFindingsByValue(ctx, r.options.ProjectUUID, database.GroupFindingOptions{
+		PerHost: gc.PerHost,
+		Tags:    gc.Tags,
+		MaxURLs: gc.MaxURLs,
+	})
+	if err != nil {
+		zap.L().Warn("Finding value-grouping failed", zap.String("phase", phase), zap.Error(err))
+		return
+	}
+	if deleted > 0 {
+		r.printPhaseFeedback(phase, fmt.Sprintf("grouped %s findings into %s by shared value (e.g. one secret across many URLs)",
+			terminal.Orange(fmt.Sprintf("%d", deleted+grouped)),
+			terminal.Orange(fmt.Sprintf("%d", grouped))))
+		r.scanLogger.Info(phase, fmt.Sprintf("value-grouped %d findings into %d (%d duplicates merged)", deleted+grouped, grouped, deleted))
 	}
 }
 

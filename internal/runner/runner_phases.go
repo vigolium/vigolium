@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -663,16 +662,22 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 	}
 	zap.L().Info("KnownIssueScan: running security posture assessment")
 
-	// Track findings by severity
-	var mu sync.Mutex
-	counts := make(map[severity.Severity]int)
+	// Collapse live output for findings that repeat the same extracted value
+	// (e.g. one leaked secret seen on many URLs) into a single console line per
+	// value. The grouper also owns the grouped severity tallies for the phase
+	// summary; the full finding still streams to file/DB on every occurrence.
+	grouper := newFindingGrouper(r.resolveFindingGrouping())
 
 	onResult := func(result *output.ResultEvent) {
-		mu.Lock()
-		counts[result.Info.Severity]++
-		mu.Unlock()
-
-		if err := r.output.Write(result); err != nil {
+		if grouper.observe(result) {
+			if err := r.output.Write(result); err != nil {
+				zap.L().Error("KnownIssueScan: failed to write result", zap.Error(err))
+			}
+			// Echo to stderr when the stdout stream is deferred (jsonl/html), so
+			// secret/CVE findings are visible live and not just post-scan. No-op
+			// in console mode — r.output.Write above already printed them.
+			r.echoLiveFinding("known-issue-scan", result)
+		} else if err := r.output.WriteFileOnly(result); err != nil {
 			zap.L().Error("KnownIssueScan: failed to write result", zap.Error(err))
 		}
 	}
@@ -709,20 +714,26 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 		}
 	}
 
-	// Print summary
+	// Print summary using grouped tallies (repeats of the same value count once),
+	// then one muted rollup line per collapsed value noting how many URLs it spanned.
+	counts := grouper.summaryCounts()
 	var total int
 	for _, c := range counts {
 		total += c
 	}
 	if total > 0 {
 		r.printPhaseDetail(formatKnownIssueScanSummary(counts, total))
+		for _, line := range grouper.rollupLines() {
+			r.printPhaseDetail(line)
+		}
 	}
 
-	// Increment processed_count for KnownIssueScan phase. Use the un-bounded
-	// parent ctx so the counter still updates when the phase deadline fired
-	// mid-scan (findings were already written; only the budget is exhausted).
+	// Increment processed_count for KnownIssueScan phase using the raw finding
+	// count — every emitted finding was written to the DB at this point (the
+	// post-phase grouping pass merges them afterward). Use the un-bounded parent
+	// ctx so the counter still updates when the phase deadline fired mid-scan.
 	if r.repository != nil && total > 0 {
-		if err := r.repository.IncrementProcessedCount(bookkeepingCtx, infra.scanUUID, int64(total)); err != nil {
+		if err := r.repository.IncrementProcessedCount(bookkeepingCtx, infra.scanUUID, int64(grouper.rawTotal())); err != nil {
 			zap.L().Warn("KnownIssueScan: failed to increment processed count", zap.Error(err))
 		}
 	}
@@ -1301,6 +1312,27 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 			return err
 		}
 		return nil
+	}
+
+	// Stream findings to stderr as they're discovered so the phase shows live
+	// results even when the stdout result stream is deferred to files (jsonl/
+	// html) — otherwise only the periodic status heartbeat moves. No-op in
+	// console mode (findings already print to stdout) or when silent, so the
+	// wrap is installed only when stdout won't show them. Repeated-value findings
+	// (one secret across many URLs) collapse to a single line via the same
+	// grouper the post-phase dedup uses; the grouper persists across feedback
+	// rounds so cross-round repeats also collapse.
+	if !r.findingsVisibleOnStdout() {
+		liveGrouper := newFindingGrouper(r.resolveFindingGrouping())
+		baseOnResult := baseExecutorCfg.OnResult
+		baseExecutorCfg.OnResult = func(result *output.ResultEvent) {
+			if baseOnResult != nil {
+				baseOnResult(result)
+			}
+			if result != nil && liveGrouper.observe(result) {
+				r.echoLiveFinding("dynamic-assessment", result)
+			}
+		}
 	}
 
 	// Feedback loop: re-scan newly discovered URLs

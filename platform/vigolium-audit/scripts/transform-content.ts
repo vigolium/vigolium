@@ -22,7 +22,7 @@ interface Rule {
   apply(text: string): string;
 }
 
-const RULES: Rule[] = [
+export const RULES: Rule[] = [
   {
     name: "strip-vigolium-audit-prefix",
     // `vigolium-audit:advisory-hunter` → `advisory-hunter` (preserve backticks).
@@ -59,7 +59,7 @@ const RULES: Rule[] = [
   },
 ];
 
-function transform(text: string): string {
+export function transform(text: string): string {
   let out = text;
   for (const rule of RULES) out = rule.apply(out);
   return out;
@@ -75,14 +75,14 @@ function transform(text: string): string {
  * Validators ignore code fences and the description: frontmatter line
  * because those legitimately quote claude-shaped tokens in documentation.
  */
-type ValidatorIssue = { rule: string; sample: string };
+export type ValidatorIssue = { rule: string; sample: string };
 const VALIDATORS: Array<{ name: string; check: RegExp }> = [
   { name: "no-vigolium-audit-prefix", check: /\bvigolium-audit:[a-zA-Z][\w-]*/ },
   { name: "no-run-in-background-flag", check: /run_in_background:\s*true/ },
   { name: "no-spawn-backtick", check: /\bspawn\s+`[a-z][\w-]+`/i },
 ];
 
-function validate(text: string): ValidatorIssue[] {
+export function validate(text: string): ValidatorIssue[] {
   const stripped = stripCodeFencesAndQuotes(text);
   const issues: ValidatorIssue[] = [];
   for (const v of VALIDATORS) {
@@ -159,4 +159,4 @@ function main(): void {
   }
 }
 
-main();
+if (import.meta.main) main();

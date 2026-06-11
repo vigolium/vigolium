@@ -1,6 +1,6 @@
 import { adapterEventHasQuotaLimit, adapterEventHasRetryableError, quotaResetDelayMs } from "../adapters/claude-events.js";
 import { BaseHandoff, type BaseHandoffOptions, type HandoffDriveResult, type HandoffRunContext } from "./base-handoff.js";
-import { parseIntEnv, sleepInterruptible } from "./util.js";
+import { resolveRetryConfig, runWithRetry } from "./retry.js";
 
 /**
  * Headless audit driver for the claude platform. Hands the entire mode off to
@@ -58,147 +58,84 @@ export class ClaudeHandoff extends BaseHandoff<ClaudeHandoffOptions> {
     // Retry policy for the headless handoff. Quota-limit failures get long
     // sleeps (prefer the streamed reset timestamp when available); retryable
     // transport failures such as Claude CLI stream-idle timeouts get
-    // exponential backoff.
-    const quotaMaxRetries =
-      this.opts.quotaMaxRetries ?? parseIntEnv(process.env.VIGOLIUM_AUDIT_QUOTA_MAX_RETRIES, 5);
-    const envQuotaDelayMs = process.env.VIGOLIUM_AUDIT_QUOTA_BACKOFF_MS !== undefined
-      ? parseIntEnv(process.env.VIGOLIUM_AUDIT_QUOTA_BACKOFF_MS, 60 * 60 * 1000)
-      : undefined;
-    const quotaOverrideDelayMs = this.opts.quotaBackoffMs ?? envQuotaDelayMs;
-    const quotaFallbackDelayMs = 60 * 60 * 1000;
-    const transientMaxRetries =
-      this.opts.transientMaxRetries ?? parseIntEnv(process.env.VIGOLIUM_AUDIT_TRANSIENT_MAX_RETRIES, 3);
-    const transientBaseDelayMs =
-      this.opts.transientBackoffMs ?? parseIntEnv(process.env.VIGOLIUM_AUDIT_TRANSIENT_BACKOFF_MS, 30 * 1000);
-    const maxAttempts = Math.max(quotaMaxRetries, transientMaxRetries);
+    // exponential backoff. The algorithm is shared with the orchestrator via
+    // `runWithRetry`; only the defaults differ (30s transient base here).
+    const retryConfig = resolveRetryConfig({
+      ...(this.opts.quotaMaxRetries !== undefined ? { quotaMaxRetries: this.opts.quotaMaxRetries } : {}),
+      ...(this.opts.quotaBackoffMs !== undefined ? { quotaBackoffMs: this.opts.quotaBackoffMs } : {}),
+      ...(this.opts.transientMaxRetries !== undefined ? { transientMaxRetries: this.opts.transientMaxRetries } : {}),
+      ...(this.opts.transientBackoffMs !== undefined ? { transientBackoffMs: this.opts.transientBackoffMs } : {}),
+      // The handoff is one whole-mode call writing findings to disk; a transient
+      // retry after progress is acceptable (and desirable) here.
+      skipTransientAfterProgress: false,
+      defaults: { quotaMaxRetries: 5, transientMaxRetries: 3, transientBaseDelayMs: 30 * 1000 },
+    });
     const abortSignal = this.opts.abortSignal ?? new AbortController().signal;
 
-    for (let attempt = 0; attempt <= maxAttempts; attempt++) {
-      let quotaLimit = false;
-      let retryableFailure = false;
-      let attemptOk = false;
-      let attemptErr: string | undefined;
-      let parsedQuotaDelayMs: number | null = null;
+    await runWithRetry(retryConfig, {
+      abortSignal,
+      probe: () => this.opts.adapter.probe(),
+      note: async (text) => {
+        await this.bus.emit({ kind: "phaseAdapterEvent", auditId: provisionalAuditId, phase, event: { kind: "textDelta", text } });
+      },
+      attempt: async () => {
+        let quotaLimit = false;
+        let retryableFailure = false;
+        let attemptOk = false;
+        let sawProgress = false;
+        let attemptErr: string | undefined;
+        let parsedQuotaDelayMs: number | null = null;
 
-      for await (const event of this.opts.adapter.run({
-        userPrompt: slash,
-        cwd: this.opts.targetDir,
-        pluginDir: this.opts.pluginDir,
-        bypassPermissions: true,
-        // AskUserQuestion would block forever in a non-interactive run.
-        disallowedTools: ["AskUserQuestion"],
-        ...(this.opts.abortSignal && { abortSignal: this.opts.abortSignal }),
-        ...(this.opts.debug ? { debug: true } : {}),
-        label: `${this.opts.mode}:handoff`,
-      })) {
-        await this.bus.emit({
-          kind: "phaseAdapterEvent",
-          auditId: provisionalAuditId,
-          phase,
-          event,
-        });
-        if (event.kind === "rateLimits") {
-          await this.bus.emit({ kind: "rateLimits", auditId: provisionalAuditId, data: event.data });
-        }
+        for await (const event of this.opts.adapter.run({
+          userPrompt: slash,
+          cwd: this.opts.targetDir,
+          pluginDir: this.opts.pluginDir,
+          bypassPermissions: true,
+          // AskUserQuestion would block forever in a non-interactive run.
+          disallowedTools: ["AskUserQuestion"],
+          ...(this.opts.abortSignal && { abortSignal: this.opts.abortSignal }),
+          ...(this.opts.debug ? { debug: true } : {}),
+          label: `${this.opts.mode}:handoff`,
+        })) {
+          await this.bus.emit({ kind: "phaseAdapterEvent", auditId: provisionalAuditId, phase, event });
+          if (event.kind === "rateLimits") {
+            await this.bus.emit({ kind: "rateLimits", auditId: provisionalAuditId, data: event.data });
+          }
+          if (event.kind === "textDelta" || event.kind === "toolCall") sawProgress = true;
 
-        // Quota notices can arrive as assistant text, failed finish reasons,
-        // error messages, or as Task/subagent toolResult payloads (rendered in
-        // the CLI with a `←` prefix). Scan the whole normalized event.
-        if (adapterEventHasQuotaLimit(event)) {
-          quotaLimit = true;
-          const delay = quotaResetDelayMs(event);
-          if (delay !== null && (parsedQuotaDelayMs === null || delay < parsedQuotaDelayMs)) {
-            parsedQuotaDelayMs = delay;
+          // Quota notices can arrive as assistant text, failed finish reasons,
+          // error messages, or as Task/subagent toolResult payloads (rendered in
+          // the CLI with a `←` prefix). Scan the whole normalized event.
+          if (adapterEventHasQuotaLimit(event)) {
+            quotaLimit = true;
+            const delay = quotaResetDelayMs(event);
+            if (delay !== null && (parsedQuotaDelayMs === null || delay < parsedQuotaDelayMs)) {
+              parsedQuotaDelayMs = delay;
+            }
+          }
+          if (adapterEventHasRetryableError(event)) retryableFailure = true;
+
+          if (event.kind === "error") attemptErr = event.cause.message;
+          if (event.kind === "finish") {
+            usd += event.usd;
+            tokens = { input: tokens.input + event.tokens.input, output: tokens.output + event.tokens.output };
+            attemptOk = event.ok;
+            if (!event.ok) attemptErr = event.reason;
           }
         }
-        if (adapterEventHasRetryableError(event)) {
-          retryableFailure = true;
-        }
 
-        if (event.kind === "error") {
-          attemptErr = event.cause.message;
-        }
-        if (event.kind === "finish") {
-          usd += event.usd;
-          tokens = {
-            input: tokens.input + event.tokens.input,
-            output: tokens.output + event.tokens.output,
-          };
-          attemptOk = event.ok;
-          if (!event.ok) attemptErr = event.reason;
-        }
-      }
-
-      ok = attemptOk;
-      errorMsg = attemptErr;
-
-      if (ok) break;
-      if (abortSignal.aborted) break;
-
-      if (quotaLimit) {
-        if (attempt >= quotaMaxRetries) break;
-        const delayMs = quotaOverrideDelayMs ?? parsedQuotaDelayMs ?? quotaFallbackDelayMs;
-        const minutes = Math.max(0, Math.round(delayMs / 60000));
-        await this.bus.emit({
-          kind: "phaseAdapterEvent",
-          auditId: provisionalAuditId,
-          phase,
-          event: {
-            kind: "textDelta",
-            text: `[quota limit hit — sleeping ${minutes}m before retry ${attempt + 1}/${quotaMaxRetries} — ${errorMsg ?? "usage limit reached"}]\n`,
-          },
-        });
-        await sleepInterruptible(delayMs, abortSignal);
-        if (abortSignal.aborted) break;
-
-        // Preflight: round-trip a trivial prompt (same probe `vigolium-audit
-        // verify` uses) to report whether the quota actually reset before we
-        // spend another full slash-command attempt. Purely informational — a
-        // still-limited probe just means the next attempt will fail fast and
-        // sleep again, keeping the total bounded by quotaMaxRetries.
-        try {
-          await this.opts.adapter.probe();
-          await this.bus.emit({
-            kind: "phaseAdapterEvent",
-            auditId: provisionalAuditId,
-            phase,
-            event: { kind: "textDelta", text: `[preflight ok — quota reset, resuming audit]\n` },
-          });
-        } catch (probeErr) {
-          await this.bus.emit({
-            kind: "phaseAdapterEvent",
-            auditId: provisionalAuditId,
-            phase,
-            event: {
-              kind: "textDelta",
-              text: `[preflight: still rate-limited (${(probeErr as Error).message.slice(0, 120)}) — retrying anyway]\n`,
-            },
-          });
-        }
-        continue;
-      }
-
-      if (retryableFailure) {
-        if (attempt >= transientMaxRetries) break;
-        const delayMs = transientBaseDelayMs * Math.pow(2, attempt);
-        await this.bus.emit({
-          kind: "phaseAdapterEvent",
-          auditId: provisionalAuditId,
-          phase,
-          event: {
-            kind: "textDelta",
-            text: `[transient adapter error — sleeping ${delayMs}ms before retry ${attempt + 1}/${transientMaxRetries} — ${errorMsg ?? "retryable adapter error"}]\n`,
-          },
-        });
-        await sleepInterruptible(delayMs, abortSignal);
-        if (abortSignal.aborted) break;
-        continue;
-      }
-
-      // Non-retryable failure → give up; the finalize path records the
-      // (resumable) state and exits.
-      break;
-    }
+        ok = attemptOk;
+        errorMsg = attemptErr;
+        return {
+          ok: attemptOk,
+          quotaLimit,
+          transient: retryableFailure,
+          sawProgress,
+          parsedQuotaDelayMs,
+          error: attemptErr,
+        };
+      },
+    });
 
     return { usd, tokens, ok, errorMsg };
   }

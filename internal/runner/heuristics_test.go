@@ -295,3 +295,46 @@ func TestFilterTargetsByHeuristics(t *testing.T) {
 		}
 	}
 }
+
+func TestSummarizeContentTypes(t *testing.T) {
+	// Empty input yields no summary.
+	if got := summarizeContentTypes(map[string]*HeuristicsResult{}); got != "" {
+		t.Errorf("empty results = %q, want \"\"", got)
+	}
+
+	// Single target: just the content type, no count.
+	single := summarizeContentTypes(map[string]*HeuristicsResult{
+		"a": {ContentType: "html"},
+	})
+	if !strings.Contains(single, "html") {
+		t.Errorf("single = %q, want it to contain %q", single, "html")
+	}
+	if strings.Contains(single, "×") {
+		t.Errorf("single = %q, should not include a count for one item", single)
+	}
+
+	// Mixed: counts >1 are rendered as "×N"; output is deterministic (sorted).
+	mixed := summarizeContentTypes(map[string]*HeuristicsResult{
+		"a": {ContentType: "html"},
+		"b": {ContentType: "html"},
+		"c": {ContentType: "json"},
+	})
+	if !strings.Contains(mixed, "html") || !strings.Contains(mixed, "×2") {
+		t.Errorf("mixed = %q, want html ×2", mixed)
+	}
+	if !strings.Contains(mixed, "json") {
+		t.Errorf("mixed = %q, want it to contain json", mixed)
+	}
+	// "html" sorts before "json", so html must appear first.
+	if strings.Index(mixed, "html") > strings.Index(mixed, "json") {
+		t.Errorf("mixed = %q, want html before json (sorted)", mixed)
+	}
+
+	// Empty content type falls back to a readable label.
+	unknown := summarizeContentTypes(map[string]*HeuristicsResult{
+		"a": {ContentType: ""},
+	})
+	if !strings.Contains(unknown, "unknown") {
+		t.Errorf("unknown = %q, want it to contain %q", unknown, "unknown")
+	}
+}

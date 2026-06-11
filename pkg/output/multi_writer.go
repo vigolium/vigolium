@@ -31,3 +31,14 @@ func (mw *MultiWriter) WriteFileOnly(event *ResultEvent) error {
 	}
 	return nil
 }
+
+// ShowsFindingsOnStdout reports whether any underlying writer renders findings to
+// stdout in human-readable form (see StandardWriter.ShowsFindingsOnStdout).
+func (mw *MultiWriter) ShowsFindingsOnStdout() bool {
+	for _, writer := range mw.writers {
+		if s, ok := writer.(interface{ ShowsFindingsOnStdout() bool }); ok && s.ShowsFindingsOnStdout() {
+			return true
+		}
+	}
+	return false
+}

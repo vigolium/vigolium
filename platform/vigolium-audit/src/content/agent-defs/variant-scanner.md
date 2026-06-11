@@ -1,5 +1,5 @@
 ---
-description: Phase 12 per-finding variant analysis agent that takes a confirmed vulnerability and searches for structural variants using the attack pattern registry's detection signatures, CodeQL on-demand queries, DFD/CFD slice analysis including Phase 10 Addendum discoveries, and chamber variant candidates
+description: Per-finding variant analysis agent that takes a confirmed vulnerability and searches for structural variants using the attack pattern registry's detection signatures, CodeQL on-demand queries, DFD/CFD slice analysis including Phase 10 Addendum discoveries, and chamber variant candidates
 ---
 
 > **Fold note (deep / balanced):** This agent is **not spawned** in deep or balanced mode — per-finding variant expansion is folded into the Phase D8 Review Chamber Code Tracer (same-pattern search on every VALID finding, filed in the `p10-` namespace with `Origin-Finding:`/`Origin-Pattern:` frontmatter). This file is still used directly by `revisit` mode (which binds `agent: variant-scanner` on known findings) and by codex dispatch. Keep this methodology in sync with the Code Tracer's inline variant instructions in `review-adjudicator.md`.

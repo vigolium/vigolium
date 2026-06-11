@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -210,6 +211,59 @@ func TestStandardWriterWriteFileOnly(t *testing.T) {
 func TestStandardWriterCloseNilFileIsSafe(t *testing.T) {
 	w := &StandardWriter{}
 	assert.NotPanics(t, w.Close)
+}
+
+func TestStandardWriterShowsFindingsOnStdout(t *testing.T) {
+	cases := []struct {
+		name          string
+		disableStdout bool
+		jsonOutput    bool
+		want          bool
+	}{
+		{"console human stream", false, false, true},
+		{"silent / deferred suppresses stdout", true, false, false},
+		{"raw json on stdout is not human-readable", false, true, false},
+		{"both off", true, true, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := &StandardWriter{DisableStdout: c.disableStdout, JSONOutput: c.jsonOutput}
+			assert.Equal(t, c.want, w.ShowsFindingsOnStdout())
+		})
+	}
+}
+
+func TestMultiWriterShowsFindingsOnStdout(t *testing.T) {
+	// No sub-writer advertises stdout findings.
+	mw := NewMultiWriter(&StandardWriter{DisableStdout: true})
+	assert.False(t, mw.ShowsFindingsOnStdout())
+
+	// One sub-writer does → the aggregate does.
+	mw = NewMultiWriter(&StandardWriter{DisableStdout: true}, &StandardWriter{})
+	assert.True(t, mw.ShowsFindingsOnStdout())
+
+	// A writer that doesn't implement the predicate is ignored, not a panic.
+	mw = NewMultiWriter(&recordingWriter{})
+	assert.False(t, mw.ShowsFindingsOnStdout())
+}
+
+func TestFormatPhaseFindingLine(t *testing.T) {
+	line := FormatPhaseFindingLine("dynamic-assessment", sampleEvent())
+	plain := terminal.StripANSI(line)
+
+	assert.True(t, strings.HasSuffix(line, "\n"), "line is newline-terminated")
+	assert.Contains(t, plain, "dynamic-assessment", "carries the phase tag")
+	assert.Contains(t, plain, "xss-reflected", "carries the module id")
+	// Prefers the precise matched-at location over the request URL.
+	assert.Contains(t, plain, "https://example.com/search?q=<script>")
+
+	// Extracted value is surfaced in brackets and truncated to the cap.
+	ev := sampleEvent()
+	ev.ExtractedResults = []string{strings.Repeat("A", liveFindingValueMax+20)}
+	withValue := terminal.StripANSI(FormatPhaseFindingLine("known-issue-scan", ev))
+	assert.Contains(t, withValue, "[")
+	assert.NotContains(t, withValue, strings.Repeat("A", liveFindingValueMax+1),
+		"value snippet is truncated to the cap")
 }
 
 // recordingWriter is an in-memory Writer that records every event it receives.

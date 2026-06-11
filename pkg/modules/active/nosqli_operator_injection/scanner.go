@@ -121,8 +121,8 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 	}
 
-	// Boolean diff: test true/false pairs
-	result, err := m.testBooleanDiff(ctx, ip, httpClient, payloads, baselineBody, baselineStatus)
+	// Boolean diff: test matched true/false pairs
+	result, err := m.testBooleanDiff(ctx, ip, httpClient, baselineBody)
 	if err != nil && !errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 		return nil, nil
 	}
@@ -467,135 +467,168 @@ func (m *Module) measureDuration(
 	return duration, body, status, nil
 }
 
-// testBooleanDiff tests true/false payload pairs to detect boolean-based NoSQL injection.
+// boolSample is one probe of a boolean-diff condition, carrying the signals the
+// confirmation logic needs to reject a non-analyzable response (a binary CDN
+// object, a WAF/auth/rate-limit page, or a NoSQL error surface).
+type boolSample struct {
+	body     string
+	status   int
+	blocked  bool // WAF/CDN/auth/rate-limit page — not the application
+	binary   bool // non-text body (image/font/archive) — text diff is meaningless
+	nosqlErr bool // NoSQL driver error — defer to nosqli_error_based
+}
+
+// testBooleanDiff tests structurally-matched always-true / always-false payload
+// pairs to detect boolean-based NoSQL injection. Each condition is sampled
+// several times (interleaved) so a randomizing or flapping endpoint cannot
+// manufacture a phantom differential: the always-true responses must stay mutually
+// similar, the always-false responses must stay mutually similar, and the two
+// clusters must clearly diverge. Binary and blocked responses abandon the pair (or
+// the whole insertion point), defeating the CDN-image / Akamai-block false positive.
 func (m *Module) testBooleanDiff(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
 	httpClient *http.Requester,
-	payloads []nosqliPayload,
 	baselineBody string,
-	baselineStatus int,
 ) (*output.ResultEvent, error) {
-	// Collect boolean diff payloads in true/false pairs
-	var boolPayloads []nosqliPayload
-	for _, p := range payloads {
-		if p.detectType == detectBooleanDiff {
-			boolPayloads = append(boolPayloads, p)
+	order := interleavedProbeOrder(boolTrueSamples, boolFalseSamples)
+
+	for _, pair := range booleanDiffPairs {
+		var trueBodies, falseBodies []string
+		skipPair := false
+
+		for _, wantTrue := range order {
+			value := pair.falsePayload
+			if wantTrue {
+				value = pair.truePayload
+			}
+
+			s, err := m.probeBoolean(ctx, ip, httpClient, value)
+			if err != nil {
+				if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+					return nil, err
+				}
+				return nil, nil // transport hiccup — abandon the boolean diff
+			}
+
+			// A binary body means the endpoint serves non-text content (e.g. a CDN
+			// image object); a text differential is meaningless for any pair, so
+			// abandon the whole insertion point rather than try the next payload.
+			if s.binary {
+				return nil, nil
+			}
+			// A blocked page (WAF/auth/rate-limit) or a NoSQL error surface, or a
+			// non-2xx/3xx always-true response, disqualifies THIS pair — move on.
+			if s.blocked || s.nosqlErr {
+				skipPair = true
+				break
+			}
+			if wantTrue {
+				if s.status < 200 || s.status >= 400 {
+					skipPair = true
+					break
+				}
+				trueBodies = append(trueBodies, s.body)
+			} else {
+				falseBodies = append(falseBodies, s.body)
+			}
 		}
-	}
-
-	// Process in pairs (true condition, false condition)
-	for i := 0; i+1 < len(boolPayloads); i += 2 {
-		truePayload := boolPayloads[i]
-		falsePayload := boolPayloads[i+1]
-
-		trueBody, trueStatus, err := m.sendPayload(ctx, ip, httpClient, truePayload.value)
-		if err != nil {
-			return nil, err
-		}
-
-		// Skip if response contains NoSQL errors
-		if containsNoSQLError(trueBody) {
+		if skipPair {
 			continue
 		}
 
-		falseBody, falseStatus, err := m.sendPayload(ctx, ip, httpClient, falsePayload.value)
-		if err != nil {
-			return nil, err
-		}
-
-		if containsNoSQLError(falseBody) {
+		if !confirmBooleanDiffMulti(trueBodies, falseBodies, baselineBody) {
 			continue
 		}
 
-		// Skip when either probe was blocked by an auth/WAF/rate-limit layer — a
-		// block page asymmetry (WAF blocks one payload, app serves the other) is
-		// not evidence of boolean-based NoSQL injection.
-		if isAccessDenied(trueStatus) || isAccessDenied(falseStatus) {
-			continue
-		}
-
-		// The always-true condition must yield a valid (served) response.
-		if trueStatus < 200 || trueStatus >= 400 {
-			continue
-		}
-
-		// Stability re-probe: send the always-true payload a second time to measure
-		// the endpoint's intrinsic per-request variance. Endpoints that embed a fresh
-		// token/nonce/timestamp in every response (e.g. bot-detection/challenge pages)
-		// would otherwise make any true/false difference look like a boolean signal.
-		trueBody2, _, err := m.sendPayload(ctx, ip, httpClient, truePayload.value)
-		if err != nil {
-			return nil, err
-		}
-		if containsNoSQLError(trueBody2) {
-			continue
-		}
-
-		if !confirmBooleanDiff(trueBody, trueBody2, falseBody, baselineBody) {
-			continue
-		}
+		trueReq := string(ip.BuildRequest([]byte(ip.BaseValue() + pair.truePayload)))
+		falseReq := string(ip.BuildRequest([]byte(ip.BaseValue() + pair.falsePayload)))
 
 		ev := modkit.NewEvidenceCollector()
 		ev.Add("baseline", modkit.CtxRequestRaw(ctx), modkit.CtxResponseRaw(ctx))
-		ev.Add("true-payload", string(ip.BuildRequest([]byte(ip.BaseValue()+truePayload.value))), trueBody)
-		ev.Add("false-payload", string(ip.BuildRequest([]byte(ip.BaseValue()+falsePayload.value))), falseBody)
+		ev.Add("true-payload", trueReq, trueBodies[0])
+		ev.Add("false-payload", falseReq, falseBodies[0])
 
 		urlx, _ := ctx.URL()
 		return &output.ResultEvent{
 			URL:                urlx.String(),
 			Matched:            urlx.String(),
-			Request:            string(ip.BuildRequest([]byte(ip.BaseValue() + truePayload.value))),
+			Request:            trueReq,
 			FuzzingParameter:   ip.Name(),
-			ExtractedResults:   []string{truePayload.value, falsePayload.value},
+			ExtractedResults:   []string{pair.truePayload, pair.falsePayload},
 			AdditionalEvidence: ev.Entries(),
 			Info: output.Info{
-				Name:        "NoSQL Boolean-based Injection",
-				Description: fmt.Sprintf("Boolean differential confirmed: always-true and always-false conditions produce structurally different responses (beyond the endpoint's own per-request variance) via parameter %q — %s", ip.Name(), truePayload.desc),
-				Severity:    severity.High,
-				Confidence:  severity.Firm,
-				Tags:        []string{"nosqli", "boolean-injection", "mongodb"},
-				Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection"},
+				Name: "NoSQL Boolean-based Injection",
+				Description: fmt.Sprintf(
+					"Boolean differential reproduced across %d always-true and %d always-false probes: the conditions return structurally different responses while each condition stays self-consistent across repeats (beyond the endpoint's own per-request variance) via parameter %q — %s",
+					len(trueBodies), len(falseBodies), ip.Name(), pair.desc,
+				),
+				Severity:   severity.High,
+				Confidence: severity.Firm,
+				Tags:       []string{"nosqli", "boolean-injection", "mongodb"},
+				Reference:  []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection"},
 			},
 			Metadata: map[string]any{
-				"true_body_len":  len(trueBody),
-				"false_body_len": len(falseBody),
-				"baseline_len":   len(baselineBody),
+				"true_samples":  len(trueBodies),
+				"false_samples": len(falseBodies),
+				"baseline_len":  len(baselineBody),
 			},
 		}, nil
 	}
 
-	_ = baselineStatus // baseline status reserved for future auth-state checks
-
 	return nil, nil
 }
 
-// sendPayload sends a payload and returns the response body and status.
-func (m *Module) sendPayload(
+// interleavedProbeOrder returns a true/false send schedule (true=always-true
+// probe) that alternates the two conditions so any slow drift in the endpoint
+// affects both equally rather than biasing one cluster.
+func interleavedProbeOrder(trueN, falseN int) []bool {
+	order := make([]bool, 0, trueN+falseN)
+	for trueN > 0 || falseN > 0 {
+		if trueN > 0 {
+			order = append(order, true)
+			trueN--
+		}
+		if falseN > 0 {
+			order = append(order, false)
+			falseN--
+		}
+	}
+	return order
+}
+
+// probeBoolean sends one boolean-diff payload and classifies the response. It
+// bypasses the response cache (NoClustering) so repeated identical sends are
+// genuinely fresh observations — essential for measuring the endpoint's
+// per-request variance rather than replaying a single clustered body.
+func (m *Module) probeBoolean(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
 	httpClient *http.Requester,
 	payloadValue string,
-) (string, int, error) {
+) (boolSample, error) {
 	fuzzedValue := ip.BaseValue() + payloadValue
-	fuzzedRaw := ip.BuildRequest([]byte(fuzzedValue))
-
-	fuzzedReq, err := httpmsg.ParseRawRequest(string(fuzzedRaw))
+	fuzzedReq, err := httpmsg.ParseRawRequest(string(ip.BuildRequest([]byte(fuzzedValue))))
 	if err != nil {
-		return "", 0, nil
+		return boolSample{binary: true}, nil // unparseable — treat as non-analyzable
 	}
 	fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoClustering: true})
 	if err != nil {
-		return "", 0, err
+		return boolSample{}, err
 	}
 	defer resp.Close()
 
-	body := resp.Body().String()
-	status := 0
+	s := boolSample{blocked: infra.IsBlockedResponse(resp)}
 	if resp.Response() != nil {
-		status = resp.Response().StatusCode
+		s.status = resp.Response().StatusCode
+		s.binary = isBinaryContentType(resp.Response().Header.Get("Content-Type"))
 	}
-	return body, status, nil
+	s.body = resp.Body().String()
+	if !s.binary {
+		s.binary = looksBinary(s.body)
+	}
+	s.nosqlErr = containsNoSQLError(s.body)
+	return s, nil
 }

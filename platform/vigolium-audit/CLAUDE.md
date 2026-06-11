@@ -51,7 +51,7 @@ In compiled mode the entire `src/content/` tree is inlined into `src/content-bun
 
 ### Mode = phase graph in YAML
 
-Each `command-defs/<mode>.md` file has frontmatter that declares the `phases:` array (id, title, agent, requires_git, parallel_with, depends_on). `engine/phase.ts` validates with Zod, detects cycles, and topologically sorts. v1 walks the order sequentially — `parallel_with` is recorded but not yet honored. Phases with `agent: null` are "inline" and run with the command-def body as the system prompt; phases with an agent name load that prompt from `agent-defs/<name>.md`.
+Each `command-defs/<mode>.md` file has frontmatter that declares the `phases:` array (id, title, agent, requires_git, parallel_with, depends_on). `engine/phase.ts` validates with Zod, detects cycles, topologically sorts, and groups phases into concurrency batches via `scheduleBatches`. The orchestrator honors `parallel_with`: phases that mutually declare each other (and whose `depends_on` is satisfied) run concurrently in one `Promise.all` batch. Pass `--serial` (or `parallel: false`) to fall back to one phase per batch (fully sequential). Phases with `agent: null` are "inline" and run with the command-def body as the system prompt; phases with an agent name load that prompt from `agent-defs/<name>.md`.
 
 When customizing modes or adding new ones, the engine has no hardcoded phase IDs — the YAML graph is canonical. Any phase referenced in `depends_on`/`parallel_with` must exist in `phases:`.
 

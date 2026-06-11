@@ -58,21 +58,22 @@ func (f *Factory) createFileTasks(schemeHost, path []byte, depth uint16, listTyp
 		}))
 	}
 
-	if f.config.Extensions.TestCustom && len(f.config.Extensions.CustomList) > 0 {
-		for _, ext := range f.config.Extensions.CustomList {
-			provider, err := f.getBuiltInProvider(listType, wordlistPath, caseSensitive)
-			if err != nil {
-				return nil, err
-			}
-			tasks = append(tasks, NewWordlistTask(&WordlistTaskConfig{
-				TaskType:   customExtType,
-				Provider:   provider,
-				Extension:  ext,
-				SchemeHost: schemeHost,
-				Path:       path,
-				Depth:      depth,
-			}))
+	// Static custom-extension fuzzing. EffectiveCustomList is empty under
+	// ConfirmRequired: in that mode extensions are only swept once confirmed as a
+	// valid route, via the observed-extension task paths driven by confirmExtension.
+	for _, ext := range f.config.Extensions.EffectiveCustomList() {
+		provider, err := f.getBuiltInProvider(listType, wordlistPath, caseSensitive)
+		if err != nil {
+			return nil, err
 		}
+		tasks = append(tasks, NewWordlistTask(&WordlistTaskConfig{
+			TaskType:   customExtType,
+			Provider:   provider,
+			Extension:  ext,
+			SchemeHost: schemeHost,
+			Path:       path,
+			Depth:      depth,
+		}))
 	}
 
 	return tasks, nil
@@ -130,18 +131,18 @@ func (f *Factory) buildObservedFileTasks(
 		}))
 	}
 
-	// Priority 2: Observed names with custom extensions (one task per extension)
-	if f.config.Extensions.TestCustom && len(f.config.Extensions.CustomList) > 0 {
-		for _, ext := range f.config.Extensions.CustomList {
-			tasks = append(tasks, NewObservedTask(&ObservedTaskConfig{
-				TaskType:  ObservedFilesCustomExt,
-				Provider:  payload.NewLazyObservedProvider(observedNames),
-				Extension: ext,
-				BaseURL:   baseURL,
-				DirPath:   dirPath,
-				Depth:     depth,
-			}))
-		}
+	// Priority 2: Observed names with custom extensions (one task per extension).
+	// EffectiveCustomList is empty under ConfirmRequired (extensions flow through
+	// confirmExtension → the observed-extension task path below).
+	for _, ext := range f.config.Extensions.EffectiveCustomList() {
+		tasks = append(tasks, NewObservedTask(&ObservedTaskConfig{
+			TaskType:  ObservedFilesCustomExt,
+			Provider:  payload.NewLazyObservedProvider(observedNames),
+			Extension: ext,
+			BaseURL:   baseURL,
+			DirPath:   dirPath,
+			Depth:     depth,
+		}))
 	}
 
 	// Priority 2: Observed full filenames (literal) - no extension manipulation

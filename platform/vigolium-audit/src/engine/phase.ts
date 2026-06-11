@@ -105,7 +105,8 @@ function detectCycles(phases: { id: string; depends_on: string[] }[], sourcePath
 
 /**
  * Topological order honoring depends_on. Stable: ties resolved by source order.
- * v1 engine walks this list sequentially; future parallelism would batch siblings.
+ * The orchestrator then groups this order into concurrency batches via
+ * `scheduleBatches` (mutually-declared `parallel_with` siblings run together).
  */
 export function topologicalOrder(phases: PhaseDef[]): PhaseDef[] {
   const remaining = new Map<string, PhaseDef>();

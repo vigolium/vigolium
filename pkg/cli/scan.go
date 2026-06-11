@@ -248,14 +248,23 @@ func runScanCmd(cmd *cobra.Command, args []string) error {
 		if !ok {
 			return fmt.Errorf("unknown scanning strategy %q; valid names: %v", strategyName, settings.ScanningStrategy.StrategyNames())
 		}
-		scanOpts.ExternalHarvestEnabled = phases.ExternalHarvesting
 		scanOpts.DiscoverEnabled = phases.Discovery
 		scanOpts.SpideringEnabled = phases.Spidering
 		scanOpts.KnownIssueScanEnabled = phases.KnownIssueScan
 		if !phases.DynamicAssessment {
 			scanOpts.SkipDynamicAssessment = true
 		}
-		zap.L().Debug("Applied scanning strategy", zap.String("strategy", strategyName))
+		// --external-harvest is a per-phase override on top of the strategy
+		// baseline: when explicitly set on the command line it wins, so the
+		// harvest phase can be toggled on demand without switching strategies
+		// (e.g. --intensity balanced --external-harvest). When the flag is not
+		// set, the strategy's ExternalHarvesting value applies.
+		if !cmd.Flags().Changed("external-harvest") {
+			scanOpts.ExternalHarvestEnabled = phases.ExternalHarvesting
+		}
+		zap.L().Debug("Applied scanning strategy",
+			zap.String("strategy", strategyName),
+			zap.Bool("external_harvest", scanOpts.ExternalHarvestEnabled))
 	}
 
 	// Resolve heuristics check level

@@ -81,6 +81,45 @@ type ExtensionConfig struct {
 	TestBackupExtensions bool     `json:"test_backup_extensions"`
 	BackupExtensions     []string `json:"backup_extensions"`
 	TestNoExtension      bool     `json:"test_no_extension"`
+
+	// ConfirmRequired gates server-side extension fuzzing behind a confirmation
+	// step: instead of blindly sweeping the wordlist with every CustomList
+	// extension, the engine only fuzzes an extension once it has confirmed the
+	// application serves it as a valid route. When true the static CustomList
+	// fuzzing is disabled and all extension fuzzing flows through the confirm
+	// pipeline (observed URLs / fingerprint / active probe). When false the
+	// legacy always-on CustomList behaviour applies.
+	ConfirmRequired bool `json:"confirm_required"`
+	// ConfirmViaObserved confirms an extension when a real URL bearing it is
+	// seen (start URL, spidered link, JS-extracted endpoint, sitemap).
+	ConfirmViaObserved bool `json:"confirm_via_observed"`
+	// ConfirmViaFingerprint confirms an extension when the start URL's response
+	// headers/cookies fingerprint a stack known to serve it (PHPSESSID → php,
+	// JSESSIONID → jsp/action, ASP.NET_SessionId → aspx/ashx, …).
+	ConfirmViaFingerprint bool `json:"confirm_via_fingerprint"`
+	// ConfirmViaProbe confirms an extension via an active soft-404 differential
+	// probe (e.g. GET index.aspx vs a random nonce.aspx, compared against the
+	// per-extension baseline). This is the fallback that keeps rewrite-heavy
+	// apps from going un-fuzzed when no link or header reveals the stack.
+	ConfirmViaProbe bool `json:"confirm_via_probe"`
+	// Candidates is the set of server-side extensions eligible for confirmation
+	// + fuzzing (no leading dot). Only extensions in this set are ever probed,
+	// fingerprint-mapped, or wordlist-swept under ConfirmRequired.
+	Candidates []string `json:"candidates"`
+	// ProbeFilenames are the high-signal base names tried per candidate during
+	// the active probe (no extension). Empty = built-in default.
+	ProbeFilenames []string `json:"probe_filenames"`
+}
+
+// EffectiveCustomList returns the custom extensions to statically sweep with the
+// wordlist. It is empty when custom fuzzing is disabled (TestCustom) or gated
+// behind confirmation (ConfirmRequired) — in the latter case extensions are
+// swept only after being confirmed, via the observed-extension task path.
+func (ec ExtensionConfig) EffectiveCustomList() []string {
+	if !ec.TestCustom || ec.ConfirmRequired {
+		return nil
+	}
+	return ec.CustomList
 }
 
 // EngineConfig controls discovery execution.

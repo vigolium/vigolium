@@ -1,7 +1,7 @@
 ---
 name: last30days
-description: "Researches a topic from the last 30 days on Reddit, X, and the web. Surfaces real community discussions with engagement metrics and synthesizes findings into actionable insights. Use when the user wants to know what people are saying about a topic right now."
-argument-hint: 'nano banana pro prompts, NVIDIA news, best AI video tools'
+description: "Researches a topic from the last 30 days across the web, Reddit, and X, surfacing real discussions with engagement metrics and synthesizing them into actionable insights. In an audit, use it for recent domain attack research — newly disclosed CVEs, fresh exploit techniques, and attack patterns for the target's stack/framework that predate the model's knowledge cutoff. Use whenever current, time-sensitive intelligence beats static knowledge."
+argument-hint: 'recent CVEs in <framework>, new SSRF bypass techniques, latest <language> deserialization exploits'
 allowed-tools:
   - Bash
   - Read

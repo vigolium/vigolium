@@ -148,11 +148,11 @@ func (m *Module) deriveThreshold(
 	base := ip.BaseValue()
 	samples := make([]time.Duration, 0, baselineSamples)
 	for i := 0; i < baselineSamples; i++ {
-		d, err := m.sendTimedPayload(ctx, httpClient, ip, base)
+		d, err := m.sendTimedPayload(ctx, httpClient, ip, base, false)
 		if err != nil {
 			return 0, err
 		}
-		samples = append(samples, d)
+		samples = append(samples, d.elapsed)
 	}
 
 	mean, stdev := infra.MeanStdev(samples)
@@ -182,67 +182,126 @@ func (m *Module) confirmTiming(
 ) (*output.ResultEvent, error) {
 	render := func(seconds int) string { return baseValue + tmpl.Render(seconds) }
 
+	// roundTiming records one confirmation round's measured latencies so the
+	// multi-round scaling comparison that proves the finding is preserved as
+	// evidence rather than recomputed and thrown away.
+	type roundTiming struct{ noSleep, low, high time.Duration }
+	var rounds []roundTiming
+	// The no-sleep control (fast) and high-sleep proof (slow) from the final
+	// round, captured with their raw request/response for the finding's evidence.
+	var control, proof timedResult
+
 	for round := 0; round < timeRounds; round++ {
-		noSleep, err := m.sendTimedPayload(ctx, httpClient, ip, render(0))
+		// Capture request/response on the final round only — earlier rounds just
+		// gate, so reading their bodies would waste allocations on the hot path.
+		capture := round == timeRounds-1
+
+		noSleep, err := m.sendTimedPayload(ctx, httpClient, ip, render(0), capture)
 		if err != nil {
 			return nil, err
 		}
-		if noSleep >= threshold {
+		if noSleep.elapsed >= threshold {
 			return nil, nil // Host is uniformly slow — not a reliable signal
 		}
 
-		high, err := m.sendTimedPayload(ctx, httpClient, ip, render(sleepHigh))
+		high, err := m.sendTimedPayload(ctx, httpClient, ip, render(sleepHigh), capture)
 		if err != nil {
 			return nil, err
 		}
-		if high < threshold {
+		if high.elapsed < threshold {
 			return nil, nil // No delay from the high sleep payload
 		}
 
-		low, err := m.sendTimedPayload(ctx, httpClient, ip, render(sleepLow))
+		low, err := m.sendTimedPayload(ctx, httpClient, ip, render(sleepLow), false)
 		if err != nil {
 			return nil, err
 		}
 		// The low sleep must itself add a partial delay (rules out a one-off spike
 		// on the high request)...
-		if low < time.Duration(sleepLow)*time.Second/2 {
+		if low.elapsed < time.Duration(sleepLow)*time.Second/2 {
 			return nil, nil
 		}
 		// ...and the high−low differential must track the requested (high−low)
 		// seconds (at least half, allowing for overhead/jitter).
-		observed := high - low
+		observed := high.elapsed - low.elapsed
 		expected := time.Duration(sleepHigh-sleepLow) * time.Second
 		if observed < expected/2 {
 			return nil, nil
 		}
+
+		rounds = append(rounds, roundTiming{noSleep.elapsed, low.elapsed, high.elapsed})
+		if capture {
+			control, proof = noSleep, high
+		}
 	}
 
-	// All rounds passed — confirmed delay-scaling command injection.
+	// All rounds passed — confirmed delay-scaling command injection. Carry the
+	// differential that proves it: the slow high-sleep probe is the primary pair,
+	// with the unmodified baseline and the fast no-sleep control as evidence.
+	// proof/control are always populated here: the final round captures, and the
+	// loop only reaches this point once every round has passed.
 	sleepPayload := render(sleepHigh)
-	fuzzedRaw := ip.BuildRequest([]byte(sleepPayload))
+
+	ev := modkit.NewEvidenceCollector()
+	ev.Add("baseline (unmodified request)", modkit.CtxRequestRaw(ctx), modkit.CtxResponseRaw(ctx))
+	ev.Add("control: no-sleep payload returned fast", control.request, control.response)
+
+	extracted := []string{sleepPayload, render(0), tmpl.Label}
+	for i, r := range rounds {
+		extracted = append(extracted, fmt.Sprintf(
+			"Round %d: no-sleep %dms, %ds-sleep %dms, %ds-sleep %dms",
+			i+1, r.noSleep.Milliseconds(), sleepLow, r.low.Milliseconds(), sleepHigh, r.high.Milliseconds()))
+	}
+
+	last := rounds[len(rounds)-1]
 	return &output.ResultEvent{
-		Request:          string(fuzzedRaw),
-		FuzzingParameter: ip.Name(),
-		ExtractedResults: []string{sleepPayload, render(0), tmpl.Label},
-		MatcherStatus:    true,
+		Request:            proof.request,
+		Response:           proof.response,
+		FuzzingParameter:   ip.Name(),
+		ExtractedResults:   extracted,
+		AdditionalEvidence: ev.Entries(),
+		MatcherStatus:      true,
 		Info: output.Info{
 			Name: ModuleName,
 			Description: fmt.Sprintf(
 				"Possible time-based blind OS command injection in parameter %q: the response delay "+
 					"scaled with the injected sleep duration above an adaptive per-target threshold "+
-					"across %d independent rounds via the %s payload. Detection is purely timing-based "+
-					"and can still be influenced by network conditions — corroborate with the in-band "+
-					"(command-injection-echo) or out-of-band (command-injection-oast) modules where possible.",
-				ip.Name(), timeRounds, tmpl.Label),
+					"across %d independent rounds via the %s payload (final round: no-sleep %dms, "+
+					"%ds-sleep %dms, %ds-sleep %dms). Detection is purely timing-based and can still be "+
+					"influenced by network conditions — corroborate with the in-band (command-injection-echo) "+
+					"or out-of-band (command-injection-oast) modules where possible.",
+				ip.Name(), timeRounds, tmpl.Label, last.noSleep.Milliseconds(),
+				sleepLow, last.low.Milliseconds(), sleepHigh, last.high.Milliseconds()),
 			// Impact is Critical, but the oracle is timing-only and network-sensitive,
 			// so the finding is reported as Tentative pending corroboration.
 			Severity:   severity.Critical,
 			Confidence: severity.Tentative,
 		},
+		// Per-round timings live in ExtractedResults (every round) and the
+		// Description (final round); Metadata carries only the scan configuration.
+		Metadata: map[string]any{
+			"threshold_ms":        threshold.Milliseconds(),
+			"confirmation_rounds": timeRounds,
+			"sleep_high_s":        sleepHigh,
+			"sleep_low_s":         sleepLow,
+		},
 	}, nil
 }
 
-// sendTimedPayload sends a payload and returns the elapsed wall-clock duration.
+// timedResult is one timed probe: its wall-clock latency plus, when capture is
+// requested, the raw request/response so a confirmed finding can carry the
+// actual proof pair as evidence instead of discarding it.
+type timedResult struct {
+	elapsed  time.Duration
+	request  string
+	response string
+}
+
+// sendTimedPayload sends a payload and returns its elapsed wall-clock duration.
+// When capture is true it also records the raw request and full response so the
+// caller can attach them to a finding (callers that only need the timing pass
+// false to avoid reading the body on the hot path).
+//
 // NoClustering ensures byte-identical sleep probes are actually re-executed (a
 // cached response would read as instant and defeat the timing measurement).
 func (m *Module) sendTimedPayload(
@@ -250,12 +309,13 @@ func (m *Module) sendTimedPayload(
 	httpClient *http.Requester,
 	ip httpmsg.InsertionPoint,
 	payload string,
-) (time.Duration, error) {
+	capture bool,
+) (timedResult, error) {
 	fuzzedRaw := ip.BuildRequest([]byte(payload))
 
 	fuzzedReq, err := httpmsg.ParseRawRequest(string(fuzzedRaw))
 	if err != nil {
-		return 0, err
+		return timedResult{}, err
 	}
 	fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
@@ -263,8 +323,15 @@ func (m *Module) sendTimedPayload(
 	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	elapsed := time.Since(start)
 	if err != nil {
-		return 0, err
+		return timedResult{}, err
+	}
+
+	res := timedResult{elapsed: elapsed}
+	if capture {
+		res.request = string(fuzzedRaw)
+		res.response = resp.FullResponseString()
 	}
 	resp.Close()
-	return elapsed, nil
+
+	return res, nil
 }

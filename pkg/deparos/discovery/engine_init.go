@@ -76,6 +76,11 @@ func (e *Engine) initSession() error {
 		logger.Debug("Skipping fingerprint learning (SkipFingerprintLearning=true)")
 	}
 
+	// Confirm which server-side extensions the app actually serves before any
+	// extension fuzzing is queued (observed start-URL ext, response fingerprint,
+	// active soft-404 differential probe). No-op unless ConfirmRequired.
+	e.confirmStartURLExtensions()
+
 	logger.Info("Session initialization complete")
 	return nil
 }
@@ -251,6 +256,11 @@ func (e *Engine) probeStartURL(targetURL *url.URL) error {
 
 	resp := rc.Response()
 	body := rc.BodyBytes()
+
+	// Snapshot response headers for fingerprint-based extension confirmation.
+	if resp != nil {
+		e.startURLHeader = resp.Header.Clone()
+	}
 
 	found, err := e.analyzer.Analyze(e.ctx, req, rc)
 	if err != nil {

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "fs";
+import { createHash } from "crypto";
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { readFile, stat } from "fs/promises";
 import { homedir } from "os";
 import { dirname, join } from "path";
@@ -194,30 +195,71 @@ export function resolveRoots(): ResolvedRoots {
 /**
  * Lazily extract the embedded content bundle to ~/.cache/vigolium-audit/content-<hash>/
  * and return the absolute path. Idempotent across runs.
+ *
+ * The dir name is keyed on a SHA-256 of the bundle's content (not its build
+ * timestamp), so two builds of identical content reuse the same cache dir
+ * rather than orphaning a fresh one each time. After resolving the current
+ * dir we prune any stale `content-*` siblings from previous versions.
  */
 function ensureExtractedBundle(): string {
   // Embedded as a static import; bun --compile inlines the JSON into the bin.
   // In dev mode this code path is never reached.
   const bundle = require("./content-bundle.json") as {
     generated_at: string;
+    content_hash?: string;
     files: Record<string, string>;
   };
-  const hash = simpleHash(bundle.generated_at);
-  const cacheRoot = join(homedir(), ".cache", "vigolium-audit", `content-${hash}`);
-  if (existsSync(cacheRoot)) return cacheRoot;
-  mkdirSync(cacheRoot, { recursive: true });
-  for (const [rel, contents] of Object.entries(bundle.files)) {
-    const out = join(cacheRoot, rel);
-    mkdirSync(dirname(out), { recursive: true });
-    writeFileSync(out, contents);
+  const hash = bundle.content_hash ?? bundleContentHash(bundle.files);
+  const cacheParent = join(homedir(), ".cache", "vigolium-audit");
+  const dirName = `content-${hash}`;
+  const cacheRoot = join(cacheParent, dirName);
+  if (!existsSync(cacheRoot)) {
+    mkdirSync(cacheRoot, { recursive: true });
+    for (const [rel, contents] of Object.entries(bundle.files)) {
+      const out = join(cacheRoot, rel);
+      mkdirSync(dirname(out), { recursive: true });
+      writeFileSync(out, contents);
+    }
+    // Only sweep on a fresh extraction — i.e. right after a version bump. In
+    // steady state (cacheRoot already present) startup does zero extra I/O.
+    pruneStaleContentDirs(cacheParent, dirName);
   }
   return cacheRoot;
 }
 
-function simpleHash(s: string): string {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return Math.abs(h).toString(36);
+/** Stable hash over the files map — order-independent, content-sensitive. */
+export function bundleContentHash(files: Record<string, string>): string {
+  const h = createHash("sha256");
+  for (const key of Object.keys(files).sort()) {
+    h.update(key);
+    h.update("\0");
+    h.update(files[key]!);
+    h.update("\0");
+  }
+  return h.digest("hex").slice(0, 16);
+}
+
+/**
+ * Remove `content-*` cache dirs left by previous bundle versions. Best-effort:
+ * a dir held open by a concurrently-running older binary may refuse to delete,
+ * which is fine — we swallow and move on.
+ */
+function pruneStaleContentDirs(cacheParent: string, keep: string): void {
+  let entries: import("fs").Dirent[];
+  try {
+    entries = readdirSync(cacheParent, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (!entry.name.startsWith("content-") || entry.name === keep) continue;
+    try {
+      rmSync(join(cacheParent, entry.name), { recursive: true, force: true });
+    } catch {
+      /* held open elsewhere — leave it */
+    }
+  }
 }
 
 export function getContentLoader(): ContentLoader {

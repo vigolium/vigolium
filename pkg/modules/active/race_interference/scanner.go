@@ -167,6 +167,9 @@ func (m *Module) ScanPerInsertionPoint(
 		ev := modkit.NewEvidenceCollector()
 		ev.Add("baseline", baselineReq, baselineResp)
 		ev.Add("sequential-probe", result.Request, result.Response)
+		if clean := firstCleanProbe(sequentialResults, baseline, result); clean != nil {
+			ev.Add("sequential-control (clean sibling)", clean.Request, clean.Response)
+		}
 		results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 	}
 
@@ -187,6 +190,9 @@ func (m *Module) ScanPerInsertionPoint(
 		ev := modkit.NewEvidenceCollector()
 		ev.Add("baseline", baselineReq, baselineResp)
 		ev.Add("parallel-probe", result.Request, result.Response)
+		if clean := firstCleanProbe(parallelResults, baseline, result); clean != nil {
+			ev.Add("parallel-control (clean concurrent sibling)", clean.Request, clean.Response)
+		}
 		results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 	}
 
@@ -209,10 +215,33 @@ func (m *Module) ScanPerInsertionPoint(
 		ev := modkit.NewEvidenceCollector()
 		ev.Add("baseline", baselineReq, baselineResp)
 		ev.Add("parallel-probe", result.Request, result.Response)
+		if clean := firstCleanProbe(parallelResults, baseline, result); clean != nil {
+			ev.Add("parallel-control (baseline-matching sibling)", clean.Request, clean.Response)
+		}
 		results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 	}
 
 	return results, nil
+}
+
+// firstCleanProbe returns the first probe in results that succeeded, carries no
+// wrong id, still matches the baseline group, and is not the divergent probe
+// itself — i.e. a concurrent/sequential sibling that came back normal. Attaching
+// it gives the finding a contrasting "this one was fine" pair, so the evidence
+// shows the interference (one corrupted request next to clean ones) rather than a
+// single odd response in isolation. Returns nil when every sibling also diverged
+// or errored.
+func firstCleanProbe(results []*ProbeResult, baseline *ResponseGroup, exclude *ProbeResult) *ProbeResult {
+	for _, r := range results {
+		if r == nil || r == exclude || r.Err != nil || r.HasWrongId || r.Request == "" {
+			continue
+		}
+		if baseline != nil && !baseline.Matches(r.StatusCode, r.Body, r.Headers) {
+			continue
+		}
+		return r
+	}
+	return nil
 }
 
 // buildBaseline sends sequential baseline requests and checks reflection. It

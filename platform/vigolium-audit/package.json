@@ -1,6 +1,6 @@
 {
   "name": "@vigolium/vigolium-audit",
-  "version": "0.1.12-alpha",
+  "version": "0.1.13-alpha",
   "private": true,
   "description": "vigolium-audit — autonomous agent that performs thorough security audits on your codebase, part of Vigolium",
   "keywords": [

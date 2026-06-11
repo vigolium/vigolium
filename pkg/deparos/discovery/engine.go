@@ -148,6 +148,18 @@ type Engine struct {
 	// Display callback
 	displayCallback func(result *Result)
 
+	// Extension-confirm pipeline: callback fired (once per host) when a
+	// server-side extension is confirmed as a valid route and queued for
+	// wordlist fuzzing; confirmedExtensions dedups confirmations.
+	extensionConfirmCallback func(ExtensionConfirmEvent)
+	confirmedExtensions      map[string]struct{}
+	confirmedExtMu           sync.Mutex
+	candidateExtSet          map[string]struct{}
+	candidateExtOnce         sync.Once
+	// startURLHeader is a snapshot of the start URL's response headers, captured
+	// during probeStartURL for fingerprint-based extension confirmation.
+	startURLHeader nethttp.Header
+
 	// Module system
 	moduleRegistry *module.Registry
 	moduleExecutor *module.Executor
@@ -367,26 +379,27 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 	}
 
 	engine := &Engine{
-		config:             cfg,
-		stateNotify:        make(chan struct{}),
-		taskQueue:          taskQueue,
-		coordinator:        nil, // Initialized after engine creation
-		httpClient:         httpClient,
-		analyzer:           analyzer,
-		fpCache:            fpCache,
-		fpComparator:       fpComparator,
-		fpLearner:          fpLearner,
-		spiderCoordinator:  spiderCoordinatorInstance,
-		spiderResolver:     spiderResolver,
-		spiderScope:        spiderScope,
-		redirectDetector:   redirectDetector,
-		storage:            st,
-		observedNames:      payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
-		observedExtensions: payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
-		observedPaths:      payload.NewObservedProviderWithLimit(true, cfg.Engine.ObservedMaxItems), // Always case-sensitive for REST API paths
-		observedFiles:      payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
-		testedDirectories:  testedDirsTracker,
-		testedFiles:        testedFilesTracker,
+		config:              cfg,
+		stateNotify:         make(chan struct{}),
+		taskQueue:           taskQueue,
+		coordinator:         nil, // Initialized after engine creation
+		httpClient:          httpClient,
+		analyzer:            analyzer,
+		fpCache:             fpCache,
+		fpComparator:        fpComparator,
+		fpLearner:           fpLearner,
+		spiderCoordinator:   spiderCoordinatorInstance,
+		spiderResolver:      spiderResolver,
+		spiderScope:         spiderScope,
+		redirectDetector:    redirectDetector,
+		storage:             st,
+		observedNames:       payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
+		observedExtensions:  payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
+		confirmedExtensions: make(map[string]struct{}),
+		observedPaths:       payload.NewObservedProviderWithLimit(true, cfg.Engine.ObservedMaxItems), // Always case-sensitive for REST API paths
+		observedFiles:       payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
+		testedDirectories:   testedDirsTracker,
+		testedFiles:         testedFilesTracker,
 		prefixBreaker: tracker.NewPrefixBreaker(tracker.BreakerConfig{
 			Enabled:        cfg.Engine.PrefixBreaker.Enabled,
 			MinSamples:     cfg.Engine.PrefixBreaker.MinSamples,
@@ -703,6 +716,13 @@ func (e *Engine) newCallbacks() *Callbacks {
 // SetDisplayCallback sets the real-time display callback.
 func (e *Engine) SetDisplayCallback(cb func(result *Result)) {
 	e.displayCallback = cb
+}
+
+// SetExtensionConfirmCallback sets the callback fired when a server-side
+// extension is confirmed as a valid route and queued for wordlist fuzzing.
+// Used to surface a console line; safe to leave nil.
+func (e *Engine) SetExtensionConfirmCallback(cb func(ExtensionConfirmEvent)) {
+	e.extensionConfirmCallback = cb
 }
 
 // initModuleSystem initializes the module system from config.

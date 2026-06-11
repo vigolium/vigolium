@@ -281,15 +281,23 @@ func (m *Module) testForwardedProto(
 	// (transient flap, load-balancer routing). Confirm the split is reproducible
 	// AND attributable to the "https" VALUE specifically — a benign X-Forwarded-
 	// Proto value must behave like the no-header baseline, not like the probe.
-	if !m.confirmForwardedProtoChange(ctx, httpClient, baselineStatus, probeStatus) {
+	// The negative-control collector records the benign "http" round so the
+	// finding carries the value-attribution side of the comparison, not just the
+	// no-header baseline.
+	negControlEv := modkit.NewEvidenceCollector()
+	if !m.confirmForwardedProtoChange(ctx, httpClient, baselineStatus, probeStatus, negControlEv) {
 		return nil
 	}
+
+	// Copy baselineEvidence into a fresh slice before appending: it is shared
+	// across all three findings, so appending in place could clobber a sibling.
+	evidence := append(append([]string{}, baselineEvidence...), negControlEv.Entries()...)
 
 	return &output.ResultEvent{
 		URL:                targetURL,
 		Request:            string(modifiedRaw),
 		Response:           resp.FullResponseString(),
-		AdditionalEvidence: baselineEvidence,
+		AdditionalEvidence: evidence,
 		ExtractedResults: []string{
 			"Header: X-Forwarded-Proto: https",
 			"Finding: " + finding,
@@ -451,11 +459,14 @@ func (m *Module) confirmForwardedHostReflection(ctx *httpmsg.HttpRequestResponse
 // presence or transient flapping. Across two rounds the no-header baseline must
 // keep returning baselineStatus and the "https" probe must keep returning
 // probeStatus; then a benign value ("http") must NOT reproduce the changed
-// status. Fails OPEN on an inconclusive fetch error.
+// status. Fails OPEN on an inconclusive fetch error. The benign-value round is
+// captured into negControl (nil-safe) so the finding can show that the change is
+// specific to "https", not just any X-Forwarded-Proto value.
 func (m *Module) confirmForwardedProtoChange(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	baselineStatus, probeStatus int,
+	negControl *modkit.EvidenceCollector,
 ) bool {
 	for range 2 {
 		_, bs, ok := m.headerFetch(ctx, httpClient, "X-Forwarded-Proto", "")
@@ -475,11 +486,65 @@ func (m *Module) confirmForwardedProtoChange(
 	}
 	// Negative control: a benign proto value must behave like the no-header
 	// baseline. If "http" also yields the changed status, the effect is from
-	// header presence/instability, not the "https" value.
-	if _, cs, ok := m.headerFetch(ctx, httpClient, "X-Forwarded-Proto", "http"); ok && cs == probeStatus && probeStatus != baselineStatus {
+	// header presence/instability, not the "https" value. Capture the pair as
+	// evidence regardless of the outcome — it documents the attribution check.
+	rawReq, fullResp, cs, ok := m.captureFetch(ctx, httpClient, "X-Forwarded-Proto", "http")
+	if !ok {
+		return true
+	}
+	negControl.Add("negative control: X-Forwarded-Proto: http (benign value)", rawReq, fullResp)
+	if cs == probeStatus && probeStatus != baselineStatus {
 		return false
 	}
 	return true
+}
+
+// captureFetch issues a GET / optionally carrying one header (cache-bypassed so
+// it truly hits the wire) and returns the raw request, full raw response, and
+// status. ok is false on any build/parse/transport error or a nil response. It
+// is the evidence-capturing counterpart to headerFetch, used where a confirmation
+// round's request/response pair must be preserved for the finding.
+func (m *Module) captureFetch(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, name, value string) (rawReq, fullResp string, status int, ok bool) {
+	raw, ok := rootGetRaw(ctx, name, value)
+	if !ok {
+		return "", "", 0, false
+	}
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	if err != nil {
+		return "", "", 0, false
+	}
+	req = req.WithService(ctx.Service())
+	resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true})
+	if err != nil {
+		return "", "", 0, false
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return "", "", 0, false
+	}
+	return string(raw), resp.FullResponseString(), resp.Response().StatusCode, true
+}
+
+// rootGetRaw builds a GET / request from ctx, optionally carrying one header
+// (name=="" or value=="" sends no extra header). It is the shared request
+// construction behind headerFetch and captureFetch; ok is false on any build
+// error.
+func rootGetRaw(ctx *httpmsg.HttpRequestResponse, name, value string) ([]byte, bool) {
+	raw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
+	if err != nil {
+		return nil, false
+	}
+	raw, err = httpmsg.SetPath(raw, "/")
+	if err != nil {
+		return nil, false
+	}
+	if name != "" && value != "" {
+		raw, err = httpmsg.AddOrReplaceHeader(raw, name, value)
+		if err != nil {
+			return nil, false
+		}
+	}
+	return raw, true
 }
 
 // confirmForwardedForSizeShift decides whether the spoofed X-Forwarded-For header
@@ -571,19 +636,9 @@ func (m *Module) fetchBodyLen(ctx *httpmsg.HttpRequestResponse, httpClient *http
 // variance to zero and make a transient block look reproducible — defeating the
 // confirmation gates. These fetches must really hit the wire.
 func (m *Module) headerFetch(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, name, value string) (bodyLen, status int, ok bool) {
-	raw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
-	if err != nil {
+	raw, ok := rootGetRaw(ctx, name, value)
+	if !ok {
 		return 0, 0, false
-	}
-	raw, err = httpmsg.SetPath(raw, "/")
-	if err != nil {
-		return 0, 0, false
-	}
-	if name != "" && value != "" {
-		raw, err = httpmsg.AddOrReplaceHeader(raw, name, value)
-		if err != nil {
-			return 0, 0, false
-		}
 	}
 	st, body, ok := modkit.ExecuteRaw(httpClient, ctx.Service(), raw, http.Options{NoClustering: true})
 	if !ok {

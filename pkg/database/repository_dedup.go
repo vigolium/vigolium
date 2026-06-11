@@ -7,6 +7,7 @@ import (
 
 	"github.com/uptrace/bun"
 
+	"github.com/vigolium/vigolium/pkg/output"
 	"go.uber.org/zap"
 )
 
@@ -253,4 +254,156 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 	}
 
 	return int64(len(allDupIDs)), groupCount, nil
+}
+
+// GroupFindingOptions configures value-based finding grouping (see
+// GroupFindingsByValue).
+type GroupFindingOptions struct {
+	// PerHost groups within each hostname — a value seen on two hosts stays two
+	// findings. When false, grouping is project-wide regardless of host.
+	PerHost bool
+	// Tags, when non-empty, restricts grouping to findings carrying at least one
+	// matching tag (case-insensitive).
+	Tags []string
+	// MaxURLs caps the merged matched-URL list on the survivor (0 = unlimited).
+	MaxURLs int
+}
+
+// GroupFindingsByValue collapses findings that share an identical extracted value
+// (e.g. the same leaked secret reported once per URL) into a single finding. The
+// survivor (earliest by created_at) absorbs every duplicate's matched URLs into
+// MatchedAt and a sample of their request/response pairs into AdditionalEvidence;
+// the duplicates are then deleted. Grouping is keyed on
+// (module_id, severity[, hostname], normalized extracted_results) — the value
+// must match byte-for-byte, so findings with distinct or empty extracted values
+// are never merged. Returns the count of deleted findings and the number of
+// groups that were collapsed.
+func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID string, opts GroupFindingOptions) (deleted int64, grouped int64, err error) {
+	projectUUID = defaultProjectUUID(projectUUID)
+
+	type findingRow struct {
+		ID                 int64    `bun:"id"`
+		Hostname           string   `bun:"hostname"`
+		ModuleID           string   `bun:"module_id"`
+		Severity           string   `bun:"severity"`
+		MatchedAt          []string `bun:"matched_at,type:jsonb"`
+		ExtractedResults   []string `bun:"extracted_results,type:jsonb"`
+		Tags               []string `bun:"tags,type:jsonb"`
+		Request            string   `bun:"request"`
+		Response           string   `bun:"response"`
+		AdditionalEvidence []string `bun:"additional_evidence,type:jsonb"`
+	}
+
+	// Only findings with a non-empty extracted value can be value-grouped. Order
+	// by created_at so the earliest finding in each group becomes the survivor.
+	loadQuery := `
+		SELECT id, hostname, module_id, severity, matched_at, extracted_results, tags,
+		       request, response, additional_evidence
+		FROM findings
+		WHERE project_uuid = ?
+		  AND extracted_results IS NOT NULL
+		  AND extracted_results != '[]'
+		  AND extracted_results != ''
+		ORDER BY created_at ASC, id ASC`
+
+	var rows []findingRow
+	if err := r.db.NewRaw(loadQuery, projectUUID).Scan(ctx, &rows); err != nil {
+		return 0, 0, fmt.Errorf("failed to load findings for value grouping: %w", err)
+	}
+
+	tagFilter := output.NormalizeTagSet(opts.Tags)
+
+	type groupData struct {
+		survivorID      int64
+		survivorMatched []string
+		evidence        []string
+		extraMatched    []string
+		dupIDs          []int64
+	}
+	groups := make(map[string]*groupData)
+	var order []string
+
+	for i := range rows {
+		row := &rows[i]
+		valueKey := output.NormalizedValueKey(row.ExtractedResults)
+		if valueKey == "" {
+			continue // no stable extracted value to group on
+		}
+		if len(tagFilter) > 0 && !output.TagsIntersect(row.Tags, tagFilter) {
+			continue
+		}
+		key := row.ModuleID + "\x1f" + row.Severity + "\x1f" + valueKey
+		if opts.PerHost {
+			key = row.Hostname + "\x1f" + key
+		}
+		g, ok := groups[key]
+		if !ok {
+			groups[key] = &groupData{
+				survivorID:      row.ID,
+				survivorMatched: row.MatchedAt,
+				evidence:        row.AdditionalEvidence,
+			}
+			order = append(order, key)
+			continue
+		}
+		// Duplicate: fold its URLs and evidence into the survivor.
+		g.dupIDs = append(g.dupIDs, row.ID)
+		g.extraMatched = append(g.extraMatched, row.MatchedAt...)
+		if ev := buildEvidence(row.Request, row.Response); ev != "" {
+			g.evidence = append(g.evidence, ev)
+		}
+		g.evidence = append(g.evidence, row.AdditionalEvidence...)
+	}
+
+	var allDupIDs []int64
+	for _, key := range order {
+		g := groups[key]
+		if len(g.dupIDs) > 0 {
+			grouped++
+			allDupIDs = append(allDupIDs, g.dupIDs...)
+		}
+	}
+	if len(allDupIDs) == 0 {
+		return 0, 0, nil
+	}
+
+	err = r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
+		for _, key := range order {
+			g := groups[key]
+			if len(g.dupIDs) == 0 {
+				continue
+			}
+			mergedMatched := mergeUniqueStrings(g.survivorMatched, g.extraMatched)
+			if opts.MaxURLs > 0 && len(mergedMatched) > opts.MaxURLs {
+				mergedMatched = mergedMatched[:opts.MaxURLs]
+			}
+			const maxAdditionalEvidence = 10
+			mergedEvidence := g.evidence
+			if len(mergedEvidence) > maxAdditionalEvidence {
+				mergedEvidence = mergedEvidence[:maxAdditionalEvidence]
+			}
+			upd := tx.NewUpdate().Model((*Finding)(nil)).Where("id = ?", g.survivorID)
+			if len(mergedMatched) > 0 {
+				upd = upd.Set("matched_at = ?", mergedMatched)
+			}
+			if len(mergedEvidence) > 0 {
+				upd = upd.Set("additional_evidence = ?", mergedEvidence)
+			}
+			if _, err := upd.Exec(ctx); err != nil {
+				return fmt.Errorf("failed to update grouped survivor: %w", err)
+			}
+		}
+		if _, err := tx.NewRaw("DELETE FROM finding_records WHERE finding_id IN (?)", bun.List(allDupIDs)).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to delete finding_records: %w", err)
+		}
+		if _, err := tx.NewDelete().Model((*Finding)(nil)).Where("id IN (?)", bun.List(allDupIDs)).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to delete grouped findings: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return int64(len(allDupIDs)), grouped, nil
 }

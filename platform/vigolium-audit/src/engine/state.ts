@@ -327,6 +327,24 @@ export function buildAuditId(now: Date = new Date()): string {
   return now.toISOString();
 }
 
+/**
+ * Pick the latest audit for `mode` that didn't reach `complete` — the single
+ * resume-resolution rule shared by the Orchestrator and the handoff drivers.
+ * `in_progress` covers process-killed-mid-phase; `failed`/`aborted` cover
+ * orderly terminal states (cost cap, strict failure, SIGINT). Each is
+ * resumable: completed phases are skipped, pending re-runs, stale in_progress
+ * phases get quarantined in phase prep. Returns null when nothing matches.
+ */
+export function findResumableAudit(audits: AuditRecord[], mode: AuditMode): AuditRecord | null {
+  return (
+    [...audits]
+      .reverse()
+      .find(
+        (a) => a.mode === mode && (a.status === "in_progress" || a.status === "failed" || a.status === "aborted"),
+      ) ?? null
+  );
+}
+
 export function newAuditRecord(opts: {
   audit_id: string;
   mode: AuditMode;

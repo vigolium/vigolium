@@ -154,6 +154,59 @@ func TestBuildProbeRequest(t *testing.T) {
 	assert.Contains(t, lower, "content-length:", "probe must keep its Content-Length header")
 }
 
+// TestBuildResult_CarriesConfirmationEvidence asserts the confirmation
+// differential — the reconfirmed slow probe and the fast well-formed control —
+// is preserved on the finding as AdditionalEvidence and Metadata, rather than
+// collapsed to a one-line prose claim that "the control returned fast".
+func TestBuildResult_CarriesConfirmationEvidence(t *testing.T) {
+	ctx, err := httpmsg.ParseRawRequest("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+	require.NoError(t, err)
+	modified, ok := buildProbeRequest(ctx, probes[0])
+	require.True(t, ok)
+
+	ev := desyncEvidence{
+		reElapsed:   8 * time.Second,
+		probeReq:    string(modified),
+		probeResp:   "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
+		hasControl:  true,
+		ctrlElapsed: 300 * time.Millisecond,
+		ctrlReq:     "POST / HTTP/1.1\r\nHost: example.com\r\nContent-Length: 1\r\n\r\n1",
+		ctrlResp:    "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
+	}
+
+	res := buildResult(ctx, modified, probes[0], 1*time.Second, 7*time.Second, false, ev)
+	require.NotNil(t, res)
+
+	assert.NotEmpty(t, res.Response, "the reconfirmed probe response should be the primary response pair")
+	require.NotEmpty(t, res.AdditionalEvidence, "the confirmation differential must travel as evidence")
+	joined := strings.Join(res.AdditionalEvidence, "\n")
+	assert.Contains(t, joined, "# [reconfirm probe", "expected the reconfirmed probe pair")
+	assert.Contains(t, joined, "# [well-formed control", "expected the fast control pair")
+
+	require.NotNil(t, res.Metadata)
+	assert.Equal(t, ev.reElapsed.Milliseconds(), res.Metadata["reconfirm_ms"])
+	assert.Equal(t, ev.ctrlElapsed.Milliseconds(), res.Metadata["control_ms"])
+}
+
+// TestBuildResult_NoControlOmitsControlEvidence covers the fall-back path where a
+// well-formed control could not be sent: the reconfirmed probe is still recorded,
+// but no control evidence or control_ms metadata is fabricated.
+func TestBuildResult_NoControlOmitsControlEvidence(t *testing.T) {
+	ctx, err := httpmsg.ParseRawRequest("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+	require.NoError(t, err)
+	modified, ok := buildProbeRequest(ctx, probes[0])
+	require.True(t, ok)
+
+	ev := desyncEvidence{reElapsed: 8 * time.Second, probeReq: string(modified)}
+	res := buildResult(ctx, modified, probes[0], time.Second, 7*time.Second, true, ev)
+	require.NotNil(t, res)
+
+	joined := strings.Join(res.AdditionalEvidence, "\n")
+	assert.Contains(t, joined, "# [reconfirm probe", "the reconfirmed probe must still be recorded")
+	assert.NotContains(t, joined, "well-formed control", "no control pair when none was sent")
+	assert.NotContains(t, res.Metadata, "control_ms", "control_ms must be absent when no control ran")
+}
+
 // TestBuildControlRequest verifies the control is an unambiguous, well-formed
 // POST: no Transfer-Encoding and a Content-Length that matches its body, so it
 // can never trigger a CL/TE desync.

@@ -13,9 +13,12 @@ var (
 Tests for path normalization vulnerabilities through two oracles:
 
 1. **Proxy normalization (status oracle):** iteratively applies traversal payloads
-   (with conditional auto-slashing) and checks response status codes and fingerprints
-   against expected internal/public patterns, surfacing reverse-proxy/backend
-   path-parsing disagreements.
+   (with conditional auto-slashing). An over-traversed path that is rejected as
+   malformed (HTTP 400) locates a real parser boundary; the path one step back
+   (still carrying a traversal segment) is then required to reach a 2xx text
+   resource that the clean URL either cannot reach (access unlocked) or that
+   differs substantially from the clean baseline (a divergent internal resource),
+   surfacing reverse-proxy/backend path-parsing disagreements.
 2. **Static-root traversal (file-read oracle):** on static-file-handler requests,
    sends matrix-parameter + encoded-slash bypasses (e.g. ` + "`/static;/..%2f..%2f`" + `)
    that keep the router pointed at the static mount while the file resolver
@@ -25,10 +28,13 @@ Tests for path normalization vulnerabilities through two oracles:
    surfacing a directory / cloud-bucket listing.
 
 ## Notes
-- Status oracle: compares response fingerprints between public and internal path
-  variations; requires the backed-off path to actually reach a resource (2xx) and
-  to reproduce, so a host's generic 403/404/500 handling for malformed paths is
-  not mistaken for an internal resource.
+- Status oracle: the backed-off path must carry at least one traversal segment
+  (so the degenerate "rejected suffix / clean path served" case is never reported),
+  reach a 2xx text resource (binary/static-asset content is excluded — that is the
+  static-root oracle's domain), survive root/non-existent catch-all comparison, and
+  reproduce. A host's generic 403/404/500 handling for malformed paths, a WAF/CDN
+  block, or a non-byte-stable binary asset is therefore not mistaken for an internal
+  resource.
 - Static-root oracle: tiered payload sweep (canonical shape first; unicode /
   double-encoding / control-character breakers %0a %0d %00 %23 and extra targets
   only after a Tier-1 signal). Confirms with baseline-subtracted content markers,
@@ -41,7 +47,7 @@ Tests for path normalization vulnerabilities through two oracles:
 - https://i.blackhat.com/us-18/Wed-August-8/us-18-Orange-Tsai-Breaking-Parser-Logic-Take-Your-Path-Normalization-Off-And-Pop-0days-Out-2.pdf
 - https://github.com/pillarjs/send`
 
-	ModuleConfirmation = "Confirmed either when a traversal payload is rejected (HTTP 400) while the backed-off path reproducibly reaches a 2xx resource whose fingerprint differs from the baseline/root/non-existent references, or when a matrix-parameter/encoded-slash shell reproducibly reads a known file (or surfaces a directory/bucket listing) off the static root, with baseline-subtracted markers surviving a wildcard and decoy-filename negative"
+	ModuleConfirmation = "Confirmed either when an over-traversed path is rejected (HTTP 400) while the backed-off, traversal-bearing path reproducibly reaches a 2xx text resource that the clean URL cannot reach (access unlocked) or that differs substantially from the clean baseline (and is not the root/non-existent catch-all shell), or when a matrix-parameter/encoded-slash shell reproducibly reads a known file (or surfaces a directory/bucket listing) off the static root, with baseline-subtracted markers surviving a wildcard and decoy-filename negative"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"misconfiguration", "lfi", "traversal", "moderate"}

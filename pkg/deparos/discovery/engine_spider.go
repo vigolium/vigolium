@@ -105,8 +105,11 @@ func (e *Engine) collectValidatedLinks(links []*url.URL, parentDepth uint16) *Sp
 		// Pass depth=0 here; extension task generation is handled separately below.
 		meta := e.applyFileMetadata(link.Path, 0)
 
-		// Generate dynamic extension tasks for newly discovered extensions during spidering
-		if meta.Extension != "" {
+		// Generate dynamic extension tasks for newly discovered extensions during
+		// spidering. Under ConfirmRequired this is already handled by
+		// applyFileMetadata above (the "observed" confirmation source), so skip
+		// the legacy depth-gated path to avoid double task generation.
+		if meta.Extension != "" && !e.config.Extensions.ConfirmRequired {
 			wasNew := e.addObservedExtensionIfNew(meta.Extension)
 			linkDepth := pathDepth(link.Path)
 			if wasNew && e.config.Extensions.TestObserved && linkDepth > 0 {

@@ -91,12 +91,14 @@ func TestDefaultCustomExtensions(t *testing.T) {
 
 func TestAllowedObservedExtensions(t *testing.T) {
 	// Verify the whitelist contains expected extensions
-	assert.Len(t, AllowedObservedExtensions, 92, "should have 92 allowed extensions")
+	assert.Len(t, AllowedObservedExtensions, 98, "should have 98 allowed extensions")
 
-	// Verify key extensions are in the whitelist
+	// Verify key extensions are in the whitelist, including the server-side
+	// route extensions used by the extension-confirm pipeline.
 	expectedExtensions := []string{
 		"php", "asp", "aspx", "jsp", "html", "htm", "js", "txt", "xml",
 		"bak", "backup", "old", "tmp", "log", "conf", "ini", "cfg",
+		"action", "do", "jspx", "ashx", "asmx", "cgi",
 	}
 	for _, ext := range expectedExtensions {
 		_, exists := AllowedObservedExtensions[ext]

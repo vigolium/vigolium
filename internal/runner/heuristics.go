@@ -6,6 +6,7 @@ import (
 	"fmt"
 	neturl "net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -76,15 +77,67 @@ func (r *Runner) runHeuristicsCheckPhase(ctx context.Context, infra *phaseInfra)
 			skipped++
 		}
 	}
-	if skipped > 0 {
-		r.printPhaseDetail(fmt.Sprintf("Skipping spidering: %s | Elapsed: %s",
-			terminal.Orange(fmt.Sprintf("%d/%d targets", skipped, len(results))),
-			terminal.Orange(fmtDuration(elapsed))))
+	total := len(results)
+	willSpider := total - skipped
+
+	// Conclude with what the probe found and the decision it drove, so the phase
+	// isn't a bare "Elapsed" line: content-type mix + how many targets advance to
+	// spidering vs. are skipped as non-crawlable (blank/JSON/API roots).
+	var decision string
+	switch {
+	case total == 0:
+		decision = terminal.Gray("no targets")
+	case skipped == 0:
+		decision = fmt.Sprintf("%s eligible for spidering", terminal.Orange(fmt.Sprintf("%d/%d", willSpider, total)))
+	case willSpider == 0:
+		decision = fmt.Sprintf("%s — spidering skipped (non-crawlable roots)", terminal.Orange(fmt.Sprintf("%d/%d", skipped, total)))
+	default:
+		decision = fmt.Sprintf("spidering %s, skipping %s",
+			terminal.Orange(fmt.Sprintf("%d", willSpider)),
+			terminal.Orange(fmt.Sprintf("%d", skipped)))
+	}
+
+	if ctSummary := summarizeContentTypes(results); ctSummary != "" {
+		r.printPhaseDetail(fmt.Sprintf("Result: %s root pages — %s | Elapsed: %s",
+			ctSummary, decision, terminal.Orange(fmtDuration(elapsed))))
 	} else {
-		r.printPhaseDetail(fmt.Sprintf("Elapsed: %s", terminal.Orange(fmtDuration(elapsed))))
+		r.printPhaseDetail(fmt.Sprintf("Result: %s | Elapsed: %s",
+			decision, terminal.Orange(fmtDuration(elapsed))))
 	}
 
 	return results, nil
+}
+
+// summarizeContentTypes renders a compact, deterministic breakdown of the
+// content types observed across probed root pages, e.g. "html" or
+// "html ×2, json". Counts of one are left implicit. Returns "" when there is
+// nothing to summarize.
+func summarizeContentTypes(results map[string]*HeuristicsResult) string {
+	if len(results) == 0 {
+		return ""
+	}
+	counts := make(map[string]int, len(results))
+	for _, res := range results {
+		ct := res.ContentType
+		if ct == "" {
+			ct = "unknown"
+		}
+		counts[ct]++
+	}
+	types := make([]string, 0, len(counts))
+	for ct := range counts {
+		types = append(types, ct)
+	}
+	sort.Strings(types)
+	parts := make([]string, 0, len(types))
+	for _, ct := range types {
+		if counts[ct] > 1 {
+			parts = append(parts, fmt.Sprintf("%s ×%d", terminal.HiTeal(ct), counts[ct]))
+		} else {
+			parts = append(parts, terminal.HiTeal(ct))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // normalizeToRoot strips the path and query from a URL, returning scheme://host/.

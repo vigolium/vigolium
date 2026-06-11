@@ -68,11 +68,7 @@ func (e *Engine) applyFileMetadata(urlPath string, depth uint16) (meta FileMetad
 		e.AddObservedNameTrusted(meta.Name)
 	}
 	if meta.Extension != "" {
-		if depth > 0 {
-			e.handleNewExtension(meta.Extension, depth)
-		} else {
-			e.addObservedExtensionIfNew(meta.Extension)
-		}
+		e.observeExtensionForFuzz(meta.Extension, urlPath, depth, true)
 	}
 
 	// Store full filename for literal file testing (preserves hashes like app.b5ca88ec.js)
@@ -93,7 +89,7 @@ func (e *Engine) applyFileMetadata(urlPath string, depth uint16) (meta FileMetad
 				e.AddObservedNameTrusted(segName)
 			}
 			if segExt != "" {
-				e.addObservedExtensionIfNew(segExt)
+				e.observeExtensionForFuzz(segExt, urlPath, depth, false)
 			}
 		}
 	}
@@ -169,6 +165,26 @@ func (e *Engine) incrementTasksGenerated() uint64 {
 	count := e.metrics.TasksGenerated
 	e.metricsMu.Unlock()
 	return count
+}
+
+// observeExtensionForFuzz routes an extension seen in a real URL through the
+// correct pipeline. Under ConfirmRequired it acts as the "observed"
+// confirmation source (gated by ConfirmViaObserved); otherwise it preserves the
+// legacy observed-extension behaviour. primary marks the URL's own last-segment
+// extension, which in legacy mode could directly generate dynamic tasks at
+// depth>0; segment-derived extensions never did.
+func (e *Engine) observeExtensionForFuzz(ext, urlPath string, depth uint16, primary bool) {
+	if e.config.Extensions.ConfirmRequired {
+		if e.config.Extensions.ConfirmViaObserved {
+			e.confirmExtension(ext, "observed", urlPath, depth)
+		}
+		return
+	}
+	if primary && depth > 0 {
+		e.handleNewExtension(ext, depth)
+		return
+	}
+	e.addObservedExtensionIfNew(ext)
 }
 
 // handleNewExtension processes a newly discovered extension.

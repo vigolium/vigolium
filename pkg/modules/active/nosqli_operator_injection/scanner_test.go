@@ -2,6 +2,7 @@ package nosqli_operator_injection
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -256,6 +257,207 @@ func TestResponsesDiverge(t *testing.T) {
 	// Empty bodies cannot establish divergence.
 	if responsesDiverge("", page) || responsesDiverge(page, "") {
 		t.Error("empty body must not count as divergent")
+	}
+}
+
+// TestBooleanDiffPairsAreTrueFalse guards the regression that caused the reported
+// false positive: each boolean-diff pair must couple a genuinely always-TRUE
+// payload with a genuinely always-FALSE one. The previous positional pairing
+// compared two always-true payloads (`' || '1'=='1` vs `" || "1"=="1`) against
+// each other, so any endpoint noise looked like a boolean signal.
+func TestBooleanDiffPairsAreTrueFalse(t *testing.T) {
+	if len(booleanDiffPairs) == 0 {
+		t.Fatal("expected boolean diff pairs, got none")
+	}
+	for _, p := range booleanDiffPairs {
+		if p.truePayload == p.falsePayload {
+			t.Errorf("pair has identical true/false payloads: %q", p.truePayload)
+		}
+		trueIsTautology := strings.Contains(p.truePayload, "1'=='1") ||
+			strings.Contains(p.truePayload, `1"=="1`) ||
+			strings.Contains(p.truePayload, "return true")
+		falseIsContradiction := strings.Contains(p.falsePayload, "1'=='2") ||
+			strings.Contains(p.falsePayload, `1"=="2`) ||
+			strings.Contains(p.falsePayload, "return false")
+		if !trueIsTautology {
+			t.Errorf("true payload %q is not an always-true condition", p.truePayload)
+		}
+		if !falseIsContradiction {
+			t.Errorf("false payload %q is not an always-false condition", p.falsePayload)
+		}
+	}
+}
+
+func TestConfirmBooleanDiffMulti(t *testing.T) {
+	list := "<html><body><ul>" + strings.Repeat("<li>user record</li>", 40) + "</ul></body></html>"
+	empty := "<html><body><p>No results</p></body></html>"
+
+	// Genuine: stable always-true cluster, stable always-false cluster, clear divergence.
+	if !confirmBooleanDiffMulti([]string{list, list, list}, []string{empty, empty}, list) {
+		t.Error("stable true/false clusters with clear divergence should confirm")
+	}
+
+	// Randomizing endpoint: the always-true samples disagree with EACH OTHER, so
+	// the noise floor is blown — no true/false difference can be trusted.
+	randTrue := []string{
+		"the quick brown fox jumps over the lazy dog every morning",
+		"a completely different sentence with unrelated vocabulary here",
+		"yet another paragraph sharing almost nothing with the others now",
+	}
+	randFalse := []string{
+		"random structure number four with its own distinct wording today",
+		"and a fifth body that again looks nothing like the previous ones",
+	}
+	if confirmBooleanDiffMulti(randTrue, randFalse, "") {
+		t.Error("a randomizing endpoint (true samples disagree among themselves) must not confirm")
+	}
+
+	// True and false return identical content — no signal.
+	if confirmBooleanDiffMulti([]string{list, list, list}, []string{list, list}, "") {
+		t.Error("identical true/false content must not confirm")
+	}
+
+	// Baseline matches the FALSE condition more than the true one — inversion, drop.
+	if confirmBooleanDiffMulti([]string{list, list}, []string{empty, empty}, empty) {
+		t.Error("when the normal response tracks the false condition, must not confirm")
+	}
+
+	// A single true sample cannot establish the noise floor.
+	if confirmBooleanDiffMulti([]string{list}, []string{empty, empty}, "") {
+		t.Error("fewer than two true samples must not confirm")
+	}
+}
+
+func TestLooksBinary(t *testing.T) {
+	if !looksBinary("RIFF\x2c\x00\x00\x00WEBPVP8 \x10\x00\x00\x90\x01") {
+		t.Error("WEBP byte stream should look binary")
+	}
+	if looksBinary("<html><body>hello world</body></html>") {
+		t.Error("HTML must not look binary")
+	}
+	if looksBinary(`{"items":[{"a":1,"b":"x"}]}`) {
+		t.Error("JSON must not look binary")
+	}
+	if looksBinary("") {
+		t.Error("empty body must not look binary")
+	}
+	if looksBinary("héllo wörld café naïve — über résumé") {
+		t.Error("UTF-8 multibyte text must not look binary")
+	}
+}
+
+func TestIsBinaryContentType(t *testing.T) {
+	for _, ct := range []string{"image/webp", "image/png", "audio/mpeg", "video/mp4", "application/octet-stream", "font/woff2", "application/pdf"} {
+		if !isBinaryContentType(ct) {
+			t.Errorf("%q should be classified binary", ct)
+		}
+	}
+	for _, ct := range []string{"text/html", "application/json", "text/plain; charset=utf-8", "application/xml", ""} {
+		if isBinaryContentType(ct) {
+			t.Errorf("%q should not be classified binary", ct)
+		}
+	}
+}
+
+// TestScanPerInsertionPoint_BinaryImageEndpoint reproduces the reported false
+// positive: an Adobe Scene7/Akamai dynamic-image endpoint (?$preset$) that returns
+// binary WEBP bytes. The captured baseline was the text/html Akamai block page, so
+// CanProcess's content-type gate passed — but the probe responses are binary, and a
+// text differential over image bytes is meaningless. The probe-level binary guard
+// must abandon the insertion point with no finding.
+func TestScanPerInsertionPoint_BinaryImageEndpoint(t *testing.T) {
+	webp := "RIFF\x2c\x00\x00\x00WEBPVP8 " + strings.Repeat("\x00\x01\x02\x03\x04", 80)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/webp")
+		_, _ = io.WriteString(w, webp)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.RequestMethod(t, "GET", srv.URL+"/is/image/logo?preset=1", "")
+	// Baseline captured as the text/html block page (the reported FP): CanProcess
+	// sees text/html and proceeds, but every probe returns binary image bytes.
+	rr = modtest.Response(rr, "text/html", "<html><head><title>Access Denied</title></head><body>Access Denied</body></html>")
+	ip := modtest.InsertionPoint(t, rr, "preset")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("expected no finding on a binary (image) endpoint, got %d: %+v", len(res), res)
+	}
+}
+
+// TestScanPerInsertionPoint_FlappingBlockEndpoint covers the other half of the
+// reported FP: the endpoint randomly flaps between a 403 Akamai "Access Denied"
+// block and a served 200 page, and the 200 page ignores the payload entirely. The
+// block samples are rejected by the block guard; the served samples are identical
+// for true and false (no divergence). Either way nothing is reported.
+func TestScanPerInsertionPoint_FlappingBlockEndpoint(t *testing.T) {
+	content := "<html><body>" + strings.Repeat("<p>welcome to the site</p>", 30) + "</body></html>"
+	var n int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt64(&n, 1)%2 == 0 {
+			w.Header().Set("Server", "AkamaiGHost")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, "<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>Access Denied</BODY></HTML>")
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, content) // identical regardless of the injected value
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.RequestMethod(t, "GET", srv.URL+"/search?q=widget", "")
+	rr = modtest.Response(rr, "text/html", content)
+	ip := modtest.InsertionPoint(t, rr, "q")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("expected no finding on a flapping 403/200 endpoint that ignores the payload, got %d: %+v", len(res), res)
+	}
+}
+
+// TestScanPerInsertionPoint_GenuineBooleanInjection is the positive case that the
+// pairing fix must still detect: the endpoint returns a record list for the
+// always-true condition and an empty page for the always-false condition, stably
+// and as text. The fixed true/false pairing plus multi-sample confirmation must
+// report exactly one boolean-injection finding.
+func TestScanPerInsertionPoint_GenuineBooleanInjection(t *testing.T) {
+	list := "<html><body><ul>" + strings.Repeat("<li>record for user smith</li>", 60) + "</ul></body></html>"
+	empty := "<html><body><p>No matching records found.</p></body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		v := r.FormValue("q")
+		w.Header().Set("Content-Type", "text/html")
+		if strings.Contains(v, "=='2") || strings.Contains(v, "return false") {
+			_, _ = io.WriteString(w, empty)
+			return
+		}
+		_, _ = io.WriteString(w, list)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.RequestMethod(t, "POST", srv.URL+"/api/users", "q=smith")
+	// Normal (un-injected) response tracks the always-true cluster.
+	rr = modtest.Response(rr, "text/html", list)
+	ip := modtest.InsertionPoint(t, rr, "q")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected exactly one boolean-injection finding, got %d: %+v", len(res), res)
+	}
+	if res[0].Info.Name != "NoSQL Boolean-based Injection" {
+		t.Errorf("unexpected finding name: %q", res[0].Info.Name)
 	}
 }
 

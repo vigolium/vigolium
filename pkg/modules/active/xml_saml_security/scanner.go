@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	httpUtils "github.com/projectdiscovery/utils/http"
-	"github.com/vigolium/vigolium/pkg/anomaly"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
@@ -16,31 +14,15 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	confirmCount = 2
-)
-
 // targetParams - only scan these parameter names (case-insensitive)
 var targetParams = []string{"samlrequest", "samlresponse"}
 
-// comparisonAttributes - attribute types for response fingerprinting
-// (excluding body content to reduce false positives from dynamic content)
-var comparisonAttributes = []anomaly.Type{
-	anomaly.STATUS_CODE,
-	anomaly.CONTENT_TYPE,
-	anomaly.CONTENT_LENGTH,
-	anomaly.LINE_COUNT,
-	anomaly.WORD_COUNT,
-	anomaly.LOCATION,
-	anomaly.PAGE_TITLE,
-}
-
-// checkConfig holds configuration for each security check
+// checkConfig holds one XXE probe: a payload builder plus the injection-type
+// label that the OAST poller folds into the confirmed finding.
 type checkConfig struct {
-	name        string
-	checkFunc   func(*XMLDocument, *DecodedSAML) (string, error)
-	description string
-	reference   string
+	name          string
+	injectionType string
+	build         func(*XMLDocument, *DecodedSAML, string) (string, error)
 }
 
 // Module implements XML SAML security scanning.
@@ -69,16 +51,29 @@ func New() *Module {
 	return m
 }
 
-// ScanPerInsertionPoint performs scanning for a specific insertion point.
+// ScanPerInsertionPoint plants out-of-band (OAST) XXE probes into SAML XML.
+//
+// Confirmation is purely out-of-band: each probe declares an external DTD /
+// external entity pointing at a unique OAST callback URL, and a finding is
+// emitted ASYNCHRONOUSLY by the OAST poller only if the target's XML parser
+// actually resolves it and calls back. There is no synchronous, response-shape
+// based verdict — that heuristic produced false positives (it could not tell a
+// parsed DTD from a silently stripped one), so the module no-ops without OAST.
 func (m *Module) ScanPerInsertionPoint(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
 	httpClient *http.Requester,
 	scanCtx *modkit.ScanContext,
 ) ([]*output.ResultEvent, error) {
-	// Filter: Only process SAMLRequest/SAMLResponse params
-	paramName := strings.ToLower(ip.Name())
-	if !isSAMLParam(paramName) {
+	// Filter: only process SAMLRequest/SAMLResponse params.
+	if !isSAMLParam(strings.ToLower(ip.Name())) {
+		return nil, nil
+	}
+
+	// Confirmation requires an out-of-band channel — without it there is no sound
+	// signal, so do nothing rather than fall back to a heuristic.
+	oast := scanCtx.OASTProv()
+	if oast == nil || !oast.Enabled() {
 		return nil, nil
 	}
 
@@ -96,208 +91,82 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 	}
 
-	// Step 1: Decode and parse XML from SAML value
-	baseValue := ip.BaseValue()
-	decoded, err := DecodeSAML(baseValue)
+	// Decode and parse the XML carried by the SAML value.
+	decoded, err := DecodeSAML(ip.BaseValue())
 	if err != nil {
-		zap.L().Debug("XMLSAMLSecurity: Failed to decode SAML",
-			zap.String("param", ip.Name()),
-			zap.Error(err))
+		zap.L().Debug("XMLSAMLSecurity: failed to decode SAML", zap.String("param", ip.Name()), zap.Error(err))
 		return nil, nil
 	}
 
-	// Step 2: Parse XML document
 	doc, err := ParseXML(decoded.XMLContent)
 	if err != nil {
-		zap.L().Debug("XMLSAMLSecurity: Failed to parse XML",
-			zap.String("param", ip.Name()),
-			zap.Error(err))
+		zap.L().Debug("XMLSAMLSecurity: failed to parse XML", zap.String("param", ip.Name()), zap.Error(err))
 		return nil, nil
 	}
 
-	// Skip if document already has DOCTYPE (don't inject into existing DTD)
+	// Don't inject into a document that already carries a DOCTYPE.
 	if doc.HasDoctype {
-		zap.L().Debug("XMLSAMLSecurity: Document already has DOCTYPE, skipping",
-			zap.String("param", ip.Name()))
+		zap.L().Debug("XMLSAMLSecurity: document already has DOCTYPE, skipping", zap.String("param", ip.Name()))
 		return nil, nil
 	}
 
-	// Step 3: Send baseline request (empty param value) and get fingerprint
-	baselineResp, err := m.sendRequest(ctx, ip, httpClient, "")
-	if err != nil {
-		if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
-			return nil, nil
-		}
-		return nil, nil
-	}
-	baselineFingerprint := createFingerprint(baselineResp)
-	baselineResp.Close()
-
-	// Step 4: Get original response fingerprint
-	var originalFingerprint *anomaly.Fingerprint
-	if ctx.HasResponse() {
-		originalFingerprint = createFingerprintFromCtx(ctx.Response())
-	} else {
-		origResp, _, err := httpClient.Execute(ctx, http.Options{})
-		if err != nil {
-			return nil, nil
-		}
-		originalFingerprint = createFingerprint(origResp)
-		origResp.Close()
-	}
-
-	// Step 5: Check if fingerprints are valid
-	if baselineFingerprint == nil || originalFingerprint == nil {
-		zap.L().Debug("XMLSAMLSecurity: Invalid fingerprint, skipping",
-			zap.String("param", ip.Name()))
-		return nil, nil
-	}
-
-	// Check if baseline differs from original (needed for detection)
-	// If they're similar, we can't distinguish attack from normal behavior
-	if baselineFingerprint.IsSimilar(originalFingerprint) {
-		zap.L().Debug("XMLSAMLSecurity: Baseline matches original, skipping",
-			zap.String("param", ip.Name()))
-		return nil, nil
-	}
-
-	// Step 6: Run security checks
 	checks := []checkConfig{
-		{
-			name:        "DOCTYPE",
-			checkFunc:   InjectDOCTYPE,
-			description: "DOCTYPE injection detected - potential XXE vulnerability",
-			reference:   "https://portswigger.net/research/saml-roulette-the-hacker-always-wins",
-		},
-		{
-			name:        "ENTITY",
-			checkFunc:   InjectENTITY,
-			description: "ENTITY injection detected - potential XXE vulnerability",
-			reference:   "https://portswigger.net/research/saml-roulette-the-hacker-always-wins",
-		},
+		{name: "DOCTYPE", injectionType: "XXE (SAML external DTD)", build: InjectDOCTYPE},
+		{name: "ENTITY", injectionType: "XXE (SAML external entity)", build: InjectENTITY},
 	}
 
-	var results []*output.ResultEvent
+	requestHash := ctx.Request().ID()
 
 	for _, check := range checks {
-		result := m.runCheck(ctx, ip, httpClient, doc, decoded, originalFingerprint, urlx.String(), check)
-		if result != nil {
-			results = append(results, result)
+		// GenerateURL returns a unique OAST host (correlation baked into the
+		// subdomain); wrap it as an http:// callback for the external reference.
+		oastHost := oast.GenerateURL(urlx.String(), ip.Name(), check.injectionType, ModuleID, requestHash)
+		if oastHost == "" {
+			continue
 		}
-	}
+		systemURL := "http://" + oastHost
 
-	return results, nil
-}
-
-// runCheck executes a single security check with confirmation.
-func (m *Module) runCheck(
-	ctx *httpmsg.HttpRequestResponse,
-	ip httpmsg.InsertionPoint,
-	httpClient *http.Requester,
-	doc *XMLDocument,
-	decoded *DecodedSAML,
-	originalFingerprint *anomaly.Fingerprint,
-	urlStr string,
-	check checkConfig,
-) *output.ResultEvent {
-	// Generate payload
-	payload, err := check.checkFunc(doc, decoded)
-	if err != nil {
-		zap.L().Debug("XMLSAMLSecurity: Check payload generation failed",
-			zap.String("check", check.name),
-			zap.Error(err))
-		return nil
-	}
-
-	zap.L().Debug("XMLSAMLSecurity: Trying check",
-		zap.String("check", check.name),
-		zap.String("param", ip.Name()))
-
-	// Require confirmCount successful confirmations
-	confirmed := 0
-	var lastAttackReq []byte
-	var lastAttackRespBody string
-	var lastAttackRespFull string
-
-	for attempt := 0; attempt < confirmCount && confirmed < confirmCount; attempt++ {
-		attackResp, attackReq, err := m.sendRequestWithPayload(ctx, ip, httpClient, payload)
+		payload, err := check.build(doc, decoded, systemURL)
 		if err != nil {
-			break
-		}
-
-		attackFingerprint := createFingerprint(attackResp)
-		attackRespBody := attackResp.Body().String()
-		attackRespFull := attackResp.FullResponseString()
-		attackResp.Close()
-
-		// Skip if fingerprint is nil
-		if attackFingerprint == nil {
+			zap.L().Debug("XMLSAMLSecurity: payload generation failed",
+				zap.String("check", check.name), zap.Error(err))
 			continue
 		}
 
-		// Attack matches original (not baseline) = vulnerability indicator
-		if attackFingerprint.IsSimilar(originalFingerprint) {
-			confirmed++
-			lastAttackReq = attackReq
-			lastAttackRespBody = attackRespBody
-			lastAttackRespFull = attackRespFull
+		if err := m.sendPayload(ctx, ip, httpClient, payload); err != nil {
+			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+				return nil, nil
+			}
+			// Other send errors are non-fatal; try the next probe.
+			continue
 		}
 	}
 
-	if confirmed >= confirmCount {
-		return &output.ResultEvent{
-			URL:              urlStr,
-			Request:          string(lastAttackReq),
-			Response:         lastAttackRespFull,
-			FuzzingParameter: ip.Name(),
-			Info: output.Info{
-				Description: check.description,
-				Reference:   []string{check.reference},
-			},
-			Metadata: map[string]interface{}{
-				"check_type":      check.name,
-				"confirmations":   confirmed,
-				"original_value":  ip.BaseValue(),
-				"response_sample": truncateString(lastAttackRespBody, 500),
-			},
-		}
-	}
+	// Findings arrive asynchronously via OAST polling callbacks.
+	return nil, nil
+}
 
+// sendPayload injects payload into the SAML insertion point and fires the
+// request. The response is irrelevant — confirmation is out-of-band — so the
+// response chain is closed immediately.
+func (m *Module) sendPayload(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	httpClient *http.Requester,
+	payload string,
+) error {
+	modifiedReq, err := httpmsg.ParseRawRequest(string(ip.BuildRequest([]byte(payload))))
+	if err != nil {
+		return err
+	}
+	modifiedReq = modifiedReq.WithService(ctx.Service())
+
+	resp, _, err := httpClient.Execute(modifiedReq, http.Options{})
+	if err != nil {
+		return err
+	}
+	resp.Close()
 	return nil
-}
-
-// sendRequest sends a request with the given payload value.
-func (m *Module) sendRequest(
-	ctx *httpmsg.HttpRequestResponse,
-	ip httpmsg.InsertionPoint,
-	httpClient *http.Requester,
-	payload string,
-) (*httpUtils.ResponseChain, error) {
-	modifiedRaw := ip.BuildRequest([]byte(payload))
-	modifiedReq, err := httpmsg.ParseRawRequest(string(modifiedRaw))
-	if err != nil {
-		return nil, err
-	}
-	modifiedReq = modifiedReq.WithService(ctx.Service())
-	resp, _, err := httpClient.Execute(modifiedReq, http.Options{})
-	return resp, err
-}
-
-// sendRequestWithPayload sends a request and returns both response and raw request.
-func (m *Module) sendRequestWithPayload(
-	ctx *httpmsg.HttpRequestResponse,
-	ip httpmsg.InsertionPoint,
-	httpClient *http.Requester,
-	payload string,
-) (*httpUtils.ResponseChain, []byte, error) {
-	modifiedRaw := ip.BuildRequest([]byte(payload))
-	modifiedReq, err := httpmsg.ParseRawRequest(string(modifiedRaw))
-	if err != nil {
-		return nil, nil, err
-	}
-	modifiedReq = modifiedReq.WithService(ctx.Service())
-	resp, _, err := httpClient.Execute(modifiedReq, http.Options{})
-	return resp, modifiedRaw, err
 }
 
 // isSAMLParam checks if the parameter name is a SAML parameter.
@@ -309,40 +178,4 @@ func isSAMLParam(name string) bool {
 		}
 	}
 	return false
-}
-
-// createFingerprint creates a anomaly.Fingerprint from ResponseChain.
-func createFingerprint(respChain *httpUtils.ResponseChain) *anomaly.Fingerprint {
-	if respChain == nil || !respChain.Has() {
-		return nil
-	}
-	resp := respChain.Response()
-	return anomaly.NewFingerprint2(
-		resp.StatusCode,
-		respChain.Body().String(),
-		resp.Header,
-		comparisonAttributes,
-	)
-}
-
-// createFingerprintFromCtx creates a anomaly.Fingerprint from HttpResponse.
-func createFingerprintFromCtx(resp *httpmsg.HttpResponse) *anomaly.Fingerprint {
-	headers := make(map[string][]string)
-	for _, h := range resp.Headers() {
-		headers[h.Name] = append(headers[h.Name], h.Value)
-	}
-	return anomaly.NewFingerprint2(
-		resp.StatusCode(),
-		resp.BodyToString(),
-		headers,
-		comparisonAttributes,
-	)
-}
-
-// truncateString truncates a string to maxLen characters.
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

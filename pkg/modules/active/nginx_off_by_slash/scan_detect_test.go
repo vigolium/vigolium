@@ -43,6 +43,33 @@ func TestScanPerRequest_DetectsStableOffBySlash(t *testing.T) {
 	require.NotEmpty(t, res, "a stable distinct 200 on an alias-traversal path must be reported")
 }
 
+// TestScanPerRequest_NoFalsePositive_BinaryImageCDN guards the path_normalization
+// FP class for this module: an extensionless image-CDN URL (Scene7/Akamai shape)
+// passes the URL-extension filter, and its alias-traversal path returns a stable
+// 200 image/webp. Binary/static-asset content is the static handler simply
+// serving a file (and its bytes are not stable on re-optimizing CDNs), so it must
+// be excluded by the response Content-Type gate — no finding. Without that gate
+// this exact shape (stable distinct 200, in-alias + random + wildcard all 404)
+// would be reported.
+func TestScanPerRequest_NoFalsePositive_BinaryImageCDN(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/images../static" {
+			w.Header().Set("Content-Type", "image/webp")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("RIFF" + strings.Repeat("x", 200) + "WEBP"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("Not Found"))
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(modtest.Request(t, srv.URL+"/images/render"), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a binary image/webp alias-traversal response must not be flagged")
+}
+
 // TestScanPerRequest_NoFalsePositive_GenericPrefixResponse reproduces the
 // reported false positive: a prefixed auth middleware / API gateway returns one
 // generic body (`{"message":"User not logged in"}`) for the ENTIRE /api path

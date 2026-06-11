@@ -1,6 +1,6 @@
-import { spawn } from "child_process";
 import type { Adapter, AdapterEvent, AdapterRunInput } from "./adapter.js";
 import { isTransientError, normalizeClaudeMessage } from "./claude-events.js";
+import { spawnAndStream } from "./cli-process.js";
 
 export interface ClaudeCliAdapterOptions {
   /** Absolute path to the `claude` binary. Required. */
@@ -113,146 +113,44 @@ export class ClaudeCliAdapter implements Adapter {
 
     const cwd = input.cwd ?? process.cwd();
 
-    const child = spawn(this.options.pathToClaudeCodeExecutable, args, {
+    // Send the user prompt as a single stream-json user message.
+    const userMessage = {
+      type: "user",
+      message: { role: "user", content: input.userPrompt },
+      session_id: "",
+      parent_tool_use_id: null,
+    };
+
+    const { stream } = spawnAndStream({
+      command: this.options.pathToClaudeCodeExecutable,
+      args,
       cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
+      stdin: JSON.stringify(userMessage) + "\n",
+      ...(input.debug !== undefined ? { debug: input.debug } : {}),
+      ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
     });
 
-    // Termination plumbing shared with the `finally` below. `abort` sends
-    // SIGTERM and arms a SIGKILL escalation so a child that ignores SIGTERM
-    // (hung, trapping the signal) still dies. The `finally` removes the abort
-    // listener (it lives on a potentially long-lived signal) and force-kills
-    // the child if we leave before it exited — e.g. the consumer breaks out of
-    // the `for await` early, or a throw unwinds through us.
-    const abortSignal = input.abortSignal;
-    let childExited = false;
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
-    const armHardKill = (): void => {
-      if (killTimer) return;
-      killTimer = setTimeout(() => {
-        if (!child.killed) child.kill("SIGKILL");
-      }, 5000);
-      killTimer.unref?.();
-    };
-    const abort = (): void => {
-      if (!child.killed) child.kill("SIGTERM");
-      armHardKill();
-    };
-    if (abortSignal) {
-      if (abortSignal.aborted) abort();
-      else abortSignal.addEventListener("abort", abort, { once: true });
-    }
-
-    try {
-      // Send the user prompt as a single stream-json user message, then close stdin.
-      const userMessage = {
-        type: "user",
-        message: { role: "user", content: input.userPrompt },
-        session_id: "",
-        parent_tool_use_id: null,
-      };
-      child.stdin?.write(JSON.stringify(userMessage) + "\n");
-      child.stdin?.end();
-
-      const errBuf: string[] = [];
-      child.stderr?.on("data", (chunk: Buffer) => {
-        const text = chunk.toString("utf8");
-        errBuf.push(text);
-        if (input.debug) process.stderr.write(text);
-      });
-
-      let pending = "";
-      let crashed: Error | null = null;
-      const lineQueue: string[] = [];
-      let resolveNext: ((v: void) => void) | null = null;
-      const wakeup = (): void => {
-        if (resolveNext) {
-          const r = resolveNext;
-          resolveNext = null;
-          r();
+    for await (const item of stream) {
+      if (item.kind === "line") {
+        let message: unknown;
+        try {
+          message = JSON.parse(item.line);
+        } catch {
+          // Non-JSON line; surface as a text delta so it's visible.
+          yield { kind: "textDelta", text: item.line + "\n" };
+          continue;
         }
-      };
-
-      let done = false;
-      let exitCode: number | null = null;
-
-      child.stdout?.on("data", (chunk: Buffer) => {
-        pending += chunk.toString("utf8");
-        let nl: number;
-        while ((nl = pending.indexOf("\n")) >= 0) {
-          const line = pending.slice(0, nl);
-          pending = pending.slice(nl + 1);
-          if (line.trim().length > 0) lineQueue.push(line);
+        for (const evt of normalizeClaudeMessage(message, startedAt)) yield evt;
+      } else if (item.kind === "exit") {
+        if (item.crashed) {
+          yield { kind: "error", cause: item.crashed, transient: isTransientError(item.crashed) };
+        } else if (item.exitCode !== null && item.exitCode !== 0) {
+          const cause = new Error(
+            `claude CLI exited ${item.exitCode}${item.stderr ? `: ${item.stderr.slice(0, 500)}` : ""}`,
+          );
+          yield { kind: "error", cause, transient: isTransientError(cause) };
         }
-        wakeup();
-      });
-      child.stdout?.on("end", () => {
-        if (pending.trim().length > 0) lineQueue.push(pending);
-        pending = "";
-        wakeup();
-      });
-      child.on("error", (err) => {
-        crashed = err;
-        done = true;
-        childExited = true;
-        wakeup();
-      });
-      child.on("close", (code) => {
-        exitCode = code;
-        done = true;
-        childExited = true;
-        wakeup();
-      });
-
-      while (true) {
-        while (lineQueue.length > 0) {
-          const line = lineQueue.shift()!;
-          let message: unknown;
-          try {
-            message = JSON.parse(line);
-          } catch {
-            // Non-JSON line; surface as a text delta so it's visible.
-            yield { kind: "textDelta", text: line + "\n" };
-            continue;
-          }
-          for (const evt of normalizeClaudeMessage(message, startedAt)) yield evt;
-        }
-        if (done) break;
-        await new Promise<void>((r) => {
-          resolveNext = r;
-        });
       }
-
-      if (crashed) {
-        yield {
-          kind: "error",
-          cause: crashed,
-          transient: isTransientError(crashed),
-        };
-        return;
-      }
-      if (exitCode !== null && exitCode !== 0) {
-        const stderr = errBuf.join("").trim();
-        const cause = new Error(`claude CLI exited ${exitCode}${stderr ? `: ${stderr.slice(0, 500)}` : ""}`);
-        yield {
-          kind: "error",
-          cause,
-          transient: isTransientError(cause),
-        };
-      }
-    } finally {
-      if (abortSignal) abortSignal.removeEventListener("abort", abort);
-      if (childExited) {
-        if (killTimer) clearTimeout(killTimer);
-      } else if (!child.killed) {
-        // Left before the child exited (early break by the consumer, or a
-        // throw): terminate it instead of orphaning the process.
-        child.kill("SIGTERM");
-        armHardKill();
-      }
-      // else: a kill is already in flight (abort path) — leave the SIGKILL
-      // timer armed so a child ignoring SIGTERM is still force-killed.
     }
   }
 }

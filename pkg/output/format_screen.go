@@ -10,6 +10,20 @@ import (
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
+// maxFileSuffixWidth caps the extracted-results/evidence suffix when output is
+// redirected to a file or pipe, where terminal-width truncation is skipped.
+const maxFileSuffixWidth = 500
+
+// sanitizeOneLine collapses embedded newlines (and the indentation runs around
+// them) so a finding always renders as a single console line. Values without
+// newlines pass through untouched.
+func sanitizeOneLine(s string) string {
+	if !strings.ContainsAny(s, "\r\n") {
+		return s
+	}
+	return strings.Join(strings.Fields(s), " ")
+}
+
 // formatScreen formats the output for showing on screen.
 // Format: [template-id] [type] [severity] matched-at [extracted-results]
 func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
@@ -59,12 +73,7 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 		prefixLen -= 3 // no "[" + "] " for module name
 	}
 	// matched-at (URL)
-	urlStr := output.Host
-	if output.Matched != "" {
-		urlStr = output.Matched
-	} else if output.URL != "" {
-		urlStr = output.URL
-	}
+	urlStr := MatchedURL(output)
 
 	// Prepend HTTP method when available
 	if output.Request != "" {
@@ -83,7 +92,7 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 		s := &bytes.Buffer{}
 		s.WriteString(" [")
 		for i, result := range output.ExtractedResults {
-			s.WriteString(result)
+			s.WriteString(sanitizeOneLine(result))
 			if i < len(output.ExtractedResults)-1 {
 				s.WriteString(",")
 			}
@@ -105,7 +114,10 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 	// interactive terminal. When stdout is redirected to a file or pipe (e.g. the
 	// per-target .console.log captured by `-P` parallel scans), term.GetSize fails
 	// and TerminalWidth falls back to 150, which would clip URLs/payloads mid-token
-	// with an ellipsis. File/pipe consumers want the full line, so skip truncation.
+	// with an ellipsis. File/pipe consumers want the full URL, so the URL is never
+	// truncated there — only the evidence suffix is capped (it is unbounded:
+	// per-match snippet extractors can emit thousands of chars per finding; the
+	// full data is still in jsonl/html/DB).
 	if terminal.IsTerminal() && remaining > 20 {
 		combined := urlStr + suffix
 		if len(combined) > remaining {
@@ -117,6 +129,8 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 				urlStr = terminal.Truncate(urlStr, remaining-len(suffix))
 			}
 		}
+	} else if !terminal.IsTerminal() {
+		suffix = terminal.Truncate(suffix, maxFileSuffixWidth)
 	}
 
 	builder.WriteString(urlStr)

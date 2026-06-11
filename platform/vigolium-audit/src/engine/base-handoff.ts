@@ -5,7 +5,7 @@ import { writeAuditContext } from "./audit-context.js";
 import { OrchestratorBus, type OrchestratorEvent } from "./events.js";
 import { startFindingsWatcher, summarizeFindings } from "./findings.js";
 import { type OrchestratorResult } from "./orchestrator.js";
-import { StateStore } from "./state.js";
+import { StateStore, findResumableAudit } from "./state.js";
 import { deriveHandoffStatus, startHandoffPoller } from "./handoff-poll.js";
 import { round2 } from "./util.js";
 import type { AuditMode, AuditRecord, PhaseDef } from "./types.js";
@@ -126,7 +126,7 @@ export abstract class BaseHandoff<O extends BaseHandoffOptions = BaseHandoffOpti
     const stateStore = new StateStore(resultsDir);
     const before = await stateStore.load().catch(() => ({ schema_version: 1 as const, audits: [] as AuditRecord[] }));
     const knownIds = new Set(before.audits.map((a) => a.audit_id));
-    const resumeAudit = this.opts.resume ? findResumableHandoffAudit(before.audits, this.opts.mode) : null;
+    const resumeAudit = this.opts.resume ? findResumableAudit(before.audits, this.opts.mode) : null;
 
     // Synthetic event metadata so the existing line/JSON loggers can render the
     // handoff stream. The real audit_id is read back from audit-state.json after
@@ -237,14 +237,3 @@ export abstract class BaseHandoff<O extends BaseHandoffOptions = BaseHandoffOpti
   }
 }
 
-/**
- * Pick the latest non-complete audit for `mode` to resume. Shared by both
- * handoff drivers via `BaseHandoff.setup`.
- */
-export function findResumableHandoffAudit(audits: AuditRecord[], mode: AuditMode): AuditRecord | null {
-  return (
-    [...audits].reverse().find(
-      (a) => a.mode === mode && (a.status === "in_progress" || a.status === "failed" || a.status === "aborted"),
-    ) ?? null
-  );
-}

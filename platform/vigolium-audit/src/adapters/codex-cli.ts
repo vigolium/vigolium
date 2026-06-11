@@ -1,9 +1,9 @@
-import { spawn } from "child_process";
 import { open, readdir, stat } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 import type { Adapter, AdapterEvent, AdapterRunInput } from "./adapter.js";
 import { isTransientError } from "./claude-events.js";
+import { spawnAndStream } from "./cli-process.js";
 import { createCodexNormalizeState, normalizeCodexEvent, normalizeCodexSessionRecord } from "./codex-events.js";
 import type { ThreadEvent } from "@openai/codex-sdk";
 
@@ -88,153 +88,58 @@ export class CodexCliAdapter implements Adapter {
     // Codex reads the prompt from stdin when "-" is passed as the prompt arg.
     args.push("-");
 
-    const child = spawn(this.options.pathToCodexExecutable, args, {
-      cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
-    });
+    const composedInput = `# System Instructions\n${input.systemPrompt ?? ""}\n\n# Task\n${input.userPrompt}\n`;
 
-    // Termination plumbing shared with the `finally` below. `abort` sends
-    // SIGTERM and arms a SIGKILL escalation for a child that ignores it. The
-    // `finally` removes the abort listener, always stops the session-tail
-    // poller (its setInterval would otherwise leak if we leave early), and
-    // force-kills the child if we exit before it did — e.g. the consumer
-    // breaks out of the `for await`, or a throw unwinds through us.
-    const abortSignal = input.abortSignal;
-    let childExited = false;
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
-    const armHardKill = (): void => {
-      if (killTimer) return;
-      killTimer = setTimeout(() => {
-        if (!child.killed) child.kill("SIGKILL");
-      }, 5000);
-      killTimer.unref?.();
-    };
-    const abort = (): void => {
-      if (!child.killed) child.kill("SIGTERM");
-      armHardKill();
-    };
-    if (abortSignal) {
-      if (abortSignal.aborted) abort();
-      else abortSignal.addEventListener("abort", abort, { once: true });
-    }
-
+    // The session-tail poller is created lazily once we see the session event,
+    // and stopped in the `finally`. The `onBeforeExit` hook reads this closure
+    // variable so trailing session records are flushed before the exit item.
     let sessionTail: { stop: () => void; flush: () => Promise<void> } | null = null;
 
+    const { stream, inject } = spawnAndStream<AdapterEvent>({
+      command: this.options.pathToCodexExecutable,
+      args,
+      cwd,
+      stdin: composedInput,
+      onBeforeExit: async () => {
+        if (sessionTail) await sessionTail.flush();
+      },
+      ...(input.debug !== undefined ? { debug: input.debug } : {}),
+      ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+    });
+
     try {
-      const composedInput = `# System Instructions\n${input.systemPrompt ?? ""}\n\n# Task\n${input.userPrompt}\n`;
-      child.stdin?.write(composedInput);
-      child.stdin?.end();
-
-      const errBuf: string[] = [];
-      child.stderr?.on("data", (chunk: Buffer) => {
-        const text = chunk.toString("utf8");
-        errBuf.push(text);
-        if (input.debug) process.stderr.write(text);
-      });
-
-      let pending = "";
-      let crashed: Error | null = null;
-      const lineQueue: string[] = [];
-      const extraQueue: AdapterEvent[] = [];
-      const pushExtra = (evt: AdapterEvent): void => {
-        extraQueue.push(evt);
-        wakeup();
-      };
-      let resolveNext: ((v: void) => void) | null = null;
-      const wakeup = (): void => {
-        if (resolveNext) {
-          const r = resolveNext;
-          resolveNext = null;
-          r();
-        }
-      };
-
-      let done = false;
-      let exitCode: number | null = null;
-
-      child.stdout?.on("data", (chunk: Buffer) => {
-        pending += chunk.toString("utf8");
-        let nl: number;
-        while ((nl = pending.indexOf("\n")) >= 0) {
-          const line = pending.slice(0, nl);
-          pending = pending.slice(nl + 1);
-          if (line.trim().length > 0) lineQueue.push(line);
-        }
-        wakeup();
-      });
-      child.stdout?.on("end", () => {
-        if (pending.trim().length > 0) lineQueue.push(pending);
-        pending = "";
-        wakeup();
-      });
-      child.on("error", (err) => {
-        crashed = err;
-        done = true;
-        childExited = true;
-        wakeup();
-      });
-      child.on("close", (code) => {
-        exitCode = code;
-        done = true;
-        childExited = true;
-        wakeup();
-      });
-
-      while (true) {
-        while (extraQueue.length > 0) yield extraQueue.shift()!;
-        while (lineQueue.length > 0) {
-          const line = lineQueue.shift()!;
+      for await (const item of stream) {
+        if (item.kind === "extra") {
+          yield item.value;
+        } else if (item.kind === "line") {
           let event: unknown;
           try {
-            event = JSON.parse(line);
+            event = JSON.parse(item.line);
           } catch {
-            yield { kind: "textDelta", text: line + "\n" };
+            yield { kind: "textDelta", text: item.line + "\n" };
             continue;
           }
           if (!event || typeof event !== "object") continue;
           for (const evt of normalizeCodexEvent(event as ThreadEvent, startedAt, normalizeState)) {
             if (evt.kind === "session" && sessionTail === null) {
-              sessionTail = startCodexSessionTail(evt.sessionId, normalizeState, pushExtra);
+              sessionTail = startCodexSessionTail(evt.sessionId, normalizeState, inject);
             }
             yield evt;
           }
+        } else if (item.kind === "exit") {
+          if (item.crashed) {
+            yield { kind: "error", cause: item.crashed, transient: isTransientError(item.crashed) };
+          } else if (item.exitCode !== null && item.exitCode !== 0) {
+            const cause = new Error(
+              `codex CLI exited ${item.exitCode}${item.stderr ? `: ${item.stderr.slice(0, 500)}` : ""}`,
+            );
+            yield { kind: "error", cause, transient: isTransientError(cause) };
+          }
         }
-        while (extraQueue.length > 0) yield extraQueue.shift()!;
-        if (done) break;
-        await new Promise<void>((r) => {
-          resolveNext = r;
-        });
-      }
-
-      if (sessionTail) {
-        await sessionTail.flush().catch(() => {});
-        while (extraQueue.length > 0) yield extraQueue.shift()!;
-      }
-
-      if (crashed) {
-        yield { kind: "error", cause: crashed, transient: isTransientError(crashed) };
-        return;
-      }
-      if (exitCode !== null && exitCode !== 0) {
-        const stderr = errBuf.join("").trim();
-        yield {
-          kind: "error",
-          cause: new Error(`codex CLI exited ${exitCode}${stderr ? `: ${stderr.slice(0, 500)}` : ""}`),
-        };
       }
     } finally {
-      if (abortSignal) abortSignal.removeEventListener("abort", abort);
       // Always stop the poller — idempotent, and the setInterval leaks otherwise.
       sessionTail?.stop();
-      if (childExited) {
-        if (killTimer) clearTimeout(killTimer);
-      } else if (!child.killed) {
-        child.kill("SIGTERM");
-        armHardKill();
-      }
-      // else: a kill is already in flight (abort path) — leave the SIGKILL
-      // timer armed so a child ignoring SIGTERM is still force-killed.
     }
   }
 }

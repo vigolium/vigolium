@@ -64,6 +64,17 @@ type DeparosDiscoveryConfig struct {
 	BackupExtensions     []string
 	TestNoExtension      bool
 
+	// Confirmation-gated extension fuzzing. When ConfirmRequired is set, a
+	// server-side extension (php/asp/aspx/jsp/action/cgi/…) is only wordlist-
+	// fuzzed once the app is confirmed to serve it as a valid route via the
+	// enabled sources below. Candidates/ProbeFilenames override the built-ins.
+	ConfirmRequired       bool
+	ConfirmViaObserved    bool
+	ConfirmViaFingerprint bool
+	ConfirmViaProbe       bool
+	Candidates            []string
+	ProbeFilenames        []string
+
 	// Engine
 	CaseSensitivity         string // "auto_detect" | "sensitive" | "insensitive"
 	EngineTimeout           time.Duration
@@ -429,6 +440,18 @@ func (d *DeparosDiscoverySource) buildDeparosConfig(target string) *deparosconfi
 	}
 	cfg.Extensions.TestNoExtension = d.cfg.TestNoExtension
 
+	// Confirmation-gated extension fuzzing
+	cfg.Extensions.ConfirmRequired = d.cfg.ConfirmRequired
+	cfg.Extensions.ConfirmViaObserved = d.cfg.ConfirmViaObserved
+	cfg.Extensions.ConfirmViaFingerprint = d.cfg.ConfirmViaFingerprint
+	cfg.Extensions.ConfirmViaProbe = d.cfg.ConfirmViaProbe
+	if len(d.cfg.Candidates) > 0 {
+		cfg.Extensions.Candidates = d.cfg.Candidates
+	}
+	if len(d.cfg.ProbeFilenames) > 0 {
+		cfg.Extensions.ProbeFilenames = d.cfg.ProbeFilenames
+	}
+
 	// Engine settings
 	switch d.cfg.CaseSensitivity {
 	case "sensitive":
@@ -530,6 +553,21 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	if err != nil {
 		return fmt.Errorf("create engine: %w", err)
 	}
+
+	// Announce confirmed server-side extensions as they're queued for fuzzing.
+	engine.SetExtensionConfirmCallback(func(ev discovery.ExtensionConfirmEvent) {
+		detail := ""
+		if ev.Detail != "" {
+			detail = terminal.Gray(" (" + ev.Detail + ")")
+		}
+		terminal.AgentNotice("ext-fuzz", fmt.Sprintf(
+			"%s detected as a valid route via %s%s — fuzzing wordlist for hidden %s files on %s",
+			terminal.BoldOrange("."+ev.Extension),
+			terminal.HiTeal(ev.Source),
+			detail,
+			terminal.HiCyan("*."+ev.Extension),
+			target))
+	})
 
 	if err := engine.Start(); err != nil {
 		return fmt.Errorf("start engine: %w", err)

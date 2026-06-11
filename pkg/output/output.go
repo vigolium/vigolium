@@ -235,6 +235,16 @@ func (w *StandardWriter) Write(event *ResultEvent) error {
 	return nil
 }
 
+// ShowsFindingsOnStdout reports whether findings passed to Write are rendered to
+// stdout in human-readable form during the scan. It's false when stdout is
+// suppressed (silent, or a deferred jsonl/html format that emits its output
+// post-scan) or when stdout carries raw JSON. Callers use this to decide whether
+// to echo a compact human-readable finding line elsewhere (e.g. stderr) so live
+// progress stays visible when nothing reaches stdout during the scan.
+func (w *StandardWriter) ShowsFindingsOnStdout() bool {
+	return !w.DisableStdout && !w.JSONOutput
+}
+
 // WriteFileOnly writes the event to file only, skipping screen output.
 func (w *StandardWriter) WriteFileOnly(event *ResultEvent) error {
 	event.Timestamp = time.Now()

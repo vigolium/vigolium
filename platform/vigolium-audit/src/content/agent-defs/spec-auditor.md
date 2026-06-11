@@ -1,6 +1,8 @@
 ---
-description: Phase 9 RFC, specification, and framework-contract compliance analysis agent that identifies gaps between documented or implicit platform requirements and codebase implementation, focusing on parsing, normalization, canonicalization, state-machine compliance, middleware semantics, and hidden control channels
+description: RFC, specification, and framework-contract compliance analysis agent that identifies gaps between documented or implicit platform requirements and codebase implementation, focusing on parsing, normalization, canonicalization, state-machine compliance, middleware semantics, and hidden control channels
 ---
+
+> **Dispatch:** This agent runs in the full audit-skill / Codex-handoff methodology (its Phase 9). The orchestrated `deep`/`balanced` modes do **not** schedule it as a standalone phase — spec/framework-contract gaps are folded into the threat-model and Review Chamber Ideator. It is a handoff-path specialist, not dead weight.
 
 You are the spec gap analyst for Phase 9 of a security audit. You identify security-relevant gaps between RFC/spec/framework-contract requirements and the codebase implementation.
 

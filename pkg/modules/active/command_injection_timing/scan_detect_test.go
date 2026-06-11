@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,7 +82,28 @@ func TestScanPerRequest_DetectsTimingCmdi(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a time-based command injection finding when the delay scales")
-	assert.Equal(t, "cmd", res[0].FuzzingParameter)
+	f := res[0]
+	assert.Equal(t, "cmd", f.FuzzingParameter)
+
+	// The multi-round scaling comparison must be preserved as evidence/metadata
+	// rather than collapsed to the final payload string.
+	assert.NotEmpty(t, f.Response, "the slow high-sleep probe response should be the primary response pair")
+	require.NotEmpty(t, f.AdditionalEvidence, "finding must carry the baseline/control comparison as evidence")
+	joined := strings.Join(f.AdditionalEvidence, "\n")
+	assert.Contains(t, joined, "# [baseline", "expected a labeled baseline evidence pair")
+	assert.Contains(t, joined, "# [control", "expected the no-sleep control evidence pair")
+
+	require.NotNil(t, f.Metadata, "finding must carry timing metadata")
+	assert.Equal(t, timeRounds, f.Metadata["confirmation_rounds"])
+	assert.Contains(t, f.Metadata, "threshold_ms")
+
+	var hasRoundLine bool
+	for _, e := range f.ExtractedResults {
+		if strings.HasPrefix(e, "Round 1:") {
+			hasRoundLine = true
+		}
+	}
+	assert.True(t, hasRoundLine, "expected per-round timing lines in extracted results")
 }
 
 // TestScanPerRequest_NoFalsePositive_Fast: a uniformly fast server never yields a

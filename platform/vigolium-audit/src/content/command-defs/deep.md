@@ -32,19 +32,19 @@ phases:
     title: Code Scan
     agent: code-scanner
     requires_git: false
-    parallel_with: []
+    parallel_with: ["D6", "D7"]
     depends_on: ["D4"]
   - id: "D6"
     title: Deep Probe
     agent: probe-lead
     requires_git: false
-    parallel_with: []
+    parallel_with: ["D5", "D7"]
     depends_on: ["D4"]
   - id: "D7"
     title: Access Audit
     agent: access-auditor
     requires_git: false
-    parallel_with: []
+    parallel_with: ["D5", "D6"]
     depends_on: ["D4"]
   - id: "D8"
     title: Review Panel
@@ -235,8 +235,7 @@ To avoid quota spikes, keep a hard cap of **3 concurrent background agents** at 
 | T10 | Phase D11 -- Finding Finalize (report.md per finding) | T9 |
 | T11 | Phase D12 -- Report Compose | T10 |
 
-T4, T5, and T6 all unblock after T3, but for burst control execute them in waves:
-`T4` first, then `T6`, then `T5`. T7 waits for T4, T5, and T6. FP elimination
+T4, T5, and T6 are independent (the phase graph marks D5/D6/D7 mutually `parallel_with`) and all unblock after T3. The orchestrator runs them concurrently; the burst-capped handoff path batches them to stay under the 3-agent cap — Wave A runs `T4` + `T6` together, then Wave B runs the `T5` Deep Probe team (see Step 3). T7 waits for T4, T5, and T6. FP elimination
 (fp-check + CRITICAL-only cold-verify + triage pass) runs inline as the tail of
 T7 — there is no separate FP phase. Cross-service taint reasoning and per-finding
 variant expansion also run inline inside T7 (chamber Ideator + Code Tracer) — there

@@ -49,6 +49,17 @@ type DiscoveryExtensionConfig struct {
 	TestBackupExtensions bool     `yaml:"test_backup_extensions"`
 	BackupExtensions     []string `yaml:"backup_extensions"`
 	TestNoExtension      bool     `yaml:"test_no_extension"`
+
+	// Confirmation-gated server-side extension fuzzing. Pointer-bool semantics:
+	// absent YAML (nil) means use the default (all on). When ConfirmRequired is
+	// true the engine only sweeps the wordlist for an extension (.php/.aspx/
+	// .jsp/.action/.cgi/…) after confirming the app serves it as a valid route.
+	ConfirmRequired       *bool    `yaml:"confirm_required"`        // nil = default (true)
+	ConfirmViaObserved    *bool    `yaml:"confirm_via_observed"`    // confirm from observed URLs; nil = true
+	ConfirmViaFingerprint *bool    `yaml:"confirm_via_fingerprint"` // confirm from response/cookie fingerprint; nil = true
+	ConfirmViaProbe       *bool    `yaml:"confirm_via_probe"`       // confirm via active soft-404 differential probe; nil = true
+	Candidates            []string `yaml:"candidates"`              // candidate extensions (no dot); empty = built-in
+	ProbeFilenames        []string `yaml:"probe_filenames"`         // probe base names; empty = built-in
 }
 
 // DiscoveryEngineConfig controls discovery execution settings.

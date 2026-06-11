@@ -1,4 +1,6 @@
+import { adapterEventHasQuotaLimit, adapterEventHasRetryableError, quotaResetDelayMs } from "../adapters/claude-events.js";
 import { BaseHandoff, type BaseHandoffOptions, type HandoffDriveResult, type HandoffRunContext } from "./base-handoff.js";
+import { resolveRetryConfig, runWithRetry } from "./retry.js";
 import type { AuditMode } from "./types.js";
 
 /**
@@ -12,8 +14,10 @@ import type { AuditMode } from "./types.js";
  *
  * The common skeleton (context file, state snapshot, findings watcher, progress
  * poller, finalize) lives in {@link BaseHandoff}. This subclass contributes the
- * dispatch trigger prompt and a single-pass adapter drive (codex has no
- * quota/transient retry policy).
+ * dispatch trigger prompt; the quota/transient retry algorithm is shared with
+ * the claude handoff and the orchestrator via `runWithRetry`. (Codex rarely
+ * surfaces a quota notice, but retryable transport errors — now flagged by the
+ * codex CLI adapter — do get the same exponential backoff.)
  *
  * Required pre-condition: `installCodexHarness` (or the ephemeral harness handle
  * held by the caller) must have already written:
@@ -54,27 +58,67 @@ export class CodexHandoff extends BaseHandoff<CodexHandoffOptions> {
     let ok = false;
     let errorMsg: string | undefined;
 
-    for await (const event of this.opts.adapter.run({
-      userPrompt,
-      cwd: this.opts.targetDir,
-      bypassPermissions: true,
-      ...(this.opts.abortSignal && { abortSignal: this.opts.abortSignal }),
-      ...(this.opts.debug ? { debug: true } : {}),
-      label: `${this.opts.mode}:codex-handoff`,
-    })) {
-      await this.bus.emit({
-        kind: "phaseAdapterEvent",
-        auditId: provisionalAuditId,
-        phase,
-        event,
-      });
-      if (event.kind === "finish") {
-        usd = event.usd;
-        tokens = event.tokens;
-        ok = event.ok;
-        if (!event.ok) errorMsg = event.reason;
-      }
-    }
+    const retryConfig = resolveRetryConfig({
+      // Whole-mode call writing findings to disk; a transient retry after
+      // progress is acceptable here, same as the claude handoff.
+      skipTransientAfterProgress: false,
+      defaults: { quotaMaxRetries: 5, transientMaxRetries: 3, transientBaseDelayMs: 30 * 1000 },
+    });
+    const abortSignal = this.opts.abortSignal ?? new AbortController().signal;
+
+    await runWithRetry(retryConfig, {
+      abortSignal,
+      probe: () => this.opts.adapter.probe(),
+      note: async (text) => {
+        await this.bus.emit({ kind: "phaseAdapterEvent", auditId: provisionalAuditId, phase, event: { kind: "textDelta", text } });
+      },
+      attempt: async () => {
+        let quotaLimit = false;
+        let retryableFailure = false;
+        let attemptOk = false;
+        let sawProgress = false;
+        let attemptErr: string | undefined;
+        let parsedQuotaDelayMs: number | null = null;
+
+        for await (const event of this.opts.adapter.run({
+          userPrompt,
+          cwd: this.opts.targetDir,
+          bypassPermissions: true,
+          ...(this.opts.abortSignal && { abortSignal: this.opts.abortSignal }),
+          ...(this.opts.debug ? { debug: true } : {}),
+          label: `${this.opts.mode}:codex-handoff`,
+        })) {
+          await this.bus.emit({ kind: "phaseAdapterEvent", auditId: provisionalAuditId, phase, event });
+          if (event.kind === "textDelta" || event.kind === "toolCall") sawProgress = true;
+          if (adapterEventHasQuotaLimit(event)) {
+            quotaLimit = true;
+            const delay = quotaResetDelayMs(event);
+            if (delay !== null && (parsedQuotaDelayMs === null || delay < parsedQuotaDelayMs)) {
+              parsedQuotaDelayMs = delay;
+            }
+          }
+          if (adapterEventHasRetryableError(event)) retryableFailure = true;
+          if (event.kind === "error") attemptErr = event.cause.message;
+          if (event.kind === "finish") {
+            usd = event.usd;
+            tokens = event.tokens;
+            attemptOk = event.ok;
+            if (!event.ok) attemptErr = event.reason;
+          }
+        }
+
+        ok = attemptOk;
+        errorMsg = attemptErr;
+        return {
+          ok: attemptOk,
+          quotaLimit,
+          transient: retryableFailure,
+          sawProgress,
+          parsedQuotaDelayMs,
+          error: attemptErr,
+        };
+      },
+    });
 
     return { usd, tokens, ok, errorMsg };
   }

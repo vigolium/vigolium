@@ -9,7 +9,6 @@ export interface CheckpointData {
   lastTool?: string;
   usd: number;
   tokens: { input: number; output: number };
-  sawProgress: boolean;
 }
 
 export interface LoadedCheckpoint {
@@ -43,7 +42,6 @@ export class CheckpointStore {
       ...(data.lastTool !== undefined ? { last_tool: data.lastTool } : {}),
       usd: round2(data.usd),
       tokens: data.tokens,
-      saw_progress: data.sawProgress,
     };
     await atomicWrite(this.path(auditId, phaseId), JSON.stringify(payload, null, 2) + "\n");
   }

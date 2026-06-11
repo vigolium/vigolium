@@ -24,11 +24,22 @@ declare global {
       reportSharedURL?: string;
       results?: unknown[];
     };
+    // Set by the generator (true) before the data block, so the loader can tell
+    // "data was generated but failed to load" apart from the standalone preview.
+    __VIGOLIUM_DATA_EXPECTED__?: boolean;
   }
 }
 
+const emptyExportData = (): ExportData => ({
+  scans: [],
+  httpRecords: [],
+  findings: [],
+  modules: [],
+});
+
 function loadInitialData(): {
   data: ExportData;
+  error?: string;
   title?: string;
   generatedAt?: string;
   scanDuration?: string;
@@ -37,7 +48,9 @@ function loadInitialData(): {
   reportSharedURL?: string;
 } {
   const injected = window.__VIGOLIUM_REPORT__;
-  if (injected?.results && Array.isArray(injected.results) && injected.results.length > 0) {
+  // The data block assigned successfully — use it. An empty results array is a
+  // legitimate "scan found nothing", not an error.
+  if (injected && Array.isArray(injected.results)) {
     return {
       data: parseExport(injected.results.map((r) => JSON.stringify(r))),
       title: injected.title,
@@ -48,6 +61,18 @@ function loadInitialData(): {
       reportSharedURL: injected.reportSharedURL,
     };
   }
+  // The generator injected data (sentinel set) but window.__VIGOLIUM_REPORT__ is
+  // missing → the data <script> failed to parse (almost always: the embedded
+  // result set was too large for the browser). Surface that instead of silently
+  // falling back to the built-in demo data.
+  if (window.__VIGOLIUM_DATA_EXPECTED__) {
+    return {
+      data: emptyExportData(),
+      error:
+        "This report's embedded data could not be loaded — the result set is too large for the browser to parse. The full data is available in the matching .jsonl export next to this file, or drop any Vigolium JSONL export below to view it.",
+    };
+  }
+  // Standalone template (no generated data) → demo preview / drop zone.
   const embedded = rawData as unknown as { raw?: string[] };
   return {
     data: parseExport(
@@ -79,6 +104,7 @@ function getTabFromHash(): TabId {
 
 export default function App() {
   const [data, setData] = useState<ExportData>(initial.data);
+  const [loadError, setLoadError] = useState<string | undefined>(initial.error);
   const [activeTab, setActiveTab] = useState<TabId>(getTabFromHash);
 
   // Sync hash → tab on back/forward navigation
@@ -102,6 +128,7 @@ export default function App() {
 
   const handleDataLoad = useCallback((exportData: ExportData) => {
     setData(exportData);
+    setLoadError(undefined);
     setActiveTab("statistics");
   }, []);
 
@@ -113,6 +140,24 @@ export default function App() {
       <Layout>
         <Header reportTitle={initial.title} generatedAt={initial.generatedAt} />
         <main className="wrap">
+          {loadError && (
+            <div
+              className="empty-state"
+              role="alert"
+              style={{
+                color: "var(--sev-high, #e34e1c)",
+                border: "1px solid var(--sev-high, #e34e1c)",
+                borderRadius: 6,
+                padding: "16px 20px",
+                marginBottom: 16,
+                textAlign: "left",
+                lineHeight: 1.5,
+              }}
+            >
+              <strong>⚠ Report data failed to load</strong>
+              <div style={{ marginTop: 6, fontSize: 13 }}>{loadError}</div>
+            </div>
+          )}
           <FileDropZone onDataLoad={handleDataLoad} />
         </main>
       </Layout>

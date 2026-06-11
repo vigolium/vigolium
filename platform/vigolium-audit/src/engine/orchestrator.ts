@@ -5,12 +5,14 @@ import type { Adapter } from "../adapters/adapter.js";
 import type { ContentLoader, ContentVariant } from "../content-loader.js";
 import { OrchestratorBus, type OrchestratorEvent } from "./events.js";
 import { scheduleBatches, topologicalOrder } from "./phase.js";
-import { StateStore, buildAuditId, newAuditRecord } from "./state.js";
+import { StateStore, buildAuditId, findResumableAudit, newAuditRecord } from "./state.js";
 import type { AuditContext, AuditMode, AuditRecord, CommandDef, PhaseDef } from "./types.js";
 import { listTrackedFiles, probeGit } from "./git.js";
-import { compact, parseIntEnv, round2, sleepInterruptible } from "./util.js";
-import { adapterEventHasQuotaLimit, adapterEventHasRetryableError, isTransientError, valueContainsQuotaLimit } from "../adapters/claude-events.js";
+import { compact, round2 } from "./util.js";
+import { resolveRetryConfig, runWithRetry } from "./retry.js";
+import { adapterEventHasQuotaLimit, adapterEventHasRetryableError, isTransientError, quotaResetDelayMs, valueContainsQuotaLimit } from "../adapters/claude-events.js";
 import { CheckpointStore } from "./checkpoint.js";
+import { CostManager } from "./cost.js";
 import { detectDraftOwner, startFindingsWatcher, summarizeFindings } from "./findings.js";
 import { finalizeOutput } from "./redact-artifacts.js";
 import { composeUserPrompt, parseToolsField } from "./prompts.js";
@@ -145,26 +147,27 @@ export class Orchestrator {
   readonly bus = new OrchestratorBus();
   private readonly state: StateStore;
   private readonly checkpoints: CheckpointStore;
-  private totalUsd = 0;
-  private totalIn = 0;
-  private totalOut = 0;
-  private warnedAtUsd = 0;
+  /**
+   * Cumulative spend + token tracker. Owns the cost-cap policy and the internal
+   * abort signal fired when the cap is breached (composed with `opts.abortSignal`
+   * so adapters see one signal that fires on either SIGINT or budget exhaustion).
+   */
+  private readonly cost: CostManager;
   /**
    * Phase IDs of the running command, cached from `run()` so per-failure
    * quarantine doesn't re-parse the command YAML on every failed phase.
    */
   private allPhaseIds: string[] | null = null;
-  /**
-   * Internal abort controller fired when the cost cap is breached. Composed
-   * with `opts.abortSignal` so adapters see a single signal that fires on
-   * either user-initiated SIGINT or budget exhaustion.
-   */
-  private readonly costAbort = new AbortController();
 
   constructor(private readonly opts: OrchestratorOptions) {
     const resultsDir = opts.resultsDir ?? join(opts.targetDir, "vigolium-results");
     this.state = new StateStore(resultsDir);
     this.checkpoints = new CheckpointStore(resultsDir);
+    this.cost = new CostManager(opts.maxCost, (args) => {
+      // Fire-and-forget: a cost-warning listener must never abort the audit.
+      // Swallow listener failures so an unhandled rejection can't crash us.
+      void this.bus.emit({ kind: "costWarn", ...args }).catch(() => {});
+    });
   }
 
   /**
@@ -173,9 +176,9 @@ export class Orchestrator {
    */
   private combinedAbortSignal(): AbortSignal {
     const user = this.opts.abortSignal;
-    if (!user) return this.costAbort.signal;
+    if (!user) return this.cost.signal;
     if (user.aborted) return user;
-    return AbortSignal.any([user, this.costAbort.signal]);
+    return AbortSignal.any([user, this.cost.signal]);
   }
 
   on(listener: (e: OrchestratorEvent) => void | Promise<void>): () => void {
@@ -274,7 +277,7 @@ export class Orchestrator {
     let i = 0;
     const total = runnable.length;
     for (const batch of batches) {
-      if (this.opts.abortSignal?.aborted || this.costAbort.signal.aborted) {
+      if (this.opts.abortSignal?.aborted || this.cost.signal.aborted) {
         aborted = true;
         break;
       }
@@ -291,9 +294,9 @@ export class Orchestrator {
         if (phaseStatus === "in_progress") {
           const checkpoint = await this.checkpoints.load(auditId, phase.id);
           if (checkpoint) {
-            this.totalUsd += checkpoint.usd;
-            this.totalIn += checkpoint.tokens.input;
-            this.totalOut += checkpoint.tokens.output;
+            // Roll the prior attempt's spend in silently — it was already
+            // reported, so it must not re-trip warnings or the cap here.
+            this.cost.addSilently(checkpoint.usd, checkpoint.tokens);
             await this.bus.emit({
               kind: "phaseAdapterEvent",
               auditId,
@@ -346,7 +349,7 @@ export class Orchestrator {
           if (this.opts.failurePolicy === "strict") aborted = true;
         }
       }
-      if (this.opts.maxCost !== undefined && this.totalUsd >= this.opts.maxCost) {
+      if (this.cost.overCap) {
         aborted = true;
       }
       if (aborted) break;
@@ -361,20 +364,20 @@ export class Orchestrator {
       status,
       completed_at: new Date().toISOString(),
       usage: {
-        input_tokens: this.totalIn,
-        output_tokens: this.totalOut,
-        cost_usd: round2(this.totalUsd),
+        input_tokens: this.cost.tokens.input,
+        output_tokens: this.cost.tokens.output,
+        cost_usd: round2(this.cost.usd),
       },
     });
 
     const findings = await summarizeFindings(resultsDir);
-    const tokens = { input: this.totalIn, output: this.totalOut };
+    const tokens = this.cost.tokens;
 
     await this.bus.emit({
       kind: "auditEnd",
       auditId,
       status,
-      usd: round2(this.totalUsd),
+      usd: round2(this.cost.usd),
       tokens,
       findings,
     });
@@ -421,7 +424,7 @@ export class Orchestrator {
     return {
       auditId,
       status,
-      totalUsd: round2(this.totalUsd),
+      totalUsd: round2(this.cost.usd),
       totalTokens: tokens,
       findings,
       failedPhases,
@@ -432,18 +435,7 @@ export class Orchestrator {
   private async resolveAuditId(command: CommandDef, runnable: PhaseDef[]): Promise<string> {
     const state = await this.state.load();
     if (this.opts.resume) {
-      // Pick the latest audit for this mode that didn't reach `complete`.
-      // `in_progress` covers process-killed-mid-phase; `failed`/`aborted`
-      // cover orderly terminal states (cost cap, strict failure, SIGINT).
-      // Each is resumable: completed phases are skipped, pending re-runs,
-      // stale in_progress phases get quarantined in runPhase prep.
-      const existing = [...state.audits].reverse().find(
-        (a) =>
-          a.mode === command.mode &&
-          (a.status === "in_progress" ||
-            a.status === "failed" ||
-            a.status === "aborted"),
-      );
+      const existing = findResumableAudit(state.audits, command.mode as AuditMode);
       if (existing) {
         if (existing.status !== "in_progress") {
           await this.state.updateAudit(existing.audit_id, {
@@ -495,11 +487,15 @@ export class Orchestrator {
     await this.state.updatePhase(auditId, phase.id, { status: "in_progress", started_at: startedAt });
 
     const { systemPrompt, userPrompt, tools } = await this.buildPrompts(phase, command, auditId);
-    const transientRetries = this.opts.transientRetries ?? 3;
-    const transientBaseDelayMs = 1000;
-    const quotaMaxRetries = this.opts.quotaMaxRetries ?? parseIntEnv(process.env.VIGOLIUM_AUDIT_QUOTA_MAX_RETRIES, 5);
-    const quotaDelayMs = this.opts.quotaBackoffMs ?? parseIntEnv(process.env.VIGOLIUM_AUDIT_QUOTA_BACKOFF_MS, 60 * 60 * 1000);
-    const maxAttempts = Math.max(transientRetries, quotaMaxRetries);
+    const retryConfig = resolveRetryConfig({
+      ...(this.opts.quotaMaxRetries !== undefined ? { quotaMaxRetries: this.opts.quotaMaxRetries } : {}),
+      ...(this.opts.quotaBackoffMs !== undefined ? { quotaBackoffMs: this.opts.quotaBackoffMs } : {}),
+      ...(this.opts.transientRetries !== undefined ? { transientMaxRetries: this.opts.transientRetries } : {}),
+      // The orchestrator drives one adapter call per phase, so a transient retry
+      // after progress would replay events — skip it. Quota retries still apply.
+      skipTransientAfterProgress: true,
+      defaults: { quotaMaxRetries: 5, transientMaxRetries: 3, transientBaseDelayMs: 1000 },
+    });
 
     let usd = 0;
     let tokens = { input: 0, output: 0 };
@@ -507,60 +503,31 @@ export class Orchestrator {
     let ok = false;
     let error: string | undefined;
 
-    for (let attempt = 0; attempt <= maxAttempts; attempt++) {
-      const result = await this.driveAdapterOnce({
-        systemPrompt,
-        userPrompt,
-        tools,
-        auditId,
-        phase,
-        command,
-      });
-      usd = result.usd;
-      tokens = result.tokens;
-      durationMs = result.durationMs;
-      ok = result.ok;
-      error = result.error;
+    await runWithRetry(retryConfig, {
+      abortSignal: this.combinedAbortSignal(),
+      attempt: async () => {
+        const result = await this.driveAdapterOnce({ systemPrompt, userPrompt, tools, auditId, phase, command });
+        usd = result.usd;
+        tokens = result.tokens;
+        durationMs = result.durationMs;
+        ok = result.ok;
+        error = result.error;
+        return {
+          ok: result.ok,
+          quotaLimit: result.quotaLimit,
+          transient: result.transient,
+          sawProgress: result.sawProgress,
+          parsedQuotaDelayMs: result.parsedQuotaDelayMs,
+          error: result.error,
+        };
+      },
+      note: async (text) => {
+        await this.bus.emit({ kind: "phaseAdapterEvent", auditId, phase, event: { kind: "textDelta", text } });
+      },
+      probe: () => this.opts.adapter.probe(),
+    });
 
-      if (ok) break;
-
-      // Quota-limit retries: long wall-clock sleep (default 1h × 5), bypass the
-      // sawProgress short-circuit since the user explicitly wants us to wait
-      // out the quota reset rather than fail the audit.
-      if (result.quotaLimit) {
-        if (attempt >= quotaMaxRetries) break;
-        const minutes = Math.round(quotaDelayMs / 60000);
-        await this.bus.emit({
-          kind: "phaseAdapterEvent",
-          auditId,
-          phase,
-          event: {
-            kind: "textDelta",
-            text: `[quota limit hit — sleeping ${minutes}m before retry ${attempt + 1}/${quotaMaxRetries} — ${error ?? "usage limit reached"}]\n`,
-          },
-        });
-        await sleepInterruptible(quotaDelayMs, this.combinedAbortSignal());
-        if (this.combinedAbortSignal().aborted) break;
-        continue;
-      }
-
-      // Ordinary transient retry: short exponential backoff, only if no
-      // progress events were emitted (mid-stream retry would replay events).
-      if (!result.transient || result.sawProgress || attempt >= transientRetries) break;
-      const delay = transientBaseDelayMs * Math.pow(2, attempt);
-      await this.bus.emit({
-        kind: "phaseAdapterEvent",
-        auditId,
-        phase,
-        event: { kind: "textDelta", text: `[retry ${attempt + 1}/${transientRetries} after ${delay}ms — ${error ?? "transient error"}]\n` },
-      });
-      await new Promise((r) => setTimeout(r, delay));
-    }
-
-    this.totalUsd += usd;
-    this.totalIn += tokens.input;
-    this.totalOut += tokens.output;
-    this.maybeWarnCost(auditId);
+    this.cost.record(auditId, usd, tokens);
 
     if (!ok && !error) {
       ok = false;
@@ -645,6 +612,7 @@ export class Orchestrator {
     transient: boolean;
     quotaLimit: boolean;
     sawProgress: boolean;
+    parsedQuotaDelayMs: number | null;
   }> {
     let usd = 0;
     let tokens = { input: 0, output: 0 };
@@ -655,6 +623,7 @@ export class Orchestrator {
     let transient = false;
     let quotaLimit = false;
     let sawProgress = false;
+    let parsedQuotaDelayMs: number | null = null;
 
     const startedAt = Date.now();
     let toolCalls = 0;
@@ -667,7 +636,6 @@ export class Orchestrator {
         ...(lastTool !== undefined ? { lastTool } : {}),
         usd,
         tokens,
-        sawProgress,
       });
     };
 
@@ -689,8 +657,14 @@ export class Orchestrator {
         if (event.kind === "textDelta" || event.kind === "toolCall") {
           sawProgress = true;
         }
-        if (!quotaLimit && adapterEventHasQuotaLimit(event)) {
+        if (adapterEventHasQuotaLimit(event)) {
           quotaLimit = true;
+          // Prefer the soonest streamed "resets at" delay so the retry sleeps
+          // exactly until the quota clears rather than a fixed fallback.
+          const delay = quotaResetDelayMs(event);
+          if (delay !== null && (parsedQuotaDelayMs === null || delay < parsedQuotaDelayMs)) {
+            parsedQuotaDelayMs = delay;
+          }
         }
         if (!transient && adapterEventHasRetryableError(event)) {
           transient = true;
@@ -743,6 +717,7 @@ export class Orchestrator {
       transient,
       quotaLimit,
       sawProgress,
+      parsedQuotaDelayMs,
     };
   }
 
@@ -777,25 +752,6 @@ export class Orchestrator {
         /* best-effort */
       }
     }
-  }
-
-  private maybeWarnCost(auditId: string): void {
-    if (this.opts.maxCost === undefined) return;
-    const cap = this.opts.maxCost;
-    const thresholds = [0.5, 0.75, 0.9, 1.0];
-    for (const t of thresholds) {
-      const at = cap * t;
-      if (this.totalUsd >= at && this.warnedAtUsd < at) {
-        this.warnedAtUsd = at;
-        // Fire-and-forget: a cost-warning listener must never abort the audit.
-        // Swallow listener failures so an unhandled rejection can't crash us.
-        void this.bus.emit({ kind: "costWarn", auditId, usd: round2(this.totalUsd), cap }).catch(() => {});
-      }
-    }
-    // At-or-over the cap: fire the internal abort signal so any pending /
-    // next adapter call terminates immediately rather than waiting for the
-    // between-phase check. AbortController.abort() is idempotent.
-    if (this.totalUsd >= cap) this.costAbort.abort();
   }
 
   private startFindingsWatcher(resultsDir: string, auditId: string): () => void {

@@ -15,6 +15,19 @@ var (
 		"do",
 	}
 
+	// DefaultCandidateExtensions lists every server-side extension the engine is
+	// willing to fuzz once it has CONFIRMED the application actually serves that
+	// extension as a valid route (see ExtensionConfig.ConfirmRequired). It is a
+	// superset of DefaultCustomExtensions covering the major server stacks:
+	// PHP, classic/modern ASP(.NET), Java/JSP/Struts, ColdFusion and CGI.
+	DefaultCandidateExtensions = []string{
+		"php", "php3", "php4", "php5", "phtml",
+		"asp", "aspx", "ashx", "asmx",
+		"jsp", "jspx", "jspa", "do", "action",
+		"cfm", "cfml",
+		"cgi",
+	}
+
 	// AllowedObservedExtensions - whitelist of extensions that can be added to observedExtensions.
 	// Only extensions matching this list (case-insensitive) will be tracked for dynamic task generation.
 	AllowedObservedExtensions = map[string]struct{}{
@@ -35,6 +48,10 @@ var (
 		"stm": {}, "sys": {}, "tar": {}, "tar.gz": {}, "temp": {}, "test": {}, "text": {},
 		"tgz": {}, "tmp": {}, "tst": {}, "txt": {}, "xls": {}, "xlsx": {}, "xml": {},
 		"zip": {}, "~": {}, "rar": {}, "7z": {},
+		// Server-side route extensions confirmed/fuzzed by the extension-confirm
+		// pipeline (Java/Struts, ASP.NET handlers, CGI). cfm/cfml/asp/aspx/jsp
+		// and the php* family are already covered above.
+		"action": {}, "do": {}, "jspx": {}, "ashx": {}, "asmx": {}, "cgi": {},
 	}
 
 	// DefaultBackupExtensions lists backup/temp file extensions tested when a file is discovered
@@ -80,6 +97,15 @@ func NewDefaultConfig() *Config {
 			TestBackupExtensions: true,
 			BackupExtensions:     DefaultBackupExtensions,
 			TestNoExtension:      true,
+			// Confirmation-gated extension fuzzing (default on): server-side
+			// extensions are only swept with the wordlist once the app is proven
+			// to serve them as a valid route, via observed URLs, tech
+			// fingerprinting, or an active soft-404 differential probe.
+			ConfirmRequired:       true,
+			ConfirmViaObserved:    true,
+			ConfirmViaFingerprint: true,
+			ConfirmViaProbe:       true,
+			Candidates:            DefaultCandidateExtensions,
 		},
 		Engine: EngineConfig{
 			CaseSensitivity:  CaseAutoDetect,

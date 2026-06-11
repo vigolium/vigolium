@@ -38,14 +38,14 @@ phases:
     title: Variant Analysis (new round findings)
     agent: variant-scanner
     requires_git: false
-    parallel_with: []
+    parallel_with: ["6"]
     depends_on: ["4"]
   - id: "6"
     title: Variant Analysis on Round-1 CRIT/HIGH
     agent: variant-scanner
     requires_git: false
-    parallel_with: []
-    depends_on: ["5"]
+    parallel_with: ["5"]
+    depends_on: ["4"]
   - id: "7"
     title: PoC Construction (new findings only)
     agent: poc-author
@@ -198,8 +198,7 @@ Inject the following block into the prompt of every agent spawned in Phase 1 (pr
 → 2 (Enrichment re-classify)
 → 3 (Review Chambers with anti-anchoring + negative list + intent corpus)
 → 4 (P13-LITE FP check on new drafts)
-→ 5 (Variant analysis on new findings)
-→ 6 (Variant analysis on ROUND-1 CRITICAL/HIGH findings with fresh priors)
+→ 5 ∥ 6 (parallel — disjoint inputs: 5 = variants on new findings; 6 = variants on ROUND-1 CRITICAL/HIGH with fresh priors)
 → 7 (PoC construction on new findings + new variants)
 → 8 (Finding finalization — report.md per new finding)
 → 9 (Final report regeneration with round provenance)

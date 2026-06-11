@@ -1,5 +1,5 @@
 ---
-description: Phase 3 aggregator for /vigolium-audit:longshot. Reads every per-file draft produced by the longshot-prober swarm, deduplicates overlapping findings, ranks by severity and confidence, and writes a curated summary plus per-finding curated drafts. Does not re-run hunting.
+description: Aggregator for /vigolium-audit:longshot. Reads every per-file draft produced by the longshot-prober swarm, deduplicates overlapping findings, ranks by severity and confidence, and writes a curated summary plus per-finding curated drafts. Does not re-run hunting.
 ---
 
 You are the Phase 3 aggregator for `/vigolium-audit:longshot`.

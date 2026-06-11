@@ -430,6 +430,15 @@ func classifyInteraction(protocol string, pctx PayloadContext) (severity.Severit
 		return classifyCommandInjection(proto, injectionDesc)
 	}
 
+	// XXE payloads (an external DTD / external entity pointing at a unique,
+	// unguessable OAST subdomain) mean the target's XML parser resolved the
+	// injected reference — unforgeable proof the parser loads external entities.
+	// A DNS-only hit is high-confidence here (unlike the generic SSRF case)
+	// because the per-payload subdomain rules out coincidental resolution.
+	if strings.Contains(strings.ToLower(pctx.InjectionType), "xxe") {
+		return classifyXXE(proto, injectionDesc)
+	}
+
 	switch proto {
 	case "http", "https":
 		return severity.High, "Blind SSRF confirmed: target made outbound HTTP request to OAST server (" + injectionDesc + ")"
@@ -437,6 +446,20 @@ func classifyInteraction(protocol string, pctx PayloadContext) (severity.Severit
 		return severity.Info, "DNS interaction detected: target resolved OAST domain (" + injectionDesc + "). May indicate blind SSRF/XXE but DNS alone is lower confidence."
 	default:
 		return severity.Medium, "Out-of-band " + protocol + " interaction detected (" + injectionDesc + ")"
+	}
+}
+
+// classifyXXE rates out-of-band interactions triggered by an injected external
+// DTD/entity. The per-payload subdomain is random and unguessable, so a
+// correlated callback is proof the XML parser resolved the external reference.
+func classifyXXE(proto, injectionDesc string) (severity.Severity, string) {
+	switch proto {
+	case "http", "https":
+		return severity.High, "Blind XXE confirmed: the target's XML parser fetched the injected external entity/DTD over HTTP from the OAST server (" + injectionDesc + ")"
+	case "dns":
+		return severity.High, "Blind XXE confirmed: the target's XML parser resolved the injected external-entity OAST subdomain (DNS) (" + injectionDesc + "). The unguessable per-payload subdomain rules out coincidental resolution."
+	default:
+		return severity.High, "Blind XXE confirmed via out-of-band " + proto + " interaction (" + injectionDesc + ")"
 	}
 }
 

@@ -359,6 +359,15 @@ func filterOutHosts(targets, block []string) []string {
 	return out
 }
 
+// boolPtrOr returns *p when p is non-nil, otherwise def. Used to resolve
+// optional (pointer-bool) YAML toggles where absent means "use the default".
+func boolPtrOr(p *bool, def bool) bool {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
 // buildDeparosConfig maps YAML DiscoveryConfig + CLI flags into a DeparosDiscoveryConfig.
 // additionalTargets are merged (deduplicated) with CLI targets to expand the discovery scope.
 func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDiscoveryConfig {
@@ -392,6 +401,11 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		TestBackupExtensions: true,
 		TestNoExtension:      true,
 		CaseSensitivity:      "auto_detect",
+		// Confirmation-gated extension fuzzing: on by default, all sources.
+		ConfirmRequired:       true,
+		ConfirmViaObserved:    true,
+		ConfirmViaFingerprint: true,
+		ConfirmViaProbe:       true,
 	}
 
 	// Apply YAML settings if available
@@ -420,6 +434,14 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		cfg.TestBackupExtensions = dc.Extensions.TestBackupExtensions
 		cfg.BackupExtensions = dc.Extensions.BackupExtensions
 		cfg.TestNoExtension = dc.Extensions.TestNoExtension
+
+		// Confirmation-gated extension fuzzing (pointer-bool: nil = default true)
+		cfg.ConfirmRequired = boolPtrOr(dc.Extensions.ConfirmRequired, true)
+		cfg.ConfirmViaObserved = boolPtrOr(dc.Extensions.ConfirmViaObserved, true)
+		cfg.ConfirmViaFingerprint = boolPtrOr(dc.Extensions.ConfirmViaFingerprint, true)
+		cfg.ConfirmViaProbe = boolPtrOr(dc.Extensions.ConfirmViaProbe, true)
+		cfg.Candidates = dc.Extensions.Candidates
+		cfg.ProbeFilenames = dc.Extensions.ProbeFilenames
 
 		// Engine
 		cfg.CaseSensitivity = dc.Engine.CaseSensitivity

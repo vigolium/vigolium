@@ -104,6 +104,18 @@ func (m *Module) ScanPerRequest(
 	origBody := ctx.Response().Body()
 	origBodyLen := len(origBody)
 
+	// Skip static asset / binary responses (images, fonts, media, archives, JS,
+	// CSS). These are CDN-served files, not privileged "endpoints": an Akamai /
+	// Scene7 image route such as /is/image/stryker/System Image returns 200 to
+	// everyone by design, and stripping or switching auth trivially yields the same
+	// bytes — never an authorization bypass. The admin-path heuristic misfires on
+	// these (here "/system" matched inside the "System Image" filename segment),
+	// so gate on the response content type, falling back to a binary-body sniff
+	// when the Content-Type header is missing or misleading.
+	if modkit.IsStaticAssetContentType(ctx.Response().Header("Content-Type")) || looksBinaryBody(origBody) {
+		return nil, nil
+	}
+
 	// Probe the host with a random nonexistent path. If the original "admin"
 	// response is just the host's wildcard / SPA shell, every BFLA test will
 	// fire because removing auth still returns the same shell. Bail out.
@@ -161,6 +173,20 @@ func (m *Module) testNoAuth(
 	origBodyLen int,
 	wildcard *modkit.WildcardEntry,
 ) (*output.ResultEvent, error) {
+	// A "missing authorization" bypass is only meaningful when the original
+	// request actually carried credentials. If it presented neither an
+	// Authorization header nor a Cookie there is nothing to strip — the
+	// "unauthenticated" request is byte-for-byte the original, so a 200 simply
+	// means the endpoint is public. That is the dominant false positive: a
+	// "/debug/", "/internal/" or "/config/" landing page on a CDN that was never
+	// authorization-gated. Without an authenticated baseline we cannot distinguish
+	// a public page from a real bypass, so require credentials before testing.
+	authVal, _ := httpmsg.GetHeaderValue(ctx.Request().Raw(), "Authorization")
+	cookieVal, _ := httpmsg.GetHeaderValue(ctx.Request().Raw(), "Cookie")
+	if strings.TrimSpace(authVal) == "" && strings.TrimSpace(cookieVal) == "" {
+		return nil, nil
+	}
+
 	modifiedRaw, err := httpmsg.RemoveHeader(ctx.Request().Raw(), "Authorization")
 	if err != nil {
 		return nil, err
@@ -212,6 +238,14 @@ func (m *Module) testNoAuth(
 		method, _ := httpmsg.GetMethod(modifiedRaw)
 		baseStatus, baseBody, ok := probeMethodBaseline(ctx, httpClient, method)
 		if ok && matchesMethodBaseline(respStatus, respBodyBytes, baseStatus, baseBody) {
+			return nil, nil
+		}
+		// Confirm the privileged content reproduces across several fresh
+		// unauthenticated requests. Endpoints whose body varies per request
+		// (rotating tokens, A/B variants, edge-cache flapping) can cross the
+		// similarity threshold once by chance; a real authorization bypass returns
+		// the same privileged content every time, a coincidental match does not.
+		if !confirmPrivilegedReproduces(ctx, httpClient, modifiedRaw, origStatus, origBody) {
 			return nil, nil
 		}
 		ev := modkit.NewEvidenceCollector()
@@ -295,6 +329,12 @@ func (m *Module) testDowngradedAuth(
 		method, _ := httpmsg.GetMethod(modifiedRaw)
 		baseStatus, baseBody, ok := probeMethodBaseline(ctx, httpClient, method)
 		if ok && matchesMethodBaseline(respStatus, respBodyBytes, baseStatus, baseBody) {
+			return nil, nil
+		}
+		// Require the privileged content to reproduce across several downgraded
+		// requests, rejecting endpoints whose body merely happens to look similar
+		// on a single dynamic sample (see testNoAuth for the rationale).
+		if !confirmPrivilegedReproduces(ctx, httpClient, modifiedRaw, origStatus, origBody) {
 			return nil, nil
 		}
 		ev := modkit.NewEvidenceCollector()
@@ -470,6 +510,55 @@ func matchesMethodBaseline(candStatus int, candBody []byte, baseStatus int, base
 	return bodiesContentSimilar(candStatus, candBody, baseStatus, baseBody)
 }
 
+// bflaConfirmSamples is how many additional times an auth-stripped or downgraded
+// request is re-issued to confirm the privileged content reproduces. A single
+// sample is not enough when the endpoint's body varies per request; a real bypass
+// returns the same privileged content every time, a page that randomizes does not.
+const bflaConfirmSamples = 2
+
+// confirmPrivilegedReproduces re-issues the modified (auth-stripped or downgraded)
+// request bflaConfirmSamples more times and reports whether every fresh response
+// still returns the same privileged content (same status, content-similar body) as
+// the authenticated baseline. It returns false on the first sample that fails to
+// reproduce — a transport error, a status change, or a body that no longer matches
+// the privileged content — so a coincidental one-shot similarity to a dynamic page
+// is rejected before a finding is raised.
+func confirmPrivilegedReproduces(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	modifiedRaw []byte,
+	origStatus int,
+	origBody []byte,
+) bool {
+	for i := 0; i < bflaConfirmSamples; i++ {
+		req, err := httpmsg.ParseRawRequest(string(modifiedRaw))
+		if err != nil {
+			return false
+		}
+		req = req.WithService(ctx.Service())
+
+		// NoClustering is essential: the requester caches identical requests for a
+		// short TTL, so without it every re-sample would return the first probe's
+		// cached body and a flapping endpoint would look perfectly reproducible.
+		resp, _, err := httpClient.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
+		if err != nil || resp == nil {
+			return false
+		}
+		if resp.Response() == nil {
+			resp.Close()
+			return false
+		}
+		status := resp.Response().StatusCode
+		body := append([]byte(nil), resp.Body().Bytes()...)
+		resp.Close()
+
+		if status != origStatus || !bodiesContentSimilar(origStatus, origBody, status, body) {
+			return false
+		}
+	}
+	return true
+}
+
 // isAdminPath checks if the path matches known admin/privileged patterns (case-insensitive).
 func isAdminPath(path string) bool {
 	pathLower := strings.ToLower(path)
@@ -507,4 +596,32 @@ func isBodyLengthSimilar(origLen, newLen int) bool {
 	}
 	ratio := math.Abs(float64(origLen-newLen)) / float64(origLen)
 	return ratio <= 0.5
+}
+
+// looksBinaryBody sniffs a response body for binary content when the Content-Type
+// is missing or misleading (a CDN mislabeling an image as text/html, say). A NUL
+// byte is decisive; otherwise a high ratio of control bytes (excluding
+// tab/newline/CR) in the leading window marks it binary. High bytes (0x80+) are
+// left uncounted so valid UTF-8 text is never misread as binary.
+func looksBinaryBody(body []byte) bool {
+	n := len(body)
+	if n == 0 {
+		return false
+	}
+	if n > 2048 {
+		n = 2048
+	}
+	nonText := 0
+	for i := 0; i < n; i++ {
+		c := body[i]
+		switch {
+		case c == 0:
+			return true
+		case c == 0x09 || c == 0x0a || c == 0x0d:
+			// tab / newline / carriage-return — text
+		case c < 0x20 || c == 0x7f:
+			nonText++
+		}
+	}
+	return float64(nonText)/float64(n) > 0.10
 }

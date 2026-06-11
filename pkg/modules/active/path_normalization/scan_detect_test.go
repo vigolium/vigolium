@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -117,6 +118,124 @@ func TestScanPerRequest_NoFalsePositiveOnHardenedErrorStatuses(t *testing.T) {
 			assert.Emptyf(t, res, "a hardened host returning %d for backed-off traversal paths must not be flagged", status)
 		})
 	}
+}
+
+// differentialHandler models the "both 200 but materially different" oracle: the
+// clean path and the root/non-existent probes return a small public page, an
+// over-traversed path (2+ "..;/" segments) is rejected with 400, and a single
+// "..;/" segment normalizes through to a large, distinctly different internal
+// resource. This is the canonical proxy/backend disagreement the module reports.
+func differentialHandler() http.HandlerFunc {
+	internal := "INTERNAL ADMIN DASHBOARD " + strings.Repeat("privileged-internal-operation ", 80)
+	public := "<html><body>public landing page</body></html>"
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch strings.Count(r.URL.RequestURI(), "..;/") {
+		case 0:
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(public))
+		case 1:
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(internal))
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("bad request"))
+		}
+	}
+}
+
+// TestScanPerRequest_DetectsDifferentialContent asserts the differential oracle:
+// when the clean path and the traversal-bearing path both return 200 but the
+// traversal response is a materially different resource, the module flags it.
+func TestScanPerRequest_DetectsDifferentialContent(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(differentialHandler())
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/app/resource")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "expected a finding when a backed-off traversal path reaches a 200 resource that differs substantially from the clean baseline")
+	assert.Equal(t, ModuleID, res[0].ModuleID)
+	assert.NotEmpty(t, res[0].AdditionalEvidence, "finding must carry baseline/over-traversal/confirmation evidence")
+}
+
+// binaryCDNHandler reproduces the reported false positive: an Adobe-Scene7 /
+// Akamai-style image CDN. The clean image path (and a single normalized segment)
+// return 200 image/webp with per-request varying bytes (smart-imaging + cache
+// variants), while an over-traversed path is rejected with 400. No path
+// normalization bug exists — the CDN simply rejects malformed suffixes and serves
+// images whose bytes are not byte-stable between requests.
+func binaryCDNHandler() http.HandlerFunc {
+	var seq int32
+	return func(w http.ResponseWriter, r *http.Request) {
+		n := strings.Count(r.URL.RequestURI(), "..;/")
+		if n >= 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("bad request"))
+			return
+		}
+		// n == 0 (clean/root/non-existent) and n == 1 (one normalized segment)
+		// both serve an image with per-request varying bytes.
+		v := atomic.AddInt32(&seq, 1)
+		w.Header().Set("Content-Type", "image/webp")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("RIFF" + strings.Repeat("x", 200+int(v)*37) + "WEBP"))
+	}
+}
+
+// TestScanPerRequest_NoFalsePositiveOnBinaryCDNAsset is the regression guard for
+// the reported false positive (media-assets.stryker.com): a binary image CDN with
+// a query string on the URL and per-request varying bytes must NOT be flagged.
+// The backed-off traversal path returns a 200 image/webp, but image/binary
+// content is excluded from the status oracle (it is the static-root oracle's
+// domain), and the per-request byte variance must not be mistaken for a divergent
+// internal resource.
+func TestScanPerRequest_NoFalsePositiveOnBinaryCDNAsset(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(binaryCDNHandler())
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// Query string present, mirroring a real Scene7 image request.
+	rr := modtest.Request(t, srv.URL+"/is/image/stryker/visualization?wid=800&fmt=webp")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a binary image CDN with varying bytes must not be flagged as a path-normalization bypass")
+}
+
+// TestScanPerRequest_NoFalsePositiveDegenerateBackoff guards the other root cause:
+// a host that rejects any traversal suffix with 400 and serves the clean path with
+// 200 (the normal behaviour of almost every server) must NOT be flagged. The old
+// oracle reported this via the degenerate i=1 case (backed-off path == the clean
+// original URL); starting at i=2 removes it.
+func TestScanPerRequest_NoFalsePositiveDegenerateBackoff(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Any path carrying a traversal token is rejected; the clean path is served.
+		raw := strings.ToLower(r.URL.RequestURI())
+		if strings.Contains(raw, "..") || strings.Contains(raw, "%2e") ||
+			strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("bad request"))
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html><body>the canonical resource served cleanly</body></html>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/is/image/stryker/visualization?wid=800")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "rejecting traversal suffixes with 400 while serving the clean path with 200 is not a bypass")
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a host that returns a uniform

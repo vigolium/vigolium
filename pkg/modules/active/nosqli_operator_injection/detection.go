@@ -40,21 +40,107 @@ const (
 	// capture-encoding asymmetry), not new data pulled by the operator.
 	sizeDivergeMax = 0.95
 
-	// Boolean-diff thresholds. Detection compares the always-true vs always-false
-	// response, but only after establishing the endpoint's intrinsic per-request
-	// variance via a stability re-probe (the always-true payload sent twice).
+	// Boolean-diff thresholds. Detection compares always-true vs always-false
+	// responses, but only after sampling EACH condition several times so the
+	// endpoint's intrinsic per-request variance is measured directly (rather than
+	// inferred from a single re-probe) — a CDN that randomly flaps between a cached
+	// object and a block page would otherwise let a phantom true/false difference
+	// through.
 	//
-	// booleanStabilityMin is the minimum normalized similarity the endpoint must
-	// show under identical input. Below it the endpoint is non-deterministic
-	// (rotating tokens, nonces, timestamps) and any true/false difference is noise.
+	// booleanStabilityMin is the minimum normalized similarity each condition must
+	// show under identical input across its own samples. Below it the endpoint is
+	// non-deterministic (rotating tokens, nonces, timestamps, randomized content)
+	// and any true/false difference is noise.
 	booleanStabilityMin = 0.92
 	// booleanDivergeMax is the maximum normalized true-vs-false similarity that can
 	// still count as a signal — the false condition must clearly diverge.
 	booleanDivergeMax = 0.85
 	// booleanMarginMin is how much the true/false divergence must exceed the
-	// endpoint's own true/true variance before it is believed.
+	// endpoint's own same-condition variance before it is believed.
 	booleanMarginMin = 0.10
+
+	// boolTrueSamples / boolFalseSamples are how many times each condition is
+	// re-sent (interleaved). Multiple samples per condition turn a one-shot
+	// comparison into a reproducibility test: a real injection keeps every
+	// always-true response mutually similar and every always-false response
+	// mutually similar while the two clusters stay apart; a randomizing endpoint
+	// fails the same-condition similarity check and is dropped.
+	boolTrueSamples  = 3
+	boolFalseSamples = 2
 )
+
+// booleanDiffPair couples an always-true probe with the STRUCTURALLY MATCHING
+// always-false probe (same quote style, same injection shape). The two differ
+// ONLY in the boolean result of the injected condition, so in a vulnerable
+// endpoint the true probe returns data and the false probe does not while every
+// other request attribute is held constant. The previous positional pairing
+// (boolPayloads[i] vs boolPayloads[i+1]) silently compared two always-true
+// payloads against each other — a guaranteed false-positive generator on any
+// non-deterministic endpoint.
+type booleanDiffPair struct {
+	truePayload  string
+	falsePayload string
+	desc         string
+}
+
+// booleanDiffPairs is the source of truth for the boolean-differential probes.
+var booleanDiffPairs = []booleanDiffPair{
+	{`' || '1'=='1`, `' || '1'=='2`, "NoSQL string injection — single-quote OR tautology"},
+	{`" || "1"=="1`, `" || "1"=="2`, "NoSQL string injection — double-quote OR tautology"},
+	{`'; return true; var a='`, `'; return false; var a='`, "NoSQL JS injection — return true vs false"},
+	{`"; return true; var a="`, `"; return false; var a="`, "NoSQL JS injection — return true vs false (double-quote)"},
+}
+
+// binaryContentTypePrefixes mark a response body that is NOT analyzable text. A
+// boolean text differential over binary content (an image, font, archive) is
+// meaningless: two different image payloads normalize to gibberish that always
+// looks "divergent", manufacturing a finding. This is the motivating false
+// positive — an Adobe Scene7/Akamai dynamic-image endpoint (?$preset$) returning
+// WEBP bytes whose CanProcess content-type gate saw only the text/html block-page
+// baseline, never the binary probe responses.
+var binaryContentTypePrefixes = []string{
+	"image/", "audio/", "video/", "font/",
+	"application/octet-stream", "application/pdf", "application/zip",
+	"application/gzip", "application/x-protobuf", "application/grpc",
+}
+
+// isBinaryContentType reports whether a Content-Type names a non-text body.
+func isBinaryContentType(contentType string) bool {
+	ct := strings.ToLower(contentType)
+	for _, p := range binaryContentTypePrefixes {
+		if strings.Contains(ct, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// looksBinary sniffs a response body for binary content when the Content-Type is
+// missing or misleading. A NUL byte is decisive; otherwise a high ratio of
+// control bytes (excluding tab/newline/CR) in the leading window marks it binary.
+// High bytes (0x80+) are left uncounted so valid UTF-8 text is never misread.
+func looksBinary(body string) bool {
+	if body == "" {
+		return false
+	}
+	n := len(body)
+	if n > 2048 {
+		n = 2048
+	}
+	nonText := 0
+	for i := 0; i < n; i++ {
+		c := body[i]
+		switch {
+		case c == 0:
+			return true
+		case c == 0x09 || c == 0x0a || c == 0x0d:
+			// tab / newline / carriage-return — text
+		case c < 0x20 || c == 0x7f:
+			nonText++
+		}
+	}
+	return float64(nonText)/float64(n) > 0.10
+}
 
 // volatileTokenRe matches long opaque tokens (base64/hex/IDs/CSRF/nonces) that
 // rotate per request and would otherwise make two structurally identical
@@ -106,39 +192,91 @@ func diceSimilarity(a, b string) float64 {
 	return 2 * float64(overlap) / float64(total)
 }
 
-// confirmBooleanDiff decides whether an always-true vs always-false probe pair is
-// genuine boolean-based NoSQL injection rather than endpoint noise.
+// minPairwiseSimilarity returns the SMALLEST Sørensen–Dice similarity between any
+// two of the (already-normalized) bodies — the worst-case agreement of a
+// condition with itself across repeats. A single sample is trivially self-similar
+// (1). It is the noise floor: if the always-true responses disagree among
+// themselves the endpoint is non-deterministic and no true/false signal can be
+// trusted.
+func minPairwiseSimilarity(norm []string) float64 {
+	if len(norm) < 2 {
+		return 1
+	}
+	minSim := 1.0
+	for i := 0; i < len(norm); i++ {
+		for j := i + 1; j < len(norm); j++ {
+			if s := diceSimilarity(norm[i], norm[j]); s < minSim {
+				minSim = s
+			}
+		}
+	}
+	return minSim
+}
+
+// maxCrossSimilarity returns the LARGEST Sørensen–Dice similarity between any
+// true sample and any false sample. Using the max is conservative: if even one
+// true/false pairing fails to separate, the conditions do not cleanly diverge.
+func maxCrossSimilarity(a, b []string) float64 {
+	maxSim := 0.0
+	for _, x := range a {
+		for _, y := range b {
+			if s := diceSimilarity(x, y); s > maxSim {
+				maxSim = s
+			}
+		}
+	}
+	return maxSim
+}
+
+// confirmBooleanDiffMulti decides whether a set of always-true and always-false
+// samples is genuine boolean-based NoSQL injection rather than endpoint noise.
+// Sampling each condition several times turns the old one-shot comparison into a
+// reproducibility test that survives endpoints which randomize per request.
 //
-//   - trueBody1/trueBody2 are two responses to the SAME always-true payload; their
-//     similarity establishes the endpoint's per-request variance (the noise floor).
-//   - falseBody is the always-false response.
+//   - trueBodies are repeated responses to the SAME always-true payload; their
+//     mutual similarity is the noise floor for the true condition.
+//   - falseBodies are repeated responses to the matching always-false payload.
 //   - baselineBody is the original (un-injected) response, if captured.
 //
-// A finding requires: the endpoint is stable under identical input, the false
-// condition diverges clearly from the true condition, that divergence exceeds the
-// noise floor by a margin, and — when a baseline exists — the true condition
-// resembles the normal response at least as much as the false condition does.
-func confirmBooleanDiff(trueBody1, trueBody2, falseBody, baselineBody string) bool {
-	nt1 := normalizeResponse(trueBody1)
-	nt2 := normalizeResponse(trueBody2)
-	nf := normalizeResponse(falseBody)
+// A finding requires ALL of: each condition is self-consistent across its own
+// samples (stable endpoint), the true and false clusters diverge clearly, that
+// divergence exceeds the same-condition variance by a margin, and — when a
+// baseline exists — the true condition tracks the normal response at least as
+// closely as the false condition does.
+func confirmBooleanDiffMulti(trueBodies, falseBodies []string, baselineBody string) bool {
+	if len(trueBodies) < 2 || len(falseBodies) < 1 {
+		return false // need repeated true samples to establish the noise floor
+	}
 
-	selfSim := diceSimilarity(nt1, nt2)  // endpoint determinism under identical input
-	crossSim := diceSimilarity(nt1, nf)  // true vs false
+	nt := make([]string, len(trueBodies))
+	for i, b := range trueBodies {
+		nt[i] = normalizeResponse(b)
+	}
+	nf := make([]string, len(falseBodies))
+	for i, b := range falseBodies {
+		nf[i] = normalizeResponse(b)
+	}
 
-	if selfSim < booleanStabilityMin {
-		return false // noisy endpoint — true/false difference is meaningless
+	selfTrue := minPairwiseSimilarity(nt)  // determinism of the true condition
+	selfFalse := minPairwiseSimilarity(nf) // determinism of the false condition
+	crossSim := maxCrossSimilarity(nt, nf) // true vs false
+
+	if selfTrue < booleanStabilityMin {
+		return false // always-true responses disagree among themselves — noisy endpoint
+	}
+	if selfFalse < booleanStabilityMin {
+		return false // always-false responses disagree among themselves — noisy endpoint
 	}
 	if crossSim > booleanDivergeMax {
 		return false // false condition barely differs from true — no signal
 	}
-	if selfSim-crossSim < booleanMarginMin {
+	if min(selfTrue, selfFalse)-crossSim < booleanMarginMin {
 		return false // divergence does not clearly exceed the endpoint's own variance
 	}
 
 	if baselineBody != "" {
 		nb := normalizeResponse(baselineBody)
-		if diceSimilarity(nt1, nb) < diceSimilarity(nf, nb) {
+		if diceSimilarity(nt[0], nb) < diceSimilarity(nf[0], nb) {
 			// The always-true condition should track the normal response at least
 			// as closely as the always-false condition; an inversion suggests the
 			// difference is unrelated to the injected logic.
@@ -146,6 +284,12 @@ func confirmBooleanDiff(trueBody1, trueBody2, falseBody, baselineBody string) bo
 		}
 	}
 	return true
+}
+
+// confirmBooleanDiff is the two-true/one-false shorthand retained for callers and
+// tests that only have a single re-probe; it delegates to the multi-sample logic.
+func confirmBooleanDiff(trueBody1, trueBody2, falseBody, baselineBody string) bool {
+	return confirmBooleanDiffMulti([]string{trueBody1, trueBody2}, []string{falseBody}, baselineBody)
 }
 
 // containsNoSQLError checks if the response body contains NoSQL error patterns.
@@ -156,12 +300,6 @@ func containsNoSQLError(body string) bool {
 		}
 	}
 	return false
-}
-
-// isAccessDenied returns true for status codes that indicate the request was
-// rejected by an auth/WAF/rate-limit layer rather than served by the app.
-func isAccessDenied(status int) bool {
-	return status == 401 || status == 403 || status == 429 || status == 503
 }
 
 // analyzeAuthBypass checks if status changed from 401/403 to 200-range.

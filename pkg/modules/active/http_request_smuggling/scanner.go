@@ -183,9 +183,10 @@ func (m *Module) ScanPerHost(
 			// smuggled bytes — but only after it survives confirmation (the
 			// re-probe and a fast well-formed control), otherwise it is just a
 			// slow/erroring host.
-			if isTimingAnomaly(elapsed, baselineDuration) &&
-				m.confirmTimingDesync(ctx, modifiedRaw, httpClient, baselineDuration) {
-				results = append(results, buildResult(ctx, modifiedRaw, probe, baselineDuration, elapsed, true))
+			if isTimingAnomaly(elapsed, baselineDuration) {
+				if ev, ok := m.confirmTimingDesync(ctx, modifiedRaw, httpClient, baselineDuration); ok {
+					results = append(results, buildResult(ctx, modifiedRaw, probe, baselineDuration, elapsed, true, ev))
+				}
 			}
 			continue
 		}
@@ -204,8 +205,8 @@ func (m *Module) ScanPerHost(
 			continue
 		}
 
-		if m.confirmTimingDesync(ctx, modifiedRaw, httpClient, baselineDuration) {
-			results = append(results, buildResult(ctx, modifiedRaw, probe, baselineDuration, elapsed, false))
+		if ev, ok := m.confirmTimingDesync(ctx, modifiedRaw, httpClient, baselineDuration); ok {
+			results = append(results, buildResult(ctx, modifiedRaw, probe, baselineDuration, elapsed, false, ev))
 		}
 	}
 
@@ -228,43 +229,64 @@ func isTimingAnomaly(elapsed, baseline time.Duration) bool {
 //  2. a well-formed control POST of similar shape (no conflicting CL/TE, valid
 //     body) returns quickly — if the control is ALSO slow the host/path is
 //     simply slow for POST traffic and the anomaly is not a desync.
+//
+// desyncEvidence carries the confirmation-round measurements confirmTimingDesync
+// takes while validating a timing anomaly: the reconfirmed probe (which must
+// still be slow) and, when one could be sent, the well-formed control (which
+// must be fast). Preserving these lets the finding show the differential that
+// distinguishes a real desync from a host that is simply slow for POST traffic,
+// instead of asserting it in prose.
+type desyncEvidence struct {
+	reElapsed   time.Duration
+	probeReq    string
+	probeResp   string
+	hasControl  bool
+	ctrlElapsed time.Duration
+	ctrlReq     string
+	ctrlResp    string
+}
+
 func (m *Module) confirmTimingDesync(
 	ctx *httpmsg.HttpRequestResponse,
 	modifiedRaw []byte,
 	httpClient *http.Requester,
 	baseline time.Duration,
-) bool {
+) (desyncEvidence, bool) {
+	ev := desyncEvidence{probeReq: string(modifiedRaw)}
+
 	// 1. Reconfirm the anomaly with a fresh send of the same probe.
 	probeReq, err := httpmsg.ParseRawRequest(string(modifiedRaw))
 	if err != nil {
-		return false
+		return ev, false
 	}
 	probeReq = probeReq.WithService(ctx.Service())
 
 	reStart := time.Now()
 	reResp, _, reErr := httpClient.Execute(probeReq, http.Options{})
 	reElapsed := time.Since(reStart)
+	ev.reElapsed = reElapsed
 	if reErr == nil {
 		// A reproduced block means the edge is rejecting us, not a desync.
 		blocked := isBlockedResponse(reResp)
+		ev.probeResp = reResp.FullResponseString()
 		reResp.Close()
 		if blocked {
-			return false
+			return ev, false
 		}
 	}
 	if !isTimingAnomaly(reElapsed, baseline) {
-		return false
+		return ev, false
 	}
 
 	// 2. A well-formed control POST must be fast. If we cannot build one, fall
 	// back to the (already reconfirmed) anomaly rather than dropping it.
 	controlRaw, ok := buildControlRequest(ctx)
 	if !ok {
-		return true
+		return ev, true
 	}
 	controlReq, err := httpmsg.ParseRawRequest(string(controlRaw))
 	if err != nil {
-		return true
+		return ev, true
 	}
 	controlReq = controlReq.WithService(ctx.Service())
 
@@ -274,13 +296,17 @@ func (m *Module) confirmTimingDesync(
 	if ctrlErr != nil {
 		// The control errored where the probe returned: inconclusive, and a
 		// host that errors on a plain POST is not safe to call desynced.
-		return false
+		return ev, false
 	}
+	ev.hasControl = true
+	ev.ctrlElapsed = ctrlElapsed
+	ev.ctrlReq = string(controlRaw)
+	ev.ctrlResp = ctrlResp.FullResponseString()
 	ctrlResp.Close()
 
 	// If a plain, unambiguous POST is just as slow, the latency is general and
 	// not attributable to CL/TE desync.
-	return !isTimingAnomaly(ctrlElapsed, baseline)
+	return ev, !isTimingAnomaly(ctrlElapsed, baseline)
 }
 
 // buildProbeRequest turns the host's request into a smuggling probe: forced to
@@ -330,13 +356,18 @@ func buildControlRequest(ctx *httpmsg.HttpRequestResponse) ([]byte, bool) {
 	return raw, true
 }
 
-// buildResult constructs the finding for a confirmed timing anomaly.
+// buildResult constructs the finding for a confirmed timing anomaly. It carries
+// the confirmation differential captured by confirmTimingDesync — the
+// reconfirmed slow probe and the fast well-formed control — as AdditionalEvidence
+// and Metadata, so the proof of "desync, not a generally slow host" travels with
+// the finding instead of being collapsed to a one-line claim.
 func buildResult(
 	ctx *httpmsg.HttpRequestResponse,
 	modifiedRaw []byte,
 	probe smugglingProbe,
 	baseline, elapsed time.Duration,
 	timeout bool,
+	ev desyncEvidence,
 ) *output.ResultEvent {
 	name := fmt.Sprintf("HTTP Request Smuggling: %s", probe.name)
 	timing := fmt.Sprintf("Baseline: %s, Probe: %s", baseline, elapsed)
@@ -345,15 +376,39 @@ func buildResult(
 		timing = fmt.Sprintf("Baseline: %s, Probe: %s (timeout)", baseline, elapsed)
 	}
 
+	extracted := []string{
+		fmt.Sprintf("Probe: %s", probe.name),
+		timing,
+		fmt.Sprintf("Reconfirm probe: %s (anomaly reproduced)", ev.reElapsed),
+	}
+
+	collector := modkit.NewEvidenceCollector()
+	collector.Add("reconfirm probe (anomaly reproduced)", ev.probeReq, ev.probeResp)
+
+	meta := map[string]any{
+		"baseline_ms":  baseline.Milliseconds(),
+		"probe_ms":     elapsed.Milliseconds(),
+		"reconfirm_ms": ev.reElapsed.Milliseconds(),
+		"timeout":      timeout,
+	}
+
+	if ev.hasControl {
+		extracted = append(extracted, fmt.Sprintf(
+			"Well-formed control: %s (fast → latency is desync-specific, not general)", ev.ctrlElapsed))
+		collector.Add("well-formed control (returned fast)", ev.ctrlReq, ev.ctrlResp)
+		meta["control_ms"] = ev.ctrlElapsed.Milliseconds()
+	}
+	extracted = append(extracted,
+		"Confirmation: anomaly reproduced and well-formed control returned fast (not an edge/CDN block)")
+
 	return &output.ResultEvent{
-		URL:     ctx.Target(),
-		Matched: ctx.Target(),
-		Request: string(modifiedRaw),
-		ExtractedResults: []string{
-			fmt.Sprintf("Probe: %s", probe.name),
-			timing,
-			"Confirmation: anomaly reproduced and well-formed control returned fast (not an edge/CDN block)",
-		},
+		URL:                ctx.Target(),
+		Matched:            ctx.Target(),
+		Request:            string(modifiedRaw),
+		Response:           ev.probeResp,
+		AdditionalEvidence: collector.Entries(),
+		ExtractedResults:   extracted,
+		Metadata:           meta,
 		Info: output.Info{
 			Name:        name,
 			Description: probe.desc,

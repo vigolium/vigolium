@@ -11,6 +11,7 @@ import (
 	"time"
 
 	corestats "github.com/vigolium/vigolium/pkg/core/stats"
+	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -26,6 +27,36 @@ func (r *Runner) setPhaseTag(tag string) {
 	if r.teeWriter != nil {
 		r.teeWriter.SetPhase(tag)
 	}
+}
+
+// findingsVisibleOnStdout reports whether findings written via r.output already
+// render to stdout in human-readable form (console format). When false — jsonl/
+// html defer their output to post-scan files, or the run is silent — live
+// findings are otherwise invisible during the scan; see echoLiveFinding.
+func (r *Runner) findingsVisibleOnStdout() bool {
+	if s, ok := r.output.(interface{ ShowsFindingsOnStdout() bool }); ok {
+		return s.ShowsFindingsOnStdout()
+	}
+	return false
+}
+
+// echoLiveFinding renders a finding to stderr (and the session log) as it's
+// discovered, so a scan shows live results even when the stdout result stream is
+// deferred to files (jsonl/html). It's a no-op when findings already stream to
+// stdout in human-readable form (console format), when silent, or for a captured
+// -P child (whose stdout IS the per-target log). The phase status heartbeat,
+// traffic lines, and tech-detect lines all reach stderr independent of --format;
+// this gives findings the same treatment.
+func (r *Runner) echoLiveFinding(phaseTag string, result *output.ResultEvent) {
+	if result == nil || r.options.Silent || r.options.CapturedConsole {
+		return
+	}
+	if r.findingsVisibleOnStdout() {
+		return
+	}
+	line := output.FormatPhaseFindingLine(phaseTag, result)
+	r.writeSessionLog(line)
+	fmt.Fprint(os.Stderr, line)
 }
 
 // printPhaseStart prints a phase start message to stderr.
@@ -295,7 +326,10 @@ func (r *Runner) printScanConfig() {
 		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), statelessLine)
 	}
 
-	if opts.ProjectUUID != "" {
+	// Only surface the project when it's a real, operator-chosen one. The
+	// auto-created default project is implementation noise — printing its UUID
+	// just clutters the header for the common single-project case.
+	if opts.ProjectUUID != "" && opts.ProjectUUID != database.DefaultProjectUUID {
 		fmt.Fprintf(os.Stderr, "  %s Project: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiTeal(opts.ProjectUUID))
 	}
 

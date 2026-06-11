@@ -114,6 +114,7 @@ func (m *Module) ScanPerRequest(
 			}
 
 			statusCode := resp.Response().StatusCode
+			contentType := resp.Response().Header.Get("Content-Type")
 			// Copy the body before Close: resp.Body().Bytes() aliases the pooled
 			// *bytes.Buffer that Close() returns to a process-global pool. `body`
 			// (a string) is already a copy, but bodyBytes is later passed to
@@ -125,6 +126,18 @@ func (m *Module) ScanPerRequest(
 
 			// Must be 200 with a non-trivial body
 			if statusCode != 200 || len(body) < 50 {
+				continue
+			}
+
+			// A binary / static-asset response (image, font, media, octet-stream)
+			// is the static handler simply serving a file, not an alias traversal
+			// we can reason about by body differential — and on a re-optimizing
+			// image CDN (Scene7/Akamai) those bytes are not stable between
+			// requests, which would defeat the differential/reproduce gates and
+			// fabricate a hit. The URL-extension filter (IsValidForInjectionVulns)
+			// misses an extensionless image/JS CDN URL; this response Content-Type
+			// gate catches it.
+			if modkit.IsStaticAssetContentType(contentType) {
 				continue
 			}
 

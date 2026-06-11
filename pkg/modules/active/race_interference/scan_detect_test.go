@@ -14,6 +14,30 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
 
+// TestFirstCleanProbe verifies the contrast-probe selector: it returns the first
+// successful, baseline-matching sibling that carries no wrong id and is not the
+// divergent probe itself, so a race finding can show a corrupted request next to
+// a clean one. Errored, wrong-id, divergent, and the excluded probe are skipped.
+func TestFirstCleanProbe(t *testing.T) {
+	t.Parallel()
+	hdr := http.Header{"Content-Type": {"text/plain"}}
+	baseline := NewResponseGroup(200, "hello world", hdr)
+
+	divergent := &ProbeResult{Index: 0, StatusCode: 500, Body: "boom", Headers: hdr, Request: "r0", Response: "resp0"}
+	errored := &ProbeResult{Index: 1, Err: assert.AnError}
+	withWrong := &ProbeResult{Index: 2, StatusCode: 200, Body: "hello world", Headers: hdr, Request: "r2", HasWrongId: true}
+	clean := &ProbeResult{Index: 3, StatusCode: 200, Body: "hello world", Headers: hdr, Request: "r3", Response: "resp3"}
+
+	got := firstCleanProbe([]*ProbeResult{divergent, errored, withWrong, clean}, baseline, divergent)
+	require.NotNil(t, got, "expected the clean baseline-matching sibling")
+	assert.Equal(t, "r3", got.Request)
+
+	// With no clean sibling available, returns nil rather than the divergent/
+	// wrong-id/errored probes.
+	assert.Nil(t, firstCleanProbe([]*ProbeResult{divergent, errored, withWrong}, baseline, divergent),
+		"no clean sibling → nil")
+}
+
 // TestScanPerInsertionPoint_DetectsInputStorage drives the real scan method
 // against a backend that exhibits an input-storage race: it echoes the *previous*
 // request's parameter value (shared mutable state) alongside the current one.

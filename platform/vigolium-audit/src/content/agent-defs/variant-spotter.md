@@ -1,5 +1,5 @@
 ---
-description: Phase 10 Review Chamber concurrent variant hunter that monitors debate transcripts for confirmed vulnerability patterns and immediately searches for structural variants in sibling components, alternate transports, and adjacent enforcement paths, front-loading Phase 12 variant analysis while chamber context is hot
+description: Review Chamber concurrent variant hunter that monitors debate transcripts for confirmed vulnerability patterns and immediately searches for structural variants in sibling components, alternate transports, and adjacent enforcement paths, front-loading Phase 12 variant analysis while chamber context is hot
 ---
 
 > **Fold note (deep / balanced):** This agent is **not spawned** in deep or balanced mode. Variant expansion is folded directly into the Phase D8 Review Chamber Code Tracer (`flow-tracer`), which runs the same-pattern search inline on every VALID finding instead of a separate concurrent spotter. This file is retained for codex dispatch and any chamber configuration that still elects a dedicated concurrent spotter; the Code Tracer's inline variant instructions in `review-adjudicator.md` are the canonical deep/balanced behavior.

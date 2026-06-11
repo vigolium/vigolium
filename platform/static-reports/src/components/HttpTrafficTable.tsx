@@ -54,13 +54,28 @@ function HeaderChips({ headers }: { headers: Record<string, string | string[]> }
   );
 }
 
+function TrimNote({ note }: { note?: string | null }) {
+  if (!note) return null;
+  return (
+    <div className="text-[11px] text-terracotta bg-terracotta/10 border border-terracotta/30 rounded px-2 py-1 whitespace-pre-wrap">
+      ⚠ {note}
+    </div>
+  );
+}
+
 function RecordDetail({ record }: { record: HttpRecord }) {
-  const rawReq = decodeBase64(record.raw_request);
-  const rawResp = decodeBase64(record.raw_response);
+  // Generated reports drop the redundant raw_request/raw_response and carry the
+  // (trimmed) body in request_body/response_body. A manually-dropped full JSONL
+  // export still has the raw fields, so prefer those when present.
+  const reqBody = decodeBase64(record.raw_request) || decodeBase64(record.request_body);
+  const respBody = decodeBase64(record.raw_response) || decodeBase64(record.response_body);
+  const reqTrim = record.request_body_trimmed ? record.request_body_note : null;
+  const respTrim = record.response_body_trimmed ? record.response_body_note : null;
 
   return (
     <div className="p-4 bg-cream-dark/50 border-t border-warm-border space-y-3 text-sm font-sans">
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-muted">
+        <span><strong className="text-charcoal">Status:</strong> {record.status_code}{record.status_phrase ? ` ${record.status_phrase}` : ""}</span>
         <span><strong className="text-charcoal">IP:</strong> {record.ip || "N/A"}</span>
         <span><strong className="text-charcoal">Scheme:</strong> {record.scheme}</span>
         <span><strong className="text-charcoal">Port:</strong> {record.port}</span>
@@ -77,9 +92,10 @@ function RecordDetail({ record }: { record: HttpRecord }) {
           {record.request_headers && Object.keys(record.request_headers).length > 0 && (
             <HeaderChips headers={record.request_headers} />
           )}
-          {rawReq && (
+          <TrimNote note={reqTrim} />
+          {reqBody && (
             <pre className="text-[11px] bg-cream border border-warm-border rounded p-3 overflow-x-auto whitespace-pre-wrap text-charcoal-light overflow-y-auto">
-              {rawReq}
+              {reqBody}
             </pre>
           )}
         </div>
@@ -90,9 +106,10 @@ function RecordDetail({ record }: { record: HttpRecord }) {
           {record.response_headers && Object.keys(record.response_headers).length > 0 && (
             <HeaderChips headers={record.response_headers} />
           )}
-          {rawResp && (
+          <TrimNote note={respTrim} />
+          {respBody && (
             <pre className="text-[11px] bg-cream border border-warm-border rounded p-3 overflow-x-auto whitespace-pre-wrap text-charcoal-light overflow-y-auto">
-              {rawResp}
+              {respBody}
             </pre>
           )}
         </div>

@@ -10,14 +10,23 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname, join, relative } from "path";
 import { fileURLToPath } from "url";
+// Single source of truth for the hash — the loader reads the same field at
+// runtime to name its extraction cache dir, so the algorithm must not drift.
+import { bundleContentHash } from "../src/content-loader.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(ROOT, "src", "content");
 const OUT = join(ROOT, "src", "content-bundle.json");
 
 interface Bundle {
-  /** ISO timestamp at bundle time. */
+  /** ISO timestamp at bundle time. Informational only — NOT used for caching. */
   generated_at: string;
+  /**
+   * SHA-256 over the (sorted) files map. Drives the extraction cache dir name
+   * so identical content reuses the same `~/.cache/.../content-<hash>/` across
+   * rebuilds instead of orphaning a fresh dir per timestamp.
+   */
+  content_hash: string;
   /** Map of relative-from-src/content path → file contents (UTF-8 text). */
   files: Record<string, string>;
 }
@@ -50,12 +59,15 @@ function main(): void {
   walk(SRC, files);
   const bundle: Bundle = {
     generated_at: new Date().toISOString(),
+    content_hash: bundleContentHash(files),
     files,
   };
   writeFileSync(OUT, JSON.stringify(bundle));
   const count = Object.keys(files).length;
   const size = JSON.stringify(bundle).length;
-  console.log(`[bundle] wrote ${count} files to ${relative(ROOT, OUT)} (${(size / 1024).toFixed(1)} KB)`);
+  console.log(
+    `[bundle] wrote ${count} files to ${relative(ROOT, OUT)} (${(size / 1024).toFixed(1)} KB, hash ${bundle.content_hash})`,
+  );
 }
 
-main();
+if (import.meta.main) main();

@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,8 +79,30 @@ func TestScanPerRequest_DetectsTimeBlindSQLi(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a time-based blind SQLi finding when the delay scales with the sleep value")
-	assert.Equal(t, "id", res[0].FuzzingParameter)
-	assert.Equal(t, "mysql", res[0].ExtractedResults[2])
+	f := res[0]
+	assert.Equal(t, "id", f.FuzzingParameter)
+	assert.Equal(t, "mysql", f.ExtractedResults[2])
+
+	// The multi-round comparison that proves the finding must be preserved, not
+	// discarded: the slow high-sleep probe is the primary pair, and the baseline
+	// and fast no-sleep control travel as labeled AdditionalEvidence.
+	assert.NotEmpty(t, f.Response, "the slow high-sleep probe response should be the primary response pair")
+	require.NotEmpty(t, f.AdditionalEvidence, "finding must carry the baseline/control comparison as evidence")
+	joined := strings.Join(f.AdditionalEvidence, "\n")
+	assert.Contains(t, joined, "# [baseline", "expected a labeled baseline evidence pair")
+	assert.Contains(t, joined, "# [control", "expected the no-sleep control evidence pair")
+
+	require.NotNil(t, f.Metadata, "finding must carry timing metadata")
+	assert.Equal(t, timeRounds, f.Metadata["confirmation_rounds"])
+	assert.Contains(t, f.Metadata, "threshold_ms")
+
+	var hasRoundLine bool
+	for _, e := range f.ExtractedResults {
+		if strings.HasPrefix(e, "Round 1:") {
+			hasRoundLine = true
+		}
+	}
+	assert.True(t, hasRoundLine, "expected per-round timing lines in extracted results")
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a uniformly fast server never

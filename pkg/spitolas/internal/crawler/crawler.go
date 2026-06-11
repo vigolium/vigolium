@@ -296,6 +296,15 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 		return nil, fmt.Errorf("failed to initialize: %w", err)
 	}
 
+	// If the start URL bounced off-host and we adopted the landing host into
+	// scope (evaluateStartRedirect, called during init), re-point the capture's
+	// cross-origin log filter at it. Otherwise it keeps keying on the original
+	// target host and suppresses every adopted-host line from stderr — the run
+	// looks silent even though records are being written.
+	if c.adoptedHost != "" {
+		capture.SetTargetHost(c.adoptedHost)
+	}
+
 	// Main crawl loop
 	if err := c.crawlLoop(ctx); err != nil {
 		zap.L().Debug("Crawl loop ended", zap.Error(err))

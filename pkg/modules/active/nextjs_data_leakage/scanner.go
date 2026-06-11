@@ -9,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/authzutil"
 	"github.com/vigolium/vigolium/pkg/modules/shared/jsframework"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/utils"
@@ -50,9 +51,21 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
-	// Only check auth-protected responses
+	// Only check genuinely auth-protected responses. A 401/403 is an unambiguous
+	// authorization denial. A 302, however, is NOT necessarily auth: locale,
+	// trailing-slash, www/apex and canonical redirects are all 302, and EVERY
+	// public Next.js page's data route returns 200 JSON with pageProps by design.
+	// Treating a non-auth 302 as "protected" flags ordinary public pages as data
+	// leaks, so a 302 only counts when it redirects to a login/auth page.
 	statusCode := ctx.Response().StatusCode()
-	if statusCode != 302 && statusCode != 401 && statusCode != 403 {
+	switch statusCode {
+	case 401, 403:
+		// Unambiguous authorization denial — proceed.
+	case 302:
+		if !authzutil.IsLoginRedirect(statusCode, ctx.Response().Header("Location")) {
+			return nil, nil
+		}
+	default:
 		return nil, nil
 	}
 
@@ -132,6 +145,12 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 	if strings.Contains(respBody, `"notFound":true`) || strings.Contains(respBody, `"notFound": true`) {
+		return nil, nil
+	}
+	// A data route that itself returns a redirect payload is enforcing auth at the
+	// data layer too — not leaking the protected page's data. Next.js emits
+	// __N_REDIRECT when getServerSideProps returns a redirect.
+	if strings.Contains(respBody, "__N_REDIRECT") {
 		return nil, nil
 	}
 

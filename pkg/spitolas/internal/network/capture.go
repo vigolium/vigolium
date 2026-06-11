@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -54,9 +55,15 @@ type Capture struct {
 	silent                 bool         // Disable stderr output
 	includeResponseBody    bool         // Include response body in output
 	includeResponseHeaders bool         // Include response headers in output
-	targetHost             string       // Hostname from input URL (-u flag)
-	phaseTag               string       // Phase label for console log prefix (e.g. "spider")
-	verbose                bool         // Show all traffic including static files
+	// targetHost is the hostname used by the cross-origin stderr-log filter.
+	// It starts as the input URL's host but is re-pointed via SetTargetHost when
+	// the crawler adopts an off-host redirect target into scope, so the adopted
+	// host's traffic is logged instead of being suppressed as cross-origin.
+	// Atomic because it is read from the capture goroutines while the crawler
+	// may update it during initial navigation.
+	targetHost atomic.Pointer[string]
+	phaseTag   string // Phase label for console log prefix (e.g. "spider")
+	verbose    bool   // Show all traffic including static files
 }
 
 // pendingEntry tracks an in-flight request waiting for response.
@@ -69,7 +76,7 @@ type pendingEntry struct {
 // New creates a new traffic capture instance with the given Writer.
 // The caller is responsible for creating the appropriate Writer (e.g. RepositoryWriter).
 func New(writer Writer, noColor, silent, verbose, includeResponseBody, includeResponseHeaders bool, targetHost, phaseTag string) *Capture {
-	return &Capture{
+	c := &Capture{
 		writer:                 writer,
 		pending:                make(map[proto.NetworkRequestID]*pendingEntry),
 		logged:                 make(map[string]struct{}),
@@ -79,9 +86,27 @@ func New(writer Writer, noColor, silent, verbose, includeResponseBody, includeRe
 		verbose:                verbose,
 		includeResponseBody:    includeResponseBody,
 		includeResponseHeaders: includeResponseHeaders,
-		targetHost:             targetHost,
 		phaseTag:               phaseTag,
 	}
+	c.SetTargetHost(targetHost)
+	return c
+}
+
+// SetTargetHost re-points the cross-origin stderr-log filter at host. The
+// crawler calls this after adopting an off-host redirect target into scope so
+// the adopted host's traffic is logged rather than suppressed as cross-origin
+// (records are written regardless of this filter). Safe to call concurrently
+// with the capture goroutines.
+func (c *Capture) SetTargetHost(host string) {
+	c.targetHost.Store(&host)
+}
+
+// targetHostValue returns the current cross-origin filter host (empty if unset).
+func (c *Capture) targetHostValue() string {
+	if p := c.targetHost.Load(); p != nil {
+		return *p
+	}
+	return ""
 }
 
 // Start begins capturing network traffic at the browser level.
@@ -435,10 +460,10 @@ func (c *Capture) shouldLogEntry(entry *TrafficEntry) bool {
 	}
 
 	// Suppress cross-origin requests (host doesn't relate to target)
-	if c.targetHost != "" {
+	if th := c.targetHostValue(); th != "" {
 		if u, err := url.Parse(entry.Request.URL); err == nil {
 			reqHost := strings.ToLower(u.Hostname())
-			target := strings.ToLower(c.targetHost)
+			target := strings.ToLower(th)
 			if reqHost != target && !strings.Contains(reqHost, target) {
 				return false
 			}
@@ -452,7 +477,7 @@ func (c *Capture) shouldLogEntry(entry *TrafficEntry) bool {
 // Skips writing to file if hash already exists (deduplication).
 func (c *Capture) writeEntry(entry *TrafficEntry) {
 	entry.Hash = computeHash(entry)
-	entry.TargetHost = c.targetHost
+	entry.TargetHost = c.targetHostValue()
 
 	c.mu.Lock()
 
