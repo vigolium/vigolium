@@ -4,7 +4,7 @@
 // modules so they agree on what "looks like object storage".
 //
 // The detection is deliberately behavioral: vanity CDN domains (e.g.
-// *.tiktokcdn.com, *.ibytedtos.com) front S3/GCS/TOS/OSS backends without any
+// *.cdn.acme.com) front S3/GCS/TOS/OSS backends without any
 // recognizable storage hostname, so we key off response headers, the /obj/
 // path shape, and the self-confirming listing body instead.
 package storagesig
@@ -32,7 +32,7 @@ var storageHeaders = []string{
 	"x-goog-stored-content-length", "x-goog-storage-class",
 	// Azure Blob
 	"x-ms-request-id", "x-ms-blob-type",
-	// ByteDance TOS
+	// Volcano Engine TOS
 	"x-tos-request-id", "x-tos-id-2",
 	// Alibaba OSS / Tencent COS / Huawei OBS / Baidu BOS
 	"x-oss-request-id", "x-cos-request-id", "x-obs-request-id", "x-bce-request-id",

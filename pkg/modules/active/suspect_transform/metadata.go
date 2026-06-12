@@ -9,17 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects suspicious input transformations that may indicate vulnerabilities, including
-expression evaluation, quote consumption, and unicode normalization issues.
+	ModuleDesc = `**What it means:** The server transformed an injected probe in a way the input alone does not explain, and reflected the transformed result back (confirmed twice with randomized markers). These transformations are classic vulnerability tells: arithmetic or template/expression syntax being evaluated to its computed result (a server-side template injection or expression-language indicator), quotes being silently consumed (an injection-context indicator), or unicode being normalized, case-folded, byte-truncated, or rewritten via combining diacritics (filter-bypass indicators). This is a behavioral signal that input crosses an interpreter or normalizer, not a confirmed bug.
 
-## Notes
-- Tests for server-side expression evaluation (math, string operations)
-- Detects quote consumption that may indicate injection contexts
-- Identifies unicode normalization that could bypass security filters
+**How it's exploited:** If injected math or template markup is computed server-side, an attacker can escalate to full server-side template injection or expression-language injection and often to remote code execution. Quote consumption and unicode rewriting let an attacker smuggle payloads past input validation or WAF blocklists, reaching SQL, command, or template sinks that appeared protected.
 
-## References
-- https://portswigger.net/bappstore/3123d5b5f25c4128894d97ea1571571c`
+**Fix:** Treat user input as inert data, never passing it into template, expression, or eval contexts, and validate input after any unicode normalization or decoding, not before.`
 
 	ModuleConfirmation = "Indicated when injected expressions are evaluated, quotes are consumed, or unicode characters are normalized by the server"
 	ModuleSeverity     = severity.Suspect

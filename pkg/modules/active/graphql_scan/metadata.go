@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Discovers GraphQL endpoints and tests them for common security misconfigurations including
-enabled introspection, SQL injection through GraphQL arguments, and query batching abuse.
+	ModuleDesc = `**What it means:** A reachable GraphQL endpoint was found and exhibits one or more security weaknesses: introspection is enabled (the full API schema with every type, field, and argument is exposed), a field argument leaks database error messages indicating SQL injection, or the endpoint accepts batched queries (array-style or alias-style). Each weakness is reported as its own finding, and together they widen the attack surface of the API.
 
-## Notes
-- Probes 8 common GraphQL endpoint paths
-- Tests both POST and GET request methods for endpoint discovery
-- Checks for enabled introspection (information disclosure)
-- Injects SQL payloads into discovered or common field arguments
-- Tests for query batching support (rate limiting bypass)
-- Runs once per host
+**How it's exploited:** With introspection on, an attacker maps the entire schema to discover hidden mutations and sensitive fields, then targets them directly. An injectable argument lets an attacker read or alter database contents through crafted SQL. Query batching lets an attacker pack many operations into a single HTTP request to bypass rate limiting and brute-force or amplify denial-of-service attempts.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/12-API_Testing/01-Testing_GraphQL
-- https://graphql.org/learn/introspection/`
+**Fix:** Disable introspection in production, use parameterized queries or an ORM for all resolver data access, and cap or disable query batching while enforcing per-operation rate limits and query depth/complexity limits.`
 
 	ModuleConfirmation = "Confirmed when GraphQL endpoint responds to introspection queries, SQL payloads produce database errors, or batch queries execute successfully"
 	ModuleSeverity     = severity.Medium

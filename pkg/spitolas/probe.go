@@ -62,6 +62,12 @@ type ProbeConfig struct {
 
 	ProxyURL string
 
+	// ProxyAllowLoopback removes Chrome's implicit proxy bypass for
+	// localhost/127.0.0.1 so the proxy also captures traffic to a loopback
+	// target. Off by default; set it when the probe's whole point is to route
+	// everything through an intercepting proxy (e.g. browser replay to Burp).
+	ProxyAllowLoopback bool
+
 	// CaptureSink, when non-nil, enables CDP-level network capture for the
 	// probe. Every XHR/fetch/document request the browser makes during the
 	// navigation is converted to an HttpRequestResponse and persisted via
@@ -139,6 +145,7 @@ func ProbeURL(ctx context.Context, cfg ProbeConfig) (*ProbeResult, error) {
 	}
 	if cfg.ProxyURL != "" {
 		crawlerCfg.ProxyURL = cfg.ProxyURL
+		crawlerCfg.ProxyAllowLoopback = cfg.ProxyAllowLoopback
 	}
 
 	navTimeout := cfg.NavTimeout

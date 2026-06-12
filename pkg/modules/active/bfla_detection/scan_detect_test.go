@@ -310,6 +310,72 @@ func TestScanPerRequest_StaticImageAssetNoFalsePositive(t *testing.T) {
 	assert.Empty(t, res, "a static image asset must never be flagged as a BFLA privileged endpoint")
 }
 
+// TestScanPerRequest_EmptyPrivilegedBaselineNoFalsePositive reproduces the
+// stryker-agile.atlassian.net /secure/ConfigureReport.jspa false positive: a JSP
+// action endpoint (matched as "admin" via the "/config" substring in
+// "/configurereport") answers an unauthenticated request with an empty 200
+// (Content-Length: 0) for both GET and POST, while a random nonexistent path
+// 404s — so the same-method baseline guard does not match and the empty 200 was
+// flagged as a BFLA method-switch bypass. An empty privileged baseline carries no
+// content to reproduce, so the whole request must be skipped.
+func TestScanPerRequest_EmptyPrivilegedBaselineNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	const adminPath = "/secure/ConfigureReport.jspa"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != adminPath {
+			// Random wildcard / method-baseline probes hit the app's 404 with a body,
+			// so the same-method baseline differs from the admin path's empty 200.
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not found"))
+			return
+		}
+		// The action handler swallows GET and POST alike with an empty 200.
+		w.Header().Set("Content-Type", "text/html;charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// Exactly the report: an unauthenticated GET to the .jspa path, empty body.
+	rr := modtest.Response(modtest.Request(t, srv.URL+adminPath), "text/html;charset=utf-8", "")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "an endpoint whose privileged baseline is an empty 200 must not be flagged as BFLA")
+}
+
+// TestScanPerRequest_MethodSwitchEmptyBodyNoFalsePositive guards the
+// method-switching empty-body case: the admin GET baseline carries real content,
+// but switching to POST returns an empty 2xx (a gateway/handler swallowing the
+// request). An empty switched-method response is not evidence the privileged
+// function executed and must not be flagged.
+func TestScanPerRequest_MethodSwitchEmptyBodyNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	const adminPath = "/admin/config"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != adminPath {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not found"))
+			return
+		}
+		if r.Method != http.MethodGet {
+			// Non-GET methods are accepted with an empty 200 — no content executed.
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		_, _ = w.Write([]byte(adminBody))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// No credentials (as in the report), so only the method-switching test runs.
+	rr := modtest.Response(modtest.Request(t, srv.URL+adminPath), "text/html", adminBody)
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a method switch returning an empty 2xx must not be flagged as BFLA")
+}
+
 // TestScanPerRequest_BinaryBodyMislabeledNoFalsePositive guards the binary-body
 // sniff fallback: a binary asset mislabeled with a text Content-Type (a CDN bug)
 // must still be skipped, since the content-type allow-list alone would let it

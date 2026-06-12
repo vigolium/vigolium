@@ -9,16 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects how servers handle backslash-escaped characters and special characters by injecting
-escape sequences and analyzing transformations in the response.
+	ModuleDesc = `**What it means:** A reflected parameter handles injected backslash escape sequences and special characters in a way that reveals server-side processing of the input. The scanner saw the server either strip backslashes, decode escape sequences (for example turning \x41 into A), or otherwise transform special characters such as quotes, braces, and command separators rather than echoing them literally. This is a probe-level signal that the value is parsed by an interpreter or backend, suggesting the parameter may be reachable by a deeper injection.
 
-## Notes
-- Tests each insertion point for backslash consumption, escape interpretation, and unicode handling
-- Useful as a precursor signal for deeper injection testing
+**How it's exploited:** This finding is reconnaissance, not a confirmed exploit. The observed transformation tells an attacker the input feeds an escape-aware parser and helps target follow-up tests for SQL injection, command injection, template injection, or escape-bypass attacks; backslash consumption in particular hints that escaping defenses can be neutralized. Confirmed impact depends on what that parser does with the decoded characters.
 
-## References
-- https://portswigger.net/research/backslash-powered-scanning`
+**Fix:** Treat untrusted input as literal data using context-appropriate parameterization or output encoding, and avoid unescaping or re-interpreting client-supplied escape sequences before use.`
 
 	ModuleConfirmation = "Confirmed when injected backslash sequences are transformed differently than literal characters in the response"
 	ModuleSeverity     = severity.Suspect

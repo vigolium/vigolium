@@ -9,23 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Inspects HTTP responses for NextAuth.js (Auth.js) session configuration issues.
-Checks session cookies for missing security flags, decodes JWT session tokens to
-detect sensitive data exposure, and fingerprints NextAuth API endpoints for
-information leakage.
+	ModuleDesc = `**What it means:** A NextAuth.js (Auth.js) session cookie was set with weak security attributes, or its JWT session token carries sensitive data in plain view. This module flags two issues: session cookies missing the Secure, HttpOnly, or SameSite attributes (or SameSite=None without Secure), and JWT session tokens whose base64-decoded payload contains sensitive claim names such as password, secret, access_token, or db_password. JWTs are signed but not encrypted, so any party holding the token can read these values.
 
-## Notes
-- Detects NextAuth session cookies (next-auth.session-token, __Secure-next-auth.*)
-- Checks cookie flags: Secure, HttpOnly, SameSite
-- Decodes JWT payloads to detect sensitive claims (passwords, secrets, tokens)
-- Fingerprints NextAuth endpoints via response patterns
-- Deduplicates by host
+**How it's exploited:** A missing HttpOnly flag lets cross-site scripting steal the session cookie; a missing Secure flag exposes it over plaintext HTTP; a weak or absent SameSite attribute enables CSRF or cross-site session leakage. If the JWT embeds credentials or tokens, anyone who captures the cookie (via XSS, logs, or a shared device) can decode it to harvest those secrets and impersonate the user or pivot to other systems.
 
-## References
-- https://next-auth.js.org/configuration/options
-- https://next-auth.js.org/configuration/options#cookies
-- https://authjs.dev/getting-started/session-management/protecting`
+**Fix:** Set Secure, HttpOnly, and SameSite=Lax/Strict on NextAuth cookies, and keep passwords, secrets, and access tokens out of the JWT session payload.`
 
 	ModuleConfirmation = "Confirmed when NextAuth session cookies have insecure flags or JWT tokens contain sensitive data"
 	ModuleSeverity     = severity.Medium

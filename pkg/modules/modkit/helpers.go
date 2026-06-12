@@ -68,6 +68,48 @@ func IsStaticAssetContentType(contentType string) bool {
 	return false
 }
 
+// staticAssetExtensions are file-extension suffixes that mark a static asset or
+// binary payload by URL path.
+var staticAssetExtensions = []string{
+	".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+	".woff", ".woff2", ".ttf", ".eot", ".otf", ".map",
+	".mp4", ".webm", ".mp3", ".ogg", ".wav",
+	".pdf", ".zip", ".gz", ".br",
+}
+
+// staticAssetDirSegments are path segments that mark a static-asset route even
+// when the URL carries no file extension (e.g. /css/images, /assets/app). A
+// suffix-only extension test misses these, so any path containing one of these
+// segments is treated as a static asset.
+var staticAssetDirSegments = map[string]bool{
+	"css": true, "js": true, "javascript": true, "scripts": true,
+	"styles": true, "stylesheets": true, "images": true, "image": true,
+	"img": true, "imgs": true, "assets": true, "asset": true,
+	"static": true, "fonts": true, "font": true, "media": true,
+	"dist": true, "build": true, "vendor": true, "public": true,
+	"_next": true, "_nuxt": true, "wp-content": true,
+}
+
+// IsStaticAssetPath reports whether a URL path is a static-asset route, by
+// file-extension suffix OR by containing a known static directory segment
+// (e.g. /css/images has no extension but both segments are static). The segment
+// check catches extensionless asset routes that a suffix-only test misses. This
+// is the URL-path companion to IsStaticAssetContentType (header-based).
+func IsStaticAssetPath(path string) bool {
+	p := strings.ToLower(path)
+	for _, ext := range staticAssetExtensions {
+		if strings.HasSuffix(p, ext) {
+			return true
+		}
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg != "" && staticAssetDirSegments[seg] {
+			return true
+		}
+	}
+	return false
+}
+
 // JSExtensions are file extensions for JavaScript/TypeScript source files.
 var JSExtensions = []string{".js", ".ts", ".jsx", ".tsx"}
 

@@ -9,28 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects unsafe patterns in server-side rendered (SSR) pages where JSON data is
-embedded in inline script tags for client-side hydration. If the serialized JSON
-is not properly encoded, an attacker can inject a closing </script> tag followed
-by arbitrary HTML/JavaScript, leading to XSS on page load.
+	ModuleDesc = `**What it means:** A server-side rendered HTML page embeds JSON hydration state in an inline script block (Next.js __NEXT_DATA__/__next_f.push, window.__PRELOADED_STATE__/__INITIAL_STATE__/__APOLLO_STATE__/__NUXT__, or Remix __remixContext) without safely encoding the data. The scanner flags two cases: an unescaped </script> sequence inside the block (script-context breakout, reported High), or a raw < inside a JSON string value not encoded as \u003c or &lt; (reported Medium, raised to Firm when the value matches a request query parameter). This is a likely cross-site scripting (XSS) flaw that runs as soon as the page loads.
 
-Common vulnerable patterns include:
-- __NEXT_DATA__ script tags with unescaped user content
-- window.__PRELOADED_STATE__ assignments with raw JSON.stringify output
-- Hydration scripts that embed user-controlled data without HTML escaping
+**How it's exploited:** An attacker supplies input that reaches the serialized state and includes a closing </script> tag (or a raw <) which prematurely ends the script element, letting them inject arbitrary HTML and JavaScript that executes in the victim's session to steal cookies, hijack accounts, or perform actions as the user.
 
-## Notes
-- Scans HTML responses for inline script tags containing hydration data
-- Detects unescaped </script> sequences within JSON hydration blocks
-- Checks for missing HTML entity encoding of < characters in embedded JSON
-- Correlates with request parameters to identify user-controlled data in hydration
-- Deduplicates by host+path
-
-## References
-- https://snyk.io/blog/10-react-security-best-practices/
-- https://owasp.org/www-community/attacks/xss/
-- https://cwe.mitre.org/data/definitions/79.html`
+**Fix:** Serialize hydration data with an HTML-safe encoder that escapes < as \u003c (and &lt;) so user-controlled content can never break out of the script context.`
 
 	ModuleConfirmation = "Confirmed when user-controlled data appears unescaped in a JSON hydration script block"
 	ModuleSeverity     = severity.High

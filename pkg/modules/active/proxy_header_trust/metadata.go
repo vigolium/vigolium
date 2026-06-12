@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Cross-framework detection of proxy header trust issues. Tests whether the application
-blindly trusts X-Forwarded-Proto, X-Forwarded-Host, and X-Forwarded-For headers,
-which can lead to host injection, protocol confusion, and IP-based access control bypass.
+	ModuleDesc = `**What it means:** The application trusts client-supplied proxy forwarding headers (X-Forwarded-Host, X-Forwarded-Proto, X-Forwarded-For) as if they came from a trusted reverse proxy. The scanner sends a GET to the site root with each header spoofed and observes a confirmed, reproducible behavioral change: the injected host reflected into a Location header or response body, a value-attributable redirect or status change for X-Forwarded-Proto, or a blocked-to-allowed access transition (or reproducible content variation) for a spoofed source IP.
 
-## Notes
-- Runs once per host
-- Sends baseline request then compares with header-injected variants
-- X-Forwarded-Host reflected in Location or body indicates host injection (High)
-- X-Forwarded-Proto behavior changes indicate protocol confusion (Medium)
-- X-Forwarded-For bypassing restrictions indicates IP trust issues (High)
-- CF-21, FA-05, FL-06, DJ-08: cross-framework proxy header trust detection
+**How it's exploited:** An attacker spoofs X-Forwarded-Host to poison absolute URLs the app generates, enabling password-reset link poisoning and web cache poisoning. Spoofing X-Forwarded-Proto can downgrade HTTPS enforcement or cookie security flags via redirect or status changes. Spoofing X-Forwarded-For with a trusted IP (for example 127.0.0.1) can bypass IP allowlists or rate limiting and reach IP-restricted content.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/`
+**Fix:** Do not trust forwarding headers from untrusted clients; have the edge proxy strip and re-set X-Forwarded-* and configure the app to honor them only from known proxy IPs.`
 
 	ModuleConfirmation = "Confirmed when X-Forwarded-* header manipulation causes observable behavioral changes such as host reflection, redirect differences, or access control bypass"
 	ModuleSeverity     = severity.High

@@ -9,24 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects verbose stack traces in HTTP responses that expose internal file paths,
-line numbers, and function names. Unlike the generic error-message-detect module,
-this module specifically targets multi-line stack trace patterns with file system
-paths, providing higher confidence findings for each technology stack.
+	ModuleDesc = `**What it means:** The application returned a full multi-line stack trace in an HTTP response, leaking internal file system paths, line numbers, and function or class names from the source code. This is an information-disclosure flaw caused by unhandled exceptions or debug mode being left on in a reachable environment.
 
-Covers Go, Java, Python, Ruby, Node.js, .NET/C#, and PHP stack traces.
+**How it's exploited:** An attacker triggers errors and reads the trace to map the server's directory layout, source structure, framework, and language stack (Go, Java, Python, Node.js, .NET, Ruby, or PHP). That intelligence lets them target version-specific and framework-specific exploits, locate sensitive files, and craft more precise follow-on attacks such as path traversal, deserialization, or injection.
 
-## Notes
-- Uses multiline-aware regex patterns to detect structured stack traces
-- Each technology stack has its own detection pattern and severity
-- Requires at least one file path with line number to confirm a stack trace
-- Deduplicates by host+path to avoid redundant findings
-
-## References
-- https://owasp.org/www-community/Improper_Error_Handling
-- https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html
-- https://cwe.mitre.org/data/definitions/209.html`
+**Fix:** Disable debug and verbose error output in production, catch exceptions to return generic error pages, and log full stack traces server-side only.`
 
 	ModuleConfirmation = "Confirmed when response body contains a structured stack trace with file paths and line numbers from a known technology stack"
 	ModuleSeverity     = severity.Medium

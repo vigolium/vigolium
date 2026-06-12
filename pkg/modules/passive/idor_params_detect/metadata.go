@@ -9,28 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies HTTP parameters whose names and values suggest they reference
-object identifiers, providing triage signals for potential IDOR (Insecure Direct
-Object Reference) and BOLA (Broken Object Level Authorization) vulnerabilities.
+	ModuleDesc = `**What it means:** This is an informational triage finding, not a confirmed vulnerability. The scanner passively spotted a request parameter that looks like a direct object identifier (an ID-style name such as user_id or account_id carrying a predictable value like a sequential integer, UUID, or structured code, often after a resource noun like /users/123), or a JSON response that exposes sensitive field names (password_hash, ssn, is_admin, and similar). Such endpoints are common locations for IDOR / BOLA (Broken Object Level Authorization) and BOPLA (excessive property exposure) flaws.
 
-The module classifies parameter names (e.g. user_id, account_id) and values
-(sequential integers, UUIDs, structured codes) to compute a confidence score.
-Path parameters following resource nouns (e.g. /users/123) receive additional weight.
+**How it's exploited:** No request was sent and authorization was not tested here, so exploitability is unconfirmed. The disclosed parameter and value shape map attack surface for follow-up testing: an attacker would change the identifier to another user's value and check whether the response returns data belonging to that other object, indicating missing per-object access control.
 
-When JSON responses are present, the module also flags excessive data exposure by
-detecting sensitive field names (password_hash, ssn, is_admin, etc.).
-
-## Notes
-- Informational finding: flags endpoints for further active testing (Layer 2+)
-- Covers OWASP API1:2023 (BOLA) and API3:2023 (BOPLA) triage
-- Does not send additional requests — purely passive analysis
-- Deduplicates by host + normalized path pattern + parameter name + type
-
-## References
-- https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/
-- https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/
-- https://cwe.mitre.org/data/definitions/639.html`
+**Fix:** Enforce per-object authorization on every request so a user can only access identifiers they own, and avoid returning sensitive internal fields in API responses.`
 
 	ModuleConfirmation = "Indicated when a request parameter has a high-signal identifier name combined with a predictable value format, or when a JSON response exposes sensitive internal fields"
 	ModuleSeverity     = severity.Info

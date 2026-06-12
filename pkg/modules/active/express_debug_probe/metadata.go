@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Actively triggers error responses in Express.js and NestJS applications to detect
-stack trace leakage and debug information exposure. When NODE_ENV is not set to
-production, Express and NestJS return detailed error responses including stack traces,
-file paths, and internal module information.
+	ModuleDesc = `**What it means:** This Express.js or NestJS application returns verbose error responses that leak internal debug information. When the probe sent a request a real backend would error on (a random 404 path, a malformed JSON body, or a non-numeric value where a numeric path segment was expected), the response exposed a Node.js stack trace, an internal filesystem path, or a NODE_ENV configuration entry. This indicates the app is not running with production error handling, so detailed internals are disclosed to clients.
 
-## Notes
-- Runs once per host
-- Probes: malformed JSON body, type-mismatch path parameters, random 404 endpoint
-- Detects NODE_ENV misconfiguration, stack trace leakage, file path disclosure
-- Fingerprints 404 to avoid false positives on custom error pages
+**How it's exploited:** An attacker triggers these error responses to harvest absolute server file paths, module and dependency layout (node_modules, app source directories), and runtime environment details. This maps the internal structure of the deployment and pinpoints code locations and library versions, making follow-up attacks such as path traversal, dependency-specific exploits, and source-code probing far more precise.
 
-## References
-- https://expressjs.com/en/guide/error-handling.html
-- https://docs.nestjs.com/exception-filters`
+**Fix:** Run the application with NODE_ENV set to production and add a global error handler that returns generic error messages without stack traces, file paths, or environment details.`
 
 	ModuleConfirmation = "Confirmed when an error response contains stack traces, file paths, or debug markers"
 	ModuleSeverity     = severity.Low

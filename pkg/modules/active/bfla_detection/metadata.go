@@ -9,20 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects Broken Function-Level Authorization (BFLA) by testing admin and privileged
-endpoints with missing or downgraded authentication. Strips Authorization and Cookie
-headers, attempts empty tokens, and tests method switching on admin-like paths.
+	ModuleDesc = `**What it means:** An administrative or privileged endpoint (for example /admin, /actuator, /users/delete, /config) returns the same successful, privileged content even when the request's credentials are removed, replaced with an invalid token, or the HTTP method is changed. This is Broken Function-Level Authorization: the server enforces no access control on a function that should be restricted to authorized roles.
 
-## Notes
-- Runs once per unique host+path combination via DiskSet dedup
-- Skips non-2xx original responses (only tests endpoints that currently succeed)
-- Compares response status codes and body lengths to reduce false positives
-- Heuristic-based detection targeting known admin/privileged path patterns
+**How it's exploited:** Any anonymous user can call the endpoint directly to read privileged data or trigger administrative actions, since the module confirmed the original request's Authorization and Cookie headers are not required, an invalid Bearer token is accepted, or write methods (POST, PUT, DELETE) succeed without authentication. Depending on the function this can lead to data disclosure, account or resource manipulation, or full administrative takeover.
 
-## References
-- https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/
-- https://portswigger.net/web-security/access-control`
+**Fix:** Enforce server-side authorization on every privileged endpoint and HTTP method, validating the caller's identity and role on each request and denying access by default rather than relying on the UI or path obscurity.`
 
 	ModuleConfirmation = "Confirmed when a privileged endpoint returns a successful response after removing or downgrading authentication credentials"
 	ModuleSeverity     = severity.High

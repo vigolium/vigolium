@@ -9,20 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests cloud storage endpoints for bucket/container not-found conditions that indicate
-potential subdomain takeover. Checks for S3 NoSuchBucket, GCS bucket-not-found,
-and Azure ContainerNotFound errors.
-
-## Notes
-- Only runs on hosts identified as cloud storage endpoints
-- GET / and check for specific not-found error patterns
-- Takeover risk exists when DNS points to storage but bucket is unclaimed
-- Runs once per host with deduplication
-
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/10-Test_for_Subdomain_Takeover
-- https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html`
+	ModuleDesc = `**What it means:** A hostname or subdomain still points (via DNS or CNAME) to a cloud storage endpoint (AWS S3, Google Cloud Storage, or Azure Blob Storage), but the underlying bucket or container no longer exists. The module confirms this by requesting GET / and matching a provider not-found error such as NoSuchBucket, "The specified bucket does not exist", or ContainerNotFound. This is a dangling reference, a classic subdomain-takeover condition.
+**How it's exploited:** Because the bucket name is unclaimed, an attacker can register a new bucket or container with that exact name in the same provider. The dangling DNS record then routes the victim's traffic to attacker-controlled storage, letting them serve malicious content, phishing pages, or scripts under the trusted domain and hijack cookies, OAuth flows, or CSP-trusted origins.
+**Fix:** Remove or update the stale DNS record, or reclaim the bucket/container under the original name so it cannot be registered by an attacker.`
 
 	ModuleConfirmation = "Confirmed when cloud storage endpoint returns bucket/container not-found error while DNS still resolves"
 	ModuleSeverity     = severity.High

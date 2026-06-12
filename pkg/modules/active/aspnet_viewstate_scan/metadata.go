@@ -9,23 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Actively tests ASP.NET ViewState security by tampering with ViewState MAC
-validation, testing event validation bypass, detecting cookieless session
-tokens in URLs, and checking for verbose error disclosure on ViewState
-tampering.
+	ModuleDesc = `**What it means:** The scanner found one or more ASP.NET ViewState protection weaknesses on this site. The most serious is ViewState MAC disabled: the application accepted a tampered __VIEWSTATE (a byte-flipped, base64-encoded blob) without an integrity error, meaning EnableViewStateMac is off and the server-controlled state is no longer tamper-protected. The scanner may also report event validation disabled (a forged __EVENTTARGET accepted), verbose ViewState errors that leak stack traces, or cookieless session tokens embedded in URLs.
 
-## Notes
-- Runs once per host
-- Finds pages with __VIEWSTATE forms and tests MAC validation
-- Tampers ViewState bytes and POSTs back to detect disabled MAC
-- Submits forged __EVENTTARGET to detect disabled event validation
-- Scans for cookieless session URL patterns (S(...)/)
-- Checks if ViewState errors reveal stack traces
+**How it's exploited:** With MAC validation off, an attacker can forge or modify ViewState; because ViewState is deserialized server-side, a crafted payload can lead to .NET deserialization and potentially remote code execution. Disabled event validation enables parameter tampering and invoking controls the page never exposed; stack traces aid further attacks; and cookieless session IDs in URLs leak via history, referrers, and logs, enabling session hijacking.
 
-## References
-- https://learn.microsoft.com/en-us/previous-versions/aspnet/bb386448(v=vs.100)
-- https://owasp.org/www-community/attacks/Cross-Site_Request_Forgery_(CSRF)`
+**Fix:** Enable EnableViewStateMac and EnableEventValidation, use cookie-based sessions, and disable verbose error pages in production.`
 
 	ModuleConfirmation = "Confirmed when ViewState MAC is disabled (tampered ViewState accepted) or event validation can be bypassed"
 	ModuleSeverity     = severity.High

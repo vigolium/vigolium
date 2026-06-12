@@ -9,26 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects responses that are publicly cacheable (Cache-Control: public or s-maxage) but
-contain user-specific indicators (Set-Cookie, Authorization) without proper Vary headers.
-This can lead to one user's authenticated response being served from cache to another
-user, causing data leakage or session confusion.
+	ModuleDesc = `**What it means:** A publicly cacheable response (Cache-Control: public or s-maxage) is served through a shared cache (a CDN or reverse proxy, proven by headers like Age, X-Cache, or CF-Cache-Status) yet carries user-specific data without the matching Vary key. Either it sets a user-specific Set-Cookie without Vary: Cookie, or it was fetched with an Authorization header without Vary: Authorization. Without those keys the cache stores one copy keyed only on the URL, so one user's personalized response can be served to others. This is a heuristic signal from passive analysis, not a confirmed leak.
 
-## Notes
-- Passive only — does not send any HTTP requests
-- Skips static assets (JS, CSS, images, fonts)
-- Checks for Cache-Control: public or s-maxage without no-store/private
-- Reports missing Vary: Cookie when Set-Cookie is present
-- Reports missing Vary: Authorization when Authorization header was in request
-- Deduplicates by host+path
+**How it's exploited:** An attacker requests the same URL and may receive a cached copy containing another user's session cookie, token, or personalized body, enabling session hijacking or PII disclosure. To confirm, replay the URL as a second user and check whether the cache returns the first user's data (Age greater than 0 or X-Cache: HIT).
 
-## References
-- https://portswigger.net/web-security/web-cache-poisoning
-- https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Vary`
+**Fix:** Mark per-user responses private/no-store, or add Vary: Cookie and Vary: Authorization so the cache keys on the credential.`
 
-	ModuleConfirmation = "Confirmed when a cacheable response has user-specific headers but missing corresponding Vary header"
+	ModuleConfirmation = "Heuristic: a shared-cache-served, publicly cacheable response carries a user-specific Set-Cookie/Authorization but lacks the matching Vary header; replay across users to confirm"
 	ModuleSeverity     = severity.Medium
-	ModuleConfidence   = severity.Firm
+	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"misconfiguration", "cache-poisoning", "session", "light"}
 )

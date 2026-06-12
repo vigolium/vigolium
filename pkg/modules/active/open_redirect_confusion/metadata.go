@@ -9,29 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects open redirect vulnerabilities where a redirect-target validator and the component that
-performs the redirect disagree about which host a URL names. By placing the target's own
-(trusted) domain and an attacker domain into a single URL using parser divergences — userinfo
-(` + "`@`" + `), multiple ` + "`@`" + `, fragment (` + "`#`" + `), whitespace, and backslash —
-a value that a same-origin/prefix allowlist accepts still redirects the browser off-origin.
+	ModuleDesc = `**What it means:** A redirect-target parameter accepts attacker input that sends the browser to an off-site domain, even though the application validates the target host. The host-validation check and the code that performs the redirect parse the URL differently, so a value the allowlist trusts still redirects elsewhere. This is an open redirect that survives same-origin or prefix-based defenses.
 
-Based on Orange Tsai's "A New Era of SSRF — Exploiting URL Parser in Trending Programming
-Languages" (Black Hat USA 2017).
+**How it's exploited:** An attacker crafts a URL that embeds the trusted domain and an attacker domain in one authority, using parser quirks such as userinfo (trusted@attacker), an extra port (trusted:80@attacker), multiple @ signs, a fragment, whitespace, or a backslash. The validator reads the trusted part while the browser navigates to the attacker host, enabling convincing phishing, OAuth/SSO token theft via redirect_uri abuse, or chaining into SSRF where the same parsing gap exists server-side.
 
-## Notes
-- Sibling of the open-redirect module. It does NOT re-emit the payloads that module already
-  covers (simple off-origin, ` + "`//`" + `, ` + "`/\\`" + `, host-suffix ` + "`#.`" + ` and
-  ` + "`%ff@`" + `); it adds the authority-confusion ladder (decoy@effective, decoy:80@effective,
-  multi-@, decoy#@effective, space, backslash).
-- In-band detection via the Location/Refresh/meta/JS redirect chain (reused from open-redirect).
-- Re-confirmed across multiple rounds with a fresh random attacker domain each round, so a
-  coincidental match cannot survive.
-- OWASP: Unvalidated Redirects and Forwards.
-
-## References
-- https://www.blackhat.com/docs/us-17/thursday/us-17-Tsai-A-New-Era-Of-SSRF-Exploiting-URL-Parser-In-Trending-Programming-Languages.pdf
-- https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html`
+**Fix:** Validate redirect targets with a strict allowlist of exact hostnames using the same parser that performs the redirect, and reject any URL with userinfo, embedded credentials, or off-origin authorities.`
 
 	ModuleConfirmation = "Confirmed when a URL-parser authority-confusion payload (e.g. trusted-domain@attacker-domain) reproducibly redirects to the attacker domain across multiple rounds with a fresh random domain each round"
 	ModuleSeverity     = severity.High

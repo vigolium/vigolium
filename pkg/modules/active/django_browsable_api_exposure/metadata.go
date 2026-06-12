@@ -9,20 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects Django REST Framework browsable API exposure by re-requesting endpoints
-with Accept: text/html. When the browsable API is enabled in production, it
-provides an interactive HTML interface that reveals API schema, available actions,
-filter options, and authentication requirements.
+	ModuleDesc = `**What it means:** The Django REST Framework browsable API is enabled and reachable in production. This module re-requests the endpoint (and the /api/ root) with an Accept: text/html header and confirms a 200 response containing DRF browsable-API markers, meaning the framework serves an interactive HTML interface that exposes API structure, available HTTP actions, filter and pagination options, and authentication requirements. It is an information-disclosure finding, not a direct compromise.
 
-## Notes
-- Runs once per host to avoid redundant probing
-- Re-requests the original URL with Accept: text/html header
-- Also probes /api/ with Accept: text/html
-- DJ-07: DRF browsable API detection
+**How it's exploited:** An attacker browses the rendered interface to map the API's endpoints, methods, serializer fields, and required parameters without guesswork, then uses that schema knowledge to craft targeted requests against the underlying API (for example probing write actions or filterable fields). The interactive forms can also make it easier to exercise endpoints by hand, accelerating discovery of authorization or input-validation weaknesses.
 
-## References
-- https://www.django-rest-framework.org/topics/browsable-api/`
+**Fix:** Disable the browsable API renderer in production by configuring DEFAULT_RENDERER_CLASSES to serve only JSONRenderer (drop BrowsableAPIRenderer).`
 
 	ModuleConfirmation = "Confirmed when endpoints return HTML containing DRF browsable API markers"
 	ModuleSeverity     = severity.Low

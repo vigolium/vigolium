@@ -7,7 +7,7 @@ import (
 )
 
 // RecordResponseUpdate contains response fields to update on an existing HTTP record.
-// Used by the traffic replay --in-replace feature.
+// Used by the traffic --replay --in-replace feature.
 type RecordResponseUpdate struct {
 	StatusCode            int
 	StatusPhrase          string

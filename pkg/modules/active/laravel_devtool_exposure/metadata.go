@@ -9,24 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed Laravel developer tools that should not be accessible in
-production: Web Tinker (interactive PHP console), Clockwork (profiling tool),
-Laravel Pulse (monitoring dashboard), and Log Viewer. These tools can expose
-sensitive data such as SQL queries, routes, timings, logs, and may allow
-arbitrary code execution.
+	ModuleDesc = `**What it means:** A Laravel application is exposing a developer or debugging tool to the public that should only run in local development. The scanner confirmed one of these tools by requesting its known path (such as /tinker, /__clockwork/latest, /pulse, or /log-viewer) and matching framework-specific content markers in a 200 response, after fingerprinting a random 404 to rule out catch-all error pages. Severity depends on the tool: Web Tinker is Critical, Clockwork and Log Viewer are High, and Pulse is Medium.
 
-## Notes
-- Runs once per host to avoid redundant probing
-- Validates responses with content markers to reduce false positives
-- Fingerprints 404 responses to detect custom error pages
-- Web Tinker is critical severity due to potential code execution
+**How it's exploited:** If Web Tinker is exposed, an attacker types arbitrary PHP into its web console and gets full remote code execution on the server. Clockwork and Log Viewer leak SQL queries, routes, request data, stack traces, and application logs that often contain credentials, tokens, and user data, while Pulse reveals performance and server metrics. Any of these aids further compromise.
 
-## References
-- https://github.com/spatie/laravel-web-tinker
-- https://github.com/itsgoingd/clockwork
-- https://laravel.com/docs/pulse
-- https://github.com/opcodesio/log-viewer`
+**Fix:** Disable these packages in production or restrict their routes to authenticated internal access, and ensure APP_DEBUG is false.`
 
 	ModuleConfirmation = "Confirmed when developer tool endpoints return 200 with expected framework-specific markers"
 	ModuleSeverity     = severity.High

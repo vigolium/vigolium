@@ -40,6 +40,7 @@ type SpiderConfig struct {
 	ProxyURL            string // HTTP proxy URL for browser traffic
 	ScopeFilter         func(host, path string) bool
 	ProjectUUID         string
+	Source              string // http_records source tag; "" defaults to "spidering"
 }
 
 // SpiderResult contains the results of a spidering run.
@@ -109,8 +110,14 @@ func RunSpider(ctx context.Context, cfg SpiderConfig, repo RecordSaver) (*Spider
 		crawlerCfg.ProxyURL = cfg.ProxyURL
 	}
 
-	// Create writer that saves to vigolium's HTTPRecord table
-	writer := network.NewRepositoryWriter(repo, "spidering", cfg.ProjectUUID)
+	// Create writer that saves to vigolium's HTTPRecord table. The source tag
+	// defaults to "spidering"; callers (e.g. the targeted re-spider phase) can
+	// override it to distinguish their records.
+	source := cfg.Source
+	if source == "" {
+		source = "spidering"
+	}
+	writer := network.NewRepositoryWriter(repo, source, cfg.ProjectUUID)
 	writer.ScopeFilter = cfg.ScopeFilter
 
 	c, err := crawler.New(crawlerCfg)

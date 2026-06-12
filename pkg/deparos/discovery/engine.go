@@ -957,11 +957,21 @@ func (e *Engine) AddObservedPath(path string) {
 // AddObservedPathTrusted records URL path from trusted sources (URLs, spider links, JS paths).
 // Trusted sources get higher frequency to survive eviction over wordlist extraction items.
 func (e *Engine) AddObservedPathTrusted(path string) {
-	path = sanitizeObservedPath(path)
-	if path == "" {
+	clean := sanitizeObservedPath(path)
+	if clean == "" {
 		return
 	}
-	e.observedPaths.AddWithFrequency([]byte(path), payload.TrustedFrequencyBoost)
+	e.observedPaths.AddWithFrequency([]byte(clean), payload.TrustedFrequencyBoost)
+
+	// App Router route recovery: a page/route-handler chunk path encodes its
+	// route in the directory structure (app/<segments>/page-<hash>.js). Derive
+	// the addressable route so it gets probed, recorded, and scanned — App Router
+	// routes are otherwise absent from _buildManifest.js.
+	for _, route := range deriveAppRouterRoutes(clean) {
+		if r := sanitizeObservedPath(route); r != "" && r != clean {
+			e.observedPaths.AddWithFrequency([]byte(r), payload.TrustedFrequencyBoost)
+		}
+	}
 }
 
 // GetObservedPaths returns the observed paths provider.

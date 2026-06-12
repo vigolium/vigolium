@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	goruntime "runtime"
+	"strings"
 
 	urlutil "github.com/projectdiscovery/utils/url"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -254,8 +255,26 @@ func (e *Executor) assignModuleInfo(result *output.ResultEvent, m modules.Module
 	if result.Info.Name == "" {
 		result.Info.Name = m.Name()
 	}
-	if result.Info.Description == "" {
-		result.Info.Description = m.Description()
+	// Compose the finding description: keep the module's per-finding context line
+	// (the specific header/param/endpoint it set inline) as a lead, then append the
+	// module's static "what it means / how it's exploited / fix" explanation block.
+	// Modules that emit no inline description fall back to the block alone.
+	if block := m.Description(); block != "" {
+		if result.Info.Description == "" {
+			result.Info.Description = block
+		} else if !strings.Contains(result.Info.Description, block) {
+			result.Info.Description = result.Info.Description + "\n\n" + block
+		}
+	}
+	// Propagate the module's classification tags onto the finding. Before this,
+	// native-module findings carried no tags at all (only known-issue-scan set them).
+	// Copy rather than alias: m.Tags() returns the module's own backing slice, shared
+	// across every finding it produces and persisted to the DB, so a later in-place
+	// edit on one finding's tags must not corrupt the module or its sibling findings.
+	if len(result.Info.Tags) == 0 {
+		if tags := m.Tags(); len(tags) > 0 {
+			result.Info.Tags = append([]string(nil), tags...)
+		}
 	}
 	if result.Info.Severity == severity.Undefined {
 		result.Info.Severity = m.Severity()

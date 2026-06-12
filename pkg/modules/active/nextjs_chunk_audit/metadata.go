@@ -9,28 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Enumerates Next.js application static chunks (` + "`/_next/static/chunks/*.js`" + `)
-referenced by the HTML response, fetches each chunk, and analyses the content
-for embedded API routes, third-party domains, and secrets. When source maps
-(` + "`.js.map`" + `) are exposed alongside the chunk, those are scanned too.
-
-Discovered relative routes are fed back into the scan pipeline so existing
-Next.js scanners (data-leakage, middleware-bypass, etc.) can probe them.
-Chunk URLs are also re-emitted via the scan feeder so passive secret
-detection (kingfisher batch) gets coverage in addition to the inline
-regex-based matcher.
-
-## Notes
-- Activates on text/html responses that look like a Next.js app
-- Per-host cache prevents re-fetching chunks already seen
-- Caps: 50 chunks per host, 5 MB per chunk body, 10 MB per source map
-- Cross-origin domains found inside chunks are emitted as Info/Tentative intel
-- Secret findings inherit High/Firm; bumped to Certain on multi-pattern matches
-
-## References
-- https://nextjs.org/docs/app/building-your-application/optimizing/static-assets
-- https://github.com/GerbenJavado/LinkFinder`
+	ModuleDesc = `**What it means:** This Next.js application ships static JavaScript chunks (and sometimes their source maps) that the scanner fetched and parsed, revealing internal API routes, referenced third-party domains, and in some cases hard-coded secrets baked into the bundle. The route and domain findings are informational attack-surface intel; an embedded secret is a High-severity disclosure because credentials in a public bundle are exposed to anyone who loads the site.
+**How it's exploited:** An attacker downloads the same public chunks, harvests the disclosed API endpoints and back-end domains to map otherwise-hidden functionality, and feeds them into further testing. Any leaked API key, token, or secret (AWS, Google, GitHub, Stripe, Slack, or a generic key/secret assignment) can be used directly to authenticate to the corresponding service or pivot deeper.
+**Fix:** Keep credentials and secrets out of client-side bundles by injecting them only on the server, rotate any key that was exposed, and disable production source maps so internal structure is not published.`
 
 	ModuleConfirmation = "Confirmed when /_next/static/chunks/<chunk>.js returns 200 with JavaScript content and is successfully parsed"
 	ModuleSeverity     = severity.Info

@@ -260,6 +260,26 @@ func (m *Module) probeEndpoint(
 			return nil
 		}
 	default:
+		// A genuine Rails route answering OPTIONS returns a 2xx: the Journey
+		// router emits a 200/204 carrying the Allow header for a path it has
+		// mounted (the module's positive case is a 200). A 405 Method Not
+		// Allowed is the *opposite* signal — a front-end server (commonly nginx)
+		// rejecting the OPTIONS method, whose `Allow` header advertises the
+		// methods *it* permits for a static/proxied location, not a mounted Rails
+		// route. nginx's stock "405 Not Allowed" page carries exactly
+		// `Allow: GET, POST`, which satisfies the Allow+POST check below — this
+		// is the recurring production false positive this guard kills.
+		if status < 200 || status >= 300 {
+			return nil
+		}
+		// Reject stock front-end server status/error pages (nginx, Apache,
+		// Tomcat). A real ingress OPTIONS reply carries no rendered HTML; an HTML
+		// page whose title/heading is an HTTP status line ("405 Not Allowed",
+		// "502 Bad Gateway", …) was produced by the web server or proxy in front
+		// of the app, so the request never reached a Rails route.
+		if looksLikeServerStatusPage(scanBody) {
+			return nil
+		}
 		// Ingress endpoints are POST-only API routes with no rendered body.
 		// A generic CORS preflight (Access-Control-Allow-* with no Allow header)
 		// is the API-gateway/proxy reply to OPTIONS on *any* path — it proves a
@@ -273,6 +293,13 @@ func (m *Module) probeEndpoint(
 		// confirmation for these body-less endpoints.
 		allowHeader := resp.Response().Header.Get("Allow")
 		if allowHeader == "" || !strings.Contains(strings.ToUpper(allowHeader), "POST") {
+			return nil
+		}
+		// Action Mailbox ingress routes are strictly POST-only; Rails advertises
+		// exactly that on OPTIONS and never lists GET. An Allow header that also
+		// lists GET is a front-end web-server signal for a static/proxied
+		// location (e.g. nginx's `GET, POST`), not a mounted Rails ingress route.
+		if strings.Contains(strings.ToUpper(allowHeader), "GET") {
 			return nil
 		}
 		evidence = append(evidence, "Allow: "+allowHeader)
@@ -341,6 +368,34 @@ func isCORSPreflightResponse(resp *httputil.ResponseChain) bool {
 		return false
 	}
 	return h.Get("Allow") == ""
+}
+
+// looksLikeServerStatusPage reports whether body is a stock front-end server
+// status/error page (nginx, Apache, Tomcat) rather than a Rails response. A
+// genuine Action Mailbox ingress OPTIONS reply carries no rendered HTML; an HTML
+// page whose title/heading is an HTTP status line ("405 Not Allowed",
+// "404 Not Found", "502 Bad Gateway", …) was emitted by the web server or proxy
+// in front of the app, so the request never reached a Rails route. This catches
+// the recurring production false positive: nginx answering OPTIONS with its
+// stock "405 Not Allowed" page plus an `Allow: GET, POST` header.
+func looksLikeServerStatusPage(body string) bool {
+	b := strings.ToLower(body)
+	for _, marker := range []string{
+		"<title>403", "<title>404", "<title>405", "<title>406",
+		"<title>500", "<title>502", "<title>503", "<title>504",
+		"not allowed",         // nginx 405 title/heading
+		"bad gateway",         // nginx/proxy 502
+		"gateway time-out",    // nginx 504
+		"service unavailable", // nginx/proxy 503
+		"<center>nginx",       // nginx error-page footer (server token present)
+		"<hr><center>",        // nginx error-page footer structure (token stripped)
+		"<address>apache",     // apache error-page footer
+	} {
+		if strings.Contains(b, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripEcho removes occurrences of the requested path and full URL from the

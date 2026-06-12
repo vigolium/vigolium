@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed Jolokia endpoints that provide HTTP/JSON access to JMX
-(Java Management Extensions). Jolokia can disclose sensitive runtime attributes,
-MBean operations, and in some configurations enable dangerous operations like
-remote code execution through MBean invocation.
+	ModuleDesc = `**What it means:** An unauthenticated Jolokia endpoint is exposed, giving HTTP/JSON access to the application's JMX (Java Management Extensions) layer. The scanner confirmed this by requesting known Jolokia paths (such as /jolokia, /jolokia/list, /jolokia/version, and Spring Boot Actuator variants like /actuator/jolokia) and matching Jolokia-specific JSON markers (agent, agentId, protocol, and MBean listings), after fingerprinting a random 404 path and a sibling catch-all to suppress false positives. This is a serious misconfiguration because JMX often exposes internal runtime state and management operations to anyone who can reach the URL.
 
-## Notes
-- Runs once per host
-- Checks multiple Jolokia paths including actuator-prefixed variants
-- Validates responses using Jolokia-specific JSON markers
-- Fingerprints 404 responses to reduce false positives
+**How it's exploited:** An attacker reads JMX attributes to harvest configuration, credentials, and environment details, and enumerates registered MBeans via /jolokia/list to map management operations. Depending on the MBeans available and Jolokia's write/exec configuration, attackers can invoke dangerous MBean operations, alter logging or datasource settings, and in some setups chain MBean invocation into remote code execution.
 
-## References
-- https://jolokia.org/reference/html/index.html
-- https://docs.spring.io/spring-boot/docs/current/reference/html/actuator.html`
+**Fix:** Disable or remove the Jolokia endpoint in production, or restrict it behind authentication and network controls and turn off write/exec access.`
 
 	ModuleConfirmation = "Confirmed when Jolokia endpoints return valid JSON responses with agent information or MBean data"
 	ModuleSeverity     = severity.High

@@ -9,23 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects verbose GraphQL error responses that leak internal implementation details
-such as resolver names, field suggestions, type information, database errors, and stack traces.
-These errors can help attackers enumerate the schema, discover hidden fields, and identify
-backend technologies without requiring introspection access.
+	ModuleDesc = `**What it means:** A GraphQL endpoint returned a verbose error response that leaks internal implementation details, such as field-name suggestions ("Did you mean ...?"), type and enum names, resolver paths, expected variable types, database/ORM errors, or stack traces. This over-shares schema and backend internals that should stay private, expanding the attacker's view of the API even when introspection is disabled.
 
-## Notes
-- Checks JSON response bodies for GraphQL error array structure
-- Detects field suggestion leaks ("Did you mean ...?")
-- Detects resolver/type name exposure in error paths
-- Detects database and ORM errors surfaced through GraphQL
-- Deduplicates by host+path to avoid redundant findings
+**How it's exploited:** An attacker submits malformed or probing GraphQL queries and reads the error messages to reconstruct the schema, uncover hidden fields and types, and fingerprint the database and framework. That mapped attack surface and the disclosed backend technologies make it far easier to target authorization gaps, injection, or known version-specific bugs in follow-up attacks.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/12-API_Testing/01-Testing_GraphQL
-- https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html
-- https://the-bilal-rizwan.medium.com/graphql-common-vulnerabilities-how-to-exploit-them-464f9fdce696`
+**Fix:** Disable verbose and debug error output in production by returning generic GraphQL error messages, stripping stack traces, field suggestions, and database errors before responses leave the server.`
 
 	ModuleConfirmation = "Confirmed when JSON response contains GraphQL error objects with internal details such as field suggestions, resolver paths, or stack traces"
 	ModuleSeverity     = severity.Medium

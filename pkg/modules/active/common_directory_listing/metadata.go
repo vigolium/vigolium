@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for directory listing exposure across common web servers including Apache,
-Nginx, Microsoft IIS, Jetty, and Python SimpleHTTPServer. Directory listings reveal
-the full file inventory of served directories, potentially exposing sensitive files,
-backup archives, configuration files, and internal assets.
+	ModuleDesc = `**What it means:** A directory on the web server returns an auto-generated listing of its contents instead of a normal page, exposing the full inventory of files in that directory to anyone. This module confirms the exposure by probing common paths (root, /uploads/, /files/, /static/, /WEB-INF/, /App_Data/, and others) and matching server-specific listing signatures from Apache, Nginx, IIS, Jetty, and generic servers like Python SimpleHTTPServer or Express serve-index, after fingerprinting the 404 page to rule out custom error pages.
 
-## Notes
-- Runs once per host
-- Probes common directories: /, /uploads/, /files/, /sites/, /assets/, /static/, /META-INF/, /WEB-INF/, /aspnet_client/, /App_Data/
-- Detects Apache, Nginx, Python, Jetty, and IIS directory listing signatures
-- Fingerprints 404 to avoid false positives on custom error pages
+**How it's exploited:** An attacker browses the listing to discover files that are not linked anywhere in the application, such as backup archives, configuration files, source code, credentials, logs, or other sensitive assets, then downloads them directly. This turns an information-disclosure misconfiguration into a stepping stone for deeper compromise.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information
-- https://httpd.apache.org/docs/2.4/mod/mod_autoindex.html`
+**Fix:** Disable directory listing on the web server (for example Apache Options -Indexes, Nginx autoindex off, or IIS directory browsing off) and remove any sensitive files from publicly served directories.`
 
 	ModuleConfirmation = "Confirmed when a directory path responds with server-specific directory listing indicators such as Apache Index of, Nginx autoindex, IIS directory browsing, Jetty directory, or Python directory listing markers"
 	ModuleSeverity     = severity.Low

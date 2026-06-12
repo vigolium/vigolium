@@ -101,10 +101,15 @@ type Config struct {
 	BrowserPath   string // explicit path to browser binary (overrides auto-detection)
 
 	// Auth & Network
-	BasicAuthUser  string
-	BasicAuthPass  string
-	ProxyURL       string
-	InitialCookies []*http.Cookie // Cookies to set before crawling (from auth bootstrap)
+	BasicAuthUser string
+	BasicAuthPass string
+	ProxyURL      string
+	// ProxyAllowLoopback removes Chrome's implicit proxy bypass for
+	// localhost/127.0.0.1 so an intercepting proxy also sees traffic to a
+	// target on the loopback. Off by default — only opt in when the proxy is
+	// meant to capture everything (e.g. browser replay through Burp).
+	ProxyAllowLoopback bool
+	InitialCookies     []*http.Cookie // Cookies to set before crawling (from auth bootstrap)
 
 	// Wait times
 	WaitAfterReload time.Duration

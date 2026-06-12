@@ -75,6 +75,33 @@ func bodyBreakSplitServer() *httptest.Server {
 	}))
 }
 
+// cookieReflectStripCRLFServer reproduces the reported false positive verbatim: a
+// SAML-login endpoint behind CloudFront copies the `q` parameter into a
+// Set-Cookie VALUE, but the fronting proxy neutralises the injected CR/LF bytes
+// to spaces, so the marker lands mid-line inside an existing header value and the
+// header block is never split. The original finding flagged this 200/Content-
+// Length:0 response as a confirmed CRLF injection — it must now yield nothing.
+func cookieReflectStripCRLFServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		v := r.URL.Query().Get("q")
+		// Mimic the CloudFront/front-end behaviour: collapse CR and LF to spaces
+		// so the value stays on a single header line (no split occurs).
+		safe := strings.NewReplacer("\r", " ", "\n", " ").Replace(v)
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "hijack unsupported", http.StatusInternalServerError)
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = conn.Write([]byte("HTTP/1.1 200 OK\r\nSet-Cookie: q=" + safe +
+			";Path=/;HttpOnly;Secure\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+	}))
+}
+
 // jsonReflectServer mirrors the real-world false positive: the decoded parameter
 // value (CRLF bytes preserved as DATA) is echoed back inside a JSON string in the
 // legitimate response body under Content-Type: application/json. The header block
@@ -154,6 +181,26 @@ func TestScanPerInsertionPoint_BodyReflectionIsSuspect(t *testing.T) {
 		"body reflection is unconfirmed (Tentative)")
 }
 
+// TestScanPerInsertionPoint_HeaderValueReflectionStrippedCRLF is the regression
+// test for the reported CloudFront/SAML false positive: the parameter is copied
+// into a Set-Cookie value with its CR/LF neutralised to spaces, so the injected
+// marker sits mid-line inside an existing header value. The header block is never
+// split, so this must NOT be reported as a header injection at any severity.
+func TestScanPerInsertionPoint_HeaderValueReflectionStrippedCRLF(t *testing.T) {
+	t.Parallel()
+	srv := cookieReflectStripCRLFServer()
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/?q=test")
+	ip := modtest.InsertionPoint(t, rr, "q")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res,
+		"a value reflected mid-line into a header (CRLF neutralised) is not a CRLF split and must not be reported")
+}
+
 // TestScanPerInsertionPoint_NoFalsePositive ensures a server that never reflects
 // the parameter (and sets no attacker-controlled headers) yields no finding.
 func TestScanPerInsertionPoint_NoFalsePositive(t *testing.T) {
@@ -198,9 +245,17 @@ func TestClassifyBodyBreak(t *testing.T) {
 	marker := "<injected>" + canary + "</injected>"
 
 	t.Run("header split", func(t *testing.T) {
-		loc, _, ok := classifyBodyBreak("X-Reflect: "+marker+"\r\n", "body", "full", canary)
+		// A genuine split: the injected CRLF survived, so the marker begins its
+		// own header line (preceded by a real \n).
+		loc, _, ok := classifyBodyBreak("X-Reflect: test\r\n"+marker+"\r\nConnection: close\r\n", "body", "full", canary)
 		require.True(t, ok)
 		assert.Equal(t, locResponseHeader, loc)
+	})
+	t.Run("header value reflection (stripped CRLF) is not a split", func(t *testing.T) {
+		// The reported false positive: the marker sits mid-line inside an existing
+		// header value (CR/LF neutralised to spaces). This is NOT an injection.
+		_, _, ok := classifyBodyBreak("Set-Cookie: idp=http://okta/exk    "+marker+";Path=/\r\n", "", "full", canary)
+		assert.False(t, ok, "a marker mid-line in a header value must not classify as a header split")
 	})
 	t.Run("leading body split", func(t *testing.T) {
 		loc, _, ok := classifyBodyBreak("Content-Type: text/html\r\n", marker+"\r\nrest", "full", canary)
@@ -216,4 +271,21 @@ func TestClassifyBodyBreak(t *testing.T) {
 		_, _, ok := classifyBodyBreak("Content-Type: text/html\r\n", "no marker here", "full", canary)
 		assert.False(t, ok)
 	})
+}
+
+// TestMarkerStartsHeaderLine covers the structural discriminator between a
+// genuine CRLF split (marker begins its own header line) and value reflection
+// into an existing header (marker mid-line, CR/LF neutralised).
+func TestMarkerStartsHeaderLine(t *testing.T) {
+	t.Parallel()
+	const marker = "<injected>vigCANARY</injected>"
+
+	assert.True(t, markerStartsHeaderLine("X-Reflect: test\r\n"+marker+"\r\n", marker),
+		"marker after a real CRLF line terminator is a genuine new header line")
+	assert.True(t, markerStartsHeaderLine("X-Reflect: test\n"+marker+"\n", marker),
+		"bare-LF before the marker is still a real line terminator on the wire")
+	assert.False(t, markerStartsHeaderLine("Set-Cookie: idp=http://okta/exk    "+marker+";Path=/\r\n", marker),
+		"marker mid-line inside a header value (CRLF stripped to spaces) is not a split")
+	assert.False(t, markerStartsHeaderLine("Set-Cookie: idp=value;Path=/\r\n", marker),
+		"absent marker is not a split")
 }

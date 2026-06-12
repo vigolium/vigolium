@@ -9,19 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects host header injection vulnerabilities by manipulating the Host header and
-related headers (X-Forwarded-Host, X-Host) to identify routing or content changes.
+	ModuleDesc = `**What it means:** The application trusts an attacker-controlled host value from the Host header or a forwarding header (X-Forwarded-Host, X-Host, X-Original-URL, Forwarded, X-Forwarded-Proto, X-Forwarded-Port, X-Real-IP, or Cf-Connecting-IP) and echoes it back into the response body or a response header. This module injected a sentinel host into each of those headers and observed it reflected, confirming the app uses the unvalidated value to build links, redirects, or other output rather than a fixed, trusted hostname.
 
-## Notes
-- Tests host header manipulation with evil domain values
-- Checks for host value reflection in response body and headers
-- Runs per-request to test each endpoint
-- Can lead to password reset poisoning, cache poisoning, and SSRF
+**How it's exploited:** An attacker sends a request with a poisoned host header so the reflected value lands in a sensitive sink. If it reaches an absolute link or the Location header, this enables password-reset poisoning (reset emails point to the attacker's domain), open-redirect or web-cache poisoning, and in some setups server-side request forwarding to attacker-chosen back ends.
 
-## References
-- https://portswigger.net/web-security/host-header
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/17-Testing_for_Host_Header_Injection`
+**Fix:** Derive hostnames from a server-side allowlist of trusted domains and ignore client-supplied Host and X-Forwarded-* headers when generating URLs, redirects, and emails.`
 
 	ModuleConfirmation = "Confirmed when manipulated Host header value is reflected in response body, Location header, or other response headers"
 	ModuleSeverity     = severity.Medium

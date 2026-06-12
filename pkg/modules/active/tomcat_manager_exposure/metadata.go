@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed Apache Tomcat Manager and Host Manager web interfaces. These
-administrative interfaces allow deploying WAR files, managing virtual hosts,
-and viewing server status. Default or weak credentials on these interfaces
-can lead to complete server compromise through malicious WAR deployment.
+	ModuleDesc = `**What it means:** An Apache Tomcat administrative or default endpoint is reachable from the network. The scanner probes /manager/html, /host-manager/html, /manager/status, /examples/, and /docs/, reporting a hit when the page returns 200 with its distinctive content or answers 401 with a Tomcat authentication challenge. These interfaces and leftover default apps should not be exposed and indicate incomplete hardening and an unnecessarily large attack surface.
 
-## Notes
-- Runs once per host
-- Checks manager, host-manager, and status pages
-- Detects both login challenges (401 with WWW-Authenticate) and accessible pages
-- Also detects Tomcat default pages and example servlets
-- Fingerprints 404 responses to reduce false positives
+**How it's exploited:** The Manager and Host Manager interfaces let an authenticated user deploy WAR files and manipulate virtual hosts, so an attacker who guesses default or weak credentials (for example tomcat/tomcat) can upload a malicious WAR for remote code execution and full server compromise. The status page leaks JVM, connector, and thread details, while the example servlets and docs disclose the server version and may carry known vulnerabilities, all aiding follow-up exploits.
 
-## References
-- https://tomcat.apache.org/tomcat-10.1-doc/manager-howto.html
-- https://tomcat.apache.org/tomcat-10.1-doc/security-howto.html`
+**Fix:** Remove or restrict the Manager, Host Manager, examples, and docs applications, and require strong credentials over TLS plus network access controls for any administrative interface that must remain.`
 
 	ModuleConfirmation = "Confirmed when Tomcat Manager or Host Manager interface is accessible or prompts for authentication"
 	ModuleSeverity     = severity.High

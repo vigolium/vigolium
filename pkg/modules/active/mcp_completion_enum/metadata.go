@@ -9,19 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-The MCP ` + "`completion/complete`" + ` primitive is intended for IDE-style argument
-autocomplete, but in practice it is an enumeration oracle: empty/short
-prefixes return back the full list of values the server considers valid for a
-given resource URI placeholder or prompt argument.
+	ModuleDesc = `**What it means:** A Model Context Protocol (MCP) server answers unauthenticated completion/complete autocomplete queries by returning the full set of valid values for its prompt arguments and resource-template URI placeholders. This turns an IDE convenience feature into an enumeration oracle that leaks data the server treats as valid input, such as usernames, identifiers, file paths, or resource names.
 
-This module sends a series of empty + short-prefix completion queries against
-every resource template placeholder and every prompt argument and reports the
-returned values verbatim. Use the output to seed exploitation in
-` + "`resources/read`" + ` (URI placeholders) and ` + "`prompts/get`" + `.
+**How it's exploited:** An attacker initializes a session and sends empty-prefix completion/complete requests against each prompt argument and template placeholder; the server replies with the enumerable value lists verbatim. Those values map out the server's resources and accepted inputs and seed direct follow-on access via resources/read (URI placeholders) and prompts/get, expanding the attack surface and exposing data meant to stay private.
 
-## References
-- https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/completion`
+**Fix:** Require authentication for completion/complete and avoid returning sensitive or enumerable value sets; restrict completions to non-sensitive hints or disable the capability where it leaks private data.`
 
 	ModuleConfirmation = "Confirmed when completion/complete returns at least one value (the server is willing to disclose its valid value set without authentication)"
 	ModuleSeverity     = severity.Medium

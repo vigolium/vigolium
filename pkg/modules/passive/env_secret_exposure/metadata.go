@@ -9,28 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Scans response bodies for secrets accidentally exposed through public environment
-variable mechanisms in modern JS frameworks. Next.js (NEXT_PUBLIC_), Vite (VITE_),
-and Create React App (REACT_APP_) all expose prefixed environment variables to the
-client bundle. When developers store secret keys, tokens, or passwords in these
-public variables, they are shipped to every browser that loads the application.
-Also detects .env files served directly with embedded secrets.
+	ModuleDesc = `**What it means:** A secret value (an API key, token, password, or credential) is shipped to the browser in the application response. This passive check spotted either a framework public environment variable (NEXT_PUBLIC_, VITE_, or REACT_APP_ prefix whose name contains SECRET, KEY, TOKEN, PASSWORD, PRIVATE, or CREDENTIAL) assigned a real value, or a raw .env config file served directly with credential indicators such as sk_live_, AKIA, or ghp_. Because these values reach every client, the secret is publicly disclosed.
 
-## Notes
-- Passive only -- does not send any HTTP requests
-- Scans JS, HTML, JSON, and plain text responses
-- Detects NEXT_PUBLIC_, VITE_, REACT_APP_ prefixed secret variables
-- Detects raw .env file content with secret indicators (sk_live_, AKIA, ghp_, etc.)
-- Minimum value length of 8 characters to reduce false positives
-- Deduplicates by host
+**How it's exploited:** An attacker simply opens the page source or JS bundle, reads the exposed secret, and uses it to authenticate to the backing service (payment, cloud, source-control, or database), enabling account takeover, data theft, or charges against the victim's account. No special tooling is needed.
 
-## References
-- https://nextjs.org/docs/app/building-your-application/configuring/environment-variables
-- https://vitejs.dev/guide/env-and-mode.html
-- https://create-react-app.dev/docs/adding-custom-environment-variables/
-- https://cwe.mitre.org/data/definitions/200.html
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/05-Enumerate_Infrastructure_and_Application_Admin_Interfaces`
+**Fix:** Rotate the leaked secret immediately, keep secrets server-side only (never under a public client prefix or in a web-served .env), and block .env files from being served.`
 
 	ModuleConfirmation = "Confirmed when response body contains public environment variables with secret values or .env file content with credential indicators"
 	ModuleSeverity     = severity.High

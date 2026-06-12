@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects blind Server-Side Request Forgery (SSRF) vulnerabilities by injecting OAST callback
-URLs into URL-like parameters. Unlike in-band SSRF detection, this module detects cases where
-the server fetches the URL but does not reflect the response content back to the client.
+	ModuleDesc = `**What it means:** A URL-like parameter (for example url, uri, redirect, callback, proxy, fetch) causes the server to make an outbound request to a destination the client controls, without echoing the fetched response back. This is a blind Server-Side Request Forgery (SSRF) flaw: the application can be coerced into acting as a proxy from inside its own network.
 
-## Notes
-- Requires an interactsh server (configured via oast settings)
-- Targets parameters whose name or value suggests URL input
-- Injects multiple payload formats: direct HTTP/HTTPS, with path, with port, URL-encoded
-- Findings arrive asynchronously via the OAST polling callback
-- Deduplication via RHM and DiskSet to avoid redundant requests
-- OWASP Top 10 2021: A10 (SSRF)
+**How it's exploited:** This module confirmed the vulnerability by injecting an out-of-band (OAST) callback URL into the parameter and observing the server make a DNS or HTTP request back to that host. An attacker swaps the callback for internal targets to reach cloud metadata endpoints (such as 169.254.169.254 for credentials), internal admin panels, or other services unreachable from the outside, and to scan or pivot within the trusted network even though no response is returned to them.
 
-## References
-- https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/
-- https://portswigger.net/web-security/ssrf/blind`
+**Fix:** Validate and allowlist outbound destinations, resolve and block requests to private/link-local/loopback ranges and cloud metadata IPs, and disable unneeded URL schemes and redirect following.`
 
 	ModuleConfirmation = "Confirmed when target server makes outbound DNS or HTTP request to OAST callback URL injected into a URL-like parameter"
 	ModuleSeverity     = severity.High

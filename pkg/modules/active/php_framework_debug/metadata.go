@@ -9,23 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for debug and development endpoints specific to PHP frameworks beyond
-Laravel and Symfony: Yii debug module and Gii code generator, CodeIgniter
-user guide and profiler output, CakePHP debug kit, and common PHP framework
-debug patterns.
+	ModuleDesc = `**What it means:** A debug, profiler, or developer tool belonging to a PHP framework is reachable in production. The module probes known endpoints for Yii (debug module, Gii code generator), CodeIgniter (user guide, application logs), CakePHP DebugKit, Slim, FuelPHP, and Phalcon DevTools, confirming each with framework-specific content markers and a 404-baseline comparison so it only reports a page that genuinely exists. These tools leak request logs, SQL queries, stack traces, file paths, and application configuration that should never be public.
 
-## Notes
-- Runs once per host to avoid redundant probing
-- Validates responses with content markers to reduce false positives
-- Covers Yii, CodeIgniter, CakePHP, and Slim frameworks
-- Fingerprints 404 responses to detect custom error pages
+**How it's exploited:** An attacker browses the exposed panel to map internal routes, read database queries and config secrets, and harvest absolute server paths for use in further attacks. The most dangerous cases (Yii Gii, Phalcon DevTools) can generate or scaffold code and run database migrations, turning information disclosure into code execution or data tampering; the rest fingerprint the exact framework and version for targeting known CVEs.
 
-## References
-- https://www.yiiframework.com/doc/guide/2.0/en/tool-debugger
-- https://codeigniter.com/user_guide/
-- https://book.cakephp.org/4/en/debug-kit.html
-- https://owasp.org/www-project-web-security-testing-guide/`
+**Fix:** Disable debug mode and remove or access-restrict all framework development tools and log directories in production deployments.`
 
 	ModuleConfirmation = "Confirmed when probed framework debug endpoints return 200 with expected content markers"
 	ModuleSeverity     = severity.Medium

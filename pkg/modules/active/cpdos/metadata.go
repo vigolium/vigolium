@@ -9,32 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects Cache-Poisoned Denial of Service (CPDoS). When a request triggers an error at the
-origin but the response is stored by a shared cache/CDN, every subsequent user of that cache
-key is served the cached error instead of the real resource — a denial of service.
+	ModuleDesc = `**What it means:** This endpoint sits behind a shared cache or CDN that will store an origin error response and replay it to every other user who requests the same resource. A single crafted request can therefore turn a working page into a cached error for everyone, causing denial of service. The scanner confirmed two header-only variants: HMO, where a method-override header (such as X-HTTP-Method-Override) carrying an unsupported method makes the origin return a cacheable 4xx; and HHO, where an oversized request header the cache forwards but the origin rejects with a cacheable 400.
 
-This module tests the two header-only variants reachable with a normal HTTP client:
+**How it's exploited:** An attacker sends one request to the real cache key with the poisoning header. The cache stores the resulting error and serves it to all subsequent legitimate visitors until the entry expires, denying them access to that resource without ever touching the origin again.
 
-- **HMO (HTTP Method Override):** a method-override header (X-HTTP-Method-Override and
-  variants) carrying a benign, unsupported method token makes the origin return a cacheable
-  4xx (404/405/501) without mutating any state.
-- **HHO (HTTP Header Oversize):** an oversized request header the cache forwards but the
-  origin rejects with a cacheable 400.
-
-## Safety
-Every probe carries a unique, single-use cache buster so the test only ever affects the
-scanner's own cache key — never a shared resource. The HMO probe uses a non-mutating method
-token, so it cannot delete or modify data. The destructive HMC (meta-character) variant,
-which requires raw control bytes on the wire, is intentionally not attempted.
-
-## Impact
-- Denial of service: legitimate users receive a cached error page for the affected resource.
-
-## References
-- https://cpdos.org/
-- https://portswigger.net/research/responsible-denial-of-service-with-web-cache-poisoning
-- CWE-444 / cache key handling`
+**Fix:** Configure the cache to never store error responses, normalize or strip request headers before cache-key computation, and align the origin and cache on request-size and method-override handling.`
 
 	ModuleConfirmation = "Confirmed only after a multi-round with-payload/without-payload differential on fresh cache keys: each round a clean control request must return the non-error baseline, a separate payload request must produce a cacheable error of a different status, and a clean replay on the poisoned key must be served that cached error (cache HIT). All rounds must pass, and only on endpoints proven cacheable by a baseline 200 hit"
 	ModuleSeverity     = severity.Medium

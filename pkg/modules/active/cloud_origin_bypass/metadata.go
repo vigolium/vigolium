@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects when cloud storage origins are directly reachable with weaker security controls
-than the CDN/WAF layer. Identifies CDN presence from headers, extracts origin storage
-URLs from response body, and compares security headers between CDN and origin.
+	ModuleDesc = `**What it means:** The site is served through a CDN (CloudFront, Fastly, Akamai, Cloudflare, etc.), but its underlying cloud storage origin (S3, Google Cloud Storage, or Azure Blob) is leaked in the page body and is directly reachable. The exposed origin returns content successfully while missing security headers that the CDN adds (Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Strict-Transport-Security), so requests sent straight to the origin skip those CDN-layer protections.
 
-## Notes
-- Step 1: Detect CDN from CF-Ray, X-Cache, Via, X-Amz-Cf-Id, X-Served-By headers
-- Step 2: Extract origin storage URLs from response body
-- Step 3: Fetch origin directly and compare security headers
-- Flags when origin is reachable with weaker controls (missing CSP, XFO, XCTO, HSTS)
-- Runs once per host with deduplication
+**How it's exploited:** An attacker who connects to the origin bucket directly bypasses the WAF, rate limiting, and security headers enforced at the edge, regaining attack surface such as clickjacking, MIME sniffing, or HSTS downgrade that the CDN was meant to close, and can probe the bucket for misconfigured access or listable objects without the edge ever seeing the traffic.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/
-- https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html`
+**Fix:** Restrict origin access to the CDN only (S3 Origin Access Control / bucket policy, signed origin requests, or IP allowlisting) so the storage backend cannot be reached directly, and apply the same security headers at the origin.`
 
 	ModuleConfirmation = "Confirmed when cloud storage origin is directly reachable with fewer security headers than the CDN-fronted endpoint"
 	ModuleSeverity     = severity.Medium

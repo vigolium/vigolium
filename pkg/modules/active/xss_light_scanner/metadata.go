@@ -10,17 +10,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Character-based Reflected XSS detection with transform analysis. Injects probe characters
-and analyzes how they are reflected to determine exploitability.
+	ModuleDesc = `**What it means:** A request parameter is reflected into the HTML response without proper context-aware encoding, allowing reflected cross-site scripting (XSS). An attacker can inject HTML or JavaScript that the victim's browser executes as if it came from the trusted site.
 
-## Notes
-- Uses two-phase detection: character probing then transform analysis
-- Tries multiple bypass prefixes sequentially
-- Operates per-request with internal insertion point iteration
+**How it's exploited:** The attacker crafts a link with a malicious value in the vulnerable parameter and lures a victim into clicking it. When the page reflects the payload, attacker-controlled script runs in the victim's session, enabling session/cookie theft, credential harvesting, account takeover, or actions performed as the victim. This module injects probe characters across body, query, and JSON insertion points and analyzes how quotes, brackets, and escape sequences survive to confirm the reflection lands in an executable context.
 
-## References
-- https://portswigger.net/burp/documentation/scanner/xss`
+**Fix:** Apply context-correct output encoding when reflecting user input (HTML-entity, attribute, JavaScript, or URL encoding for the matching context) and enforce a restrictive Content-Security-Policy.`
 
 	ModuleConfirmation = "Confirmed when injected probe characters are reflected without sanitization, indicating exploitable XSS context"
 	ModuleSeverity     = severity.High
@@ -36,16 +30,11 @@ const (
 )
 
 var (
-	URLParamsModuleDesc = `## Description
-Character-based Reflected XSS detection for URL query parameters. Applies POST-to-GET
-conversion when applicable and tests URL parameters for reflection-based XSS.
+	URLParamsModuleDesc = `**What it means:** A URL query-string parameter is reflected into the response without proper context-aware encoding, allowing reflected cross-site scripting (XSS). Because the payload lives entirely in the URL, the vulnerable page can be weaponized as a single shareable link.
 
-## Notes
-- Focuses specifically on URL query string parameters
-- Converts POST parameters to GET for broader coverage when applicable
+**How it's exploited:** The attacker embeds a script payload in a query parameter and delivers the URL via email, message, or ad. When the victim opens it, the reflected payload executes in their browser, enabling session hijacking, cookie or token theft, credential phishing, or actions taken as the victim. This module tests existing query parameters and, for non-GET requests, also converts POST parameters to GET to expose handlers that reflect either way.
 
-## References
-- https://portswigger.net/burp/documentation/scanner/xss`
+**Fix:** Apply context-correct output encoding when reflecting query parameters into the response and enforce a restrictive Content-Security-Policy.`
 
 	URLParamsModuleConfirmation = "Confirmed when URL query parameter values are reflected in the response with exploitable character handling"
 	URLParamsModuleSeverity     = severity.High
@@ -60,16 +49,11 @@ const (
 )
 
 var (
-	PathModuleDesc = `## Description
-Character-based Reflected XSS detection in URL path segments. Tests path components
-for reflection using recursive, cut, and append injection strategies.
+	PathModuleDesc = `**What it means:** A URL path segment is reflected into the HTML response without proper context-aware encoding, allowing reflected cross-site scripting (XSS). The vulnerable input is part of the path itself rather than a query parameter, which often slips past parameter-only input filtering.
 
-## Notes
-- Targets URL path segments rather than query parameters
-- Uses multiple path manipulation strategies for thorough coverage
+**How it's exploited:** The attacker builds a URL whose path segment carries a script payload and lures a victim into opening it. When the application echoes that path component into the page, attacker-controlled JavaScript runs in the victim's session, enabling cookie or token theft, account takeover, or actions performed as the victim. This module manipulates path segments using recursive, cut, and append strategies and analyzes how breakout characters survive to confirm the reflection reaches an executable context.
 
-## References
-- https://portswigger.net/burp/documentation/scanner/xss`
+**Fix:** Apply context-correct output encoding to any path component echoed into responses and enforce a restrictive Content-Security-Policy.`
 
 	PathModuleConfirmation = "Confirmed when injected path segment characters are reflected in the response without sanitization"
 	PathModuleSeverity     = severity.High
@@ -84,21 +68,11 @@ const (
 )
 
 var (
-	ParamDiscoveryModuleDesc = `## Description
-Discovers and tests hidden parameters that reflect in the response. Brute-forces common
-parameter names and checks if values are echoed back, then tests for XSS.
+	ParamDiscoveryModuleDesc = `**What it means:** A hidden, undocumented request parameter that is not present in the original request is reflected into the response, creating reflected cross-site scripting (XSS). Such parameters are easy to overlook because they are invisible in normal traffic, yet an attacker can supply them directly.
 
-## Notes
-- Runs per-request to discover parameters not visible in the original request
-- Combines parameter discovery with XSS Light transform analysis
-- Every candidate is re-confirmed with a real, context-shaped XSS payload: the
-  finding is dropped unless the executable breakout survives unescaped in the
-  body, reported as Low/Tentative when it survives but no popup fires (CSP or a
-  non-executing context), and only raised to High/Certain once a headless
-  browser actually triggers an alert() dialog
+**How it's exploited:** The attacker adds the discovered parameter with a script payload to a crafted link and lures a victim into opening it; the reflected payload then executes in the victim's browser, enabling cookie or token theft, account takeover, or actions performed as the victim. This module brute-forces common parameter names, keeps those whose values echo back, and re-confirms each candidate with a real context-shaped payload. Findings are dropped unless the breakout survives unescaped, reported Low/Tentative when it survives but no dialog fires (likely CSP or a non-executing context), and raised to High/Certain only when a headless browser actually triggers an alert() dialog.
 
-## References
-- https://portswigger.net/burp/documentation/scanner/xss`
+**Fix:** Apply context-correct output encoding to all reflected input, including unexpected parameters, and enforce a restrictive Content-Security-Policy.`
 
 	// Per-finding severity/confidence are set by the confirmation step
 	// (buildConfirmedResultEvent); these module defaults are the fallback only.
@@ -115,19 +89,11 @@ const (
 )
 
 var (
-	EncodedModuleDesc = `## Description
-Character-based Reflected XSS detection for parameters the application decodes before
-reflecting. The same survival-probe canary is wrapped in an encoding (base64, double-URL)
-and only fires when the application reconstitutes — and reflects — the decoded payload.
+	EncodedModuleDesc = `**What it means:** A parameter that the application decodes (base64 or an extra URL-decode pass) before reflecting it is vulnerable to reflected cross-site scripting (XSS). Input filters that inspect the raw, still-encoded value are bypassed because the dangerous characters only appear after the application decodes the payload.
 
-## Notes
-- Complements xss-light: targets filters that pass an encoded value the app later decodes
-- A finding still requires the decoded probe to reflect in an exploitable context, so the
-  encoding layer cannot produce false positives
-- Runs per-request with internal insertion point iteration
+**How it's exploited:** The attacker submits an encoded payload that passes the filter as harmless text; the application decodes it and reflects the live script into the page, so when a victim opens the crafted link the payload executes in their browser, enabling cookie or token theft, account takeover, or actions performed as the victim. This module wraps the same survival-probe canary in base64 or extra URL encoding and only reports when the decoded probe lands in an executable context, so the encoding layer cannot produce false positives.
 
-## References
-- https://portswigger.net/burp/documentation/scanner/xss`
+**Fix:** Validate and context-correctly encode input after every decoding step, not just the raw received value, and enforce a restrictive Content-Security-Policy.`
 
 	EncodedModuleConfirmation = "Confirmed when an encoded parameter value is decoded by the application and reflected in an exploitable context"
 	EncodedModuleSeverity     = severity.High

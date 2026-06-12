@@ -248,19 +248,33 @@ func TestMultiWriterShowsFindingsOnStdout(t *testing.T) {
 }
 
 func TestFormatPhaseFindingLine(t *testing.T) {
-	line := FormatPhaseFindingLine("dynamic-assessment", sampleEvent())
+	ev := sampleEvent()
+	ev.ModuleType = "passive"
+	ev.Request = "GET /search?q=1 HTTP/1.1\r\nHost: example.com\r\n\r\n"
+	line := FormatPhaseFindingLine("dynamic-assessment", ev)
 	plain := terminal.StripANSI(line)
 
 	assert.True(t, strings.HasSuffix(line, "\n"), "line is newline-terminated")
 	assert.Contains(t, plain, "dynamic-assessment", "carries the phase tag")
-	assert.Contains(t, plain, "xss-reflected", "carries the module id")
-	// Prefers the precise matched-at location over the request URL.
-	assert.Contains(t, plain, "https://example.com/search?q=<script>")
+	// Mirrors formatScreen's bracketed [type] [module] [severity] layout.
+	assert.Contains(t, plain, "[passive]", "module type rendered in brackets")
+	assert.Contains(t, plain, "[xss-reflected]", "module id rendered in brackets")
+	assert.Contains(t, plain, "high]", "severity rendered in brackets")
+	assert.Contains(t, plain, "GET https://example.com/search?q=<script>",
+		"HTTP method prefixes the matched-at URL")
+
+	// The [type] bracket is suppressed when it duplicates the phase tag, matching
+	// formatScreen.
+	kis := sampleEvent()
+	kis.ModuleType = "known-issue-scan"
+	noType := terminal.StripANSI(FormatPhaseFindingLine("known-issue-scan", kis))
+	assert.NotContains(t, noType, "[known-issue-scan]",
+		"type bracket suppressed when it duplicates the phase tag")
 
 	// Extracted value is surfaced in brackets and truncated to the cap.
-	ev := sampleEvent()
-	ev.ExtractedResults = []string{strings.Repeat("A", liveFindingValueMax+20)}
-	withValue := terminal.StripANSI(FormatPhaseFindingLine("known-issue-scan", ev))
+	withVal := sampleEvent()
+	withVal.ExtractedResults = []string{strings.Repeat("A", liveFindingValueMax+20)}
+	withValue := terminal.StripANSI(FormatPhaseFindingLine("known-issue-scan", withVal))
 	assert.Contains(t, withValue, "[")
 	assert.NotContains(t, withValue, strings.Repeat("A", liveFindingValueMax+1),
 		"value snippet is truncated to the cap")

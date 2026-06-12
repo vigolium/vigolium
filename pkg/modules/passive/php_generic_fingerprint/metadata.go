@@ -9,24 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies PHP installations not already covered by a framework
-fingerprint (WordPress, Laravel, Drupal, Joomla, Symfony). Catches standalone
-PHP applications, custom PHP backends, and legacy sites via the X-Powered-By
-header, PHPSESSID session cookie, and .php URL extensions.
+	ModuleDesc = `**What it means:** The server reveals that the application is built on PHP, and sometimes the exact PHP version, through response headers, the PHPSESSID session cookie, or .php URLs. This is an informational fingerprint, not a vulnerability, but it discloses backend technology details that aid an attacker.
 
-## Signals
-- X-Powered-By header containing PHP/<version>
-- Set-Cookie: PHPSESSID=
-- URL path ending in .php (weak — requires another signal)
+**How it's exploited:** Knowing the platform lets an attacker narrow their attack surface to PHP-specific weaknesses (local file inclusion, deserialization, type-juggling). When the X-Powered-By header also leaks a precise version such as PHP/8.2.1, the attacker can look up published CVEs for that exact build and target known, version-specific exploits instead of probing blindly.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Deduplicates by host
-- Publishes "php" to the tech registry so php-tagged active modules run
-
-## References
-- https://www.php.net/`
+**Fix:** Suppress technology disclosure by setting expose_php = Off in php.ini, removing or rewriting the X-Powered-By header at the web server or proxy, and renaming the PHPSESSID session cookie.`
 
 	ModuleConfirmation = "Confirmed when an X-Powered-By PHP header or PHPSESSID cookie is observed"
 	ModuleSeverity     = severity.Info

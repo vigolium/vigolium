@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests for Joomla user enumeration and admin exposure through multiple vectors:
-1. Registration form: accessible /index.php?option=com_users&view=registration
-2. Web Services API (J4+): /api/index.php/v1/users returns user data
-3. Administrator login: /administrator/ publicly accessible without WAF/IP restrictions
+	ModuleDesc = `**What it means:** This Joomla site exposes one or more user-facing surfaces that aid account enumeration or unauthorized access. The module confirms up to three issues with GET probes: a publicly reachable user registration form (/index.php?option=com_users&view=registration), the Joomla 4+ Web Services API returning user records anonymously at /api/index.php/v1/users, and an administrator login panel (/administrator/) reachable with no WAF, IP restriction, or other access control.
 
-## Notes
-- Runs once per host
-- Tests registration form accessibility and API user listing
-- Checks administrator login exposure
-- Non-destructive: only performs GET requests
+**How it's exploited:** An attacker harvests valid usernames from the API user listing or from registration-form error messages, then uses that list to target the exposed administrator login with credential-stuffing or brute-force attacks. Anonymous API user data also maps the site's account structure for further targeting.
 
-## References
-- https://docs.joomla.org/Security_Checklist
-- https://developer.joomla.org/security-centre.html`
+**Fix:** Disable public registration if unneeded, require authentication and tighten Joomla Web Services API permissions so user records are not exposed anonymously, and protect /administrator/ with IP allowlisting, a WAF, or HTTP auth.`
 
 	ModuleConfirmation = "Confirmed when user registration form is accessible, API exposes user data, or admin login is unprotected"
 	ModuleSeverity     = severity.Medium

@@ -9,23 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed ASP.NET Identity scaffolded pages, IdentityServer/Duende OIDC
-discovery documents, and authentication-related misconfigurations. Exposed OIDC
-discovery documents reveal token endpoints, supported scopes, and grant types.
-Open registration endpoints may allow unauthorized account creation. Scaffolded
-Identity UI pages confirm the authentication framework in use.
+	ModuleDesc = `**What it means:** The host publicly exposes ASP.NET Identity authentication surfaces that should be locked down or are otherwise sensitive: scaffolded Identity UI pages (login, register, password reset), IdentityServer/Duende OAuth2/OIDC endpoints (token, authorize, JWKS), the ASP.NET Core 8+ Identity API endpoints (register, manage/info), and the OIDC discovery document. The most serious case is the management API (/manage/info) returning account data without authentication; an open registration endpoint and the broader exposed auth attack surface are also reported. The disclosure ranges from informational fingerprinting to a real authentication gap.
 
-## Notes
-- Runs once per host
-- Probes Identity UI, OIDC discovery, and token endpoints
-- Extracts OIDC metadata (scopes, grant types, endpoints) as evidence
-- Fingerprints 404 to avoid false positives
+**How it's exploited:** An attacker uses an unauthenticated /manage/info or open register endpoint to read or create accounts directly, brute-forces or credential-stuffs an unthrottled token endpoint, enumerates valid emails via the password-reset page, and maps token endpoints, scopes, grant types, and signing keys from the discovery and JWKS documents to plan further attacks.
 
-## References
-- https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity
-- https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity-api-authorization
-- https://openid.net/specs/openid-connect-discovery-1_0.html`
+**Fix:** Restrict registration and Identity management endpoints behind authorization, enforce rate limiting on token and reset endpoints, and remove or protect any scaffolded Identity pages not needed in production.`
 
 	ModuleConfirmation = "Confirmed when Identity endpoints or OIDC discovery documents are publicly accessible"
 	ModuleSeverity     = severity.Medium

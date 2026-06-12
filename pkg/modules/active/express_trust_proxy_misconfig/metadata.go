@@ -9,28 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects Express.js trust proxy misconfiguration by sending X-Forwarded-* header variants
-and comparing responses against a baseline to identify behavioral changes.
+	ModuleDesc = `**What it means:** The application trusts attacker-controlled X-Forwarded-* request headers (Proto, Host, For, or Port), typically because an Express trust proxy setting is enabled without restricting it to known proxy addresses. These headers should only be set by a trusted reverse proxy, so honoring them from arbitrary clients lets a user override the protocol, hostname, client IP, or port the app thinks it is serving.
 
-When Express.js has ` + "`trust proxy`" + ` enabled without proper validation, attackers can
-manipulate X-Forwarded-Proto, X-Forwarded-Host, X-Forwarded-For, and X-Forwarded-Port
-headers to cause protocol confusion, IP-based access control bypass, and port injection.
+**How it's exploited:** A crafted header makes the app react in a security-relevant way: X-Forwarded-Host reflects into generated URLs, redirect targets, or links (host-header injection, poisoned password-reset links, cache poisoning); X-Forwarded-Port is echoed into URLs and redirects; X-Forwarded-For spoofs the client IP to bypass IP allowlists or rate limiting; X-Forwarded-Proto downgrades the scheme, stripping the cookie Secure flag or altering HTTPS redirects. Each effect is confirmed against a no-header baseline.
 
-## Notes
-- X-Forwarded-Proto can cause redirect loops or strip Secure flags from cookies
-- X-Forwarded-Host can be trusted for URL generation, leading to host-based attacks
-- X-Forwarded-For can bypass IP-based rate limiting or access controls
-- X-Forwarded-Port can inject unexpected ports into generated URLs and redirects
-- Compares each probe response against a baseline to detect behavioral changes
-- Host reflection is re-confirmed with a fresh random canary each round (must
-  track the header value, not a coincidental static string); port reflection
-  must be absent from the no-header baseline and reproduce on replay
-
-## References
-- https://expressjs.com/en/guide/behind-proxies.html
-- https://expressjs.com/en/api.html#trust.proxy.options.table
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/17-Testing_for_Host_Header_Injection`
+**Fix:** Configure Express trust proxy with an explicit list of trusted proxy IPs or a hop count instead of a blanket true, and never use untrusted X-Forwarded-* values for URL generation, redirects, or access decisions.`
 
 	ModuleConfirmation = "Confirmed when X-Forwarded-* header manipulation causes observable behavioral changes such as redirect differences, cookie Secure flag removal, access control bypass, or port injection in generated URLs"
 	ModuleSeverity     = severity.Medium

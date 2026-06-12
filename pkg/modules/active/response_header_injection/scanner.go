@@ -244,8 +244,9 @@ func (m *Module) probePayload(
 // classifyBodyBreak inspects a body-break probe response for the injected marker
 // and returns the location kind describing *how* it appeared:
 //
-//   - locResponseHeader  — the marker is in the parsed HEADER block: the CRLF
-//     split the header stream (genuine header injection).
+//   - locResponseHeader  — the marker *starts its own line* in the parsed HEADER
+//     block: the injected CRLF survived into the response byte stream as a real
+//     line terminator and began a new header line (genuine header injection).
 //   - locBodyInjection   — the marker is the *leading* content of the parsed
 //     body: the injected CRLF terminated the header block, so the original
 //     value was consumed into a header and everything after the split became
@@ -254,11 +255,17 @@ func (m *Module) probePayload(
 //     (e.g. a JSON/XML string value) with its CRLF bytes preserved as data; the
 //     header block was never split. Plain reflection, NOT a CRLF injection.
 //
-// ok is false when the marker is absent.
+// ok is false when the marker is absent, OR when the marker appears only
+// *mid-line inside an existing header value* (e.g. copied into a Set-Cookie or
+// Location value with its CR/LF neutralised to spaces by a fronting proxy). That
+// is value reflection into a header, not a CRLF split — the header block was
+// never broken, so there is no injection to report. This is the discriminator
+// for the CloudFront/SAML-login false positive where `idp=…%0d%0a%0d%0a<marker>`
+// comes back as `Set-Cookie: idp=…  <marker>;Path=/` on a single line.
 func classifyBodyBreak(headersStr, bodyStr, fullResp, canary string) (location, evidence string, ok bool) {
 	marker := "<injected>" + canary + "</injected>"
 	switch {
-	case strings.Contains(headersStr, marker):
+	case markerStartsHeaderLine(headersStr, marker):
 		return locResponseHeader, headersStr, true
 	case markerLeadsBody(bodyStr, marker):
 		return locBodyInjection, fullResp, true
@@ -267,6 +274,21 @@ func classifyBodyBreak(headersStr, bodyStr, fullResp, canary string) (location, 
 	default:
 		return "", "", false
 	}
+}
+
+// markerStartsHeaderLine reports whether the injected marker begins its own line
+// within the raw response header dump — i.e. it is immediately preceded by a CR
+// or LF byte that the server emitted as a real line terminator. That is the
+// structural signature of a genuine CRLF split: the attacker-supplied newline
+// survived into the response stream and started a fresh header line, so any HTTP
+// parser on the wire would treat the marker as a new header.
+//
+// It deliberately rejects the marker appearing mid-line inside an existing
+// header value (the CR/LF was stripped or collapsed to spaces by the app or a
+// fronting cache/proxy). In that case the value was merely copied into one
+// header and the header block was never split — no injection occurred.
+func markerStartsHeaderLine(headersStr, marker string) bool {
+	return strings.Contains(headersStr, "\n"+marker)
 }
 
 // markerLeadsBody reports whether the injected marker is the leading content of

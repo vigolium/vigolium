@@ -9,43 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests for path normalization vulnerabilities through two oracles:
+	ModuleDesc = `**What it means:** The reverse proxy or framework and the backend disagree on how to normalize a path containing traversal sequences (such as ..%2f, ..;/, or encoded dots). The scanner confirmed a crafted, traversal-bearing path reaches a resource the clean URL does not serve, so path-based access controls and routing can be bypassed. In the static-file case, the request escapes a static handler's root and discloses on-disk files.
 
-1. **Proxy normalization (status oracle):** iteratively applies traversal payloads
-   (with conditional auto-slashing). An over-traversed path that is rejected as
-   malformed (HTTP 400) locates a real parser boundary; the path one step back
-   (still carrying a traversal segment) is then required to reach a 2xx text
-   resource that the clean URL either cannot reach (access unlocked) or that
-   differs substantially from the clean baseline (a divergent internal resource),
-   surfacing reverse-proxy/backend path-parsing disagreements.
-2. **Static-root traversal (file-read oracle):** on static-file-handler requests,
-   sends matrix-parameter + encoded-slash bypasses (e.g. ` + "`/static;/..%2f..%2f`" + `)
-   that keep the router pointed at the static mount while the file resolver
-   (Node ` + "`send`" + ` / ` + "`serve-static`" + ` and similar) decodes and traverses above the
-   root, defeating its startsWith(root) boundary check. Confirms by reading known
-   files (OS files plus Node app-root files such as package.json/.env) or by
-   surfacing a directory / cloud-bucket listing.
+**How it's exploited:** An attacker sends an over-encoded or matrix-parameter path so the front-end routes it to a permitted location while the backend (or a static resolver like Node send / serve-static) resolves it to a different, restricted target. This can bypass authentication or proxy ACLs to reach protected endpoints, or read files above the static root such as /etc/passwd, app-root package.json or .env (leaking secrets). A confirmed file read is reported as Critical.
 
-## Notes
-- Status oracle: the backed-off path must carry at least one traversal segment
-  (so the degenerate "rejected suffix / clean path served" case is never reported),
-  reach a 2xx text resource (binary/static-asset content is excluded — that is the
-  static-root oracle's domain), survive root/non-existent catch-all comparison, and
-  reproduce. A host's generic 403/404/500 handling for malformed paths, a WAF/CDN
-  block, or a non-byte-stable binary asset is therefore not mistaken for an internal
-  resource.
-- Static-root oracle: tiered payload sweep (canonical shape first; unicode /
-  double-encoding / control-character breakers %0a %0d %00 %23 and extra targets
-  only after a Tier-1 signal). Confirms with baseline-subtracted content markers,
-  a wildcard/soft-404 reject, a decoy-filename negative, and a reproduction
-  re-fetch. A multi-marker file read is reported Critical/Certain.
-- The static-root oracle intentionally runs on media/JS asset URLs because those
-  are the static-handler requests; it is deduped once per (host, mount-segment).
-
-## References
-- https://i.blackhat.com/us-18/Wed-August-8/us-18-Orange-Tsai-Breaking-Parser-Logic-Take-Your-Path-Normalization-Off-And-Pop-0days-Out-2.pdf
-- https://github.com/pillarjs/send`
+**Fix:** Normalize paths identically at every tier before routing and authorization, reject ambiguous encodings and traversal segments, and enforce a strict resolved-path boundary check on the static root.`
 
 	ModuleConfirmation = "Confirmed either when an over-traversed path is rejected (HTTP 400) while the backed-off, traversal-bearing path reproducibly reaches a 2xx text resource that the clean URL cannot reach (access unlocked) or that differs substantially from the clean baseline (and is not the root/non-existent catch-all shell), or when a matrix-parameter/encoded-slash shell reproducibly reads a known file (or surfaces a directory/bucket listing) off the static root, with baseline-subtracted markers surviving a wildcard and decoy-filename negative"
 	ModuleSeverity     = severity.High

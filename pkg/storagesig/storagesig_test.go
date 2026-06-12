@@ -58,7 +58,7 @@ func TestBucketPrefixAndLeaf(t *testing.T) {
 	if got := ObjectLeaf(p); got != "object-name" {
 		t.Fatalf("ObjectLeaf=%q", got)
 	}
-	if got := HostBucketKey("https://sf-tcc-config.tiktokcdn.com/obj/tcc-config-web-maliva/x"); got != "sf-tcc-config.tiktokcdn.com|/obj/tcc-config-web-maliva" {
+	if got := HostBucketKey("https://sf-tcc-config.cdn.acme.com/obj/tcc-config-web-maliva/x"); got != "sf-tcc-config.cdn.acme.com|/obj/tcc-config-web-maliva" {
 		t.Fatalf("HostBucketKey=%q", got)
 	}
 }
@@ -101,7 +101,7 @@ func TestListingKeysAndLeaf(t *testing.T) {
 }
 
 func TestExtractStorageURLs(t *testing.T) {
-	body := `<a href="https://lf-creative-factory.tiktokcdn.com/obj/eden-sg/fyvajhm_lcpahlyj">x</a>
+	body := `<a href="https://lf-creative-factory.cdn.acme.com/obj/eden-sg/fyvajhm_lcpahlyj">x</a>
 	also https://storage.googleapis.com/my-bucket/path/to/file.json and
 	https://example.s3-us-west-2.amazonaws.com/key/here.txt`
 	urls := ExtractStorageURLs(body, 10)

@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Scans server-side rendered (SSR) state blobs embedded in HTML pages for sensitive data
-exposure. Modern JS frameworks serialize application state into the HTML page for hydration,
-which may inadvertently include API keys, tokens, admin flags, email addresses,
-password hashes, or internal URLs.
+	ModuleDesc = `**What it means:** Modern JS frameworks serialize application state into the HTML page so the client can hydrate it, embedding it in blobs such as __NEXT_DATA__, __NUXT__, __INITIAL_STATE__, and __APOLLO_STATE__. This module found one or more sensitive values inside that server-rendered state, meaning data that should stay server-side is being shipped to every visitor in the page source.
 
-## Notes
-- Passive only — does not send any HTTP requests
-- Extracts state from: __NEXT_DATA__, __NUXT__, __INITIAL_STATE__, __APOLLO_STATE__
-- Scans extracted JSON for API keys, tokens, admin flags, emails, password hashes, internal IPs
-- Minimum token length of 16 characters to reduce false positives
-- Deduplicates by host+path
+**How it's exploited:** Anyone who views the page source (no authentication or special tooling required) can read the leaked values. Depending on what was matched, this can hand an attacker live API keys or access tokens, AWS access keys, database connection strings, internal/private IP addresses that map the backend, user email addresses, password hashes, or an admin/privilege flag that reveals high-value accounts. These secrets can then be replayed directly against the relevant service or used to expand an attack.
 
-## References
-- https://nextjs.org/docs/pages/building-your-application/data-fetching
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/09-Testing_for_Weak_Cryptography/04-Testing_for_Weak_Encryption`
+**Fix:** Strip secrets, credentials, internal infrastructure details, and other sensitive fields from the data serialized into SSR state, sending only the minimum non-sensitive data the client actually needs to render.`
 
 	ModuleConfirmation = "Confirmed when sensitive patterns (API keys, tokens, admin flags, credentials) are found in SSR state blobs"
 	ModuleSeverity     = severity.Medium

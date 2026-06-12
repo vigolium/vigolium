@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Discovers ASP.NET-specific sensitive files and directories exposed on the web
-server. Covers web.config and its backups/transforms, appsettings.json files,
-connection string configs, Global.asax, App_Data/bin directories, NuGet configs,
-cross-domain policy files, and classic ASP include files.
+	ModuleDesc = `**What it means:** The server returns the contents of ASP.NET-specific sensitive files or directories that should never be web-accessible. The module requests a fixed list of known paths (web.config and its .bak/.old/.Debug/.Release variants, appsettings.json and appsettings.Development.json, connectionStrings.config, Global.asax, classic ASP Global.asa and include files, the App_Data, bin and aspnet_client directory listings, packages.config and nuget.config, and the clientaccesspolicy.xml/crossdomain.xml policy files) and confirms each only when the response is HTTP 200 with the expected content markers, after fingerprinting a random 404 and applying anti-markers so custom error pages are not flagged. Cross-domain policy files are reported only when they contain an actual wildcard (uri=* / domain=*).
 
-## Notes
-- Runs once per unique host
-- Validates responses with content marker matching
-- Fingerprints 404 responses to avoid false positives from custom error pages
-- Anti-markers prevent false positives from HTML error pages
+**How it's exploited:** An attacker downloads these files directly to harvest database connection strings, authentication keys, API secrets and machine keys from config files, list compiled assemblies from bin, or abuse a wildcard cross-domain policy to read authenticated responses cross-origin.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information
-- https://learn.microsoft.com/en-us/aspnet/core/fundamentals/configuration/`
+**Fix:** Block direct access to these paths and store configuration secrets outside the web root or in a secret manager.`
 
 	ModuleConfirmation = "Confirmed when sensitive file paths return 200 with expected content markers"
 	ModuleSeverity     = severity.High

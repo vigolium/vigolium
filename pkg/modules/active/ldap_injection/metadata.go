@@ -9,24 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects LDAP injection vulnerabilities by injecting malformed LDAP filter expressions into
-parameters that are likely used in LDAP queries (e.g., username, search, filter). Uses both
-error-based detection (checking for LDAP error messages in responses) and boolean-based
-detection (comparing responses with wildcard vs. baseline).
+	ModuleDesc = `**What it means:** A parameter that feeds an LDAP directory query (such as username, uid, cn, or a search filter) is built into the filter without proper escaping, so attacker-supplied input can alter the structure of the LDAP query. This module confirmed this by injecting malformed LDAP filter syntax that either provoked an LDAP error message absent from the original response, or by sending a wildcard probe whose response diverged substantially from both the original page and a no-match control.
 
-## Notes
-- Only tests parameters whose name suggests LDAP usage (username, uid, cn, filter, etc.)
-- Checks for LDAP error messages that were not present in the baseline response
-- Boolean-based detection uses a 3-way differential: the wildcard probe must
-  diverge from BOTH the baseline AND a no-match control probe by a substantial
-  body delta (absolute and relative), filtering out endpoints that simply
-  reflect any user input
-- Deduplication via RHM to avoid redundant requests
+**How it's exploited:** An attacker injects LDAP metacharacters and filter fragments (for example *, )(objectClass=*, or *)(uid=*) to break out of the intended filter. This lets them bypass authentication, enumerate directory entries they should not see, or return unrelated records by expanding the filter with wildcards and OR clauses, leaking usernames, group membership, and other directory data.
 
-## References
-- https://owasp.org/www-community/attacks/LDAP_Injection
-- https://cheatsheetseries.owasp.org/cheatsheets/LDAP_Injection_Prevention_Cheat_Sheet.html`
+**Fix:** Escape all special characters in user input before placing it in an LDAP filter (per RFC 4515) using a vetted encoding routine, and validate or allowlist the expected input format.`
 
 	ModuleConfirmation = "Confirmed when injected LDAP filter syntax triggers error messages or produces differential responses indicating filter manipulation"
 	ModuleSeverity     = severity.Medium

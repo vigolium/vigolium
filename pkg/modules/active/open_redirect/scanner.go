@@ -483,7 +483,7 @@ scan:
 					ExtractedResults: []string{payload},
 					Info: output.Info{
 						Description: "Open redirect to different domain",
-						Severity:    severity.High,
+						Severity:    severity.Medium,
 					},
 				})
 				match = true
@@ -555,7 +555,7 @@ func checkRedirectBasedOnParamValue(rawRequest []byte, ip httpmsg.InsertionPoint
 			var newSeverity severity.Severity
 			var description string
 			if matchDifferentDomain {
-				newSeverity = severity.High
+				newSeverity = severity.Medium
 				description = "Open redirect to different domain"
 			} else {
 				newSeverity = severity.Medium

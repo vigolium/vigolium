@@ -9,25 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests JSON API endpoints for mass assignment vulnerabilities by injecting privilege-related
-keys (role, admin, is_admin, permissions, etc.) into POST/PUT/PATCH JSON request bodies
-and observing server responses.
+	ModuleDesc = `**What it means:** A JSON API endpoint binds client-supplied fields directly to its internal data model without an allow-list, so it accepted a privilege-related property (such as role, admin, is_admin, permissions, or access_level) that the client should never control. This is a mass assignment / object property-level authorization flaw that lets users set fields the application assumed only it could set.
 
-## Notes
-- Only activates on POST/PUT/PATCH requests with application/json content type
-- Injects one privilege key at a time to isolate findings
-- Differential confirmation: only reports when injecting the key actually changes the
-  response AND the key is reflected back because of the injection (absent from the
-  untouched baseline response)
-- Sends a benign canary key first; if the endpoint mirrors that arbitrary field too,
-  it reflects all input indiscriminately and no finding is reported
-- Skips keys already present in the original request body, and endpoints that simply
-  ignore the field (response identical to baseline) or reject it (4xx/validation error)
+**How it's exploited:** An attacker adds an extra key like "role":"admin" or "is_admin":true to a normal create or update request body and the server saves it, allowing them to escalate their own privileges, flip account-verification or trust flags, or tamper with attributes the UI never exposes. The scanner confirms this by injecting one privilege key at a time, verifying the response materially changes and the injected key is reflected back while a benign canary key is not, so blindly mirroring or field-ignoring endpoints are not flagged.
 
-## References
-- https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html
-- https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/`
+**Fix:** Bind only an explicit allow-list of permitted fields per endpoint and reject or strip privilege-bearing properties from request bodies.`
 
 	ModuleConfirmation = "Confirmed when injecting a privilege key materially changes the response and the key is reflected back due to the injection (not present in the un-injected baseline), while a benign canary key is not similarly reflected"
 	ModuleSeverity     = severity.High

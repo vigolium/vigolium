@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects indicators of Jackson polymorphic deserialization in HTTP
-responses. Looks for type discriminator fields (@class, @type, java class
-references) in JSON responses and Java deserialization error messages in
-error responses. Jackson default typing can enable gadget-based RCE.
+	ModuleDesc = `**What it means:** This passive check found signs that the application uses Jackson polymorphic (default) typing or exposes Java/Jackson deserialization errors. JSON responses carrying @class/@type type-discriminator fields, or response bodies leaking exceptions like JsonMappingException, InvalidTypeIdException, ObjectInputStream, or InvalidClassException, indicate the server may deserialize untrusted input into arbitrary Java types. This is a common precondition for deserialization vulnerabilities (CWE-502). The finding is a Tentative indicator from observed traffic only; it does not confirm that exploitation is possible.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Checks JSON responses for type discriminator fields
-- Detects Java class references in JSON payloads
-- Identifies deserialization error patterns
-- Deduplicates by host
+**How it's exploited:** If Jackson default typing or unsafe Java deserialization is reachable on an input the attacker controls, they craft a payload naming a vulnerable gadget class, which the server instantiates during deserialization to achieve remote code execution or other impact. The leaked class names and error details also help map the framework and target known gadget chains.
 
-## References
-- https://github.com/FasterXML/jackson-databind/wiki/Deserialization-Features
-- https://cwe.mitre.org/data/definitions/502.html`
+**Fix:** Disable Jackson default typing (avoid enableDefaultTyping; use a strict allowlist via PolymorphicTypeValidator), avoid deserializing untrusted data into arbitrary types, and suppress stack traces and class details in responses.`
 
 	ModuleConfirmation = "Confirmed when response contains Jackson type discriminator fields or Java deserialization error patterns"
 	ModuleSeverity     = severity.Medium

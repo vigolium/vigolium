@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects Insecure Direct Object Reference (IDOR) vulnerabilities arising from predictable GUID/UUID patterns.
-UUIDv1 encodes a timestamp and MAC address, making sequential IDs guessable. This module identifies
-parameters containing UUIDv1 values, extracts their timestamps, generates time-neighbor UUIDs, and
-checks if the application returns valid responses for those predicted identifiers.`
+	ModuleDesc = `**What it means:** An object-reference parameter (an id, uuid, account_id, order_id, and similar) carries a predictable identifier, and the application served a different valid object when a guessed neighbor identifier was substituted. This is an Insecure Direct Object Reference: the endpoint trusts the identifier alone and does not verify the caller is authorized for that object, so other users' records can be reached by guessing IDs.
+
+**How it's exploited:** The scanner confirmed predictability two ways. For UUIDv1 values it extracted the embedded timestamp, generated time-neighbor UUIDs, and replayed them; for numeric ids it incremented and decremented by one. A neighbor returned HTTP 200 with a substantial body that differed from the original, was not a login, SSO, or access-denied page, and held up against the endpoint's own per-request variation. An attacker can walk these identifiers to enumerate other accounts' records, leaking personal or business data at scale.
+
+**Fix:** Enforce per-object authorization on every request and use unpredictable, non-sequential identifiers such as random UUIDv4 instead of UUIDv1 or auto-increment integers.`
 	ModuleConfirmation = "Confirmed when a predicted neighbor identifier returns a 200 response that is a distinct application object — not a login/SSO challenge or access-denied page, and differing from the baseline by more than the endpoint's own per-request variation"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm

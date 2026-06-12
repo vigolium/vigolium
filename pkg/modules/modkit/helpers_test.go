@@ -43,3 +43,27 @@ func TestIsStaticAssetContentType(t *testing.T) {
 		}
 	}
 }
+
+func TestIsStaticAssetPath(t *testing.T) {
+	t.Parallel()
+	static := []string{
+		"/css/images", "/assets/app", "/static/main", "/js/vendor",
+		"/img/logo", "/bundles/app.css", "/x/y.png", "/_next/data/x",
+		"/wp-content/uploads/file", "/fonts/inter", "/MEDIA/clip",
+		"/app.js", "/styles/site",
+	}
+	for _, p := range static {
+		if !IsStaticAssetPath(p) {
+			t.Errorf("IsStaticAssetPath(%q) = false, want true", p)
+		}
+	}
+	dynamic := []string{
+		"/account/profile", "/api/me", "/dashboard", "/blog/post-1",
+		"/", "/users/123", "/cssselector", "/imagine",
+	}
+	for _, p := range dynamic {
+		if IsStaticAssetPath(p) {
+			t.Errorf("IsStaticAssetPath(%q) = true, want false", p)
+		}
+	}
+}

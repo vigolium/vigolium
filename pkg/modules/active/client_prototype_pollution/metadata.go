@@ -9,23 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects client-side prototype pollution vulnerabilities by analyzing JavaScript code
-on the page for known vulnerable URL parameter parsing patterns (sources) and
-exploitable property access patterns (gadgets).
+	ModuleDesc = `**What it means:** The page's JavaScript parses URL parameters into objects using a pattern known to be vulnerable to client-side prototype pollution (for example jQuery deep extend, lodash merge/set/defaultsDeep, or a custom recursive parser of location.search/hash). This lets attacker-controlled keys such as __proto__ or constructor.prototype write onto Object.prototype, contaminating every object in the browser. The finding is corroborated by static analysis of the inline and same-origin external scripts (CDN libraries are skipped), and where present, reports exploitable gadgets (innerHTML, eval, script.src, document.write, jQuery .html()).
 
-## Notes
-- Different from server-side prototype pollution: targets browser-side JavaScript, not JSON bodies
-- Analyzes inline scripts and fetches external JS files (skipping CDN libraries)
-- Detects source patterns (jQuery.extend, lodash.merge, custom parsers)
-- Detects gadget patterns (innerHTML, eval, script.src assignments)
-- Sends probe requests to verify URL parameter acceptance
-- Host-level deduplication (scans once per host)
+**How it's exploited:** An attacker sends a victim a crafted link like https://target/page?__proto__[polluted]=true; when the victim opens it the polluted prototype property flows into a gadget, typically yielding DOM-based XSS, or otherwise authentication-logic bypass or denial of service depending on the gadget. Confidence is Firm: the polluting code path is identified statically rather than triggered, so manual confirmation is recommended.
 
-## References
-- https://portswigger.net/web-security/prototype-pollution
-- https://portswigger.net/web-security/prototype-pollution/client-side
-- https://portswigger.net/research/widespread-prototype-pollution-gadgets`
+**Fix:** Avoid recursive merge of untrusted URL input, reject or strip __proto__ and constructor keys, and use Object.create(null) or Map for parameter stores.`
 
 	ModuleConfirmation = "Confirmed when JavaScript static analysis identifies known prototype pollution source patterns in the page's scripts"
 	ModuleSeverity     = severity.High

@@ -9,25 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Sends a wordlist of plausible undocumented JSON-RPC method names against an
-MCP server (` + "`debug/*`" + `, ` + "`admin/*`" + `, ` + "`_internal/*`" + `, ` + "`system/*`" + `,
-` + "`sampling/*`" + `, ` + "`logging/*`" + `, ` + "`roots/*`" + `, etc.) and reports any that
-return a JSON-RPC ` + "`result`" + ` instead of a "method not found" error.
+	ModuleDesc = `**What it means:** This Model Context Protocol (MCP) server responds to undocumented JSON-RPC methods that are not part of its published interface, such as debug, admin, internal, and system operations. These hidden methods often sit outside the auth and tooling controls applied to documented endpoints, expanding the server's real attack surface.
 
-## Why this matters
-The MCP spec deliberately keeps the method namespace open-ended. Real-world
-servers ship developer/maintenance methods that bypass the documented auth
-gates around ` + "`tools/call`" + ` etc. Enumerating these is high-leverage recon.
+**How it's exploited:** After completing the MCP initialize handshake, the scanner sends a short wordlist of plausible method names (for example debug/info, admin/users, system/exec, sampling/createMessage) and flags any that return a JSON-RPC result, or are recognised but rejected with an error code other than the standard -32601 method-not-found. An attacker uses the same enumeration to map maintenance and admin functionality, then probes the reachable methods for information disclosure, privileged actions, or further exploitation.
 
-## Detection
-A method is treated as exposed when the response is a JSON-RPC envelope with
-either a non-empty ` + "`result`" + ` or a server-side error code that is not the
-standard -32601 ("method not found").
-
-## References
-- https://www.jsonrpc.org/specification
-- https://modelcontextprotocol.io/specification/2025-11-25`
+**Fix:** Remove or properly authenticate undocumented debug, admin, and internal JSON-RPC methods, and return -32601 for any method not meant to be publicly callable.`
 
 	ModuleConfirmation = "Confirmed when the server returns a JSON-RPC result for an undocumented method, or an error other than -32601"
 	ModuleSeverity     = severity.Medium

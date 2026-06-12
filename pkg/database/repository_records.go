@@ -314,6 +314,44 @@ func (r *Repository) GetRecordsWithResponseBody(ctx context.Context, projectUUID
 	return records, nil
 }
 
+// ReSpiderCandidate is a lightweight projection of an HTTP record used by the
+// targeted re-spider phase. It carries just enough to evaluate rich/SPA content
+// and dedup app shells (source + raw_response) without materializing every column.
+type ReSpiderCandidate struct {
+	UUID                string `bun:"uuid"`
+	URL                 string `bun:"url"`
+	Scheme              string `bun:"scheme"`
+	Hostname            string `bun:"hostname"`
+	Port                int    `bun:"port"`
+	Source              string `bun:"source"`
+	ResponseContentType string `bun:"response_content_type"`
+	RawResponse         []byte `bun:"raw_response"`
+}
+
+// GetReSpiderCandidates returns records that carry a response body, for the
+// targeted re-spider phase. It deliberately includes spidering-sourced records
+// too, so the caller can pre-seed its shell-dedup set with pages the browser
+// already crawled. Ordered by uuid for deterministic per-host capping.
+func (r *Repository) GetReSpiderCandidates(ctx context.Context, projectUUID string, limit int) ([]ReSpiderCandidate, error) {
+	var rows []ReSpiderCandidate
+	q := r.db.NewSelect().
+		TableExpr("http_records").
+		ColumnExpr("uuid, url, scheme, hostname, port, source, response_content_type, raw_response").
+		Where("has_response = ?", true).
+		Where("raw_response IS NOT NULL").
+		Where("length(raw_response) > 0")
+	if projectUUID != "" {
+		q = q.Where("project_uuid = ?", projectUUID)
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if err := q.OrderExpr("uuid ASC").Scan(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("failed to query re-spider candidates: %w", err)
+	}
+	return rows, nil
+}
+
 // DeleteRecord deletes an HTTP record by UUID, including any finding_records junction rows.
 func (r *Repository) DeleteRecord(ctx context.Context, uuid string) error {
 	return r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {

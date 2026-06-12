@@ -9,26 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects JWT tokens signed with weak HMAC secrets by performing offline
-brute-force against an embedded wordlist of ~104K known weak secrets.
+	ModuleDesc = `**What it means:** A JSON Web Token used by this application is signed with a weak, guessable, or non-cryptographic secret. JWTs carry identity and authorization claims, so anyone who recovers the signing key can mint tokens the server will trust. This module passively pulls JWTs from Authorization Bearer headers, cookies, and response bodies, then verifies the signature offline against an embedded list of ~104K known weak secrets without sending extra traffic.
 
-When an asymmetric-algorithm JWT (RS256, ES256, etc.) is found but no HMAC secret
-matches, emits a low-severity informational finding noting the potential for
-algorithm confusion (CVE-2015-9235). Active testing is recommended to confirm.
+**How it's exploited:** Once the secret is known, an attacker forges a token with an elevated identity or role (for example admin) and signs it with the recovered key, gaining account takeover or privilege escalation. The module also flags tokens whose signature decodes to plain ASCII (trivially forgeable) and asymmetric-algorithm tokens that may permit HMAC algorithm-confusion (CVE-2015-9235), where a forged HS256 token is verified using the public key as the HMAC secret.
 
-## Notes
-- Extracts JWTs from Authorization Bearer headers and cookies
-- Tests HMAC-based algorithms (HS256, HS384, HS512)
-- Detects non-cryptographic (plaintext ASCII) signatures indicating trivially forgeable tokens
-- Tests algorithm confusion (CVE-2015-9235): tries HS256/HS384/HS512 brute-force on asymmetric tokens (RS256, ES256, etc.)
-- Emits informational finding for asymmetric JWTs even when no weak secret is found
-- Computes HMAC signatures offline without sending additional requests
-- Uses embedded jwt.secrets.list wordlist
-
-## References
-- https://portswigger.net/web-security/jwt
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/06-Session_Management_Testing/10-Testing_JSON_Web_Tokens`
+**Fix:** Sign JWTs with a long, random, high-entropy secret (or a managed asymmetric key) and pin the accepted algorithm server-side so the alg header cannot downgrade verification.`
 
 	ModuleConfirmation = "Confirmed when a JWT HMAC signature matches a known weak secret"
 	ModuleSeverity     = severity.High

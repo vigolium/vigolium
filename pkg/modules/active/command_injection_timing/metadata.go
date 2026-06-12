@@ -9,38 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects blind OS command injection where the command produces no output, using a
-delay-scaling oracle. For each insertion point the scanner first models the
-target's normal latency to derive an adaptive delay threshold, then injects
-` + "`sleep`/`ping`" + ` commands at two different durations and confirms the observed
-delay tracks the requested value.
+	ModuleDesc = `**What it means:** The application appears to pass attacker-controlled input into an operating-system shell command, with no command output reflected back. The scanner confirmed this blind case by injecting time-delay commands (sleep/ping) and observing the response time grow in proportion to the requested delay. If genuine, this is OS command injection, letting an attacker run arbitrary commands on the server.
 
-## False-positive defenses
-- **Adaptive per-target threshold** — derived from the baseline mean and standard
-  deviation, so jittery/slow hosts raise the bar (or are skipped) instead of
-  triggering on ambient latency.
-- **Delay scaling** — the decisive check: a high-sleep and a low-sleep payload
-  must differ by ~the requested amount. Random server slowness or a fixed
-  timeout/retry path produces a delay that does NOT grow with the sleep argument
-  and is rejected.
-- **Multiple rounds** — the full scaling check must pass on every one of several
-  independent rounds, so a transient network spike (GC pause, scheduler stall,
-  packet retransmit) on a single probe cannot, on its own, produce a finding.
+**How it's exploited:** An attacker injects shell commands into the affected parameter to run code as the web application's user, allowing them to read or modify files, steal credentials and secrets, pivot to internal systems, and take full control of the host. Since no output is returned, data is exfiltrated through timing, DNS, or HTTP callbacks.
 
-## Confidence
-- Reported as **Tentative**. Even with delay scaling and multi-round
-  confirmation, a purely timing-based oracle remains the most sensitive to
-  network conditions, so findings are flagged for corroboration rather than
-  asserted outright.
-- Prefer the in-band (` + "`command-injection-echo`" + `) and out-of-band
-  (` + "`command-injection-oast`" + `) modules, which prove execution deterministically;
-  this module is a fallback for fully blind sinks with no reflected output and no
-  callback path.
+**Fix:** Never build shell command strings from user input; use APIs that pass arguments as a fixed array without invoking a shell, and strictly allowlist any user-supplied values.
 
-## References
-- https://owasp.org/www-community/attacks/Command_Injection
-- https://github.com/commixproject/commix`
+Note: this timing-only oracle is sensitive to network conditions, so it is reported as Tentative; corroborate with the in-band (command-injection-echo) or out-of-band (command-injection-oast) modules where possible.`
 
 	ModuleConfirmation = "Suspected when injected sleep commands cause a response delay that scales with the requested duration across multiple independent rounds, above an adaptive per-target threshold; timing-only so reported as Tentative"
 	ModuleSeverity     = severity.Critical

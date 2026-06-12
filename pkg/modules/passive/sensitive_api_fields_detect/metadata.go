@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively analyzes JSON API responses for field names that indicate sensitive
-data exposure. Checks for password fields, API keys, access tokens, private
-keys, SSNs, and credit card numbers. Skips API documentation and JSON Schema
-responses to reduce false positives.
+	ModuleDesc = `**What it means:** A JSON API response returned by the application contains field names associated with sensitive data, such as password, passwd, secret, api_key/apiKey, access_token/accessToken, private_key/privateKey, ssn, or credit_card/cardNumber. APIs often over-share by serializing entire backend objects, so these properties may be leaking credentials, secrets, or personal data (PII) to clients that should never receive them.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Only operates on application/json responses
-- Uses quoted field name matching to avoid false positives in prose
-- Skips OpenAPI/Swagger docs and JSON Schema responses
-- Deduplicates by host to avoid flooding with the same finding
+**How it's exploited:** An attacker who can reach this endpoint, or who intercepts a legitimate response, harvests the exposed values directly from the JSON: stolen passwords, API keys, and access tokens enable account takeover or lateral access to other services, while SSN and credit-card fields expose users to fraud and identity theft. This is a common form of excessive data exposure / broken object property-level authorization. This module only matches field names passively and does not verify the values are populated, so each hit should be reviewed manually.
 
-## References
-- https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/`
+**Fix:** Restrict API responses to only the fields each caller is authorized to see, removing credentials, secrets, and PII from serialized output unless explicitly required.`
 
 	ModuleConfirmation = "Confirmed when JSON response body contains sensitive field names"
 	ModuleSeverity     = severity.Medium

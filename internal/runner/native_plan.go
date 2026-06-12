@@ -14,6 +14,7 @@ const (
 	PhaseExternalHarvest   NativePhase = "external-harvest"
 	PhaseSpidering         NativePhase = "spidering"
 	PhaseDiscovery         NativePhase = "discovery"
+	PhaseTargetedReSpider  NativePhase = "targeted-respider"
 	PhaseSeed              NativePhase = "seed"
 	PhaseKnownIssueScan    NativePhase = "known-issue-scan"
 	PhaseDynamicAssessment NativePhase = "dynamic-assessment"
@@ -42,6 +43,11 @@ func BuildNativeScanPlan(opts *types.Options) NativeScanPlan {
 		{Phase: PhaseExternalHarvest, Enabled: opts.ExternalHarvestEnabled},
 		{Phase: PhaseSpidering, Enabled: opts.SpideringEnabled},
 		{Phase: PhaseDiscovery, Enabled: !opts.SkipIngestion},
+		// Re-spider rich/SPA routes that discovery surfaced after the one-shot
+		// browser crawl. Rides along only when browsers are allowed (spidering
+		// enabled), discovery ran, and an assessment phase will consume the new
+		// records. The config toggle + runtime gates are checked in the phase.
+		{Phase: PhaseTargetedReSpider, Enabled: opts.SpideringEnabled && !opts.SkipIngestion && !opts.SkipDynamicAssessment},
 		{Phase: PhaseSeed, Enabled: opts.SkipIngestion && !opts.ScanOnReceive && (opts.KnownIssueScanEnabled || !opts.SkipDynamicAssessment)},
 		{Phase: PhaseDynamicAssessment, Enabled: !opts.SkipDynamicAssessment},
 		{Phase: PhaseKnownIssueScan, Enabled: opts.KnownIssueScanEnabled},

@@ -9,36 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Enumerates every tool exposed by a Model Context Protocol (MCP) server via
-` + "`tools/list`" + ` and, for each string-typed argument of each tool,
-fuzzes the value with classic dynamic injection payloads:
-
-- **OS command injection** (time-based ` + "`sleep`" + `)
-- **Local file inclusion** (` + "`/etc/passwd`" + `, Windows ` + "`win.ini`" + ` markers)
-- **SSRF** via OAST callbacks when an OAST provider is enabled
-- **Reflective prompt injection** (a sentinel marker that signals if the
-  response is rendered/echoed back into a downstream LLM context)
-
-## How it works
-1. Initialize MCP, list tools, build a benign baseline ` + "`tools/call`" + ` per tool.
-2. For each top-level string argument of each tool, send mutated calls.
-3. Detect:
-   - command-injection: response duration >= 8 s on the sleep payload.
-   - LFI: file-content markers in the tools/call result text.
-   - SSRF: an OAST hit on the unique callback URL.
-   - prompt-injection: the unique sentinel echoed verbatim in the response text.
-4. Cap fan-out at 8 tools / 6 string args / 6 payloads per slot.
-
-## Findings
-- High: OS command injection in tool argument
-- High: Local file inclusion in tool argument
-- High: SSRF in tool argument (when OAST is enabled)
-- Medium: Reflective prompt injection sink
-
-## References
-- https://modelcontextprotocol.io/specification/2025-11-25/server/tools
-- https://fenrisk.com/mcpwned-burp-suite-extension-mcp-servers`
+	ModuleDesc = `**What it means:** A tool exposed by this Model Context Protocol (MCP) server passes one of its string arguments into a dangerous backend operation without validation. The scanner fuzzed each tool argument and observed a measurable side-effect, meaning untrusted input reaches an OS command, a file read, an outbound request, or a downstream LLM prompt.
+**How it's exploited:** Anyone able to invoke the tool (often any client connected to the MCP server, including an AI agent acting on attacker-controlled content) can supply a crafted argument to run shell commands on the host, read local files such as /etc/passwd, force the server to make requests to internal systems (SSRF), or inject instructions that the server echoes into another LLM. Impact ranges from sensitive-file disclosure and internal network access to full server takeover via command execution.
+**Fix:** Strictly validate and allowlist every tool argument, never pass argument values into shell commands, file paths, URLs, or LLM prompts, and run MCP tool handlers with least privilege.`
 
 	ModuleConfirmation = "Confirmed when a fuzzed tool argument triggers a measurable side-effect: response delay (cmd-i), file-content markers in the result (LFI), an OAST callback (SSRF), or echo of the sentinel marker (prompt injection)"
 	ModuleSeverity     = severity.High

@@ -9,19 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects insecure deserialization vulnerabilities by injecting serialized object payloads
-and analyzing responses for deserialization error messages across multiple frameworks.
+	ModuleDesc = `**What it means:** A request parameter feeds attacker-controlled data into an unsafe deserialization routine. The scanner injected serialized object payloads for Java, PHP, Python, Ruby, and .NET into a body parameter and the application returned a framework-specific deserialization error (for example a Java ObjectInputStream/InvalidClassException stack trace, a PHP unserialize() fatal error, a Python pickle/YAML error, a Ruby Marshal.load error, or a .NET BinaryFormatter/TypeNameHandling message) that was not present in the original baseline response. This proves the endpoint deserializes untrusted input, a high-impact flaw.
 
-## Notes
-- Tests for Java, PHP, Python, Ruby, and .NET deserialization patterns
-- Uses error-based detection to identify deserialization endpoints
-- Analyzes response bodies for framework-specific error messages
-- OWASP Top 10 2021: A08
+**How it's exploited:** An attacker crafts a malicious serialized object using gadget chains (such as ysoserial for Java or known PHP/.NET/Ruby gadgets) so that the deserialization process instantiates dangerous objects, frequently leading to remote code execution on the server, and otherwise to denial of service, authentication bypass, or arbitrary file access.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/16-Testing_for_HTTP_Incoming_Requests
-- https://portswigger.net/web-security/deserialization`
+**Fix:** Never deserialize untrusted input; use safe data formats such as JSON with strict schemas, and if deserialization is unavoidable enforce type allow-lists and integrity checks on the payload.`
 
 	ModuleConfirmation = "Confirmed when injected serialized payloads trigger deserialization error messages in the response"
 	ModuleSeverity     = severity.High

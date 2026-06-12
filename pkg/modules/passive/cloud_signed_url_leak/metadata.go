@@ -9,19 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects leaked AWS presigned URLs, GCS signed URLs, and Azure SAS tokens
-in HTTP response bodies. Parses expiry and permissions to assess risk level.
+	ModuleDesc = `**What it means:** A cloud storage signed URL or SAS token was found in an HTTP response body. These are AWS S3 presigned URLs (X-Amz-Signature), Google Cloud Storage signed URLs (X-Goog-Signature), or Azure Blob SAS tokens (sv=...sig=). Each is a self-contained credential that grants direct access to a storage object or container to anyone who holds the URL, with no further authentication.
 
-## Notes
-- Scans response body for X-Amz-Signature, X-Goog-Signature, and Azure SAS parameters
-- Upgrades severity to High if write-capable or long-lived (>24h)
-- Deduplicates by URL and signature hash
+**How it's exploited:** Anyone who obtains the leaked URL, including via shared links, logs, browser history, referrers, or caches, can replay it to read the referenced object until it expires. The scanner parses each token's permissions and expiry and raises the severity to High when the URL is write-capable (AWS/GCS PUT or DELETE method, or Azure w/d/c/a permissions) or long-lived (valid for over 24 hours), since those allow tampering, deletion, or sustained unauthorized access to the bucket.
 
-## References
-- https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html
-- https://cloud.google.com/storage/docs/access-control/signed-urls
-- https://learn.microsoft.com/en-us/azure/storage/common/storage-sas-overview`
+**Fix:** Avoid embedding signed URLs in cacheable or broadly accessible responses; scope each token to read-only and the shortest practical lifetime, and rotate or revoke any token exposed here.`
 
 	ModuleConfirmation = "Confirmed when response body contains cloud storage signed URL or SAS token parameters"
 	ModuleSeverity     = severity.Medium

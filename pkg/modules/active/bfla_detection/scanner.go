@@ -1,6 +1,7 @@
 package bfla_detection
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"strings"
@@ -103,6 +104,19 @@ func (m *Module) ScanPerRequest(
 	}
 	origBody := ctx.Response().Body()
 	origBodyLen := len(origBody)
+
+	// An empty (or whitespace-only) "privileged" response carries no privileged
+	// content to compare against. When the endpoint's own baseline is a
+	// Content-Length: 0 body, every sub-test degenerates into matching nothing
+	// against nothing: an auth-stripped or method-switched request that returns the
+	// same empty 200 looks identical but proves no function-level bypass. This is
+	// the dominant false positive — fronting CDNs, XSRF/login bounces, and JSP
+	// `.jspa` action handlers all answer unauthenticated requests with an empty 200
+	// (e.g. stryker-agile.atlassian.net /secure/ConfigureReport.jspa: empty 200 for
+	// both GET and POST). With no privileged content to reproduce, do not test.
+	if len(bytes.TrimSpace(origBody)) == 0 {
+		return nil, nil
+	}
 
 	// Skip static asset / binary responses (images, fonts, media, archives, JS,
 	// CSS). These are CDN-served files, not privileged "endpoints": an Akamai /
@@ -412,6 +426,16 @@ func (m *Module) testMethodSwitching(
 			candBody := append([]byte(nil), resp.Body().Bytes()...)
 			respBody := resp.FullResponseString()
 			resp.Close()
+
+			// A switched-method response with an empty body is not evidence that the
+			// privileged function executed. A 2xx with no content is the signature of an
+			// edge gateway or action handler swallowing the request — the
+			// stryker-agile.atlassian.net /secure/ConfigureReport.jspa report returned an
+			// empty 200 for POST identical to the GET. Require actual content before
+			// flagging a method-switch bypass.
+			if len(bytes.TrimSpace(candBody)) == 0 {
+				continue
+			}
 
 			// Confirm the privileged endpoint answers differently than the host does
 			// for an arbitrary path with this same method. A host that accepts

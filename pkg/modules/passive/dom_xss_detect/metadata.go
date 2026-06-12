@@ -9,17 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects potential DOM-based XSS patterns by analyzing JavaScript code in
-responses for dangerous source-to-sink data flows.
-
-## Notes
-- Scans response bodies for known DOM XSS source patterns (location.hash, document.referrer, etc.)
-- Identifies dangerous sink patterns (innerHTML, eval, document.write, etc.)
-- Pattern-based detection; manual verification recommended
-
-## References
-- https://owasp.org/www-community/attacks/DOM_Based_XSS`
+	ModuleDesc = `**What it means:** Inline JavaScript in the page reads attacker-influenceable browser sources (such as location.hash, location.search, document.referrer, window.name, or document.cookie) and passes that data into a dangerous DOM sink (such as innerHTML, document.write, eval, Function, or a location/window.open redirect target). This is a pattern-level indicator of a possible DOM-based XSS or DOM-based open redirect, detected statically without executing the script, so it requires manual confirmation.
+**How it's exploited:** An attacker crafts a URL (or sets window.name / a referrer) carrying a malicious value that the page's own script writes into the DOM, executing attacker JavaScript entirely in the victim's browser without ever touching the server. That allows session/cookie theft, account takeover, or, for the redirect variant, sending users to an attacker-controlled site for phishing.
+**Fix:** Avoid passing untrusted browser-sourced data into HTML/script/redirect sinks; use safe APIs (textContent, setAttribute) and validate or allowlist any values used in navigation.`
 
 	ModuleConfirmation = "Indicated when response JavaScript contains known source-to-sink patterns that could enable DOM-based XSS"
 	ModuleSeverity     = severity.Low

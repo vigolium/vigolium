@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed Spring Cloud Gateway actuator endpoints that reveal routing
-configuration, global filters, and route filter definitions. Exposed gateway
-routes can disclose internal service topology, backend URLs, and rate limiting
-configuration. Write-enabled gateway endpoints could allow route manipulation
-for traffic steering and SSRF-style attacks.
+	ModuleDesc = `**What it means:** A Spring Cloud Gateway actuator endpoint (/actuator/gateway/routes, /globalfilters, or /routefilters) is publicly reachable and returns gateway configuration. These endpoints expose internal routing rules, the backend service URLs each route forwards to, the predicates that match traffic, and the global/route filter chain, all of which are meant to stay internal.
 
-## Notes
-- Runs once per host
-- Checks gateway-specific actuator paths
-- Validates responses using gateway JSON markers
-- Read-only probing (does not attempt route modification)
+**How it's exploited:** An attacker reads the route table to map the internal service topology and discover backend hostnames and ports (often non-public hosts), then crafts requests that hit those routes or feed reconnaissance for SSRF and lateral-movement attacks. The disclosed filter chain reveals which security, header-rewrite, and rate-limit filters are in place, helping an attacker find routes that lack auth and design bypasses. This module only reads the endpoints and does not attempt to modify any route.
 
-## References
-- https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/#actuator-api
-- https://cloud.spring.io/spring-cloud-gateway/reference/html/`
+**Fix:** Restrict the gateway actuator endpoints with authentication or network controls, or remove them from management.endpoints.web.exposure so they are not exposed to untrusted clients.`
 
 	ModuleConfirmation = "Confirmed when gateway actuator endpoints return route or filter configuration data"
 	ModuleSeverity     = severity.High

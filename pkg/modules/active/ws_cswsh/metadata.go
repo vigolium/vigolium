@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests for Cross-Site WebSocket Hijacking (CSWSH) by verifying whether WebSocket upgrade
-endpoints properly validate the Origin header. An attacker can hijack a user's authenticated
-WebSocket connection if the server does not enforce origin checks, allowing cross-origin
-WebSocket handshakes to succeed.
+	ModuleDesc = `**What it means:** A WebSocket endpoint completed a genuine upgrade handshake (101 Switching Protocols with Upgrade: websocket and Sec-WebSocket-Accept) when the request carried an attacker-controlled, null, spoofed-subdomain, or entirely missing Origin header. The server does not validate where WebSocket connections originate, exposing it to Cross-Site WebSocket Hijacking (CSWSH). Because WebSocket handshakes ride on the victim's cookies but are not protected by the same-origin policy or CSRF tokens, this is effectively CSRF for the WebSocket channel.
 
-## Notes
-- Only tests endpoints that respond with 101 Switching Protocols to a well-formed WS upgrade.
-- Tests four scenarios: evil external origin, null origin, subdomain spoofing, and missing
-  Origin header.
-- Deduplicates by host and path to avoid redundant checks.
+**How it's exploited:** An attacker hosts a malicious page that, when a logged-in victim visits it, silently opens a WebSocket back to the vulnerable endpoint. The victim's browser attaches their session cookies, so the connection is authenticated as the victim; the attacker's script can then read pushed data and send messages over that channel, leading to data theft or actions performed as the victim.
 
-## References
-- https://christian-schneider.net/CrossSiteWebSocketHijacking.html
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/10-Testing_WebSockets
-- https://portswigger.net/web-security/websockets/cross-site-websocket-hijacking`
+**Fix:** Validate the Origin header against an allowlist of trusted origins during the WebSocket handshake and reject mismatched, null, or absent origins, and bind handshakes to a CSRF token.`
 
 	ModuleConfirmation = "Confirmed when a WebSocket upgrade succeeds with a malicious, null, subdomain, or missing Origin header"
 	ModuleSeverity     = severity.Medium

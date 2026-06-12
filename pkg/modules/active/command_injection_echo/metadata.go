@@ -9,37 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects OS command injection in-band, with deterministic proof of execution. The
-scanner injects a command that asks the shell to evaluate an arithmetic
-expression (` + "`echo <TAG>$((A+B))<TAG>`" + `) where the operands are large random
-numbers and the result is wrapped in two unique random delimiters. A reflection
-of the literal payload yields the un-evaluated ` + "`$((A+B))`" + ` text; only genuine
-command execution yields the computed sum bracketed by the delimiters.
+	ModuleDesc = `**What it means:** The application passes attacker-controlled input into an operating-system shell command without proper sanitization, so the attacker's input is executed as commands on the server. This was proven, not guessed: the scanner injected an arithmetic expression and the server's shell computed and returned the unique result, confirming real command execution.
 
-## False-positive defenses (multiple independent layers)
-- **Very-unique markers** — large random operands and 14-char random delimiters
-  make the expected needle (delimiter + computed sum + delimiter) effectively
-  impossible to occur by coincidence in normal page content.
-- **Baseline comparison** — the same request is also sent WITHOUT the payload and
-  the needle must be ABSENT from that clean response, proving the match is caused
-  by the injected payload and is not pre-existing page content.
-- **Two independent rounds** — the working breakout context is re-confirmed with a
-  brand-new marker (fresh operands and delimiters); both rounds must match, so a
-  cached or coincidental hit cannot survive.
+**How it's exploited:** An attacker injects shell metacharacters (such as separators, quote breakouts, or command substitution) into the affected parameter to run arbitrary commands as the web service account. This typically leads to full server compromise, including reading or modifying files, harvesting credentials, pivoting into the internal network, and deploying malware. The scanner confirmed execution across two independent rounds with fresh random markers, each absent from the clean baseline, so this is a high-confidence, exploitable finding rather than mere reflection.
 
-## Notes
-- Tries multiple shell breakout contexts (separators, quote breakouts, command
-  substitution) and arithmetic techniques (` + "`$((…))`, `expr`" + `, and interpreter
-  ` + "`print()`" + ` for eval-style sinks).
-- Payloads are raw shell strings; the insertion point URL-encodes them and the
-  target decodes them before the sink, so metacharacters arrive intact.
-- Complements the time-based (` + "`code-exec`, `command-injection-timing`" + `) and
-  out-of-band (` + "`command-injection-oast`" + `) command-injection modules.
-
-## References
-- https://owasp.org/www-community/attacks/Command_Injection
-- https://github.com/commixproject/commix`
+**Fix:** Avoid invoking the shell on user input; use parameterized OS APIs or safe library calls, and if a command must be built, strictly allow-list permitted values and escape arguments.`
 
 	ModuleConfirmation = "Confirmed when the shell evaluates an injected arithmetic expression and the resulting unique needle appears in the response across two independent rounds while being absent from the unpayloaded baseline"
 	ModuleSeverity     = severity.Critical

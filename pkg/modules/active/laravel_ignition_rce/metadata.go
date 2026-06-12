@@ -9,22 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed Laravel Ignition debug endpoints (/_ignition/health-check,
-/_ignition/execute-solution, /_ignition/scripts/*, /_ignition/styles/*) and
-flags potential CVE-2021-3129 RCE candidates when version evidence indicates
-facade/ignition < 2.5.2 or Laravel < 8.4.2.
-
-## Notes
-- Runs once per host to avoid redundant probing
-- Does NOT attempt exploitation; reports as candidate with prerequisites
-- Validates responses with content markers to reduce false positives
-- Fingerprints 404 responses to detect custom error pages
-
-## References
-- https://nvd.nist.gov/vuln/detail/CVE-2021-3129
-- https://www.ambionics.io/blog/laravel-debug-rce
-- https://flareapp.io/docs/ignition-for-laravel/introduction`
+	ModuleDesc = `**What it means:** The application exposes Laravel's Ignition debug error-page tooling (endpoints under /_ignition/, such as health-check, execute-solution, and script/style assets) to unauthenticated visitors. Ignition is a development-only debugger that must never be reachable in production; its presence indicates debug mode is left enabled.
+**How it's exploited:** An attacker reaching the execute-solution endpoint on a vulnerable Ignition (facade/ignition before 2.5.2, Laravel before 8.4.2) can chain CVE-2021-3129 to gain remote code execution on the server by writing and corrupting a log file into a malicious phar/PHP payload. Even where the version is patched, exposed Ignition assets and health-check confirm debug tooling is live, leaking framework internals and stack traces that aid further attacks.
+**Fix:** Set APP_DEBUG=false (production environment) so Ignition is disabled, and upgrade facade/ignition to 2.5.2 or later.`
 
 	ModuleConfirmation = "Confirmed when Ignition endpoints are reachable and return expected framework-specific markers"
 	ModuleSeverity     = severity.Critical

@@ -234,9 +234,9 @@ func TestIsValidModernAppPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got := isValidModernAppPath(tt.path)
+			got := IsValidModernAppPath(tt.path)
 			if got != tt.want {
-				t.Errorf("isValidModernAppPath(%q) = %v, want %v", tt.path, got, tt.want)
+				t.Errorf("IsValidModernAppPath(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
 	}

@@ -9,23 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for unauthenticated access to Laravel admin panels (Nova, Filament,
-Backpack, Voyager), API documentation endpoints (Swagger UI, L5-Swagger,
-Scramble, OpenAPI specs), and GraphQL endpoints with introspection enabled.
-These surfaces increase attack surface and may expose sensitive data or
-admin functionality.
+	ModuleDesc = `**What it means:** A Laravel-related administrative or developer surface was reachable without authentication. Depending on the probe, this is an exposed admin panel (Nova, Filament, Backpack, Voyager, or a generic /admin or /backoffice), a published API documentation or OpenAPI spec endpoint (L5-Swagger, Scramble, openapi.json/yaml), an exposed framework login page, or a GraphQL endpoint with schema introspection enabled. These expose privileged functionality or map out the application's internal attack surface.
 
-## Notes
-- Runs once per host to avoid redundant probing
-- Validates responses with content markers to reduce false positives
-- Fingerprints 404 responses to detect custom error pages
-- Admin panels reported as high severity; API docs as informational/low
+**How it's exploited:** An open admin panel lets an attacker reach management actions and data directly, severity depending on whether further auth gates exist. An exposed OpenAPI spec or GraphQL introspection result hands the attacker the full list of endpoints, parameters, and data types to target, and a visible login page confirms which admin framework is installed for version-specific follow-up attacks.
 
-## References
-- https://nova.laravel.com/docs
-- https://filamentphp.com/docs
-- https://lighthouse-php.com/master/security/authentication.html`
+**Fix:** Place admin panels, API documentation, and GraphQL introspection behind authentication, IP allowlists, or disable them in production.`
 
 	ModuleConfirmation = "Confirmed when admin or documentation endpoints return 200 with expected framework-specific markers"
 	ModuleSeverity     = severity.High

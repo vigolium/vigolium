@@ -9,29 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects and enumerates IIS 8.3 short filenames exposed through the tilde (~)
-vulnerability. When IIS has short filename generation enabled, an attacker can
-discover partial file and directory names by observing differential HTTP status
-codes for wildcard-based requests.
+	ModuleDesc = `**What it means:** The Microsoft IIS server leaks partial file and directory names because 8.3 short-filename (tilde) generation is enabled. By sending wildcard paths containing a tilde and watching for differential HTTP status codes, anyone can recover the first six characters and three-character extension of files under the web root, even when directory listing is disabled. This module confirmed the oracle and brute-forced the disclosed short names it reports.
 
-The module performs three phases:
-1. **Vulnerability detection** - tests HTTP methods and path suffixes to find a
-   working oracle (distinct status codes for existing vs non-existing patterns)
-2. **Character discovery** - identifies which characters appear in short filenames
-   to minimize the enumeration search space
-3. **Recursive enumeration** - brute-forces filenames character-by-character
-   (up to 6 chars for name, 3 for extension per 8.3 convention)
+**How it's exploited:** An attacker maps the hidden attack surface from these fragments: backup files (web~1.zip), config and credential files, admin pages, and unlinked endpoints never meant to be reachable. The short names narrow guessing of full filenames dramatically, turning blind discovery into targeted requests that can pull source, secrets, or otherwise restricted resources. It is information disclosure on its own, but a strong stepping stone to further compromise.
 
-## Notes
-- Only runs on IIS servers (detected via Server, X-Powered-By, or X-AspNet-Version headers)
-- Runs once per unique host
-- Caps total requests at 2000 per host to avoid excessive traffic
-- Reports discovered 8.3 short filenames (does not attempt full-name autocomplete)
-
-## References
-- https://soroush.me/blog/2023/07/thirteen-years-on-advancing-the-understanding-of-iis-short-file-name-sfn-disclosure/
-- https://github.com/bitquark/shortscan`
+**Fix:** Disable 8.3 short-name generation on the volume (set NtfsDisable8dot3NameCreation and strip existing short names with fsutil), or restrict the surface so the tilde oracle no longer returns distinct status codes.`
 
 	ModuleConfirmation = "Confirmed when the server returns distinct status codes for wildcard patterns matching existing vs non-existing 8.3 short filenames"
 	ModuleSeverity     = severity.Medium

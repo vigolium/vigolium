@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes common Next.js Draft Mode and Preview Mode API endpoints for missing or weak
-authentication. Draft Mode allows viewing unpublished CMS content by setting special
-cookies (__prerender_bypass, __next_preview_data). If the enabling endpoint lacks
-proper secret validation, attackers can access embargoed or sensitive content.
+	ModuleDesc = `**What it means:** A Next.js Draft Mode or Preview Mode endpoint on this site enables draft mode without requiring a valid secret. Draft mode is meant to let editors preview unpublished CMS content, so an endpoint that activates it for anyone exposes embargoed, internal, or not-yet-published content to unauthenticated visitors.
 
-## Notes
-- Runs once per host on Next.js-identified targets
-- Probes common draft/preview API routes with no token and common weak tokens
-- Confirms by detecting __prerender_bypass or __next_preview_data cookies in response
-- Deduplicates by host
+**How it's exploited:** The scanner requested common draft/preview routes (for example /api/draft, /api/preview, /api/enable-preview) with no secret and with common weak tokens, and confirmed the response set the __prerender_bypass or __next_preview_data bypass cookie. An attacker simply visits the same endpoint to obtain those cookies, then browses the site to read draft and preview-only content that should be hidden.
 
-## References
-- https://nextjs.org/docs/app/guides/draft-mode
-- https://nextjs.org/docs/pages/building-your-application/configuring/preview-mode`
+**Fix:** Require a strong, unguessable secret on every draft/preview enabling endpoint and reject requests whose secret does not match, following the Next.js Draft Mode and Preview Mode documentation.`
 
 	ModuleConfirmation = "Confirmed when a draft/preview endpoint sets bypass cookies without a valid secret"
 	ModuleSeverity     = severity.High

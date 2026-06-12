@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed ASP.NET diagnostic and debug endpoints that should not be
-accessible in production. Covers trace.axd, ELMAH, Glimpse, MiniProfiler,
-Hangfire dashboard, SignalR endpoints, and Yellow Screen of Death (YSoD)
-verbose error detection.
+	ModuleDesc = `**What it means:** An ASP.NET/IIS application is exposing a diagnostic, debug, or error-handling surface that should be disabled in production. The module probes well-known endpoints (trace.axd, elmah.axd, Glimpse, MiniProfiler, Hangfire dashboard, SignalR negotiate/hubs) and triggers a verbose Yellow Screen of Death error page, confirming each via response content markers after fingerprinting the site's 404 to rule out catch-all pages.
 
-## Notes
-- Runs once per host
-- Probes diagnostic endpoints with content marker validation
-- Tests for verbose error pages by triggering error conditions
-- Fingerprints 404 to avoid false positives
+**How it's exploited:** Depending on what is exposed, an attacker reads request/response internals and logged errors (trace.axd, ELMAH), captured SQL queries and timing (MiniProfiler, Glimpse), or stack traces plus the exact .NET Framework version from a verbose error page, which maps internal paths, secrets in errors, and version-specific exploit targets. A publicly reachable Hangfire dashboard can let an attacker manipulate background jobs.
 
-## References
-- https://learn.microsoft.com/en-us/aspnet/core/fundamentals/error-handling
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/01-Test_Network_Infrastructure_Configuration`
+**Fix:** Disable or restrict diagnostic and debug endpoints in production, set customErrors to On (RemoteOnly) with a generic error page, and require authentication or IP allow-listing on any dashboard.`
 
 	ModuleConfirmation = "Confirmed when diagnostic endpoints return 200 with expected content markers or verbose error information is disclosed"
 	ModuleSeverity     = severity.High

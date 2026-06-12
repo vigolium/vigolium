@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed H2 database web consoles that are commonly enabled during
-development and accidentally left accessible in production Spring Boot deployments.
-The H2 console provides direct database access, enabling SQL execution, data
-exfiltration, and potential remote code execution.
+	ModuleDesc = `**What it means:** The application exposes the H2 database web console (at paths like /h2-console or /console) to unauthenticated users. This console is meant for local development only; reaching it in a deployed Spring Boot app means anyone on the network can open a full database administration interface.
 
-## Notes
-- Runs once per host to avoid redundant probing
-- Checks common H2 console paths with content markers
-- Fingerprints 404 responses to reduce false positives
-- H2 console exposure in production is critical severity
+**How it's exploited:** An attacker browses to the console, connects to the backing database, and runs arbitrary SQL to read, modify, or delete application data. Because H2 supports loading Java classes and aliasing functions through SQL, console access can often be escalated to remote code execution on the server, giving a complete host compromise.
 
-## References
-- https://www.h2database.com/html/tutorial.html
-- https://docs.spring.io/spring-boot/docs/current/reference/html/data.html#data.sql.h2-web-console`
+**Fix:** Disable the H2 console in production (set spring.h2.console.enabled to false) or restrict it to localhost and require authentication; never ship the console reachable from untrusted networks.`
 
 	ModuleConfirmation = "Confirmed when H2 console login page or interface is accessible without authentication"
 	ModuleSeverity     = severity.Critical

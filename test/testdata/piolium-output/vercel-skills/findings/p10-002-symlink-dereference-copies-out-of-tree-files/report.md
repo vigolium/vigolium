@@ -83,7 +83,7 @@ The impact evidence confirms the installed artifact is no longer a symlink: it i
 
 ```text
 Installed artifact metadata:
--rw------- 1 bytedance staff 52 May  1 03:32 .../victim-project/.agents/skills/symlink-leak-demo/exfiltrated-token.txt
+-rw------- 1 acme staff 52 May  1 03:32 .../victim-project/.agents/skills/symlink-leak-demo/exfiltrated-token.txt
 installed_artifact_type=regular_file
 sha256: a64b713f17b55990c3f16b70cd9267f0db7c72ffd13f798f8c719ada832d59f9
 

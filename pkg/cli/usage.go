@@ -36,7 +36,6 @@ func init() {
 	dbCleanCmd.Example = dbCleanExamples
 	dbSeedCmd.Example = dbSeedExamples
 	trafficCmd.Example = trafficExamples
-	trafficReplayCmd.Example = trafficReplayExamples
 	scopeCmd.Example = scopeExamples
 	scopeViewCmd.Example = scopeViewExamples
 	scopeSetCmd.Example = scopeSetExamples

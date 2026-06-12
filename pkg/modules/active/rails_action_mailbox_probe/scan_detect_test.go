@@ -271,6 +271,73 @@ func TestScanPerRequest_ConductorBare200NoFalsePositive(t *testing.T) {
 	assert.Empty(t, res, "a bare 200 without rendered conductor content must not yield a finding")
 }
 
+// TestScanPerRequest_Nginx405AllowHeaderNoFalsePositive reproduces the exact
+// production false positive: an nginx front-end answers the OPTIONS probe with
+// "405 Method Not Allowed", an `Allow: GET, POST` header, and its stock HTML
+// status page. The Allow header lists POST (satisfying the route-signal check),
+// but the 405 status — the server *rejecting* OPTIONS — plus the GET in the
+// Allow list and the nginx status-page body all prove this is a front-end
+// rejection for a static/proxied location, not a mounted Rails ingress route.
+// Distinct from TestScanPerRequest_ReflectedPathNoFalsePositive, whose 405 mock
+// omits the Allow header (caught by the empty-Allow check); the real nginx 405
+// includes it and slipped past the guard.
+func TestScanPerRequest_Nginx405AllowHeaderNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Allow", "GET, POST")
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte("<html>\n<head><title>405 Not Allowed</title></head>\n" +
+				"<body>\n<center><h1>405 Not Allowed</h1></center>\n<hr><center></center>\n</body>\n</html>"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("distinct not found body contents here"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", "home")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "an nginx 405 page advertising `Allow: GET, POST` must not be reported as an exposed Action Mailbox ingress")
+}
+
+// TestScanPerRequest_StaticLocation200GetAllowNoFalsePositive isolates the
+// POST-only route guard. A front-end static location answers OPTIONS with a
+// 200 and an empty body advertising `Allow: GET, POST, HEAD` (the web-server
+// methods for a file location). The 2xx status and empty body clear the status
+// and status-page guards, so only rejecting an Allow header that includes GET —
+// which a Rails POST-only ingress route never advertises — prevents the finding.
+// The blanket-OPTIONS probe path is 404'd so detectBlanketOptions does not
+// short-circuit the scan first.
+func TestScanPerRequest_StaticLocation200GetAllowNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			if strings.Contains(r.URL.Path, "vigolium-not-rails") {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Allow", "GET, POST, HEAD")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("distinct not found body contents here"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", "home")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a static location advertising GET in its Allow header must not be reported as a Rails ingress")
+}
+
 // TestCanProcess validates the host-liveness gate.
 func TestCanProcess(t *testing.T) {
 	t.Parallel()

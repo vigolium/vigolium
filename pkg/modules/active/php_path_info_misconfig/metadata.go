@@ -9,25 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests for PHP-FPM/CGI PATH_INFO routing misconfiguration (cgi.fix_pathinfo=1)
-where requests to non-existent PHP scripts with PATH_INFO are routed to a
-different script. This can enable authorization bypass or unintended script
-execution by appending arbitrary paths to valid PHP endpoints.
+	ModuleDesc = `**What it means:** The server runs PHP with cgi.fix_pathinfo=1, so requests like /index.php/anything/here pass the trailing PATH_INFO segment to a real PHP script instead of being rejected. The scanner confirmed this by sending PATH_INFO and encoded-slash variants (and a non-existent script path) and getting a valid 200 that differs from the site's 404 fingerprint and from a random catch-all control. This routing ambiguity weakens path-based security and, on older or misconfigured setups, has historically allowed uploaded or attacker-controlled files to be executed as PHP.
 
-## Notes
-- Runs once per host to avoid redundant probing
-- Sends requests to deliberately invalid script paths
-- Compares responses to establish if PATH_INFO rewriting is active
-- Drops catch-all hosts: a candidate 200 whose body matches a random
-  "*.php"/PATH_INFO control (similarity-tolerant) is a blanket SPA/rewrite
-  handler, not real cgi.fix_pathinfo routing
-- Low false positive rate due to multi-step validation
+**How it's exploited:** An attacker appends arbitrary path segments to a valid PHP endpoint (for example /index.php/admin) to slip past URL- or path-based access controls, WAF rules, or routing checks, and on classic Nginx-plus-PHP-FPM misconfigurations can coerce a non-PHP file such as an upload to be executed as a script.
 
-## References
-- https://www.nginx.com/resources/wiki/start/topics/tutorials/config_pitfalls/#passing-uncontrolled-requests-to-php
-- https://www.php.net/manual/en/ini.core.php#ini.cgi.fix-pathinfo
-- https://owasp.org/www-project-web-security-testing-guide/`
+**Fix:** Set cgi.fix_pathinfo=0 in php.ini and configure the web server so only existing .php files are passed to the PHP-FPM/CGI handler.`
 
 	ModuleConfirmation = "Confirmed when PATH_INFO requests return a valid 200 that differs from both the random-path 404 fingerprint and a random script-shaped catch-all control, ruling out blanket SPA/rewrite handlers that serve a generic body for any path"
 	ModuleSeverity     = severity.Medium

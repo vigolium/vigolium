@@ -9,25 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects serialized objects in HTTP request parameters (query, path,
-cookie, and body) by matching known serialization format signatures for Java,
-PHP, .NET, Python, Ruby, and Node.js. Values are also re-checked after a single
-base64-decode pass so that base64-wrapped payloads — the common transport form
-in cookies and parameters — are caught.
+	ModuleDesc = `**What it means:** A request parameter (query, path, cookie, or body) carries a serialized object whose byte signature matches a known format for Java, PHP, .NET, Python, Ruby, or Node.js, including base64-wrapped values. The application accepts attacker-controllable serialized data from the client, which is exactly the input that drives insecure deserialization. This is a passive, signature-based detection: it confirms the presence of serialized input as a deserialization attack surface, not that the endpoint is provably exploitable.
 
-## Notes
-- Java: base64 prefix "rO0AB" or hex prefix "aced0005" or raw magic 0xAC 0xED
-- PHP: pattern matching O:N:"class", a:N:{, etc.
-- .NET: base64 prefix "AAEAAAD" (BinaryFormatter)
-- Python: pickle indicators ("ccopy_reg" prefix or PROTO opcode 0x80 + version)
-- Ruby: Marshal version header 0x04 0x08 (raw or base64-wrapped, e.g. "BAh...")
-- Node.js: node-serialize function marker "_$$ND_FUNC$$_" (enables RCE on unserialize)
-- Base64-wrapped payloads are flagged with a "(base64-wrapped)" format suffix
+**How it's exploited:** If the server deserializes this value without strict type allow-listing, an attacker can supply a crafted object that triggers dangerous gadget chains during deserialization, leading to remote code execution, authentication bypass, or object injection. Client-controlled serialized blobs in cookies or parameters are a classic vector (for example node-serialize _$$ND_FUNC$$_ payloads or Java/PHP/.NET/Python/Ruby gadgets).
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/16-Testing_for_HTTP_Incoming_Requests
-- https://portswigger.net/web-security/deserialization`
+**Fix:** Avoid deserializing untrusted input; if unavoidable, use a safe data format such as JSON with schema validation, or enforce strict type/class allow-listing and integrity checks (signed, tamper-proof state) on any serialized data accepted from clients.`
 
 	ModuleConfirmation = "Confirmed when request parameter values contain known serialization format signatures"
 	ModuleSeverity     = severity.Medium

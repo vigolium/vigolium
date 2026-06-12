@@ -158,6 +158,12 @@ func (b *Browser) launch() error {
 	// outright rather than degrading gracefully.
 	if b.config.ProxyURL != "" {
 		l = applyProxy(l, b.config.ProxyURL)
+		if b.config.ProxyAllowLoopback {
+			// Chrome bypasses the proxy for localhost/127.0.0.1 by default;
+			// <-loopback> drops that implicit rule so an intercepting proxy
+			// (Burp) also captures traffic to a loopback target.
+			l = l.Set("proxy-bypass-list", "<-loopback>")
+		}
 		zap.L().Debug("Proxy configured — forcing HTTP/1.1 (disable-http2, disable-quic)",
 			zap.String("proxy", b.config.ProxyURL))
 	}

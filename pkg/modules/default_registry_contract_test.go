@@ -96,6 +96,38 @@ func TestDefaultRegistry_ModuleMetadataContract(t *testing.T) {
 	}
 }
 
+// requiredDescSections are the labels every built-in module's Description() must
+// carry. The executor composes this block onto each finding (see
+// core.assignModuleInfo) so the report explains what the finding means and how it
+// is exploited; keeping it enforced here stops new modules from drifting back to a
+// one-line description.
+var requiredDescSections = []string{"**What it means:**", "**How it's exploited:**", "**Fix:**"}
+
+// maxDescWords bounds the explanation block so the composed finding description
+// (per-finding context line + this block) stays within the ~200-word budget.
+const maxDescWords = 170
+
+// TestDefaultRegistry_DescriptionFormatContract asserts every built-in module's
+// Description() is a reader-facing What/Exploit/Fix block within the word budget.
+func TestDefaultRegistry_DescriptionFormatContract(t *testing.T) {
+	for _, entry := range allDefaultModules() {
+		m := entry.mod
+		desc := m.Description()
+		if strings.TrimSpace(desc) == "" {
+			t.Errorf("module %q has empty Description()", m.ID())
+			continue
+		}
+		for _, label := range requiredDescSections {
+			if !strings.Contains(desc, label) {
+				t.Errorf("module %q Description() is missing the %q section", m.ID(), label)
+			}
+		}
+		if n := len(strings.Fields(desc)); n > maxDescWords {
+			t.Errorf("module %q Description() is %d words, over the %d-word budget", m.ID(), n, maxDescWords)
+		}
+	}
+}
+
 // TestDefaultRegistry_ScanScopesDeclared asserts each module declares at least one
 // scan scope appropriate to its kind.
 func TestDefaultRegistry_ScanScopesDeclared(t *testing.T) {
