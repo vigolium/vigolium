@@ -389,17 +389,16 @@ var trafficExamples = FormatExamples(
 	"vigolium traffic --raw --host example.com -n 5",
 	"# JSON output",
 	"vigolium traffic -j",
-)
-
-var trafficReplayExamples = FormatExamples(
-	"# Replay requests matching a search term",
-	"vigolium traffic replay admin",
-	"# Replay filtered by host",
-	"vigolium traffic replay --host example.com --limit 5",
-	"# Replay and replace stored responses",
-	"vigolium traffic replay --host example.com --in-replace",
-	"# Replay through a proxy",
-	"vigolium traffic replay admin --proxy http://127.0.0.1:8080",
+	"# Replay matched requests (re-send & compare)",
+	"vigolium traffic --replay --host example.com",
+	"# Replay ALL stored traffic through Burp (ignore the default 100 cap)",
+	"vigolium traffic --replay --all --proxy http://127.0.0.1:8080 -c 5",
+	"# Replay through Burp at low concurrency",
+	"vigolium traffic --replay admin --proxy http://127.0.0.1:8080 -c 5",
+	"# Replay each URL in a real browser routed through Burp",
+	"vigolium traffic --replay --host example.com --with-browser --proxy http://127.0.0.1:8080",
+	"# Replay and overwrite stored responses",
+	"vigolium traffic --replay --host example.com --in-replace",
 )
 
 var scopeViewExamples = FormatExamples(

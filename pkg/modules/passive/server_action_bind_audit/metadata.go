@@ -9,25 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Scans JavaScript and TypeScript response bodies for Next.js Server Actions that use
-.bind() to pass sensitive identifiers (IDs, slugs, resource references) as arguments.
-Bound arguments are not encrypted and can be tampered with by the client. If the action
-does not re-authorize the resource on the server side, this creates an IDOR vulnerability
-where users can modify other users' resources by changing the bound ID.
+	ModuleDesc = `**What it means:** This finding flags shipped JavaScript or TypeScript code where a Next.js Server Action is created with .bind(null, identifier) and the bound argument looks like a resource reference (id, userId, postId, slug, orgId, and similar), with no authorization check (canAccess, isOwner, getSession, requireAuth, and similar) visible in the same code. Bound arguments travel to the browser unencrypted and can be tampered with, so if the server does not re-check ownership this is a likely Insecure Direct Object Reference (IDOR / CWE-639). This is a passive, heuristic source-analysis signal at Tentative confidence: it cannot see server-side authorization and may be a false positive.
 
-## Notes
-- Passive only - does not send any HTTP requests
-- Detects .bind(null, <identifier>) patterns in server component code
-- Flags when bound values look like resource identifiers (id, userId, postId, etc.)
-- Cross-references with authorization check patterns inside the action body
-- Deduplicates by host+path
-- CWE-639: Authorization Bypass Through User-Controlled Key
+**How it's exploited:** An attacker who can call the Server Action substitutes another user's identifier for the bound value and, if the action trusts that ID without verifying ownership, reads, modifies, or deletes resources belonging to other accounts.
 
-## References
-- https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions-and-mutations#passing-additional-arguments
-- https://nextjs.org/blog/security-nextjs-server-components-actions
-- https://cwe.mitre.org/data/definitions/639.html`
+**Fix:** Re-authorize every resource inside the Server Action body by checking the current session against the bound identifier instead of trusting client-supplied IDs.`
 
 	ModuleConfirmation = "Confirmed when .bind() passes identifiers to a Server Action without re-authorization in the action body"
 	ModuleSeverity     = severity.Medium

@@ -9,21 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies FastAPI/Starlette/Uvicorn installations by analyzing HTTP
-response headers (Server, x-process-time), body patterns (OpenAPI JSON shape,
-detail error shape), and well-known documentation endpoints (/docs, /redoc).
-Requires 2+ independent signals to avoid false positives.
-
-## Notes
-- Passive only: does not send any HTTP requests
-- Deduplicates by host to avoid redundant processing
-- Detects Uvicorn via Server header
-- Recognizes FastAPI default error shape and OpenAPI spec indicators
-- Identifies /docs (Swagger UI) and /redoc documentation endpoints
-
-## References
-- https://fastapi.tiangolo.com/`
+	ModuleDesc = `**What it means:** The target reveals it is built on the FastAPI/Starlette/Uvicorn Python stack. This is an informational technology fingerprint, not a vulnerability itself, but it leaks framework details that narrow down which attacks and known issues apply. It is reported only when at least two independent signals agree: a Server header naming Uvicorn, the FastAPI {"detail":...} error shape on 4xx/5xx responses, OpenAPI spec markers in the body, exposed /docs (Swagger UI) or /redoc documentation endpoints, or an x-process-time middleware header.
+**How it's exploited:** An attacker uses this to map the attack surface and prioritize FastAPI/Starlette/Uvicorn-specific weaknesses, such as known CVEs in those packages, predictable error and validation behavior, and the interactive /docs or /redoc pages and the OpenAPI schema that enumerate every endpoint, parameter, and type for targeted probing.
+**Fix:** Suppress framework-identifying headers (Server, x-process-time) at the proxy or middleware and disable or authenticate the /docs, /redoc, and OpenAPI schema endpoints in production.`
 
 	ModuleConfirmation = "Confirmed when 2+ independent FastAPI/Starlette/Uvicorn-specific signals are detected in the response"
 	ModuleSeverity     = severity.Info

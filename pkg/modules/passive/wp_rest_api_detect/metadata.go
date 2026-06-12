@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects WordPress REST API exposure by analyzing responses from
-/wp-json/ endpoints. Identifies non-core plugin namespaces that may have
-weak or missing permission_callback, and flags unauthenticated access to
-sensitive built-in endpoints like wp/v2/users and wp/v2/settings.
+	ModuleDesc = `**What it means:** The site exposes the WordPress REST API at /wp-json/, and this module passively observed its JSON responses disclosing information. The index lists every registered API namespace, including non-core plugin namespaces that widen the attack surface, and the wp/v2/users endpoint was seen returning account details (IDs, slugs, names) to an unauthenticated request, which is a privacy and brute-force exposure.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Analyzes JSON responses from wp-json endpoints
-- Flags custom plugin namespaces (non-core) as potential attack surface
-- Detects user data exposure in wp/v2/users responses
-- Deduplicates by host
+**How it's exploited:** An attacker maps the disclosed plugin namespaces to look up known vulnerabilities in those specific plugins and probe their endpoints, which often ship with weak or missing permission checks. Exposed user data from wp/v2/users yields valid login slugs (usernames) that fuel targeted password-guessing and phishing against accounts such as admin.
 
-## References
-- https://developer.wordpress.org/rest-api/
-- https://developer.wordpress.org/rest-api/using-the-rest-api/authentication/`
+**Fix:** Restrict or authenticate the user-listing endpoint (for example via a security plugin or permission_callback) and remove or lock down unneeded plugin REST namespaces so they are not reachable unauthenticated.`
 
 	ModuleConfirmation = "Confirmed when REST API responses contain namespace listings or user data accessible without authentication"
 	ModuleSeverity     = severity.Low

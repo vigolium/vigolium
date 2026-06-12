@@ -9,17 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects OS Command Injection vulnerabilities using time-based blind detection. Injects
-sleep/delay commands and measures response time differences to confirm execution.
+	ModuleDesc = `**What it means:** A request parameter appears to be passed into an operating-system shell command without proper sanitization, allowing attacker-supplied input to be executed as part of that command. This is a command-injection (remote code execution) weakness. The finding is raised as a time-based blind signal: an injected delay payload reproducibly slowed the response, so it should be treated as suspected and manually verified rather than as a proven OS-command execution.
 
-## Notes
-- Uses time-based blind technique to avoid false positives
-- Tests multiple shell syntaxes (bash, cmd, PowerShell)
+**How it's exploited:** An attacker injects shell metacharacters and commands (using bash, cmd, PowerShell, or language-specific syntax) into the vulnerable parameter; here the scanner made the server run a 10-second sleep, ping, or timeout and measured the delay against a fast baseline across multiple rounds. Real exploitation lets the attacker run arbitrary commands to read files, steal credentials, pivot through the internal network, and fully compromise the host.
 
-## References
-- https://owasp.org/www-community/attacks/Command_Injection
-- https://portswigger.net/bappstore/3123d5b5f25c4128894d97ea1571571c`
+**Fix:** Never pass user input to a shell; use parameterized APIs or strict allow-list validation and avoid invoking OS commands with untrusted data.`
 
 	ModuleConfirmation = "Confirmed when injected sleep/delay commands cause measurable response time increase matching the specified delay"
 	ModuleSeverity     = severity.Critical

@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies the JavaScript framework powering a web application by analyzing
-HTML response bodies and HTTP headers for framework-specific markers. Stores results
-in a shared per-host cache used by other framework-specific modules.
+	ModuleDesc = `**What it means:** The application reveals which JavaScript framework powers its front end (Next.js with Pages or App Router, Nuxt.js, Angular, React CRA, Remix, SvelteKit, or Gatsby), detected passively from HTML body markers such as __NEXT_DATA__, __NUXT__, ng-version, and asset URLs, plus headers like X-Powered-By. For Next.js it also surfaces the build identifier. This is informational technology disclosure, not a vulnerability on its own, but it narrows the attacker's search space.
 
-## Notes
-- Passive only — does not send any HTTP requests
-- Detects: Next.js (Pages/App Router), Nuxt.js, Angular, React CRA, Remix, SvelteKit, Gatsby
-- Extracts Next.js buildId for use by active Next.js modules
-- Deduplicates by host to avoid redundant processing
-- Requires strong signals (script tags or headers) to avoid false positives
+**How it's exploited:** Knowing the exact framework lets an attacker focus reconnaissance and select framework-specific exploits and misconfigurations (for example Next.js data-fetching and middleware bypass classes, Nuxt SSR issues, or Angular template flaws) rather than probing blindly. The disclosed Next.js buildId and router type can be reused to reach internal data and asset endpoints and to fingerprint the deployed version for targeting.
 
-## References
-- https://nextjs.org/docs
-- https://nuxt.com/docs
-- https://angular.dev`
+**Fix:** Treat this as low-risk informational disclosure; you cannot fully hide a client-side framework, so instead remove unnecessary version and X-Powered-By headers, keep the framework patched, and ensure security does not rely on hiding the stack.`
 
 	ModuleConfirmation = "Confirmed when framework-specific markers (script tags, headers, or asset URL patterns) are detected in the response"
 	ModuleSeverity     = severity.Info

@@ -74,7 +74,7 @@ var allTrafficColumns = []columnDef{
 var defaultTrafficColumnNames = []string{"HOST", "METHOD", "PATH", "STATUS", "CONTENT_TYPE", "SIZE", "WORDS", "TITLE", "SOURCE"}
 
 var (
-	// Shared filter flags (PersistentFlags — inherited by replay subcommand)
+	// Shared filter flags (PersistentFlags)
 	trafficHost    string
 	trafficMethods []string
 	trafficStatus  []int
@@ -96,21 +96,35 @@ var (
 	trafficBurp    bool
 	trafficColumns []string
 	trafficExclude []string
+
+	// Replay flags (trafficCmd.Flags only; only active with --replay)
+	trafficReplay            bool
+	trafficReplayConcurrency int
+	trafficReplayBrowser     bool
+
+	// trafficAll lifts the -n/--limit cap so every matched record is
+	// listed/replayed. Most useful with --replay to re-send all stored traffic.
+	trafficAll bool
 )
 
 var trafficCmd = &cobra.Command{
 	Use:     "traffic [search-term]",
 	Aliases: []string{"traffics", "tf"},
-	Short:   "Browse HTTP traffic (alias: db ls --table http_records)",
-	Long:    "Alias for 'vigolium db ls --table http_records'. Browse stored HTTP traffic with fuzzy search, tree view, and column selection.",
-	Args:    cobra.MaximumNArgs(1),
-	RunE:    runTraffic,
+	Short:   "Browse or replay HTTP traffic (alias: db ls --table http_records)",
+	Long: "Alias for 'vigolium db ls --table http_records'. Browse stored HTTP traffic with fuzzy search, " +
+		"tree view, and column selection.\n\n" +
+		"With --replay, the matched records are re-sent instead of listed, showing an original-vs-replay " +
+		"comparison. Use --concurrency to throttle load on an intercepting proxy, --proxy to route through " +
+		"Burp, --with-browser to replay each URL in a real browser so the proxy sees browser-driven traffic, " +
+		"and --all to replay every matched record instead of just the most recent --limit (default 100).",
+	Args: cobra.MaximumNArgs(1),
+	RunE: runTraffic,
 }
 
 func init() {
 	rootCmd.AddCommand(trafficCmd)
 
-	// Shared filter flags on PersistentFlags so replay inherits them
+	// Shared filter flags on PersistentFlags (apply to both the listing and --replay)
 	pf := trafficCmd.PersistentFlags()
 	pf.StringVar(&trafficHost, "host", "", "Filter by hostname pattern (wildcard supported)")
 	pf.StringSliceVar(&trafficMethods, "method", nil, "Filter by HTTP method (repeatable, e.g. --method GET --method POST)")
@@ -134,6 +148,15 @@ func init() {
 	f.BoolVar(&trafficBurp, "burp", false, "Display in Burp Suite-style format (colored request/response)")
 	f.StringSliceVar(&trafficColumns, "columns", nil, "Columns to show (comma-separated, e.g. HOST,METHOD,PATH,STATUS)")
 	f.StringSliceVar(&trafficExclude, "exclude-columns", nil, "Columns to hide (comma-separated)")
+
+	// Replay flags
+	f.BoolVar(&trafficReplay, "replay", false, "Re-send the matched requests and compare original vs new response (instead of listing)")
+	f.BoolVarP(&trafficAll, "all", "a", false, "List/replay every matched record (ignore the -n/--limit cap); pair with --replay to re-send all stored traffic")
+	f.IntVarP(&trafficReplayConcurrency, "concurrency", "c", 10, "Concurrent replays (--replay); keep low to avoid overwhelming an intercepting proxy like Burp")
+	f.BoolVar(&trafficReplayBrowser, "with-browser", false, "Replay each URL through a real browser routed via --proxy (--replay), so Burp captures browser-driven traffic")
+	f.BoolVar(&replayInReplace, "in-replace", false, "With --replay: overwrite each stored response with the new replay response")
+	f.DurationVar(&globalTimeout, "timeout", 15*time.Second, "Per-request timeout for --replay (e.g. 30s, 1m)")
+
 	tui.AddFlags(trafficCmd, &trafficTUI, &trafficNoTUI)
 }
 
@@ -157,6 +180,12 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 		default:
 			fuzzyTerm = args[0]
 		}
+	}
+
+	// --replay re-sends matched records instead of listing them. Run it
+	// directly (not under --watch, which would re-fire the traffic each tick).
+	if trafficReplay {
+		return runTrafficReplayFlow(context.Background(), db, fuzzyTerm)
 	}
 
 	return runWithWatch(func() error {
@@ -223,6 +252,12 @@ func buildTrafficFilters(fuzzyTerm string) (database.QueryFilters, error) {
 		return database.QueryFilters{}, err
 	}
 
+	// --all lifts the cap: a zero Limit means "no LIMIT clause" in the query.
+	limit := trafficLimit
+	if trafficAll {
+		limit = 0
+	}
+
 	return database.QueryFilters{
 		ProjectUUID:  projectUUID,
 		HostPattern:  trafficHost,
@@ -236,7 +271,7 @@ func buildTrafficFilters(fuzzyTerm string) (database.QueryFilters, error) {
 		SearchTerm:   trafficSearch,
 		HeaderSearch: trafficHeader,
 		BodySearch:   trafficBody,
-		Limit:        trafficLimit,
+		Limit:        limit,
 		Offset:       trafficOffset,
 		SortBy:       trafficSort,
 		SortAsc:      trafficAsc,

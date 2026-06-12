@@ -9,24 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for Laravel-specific sensitive files not covered by generic file discovery
-modules: PHPUnit configuration (phpunit.xml), exposed SQLite databases, storage
-framework internals (sessions, views, cache), vendor PHPUnit eval-stdin.php
-(CVE-2017-9841), and wrong document root indicators (artisan, server.php,
-routes/web.php, config/app.php, bootstrap/app.php).
+	ModuleDesc = `**What it means:** A Laravel-specific sensitive file or directory is reachable over the web that should never be served. Depending on which path matched, this ranges from leaked configuration and dependency versions to a downloadable application database, listable session storage, exposed framework source, or a serving-from-project-root misconfiguration where PHP source and secrets sit outside the intended public/ directory.
 
-## Notes
-- Runs once per host to avoid redundant probing
-- Complements the generic sensitive_file_discovery and php_composer_exposure modules
-- Validates responses with content markers and anti-markers to reduce false positives
-- Fingerprints 404 responses to detect custom error pages
-- Wrong document root detection is critical severity
+**How it's exploited:** An attacker downloads the disclosed asset directly: a SQLite database file dumps all application data, a listable sessions directory enables session hijacking, exposed routes/config/bootstrap source reveals secrets and attack surface, and an accessible vendor PHPUnit eval-stdin.php is a remote-code-execution candidate under CVE-2017-9841. PHPUnit and composer installed.json files reveal exact dependency versions for precise CVE targeting.
 
-## References
-- https://laravel.com/docs/structure
-- https://nvd.nist.gov/vuln/detail/CVE-2017-9841
-- https://owasp.org/www-project-web-security-testing-guide/`
+**Fix:** Serve only the public/ directory as the web root and block direct access to artisan, storage/, database files, vendor/, and config/route source via server rules.`
 
 	ModuleConfirmation = "Confirmed when probed Laravel file paths return 200 with expected content markers"
 	ModuleSeverity     = severity.High

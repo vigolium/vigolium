@@ -9,30 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects Server-Side Request Forgery sinks that accept a URL containing embedded CR-LF sequences,
-which Orange Tsai's "A New Era of SSRF" showed can smuggle a second protocol (Redis, SMTP,
-Memcached, gopher) over the fetcher's outbound connection. The module injects URLs whose host is
-an OAST callback and whose path carries CR-LF + protocol commands; an OAST hit proves the server
-fetched the CRLF-laden URL.
+	ModuleDesc = `**What it means:** A URL-accepting parameter drives a server-side fetch that follows a supplied URL containing embedded CR-LF sequences and cross-protocol commands. This is a Server-Side Request Forgery (SSRF) sink that can smuggle a second protocol over the fetcher's outbound connection, letting an attacker make the server talk to internal services it should never reach.
 
-## Notes
-- Sibling of ssrf-blind: that module sends plain OAST URLs; this one sends CRLF/cross-protocol
-  smuggling payloads (Redis SLAVEOF, SMTP HELO, Memcached stats, gopher) and non-HTTP schemes,
-  which some SSRF sinks require and which prove a smuggling-capable sink.
-- DETECTABILITY LIMITATION: stock interactsh observes DNS and HTTP callbacks, not raw TCP/SMTP.
-  An OAST hit therefore confirms the server fetched the CRLF URL (and reached the attacker host),
-  but full confirmation that the smuggled protocol commands were honored requires a raw-capture
-  OAST listener. Findings are reported at High; treat a confirmed smuggle (raw capture) as Critical.
-- Requires an interactsh server; a no-op when OAST is disabled.
-- Targets parameters whose name or value suggests URL input.
-- Findings arrive asynchronously via the OAST polling callback; the smuggling variant rides in the
-  callback's injection-type for attribution.
-- OWASP Top 10 2021: A10 (SSRF).
+**How it's exploited:** The scanner injected URLs pointing at an out-of-band (OAST) host whose path carried CR-LF plus Redis, SMTP, Memcached, gopher, or unicode-CRLF protocol commands, and the server connected back, proving it fetched the CRLF-laden URL. A real attacker swaps the OAST host for an internal address to issue commands to back-end services (cache poisoning, queue/mail injection, internal data access). Note: the OAST callback confirms the fetch reached the attacker host; fully verifying the smuggled commands were honored needs a raw-capture listener.
 
-## References
-- https://www.blackhat.com/docs/us-17/thursday/us-17-Tsai-A-New-Era-Of-SSRF-Exploiting-URL-Parser-In-Trending-Programming-Languages.pdf
-- https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/`
+**Fix:** Reject CR, LF, and non-HTTP schemes in fetched URLs, enforce a strict allowlist of hosts and protocols, and resolve and pin the target before connecting.`
 
 	ModuleConfirmation = "Confirmed when the target makes an outbound request (OAST callback) to a URL carrying embedded CR-LF and cross-protocol commands; smuggling of the embedded protocol requires raw-capture OAST to fully verify"
 	ModuleSeverity     = severity.High

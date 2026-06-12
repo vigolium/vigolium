@@ -9,38 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects routing/SSRF filter bypasses where adding a WebSocket-style upgrade
-handshake (` + "`Connection: Upgrade`" + ` + ` + "`Upgrade: websocket`" + ` + ` + "`Sec-WebSocket-*`" + `)
-causes a reverse proxy to forward a request to an internal backend it would
-otherwise refuse — e.g. reaching the cloud metadata endpoint:
+	ModuleDesc = `**What it means:** A reverse proxy or gateway in front of the application can be tricked into forwarding a request to an internal-only backend when the request carries a WebSocket-style upgrade handshake (Connection: Upgrade plus Upgrade: websocket and Sec-WebSocket-* headers). This is a Server-Side Request Forgery (SSRF) filter bypass: the upgrade handshake makes the proxy route traffic it would normally refuse, reaching addresses the attacker should never be able to touch.
 
-` + "```" + `
-GET http://169.254.169.254/latest/meta-data/ HTTP/1.1
-Host: localhost
-Connection: Upgrade
-Upgrade: websocket
-Sec-WebSocket-Version: 13
-Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
-` + "```" + `
+**How it's exploited:** An attacker sends a request with an absolute-form request line pointing at an internal target (for example the cloud metadata service at 169.254.169.254 or other private hosts) together with the upgrade headers. The same request without those headers is rejected, proving the handshake is the bypass. This lets the attacker read internal services or steal cloud instance credentials and metadata, often leading to full account or infrastructure compromise.
 
-This is a sibling of routing-ssrf, distinguished by its confirmation: a finding is
-raised ONLY when the internal marker appears WITH the upgrade headers but is ABSENT
-when the very same request is sent WITHOUT them. That differential proves the
-upgrade handshake itself is the bypass — and avoids double-reporting a plain
-request-line routing SSRF (which routing-ssrf already covers, with the marker
-present in both cases).
-
-## Notes
-- Not part of the original "Cracking the lens" research; it targets the separate
-  Upgrade/H2C smuggling class. Detection-only; once per host (heavy).
-- Confirmation: marker present with-upgrade, absent without-upgrade, reproduces,
-  and the response is not a WAF/block page. Drop-on-fail.
-- OWASP Top 10 2021: A10 (SSRF)
-
-## References
-- https://portswigger.net/research/cracking-the-lens-targeting-https-hidden-attack-surface
-- https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/`
+**Fix:** Reject or strip Upgrade/Connection handshake headers on non-WebSocket routes, validate the request-line target after upgrade parsing, and block proxy egress to internal and link-local address ranges.`
 
 	ModuleConfirmation = "Confirmed when an internal/metadata marker appears only with the WebSocket upgrade headers present (absent without them), reproduces, and the response is not a block page."
 	ModuleSeverity     = severity.High

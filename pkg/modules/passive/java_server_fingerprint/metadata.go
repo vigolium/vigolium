@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies Java application servers (Apache Tomcat, Eclipse Jetty,
-JBoss) via the Server header and the JSESSIONID session cookie. Complements
-the Spring fingerprint by catching non-Spring Java deployments — raw
-servlets, JSP apps, Struts, etc.
+	ModuleDesc = `**What it means:** The application's responses reveal that it runs on a Java application server (Apache Tomcat, Eclipse Jetty, JBoss, or a generic Servlet container), identified passively from the Server header, an X-Powered-By: Servlet header, or a JSESSIONID session cookie. This is an informational technology-fingerprint finding, not a vulnerability by itself, but disclosing the backend platform narrows the attack surface for an attacker.
 
-## Signals
-- Server header containing "tomcat", "jetty", or "jboss"
-- Set-Cookie: JSESSIONID=
-- X-Powered-By: Servlet/<version>
+**How it's exploited:** Knowing the target is a specific Java app server lets an attacker focus reconnaissance and select platform-specific exploits and known CVEs (for example Tomcat manager or AJP weaknesses, JBoss deserialization, or default management consoles), probe for default paths and admin endpoints, and tailor payloads instead of guessing the stack blindly.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Deduplicates by host
-- Publishes "java" plus the specific server tag (e.g. "tomcat") to the tech registry`
+**Fix:** Suppress or genericize version-revealing headers (Server, X-Powered-By) and avoid leaking the framework in cookie names where feasible, so the underlying server software is not advertised to unauthenticated clients.`
 
 	ModuleConfirmation = "Confirmed when a Java app-server header or JSESSIONID cookie is observed"
 	ModuleSeverity     = severity.Info

@@ -90,7 +90,7 @@ node "$REPO_ROOT/bin/cli.mjs" add "$PAYLOAD" -y
 The executed evidence shows that the CLI accepted the direct source, attempted to clone it, and native git executed the helper before the clone failed:
 
 ```text
-[+] Native git ext helper executed; impact marker: uid=501(bytedance) gid=20(staff) groups=20(staff),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae),701(com.apple.sharepoint.group.1)
+[+] Native git ext helper executed; impact marker: uid=501(acme) gid=20(staff) groups=20(staff),12(everyone),61(localaccounts),79(_appserverusr),80(admin),81(_appserveradm),33(_appstore),98(_lpadmin),100(_lpoperator),204(_developer),250(_analyticsusers),395(com.apple.access_ftp),398(com.apple.access_screensharing),399(com.apple.access_ssh),400(com.apple.access_remote_ae),701(com.apple.sharepoint.group.1)
 {"status": "confirmed", "evidence": "git ext helper wrote process identity to evidence/impact.log", "notes": "real skills CLI accepted a direct ext:: git source and native git executed sh -c before clone failure"}
 ```
 

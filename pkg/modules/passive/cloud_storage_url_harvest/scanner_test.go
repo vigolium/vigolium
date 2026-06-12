@@ -23,7 +23,7 @@ func (f *fakeFeeder) Feed(rr *httpmsg.HttpRequestResponse) bool {
 func TestHarvestsAndFeeds(t *testing.T) {
 	t.Parallel()
 	body := `<html><body>
-	<img src="https://lf-creative-factory.tiktokcdn.com/obj/eden-sg/fyvajhm_lcpahlyj">
+	<img src="https://lf-creative-factory.cdn.acme.com/obj/eden-sg/fyvajhm_lcpahlyj">
 	<a href="https://storage.googleapis.com/my-bucket/path/file.json">x</a>
 	</body></html>`
 	rr := modtest.Response(modtest.Request(t, "https://app.example.com/page"), "text/html", body)

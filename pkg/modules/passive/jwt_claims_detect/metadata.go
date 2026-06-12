@@ -9,20 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively analyzes JWT tokens found in request headers, cookies, and response bodies
-for security misconfigurations such as algorithm:none, missing expiration, long-lived
-tokens, and privileged claims.
+	ModuleDesc = `**What it means:** A JSON Web Token observed in this traffic (in an Authorization Bearer header, a cookie, or a response body) carries claim or header settings that weaken its security. The scanner decodes the header and payload without verifying the signature and flags issues such as alg=none (no signature verification), a missing exp claim (token never expires), a long-lived token (lifetime over 24 hours), missing iss or aud claims, or privileged claims like admin=true, is_admin=true, or an admin/superuser role.
 
-## Notes
-- Extracts JWTs from Authorization Bearer headers, cookies, and response bodies
-- Decodes header and payload without verifying signatures
-- Checks for alg:none, missing exp/iss/aud, long-lived tokens, and admin claims
-- Does not send additional requests
+**How it's exploited:** With alg=none an attacker can forge a valid token by stripping the signature, and embedded privileged claims reveal which fields to tamper with to escalate to admin. Missing or overly long expiration means a stolen token stays usable indefinitely, and missing iss/aud lets a token meant for one service be replayed against another.
 
-## References
-- https://portswigger.net/web-security/jwt
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/06-Session_Management_Testing/10-Testing_JSON_Web_Tokens`
+**Fix:** Require a strong signature algorithm and reject alg=none, set short exp lifetimes, validate iss and aud on every request, and derive privilege from server-side state rather than trusting client-held claims.`
 
 	ModuleConfirmation = "Confirmed when JWT claims contain security misconfigurations"
 	ModuleSeverity     = severity.Medium

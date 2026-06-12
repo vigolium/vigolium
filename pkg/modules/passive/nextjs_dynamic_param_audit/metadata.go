@@ -9,26 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Scans JavaScript and TypeScript response bodies for Next.js pages and route handlers
-that use dynamic route params or searchParams directly in database queries, authorization
-decisions, or sensitive operations without runtime validation. Dynamic route segments
-([param]) and searchParams are user-controlled strings that must be validated before
-use in security-sensitive contexts.
+	ModuleDesc = `**What it means:** This finding flags Next.js page or route-handler source served in a JavaScript/TypeScript response that consumes user-controlled dynamic route params or URL searchParams directly in a database query, SQL string, authorization decision, or redirect target, with no schema validation, type coercion, or sanitization applied first. It is a static source-pattern observation, not a confirmed exploit, so it is reported as a Medium-severity lead for manual review.
 
-## Notes
-- Passive only - does not send any HTTP requests
-- Detects params.id, params.slug, searchParams.* used directly in DB queries
-- Detects searchParams used in authorization decisions (isAdmin, role, etc.)
-- Flags when no schema validation is applied before use
-- Deduplicates by host+path
-- CWE-20: Improper Input Validation
+**How it's exploited:** Because the input is fully attacker-controlled, the unguarded usage points to a likely vulnerability at that sink: params flowing into a query enable SQL or NoSQL injection, searchParams used in auth checks (isAdmin, role, token) allow client-controlled privilege escalation, and searchParams used as a redirect target enable open redirect. A reviewer would trace the flagged sink to confirm and weaponize it.
 
-## References
-- https://nextjs.org/docs/app/building-your-application/routing/dynamic-routes
-- https://nextjs.org/blog/security-nextjs-server-components-actions
-- https://cwe.mitre.org/data/definitions/20.html
-- https://cwe.mitre.org/data/definitions/89.html`
+**Fix:** Validate and coerce every dynamic param and searchParam (for example with a Zod schema, parseInt, or a UUID parser) before using it in queries, authorization logic, or redirects.`
 
 	ModuleConfirmation = "Confirmed when dynamic params or searchParams are used directly in sensitive operations without validation"
 	ModuleSeverity     = severity.Medium

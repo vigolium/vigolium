@@ -9,25 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Scans JavaScript and TypeScript response bodies for Next.js caching and static
-generation patterns that may inadvertently leak authenticated or user-specific data.
-Static pages (getStaticProps, force-static) are generated at build time and served
-to all users, so including session-dependent data causes cross-user data leakage.
-Similarly, unstable_cache without user-scoped keys or server fetches without
-cache: "no-store" may serve stale authenticated responses to different users.
-
-## Notes
-- Passive only - does not send any HTTP requests
-- Detects: getStaticProps with auth, force-static with auth, unstable_cache without user key
-- Also detects server component fetches with auth headers but without no-store/revalidate:0
-- CWE-524: Use of Cache That Contains Sensitive Information
-- Deduplicates by host+path
-
-## References
-- https://nextjs.org/docs/app/building-your-application/caching
-- https://nextjs.org/docs/app/building-your-application/data-fetching
-- https://cwe.mitre.org/data/definitions/524.html`
+	ModuleDesc = `**What it means:** This passively inspects served JavaScript/TypeScript bundles for Next.js caching and static-generation code paths that mix per-user, authenticated data with a shared cache. It flags four patterns: getStaticProps that reads session/cookies/auth, a force-static page that imports auth utilities, unstable_cache called without a userId/sessionId key while touching auth data, and a server-component fetch carrying Authorization/cookies without cache no-store or revalidate 0. Because the result is built once and reused for everyone, one user's session-scoped data can be served to other visitors (CWE-524).
+**How it's exploited:** An unauthenticated or different user simply requests the cached page or route and receives another user's personalized or authenticated content (profile, tokens, account details), enabling cross-user information disclosure without any crafted attack. This is a source-pattern indicator and should be confirmed by observing leaked data between sessions.
+**Fix:** Mark routes that depend on session data as dynamic and uncacheable (force-dynamic, cache no-store, revalidate 0), and scope any cache key to the authenticated user.`
 
 	ModuleConfirmation = "Confirmed when static generation or caching patterns are used alongside authentication-scoped data fetching"
 	ModuleSeverity     = severity.Medium

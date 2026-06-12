@@ -9,29 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests for Drupal user enumeration through two vectors:
-1. User profile paths: /user/1 through /user/5, checking for redirects to /users/<username> or a Drupal-rendered 200 profile page whose title leaks the username
-2. JSON:API user listing: /jsonapi/user/user returns user objects anonymously
+	ModuleDesc = `**What it means:** This Drupal site lets an unauthenticated visitor enumerate valid account usernames. The scanner confirmed leakage either through numeric profile paths (/user/1 through /user/5 redirecting to /users/<username> or rendering a Drupal profile page whose title shows the username) or through the JSON:API endpoint /jsonapi/user/user returning user objects to anonymous requests. Knowing real usernames is a security problem because it removes the guesswork from account-takeover attacks.
 
-Enumerated usernames can be used for password brute-force attacks.
+**How it's exploited:** An attacker harvests the confirmed usernames and feeds them into credential-stuffing, password-spraying, or targeted brute-force attacks against the login form, and uses leaked profile metadata for phishing or social engineering. The JSON:API listing can also expose additional account fields and the membership roster, widening the attack surface.
 
-## False-positive controls
-- Block gate: WAF/CDN challenge, auth-gate (401/403), rate-limit (429), and maintenance (503) responses are skipped before any extraction (an SSO wall or CloudFront error page is the edge talking, not the application leaking a profile).
-- Baseline control: a UID far beyond any real account is probed first; any real /user/N yielding the same candidate is reading the site's generic unknown-user page, not a leak, and is dropped.
-- Uniformity guard: genuine enumeration leaks a distinct username per UID, so 2+ UIDs collapsing to a single value are rejected.
-- Title corroboration: the 200/title vector is trusted only when the response is recognisably Drupal (X-Generator/X-Drupal-* headers or Drupal body markers) and the title is not a generic error/auth/status title (e.g. "404 Not Found", "Access denied").
-- Reserved routes: redirects to Drupal's own /user/<login|logout|register|password|reset|edit|cancel> are not treated as usernames.
-
-## Notes
-- Runs once per host
-- Tests user IDs 1 through 5 plus a baseline control UID
-- Checks JSON:API endpoint for anonymous user data access
-- Non-destructive: only performs GET requests
-
-## References
-- https://www.drupal.org/docs/security-in-drupal
-- https://www.drupal.org/docs/core-modules-and-themes/core-modules/jsonapi-module`
+**Fix:** Restrict anonymous access to user profiles and the JSON:API user resource (require authentication or disable the JSON:API module if unused), and avoid exposing usernames in profile URLs and page titles.`
 
 	ModuleConfirmation = "Confirmed when /user/N profile paths leak distinct usernames (via /users/<name> redirect or a Drupal-corroborated 200 profile title that differs from the unknown-user baseline) or JSON:API returns user objects"
 	ModuleSeverity     = severity.Medium

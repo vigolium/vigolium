@@ -49,7 +49,7 @@ func (m *ModernAppMatcher) Tag() Tag {
 // Match returns true if modern framework patterns found in HTML response.
 func (m *ModernAppMatcher) Match(input *MatchInput) bool {
 	// Only match valid paths (no extension or ends with /)
-	if !isValidModernAppPath(input.RequestPath) {
+	if !IsValidModernAppPath(input.RequestPath) {
 		return false
 	}
 
@@ -73,10 +73,10 @@ func (m *ModernAppMatcher) Match(input *MatchInput) bool {
 	return false
 }
 
-// isValidModernAppPath returns true if path is valid for modern app detection.
+// IsValidModernAppPath returns true if path is valid for modern app detection.
 // Valid paths: "/", "", "/app", "/app/", "/dashboard/settings"
 // Invalid paths: "/app.js", "/api.php", "/file.html"
-func isValidModernAppPath(path string) bool {
+func IsValidModernAppPath(path string) bool {
 	// Root path or empty
 	if path == "/" || path == "" {
 		return true

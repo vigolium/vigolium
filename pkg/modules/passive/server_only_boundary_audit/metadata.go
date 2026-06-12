@@ -9,25 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Scans client-side JavaScript bundles for evidence that server-only code has leaked
-into the browser. Server-side modules (database clients, internal API helpers, crypto
-operations, environment secrets) should use the 'server-only' package to enforce the
-boundary. When this guard is missing, Next.js may accidentally bundle server code into
-the client, exposing proprietary logic, internal endpoints, and potentially credentials.
-
-## Notes
-- Passive only - does not send any HTTP requests
-- Scans JS response bodies under /_next/static/ paths
-- Detects server-side module identifiers in client bundles (prisma, drizzle, knex, etc.)
-- Detects internal API endpoint patterns (localhost, 127.0.0.1, internal service URLs)
-- Detects server crypto/auth module usage (bcrypt, jsonwebtoken, jose)
-- Deduplicates by host+path
-
-## References
-- https://nextjs.org/docs/app/building-your-application/rendering/composition-patterns#keeping-server-only-code-out-of-the-client-environment
-- https://cwe.mitre.org/data/definitions/200.html
-- https://cwe.mitre.org/data/definitions/540.html`
+	ModuleDesc = `**What it means:** A Next.js client-side JavaScript bundle (served under /_next/static/) contains code meant to run only on the server, such as a database client (Prisma, Drizzle, Knex/Sequelize), a server crypto or JWT library (bcrypt, jose, jsonwebtoken), Node core modules (fs, path, child_process), an internal service URL, or a database connection string with embedded credentials. This indicates the server/client boundary was not enforced and internal implementation detail has shipped to every visitor's browser.
+**How it's exploited:** Anyone loading the page can read the bundle, mapping internal endpoints, database schemas, ORM queries, and auth logic to plan targeted attacks; a leaked connection string or signing key can be used directly to reach the database or forge tokens. Findings are Tentative because minified vendor bundles carry these identifiers incidentally, so two distinct signals (or a credentialed connection string) are required.
+**Fix:** Wrap server-only modules with the server-only package and keep secrets, database clients, and internal URLs out of any code imported by client components.`
 
 	ModuleConfirmation = "Confirmed when client-side JavaScript bundles contain server-only module identifiers or internal service references"
 	ModuleSeverity     = severity.Medium

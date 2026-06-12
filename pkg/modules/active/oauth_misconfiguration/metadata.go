@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects common OAuth and OpenID Connect misconfigurations that can lead to account
-takeover or authorization bypass. Tests for redirect_uri manipulation, missing CSRF
-state parameter, and response_type downgrade to implicit flow.
+	ModuleDesc = `**What it means:** An OAuth/OpenID Connect authorization endpoint accepts requests it should reject. This module probes detected OAuth endpoints for three weaknesses: a redirect_uri that can be pointed at an attacker host, an authorization request missing the CSRF state parameter, and a response_type that downgrades from code to the less safe implicit (token) flow. Each weakens the protections stopping one user's login from being hijacked.
 
-## Notes
-- Runs once per unique host+path combination via DiskSet dedup
-- Only activates on detected OAuth/OIDC endpoints (path and parameter heuristics)
-- Tests redirect_uri with multiple bypass techniques (direct replacement, subdomain confusion, path traversal)
-- Checks for missing state parameter (CSRF protection)
-- Tests response_type downgrade from code to token (implicit flow)
+**How it's exploited:** If redirect_uri manipulation is accepted (confirmed by re-sending a fresh attacker domain and seeing it echoed in the Location header), an attacker crafts a login link that delivers the victim's authorization code or access token to a server they control, enabling account takeover. A missing state parameter lets an attacker CSRF the flow to bind their own account to the victim's session. An accepted token downgrade (confirmed when a junk response_type is still rejected) exposes access tokens in the URL fragment, where they leak via history and referrers.
 
-## References
-- https://portswigger.net/web-security/oauth
-- https://datatracker.ietf.org/doc/html/rfc6749#section-10.6
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/05-Testing_for_OAuth_Weaknesses`
+**Fix:** Exact-match allowlist redirect_uri, require an unguessable state value, and reject any unregistered response_type.`
 
 	ModuleConfirmation = "Confirmed when an OAuth endpoint accepts a manipulated redirect_uri, is missing CSRF state protection, or accepts implicit flow downgrade"
 	ModuleSeverity     = severity.Low

@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests file upload endpoints for unrestricted file upload vulnerabilities by attempting
-to upload files with various bypass techniques. If upload succeeds, attempts to verify
-execution of the uploaded file.
+	ModuleDesc = `**What it means:** The file upload endpoint accepts a dangerous file (such as a PHP script, .htaccess, SVG, or HTML page) and stores it where it can later be retrieved over the web. This is an unrestricted file upload flaw, one of the most damaging web vulnerabilities, because the attacker controls both the file content and its eventual URL.
 
-## Notes
-- Only triggers on multipart/form-data requests with a filename parameter
-- Tests 7 probe types: direct extension, double extension, null byte, case variation, magic bytes, SVG XXE, and HTML XSS
-- Each probe uses a unique marker for verification
-- Reconstructs multipart body preserving non-file fields (CSRF tokens, hidden fields)
-- Early abort if first probe returns 400/403/415 (strict validation)
-- Attempts to verify upload by fetching common upload directories
+**How it's exploited:** An attacker uploads a malicious file using a server-side extension or a bypass trick (double extension, null byte, case variation, JPEG magic-byte prefix, .htaccess, .phtml, .phar, or a traversal filename), then fetches it back from the disclosed path or a common uploads directory and confirms it is served verbatim. Depending on file type this yields remote code execution (PHP/PHAR/.htaccess), stored XSS (HTML), or XXE/SSRF and local file read (SVG), giving full server or account compromise.
 
-## References
-- https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload
-- https://portswigger.net/web-security/file-upload`
+**Fix:** Validate uploads against an allowlist of safe extensions and content types, store files outside the web root or on non-executing storage, randomize stored filenames, and serve them with a non-executable content type.`
 
 	ModuleConfirmation = "Confirmed when an uploaded file is accessible and contains the unique scan marker, indicating arbitrary file upload and potential code execution"
 	ModuleSeverity     = severity.High

@@ -9,25 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Parses Content-Security-Policy headers and evaluates individual directives for
-unsafe configurations that reduce CSP effectiveness. Detects unsafe-inline,
-unsafe-eval, wildcard sources, missing frame-ancestors, missing base-uri
-restriction, overly permissive script-src, and data: or blob: URI schemes
-in sensitive directives.
+	ModuleDesc = `**What it means:** The response sends a Content-Security-Policy header, but parsing its directives shows configurations that weaken the protection CSP is meant to provide. This module passively flags specific weak directives on HTML responses: unsafe-inline or unsafe-eval in the script source, a wildcard or data:/blob: scheme allowed for scripts, a missing frame-ancestors directive, a missing base-uri restriction, and an object-src that is not locked to 'none'. A flawed CSP gives a false sense of safety because it does not actually contain the attacks it appears to block.
 
-## Notes
-- Passive only - does not send any HTTP requests
-- Only processes HTML responses (text/html content type)
-- Parses actual CSP header values, not just presence/absence
-- Each weakness emits a separate finding with the problematic directive
-- Deduplicates by host
-- Complements security_headers_missing which only checks for header presence
+**How it's exploited:** Each weakness reduces the policy's value against real attacks. unsafe-inline, unsafe-eval, wildcard, or data:/blob: script sources let injected payloads run despite CSP, so an XSS bug stays exploitable. A missing frame-ancestors directive permits clickjacking via framing, and an unrestricted base-uri lets a base tag hijack relative resource and form URLs. A permissive object-src can load dangerous plugin content.
 
-## References
-- https://cwe.mitre.org/data/definitions/693.html
-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
-- https://csp-evaluator.withgoogle.com/`
+**Fix:** Tighten the policy by removing unsafe-inline/unsafe-eval and wildcard/data:/blob: script sources, and set frame-ancestors, base-uri, and object-src to 'none' or trusted values.`
 
 	ModuleConfirmation = "Confirmed when CSP header contains directives that significantly weaken its protection"
 	ModuleSeverity     = severity.Low

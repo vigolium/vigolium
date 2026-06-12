@@ -40,7 +40,6 @@ var cdnDomains = []string{
 	"cdn.bootcss.com",
 	"lib.baomitu.com",
 	"cdn.staticfile.org",
-	"cdn.bytedance.com",
 	"lf1-cdn-tos.bytegoofy.com",
 	"lf3-cdn-tos.bytescm.com",
 	"lf6-cdn-tos.bytecdntp.com",

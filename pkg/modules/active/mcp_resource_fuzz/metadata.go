@@ -9,29 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Enumerates MCP resources and resource-template URIs (` + "`resources/list`" + ` and
-` + "`resources/templates/list`" + `) and exercises ` + "`resources/read`" + ` with
-classic LFI / SSRF / path-traversal payloads. The MCP spec leaves the URI
-schemes a server is willing to dereference unspecified, so misconfigured
-servers happily read ` + "`file:///etc/passwd`" + `, ` + "`http://169.254.169.254/`" + `,
-or ` + "`gopher://`" + ` URIs.
+	ModuleDesc = `**What it means:** This Model Context Protocol (MCP) server lets a client control which URI its resources/read operation dereferences, and it fails to restrict the scheme or path. The scanner confirmed it will read attacker-chosen targets such as local files (file:///etc/passwd, path traversal) or arbitrary network URLs. This is a server-side file-read and request-forgery flaw that exposes data the server can reach but the caller should not.
 
-## How it works
-1. Initialize the MCP server.
-2. List resources and resource templates.
-3. For each resource template, substitute placeholders with the payload (or
-   send the payload as a bare URI when no template is available).
-4. Detect LFI by file-content markers in the result text and SSRF via the
-   OAST provider when enabled.
+**How it's exploited:** An attacker (or a prompt-injected AI agent driving the MCP client) supplies a malicious URI to resources/read, reading local files like /etc/passwd or application secrets, or forcing the server to fetch internal/cloud-metadata endpoints (for example 169.254.169.254) to harvest credentials and pivot into the internal network. Confirmation here required real file-content markers absent from the baseline, or an out-of-band OAST callback, so the access is genuine, not a reflection.
 
-## Findings
-- High: file content disclosed via resources/read
-- High: SSRF confirmed via OAST callback
-
-## References
-- https://modelcontextprotocol.io/specification/2025-11-25/server/resources
-- https://github.com/0xJacky/nginx-ui/security/advisories/GHSA-g9w5-qffc-6762`
+**Fix:** Allowlist the URI schemes and paths resources/read may dereference, reject file:// and traversal sequences, and block requests to internal and metadata addresses.`
 
 	ModuleConfirmation = "Confirmed when the resources/read response contains file-content markers absent from the baseline, or when the OAST provider records a callback for an injected URL"
 	ModuleSeverity     = severity.High

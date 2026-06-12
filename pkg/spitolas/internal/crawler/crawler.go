@@ -21,6 +21,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/metrics"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/network"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/state"
+	"github.com/vigolium/vigolium/pkg/spitolas/loginsig"
 )
 
 // Crawler is the main web crawler engine.
@@ -1828,48 +1829,12 @@ func (c *Crawler) landingLooksLikeLogin(page *browser.Page, landing *url.URL) bo
 	return hasPassword
 }
 
-// loginHostPrefixes are subdomain prefixes that conventionally front an
-// authentication endpoint (e.g. login.example.com, sso.example.com).
-var loginHostPrefixes = []string{
-	"login.", "signin.", "sso.", "adfs.", "auth.", "accounts.", "idp.", "sts.",
-}
-
-// loginIDPHosts are registrable hosts of common identity providers. Matched
-// exactly or as a parent suffix (e.g. tenant.okta.com matches okta.com).
-var loginIDPHosts = []string{
-	"login.microsoftonline.com", "login.live.com", "login.windows.net",
-	"accounts.google.com", "okta.com", "auth0.com", "onelogin.com",
-	"pingidentity.com", "login.salesforce.com", "fs.gov",
-}
-
-// loginPathMarkers are substrings of an authentication URL's path/query.
-var loginPathMarkers = []string{
-	"/oauth2/authorize", "/oauth/authorize", "/connect/authorize",
-	"/adfs/", "/saml", "/signin", "/login", "/openid", "/sso",
-	"response_type=code", "response_type=token",
-}
-
 // looksLikeLoginURL reports whether u points at an authentication endpoint,
-// based on its host and path/query alone (no page load required).
+// based on its host and path/query alone (no page load required). The
+// signature tables live in pkg/spitolas/loginsig so other phases (e.g. the
+// targeted re-spider candidate screen) share one source of truth.
 func looksLikeLoginURL(u *url.URL) bool {
-	host := strings.ToLower(u.Hostname())
-	for _, p := range loginHostPrefixes {
-		if strings.HasPrefix(host, p) {
-			return true
-		}
-	}
-	for _, idp := range loginIDPHosts {
-		if host == idp || strings.HasSuffix(host, "."+idp) {
-			return true
-		}
-	}
-	pathQ := strings.ToLower(u.Path + "?" + u.RawQuery)
-	for _, m := range loginPathMarkers {
-		if strings.Contains(pathQ, m) {
-			return true
-		}
-	}
-	return false
+	return loginsig.LooksLikeLoginURL(u)
 }
 
 // visitAnchorHref navigates directly to an anchor's href URL.

@@ -9,20 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for common Rails ecosystem admin panels and background job dashboards that are
-frequently mounted at predictable paths. Checks for Sidekiq, GoodJob, Resque, Delayed Job,
-rack-mini-profiler, ActiveAdmin, and RailsAdmin.
+	ModuleDesc = `**What it means:** A Rails ecosystem admin panel or background-job dashboard is reachable at a predictable path and returned a working page (HTTP 200 with framework-specific UI markers), not a login screen or error. The module probes Sidekiq, GoodJob, Resque, Delayed Job, rack-mini-profiler, ActiveAdmin, and RailsAdmin, and uses a random-path 404 fingerprint plus anti-markers to avoid false positives. These interfaces are meant for internal operators and often ship without authentication.
 
-## Notes
-- Sends GET requests to known Rails dashboard paths
-- Checks for framework-specific content markers in response bodies
-- Reports both unauthenticated and auth-gated dashboards
-- Fingerprints 404 responses to avoid false positives
+**How it's exploited:** An attacker browses directly to the exposed dashboard and reads or manipulates whatever it surfaces: job queues, retry data, and sensitive job arguments (Sidekiq/GoodJob/Resque/Delayed Job), SQL queries and timing traces (rack-mini-profiler), or full administrative CRUD over application records (ActiveAdmin/RailsAdmin). This can leak internal data and, for the admin panels, allow privileged changes to application state.
 
-## References
-- https://github.com/sidekiq/sidekiq/wiki/Monitoring
-- https://owasp.org/www-project-web-security-testing-guide/`
+**Fix:** Require authentication and authorization on every dashboard/admin mount, or disable the interface in production.`
 
 	ModuleConfirmation = "Confirmed when Rails dashboard endpoints return responses containing framework-specific UI markers"
 	ModuleSeverity     = severity.High

@@ -9,20 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects API rate limiting that can be bypassed using IP spoofing headers such as
-X-Forwarded-For, X-Real-IP, and similar headers. First triggers rate limiting by
-sending rapid requests, then tests whether bypass headers circumvent the limit.
+	ModuleDesc = `**What it means:** The endpoint enforces rate limiting (it returns HTTP 429 after a burst of requests) but that limit is keyed on a client-supplied IP header rather than the true connection source. Sending a spoofed IP header such as X-Forwarded-For or X-Real-IP makes the server treat each request as a brand-new client, so the protection can be defeated at will.
 
-## Notes
-- Runs once per host with internal deduplication
-- Sends up to 10 rapid requests to trigger rate limiting
-- Tests 8 different IP spoofing header variations
-- Only reports when rate limiting is confirmed then bypassed
+**How it's exploited:** An attacker rotates a forged IP header on every request to reset the per-client counter and send unlimited traffic, neutralizing throttling that was meant to stop credential stuffing, brute force, OTP/token guessing, scraping, and resource-exhaustion abuse against the API. The scanner confirms this with a differential check: a plain request stays 429 while the same request carrying the spoofed header succeeds again.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/04-Authentication_Testing/04-Testing_for_Bypassing_Authentication_Schema
-- https://portswigger.net/web-security/authentication/password-based`
+**Fix:** Derive the rate-limit client identity from the trusted connection source or an authenticated identity, and only honor forwarding headers from known, trusted proxies.`
 
 	ModuleConfirmation = "Confirmed when the server enforces rate limiting (429 response) but accepts requests with IP spoofing headers, indicating bypassable rate limiting"
 	ModuleSeverity     = severity.Medium

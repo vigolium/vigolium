@@ -9,26 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Some applications stuff sensitive material - encryption keys, IVs, API
-tokens, signed-URL parameters - into custom response headers. Header-based
-disclosure is easy to miss in body-focused secret scanning. The nginx-ui
-GHSA-g9w5-qffc-6762 vulnerability is the canonical example: the ` + "`/api/backup`" + `
-endpoint disclosed the AES-256 ` + "`key:iv`" + ` pair in an ` + "`X-Backup-Security`" + `
-response header alongside the encrypted backup body.
+	ModuleDesc = `**What it means:** A custom HTTP response header is disclosing a value that looks like a secret: a recognized credential token (AWS access key, Google API key, GitHub token, Slack token, JWT, Stripe secret key), a base64 key:iv pair like the nginx-ui X-Backup-Security backup-encryption leak, or a high-entropy string carried in a suspiciously named header (one containing key, secret, token, auth, signature, hmac, session, credential, and similar). Because secret scanning usually focuses on response bodies, secrets in headers are easy to overlook, yet they are returned to every client that receives the response.
 
-This module flags response headers whose names or values match well-known
-sensitive patterns:
+**How it's exploited:** Anyone who can read the response, including a passive network observer, cached copy, or proxy log, harvests the leaked credential and replays it to authenticate as the application, decrypt protected data, or call the associated cloud or third-party API directly. The leaked material can grant the same access the application itself holds.
 
-- known sensitive header name list (` + "`X-Backup-Security`" + `, ` + "`X-AWS-*-Token`" + `,
-  ` + "`X-Auth-Token`" + `, ` + "`Set-Cookie`" + ` containing ` + "`secret=`" + ` etc.)
-- ` + "`base64:base64`" + ` shaped values (typical of ` + "`key:iv`" + ` disclosure)
-- AKIA / AIza / ghp_ / xoxb_ etc. token prefixes
-- high Shannon entropy in suspect header names (potential keys / signatures)
-
-## References
-- https://github.com/0xJacky/nginx-ui/security/advisories/GHSA-g9w5-qffc-6762
-- CWE-200 Information Exposure`
+**Fix:** Remove secrets, keys, and tokens from response headers and rotate any value that has already been exposed.`
 
 	ModuleConfirmation = "Confirmed when a non-standard response header carries a value matching known sensitive token formats or a high-entropy key-shaped string"
 	ModuleSeverity     = severity.Medium

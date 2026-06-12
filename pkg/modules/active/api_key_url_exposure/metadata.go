@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects API keys and authentication tokens that continue to work when moved from
-HTTP headers to URL query parameters. API keys in URLs are logged in access logs,
-browser history, referrer headers, and proxy logs, significantly increasing the
-risk of credential exposure.
+	ModuleDesc = `**What it means:** The server accepts an authentication credential (an API key or token from a header such as Authorization, X-API-Key, or X-Auth-Token) when it is supplied instead as a URL query parameter like ?access_token= or ?api_key=. This is a problem because credentials placed in URLs are not meant to be there: URLs are routinely recorded in places that headers are not.
 
-## Notes
-- Tests once per unique host+path combination
-- Checks common auth headers: Authorization, X-API-Key, X-Auth-Token, etc.
-- Only tests the first matching auth header per request
-- Reports when response with URL parameter matches original 2xx status
+**How it's exploited:** Because the request still succeeds with the key in the URL, that key gets written to server access logs, browser history, referrer headers sent to third-party sites, CDN and proxy logs, and shared or bookmarked links. Anyone who can read any of those locations recovers a working credential and can replay it to access the API as the victim, with no need to break authentication directly.
 
-## References
-- https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/
-- https://cwe.mitre.org/data/definitions/598.html`
+**Fix:** Accept credentials only from the Authorization header or a request body, reject or ignore keys passed as URL query parameters, and rotate any key that may already have been logged.`
 
 	ModuleConfirmation = "Confirmed when the server returns a successful response with the API key passed as a URL query parameter instead of in the authorization header"
 	ModuleSeverity     = severity.Medium

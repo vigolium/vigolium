@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for Java/Spring-specific sensitive files not covered by generic file
-discovery modules: application.properties/yml, WEB-INF/web.xml, META-INF
-manifests, Maven/Gradle build files, and backup configuration files that
-are commonly exposed through misconfigured static file serving.
+	ModuleDesc = `**What it means:** A Java or Spring application file that should never be web-reachable is being served directly to anonymous clients. The module confirms this by requesting known paths (WEB-INF/web.xml, META-INF/MANIFEST.MF and the Maven directory, application.properties / application.yml / application.yaml and their prod and dev variants, bootstrap.properties / bootstrap.yml, pom.xml, build.gradle) and only reports when the response is a real 200 whose body carries the file's expected content markers, distinct from the host's 404 fingerprint.
 
-## Notes
-- Runs once per host
-- Checks Java-specific config, deployment, and build artifact paths
-- Validates responses with content markers and anti-markers
-- Fingerprints 404 responses to detect custom error pages
-- Complements the generic sensitive_file_discovery module
+**How it's exploited:** Spring config files commonly leak database credentials, API keys, and internal service URLs, which an attacker reads straight from the response to pivot into back-end systems; web.xml, manifests, and build files disclose servlet mappings, dependency versions, and build internals that let an attacker map the attack surface and target known framework CVEs.
 
-## References
-- https://tomcat.apache.org/tomcat-10.1-doc/security-howto.html
-- https://docs.spring.io/spring-boot/docs/current/reference/html/application-properties.html`
+**Fix:** Block all of these paths at the web server or proxy and ensure WEB-INF/META-INF and config files are never placed under a public document root.`
 
 	ModuleConfirmation = "Confirmed when Java-specific sensitive files return expected content markers"
 	ModuleSeverity     = severity.High

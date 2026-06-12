@@ -9,24 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies Express.js and NestJS applications by analyzing HTTP response
-headers, cookies, and error body patterns. Detects X-Powered-By header set to Express,
-NestJS default error shapes in JSON responses, connect.sid session cookie, and Express
-default weak ETag format.
-
-## Notes
-- Passive only: does not send any HTTP requests
-- Detects Express via X-Powered-By header
-- Identifies NestJS by its default JSON error shape (statusCode, message, error)
-- Recognizes connect.sid session cookie as Express session middleware
-- Checks ETag header for Express default weak ETag format (W/"...")
-- Deduplicates by host to avoid redundant processing
-
-## References
-- https://expressjs.com/en/api.html
-- https://docs.nestjs.com/exception-filters
-- https://github.com/expressjs/session`
+	ModuleDesc = `**What it means:** This passive check fingerprints the server as an Express.js or NestJS (Node.js) application from response artifacts: an X-Powered-By: Express header, the default NestJS JSON error shape (statusCode, message, error) on 4xx/5xx responses, a connect.sid session cookie, or Express's default weak ETag format. It is an informational disclosure, not a vulnerability on its own, but unnecessary technology disclosure narrows an attacker's reconnaissance.
+**How it's exploited:** An attacker uses the confirmed framework to focus testing on Express/NestJS-specific weaknesses, look up CVEs and known misconfigurations for the stack, and tailor payloads (for example prototype pollution, middleware bypasses, or session-handling flaws) instead of probing blindly. The connect.sid cookie additionally signals where session state lives.
+**Fix:** Remove or override the X-Powered-By header (app.disable('x-powered-by') or helmet), rename the session cookie, and return generic error responses so the framework is not advertised.`
 
 	ModuleConfirmation = "Confirmed when Express or NestJS-specific headers, cookies, or error body patterns are detected in the response"
 	ModuleSeverity     = severity.Info

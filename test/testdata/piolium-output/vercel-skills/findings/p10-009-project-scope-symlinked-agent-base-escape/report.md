@@ -62,7 +62,7 @@ node "$REPO_ROOT/src/cli.ts" add ./malicious-skill --agent codex --yes
 The setup evidence shows the attacker-controlled repository contains a symlinked `.agents` entry:
 
 ```text
-project_symlink=lrwxr-xr-x 1 bytedance staff 13 May  1 03:43 .agents -> ../../.agents
+project_symlink=lrwxr-xr-x 1 acme staff 13 May  1 03:43 .agents -> ../../.agents
 project_symlink_realpath=/.../evidence/runtime/victim-home/.agents
 git_index_entries:
 120000 0fa2ed144e2fe56ecdecec4551e0a2a0ed012305 0	.agents

@@ -9,24 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Scans JavaScript and TypeScript response bodies for Next.js client components that
-implement authentication guards purely on the client side using useEffect redirects.
-Client-side auth checks can be trivially bypassed by disabling JavaScript or
-manipulating the DOM, leaving protected routes accessible without authentication.
+	ModuleDesc = `**What it means:** A served Next.js client component (marked "use client") enforces authentication only in the browser, redirecting unauthenticated users to a login page from a useEffect hook, with no server-side session check found alongside it. Because the guard runs in client-side JavaScript, it does not actually protect the underlying data or page on the server, so the access control is effectively cosmetic.
 
-## Notes
-- Passive only - does not send any HTTP requests
-- Detects "use client" directive combined with useEffect-based auth redirects
-- Flags when no server-side auth indicators are found alongside client redirects
-- Covers router.push/replace to login/signin/auth and window.location redirects
-- Deduplicates by host+path
-- CWE-862: Missing Authorization
+**How it's exploited:** An attacker disables JavaScript, intercepts and drops the redirect, or simply reads the response before the useEffect fires to view the protected component and any data it embeds. If the page or its API calls rely on this redirect instead of a server-validated session, unauthenticated users can reach content and functionality meant to be restricted.
 
-## References
-- https://nextjs.org/docs/app/building-your-application/authentication
-- https://cwe.mitre.org/data/definitions/862.html
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/02-Testing_for_Bypassing_Authorization_Schema`
+**Fix:** Enforce authentication on the server (validate the session in middleware, a server component, or the route handler) and treat the client-side redirect only as a user-experience hint, not as the security control.`
 
 	ModuleConfirmation = "Confirmed when a client component implements auth redirect via useEffect without server-side auth"
 	ModuleSeverity     = severity.High

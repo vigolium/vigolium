@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for WordPress-specific files and endpoints that should not be publicly
-accessible: configuration backups, debug logs, installer/repair endpoints,
-informational files, directory listings, and the externally triggerable cron.
+	ModuleDesc = `**What it means:** A WordPress site is exposing files and endpoints that should never be publicly reachable. Depending on what is found, the impact ranges from informational version disclosure to full database credential exposure, so individual findings carry their own severity (from Info up to Critical).
 
-## Notes
-- Runs once per host to avoid redundant probing
-- Validates responses with content markers to avoid false positives from WAF block pages
-- Checks backup variants of wp-config.php (~, .old, .save, .swp, .txt)
-- Detects exposed debug.log with PHP error/warning markers
-- Checks directory listing on /wp-content/uploads/ and /wp-content/plugins/
+**How it's exploited:** The most damaging cases are a readable wp-config.php (or its editor backups such as wp-config.php~, .old, .save, .swp, .txt, .bak) and exposed SQL dumps, which hand an attacker database credentials, secret auth salts, and potentially the entire user table. Other findings are stepping stones: an open installer or repair endpoint can let an attacker reset or corrupt the site, a readable debug.log leaks stack traces and filesystem paths, directory listings reveal uploaded files and plugin slugs, readme.html discloses the version while license.txt confirms the install, and a triggerable wp-cron.php can be hammered for denial of service.
 
-## References
-- https://developer.wordpress.org/advanced-administration/wordpress/wp-config/
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/`
+**Fix:** Block direct web access to wp-config.php, backups, debug logs, SQL dumps, and installer/repair endpoints, disable directory listing, and serve wp-cron only internally.`
 
 	ModuleConfirmation = "Confirmed when probed WordPress files return 200 with expected content markers (PHP constants, log entries, directory index HTML)"
 	ModuleSeverity     = severity.High

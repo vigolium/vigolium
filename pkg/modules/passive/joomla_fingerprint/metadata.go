@@ -9,23 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies Joomla installations from HTML responses. Detects Joomla
-via generator meta tags, /administrator/ links, /media/com_* and /components/com_*
-asset paths, and Joomla-specific JavaScript objects. Enumerates installed
-extensions (components, modules, plugins) from URL patterns. Distinguishes
-Joomla 4+ by /api/index.php references.
+	ModuleDesc = `**What it means:** The target is running the Joomla CMS, identified passively from the served HTML via the generator meta tag, /media/system/js/ and com_* asset paths, or the Joomla 4+ JavaScript API. The scanner also reports the major generation (e.g. Joomla 4+) and enumerates installed components, modules, and plugins referenced in the page. This is an informational fingerprint, not a vulnerability on its own, but it discloses the exact CMS and third-party extensions in use.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Detects Joomla via generator meta tag, /media/system/js/ paths, com_* references
-- Enumerates extensions from /components/com_*, /media/com_*, /modules/mod_* paths
-- Detects Joomla 4+ via /api/index.php references
-- Deduplicates by host
+**How it's exploited:** Knowing the site runs Joomla and which extensions are installed lets an attacker map the attack surface and look up known CVEs for the core version and for each named component, module, or plugin, then aim version-specific exploits (third-party Joomla extensions are a common source of SQLi, LFI, and RCE) instead of probing blindly.
 
-## References
-- https://docs.joomla.org/
-- https://developer.joomla.org/security-centre.html`
+**Fix:** Keep Joomla core and every installed extension fully patched, remove unused extensions, and consider suppressing the generator meta tag if you do not want the CMS publicly advertised.`
 
 	ModuleConfirmation = "Confirmed when Joomla-specific asset paths, headers, or meta tags are detected in the response"
 	ModuleSeverity     = severity.Info

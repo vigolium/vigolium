@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed ASP.NET service endpoints. For .asmx URLs in traffic, probes
-?WSDL and ?disco for WSDL disclosure. For .svc URLs, probes ?wsdl and sends
-malformed SOAP to detect WCF detailed faults. Also probes common paths for
-OData metadata and legacy service endpoints.
+	ModuleDesc = `**What it means:** An ASP.NET web service is leaking its internal definition or error details. The scanner confirmed at least one of: an ASMX or WCF service serving its WSDL/discovery document, an OData service exposing its $metadata entity model, a SharePoint or Services directory listing, or a WCF endpoint returning verbose .NET exception faults (includeExceptionDetailInFaults left on). This hands an outsider a map of the backend that should not be public.
 
-## Notes
-- Runs once per host
-- Traffic-aware: inspects original request URL for .asmx/.svc extensions
-- Probes OData $metadata and common service paths
-- Tests WCF for verbose fault disclosure (includeExceptionDetailInFaults)
-- Fingerprints 404 to avoid false positives
+**How it's exploited:** An attacker reads the WSDL, discovery, or OData metadata to enumerate every operation, parameter, and data type the service accepts, then crafts targeted SOAP or OData calls to reach functionality that was assumed hidden. Verbose WCF faults leak stack traces, type names, and file paths that reveal internal structure and aid further attacks. The disclosure itself is not code execution but sharply lowers the effort to find and abuse weak operations.
 
-## References
-- https://learn.microsoft.com/en-us/dotnet/framework/wcf/
-- https://learn.microsoft.com/en-us/aspnet/web-api/overview/odata-support-in-aspnet-web-api/`
+**Fix:** Disable WSDL/metadata publishing on production service endpoints, restrict directory browsing, and set includeExceptionDetailInFaults to false so WCF returns generic faults.`
 
 	ModuleConfirmation = "Confirmed when service endpoints return WSDL definitions, OData metadata, or verbose fault details"
 	ModuleSeverity     = severity.Medium

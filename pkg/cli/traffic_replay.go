@@ -8,74 +8,102 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/spitolas"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
+// replayInReplace overwrites each stored response with its replay response.
+// Shared by the HTTP and browser replay paths; set via `traffic --in-replace`.
 var replayInReplace bool
 
-var trafficReplayCmd = &cobra.Command{
-	Use:   "replay [search-term]",
-	Short: "Replay stored HTTP requests and compare responses",
-	Long:  "Re-send stored HTTP requests and display a side-by-side comparison of original vs new response.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runTrafficReplay,
-}
-
-func init() {
-	trafficCmd.AddCommand(trafficReplayCmd)
-
-	trafficReplayCmd.Flags().BoolVar(&replayInReplace, "in-replace", false, "Replace stored response with the new replay response")
-	trafficReplayCmd.Flags().DurationVar(&globalTimeout, "timeout", 15*time.Second, "HTTP request timeout for replays (e.g. 30s, 1m)")
-}
-
-func runTrafficReplay(cmd *cobra.Command, args []string) error {
-	defer closeDatabaseOnExit()
-
-	db, err := getDB()
-	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
-	}
-
-	var fuzzyTerm string
-	if len(args) == 1 {
-		fuzzyTerm = args[0]
-	}
-
+// runTrafficReplayFlow is invoked from runTraffic when --replay is set. It
+// queries the matching records (same filters as the listing view) and
+// re-sends each one, printing an original-vs-replay comparison. Records are
+// replayed concurrently up to --concurrency so an operator can throttle the
+// load they put on an intercepting proxy (Burp). With --with-browser each
+// record's URL is loaded in a real browser routed through --proxy instead of
+// the raw HTTP client.
+func runTrafficReplayFlow(ctx context.Context, db *database.DB, fuzzyTerm string) error {
 	filters, err := buildTrafficFilters(fuzzyTerm)
 	if err != nil {
 		return err
 	}
 
-	ctx := context.Background()
 	qb := database.NewQueryBuilder(db, filters)
 	records, err := qb.Execute(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to query database: %w", err)
 	}
-
 	if len(records) == 0 {
 		fmt.Println("No matching records found.")
 		return nil
 	}
 
-	fmt.Printf("Replaying %d request(s)...\n\n", len(records))
+	concurrency := trafficReplayConcurrency
+	if concurrency < 1 {
+		concurrency = 1
+	}
 
-	client := buildReplayClient()
+	mode := "HTTP client"
+	if trafficReplayBrowser {
+		mode = "browser"
+		if globalProxy == "" {
+			fmt.Printf("%s --with-browser without --proxy: browser traffic isn't being routed to an intercepting proxy\n",
+				terminal.WarnPrefix())
+		}
+	}
+	fmt.Printf("Replaying %d request(s) via %s (concurrency %d)...\n\n", len(records), mode, concurrency)
+
 	repo := database.NewRepository(db)
+	var client *http.Client
+	if !trafficReplayBrowser {
+		client = buildReplayClient()
+	}
+
+	var (
+		wg      sync.WaitGroup
+		printMu sync.Mutex
+		sem     = make(chan struct{}, concurrency)
+	)
 
 	for _, rec := range records {
-		if err := replayRecord(ctx, client, repo, rec); err != nil {
-			fmt.Printf("%s Failed to replay %s %s: %v\n",
-				terminal.ErrorPrefix(), rec.Method, rec.URL, err)
+		if ctx.Err() != nil {
+			break
 		}
-		fmt.Println()
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(rec *database.HTTPRecord) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			// Each record renders into its own buffer so the per-record
+			// block (header line + comparison table) prints atomically and
+			// concurrent replays don't interleave their output.
+			var buf strings.Builder
+			var rErr error
+			if trafficReplayBrowser {
+				rErr = browserReplayRecord(ctx, &buf, rec)
+			} else {
+				rErr = replayRecord(ctx, &buf, client, repo, rec)
+			}
+			if rErr != nil {
+				fmt.Fprintf(&buf, "%s Failed to replay %s %s: %v\n",
+					terminal.ErrorPrefix(), rec.Method, rec.URL, rErr)
+			}
+
+			printMu.Lock()
+			fmt.Print(buf.String())
+			fmt.Println()
+			printMu.Unlock()
+		}(rec)
 	}
+	wg.Wait()
 
 	return nil
 }
@@ -101,8 +129,9 @@ func buildReplayClient() *http.Client {
 	}
 }
 
-// replayRecord reconstructs and re-sends a single stored request.
-func replayRecord(ctx context.Context, client *http.Client, repo *database.Repository, rec *database.HTTPRecord) error {
+// replayRecord reconstructs and re-sends a single stored request, writing the
+// comparison to w.
+func replayRecord(ctx context.Context, w io.Writer, client *http.Client, repo *database.Repository, rec *database.HTTPRecord) error {
 	if len(rec.RawRequest) == 0 {
 		return fmt.Errorf("no raw request stored")
 	}
@@ -136,7 +165,7 @@ func replayRecord(ctx context.Context, client *http.Client, repo *database.Repos
 	}
 
 	// Display comparison
-	displayReplayComparison(rec, resp, body, elapsed)
+	displayReplayComparison(w, rec, resp, body, elapsed)
 
 	// --in-replace: update stored response
 	if replayInReplace {
@@ -156,18 +185,93 @@ func replayRecord(ctx context.Context, client *http.Client, repo *database.Repos
 		}
 
 		if err := repo.UpdateRecordResponse(ctx, rec.UUID, update); err != nil {
-			fmt.Printf("  %s Failed to update record: %v\n", terminal.WarnPrefix(), err)
+			fmt.Fprintf(w, "  %s Failed to update record: %v\n", terminal.WarnPrefix(), err)
 		} else {
-			fmt.Printf("  %s Record %s response replaced\n", terminal.SuccessSymbol(), rec.UUID[:8])
+			fmt.Fprintf(w, "  %s Record %s response replaced\n", terminal.SuccessSymbol(), rec.UUID[:min(8, len(rec.UUID))])
 		}
 	}
 
 	return nil
 }
 
-// displayReplayComparison shows a side-by-side comparison of original vs replay.
-func displayReplayComparison(rec *database.HTTPRecord, newResp *http.Response, newBody []byte, elapsed time.Duration) {
-	fmt.Printf("%s %s %s\n", terminal.Cyan(rec.Method), rec.URL, terminal.Gray(fmt.Sprintf("[%s]", rec.UUID[:8])))
+// browserReplayRecord re-issues a stored record's URL through a real browser
+// (rod), routed via --proxy so an intercepting proxy like Burp sees genuine
+// browser traffic — real TLS fingerprint, JS execution, and subresource
+// loads. Only the URL is replayed: a browser navigation is a GET, so the
+// original method/body of non-GET records is not reproduced (noted in the
+// output). Stored auth headers (Cookie/Authorization) are forwarded so the
+// retrieval runs under the captured session.
+func browserReplayRecord(ctx context.Context, w io.Writer, rec *database.HTTPRecord) error {
+	if rec.URL == "" {
+		return fmt.Errorf("record has no URL to load")
+	}
+
+	res, err := spitolas.ProbeURL(ctx, spitolas.ProbeConfig{
+		URL:      rec.URL,
+		ProxyURL: globalProxy,
+		// The point of browser replay is to feed an intercepting proxy, so
+		// route loopback targets through it too (Chrome bypasses them by default).
+		ProxyAllowLoopback: true,
+		Headers:            browserReplayHeaders(rec),
+		NavTimeout:         globalTimeout,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(w, "%s %s %s\n",
+		terminal.Cyan(rec.Method), rec.URL,
+		terminal.Gray(fmt.Sprintf("[%s]", rec.UUID[:min(8, len(rec.UUID))])))
+
+	if rec.Method != "" && rec.Method != http.MethodGet {
+		fmt.Fprintf(w, "  %s browser replay issues a GET navigation; original %s method/body not reproduced\n",
+			terminal.WarnPrefix(), rec.Method)
+	}
+
+	if res != nil {
+		if res.FinalURL != "" && res.FinalURL != rec.URL {
+			fmt.Fprintf(w, "  %s redirected to %s\n", terminal.InfoSymbol(), res.FinalURL)
+		}
+		if res.Title != "" {
+			fmt.Fprintf(w, "  title: %s\n", clicommon.Truncate(res.Title, 60))
+		}
+		for _, d := range res.Dialogs {
+			fmt.Fprintf(w, "  %s JS dialog fired (%s): %s\n",
+				terminal.WarnPrefix(), d.Type, clicommon.Truncate(d.Message, 80))
+		}
+	}
+	return nil
+}
+
+// browserReplayHeaders pulls the session-bearing headers out of a stored
+// request so the browser navigation runs authenticated. Lookups are
+// case-insensitive because stored header casing varies (HTTP/2 lowercases).
+func browserReplayHeaders(rec *database.HTTPRecord) map[string]string {
+	hdrs := rec.RequestHeadersMap()
+	if len(hdrs) == 0 {
+		return nil
+	}
+	lower := make(map[string]string, len(hdrs))
+	for name, vals := range hdrs {
+		if len(vals) > 0 {
+			lower[strings.ToLower(name)] = vals[0]
+		}
+	}
+	out := map[string]string{}
+	for _, h := range []string{"Authorization", "Cookie", "User-Agent"} {
+		if v := lower[strings.ToLower(h)]; v != "" {
+			out[h] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// displayReplayComparison writes a side-by-side comparison of original vs replay.
+func displayReplayComparison(w io.Writer, rec *database.HTTPRecord, newResp *http.Response, newBody []byte, elapsed time.Duration) {
+	fmt.Fprintf(w, "%s %s %s\n", terminal.Cyan(rec.Method), rec.URL, terminal.Gray(fmt.Sprintf("[%s]", rec.UUID[:min(8, len(rec.UUID))])))
 
 	tbl := terminal.NewTableWithMaxWidth(globalWidth, "", "ORIGINAL", "REPLAY")
 
@@ -189,10 +293,10 @@ func displayReplayComparison(rec *database.HTTPRecord, newResp *http.Response, n
 		clicommon.Truncate(rec.ResponseContentType, 30),
 		clicommon.Truncate(newResp.Header.Get("Content-Type"), 30))
 
-	tbl.Print()
+	fmt.Fprint(w, tbl.Render())
 
 	if rec.StatusCode != newResp.StatusCode {
-		fmt.Printf("  %s Status code changed: %d → %d\n",
+		fmt.Fprintf(w, "  %s Status code changed: %d → %d\n",
 			terminal.WarnPrefix(), rec.StatusCode, newResp.StatusCode)
 	}
 }

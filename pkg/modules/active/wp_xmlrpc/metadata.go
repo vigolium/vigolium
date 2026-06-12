@@ -9,20 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests whether the WordPress XML-RPC endpoint is enabled and checks for dangerous
-methods: system.multicall (enables amplified brute-force attacks in a single request)
-and pingback.ping (enables SSRF-like outbound requests and DDoS amplification).
+	ModuleDesc = `**What it means:** The site exposes an enabled WordPress XML-RPC endpoint at /xmlrpc.php that answers method-listing requests, and may advertise the dangerous system.multicall and pingback.ping methods. This is a misconfiguration because XML-RPC is a well-known abuse surface that most modern WordPress sites do not need.
 
-## Notes
-- Runs once per host
-- Sends a benign system.listMethods call to confirm XML-RPC is active
-- Checks for multicall and pingback methods in the response
-- Does not attempt actual brute-force or pingback abuse
+**How it's exploited:** With system.multicall an attacker batches hundreds of login attempts into a single HTTP request, defeating per-request rate limits to brute-force credentials at scale. With pingback.ping an attacker coerces the server into making outbound requests to attacker-chosen URLs, enabling SSRF-style internal probing and reflected DDoS amplification against third parties.
 
-## References
-- https://developer.wordpress.org/plugins/security/data-validation/
-- https://www.wordfence.com/threat-intel/vulnerabilities/wordpress-core`
+**Fix:** Disable XML-RPC entirely if unused, or block /xmlrpc.php at the web server / WAF, and at minimum disable pingbacks and the system.multicall method.`
 
 	ModuleConfirmation = "Confirmed when /xmlrpc.php returns a valid methodResponse containing method names"
 	ModuleSeverity     = severity.Medium

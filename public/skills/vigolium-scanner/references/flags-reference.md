@@ -512,7 +512,7 @@ Default columns: ID, SEVERITY, MODULE, SHORT_DESC, TYPE, SOURCE, MATCHED_AT
 
 ## Traffic Flags
 
-Filter flags (shared with traffic replay via PersistentFlags).
+Filter flags (shared with the `--replay` mode via PersistentFlags).
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|

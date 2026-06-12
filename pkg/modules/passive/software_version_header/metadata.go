@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects HTTP response headers that reveal exact software version numbers.
-Headers such as Server, X-Powered-By, X-AspNet-Version, and X-AspNetMvc-Version
-frequently expose the underlying technology stack and its version, enabling attackers
-to search for known CVEs targeting those specific versions.
+	ModuleDesc = `**What it means:** The server returns HTTP response headers that disclose the exact version of its underlying software. This module passively flags version-disclosing headers (Server, X-Powered-By, X-AspNet-Version, X-AspNetMvc-Version, X-Generator, X-Drupal-Cache, X-Varnish, X-Runtime, X-OWA-Version, X-SharePointHealthScore) only when they carry an actual version number, not just a product name. This is information disclosure that needlessly aids reconnaissance.
 
-## Notes
-- Checks common version-disclosing headers against version number patterns
-- Only reports when an actual version number is present (not just a product name)
-- Deduplicates by host to report each server's version headers once
-- Extracts the header name, product, and version for each finding
+**How it's exploited:** Knowing a precise version (for example Apache 2.4.41 or PHP 8.1.2) lets an attacker look up published CVEs and exploits that affect exactly that build, then target the host directly instead of probing blindly. It also speeds up attack-surface mapping and fingerprinting of the technology stack.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/01-Information_Gathering/08-Fingerprint_Web_Application_Framework
-- https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html
-- https://cwe.mitre.org/data/definitions/200.html`
+**Fix:** Suppress or generalize these headers so they no longer expose version numbers (for example ServerTokens Prod, expose_php Off, and strip framework version headers at the application or proxy layer).`
 
 	ModuleConfirmation = "Confirmed when HTTP response headers contain version-disclosing values with identifiable version numbers"
 	ModuleSeverity     = severity.Info

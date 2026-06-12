@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively mines in-scope HTML/JS/JSON response bodies for object-storage object
-URLs — vanity-CDN ` + "`/obj/<bucket>/<object>`" + ` shapes plus AWS S3, GCS and Azure
-endpoints — and injects a GET for each newly-seen bucket back into the scan
-pipeline. This lets the active CDN object-storage traversal module probe storage
-objects that are only *referenced* in pages (and would otherwise be filtered as
-static assets) without storing their (often binary) bodies.
+	ModuleDesc = `**What it means:** The application's HTML, JS, or JSON responses reference object-storage URLs (vanity-CDN /obj/<bucket>/<object> shapes plus AWS S3 and Google Cloud Storage endpoints). This is an informational discovery result: it surfaces which cloud buckets the site relies on and expands the attack surface available for further testing. It is not itself a vulnerability.
 
-## Notes
-- Skips static/asset response bodies (only mines text: html/js/json)
-- Deduplicates per (host, bucket-prefix) — the traversal bug is per-bucket
-- Fed requests re-enter the pipeline and are scanned like any other request
+**How it's exploited:** The disclosed bucket and object paths map the application's cloud-storage footprint, telling an attacker which buckets to target for misconfiguration, public-listing, or path-traversal probing. Vigolium queues a GET against each newly-seen bucket so the active CDN object-storage traversal module can test whether sibling or out-of-scope objects are reachable; any real impact is reported by that downstream module, not here.
 
-## References
-- https://hackerone.com/reports/3523931`
+**Fix:** Treat referenced bucket and object paths as exposed; ensure storage buckets enforce least-privilege access controls, disable public listing, and serve content only through scoped, signed URLs.`
 
 	ModuleConfirmation = "Informational: lists object-storage object URLs discovered in response bodies and queued for active probing."
 	ModuleSeverity     = severity.Info

@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies Drupal installations from HTML responses and HTTP headers.
-Detects core version generation (Drupal 7 vs 8+) via asset path patterns (/misc/ vs /core/),
-X-Drupal-Cache and X-Drupal-Dynamic-Cache headers, generator meta tags, and drupalSettings
-JavaScript objects. Enumerates contributed modules from asset URL paths.
+	ModuleDesc = `**What it means:** The target is running the Drupal CMS, identified passively from response signals such as X-Drupal-Cache and X-Drupal-Dynamic-Cache headers, a Drupal generator meta tag, the drupalSettings JavaScript object, and core asset paths. The module also infers the major generation (Drupal 7 versus 8+) from asset path patterns and lists contributed module names found in asset URLs. This is informational technology disclosure, not a vulnerability in itself, but it narrows the attack surface an attacker has to consider.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Detects Drupal via X-Drupal-Cache, X-Drupal-Dynamic-Cache headers
-- Distinguishes Drupal 7 (/misc/, /sites/all/modules/) from Drupal 8+ (/core/, /modules/contrib/)
-- Extracts contrib module names from asset URL paths
-- Deduplicates by host
+**How it's exploited:** Knowing the platform is Drupal, its generation, and which contrib modules are installed lets an attacker map the attack surface and target version-specific or module-specific public exploits and known CVEs (for example Drupalgeddon-class core flaws or vulnerable contrib modules) instead of probing blindly. Combined with a precise core version it enables direct selection of matching exploit code.
 
-## References
-- https://www.drupal.org/docs
-- https://www.drupal.org/security`
+**Fix:** Suppress version and platform disclosure by removing the generator meta tag and X-Generator header, and keep Drupal core and all contributed modules patched to current secure releases.`
 
 	ModuleConfirmation = "Confirmed when Drupal-specific headers, asset paths, or meta tags are detected in the response"
 	ModuleSeverity     = severity.Info

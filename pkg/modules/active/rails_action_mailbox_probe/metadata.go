@@ -9,23 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for Rails Action Mailbox ingress endpoints for multiple email service providers.
-These endpoints receive inbound emails via HTTP and may be accessible without proper
-authentication or provider signature validation.
+	ModuleDesc = `**What it means:** A Ruby on Rails application is exposing Action Mailbox ingress endpoints, which receive inbound emails over HTTP from providers such as SendGrid, Mailgun, Mandrill, Postmark, or the generic relay. The module confirms the POST-only ingress routes via a genuine Rails Allow: POST response to OPTIONS, and confirms the conductor development UI by matching its rendered HTML content. When these routes are reachable without authentication or provider signature validation, untrusted parties can interact with the application's email-processing pipeline, and an exposed conductor UI leaks inbound email contents and processing state.
 
-## Notes
-- The conductor UI is confirmed by GETting the page and matching the actual
-  rendered Action Mailbox conductor content — never on status or headers alone
-- POST-only ingress routes (relay, SendGrid, Mailgun, Mandrill, Postmark) have
-  no rendered body; they are confirmed via a genuine Rails Allow: POST on OPTIONS
-- Rejects generic CORS preflights (Access-Control-Allow-* with no Allow header),
-  the API-gateway/proxy reply to OPTIONS on every path
-- Fingerprints 404 responses and strips reflected request paths to avoid false positives
+**How it's exploited:** An attacker submits forged inbound-email payloads directly to the ingress endpoint, bypassing the email provider, to inject spoofed messages into application workflows (account flows, ticketing, parsing logic) or trigger downstream abuse. An exposed conductor UI lets an attacker browse received emails and craft test deliveries.
 
-## References
-- https://guides.rubyonrails.org/action_mailbox_basics.html
-- https://api.rubyonrails.org/classes/ActionMailbox.html`
+**Fix:** Require provider signature/credential validation on Action Mailbox ingress routes and ensure the conductor UI is disabled or access-restricted in production.`
 
 	ModuleConfirmation = "Confirmed when Action Mailbox ingress endpoints respond to requests without authentication"
 	ModuleSeverity     = severity.Medium

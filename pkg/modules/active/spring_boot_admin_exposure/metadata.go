@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed Spring Boot Admin (SBA) dashboards. SBA aggregates actuator
-data from multiple registered Spring Boot services, providing a centralized
-view of health, metrics, configuration, and environment details. An exposed
-SBA dashboard can enable broad infrastructure compromise through access to
-multiple services' actuator endpoints.
+	ModuleDesc = `**What it means:** A Spring Boot Admin (SBA) dashboard or its instances/applications API is reachable on this host without authentication. SBA aggregates actuator data from every registered Spring Boot service, so an exposed dashboard centralizes health, metrics, environment, and configuration details for the whole fleet behind one unprotected console.
 
-## Notes
-- Runs once per host
-- Checks common SBA paths: /admin, /boot-admin, /sba, /springbootadmin
-- Validates using SBA-specific UI markers
-- Fingerprints 404 responses to reduce false positives
+**How it's exploited:** An attacker browses the dashboard or queries the JSON API to enumerate all registered services along with their management and health URLs, then pivots to those actuator endpoints to read environment variables, configuration, and secrets, trigger log-file downloads, or change log levels and other runtime settings, escalating a single exposure into broad multi-service compromise.
 
-## References
-- https://codecentric.github.io/spring-boot-admin/current/
-- https://github.com/codecentric/spring-boot-admin`
+**Fix:** Place the Spring Boot Admin server behind authentication and network restrictions, and require credentials on the SBA UI and its underlying APIs so the aggregated actuator data is never anonymously accessible.`
 
 	ModuleConfirmation = "Confirmed when Spring Boot Admin dashboard UI or API is accessible without authentication"
 	ModuleSeverity     = severity.High

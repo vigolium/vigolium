@@ -46,7 +46,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, errors.Wrap(err, "failed to get URL")
 	}
 
-	if utils.IsMediaAndJSURL(urlx.Path) {
+	if utils.IsMediaAndJSURL(urlx.Path) || modkit.IsStaticAssetPath(urlx.Path) {
 		return nil, nil
 	}
 
@@ -62,6 +62,17 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	// Only flag dynamic (non-wildcard) ACAO values
 	if acao == "*" {
+		return nil, nil
+	}
+
+	// Confirm the ACAO is actually REFLECTING the request Origin, not a
+	// statically-configured single allowed origin. A fixed ACAO returns the same
+	// value to every requester, so it cannot be cache-poisoned across origins and
+	// missing Vary: Origin is benign. We require the request to carry an Origin
+	// that the response echoes back — without that there is no observed
+	// reflection and the "dynamic ACAO" claim is unfounded.
+	reqOrigin := strings.TrimSpace(ctx.Request().Header("Origin"))
+	if reqOrigin == "" || !strings.EqualFold(strings.TrimSpace(acao), reqOrigin) {
 		return nil, nil
 	}
 

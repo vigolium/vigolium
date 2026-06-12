@@ -9,33 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects Server-Side Request Forgery where an application validates/allowlists the host of a
-user-supplied URL but the component that actually fetches it disagrees about which host the URL
-names. By placing a host the application is expected to trust (the target's own domain) and an
-OAST callback host into a single URL using parser divergences — userinfo (` + "`@`" + `),
-multiple ` + "`@`" + `, fragment (` + "`#`" + `), whitespace, and backslash — a value that
-passes the allowlist still causes the server to connect to the attacker-controlled host. An
-out-of-band callback proves the fetcher resolved to the attacker host despite the trusted-looking
-parsed host.
+	ModuleDesc = `**What it means:** The application accepts a URL in this parameter and fetches it server-side, but its host allowlist/validator can be tricked by URL-parser confusion. The validator and the HTTP client disagree about which host a crafted URL actually names, so a URL that looks trusted is fetched against an attacker-chosen host. This is a Server-Side Request Forgery (SSRF) allowlist bypass, confirmed here by an out-of-band callback to a scanner-controlled OAST host.
 
-Based on Orange Tsai's "A New Era of SSRF — Exploiting URL Parser in Trending Programming
-Languages" (Black Hat USA 2017).
+**How it's exploited:** An attacker crafts a single URL that embeds a trusted-looking decoy host (the target's own domain) plus a malicious host using parser divergences such as userinfo (an at-sign), multiple at-signs, a fragment, whitespace, or a backslash. The validator approves it while the fetcher connects to the malicious host, letting the attacker reach internal services, cloud metadata endpoints, or other hosts the allowlist was meant to protect.
 
-## Notes
-- Sibling of ssrf-detection (overt internal URLs, in-band markers) and ssrf-blind (plain OAST
-  URLs). This module adds the parser-confusion ladder with a trusted decoy host, targeting
-  allowlist/validator bypass specifically.
-- Requires an interactsh server (configured via oast settings); a no-op when OAST is disabled.
-- Targets parameters whose name or value suggests URL input.
-- Findings arrive asynchronously via the OAST polling callback; the confusion variant is recorded
-  in the callback's injection-type for attribution.
-- Self-confirming: an OAST callback IS the confirmation, so no in-band re-confirmation is needed.
-- OWASP Top 10 2021: A10 (SSRF).
-
-## References
-- https://www.blackhat.com/docs/us-17/thursday/us-17-Tsai-A-New-Era-Of-SSRF-Exploiting-URL-Parser-In-Trending-Programming-Languages.pdf
-- https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/`
+**Fix:** Resolve and re-validate the final connection target after parsing with a hardened parser, allowlist only fully-resolved hosts/IPs, and reject userinfo, embedded credentials, and ambiguous authority syntax.`
 
 	ModuleConfirmation = "Confirmed when the target makes an outbound DNS/HTTP request to the OAST host embedded in a parser-confusion URL whose parsed host is a trusted decoy"
 	ModuleSeverity     = severity.High

@@ -9,30 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests for time-based blind SQL injection by sending paired sleep/no-sleep payloads and
-measuring response time differentials. Uses triple-verification (sleep, no-sleep, sleep)
-to minimize false positives caused by network jitter or server load.
+	ModuleDesc = `**What it means:** A request parameter is passed into a backend SQL query without proper sanitization, so an attacker can alter the query. This module confirms it by injecting database sleep functions and observing the response time grow in step with the requested delay, proving the injected SQL actually executes even though no data or error is visible in the response.
 
-## Notes
-- Samples each insertion point's baseline latency and derives a per-target delay
-  threshold (mean + max(5·stdev, 3s), floored at 2s) instead of a fixed cutoff —
-  adaptive to fast and slow targets, and skips hosts too jittery to time reliably
-- Measures response time using wall-clock timing around each request
-- Multi-round, multi-factor confirmation: for several rounds the no-sleep request
-  must stay fast, the high-sleep request must exceed the threshold, and the
-  high−low delay differential must track the requested (high−low) seconds — so a
-  fixed timeout/retry delay or random slowness is rejected because it does not
-  scale with the injected sleep value
-- Uses parametric sleeps (MySQL SLEEP, PostgreSQL pg_sleep, MSSQL WAITFOR DELAY,
-  Oracle DBMS_PIPE). SQLite RANDOMBLOB is intentionally omitted: its delay is not
-  expressible in seconds and cannot be scale-verified
-- Tests both string and numeric contexts
-- Uses NoRedirects to capture timing before redirect
+**How it's exploited:** An attacker uses time delays as a yes/no oracle, asking the database one true/false question per request (for example, whether the first character of the admin password hash is an "a"). By chaining many such timed queries they can extract usernames, password hashes, session tokens, and any other data the database account can read, and in some configurations escalate to writing data or running commands. The scanner verified it with MySQL SLEEP, PostgreSQL pg_sleep, MSSQL WAITFOR, or Oracle DBMS_PIPE payloads.
 
-## References
-- https://owasp.org/www-community/attacks/Blind_SQL_Injection
-- https://portswigger.net/web-security/sql-injection/blind/lab-time-delays`
+**Fix:** Use parameterized queries or prepared statements for all database access so user input is never concatenated into SQL, and apply least-privilege database accounts.`
 
 	ModuleConfirmation = "Confirmed when sleep payloads consistently cause measurable time delays compared to no-sleep payloads across triple verification"
 	ModuleSeverity     = severity.High

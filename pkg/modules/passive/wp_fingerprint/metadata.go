@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies WordPress installations from HTML responses, extracts core
-version information, and builds an inventory of installed plugins and themes by
-parsing asset URLs (/wp-content/plugins/<slug>/, /wp-content/themes/<slug>/).
+	ModuleDesc = `**What it means:** The target is running WordPress, and the site discloses identifying details in its HTML and headers. This passive check fingerprints the install from signals like /wp-content/, /wp-includes/, the wp-json Link header, the X-Pingback header, and the generator meta tag, then extracts the core version and an inventory of plugin and theme slugs (with versions where assets carry a ?ver= query string). This is informational, not a vulnerability by itself, but the disclosed software inventory is valuable reconnaissance.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Detects WordPress via /wp-content/, /wp-includes/, wp-json, X-Pingback header, generator meta tag
-- Extracts version from generator meta tag and RSS feed generator element
-- Enumerates plugin/theme slugs from asset URL paths
-- Deduplicates by host to avoid redundant processing
+**How it's exploited:** An attacker uses the exposed WordPress version, plugin names, and plugin/theme versions to map the attack surface and look up version-specific known vulnerabilities (CVEs) for those exact components, allowing them to target documented exploits instead of blindly probing. Outdated or vulnerable plugins identified this way are a leading entry point for WordPress site compromise.
 
-## References
-- https://developer.wordpress.org/
-- https://codex.wordpress.org/Determining_Plugin_and_Theme_License_Status`
+**Fix:** Keep WordPress core, plugins, and themes fully patched, remove unused components, and suppress version disclosure (the generator meta tag and asset ?ver= query strings) so the precise software inventory is not advertised.`
 
 	ModuleConfirmation = "Confirmed when WordPress-specific paths, headers, or meta tags are detected in the response"
 	ModuleSeverity     = severity.Info

@@ -331,6 +331,15 @@ func (r *Runner) executeNativePhase(ctx context.Context, infra *phaseInfra, phas
 				r.scanLogger.Info("discovery", fmt.Sprintf("soft-deduplicated %d similar records", softDeleted))
 			}
 		}
+	case PhaseTargetedReSpider:
+		r.setPhaseTag("respider")
+		r.scanLogger.Info("respider", "phase started")
+		if err := r.runTargetedReSpiderPhase(ctx, infra); err != nil {
+			zap.L().Error("Targeted re-spider phase failed", zap.Error(err))
+			r.scanLogger.Error("respider", "phase failed: "+err.Error())
+		} else {
+			r.scanLogger.Info("respider", "phase completed")
+		}
 	case PhaseSeed:
 		r.setPhaseTag("seed")
 		r.scanLogger.Info("seed", "seeding CLI targets")

@@ -9,16 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects injection vulnerabilities through differential response analysis. Sends pairs
-of semantically equivalent and different payloads and compares response behaviors.
+	ModuleDesc = `**What it means:** A parameter shows behavioral signs that its value is parsed as code or query syntax on the server, not treated as inert data. The scanner injected pairs of payloads, a syntax-breaking one (an unbalanced quote/backslash/backtick, a divide-by-zero, a string concatenator, or an ORDER BY function call) and a benign syntax-safe equivalent, and the broken payload changed the response (status code or length) while the safe one did not. That differential is the classic fingerprint of a server-side injection context such as SQL injection, and it indicates the input is reaching an interpreter.
 
-## Notes
-- Uses behavioral diffing: true/false payload pairs that should produce identical vs different responses
-- Low confidence; serves as a triage signal for deeper investigation
+**How it's exploited:** This is an Info-level, low-confidence triage lead, not a confirmed exploit. It tells an attacker (or analyst) exactly which parameter, delimiter, and operator break the back-end syntax, giving a ready starting point to craft a working SQL injection or expression-injection payload that could read or modify data or run commands.
 
-## References
-- https://portswigger.net/bappstore/3123d5b5f25c4128894d97ea1571571c`
+**Fix:** Use parameterized queries or prepared statements and validate or escape untrusted input before it reaches any interpreter.`
 
 	ModuleConfirmation = "Indicated when semantically different payloads produce measurably different response behaviors while equivalent payloads produce identical responses"
 	// ModuleSeverity is Info: diff-based behavioral injection detection is an

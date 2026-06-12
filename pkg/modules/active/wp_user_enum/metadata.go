@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests for WordPress user enumeration through two vectors:
-1. Author archive redirects: /?author=N redirects to /author/<username>/
-2. REST API user listing: /wp-json/wp/v2/users returns user objects with slugs
+	ModuleDesc = `**What it means:** This WordPress site leaks valid account usernames to unauthenticated visitors. The scanner confirmed enumeration through author archives (requesting /?author=N for IDs 1 through 5 returns a 301/302 redirect to /author/<username>/, exposing the login slug) and/or the public REST API (/wp-json/wp/v2/users returns JSON user objects whose slug fields are the usernames). Usernames are meant to be private; disclosing them removes a meaningful layer of secrecy from the login.
 
-Enumerated usernames can be used for password brute-force attacks.
+**How it's exploited:** An attacker harvests the real usernames (including the administrator) and uses them as the known half of a credential pair for password brute-force, password-spraying, or credential-stuffing attacks against /wp-login.php or XML-RPC, dramatically improving their odds of account takeover. The list also aids targeted phishing of named site operators.
 
-## Notes
-- Runs once per host
-- Tests author IDs 1 through 5
-- Checks REST API with and without per_page parameter
-- Non-destructive: only performs GET requests
-
-## References
-- https://www.wpbeginner.com/plugins/how-to-discourage-brute-force-by-blocking-author-scans-in-wordpress/
-- https://developer.wordpress.org/rest-api/reference/users/`
+**Fix:** Block author-scan redirects and restrict the REST users endpoint to authenticated requests (for example via a security plugin or web-server rules), and enforce strong passwords plus login rate-limiting or 2FA.`
 
 	ModuleConfirmation = "Confirmed when author archive redirects expose usernames or REST API returns user objects"
 	ModuleSeverity     = severity.Medium

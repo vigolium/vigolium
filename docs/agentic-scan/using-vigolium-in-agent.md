@@ -48,7 +48,7 @@ public/skills/vigolium-scanner/
 ├── SKILL.md                              # Main skill (decision tree, recipes, flags)
 └── references/
     ├── scanning-commands.md              # scan, scan-url, scan-request, run
-    ├── server-and-ingestion.md           # server, ingest, traffic, traffic replay
+    ├── server-and-ingestion.md           # server, ingest, traffic, traffic --replay
     ├── agent-commands.md                 # agent, agent query, autopilot, swarm
     ├── data-and-management.md            # db, module, ext, config, scope, export
     ├── flags-reference.md                # Complete alphabetical flag index
@@ -908,7 +908,7 @@ vigolium finding --watch 5s
 > Replay login-related requests and compare responses
 ```
 ```bash
-vigolium traffic replay login
+vigolium traffic login --replay
 ```
 
 **Replay and replace stored responses:**
@@ -916,7 +916,7 @@ vigolium traffic replay login
 > Replay requests to api.example.com and update stored responses
 ```
 ```bash
-vigolium traffic replay --host api.example.com --in-replace
+vigolium traffic --host api.example.com --replay --in-replace
 ```
 
 ---

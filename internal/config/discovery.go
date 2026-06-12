@@ -20,6 +20,83 @@ type DiscoveryConfig struct {
 	EnrichTargets            bool                     `yaml:"enrich_targets"`      // enrich discovery targets with paths from previous phases (spidering, external harvest)
 	ExpandSeedParents        bool                     `yaml:"expand_seed_parents"` // expand each seed URL into its parent directories (e.g., /a/b/c -> /, /a/, /a/b/, /a/b/c) and feed them as additional targets to discovery and spidering
 	PassiveModuleTags        []string                 `yaml:"passive_module_tags"` // run passive modules matching these tags during discovery (e.g., ["fingerprint"])
+	ReSpider                 DiscoveryReSpiderConfig  `yaml:"respider"`            // targeted re-spider of rich/SPA routes found after discovery dedup
+}
+
+// DiscoveryReSpiderConfig controls the targeted re-spider step that runs after
+// discovery dedup. Discovery (fuzzing/jsscan/linkfinder) can surface new routes
+// (e.g. /ui/, /console/) after the one-shot browser spidering already ran. When
+// such a route's already-fetched response looks like a JS/SPA shell or an
+// interactive page (and not a login/SSO wall), this step re-crawls it with a
+// real browser on a tight budget so its client-rendered routes enter
+// http_records and get dynamic-assessed. Caps keep the browser spend bounded.
+type DiscoveryReSpiderConfig struct {
+	Enabled            *bool  `yaml:"enabled"`               // nil = default (true)
+	MaxSeedsPerHost    int    `yaml:"max_seeds_per_host"`    // per-host seed cap; 0 = default (3)
+	MaxSeedsTotal      int    `yaml:"max_seeds_total"`       // overall seed cap; 0 = default (10)
+	PerSeedMaxDuration string `yaml:"per_seed_max_duration"` // per-seed crawl budget; "" = default (45s)
+	PerSeedMaxStates   int    `yaml:"per_seed_max_states"`   // per-seed state cap; 0 = default (25)
+	MaxDepth           int    `yaml:"max_depth"`             // per-seed crawl depth; 0 = default (3)
+	StepMaxDuration    string `yaml:"step_max_duration"`     // wall-clock cap for the whole step; "" = default (5m)
+}
+
+// IsEnabled reports whether the targeted re-spider step runs (default on).
+func (c *DiscoveryReSpiderConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+// SeedsPerHost returns the per-host seed cap, applying the default.
+func (c *DiscoveryReSpiderConfig) SeedsPerHost() int {
+	if c.MaxSeedsPerHost <= 0 {
+		return 3
+	}
+	return c.MaxSeedsPerHost
+}
+
+// SeedsTotal returns the overall seed cap, applying the default.
+func (c *DiscoveryReSpiderConfig) SeedsTotal() int {
+	if c.MaxSeedsTotal <= 0 {
+		return 10
+	}
+	return c.MaxSeedsTotal
+}
+
+// PerSeedDuration returns the per-seed crawl budget, applying the default.
+func (c *DiscoveryReSpiderConfig) PerSeedDuration() time.Duration {
+	if c.PerSeedMaxDuration == "" {
+		return 45 * time.Second
+	}
+	if d, err := time.ParseDuration(c.PerSeedMaxDuration); err == nil && d > 0 {
+		return d
+	}
+	return 45 * time.Second
+}
+
+// PerSeedStates returns the per-seed state cap, applying the default.
+func (c *DiscoveryReSpiderConfig) PerSeedStates() int {
+	if c.PerSeedMaxStates <= 0 {
+		return 25
+	}
+	return c.PerSeedMaxStates
+}
+
+// Depth returns the per-seed crawl depth, applying the default.
+func (c *DiscoveryReSpiderConfig) Depth() int {
+	if c.MaxDepth <= 0 {
+		return 3
+	}
+	return c.MaxDepth
+}
+
+// StepDuration returns the wall-clock cap for the whole step, applying the default.
+func (c *DiscoveryReSpiderConfig) StepDuration() time.Duration {
+	if c.StepMaxDuration == "" {
+		return 5 * time.Minute
+	}
+	if d, err := time.ParseDuration(c.StepMaxDuration); err == nil && d > 0 {
+		return d
+	}
+	return 5 * time.Minute
 }
 
 // DiscoveryRecursionConfig controls directory traversal depth.
@@ -164,6 +241,17 @@ func (c *DiscoveryConfig) Validate() error {
 		// valid
 	default:
 		return fmt.Errorf("discovery.engine.case_sensitivity: must be auto_detect, sensitive, or insensitive, got %q", c.Engine.CaseSensitivity)
+	}
+
+	if c.ReSpider.PerSeedMaxDuration != "" {
+		if _, err := time.ParseDuration(c.ReSpider.PerSeedMaxDuration); err != nil {
+			return fmt.Errorf("discovery.respider.per_seed_max_duration: invalid duration %q: %w", c.ReSpider.PerSeedMaxDuration, err)
+		}
+	}
+	if c.ReSpider.StepMaxDuration != "" {
+		if _, err := time.ParseDuration(c.ReSpider.StepMaxDuration); err != nil {
+			return fmt.Errorf("discovery.respider.step_max_duration: invalid duration %q: %w", c.ReSpider.StepMaxDuration, err)
+		}
 	}
 
 	return nil

@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies Firebase usage from HTML/JS responses, extracts project
-configuration, and detects leaked Firebase-specific secrets and tokens.
+	ModuleDesc = `**What it means:** This passive check confirms Google Firebase usage by reading SDK references and the firebaseConfig object from HTML/JS responses, and reports exposed project identifiers (projectId, apiKey, databaseURL, storageBucket, authDomain, appId, Firestore collections, Cloud Functions URLs). Detection itself is informational, but the same pass also flags genuinely sensitive items: leaked FCM server keys, App Check debug tokens, Realtime Database auth tokens, long-lived Storage download tokens, and dev/staging projects used on a production domain.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Detects Firebase via SDK references, initializeApp calls, and config objects
-- Extracts projectId, apiKey, databaseURL, storageBucket from config
-- Flags leaked FCM server keys, App Check debug tokens, RTDB auth tokens
-- Flags leaked Firebase Storage download tokens in URLs
-- Detects staging/dev project indicators in projectId
-- Deduplicates by host to avoid redundant processing
+**How it's exploited:** The disclosed config maps the backend attack surface, letting an attacker probe Firestore/Realtime Database rules, Cloud Functions, and Storage buckets directly with the client SDK. When a real secret leaks, impact escalates: an FCM server key lets an attacker push notifications to all users, an App Check debug token or RTDB auth token grants backend/database access, and Storage tokens expose referenced files.
 
-## References
-- https://firebase.google.com/docs/web/setup
-- https://firebase.google.com/docs/projects/api-keys`
+**Fix:** Treat config as public but enforce strict Firebase rules and App Check, keep server keys and debug/auth/download tokens out of client code, and never ship dev/staging projects to production.`
 
 	ModuleConfirmation = "Confirmed when Firebase SDK references, configuration objects, or leaked Firebase secrets are detected in the response"
 	ModuleSeverity     = severity.Info

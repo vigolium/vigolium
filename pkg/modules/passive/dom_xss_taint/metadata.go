@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects DOM-based XSS using AST taint analysis. Inline scripts and JavaScript
-responses are parsed and a finding is raised only when the analyzer traces the *same data*
-from a DOM-controlled source (location.hash, document.cookie, …) into a dangerous sink
-(innerHTML, eval, document.write, …).
+	ModuleDesc = `**What it means:** The page contains client-side JavaScript where attacker-influenced input from a DOM source (such as location.hash, location.search, document.cookie, window.name, or local/session storage) flows, via AST taint analysis, into a dangerous sink (such as innerHTML, eval, document.write, insertAdjacentHTML, or Function). This is a likely DOM-based cross-site scripting (XSS) condition: untrusted data reaches a place where the browser executes it as markup or code, with no server round-trip needed.
 
-## Notes
-- Higher precision than pattern matching: a source and a sink merely co-existing in a script
-  is not enough; the data must flow from one to the other
-- Complements the pattern-based dom-xss-detect module, which stays available
-- Static analysis — not execution-confirmed; pair with the browser-confirming XSS modules
-  for proof
+**How it's exploited:** An attacker crafts a URL or other client-controlled value (for example a malicious fragment after the # in the link) and lures a victim to open it; when the page runs, the tainted value is written into the sink and the attacker's script executes in the victim's session, enabling session-cookie theft, account takeover, or actions performed as the user.
 
-## References
-- https://owasp.org/www-community/attacks/DOM_Based_XSS`
+**Fix:** Treat all DOM-source data as untrusted: avoid dangerous sinks, use textContent or safe DOM APIs, and contextually encode or sanitize input before it reaches any HTML or code sink.`
 
 	ModuleConfirmation = "Reported when AST taint analysis traces a DOM-controlled source into a dangerous sink within the same script"
 	ModuleSeverity     = severity.Low

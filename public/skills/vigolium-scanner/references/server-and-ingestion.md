@@ -7,7 +7,7 @@ Complete flag reference for `server`, `ingest`, and `traffic` commands.
 - [server](#server)
 - [ingest](#ingest)
 - [traffic](#traffic)
-- [traffic replay](#traffic-replay)
+- [traffic --replay](#traffic---replay)
 
 ---
 
@@ -222,29 +222,43 @@ vigolium traffic --columns HOST,METHOD,PATH,STATUS,AUTH
 
 ---
 
-## traffic replay
+## traffic --replay
 
-**Usage:** `vigolium traffic replay [search-term] [flags]`
+**Usage:** `vigolium traffic [search-term] --replay [flags]`
 
-Re-send stored HTTP requests and compare original vs new responses.
+Re-send the matched stored requests and compare original vs new responses. This
+is a mode of the `traffic` command (the old `traffic replay` subcommand was
+removed), so it inherits all the `traffic` filter flags.
 
 ### replay-specific flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--in-replace` | bool | `false` | Replace stored response with the new replay response |
+| `--replay` | bool | `false` | Re-send matched requests and compare responses instead of listing them |
+| `-a, --all` | bool | `false` | Replay every matched record, ignoring the `-n/--limit` cap (which defaults to the most recent 100). Pair with `--replay` to re-send all stored traffic. |
+| `-c, --concurrency` | int | `10` | Concurrent replays; keep low to avoid overwhelming an intercepting proxy like Burp |
+| `--with-browser` | bool | `false` | Replay each URL through a real browser routed via `--proxy`, so Burp captures browser-driven traffic (real TLS fingerprint, JS execution, subresource loads). A navigation is a GET, so non-GET method/body are not reproduced. |
+| `--in-replace` | bool | `false` | Overwrite each stored response with the new replay response |
+| `--timeout` | duration | `15s` | Per-request timeout for the replay |
 
-Inherits all filter flags from the `traffic` command.
+Routes through `--proxy` (or `HTTP_PROXY`/`HTTPS_PROXY`). Inherits all filter
+flags from the `traffic` command.
 
 ### Examples
 
 ```bash
 # Replay all matching requests
-vigolium traffic replay login
+vigolium traffic login --replay
+
+# Replay ALL stored traffic through Burp (ignore the default 100 cap)
+vigolium traffic --replay --all --proxy http://127.0.0.1:8080 -c 5
+
+# Replay through Burp at low concurrency
+vigolium traffic --host example.com --replay --proxy http://127.0.0.1:8080 -c 5
+
+# Replay each URL in a real browser routed through Burp
+vigolium traffic --host example.com --replay --with-browser --proxy http://127.0.0.1:8080
 
 # Replay and replace stored responses
-vigolium traffic replay --host api.example.com --in-replace
-
-# Replay with proxy
-vigolium traffic replay --host example.com --proxy http://127.0.0.1:8080
+vigolium traffic --host api.example.com --replay --in-replace
 ```

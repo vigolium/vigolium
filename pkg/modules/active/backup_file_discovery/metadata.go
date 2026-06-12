@@ -9,19 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Discovers publicly accessible backup files by generating candidate filenames
-from the target hostname parts, common backup names, and year variants, then
-combining them with archive and backup extensions.
+	ModuleDesc = `**What it means:** A backup archive or database dump (such as a .zip, .tar.gz, .sql, or .bak file) is downloadable from the web server without authentication. The module guessed common backup filenames built from the hostname, common stems, and recent-year variants, then confirmed a real download by verifying the response is a genuine archive (archive magic bytes plus an archive Content-Type) or a real SQL dump (markers like CREATE TABLE / INSERT INTO), while rejecting 404 lookalikes, soft-404 wildcard pages, and HTML error shells.
 
-## Notes
-- Runs once per unique host
-- Generates ~600-900 candidate paths depending on hostname complexity
-- Validates using 404 fingerprinting, Content-Type, Content-Length, and body differencing
-- SQL/text dumps additionally checked for content markers (CREATE TABLE, INSERT INTO, etc.)
+**How it's exploited:** An attacker requests the same predictable URL and downloads the file directly in a browser. These backups commonly contain full source code, configuration files, database contents, password hashes, API keys, and other secrets, which can be mined offline to fully compromise the application and its users.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information`
+**Fix:** Remove backup and dump files from web-accessible directories and store them outside the document root, or deny access to backup/archive/dump extensions at the web server.`
 
 	ModuleConfirmation = "Confirmed when response returns 200 with matching archive Content-Type, body size >1KB, and body differs from 404 fingerprint. SQL dumps additionally validated via content markers."
 	ModuleSeverity     = severity.High

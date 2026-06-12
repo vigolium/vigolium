@@ -9,18 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects password input fields in HTML responses that do not have autocomplete
-disabled, which may allow browsers to store sensitive credentials.
+	ModuleDesc = `**What it means:** An HTML password input field in the response does not disable browser autocomplete (it lacks autocomplete="off" or autocomplete="new-password" on the input, and the enclosing form is not set to autocomplete="off"). This is a low-severity hardening gap: browsers and password managers may cache the typed credential, leaving it recoverable on the device.
 
-## Notes
-- Checks for autocomplete="off" or autocomplete="new-password" on password inputs
-- Also checks enclosing form elements for autocomplete attributes
-- Only fires on text/html responses
+**How it's exploited:** Anyone with later access to the same browser, such as a shared, kiosk, or stolen device, can retrieve cached credentials from the autofill store or have the browser re-populate the login form, or read them via local malware that scrapes the browser credential cache. There is no remote network exploit; impact depends on physical or local access to the client.
 
-## References
-- https://owasp.org/www-community/controls/PasswordAutocomplete
-- https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html`
+**Fix:** Add autocomplete="off" (or autocomplete="new-password" for password-change fields) to sensitive password inputs and their containing form so browsers do not store the credential.`
 
 	ModuleConfirmation = "Confirmed when password input fields lack autocomplete='off' or autocomplete='new-password'"
 	ModuleSeverity     = severity.Info

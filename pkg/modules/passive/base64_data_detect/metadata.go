@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively detects interesting base64 encoded data in HTTP requests and responses.
-Matches known prefixes for JSON (eyJ), PHP serialized objects (YTo, Tzo),
-XML/PHP (PD8/PD9), HTTPS/HTTP URLs (aHR0cHM6L, aHR0cDo), and Java serialized
-objects (rO0).
+	ModuleDesc = `**What it means:** The scanner passively spotted base64-encoded data in an HTTP request or response whose decoded prefix matches a structured, security-relevant format: JSON or JWT (eyJ), PHP serialized arrays/objects (YTo, Tzo), XML or PHP source tags (PD8, PD9), embedded HTTP/HTTPS URLs (aHR0cHM6L, aHR0cDo), or a Java serialized object (rO0). This is an informational, manual-review signal, not a confirmed vulnerability. Base64 is not encryption, so the data is fully readable and may carry trust-bearing values or attacker-influenced input.
 
-## Notes
-- Scans both request and response content
-- Low noise: only flags known interesting base64 prefixes
-- Manual review is recommended to assess the encoded data
+**How it's exploited:** The blob marks where the application moves structured state through a parameter, cookie, or body. An attacker decodes it and identifies where to tamper: forging or replaying JSON/JWT claims, or supplying a crafted PHP/Java serialized payload that could trigger insecure-deserialization code paths and, in the worst case, remote code execution. Embedded URLs may hint at SSRF or open-redirect surface.
 
-## References
-- https://portswigger.net/kb/issues/00700200_base64-encoded-data-in-parameter
-- https://cheatsheetseries.owasp.org/index.html
-- https://github.com/tomnomnom/gf/blob/master/examples/base64.json`
+**Fix:** Treat all client-supplied encoded values as untrusted input: integrity-protect tokens, validate decoded structures, and avoid native deserialization of PHP or Java objects from user data.`
 
 	ModuleConfirmation = "Confirmed when request or response contains base64-encoded data matching known interesting prefixes (JSON, PHP objects, URLs, Java objects)"
 	ModuleSeverity     = severity.Info

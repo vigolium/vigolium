@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests for injection vulnerabilities (XSS, SQLi, command injection, template injection) in HTTP
-parameters that are likely forwarded to WebSocket message processing contexts. The module targets
-parameters with names commonly associated with WebSocket messaging (e.g., message, data, payload,
-cmd) and sends crafted payloads to detect unvalidated input handling.
+	ModuleDesc = `**What it means:** A request parameter whose name suggests WebSocket message handling (message, msg, data, payload, content, cmd, query, and similar) passes attacker input into a processing context without proper validation or output encoding. The application reflected an injection payload unencoded, returned a database error, echoed command output, or evaluated a template expression, indicating untrusted data reaches a sensitive sink.
 
-## Notes
-- Only tests parameters whose names suggest WebSocket message processing involvement.
-- Checks for reflected XSS payloads, SQL error messages, command output patterns, and template
-  expression evaluation in responses.
-- Uses insertion-point-level deduplication to avoid redundant checks.
+**How it's exploited:** An attacker submits crafted values in these parameters to achieve cross-site scripting (running script in a victim's browser), SQL injection (reading or altering database contents), OS command injection (executing shell commands on the server), or server-side template injection (evaluating expressions that can lead to code execution). The concrete impact depends on which payload class the scanner confirmed for this parameter, ranging from session theft to data exfiltration or remote code execution.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/10-Testing_WebSockets
-- https://portswigger.net/web-security/websockets`
+**Fix:** Validate and contextually encode all parameter input on the server, use parameterized queries, never pass user input to shell or template evaluators, and apply the same controls to data forwarded into WebSocket message handling.`
 
 	ModuleConfirmation = "Confirmed when an injected payload is reflected unencoded, triggers a SQL error, produces command output, or evaluates a template expression in the HTTP response"
 	ModuleSeverity     = severity.Medium

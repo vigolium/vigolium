@@ -1,10 +1,10 @@
 package output
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
@@ -77,26 +77,49 @@ func MatchedURL(r *ResultEvent) string {
 // liveFindingValueMax bounds the extracted-value snippet in a live finding line.
 const liveFindingValueMax = 48
 
-// FormatPhaseFindingLine renders a compact, phase-prefixed one-line summary of a
-// finding for live display on stderr during a scan, e.g.:
+// FormatPhaseFindingLine renders a phase-prefixed one-line summary of a finding
+// for live display on stderr during a scan, e.g.:
 //
-//	❯ dynamic-assessment │ ⚠ high reflected-xss — https://h/p?q=… [<svg/onload=…]
+//	❯ dynamic-assessment │ [passive] [crypto-weakness-detect] [• low] GET https://h/p
 //
-// It mirrors the chevron/pipe prefix of the phase status line so streamed
-// findings read as part of the same phase output. Used when the stdout result
-// stream is deferred to files (jsonl/html) and findings would otherwise stay
-// invisible until the scan finishes. The trailing newline is included.
+// It mirrors the chevron/pipe prefix of the phase status line plus the bracketed
+// [type] [module] [severity] METHOD URL layout of the console result writer
+// (formatScreen), so streamed findings read identically whether they reach the
+// terminal via stdout (console format) or this stderr echo (jsonl/html format,
+// where the stdout result stream is deferred to files). The trailing newline is
+// included.
 func FormatPhaseFindingLine(phaseTag string, r *ResultEvent) string {
-	prefix := terminal.Muted(terminal.SymbolChevron + " " + phaseTag + " " + terminal.SymbolPipe)
-	line := fmt.Sprintf("%s %s %s",
-		prefix,
-		severityColor(r.Info.Severity),
-		terminal.BoldCyan(r.ModuleID))
+	var b strings.Builder
+	b.WriteString(terminal.Muted(terminal.SymbolChevron + " " + phaseTag + " " + terminal.SymbolPipe))
+
+	// [type] — active/passive, colored. Suppressed when it duplicates the phase
+	// tag (e.g. a known-issue-scan finding whose type mirrors the phase wrapper),
+	// matching formatScreen's de-duplication.
+	if r.ModuleType != "" && !strings.EqualFold(r.ModuleType, phaseTag) {
+		b.WriteString(" [" + moduleTypeColor(r.ModuleType) + "]")
+	}
+	// [module-name]
+	if r.ModuleID != "" {
+		b.WriteString(" [" + r.ModuleID + "]")
+	}
+	// [• severity]
+	b.WriteString(" [" + severityColor(r.Info.Severity) + "]")
+
+	// METHOD URL — prefix the HTTP method when the finding carries a request,
+	// exactly as formatScreen does.
 	if loc := MatchedURL(r); loc != "" {
-		line += " " + terminal.Muted("—") + " " + terminal.Gray(loc)
+		b.WriteString(" ")
+		if r.Request != "" {
+			if method, err := httpmsg.GetMethod([]byte(r.Request)); err == nil && method != "" {
+				b.WriteString(method + " ")
+			}
+		}
+		b.WriteString(loc)
 	}
+	// [value] — the grouped extracted value, when present.
 	if v := NormalizedValueKey(r.ExtractedResults); v != "" {
-		line += " " + terminal.Yellow("["+terminal.Truncate(v, liveFindingValueMax)+"]")
+		b.WriteString(" " + terminal.Yellow("["+terminal.Truncate(v, liveFindingValueMax)+"]"))
 	}
-	return line + "\n"
+	b.WriteString("\n")
+	return b.String()
 }

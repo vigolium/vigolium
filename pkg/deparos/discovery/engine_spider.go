@@ -49,6 +49,11 @@ func (e *Engine) extractLinks(baseURL *url.URL, rc *responsechain.ResponseChain,
 	// This extracts HTTP requests from inline <script> content.
 	e.processScriptTagsWithJSScan(e.ctx, baseURL, rc)
 
+	// Harvest Next.js route manifests (_buildManifest.js / _ssgManifest.js) for
+	// the full page-route table and concrete pre-rendered paths, which are often
+	// not linked anywhere in the HTML.
+	e.queueNextJSManifests(baseURL, rc, parentDepth)
+
 	result, err := e.spiderCoordinator.Extract(e.ctx, baseURL, rc)
 	if err != nil {
 		logger.Debug("Link extraction failed",

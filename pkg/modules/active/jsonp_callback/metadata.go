@@ -9,20 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Detects JSONP (JSON with Padding) endpoints that wrap responses in callback
-functions, enabling cross-origin data theft. First checks for existing JSONP
-patterns in responses, then actively injects callback parameters.
+	ModuleDesc = `**What it means:** The endpoint serves data as JSONP, wrapping its JSON payload in a JavaScript function call whose name comes from a request parameter. The scanner confirmed this either by seeing a response already wrapped in a callback, or by injecting a common callback parameter and seeing the response wrap itself in the attacker-supplied function name. Because a script tag executes regardless of the same-origin policy, any site can read this data on behalf of a logged-in victim. Severity rises to High when the response holds sensitive fields like email, password, or token.
 
-## Notes
-- Two-phase detection: passive check for existing JSONP, then active callback injection
-- Severity upgraded from Medium to High if response contains sensitive data
-- Tests multiple common callback parameter names
-- Deduplicates by host + path
+**How it's exploited:** An attacker hosts a page that loads this URL in a script tag and defines the callback to capture the data. When a logged-in victim visits, their cookies are sent automatically and the attacker's JavaScript reads whatever the endpoint returns, stealing personal or authenticated data cross-origin (a Cross-Site Script Inclusion attack).
 
-## References
-- https://owasp.org/www-community/attacks/Cross_Site_Script_Inclusion
-- https://www.benhayak.com/2015/06/same-origin-method-execution-some.html`
+**Fix:** Do not serve sensitive or authenticated data as JSONP; return plain JSON with a controlled CORS policy and reject untrusted callbacks.`
 
 	ModuleConfirmation = "Confirmed when injecting a callback parameter causes the response to be wrapped in the specified function call"
 	ModuleSeverity     = severity.Medium

@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Tests for NoSQL injection by injecting MongoDB query operators ($ne, $gt, $regex,
-$where) and detecting authentication bypass, data exfiltration, and behavioral
-changes. Complements nosqli_error_based by focusing on operator-level injection
-rather than error messages.
+	ModuleDesc = `**What it means:** A parameter is passed into a NoSQL query (typically MongoDB) without being treated as a plain string, so injected query operators like $ne, $gt, $regex, $where, or array syntax such as param[$ne]= are interpreted as query logic instead of literal input. This lets an attacker alter the query's meaning, defeating authentication and access controls.
 
-## Notes
-- Payload selection adapts to insertion point type (JSON, URL, body)
-- Four detection modes: auth bypass, size increase, boolean differential, time delay
-- Skips when NoSQL error patterns are detected (deferred to nosqli_error_based)
-- Deduplicates by request hash manager
+**How it's exploited:** An attacker replaces an expected value with an operator that always matches (for example {"$ne":""} or {"$gt":""}) to bypass a login or authorization check and act as another user, or uses $regex / $where tautologies to make a lookup return records it should not, exfiltrating data. The scanner confirms this by observing a reproducible 401/403-to-2xx authentication bypass, a stable always-true vs always-false boolean response differential, a large reproducible response-body growth, or a time delay from an injected sleep.
 
-## References
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection
-- https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/NoSQL%20Injection`
+**Fix:** Cast user input to the expected scalar type and reject objects/arrays where strings are expected, and use parameterized query construction so user data can never supply query operators.`
 
 	ModuleConfirmation = "Confirmed when NoSQL operator injection causes authentication bypass, data exfiltration, or measurable behavioral change"
 	ModuleSeverity     = severity.High

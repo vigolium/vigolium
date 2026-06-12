@@ -9,24 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for exposed administration consoles of enterprise Java application servers
-including WildFly/JBoss, Oracle WebLogic, and GlassFish/Payara. These admin
-consoles are high-value targets as they enable application deployment, server
-configuration, and often have known CVEs. Default or weak credentials can lead
-to full server compromise.
+	ModuleDesc = `**What it means:** An administration console or management endpoint of an enterprise Java application server (WildFly/JBoss, Oracle WebLogic, GlassFish/Payara, or legacy JBoss JMX/web consoles) is reachable from outside. The scanner probes a fixed set of server-specific paths once per host and confirms a real console by matching product-specific HTML and header markers (against a per-host 404 fingerprint and anti-markers) on a 200 response. These consoles deploy applications and reconfigure the server, so exposing them widens the attack surface dramatically.
 
-## Notes
-- Runs once per host
-- Checks server-specific admin console paths
-- Detects both accessible consoles and authentication challenges
-- Validates using server-specific HTML and header markers
-- Fingerprints 404 responses to reduce false positives
+**How it's exploited:** An attacker who reaches an admin console tries default or weak credentials, or chains a known appserver CVE, to log in and deploy a malicious WAR or alter configuration for full server compromise. Unauthenticated surfaces are worse: the JBoss JMX console and JMXInvokerServlet (flagged Critical) allow direct MBean invocation and Java deserialization, which typically lead straight to remote code execution.
 
-## References
-- https://docs.wildfly.org/
-- https://docs.oracle.com/en/middleware/standalone/weblogic-server/
-- https://glassfish.org/documentation`
+**Fix:** Restrict admin consoles and management endpoints to trusted networks, require strong authentication, and disable or remove legacy JMX/invoker servlets.`
 
 	ModuleConfirmation = "Confirmed when app server admin console page or login form is accessible"
 	ModuleSeverity     = severity.High

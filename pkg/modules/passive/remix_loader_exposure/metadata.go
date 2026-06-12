@@ -9,24 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Scans HTML responses for Remix framework-specific patterns that may leak sensitive data.
-Detects exposed Remix context (window.__remixContext), manifest (__remixManifest), Remix
-response headers, and loader data embedded in script tags. Extracts Remix state data and
-scans for sensitive patterns including API keys, tokens, admin flags, email addresses,
-password hashes, internal IPs, database URLs, and AWS keys.
+	ModuleDesc = `**What it means:** A Remix application is embedding sensitive data in the server-rendered HTML through its loader state (window.__remixContext, window.__remixManifest, or inline loaderData script blobs). The scanner found values inside that state that look like secrets or internal details, such as API keys and tokens, admin or privilege flags, email addresses, password hashes, private/internal IP addresses, database connection strings, or AWS access keys. Anything in this state is delivered to every visitor's browser in plain text.
 
-## Notes
-- Passive only - does not send any HTTP requests
-- Detects: window.__remixContext, __remixManifest, X-Remix-Response/X-Remix-Revalidate headers
-- Extracts loader data from script tags and scans for sensitive patterns
-- Minimum token length of 16 characters to reduce false positives
-- Deduplicates by host+path
+**How it's exploited:** An attacker simply views the page source or response body and reads the leaked values directly, with no special access or tooling. Leaked API keys, database URLs, or AWS credentials can be reused to access backend services; exposed emails or admin flags help enumerate users and target privileged accounts.
 
-## References
-- https://remix.run/docs/en/main/route/loader
-- https://remix.run/docs/en/main/guides/streaming
-- https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/09-Testing_for_Weak_Cryptography/04-Testing_for_Weak_Encryption`
+**Fix:** Return only the fields each route actually needs from loaders, and never include secrets, credentials, password hashes, or internal infrastructure details in loader data or context serialized to the client.`
 
 	ModuleConfirmation = "Confirmed when sensitive data patterns are found in Remix loader data or context"
 	ModuleSeverity     = severity.Medium

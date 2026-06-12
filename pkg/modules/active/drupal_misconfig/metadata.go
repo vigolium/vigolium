@@ -9,21 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for Drupal-specific files and endpoints that should not be publicly
-accessible: settings.php source disclosure, services.yml, update.php, install.php,
-authorize.php, CHANGELOG.txt, config sync directory, Twig debug output, public
-files directory listing, and development services.
+	ModuleDesc = `**What it means:** A Drupal site is exposing files or endpoints that should be blocked from public access. Impact ranges from leaking database credentials and full site configuration (settings.php, config sync export) down to merely confirming the Drupal version (CHANGELOG.txt, README.txt). Each hit is reported at its own severity, from Critical for credential/installer/config exposure to Info for version banners.
 
-## Notes
-- Runs once per host to avoid redundant probing
-- Validates responses with content markers to reduce false positives
-- Covers both Drupal 7 and Drupal 8+ paths
-- Fingerprints 404 responses to detect custom error pages
+**How it's exploited:** A readable settings.php leaks database credentials and the hash salt, a reachable install.php may allow re-installing the site under attacker control, and an exposed config sync directory leaks the full module and settings list. update.php and authorize.php can drive module/theme installation, a listable files directory exposes uploads and backups, and a leaked debug log reveals server paths and stack traces. Lower-severity version files let an attacker pinpoint the exact core version to target known CVEs.
 
-## References
-- https://www.drupal.org/docs/administering-a-drupal-site/security-in-drupal/securing-your-site
-- https://owasp.org/www-project-web-security-testing-guide/`
+**Fix:** Block web access to these admin scripts, config, source, and dotfiles, restrict the installer and update routes to authenticated admins, and disable directory listings.`
 
 	ModuleConfirmation = "Confirmed when probed Drupal files return 200 with expected content markers"
 	ModuleSeverity     = severity.High

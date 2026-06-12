@@ -9,22 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Passively identifies Laravel installations by analyzing HTTP response headers,
-cookies (laravel_session, XSRF-TOKEN), body patterns (csrf-token meta tag,
-Illuminate error strings), and Sanctum/Passport indicators. Requires 2+
-independent signals to avoid false positives.
+	ModuleDesc = `**What it means:** The target application is built on the Laravel PHP framework, identified passively from at least two independent signals such as the laravel_session or XSRF-TOKEN cookies, a csrf-token meta tag, Illuminate error strings, an Ignition or Whoops debug error handler, or Sanctum and Passport indicators. This is an informational fingerprint, not a vulnerability, but it discloses the technology stack and sometimes the error-handling configuration to anyone inspecting responses.
 
-## Notes
-- Passive only: does not send any HTTP requests
-- Deduplicates by host to avoid redundant processing
-- Extracts version hints from error pages and headers when available
-- Reports as informational severity
+**How it's exploited:** Knowing the app runs Laravel lets an attacker narrow their attack surface and target framework-specific weaknesses, for example known CVEs in Laravel, Ignition (CVE-2021-3129 RCE), or Passport, default routes like /sanctum/csrf-cookie, and predictable session or CSRF handling. An exposed Ignition or Whoops debug handler is an especially strong lead, since it usually signals a non-production debug mode that can leak source, config, and environment details.
 
-## References
-- https://laravel.com/docs/csrf
-- https://laravel.com/docs/session
-- https://laravel.com/docs/sanctum`
+**Fix:** Suppress framework fingerprints where practical by removing the X-Powered-By header and verbose error pages, and ensure debug mode (APP_DEBUG) is disabled in production so debug handlers never reach clients.`
 
 	ModuleConfirmation = "Confirmed when 2+ independent Laravel-specific signals are detected in the response"
 	ModuleSeverity     = severity.Info

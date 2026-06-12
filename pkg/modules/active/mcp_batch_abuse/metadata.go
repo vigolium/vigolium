@@ -9,20 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-JSON-RPC 2.0 supports batched arrays of requests. Some MCP servers gate
-sensitive methods (` + "`tools/call`" + `, ` + "`resources/read`" + `) behind a successful
-` + "`initialize`" + ` but apply the gate per-request, so a batch that bundles
-` + "`initialize`" + ` and ` + "`tools/call`" + ` together processes both even though the
-session was never actually established.
+	ModuleDesc = `**What it means:** This Model Context Protocol (MCP) server enforces its session/authentication gate per-request inside a JSON-RPC batch instead of for the batch as a whole, so a single array that bundles an initialize call with a sensitive method is processed in full even though no real session was ever established. This lets a caller reach MCP methods that should require a valid, authenticated session, exposing the server's tool and resource surface to unauthenticated clients.
 
-This module sends a batched array containing ` + "`initialize`" + ` and one or more
-` + "`tools/list`" + ` / ` + "`tools/call`" + ` requests (without an Mcp-Session-Id) and
-flags the server when the smuggled requests succeed.
+**How it's exploited:** An attacker POSTs a batched JSON-RPC array containing initialize plus tools/list (or tools/call) with no Mcp-Session-Id header; the smuggled method returns a result alongside the initialize response, leaking the server's available tools and potentially allowing invocation of privileged tool/resource operations without ever holding a session.
 
-## References
-- https://www.jsonrpc.org/specification
-- https://modelcontextprotocol.io/specification/2025-11-25`
+**Fix:** Establish and validate the MCP session before processing any method, and apply that gate to every entry in a batch (or reject batched requests outright) so unestablished sessions cannot reach tools/call or resources/read.`
 
 	ModuleConfirmation = "Confirmed when a batched JSON-RPC array bypasses the per-request session gate, returning a result for tools/list or tools/call without a real session"
 	ModuleSeverity     = severity.High

@@ -9,26 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Scans JavaScript, TypeScript, and JSON response bodies for build and deployment
-misconfigurations in modern frontend frameworks. Detects production source maps
-enabled (Next.js, Vite, webpack), development mode start scripts in production
-package.json, dangerous SVG handling in Next.js image optimization, and overly
-broad image remote patterns. These misconfigurations can leak source code,
-expose development tooling, or enable SSRF attacks.
-
-## Notes
-- Passive only -- does not send any HTTP requests
-- Scans JS/TS/JSON responses and config file URLs
-- Detects: source maps in prod, dev mode in prod, SVG XSS risk, broad image remotePatterns
-- Deduplicates by host
-
-## References
-- https://nextjs.org/docs/app/api-reference/next-config-js/productionBrowserSourceMaps
-- https://vitejs.dev/config/build-options.html#build-sourcemap
-- https://webpack.js.org/configuration/devtool/
-- https://cwe.mitre.org/data/definitions/540.html
-- https://cwe.mitre.org/data/definitions/489.html`
+	ModuleDesc = `**What it means:** This passive check found a frontend build or deployment configuration (in an exposed config file such as next.config, vite.config, webpack.config, or package.json, or in a JS/TS/JSON bundle confirmed to embed build-config settings) that is left in an insecure state for production. Detected issues include production source maps enabled (Next.js productionBrowserSourceMaps, Vite/webpack sourcemap, webpack devtool source-map), a development-mode start script shipped in production package.json, Next.js dangerouslyAllowSVG enabled, and an overly broad image remotePatterns wildcard hostname. These settings leak source code, expose dev tooling, or widen attack surface.
+**How it's exploited:** Source maps let an attacker reconstruct readable source and find secrets or logic flaws; dev-mode servers expose verbose errors and debug endpoints; allowing SVG through the image optimizer enables stored XSS; a wildcard image hostname lets the optimizer be pointed at arbitrary hosts for SSRF.
+**Fix:** Disable source maps and dev settings in production builds, restrict image remotePatterns to trusted hostnames, and keep dangerouslyAllowSVG off.`
 
 	ModuleConfirmation = "Confirmed when response body contains build or deployment configuration patterns that indicate misconfigurations in production"
 	ModuleSeverity     = severity.High

@@ -9,24 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `## Description
-Probes for Rails Active Storage direct upload endpoints that may accept unauthenticated
-uploads, and Action Mailbox ingress endpoints that may accept unauthorized email submissions.
-Also checks for publicly accessible Active Storage blob routes.
+	ModuleDesc = `**What it means:** The application exposes Rails Active Storage direct-upload, Active Storage blob, or Action Mailbox inbound-email ingress routes that are reachable without authentication at the network edge. These framework routes are meant for internal upload and mail-ingest flows, and exposing them widens the attack surface and signals the app may not gate them properly.
 
-## Notes
-- OPTIONS-based ingress probes confirm only on a 2xx Allow header advertising
-  POST — never on a body substring (an nginx "405 Not Allowed" page contains
-  "Allow"), and never on a 405 / 404 / auth-gate / WAF-blocked reply
-- Detects blanket-OPTIONS hosts (proxies / API gateways / CORS middleware that
-  answer OPTIONS uniformly) and CORS-preflight replies, and discards their
-  OPTIONS evidence
-- Fingerprints 404 responses and strips reflected request targets to avoid
-  false positives
+**How it's exploited:** If a direct-upload endpoint accepts unauthenticated requests, an attacker can upload arbitrary file blobs to the app's storage, potentially seeding malicious content or burning storage and bandwidth. An open Action Mailbox ingress lets an attacker inject forged inbound emails that the app processes as legitimate. An exposed blob route confirms Active Storage is in use and may serve stored files publicly. This probe confirms only that the route is mounted and answers; it does not by itself prove the upload or ingest succeeds without further auth.
 
-## References
-- https://guides.rubyonrails.org/active_storage_overview.html
-- https://guides.rubyonrails.org/action_mailbox_basics.html`
+**Fix:** Require authentication on Active Storage and Action Mailbox routes (configure ingress credentials and restrict access), and do not expose these internal routes to untrusted networks.`
 
 	ModuleConfirmation = "Confirmed when an Active Storage / Action Mailbox OPTIONS probe returns a 2xx Allow header advertising POST, or a blob route redirects to a stored object"
 	ModuleSeverity     = severity.Medium
