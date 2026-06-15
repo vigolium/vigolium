@@ -148,6 +148,7 @@ func init() {
 	f.BoolVar(&trafficBurp, "burp", false, "Display in Burp Suite-style format (colored request/response)")
 	f.StringSliceVar(&trafficColumns, "columns", nil, "Columns to show (comma-separated, e.g. HOST,METHOD,PATH,STATUS)")
 	f.StringSliceVar(&trafficExclude, "exclude-columns", nil, "Columns to hide (comma-separated)")
+	registerAgentJSONFlags(f)
 
 	// Replay flags
 	f.BoolVar(&trafficReplay, "replay", false, "Re-send the matched requests and compare original vs new response (instead of listing)")

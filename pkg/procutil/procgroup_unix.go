@@ -6,6 +6,7 @@
 package procutil
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 )
@@ -31,4 +32,50 @@ func SetupProcessGroup(cmd *exec.Cmd) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		return cmd.Process.Kill()
 	}
+}
+
+// ProcessGroupID returns the process group id for pid, falling back to pid
+// itself when it can't be determined.
+func ProcessGroupID(pid int) int {
+	if pgid, err := syscall.Getpgid(pid); err == nil {
+		return pgid
+	}
+	return pid
+}
+
+// IsProcessAlive reports whether pid is a live process, using signal 0 (the
+// POSIX existence check). EPERM counts as alive — the process exists, we just
+// lack permission to signal it.
+func IsProcessAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// IsProcessGroupAlive reports whether any process remains in the group led by pgid.
+func IsProcessGroupAlive(pgid int) bool {
+	if pgid <= 0 {
+		return false
+	}
+	err := syscall.Kill(-pgid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// SignalProcessGroup signals every process in the group led by pgid: SIGKILL
+// when kill is true, otherwise SIGTERM. A "no such process" result means the
+// group is already gone and is reported as success.
+func SignalProcessGroup(pgid int, kill bool) error {
+	if pgid <= 0 {
+		return nil
+	}
+	sig := syscall.SIGTERM
+	if kill {
+		sig = syscall.SIGKILL
+	}
+	if err := syscall.Kill(-pgid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
 }

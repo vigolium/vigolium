@@ -3,9 +3,9 @@ package agent
 import (
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/procutil"
 	"go.uber.org/zap"
 )
 
@@ -59,29 +59,26 @@ func CleanupOrphanedProcesses(sessionsDir string) int {
 }
 
 // killProcessGroup sends SIGTERM to a process group, waits up to 3 seconds,
-// then escalates to SIGKILL.
+// then escalates to SIGKILL. The platform-specific signaling lives in
+// procutil (procgroup_unix.go, procgroup_windows.go).
 func killProcessGroup(pgid int) error {
 	if pgid <= 0 {
 		return nil
 	}
-	err := syscall.Kill(-pgid, syscall.SIGTERM)
-	if err != nil {
-		if err == syscall.ESRCH {
-			return nil
-		}
+	if err := procutil.SignalProcessGroup(pgid, false); err != nil { // SIGTERM (graceful)
 		return err
 	}
 
 	// Wait up to 3 seconds for exit.
 	for i := 0; i < 6; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if syscall.Kill(-pgid, 0) != nil {
+		if !procutil.IsProcessGroupAlive(pgid) {
 			return nil
 		}
 	}
 
 	// Escalate to SIGKILL.
-	_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	_ = procutil.SignalProcessGroup(pgid, true)
 	return nil
 }
 

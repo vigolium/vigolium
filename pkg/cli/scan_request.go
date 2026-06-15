@@ -43,6 +43,10 @@ func init() {
 func runScanRequestCmd(_ *cobra.Command, _ []string) error {
 	defer syncLogger()
 
+	if err := resetFailOnGate(); err != nil {
+		return err
+	}
+
 	// Read raw HTTP request
 	var raw []byte
 	var err error
@@ -89,5 +93,5 @@ func runScanRequestCmd(_ *cobra.Command, _ []string) error {
 
 	// Route through the Runner when output/persistence/phase flags are in play;
 	// otherwise take the fast in-memory direct path.
-	return dispatchSingleScan(rr, target, method)
+	return withFailOnGate(dispatchSingleScan(rr, target, method))
 }

@@ -143,7 +143,12 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 
 	// Tee streamed text into {sessionDir}/runtime.log so `vigolium log <uuid>`
 	// can replay the run later, regardless of whether the operator is watching.
+	// Under --json, stdout is reserved for the final JSON summary, so the live
+	// agent stream goes to stderr instead.
 	var streamWriter io.Writer = os.Stdout
+	if globalJSON {
+		streamWriter = os.Stderr
+	}
 	if tee, closer := teeToRuntimeLog(streamWriter, sessionDir); closer != nil {
 		streamWriter = tee
 		defer func() { _ = closer.Close() }()
@@ -240,7 +245,11 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 		}
 	}
 
-	printOliumAutopilotSummary(result, sessionDir, repo, parentAgenticScanUUID)
+	if globalJSON {
+		emitAgentScanJSONSummary(repo, projectUUID, parentAgenticScanUUID, autopilotRunStatus(result), sessionDir)
+	} else {
+		printOliumAutopilotSummary(result, sessionDir, repo, parentAgenticScanUUID)
+	}
 
 	if autopilotUploadResults {
 		uploadAgenticScanResults(settings, projectUUID, parentAgenticScanUUID, sessionDir, repo)
@@ -248,6 +257,15 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 
 	webhook.FireAgenticScan(settings, repo, parentAgenticScanUUID)
 	return nil
+}
+
+// autopilotRunStatus maps an autopilot result to a short status string for the
+// JSON summary.
+func autopilotRunStatus(result *autopilot.Result) string {
+	if result != nil && result.Halted {
+		return "halted"
+	}
+	return "completed"
 }
 
 // buildPrescanInstruction launches the autopilot native pre-scan (when
@@ -458,7 +476,11 @@ func runAutopilotOliumPipeline(
 		return fmt.Errorf("autopilot session failed: %w", runErr)
 	}
 
-	printOliumAutopilotPipelineSummary(result, sessionDir, repo, parentAgenticScanUUID)
+	if globalJSON {
+		emitAgentScanJSONSummary(repo, projectUUID, parentAgenticScanUUID, "completed", sessionDir)
+	} else {
+		printOliumAutopilotPipelineSummary(result, sessionDir, repo, parentAgenticScanUUID)
+	}
 	_ = model // reserved for future use; provider/model already echoed in header
 
 	if autopilotUploadResults {

@@ -14,6 +14,7 @@ import (
 
 	fileutil "github.com/projectdiscovery/utils/file"
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/internal/atomicfile"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
@@ -87,8 +88,16 @@ func shouldWidenKnownIssueScanSeverities(onlyPhase string, severitiesExplicit bo
 	return false // already covers every level
 }
 
-func runScanCmd(cmd *cobra.Command, args []string) error {
+func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	defer syncLogger()
+
+	// --fail-on gate: validate up front, then convert a tripped gate into a
+	// non-zero exit once the body has returned (so reports/JSON are written
+	// first). evaluateFailOnGate sets the flag during reportNativeScanSuccess.
+	if gateErr := resetFailOnGate(); gateErr != nil {
+		return gateErr
+	}
+	defer func() { err = withFailOnGate(err) }()
 
 	// Copy global flags into scan options
 	scanOpts.ScanUUID = globalScanUUID
@@ -704,6 +713,7 @@ func reportNativeScanSuccess(db *database.DB, settings *config.Settings, repo *d
 		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
 		printScanCompletionSummary(repo, time.Since(scanStart))
 	}
+	evaluateFailOnGate(repo, scanOpts.ProjectUUID, scanOpts.ScanUUID, scanOpts.Silent)
 }
 
 // runStatelessTargetFile iterates over each non-blank line in
@@ -952,11 +962,7 @@ func (e *emptySource) Close() error                                   { return n
 // scopes the query: "" exports the whole DB (stateless temp DB), a non-empty
 // value scopes to one project so a persisted report matches the sibling jsonl
 // export and never leaks other projects' findings.
-func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, projectUUID string, generate func([]any, string, output.HTMLReportMeta) error) error {
-	items, err := queryExportData(ctx, db, omitResponse, projectUUID)
-	if err != nil {
-		return err
-	}
+func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, projectUUID string, rf reportFormatEntry) error {
 	autoTarget, autoDuration := computeReportMeta(ctx, db)
 	meta := output.HTMLReportMeta{
 		Title:           "Vigolium Scan Report",
@@ -965,7 +971,22 @@ func generateReportFromDB(ctx context.Context, db *database.DB, outputPath strin
 		ScanTarget:      autoTarget,
 		ReportSharedURL: scanReportSharedURL,
 	}
-	return generate(items, outputPath, meta)
+	// Prefer the streaming generator when the format has one: it renders the
+	// report by pulling rows one at a time instead of loading the whole result
+	// set into memory. forceOmitResponse drops the raw request/response bytes
+	// this renderer discards anyway, so they never enter memory.
+	if rf.streamGenerate != nil {
+		omit := omitResponse || rf.forceOmitResponse
+		produce := func(emit func(any) error) error {
+			return streamExportData(ctx, db, omit, projectUUID, emit)
+		}
+		return rf.streamGenerate(produce, outputPath, meta)
+	}
+	items, err := queryExportData(ctx, db, omitResponse, projectUUID)
+	if err != nil {
+		return err
+	}
+	return rf.generate(items, outputPath, meta)
 }
 
 // parseFormats splits a comma-separated format string, defaulting to "console".
@@ -1016,16 +1037,24 @@ func reconcileOutputFormats(opts *types.Options) error {
 
 // reportFormatEntry maps a --format value to its generator and display label.
 type reportFormatEntry struct {
-	format    string
-	label     string
-	generate  func([]any, string, output.HTMLReportMeta) error
-	beforeMsg string // optional stderr message before generation
+	format string
+	label  string
+	// generate materializes all items, then renders. Used when streamGenerate
+	// is nil, and as the fallback path for the streaming generators.
+	generate func([]any, string, output.HTMLReportMeta) error
+	// streamGenerate, when set, renders the report by pulling items one at a
+	// time from a producer, so the result set never lives in memory at once.
+	streamGenerate func(output.ReportItemProducer, string, output.HTMLReportMeta) error
+	// forceOmitResponse marks formats whose renderer discards the raw
+	// request/response bytes, so they are never loaded from the DB.
+	forceOmitResponse bool
+	beforeMsg         string // optional stderr message before generation
 }
 
 var reportFormats = []reportFormatEntry{
-	{"html", "HTML report", output.GenerateHTMLReport, ""},
-	{"report", "Document report", output.GenerateDocumentReport, ""},
-	{"pdf", "PDF report", output.GeneratePDFReport, "Generating PDF report (headless Chrome)..."},
+	{format: "html", label: "HTML report", generate: output.GenerateHTMLReport, streamGenerate: output.GenerateHTMLReportStreaming, forceOmitResponse: true},
+	{format: "report", label: "Document report", generate: output.GenerateDocumentReport},
+	{format: "pdf", label: "PDF report", generate: output.GeneratePDFReport, beforeMsg: "Generating PDF report (headless Chrome)..."},
 }
 
 // maybeGenerateReports generates all requested file-based reports post-scan.
@@ -1042,7 +1071,7 @@ func maybeGenerateReports(db *database.DB, opts *types.Options) {
 		if rf.beforeMsg != "" {
 			fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
 		}
-		if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, exportProjectScope(opts), rf.generate); err != nil {
+		if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, exportProjectScope(opts), rf); err != nil {
 			fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
 		} else {
 			fmt.Fprintf(os.Stderr, "%s %s: %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
@@ -1082,7 +1111,7 @@ func finishStatelessExport(db *database.DB, opts *types.Options, outputPath stri
 					fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
 				}
 				// Stateless temp DB holds only this run → whole-DB report ("").
-				if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, "", rf.generate); err != nil {
+				if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, "", rf); err != nil {
 					fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
 				} else {
 					fmt.Fprintf(os.Stderr, "%s %s exported to %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
@@ -1256,15 +1285,47 @@ func encodeJSONL(w io.Writer, items []any) (int, error) {
 	return len(items), nil
 }
 
-// writeJSONLExport queries the (optionally project-scoped) database and streams
-// the envelope to w. projectUUID == "" exports the whole DB. Used for the stdout
-// path, where there is no output file to leave half-written on error.
-func writeJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitResponse bool, projectUUID string) (int, error) {
-	items, err := queryExportData(ctx, db, omitResponse, projectUUID)
+// streamJSONLExport streams the unified {"type":...,"data":...} envelope to w,
+// encoding each item as it is read from the database so the full result set is
+// never held in memory. Returns the number of lines written. A mid-stream write
+// error aborts and is returned; callers writing to a file should stage to a temp
+// path (see streamJSONLToFile) so a partial stream never replaces a good file.
+func streamJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitResponse bool, projectUUID string) (int, error) {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	n := 0
+	err := streamExportData(ctx, db, omitResponse, projectUUID, func(item any) error {
+		if err := enc.Encode(item); err != nil {
+			return err
+		}
+		n++
+		return nil
+	})
+	return n, err
+}
+
+// streamJSONLToFile streams the JSONL envelope to outputPath atomically: it
+// writes to a temp sibling and renames into place on success, so a failed or
+// partial export never replaces or half-writes the destination file. Returns the
+// number of records written.
+func streamJSONLToFile(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, projectUUID string) (int, error) {
+	var n int
+	err := atomicfile.Write(outputPath, func(w *bufio.Writer) error {
+		var werr error
+		n, werr = streamJSONLExport(ctx, db, w, omitResponse, projectUUID)
+		return werr
+	})
 	if err != nil {
 		return 0, err
 	}
-	return encodeJSONL(w, items)
+	return n, nil
+}
+
+// writeJSONLExport streams the (optionally project-scoped) database export to w.
+// projectUUID == "" exports the whole DB. Used for the stdout path, where there
+// is no output file to leave half-written on error.
+func writeJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitResponse bool, projectUUID string) (int, error) {
+	return streamJSONLExport(ctx, db, w, omitResponse, projectUUID)
 }
 
 // exportStatelessJSONL writes all records in the (temporary) database to a JSONL
@@ -1272,21 +1333,9 @@ func writeJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitRes
 // the whole-DB export is implicitly scoped to the current scan. The query runs
 // before the file is created so a query failure leaves no empty output file.
 func exportStatelessJSONL(ctx context.Context, db *database.DB, opts *types.Options, outputPath string) {
-	items, err := queryExportData(ctx, db, opts.OmitResponse, "")
+	n, err := streamJSONLToFile(ctx, db, outputPath, opts.OmitResponse, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to export data: %v\n", terminal.ErrorPrefix(), err)
-		return
-	}
-	f, err := os.Create(outputPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s Failed to create output file: %v\n", terminal.ErrorPrefix(), err)
-		return
-	}
-	defer func() { _ = f.Close() }()
-
-	n, err := encodeJSONL(f, items)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s Failed to write export data: %v\n", terminal.ErrorPrefix(), err)
 		return
 	}
 	fmt.Fprintf(os.Stderr, "%s Results exported to %s (%d records)\n",
@@ -1318,11 +1367,6 @@ func finishScanJSONLExport(db *database.DB, opts *types.Options) {
 		return
 	}
 
-	items, err := queryExportData(ctx, db, opts.OmitResponse, projectUUID)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s Failed to export results: %v\n", terminal.ErrorPrefix(), err)
-		return
-	}
 	// Single format honors the literal -o path the user gave; with multiple
 	// formats each writes to its own extension-qualified path so the jsonl
 	// export never collides with the live console / html / report files.
@@ -1330,14 +1374,7 @@ func finishScanJSONLExport(db *database.DB, opts *types.Options) {
 	if len(opts.OutputFormats) > 1 {
 		outPath = opts.OutputPathForFormat("jsonl")
 	}
-	f, err := os.Create(outPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s Failed to create output file: %v\n", terminal.ErrorPrefix(), err)
-		return
-	}
-	defer func() { _ = f.Close() }()
-
-	n, err := encodeJSONL(f, items)
+	n, err := streamJSONLToFile(ctx, db, outPath, opts.OmitResponse, projectUUID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to export results: %v\n", terminal.ErrorPrefix(), err)
 		return
@@ -1353,40 +1390,32 @@ func finishScanJSONLExport(db *database.DB, opts *types.Options) {
 // when the phase only ingests HTTP records (e.g. discovery) and emits no
 // findings.
 func exportStatelessConsole(ctx context.Context, db *database.DB, outputPath string, omitResponse bool) {
-	items, err := queryExportData(ctx, db, omitResponse, "")
+	var lines int
+	err := atomicfile.Write(outputPath, func(w *bufio.Writer) error {
+		return streamExportData(ctx, db, omitResponse, "", func(item any) error {
+			env, ok := item.(exportEnvelope)
+			if !ok {
+				return nil
+			}
+			var line string
+			switch env.Type {
+			case "http_record":
+				line = consoleHTTPRecordLine(env.Data)
+			case "finding":
+				line = consoleFindingLine(env.Data)
+			}
+			if line == "" {
+				return nil
+			}
+			if _, err := fmt.Fprintln(w, line); err != nil {
+				return err
+			}
+			lines++
+			return nil
+		})
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to export data: %v\n", terminal.ErrorPrefix(), err)
-		return
-	}
-	f, err := os.Create(outputPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s Failed to create output file: %v\n", terminal.ErrorPrefix(), err)
-		return
-	}
-	defer func() { _ = f.Close() }()
-
-	w := bufio.NewWriter(f)
-	var lines int
-	for _, item := range items {
-		env, ok := item.(exportEnvelope)
-		if !ok {
-			continue
-		}
-		var line string
-		switch env.Type {
-		case "http_record":
-			line = consoleHTTPRecordLine(env.Data)
-		case "finding":
-			line = consoleFindingLine(env.Data)
-		}
-		if line == "" {
-			continue
-		}
-		_, _ = fmt.Fprintln(w, line)
-		lines++
-	}
-	if err := w.Flush(); err != nil {
-		fmt.Fprintf(os.Stderr, "%s Failed to write export data: %v\n", terminal.ErrorPrefix(), err)
 		return
 	}
 	fmt.Fprintf(os.Stderr, "%s Results exported to %s (%d lines)\n",

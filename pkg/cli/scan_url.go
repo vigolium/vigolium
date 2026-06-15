@@ -133,6 +133,10 @@ func dispatchSingleScan(rr *httpmsg.HttpRequestResponse, target, method string) 
 func runScanURLCmd(_ *cobra.Command, args []string) error {
 	defer syncLogger()
 
+	if err := resetFailOnGate(); err != nil {
+		return err
+	}
+
 	// Targets come from the positional URL argument and/or repeatable -t/--target
 	// flags. The positional arg is kept for the original single-URL ergonomics;
 	// -t lets the command match `vigolium scan`'s muscle memory and pass several
@@ -151,7 +155,7 @@ func runScanURLCmd(_ *cobra.Command, args []string) error {
 				lastErr = err
 			}
 		}
-		return lastErr
+		return withFailOnGate(lastErr)
 	}
 
 	// No args — try reading from stdin
@@ -185,7 +189,7 @@ func runScanURLCmd(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	return lastErr
+	return withFailOnGate(lastErr)
 }
 
 // --- Shared helpers used by both scan-url and scan-request ---
@@ -583,6 +587,11 @@ func runScanWithRR(rr *httpmsg.HttpRequestResponse, target, method string) error
 		result.Findings = make([]*output.ResultEvent, 0)
 	}
 
+	// In-memory --fail-on gate: the direct path holds findings in memory rather
+	// than a database, so check severities here. The RunE converts the flag into
+	// an exit code after output is written.
+	failOnGateFromEvents(result.Findings, globalSilent)
+
 	return outputScanResult(result)
 }
 
@@ -831,6 +840,7 @@ func runRunnerScan(rr *httpmsg.HttpRequestResponse, target string) (err error) {
 		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
 		printScanCompletionSummary(repo, time.Since(scanStart))
 	}
+	evaluateFailOnGate(repo, opts.ProjectUUID, opts.ScanUUID, opts.Silent)
 
 	return nil
 }

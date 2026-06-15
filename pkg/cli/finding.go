@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -32,16 +30,19 @@ var (
 	findingLimit         int
 	findingOffset        int
 	findingSeverity      string
+	findingMinSeverity   string
 	findingScanUUID      string
+	findingAgenticScan   string
 	findingModuleType    string
 	findingFindingSource string
 	findingID            int
 
 	// Display-only flags
-	findingRaw     bool
-	findingBurp    bool
-	findingColumns []string
-	findingExclude []string
+	findingRaw         bool
+	findingBurp        bool
+	findingWithRecords bool
+	findingColumns     []string
+	findingExclude     []string
 )
 
 // findingColumnDef defines a displayable column for the findings table.
@@ -119,7 +120,9 @@ func init() {
 
 	// Finding-specific filter flags
 	pf.StringVar(&findingSeverity, "severity", "", "Filter by severity: critical,high,medium,low,info (comma-separated)")
+	pf.StringVar(&findingMinSeverity, "min-severity", "", "Filter by minimum severity (e.g. high → high+critical); ignored when --severity is set")
 	pf.StringVar(&findingScanUUID, "scan-uuid", "", "Filter by scan UUID")
+	pf.StringVar(&findingAgenticScan, "agentic-scan", "", "Filter by agentic-scan UUID (findings produced by an agent autopilot/swarm/audit run)")
 	pf.StringVar(&findingModuleType, "module-type", "", "Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension)")
 	pf.StringVar(&findingFindingSource, "finding-source", "", "Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension)")
 	pf.IntVar(&findingID, "id", 0, "Filter by finding ID")
@@ -128,8 +131,10 @@ func init() {
 	f := findingCmd.Flags()
 	f.BoolVar(&findingRaw, "raw", false, "Show full raw HTTP request and response for each finding")
 	f.BoolVar(&findingBurp, "burp", false, "Display in Burp Suite-style format (colored request/response)")
+	f.BoolVar(&findingWithRecords, "with-records", false, "With --json: resolve and embed the linked HTTP records (self-contained triage bundle)")
 	f.StringSliceVar(&findingColumns, "columns", nil, "Columns to show (comma-separated, e.g. ID,SEVERITY,MODULE)")
 	f.StringSliceVar(&findingExclude, "exclude-columns", nil, "Columns to hide (comma-separated)")
+	registerAgentJSONFlags(f)
 	tui.AddFlags(findingCmd, &findingTUIFlag, &findingNoTUIFlag)
 }
 
@@ -153,6 +158,12 @@ func runFinding(cmd *cobra.Command, args []string) error {
 		}
 
 		ctx := context.Background()
+
+		// --agentic-scan expands to the whole scan tree (parent + nested audit
+		// driver legs / swarm sub-runs) so one UUID returns every linked finding.
+		if findingAgenticScan != "" {
+			filters.AgenticScanUUIDs = resolveAgenticScanTree(ctx, db, findingAgenticScan)
+		}
 		fqb := database.NewFindingsQueryBuilder(db, filters)
 		findings, err := fqb.Execute(ctx)
 		if err != nil {
@@ -175,7 +186,7 @@ func runFinding(cmd *cobra.Command, args []string) error {
 		}
 
 		if globalJSON {
-			return displayFindingsJSON(findings, total, filters.ProjectUUID)
+			return displayFindingsJSON(ctx, db, findings, total, filters.ProjectUUID)
 		} else if findingBurp {
 			return displayFindingsBurp(db, ctx, findings)
 		} else if findingRaw {
@@ -205,6 +216,11 @@ func buildFindingFilters(fuzzyTerm string) (database.QueryFilters, error) {
 	var severities []string
 	if findingSeverity != "" {
 		severities = strings.Split(findingSeverity, ",")
+	} else if findingMinSeverity != "" {
+		severities = severitiesAtOrAbove(findingMinSeverity)
+		if severities == nil {
+			return database.QueryFilters{}, fmt.Errorf("invalid --min-severity %q (want one of: %s)", findingMinSeverity, strings.Join(severityOrder, ", "))
+		}
 	}
 
 	projectUUID, err := resolveProjectUUID()
@@ -237,17 +253,15 @@ func buildFindingFilters(fuzzyTerm string) (database.QueryFilters, error) {
 	}, nil
 }
 
-func displayFindingsJSON(findings []*database.Finding, total int64, projectUUID string) error {
-	output := map[string]interface{}{
+func displayFindingsJSON(ctx context.Context, db *database.DB, findings []*database.Finding, total int64, projectUUID string) error {
+	opts := agentViewOptionsFromFlags()
+	return writeAgentJSON(map[string]any{
 		"project_uuid": projectUUID,
 		"total":        total,
 		"offset":       findingOffset,
 		"limit":        findingLimit,
-		"findings":     findings,
-	}
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(output)
+		"findings":     findingViews(ctx, db, findings, opts, findingWithRecords),
+	})
 }
 
 // displayFindingsBurp shows findings with their associated HTTP records in Burp-style format.

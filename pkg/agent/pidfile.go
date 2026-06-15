@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/procutil"
 	"go.uber.org/zap"
 )
 
@@ -27,10 +27,7 @@ func WriteRunPID(sessionDir string) error {
 		return nil
 	}
 	pid := os.Getpid()
-	pgid, err := syscall.Getpgid(pid)
-	if err != nil {
-		pgid = pid
-	}
+	pgid := procutil.ProcessGroupID(pid)
 	info := RunPID{
 		PID:       pid,
 		PGID:      pgid,
@@ -70,8 +67,5 @@ func ReadRunPID(pidPath string) *RunPID {
 
 // IsProcessAlive checks whether a process with the given PID is still running.
 func IsProcessAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	return syscall.Kill(pid, 0) == nil
+	return procutil.IsProcessAlive(pid)
 }

@@ -596,6 +596,14 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 	if allFailed {
 		return fmt.Errorf("all participating audit drivers failed")
 	}
+
+	if globalJSON {
+		status := "completed"
+		if !allOK {
+			status = "completed_with_errors"
+		}
+		emitAgentScanJSONSummary(repo, projectUUID, parentUUID, status, parentSessionDir)
+	}
 	return nil
 }
 

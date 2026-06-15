@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/internal/atomicfile"
 	"github.com/vigolium/vigolium/public"
 )
 
@@ -127,6 +128,77 @@ func GenerateHTMLReport(items []any, outputPath string, meta HTMLReportMeta) err
 	return nil
 }
 
+// ReportItemProducer streams export envelopes to emit, one at a time, in the
+// order they should appear in the report. It must return the first error from
+// emit (fatal) and should log-and-skip its own data-source errors. Used by
+// GenerateHTMLReportStreaming so the report renders without ever materializing
+// the whole result set.
+type ReportItemProducer func(emit func(any) error) error
+
+// GenerateHTMLReportStreaming renders the embedded template.html to outputPath
+// by pulling items from produce one at a time, so the full result set never
+// lives in memory. The output is byte-identical to a GenerateHTMLReport call
+// over the same items. The report is written to a temp sibling and atomically
+// renamed into place on success, so a mid-stream error never leaves a
+// half-written report behind.
+func GenerateHTMLReportStreaming(produce ReportItemProducer, outputPath string, meta HTMLReportMeta) error {
+	title := meta.Title
+	if title == "" {
+		title = "Vigolium Scan Report"
+	}
+
+	tmplBytes, err := public.StaticFS.ReadFile("static-reports/template.html")
+	if err != nil {
+		return err
+	}
+
+	const marker = "{{.ResultsJSON}}"
+	tmplStr := string(tmplBytes)
+	parts := strings.SplitN(tmplStr, marker, 2)
+	if len(parts) != 2 {
+		// Marker missing — fall back to the monolithic path, buffering the
+		// streamed items (rare: only if the bundled template is malformed).
+		var items []any
+		if err := produce(func(item any) error { items = append(items, item); return nil }); err != nil {
+			return err
+		}
+		return generateHTMLReportLegacy(items, outputPath, meta, tmplStr)
+	}
+
+	generatedAt := meta.GeneratedAt
+	if generatedAt == "" {
+		generatedAt = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+	before := strings.Replace(parts[0], "{{.Title}}", title, 1)
+	before = strings.Replace(before, "{{.GeneratedAt}}", generatedAt, 1)
+	before = strings.Replace(before, "{{.ScanDuration}}", meta.ScanDuration, 1)
+	before = strings.Replace(before, "{{.ScanTarget}}", meta.ScanTarget, 1)
+	before = strings.Replace(before, "{{.VigoliumVersion}}", meta.Version, 1)
+	before = strings.Replace(before, "{{.ReportSharedURL}}", resolveReportSharedURL(meta), 1)
+	before = strings.ReplaceAll(before, "{{.DataExpected}}", "true")
+
+	aw := &reportArrayWriter{budget: int64(htmlReportBodyBudgetBytes)}
+	err = atomicfile.Write(outputPath, func(w *bufio.Writer) error {
+		aw.w = w
+		if _, err := w.WriteString(before); err != nil {
+			return err
+		}
+		if err := produce(func(item any) error { return aw.add(item) }); err != nil {
+			return err
+		}
+		if err := aw.close(); err != nil {
+			return err
+		}
+		_, err := w.WriteString(parts[1])
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	logReportTrim(aw.stats)
+	return nil
+}
+
 // generateHTMLReportLegacy is the original monolithic approach, used as a
 // fallback when the template doesn't contain the expected marker.
 func generateHTMLReportLegacy(items []any, outputPath string, meta HTMLReportMeta, tmplStr string) error {
@@ -208,30 +280,70 @@ type byteWriter interface {
 	WriteByte(byte) error
 }
 
+// reportArrayWriter incrementally writes a JSON array (`[item,item,...]`) of
+// trimmed export items to w, one item at a time, so neither the source items
+// nor the rendered array ever need to be held whole in memory. Both the
+// slice-based writeReportItems and the streaming GenerateHTMLReportStreaming
+// drive it, so the body-trimming and array framing live in one place.
+type reportArrayWriter struct {
+	w       byteWriter
+	started bool
+	budget  int64
+	stats   reportTrimStats
+}
+
+func newReportArrayWriter(w byteWriter) *reportArrayWriter {
+	return &reportArrayWriter{w: w, budget: int64(htmlReportBodyBudgetBytes)}
+}
+
+// add marshals one item, trims its bulky HTTP bodies, and appends it to the
+// array (writing the opening '[' on the first call and a ',' separator on
+// subsequent ones).
+func (a *reportArrayWriter) add(item any) error {
+	if !a.started {
+		if err := a.w.WriteByte('['); err != nil {
+			return err
+		}
+		a.started = true
+	} else if err := a.w.WriteByte(','); err != nil {
+		return err
+	}
+	b, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	_, err = a.w.Write(trimReportItemJSON(b, &a.budget, &a.stats))
+	return err
+}
+
+// close writes the terminating ']', emitting an empty array when no items were
+// added.
+func (a *reportArrayWriter) close() error {
+	if !a.started {
+		if err := a.w.WriteByte('['); err != nil {
+			return err
+		}
+		a.started = true
+	}
+	return a.w.WriteByte(']')
+}
+
 // writeReportItems marshals each item, trims bulky HTTP bodies, and writes the
 // resulting JSON array (`[item,item,...]`) to w. Shared by the streaming and
 // legacy generators so the trimming lives in one place. The per-report body
-// budget is owned here.
+// budget is owned by the array writer.
 func writeReportItems(w byteWriter, items []any, stats *reportTrimStats) error {
-	budget := int64(htmlReportBodyBudgetBytes)
-	if err := w.WriteByte('['); err != nil {
+	aw := newReportArrayWriter(w)
+	for _, item := range items {
+		if err := aw.add(item); err != nil {
+			return err
+		}
+	}
+	if err := aw.close(); err != nil {
 		return err
 	}
-	for i, item := range items {
-		if i > 0 {
-			if err := w.WriteByte(','); err != nil {
-				return err
-			}
-		}
-		b, err := json.Marshal(item)
-		if err != nil {
-			return err
-		}
-		if _, err := w.Write(trimReportItemJSON(b, &budget, stats)); err != nil {
-			return err
-		}
-	}
-	return w.WriteByte(']')
+	*stats = aw.stats
+	return nil
 }
 
 // logReportTrim emits a single operator-facing note when bodies were trimmed, so

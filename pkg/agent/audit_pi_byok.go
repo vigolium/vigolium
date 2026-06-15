@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/procutil"
 	"go.uber.org/zap"
 )
 
@@ -255,7 +255,7 @@ func SweepStalePioliumAuth(piAgentDirs []string) PioliumSweepResult {
 		}
 
 		holder := readPioliumLockBreadcrumb(lockPath)
-		if holder.PID > 0 && processIsAlive(holder.PID) {
+		if holder.PID > 0 && procutil.IsProcessAlive(holder.PID) {
 			entry := PioliumSweepEntry{Dir: dir, LockPath: lockPath, Holder: holder}
 			res.Held = append(res.Held, entry)
 			continue
@@ -293,26 +293,6 @@ func SweepStalePioliumAuth(piAgentDirs []string) PioliumSweepResult {
 		_ = os.Remove(lockPath)
 	}
 	return res
-}
-
-// processIsAlive reports whether the given PID corresponds to a live
-// process. Uses signal 0 (POSIX "check existence" idiom) — never sends a
-// real signal, never errors when permission is denied (EPERM still means
-// the PID exists).
-func processIsAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = proc.Signal(syscall.Signal(0))
-	if err == nil {
-		return true
-	}
-	// EPERM = process exists but we can't signal it. ESRCH = no such PID.
-	return errors.Is(err, syscall.EPERM)
 }
 
 // copyFileMode copies src to dst, creating dst with the given mode. Used

@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -25,6 +24,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/piolium"
 	"github.com/vigolium/vigolium/pkg/piolium/picost"
 	"github.com/vigolium/vigolium/pkg/piolium/pistream"
+	"github.com/vigolium/vigolium/pkg/procutil"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
 )
@@ -281,7 +281,7 @@ func (r *AuditAgenticScanner) Start(ctx context.Context) error {
 
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Dir = r.cfg.SourcePath
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	procutil.SetupProcessGroup(cmd) // own process group so the whole harness tree can be torn down
 	// harnessEnv carries the vigolium-injected vars (PIOLIUM_REPOSITORY,
 	// PIOLIUM_GIT_AVAILABLE, PIOLIUM_SESSION_UUID, optional commit-scan
 	// knobs, and the audit-equivalent under ARCHON_*). Captured rather
@@ -1039,13 +1039,13 @@ func (r *AuditAgenticScanner) Cancel() {
 		return
 	}
 
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	_ = procutil.SignalProcessGroup(cmd.Process.Pid, false) // SIGTERM the process group
 
 	select {
 	case <-r.done:
 		return
 	case <-time.After(cancelGracePeriod):
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = procutil.SignalProcessGroup(cmd.Process.Pid, true) // escalate to SIGKILL
 	}
 }
 

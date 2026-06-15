@@ -19,11 +19,12 @@ type QueryFilters struct {
 	HostPattern string // Hostname pattern (supports wildcards)
 
 	// Request filtering
-	Methods     []string // HTTP methods (GET, POST, etc.)
-	PathPattern string   // Path pattern (supports wildcards)
-	StatusCodes []int    // Status codes (200, 404, etc.)
-	ScanUUID    string   // Scan session UUID (for findings filtering)
-	Source      string   // Filter by record source (e.g. scanner, ingest-cli, ingest-server)
+	Methods          []string // HTTP methods (GET, POST, etc.)
+	PathPattern      string   // Path pattern (supports wildcards)
+	StatusCodes      []int    // Status codes (200, 404, etc.)
+	ScanUUID         string   // Scan session UUID (for findings filtering)
+	AgenticScanUUIDs []string // Agentic-scan UUID(s) (links agent-produced findings; pass the scan tree for nested audit/swarm runs)
+	Source           string   // Filter by record source (e.g. scanner, ingest-cli, ingest-server)
 
 	// Response filtering
 	ContentType string // Filter by response content type
@@ -597,6 +598,12 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 	// Scan UUID filtering
 	if fqb.filters.ScanUUID != "" {
 		query.Where("f.scan_uuid = ?", fqb.filters.ScanUUID)
+	}
+
+	// Agentic-scan UUID filtering (agent-produced findings; list covers the
+	// scan tree for nested audit driver legs / swarm sub-runs)
+	if len(fqb.filters.AgenticScanUUIDs) > 0 {
+		query.Where("f.agentic_scan_uuid IN (?)", bun.List(fqb.filters.AgenticScanUUIDs))
 	}
 
 	// Severity filtering

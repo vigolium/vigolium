@@ -24,7 +24,13 @@ import (
 func setupAuditStreamWriter(streamToConsole bool, sessionDir string) (io.Writer, func()) {
 	var w io.Writer
 	if streamToConsole {
-		w = os.Stdout
+		// Under --json, stdout is reserved for the final JSON summary; send the
+		// agent stream to stderr so machine-readable output stays clean.
+		if globalJSON {
+			w = os.Stderr
+		} else {
+			w = os.Stdout
+		}
 	}
 	if tee, closer := teeToRuntimeLog(w, sessionDir); closer != nil {
 		return tee, func() { _ = closer.Close() }

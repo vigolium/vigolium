@@ -13,6 +13,7 @@ func registerNativeScanFlags(flags *pflag.FlagSet, includeAuth bool) {
 
 	// Output group
 	flags.StringVarP(&scanOpts.Output, "output", "o", "", "Write findings to specified output file")
+	flags.StringVar(&scanFailOn, "fail-on", "", "Exit non-zero if a finding at or above this severity is present (info|low|medium|high|critical) — for CI/agent gating. Scoped to this scan; --soft-fail overrides; with -P it is evaluated per child.")
 	flags.BoolVar(&scanOpts.ShowStats, "stats", false, "Show live progress stats during scanning")
 	flags.BoolVar(&scanOpts.IncludeResponseInOutput, "include-response", false, "Include full HTTP response body in output")
 	flags.BoolVar(&scanOpts.OmitResponse, "omit-response", false, "Omit raw HTTP request/response bytes from output file (keeps metadata, smaller files)")

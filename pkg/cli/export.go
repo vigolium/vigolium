@@ -382,9 +382,55 @@ func runExportMarkdown() error {
 // (the `vigolium export` and stateless temp-DB behavior).
 func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, projectUUID string) ([]any, error) {
 	var items []any
+	err := streamExportData(ctx, db, omitResponse, projectUUID, func(item any) error {
+		items = append(items, item)
+		return nil
+	})
+	return items, err
+}
+
+// exportExcludeSet builds the lowercased set of envelope types to drop, derived
+// from the --exclude flag (topExportExclude). Returns nil when nothing is
+// excluded. Keys are envelope type names (scan, http_record, finding, module,
+// oast_interaction, scope).
+func exportExcludeSet() map[string]bool {
+	if len(topExportExclude) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(topExportExclude))
+	for _, e := range topExportExclude {
+		set[strings.ToLower(strings.TrimSpace(e))] = true
+	}
+	return set
+}
+
+// streamExportData emits every export envelope to emit() as soon as it is read
+// from the database, so the full result set never lives in memory at once.
+// queryExportData is now a thin collector over this, so streamed output is
+// byte-identical to the legacy materialized path: same envelope order (scans,
+// http_records, findings, modules, oast, scopes), same per-row shape, same
+// URL-dedup and --exclude semantics. The two large tables (http_records,
+// findings) are read with a row cursor — only one row is live at a time; the
+// small tables are loaded then emitted.
+//
+// Per-table query errors are logged and skipped (best-effort, matching the
+// legacy behavior); an error returned by emit (a downstream write failure) is
+// fatal and propagated immediately.
+//
+// When omitResponse is true the bulky raw_request/raw_response columns are not
+// selected for http_records — used by the HTML report path, which discards them
+// anyway, so they never enter memory.
+func streamExportData(ctx context.Context, db *database.DB, omitResponse bool, projectUUID string, emit func(any) error) error {
+	excluded := exportExcludeSet()
+	emitItem := func(typ string, data any) error {
+		if excluded[typ] {
+			return nil
+		}
+		return emit(exportEnvelope{Type: typ, Data: data})
+	}
 
 	// --- Scans ---
-	if shouldExport("scans") && db != nil {
+	if shouldExport("scans") && db != nil && !excluded["scan"] {
 		var scans []*database.Scan
 		q := scopeProjectBun(db.NewSelect().Model(&scans).OrderExpr("created_at DESC"), projectUUID)
 		if topExportSearch != "" {
@@ -398,69 +444,29 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, pr
 			fmt.Fprintf(os.Stderr, "%s Failed to query scans: %v\n", terminal.WarningSymbol(), err)
 		} else {
 			for _, s := range scans {
-				items = append(items, exportEnvelope{Type: "scan", Data: s})
+				if err := emitItem("scan", s); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
-	// --- HTTP Records ---
-	if shouldExport("http") && db != nil {
-		qb := database.NewQueryBuilder(db, database.QueryFilters{
-			ProjectUUID: projectUUID,
-			FuzzyTerm:   topExportSearch,
-			Limit:       topExportLimit,
-		})
-		records, err := qb.Execute(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s Failed to query HTTP records: %v\n", terminal.WarningSymbol(), err)
-		} else {
-			seen := make(map[string]struct{}, len(records))
-			for _, r := range records {
-				if _, dup := seen[r.URL]; dup {
-					continue
-				}
-				seen[r.URL] = struct{}{}
-
-				var data any
-				if omitResponse {
-					rc := *r // shallow copy; drop bulky raw bytes, keep metadata
-					rc.RawRequest = nil
-					rc.RawResponse = nil
-					data = &rc
-				} else {
-					data = r
-				}
-				items = append(items, exportEnvelope{Type: "http_record", Data: data})
-			}
+	// --- HTTP Records (cursor-streamed) ---
+	if shouldExport("http") && db != nil && !excluded["http_record"] {
+		if err := streamHTTPRecords(ctx, db, omitResponse, projectUUID, emitItem); err != nil {
+			return err
 		}
 	}
 
-	// --- Findings ---
-	if shouldExport("findings") && db != nil {
-		var findings []*database.Finding
-		q := scopeProjectBun(db.NewSelect().Model(&findings).OrderExpr("found_at DESC"), projectUUID)
-		if topExportSearch != "" {
-			p := "%" + topExportSearch + "%"
-			q = q.Where("(module_id LIKE ? OR module_name LIKE ? OR description LIKE ? OR matched_at LIKE ? OR severity LIKE ? OR url LIKE ? OR hostname LIKE ? OR extracted_results LIKE ?)", p, p, p, p, p, p, p, p)
-		}
-		if topExportSeverity != "" {
-			sevs := strings.Split(strings.ToLower(topExportSeverity), ",")
-			q = q.Where("LOWER(severity) IN (?)", bun.List(sevs))
-		}
-		if topExportLimit > 0 {
-			q = q.Limit(topExportLimit)
-		}
-		if err := q.Scan(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "%s Failed to query findings: %v\n", terminal.WarningSymbol(), err)
-		} else {
-			for _, f := range findings {
-				items = append(items, exportEnvelope{Type: "finding", Data: f})
-			}
+	// --- Findings (cursor-streamed) ---
+	if shouldExport("findings") && db != nil && !excluded["finding"] {
+		if err := streamFindings(ctx, db, projectUUID, emitItem); err != nil {
+			return err
 		}
 	}
 
 	// --- Modules (in-memory registry, no DB needed) ---
-	if shouldExport("modules") {
+	if shouldExport("modules") && !excluded["module"] {
 		emCfg := loadEnabledModulesConfig()
 
 		for _, m := range modules.GetActiveModules() {
@@ -476,7 +482,9 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, pr
 				ScanScope:            scanScopeNames(m.ScanScopes()),
 				Enabled:              isModuleEnabled(m.ID(), emCfg.ActiveModules),
 			}
-			items = append(items, exportEnvelope{Type: "module", Data: entry})
+			if err := emitItem("module", entry); err != nil {
+				return err
+			}
 		}
 		for _, m := range modules.GetPassiveModules() {
 			entry := moduleJSONEntry{
@@ -491,12 +499,14 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, pr
 				ScanScope:            scanScopeNames(m.ScanScopes()),
 				Enabled:              isModuleEnabled(m.ID(), emCfg.PassiveModules),
 			}
-			items = append(items, exportEnvelope{Type: "module", Data: entry})
+			if err := emitItem("module", entry); err != nil {
+				return err
+			}
 		}
 	}
 
 	// --- OAST Interactions ---
-	if shouldExport("oast") && db != nil {
+	if shouldExport("oast") && db != nil && !excluded["oast_interaction"] {
 		var interactions []*database.OASTInteraction
 		q := scopeProjectBun(db.NewSelect().Model(&interactions).OrderExpr("interacted_at DESC"), projectUUID)
 		if topExportSearch != "" {
@@ -510,13 +520,15 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, pr
 			fmt.Fprintf(os.Stderr, "%s Failed to query OAST interactions: %v\n", terminal.WarningSymbol(), err)
 		} else {
 			for _, i := range interactions {
-				items = append(items, exportEnvelope{Type: "oast_interaction", Data: i})
+				if err := emitItem("oast_interaction", i); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
 	// --- Scopes ---
-	if shouldExport("scopes") && db != nil {
+	if shouldExport("scopes") && db != nil && !excluded["scope"] {
 		var scopes []*database.Scope
 		q := scopeProjectBun(db.NewSelect().Model(&scopes).Where("enabled = ?", true).OrderExpr("priority ASC"), projectUUID)
 		if topExportSearch != "" {
@@ -530,26 +542,95 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, pr
 			fmt.Fprintf(os.Stderr, "%s Failed to query scopes: %v\n", terminal.WarningSymbol(), err)
 		} else {
 			for _, s := range scopes {
-				items = append(items, exportEnvelope{Type: "scope", Data: s})
+				if err := emitItem("scope", s); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
-	// Apply --exclude filter
-	if len(topExportExclude) > 0 {
-		excludeSet := make(map[string]bool, len(topExportExclude))
-		for _, e := range topExportExclude {
-			excludeSet[strings.ToLower(strings.TrimSpace(e))] = true
-		}
-		filtered := items[:0]
-		for _, item := range items {
-			if env, ok := item.(exportEnvelope); ok && excludeSet[strings.ToLower(env.Type)] {
-				continue
-			}
-			filtered = append(filtered, item)
-		}
-		items = filtered
-	}
+	return nil
+}
 
-	return items, nil
+// streamHTTPRecords reads http_records with a row cursor and emits one envelope
+// per unique URL (first occurrence wins, matching the legacy in-memory dedup),
+// holding only a single record in memory at a time. omitResponse drops the
+// raw_request/raw_response columns from the SELECT entirely. A query/scan error
+// is logged and ends this table (best-effort); only emit errors are returned.
+func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, projectUUID string, emitItem func(string, any) error) error {
+	qb := database.NewQueryBuilder(db, database.QueryFilters{
+		ProjectUUID: projectUUID,
+		FuzzyTerm:   topExportSearch,
+		Limit:       topExportLimit,
+	})
+	query := qb.BuildRecordsQuery()
+	if omitResponse {
+		query = query.ExcludeColumn("raw_request", "raw_response")
+	}
+	rows, err := query.Rows(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to query HTTP records: %v\n", terminal.WarningSymbol(), err)
+		return nil
+	}
+	defer func() { _ = rows.Close() }()
+
+	seen := make(map[string]struct{})
+	for rows.Next() {
+		r := new(database.HTTPRecord)
+		if err := db.ScanRow(ctx, rows, r); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to scan HTTP record: %v\n", terminal.WarningSymbol(), err)
+			return nil
+		}
+		if _, dup := seen[r.URL]; dup {
+			continue
+		}
+		seen[r.URL] = struct{}{}
+		if err := emitItem("http_record", r); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Error reading HTTP records: %v\n", terminal.WarningSymbol(), err)
+	}
+	return nil
+}
+
+// streamFindings reads findings with a row cursor and emits one envelope per
+// row, holding only a single finding in memory at a time. Filters mirror the
+// legacy findings query exactly (search, severity, limit, found_at DESC). A
+// query/scan error is logged and ends this table; only emit errors are returned.
+func streamFindings(ctx context.Context, db *database.DB, projectUUID string, emitItem func(string, any) error) error {
+	q := scopeProjectBun(db.NewSelect().Model((*database.Finding)(nil)).OrderExpr("found_at DESC"), projectUUID)
+	if topExportSearch != "" {
+		p := "%" + topExportSearch + "%"
+		q = q.Where("(module_id LIKE ? OR module_name LIKE ? OR description LIKE ? OR matched_at LIKE ? OR severity LIKE ? OR url LIKE ? OR hostname LIKE ? OR extracted_results LIKE ?)", p, p, p, p, p, p, p, p)
+	}
+	if topExportSeverity != "" {
+		sevs := strings.Split(strings.ToLower(topExportSeverity), ",")
+		q = q.Where("LOWER(severity) IN (?)", bun.List(sevs))
+	}
+	if topExportLimit > 0 {
+		q = q.Limit(topExportLimit)
+	}
+	rows, err := q.Rows(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to query findings: %v\n", terminal.WarningSymbol(), err)
+		return nil
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		f := new(database.Finding)
+		if err := db.ScanRow(ctx, rows, f); err != nil {
+			fmt.Fprintf(os.Stderr, "%s Failed to scan finding: %v\n", terminal.WarningSymbol(), err)
+			return nil
+		}
+		if err := emitItem("finding", f); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Error reading findings: %v\n", terminal.WarningSymbol(), err)
+	}
+	return nil
 }

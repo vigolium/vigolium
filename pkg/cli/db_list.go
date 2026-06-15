@@ -82,6 +82,7 @@ func registerListFlags(cmd *cobra.Command) {
 
 	// Column selection flags
 	cmd.Flags().StringSliceVar(&listColumns, "columns", nil, "Columns to include in output, comma-separated")
+	registerAgentJSONFlags(cmd.Flags())
 
 	// Filter flags
 	cmd.Flags().StringVar(&listHost, "host", "", "Filter records by hostname pattern (wildcard supported)")
@@ -319,16 +320,13 @@ func runListFindings(ctx context.Context, db *database.DB) error {
 	}
 
 	if globalJSON {
-		output := map[string]interface{}{
+		return writeAgentJSON(map[string]any{
 			"project_uuid": projectUUID,
 			"total":        total,
 			"offset":       listOffset,
 			"limit":        listLimit,
-			"findings":     findings,
-		}
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(output)
+			"findings":     findingViews(ctx, db, findings, agentViewOptionsFromFlags(), false),
+		})
 	}
 
 	// Build severity and confidence breakdown summary
@@ -630,17 +628,13 @@ func displayJSON(records []*database.HTTPRecord, total int64, offset, limit int)
 	if err != nil {
 		return err
 	}
-	output := map[string]interface{}{
+	return writeAgentJSON(map[string]any{
 		"project_uuid": projectUUID,
 		"total":        total,
 		"offset":       offset,
 		"limit":        limit,
-		"records":      records,
-	}
-
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(output)
+		"records":      recordViews(records, agentViewOptionsFromFlags()),
+	})
 }
 
 func displayRaw(records []*database.HTTPRecord) error {

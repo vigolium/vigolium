@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/internal/memlimit"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/olium"
@@ -100,6 +101,9 @@ var (
 	globalSplitByHost bool
 	globalDBIsolate   bool
 	globalParallel    int
+
+	// Memory ceiling (GOMEMLIMIT)
+	globalMemLimit string
 
 	// Request clustering
 	globalNoClustering bool
@@ -202,6 +206,13 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 			}
 		}
 
+		// Set a soft heap ceiling (GOMEMLIMIT) for scan-driving commands so the
+		// Go GC reclaims aggressively near the limit instead of letting the heap
+		// grow until the Linux OOM-killer hard-kills the process. Auto-sized
+		// from machine RAM and the -P fan-out; the parent exports GOMEMLIMIT so
+		// each isolated child scan process inherits the same ceiling.
+		applyScanMemLimit(cmd)
+
 		// Handle -M/--list-modules shortcut
 		if globalListModules {
 			printModuleTable(moduleOpts, "")
@@ -240,10 +251,11 @@ func init() {
 	pf.BoolVar(&globalDebug, "debug", false, "Enable debug-level logging (includes outgoing HTTP request lines)")
 	pf.BoolVar(&globalDumpTraffic, "dump-traffic", false, "Print every HTTP request/response pair to stderr (Burp-style, bypasses logger)")
 	pf.StringVar(&globalLogFile, "log-file", "", "Write all log output to this file (JSON format)")
-	pf.BoolVarP(&globalJSON, "json", "j", false, "Format output as JSONL (one JSON object per line)")
+	pf.BoolVarP(&globalJSON, "json", "j", false, "Emit machine-readable JSON for agent/programmatic use (compact bodies; pair with --fields/--compact/--full-body on finding/traffic/db). For the bulk {type,data} stream use --format jsonl / export.")
 	pf.StringVar(&globalConfig, "config", "", `Path to config file (default "~/.vigolium/vigolium-configs.yaml")`)
 	pf.StringVar(&globalProxy, "proxy", "", "Route all requests through this proxy (HTTP/SOCKS5 URL)")
 	pf.StringVar(&globalDB, "db", "", `Path to SQLite database file (default "~/.vigolium/database-vgnm.sqlite")`)
+	pf.StringVar(&globalMemLimit, "mem-limit", "", "Soft heap ceiling (GOMEMLIMIT) for scans: empty = auto (~⅓ of RAM, scaled down by -P/--parallel so all children stay under ⅔ of RAM), 'off' to disable, or an explicit size/percent like 6GiB or 50%. An existing GOMEMLIMIT env var overrides this.")
 
 	pf.BoolVarP(&globalListModules, "list-modules", "M", false, "List all available scanner modules")
 	pf.BoolVar(&globalListInputModes, "list-input-mode", false, "List all supported input modes with examples")
@@ -261,6 +273,35 @@ func init() {
 	pf.StringVar(&globalExtDir, "ext-dir", "", "Override extension scripts directory")
 	pf.StringVar(&globalProjectUUID, "project-uuid", "", "Project UUID to scope all operations to (defaults to the default project)")
 	pf.StringVar(&globalProjectName, "project-name", "", "Project name to scope all operations to (must match exactly one project)")
+}
+
+// memLimitCommands are the leaf command names that drive a native scan and so
+// get an auto soft heap ceiling. The long-running server and the ingest proxy
+// are intentionally excluded — they manage their own concurrency and lifetime.
+var memLimitCommands = map[string]bool{
+	"scan":         true,
+	"scan-url":     true,
+	"scan-request": true,
+	"run":          true,
+	"autopilot":    true, // `vigolium agent autopilot`
+	"swarm":        true, // `vigolium agent swarm`
+}
+
+// applyScanMemLimit derives and applies the GOMEMLIMIT soft ceiling for a
+// scan-driving command, logging a one-line note unless output is suppressed. A
+// no-op for other commands and for child processes that already inherited a
+// GOMEMLIMIT from the -P parent.
+func applyScanMemLimit(cmd *cobra.Command) {
+	if !memLimitCommands[cmd.Name()] {
+		return
+	}
+	res := memlimit.Apply(memlimit.Options{
+		Override:    globalMemLimit,
+		Parallelism: globalParallel,
+	})
+	if res.Note != "" && !globalSilent && !globalCIOutput {
+		fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), res.Note)
+	}
 }
 
 func Execute() {

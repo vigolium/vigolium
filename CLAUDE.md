@@ -126,6 +126,15 @@ Scan phases accept aliases: `deparos` = `discovery`, `discover` = `discovery`, `
 
 The `--format` flag selects output format: `console` (default), `jsonl`, or `html`. Multiple formats can be combined (`--format jsonl,html`). HTML reports use an embedded ag-grid template (`public/static-reports/`) and require `-o/--output`. HTML format is supported for discovery and spidering phases.
 
+### Driving Vigolium from a coding agent
+
+Vigolium is built to be shelled out to by an LLM/coding agent. Key contracts (full guide: `docs/coding-agent.md`):
+
+- **Two JSON contracts:** `-j/--json` on read/query commands (`finding`, `traffic`, `db`) emits a single structured object with **compact, token-aware** request/response bodies (header-kept, body-preview-capped with `body_size`/`body_sha256`/`body_truncated`, binary/static bodies stubbed as `body_omitted:"binary"`, findings get a windowed `response_evidence` snippet). The bulk `{"type":...,"data":{...}}` stream stays on `--format jsonl` / `export`. The shared serializer is `pkg/cli/agentview.go`.
+- **Output shaping flags** on `finding`/`traffic`/`db ls`: `--compact` (metadata only), `--fields a,b,c` (project JSON keys), `--full-body` (complete bodies), plus `finding --with-records` (embed linked HTTP records → self-contained triage bundle), `--min-severity`, and `--agentic-scan <uuid>` (findings from an agent run; expands to the whole run tree via `resolveAgenticScanTree`).
+- **Exit-code gating:** `scan`/`scan-url`/`scan-request`/`run` take `--fail-on <severity>` — exit non-zero when a finding at/above that severity is present (output still written first; `--soft-fail` overrides; per-child under `-P`). Logic in `pkg/cli/scan_fail_on.go` + `severity_gate.go`.
+- **Agentic scans** (`agent autopilot|swarm|audit`) under `--json` route the live stream to stderr and print a single summary object to stdout (`{agentic_scan_uuid, status, counts_by_severity, session_dir, top_findings, query}`) via `emitAgentScanJSONSummary` (`pkg/cli/agent_scan_summary.go`), so an agent gets a handle + ready follow-up query without chasing session-dir files.
+
 ### Module Development
 
 New scanner modules implement `ActiveModule` or `PassiveModule`, register in the registry, and use `modkit` defaults for common behavior. See `docs/development/developing-modules.md` for the full guide.

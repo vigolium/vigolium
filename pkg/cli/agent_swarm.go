@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -573,7 +572,13 @@ func runAgentSwarm(cmd *cobra.Command, args []string) (err error) {
 	// paths are printed instead — the full LLM response is saved to the
 	// session directory.
 	if settings.Agent.StreamEnabled() && zap.L().Core().Enabled(zap.DebugLevel) {
-		cfg.StreamWriter = os.Stdout
+		// Under --json, stdout is reserved for the final JSON summary; send the
+		// raw agent stream to stderr so the machine-readable output stays clean.
+		if globalJSON {
+			cfg.StreamWriter = os.Stderr
+		} else {
+			cfg.StreamWriter = os.Stdout
+		}
 	}
 	cfg.Verbose = swarmVerbose
 	// Always persist the stream to {sessionDir}/runtime.log — even in
@@ -775,7 +780,11 @@ func runAgentSwarm(cmd *cobra.Command, args []string) (err error) {
 		return fmt.Errorf("agent swarm failed: %w", err)
 	}
 
-	printSwarmResult(result)
+	if globalJSON {
+		emitAgentScanJSONSummary(repo, projectUUID, swarmAgenticScanUUID, "completed", sessionDir)
+	} else {
+		printSwarmResult(result)
+	}
 
 	if swarmUploadResults {
 		uploadAgenticScanResults(settings, projectUUID, swarmAgenticScanUUID, sessionDir, repo)
@@ -988,14 +997,10 @@ func buildSwarmDiscoverFunc(settings *config.Settings, repo *database.Repository
 	}
 }
 
+// printSwarmResult renders the human-readable swarm summary to stderr. The
+// --json path is handled by emitAgentScanJSONSummary at the call site, so this
+// is only invoked in console mode.
 func printSwarmResult(result *agent.SwarmResult) {
-	if globalJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(result)
-		return
-	}
-
 	fmt.Fprintf(os.Stderr, "\n%s %s\n",
 		terminal.Aqua(terminal.SymbolSparkle),
 		terminal.BoldAqua("Agentic scan (swarm) completed"))
