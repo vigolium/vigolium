@@ -912,6 +912,8 @@ Three levels of deduplication prevent noise and redundancy:
    - Deletes all duplicate findings and their `finding_records` junction rows
    - Returns counts of deleted findings and merged groups for user feedback
 
+4. **Finding-level (value grouping)**: `GroupFindingsByValue()` runs as a second post-phase pass (controlled by `known_issue_scan.group_by_value`, on by default). It collapses findings that repeat the *same extracted value* across many URLs — keyed on `(module_id, severity[, hostname], normalized extracted_results)` — so one leaked secret surfaced on dozens of pages becomes a single finding. Modules listed in `by_module` are a stronger case: they collapse on `(module_id, severity[, hostname])` **regardless of** the per-URL value, for modules that fire once per asset where the differing value is noise rather than signal (e.g. `sourcemap-detect`, one `.map` filename per bundle; `unsafe-html-sink` and the source-analysis lead family, one snippet context per JS file; `cookie-security-detect`, one finding per Set-Cookie response). Grouping is per-host by default (`per_host`), so the same value on two hostnames stays two findings, and the survivor's `matched_at` retains every affected URL up to `max_urls`. Secret-bearing modules (`env-secret-exposure`) are kept out of `by_module` so distinct leaked values remain distinct findings.
+
 ```
 Phase completes (KnownIssueScan or dynamic-assessment)
   │

@@ -278,6 +278,29 @@ func TestFormatPhaseFindingLine(t *testing.T) {
 	assert.Contains(t, withValue, "[")
 	assert.NotContains(t, withValue, strings.Repeat("A", liveFindingValueMax+1),
 		"value snippet is truncated to the cap")
+
+	// A multi-line extracted snippet (e.g. a JS handler body) renders on one
+	// line: embedded newlines become literal \n escapes, never real breaks.
+	multiline := sampleEvent()
+	multiline.ExtractedResults = []string{"});\n  }\n}\n\nlet intervalId = null;"}
+	mlLine := FormatPhaseFindingLine("dynamic-assessment", multiline)
+	mlPlain := terminal.StripANSI(mlLine)
+	assert.Equal(t, 1, strings.Count(mlLine, "\n"), "only the trailing line terminator is a real newline")
+	assert.Contains(t, mlPlain, `});\n  }\n}\n\nlet intervalId`, "embedded newlines escaped to literal \\n")
+}
+
+func TestEscapeOneLine(t *testing.T) {
+	// Plain values pass through untouched (fast path).
+	assert.Equal(t, "no control chars", EscapeOneLine("no control chars"))
+	// Newlines, carriage returns, and tabs become literal escapes; a CRLF pair
+	// collapses to a single \n.
+	assert.Equal(t, `a\nb\tc\nd`, EscapeOneLine("a\nb\tc\r\nd"))
+	assert.Equal(t, `\r`, EscapeOneLine("\r"))
+	// The result never contains a real control character.
+	out := EscapeOneLine("x\ny\tz\r\nw")
+	assert.NotContains(t, out, "\n")
+	assert.NotContains(t, out, "\r")
+	assert.NotContains(t, out, "\t")
 }
 
 // recordingWriter is an in-memory Writer that records every event it receives.

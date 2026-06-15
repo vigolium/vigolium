@@ -75,6 +75,17 @@ func SetColorEnabled(enabled bool) {
 	colorEnabled = enabled
 }
 
+// EnableCLIColor turns color on for interactive CLI use, overriding the non-TTY
+// auto-disable from init() so redirected or piped output — e.g. the -P/--parallel
+// fan-out's per-host <output>.console.log — stays colored and reads like a live
+// console scan. The explicit opt-outs win: the --no-color flag, CI output mode,
+// and the NO_COLOR env var (https://no-color.org/) all force color off. NO_COLOR
+// is re-checked here (not just in init()) because this unconditionally resets the
+// color state, so it must re-apply that opt-out rather than assume init() stuck.
+func EnableCLIColor(noColor, ciOutput bool) {
+	SetColorEnabled(!(noColor || ciOutput || os.Getenv("NO_COLOR") != ""))
+}
+
 // SetCIMode enables CI mode (suppresses decorative output)
 func SetCIMode(enabled bool) {
 	ciMode = enabled

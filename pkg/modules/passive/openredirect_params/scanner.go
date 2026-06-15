@@ -3,6 +3,7 @@ package openredirect_params
 import (
 	"context"
 	"regexp"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -54,6 +55,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	rhm := m.rhm.Get(scanCtx.DedupMgr())
 	urlx.Params.Iterate(func(key string, value []string) bool {
 		if m.redirectRegex.MatchString(key) {
+			// Skip empty / JS-placeholder values ("redirect=null", "url="): there is
+			// no redirect target to abuse, so the bare parameter name is noise.
+			if modkit.IsPlaceholderValue(strings.Join(value, ",")) {
+				return true
+			}
 			if rhm == nil || rhm.ShouldCheck3(urlx, ctx.Request().Method(), ctx.Request().BodyToString(), key, "", "inURL") {
 				results = append(results, &output.ResultEvent{
 					Host:             urlx.Host,

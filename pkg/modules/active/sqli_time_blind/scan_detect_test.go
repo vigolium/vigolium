@@ -15,6 +15,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
 // baseDelay is the short latency for non-sleeping requests: under the derived
@@ -83,6 +84,11 @@ func TestScanPerRequest_DetectsTimeBlindSQLi(t *testing.T) {
 	assert.Equal(t, "id", f.FuzzingParameter)
 	assert.Equal(t, "mysql", f.ExtractedResults[2])
 
+	// Time-based blind rides on latency alone, so even a confirmed finding is
+	// reported as a lead to verify by hand, never a firmly-confirmed High.
+	assert.Equal(t, severity.Suspect, f.Info.Severity, "time-based blind SQLi must report as Suspect")
+	assert.Equal(t, severity.Tentative, f.Info.Confidence, "time-based blind SQLi must report as Tentative")
+
 	// The multi-round comparison that proves the finding must be preserved, not
 	// discarded: the slow high-sleep probe is the primary pair, and the baseline
 	// and fast no-sleep control travel as labeled AdditionalEvidence.
@@ -146,6 +152,65 @@ func TestScanPerRequest_NoFalsePositive_FixedDelay(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "a fixed (non-scaling) delay must not be reported as time-based SQLi")
+}
+
+// TestScanPerRequest_NoFalsePositive_BlockedBaseline reproduces the CloudFront
+// false positive: the edge denies every request — including the unmodified
+// baseline — with a 403. A blocked surface has no backend query to time, so the
+// insertion point must be skipped outright (no probes wasted per payload).
+func TestScanPerRequest_NoFalsePositive_BlockedBaseline(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("Request blocked"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/item?id=1")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a blocked (403) baseline must never be reported as time-based blind SQLi")
+}
+
+// TestScanPerRequest_NoFalsePositive_BlockedPayloadScaling is the decisive gate
+// test: the clean baseline passes (200), but a WAF answers every SQL payload
+// with a 403 whose delay scales with the requested sleep — exactly the timing
+// profile that would otherwise confirm. Because the confirming response is a
+// block (not a backend query), it must be dropped no matter how the timing looks.
+//
+// Without the block gate this scan reports a (slow) false positive; with it the
+// scan drops at the first blocked probe and returns fast.
+func TestScanPerRequest_NoFalsePositive_BlockedPayloadScaling(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-second timing test in -short mode")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := strings.TrimSpace(r.URL.Query().Get("id"))
+		// A non-numeric id is an injected SQL payload — block it with a 403 whose
+		// delay scales with the requested sleep (what fools a timing-only check).
+		if _, err := strconv.Atoi(q); err != nil {
+			w.WriteHeader(http.StatusForbidden)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			if n := requestedSleep(r); n > 0 {
+				time.Sleep(time.Duration(n) * time.Second)
+			}
+			_, _ = w.Write([]byte("Request blocked"))
+			return
+		}
+		flushAndSleep(w, baseDelay) // clean numeric baseline → fast 200
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/item?id=1")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a blocked (403) response must never be reported as time-based SQLi even when its delay scales")
 }
 
 // TestPrioritizeByDBMS confirms a recorded backend hint moves matching payloads

@@ -9,12 +9,15 @@ import (
 
 func TestSecretFindingSeverity(t *testing.T) {
 	tests := []struct {
-		name      string
-		validated bool
-		redirect  bool
-		inHeader  bool
-		wantSev   severity.Severity
-		wantConf  severity.Confidence
+		name             string
+		validated        bool
+		redirect         bool
+		inHeader         bool
+		lowValueJWT      bool
+		recaptchaSiteKey bool
+		googleAPIKey     bool
+		wantSev          severity.Severity
+		wantConf         severity.Confidence
 	}{
 		{
 			name:     "plain body match is High/Firm",
@@ -34,6 +37,52 @@ func TestSecretFindingSeverity(t *testing.T) {
 			wantConf: severity.Tentative,
 		},
 		{
+			name:        "low-value JWT downgrades to Medium/Tentative",
+			lowValueJWT: true,
+			wantSev:     severity.Medium,
+			wantConf:    severity.Tentative,
+		},
+		{
+			name:         "Google API key downgrades to Medium/Firm",
+			googleAPIKey: true,
+			wantSev:      severity.Medium,
+			wantConf:     severity.Firm,
+		},
+		{
+			name:             "reCAPTCHA site key downgrades to Info/Tentative",
+			recaptchaSiteKey: true,
+			wantSev:          severity.Info,
+			wantConf:         severity.Tentative,
+		},
+		{
+			name:             "reCAPTCHA site key outranks validation (stays Info)",
+			recaptchaSiteKey: true,
+			validated:        true,
+			wantSev:          severity.Info,
+			wantConf:         severity.Tentative,
+		},
+		{
+			name:         "validation outranks Google API key (stays Critical)",
+			googleAPIKey: true,
+			validated:    true,
+			wantSev:      severity.Critical,
+			wantConf:     severity.Certain,
+		},
+		{
+			name:         "redirect outranks Google API key (stays Low)",
+			googleAPIKey: true,
+			redirect:     true,
+			wantSev:      severity.Low,
+			wantConf:     severity.Tentative,
+		},
+		{
+			name:        "redirect outranks low-value JWT (stays Low/Tentative)",
+			redirect:    true,
+			lowValueJWT: true,
+			wantSev:     severity.Low,
+			wantConf:    severity.Tentative,
+		},
+		{
 			name:      "validated live secret stays Critical even on a redirect",
 			validated: true,
 			redirect:  true,
@@ -51,7 +100,7 @@ func TestSecretFindingSeverity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotSev, gotConf := SecretFindingSeverity(tt.validated, tt.redirect, tt.inHeader)
+			gotSev, gotConf := SecretFindingSeverity(tt.validated, tt.redirect, tt.inHeader, tt.lowValueJWT, tt.recaptchaSiteKey, tt.googleAPIKey)
 			if gotSev != tt.wantSev {
 				t.Errorf("severity = %v, want %v", gotSev, tt.wantSev)
 			}

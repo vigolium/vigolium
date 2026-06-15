@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A debug, profiler, or developer tool belonging to a PHP framework is reachable in production. The module probes known endpoints for Yii (debug module, Gii code generator), CodeIgniter (user guide, application logs), CakePHP DebugKit, Slim, FuelPHP, and Phalcon DevTools, confirming each with framework-specific content markers and a 404-baseline comparison so it only reports a page that genuinely exists. These tools leak request logs, SQL queries, stack traces, file paths, and application configuration that should never be public.
+	ModuleDesc = `**What it means:** A PHP framework debug or developer tool is reachable in production. The module probes endpoints for Yii (debug, Gii), CodeIgniter, CakePHP DebugKit, Slim, FuelPHP, and Phalcon DevTools, confirmed by framework-specific markers. These leak logs, SQL queries, stack traces, and configuration.
 
-**How it's exploited:** An attacker browses the exposed panel to map internal routes, read database queries and config secrets, and harvest absolute server paths for use in further attacks. The most dangerous cases (Yii Gii, Phalcon DevTools) can generate or scaffold code and run database migrations, turning information disclosure into code execution or data tampering; the rest fingerprint the exact framework and version for targeting known CVEs.
+**How it's exploited:** An attacker maps routes, reads config secrets, and harvests server paths. Yii Gii and Phalcon DevTools scaffold code and run migrations, escalating to code execution; others fingerprint the version for known CVEs.
 
-**Fix:** Disable debug mode and remove or access-restrict all framework development tools and log directories in production deployments.`
+**Fix:** Disable debug mode and access-restrict framework dev tools and log directories in production.`
 
 	ModuleConfirmation = "Confirmed when probed framework debug endpoints return 200 with expected content markers"
 	ModuleSeverity     = severity.Medium

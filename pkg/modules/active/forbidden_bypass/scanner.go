@@ -104,14 +104,20 @@ func (m *Module) ScanPerRequest(
 func bypassPath(urlx *urlutil.URL, ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	var results []*output.ResultEvent
 	path := urlx.EscapedPath()
+	// NOTE: payloads MUST NOT contain a literal space or tab. A literal whitespace
+	// is the HTTP request-line field delimiter, so both our own request builder
+	// (httpmsg.GetPath parses the target only up to the first interior space) and
+	// the origin parse e.g. "GET / /admin/ / HTTP/1.1" as a request for "/" — the
+	// payload silently collapses to the site root and its homepage 200 gets
+	// misreported as a 403 bypass (the login-uat.example.com false positive).
+	// The whitespace-suffix trick can only be tested by emitting the raw bytes on
+	// the wire (RawRequestTarget); over the normal client use the URL-ENCODED forms
+	// below ("...%20" and "...%09"), which survive intact and actually append to
+	// the path. The collapse guard in the loop enforces this invariant.
 	pathPayloads := []string{
 		"/." + path,
 		path + "/./",
 		"/." + path + "/./",
-		path + " /",
-		"/ " + path + " /",
-		path + "	/",
-		"/	" + path + "	/",
 		path + "..;/",
 		path + "?",
 		path + "??",
@@ -135,6 +141,16 @@ func bypassPath(urlx *urlutil.URL, ctx *httpmsg.HttpRequestResponse, httpClient 
 	for _, payload := range pathPayloads {
 		modifiedRaw, err := httpmsg.SetPath(ctx.Request().Raw(), payload)
 		if err != nil {
+			continue
+		}
+
+		// Collapse guard: a payload with a literal space/tab breaks the request
+		// line so the effective wire path no longer matches what we intended —
+		// typically collapsing to "/" and fetching the site root. Such a probe
+		// cannot prove a bypass of the forbidden resource, so skip it. (Defensive:
+		// the payload list above is already whitespace-free; this also covers any
+		// future mutation that reintroduces one.)
+		if effPath, perr := httpmsg.GetPath(modifiedRaw); perr == nil && effPath != payload {
 			continue
 		}
 
@@ -278,6 +294,17 @@ func bypassHeaders(
 			if !confirmDistinctFromCatchAll(httpClient, ctx.Service(), ctx.Request().Raw(), 200, body) {
 				resp.Close()
 				return results, nil
+			}
+			// Causality gate: the injected header must be what produced the 200.
+			// Several payloads here REWRITE the path to a different, often-public
+			// resource (x-original-url → "/", x-rewrite-url/referer → "/anything"),
+			// so a 200 can just be that resource answering on its own — the header
+			// had no effect. Re-issue the same request at newPath WITHOUT the header;
+			// if it returns the same response, the header is irrelevant, so drop this
+			// probe and try the next one.
+			if !confirmHeaderCausedChange(httpClient, ctx.Service(), ctx.Request().Raw(), newPath, 200, body) {
+				resp.Close()
+				continue
 			}
 			respDump := resp.FullResponseString()
 			results = append(results, &output.ResultEvent{
@@ -760,6 +787,42 @@ func confirmDistinctFromCatchAll(
 	}
 	if modkit.BodiesSimilar(bypassBody, body) {
 		return false // same shell for an unprivileged random path → catch-all, drop
+	}
+	return true
+}
+
+// confirmHeaderCausedChange reports whether the injected bypass header is what
+// produced the candidate 200, by re-issuing the SAME request at the same newPath
+// WITHOUT that header (origRaw is the unmodified original request; setting its path
+// to newPath yields the bypass request's template minus the injected header). If
+// that clean control returns the same status AND a body indistinguishable from the
+// bypass response, the header had no causal effect — the resource at newPath is
+// simply reachable on its own (e.g. an x-original-url probe whose newPath is "/"
+// returns the public homepage regardless of the header) — so it returns false
+// (drop). A different status or a materially different body means the header
+// changed the outcome, so it returns true (keep). Fails OPEN (true) on a
+// parse/transport error so a transient failure never suppresses a real bypass.
+func confirmHeaderCausedChange(
+	httpClient *http.Requester,
+	service *httpmsg.Service,
+	origRaw []byte,
+	newPath string,
+	bypassStatus int,
+	bypassBody string,
+) bool {
+	cleanRaw, err := httpmsg.SetPath(origRaw, newPath)
+	if err != nil {
+		return true // inconclusive — don't suppress
+	}
+	status, body, ok := modkit.ExecuteRaw(httpClient, service, cleanRaw, http.Options{NoRedirects: true, NoClustering: true})
+	if !ok {
+		return true // inconclusive transient error — don't suppress
+	}
+	if status != bypassStatus {
+		return true // header flipped the status → causal, keep
+	}
+	if modkit.BodiesSimilar(bypassBody, body) {
+		return false // same response with or without the header → no effect, drop
 	}
 	return true
 }

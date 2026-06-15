@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** User-supplied input is reflected unescaped into the HTML of a page that runs a client-side JavaScript template framework (AngularJS, Vue.js, Svelte, or Alpine.js). Because the framework evaluates template expressions like {{7*7}} in the victim's browser, attacker-controlled input becomes executable template code, which is a Client-Side Template Injection (CSTI) flaw that leads to cross-site scripting.
+	ModuleDesc = `**What it means:** User input is reflected unescaped into a page running a client-side template framework (AngularJS, Vue.js, Svelte, Alpine.js), which evaluates expressions like {{7*7}} in the browser - a Client-Side Template Injection flaw leading to cross-site scripting.
 
-**How it's exploited:** An attacker crafts a link or form input containing a template expression that the framework evaluates in the victim's browser, breaking out of the data context to run arbitrary JavaScript even where a Content Security Policy blocks classic script injection; this enables session/cookie theft, account takeover, and actions performed as the victim. The scanner confirms the issue by injecting a uniquely anchored {{N*M}} expression and verifying it is reflected literally (not HTML-encoded) inside the detected framework's DOM scope.
+**How it's exploited:** An attacker crafts a link with a template expression that runs arbitrary JavaScript in the victim's browser, often bypassing a Content Security Policy, enabling session theft and account takeover. Confirmed when a unique {{N*M}} expression reflects literally in the framework's DOM scope.
 
-**Fix:** Treat user input as untrusted data, never interpolate it into framework templates, and HTML-encode all reflected values.`
+**Fix:** Treat user input as untrusted data, never interpolate it into templates, and HTML-encode reflected values.`
 
 	ModuleConfirmation = "Confirmed when injected template expressions (e.g., {{7*7}}) are reflected literally in the HTML response within a client-side framework scope"
 	ModuleSeverity     = severity.Medium

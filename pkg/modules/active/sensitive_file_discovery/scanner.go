@@ -330,7 +330,7 @@ func (m *Module) probeFile(
 		Info: output.Info{
 			Name:        fmt.Sprintf("Sensitive File: %s", sf.name),
 			Description: sf.desc,
-			Severity:    sf.sev,
+			Severity:    modkit.CapSeverity(sf.sev, severity.Medium),
 			Confidence:  ModuleConfidence,
 			Tags:        []string{"sensitive-file", "information-disclosure", "misconfiguration"},
 			Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information"},

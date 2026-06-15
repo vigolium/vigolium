@@ -15,6 +15,19 @@ type ScanningPaceConfig struct {
 	MaxPerHost  int    `yaml:"max_per_host"`
 	MaxDuration string `yaml:"max_duration"`
 
+	// AdaptivePerHost enables AIMD per-host concurrency control: each host starts
+	// at MaxPerHost and backs off (halving, bounded by MinPerHost) on distress
+	// signals (429/503/502/504, connection error, timeout), recovering toward the
+	// ceiling as healthy responses accrue. Off by default — a healthy scan then
+	// behaves exactly like the static MaxPerHost semaphore.
+	AdaptivePerHost bool `yaml:"adaptive_per_host"`
+	// MinPerHost is the adaptive back-off floor (0 = auto: max(1, MaxPerHost/10)).
+	MinPerHost int `yaml:"min_per_host"`
+	// MaxPerHostCeiling is the adaptive ramp ceiling (0 = MaxPerHost, so adaptive
+	// never exceeds the configured concurrency). Set above MaxPerHost to let
+	// healthy hosts ramp past it.
+	MaxPerHostCeiling int `yaml:"max_per_host_ceiling"`
+
 	Discovery         PhasePace `yaml:"discovery"`
 	Spidering         PhasePace `yaml:"spidering"`
 	KnownIssueScan    PhasePace `yaml:"known_issue_scan"`

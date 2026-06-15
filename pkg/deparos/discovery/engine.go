@@ -27,6 +27,7 @@ import (
 	pkghttp "github.com/vigolium/vigolium/pkg/deparos/http"
 	"github.com/vigolium/vigolium/pkg/deparos/internal/dedup"
 	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jsscan/linkfinder"
 	"github.com/vigolium/vigolium/pkg/deparos/reqcache"
 	"github.com/vigolium/vigolium/pkg/deparos/responsechain"
 	"github.com/vigolium/vigolium/pkg/deparos/scope"
@@ -159,6 +160,15 @@ type Engine struct {
 	// startURLHeader is a snapshot of the start URL's response headers, captured
 	// during probeStartURL for fingerprint-based extension confirmation.
 	startURLHeader nethttp.Header
+	// startURLStatus is the start URL's HTTP status code and startURLIsLogin
+	// records whether its landing page is a login/SSO wall. Both gate the
+	// fingerprint-based extension-confirm source: a stack fingerprint is only
+	// trustworthy on a genuine 2xx app page, not a 3xx redirect (often an
+	// off-host SSO bounce), a 4xx/5xx error, or an auth interstitial whose
+	// headers describe the gateway/IdP rather than the application. Captured in
+	// probeStartURL. See startURLIsGenuineLanding.
+	startURLStatus  int
+	startURLIsLogin bool
 	// startURLIsHTML / startURLIsModernApp capture the start page's shape for the
 	// JS-bundle sweep, which runs only on an HTML, non-SPA landing page (SPA
 	// bundles are content-hashed and unguessable). observedJSDirs collects the
@@ -960,11 +970,29 @@ func sanitizeObservedPath(path string) string {
 // AddObservedPath records a URL path seen in discovered URLs.
 // Used for secondary sources (wordlist extraction from response bodies).
 func (e *Engine) AddObservedPath(path string) {
+	// A JS/manifest path that carries a reflected query parameter (e.g. a
+	// Salesforce Aura captcha iframe src "/apex/APP_Login_NewCaptcha?source=x",
+	// or an SPA route "/search?q=") must be fetched WITH its query so the
+	// parameter becomes a scannable insertion point. sanitizeObservedPath strips
+	// the query for directory discovery, so first route the full URL through the
+	// extracted-request channel (resolveRequestURL preserves RawQuery).
+	e.preserveQueryParamAsRequest(path)
+
 	path = sanitizeObservedPath(path)
 	if path == "" {
 		return
 	}
 	e.observedPaths.Add([]byte(path))
+}
+
+// preserveQueryParamAsRequest queues a query-bearing extracted path as a GET
+// request so the discovery fetch keeps the query string (and thus the reflected
+// parameter) instead of dropping it. No-op for paths without a query param;
+// duplicates are coalesced by the extracted-request dedup set.
+func (e *Engine) preserveQueryParamAsRequest(path string) {
+	if linkfinder.PathHasQuery(path) {
+		e.AddExtractedRequest(&jsscan.ExtractedRequest{URL: path, Method: "GET"})
+	}
 }
 
 // AddObservedPathTrusted records URL path from trusted sources (URLs, spider links, JS paths).

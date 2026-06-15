@@ -14,14 +14,27 @@ import (
 // redirected to a file or pipe, where terminal-width truncation is skipped.
 const maxFileSuffixWidth = 500
 
-// sanitizeOneLine collapses embedded newlines (and the indentation runs around
-// them) so a finding always renders as a single console line. Values without
-// newlines pass through untouched.
-func sanitizeOneLine(s string) string {
-	if !strings.ContainsAny(s, "\r\n") {
+// oneLineEscaper renders embedded control characters as their literal
+// backslash-escape sequences. A CRLF pair collapses to a single \n so
+// Windows-style line breaks don't render as the noisier \r\n.
+var oneLineEscaper = strings.NewReplacer(
+	"\r\n", `\n`,
+	"\r", `\r`,
+	"\n", `\n`,
+	"\t", `\t`,
+)
+
+// EscapeOneLine renders embedded control characters (newlines, carriage
+// returns, tabs) as their literal backslash-escape sequences so a finding's
+// extracted value always prints as a single console line — while preserving
+// the visual cue that the value spanned multiple lines (e.g. a JS snippet),
+// rather than collapsing the structure away into spaces. Values without such
+// characters pass through untouched.
+func EscapeOneLine(s string) string {
+	if !strings.ContainsAny(s, "\r\n\t") {
 		return s
 	}
-	return strings.Join(strings.Fields(s), " ")
+	return oneLineEscaper.Replace(s)
 }
 
 // formatScreen formats the output for showing on screen.
@@ -89,16 +102,7 @@ func (w *StandardWriter) formatScreen(output *ResultEvent) []byte {
 	// Build suffix parts (extracted results, fuzzing parameter) first to account for their width
 	var suffix string
 	if len(output.ExtractedResults) > 0 {
-		s := &bytes.Buffer{}
-		s.WriteString(" [")
-		for i, result := range output.ExtractedResults {
-			s.WriteString(sanitizeOneLine(result))
-			if i < len(output.ExtractedResults)-1 {
-				s.WriteString(",")
-			}
-		}
-		s.WriteString("]")
-		suffix = s.String()
+		suffix = " [" + EscapeOneLine(strings.Join(output.ExtractedResults, ",")) + "]"
 	}
 	if output.IsFuzzingResult && output.FuzzingParameter != "" {
 		suffix += " [" + output.FuzzingParameter + "]"

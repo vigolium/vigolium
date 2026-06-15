@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jsscan/linkfinder"
 	"github.com/vigolium/vigolium/pkg/deparos/spider"
 	"github.com/vigolium/vigolium/pkg/deparos/storage"
 	"go.uber.org/zap"
@@ -148,6 +149,86 @@ func (e *Engine) loadExtractionsFromDB() error {
 	}
 
 	return nil
+}
+
+// extractRoutesFromStoredJS feeds JavaScript that earlier phases (notably
+// spidering) already captured through the SAME jsscan + linkfinder extraction the
+// discovery crawl runs on JS it fetches itself. The discovery crawl only parses
+// JS it fetches during its own run, so a bundle the browser collected — e.g. a
+// Salesforce Aura/Lightning app bundle that embeds an /apex/... route for a
+// captcha iframe which only mounts after the login form is interacted with — sits
+// in storage unparsed and its routes are never requested. linkfinder extracts the
+// root-relative routes (AddObservedPath also preserves a query param by queuing it
+// as an ExtractedRequest, so `/apex/X?source=Y` is fetched with its param) and
+// jsscan extracts XHR/fetch endpoints. Best-effort; runs once at init before tasks
+// are generated. Re-uses the already-stored body, so no JS is re-fetched.
+func (e *Engine) extractRoutesFromStoredJS() {
+	if e.storage == nil {
+		return
+	}
+
+	var jsFiles, paths, requests int
+	_ = e.storage.WalkFiles(func(node *storage.DiscoveredNode) error {
+		if e.ctx.Err() != nil {
+			return e.ctx.Err()
+		}
+		resp := node.Response()
+		if resp == nil || len(resp.Body) == 0 || !isJavaScriptResponse(node.URL(), resp.MIMEType) {
+			return nil
+		}
+		jsFiles++
+
+		body := resp.Body
+		// jsscan extracts HTTP requests (XHR/fetch endpoints) and returns
+		// transformed code that linkfinder reads more reliably. It parses/transforms
+		// the whole body, so skip it for very large bundles to keep this init step
+		// bounded — linkfinder (a cheap regex pass below) still mines their routes.
+		if e.jsscanScanner != nil && len(body) <= maxStoredJSScanBytes {
+			if sr, err := e.jsscanScanner.Scan(e.ctx, body); err == nil && sr != nil {
+				for i := range sr.Requests {
+					if e.AddExtractedRequest(&sr.Requests[i]) {
+						requests++
+					}
+				}
+				if sr.HasCode() {
+					body = []byte(sr.Code.Content)
+				}
+			}
+		}
+
+		// linkfinder extracts root-relative routes; AddObservedPath preserves any
+		// query param by also queuing the full path as an ExtractedRequest.
+		for _, p := range linkfinder.ExtractPaths(body) {
+			if name, _ := ExtractFilename(p); name != "" {
+				e.AddObservedName(name)
+			}
+			if p != "" {
+				e.AddObservedPath(p)
+				paths++
+			}
+		}
+		return nil
+	})
+
+	if jsFiles > 0 {
+		logger.Info("Parsed already-collected JS for routes",
+			zap.Int("js_files", jsFiles),
+			zap.Int("paths", paths),
+			zap.Int("requests", requests))
+	}
+}
+
+// maxStoredJSScanBytes caps the body size fed to jsscan during the stored-JS
+// route mining (jsscan parses/transforms the whole body); larger bundles are
+// still mined by the cheap linkfinder regex pass, just not jsscan-transformed.
+const maxStoredJSScanBytes = 4 * 1024 * 1024
+
+// isJavaScriptResponse reports whether a stored response is JavaScript, by MIME
+// type or URL extension (the extension catches framework bundles served with an
+// odd content-type, e.g. Salesforce's application/x-javascript aurafile bundles).
+// Delegates to the canonical coordinator classifiers.
+func isJavaScriptResponse(u *url.URL, mime string) bool {
+	return isJavaScriptContentType(mime) || (u != nil && hasJavaScriptExtension(u))
 }
 
 // convertModelToJSScanRequest converts a storage model to jsscan request.

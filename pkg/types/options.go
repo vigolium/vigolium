@@ -149,6 +149,11 @@ type Options struct {
 	// scanning (the apex itself is NOT wildcarded). Auto-enabled at Intensity "deep".
 	FollowSubdomains bool
 
+	// PortSweepPorts overrides the alternate-port sweep's port list (CLI
+	// --port-sweep-ports, comma-separated). Empty uses the configured/default
+	// list. The sweep itself runs whenever FollowSubdomains or Intensity "deep".
+	PortSweepPorts string
+
 	// Browser-based spidering options
 	SpideringEnabled       bool
 	SpideringMaxDuration   time.Duration

@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A cloud storage endpoint (an AWS S3 bucket or an Azure Blob Storage container/account) allows anonymous, unauthenticated listing of its contents. The scanner confirmed this by sending a listing request and receiving an XML response that enumerates real objects, blobs, or containers. This exposes the full inventory of stored files, which often includes data the owner never intended to be public.
+	ModuleDesc = `**What it means:** A cloud storage endpoint (an AWS S3 bucket or Azure Blob container) allows anonymous listing of its contents - confirmed by an XML response enumerating real objects or blobs. This exposes the full inventory of stored files, often including private data.
 
-**How it's exploited:** An attacker reads the returned listing to discover every object name and path in the bucket or container, then downloads each one directly. This commonly leaks backups, source code, credentials, customer records, configuration files, and other sensitive assets, and reveals the storage layout for deeper attacks against the account.
+**How it's exploited:** An attacker reads the listing to discover every object name and path, then downloads each, commonly leaking backups, source code, credentials, and customer records and revealing the layout for deeper attacks.
 
-**Fix:** Disable public/anonymous listing and access on the storage resource (block public access on the S3 bucket and remove anonymous list permissions; set the Azure container access level to Private), and require authenticated, least-privilege access to any objects that must stay reachable.`
+**Fix:** Disable anonymous listing (block public access on the S3 bucket; set Azure container access to Private), and require authenticated, least-privilege access.`
 
 	ModuleConfirmation = "Confirmed when storage endpoint returns XML listing response with object/blob entries"
 	ModuleSeverity     = severity.High

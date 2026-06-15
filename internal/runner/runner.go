@@ -148,11 +148,15 @@ func BuildSharedInfra(opts *types.Options, settings *config.Settings, repo *data
 	if maxPerHost <= 0 {
 		maxPerHost = 10
 	}
+	adaptive, minPerHost, ceilingPerHost := adaptiveHostLimiterSettings(settings)
 	hostLimiter := hostlimit.NewHostRateLimiter(hostlimit.HostRateLimiterConfig{
-		MaxPerHost:    maxPerHost,
-		MaxEntries:    1000,
-		EvictAfter:    30 * time.Second,
-		EvictInterval: 10 * time.Second,
+		MaxPerHost:     maxPerHost,
+		MaxEntries:     1000,
+		EvictAfter:     30 * time.Second,
+		EvictInterval:  10 * time.Second,
+		Adaptive:       adaptive,
+		MinPerHost:     minPerHost,
+		CeilingPerHost: ceilingPerHost,
 	})
 	svc.HostLimiter = hostLimiter
 	infra.HostLimiter = hostLimiter

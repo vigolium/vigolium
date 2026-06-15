@@ -16,6 +16,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/infra/xssencode"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/xssbreakout"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/spitolas"
 )
@@ -99,8 +100,9 @@ func (m *Module) ScanPerInsertionPoint(
 	}
 
 	// Plain attempt — same build → send → prefilter → browser-confirm path as
-	// before. Factored into attempt() so the fallback can reuse it verbatim.
-	evt, plain := m.attempt(ctx, ip, httpClient, urlx.Host, payload, payload.Body)
+	// before. Factored into attempt() so the fallback can reuse it verbatim. The
+	// universal HTML payload (payload.Hash) doubles as a DOM-source navigation.
+	evt, plain := m.attempt(ctx, ip, httpClient, urlx.Host, payload, payload.Body, payload.Hash)
 	if evt != nil {
 		m.markFound(scanCtx, hostPath, ip.Name())
 		return []*output.ResultEvent{evt}, nil
@@ -118,11 +120,30 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 	}
 	for _, v := range xssencode.MutateForWAF(wafType, payload.Body) {
-		mevt, _ := m.attempt(ctx, ip, httpClient, urlx.Host, payload, v.Value)
+		mevt, _ := m.attempt(ctx, ip, httpClient, urlx.Host, payload, v.Value, payload.Hash)
 		if mevt != nil {
 			mevt.Info.Description += fmt.Sprintf(" [waf-bypass: %s/%s]", wafType, v.Name)
 			m.markFound(scanCtx, hostPath, ip.Name())
 			return []*output.ResultEvent{mevt}, nil
+		}
+	}
+
+	// Fallback (additive): the universal payload breaks out of HTML markup, so it
+	// misses a value reflected inside a JS string. When the canary DID land in the
+	// body (so the parameter reflects) but nothing executed, retry with
+	// operator-chaining breakouts that run even inside a JS expression — the
+	// '^alert()^' class a sibling scanner uses on Salesforce-style pages.
+	if plain != nil && strings.Contains(plain.body, payload.Canary) {
+		alert := "alert(`" + payload.Canary + "`)"
+		for _, q := range []byte{'\'', '"'} {
+			for _, body := range xssbreakout.JSStringPayloads(q, alert) {
+				jevt, _ := m.attempt(ctx, ip, httpClient, urlx.Host, payload, body, "")
+				if jevt != nil {
+					jevt.Info.Description += " [js-string-breakout]"
+					m.markFound(scanCtx, hostPath, ip.Name())
+					return []*output.ResultEvent{jevt}, nil
+				}
+			}
 		}
 	}
 
@@ -144,9 +165,10 @@ type capturedResp struct {
 }
 
 // attempt injects bodyPayload at ip, prefilters the reflection, and on a pass
-// confirms execution in a headless browser. It returns the finding on success
-// (else nil) and always returns the captured HTTP response so the caller can
-// classify a block on a failed plain attempt.
+// confirms execution in a headless browser. hashPayload is the DOM-source variant
+// appended to the navigated URL's fragment (pass "" to navigate the reflection
+// alone). It returns the finding on success (else nil) and always returns the
+// captured HTTP response so the caller can classify a block on a failed attempt.
 func (m *Module) attempt(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
@@ -154,6 +176,7 @@ func (m *Module) attempt(
 	host string,
 	payload *Payload,
 	bodyPayload string,
+	hashPayload string,
 ) (*output.ResultEvent, *capturedResp) {
 	fuzzedRaw := ip.BuildRequest([]byte(bodyPayload))
 	fuzzedReq, err := httpmsg.ParseRawRequest(string(fuzzedRaw))
@@ -172,7 +195,7 @@ func (m *Module) attempt(
 		return nil, plain
 	}
 
-	probeURL, err := navigableURL(fuzzedReq, payload.Hash)
+	probeURL, err := navigableURL(fuzzedReq, hashPayload)
 	if err != nil {
 		return nil, plain
 	}
@@ -248,6 +271,10 @@ func navigableURL(fuzzedReq *httpmsg.HttpRequestResponse, hashPayload string) (s
 		return "", err
 	}
 	full := urlx.String()
+	// No DOM-source variant — navigate the reflected query alone.
+	if hashPayload == "" {
+		return full, nil
+	}
 	frag := url.PathEscape(hashPayload)
 	if strings.Contains(full, "#") {
 		return full + frag, nil

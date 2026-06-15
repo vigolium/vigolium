@@ -12,18 +12,42 @@ import (
 //
 // A secret that Kingfisher validated as live stays Critical/Certain no matter
 // where it appears — a confirmed live credential is serious anywhere. For
-// unvalidated matches the baseline is High/Firm, but matches that ride on a
-// redirect (3xx) response or that appear verbatim inside a response header
-// value are downgraded to Low/Tentative. Those are almost always low-value
-// reflections — e.g. an OAuth client_id / state / nonce embedded in a Location
-// URL that merely bounces the browser to an SSO login page — rather than a
-// genuinely leaked secret served in page content.
-func SecretFindingSeverity(validated, redirect, inHeader bool) (severity.Severity, severity.Confidence) {
+// unvalidated matches the baseline is High/Firm, with several downgrades:
+//
+//   - A reCAPTCHA site key (recaptchaSiteKey — see IsReCaptchaSiteKey) drops to
+//     Info/Tentative. Site keys are public by design — embedded in page HTML/JS
+//     so the widget can render — so this outranks every other branch, including
+//     a (spurious) validation: a public key is never a leaked secret.
+//
+//   - Matches that ride on a redirect (3xx) response or that appear verbatim
+//     inside a response header value drop to Low/Tentative. Those are almost
+//     always low-value reflections — e.g. an OAuth client_id / state / nonce
+//     embedded in a Location URL that merely bounces the browser to an SSO login
+//     page — rather than a genuinely leaked secret served in page content.
+//
+//   - A Google API key (googleAPIKey — see IsGoogleAPIKey) drops to Medium/Firm.
+//     The AIza… key family is routinely embedded in client-side code by design,
+//     so leakage is billing/quota abuse against the enabled Google APIs rather
+//     than account takeover. A live-validated Google key still escalates ahead of
+//     this to Critical.
+//
+//   - A JWT we cannot decode into a usable credential (lowValueJWT — see
+//     LowValueJWT) drops to Medium/Tentative. This catches Cloudflare Access and
+//     similar SSO pre-auth "meta" tokens that are embedded in login-page URLs and
+//     reflected into the page body: they decode to an unauthenticated metadata
+//     token (auth_status=NONE, no identity), not a leaked secret.
+func SecretFindingSeverity(validated, redirect, inHeader, lowValueJWT, recaptchaSiteKey, googleAPIKey bool) (severity.Severity, severity.Confidence) {
 	switch {
+	case recaptchaSiteKey:
+		return severity.Info, severity.Tentative
 	case validated:
 		return severity.Critical, severity.Certain
 	case redirect || inHeader:
 		return severity.Low, severity.Tentative
+	case googleAPIKey:
+		return severity.Medium, severity.Firm
+	case lowValueJWT:
+		return severity.Medium, severity.Tentative
 	default:
 		return severity.High, severity.Firm
 	}

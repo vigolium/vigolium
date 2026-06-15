@@ -38,10 +38,6 @@ var (
 	// csrfCookieRe excludes CSRF/XSRF tokens, which sessionCookieRe would
 	// otherwise treat as a session because they contain "token".
 	csrfCookieRe = regexp.MustCompile(`(?i)(csrf|xsrf)`)
-	// challengeMarkerRe is a minimal backstop for a WAF/CDN interstitial served
-	// with a 200 status (the infra block detector needs a ResponseChain a passive
-	// module does not hold).
-	challengeMarkerRe = regexp.MustCompile(`_cf_chl_opt|/cdn-cgi/challenge-platform/|Request unsuccessful\. Incapsula`)
 )
 
 // Module implements the clickjacking passive scanner.
@@ -104,7 +100,7 @@ func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.S
 	scan := string(body)
 
 	// Block gate: drop a WAF/CDN challenge interstitial served with a 200.
-	if resp.Header("Cf-Mitigated") != "" || challengeMarkerRe.MatchString(scan) {
+	if modkit.IsEdgeBlockedResponse(resp) {
 		return nil, nil
 	}
 

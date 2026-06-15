@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application exposes a direct object reference (an ID in a URL parameter, body field, or path segment) that is not protected by a per-user authorization check. This is an Insecure Direct Object Reference (IDOR) / Broken Object Level Authorization (BOLA) flaw, meaning one user can read or act on records that belong to other users.
+	ModuleDesc = `**What it means:** The application exposes a direct object reference (an ID in a parameter, body field, or path) lacking a per-user authorization check - an IDOR / Broken Object Level Authorization (BOLA) flaw letting one user read others' records.
 
-**How it's exploited:** An attacker takes a request for their own object and increments or substitutes the ID to a neighbor value (user_id=42 to 41/43, or an adjacent code or base64 ID). Here the server returned a structurally similar but different response for the neighbor ID instead of a 401/403/404 or login redirect, so the attacker can enumerate IDs to harvest other users' data or tamper with records they should not access.
+**How it's exploited:** An attacker substitutes the ID with a neighbor value (user_id=42 to 41/43). Here the server returned a structurally similar but different response instead of 401/403/404, so IDs can be enumerated to harvest other users' data.
 
-**Fix:** Enforce object-level authorization on every request by verifying that the authenticated session owns or is permitted to access the referenced object, and prefer unpredictable identifiers so IDs cannot be guessed or enumerated.`
+**Fix:** Enforce object-level authorization on every request by verifying the session may access the referenced object, and prefer unpredictable identifiers.`
 
 	ModuleConfirmation = "Indicated when a probe request with a neighbor object ID returns a structurally similar response with different content, suggesting missing authorization enforcement"
 	ModuleSeverity     = severity.High

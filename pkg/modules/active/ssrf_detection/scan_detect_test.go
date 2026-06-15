@@ -204,6 +204,136 @@ func TestScanPerInsertionPoint_SoftErrorSiblingNotSSRF(t *testing.T) {
 	assert.Empty(t, res, "a generic HTML page returned for every absolute URL (sibling included) must not be reported as SSRF")
 }
 
+// TestScanPerInsertionPoint_GenericMarkerFailsClosedWhenControlsError reproduces
+// the reported /Error.aspx false positive. A flaky ASP.NET host answered the
+// localhost payload with a static `<!DOCTYPE ...` error page (200) whose generic
+// page-shape marker was absent from the captured baseline, but ERRORED on every
+// follow-up request — so both negative controls (the benign sibling probe and the
+// fresh baseline fetch) failed to connect. Under the old fail-open logic those
+// transport errors were ignored and the static error page was reported as
+// IPv6-loopback SSRF at High/Firm. A generic marker carries no evidence of its
+// own, so when its controls cannot be established it must fail CLOSED.
+func TestScanPerInsertionPoint_GenericMarkerFailsClosedWhenControlsError(t *testing.T) {
+	const errorPage = `<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">` +
+		`<html><head><title>Error</title></head><body>` +
+		`An error has occurred and has been logged by our system.</body></html>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		v := r.URL.Query().Get("url")
+		// The localhost-family payloads get the static error page (200). It carries
+		// the generic `<html`/`<!DOCTYPE` markers but nothing localhost-specific.
+		if strings.Contains(v, "127.0.0.1") || strings.Contains(v, "[::1]") {
+			_, _ = io.WriteString(w, errorPage)
+			return
+		}
+		// The benign sibling control (192.0.2.1) and the fresh baseline fetch of the
+		// original value drop the connection, the way the flaky host errored mid-scan.
+		if strings.Contains(v, "192.0.2.1") || strings.Contains(v, "images.example.com") {
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					_ = conn.Close()
+				}
+			}
+			return
+		}
+		// Any other probe (cloud metadata, file://, …) gets a clean, marker-free page.
+		_, _ = io.WriteString(w, "fetched remote resource ok")
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// Captured baseline of the original value lacks the generic markers.
+	rr := modtest.Response(
+		modtest.Request(t, srv.URL+"/?url=https://images.example.com/logo.png"),
+		"text/plain", "fetched remote resource ok",
+	)
+	ip := modtest.InsertionPoint(t, rr, "url")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a generic marker whose negative controls cannot be fetched must be dropped, not reported as SSRF")
+}
+
+// ssrfStatusTemplate renders a long, fixed status page that only echoes the target
+// host word. It is the shape that defeats a bare-token check: change just the host
+// and the whole body is otherwise identical, so two renderings are >0.95 similar.
+func ssrfStatusTemplate(host string) string {
+	return "Outbound request report. The proxy attempted to retrieve the requested upstream resource on your behalf. " +
+		"The operation has completed and the diagnostic details are recorded below for review by the operations team. " +
+		"No payload from the upstream endpoint is rendered here for security and compliance reasons under policy. " +
+		"Please contact your administrator through the support portal if you believe this report is shown in error. " +
+		"The requested upstream host recorded for this attempt was " + host + " and the connection state is completed " +
+		"with the response cache disabled for this particular request path and the retry budget left fully intact."
+}
+
+// TestScanPerInsertionPoint_LocalhostMarkerSameTemplateNotSSRF is the headline test
+// for the stronger validation: it goes beyond "is the `localhost` token present".
+// The app answers EVERY absolute URL with a fixed status template that merely echoes
+// the target host word, so `localhost` appears for http://127.0.0.1 but is absent
+// from the dead-host (192.0.2.1) control — the token-absence check alone would
+// report it. The two bodies are otherwise identical, proving the server returns a
+// fixed page for any URL rather than fetching localhost, so the differential gate
+// (BodiesSimilar) drops it. A bare `<!DOCTYPE`/`localhost` substring match cannot.
+func TestScanPerInsertionPoint_LocalhostMarkerSameTemplateNotSSRF(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		v := r.URL.Query().Get("url")
+		switch {
+		case strings.Contains(v, "127.0.0.1") || strings.Contains(v, "[::1]"):
+			// The fetcher normalizes the loopback target to "localhost" in the template.
+			_, _ = io.WriteString(w, ssrfStatusTemplate("localhost"))
+		case strings.Contains(v, "192.0.2.1"):
+			// Dead-host control: same template, raw IP host word, no "localhost".
+			_, _ = io.WriteString(w, ssrfStatusTemplate("192.0.2.1"))
+		default:
+			_, _ = io.WriteString(w, "fetched remote resource ok")
+		}
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(
+		modtest.Request(t, srv.URL+"/?url=https://images.example.com/logo.png"),
+		"text/plain", "fetched remote resource ok",
+	)
+	ip := modtest.InsertionPoint(t, rr, "url")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a generic 'localhost' token in a fixed template that only echoes the host word must not be reported as SSRF")
+}
+
+// TestScanPerInsertionPoint_GenericMarkerRealDifferentialIsReported is the paired
+// positive: the differential gate must not block a REAL loopback SSRF. Here
+// http://127.0.0.1 reaches a genuine internal web app (a distinct HTML document)
+// while the dead host returns a short, unrelated error — the bodies differ
+// substantially, so even a generic `<html` marker is reported (High/Tentative).
+func TestScanPerInsertionPoint_GenericMarkerRealDifferentialIsReported(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		v := r.URL.Query().Get("url")
+		switch {
+		case strings.Contains(v, "127.0.0.1") || strings.Contains(v, "[::1]"):
+			_, _ = io.WriteString(w, "<html><body><h1>Internal Admin Console</h1><p>Restricted operator tooling for the cluster</p></body></html>")
+		case strings.Contains(v, "192.0.2.1"):
+			_, _ = io.WriteString(w, "upstream connection timed out")
+		default:
+			_, _ = io.WriteString(w, "fetched remote resource ok")
+		}
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(
+		modtest.Request(t, srv.URL+"/?url=https://images.example.com/logo.png"),
+		"text/plain", "fetched remote resource ok",
+	)
+	ip := modtest.InsertionPoint(t, rr, "url")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, res, 1, "a generic marker is still SSRF when the internal page genuinely differs from the dead-host control")
+	assert.Equal(t, severity.High, res[0].Info.Severity)
+	assert.Equal(t, severity.Tentative, res[0].Info.Confidence)
+}
+
 // TestScanPerInsertionPoint_MetadataMarkerInHTMLIsSuspect reproduces the reported
 // false positive: the DigitalOcean payload's "hostname" marker matched
 // `window.location.hostname` inside a Ping SSO error page's <script> on a 400
@@ -249,8 +379,9 @@ func TestScanPerInsertionPoint_MetadataMarkerInHTMLIsSuspect(t *testing.T) {
 // TestScanPerInsertionPoint_GenuineMetadataIsHigh confirms the grading still
 // reports a real SSRF at full severity: a genuinely proxied DigitalOcean metadata
 // endpoint answers 200 with a plain-text body carrying the distinctive
-// `droplet_id` field — a self-evidencing marker on a non-HTML 2xx response — so it
-// stays High/Firm.
+// `droplet_id` field — a self-evidencing marker on a non-HTML 2xx response. It is
+// reported High, but only at Tentative confidence: this is an in-band oracle, and
+// without an OAST callback even the strongest in-band evidence cannot be Firm.
 func TestScanPerInsertionPoint_GenuineMetadataIsHigh(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Query().Get("url"), "169.254.169.254/metadata/v1") {
@@ -272,8 +403,8 @@ func TestScanPerInsertionPoint_GenuineMetadataIsHigh(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.Len(t, res, 1)
-	assert.Equal(t, severity.High, res[0].Info.Severity, "a distinctive metadata marker on a 2xx plain-text body is a firm SSRF")
-	assert.Equal(t, severity.Firm, res[0].Info.Confidence)
+	assert.Equal(t, severity.High, res[0].Info.Severity, "a distinctive metadata marker on a 2xx plain-text body is a High SSRF")
+	assert.Equal(t, severity.Tentative, res[0].Info.Confidence, "in-band confirmation tops out at Tentative; only an OAST callback warrants Firm")
 	assert.Contains(t, res[0].Info.Description, "droplet_id")
 }
 

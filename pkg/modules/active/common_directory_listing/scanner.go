@@ -97,6 +97,14 @@ func (m *Module) ScanPerRequest(
 	// Fingerprint 404 response body hash
 	notFoundHash := get404Hash(ctx, httpClient)
 
+	// Host-wide catch-all guard: a real autoindex server 404s a non-existent
+	// directory, so if a random guaranteed-nonexistent dir already renders a
+	// listing-shaped body the host templates that body for any path (SPA shell,
+	// wildcard rewrite, soft-404) and every per-directory finding is spurious.
+	if modkit.RandomDirCatchAll(ctx, httpClient, func(b string) bool { return detectDirectoryListing(b) != "" }) {
+		return nil, nil
+	}
+
 	var results []*output.ResultEvent
 	target := ctx.Target()
 

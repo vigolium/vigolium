@@ -32,11 +32,12 @@ func init() {
 	flags := scanRequestCmd.Flags()
 
 	flags.StringVarP(&scanReqInput, "input", "i", "-", "Input file or - for stdin")
-	flags.StringVar(&scanReqTarget, "target", "", "Override target URL (scheme://host)")
+	flags.StringVarP(&scanReqTarget, "target", "t", "", "Override target URL (scheme://host)")
 	flags.BoolVar(&scanURLNoPassive, "no-passive", false, "Skip passive modules")
 	registerScanModuleFlags(flags)
 	registerHTTPClientFlags(flags)
 	registerPhaseFlags(flags)
+	registerLightweightScanIOFlags(flags)
 }
 
 func runScanRequestCmd(_ *cobra.Command, _ []string) error {
@@ -86,10 +87,7 @@ func runScanRequestCmd(_ *cobra.Command, _ []string) error {
 	method := rr.Request().Method()
 	target := rr.Target()
 
-	// Delegate to Runner when any phase flag is set
-	if hasPhaseFlags() {
-		return runPhaseMode(rr, target, method)
-	}
-
-	return runScanWithRR(rr, target, method)
+	// Route through the Runner when output/persistence/phase flags are in play;
+	// otherwise take the fast in-memory direct path.
+	return dispatchSingleScan(rr, target, method)
 }

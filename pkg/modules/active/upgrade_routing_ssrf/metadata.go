@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A reverse proxy or gateway in front of the application can be tricked into forwarding a request to an internal-only backend when the request carries a WebSocket-style upgrade handshake (Connection: Upgrade plus Upgrade: websocket and Sec-WebSocket-* headers). This is a Server-Side Request Forgery (SSRF) filter bypass: the upgrade handshake makes the proxy route traffic it would normally refuse, reaching addresses the attacker should never be able to touch.
+	ModuleDesc = `**What it means:** A reverse proxy can be tricked into forwarding a request to an internal-only backend when it carries a WebSocket-style upgrade handshake (Connection: Upgrade plus Upgrade: websocket), routing SSRF traffic it would normally refuse.
 
-**How it's exploited:** An attacker sends a request with an absolute-form request line pointing at an internal target (for example the cloud metadata service at 169.254.169.254 or other private hosts) together with the upgrade headers. The same request without those headers is rejected, proving the handshake is the bypass. This lets the attacker read internal services or steal cloud instance credentials and metadata, often leading to full account or infrastructure compromise.
+**How it's exploited:** An attacker sends an absolute-form request line pointing at an internal target (e.g. the metadata service at 169.254.169.254) with the upgrade headers; the same request without them is rejected, proving the bypass. This lets them read internal services or steal cloud credentials.
 
-**Fix:** Reject or strip Upgrade/Connection handshake headers on non-WebSocket routes, validate the request-line target after upgrade parsing, and block proxy egress to internal and link-local address ranges.`
+**Fix:** Strip Upgrade/Connection headers on non-WebSocket routes and block proxy egress to internal and link-local ranges.`
 
 	ModuleConfirmation = "Reported (Tentative) when a plain (non-HTML) metadata body carrying several distinct self-evidencing tokens appears only with the WebSocket upgrade headers present (absent without them), reproduces, and is not a block page."
 	ModuleSeverity     = severity.High

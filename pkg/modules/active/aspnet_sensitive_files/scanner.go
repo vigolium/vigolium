@@ -173,6 +173,12 @@ func (m *Module) probeFile(
 		}
 	}
 
+	// Catch-all / SPA shell guard: a themed app that returns the same shell for
+	// any path is a false positive even when a weak marker appears in that shell.
+	if modkit.ResemblesObservedPage(ctx, body) {
+		return nil
+	}
+
 	for _, anti := range sf.antiMarkers {
 		if strings.Contains(body, anti) {
 			return nil
@@ -230,8 +236,8 @@ func (m *Module) probeFile(
 		Info: output.Info{
 			Name:        findingName,
 			Description: sf.desc,
-			Severity:    sf.sev,
-			Confidence:  severity.Firm,
+			Severity:    modkit.CapSeverity(sf.sev, severity.Medium),
+			Confidence:  severity.Tentative,
 			Tags:        []string{"aspnet", "sensitive-file", "information-disclosure", "misconfiguration"},
 			Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information"},
 		},

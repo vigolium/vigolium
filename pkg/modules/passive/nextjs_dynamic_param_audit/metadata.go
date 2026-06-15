@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This finding flags Next.js page or route-handler source served in a JavaScript/TypeScript response that consumes user-controlled dynamic route params or URL searchParams directly in a database query, SQL string, authorization decision, or redirect target, with no schema validation, type coercion, or sanitization applied first. It is a static source-pattern observation, not a confirmed exploit, so it is reported as a Medium-severity lead for manual review.
+	ModuleDesc = `**What it means:** Next.js source in a JS/TS response uses dynamic route params or searchParams directly in a query, authorization decision, or redirect target, with no validation first. A static source-pattern lead for review, not a confirmed exploit.
 
-**How it's exploited:** Because the input is fully attacker-controlled, the unguarded usage points to a likely vulnerability at that sink: params flowing into a query enable SQL or NoSQL injection, searchParams used in auth checks (isAdmin, role, token) allow client-controlled privilege escalation, and searchParams used as a redirect target enable open redirect. A reviewer would trace the flagged sink to confirm and weaponize it.
+**How it's exploited:** The unguarded sink points to a likely flaw: params in a query enable SQL or NoSQL injection, searchParams in auth checks (isAdmin, role, token) allow privilege escalation, and searchParams as a redirect target enable open redirect.
 
-**Fix:** Validate and coerce every dynamic param and searchParam (for example with a Zod schema, parseInt, or a UUID parser) before using it in queries, authorization logic, or redirects.`
+**Fix:** Validate and coerce every param and searchParam (Zod, parseInt, or UUID parser) before using it in queries, auth logic, or redirects.`
 
 	ModuleConfirmation = "Confirmed when dynamic params or searchParams are used directly in sensitive operations without validation"
 	ModuleSeverity     = severity.Medium

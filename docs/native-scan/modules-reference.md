@@ -140,7 +140,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `active-graphql-scan` | GraphQL Security Scanner | GraphQL introspection, SQL injection, and query batching abuse | Medium | Certain | `api`, `injection` |
 | `active-file-upload-scan` | File Upload Scanner | File upload bypass (extension, null byte, magic bytes, SVG XXE, HTML XSS) | High | Certain | `injection` |
 | `active-default-credentials` | Default Credentials | Login endpoints tested with common credential pairs; CAPTCHA/lockout aware | High | Certain | `auth-bypass` |
-| `active-sensitive-file-discovery` | Sensitive File Discovery | ~25 marker-based sensitive files and ~1,350 generic paths (.env, .git, logs) | Medium | Firm | `info-disclosure` |
+| `active-sensitive-file-discovery` | Sensitive File Discovery | ~25 marker-based sensitive files and ~1,350 generic paths (.env, .git, logs) | Medium | Tentative | `info-disclosure` |
 | `active-jsonp-callback` | JSONP Callback Injection | JSONP endpoints via callback injection enabling cross-origin data theft | Medium | Firm | `injection` |
 
 ### Proxy & Utility
@@ -152,7 +152,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `active-api-rate-limit-bypass` | API Rate Limit Bypass | Rate limiting bypass via IP spoofing headers | Medium | Firm | `auth-bypass`, `moderate` |
 | `active-websocket-security` | WebSocket Security | Insecure WebSocket upgrade policies and missing origin validation | High | Firm | `misconfiguration`, `light` |
 | `active-swagger-disclose` | Swagger Disclosure | Exposed Swagger/OpenAPI documentation | Medium | Firm | `api`, `info-disclosure`, `light` |
-| `active-backup-file-discovery` | Backup File Discovery | Exposed backup archives derived from hostname and year variants | High | Firm | `sensitive-file`, `moderate` |
+| `active-backup-file-discovery` | Backup File Discovery | Exposed backup archives derived from hostname and year variants | Medium | Tentative | `sensitive-file`, `moderate` |
 | `active-angular-template-injection` | Angular Template Injection | Angular template injection via expression evaluation | High | Firm | `angular`, `injection`, `ssti` |
 
 ### SQL Injection (Time-Based)
@@ -196,7 +196,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `active-spring-h2-console-exposure` | Spring H2 Console Exposure | Exposed H2 database web consoles | Critical | Firm | `spring`, `java`, `rce` |
 | `active-spring-jolokia-exposure` | Spring Jolokia Exposure | Exposed Jolokia JMX endpoints | High | Firm | `spring`, `java` |
 | `active-java-appserver-console` | Java App Server Console | Exposed admin consoles (WildFly, WebLogic, GlassFish) | High | Firm | `java`, `tomcat` |
-| `active-java-sensitive-files` | Java Sensitive Files | Java config files, WEB-INF, META-INF, build artifacts | High | Firm | `java`, `sensitive-file` |
+| `active-java-sensitive-files` | Java Sensitive Files | Java config files, WEB-INF, META-INF, build artifacts | Medium | Tentative | `java`, `sensitive-file` |
 | `active-tomcat-manager-exposure` | Tomcat Manager Exposure | Exposed Tomcat Manager and Host Manager interfaces | High | Firm | `tomcat`, `java` |
 
 #### Django / Flask / FastAPI (Python)
@@ -219,7 +219,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `active-laravel-devtool-exposure` | Laravel Developer Tool Exposure | Exposed Web Tinker, Clockwork, Pulse, Log Viewer | High | Firm | `laravel`, `php` |
 | `active-laravel-ignition-rce` | Laravel Ignition RCE | CVE-2021-3129 RCE via exposed Ignition endpoints | Critical | Firm | `laravel`, `php`, `rce` |
 | `active-laravel-misconfig` | Laravel Misconfiguration | Debug mode, exposed debugbar, application logs | High | Firm | `laravel`, `php` |
-| `active-laravel-sensitive-files` | Laravel Sensitive Files | PHPUnit config, SQLite DB, storage internals | High | Firm | `laravel`, `php` |
+| `active-laravel-sensitive-files` | Laravel Sensitive Files | PHPUnit config, SQLite DB, storage internals | Medium | Tentative | `laravel`, `php` |
 | `active-symfony-misconfig` | Symfony Misconfiguration | Exposed profiler, debug toolbar, dev front controller | High | Firm | `symfony`, `php` |
 | `active-php-composer-exposure` | PHP Composer Exposure | Exposed Composer manifests, vendor directory | High | Firm | `php` |
 | `active-php-debug-exposure` | PHP Debug Exposure | Exposed phpinfo, PHP-FPM status, phpMyAdmin | Medium | Firm | `php` |
@@ -233,7 +233,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 |---|---|---|---|---|---|
 | `active-rails-info-exposure` | Rails Info Exposure | Exposed Rails dev/debug endpoints in production | High | Firm | `rails`, `ruby` |
 | `active-rails-admin-dashboard` | Rails Admin Dashboard | Exposed Rails ecosystem admin panels | High | Firm | `rails`, `ruby` |
-| `active-rails-sensitive-files` | Rails Sensitive Files | Exposed Rails config, credentials, artifacts | Critical | Firm | `rails`, `ruby` |
+| `active-rails-sensitive-files` | Rails Sensitive Files | Exposed Rails config, credentials, artifacts | Medium | Tentative | `rails`, `ruby` |
 | `active-rails-action-mailbox-probe` | Rails Action Mailbox Probe | Exposed Action Mailbox ingress endpoints | Medium | Firm | `rails`, `ruby` |
 | `active-rails-active-storage-probe` | Rails Active Storage Probe | Exposed Active Storage direct upload endpoints | Medium | Firm | `rails`, `ruby` |
 
@@ -253,7 +253,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `active-aspnet-health-exposure` | ASP.NET Health Endpoint Exposure | Exposed health checks, monitoring dashboards, metrics | Medium | Firm | `aspnet` |
 | `active-aspnet-identity-probe` | ASP.NET Identity Probe | Exposed Identity endpoints and IdentityServer | Medium | Firm | `aspnet` |
 | `active-aspnet-misconfig` | ASP.NET Misconfiguration | Exposed diagnostics, debug endpoints, verbose errors | High | Firm | `aspnet` |
-| `active-aspnet-sensitive-files` | ASP.NET Sensitive Files | Exposed config files, backups, sensitive directories | High | Firm | `aspnet` |
+| `active-aspnet-sensitive-files` | ASP.NET Sensitive Files | Exposed config files, backups, sensitive directories | Medium | Tentative | `aspnet` |
 | `active-aspnet-service-exposure` | ASP.NET Service Exposure | Exposed ASMX, WCF, OData, legacy service paths | Medium | Firm | `aspnet` |
 | `active-aspnet-viewstate-scan` | ASP.NET ViewState Scan | ViewState MAC disabled, event validation bypass | High | Firm | `aspnet` |
 | `active-iis-shortname-discovery` | IIS Short Filename Discovery | IIS 8.3 short filename enumeration via tilde oracle | Medium | Certain | `aspnet` |

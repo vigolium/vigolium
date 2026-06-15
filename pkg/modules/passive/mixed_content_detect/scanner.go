@@ -42,6 +42,13 @@ func New() *Module {
 	return m
 }
 
+// RequiredContentClasses gates this module to HTML responses. Mixed-content
+// detection scans an HTML document for http:// subresource references, which
+// cannot exist in a JSON/XML body, so the executor skips it on confirmed
+// non-HTML responses (it still runs on unknown/text — see
+// modkit.ContentClassAllows).
+func (m *Module) RequiredContentClasses() []string { return []string{"html"} }
+
 // ScanPerRequest analyzes HTTPS response bodies for HTTP resource references.
 func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	urlx, err := ctx.URL()

@@ -73,6 +73,12 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if ctx.Response() == nil {
 		return nil, nil
 	}
+	// A WAF/CDN edge block's headers and body are the edge's, not the
+	// application's — its Server version, error text, or stack-trace-like content
+	// is not the app disclosing information.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
+		return nil, nil
+	}
 
 	var findings []string
 

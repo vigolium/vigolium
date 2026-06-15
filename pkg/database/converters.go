@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/vigolium/vigolium/pkg/anomaly/htmlutils"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 )
 
@@ -134,6 +135,12 @@ func (r *HTTPRecord) FromHttpRequestResponse(ctx *httpmsg.HttpRequestResponse) e
 		respHash := sha256.Sum256(r.RawResponse)
 		r.ResponseHash = hex.EncodeToString(respHash[:])
 
+		// Reflected-URL-robust signature: strip the request path/URL the response
+		// may echo back (e.g. an error page that mirrors the requested URI) and
+		// collapse dynamic runs, so probes that differ only by the reflected target
+		// dedup together instead of surviving as N near-identical records.
+		r.ResponseNormHash = modkit.NormalizedBodyHash(string(respBody), r.Path, r.URL)
+
 		r.ReceivedAt = time.Now()
 	}
 
@@ -183,7 +190,22 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 
 	f.Request = event.Request
 	f.Response = event.Response
+	// Static assets (JS/CSS/source maps) can be megabytes; on a finding we only
+	// need the matched region in context. Store the response head (status line +
+	// headers) verbatim plus a window of the body around the match. event.Response
+	// is left untouched so the linked http_record still carries the full body for
+	// display. Non-static responses are stored whole.
+	if windowed, ok := windowStaticFindingResponse(f.URL, event.Response, event.ExtractedResults); ok {
+		f.Response = windowed
+	}
+	// Cap evidence carried straight off the event (modules that collect many
+	// request/response pairs themselves, e.g. OAST/timing collectors) to the same
+	// ceiling the dedup merge paths enforce, so a single finding never persists an
+	// unbounded payload.
 	f.AdditionalEvidence = event.AdditionalEvidence
+	if len(f.AdditionalEvidence) > maxAdditionalEvidence {
+		f.AdditionalEvidence = f.AdditionalEvidence[:maxAdditionalEvidence]
+	}
 	f.ModuleType = event.ModuleType
 	f.FindingSource = event.FindingSource
 	f.ModuleShort = event.ModuleShort
@@ -196,6 +218,46 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 	f.Status = StatusTriaged
 
 	return nil
+}
+
+// windowStaticFindingResponse returns a size-bounded copy of a finding's raw
+// response when it belongs to a static asset (JS/CSS/source map/font/image/...),
+// keeping the response head verbatim and windowing the body around the matched
+// value (locators). It reports ok=false — leaving the caller's full response in
+// place — for non-static content, an unparsable response head, an empty response,
+// or a body small enough to store whole. Static-ness is decided by Content-Type,
+// falling back to the URL's file extension so source maps served as
+// application/json are still caught.
+func windowStaticFindingResponse(findingURL, rawResponse string, locators []string) (string, bool) {
+	opts := modkit.DefaultResponseWindowOpts()
+	// Cheap pre-gate on the raw length: the body can't exceed the whole response,
+	// so anything at or below the threshold is never windowed. This skips the
+	// full-response copy and parse for the common small-response finding.
+	if len(rawResponse) <= opts.FullThreshold {
+		return "", false
+	}
+
+	resp := httpmsg.NewHttpResponse([]byte(rawResponse))
+	head := resp.Head()
+	if len(head) == 0 {
+		return "", false // unparsable head — don't risk dropping it
+	}
+	body := resp.Body()
+	if len(body) <= opts.FullThreshold {
+		return "", false // body fits whole — keep the original, skip the rebuild
+	}
+
+	static := modkit.IsStaticAssetContentType(resp.Header("Content-Type"))
+	if !static && findingURL != "" {
+		if u, err := neturl.Parse(findingURL); err == nil {
+			static = modkit.HasStaticAssetExtension(u.Path)
+		}
+	}
+	if !static {
+		return "", false
+	}
+
+	return string(head) + modkit.WindowBody(body, locators, 0, opts), true
 }
 
 func firstNonEmpty(values ...string) string {

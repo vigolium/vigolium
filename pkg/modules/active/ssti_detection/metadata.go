@@ -9,9 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This is a blind, differential lead suggesting a parameter value may be evaluated by a server-side template engine (Jinja2, Twig, Freemarker, Velocity, SpEL, ERB, EJS and others). The scanner sends template-breaking expressions and reordered equivalents and observes that they produce consistently different responses than the original value, which is a hallmark of server-side template processing rather than plain string handling. Because it relies on response differences and error pages, it is reported at Info severity as a candidate for a human to confirm, not a proven vulnerability.
+	ModuleDesc = `**What it means:** A blind differential lead that a parameter may be evaluated by a server-side template engine (Jinja2, Twig, Freemarker, SpEL, ERB, EJS). Template-breaking expressions produce consistently different responses than the original value. Reported at Info for human confirmation, not a proven bug.
 
-**How it's exploited:** If a real Server-Side Template Injection exists, an attacker submits template syntax that the engine evaluates, allowing them to read server-side variables and, with many engines, escalate to arbitrary code execution and full server compromise. The detected engine narrows which exploitation payloads to try.
+**How it's exploited:** If real SSTI exists, an attacker submits template syntax the engine evaluates to read server-side variables and, with many engines, escalate to remote code execution and full server compromise.
 
 **Fix:** Never place untrusted input into template source; pass user data only as bound, escaped variables to the rendering context.`
 

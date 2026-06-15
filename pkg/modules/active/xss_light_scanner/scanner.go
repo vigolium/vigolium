@@ -11,6 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/spitolas"
 )
 
 // Module implements the XSS Light Scanner module
@@ -19,6 +20,10 @@ type Module struct {
 	rhm               dedup.Lazy[dedup.RequestHashManager]
 	transformAnalyzer *TransformAnalyzer
 	jsAnalyzer        *JavaScriptContextAnalyzer
+
+	// Probe runs the headless-browser confirmation step. Overridable so tests
+	// never spawn a real browser. Default: spitolas.ProbeURL.
+	Probe ProbeFunc
 }
 
 // New creates a new XSS Light Scanner module
@@ -38,6 +43,7 @@ func New() *Module {
 		rhm:               dedup.LazyDefaultRHM("xss_light"),
 		transformAnalyzer: NewTransformAnalyzer(),
 		jsAnalyzer:        NewJavaScriptContextAnalyzer(),
+		Probe:             spitolas.ProbeURL,
 	}
 	m.ModuleTags = ModuleTags
 	return m
@@ -90,7 +96,9 @@ func (m *Module) ScanPerRequest(
 		}
 
 		if result != nil && result.HasVulnerability() {
-			results = append(results, m.buildResultEvent(ctx, ip, result))
+			if evt := confirmXSS(m.Probe, ctx, ip, result, httpClient, "", nil); evt != nil {
+				results = append(results, evt)
+			}
 		}
 	}
 
@@ -327,15 +335,16 @@ func (m *Module) detectContext(
 	}
 }
 
-// buildResultEvent creates a ResultEvent from scan result
-func (m *Module) buildResultEvent(
+// buildResultEvent creates a ResultEvent from an exploitable scan result. Shared
+// by every xss-light sub-scanner: the reflection/transform analysis is identical,
+// only the strategy that produced `result` differs.
+func buildResultEvent(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
 	result *XSSScanResult,
 ) *output.ResultEvent {
 	urlx, _ := ctx.URL()
 
-	// Build evidence from exploitable analyses
 	var evidenceParts []string
 	for _, ea := range result.ExploitableAnalyses {
 		evidenceParts = append(evidenceParts, ea.Context.String())

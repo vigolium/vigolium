@@ -16,9 +16,14 @@ import (
 )
 
 type probe struct {
-	path        string
-	name        string
-	markers     []string
+	path string
+	name string
+	// markers is an AND-of-OR group set (see modkit.MatchAllGroups): the body must
+	// contain at least one substring from EVERY group. Generic UI/company words
+	// ("Oracle", "Management Console", "Web Console", "Administration Console") never
+	// form a group on their own — they match any login wall or landing page that
+	// merely mentions them; only the product-name anchor confirms the console.
+	markers     [][]string
 	antiMarkers []string
 	sev         severity.Severity
 	desc        string
@@ -27,9 +32,10 @@ type probe struct {
 var probes = []probe{
 	// WildFly / JBoss
 	{
-		path:        "/console",
-		name:        "WildFly/JBoss Admin Console",
-		markers:     []string{"WildFly", "JBoss", "HAL Management Console", "Management Console"},
+		path: "/console",
+		name: "WildFly/JBoss Admin Console",
+		// Drop the bare "Management Console" UI token; anchor on the product.
+		markers:     [][]string{{"WildFly", "JBoss", "HAL Management Console"}},
 		antiMarkers: []string{"404", "Not Found", "H2 Console", "h2-console", "WebLogic"},
 		sev:         severity.High,
 		desc:        "WildFly/JBoss administration console exposed, enabling server management and application deployment",
@@ -37,16 +43,18 @@ var probes = []probe{
 	{
 		path:        "/management",
 		name:        "WildFly Management Endpoint",
-		markers:     []string{`"management-major-version"`, `"product-name"`, "WildFly", "JBoss"},
+		markers:     [][]string{{`"management-major-version"`, `"product-name"`, "WildFly", "JBoss"}},
 		antiMarkers: []string{"404", "Not Found", "<html", "<!DOCTYPE", "actuator"},
 		sev:         severity.High,
 		desc:        "WildFly/JBoss HTTP management endpoint exposed, providing REST access to server management operations",
 	},
 	// WebLogic
 	{
-		path:        "/console/login/LoginForm.jsp",
-		name:        "WebLogic Admin Console",
-		markers:     []string{"WebLogic", "Oracle", "Console Login", "wl_login"},
+		path: "/console/login/LoginForm.jsp",
+		name: "WebLogic Admin Console",
+		// Drop "Oracle" (a company name on countless pages) and "Console Login"
+		// (generic); anchor on WebLogic-unique strings.
+		markers:     [][]string{{"WebLogic", "wl_login", "console_title"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.High,
 		desc:        "Oracle WebLogic Server admin console login page exposed, a high-value target with multiple known CVEs",
@@ -54,19 +62,20 @@ var probes = []probe{
 	{
 		path: "/console/",
 		name: "WebLogic Console (root)",
-		// Require the WebLogic/Oracle product strings — the bare word "Console" is a
-		// common UI/title token and the path slug, so it matched any 200 page (a
-		// login wall, a landing page) that merely mentioned "Console".
-		markers:     []string{"WebLogic", "Oracle"},
+		// Require the WebLogic product string — the bare word "Console" is a common
+		// UI/title token and the path slug, and "Oracle" matches any page that
+		// mentions the company, so neither confirms a console on its own.
+		markers:     [][]string{{"WebLogic", "wl_login"}},
 		antiMarkers: []string{"404", "Not Found", "WildFly", "JBoss", "H2"},
 		sev:         severity.High,
 		desc:        "Oracle WebLogic admin console accessible",
 	},
 	// GlassFish / Payara
 	{
-		path:        "/common/index.jsf",
-		name:        "GlassFish Admin Console",
-		markers:     []string{"GlassFish", "Payara", "Administration Console", "Sun Microsystems"},
+		path: "/common/index.jsf",
+		name: "GlassFish Admin Console",
+		// Drop the generic "Administration Console" UI token.
+		markers:     [][]string{{"GlassFish", "Payara", "Sun Microsystems"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.High,
 		desc:        "GlassFish/Payara administration console exposed, enabling server management and application deployment",
@@ -74,24 +83,27 @@ var probes = []probe{
 	{
 		path:        "/admin-console/",
 		name:        "GlassFish Admin Console (alt)",
-		markers:     []string{"GlassFish", "Payara", "Administration Console"},
+		markers:     [][]string{{"GlassFish", "Payara"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.High,
 		desc:        "GlassFish/Payara admin console accessible at alternate path",
 	},
 	// JBoss legacy
 	{
-		path:        "/jmx-console/",
-		name:        "JBoss JMX Console",
-		markers:     []string{"JBoss", "JMX", "MBean", "Agent View"},
+		path: "/jmx-console/",
+		name: "JBoss JMX Console",
+		// "MBean"/"Agent View" are the JMX-console-specific tokens; drop bare "JMX"
+		// (appears on many Java monitoring pages).
+		markers:     [][]string{{"JBoss", "MBean", "Agent View", "jboss.system"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Critical,
 		desc:        "JBoss JMX Console exposed without authentication, enabling direct MBean access and potential remote code execution",
 	},
 	{
-		path:        "/web-console/",
-		name:        "JBoss Web Console",
-		markers:     []string{"JBoss", "Web Console", "Administration Console"},
+		path: "/web-console/",
+		name: "JBoss Web Console",
+		// Anchor on the product; "Web Console"/"Administration Console" are generic.
+		markers:     [][]string{{"JBoss"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.High,
 		desc:        "JBoss legacy web console exposed",
@@ -99,7 +111,7 @@ var probes = []probe{
 	{
 		path:        "/invoker/JMXInvokerServlet",
 		name:        "JBoss JMXInvoker",
-		markers:     []string{"\xac\xed"},
+		markers:     [][]string{{"\xac\xed"}},
 		antiMarkers: []string{"404", "Not Found", "<html", "<!DOCTYPE"},
 		sev:         severity.Critical,
 		desc:        "JBoss JMXInvokerServlet exposed, enabling Java deserialization attacks for remote code execution",
@@ -303,23 +315,13 @@ func (m *Module) probeEndpoint(
 	// satisfy the check on its own.
 	matchBody := modkit.StripReflectedProbePath(body, probePath)
 
-	matched := false
-	var matchedMarkers []string
-	for _, marker := range p.markers {
-		if strings.Contains(matchBody, marker) {
-			matched = true
-			matchedMarkers = append(matchedMarkers, marker)
-		}
-	}
-	if !matched {
-		return nil
-	}
-
-	// Sub-directory catch-all guard: now that we probe under context-path prefixes,
-	// drop the finding if a nonexistent sibling under the same parent returns the
-	// same markers (a handler that 200s every child path). Root-level probes are
-	// already covered by the random-path 404 fingerprint above.
-	if modkit.SiblingServesAnyMarker(ctx, httpClient, probePath, p.markers) {
+	// Require every marker group (product anchor + any corroboration), not a single
+	// generic UI/company word, then drop the finding if a nonexistent sibling under
+	// the same parent satisfies the same groups (a sub-directory catch-all that 200s
+	// every child path). Root-level probes are covered by the random-path 404
+	// fingerprint above.
+	matchedMarkers, ok := modkit.MatchAndConfirmSibling(ctx, httpClient, probePath, matchBody, p.markers)
+	if !ok {
 		return nil
 	}
 

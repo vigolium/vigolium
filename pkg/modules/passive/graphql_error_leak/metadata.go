@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A GraphQL endpoint returned a verbose error response that leaks internal implementation details, such as field-name suggestions ("Did you mean ...?"), type and enum names, resolver paths, expected variable types, database/ORM errors, or stack traces. This over-shares schema and backend internals that should stay private, expanding the attacker's view of the API even when introspection is disabled.
+	ModuleDesc = `**What it means:** A GraphQL endpoint returned a verbose error that leaks internal details such as field-name suggestions, type and enum names, resolver paths, database/ORM errors, or stack traces. This over-shares schema and backend internals even when introspection is disabled.
 
-**How it's exploited:** An attacker submits malformed or probing GraphQL queries and reads the error messages to reconstruct the schema, uncover hidden fields and types, and fingerprint the database and framework. That mapped attack surface and the disclosed backend technologies make it far easier to target authorization gaps, injection, or known version-specific bugs in follow-up attacks.
+**How it's exploited:** An attacker submits malformed queries and reads the errors to reconstruct the schema, uncover hidden fields, and fingerprint the database and framework, making it far easier to target authorization gaps, injection, or version-specific bugs.
 
-**Fix:** Disable verbose and debug error output in production by returning generic GraphQL error messages, stripping stack traces, field suggestions, and database errors before responses leave the server.`
+**Fix:** Disable verbose and debug error output in production, returning generic GraphQL errors with stack traces, field suggestions, and database errors stripped.`
 
 	ModuleConfirmation = "Confirmed when JSON response contains GraphQL error objects with internal details such as field suggestions, resolver paths, or stack traces"
 	ModuleSeverity     = severity.Medium

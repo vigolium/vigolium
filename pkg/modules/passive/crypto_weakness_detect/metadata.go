@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This passive check flags signs of weak or misused cryptography in HTTP responses and cookies: a PHP "magic hash" (0e-prefixed digit string that loosely compares as zero), an MD5 or SHA1 hash next to security keywords like password, token, or secret, an error message leaking a padding/decryption failure, or an encrypted, block-aligned cookie with no companion integrity (MAC/HMAC) value. These point to hashing or encryption choices an attacker can subvert.
+	ModuleDesc = `**What it means:** This passive check flags weak cryptography: a PHP magic hash (0e-prefixed digits that compare as zero), an MD5/SHA1 hash beside keywords like password or secret, a padding/decryption-failure error, or a block-aligned encrypted cookie with no integrity (MAC/HMAC) value.
 
-**How it's exploited:** A magic hash can bypass loose-comparison password or token checks via type juggling. MD5/SHA1 password or signature hashes are cheaply cracked or collided. A padding-oracle error message lets an attacker decrypt or forge ciphertext byte by byte (POODLE-style). An unauthenticated encrypted cookie is open to bit-flipping that mutates the underlying plaintext without detection, potentially escalating privileges or tampering with session state.
+**How it's exploited:** A magic hash bypasses loose-comparison checks via type juggling. MD5/SHA1 hashes are cheaply cracked. A padding-oracle error lets an attacker decrypt or forge ciphertext byte by byte. An unauthenticated cookie is open to bit-flipping.
 
-**Fix:** Use constant-time/strict comparison, modern hashing (bcrypt/argon2 for passwords, SHA-256+ for integrity), authenticated encryption (AES-GCM or encrypt-then-HMAC) for cookies, and return generic errors that never reveal padding or decryption details.`
+**Fix:** Use strict comparison, modern hashing (bcrypt/argon2, SHA-256+), authenticated encryption (AES-GCM or encrypt-then-HMAC), and generic errors that hide padding details.`
 
 	ModuleConfirmation = "Confirmed when response contains identifiable cryptographic weakness patterns such as magic hashes, weak hash usage, padding oracle errors, or unprotected encrypted cookies"
 	ModuleSeverity     = severity.Medium

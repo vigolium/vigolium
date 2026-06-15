@@ -498,6 +498,116 @@ func TestRunActiveWithTimeout_CanceledCtxReturnsPromptly(t *testing.T) {
 	}
 }
 
+// TestRunActiveWithTimeout_TimeoutIsCounted verifies that a genuine per-module
+// timeout (the watchdog timer fires while the parent ctx is alive) increments
+// the timed-out counter surfaced in the status line.
+func TestRunActiveWithTimeout_TimeoutIsCounted(t *testing.T) {
+	e := &Executor{cfg: ExecutorConfig{ActiveModuleTimeout: 20 * time.Millisecond}}
+	_, item := makeTestItem("example.com", "/", "ok")
+
+	_, completed := e.runActiveWithTimeout(context.Background(),
+		func(context.Context) ([]*output.ResultEvent, error) {
+			time.Sleep(2 * time.Second)
+			return nil, nil
+		},
+		&fakeActiveModule{id: "slowcount"}, item)
+
+	if completed {
+		t.Fatal("expected completed=false on timeout")
+	}
+	if n := e.timedOutCount(); n != 1 {
+		t.Fatalf("a genuine per-module timeout should be counted once, got %d", n)
+	}
+}
+
+// TestRunActiveWithTimeout_ParentCancelNotCounted verifies that parent-context
+// cancellation while a module is mid-flight returns promptly but is NOT counted
+// as a per-module timeout — the watchdog (t.C) and the parent-cancel (ctx.Done())
+// paths are distinct.
+func TestRunActiveWithTimeout_ParentCancelNotCounted(t *testing.T) {
+	e := &Executor{cfg: ExecutorConfig{ActiveModuleTimeout: 10 * time.Second}}
+	_, item := makeTestItem("example.com", "/", "ok")
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, completed := e.runActiveWithTimeout(ctx,
+		func(context.Context) ([]*output.ResultEvent, error) {
+			time.Sleep(2 * time.Second)
+			return []*output.ResultEvent{{}}, nil
+		},
+		&fakeActiveModule{id: "interrupted"}, item)
+
+	if completed {
+		t.Fatal("expected completed=false on parent cancellation")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("expected prompt return on parent cancel, took %s", elapsed)
+	}
+	if n := e.timedOutCount(); n != 0 {
+		t.Fatalf("parent cancellation must not be counted as a module timeout, got %d", n)
+	}
+}
+
+// TestRunActiveWithTimeout_PooledTimerReuse runs fast → slow(timeout) → fast on
+// the same executor so the recycled watchdog timer is exercised. A stale fire
+// from the pooled timer would make the final fast call spuriously time out.
+func TestRunActiveWithTimeout_PooledTimerReuse(t *testing.T) {
+	e := &Executor{cfg: ExecutorConfig{ActiveModuleTimeout: 30 * time.Millisecond}}
+	_, item := makeTestItem("example.com", "/", "ok")
+	fast := func(context.Context) ([]*output.ResultEvent, error) { return []*output.ResultEvent{{}}, nil }
+	slow := func(context.Context) ([]*output.ResultEvent, error) {
+		time.Sleep(300 * time.Millisecond)
+		return []*output.ResultEvent{{}}, nil
+	}
+
+	if _, ok := e.runActiveWithTimeout(context.Background(), fast, &fakeActiveModule{id: "r1"}, item); !ok {
+		t.Fatal("first fast call should complete")
+	}
+	if _, ok := e.runActiveWithTimeout(context.Background(), slow, &fakeActiveModule{id: "r2"}, item); ok {
+		t.Fatal("slow call should time out")
+	}
+	got, ok := e.runActiveWithTimeout(context.Background(), fast, &fakeActiveModule{id: "r3"}, item)
+	if !ok {
+		t.Fatal("final fast call should complete — a pooled timer must not carry a stale fire")
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 result from final fast call, got %d", len(got))
+	}
+}
+
+// TestRunPassiveWithTimeout_FastAndSlow exercises the passive timeout wrapper:
+// a fast module returns its results; a module that overruns the bound is
+// abandoned (nil) and returns promptly rather than blocking the worker.
+func TestRunPassiveWithTimeout_FastAndSlow(t *testing.T) {
+	e := &Executor{cfg: ExecutorConfig{PassiveModuleTimeout: 20 * time.Millisecond}}
+	_, item := makeTestItem("example.com", "/", "ok")
+	mod := &contextualPassiveModule{id: "p"}
+
+	want := []*output.ResultEvent{{}}
+	got := e.runPassiveWithTimeout(context.Background(),
+		func(context.Context) ([]*output.ResultEvent, error) { return want, nil }, mod, item)
+	if len(got) != 1 {
+		t.Fatalf("fast passive: expected 1 result, got %d", len(got))
+	}
+
+	start := time.Now()
+	got = e.runPassiveWithTimeout(context.Background(),
+		func(context.Context) ([]*output.ResultEvent, error) {
+			time.Sleep(2 * time.Second)
+			return want, nil
+		}, mod, item)
+	if got != nil {
+		t.Fatalf("slow passive: expected nil on timeout, got %d", len(got))
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("slow passive: expected prompt timeout return, took %s", elapsed)
+	}
+}
+
 // blockingPassiveModule wedges in ScanPerRequest until released, ignoring
 // context — it simulates a module stuck in a code path that does not honor
 // cancellation. Used to verify the post-EOF drain/wait is bounded.

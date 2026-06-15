@@ -20,7 +20,7 @@ import (
 // cannot introduce false positives.
 type EncodedModule struct {
 	modkit.BaseActiveModule
-	base *Module // reuses analyzePhase1 / buildResultEvent (same package)
+	base *Module // reuses analyzePhase1 + its Probe (same package)
 	rhm  dedup.Lazy[dedup.RequestHashManager]
 }
 
@@ -154,11 +154,14 @@ func (m *EncodedModule) scanInsertionPointEncoded(
 		result.PrimaryResponse = body
 		result.ExploitableAnalyses = exploitable
 
-		evt := m.base.buildResultEvent(ctx, ip, result)
-		evt.Info.Description = "[encoded: " + enc.name + "] " + evt.Info.Description
-		// Show the payload actually sent (the encoded form), not the decoded probe.
-		evt.Request = string(ip.BuildRequest([]byte(encoded)))
-		return evt, nil
+		// Confirm with the SAME pre-encoding that detected the reflection — a raw
+		// executable payload would never survive the app's extra decode. enc.fn
+		// wraps the payload on the wire; the body signature still matches the
+		// decoded form the app reflects.
+		if evt := confirmXSS(m.base.Probe, ctx, ip, result, httpClient, "[encoded: "+enc.name+"] ", enc.fn); evt != nil {
+			return evt, nil
+		}
+		// Confirmation dropped this reflection — try the next encoding.
 	}
 
 	return nil, nil

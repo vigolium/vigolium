@@ -9,9 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Set-Cookie header in the response sets a cookie that is missing one or more hardening attributes: Secure (on HTTPS responses), HttpOnly, or SameSite. Without these, the cookie, often a session token, is more exposed to theft and cross-site abuse, weakening the protection of any authenticated session it represents.
+	ModuleDesc = `**What it means:** A Set-Cookie header omits a hardening attribute - Secure (on HTTPS), HttpOnly, or SameSite - leaving the cookie, often a session token, exposed to theft and cross-site abuse.
 
-**How it's exploited:** A cookie without HttpOnly can be read by injected JavaScript, so an XSS flaw can exfiltrate the session token and let an attacker hijack the account. Without Secure, the cookie can be sent over plain HTTP and captured by a network attacker. Without SameSite, the browser attaches the cookie to cross-site requests, enabling cross-site request forgery (CSRF) against state-changing actions.
+**How it's exploited:** Without HttpOnly, XSS-injected JavaScript can steal the token and hijack the account. Without Secure, the cookie travels over plain HTTP for a network attacker to capture. Without SameSite, the browser attaches it to cross-site requests, enabling CSRF.
 
 **Fix:** Set Secure, HttpOnly, and an explicit SameSite (Lax or Strict) on all session and sensitive cookies, scoped with a restrictive Path and Domain.`
 

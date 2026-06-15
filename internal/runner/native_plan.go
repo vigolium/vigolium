@@ -11,6 +11,7 @@ type NativePhase string
 
 const (
 	PhaseHeuristicsCheck   NativePhase = "heuristics-check"
+	PhasePortSweep         NativePhase = "port-sweep"
 	PhaseExternalHarvest   NativePhase = "external-harvest"
 	PhaseSpidering         NativePhase = "spidering"
 	PhaseDiscovery         NativePhase = "discovery"
@@ -40,6 +41,11 @@ type NativeScanPlan struct {
 func BuildNativeScanPlan(opts *types.Options) NativeScanPlan {
 	steps := []NativePhaseStep{
 		{Phase: PhaseHeuristicsCheck, Enabled: opts.HeuristicsCheck != "" && opts.HeuristicsCheck != "none"},
+		// Alternate-port sweep of the original CLI target hosts. Independent of
+		// the heuristics level — gated only on deep / --follow-subdomains — so any
+		// confirmed extra web services are appended to the target set before the
+		// ingestion/scan phases consume it.
+		{Phase: PhasePortSweep, Enabled: opts.FollowSubdomains || strings.EqualFold(opts.Intensity, "deep")},
 		{Phase: PhaseExternalHarvest, Enabled: opts.ExternalHarvestEnabled},
 		{Phase: PhaseSpidering, Enabled: opts.SpideringEnabled},
 		{Phase: PhaseDiscovery, Enabled: !opts.SkipIngestion},

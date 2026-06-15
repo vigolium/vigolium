@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A modern JavaScript meta-framework (Remix, Astro, or SvelteKit) is serving an internal build artifact or development endpoint in production that should not be publicly reachable. Confirmed examples include the Remix route manifest, the Remix dev/HMR endpoint, Astro build and dev-toolbar directories, the SvelteKit version.json and build directory, and SvelteKit data endpoints. This is an information-disclosure and attack-surface misconfiguration, not a direct code-execution flaw.
+	ModuleDesc = `**What it means:** A JavaScript meta-framework (Remix, Astro, or SvelteKit) serves an internal build artifact or dev endpoint in production - the Remix route manifest or dev/HMR endpoint, Astro build and dev-toolbar directories, or SvelteKit version.json and data routes. An information-disclosure misconfiguration.
 
-**How it's exploited:** An attacker reads these artifacts to map the application's full route table, entry bundles, and internal directory structure, and to fingerprint the exact framework and build version. That intelligence helps target version-specific vulnerabilities, locate hidden or privileged routes, and expand reconnaissance for further attacks. Exposed dev/HMR or dev-toolbar endpoints can also indicate a development build accidentally shipped to production.
+**How it's exploited:** An attacker reads these artifacts to map the route table, bundles, and directory structure, and to fingerprint the framework and build version, helping target version-specific vulnerabilities and find hidden routes.
 
-**Fix:** Build for production with development endpoints disabled and block public access to internal build and dot directories (.astro, .svelte-kit, _astro, manifest and data routes) at the web server or CDN.`
+**Fix:** Build for production with dev endpoints disabled and block public access to internal build and dot directories (.astro, .svelte-kit, _astro) and manifest/data routes.`
 
 	ModuleConfirmation = "Confirmed when an internal path returns framework-specific structured content (real JSON keys or a directory autoindex) that differs from the host's catch-all/SPA shell, indicating exposed build artifacts or debug endpoints"
 	ModuleSeverity     = severity.Low

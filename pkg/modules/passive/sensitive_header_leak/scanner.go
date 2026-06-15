@@ -93,6 +93,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if ctx.Response() == nil {
 		return nil, nil
 	}
+	// A WAF/CDN edge block's headers are the edge's, not the application's, so a
+	// high-entropy/token-shaped value in them is not the app leaking a secret.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
+		return nil, nil
+	}
 
 	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil {
 		dk := urlx.Host + urlx.Path

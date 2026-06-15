@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This passive check matches HTML, JavaScript, and JSON responses against a catalog of backend-as-a-service, identity, serverless, and managed-data providers — for example Okta, Auth0, AWS Cognito, Supabase, Convex, AWS Lambda function URLs, Google Cloud Run, Hasura, Algolia, Contentful, and Sentry. When a provider endpoint appears it records the provider, the category, and the tenant/instance identifier in the host. Detection is informational and sends no new traffic. Firebase and object-storage references are left to their dedicated modules.
+	ModuleDesc = `**What it means:** Responses are matched against a catalog of backend-as-a-service, identity, and serverless providers - Okta, Auth0, Cognito, Supabase, Convex, Lambda URLs, Hasura, Sentry. Each hit records the provider, category, and tenant/instance identifier. Informational recon, no new traffic.
 
-**How it's exploited:** Each referenced backend is a distinct, externally hosted attack surface. The tenant identifier — an Okta org, a Supabase project ref, a Cognito user-pool region, a Convex deployment — tells an attacker which managed instance to probe for weak auth rules, public data, or misconfiguration, context a list of the primary host alone would not reveal.
+**How it's exploited:** Each referenced backend is a distinct, externally hosted attack surface. The tenant identifier (an Okta org, a Supabase project ref) tells an attacker which managed instance to probe for weak auth rules or public data.
 
-**Fix:** Treat these identifiers as public, but enforce the provider's access controls (tenant rules, row-level security, signed access) so that knowing the endpoint does not grant data or account access.`
+**Fix:** Treat these identifiers as public, but enforce the provider's access controls (tenant rules, row-level security) so the endpoint grants no data access.`
 
 	ModuleConfirmation = "Confirmed when a known backend/identity/serverless provider endpoint is referenced in the response body"
 	ModuleSeverity     = severity.Info

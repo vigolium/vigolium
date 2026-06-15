@@ -19,12 +19,17 @@ var loginHostPrefixes = []string{
 	"login.", "signin.", "sso.", "adfs.", "auth.", "accounts.", "idp.", "sts.",
 }
 
-// loginIDPHosts are registrable hosts of common identity providers. Matched
-// exactly or as a parent suffix (e.g. tenant.okta.com matches okta.com).
+// loginIDPHosts are registrable hosts of common identity providers and managed
+// access gateways. Matched exactly or as a parent suffix (e.g. tenant.okta.com
+// matches okta.com, acme.cloudflareaccess.com matches cloudflareaccess.com).
 var loginIDPHosts = []string{
 	"login.microsoftonline.com", "login.live.com", "login.windows.net",
 	"accounts.google.com", "okta.com", "auth0.com", "onelogin.com",
 	"pingidentity.com", "login.salesforce.com", "fs.gov",
+	// Managed identity-aware proxies that front an app with their own auth
+	// wall. The host is the gate, not the protected app, so any path on it is
+	// an authentication page.
+	"cloudflareaccess.com",
 }
 
 // loginPathMarkers are substrings of an authentication URL's path/query.
@@ -32,6 +37,8 @@ var loginPathMarkers = []string{
 	"/oauth2/authorize", "/oauth/authorize", "/connect/authorize",
 	"/adfs/", "/saml", "/signin", "/login", "/openid", "/sso",
 	"response_type=code", "response_type=token",
+	// Cloudflare Access portal endpoints (login / verify-code / callback).
+	"/cdn-cgi/access/",
 }
 
 // LooksLikeLoginURL reports whether u points at an authentication endpoint,
@@ -68,15 +75,32 @@ var passwordFieldMarkers = [][]byte{
 	[]byte(`type=password`),
 }
 
-// BodyLooksLikeLogin reports whether an HTML body contains a password input,
-// the strongest no-browser signal that a page is a login/SSO wall. The body is
-// lower-cased once for a case-insensitive match.
+// ssoWallMarkers identify managed / passwordless authentication walls that carry
+// no password input but are still an auth gate rather than application content —
+// notably Cloudflare Access, whose verify-code portal uses a one-time-code text
+// field. Markers are Cloudflare-Access-specific shell class names that survive
+// HTML-entity encoding of the page's URLs, so they match the rendered body even
+// when every href/action is entity-escaped. Matched case-insensitively.
+var ssoWallMarkers = [][]byte{
+	[]byte(`class="authbox`),       // Cloudflare Access auth shell container
+	[]byte(`class="authformlogin`), // Cloudflare Access login/verify-code form
+}
+
+// BodyLooksLikeLogin reports whether an HTML body is a login / SSO wall, the
+// strongest no-browser signal short of loading the page. It fires on a password
+// input (the common case) or on a recognized managed / passwordless auth shell
+// such as Cloudflare Access. The body is lower-cased once for the match.
 func BodyLooksLikeLogin(body []byte) bool {
 	if len(body) == 0 {
 		return false
 	}
 	lower := bytes.ToLower(body)
 	for _, m := range passwordFieldMarkers {
+		if bytes.Contains(lower, m) {
+			return true
+		}
+	}
+	for _, m := range ssoWallMarkers {
 		if bytes.Contains(lower, m) {
 			return true
 		}

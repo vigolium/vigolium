@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The server transformed an injected probe in a way the input alone does not explain, and reflected the transformed result back (confirmed twice with randomized markers). These transformations are classic vulnerability tells: arithmetic or template/expression syntax being evaluated to its computed result (a server-side template injection or expression-language indicator), quotes being silently consumed (an injection-context indicator), or unicode being normalized, case-folded, byte-truncated, or rewritten via combining diacritics (filter-bypass indicators). This is a behavioral signal that input crosses an interpreter or normalizer, not a confirmed bug.
+	ModuleDesc = `**What it means:** The server transformed an injected probe in a way the input alone does not explain, then reflected it back (confirmed twice). Such transforms are classic tells: arithmetic or template syntax evaluated (SSTI), quotes consumed, or unicode normalized (filter-bypass). A behavioral signal, not a confirmed bug.
 
-**How it's exploited:** If injected math or template markup is computed server-side, an attacker can escalate to full server-side template injection or expression-language injection and often to remote code execution. Quote consumption and unicode rewriting let an attacker smuggle payloads past input validation or WAF blocklists, reaching SQL, command, or template sinks that appeared protected.
+**How it's exploited:** If markup is computed server-side, an attacker can escalate to SSTI or expression-language injection and often remote code execution. Quote consumption and unicode rewriting smuggle payloads past WAF blocklists.
 
-**Fix:** Treat user input as inert data, never passing it into template, expression, or eval contexts, and validate input after any unicode normalization or decoding, not before.`
+**Fix:** Treat user input as inert data, never passing it into template or eval contexts, and validate after unicode normalization.`
 
 	ModuleConfirmation = "Indicated when injected expressions are evaluated, quotes are consumed, or unicode characters are normalized by the server"
 	ModuleSeverity     = severity.Suspect

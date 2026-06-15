@@ -9,9 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A request parameter that names a file or path is used to read a file from the server without validation, so attacker-controlled input reaches the filesystem. This Local File Inclusion flaw lets an outsider read files the application was never meant to expose.
-**How it's exploited:** The scanner injects path-traversal and PHP-stream payloads (such as ../../etc/passwd, encoded variants, php://filter base64 reads, and data:// wrappers) into likely file or path parameters, and only flags a finding when the response returns 2xx/3xx and contains genuine target-file content not present in the baseline (a real /etc/passwd line, multiple win.ini section headers, web.xml, decoded PHP source, or distinct .env/.htaccess lines). An attacker can read source code, credentials in .env files, /etc/passwd, and other secrets, and PHP wrappers can escalate to remote code execution.
-**Fix:** Never pass user input to filesystem APIs; resolve requests against a fixed allowlist of permitted files and reject any traversal sequences or stream wrappers.`
+	ModuleDesc = `**What it means:** A request parameter naming a file or path is read from the server without validation, so attacker input reaches the filesystem. This Local File Inclusion flaw lets an outsider read files never meant to be served.
+
+**How it's exploited:** The scanner injects path-traversal and PHP-stream payloads (../../etc/passwd, php://filter base64 reads, data:// wrappers), flagging only on genuine target-file content absent from the baseline. An attacker reads source code, .env credentials, and /etc/passwd, and PHP wrappers can reach code execution.
+
+**Fix:** Never pass user input to filesystem APIs; resolve against a fixed allowlist and reject traversal sequences and wrappers.`
 
 	ModuleConfirmation = "Confirmed when path traversal payloads cause known system file contents (e.g., /etc/passwd) to appear in the response"
 	ModuleSeverity     = severity.Critical

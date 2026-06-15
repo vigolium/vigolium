@@ -109,6 +109,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if !ctx.HasResponse() {
 		return nil, nil
 	}
+	// A WAF/CDN edge block's body is the edge talking, not the application — an
+	// env-var-like line in it is not the app exposing a secret.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
+		return nil, nil
+	}
 
 	urlx, err := ctx.URL()
 	if err != nil {

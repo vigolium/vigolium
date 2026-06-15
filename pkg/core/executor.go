@@ -179,6 +179,11 @@ type ExecutorConfig struct {
 	// DeepScan mirrors --intensity=deep into ScanContext so modules can unlock
 	// heavier probing (e.g. dashboard_exposure's full mount-path sweep).
 	DeepScan bool
+	// ContentClassByHost seeds the per-host content-class registry from the
+	// heuristics root probe (host → modkit.ContentClass string). It is the
+	// fallback consulted by the content-class gate when a record's own
+	// Content-Type is indeterminate. Honors the same TechFilterDisabled switch.
+	ContentClassByHost map[string]string
 }
 
 // DefaultExecutorConfig returns sensible defaults.
@@ -316,6 +321,11 @@ type scanCaches struct {
 	// Stored pre-normalized (lowercased, trimmed) so the registry lookup can skip
 	// re-normalizing on each call. Key: module ID → []string (nil = always-runs).
 	moduleTechReq sync.Map
+
+	// moduleContentClassReq is the analogous per-module required-content-class
+	// cache for passesContentClassFilter. Key: module ID → []string (nil = runs
+	// on any content type).
+	moduleContentClassReq sync.Map
 }
 
 // workerPool groups the Executor's worker-pool concurrency state.
@@ -456,6 +466,10 @@ func NewExecutor(
 	e.scanCtx.TechStack = modkit.NewTechRegistry()
 	e.scanCtx.TechStack.OnDetect = cfg.OnTechDetected
 	e.scanCtx.WAFStack = modkit.NewWAFRegistry()
+	e.scanCtx.ContentClass = modkit.NewContentClassRegistry()
+	for host, class := range cfg.ContentClassByHost {
+		e.scanCtx.ContentClass.Set(host, modkit.ContentClass(class))
+	}
 
 	// Wire insertion point provider for module reuse of cached IPs
 	e.scanCtx.InsertionPoints = &executorIPProvider{cache: e.caches.ipCache}
@@ -1254,12 +1268,22 @@ func (e *Executor) persistAndCheckScope(ctx context.Context, item *work.WorkItem
 }
 
 func (e *Executor) runActiveStage(ctx context.Context, req *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility) {
+	// One context-bound requester clone per item, shared by every active-module
+	// task below — they all run under the same PHASE ctx. Cloning inside each task
+	// (the old behavior) allocated a Requester copy on the hottest fan-out loop.
+	// Bound to the phase context, NOT any per-module timeout, so the shared request
+	// clusterer isn't poisoned by one module's timeout (see runActiveWithTimeout).
+	var reqClient *http.Requester
+	if e.httpClient != nil {
+		reqClient = e.httpClient.WithContext(ctx)
+	}
+
 	// conc.WaitGroup automatically catches panics per goroutine and re-panics
 	// on Wait(), which is caught by the top-level recoverFromPanic("processItem").
 	var g conc.WaitGroup
-	e.runActivePerHost(ctx, req, filter, elig, &g)
-	e.runActivePerRequest(ctx, req, filter, elig, &g)
-	e.runActivePerInsertionPoint(ctx, req, filter, elig, &g)
+	e.runActivePerHost(ctx, reqClient, req, filter, elig, &g)
+	e.runActivePerRequest(ctx, reqClient, req, filter, elig, &g)
+	e.runActivePerInsertionPoint(ctx, reqClient, req, filter, elig, &g)
 	g.Wait()
 }
 
@@ -1301,6 +1325,9 @@ func (e *Executor) filterEligiblePassive(mods []modules.PassiveModule, item *htt
 			continue
 		}
 		if !e.passesTechFilter(m, item) {
+			continue
+		}
+		if !e.passesContentClassFilter(m, item) {
 			continue
 		}
 		// Mark considered before CanProcess so modules that always reject this
@@ -1381,6 +1408,61 @@ func (e *Executor) feedbackDrainMaxStall() time.Duration {
 	return 2 * e.maxModuleTimeout()
 }
 
+// timerPool recycles the watchdog timers used by the per-module timeout wrappers
+// so each module call doesn't allocate a fresh runtime timer — these wrappers run
+// on the hottest per-module dispatch loop (every active and passive call). A
+// timer taken from the pool is always Reset before use and Stopped/drained before
+// being returned, so a recycled timer never carries a stale fire.
+var timerPool = sync.Pool{
+	New: func() any {
+		t := time.NewTimer(time.Hour)
+		t.Stop()
+		return t
+	},
+}
+
+// acquireTimer returns a pooled timer armed to fire after d.
+func acquireTimer(d time.Duration) *time.Timer {
+	t := timerPool.Get().(*time.Timer)
+	t.Reset(d)
+	return t
+}
+
+// releaseTimer stops t and returns it to the pool, draining a pending fire so the
+// next Reset starts clean.
+func releaseTimer(t *time.Timer) {
+	if !t.Stop() {
+		// Already fired (or was already stopped): drain a queued value if the
+		// select didn't consume it. The non-blocking default handles the case
+		// where the firing value was already received.
+		select {
+		case <-t.C:
+		default:
+		}
+	}
+	timerPool.Put(t)
+}
+
+// callGuard sets up the per-module timeout guard shared by the active and passive
+// wrappers: a cancel-only child context plus a pooled watchdog timer armed for
+// timeout. It returns the child context to hand the scan function, the timer's
+// fire channel (the genuine per-call timeout — selected separately from
+// ctx.Done(), which is parent cancellation), and a stop func the caller defers to
+// cancel the context and return the timer to the pool. WithCancel + a pooled timer
+// avoids the fresh runtime timer that context.WithTimeout allocates on every call
+// (these wrappers run on the hottest per-module dispatch loop). The child context
+// is intentionally NOT bound into the requester — that is phase-context-bound in
+// runActiveStage — so one module's timeout never cancels a request the clusterer
+// shares with others.
+func callGuard(ctx context.Context, timeout time.Duration) (callCtx context.Context, timeoutC <-chan time.Time, stop func()) {
+	callCtx, cancel := context.WithCancel(ctx)
+	t := acquireTimer(timeout)
+	return callCtx, t.C, func() {
+		cancel()
+		releaseTimer(t)
+	}
+}
+
 // runPassiveWithTimeout executes a passive module scan function with a timeout guard.
 func (e *Executor) runPassiveWithTimeout(
 	ctx context.Context,
@@ -1396,8 +1478,8 @@ func (e *Executor) runPassiveWithTimeout(
 		}
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	callCtx, timeoutC, stop := callGuard(ctx, timeout)
+	defer stop()
 
 	type result struct {
 		events []*output.ResultEvent
@@ -1421,12 +1503,17 @@ func (e *Executor) runPassiveWithTimeout(
 			return nil
 		}
 		return r.events
-	case <-callCtx.Done():
+	case <-timeoutC:
 		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
 		zap.L().Warn("Passive module timed out — skipping",
 			zap.String("module", module.ID()),
 			zap.String("url", item.Target()),
 			zap.Duration("timeout", timeout))
+		return nil
+	case <-ctx.Done():
+		// Parent cancellation (scan shutdown / phase deadline) — not a per-module
+		// timeout, so stay quiet; the scan is ending.
+		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
 		return nil
 	}
 }
@@ -1459,8 +1546,8 @@ func (e *Executor) runActiveWithTimeout(
 		}
 	}
 
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	callCtx, timeoutC, stop := callGuard(ctx, timeout)
+	defer stop()
 
 	type result struct {
 		events []*output.ResultEvent
@@ -1490,13 +1577,12 @@ func (e *Executor) runActiveWithTimeout(
 			return nil, true
 		}
 		return r.events, true
-	case <-callCtx.Done():
-		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
-		// callCtx.Done() trips on a genuine per-module timeout AND on parent
-		// cancellation (Ctrl-C, --scanning-max-duration, phase deadline). Only the
-		// former is a "timed out" module — count it when the parent is still alive,
+	case <-timeoutC:
+		// Genuine per-module timeout. Count it only when the parent is still alive,
 		// so cancelling a scan with many modules in flight doesn't inflate the
-		// status-line count with modules that were merely interrupted.
+		// status-line count with modules that were merely interrupted at the same
+		// instant.
+		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
 		if ctx.Err() == nil {
 			e.recordModuleTimeout()
 		}
@@ -1506,6 +1592,11 @@ func (e *Executor) runActiveWithTimeout(
 			zap.String("module", module.ID()),
 			zap.String("url", item.Target()),
 			zap.Duration("timeout", timeout))
+		return nil, false
+	case <-ctx.Done():
+		// Parent cancellation (Ctrl-C, --scanning-max-duration, phase deadline) —
+		// an interruption, not a timed-out module, so it is not counted.
+		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
 		return nil, false
 	}
 }

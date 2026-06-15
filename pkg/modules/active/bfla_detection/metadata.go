@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An administrative or privileged endpoint (for example /admin, /actuator, /users/delete, /config) returns the same successful, privileged content even when the request's credentials are removed, replaced with an invalid token, or the HTTP method is changed. This is Broken Function-Level Authorization: the server enforces no access control on a function that should be restricted to authorized roles.
+	ModuleDesc = `**What it means:** A privileged endpoint (for example /admin or /users/delete) returns the same successful content even when credentials are removed, an invalid token is supplied, or the method is changed. This is Broken Function-Level Authorization: no access control on a function meant for authorized roles.
 
-**How it's exploited:** Any anonymous user can call the endpoint directly to read privileged data or trigger administrative actions, since the module confirmed the original request's Authorization and Cookie headers are not required, an invalid Bearer token is accepted, or write methods (POST, PUT, DELETE) succeed without authentication. Depending on the function this can lead to data disclosure, account or resource manipulation, or full administrative takeover.
+**How it's exploited:** Any anonymous user calls the endpoint to read privileged data or trigger admin actions, since credentials are not required and write methods succeed unauthenticated, enabling data disclosure or administrative takeover.
 
-**Fix:** Enforce server-side authorization on every privileged endpoint and HTTP method, validating the caller's identity and role on each request and denying access by default rather than relying on the UI or path obscurity.`
+**Fix:** Enforce server-side authorization on every privileged endpoint and method, validating identity and role on each request and denying by default.`
 
 	ModuleConfirmation = "Confirmed when a privileged endpoint returns a successful response after removing or downgrading authentication credentials"
 	ModuleSeverity     = severity.High

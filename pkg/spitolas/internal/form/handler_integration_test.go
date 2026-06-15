@@ -584,10 +584,13 @@ func TestHandlerGetValueForInput(t *testing.T) {
 		t.Errorf("Expected 'configured', got %q", value)
 	}
 
-	// Input without values (should use default)
+	// Input without values (should use default). A bare text input with no
+	// matching name falls back to the generic placeholder "a" (the canonical
+	// behavior asserted by handler_value_unit_test.go); type-aware values apply
+	// only to strict typed inputs (url/tel/date/time/...), covered below.
 	inputWithoutValues := NewFormInput(InputText, "#field")
 	defaultValue := handler.getValueForInput(inputWithoutValues)
-	expectedDefault := "test"
+	expectedDefault := "a"
 	if defaultValue != expectedDefault {
 		t.Errorf("Expected default %q, got %q", expectedDefault, defaultValue)
 	}
@@ -602,7 +605,7 @@ func TestHandlerGetDefaultValue(t *testing.T) {
 		inputType InputType
 		expected  string
 	}{
-		{InputText, "test"},
+		{InputText, "a"},
 		{InputPassword, "Password123!"},
 		{InputEmail, "test@example.com"},
 		{InputNumber, "42"},

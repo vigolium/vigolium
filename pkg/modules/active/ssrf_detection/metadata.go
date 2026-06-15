@@ -9,14 +9,17 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Server-Side Request Forgery (SSRF) vulnerability lets an attacker make the server itself send HTTP requests to addresses of the attacker's choosing. The scanner injected internal targets into a URL-like parameter and the server fetched them, returning content it should never expose, such as localhost pages, cloud metadata, or internal services.
+	ModuleDesc = `**What it means:** A Server-Side Request Forgery (SSRF) flaw lets an attacker make the server send HTTP requests to addresses of their choosing. Injecting internal targets into a URL-like parameter made the server fetch and return content it should never expose.
 
-**How it's exploited:** An attacker supplies a URL pointing at an internal resource (127.0.0.1 in various encodings, file:///etc/passwd, or cloud metadata endpoints like 169.254.169.254 on AWS/Azure/DigitalOcean and metadata.google.internal on GCP). The server fetches it and relays the response, exposing the internal network, files, or Redis/MongoDB services, and on cloud hosts the metadata service can leak temporary IAM credentials that enable full account takeover.
+**How it's exploited:** An attacker supplies a URL pointing at an internal resource (encoded 127.0.0.1, file:///etc/passwd, or 169.254.169.254). The server relays the response, exposing the internal network, files, or Redis/MongoDB - and metadata can leak temporary IAM credentials.
 
-**Fix:** Validate user-supplied URLs against a strict allowlist of hosts and schemes, block requests to loopback, link-local, and private address ranges (including encoded forms), disable unneeded URL schemes, and require IMDSv2 / session tokens on cloud metadata endpoints.`
+**Fix:** Allowlist URL hosts and schemes, block loopback/link-local/private ranges (including encoded forms), and require IMDSv2 on cloud metadata.`
 
 	ModuleConfirmation = "Confirmed when injected internal URLs or metadata endpoints cause different response content or timing compared to baseline"
 	ModuleSeverity     = severity.High
-	ModuleConfidence   = severity.Firm
-	ModuleTags         = []string{"ssrf", "injection", "moderate"}
+	// In-band only: this module has no out-of-band oracle, so an in-response marker
+	// can at most be Tentative. A Firm/Certain SSRF requires an OAST callback, which
+	// the OAST-driven modules (ssrf-blind, routing-ssrf, …) supply.
+	ModuleConfidence = severity.Tentative
+	ModuleTags       = []string{"ssrf", "injection", "moderate"}
 )

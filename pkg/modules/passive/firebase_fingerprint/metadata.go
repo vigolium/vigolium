@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This passive check confirms Google Firebase usage by reading SDK references and the firebaseConfig object from HTML/JS responses, and reports exposed project identifiers (projectId, apiKey, databaseURL, storageBucket, authDomain, appId, Firestore collections, Cloud Functions URLs). Detection itself is informational, but the same pass also flags genuinely sensitive items: leaked FCM server keys, App Check debug tokens, Realtime Database auth tokens, long-lived Storage download tokens, and dev/staging projects used on a production domain.
+	ModuleDesc = `**What it means:** This passive check confirms Firebase usage from SDK references and the firebaseConfig object, reporting exposed identifiers (projectId, apiKey, databaseURL) and sensitive items: leaked FCM server keys, App Check debug tokens, RTDB auth tokens, and Storage tokens.
 
-**How it's exploited:** The disclosed config maps the backend attack surface, letting an attacker probe Firestore/Realtime Database rules, Cloud Functions, and Storage buckets directly with the client SDK. When a real secret leaks, impact escalates: an FCM server key lets an attacker push notifications to all users, an App Check debug token or RTDB auth token grants backend/database access, and Storage tokens expose referenced files.
+**How it's exploited:** The disclosed config lets an attacker probe Firestore/RTDB rules and Storage buckets with the client SDK. A leaked FCM key pushes notifications to all users, auth tokens grant backend access, and Storage tokens expose files.
 
-**Fix:** Treat config as public but enforce strict Firebase rules and App Check, keep server keys and debug/auth/download tokens out of client code, and never ship dev/staging projects to production.`
+**Fix:** Treat config as public but enforce strict Firebase rules and App Check, and keep server keys and tokens out of client code.`
 
 	ModuleConfirmation = "Confirmed when Firebase SDK references, configuration objects, or leaked Firebase secrets are detected in the response"
 	ModuleSeverity     = severity.Info

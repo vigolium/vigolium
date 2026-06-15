@@ -69,6 +69,19 @@ func registerScanModuleFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&globalNoTechFilter, "no-tech-filter", false, "Disable the tech-stack allowlist (run every module regardless of detected stack). Auto-enabled by --intensity=deep.")
 }
 
+// registerLightweightScanIOFlags registers the output/persistence/phase-skip
+// flags shared by the lightweight single-request commands (scan-url,
+// scan-request) so their output surface matches `vigolium scan`'s -o/--output,
+// -S/--stateless, and --skip. When any of these (or a file output --format) is
+// set, the command routes the request through the full native-scan Runner (see
+// runRunnerScan) instead of the in-memory direct path, so the flags produce real
+// jsonl/html files and a discarded temp DB exactly like the full scan command.
+func registerLightweightScanIOFlags(flags *pflag.FlagSet) {
+	flags.StringVarP(&scanOpts.Output, "output", "o", "", "Write findings to this file (use with --format jsonl|html; pairs with -S/--stateless)")
+	flags.BoolVarP(&globalStateless, "stateless", "S", false, "Use a temporary database that is discarded after the scan (pass --output/--format to persist results)")
+	flags.StringSliceVar(&globalSkipPhases, "skip", nil, "Skip these phases (repeatable: discovery, external-harvest, spidering, known-issue-scan, dynamic-assessment)")
+}
+
 // markFlagDeprecated hides oldName from --help and makes pflag emit a one-time
 // stderr warning ("Flag --<oldName> has been deprecated, use --<replacement>")
 // when it is set. Use after registering a hidden alias whose variable is shared

@@ -64,3 +64,20 @@ func TestScanPerRequest_Benign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
+
+// TestScanPerRequest_PlaceholderValueSkipped verifies a sensitive parameter whose
+// value is empty or a JS placeholder is not flagged — nothing is disclosed.
+func TestScanPerRequest_PlaceholderValueSkipped(t *testing.T) {
+	t.Parallel()
+	for _, q := range []string{
+		"/api?api_key=null",
+		"/api?token=undefined",
+		"/api?password=",
+		"/api?secret=NaN",
+	} {
+		m := New()
+		results, err := m.ScanPerRequest(makeReqCtx(q), &modkit.ScanContext{})
+		require.NoError(t, err)
+		assert.Emptyf(t, results, "query %q should not be flagged", q)
+	}
+}

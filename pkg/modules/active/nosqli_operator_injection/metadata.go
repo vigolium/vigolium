@@ -9,14 +9,18 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A parameter is passed into a NoSQL query (typically MongoDB) without being treated as a plain string, so injected query operators like $ne, $gt, $regex, $where, or array syntax such as param[$ne]= are interpreted as query logic instead of literal input. This lets an attacker alter the query's meaning, defeating authentication and access controls.
+	ModuleDesc = `**What it means:** A parameter flows into a NoSQL query (typically MongoDB) without being treated as a plain string, so injected operators like $ne, $gt, $regex, $where, or array syntax such as param[$ne]= are interpreted as query logic, defeating authentication.
 
-**How it's exploited:** An attacker replaces an expected value with an operator that always matches (for example {"$ne":""} or {"$gt":""}) to bypass a login or authorization check and act as another user, or uses $regex / $where tautologies to make a lookup return records it should not, exfiltrating data. The scanner confirms this by observing a reproducible 401/403-to-2xx authentication bypass, a stable always-true vs always-false boolean response differential, a large reproducible response-body growth, or a time delay from an injected sleep.
+**How it's exploited:** An attacker swaps a value for an always-matching operator to bypass login as another user, or uses $regex / $where tautologies to exfiltrate records, confirmed via auth bypass, boolean differential, or injected delay.
 
-**Fix:** Cast user input to the expected scalar type and reject objects/arrays where strings are expected, and use parameterized query construction so user data can never supply query operators.`
+**Fix:** Cast input to the expected scalar type, reject objects where strings are expected, and use parameterized queries so user data cannot supply operators.`
 
 	ModuleConfirmation = "Confirmed when NoSQL operator injection causes authentication bypass, data exfiltration, or measurable behavioral change"
-	ModuleSeverity     = severity.High
-	ModuleConfidence   = severity.Firm
-	ModuleTags         = []string{"injection", "sqli", "moderate"}
+	// All detection paths here are behavioral inferences (status transition,
+	// boolean differential, body growth, time delay) rather than direct proof of
+	// query control, so every finding is reported High/Tentative — a high-impact
+	// lead to verify, not a confirmed injection.
+	ModuleSeverity   = severity.High
+	ModuleConfidence = severity.Tentative
+	ModuleTags       = []string{"injection", "sqli", "moderate"}
 )

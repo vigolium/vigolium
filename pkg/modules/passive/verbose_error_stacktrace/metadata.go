@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application returned a full multi-line stack trace in an HTTP response, leaking internal file system paths, line numbers, and function or class names from the source code. This is an information-disclosure flaw caused by unhandled exceptions or debug mode being left on in a reachable environment.
+	ModuleDesc = `**What it means:** The application returned a full multi-line stack trace, leaking internal file system paths, line numbers, and function or class names. This information-disclosure flaw comes from unhandled exceptions or debug mode left on.
 
-**How it's exploited:** An attacker triggers errors and reads the trace to map the server's directory layout, source structure, framework, and language stack (Go, Java, Python, Node.js, .NET, Ruby, or PHP). That intelligence lets them target version-specific and framework-specific exploits, locate sensitive files, and craft more precise follow-on attacks such as path traversal, deserialization, or injection.
+**How it's exploited:** An attacker triggers errors and reads the trace to map the directory layout, framework, and language stack (Go, Java, Python, Node.js, .NET, Ruby, PHP), then targets version-specific exploits, locates sensitive files, and crafts follow-on attacks like path traversal or injection.
 
-**Fix:** Disable debug and verbose error output in production, catch exceptions to return generic error pages, and log full stack traces server-side only.`
+**Fix:** Disable debug and verbose errors in production, catch exceptions to return generic error pages, and log full stack traces server-side only.`
 
 	ModuleConfirmation = "Confirmed when response body contains a structured stack trace with file paths and line numbers from a known technology stack"
 	ModuleSeverity     = severity.Medium

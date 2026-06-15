@@ -375,6 +375,51 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, seen 
 		}
 	}
 
+	// Shadow-DOM pass: web-component apps render their clickables inside shadow
+	// roots, which the light-DOM page.Elements above cannot see. Run it ONCE with
+	// all click selectors combined (one shadow-tree walk instead of one per
+	// selector); ShadowElements tags each match with a stable attribute so it is
+	// identified — and later re-resolved — by that selector rather than an XPath
+	// that cannot cross a shadow boundary.
+	shadowElems, err := page.ShadowElements(strings.Join(e.clickSelectors, ","))
+	if err != nil {
+		return candidates, nil
+	}
+	for _, elem := range shadowElems {
+		if e.isExcluded(elem) {
+			continue
+		}
+		uid, _ := elem.Attribute(browser.ShadowUIDAttr)
+		if uid == "" || uid == "<nil>" {
+			continue
+		}
+		idSelector := browser.ShadowUIDSelector(uid)
+
+		seenKey := framePath + ":shadow:" + uid
+		if seen[seenKey] {
+			continue
+		}
+		seen[seenKey] = true
+
+		href := ""
+		if h, _ := elem.Attribute("href"); h != "" && h != "<nil>" {
+			if e.shouldSkipHref(h) {
+				continue
+			}
+			href = h
+		}
+
+		candidate := e.createCandidateElement(elem, idSelector, framePath, href)
+		candidate.Identification = NewIdentification(HowID, idSelector)
+
+		if e.markChecked(candidate) {
+			candidates = append(candidates, candidate)
+			if e.checkedElements != nil {
+				e.checkedElements.IncreaseElementsCounter()
+			}
+		}
+	}
+
 	return candidates, nil
 }
 

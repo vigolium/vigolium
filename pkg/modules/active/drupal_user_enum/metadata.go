@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This Drupal site lets an unauthenticated visitor enumerate valid account usernames. The scanner confirmed leakage either through numeric profile paths (/user/1 through /user/5 redirecting to /users/<username> or rendering a Drupal profile page whose title shows the username) or through the JSON:API endpoint /jsonapi/user/user returning user objects to anonymous requests. Knowing real usernames is a security problem because it removes the guesswork from account-takeover attacks.
+	ModuleDesc = `**What it means:** This Drupal site lets an unauthenticated visitor enumerate valid usernames, via numeric profile paths (/user/1 redirecting to /users/<username>) or the /jsonapi/user/user endpoint returning user objects to anonymous requests.
 
-**How it's exploited:** An attacker harvests the confirmed usernames and feeds them into credential-stuffing, password-spraying, or targeted brute-force attacks against the login form, and uses leaked profile metadata for phishing or social engineering. The JSON:API listing can also expose additional account fields and the membership roster, widening the attack surface.
+**How it's exploited:** An attacker harvests the usernames for credential-stuffing, password-spraying, and targeted brute-force against the login form, and uses leaked profile metadata for phishing.
 
-**Fix:** Restrict anonymous access to user profiles and the JSON:API user resource (require authentication or disable the JSON:API module if unused), and avoid exposing usernames in profile URLs and page titles.`
+**Fix:** Restrict anonymous access to user profiles and the JSON:API user resource (require auth or disable the module if unused), and avoid exposing usernames in profile URLs and titles.`
 
 	ModuleConfirmation = "Confirmed when /user/N profile paths leak distinct usernames (via /users/<name> redirect or a Drupal-corroborated 200 profile title that differs from the unknown-user baseline) or JSON:API returns user objects"
 	ModuleSeverity     = severity.Medium

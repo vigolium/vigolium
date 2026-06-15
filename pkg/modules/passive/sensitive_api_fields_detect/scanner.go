@@ -99,6 +99,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if !ctx.HasResponse() {
 		return nil, nil
 	}
+	// A WAF/CDN edge block's JSON error body is the edge talking, not the
+	// application — a "password"/"secret" key in it is not an app field leak.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
+		return nil, nil
+	}
 
 	// Only operate on JSON responses
 	ct := strings.ToLower(ctx.Response().Header("Content-Type"))
@@ -123,7 +128,8 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	bodyLower := strings.ToLower(body)
+	// Shared, memoized lowercased body (computed once per response across modules).
+	bodyLower := ctx.Response().BodyLowerString()
 
 	// Check anti-patterns: skip if this is a schema/doc response
 	for _, ap := range antiPatterns {

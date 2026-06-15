@@ -23,41 +23,40 @@ func TestServiceWorkerPrimeScriptFormats(t *testing.T) {
 	if !strings.HasPrefix(script, "(async () => {") {
 		t.Errorf("script should be a self-invoking async function")
 	}
-	// Core discovery sources must be present, across all supported frameworks.
+	// The follow-only sources (read what the live app registers/declares, then
+	// parse the manifests it points at) must all be present.
 	for _, want := range []string{
-		"getRegistrations",
-		"location.origin",
-		// Angular
-		"ngsw.json",
-		"ngsw-worker.js",
-		"assetGroups",
-		"hashTable",
-		// generic PWA
-		"firebase-messaging-sw.js",
-		// React (CRA)
-		"asset-manifest.json",
-		"entrypoints",
-		"data.files",
-		// Nuxt
-		"_nuxt/builds/latest.json",
-		"prerendered",
-		// Workbox
-		"revision",
-		// Well-known-name guesses are gated behind a PWA / SPA signal (the gate's
-		// position is asserted separately below).
-		"pwaSignal",
+		"getRegistrations",        // installed worker (browser-native)
+		"location.origin",         //
+		"querySelectorAll",        // declared <link rel=manifest>
+		"serviceWorker",           // inline register('...') extraction
+		"reRegister",              //
+		"assetGroups", "hashTable", // Angular ngsw.json parsing
+		"entrypoints", "data.files", // React CRA asset-manifest parsing
+		"prerendered",     // Nuxt route parsing
+		"revision",        // Workbox precache parsing
+		"isJsonManifest",  // manifest reader
+		"isSW",            // service-worker reader
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("script missing expected token %q", want)
 		}
 	}
 
-	// The well-known filename guesses must sit inside the pwaSignal gate, not
-	// before it — otherwise plain static sites get probed with a dozen 404s.
-	gate := strings.Index(script, "if (pwaSignal) {")
-	guess := strings.Index(script, "'asset-manifest.json'")
-	if gate < 0 || guess < 0 || guess < gate {
-		t.Errorf("well-known-name guesses must be gated behind pwaSignal (gate=%d, guess=%d)", gate, guess)
+	// Spidering must NOT brute-force well-known filenames — that is the discovery
+	// phase's job. No PWA-signal gate and no hand-written guess array may remain;
+	// every fetched URL must come from what the app registers or declares.
+	for _, forbidden := range []string{
+		"pwaSignal",
+		"if (pwaSignal)",
+		"'safety-worker.js'",
+		"'combined-sw.js'",
+		"'worker-basic.min.js'",
+		"'asset-manifest.json'",
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Errorf("script must not brute-force paths, but contains %q", forbidden)
+		}
 	}
 }
 

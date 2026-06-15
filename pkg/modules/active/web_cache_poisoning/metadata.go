@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application reflects the value of an unkeyed request header (such as X-Forwarded-Host, X-Forwarded-Scheme, X-Original-URL, X-Rewrite-URL, X-Forwarded-Port, or Accept-Language) into a response that a shared cache will store, even though that header is not part of the cache key. This means a single attacker-controlled request can poison the cached copy that is then served to every other visitor.
+	ModuleDesc = `**What it means:** The application reflects an unkeyed request header (such as X-Forwarded-Host or X-Original-URL) into a cached response, even though the header is not part of the cache key. One attacker request can poison the copy served to every visitor.
 
-**How it's exploited:** An attacker sends one request carrying a malicious header value (for example X-Forwarded-Host pointing at an attacker domain) that gets reflected into the cached response body or Location header; the poisoned entry is replayed to all users of that cache, enabling redirects to attacker-controlled hosts, malicious script/resource loading, or content defacement. Vigolium confirms reflection and gates on genuine shared-cacheability (cache HIT or an explicit public/s-maxage/max-age directive) and re-confirms via a clean-baseline body differential to avoid uncacheable false positives.
+**How it's exploited:** A malicious header (e.g. X-Forwarded-Host pointing at the attacker's domain) is reflected into the cached body or Location header and replayed to all users, enabling redirects, script loading, or defacement. Confirmed only on shared-cacheable responses.
 
-**Fix:** Add reflected unkeyed headers to the cache key (Vary), strip untrusted forwarding headers at the edge, or mark affected responses uncacheable.`
+**Fix:** Add reflected unkeyed headers to the cache key (Vary), strip untrusted forwarding headers at the edge, or mark responses uncacheable.`
 
 	ModuleConfirmation = "Confirmed when unkeyed header values are reflected in a genuinely shared-cacheable response, indicating cache-poisoning potential"
 	ModuleSeverity     = severity.High

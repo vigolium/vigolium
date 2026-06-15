@@ -111,9 +111,26 @@ func Request(t testing.TB, rawURL string) *httpmsg.HttpRequestResponse {
 }
 
 // RequestMethod is like Request but lets a test pick the method and supply a
-// request body (used for POST/PUT insertion-point coverage). An empty body
-// omits the Content-Length/body section.
+// request body (used for POST/PUT insertion-point coverage). The body is sent as
+// application/x-www-form-urlencoded; an empty body omits the Content-Length/body
+// section. For a JSON body (INS_PARAM_JSON insertion points) use RequestJSON.
 func RequestMethod(t testing.TB, method, rawURL, body string) *httpmsg.HttpRequestResponse {
+	t.Helper()
+	return requestWithContentType(t, method, rawURL, "application/x-www-form-urlencoded", body)
+}
+
+// RequestJSON builds a POST request whose body is sent as application/json, so
+// JSON fields become INS_PARAM_JSON insertion points. Use it for tests that
+// target JSON parameters; RequestMethod sends form-urlencoded (INS_PARAM_BODY).
+func RequestJSON(t testing.TB, rawURL, jsonBody string) *httpmsg.HttpRequestResponse {
+	t.Helper()
+	return requestWithContentType(t, "POST", rawURL, "application/json", jsonBody)
+}
+
+// requestWithContentType builds an HttpRequestResponse for the given method and
+// body, tagging a non-empty body with contentType. An empty body omits the
+// Content-Type/Content-Length/body section entirely.
+func requestWithContentType(t testing.TB, method, rawURL, contentType, body string) *httpmsg.HttpRequestResponse {
 	t.Helper()
 
 	u, err := url.Parse(rawURL)
@@ -138,7 +155,7 @@ func RequestMethod(t testing.TB, method, rawURL, body string) *httpmsg.HttpReque
 
 	raw := fmt.Sprintf("%s %s HTTP/1.1\r\nHost: %s\r\n", method, target, u.Host)
 	if body != "" {
-		raw += fmt.Sprintf("Content-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
+		raw += fmt.Sprintf("Content-Type: %s\r\nContent-Length: %d\r\n\r\n%s", contentType, len(body), body)
 	} else {
 		raw += "\r\n"
 	}

@@ -77,25 +77,34 @@ func calibrateTagJitter(ctx *httpmsg.HttpRequestResponse, httpClient *http.Reque
 	}
 }
 
-// fetchTagCounts re-issues raw and returns its response body's tag multiset. ok is
-// false on any parse/transport error or nil response. NoClustering bypasses the
-// requester's 500ms response cache so each sample is a genuinely fresh render —
-// a cached replay would report zero variance and defeat the calibration.
-func fetchTagCounts(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, raw []byte) (map[string]int, bool) {
+// fetchProbeOutcome re-issues raw and returns its response status code and body's
+// tag multiset. ok is false on any parse/transport error or nil response.
+// NoClustering bypasses the requester's 500ms response cache so each sample is a
+// genuinely fresh render — a cached replay would report zero variance and defeat
+// both jitter calibration and the confirm re-fetch.
+func fetchProbeOutcome(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, raw []byte) (int, map[string]int, bool) {
 	req, err := httpmsg.ParseRawRequest(string(raw))
 	if err != nil {
-		return nil, false
+		return 0, nil, false
 	}
 	req = req.WithService(ctx.Service())
 	resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true})
 	if err != nil {
-		return nil, false
+		return 0, nil, false
 	}
 	defer resp.Close()
 	if resp.Response() == nil {
-		return nil, false
+		return 0, nil, false
 	}
-	return extractTagCounts(resp.Body().String()), true
+	return resp.Response().StatusCode, extractTagCounts(resp.Body().String()), true
+}
+
+// fetchTagCounts re-issues raw and returns its response body's tag multiset,
+// discarding the status — used by jitter calibration, which only measures body
+// variance. ok is false on any parse/transport error or nil response.
+func fetchTagCounts(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, raw []byte) (map[string]int, bool) {
+	_, counts, ok := fetchProbeOutcome(ctx, httpClient, raw)
+	return counts, ok
 }
 
 // behaviorChange describes what changed between baseline and fuzzed response.
@@ -114,6 +123,34 @@ type behaviorChange struct {
 // rejected by an auth/WAF/rate-limit layer rather than served by the app.
 func isAccessDenied(status int) bool {
 	return status == 401 || status == 403 || status == 429 || status == 503
+}
+
+// isCDNOriginError reports whether status is a CDN/edge→origin connectivity error
+// (Cloudflare's 520–530 family). These are infrastructure blips — the edge could
+// not get a clean answer from origin — never an application parser/injection error,
+// so a probe that happens to hit one mid-run must not be read as a behavior change.
+func isCDNOriginError(status int) bool {
+	return status >= 520 && status <= 530
+}
+
+// notableStatusTransition reports whether a baseline→fuzz status pair is a
+// security-relevant transition worth surfacing on its own: a server/parser error
+// appearing (→5xx, excluding CDN origin blips), or an access-control flip
+// (403→200). Ordinary cross-class moves (200→404, 200→302, 403→404) are NOT
+// notable — they mean the probe reached a DIFFERENT resource, which is expected for
+// a path/param probe and is not, by itself, an input-handling signal.
+func notableStatusTransition(base, fuzz int) bool {
+	if base == fuzz {
+		return false
+	}
+	switch {
+	case base == 403 && fuzz == 200:
+		return true
+	case fuzz >= 500 && !isCDNOriginError(fuzz):
+		return true
+	default:
+		return false
+	}
 }
 
 // detectChange compares a fuzzed response against the baseline. A change is
@@ -158,29 +195,20 @@ func detectChange(baseline *detectionBaseline, fuzzBody string, fuzzStatus int) 
 		return change
 	}
 
-	// Notable status transitions are an independent signal from the tag structure.
-	if statusChanged {
-		switch {
-		case baseline.statusCode == 200 && fuzzStatus >= 500:
-			change.statusInteresting = true
-		case baseline.statusCode == 403 && fuzzStatus == 200:
-			change.statusInteresting = true
-		case fuzzStatus >= 500:
-			change.statusInteresting = true
-		}
-	}
+	// A notable status transition is an independent signal from the tag structure.
+	// confirmChange re-verifies it against a fresh probe AND a no-payload control
+	// before it is reported, so a one-off blip or a flapping baseline never survives.
+	change.statusInteresting = notableStatusTransition(baseline.statusCode, fuzzStatus)
 
 	change.IsInteresting = tagsChanged || change.statusInteresting
 	return change
 }
 
-// confirmChange decides whether an interesting change is worth reporting. A
-// notable status transition stands on its own. A tag-structure change, however,
-// must REPRODUCE on a fresh re-fetch of the same probe and still exceed the page's
-// natural jitter — so a one-off render difference (the reported "response is not
-// much different" case, dominated by rotating headers/dynamic body fragments) is
-// dropped rather than reported. Fails closed: an unconfirmable tag change is not
-// reported.
+// confirmChange decides whether an interesting change is worth reporting. BOTH the
+// status leg and the tag leg must survive a fresh re-check: a divergence that does
+// not reproduce, or that the no-payload control reproduces just as well, is ambient
+// noise ("the response is the same with or without the payload") rather than
+// input-driven behavior. Fails closed: an unconfirmable change is not reported.
 func confirmChange(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
@@ -192,7 +220,7 @@ func confirmChange(
 		return false
 	}
 	if change.statusInteresting {
-		return true
+		return confirmStatusTransition(ctx, httpClient, baseline, probeRaw)
 	}
 	counts, ok := fetchTagCounts(ctx, httpClient, probeRaw)
 	if !ok {
@@ -205,6 +233,34 @@ func confirmChange(
 		return false
 	}
 	return tagDistance(baseline.tagCounts, counts) > baseline.tagJitter+tagChangeMargin
+}
+
+// confirmStatusTransition validates that a notable status transition is genuinely
+// payload-driven and stable rather than a one-off CDN/origin blip or a page that
+// flaps between statuses on its own. It requires BOTH:
+//
+//	(1) the probe to REPRODUCE the same notable transition on a fresh re-fetch, and
+//	(2) the unmodified CONTROL to still serve the baseline status — proving the
+//	    probe, not ambient flapping, caused the divergence.
+//
+// A transient 5xx fails (1); a baseline that was itself a cold-start/transient
+// status (so the page now answers the no-payload control the same way the probe
+// does) fails (2). Fails closed on any transport error.
+func confirmStatusTransition(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	baseline *detectionBaseline,
+	probeRaw []byte,
+) bool {
+	probeStatus, _, ok := fetchProbeOutcome(ctx, httpClient, probeRaw)
+	if !ok || !notableStatusTransition(baseline.statusCode, probeStatus) {
+		return false
+	}
+	ctrlStatus, _, ok := fetchProbeOutcome(ctx, httpClient, ctx.Request().Raw())
+	if !ok {
+		return false
+	}
+	return ctrlStatus == baseline.statusCode
 }
 
 // buildProbeResult constructs a ResultEvent for a detected behavior change.

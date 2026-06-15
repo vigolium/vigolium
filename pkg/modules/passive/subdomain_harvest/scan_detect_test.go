@@ -30,29 +30,29 @@ func makeHTTPCtx(host, path, contentType, body string) *httpmsg.HttpRequestRespo
 	return httpmsg.NewHttpRequestResponse(req, resp)
 }
 
-// navifyBundle mirrors the real-world minified config blob this module targets:
-// in-scope *.navify.com subdomains alongside third-party hosts that must be
+// appBundle mirrors the real-world minified config blob this module targets:
+// in-scope *.example.com subdomains alongside third-party hosts that must be
 // excluded (different registrable domains).
-const navifyBundle = `const X={production:!0,origin:"https://cds-apps-harvester-dev.hi5.platform.navify.com",` +
+const appBundle = `const X={production:!0,origin:"https://svc-a.dev.platform.example.com",` +
 	`firebase:{authDomain:"harvester-dev-env.firebaseapp.com",databaseURL:"https://harvester-dev-env.firebaseio.com"},` +
-	`okta:{orgUrl:"https://rocherapid-test.okta.com",customTokenUrl:"https://europe-west1-harvester-dev-env.cloudfunctions.net/okta-customToken"},` +
-	`gdlApps:{NTB:{url:"https://su-appsdev.appsdev-tumorboard.hi5.platform.navify.com"},` +
-	`NCH:{url:"https://su-appsdev.appsdev-nch.hi5.clinicalhub.platform.navify.com"}}}`
+	`okta:{orgUrl:"https://acme-test.okta.com",customTokenUrl:"https://europe-west1-harvester-dev-env.cloudfunctions.net/okta-customToken"},` +
+	`gdlApps:{NTB:{url:"https://svc-b.staging.platform.example.com"},` +
+	`NCH:{url:"https://svc-c.test.hub.platform.example.com"}}}`
 
 func TestScanPerRequest_OrgSubdomainsOnly(t *testing.T) {
 	t.Parallel()
 	m := New()
-	ctx := makeHTTPCtx("app.navify.com", "/main.js", "application/javascript", navifyBundle)
+	ctx := makeHTTPCtx("app.example.com", "/main.js", "application/javascript", appBundle)
 
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
 	got := results[0].ExtractedResults
-	// In-scope navify.com subdomains are captured.
-	assert.Contains(t, got, "cds-apps-harvester-dev.hi5.platform.navify.com")
-	assert.Contains(t, got, "su-appsdev.appsdev-tumorboard.hi5.platform.navify.com")
-	assert.Contains(t, got, "su-appsdev.appsdev-nch.hi5.clinicalhub.platform.navify.com")
+	// In-scope example.com subdomains are captured.
+	assert.Contains(t, got, "svc-a.dev.platform.example.com")
+	assert.Contains(t, got, "svc-b.staging.platform.example.com")
+	assert.Contains(t, got, "svc-c.test.hub.platform.example.com")
 
 	// Third-party hosts (different registrable domains) are NOT subdomains and
 	// must be left to the BaaS/Firebase modules.
@@ -71,22 +71,22 @@ func TestScanPerRequest_OrgSubdomainsOnly(t *testing.T) {
 func TestScanPerRequest_ExcludesOwnHost(t *testing.T) {
 	t.Parallel()
 	m := New()
-	body := `links={self:"https://app.navify.com/home",other:"https://api.navify.com/v1"}`
-	ctx := makeHTTPCtx("app.navify.com", "/", "text/html", body)
+	body := `links={self:"https://app.example.com/home",other:"https://api.example.com/v1"}`
+	ctx := makeHTTPCtx("app.example.com", "/", "text/html", body)
 
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
-	assert.Equal(t, []string{"api.navify.com"}, results[0].ExtractedResults)
+	assert.Equal(t, []string{"api.example.com"}, results[0].ExtractedResults)
 }
 
 func TestScanPerRequest_NoSubdomains(t *testing.T) {
 	t.Parallel()
 	m := New()
-	// Only third-party hosts, no sibling navify.com subdomains.
+	// Only third-party hosts, no sibling example.com subdomains.
 	body := `<html><script src="https://cdn.jsdelivr.net/x.js"></script><link href="https://fonts.googleapis.com/css"></html>`
-	ctx := makeHTTPCtx("app.navify.com", "/", "text/html", body)
+	ctx := makeHTTPCtx("app.example.com", "/", "text/html", body)
 
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -98,13 +98,13 @@ func TestScanPerRequest_SkipsStaticAndIP(t *testing.T) {
 	m := New()
 
 	// Binary/asset content type is skipped even with a host in the "body".
-	imgCtx := makeHTTPCtx("app.navify.com", "/logo.png", "image/png", "https://api.navify.com/x")
+	imgCtx := makeHTTPCtx("app.example.com", "/logo.png", "image/png", "https://api.example.com/x")
 	res, err := m.ScanPerRequest(imgCtx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res)
 
 	// Served from a raw IP: no resolvable registrable domain, so nothing to scope.
-	ipCtx := makeHTTPCtx("10.0.0.5", "/", "text/html", `x="https://api.navify.com/v1"`)
+	ipCtx := makeHTTPCtx("10.0.0.5", "/", "text/html", `x="https://api.example.com/v1"`)
 	res, err = m.ScanPerRequest(ipCtx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res)

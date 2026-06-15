@@ -1,6 +1,8 @@
 package database
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -459,5 +461,108 @@ func TestFinding_FromResultEvent_NilGuard(t *testing.T) {
 	var f Finding
 	if err := f.FromResultEvent(nil); err == nil {
 		t.Error("expected error for nil ResultEvent")
+	}
+}
+
+// buildRawResponse renders a raw HTTP response with the given content type and body.
+func buildRawResponse(contentType, body string) string {
+	return "HTTP/1.1 200 OK\r\nContent-Type: " + contentType + "\r\n\r\n" + body
+}
+
+func TestFinding_FromResultEvent_StaticResponseWindowed(t *testing.T) {
+	marker := "new Function("
+	var sb strings.Builder
+	for i := 0; i < 600; i++ {
+		fmt.Fprintf(&sb, "var x%d = %d; // padding padding padding padding\n", i, i)
+	}
+	sb.WriteString("eval(" + marker + "'return 1'));\n")
+	for i := 0; i < 600; i++ {
+		fmt.Fprintf(&sb, "var y%d = %d; // padding padding padding padding\n", i, i)
+	}
+	jsBody := sb.String()
+	raw := buildRawResponse("application/javascript", jsBody)
+
+	event := &output.ResultEvent{
+		ModuleID:         "unsafe-html-sink",
+		Info:             output.Info{Name: "Unsafe HTML Sink", Severity: severity.Medium},
+		URL:              "https://app.example.com/static/bundle.js",
+		ExtractedResults: []string{"eval(new Function('return 1'))"},
+		Response:         raw,
+	}
+	var f Finding
+	if err := f.FromResultEvent(event); err != nil {
+		t.Fatalf("FromResultEvent: %v", err)
+	}
+
+	if !strings.HasPrefix(f.Response, "HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\n\r\n") {
+		t.Errorf("windowed response must keep the full head; got prefix %q", f.Response[:min(80, len(f.Response))])
+	}
+	if !strings.Contains(f.Response, marker) {
+		t.Error("windowed response must include the matched sink")
+	}
+	if !strings.Contains(f.Response, "bytes truncated") {
+		t.Error("large static body must be truncated")
+	}
+	if len(f.Response) >= len(raw) {
+		t.Errorf("windowed response (%d) must be smaller than full (%d)", len(f.Response), len(raw))
+	}
+	// event.Response must be left intact so the linked http_record keeps the full body.
+	if event.Response != raw {
+		t.Error("event.Response must not be mutated by conversion")
+	}
+}
+
+func TestFinding_FromResultEvent_SourceMapWindowedByExtension(t *testing.T) {
+	// Source maps are commonly served as application/json — the URL extension must
+	// still classify them as static.
+	body := strings.Repeat("{\"x\":\"mappings data padding padding padding\"},\n", 400)
+	raw := buildRawResponse("application/json", body)
+	event := &output.ResultEvent{
+		ModuleID: "secret-detect",
+		Info:     output.Info{Name: "Secret", Severity: severity.High},
+		URL:      "https://app.example.com/static/bundle.js.map",
+		Response: raw,
+	}
+	var f Finding
+	if err := f.FromResultEvent(event); err != nil {
+		t.Fatalf("FromResultEvent: %v", err)
+	}
+	if len(f.Response) >= len(raw) || !strings.Contains(f.Response, "bytes truncated") {
+		t.Errorf("source map (.map) should be windowed by URL extension; len got=%d full=%d", len(f.Response), len(raw))
+	}
+}
+
+func TestFinding_FromResultEvent_NonStaticResponseStoredWhole(t *testing.T) {
+	body := strings.Repeat("<div>error trace line padding padding padding padding</div>\n", 400)
+	raw := buildRawResponse("text/html; charset=utf-8", body)
+	event := &output.ResultEvent{
+		ModuleID: "error-message-detect",
+		Info:     output.Info{Name: "Debug Page in Response", Severity: severity.Low},
+		URL:      "https://app.example.com/account",
+		Response: raw,
+	}
+	var f Finding
+	if err := f.FromResultEvent(event); err != nil {
+		t.Fatalf("FromResultEvent: %v", err)
+	}
+	if f.Response != raw {
+		t.Error("non-static (HTML) response must be stored whole")
+	}
+}
+
+func TestFinding_FromResultEvent_SmallStaticResponseUnchanged(t *testing.T) {
+	raw := buildRawResponse("text/css", "body{color:red}\n")
+	event := &output.ResultEvent{
+		ModuleID: "x",
+		Info:     output.Info{Name: "X", Severity: severity.Info},
+		URL:      "https://app.example.com/static/app.css",
+		Response: raw,
+	}
+	var f Finding
+	if err := f.FromResultEvent(event); err != nil {
+		t.Fatalf("FromResultEvent: %v", err)
+	}
+	if f.Response != raw {
+		t.Errorf("small static body must be stored whole, got %q", f.Response)
 	}
 }

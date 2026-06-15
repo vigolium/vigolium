@@ -101,7 +101,7 @@ func TestIsNgswManifest(t *testing.T) {
 }
 
 func TestParseNgswManifestAssets(t *testing.T) {
-	base := mustParseURL(t, "https://cds-apps-harvester-dev.hi5.platform.navify.com/ngsw.json")
+	base := mustParseURL(t, "https://svc-a.dev.platform.example.com/ngsw.json")
 
 	// Real-shaped ngsw.json: assetGroups list prefetch urls; hashTable keys cover
 	// the full versioned asset set (including chunks absent from assetGroups).
@@ -143,7 +143,7 @@ func TestParseNgswManifestAssets(t *testing.T) {
 	}`
 
 	got := sortedURLStrings(parseNgswManifestAssets(base, []byte(body)))
-	origin := "https://cds-apps-harvester-dev.hi5.platform.navify.com"
+	origin := "https://svc-a.dev.platform.example.com"
 
 	// Lazy chunk present only in hashTable must be recovered.
 	if !contains(got, origin+"/909.90f8ccc126747cd3.js") {

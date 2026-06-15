@@ -11,6 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/spitolas"
 	"go.uber.org/zap"
 )
 
@@ -21,6 +22,10 @@ type URLParamsModule struct {
 	rhm               dedup.Lazy[dedup.RequestHashManager]
 	transformAnalyzer *TransformAnalyzer
 	jsAnalyzer        *JavaScriptContextAnalyzer
+
+	// Probe runs the headless-browser confirmation step. Overridable so tests
+	// never spawn a real browser. Default: spitolas.ProbeURL.
+	Probe ProbeFunc
 }
 
 // NewURLParamsScanner creates a new URL parameters XSS scanner.
@@ -40,6 +45,7 @@ func NewURLParamsScanner() *URLParamsModule {
 		rhm:               dedup.LazyDefaultRHM("xss_light_url_params"),
 		transformAnalyzer: NewTransformAnalyzer(),
 		jsAnalyzer:        NewJavaScriptContextAnalyzer(),
+		Probe:             spitolas.ProbeURL,
 	}
 	m.ModuleTags = ModuleTags
 	return m
@@ -166,10 +172,10 @@ func (m *URLParamsModule) scanConvertedRequest(
 		}
 
 		if result != nil && result.HasVulnerability() {
-			*foundXSS = true
-			evt := m.buildResultEvent(parsedReq, ip, result)
-			evt.Info.Description = "[POST→GET] " + evt.Info.Description
-			results = append(results, evt)
+			if evt := confirmXSS(m.Probe, parsedReq, ip, result, httpClient, "[POST→GET] ", nil); evt != nil {
+				*foundXSS = true
+				results = append(results, evt)
+			}
 		}
 	}
 
@@ -229,8 +235,10 @@ func (m *URLParamsModule) scanURLParameters(
 		}
 
 		if result != nil && result.HasVulnerability() {
-			*foundXSS = true
-			results = append(results, m.buildResultEvent(ctx, ip, result))
+			if evt := confirmXSS(m.Probe, ctx, ip, result, httpClient, "", nil); evt != nil {
+				*foundXSS = true
+				results = append(results, evt)
+			}
 		}
 	}
 
@@ -457,32 +465,3 @@ func (m *URLParamsModule) detectContext(
 	}
 }
 
-// buildResultEvent creates a ResultEvent from scan result
-func (m *URLParamsModule) buildResultEvent(
-	ctx *httpmsg.HttpRequestResponse,
-	ip httpmsg.InsertionPoint,
-	result *XSSScanResult,
-) *output.ResultEvent {
-	urlx, _ := ctx.URL()
-
-	var evidenceParts []string
-	for _, ea := range result.ExploitableAnalyses {
-		evidenceParts = append(evidenceParts, ea.Context.String())
-	}
-	description := strings.Join(evidenceParts, " | ")
-
-	if result.UsedPrefix != "" && result.UsedPrefix != "none" {
-		description += " [bypass: " + result.UsedPrefix + "]"
-	}
-
-	return &output.ResultEvent{
-		URL:              urlx.String(),
-		Request:          string(ip.BuildRequest([]byte(result.PrimaryPayload.FullPayload))),
-		Response:         string(result.PrimaryResponse),
-		FuzzingParameter: ip.Name(),
-		ExtractedResults: []string{ip.BaseValue()},
-		Info: output.Info{
-			Description: description,
-		},
-	}
-}

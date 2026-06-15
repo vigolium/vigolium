@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application accepts a URL in this parameter and fetches it server-side, but its host allowlist/validator can be tricked by URL-parser confusion. The validator and the HTTP client disagree about which host a crafted URL actually names, so a URL that looks trusted is fetched against an attacker-chosen host. This is a Server-Side Request Forgery (SSRF) allowlist bypass, confirmed here by an out-of-band callback to a scanner-controlled OAST host.
+	ModuleDesc = `**What it means:** The app fetches a URL from this parameter server-side, but URL-parser confusion lets a trusted-looking URL reach an attacker-chosen host. This SSRF allowlist bypass is confirmed by an OAST callback.
 
-**How it's exploited:** An attacker crafts a single URL that embeds a trusted-looking decoy host (the target's own domain) plus a malicious host using parser divergences such as userinfo (an at-sign), multiple at-signs, a fragment, whitespace, or a backslash. The validator approves it while the fetcher connects to the malicious host, letting the attacker reach internal services, cloud metadata endpoints, or other hosts the allowlist was meant to protect.
+**How it's exploited:** An attacker crafts a URL embedding a trusted decoy plus a malicious host via parser divergences like userinfo at-signs, fragments, whitespace, or backslashes, so the validator approves it but the fetcher connects to the malicious one.
 
-**Fix:** Resolve and re-validate the final connection target after parsing with a hardened parser, allowlist only fully-resolved hosts/IPs, and reject userinfo, embedded credentials, and ambiguous authority syntax.`
+**Fix:** Re-validate the final connection target with a hardened parser, allowlist only fully-resolved hosts/IPs, and reject userinfo and ambiguous syntax.`
 
 	ModuleConfirmation = "Confirmed when the target makes an outbound DNS/HTTP request to the OAST host embedded in a parser-confusion URL whose parsed host is a trusted decoy"
 	ModuleSeverity     = severity.High

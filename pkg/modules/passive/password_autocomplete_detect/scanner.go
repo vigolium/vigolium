@@ -46,6 +46,12 @@ func New() *Module {
 	return m
 }
 
+// RequiredContentClasses gates this module to HTML responses. It inspects
+// <form>/<input> autocomplete markup that cannot exist in a JSON/XML body, so
+// the executor skips it on confirmed non-HTML responses (it still runs on
+// unknown/text responses — see modkit.ContentClassAllows).
+func (m *Module) RequiredContentClasses() []string { return []string{"html"} }
+
 // ScanPerRequest checks HTML responses for password fields without autocomplete disabled.
 func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	urlx, err := ctx.URL()

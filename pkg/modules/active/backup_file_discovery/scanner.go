@@ -291,8 +291,9 @@ func (m *Module) probePath(
 		return nil
 	}
 
-	// Validation differs for SQL/text dumps vs binary archives
-	confidence := severity.Tentative
+	// Validation differs for SQL/text dumps vs binary archives. Findings are
+	// reported at the capped Medium / Tentative level shared by the sensitive-file
+	// family regardless of how strongly the archive validates.
 	if isSQLExtension(path) {
 		// SQL dumps: require at least one marker
 		matched := false
@@ -305,7 +306,6 @@ func (m *Module) probePath(
 		if !matched {
 			return nil
 		}
-		confidence = severity.Firm
 	} else {
 		// Binary archives: validate Content-Type
 		validCT := false
@@ -325,12 +325,6 @@ func (m *Module) probePath(
 		// bytes are the real content marker for a binary archive.
 		if !hasArchiveMagic(body) {
 			return nil
-		}
-
-		// Additional signal: Content-Disposition header
-		cd := strings.ToLower(resp.Response().Header.Get("Content-Disposition"))
-		if strings.Contains(cd, "attachment") {
-			confidence = severity.Firm
 		}
 	}
 
@@ -374,8 +368,8 @@ func (m *Module) probePath(
 		Info: output.Info{
 			Name:        fmt.Sprintf("Backup File Exposed: %s", filename),
 			Description: fmt.Sprintf("Publicly accessible backup file found at %s. Backup archives may contain source code, database dumps, credentials, or other sensitive data.", path),
-			Severity:    severity.High,
-			Confidence:  confidence,
+			Severity:    severity.Medium,
+			Confidence:  severity.Tentative,
 			Tags:        []string{"backup-file", "information-disclosure", "misconfiguration"},
 			Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information"},
 		},

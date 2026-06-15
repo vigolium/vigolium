@@ -409,22 +409,33 @@ func (s *DBInputSource) Close() error {
 	return nil
 }
 
+// riskPrefetchBatchSize bounds how many records the RiskPrioritized source pulls
+// from the database per round-trip. Mirrors DBInputSource's batched read so the
+// single feed goroutine isn't serialized on one GetRecordByUUID query per item
+// (the dynamic-assessment workers do no network I/O under SkipBaseline, so the
+// per-item DB read+parse would otherwise be the throughput ceiling for large scans).
+const riskPrefetchBatchSize = 128
+
 // RiskPrioritizedDBInputSource processes high-risk records first, then falls back
 // to normal cursor-based order. It implements source.InputSource.
 type RiskPrioritizedDBInputSource struct {
-	db             *DB
-	repo           *Repository
-	scanUUID       string
-	hostnames      []string // when non-empty, only records matching these hostnames are returned
-	closed         atomic.Bool
-	mu             sync.Mutex
-	loaded         bool
-	index          int
-	uuids          []string
-	total          int
-	acked          int
-	commitCursorAt time.Time
-	commitCursorID string
+	db                   *DB
+	repo                 *Repository
+	scanUUID             string
+	hostnames            []string // when non-empty, only records matching these hostnames are returned
+	maxParamShapeSamples int      // when > 0, coalesce same-shape GET records to this many value-distinct samples
+	closed               atomic.Bool
+	mu                   sync.Mutex
+	loaded               bool
+	index                int
+	uuids                []string
+	buffer               []*HTTPRecord // prefetched records (risk-priority order), drained before fetching the next chunk
+	bufHead              int           // read cursor into buffer; lets refill reuse the backing array via buffer[:0]
+	total                int
+	acked                int
+	coalescedDropped     int
+	commitCursorAt       time.Time
+	commitCursorID       string
 }
 
 // NewRiskPrioritizedDBInputSource creates a DBInputSource that processes
@@ -444,6 +455,27 @@ func (s *RiskPrioritizedDBInputSource) WithHostnames(hostnames []string) *RiskPr
 	return s
 }
 
+// WithParamShapeCoalescing enables param-shape coalescing of the snapshot: GET
+// records that share a (host, path, query-param-name-set) are reduced to at most
+// maxSamples value-distinct representatives, cutting redundant dynamic-assessment
+// fan-out over value-only-different URLs (e.g. /search?q=1..N). Records stay in
+// the database; only this scan's iteration list is pruned. The scan cursor still
+// advances past every record, so coalesced-away records are not re-scanned in a
+// later feedback round. maxSamples <= 0 (the default) disables it.
+func (s *RiskPrioritizedDBInputSource) WithParamShapeCoalescing(maxSamples int) *RiskPrioritizedDBInputSource {
+	s.maxParamShapeSamples = maxSamples
+	return s
+}
+
+// CoalescedDropped returns how many records the param-shape coalescing pass
+// removed from this scan's iteration list. Valid after the snapshot loads (i.e.
+// after the first Next / after Execute). Zero when coalescing is disabled.
+func (s *RiskPrioritizedDBInputSource) CoalescedDropped() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.coalescedDropped
+}
+
 // Next returns records prioritized by risk_score, then falls back to cursor order.
 func (s *RiskPrioritizedDBInputSource) Next(ctx context.Context) (*work.WorkItem, error) {
 	if s.closed.Load() {
@@ -458,34 +490,86 @@ func (s *RiskPrioritizedDBInputSource) Next(ctx context.Context) (*work.WorkItem
 		}
 		s.loaded = true
 	}
-	for s.index < len(s.uuids) {
-		uuid := s.uuids[s.index]
-		s.index++
+
+	for {
+		// Serve from the prefetch buffer first. Advancing a read cursor (rather
+		// than re-slicing the header) keeps buffer pointing at the full backing
+		// array, so the buffer[:0] reset on refill reuses it instead of forcing a
+		// fresh allocation every chunk.
+		if s.bufHead < len(s.buffer) {
+			record := s.buffer[s.bufHead]
+			s.bufHead++
+			s.mu.Unlock()
+
+			rr, err := recordToHttpRequestResponse(record)
+			if err != nil {
+				// Parse failure: drop this record (no ack, matching the prior
+				// per-UUID skip-on-error behavior) and continue draining.
+				s.mu.Lock()
+				continue
+			}
+
+			var once sync.Once
+			item := work.NewWithCallback(rr, nil, func() {
+				once.Do(func() {
+					s.ackSnapshotItem()
+				})
+			})
+			item.RecordUUID = record.UUID
+			return item, nil
+		}
+
+		// Buffer empty — refill from the next chunk of snapshot UUIDs.
+		if s.index >= len(s.uuids) {
+			s.mu.Unlock()
+			return nil, io.EOF
+		}
+		end := s.index + riskPrefetchBatchSize
+		if end > len(s.uuids) {
+			end = len(s.uuids)
+		}
+		chunk := s.uuids[s.index:end]
+		s.index = end
+		// Release the lock across the DB fetch so worker ack callbacks
+		// (ackSnapshotItem) aren't blocked on it. Next() has a single caller
+		// (the feed goroutine), so no other goroutine advances s.index/s.buffer
+		// concurrently.
 		s.mu.Unlock()
 
-		record, err := s.repo.GetRecordByUUID(ctx, uuid)
+		records, err := s.repo.GetRecordsByUUIDs(ctx, chunk)
+		s.mu.Lock()
 		if err != nil {
-			s.mu.Lock()
+			// Whole-chunk fetch failed: skip it (index already advanced) and try
+			// the next chunk rather than spinning on the same failing UUIDs.
+			zap.L().Debug("RiskPrioritizedDBInputSource: batch record fetch failed, skipping chunk",
+				zap.Error(err), zap.Int("chunk_size", len(chunk)))
 			continue
 		}
-
-		rr, err := recordToHttpRequestResponse(record)
-		if err != nil {
-			s.mu.Lock()
-			continue
+		// GetRecordsByUUIDs returns records in arbitrary order and omits any UUIDs
+		// that no longer exist. Re-order into the risk-prioritized chunk order so
+		// the highest-risk records are still scanned first; missing UUIDs are
+		// simply skipped (matching the prior per-UUID skip-on-error behavior).
+		byUUID := make(map[string]*HTTPRecord, len(records))
+		for _, rec := range records {
+			byUUID[rec.UUID] = rec
 		}
-
-		var once sync.Once
-		item := work.NewWithCallback(rr, nil, func() {
-			once.Do(func() {
-				s.ackSnapshotItem()
-			})
-		})
-		item.RecordUUID = record.UUID
-		return item, nil
+		// Pre-size once so the first refill doesn't pay incremental append growth;
+		// later refills reuse the backing array via [:0] (the bufHead cursor keeps
+		// the header at element 0).
+		if s.buffer == nil {
+			s.buffer = make([]*HTTPRecord, 0, riskPrefetchBatchSize)
+		} else {
+			s.buffer = s.buffer[:0]
+		}
+		s.bufHead = 0
+		for _, uuid := range chunk {
+			if rec, ok := byUUID[uuid]; ok {
+				s.buffer = append(s.buffer, rec)
+			}
+		}
+		// Loop: serve from the freshly filled buffer (or refill again if every
+		// UUID in this chunk was missing).
 	}
-	s.mu.Unlock()
-	return nil, io.EOF
 }
 
 func (s *RiskPrioritizedDBInputSource) loadSnapshotLocked(ctx context.Context) error {
@@ -495,12 +579,26 @@ func (s *RiskPrioritizedDBInputSource) loadSnapshotLocked(ctx context.Context) e
 	}
 
 	type cursorRow struct {
-		UUID      string    `bun:"uuid"`
-		CreatedAt time.Time `bun:"created_at"`
+		UUID                 string          `bun:"uuid"`
+		CreatedAt            time.Time       `bun:"created_at"`
+		Method               string          `bun:"method"`
+		URL                  string          `bun:"url"`
+		RequestContentType   string          `bun:"request_content_type"`
+		RequestContentLength int64           `bun:"request_content_length"`
+		Parameters           []EmbeddedParam `bun:"parameters,type:jsonb"`
 	}
 
 	var ordered []cursorRow
-	orderedQ := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column("uuid", "created_at")
+	// Only the snapshot's identity/order columns are always needed. The
+	// request_content_type/length + parameters projection exists solely to feed
+	// param-shape coalescing (it shapes POST/JSON bodies, and refuses to coalesce
+	// an unseen body, without loading the raw request). Loading parameters is a
+	// JSONB deserialize per record, so skip it entirely when coalescing is off.
+	cols := []string{"uuid", "created_at", "method", "url"}
+	if s.maxParamShapeSamples > 0 {
+		cols = append(cols, "request_content_type", "request_content_length", "parameters")
+	}
+	orderedQ := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column(cols...)
 
 	if !scan.CursorAt.IsZero() {
 		cursorAt := scan.CursorAt.UTC().Format("2006-01-02 15:04:05")
@@ -553,6 +651,33 @@ func (s *RiskPrioritizedDBInputSource) loadSnapshotLocked(ctx context.Context) e
 		}
 		seen[row.UUID] = struct{}{}
 		s.uuids = append(s.uuids, row.UUID)
+	}
+
+	// Coalesce same-param-shape GET records to a bounded set of value-distinct
+	// samples. Walking the already-prioritized list means high-risk records (at
+	// the front) claim the per-shape sample slots first. The commit cursor below
+	// is still the last ordered record, so the cursor advances past every record
+	// (including coalesced-away ones) when the pruned set is fully acked.
+	if s.maxParamShapeSamples > 0 {
+		descByUUID := make(map[string]recordURLDesc, len(ordered))
+		for _, row := range ordered {
+			descByUUID[row.UUID] = recordURLDesc{
+				method:        row.Method,
+				url:           row.URL,
+				contentType:   row.RequestContentType,
+				contentLength: row.RequestContentLength,
+				params:        row.Parameters,
+			}
+		}
+		pruned, dropped := coalesceUUIDsByParamShape(s.uuids, descByUUID, s.maxParamShapeSamples)
+		s.uuids = pruned
+		s.coalescedDropped = dropped
+		if dropped > 0 {
+			zap.L().Info("dynamic-assessment param-shape coalescing",
+				zap.Int("dropped", dropped),
+				zap.Int("kept", len(pruned)),
+				zap.Int("max_samples", s.maxParamShapeSamples))
+		}
 	}
 
 	last := ordered[len(ordered)-1]

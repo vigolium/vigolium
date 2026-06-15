@@ -115,12 +115,17 @@ func NewDefaultConfig() *Config {
 			TestNoExtension:      true,
 			// Confirmation-gated extension fuzzing (default on): server-side
 			// extensions are only swept with the wordlist once the app is proven
-			// to serve them as a valid route, via observed URLs, tech
-			// fingerprinting, or an active soft-404 differential probe.
+			// to serve them as a valid route. Confirmation comes from what the
+			// site actually reveals — observed URLs (genuine references in
+			// content / spidered pages) and tech fingerprinting. The active
+			// soft-404 differential probe (ConfirmViaProbe) is OFF by default: it
+			// guesses common filenames (index.php, default.php, login.php), so on
+			// a catch-all / SPA-shell host it confirms extensions the server does
+			// not actually run. Opt back in via discovery.extensions.confirm_via_probe.
 			ConfirmRequired:       true,
 			ConfirmViaObserved:    true,
 			ConfirmViaFingerprint: true,
-			ConfirmViaProbe:       true,
+			ConfirmViaProbe:       false,
 			Candidates:            DefaultCandidateExtensions,
 			// SPA-gated JS-bundle name sweep (default on): probe common bundle
 			// names on monolith apps and feed hits to jsscan. No-op on SPAs.

@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application ships WebAssembly (WASM) to the browser. This passive, informational fingerprint flags it by spotting WASM binary magic bytes (the \x00asm signature) or an application/wasm response, or by finding WebAssembly.instantiate, WebAssembly.compile, or WebAssembly.instantiateStreaming calls in served JavaScript. WASM is not itself a vulnerability, but it often holds proprietary or security-sensitive client-side logic, and any logic enforced only in the browser can be inspected and bypassed.
+	ModuleDesc = `**What it means:** The application ships WebAssembly (WASM) to the browser. This passive fingerprint flags it via WASM magic bytes (the \x00asm signature), an application/wasm response, or WebAssembly.instantiate/compile calls in served JS. Informational recon, but WASM often holds proprietary client-side logic that can be inspected and bypassed.
 
-**How it's exploited:** An attacker downloads the .wasm module and decompiles it (for example with wasm2wat or wabt) to reverse-engineer business logic, licensing or anti-fraud checks, embedded secrets, or algorithms, and to find client-side controls they can disable or replay against the server. The disclosure mainly helps map attack surface and target the client-side trust boundary.
+**How it's exploited:** An attacker downloads the .wasm module and decompiles it (with wasm2wat) to reverse-engineer business logic, licensing or anti-fraud checks, and embedded secrets, and to find client-side controls to disable.
 
-**Fix:** Treat WASM as untrusted client code: keep all security decisions and secrets server-side, and avoid embedding sensitive logic or credentials in shipped WebAssembly modules.`
+**Fix:** Treat WASM as untrusted client code: keep security decisions and secrets server-side, and avoid embedding sensitive logic or credentials.`
 
 	ModuleConfirmation = "Confirmed when response contains WASM magic bytes, application/wasm content type, or WebAssembly instantiation calls"
 	ModuleSeverity     = severity.Info

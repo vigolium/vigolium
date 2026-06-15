@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application leaves FastAPI's auto-generated interactive API documentation publicly reachable, at the default Swagger UI path (/docs), ReDoc path (/redoc), or the raw OpenAPI specification (/openapi.json). These endpoints publish a complete map of the API, including every route, HTTP method, request and response schema, parameter, and data model. This is an information-disclosure issue: it hands an attacker a precise blueprint of the application's attack surface that is normally meant for internal developers only.
+	ModuleDesc = `**What it means:** FastAPI's interactive API docs are publicly reachable at the default Swagger UI (/docs), ReDoc (/redoc), or raw OpenAPI spec (/openapi.json), publishing a complete map of every route, method, schema, and parameter. Informational recon meant for internal developers.
 
-**How it's exploited:** An attacker reads the exposed docs to enumerate hidden, internal, or administrative endpoints they would otherwise have to guess at, and learns the exact parameters and payload structures each one expects. That blueprint lets them target authorization gaps, mass-assignment fields, and injectable parameters far more efficiently, turning blind probing into focused attacks against the documented routes.
+**How it's exploited:** An attacker reads the docs to enumerate hidden, internal, or admin endpoints they would otherwise guess at, learning the exact parameters each expects, then targets authorization gaps, mass-assignment fields, and injectable parameters more efficiently.
 
-**Fix:** Disable the docs in production by setting docs_url, redoc_url, and openapi_url to None when creating the FastAPI app, or restrict these paths to authenticated internal users.`
+**Fix:** Disable docs in production by setting docs_url, redoc_url, and openapi_url to None, or restrict these paths to authenticated internal users.`
 
 	ModuleConfirmation = "Confirmed when documentation endpoints return 200 with expected FastAPI-specific markers"
 	ModuleSeverity     = severity.Low

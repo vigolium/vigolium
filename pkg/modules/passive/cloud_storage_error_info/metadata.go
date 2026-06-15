@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A cloud storage error response (AWS S3 XML, Azure blob error, or Google Cloud Storage JSON) leaked internal identifiers such as the bucket name, region, storage endpoint, or provider error code. This is a low-severity information disclosure that exposes backend storage details a public-facing app would normally keep hidden.
+	ModuleDesc = `**What it means:** A cloud storage error response (S3 XML, Azure blob, or GCS JSON) leaked internal identifiers - bucket name, region, endpoint, or provider error code. Low-severity recon exposing backend storage details normally hidden.
 
-**How it's exploited:** An attacker uses the disclosed bucket name and region to directly probe the storage backend out of band, mapping attack surface and testing for misconfigured public access, object enumeration, or other buckets in the same account. A NoSuchBucket error is especially useful because it flags a referenced-but-unclaimed bucket that may be registrable for a subdomain or storage takeover, while AccessDenied or PermanentRedirect confirms a real bucket worth targeting further.
+**How it's exploited:** An attacker uses the disclosed bucket and region to probe the backend for public access or enumeration. NoSuchBucket flags an unclaimed bucket open to takeover, while AccessDenied or PermanentRedirect confirms a real bucket worth targeting.
 
-**Fix:** Return generic error pages for storage failures and avoid proxying raw S3/Azure/GCS error bodies and provider error headers (x-ms-error-code, x-amz-request-id) back to clients.`
+**Fix:** Return generic error pages for storage failures and avoid proxying raw S3/Azure/GCS error bodies and provider headers (x-ms-error-code, x-amz-request-id) to clients.`
 
 	ModuleConfirmation = "Confirmed when error response reveals cloud storage bucket name, region, or error code"
 	ModuleSeverity     = severity.Info

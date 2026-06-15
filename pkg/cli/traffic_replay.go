@@ -93,7 +93,7 @@ func runTrafficReplayFlow(ctx context.Context, db *database.DB, fuzzyTerm string
 				rErr = replayRecord(ctx, &buf, client, repo, rec)
 			}
 			if rErr != nil {
-				fmt.Fprintf(&buf, "%s Failed to replay %s %s: %v\n",
+				_, _ = fmt.Fprintf(&buf, "%s Failed to replay %s %s: %v\n",
 					terminal.ErrorPrefix(), rec.Method, rec.URL, rErr)
 			}
 
@@ -185,9 +185,9 @@ func replayRecord(ctx context.Context, w io.Writer, client *http.Client, repo *d
 		}
 
 		if err := repo.UpdateRecordResponse(ctx, rec.UUID, update); err != nil {
-			fmt.Fprintf(w, "  %s Failed to update record: %v\n", terminal.WarnPrefix(), err)
+			_, _ = fmt.Fprintf(w, "  %s Failed to update record: %v\n", terminal.WarnPrefix(), err)
 		} else {
-			fmt.Fprintf(w, "  %s Record %s response replaced\n", terminal.SuccessSymbol(), rec.UUID[:min(8, len(rec.UUID))])
+			_, _ = fmt.Fprintf(w, "  %s Record %s response replaced\n", terminal.SuccessSymbol(), rec.UUID[:min(8, len(rec.UUID))])
 		}
 	}
 
@@ -219,24 +219,24 @@ func browserReplayRecord(ctx context.Context, w io.Writer, rec *database.HTTPRec
 		return err
 	}
 
-	fmt.Fprintf(w, "%s %s %s\n",
+	_, _ = fmt.Fprintf(w, "%s %s %s\n",
 		terminal.Cyan(rec.Method), rec.URL,
 		terminal.Gray(fmt.Sprintf("[%s]", rec.UUID[:min(8, len(rec.UUID))])))
 
 	if rec.Method != "" && rec.Method != http.MethodGet {
-		fmt.Fprintf(w, "  %s browser replay issues a GET navigation; original %s method/body not reproduced\n",
+		_, _ = fmt.Fprintf(w, "  %s browser replay issues a GET navigation; original %s method/body not reproduced\n",
 			terminal.WarnPrefix(), rec.Method)
 	}
 
 	if res != nil {
 		if res.FinalURL != "" && res.FinalURL != rec.URL {
-			fmt.Fprintf(w, "  %s redirected to %s\n", terminal.InfoSymbol(), res.FinalURL)
+			_, _ = fmt.Fprintf(w, "  %s redirected to %s\n", terminal.InfoSymbol(), res.FinalURL)
 		}
 		if res.Title != "" {
-			fmt.Fprintf(w, "  title: %s\n", clicommon.Truncate(res.Title, 60))
+			_, _ = fmt.Fprintf(w, "  title: %s\n", clicommon.Truncate(res.Title, 60))
 		}
 		for _, d := range res.Dialogs {
-			fmt.Fprintf(w, "  %s JS dialog fired (%s): %s\n",
+			_, _ = fmt.Fprintf(w, "  %s JS dialog fired (%s): %s\n",
 				terminal.WarnPrefix(), d.Type, clicommon.Truncate(d.Message, 80))
 		}
 	}
@@ -271,7 +271,7 @@ func browserReplayHeaders(rec *database.HTTPRecord) map[string]string {
 
 // displayReplayComparison writes a side-by-side comparison of original vs replay.
 func displayReplayComparison(w io.Writer, rec *database.HTTPRecord, newResp *http.Response, newBody []byte, elapsed time.Duration) {
-	fmt.Fprintf(w, "%s %s %s\n", terminal.Cyan(rec.Method), rec.URL, terminal.Gray(fmt.Sprintf("[%s]", rec.UUID[:min(8, len(rec.UUID))])))
+	_, _ = fmt.Fprintf(w, "%s %s %s\n", terminal.Cyan(rec.Method), rec.URL, terminal.Gray(fmt.Sprintf("[%s]", rec.UUID[:min(8, len(rec.UUID))])))
 
 	tbl := terminal.NewTableWithMaxWidth(globalWidth, "", "ORIGINAL", "REPLAY")
 
@@ -293,10 +293,10 @@ func displayReplayComparison(w io.Writer, rec *database.HTTPRecord, newResp *htt
 		clicommon.Truncate(rec.ResponseContentType, 30),
 		clicommon.Truncate(newResp.Header.Get("Content-Type"), 30))
 
-	fmt.Fprint(w, tbl.Render())
+	_, _ = fmt.Fprint(w, tbl.Render())
 
 	if rec.StatusCode != newResp.StatusCode {
-		fmt.Fprintf(w, "  %s Status code changed: %d → %d\n",
+		_, _ = fmt.Fprintf(w, "  %s Status code changed: %d → %d\n",
 			terminal.WarnPrefix(), rec.StatusCode, newResp.StatusCode)
 	}
 }
@@ -320,10 +320,10 @@ func colorStatus(text string, code int) string {
 // buildRawResponseHeaders reconstructs raw HTTP response header bytes from http.Response.
 func buildRawResponseHeaders(resp *http.Response) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s\r\n", resp.Proto, resp.Status)
+	_, _ = fmt.Fprintf(&b, "%s %s\r\n", resp.Proto, resp.Status)
 	for key, vals := range resp.Header {
 		for _, v := range vals {
-			fmt.Fprintf(&b, "%s: %s\r\n", key, v)
+			_, _ = fmt.Fprintf(&b, "%s: %s\r\n", key, v)
 		}
 	}
 	b.WriteString("\r\n")

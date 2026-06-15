@@ -8,7 +8,7 @@ import {
   type GridApi,
 } from "ag-grid-community";
 import { marked } from "marked";
-import { Download, Search, ChevronDown, ChevronRight, X, Copy, Check, Terminal, Eye, FileCode } from "lucide-react";
+import { Download, Search, ChevronDown, ChevronRight, X, Copy, Check, Terminal, Eye, FileCode, Link } from "lucide-react";
 import type { Finding, HttpRecord } from "../types";
 
 marked.setOptions({ breaks: false, gfm: true });
@@ -112,6 +112,15 @@ const DEFAULT_COLUMNS = new Set([
   "id", "severity", "module", "description", "confidence",
   "finding_source", "repo_name", "source_file", "matched_at", "tags",
 ]);
+
+// Stable reference so AG Grid applies it once. resizable/sortable default to true
+// in AG Grid v33, but this project never imports the legacy stylesheet and relies on
+// the v33 Theming API, so we set them explicitly to guarantee column resizing works.
+const DEFAULT_COL_DEF: ColDef<Finding> = {
+  resizable: true,
+  sortable: true,
+  minWidth: 60,
+};
 
 // Convert a raw HTTP request string to a curl command
 function rawRequestToCurl(raw: string): string {
@@ -228,6 +237,31 @@ function CopyButton({ text, label, icon: Icon }: { text: string; label: string; 
     >
       {copied ? <Check size={10} /> : <Icon size={10} />}
       {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+// Toolbar button that copies the unique URLs of the current (filtered) table, one per line.
+function CopyUrlsButton({ urls }: { urls: string[] }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    if (urls.length === 0) return;
+    navigator.clipboard.writeText(urls.join("\n")).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [urls]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      disabled={urls.length === 0}
+      className="flex items-center gap-1.5 text-xs font-sans font-semibold text-terracotta hover:text-charcoal transition-colors px-2.5 py-1.5 border border-warm-border rounded-md hover:border-terracotta/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-terracotta disabled:hover:border-warm-border"
+      title="Copy URLs of current table"
+    >
+      {copied ? <Check size={13} /> : <Link size={13} />}
+      {copied ? "Copied" : `Copy URLs (${urls.length})`}
     </button>
   );
 }
@@ -513,8 +547,12 @@ function FindingDetail({ finding }: { finding: Finding }) {
 
 export default function FindingsTable({ data, httpRecords }: Props) {
   const { theme } = useTheme();
-  const severityColors = getSeverityColors(theme);
-  const confidenceColors = getConfidenceColors(theme);
+  // Memoize the color maps so they keep a stable reference across renders. Some of
+  // these helpers (e.g. getConfidenceColors) build a fresh object on every call;
+  // without memoization that churns `columnDefs`, which makes ag-grid-react re-apply
+  // the column definitions on every render and reset user column-resizes (snap-back).
+  const severityColors = useMemo(() => getSeverityColors(theme), [theme]);
+  const confidenceColors = useMemo(() => getConfidenceColors(theme), [theme]);
 
   // Extended color palette for tags: chart colors + cyan/purple from Brogrammer palette
   const tagPalette = useMemo(() => {
@@ -532,7 +570,31 @@ export default function FindingsTable({ data, httpRecords }: Props) {
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [selectedHosts, setSelectedHosts] = useState<Set<string>>(new Set());
-  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_COLUMNS));
+  // Hide the Repository column entirely when no finding carries a repo name
+  // (e.g. pure DAST scans), so the report doesn't show an all-blank column.
+  const hasRepoData = useMemo(
+    () => data.some((f) => f.repo_name && f.repo_name.trim() !== ""),
+    [data]
+  );
+  const effectiveDefaults = useMemo(() => {
+    if (hasRepoData) return DEFAULT_COLUMNS;
+    const s = new Set(DEFAULT_COLUMNS);
+    s.delete("repo_name");
+    return s;
+  }, [hasRepoData]);
+  const columnOptions = useMemo(
+    () => (hasRepoData ? ALL_COLUMN_OPTIONS : ALL_COLUMN_OPTIONS.filter((o) => o.field !== "repo_name")),
+    [hasRepoData]
+  );
+
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
+    const hasRepo = data.some((f) => f.repo_name && f.repo_name.trim() !== "");
+    const s = new Set(DEFAULT_COLUMNS);
+    if (!hasRepo) s.delete("repo_name");
+    return s;
+  });
+  const [displayedCount, setDisplayedCount] = useState(0);
+  const [tableUrls, setTableUrls] = useState<string[]>([]);
 
   const onGridReady = useCallback((params: GridReadyEvent) => {
     setGridApi(params.api);
@@ -750,8 +812,11 @@ export default function FindingsTable({ data, httpRecords }: Props) {
   );
 
   const columnDefs = useMemo<ColDef<Finding>[]>(
-    () => allColumnDefs.filter((c) => c.colId && visibleColumns.has(c.colId)),
-    [allColumnDefs, visibleColumns]
+    () =>
+      allColumnDefs.filter(
+        (c) => c.colId && visibleColumns.has(c.colId) && (hasRepoData || c.colId !== "repo_name")
+      ),
+    [allColumnDefs, visibleColumns, hasRepoData]
   );
 
   const onSearchChange = useCallback(
@@ -777,6 +842,27 @@ export default function FindingsTable({ data, httpRecords }: Props) {
     a.click();
     URL.revokeObjectURL(url);
   }, [filteredData]);
+
+  // Visible-row count and unique URLs are derived from the grid's post-filter rows so they
+  // reflect BOTH the dropdown filters (baked into rowData) AND the search quick-filter.
+  const recomputeVisible = useCallback((api: GridApi<Finding>) => {
+    const seen = new Set<string>();
+    const urls: string[] = [];
+    let count = 0;
+    api.forEachNodeAfterFilterAndSort((node) => {
+      const f = node.data;
+      if (!f) return;
+      count++;
+      for (const u of [f.url, ...(f.matched_at ?? [])]) {
+        if (u && !seen.has(u)) {
+          seen.add(u);
+          urls.push(u);
+        }
+      }
+    });
+    setDisplayedCount(count);
+    setTableUrls(urls);
+  }, []);
 
   const onToggleHost = useCallback((host: string) => {
     setSelectedHosts((prev) => {
@@ -863,14 +949,15 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         )}
         <div className="flex-1" />
         <span className="text-xs text-text-muted font-sans">
-          {filteredData.length} of {data.length} findings
+          {displayedCount} of {data.length} findings
         </span>
         <ColumnChooser
-          allColumns={ALL_COLUMN_OPTIONS}
+          allColumns={columnOptions}
           visible={visibleColumns}
           onChange={setVisibleColumns}
-          defaults={DEFAULT_COLUMNS}
+          defaults={effectiveDefaults}
         />
+        <CopyUrlsButton urls={tableUrls} />
         <button
           onClick={onExport}
           className="flex items-center gap-1.5 text-xs font-sans font-semibold text-terracotta hover:text-charcoal transition-colors px-2.5 py-1.5 border border-warm-border rounded-md hover:border-terracotta/30"
@@ -891,7 +978,9 @@ export default function FindingsTable({ data, httpRecords }: Props) {
           <AgGridReact<Finding>
             rowData={filteredData}
             columnDefs={columnDefs}
+            defaultColDef={DEFAULT_COL_DEF}
             onGridReady={onGridReady}
+            onModelUpdated={(e) => recomputeVisible(e.api)}
             pagination={true}
             paginationPageSize={50}
             paginationPageSizeSelector={[25, 50, 100]}
@@ -907,7 +996,7 @@ export default function FindingsTable({ data, httpRecords }: Props) {
         </div>
         {selectedFinding && (
           <div className="w-1/2 overflow-y-auto border border-warm-border rounded-md">
-            <div className="flex items-center justify-between px-4 pt-3 pb-1 sticky top-0 bg-cream-dark/90 backdrop-blur-sm z-10">
+            <div className="flex items-center justify-between px-4 py-2 sticky top-0 bg-cream-dark/90 backdrop-blur-sm z-10">
               <span className="text-xs text-text-muted font-sans font-semibold uppercase tracking-wider">Finding Detail</span>
               <div className="flex items-center gap-2">
                 <CopyButton text={findingToMarkdown(selectedFinding)} label="Copy Markdown" icon={Copy} />

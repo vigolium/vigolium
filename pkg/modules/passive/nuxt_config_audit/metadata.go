@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Nuxt.js application is leaking sensitive data or insecure configuration into the page returned to the browser. This passive check inspects HTML and Nuxt JS/JSON responses and flags secrets in the embedded __NUXT__ / __NUXT_DATA__ state blob (API keys, access tokens, admin or role flags, internal private IPs, database connection strings, AWS keys), risky config flags (devtools enabled, runtimeConfig secrets exposed client-side, production source maps, debug mode), and references to /_nuxt/ source map files.
+	ModuleDesc = `**What it means:** A Nuxt.js app leaks sensitive data or insecure config into the page. This passive check flags secrets in the embedded __NUXT__ / __NUXT_DATA__ state (API keys, tokens, admin/role flags, internal IPs, database strings, AWS keys), risky config (devtools, client-exposed runtimeConfig secrets, source maps, debug mode).
 
-**How it's exploited:** Anyone who loads the page can read the disclosed values straight from the response. Leaked API keys, tokens, or database URLs can be reused directly against backend services; an exposed admin or role flag reveals account or logic details; internal IPs map the private network; and source maps reconstruct the original application source for deeper attack-surface analysis.
+**How it's exploited:** Anyone who loads the page reads the disclosed values. Leaked keys, tokens, or database URLs are reused against backends; internal IPs map the network; source maps reconstruct the original source.
 
-**Fix:** Keep secrets in server-only runtimeConfig, never in public state; disable devtools, debug, and production source maps in production builds.`
+**Fix:** Keep secrets in server-only runtimeConfig, never in public state; disable devtools, debug, and production source maps.`
 
 	ModuleConfirmation = "Confirmed when insecure configuration patterns or sensitive data are found in Nuxt state or config"
 	ModuleSeverity     = severity.Medium

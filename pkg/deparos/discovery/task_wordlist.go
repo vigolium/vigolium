@@ -260,5 +260,5 @@ func (t *WordlistTask) buildURL(word, extension []byte) string {
 		buf.WriteByte('/')
 	}
 
-	return buf.String()
+	return collapseDoubleSlashes(buf.String())
 }

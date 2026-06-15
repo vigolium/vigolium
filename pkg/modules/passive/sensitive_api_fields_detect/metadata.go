@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A JSON API response returned by the application contains field names associated with sensitive data, such as password, passwd, secret, api_key/apiKey, access_token/accessToken, private_key/privateKey, ssn, or credit_card/cardNumber. APIs often over-share by serializing entire backend objects, so these properties may be leaking credentials, secrets, or personal data (PII) to clients that should never receive them.
+	ModuleDesc = `**What it means:** A JSON API response contains field names tied to sensitive data (password, secret, api_key, access_token, private_key, ssn, credit_card). APIs often over-share by serializing whole backend objects, leaking credentials or PII to clients. Names are matched passively, so each hit needs review.
 
-**How it's exploited:** An attacker who can reach this endpoint, or who intercepts a legitimate response, harvests the exposed values directly from the JSON: stolen passwords, API keys, and access tokens enable account takeover or lateral access to other services, while SSN and credit-card fields expose users to fraud and identity theft. This is a common form of excessive data exposure / broken object property-level authorization. This module only matches field names passively and does not verify the values are populated, so each hit should be reviewed manually.
+**How it's exploited:** An attacker who reaches the endpoint or intercepts a response harvests the values: stolen keys and tokens enable account takeover, while SSN and card fields enable fraud. This is classic excessive data exposure.
 
-**Fix:** Restrict API responses to only the fields each caller is authorized to see, removing credentials, secrets, and PII from serialized output unless explicitly required.`
+**Fix:** Restrict responses to only the fields each caller is authorized to see, removing credentials and PII unless required.`
 
 	ModuleConfirmation = "Confirmed when JSON response body contains sensitive field names"
 	ModuleSeverity     = severity.Medium

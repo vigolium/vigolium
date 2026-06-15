@@ -333,7 +333,7 @@ func (e *Engine) createDirectoryTasks(parsedURL *url.URL, cleanedPath string, de
 // OnFileDiscovered handles file discovery during scan execution.
 // Creates derivation tasks (extension variants + numeric fuzzing) for discovered files.
 // Uses deduplication - returns early if file already processed.
-func (e *Engine) OnFileDiscovered(filePath string, depth uint16) error {
+func (e *Engine) OnFileDiscovered(filePath string, depth uint16, confirmExt bool) error {
 	// Early return if context cancelled (graceful shutdown)
 	if err := e.ctx.Err(); err != nil {
 		return err
@@ -409,7 +409,7 @@ func (e *Engine) OnFileDiscovered(filePath string, depth uint16) error {
 	}
 
 	// Extract and track filename/extension
-	e.extractFileMetadata(filePath, depth)
+	e.extractFileMetadata(filePath, depth, confirmExt)
 
 	// Extract breadcrumb directories (triggers recursive brute force)
 	e.processFilePathBreadcrumbs(filePath, depth)
@@ -450,17 +450,20 @@ func (e *Engine) handleFileModules(filePath string, pathBytes, filename, basePat
 	return true, nil
 }
 
-// extractFileMetadata extracts and tracks filename/extension from discovered file.
-// Discovered files are trusted sources - they are actual files found on the server.
-func (e *Engine) extractFileMetadata(filePath string, depth uint16) {
+// extractFileMetadata extracts and tracks filename/extension from a discovered
+// file. Names/paths are always harvested. The observed *extension* confirmation
+// (which triggers wordlist fuzzing) is gated on confirmExt: a non-soft-404 served
+// hit is only trusted to confirm an extension when the path was a genuine
+// application reference, not a brute-force guess. On a catch-all host a guessed
+// path returns 200 for an extension the server never runs, so confirming off it
+// is circular — see foundByConfirmsExtension.
+func (e *Engine) extractFileMetadata(filePath string, depth uint16, confirmExt bool) {
 	parsedURL, err := url.Parse(filePath)
 	if err != nil {
 		return
 	}
 
-	// Discovered files reach here only after the analyzer confirmed a genuine
-	// (non-soft-404) hit, so the observed extension confirmation is trusted.
-	meta := e.applyFileMetadata(parsedURL.Path, depth, true)
+	meta := e.applyFileMetadata(parsedURL.Path, depth, confirmExt)
 
 	if meta.Name != "" {
 		logger.Debug("Added observed name from file discovery",

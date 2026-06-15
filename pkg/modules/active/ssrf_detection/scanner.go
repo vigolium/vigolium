@@ -219,7 +219,15 @@ func (m *Module) ScanPerInsertionPoint(
 		// payload's "hostname" marker matched `window.location.hostname` inside a Ping
 		// SSO error page's <script> on a 400 "Invalid redirect_uri" response. The
 		// localhost family (whose genuine response IS html) keeps the High default.
-		sev, conf := severity.High, severity.Firm
+		//
+		// Confidence ceiling: this module confirms entirely IN-BAND (it never has an
+		// out-of-band oracle), and an in-band marker — however well controlled — can
+		// only ever be Tentative. A firm SSRF requires an OAST callback proving the
+		// server actually reached the attacker-named host; that proof lives in the
+		// OAST-driven modules (ssrf-blind, routing-ssrf, …), which report Certain.
+		// So the strongest this module emits is High/Tentative; gradeStructuredEvidence
+		// likewise tops out at Tentative.
+		sev, conf := severity.High, severity.Tentative
 		suspectReason := ""
 		if !htmlPagePayload(p) {
 			sev, conf, suspectReason = gradeStructuredEvidence(primary, all, resp)
@@ -264,11 +272,29 @@ func (m *Module) ScanPerInsertionPoint(
 // when the payload request is re-sent (reproducible — not per-request noise) and
 // (2) be ABSENT from a fresh fetch of the ORIGINAL value (the control — so a
 // marker the live page always carries, regardless of the payload, is rejected
-// even when the captured baseline happened to miss it). Fails open on a
-// transport error so a transient failure never suppresses a true positive, but
-// drops the finding when either re-fetch returns a WAF/rate-limit page: such a
-// page is noise, not a reproduced SSRF response, and can't serve as a clean
-// control — emitting under those conditions is how rate-limit pages got reported.
+// even when the captured baseline happened to miss it). It drops the finding when
+// any re-fetch returns a WAF/rate-limit page: such a page is noise, not a
+// reproduced SSRF response, and can't serve as a clean control.
+//
+// For a GENERIC page-shape marker it adds two further checks beyond mere token
+// presence (the substring match a bare `<!DOCTYPE` would rely on): a benign
+// dead-host (TEST-NET 192.0.2.1) probe must NOT carry the same token, AND the
+// payload body must differ SUBSTANTIALLY from that dead-host body. The latter
+// (the differential) is the load-bearing one: it proves the server's response
+// genuinely changed with the target instead of returning a fixed page for every
+// absolute URL — which is what a generic substring match alone can never show.
+//
+// Fail-open vs fail-closed turns on marker strength. A self-evidencing marker
+// (`root:`, `ami-id`, `+PONG`, …) is itself strong evidence, so a transient
+// transport error on a control must not suppress that true positive — it fails
+// OPEN. A GENERIC page-shape marker (`<html`, `<!DOCTYPE`, `localhost`) carries no
+// specificity of its own: the entire case for SSRF rests on the negative controls
+// proving the page differs for an internal vs. a benign URL. If those controls
+// cannot be established (transport error, or a WAF/block page), there is no
+// evidence left, so a generic marker fails CLOSED. This is the fix for the
+// /Error.aspx false positive: a flaky host errored on both control fetches, they
+// failed open under the old logic, and a static `<!DOCTYPE` error page that merely
+// reproduced once was reported as IPv6-loopback SSRF.
 func (m *Module) confirmSSRFMarker(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
@@ -278,11 +304,14 @@ func (m *Module) confirmSSRFMarker(
 	ev *modkit.EvidenceCollector,
 ) bool {
 	markerLower := strings.ToLower(marker)
+	generic := isGenericMarker(marker)
 
 	// (1) Reproducible under the payload, on a genuine (non-blocked) response.
 	body, blocked, ok := m.fetchBody(ctx, httpClient, payloadRaw, ev, "confirm round 1")
 	if !ok {
-		return true
+		// A generic marker has nothing going for it but the controls below; if we
+		// can't even reproduce the payload, drop it. A specific marker fails open.
+		return !generic
 	}
 	if blocked {
 		return false
@@ -300,11 +329,31 @@ func (m *Module) confirmSSRFMarker(
 	// not SSRF. This is what separates a real loopback proxy from the Cloudflare
 	// "Invalid redirect URL" class of page, which rejects 127.0.0.1 and 192.0.2.1
 	// the same way. Specific markers (`root:`, `ami-id`, …) are self-evidencing and
-	// skip this control. Fails open on a transport error or a blocked control page.
-	if isGenericMarker(marker) {
+	// skip this control. This control is MANDATORY for a generic marker: if it
+	// cannot be run (transport error) or returns a block page, the generic hit is
+	// unconfirmed and must be dropped — failing open here is what let the flaky
+	// /Error.aspx host through.
+	if generic {
 		siblingRaw := ip.BuildRequest([]byte(benignSiblingURL))
 		siblingBody, siblingBlocked, ok := m.fetchBody(ctx, httpClient, siblingRaw, ev, "non-internal control")
-		if ok && !siblingBlocked && strings.Contains(strings.ToLower(siblingBody), markerLower) {
+		if !ok || siblingBlocked {
+			return false
+		}
+		if strings.Contains(strings.ToLower(siblingBody), markerLower) {
+			return false
+		}
+		// Differential gate — the validation that goes beyond "is the token present".
+		// A genuine loopback fetch returns DIFFERENT content for an internal target
+		// than for a dead external host: 127.0.0.1 serves a real page, 192.0.2.1
+		// times out. So the payload body must differ SUBSTANTIALLY from the dead-host
+		// body. If the two are the same page (BodiesSimilar — token-similarity ≥0.95,
+		// tolerant of per-request noise), the server returns a fixed response for any
+		// absolute URL — its own status/error/SPA template that merely echoes the
+		// host word — and the generic marker is that template, not a fetched resource.
+		// This catches the FP the token-absence check above cannot: the dead-host page
+		// lacks the one matched token (e.g. it says "192.0.2.1" where the probe says
+		// "localhost") yet is otherwise byte-for-byte the same canned page.
+		if modkit.BodiesSimilar(body, siblingBody) {
 			return false
 		}
 	}
@@ -313,7 +362,10 @@ func (m *Module) confirmSSRFMarker(
 	controlRaw := ip.BuildRequest([]byte(ip.BaseValue()))
 	controlBody, controlBlocked, ok := m.fetchBody(ctx, httpClient, controlRaw, ev, "control")
 	if !ok {
-		return true
+		// Fail open for a self-evidencing marker (a transient error must not bury a
+		// true positive); fail closed for a generic marker, which depends on this
+		// control to prove the marker is not part of the app's own baseline page.
+		return !generic
 	}
 	if controlBlocked {
 		return false
@@ -520,8 +572,10 @@ func isHTMLResponse(resp *httputil.ResponseChain) bool {
 // only Suspect-grade. A genuinely proxied fetch returns internal data (plain text
 // or JSON) on a 2xx; anything short of that — a rejection/redirect/error status,
 // a marker buried in an HTML document, or a lone common-word field token with no
-// distinctive marker beside it — is downgraded from a firm High to a Suspect lead
-// for manual review rather than reported as a confirmed vulnerability.
+// distinctive marker beside it — is downgraded to a Suspect lead for manual review
+// rather than reported as a likely vulnerability. The strongest grade it returns
+// is High/Tentative: this is an in-band oracle and never reaches Firm — only an
+// OAST callback warrants that (see the OAST-driven SSRF modules).
 func gradeStructuredEvidence(primary string, matched []string, resp *httputil.ResponseChain) (severity.Severity, severity.Confidence, string) {
 	if !isSuccessStatus(resp) {
 		status := 0
@@ -536,5 +590,5 @@ func gradeStructuredEvidence(primary string, matched []string, resp *httputil.Re
 	if isWeakMarker(primary) && !hasStrongMarker(matched) {
 		return severity.Suspect, severity.Tentative, "only a generic field-name token matched, with no distinctive marker to corroborate it"
 	}
-	return severity.High, severity.Firm, ""
+	return severity.High, severity.Tentative, ""
 }

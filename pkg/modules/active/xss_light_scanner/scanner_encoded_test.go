@@ -9,6 +9,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
 // decodingReflectHandler simulates an application that performs one extra
@@ -34,7 +35,12 @@ func TestEncodedScanner_DetectsExtraDecode(t *testing.T) {
 	client := modtest.Requester(t)
 	rr := modtest.Request(t, srv.URL+"/?q=hello")
 
-	res, err := NewEncodedScanner().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	// The confirm step re-sends the executable payload through the same encoding;
+	// executingProbe stands in for a browser that pops alert(marker).
+	mod := NewEncodedScanner()
+	mod.base.Probe = executingProbe
+
+	res, err := mod.ScanPerRequest(rr, client, &modkit.ScanContext{})
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -47,6 +53,11 @@ func TestEncodedScanner_DetectsExtraDecode(t *testing.T) {
 	if !strings.Contains(res[0].Info.Description, "[encoded:") {
 		t.Fatalf("finding should note the encoding used: %q", res[0].Info.Description)
 	}
+	// The encoding-aware confirm must reach the browser tier: the executable
+	// payload survives the app's extra decode and pops.
+	if res[0].Info.Severity != severity.High || res[0].Info.Confidence != severity.Certain {
+		t.Fatalf("expected browser-confirmed High/Certain, got %s/%s", res[0].Info.Severity, res[0].Info.Confidence)
+	}
 }
 
 func TestEncodedScanner_NoFindingWhenNotDecoded(t *testing.T) {
@@ -58,7 +69,10 @@ func TestEncodedScanner_NoFindingWhenNotDecoded(t *testing.T) {
 	client := modtest.Requester(t)
 	rr := modtest.Request(t, srv.URL+"/?q=hello")
 
-	res, err := NewEncodedScanner().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	mod := NewEncodedScanner()
+	mod.base.Probe = executingProbe
+
+	res, err := mod.ScanPerRequest(rr, client, &modkit.ScanContext{})
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}

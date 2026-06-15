@@ -49,11 +49,11 @@ var tokenPatterns = []tokenPattern{
 		// read is bounded to a short, statement-local window ([^;\n]{0,40}).
 		// Minified bundles are a single line, so an unbounded `.*` would stitch
 		// an unrelated `localStorage.getItem('theme')` to a stray `Bearer`
-		// literal hundreds of chars away and emit a false High; the bound keeps
-		// the two within one expression/statement.
+		// literal hundreds of chars away and emit a false positive; the bound
+		// keeps the two within one expression/statement.
 		name:     "localStorage token used in Authorization header",
 		pattern:  regexp.MustCompile(`(?:Authorization|Bearer)[^;\n]{0,40}localStorage\.getItem|localStorage\.getItem[^;\n]{0,40}(?:Authorization|Bearer)`),
-		severity: severity.High,
+		severity: severity.Medium,
 		cwe:      "CWE-922",
 	},
 }
@@ -109,6 +109,12 @@ func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
 // ScanPerRequest scans response body for insecure token storage patterns.
 func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	if !ctx.HasResponse() {
+		return nil, nil
+	}
+
+	// A WAF/CDN edge block served with a JS content type is the edge talking,
+	// not the application's bundle — any storage pattern in it is noise.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
 		return nil, nil
 	}
 

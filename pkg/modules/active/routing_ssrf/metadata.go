@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A reverse proxy, load balancer, or TLS terminator in front of this site routes requests based on the HTTP request line rather than the validated Host header, so an attacker can make the proxy connect to a backend of their choosing. This is a routing-based Server-Side Request Forgery (SSRF) flaw that lets an external attacker pivot through the trusted proxy into internal networks.
+	ModuleDesc = `**What it means:** A reverse proxy or load balancer routes by the HTTP request line rather than the validated Host header, so an attacker can make it connect to a backend of their choosing - a routing-based SSRF that pivots into internal networks.
 
-**How it's exploited:** The attacker sends a request whose request line names an attacker-chosen target in absolute form (GET http://internal/), userinfo form (GET @attacker/), or protocol-relative form (GET //attacker/), while keeping a valid Host header. The proxy fetches that target, reaching internal services or cloud metadata endpoints (AWS/GCP/Azure/etc.) to steal credentials, instance data, or unexposed admin interfaces. The scanner confirms this via an out-of-band callback, or an internal marker that reproduces and is absent for a baseline and a decoy.
+**How it's exploited:** The attacker names an arbitrary target in the request line (absolute, userinfo, or protocol-relative form) while keeping a valid Host header. The proxy fetches it, reaching internal services or cloud metadata to steal credentials. Confirmed by out-of-band callback.
 
-**Fix:** Configure the proxy to route strictly on the validated Host header and reject request lines that name an arbitrary external or absolute target.`
+**Fix:** Route strictly on the validated Host header and reject request lines naming an absolute target.`
 
 	ModuleConfirmation = "OAST oracle: confirmed by an out-of-band callback from the proxy (Certain). In-band oracle (Tentative): reported only when a plain (non-HTML) metadata body carries several distinct self-evidencing tokens together, the cluster reproduces, is absent from the original-request baseline, and is absent for a benign decoy target."
 	ModuleSeverity     = severity.High

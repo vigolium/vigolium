@@ -57,6 +57,19 @@ func (a *Analyzer) Analyze(ctx context.Context, req *nethttp.Request, rc *respon
 		return false, nil
 	}
 
-	// STEP 3: Everything else = resource exists
+	// STEP 3: Request-shape rejections are not discovered resources. A 400 (e.g.
+	// the Jetty/nginx "Ambiguous URI empty segment" page a stray // triggers), 414
+	// (URI too long), 421 (misdirected request) or 431 (request headers too large)
+	// means the origin refused to route the request by its shape — not that a file
+	// exists there. These pages commonly echo the requested URI into the body, so
+	// every probed variant would otherwise land as a distinct "discovered" record.
+	// (405 Method Not Allowed is deliberately NOT gated: it means the path exists
+	// but rejects the method, which is a real discovery signal.)
+	switch rc.Response().StatusCode {
+	case 400, 414, 421, 431:
+		return false, nil
+	}
+
+	// STEP 4: Everything else = resource exists
 	return true, nil
 }

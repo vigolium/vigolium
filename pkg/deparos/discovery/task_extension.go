@@ -163,7 +163,7 @@ func (e *ExtensionVariantTask) buildURL(variant []byte) string {
 	buf.WriteByte('.')
 	buf.Write(variant)
 
-	return buf.String()
+	return collapseDoubleSlashes(buf.String())
 }
 
 // ShouldCreateVariantTask determines if an extension variant task should be created.

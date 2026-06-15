@@ -151,8 +151,92 @@ func (c *Capture) subscribeEvents(browser *rod.Browser) {
 			c.onLoadingFailed(e)
 			return c.isStopped()
 		},
+		// Service-worker targets run in their own CDP session, so their traffic —
+		// e.g. a PWA service worker's install-time precache — is invisible to the
+		// page-level Network domain. When Chrome auto-attaches one (see
+		// enableServiceWorkerCapture below), enable Network on its session so those
+		// requests flow through the same Network callbacks above and are captured
+		// like page traffic.
+		func(e *proto.TargetAttachedToTarget) bool {
+			c.onWorkerAttached(browser, e)
+			return c.isStopped()
+		},
 	)
+	// Register the callbacks above FIRST, then turn on worker auto-attach, so no
+	// attach event can race ahead of the handler.
+	c.enableServiceWorkerCapture(browser)
 	wait() // Blocks until callback returns true or browser closes
+}
+
+// enableServiceWorkerCapture turns on CDP auto-attach for service-worker targets
+// so the browser captures their network traffic natively — the browser-native
+// counterpart to the in-page service-worker priming. A service worker runs in a
+// separate target/session, so the page-level Network domain never sees the
+// requests it makes (its precache fetches); attaching to the worker's own session
+// and enabling Network there does. Notes:
+//   - Flatten delivers the worker's events over the same connection EachEvent
+//     already listens on, tagged with the worker's sessionID — so the existing
+//     Network callbacks handle them unchanged.
+//   - The filter is restricted to service workers, so rod's page/tab management
+//     (which uses target discovery, not browser-level auto-attach) is untouched.
+//   - WaitForDebuggerOnStart pauses each worker until onWorkerAttached has enabled
+//     Network on it, so its very first precache requests are not missed.
+//
+// Best-effort: a setup error is logged at debug and the crawl continues (the
+// in-page priming still follows declared assets).
+func (c *Capture) enableServiceWorkerCapture(browser *rod.Browser) {
+	if err := serviceWorkerAutoAttachConfig().Call(browser); err != nil {
+		zap.L().Debug("Service-worker network capture: auto-attach setup failed", zap.Error(err))
+		return
+	}
+	zap.L().Debug("Service-worker network capture enabled (auto-attach)")
+}
+
+// serviceWorkerAutoAttachConfig is the CDP auto-attach request that drives
+// service-worker network capture. Extracted as a pure value so its invariants can
+// be unit-tested without a browser. It MUST stay scoped to service workers only:
+// a broader filter (pages/tabs) would have rod's own target management and this
+// auto-attach both managing the same sessions, risking stuck/paused sessions and
+// browsers that don't get reaped. The trailing {Exclude:true} entry is the
+// catch-all that drops every non-service-worker target.
+func serviceWorkerAutoAttachConfig() proto.TargetSetAutoAttach {
+	return proto.TargetSetAutoAttach{
+		AutoAttach:             true,
+		WaitForDebuggerOnStart: true,
+		Flatten:                true,
+		Filter: proto.TargetTargetFilter{
+			{Type: string(proto.TargetTargetInfoTypeServiceWorker)},
+			{Exclude: true}, // service workers only; exclude pages/tabs/other workers
+		},
+	}
+}
+
+// onWorkerAttached enables the Network domain on a freshly auto-attached
+// service-worker session and releases the worker from its start-up pause, so the
+// worker's fetches (its precache) are recorded. The CDP round-trips run on a
+// goroutine so they never block the shared event loop; Network is enabled before
+// the worker is resumed so no early request is missed. Best-effort — any error is
+// logged at debug and the crawl continues.
+func (c *Capture) onWorkerAttached(browser *rod.Browser, e *proto.TargetAttachedToTarget) {
+	if browser == nil || e == nil || e.TargetInfo == nil {
+		return
+	}
+	sid := e.SessionID
+	url := e.TargetInfo.URL
+	wtype := string(e.TargetInfo.Type)
+	waiting := e.WaitingForDebugger
+	go func() {
+		browser.EnableDomain(sid, proto.NetworkEnable{})
+		if waiting {
+			req := proto.RuntimeRunIfWaitingForDebugger{}
+			if _, err := browser.Call(browser.GetContext(), string(sid), req.ProtoReq(), req); err != nil {
+				zap.L().Debug("Service-worker capture: runIfWaitingForDebugger failed",
+					zap.String("url", url), zap.Error(err))
+			}
+		}
+		zap.L().Debug("Captured service-worker target network",
+			zap.String("type", wtype), zap.String("url", url))
+	}()
 }
 
 // isStopped checks if capture has been stopped.
@@ -197,7 +281,32 @@ func (c *Capture) onRequestWillBeSent(e *proto.NetworkRequestWillBeSent, session
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
+
+	// A 3xx redirect reuses the same RequestID: CDP fires another requestWillBeSent
+	// for the redirect TARGET, carrying the previous hop's response in
+	// RedirectResponse. Without handling it, the pending entry for that hop is
+	// overwritten below and the intermediate URL is lost — exactly the URLs an SSO
+	// chain is made of (an OAuth /oauth2/authorize, a SAML /idp/endpoint/HttpRedirect)
+	// that only ever appear as a redirect. Finalize the hop with its redirect
+	// response and emit it so every step of the chain is recorded.
+	var redirectEntry *TrafficEntry
+	if e.RedirectResponse != nil {
+		if prev, ok := c.pending[e.RequestID]; ok {
+			delete(c.pending, e.RequestID)
+			prev.entry.Response = &ResponseData{
+				Status:  e.RedirectResponse.Status,
+				Headers: convertHeaders(e.RedirectResponse.Headers),
+			}
+			computeHTTPXFields(prev.entry)
+			if !c.includeResponseBody {
+				prev.entry.Response.Body = nil
+			}
+			if !c.includeResponseHeaders {
+				prev.entry.Response.Headers = nil
+			}
+			redirectEntry = prev.entry
+		}
+	}
 
 	headers := convertHeaders(e.Request.Headers)
 
@@ -216,6 +325,14 @@ func (c *Capture) onRequestWillBeSent(e *proto.NetworkRequestWillBeSent, session
 		entry:     entry,
 		startTime: time.Now(),
 		sessionID: sessionID,
+	}
+
+	c.mu.Unlock()
+
+	// writeEntry takes the lock itself, so emit the finalized redirect hop after
+	// releasing it.
+	if redirectEntry != nil {
+		c.writeEntry(redirectEntry)
 	}
 
 	zap.L().Debug("Network request captured",
@@ -480,9 +597,86 @@ func (c *Capture) shouldLogEntry(entry *TrafficEntry) bool {
 	return true
 }
 
+// catchAllAssetExtensions are URL path suffixes whose response must be JavaScript
+// or JSON to be a real asset. A service worker, framework bundle, or web-app
+// manifest is never legitimately served as text/html — the browser refuses to
+// register a worker or parse a manifest delivered as HTML — so an HTML body on
+// one of these paths is a SPA/PWA catch-all soft-404 (the index shell returned
+// for an unknown route), not an endpoint.
+var catchAllAssetExtensions = []string{".js", ".mjs", ".json", ".webmanifest"}
+
+// isCatchAllAssetShell reports whether entry is a catch-all soft-404: a 2xx
+// response on a JS/JSON asset path (see catchAllAssetExtensions) whose body came
+// back as text/html. A worker/bundle/manifest is never legitimately served as
+// HTML, so an HTML body on such a path is the SPA index shell a catch-all host
+// returns for an unknown route — whatever requested it (a framework runtime, a
+// service worker, or a discovery-queued asset fetch that flows through the
+// browser). The dedup hash keys on the URL path, so without this guard each
+// distinct such path persists as its own record and feeds dynamic-assessment a
+// per-path copy of the home page.
+//
+// Called on the hot capture path (every entry), so it is ordered cheapest-first:
+// a raw string suffix test rejects all non-asset traffic before any URL parse or
+// content-type work, and it never re-parses the URL that computeHash parses on
+// the kept path.
+func isCatchAllAssetShell(entry *TrafficEntry) bool {
+	if entry == nil || entry.Response == nil {
+		return false
+	}
+	// Most selective check first: only JS/JSON asset paths can be a shell. Strip
+	// any query/fragment, then suffix-match the lowercased tail — no URL parse.
+	tail := entry.Request.URL
+	if i := strings.IndexAny(tail, "?#"); i >= 0 {
+		tail = tail[:i]
+	}
+	tail = strings.ToLower(tail)
+	isAsset := false
+	for _, ext := range catchAllAssetExtensions {
+		if strings.HasSuffix(tail, ext) {
+			isAsset = true
+			break
+		}
+	}
+	if !isAsset {
+		return false
+	}
+	// Only a 2xx body can masquerade as a served asset.
+	if entry.Response.Status < 200 || entry.Response.Status >= 300 {
+		return false
+	}
+	// A real asset is served as JS/JSON; an HTML body on an asset path is the shell.
+	// Prefer the precomputed httpx field, falling back to the header map for entries
+	// written without computeHTTPXFields (direct writes / the load-failed path).
+	ct := strings.ToLower(entry.ContentType)
+	if ct == "" {
+		if v, ok := entry.Response.Headers["content-type"]; ok {
+			ct = strings.ToLower(v)
+		} else if v, ok := entry.Response.Headers["Content-Type"]; ok {
+			ct = strings.ToLower(v)
+		}
+	}
+	return strings.Contains(ct, "text/html")
+}
+
 // writeEntry writes a traffic entry via the Writer interface and prints log to stderr.
 // Skips writing to file if hash already exists (deduplication).
 func (c *Capture) writeEntry(entry *TrafficEntry) {
+	// Drop catch-all soft-404 asset shells: JS/JSON asset paths that come back as
+	// the SPA index.html (a catch-all host serving its shell for unknown routes).
+	// They are not real endpoints, so keep them out of the DB (and thus out of
+	// dynamic-assessment); a distinct path per shell otherwise defeats the
+	// body-blind dedup hash. Still surfaced on the console under verbose for
+	// debugging.
+	if isCatchAllAssetShell(entry) {
+		if !c.silent && c.verbose {
+			printLog(entry, c.noColor, c.phaseTag)
+		}
+		zap.L().Debug("Dropping catch-all soft-404 asset shell",
+			zap.String("url", entry.Request.URL),
+			zap.String("content_type", entry.ContentType))
+		return
+	}
+
 	entry.Hash = computeHash(entry)
 	entry.TargetHost = c.targetHostValue()
 

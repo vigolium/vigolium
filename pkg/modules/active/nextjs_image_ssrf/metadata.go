@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The Next.js image optimization endpoint (/_next/image) accepts a url parameter and fetches that URL server-side, and this target does so without restricting it to safe destinations. That is a Server-Side Request Forgery (SSRF) flaw: the application can be coerced into making requests to hosts the attacker chooses, including internal-only systems the attacker cannot reach directly.
+	ModuleDesc = `**What it means:** The Next.js image optimizer (/_next/image) fetches its url parameter server-side without restricting destinations - an SSRF flaw letting the app be coerced into requesting attacker-chosen hosts, including unreachable internal systems.
 
-**How it's exploited:** An attacker requests /_next/image with a url pointing at an internal address, such as cloud metadata services (AWS 169.254.169.254, GCP metadata.google.internal, Azure) or localhost, and the server fetches it and returns the contents. The scanner confirms this either out-of-band via an OAST callback or in-band by matching metadata or localhost response markers in the optimizer output. Successful access to cloud metadata can leak temporary credentials and instance secrets, and internal addressing can be used to reach and probe otherwise-unexposed internal services.
+**How it's exploited:** An attacker points url at an internal address such as cloud metadata (AWS 169.254.169.254, GCP metadata.google.internal) or localhost; the server fetches and returns it. This can leak temporary credentials and instance secrets and probe internal services.
 
-**Fix:** Restrict the image optimizer to an allowlist of trusted external image domains (the images.domains / remotePatterns config) and block requests to internal, private, and link-local addresses.`
+**Fix:** Restrict the optimizer to an allowlist of trusted external image domains (images.domains / remotePatterns) and block internal, private, and link-local addresses.`
 
 	ModuleConfirmation = "Confirmed when the image optimizer fetches an attacker-controlled or internal URL"
 	ModuleSeverity     = severity.High

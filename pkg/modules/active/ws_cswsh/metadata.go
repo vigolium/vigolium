@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A WebSocket endpoint completed a genuine upgrade handshake (101 Switching Protocols with Upgrade: websocket and Sec-WebSocket-Accept) when the request carried an attacker-controlled, null, spoofed-subdomain, or entirely missing Origin header. The server does not validate where WebSocket connections originate, exposing it to Cross-Site WebSocket Hijacking (CSWSH). Because WebSocket handshakes ride on the victim's cookies but are not protected by the same-origin policy or CSRF tokens, this is effectively CSRF for the WebSocket channel.
+	ModuleDesc = `**What it means:** A WebSocket endpoint completed a genuine upgrade handshake (101 Switching Protocols, Sec-WebSocket-Accept) with an attacker-controlled, null, or missing Origin. The server does not validate connection origin, exposing it to Cross-Site WebSocket Hijacking (CSWSH) - effectively CSRF for the WebSocket channel.
 
-**How it's exploited:** An attacker hosts a malicious page that, when a logged-in victim visits it, silently opens a WebSocket back to the vulnerable endpoint. The victim's browser attaches their session cookies, so the connection is authenticated as the victim; the attacker's script can then read pushed data and send messages over that channel, leading to data theft or actions performed as the victim.
+**How it's exploited:** A malicious page, visited by a logged-in victim, silently opens a WebSocket to the endpoint. The browser attaches the victim's cookies, so the connection is authenticated as the victim and the script acts as them.
 
-**Fix:** Validate the Origin header against an allowlist of trusted origins during the WebSocket handshake and reject mismatched, null, or absent origins, and bind handshakes to a CSRF token.`
+**Fix:** Validate the Origin header against an allowlist, reject mismatched/null/absent origins, and bind handshakes to a CSRF token.`
 
 	ModuleConfirmation = "Confirmed when a WebSocket upgrade succeeds with a malicious, null, subdomain, or missing Origin header"
 	ModuleSeverity     = severity.Medium

@@ -10,6 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
@@ -136,7 +137,11 @@ func (m *Module) ScanPerRequest(
 		}
 		fuzzedReq = fuzzedReq.WithService(ctx.Service())
 
-		resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+		// NoRedirects: the host-injection sink we care about is the IMMEDIATE
+		// response (a reflected Location header is the password-reset/cache-poisoning
+		// signal). Following the 3xx would consume that Location and chase the
+		// injected host off-target.
+		resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true})
 		if err != nil {
 			continue
 		}
@@ -149,26 +154,42 @@ func (m *Module) ScanPerRequest(
 			continue
 		}
 
-		// Check if evil host is reflected in response body
+		// Check if the injected host is reflected in the response body or headers.
 		body := resp.Body().String()
 		headers := resp.Headers().String()
 
-		reflected := false
+		reflectedInHeader := strings.Contains(headers, evilHost)
+		reflectedInBody := strings.Contains(body, evilHost)
+
 		var location string
-
-		if strings.Contains(body, evilHost) {
-			reflected = true
+		if reflectedInHeader && resp.Response() != nil {
+			location = resp.Response().Header.Get("Location")
 		}
 
-		// Check Location header for host reflection (password reset poisoning)
-		if strings.Contains(headers, evilHost) {
-			reflected = true
-			if resp.Response() != nil {
-				location = resp.Response().Header.Get("Location")
+		if reflectedInHeader || reflectedInBody {
+			// Re-confirm the reflection is genuine and header-attributable, not a
+			// coincidental static string, a cached/volatile page, or a catch-all that
+			// serves the same body with or without our header: re-send the SAME header
+			// with a FRESH random canary host each round and require the canary to
+			// reflect every round. A fresh canary is by construction absent from the
+			// no-header baseline, so a value that tracks our input proves the app
+			// trusts the client host; one that doesn't (an identical body each time)
+			// is dropped. Fails OPEN only on a transport error so a transient failure
+			// never suppresses a genuine finding.
+			if confirmed, cerr := m.confirmHostReflection(ctx, httpClient, probe.headerName, probe.value); cerr == nil && !confirmed {
+				resp.Close()
+				continue
 			}
-		}
 
-		if reflected {
+			// A reflection into a response header / Location is the URL-generation
+			// sink that enables password-reset poisoning and cache poisoning — report
+			// it Firm. A body-only echo is a weaker signal (the value may never reach a
+			// generated link or redirect), so it ships as Tentative.
+			findingConfidence := severity.Tentative
+			if reflectedInHeader {
+				findingConfidence = severity.Firm
+			}
+
 			extracted := []string{
 				fmt.Sprintf("Header: %s: %s", probe.headerName, value),
 			}
@@ -184,6 +205,7 @@ func (m *Module) ScanPerRequest(
 				Info: output.Info{
 					Name:        fmt.Sprintf("Host Header Injection: %s", probe.headerName),
 					Description: probe.desc,
+					Confidence:  findingConfidence,
 				},
 			})
 			resp.Close()
@@ -193,4 +215,50 @@ func (m *Module) ScanPerRequest(
 	}
 
 	return results, nil
+}
+
+// confirmHostReflection re-sends headerName with a FRESH random canary host each
+// round (mirroring the probe's value template) and requires the canary to reflect
+// in the response every round. Because each canary is unique and absent from the
+// no-header baseline, a reflection that reproduces proves the app echoes the
+// client-supplied host; a fixed string, a cached page, or a catch-all that serves
+// an identical body regardless of the header does not track the canary and is
+// dropped. A blocked/challenge page is never counted as a reflection. Returns
+// (confirmed, err); err != nil signals a transport failure so the caller can fail
+// open rather than suppress a genuine finding.
+func (m *Module) confirmHostReflection(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	headerName, probeValue string,
+) (bool, error) {
+	return modkit.ConfirmReflection(2, func(canary string) (bool, error) {
+		canaryHost := canary + ".vgn-hhi.example"
+		value := canaryHost
+		if probeValue != "" {
+			// Probes with a structured value (e.g. Forwarded: host=<h>) keep their
+			// shape with the fresh canary swapped in for the sentinel host.
+			value = strings.ReplaceAll(probeValue, evilHost, canaryHost)
+		}
+		raw, err := httpmsg.AddOrReplaceHeader(ctx.Request().Raw(), headerName, value)
+		if err != nil {
+			return false, err
+		}
+		req, err := httpmsg.ParseRawRequest(string(raw))
+		if err != nil {
+			return false, err
+		}
+		req = req.WithService(ctx.Service())
+		resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true, NoRedirects: true})
+		if err != nil {
+			return false, err
+		}
+		defer resp.Close()
+		if resp.Response() == nil {
+			return false, fmt.Errorf("host-header confirmation: nil response")
+		}
+		if infra.IsBlockedResponse(resp) {
+			return false, nil // a WAF/challenge page is not a host reflection
+		}
+		return strings.Contains(resp.FullResponseString(), canaryHost), nil
+	})
 }

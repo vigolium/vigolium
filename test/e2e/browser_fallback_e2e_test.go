@@ -194,6 +194,25 @@ func crossPlatformAvailable(t *testing.T) bool {
 	return false
 }
 
+// requireCfTPlatform guards the amd64-only Chrome for Testing tests. CfT
+// publishes no linux/arm64 build, so these tests pin linux/amd64; on a non-amd64
+// host that means running the image under QEMU emulation, which compiles the
+// whole binary in an emulated builder stage and routinely overruns the e2e time
+// budget. On a native amd64 host the tests run as normal; on any other host they
+// skip unless cross-arch emulation is explicitly opted into — mirroring the
+// VIGOLIUM_E2E_CROSS_ARCH convention used by TestBrowserFallback_SystemChromium.
+func requireCfTPlatform(t *testing.T) {
+	t.Helper()
+	if runtime.GOARCH == "amd64" {
+		return
+	}
+	if os.Getenv("VIGOLIUM_E2E_CROSS_ARCH") == "1" && crossPlatformAvailable(t) {
+		t.Logf("running amd64-only CfT test under emulation on %s host (VIGOLIUM_E2E_CROSS_ARCH=1); this is slow", runtime.GOARCH)
+		return
+	}
+	t.Skipf("CfT tests pin linux/amd64 (no arm64 CfT build); skipping on %s host — set VIGOLIUM_E2E_CROSS_ARCH=1 to run under emulation", runtime.GOARCH)
+}
+
 // findRepoRoot walks up from the working directory to find the repo root
 // (the directory containing go.mod).
 func findRepoRoot(t *testing.T) string {
@@ -285,6 +304,7 @@ func TestCfTDownload_Doctor(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping CfT download e2e test in short mode")
 	}
+	requireCfTPlatform(t)
 
 	repoRoot := findRepoRoot(t)
 	platform := "linux/amd64"
@@ -324,6 +344,7 @@ func TestCfTDownload_Spidering(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping CfT spidering e2e test in short mode")
 	}
+	requireCfTPlatform(t)
 
 	repoRoot := findRepoRoot(t)
 	platform := "linux/amd64"
@@ -401,6 +422,7 @@ func TestCfTDownload_SpideringAutoDownload(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping CfT auto-download e2e test in short mode")
 	}
+	requireCfTPlatform(t)
 
 	repoRoot := findRepoRoot(t)
 	platform := "linux/amd64"

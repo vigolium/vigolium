@@ -27,6 +27,18 @@ func validateModuleID(id string) {
 // the Prioritized interface. Lower values = higher priority.
 const DefaultModulePriority = 100
 
+// CapSeverity returns s clamped to at most max (severity is an ordered int, so
+// Critical/High collapse to a Medium ceiling while anything already at or below
+// max passes through unchanged). It is the shared knob the heuristic, FP-prone
+// path-probe families use to report at a fixed ceiling regardless of how
+// sensitive the underlying artifact would be if the match were genuine.
+func CapSeverity(s, max severity.Severity) severity.Severity {
+	if s > max {
+		return max
+	}
+	return s
+}
+
 // BaseModule provides default implementations for common Module methods.
 type BaseModule struct {
 	ModuleID           string

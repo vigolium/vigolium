@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A reachable GraphQL endpoint was found and exhibits one or more security weaknesses: introspection is enabled (the full API schema with every type, field, and argument is exposed), a field argument leaks database error messages indicating SQL injection, or the endpoint accepts batched queries (array-style or alias-style). Each weakness is reported as its own finding, and together they widen the attack surface of the API.
+	ModuleDesc = `**What it means:** A reachable GraphQL endpoint shows one or more weaknesses: introspection is enabled (the full schema is exposed), a field argument leaks database errors indicating SQL injection, or the endpoint accepts batched queries.
 
-**How it's exploited:** With introspection on, an attacker maps the entire schema to discover hidden mutations and sensitive fields, then targets them directly. An injectable argument lets an attacker read or alter database contents through crafted SQL. Query batching lets an attacker pack many operations into a single HTTP request to bypass rate limiting and brute-force or amplify denial-of-service attempts.
+**How it's exploited:** Introspection maps the schema to reveal hidden mutations and sensitive fields. An injectable argument reads or alters data via crafted SQL. Batching packs many operations into one request to bypass rate limiting and amplify denial-of-service.
 
-**Fix:** Disable introspection in production, use parameterized queries or an ORM for all resolver data access, and cap or disable query batching while enforcing per-operation rate limits and query depth/complexity limits.`
+**Fix:** Disable introspection in production, use parameterized queries in resolvers, and cap batching while enforcing rate limits and query depth limits.`
 
 	ModuleConfirmation = "Confirmed when GraphQL endpoint responds to introspection queries, SQL payloads produce database errors, or batch queries execute successfully"
 	ModuleSeverity     = severity.Medium

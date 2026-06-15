@@ -94,6 +94,49 @@ func TestScanPerRequest_DetectsEsbuildSSE(t *testing.T) {
 	assert.True(t, strings.Contains(res[0].Info.Name, "esbuild"), "finding should name the esbuild dev server")
 }
 
+// TestScanPerRequest_DetectsVitePing drives a host that exposes a real Vite dev
+// server: /__vite_ping returns 204 while a random path 404s, so the 204 is
+// distinctive and the finding fires.
+func TestScanPerRequest_DetectsVitePing(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/__vite_ping" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("not found"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", "<html><body>app</body></html>")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "a real Vite __vite_ping 204 (random paths 404) must be detected")
+	assert.True(t, strings.Contains(res[0].Info.Name, "Vite"), "finding should name the Vite dev server")
+}
+
+// TestScanPerRequest_BlanketStatusNoFalsePositive reproduces the status-only
+// catch-all: a host that answers EVERY path with 204 (including the 404
+// fingerprint) must not flag the Vite ping probe, whose only evidence is the
+// status code.
+func TestScanPerRequest_BlanketStatusNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", "<html><body>app</body></html>")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a host returning 204 for every path must not flag a status-only dev-server probe")
+}
+
 // TestIsHTMLShell covers the shell-detection helper directly.
 func TestIsHTMLShell(t *testing.T) {
 	t.Parallel()

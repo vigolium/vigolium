@@ -15,108 +15,151 @@ import (
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
+// decoyRounds is how many same-parent/same-extension negative-control probes a
+// candidate must survive before it is reported. An extension-scoped catch-all
+// (e.g. an app shell that routes /WEB-INF/<anything>.xml to the same page) is
+// disproved by requesting random sibling .xml paths; multiple rounds beat a shell
+// that varies slightly per request (an embedded session token / path echo).
+const decoyRounds = 2
+
 type probe struct {
-	path        string
-	name        string
-	markers     []string
-	antiMarkers []string
-	sev         severity.Severity
-	desc        string
+	path string
+	name string
+	// markerGroups is an AND-of-OR confirmation: the body must contain at least
+	// one substring from EVERY group. Each probe anchors on a STRUCTURAL token the
+	// real file always carries (an XML root tag, a manifest header, a fully-
+	// qualified Spring property key) so a catch-all/SPA shell that merely contains
+	// a bare word like "servlet" or "filter" in its JavaScript cannot match.
+	markerGroups [][]string
+	antiMarkers  []string
+	sev          severity.Severity
+	desc         string
 }
 
 var probes = []probe{
 	{
-		path:        "/WEB-INF/web.xml",
-		name:        "WEB-INF/web.xml",
-		markers:     []string{"<web-app", "</web-app>", "servlet", "filter"},
+		path: "/WEB-INF/web.xml",
+		name: "WEB-INF/web.xml",
+		markerGroups: [][]string{
+			{"<web-app"},
+			{"</web-app>", "<servlet", "<filter", "<servlet-mapping", "<welcome-file", "<context-param", "<session-config"},
+		},
 		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
 		sev:         severity.High,
 		desc:        "Java web deployment descriptor exposed, revealing servlet mappings, filters, and security constraints",
 	},
 	{
-		path:        "/META-INF/MANIFEST.MF",
-		name:        "META-INF/MANIFEST.MF",
-		markers:     []string{"Manifest-Version", "Main-Class", "Implementation-"},
-		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
-		sev:         severity.Medium,
-		desc:        "Java manifest file exposed, revealing build metadata, implementation details, and classpath information",
+		path:         "/META-INF/MANIFEST.MF",
+		name:         "META-INF/MANIFEST.MF",
+		markerGroups: [][]string{{"Manifest-Version:"}},
+		antiMarkers:  []string{"<html", "<!DOCTYPE", "404"},
+		sev:          severity.Medium,
+		desc:         "Java manifest file exposed, revealing build metadata, implementation details, and classpath information",
 	},
 	{
-		path:        "/META-INF/maven/",
-		name:        "META-INF Maven Directory",
-		markers:     []string{"Index of", "Parent Directory", "pom.xml", "pom.properties"},
+		path: "/META-INF/maven/",
+		name: "META-INF Maven Directory",
+		markerGroups: [][]string{
+			{"Index of /", "Parent Directory", "Directory listing for"},
+			{"pom.xml", "pom.properties", "maven"},
+		},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Medium,
 		desc:        "Maven metadata directory listing exposed, revealing project coordinates and dependency details",
 	},
 	{
-		path:        "/application.properties",
-		name:        "Spring Application Properties",
-		markers:     []string{"spring.", "server.", "management.", "datasource", "jdbc"},
+		path: "/application.properties",
+		name: "Spring Application Properties",
+		markerGroups: [][]string{{
+			"spring.datasource", "spring.application", "spring.profiles", "spring.jpa",
+			"server.port", "management.endpoints", "management.endpoint", "logging.level",
+			"eureka.client", "jdbc:",
+		}},
 		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
 		sev:         severity.Critical,
 		desc:        "Spring Boot application.properties file exposed, potentially containing database credentials, API keys, and internal service URLs",
 	},
 	{
-		path:        "/application.yml",
-		name:        "Spring Application YAML",
-		markers:     []string{"spring:", "server:", "management:", "datasource:", "port:"},
+		path: "/application.yml",
+		name: "Spring Application YAML",
+		markerGroups: [][]string{{
+			"spring:", "datasource:", "management:", "eureka:", "hibernate:", "jpa:",
+		}},
 		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
 		sev:         severity.Critical,
 		desc:        "Spring Boot application.yml file exposed, potentially containing credentials and configuration",
 	},
 	{
-		path:        "/application.yaml",
-		name:        "Spring Application YAML (alt)",
-		markers:     []string{"spring:", "server:", "management:", "datasource:"},
+		path: "/application.yaml",
+		name: "Spring Application YAML (alt)",
+		markerGroups: [][]string{{
+			"spring:", "datasource:", "management:", "eureka:", "hibernate:", "jpa:",
+		}},
 		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
 		sev:         severity.Critical,
 		desc:        "Spring Boot application.yaml file exposed",
 	},
 	{
-		path:        "/application-prod.properties",
-		name:        "Spring Production Properties",
-		markers:     []string{"spring.", "server.", "datasource", "password"},
+		path: "/application-prod.properties",
+		name: "Spring Production Properties",
+		markerGroups: [][]string{{
+			"spring.datasource", "spring.application", "spring.profiles", "spring.jpa",
+			"server.port", "management.endpoints", "eureka.client", "jdbc:",
+		}},
 		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
 		sev:         severity.Critical,
 		desc:        "Spring Boot production configuration file exposed, likely containing production credentials",
 	},
 	{
-		path:        "/application-dev.properties",
-		name:        "Spring Dev Properties",
-		markers:     []string{"spring.", "server.", "datasource"},
+		path: "/application-dev.properties",
+		name: "Spring Dev Properties",
+		markerGroups: [][]string{{
+			"spring.datasource", "spring.application", "spring.profiles", "spring.jpa",
+			"server.port", "management.endpoints", "eureka.client", "jdbc:",
+		}},
 		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
 		sev:         severity.High,
 		desc:        "Spring Boot development configuration file exposed",
 	},
 	{
-		path:        "/bootstrap.properties",
-		name:        "Spring Bootstrap Properties",
-		markers:     []string{"spring.", "cloud.", "config.", "eureka."},
+		path: "/bootstrap.properties",
+		name: "Spring Bootstrap Properties",
+		markerGroups: [][]string{{
+			"spring.cloud", "spring.application.name", "spring.config", "eureka.client", "config.server",
+		}},
 		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
 		sev:         severity.High,
 		desc:        "Spring Cloud bootstrap configuration exposed, potentially revealing config server and service discovery details",
 	},
 	{
-		path:        "/bootstrap.yml",
-		name:        "Spring Bootstrap YAML",
-		markers:     []string{"spring:", "cloud:", "config:", "eureka:"},
+		path: "/bootstrap.yml",
+		name: "Spring Bootstrap YAML",
+		markerGroups: [][]string{
+			{"cloud:", "eureka:", "config:", "spring:"},
+			{"uri:", "service-url:", "name:", "discovery:", "server:"},
+		},
 		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
 		sev:         severity.High,
 		desc:        "Spring Cloud bootstrap.yml exposed",
 	},
 	{
-		path:        "/pom.xml",
-		name:        "Maven POM",
-		markers:     []string{"<project", "<modelVersion>", "<groupId>", "<artifactId>"},
+		path: "/pom.xml",
+		name: "Maven POM",
+		markerGroups: [][]string{
+			{"<project"},
+			{"<modelVersion>", "<artifactId>", "<groupId>", "<dependencies>", "<parent>"},
+		},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Medium,
 		desc:        "Maven POM file exposed, revealing project dependencies, versions, and build configuration",
 	},
 	{
-		path:        "/build.gradle",
-		name:        "Gradle Build File",
-		markers:     []string{"dependencies", "plugins", "repositories", "implementation"},
+		path: "/build.gradle",
+		name: "Gradle Build File",
+		markerGroups: [][]string{
+			{"dependencies", "plugins", "repositories"},
+			{"implementation ", "testImplementation", "mavenCentral", "compileOnly", "runtimeOnly", "apply plugin"},
+		},
 		antiMarkers: []string{"<html", "<!DOCTYPE", "404"},
 		sev:         severity.Medium,
 		desc:        "Gradle build file exposed, revealing project dependencies and build configuration",
@@ -293,6 +336,14 @@ func (m *Module) probeFile(
 		}
 	}
 
+	// Catch-all / SPA shell guard: a framework app (Salesforce, a SPA fallback)
+	// returns the same application shell for any path. A path-probe whose body is
+	// textually equivalent to the page originally observed on this host is that
+	// shell, not an exposed file — drop it even if a weak marker appears inside.
+	if modkit.ResemblesObservedPage(ctx, body) {
+		return nil
+	}
+
 	for _, anti := range p.antiMarkers {
 		if strings.Contains(body, anti) {
 			return nil
@@ -303,15 +354,24 @@ func (m *Module) probeFile(
 		return nil
 	}
 
-	matched := false
-	var matchedMarkers []string
-	for _, marker := range p.markers {
-		if strings.Contains(body, marker) {
-			matched = true
-			matchedMarkers = append(matchedMarkers, marker)
-		}
+	// Structural confirmation: require a hit from EVERY marker group (anchor tag
+	// plus a corroborating element), so a bare "servlet"/"filter" word in an app
+	// shell's JavaScript cannot forge a web.xml finding.
+	matchedMarkers, ok := modkit.MatchAllGroups(body, p.markerGroups)
+	if !ok {
+		return nil
 	}
-	if !matched {
+
+	// Multi-round extension-scoped catch-all guard: confirm a random sibling that
+	// shares this path's directory AND extension (e.g. /WEB-INF/<rand>.xml) does
+	// NOT return the same markers or the same body. This subtracts the host that
+	// routes every /<dir>/*.<ext> to one shell — the case the root soft-404
+	// fingerprint cannot see.
+	markerMatch := func(b string) bool {
+		_, sibOK := modkit.MatchAllGroups(b, p.markerGroups)
+		return sibOK
+	}
+	if modkit.MultiRoundExtDecoyCatchAll(ctx, httpClient, p.path, body, status, decoyRounds, markerMatch) {
 		return nil
 	}
 
@@ -327,7 +387,7 @@ func (m *Module) probeFile(
 		Info: output.Info{
 			Name:        fmt.Sprintf("Java Sensitive File: %s", p.name),
 			Description: p.desc,
-			Severity:    p.sev,
+			Severity:    modkit.CapSeverity(p.sev, severity.Medium),
 			Confidence:  ModuleConfidence,
 			Tags:        []string{"java", "spring", "sensitive-file", "misconfiguration"},
 			Reference:   []string{"https://tomcat.apache.org/tomcat-10.1-doc/security-howto.html"},

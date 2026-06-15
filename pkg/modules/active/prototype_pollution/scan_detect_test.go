@@ -2,11 +2,9 @@ package prototype_pollution
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
@@ -54,37 +51,6 @@ func pollutionServer() *httptest.Server {
 
 const benignJSONBody = `{"name":"alice"}`
 
-// jsonPost builds a POST request with an application/json body so the module's
-// CanProcess gate (POST/PUT/PATCH + JSON content type) is satisfied. modtest's
-// RequestMethod hardcodes a form content type, so the raw request is assembled
-// here directly.
-func jsonPost(t *testing.T, rawURL, body string) *httpmsg.HttpRequestResponse {
-	t.Helper()
-	u, err := url.Parse(rawURL)
-	require.NoError(t, err)
-
-	port := 80
-	if p := u.Port(); p != "" {
-		_, _ = fmt.Sscanf(p, "%d", &port)
-	} else if u.Scheme == "https" {
-		port = 443
-	}
-
-	svc, err := httpmsg.NewService(u.Hostname(), port, u.Scheme)
-	require.NoError(t, err)
-
-	target := u.RequestURI()
-	if target == "" {
-		target = "/"
-	}
-	raw := fmt.Sprintf(
-		"POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
-		target, u.Host, len(body), body,
-	)
-	req := httpmsg.NewHttpRequestWithService(svc, []byte(raw))
-	return httpmsg.NewHttpRequestResponse(req, nil)
-}
-
 // TestScanPerRequest_DetectsPollutionReflection drives the scan against a real
 // stateful pollution sink (pollutionServer): __proto__-injected keys surface in
 // the response, while plain input properties do not — so the fresh-canary +
@@ -95,7 +61,7 @@ func TestScanPerRequest_DetectsPollutionReflection(t *testing.T) {
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	rr := jsonPost(t, srv.URL+"/api/user", benignJSONBody)
+	rr := modtest.RequestJSON(t, srv.URL+"/api/user", benignJSONBody)
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -117,7 +83,7 @@ func TestScanPerRequest_EchoServerNoFalsePositive(t *testing.T) {
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	rr := jsonPost(t, srv.URL+"/api/user", benignJSONBody)
+	rr := modtest.RequestJSON(t, srv.URL+"/api/user", benignJSONBody)
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -142,7 +108,7 @@ func TestScanPerRequest_DetectsStatusPollution(t *testing.T) {
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	rr := jsonPost(t, srv.URL+"/api/user", benignJSONBody)
+	rr := modtest.RequestJSON(t, srv.URL+"/api/user", benignJSONBody)
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -170,7 +136,7 @@ func TestScanPerRequest_TransientStatusNoFalsePositive(t *testing.T) {
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	rr := jsonPost(t, srv.URL+"/api/user", benignJSONBody)
+	rr := modtest.RequestJSON(t, srv.URL+"/api/user", benignJSONBody)
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -189,7 +155,7 @@ func TestScanPerRequest_NoFalsePositive(t *testing.T) {
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	rr := jsonPost(t, srv.URL+"/api/user", benignJSONBody)
+	rr := modtest.RequestJSON(t, srv.URL+"/api/user", benignJSONBody)
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -200,7 +166,7 @@ func TestScanPerRequest_NoFalsePositive(t *testing.T) {
 func TestCanProcess(t *testing.T) {
 	t.Parallel()
 	m := New()
-	jsonReq := modtest.Response(jsonPost(t, "http://example.com/api", benignJSONBody), "application/json", "{}")
+	jsonReq := modtest.Response(modtest.RequestJSON(t, "http://example.com/api", benignJSONBody), "application/json", "{}")
 	assert.True(t, m.CanProcess(jsonReq), "POST with JSON body should be processable")
 
 	getReq := modtest.Response(modtest.Request(t, "http://example.com/api"), "application/json", "{}")

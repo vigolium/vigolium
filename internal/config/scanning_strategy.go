@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/vigolium/vigolium/pkg/portsweep"
 )
 
 // ScanningStrategyConfig holds named scanning strategy presets.
@@ -19,9 +21,44 @@ type ScanningStrategyConfig struct {
 	Session         SessionStrategyConfig `yaml:"session"`
 	ScanLogs        ScanLogsConfig        `yaml:"scan_logs"`
 	HTTP            HTTPConfig            `yaml:"http"`
+	PortSweep       PortSweepConfig       `yaml:"port_sweep"`
 	Lite            StrategyPhases        `yaml:"lite"`
 	Balanced        StrategyPhases        `yaml:"balanced"`
 	Deep            StrategyPhases        `yaml:"deep"`
+}
+
+// PortSweepConfig controls the alternate-port sweep that runs at --intensity deep
+// or under --follow-subdomains. For each original CLI target host it TCP-connects
+// the configured ports concurrently, HTTP-confirms the open ones, and feeds any
+// confirmed web services back into the scan as additional targets. A honeypot
+// guard discards a host whose ports are nearly all open with near-identical
+// responses (an all-ports-open tarpit).
+type PortSweepConfig struct {
+	// Ports is the list of alternate HTTP(S) ports probed per host.
+	Ports []int `yaml:"ports"`
+	// Concurrency is the max number of ports probed in parallel for one host.
+	Concurrency int `yaml:"concurrency"`
+	// DialTimeoutMs bounds each TCP connect.
+	DialTimeoutMs int `yaml:"dial_timeout_ms"`
+	// HTTPTimeoutMs bounds each HTTP confirmation request.
+	HTTPTimeoutMs int `yaml:"http_timeout_ms"`
+	// HoneypotRatio is the open/probed ratio at/above which a host is honeypot-
+	// suspect (combined with a near-identical-response check). 0 disables the gate.
+	HoneypotRatio float64 `yaml:"honeypot_ratio"`
+}
+
+// DefaultPortSweepConfig returns the built-in port-sweep defaults. The values are
+// owned by the portsweep package (its single source of truth) so the config and
+// the sweep engine never drift; portsweep.Sweep re-applies these for any field
+// left zero, so a partial config block stays usable without a Resolve step.
+func DefaultPortSweepConfig() PortSweepConfig {
+	return PortSweepConfig{
+		Ports:         append([]int(nil), portsweep.DefaultPorts...),
+		Concurrency:   portsweep.DefaultConcurrency,
+		DialTimeoutMs: portsweep.DefaultDialTimeoutMs,
+		HTTPTimeoutMs: portsweep.DefaultHTTPTimeoutMs,
+		HoneypotRatio: portsweep.DefaultHoneypotRatio,
+	}
 }
 
 // SessionStrategyConfig controls how authentication sessions behave during scanning.
@@ -82,6 +119,7 @@ func DefaultScanningStrategyConfig() *ScanningStrategyConfig {
 		Session:         *DefaultSessionStrategyConfig(),
 		ScanLogs:        *DefaultScanLogsConfig(),
 		HTTP:            *DefaultHTTPConfig(),
+		PortSweep:       DefaultPortSweepConfig(),
 		Lite: StrategyPhases{
 			ExternalHarvesting: false,
 			Discovery:          false,

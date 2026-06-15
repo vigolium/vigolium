@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An authentication-protected Next.js (Pages Router) page returns the same data to an unauthenticated request through its underlying JSON data route. The HTML page is gated by 401/403 or a login redirect, but the predictable /_next/data/<buildId>/<path>.json endpoint serves the page's protected props with no credentials, exposing data that should require a valid session.
+	ModuleDesc = `**What it means:** An auth-protected Next.js (Pages Router) page leaks its data to unauthenticated requests through its JSON data route. The HTML is gated by 401/403 or a login redirect, but the predictable /_next/data/<buildId>/<path>.json endpoint serves the props with no credentials.
 
-**How it's exploited:** An attacker that hits the protected page gets denied, but rederives the buildId and requests the matching /_next/data/ JSON route with the session cookie and Authorization header stripped. Because authorization is enforced only on the HTML route, the data route returns 200 with the full pageProps payload, leaking the sensitive account, user, or business data the page was meant to protect, with no login required.
+**How it's exploited:** An attacker denied at the page rederives the buildId and requests the matching /_next/data/ route with cookie and Authorization stripped. Since authorization covers only the HTML route, the data route returns the full pageProps.
 
-**Fix:** Apply the same authentication and authorization checks to the /_next/data/ data routes as to the rendered pages (enforce auth in getServerSideProps or middleware that also covers the data path), so unauthenticated data requests are denied.`
+**Fix:** Apply the same auth checks to /_next/data/ routes as to rendered pages - enforce in getServerSideProps or covering middleware.`
 
 	ModuleConfirmation = "Confirmed when the data route returns 200 with valid pageProps JSON for an auth-protected page"
 	ModuleSeverity     = severity.High

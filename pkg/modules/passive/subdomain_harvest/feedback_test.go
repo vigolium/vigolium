@@ -35,7 +35,7 @@ func TestFollowSubdomains_FeedsAndExpandsExactHosts(t *testing.T) {
 		ScopeExpander:    expander,
 		FollowSubdomains: true,
 	}
-	ctx := makeHTTPCtx("app.navify.com", "/main.js", "application/javascript", navifyBundle)
+	ctx := makeHTTPCtx("app.example.com", "/main.js", "application/javascript", appBundle)
 
 	results, err := m.ScanPerRequest(ctx, sc)
 	require.NoError(t, err)
@@ -45,9 +45,9 @@ func TestFollowSubdomains_FeedsAndExpandsExactHosts(t *testing.T) {
 	// Every discovered subdomain — and ONLY those — is added to scope and fed.
 	assert.ElementsMatch(t, found, expander.allowed)
 	assert.ElementsMatch(t, found, feeder.hosts)
-	// No apex wildcard: each allowed host is a concrete navify.com subdomain.
+	// No apex wildcard: each allowed host is a concrete example.com subdomain.
 	for _, h := range expander.allowed {
-		assert.True(t, strings.HasSuffix(h, ".navify.com"), "unexpected allowed host %q", h)
+		assert.True(t, strings.HasSuffix(h, ".example.com"), "unexpected allowed host %q", h)
 	}
 	assert.Contains(t, results[0].Info.Description, "queued for scanning")
 }
@@ -59,7 +59,7 @@ func TestFollowSubdomains_ReconOnlyByDefault(t *testing.T) {
 	expander := &fakeExpander{}
 	// FollowSubdomains defaults to false: emit findings but never feed/expand.
 	sc := &modkit.ScanContext{RequestFeeder: feeder, ScopeExpander: expander}
-	ctx := makeHTTPCtx("app.navify.com", "/main.js", "application/javascript", navifyBundle)
+	ctx := makeHTTPCtx("app.example.com", "/main.js", "application/javascript", appBundle)
 
 	results, err := m.ScanPerRequest(ctx, sc)
 	require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestFollowSubdomains_NoExpanderStaysReconOnly(t *testing.T) {
 	m := New()
 	feeder := &fakeFeeder{}
 	sc := &modkit.ScanContext{RequestFeeder: feeder, FollowSubdomains: true} // no ScopeExpander
-	ctx := makeHTTPCtx("app.navify.com", "/main.js", "application/javascript", navifyBundle)
+	ctx := makeHTTPCtx("app.example.com", "/main.js", "application/javascript", appBundle)
 
 	results, err := m.ScanPerRequest(ctx, sc)
 	require.NoError(t, err)

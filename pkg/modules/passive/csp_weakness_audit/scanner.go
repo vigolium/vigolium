@@ -180,7 +180,7 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 		weaknesses = append(weaknesses, cspWeakness{
 			name:      "Wildcard Script Source",
 			directive: "script-src",
-			severity:  severity.High,
+			severity:  severity.Medium,
 			desc:      "CSP script-src contains wildcard '*', allowing scripts from any origin",
 		})
 	}
@@ -194,7 +194,7 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 		weaknesses = append(weaknesses, cspWeakness{
 			name:      "data: URI in Script Source",
 			directive: directive,
-			severity:  severity.High,
+			severity:  severity.Medium,
 			desc:      "CSP allows data: URIs for scripts, which can be used to execute arbitrary JavaScript",
 		})
 	}

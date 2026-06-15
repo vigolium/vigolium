@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Spring Boot Actuator endpoint (such as /env, /info, /health, /metrics, /loggers, /beans, or /mappings) is reachable without authentication. These management endpoints are meant for operators only and expose internal application state, so unauthenticated access is a serious information-disclosure and attack-surface issue. The scanner confirms each hit by the endpoint's actuator-specific JSON structure (for example a status enum like UP for /health, the propertySources envelope for /env, or dotted Micrometer metric ids for /metrics), and rejects wildcard/soft-404 shells and sibling catch-all handlers to avoid false positives.
+	ModuleDesc = `**What it means:** Spring Boot Actuator endpoints (/env, /beans, /health, /metrics, /mappings, /loggers) are reachable without authentication, exposing internal application state meant only for operators.
 
-**How it's exploited:** An attacker reads /env or /beans to harvest environment variables, database credentials, API keys, internal hostnames, and the full configuration, then maps the application's routes via /mappings and its libraries via /info. Disclosed secrets and dependency versions enable lateral movement, and on misconfigured deployments writable actuator endpoints (for example /env or /loggers) can be chained into remote code execution.
+**How it's exploited:** Attackers read /env or /beans to harvest environment variables, database credentials, API keys, and internal hostnames, then map routes via /mappings - enabling lateral movement, or remote code execution where endpoints are writable. Hits are confirmed by their actuator-specific JSON structure to rule out soft-404 shells.
 
-**Fix:** Secure Actuator endpoints behind authentication and expose only /health publicly, restricting management endpoints via management.endpoints.web.exposure and network controls.`
+**Fix:** Require authentication on Actuator, expose only /health publicly, and restrict management endpoints via management.endpoints.web.exposure and network controls.`
 
 	ModuleConfirmation = "Confirmed when an actuator path returns JSON matching that endpoint's specific actuator structure, the response is not the host's wildcard/soft-404 shell, and a guaranteed-nonexistent sibling under the same directory does not return the same content (ruling out catch-all handlers)"
 	ModuleSeverity     = severity.High

@@ -167,6 +167,32 @@ func TestJWTInResponseBody(t *testing.T) {
 	assert.Contains(t, results[0].ExtractedResults[0], "alg=none")
 }
 
+func TestSkipsCloudflareAccessMetaToken_InBody(t *testing.T) {
+	m := New()
+	// A Cloudflare Access pre-auth meta token (type=meta) has no iss; without the
+	// skip the module would emit a "Missing 'iss' claim" issue. The token is
+	// reflected into the login-page body, exactly as on the real SSO page.
+	token := buildJWT(`{"alg":"RS256","typ":"JWT"}`, `{"type":"meta","aud":"app","exp":9999999999}`)
+	body := fmt.Sprintf(`<form action="/cdn-cgi/access/login?meta=%s">`, token)
+	ctx := makeHTTPCtxWithBody(body)
+	scanCtx := &modkit.ScanContext{}
+
+	results, err := m.ScanPerRequest(ctx, scanCtx)
+	require.NoError(t, err)
+	assert.Nil(t, results, "pre-auth meta token must not produce claim issues")
+}
+
+func TestSkipsCloudflareAccessMetaToken_AuthStatusNone(t *testing.T) {
+	m := New()
+	token := buildJWT(`{"alg":"RS256","typ":"JWT"}`, `{"auth_status":"NONE","aud":"app","exp":9999999999}`)
+	ctx := makeHTTPCtxWithAuth(token)
+	scanCtx := &modkit.ScanContext{}
+
+	results, err := m.ScanPerRequest(ctx, scanCtx)
+	require.NoError(t, err)
+	assert.Nil(t, results, "auth_status=NONE pre-auth token must not produce claim issues")
+}
+
 func TestNilResponse(t *testing.T) {
 	m := New()
 	token := buildJWT(`{"alg":"HS256"}`, `{"sub":"1","iss":"test","aud":"app","exp":9999999999}`)

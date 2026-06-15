@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Spring Boot application is exposing debug or diagnostic surface that should not be reachable in production. This module confirmed one or more of: the Whitelabel error page, full stack traces returned when a trace or message parameter is supplied, the DevTools remote restart endpoint, or actuator diagnostic endpoints (startup, conditions, scheduled tasks, caches). Each leaks internal application detail, and the DevTools restart endpoint is far more serious than a simple information leak.
+	ModuleDesc = `**What it means:** A Spring Boot application exposes debug surface that should not be reachable in production: the Whitelabel error page, full stack traces returned with a trace parameter, the DevTools remote restart endpoint, or actuator diagnostic endpoints (startup, conditions, caches).
 
-**How it's exploited:** Stack traces and actuator output reveal package names, class paths, library versions, bean wiring, and scheduled-task method names, letting an attacker fingerprint dependencies to target version-specific exploits and map the internal attack surface. An exposed DevTools remote restart endpoint can let an attacker restart or reconfigure the application, and DevTools remote support has historically enabled remote code execution.
+**How it's exploited:** Stack traces and actuator output reveal package names, library versions, and bean wiring, letting an attacker fingerprint dependencies for version-specific exploits. An exposed DevTools restart endpoint can reconfigure the app and has enabled code execution.
 
-**Fix:** Disable DevTools in production, restrict actuator endpoints to authenticated internal access, and turn off the Whitelabel error page and stack-trace/message error attributes.`
+**Fix:** Disable DevTools in production, restrict actuator endpoints to authenticated access, and turn off the Whitelabel error page and stack-trace attributes.`
 
 	ModuleConfirmation = "Confirmed when debug endpoints or verbose error pages reveal internal application details"
 	ModuleSeverity     = severity.Medium

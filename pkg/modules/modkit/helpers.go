@@ -71,7 +71,7 @@ func IsStaticAssetContentType(contentType string) bool {
 // staticAssetExtensions are file-extension suffixes that mark a static asset or
 // binary payload by URL path.
 var staticAssetExtensions = []string{
-	".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+	".js", ".mjs", ".cjs", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
 	".woff", ".woff2", ".ttf", ".eot", ".otf", ".map",
 	".mp4", ".webm", ".mp3", ".ogg", ".wav",
 	".pdf", ".zip", ".gz", ".br",
@@ -96,14 +96,26 @@ var staticAssetDirSegments = map[string]bool{
 // check catches extensionless asset routes that a suffix-only test misses. This
 // is the URL-path companion to IsStaticAssetContentType (header-based).
 func IsStaticAssetPath(path string) bool {
-	p := strings.ToLower(path)
-	for _, ext := range staticAssetExtensions {
-		if strings.HasSuffix(p, ext) {
+	if HasStaticAssetExtension(path) {
+		return true
+	}
+	for _, seg := range strings.Split(strings.ToLower(path), "/") {
+		if seg != "" && staticAssetDirSegments[seg] {
 			return true
 		}
 	}
-	for _, seg := range strings.Split(p, "/") {
-		if seg != "" && staticAssetDirSegments[seg] {
+	return false
+}
+
+// HasStaticAssetExtension reports whether a URL path ends in a known static-asset
+// file extension (.js, .css, .map, fonts, images, archives, ...). Unlike
+// IsStaticAssetPath it does NOT match by directory segment, so it won't classify
+// an HTML document served from /assets/ or /public/ as static. Use it where
+// precision matters — e.g. deciding whether to truncate a stored response body.
+func HasStaticAssetExtension(path string) bool {
+	p := strings.ToLower(path)
+	for _, ext := range staticAssetExtensions {
+		if strings.HasSuffix(p, ext) {
 			return true
 		}
 	}

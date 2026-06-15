@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Magento or Adobe Commerce store is exposing files or interfaces that should never be reachable in production. The module probes a set of known Magento 1.x and 2.x paths and confirms each one only when the response returns 200 with the expected content markers (validated against a per-host 404 fingerprint to cut false positives). The impact ranges from low-severity version disclosure to critical credential leaks depending on which path responds.
+	ModuleDesc = `**What it means:** A Magento or Adobe Commerce store exposes files or interfaces that should never be reachable in production. Known paths are confirmed only on a 200 with expected content markers, ranging from version disclosure to credential leaks.
 
-**How it's exploited:** Exposed config files (app/etc/local.xml, app/etc/env.php) hand an attacker the database credentials and the crypt key, which decrypts stored secrets and enables admin-cookie/session forgery and full store takeover. An open setup wizard or downloader (Magento Connect) lets an attacker reconfigure the store or install malicious extensions, and leaked logs, module lists, and version files map the exact build so attackers can target known Magento CVEs.
+**How it's exploited:** Exposed config (app/etc/local.xml, app/etc/env.php) hands an attacker the DB credentials and crypt key, enabling session forgery and store takeover. An open setup wizard or downloader lets an attacker install malicious extensions.
 
-**Fix:** Block public access to setup, downloader, app/etc, and var/log paths, move the admin panel off the default URL, and rotate any credentials or crypt key that were exposed.`
+**Fix:** Block public access to setup, downloader, app/etc, and var/log, move the admin panel off the default URL, and rotate any exposed credentials or crypt key.`
 
 	ModuleConfirmation = "Confirmed when probed Magento endpoints return 200 with expected content markers"
 	ModuleSeverity     = severity.High

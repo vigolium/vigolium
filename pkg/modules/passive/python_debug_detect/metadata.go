@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application returned a Python debug or error surface in an HTTP response, such as the Werkzeug interactive debugger, a Django DEBUG=True page, a full Python traceback, or disclosed filesystem and dependency (site-packages) paths. These artifacts belong only in development; serving them in production leaks internal application detail and, in the Werkzeug case, exposes a live debug console.
+	ModuleDesc = `**What it means:** The application returned a Python debug surface, such as the Werkzeug debugger, a Django DEBUG=True page, a full traceback, or disclosed site-packages paths. In production these leak internal detail and, for Werkzeug, expose a live debug console.
 
-**How it's exploited:** An attacker reads the leaked traceback, settings, environment variables, and source paths to map the codebase, framework versions, and installed packages for targeted follow-up attacks, and harvests any secrets shown inline. If the exposed Werkzeug debugger console is reachable (and its PIN is bypassed or absent), this escalates directly to remote code execution on the server.
+**How it's exploited:** An attacker reads leaked tracebacks, settings, and source paths to map the codebase, and harvests inline secrets. If the Werkzeug console is reachable and its PIN absent, this escalates to remote code execution.
 
-**Fix:** Disable debug mode in production (Flask app.debug=False / Django DEBUG=False), never ship the Werkzeug debugger, and return generic error pages so tracebacks and paths are never sent to clients.`
+**Fix:** Disable debug mode in production (Flask app.debug=False / Django DEBUG=False), never ship the Werkzeug debugger, and return generic error pages.`
 
 	ModuleConfirmation = "Confirmed when Python-specific debug patterns or tracebacks are found in response bodies"
 	ModuleSeverity     = severity.High

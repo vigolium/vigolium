@@ -64,8 +64,12 @@ type Callbacks struct {
 	// OnDirectoryDiscovered is called when a directory is found.
 	OnDirectoryDiscovered func(url string, depth uint16) error
 
-	// OnFileDiscovered is called when a file is found.
-	OnFileDiscovered func(url string, depth uint16) error
+	// OnFileDiscovered is called when a file is found. confirmExt reports whether
+	// the discovery's provenance is a genuine application reference whose served
+	// extension may bootstrap the "observed" extension-fuzz amplification; a
+	// brute-forced guess (fuzz/wordlist/numeric/…) passes false so a catch-all
+	// 200 cannot confirm an extension the server does not actually run.
+	OnFileDiscovered func(url string, depth uint16, confirmExt bool) error
 
 	// AddObservedName adds a name to observed collection (from JS path extraction).
 	AddObservedName func(name string)

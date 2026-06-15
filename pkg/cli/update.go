@@ -1,14 +1,12 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -110,21 +108,6 @@ func runUpdateCmd(cmd *cobra.Command, args []string) error {
 	}
 	if doTemplates {
 		updateSay("  %s update nuclei templates at %s\n", terminal.InfoSymbol(), terminal.Gray(config.ContractPath(templatesDir)))
-	}
-
-	// Confirmation prompt (to stderr so --json stdout stays clean). Skipped
-	// with the global -F/--force, mirroring the rest of the CLI.
-	if !globalForce {
-		fmt.Fprint(os.Stderr, "\nProceed? (type 'yes' to confirm): ")
-		reader := bufio.NewReader(os.Stdin)
-		response, rerr := reader.ReadString('\n')
-		if rerr != nil {
-			return fmt.Errorf("failed to read input: %w", rerr)
-		}
-		if strings.TrimSpace(strings.ToLower(response)) != "yes" {
-			fmt.Fprintln(os.Stderr, "Aborted.")
-			return nil
-		}
 	}
 
 	var out updateOutput

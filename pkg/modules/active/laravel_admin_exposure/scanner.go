@@ -22,7 +22,15 @@ type probe struct {
 	body        string
 	contentType string
 	name        string
-	markers     []string
+	// markers is an AND-of-OR group set (see modkit.MatchAllGroups): the body must
+	// contain at least one substring from EVERY group. The first group is always a
+	// framework/endpoint-specific anchor (e.g. "laravel-nova", `"openapi"`) that a
+	// generic application shell, login wall, or i18n catch-all cannot satisfy;
+	// later groups corroborate. A bare generic token ("login", "email", "admin",
+	// "data") never appears as a standalone group — that single-OR-token model is
+	// exactly what let a Salesforce/Visualforce login shell match "/nova/login" on
+	// the word "login" alone (see scan_detect_test.go).
+	markers     [][]string
 	antiMarkers []string
 	sev         severity.Severity
 	desc        string
@@ -37,9 +45,11 @@ type probe struct {
 var probes = []probe{
 	// Admin panels
 	{
-		path:          "/nova",
-		name:          "Laravel Nova",
-		markers:       []string{"Nova", "nova", "laravel-nova", "inertia"},
+		path: "/nova",
+		name: "Laravel Nova",
+		// Anchor on Nova-unique strings only — a bare "nova" substring matches
+		// "innovation"/"Casanova" and "inertia" is used by many non-Nova SPAs.
+		markers:       [][]string{{"laravel-nova", "Laravel Nova", "/nova-api/", "data-nova", "window.Nova"}},
 		antiMarkers:   []string{"404 Not Found"},
 		sev:           severity.High,
 		desc:          "Laravel Nova admin panel is accessible without authentication",
@@ -47,18 +57,25 @@ var probes = []probe{
 		requireUnauth: true,
 	},
 	{
-		path:        "/nova/login",
-		name:        "Laravel Nova Login",
-		markers:     []string{"Nova", "nova", "login", "email", "password"},
+		path: "/nova/login",
+		name: "Laravel Nova Login",
+		// Require the Nova anchor AND a login-form signal. The old list let a bare
+		// "login"/"email"/"password" match any login wall (the Salesforce shell FP).
+		markers: [][]string{
+			{"laravel-nova", "Laravel Nova", "/nova-api/", "data-nova", "window.Nova"},
+			{"password", "Password", `name="email"`, "Sign in", "Log in"},
+		},
 		antiMarkers: []string{"404 Not Found"},
 		sev:         severity.Low,
 		desc:        "Laravel Nova admin login page is publicly accessible, confirming Nova is installed",
 		refs:        []string{"https://nova.laravel.com/docs"},
 	},
 	{
-		path:          "/filament",
-		name:          "Laravel Filament",
-		markers:       []string{"filament", "Filament", "filament-panels", "livewire"},
+		path: "/filament",
+		name: "Laravel Filament",
+		// "filament"/"filament-panels" are Filament-unique; "livewire" alone is not
+		// (Livewire ships in many non-Filament Laravel apps), so it is dropped.
+		markers:       [][]string{{"filament-panels", "/filament/assets/", "fi-sidebar", "filament", "Filament"}},
 		antiMarkers:   []string{"404 Not Found"},
 		sev:           severity.High,
 		desc:          "Laravel Filament admin panel is accessible without authentication",
@@ -66,9 +83,12 @@ var probes = []probe{
 		requireUnauth: true,
 	},
 	{
-		path:        "/filament/login",
-		name:        "Laravel Filament Login",
-		markers:     []string{"filament", "Filament", "login", "email"},
+		path: "/filament/login",
+		name: "Laravel Filament Login",
+		markers: [][]string{
+			{"filament-panels", "/filament/assets/", "fi-sidebar", "filament", "Filament"},
+			{"password", "Password", `name="email"`, "Sign in", "Log in"},
+		},
 		antiMarkers: []string{"404 Not Found"},
 		sev:         severity.Low,
 		desc:        "Laravel Filament admin login page is publicly accessible, confirming Filament is installed",
@@ -77,49 +97,61 @@ var probes = []probe{
 	{
 		path: "/admin",
 		name: "Admin Panel (generic)",
-		// A bare "admin"/"dashboard" word is weak — a path-routing app reflects the
-		// probe path ("/.../admin") straight into a <form action>/breadcrumb, so the
-		// token appears on an unrelated page. The reflected probe path is stripped
-		// before matching (see probeEndpoint) so a marker only counts when it comes
-		// from the endpoint's own content.
-		markers:       []string{"dashboard", "Dashboard", "admin", "Admin", "backpack", "Backpack", "voyager", "Voyager", "wp-admin"},
+		// A bare "admin"/"dashboard" word is hopeless for confirmation — a path-
+		// routing app reflects the probe path ("/.../admin") into a <form action>/
+		// breadcrumb, and the word appears verbatim on unrelated pages. So this
+		// probe only fires when a NAMED Laravel admin package is identifiable
+		// (Backpack, Voyager); a generic /admin that we cannot attribute to a
+		// framework is left to the dedicated dashboard/exposure modules.
+		markers:       [][]string{{"backpack", "Backpack", "laravel-backpack", "voyager", "Voyager", "laravel-voyager"}},
 		antiMarkers:   []string{"404 Not Found"},
 		sev:           severity.High,
-		desc:          "Admin panel at /admin is accessible without authentication",
+		desc:          "Laravel admin panel (Backpack/Voyager) at /admin is accessible without authentication",
 		requireUnauth: true,
 	},
 	{
-		path:          "/backoffice",
-		name:          "Back Office",
-		markers:       []string{"dashboard", "Dashboard", "admin", "backoffice"},
+		path: "/backoffice",
+		name: "Back Office",
+		// Same reasoning as /admin: require a named admin package, not the bare
+		// "backoffice"/"admin" word (which is also the reflected probe path).
+		markers:       [][]string{{"backpack", "Backpack", "laravel-backpack", "voyager", "Voyager", "laravel-voyager"}},
 		antiMarkers:   []string{"404 Not Found"},
 		sev:           severity.High,
-		desc:          "Back office panel is accessible without authentication",
+		desc:          "Laravel back-office admin panel (Backpack/Voyager) is accessible without authentication",
 		requireUnauth: true,
 	},
 	// API documentation
 	{
-		path:        "/api/documentation",
-		name:        "Swagger API Documentation (L5)",
-		markers:     []string{"swagger", "Swagger", "openapi", "api-docs"},
+		path: "/api/documentation",
+		name: "Swagger API Documentation (L5)",
+		// Anchor on the Swagger-UI bootstrap strings, not the bare word "swagger"
+		// (which appears in unrelated docs/changelogs) or "openapi".
+		markers:     [][]string{{"swagger-ui", "SwaggerUIBundle", "swagger-initializer", "Swagger UI"}},
 		antiMarkers: []string{"404 Not Found"},
 		sev:         severity.Low,
 		desc:        "Swagger API documentation (L5-Swagger) is publicly accessible, increasing attack surface discovery",
 		refs:        []string{"https://github.com/DarkaOnLine/L5-Swagger"},
 	},
 	{
-		path:        "/docs/api",
-		name:        "Scramble API Documentation",
-		markers:     []string{"scramble", "Scramble", "openapi", "api"},
+		path: "/docs/api",
+		name: "Scramble API Documentation",
+		// Require the Scramble anchor AND an API-doc signal; "api" alone is far too
+		// generic to confirm anything.
+		markers: [][]string{
+			{"Scramble", "dedoc/scramble", "dedoc"},
+			{"openapi", "swagger", "stoplight", "elements-api"},
+		},
 		antiMarkers: []string{"404 Not Found"},
 		sev:         severity.Low,
 		desc:        "Scramble API documentation is publicly accessible",
 		refs:        []string{"https://scramble.dedoc.co/"},
 	},
 	{
-		path:        "/openapi.json",
-		name:        "OpenAPI Spec (JSON)",
-		markers:     []string{"openapi", "paths", "info", "components"},
+		path: "/openapi.json",
+		name: "OpenAPI Spec (JSON)",
+		// A real spec carries the version key AND a paths object — require both, and
+		// drop bare "info"/"components" (generic JSON keys present in many payloads).
+		markers:     [][]string{{`"openapi"`, `"swagger"`}, {`"paths"`}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Low,
 		desc:        "OpenAPI specification is publicly accessible, revealing all API endpoints and schemas",
@@ -127,7 +159,7 @@ var probes = []probe{
 	{
 		path:        "/openapi.yaml",
 		name:        "OpenAPI Spec (YAML)",
-		markers:     []string{"openapi:", "paths:", "info:"},
+		markers:     [][]string{{"openapi:", "swagger:"}, {"paths:"}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Low,
 		desc:        "OpenAPI specification (YAML) is publicly accessible, revealing all API endpoints and schemas",
@@ -139,7 +171,9 @@ var probes = []probe{
 		body:        `{"query":"{ __schema { queryType { name } } }"}`,
 		contentType: "application/json",
 		name:        "GraphQL Introspection",
-		markers:     []string{"__schema", "queryType", "data"},
+		// Require the introspection-result shape (__schema AND a schema-type field).
+		// Bare "data" matched any JSON object with a top-level data key.
+		markers:     [][]string{{"__schema"}, {"queryType", "mutationType", `"types"`}},
 		antiMarkers: []string{"introspection", "disabled", "not allowed"},
 		sev:         severity.Medium,
 		desc:        "GraphQL endpoint with introspection enabled, revealing the full API schema and all available operations",
@@ -385,23 +419,14 @@ func (m *Module) probeEndpoint(
 	// content, not from our own request.
 	matchBody := modkit.StripReflectedProbePath(body, probePath)
 
-	matched := false
-	var matchedMarkers []string
-	for _, marker := range p.markers {
-		if strings.Contains(matchBody, marker) {
-			matched = true
-			matchedMarkers = append(matchedMarkers, marker)
-		}
-	}
-	if !matched {
-		return nil
-	}
-
-	// Sub-directory catch-all guard: now that we probe under context-path prefixes,
-	// drop the finding if a nonexistent sibling under the same parent returns the
-	// same markers (a handler that 200s every child path). Root-level probes are
-	// already covered by the random-path 404 fingerprint above.
-	if modkit.SiblingServesAnyMarker(ctx, httpClient, probePath, p.markers) {
+	// Structural confirmation: the body must satisfy EVERY marker group (an anchor
+	// group plus any corroboration), not just contain one weak token — this keeps a
+	// generic login shell / API JSON from matching on "login" or "data". Then drop
+	// the finding if a nonexistent sibling under the same parent satisfies the SAME
+	// groups (a sub-directory catch-all that 200s every child path with one shell).
+	// Root-level probes are already covered by the random-path 404 fingerprint above.
+	matchedMarkers, ok := modkit.MatchAndConfirmSibling(ctx, httpClient, probePath, matchBody, p.markers)
+	if !ok {
 		return nil
 	}
 

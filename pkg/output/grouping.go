@@ -156,8 +156,11 @@ func FormatPhaseFindingLine(phaseTag string, r *ResultEvent) string {
 		}
 		b.WriteString(loc)
 	}
-	// [value] — the grouped extracted value, when present.
+	// [value] — the grouped extracted value, when present. Escape embedded
+	// newlines/tabs to their literal form (\n, \t) before truncating so the
+	// snippet stays on one line and the width budget counts visible characters.
 	if v := NormalizedValueKey(r.ExtractedResults); v != "" {
+		v = EscapeOneLine(v)
 		b.WriteString(" " + terminal.Yellow("["+terminal.Truncate(v, liveFindingValueMax)+"]"))
 	}
 	b.WriteString("\n")

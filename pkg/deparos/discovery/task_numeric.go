@@ -171,7 +171,7 @@ func (n *NumericFuzzTask) buildURL(value []byte) []byte {
 	}
 
 	buf.Write(n.suffix)
-	return buf.Bytes()
+	return []byte(collapseDoubleSlashes(buf.String()))
 }
 
 // FindNumericParameter searches for a numeric parameter in a path.

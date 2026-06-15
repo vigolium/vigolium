@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A static directory on the server returns an automatically generated file listing (an index of its contents) instead of a normal page or a 404. This module probes common static and upload paths such as /public/, /uploads/, /static/, /assets/, /files/, /media/, /images/, and /dist/, and flags one when the 2xx response body contains directory-listing markers from Express serve-index, Nginx autoindex, or Apache autoindex (fingerprinting the 404 page first to avoid false positives). It exposes the full file inventory of a directory that was meant to serve only specific assets.
+	ModuleDesc = `**What it means:** A static directory returns an auto-generated file listing instead of a page or 404. This probes common paths like /public/, /uploads/, and /static/, flagging a 2xx body with listing markers from serve-index, Nginx autoindex, or Apache autoindex, exposing the full file inventory.
 
-**How it's exploited:** An attacker browses the exposed listing to enumerate every file present, then downloads anything sensitive that was not meant to be public, such as backup archives, configuration files, source code, credentials, or uploaded user content that has no direct link in the application.
+**How it's exploited:** An attacker browses the listing to enumerate every file, then downloads anything sensitive not meant to be public - backup archives, config files, source code, credentials, or unlinked uploaded content.
 
-**Fix:** Disable directory listing on static middleware (do not enable serve-index, set Nginx autoindex off / Apache Options -Indexes) and serve only explicitly intended files.`
+**Fix:** Disable directory listing on static middleware (no serve-index, Nginx autoindex off, Apache Options -Indexes) and serve only intended files.`
 
 	ModuleConfirmation = "Confirmed when a directory path responds with directory listing indicators such as serve-index markers, autoindex output, or file listing HTML"
 	ModuleSeverity     = severity.Low

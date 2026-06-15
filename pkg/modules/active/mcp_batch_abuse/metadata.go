@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This Model Context Protocol (MCP) server enforces its session/authentication gate per-request inside a JSON-RPC batch instead of for the batch as a whole, so a single array that bundles an initialize call with a sensitive method is processed in full even though no real session was ever established. This lets a caller reach MCP methods that should require a valid, authenticated session, exposing the server's tool and resource surface to unauthenticated clients.
+	ModuleDesc = `**What it means:** This Model Context Protocol (MCP) server applies its session gate per-request inside a JSON-RPC batch rather than to the batch as a whole, so an array bundling initialize with a sensitive method runs in full with no session, exposing the tool surface to unauthenticated callers.
 
-**How it's exploited:** An attacker POSTs a batched JSON-RPC array containing initialize plus tools/list (or tools/call) with no Mcp-Session-Id header; the smuggled method returns a result alongside the initialize response, leaking the server's available tools and potentially allowing invocation of privileged tool/resource operations without ever holding a session.
+**How it's exploited:** An attacker POSTs a batch of initialize plus tools/call with no Mcp-Session-Id header; the smuggled method returns a result alongside initialize, leaking tools and invoking privileged operations.
 
-**Fix:** Establish and validate the MCP session before processing any method, and apply that gate to every entry in a batch (or reject batched requests outright) so unestablished sessions cannot reach tools/call or resources/read.`
+**Fix:** Validate the MCP session before processing any method, applying that gate to every batch entry so unestablished sessions cannot reach tools/call.`
 
 	ModuleConfirmation = "Confirmed when a batched JSON-RPC array bypasses the per-request session gate, returning a result for tools/list or tools/call without a real session"
 	ModuleSeverity     = severity.High

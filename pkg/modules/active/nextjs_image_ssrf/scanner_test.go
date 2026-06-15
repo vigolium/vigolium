@@ -115,3 +115,39 @@ func TestNextJSImageSSRF_PlainCatchAll(t *testing.T) {
 		t.Fatalf("plain-text catch-all must be suppressed by the baseline gate, got %v", conf)
 	}
 }
+
+// nextStatusTemplate renders a long fixed optimizer status page that only echoes
+// the target host word — the shape that defeats a bare-token check, since two
+// renderings differ only by the host and are therefore >0.95 similar.
+func nextStatusTemplate(host string) string {
+	return "Image optimization request log entry. The optimizer attempted to fetch the requested upstream image " +
+		"resource and prepare a resized variant for delivery to the client browser as part of the standard pipeline. " +
+		"The remote endpoint did not return a renderable image payload so this diagnostic notice is shown instead of " +
+		"binary output and no upstream bytes are included anywhere in this particular message under the safety policy. " +
+		"The requested upstream host recorded for this attempt was " + host + " and the optimizer cache layer reported " +
+		"a miss for the associated transform key while the retry budget for this request path was left fully intact."
+}
+
+// TestNextJSImageSSRF_LocalhostSameTemplate is the differential test for the
+// html-expected (localhost) probe. The optimizer answers every url= with the same
+// fixed status template that only echoes the host word, so "localhost" appears for
+// http://127.0.0.1 but is absent from the dead-host (192.0.2.1) baseline. The
+// fresh-token check alone would report it; the differential gate (the bodies are
+// otherwise identical) must suppress it — the optimizer did not reach localhost.
+func TestNextJSImageSSRF_LocalhostSameTemplate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.RawQuery, "127.0.0.1"):
+			_, _ = io.WriteString(w, nextStatusTemplate("localhost"))
+		case strings.Contains(r.URL.RawQuery, "192.0.2.1"):
+			_, _ = io.WriteString(w, nextStatusTemplate("192.0.2.1"))
+		default:
+			_, _ = io.WriteString(w, "ok")
+		}
+	}))
+	defer srv.Close()
+
+	if conf := scanHost(t, srv); len(conf) != 0 {
+		t.Fatalf("a fixed template that only echoes the host word must not be reported as localhost SSRF, got %v", conf)
+	}
+}

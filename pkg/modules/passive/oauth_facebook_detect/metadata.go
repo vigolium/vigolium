@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A request to www.facebook.com carries a redirect-control parameter (redirect_uri or next) as part of a Facebook OAuth login flow. This marks where the application hands control back to a return URL after authentication, which is the exact spot that must be tightly validated to avoid open-redirect and OAuth token-theft issues.
+	ModuleDesc = `**What it means:** A request to www.facebook.com carries a redirect-control parameter (redirect_uri or next) in a Facebook OAuth login flow, marking the return URL trusted after authentication. Informational recon, not a confirmed flaw.
 
-**How it's exploited:** The detection itself is informational and does not prove a flaw. It pinpoints the OAuth return-URL parameter so a reviewer can test whether an attacker-supplied value is accepted; if the redirect target is not strictly whitelisted, an attacker can craft a login link that sends the victim or their authorization code or access token to an attacker-controlled site after login.
+**How it's exploited:** The detection pinpoints the OAuth return-URL parameter so a reviewer can test whether an attacker value is accepted. If it is not strictly allowlisted, a crafted login link can send the victim or their authorization code to an attacker site.
 
-**Fix:** Strictly validate the OAuth redirect_uri against an exact allowlist of registered callback URLs (full path, no wildcard host matching) on both the application and the Facebook app configuration.`
+**Fix:** Strictly validate redirect_uri against an exact allowlist of registered callback URLs (full path, no wildcard host).`
 
 	ModuleConfirmation = "Confirmed when request URL contains Facebook OAuth parameters (client_id, redirect_uri) matching known OAuth flow patterns"
 	ModuleSeverity     = severity.Medium

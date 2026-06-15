@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The CMS installation or setup wizard (WordPress, Drupal 7 or 8+, or Joomla) is reachable on a live, production host instead of being removed or locked down after install. An exposed installer is a critical misconfiguration because it lets anyone walk through the setup flow against a running site.
+	ModuleDesc = `**What it means:** The CMS installation wizard (WordPress, Drupal 7/8+, or Joomla) is reachable on a live production host instead of being removed after install - a critical misconfiguration, since anyone can run setup against a live site.
 
-**How it's exploited:** An attacker who reaches the installer can re-run setup to point the CMS at a database they control, reset or hijack the admin account, and reconfigure the site, leading to full takeover of the application and any data it manages. The wizard also leaks framework, version, and configuration details useful for further attacks.
+**How it's exploited:** An attacker who reaches the installer re-runs setup to point the CMS at a database they control, hijacks the admin account, and reconfigures the site, leading to full takeover. It also leaks version details.
 
-**Fix:** Delete or block access to the installer endpoints (such as /wp-admin/install.php, /install.php, /core/install.php, /installation/index.php) once setup is complete, and restrict them by IP or auth if they must remain.`
+**Fix:** Delete or block the installer endpoints (such as /wp-admin/install.php, /install.php, /core/install.php, /installation/index.php) once setup is done, and restrict by IP or auth if needed.`
 
 	ModuleConfirmation = "Confirmed when installer endpoints return 200 with installation wizard content markers"
 	ModuleSeverity     = severity.Critical

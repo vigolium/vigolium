@@ -91,8 +91,9 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		extracted = append(extracted, "Body: csrfmiddlewaretoken hidden field")
 	}
 
-	// Signal 4: Response body contains "django" or "Django" in admin/error contexts
-	bodyLower := strings.ToLower(body)
+	// Signal 4: Response body contains "django" or "Django" in admin/error contexts.
+	// Shared, memoized lowercased body (computed once per response across modules).
+	bodyLower := ctx.Response().BodyLowerString()
 	if strings.Contains(body, "Django administration") ||
 		strings.Contains(body, "django-admin") ||
 		strings.Contains(bodyLower, "powered by django") {

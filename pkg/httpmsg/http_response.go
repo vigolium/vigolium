@@ -3,6 +3,7 @@ package httpmsg
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"sync"
 )
 
@@ -20,7 +21,22 @@ type HttpResponse struct {
 	headers    []HttpHeader
 	bodyOffset int
 	parsed     bool
-	mu         sync.RWMutex
+
+	// Memoized body derivations. The native-scan executor hands the SAME
+	// *HttpResponse to every passive module for a record (they run concurrently),
+	// and the common idioms — `body := resp.BodyToString()` then
+	// `strings.ToLower(body)` — would otherwise re-copy the full body once per
+	// module. Computing each form once and sharing it turns ~N full-body copies
+	// (N ≈ 90 passive modules) into one. The lowercased form is derived from the
+	// memoized body string, so it adds at most one extra allocation. Guarded by mu;
+	// invalidated by TruncateBody (the only in-place body mutation — the With*
+	// builders return fresh structs).
+	bodyString      string
+	bodyStringOK    bool
+	bodyLowerString string
+	bodyLowerStrOK  bool
+
+	mu sync.RWMutex
 }
 
 // NewHttpResponse creates a new HttpResponse from raw bytes.
@@ -89,13 +105,47 @@ func (r *HttpResponse) Head() []byte {
 	return r.raw[:r.bodyOffset]
 }
 
-// BodyToString returns the body as a string.
+// BodyToString returns the body as a string. The conversion is memoized: every
+// caller for this response shares one allocation, so a wide passive-module
+// fan-out over the same record doesn't re-copy the body per module.
 func (r *HttpResponse) BodyToString() string {
-	body := r.Body()
-	if body == nil {
-		return ""
+	r.ensureParsed()
+	r.mu.RLock()
+	if r.bodyStringOK {
+		s := r.bodyString
+		r.mu.RUnlock()
+		return s
 	}
-	return string(body)
+	r.mu.RUnlock()
+
+	s := string(r.Body())
+	r.mu.Lock()
+	r.bodyString = s
+	r.bodyStringOK = true
+	r.mu.Unlock()
+	return s
+}
+
+// BodyLowerString returns the lowercased body as a string, memoized and shared.
+// Prefer this over strings.ToLower(resp.BodyToString()) in passive detectors so
+// the lowercased body is computed once per response, not once per module. It
+// reuses the memoized BodyToString so it adds a single lowered-string allocation.
+func (r *HttpResponse) BodyLowerString() string {
+	r.ensureParsed()
+	r.mu.RLock()
+	if r.bodyLowerStrOK {
+		s := r.bodyLowerString
+		r.mu.RUnlock()
+		return s
+	}
+	r.mu.RUnlock()
+
+	s := strings.ToLower(r.BodyToString())
+	r.mu.Lock()
+	r.bodyLowerString = s
+	r.bodyLowerStrOK = true
+	r.mu.Unlock()
+	return s
 }
 
 // Cookies parses and returns cookies from Set-Cookie headers.
@@ -167,7 +217,13 @@ func (r *HttpResponse) TruncateBody(maxSize int) {
 	if bodyLen <= maxSize || maxSize < 0 {
 		return
 	}
+	r.mu.Lock()
 	r.raw = r.raw[:r.bodyOffset+maxSize]
+	// The body shrank — drop the memoized derivations so later reads recompute
+	// against the truncated body instead of returning the pre-truncation copy.
+	r.bodyString, r.bodyStringOK = "", false
+	r.bodyLowerString, r.bodyLowerStrOK = "", false
+	r.mu.Unlock()
 }
 
 // ============== Immutable Builder Methods ==============

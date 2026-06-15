@@ -21,9 +21,14 @@ type notFoundFingerprint struct {
 }
 
 type probe struct {
-	path        string
-	name        string
-	markers     []string
+	path string
+	name string
+	// markers is an AND-of-OR group set (see modkit.MatchAllGroups): the body must
+	// contain at least one substring from EVERY group. Generic words ("Deploy",
+	// "JVM", "HTTP", "AJP", "Server Status", "Documentation Index") never form a
+	// group on their own — they appear on unrelated pages; each probe anchors on a
+	// Tomcat-specific title/label.
+	markers     [][]string
 	antiMarkers []string
 	sev         severity.Severity
 	desc        string
@@ -33,9 +38,10 @@ type probe struct {
 
 var probes = []probe{
 	{
-		path:        "/manager/html",
-		name:        "Tomcat Manager",
-		markers:     []string{"Tomcat Manager", "Tomcat Web Application Manager", "Deploy", "Undeploy"},
+		path: "/manager/html",
+		name: "Tomcat Manager",
+		// Anchor on the manager title, corroborate with a deploy action.
+		markers:     [][]string{{"Tomcat Manager", "Tomcat Web Application Manager"}, {"Deploy", "Undeploy", "WAR file to deploy"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Critical,
 		desc:        "Tomcat Manager web interface is accessible, enabling WAR deployment and application management. Brute-force or default credentials may lead to full server compromise",
@@ -45,7 +51,7 @@ var probes = []probe{
 	{
 		path:        "/host-manager/html",
 		name:        "Tomcat Host Manager",
-		markers:     []string{"Host Manager", "Tomcat Virtual Host Manager", "Add Virtual Host"},
+		markers:     [][]string{{"Tomcat Virtual Host Manager", "Host Manager"}, {"Add Virtual Host", "host-manager"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Critical,
 		desc:        "Tomcat Host Manager is accessible, enabling virtual host manipulation. Combined with default credentials, this can lead to server compromise",
@@ -53,9 +59,11 @@ var probes = []probe{
 		bypass:      true,
 	},
 	{
-		path:        "/manager/status",
-		name:        "Tomcat Server Status",
-		markers:     []string{"Server Status", "JVM", "HTTP", "AJP", "Max threads"},
+		path: "/manager/status",
+		name: "Tomcat Server Status",
+		// Require a Tomcat-status-specific token AND a status detail, so a page with
+		// only "JVM"/"HTTP" cannot match.
+		markers:     [][]string{{"Max threads", "Apache Tomcat", "Tomcat"}, {"Server Status", "JVM", "Current threads busy"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Medium,
 		desc:        "Tomcat server status page exposed, revealing JVM information, connector details, and thread usage",
@@ -65,7 +73,7 @@ var probes = []probe{
 	{
 		path:        "/examples/",
 		name:        "Tomcat Examples",
-		markers:     []string{"Servlet Examples", "JSP Examples", "WebSocket Examples"},
+		markers:     [][]string{{"Servlet Examples", "JSP Examples", "WebSocket Examples"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Low,
 		desc:        "Tomcat example servlets are deployed, indicating incomplete hardening. Example apps may contain known vulnerabilities",
@@ -73,7 +81,7 @@ var probes = []probe{
 	{
 		path:        "/docs/",
 		name:        "Tomcat Documentation",
-		markers:     []string{"Apache Tomcat", "Documentation Index"},
+		markers:     [][]string{{"Apache Tomcat"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Info,
 		desc:        "Tomcat documentation pages are deployed, revealing server version and indicating incomplete hardening",
@@ -299,23 +307,13 @@ func (m *Module) probeEndpoint(
 	// path slug ("examples" for /examples/) can't match on a reflected href alone.
 	matchBody := modkit.StripReflectedProbePath(body, probePath)
 
-	matched := false
-	var matchedMarkers []string
-	for _, marker := range p.markers {
-		if strings.Contains(matchBody, marker) {
-			matched = true
-			matchedMarkers = append(matchedMarkers, marker)
-		}
-	}
-	if !matched {
-		return nil, status
-	}
-
-	// Sub-directory catch-all guard: now that we probe under context-path prefixes,
-	// drop the finding if a nonexistent sibling under the same parent returns the
-	// same markers (a handler that 200s every child path). Root-level probes are
+	// Require every marker group (Tomcat-specific anchor + corroboration), not a
+	// single generic word like "Deploy" or "JVM", then drop the finding if a
+	// nonexistent sibling under the same parent satisfies the same groups (a
+	// sub-directory catch-all that 200s every child path). Root-level probes are
 	// already covered by the random-path 404 fingerprint above.
-	if modkit.SiblingServesAnyMarker(ctx, httpClient, probePath, p.markers) {
+	matchedMarkers, ok := modkit.MatchAndConfirmSibling(ctx, httpClient, probePath, matchBody, p.markers)
+	if !ok {
 		return nil, status
 	}
 

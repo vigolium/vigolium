@@ -2,13 +2,15 @@ package database
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 )
 
-// insertValueFinding inserts a finding row with the fields value-grouping keys on.
-func insertValueFinding(t *testing.T, db *DB, ctx context.Context, projectUUID, module, sev, host, matchedURL, extracted, tagsJSON string) int64 {
+// insertGroupFinding inserts one finding row, defaulting empty JSON columns to
+// "[]". The value/desc wrappers below pin the fields each test family cares about.
+func insertGroupFinding(t *testing.T, db *DB, ctx context.Context, projectUUID, module, sev, conf, host, matchedURL, extracted, tagsJSON, desc string) int64 {
 	t.Helper()
 	matchedAt := "[]"
 	if matchedURL != "" {
@@ -23,14 +25,20 @@ func insertValueFinding(t *testing.T, db *DB, ctx context.Context, projectUUID, 
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO findings (project_uuid, scan_uuid, module_id, module_name,
 			finding_hash, severity, confidence, http_record_uuids, hostname, matched_at,
-			extracted_results, tags)
-		VALUES (?, 'scan1', ?, ?, ?, ?, 'firm', '[]', ?, ?, ?, ?)`,
-		projectUUID, module, module, uuid.NewString(), sev, host, matchedAt, extracted, tagsJSON)
+			extracted_results, tags, description)
+		VALUES (?, 'scan1', ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?)`,
+		projectUUID, module, module, uuid.NewString(), sev, conf, host, matchedAt, extracted, tagsJSON, desc)
 	if err != nil {
 		t.Fatalf("insert finding: %v", err)
 	}
 	id, _ := res.LastInsertId()
 	return id
+}
+
+// insertValueFinding inserts a finding row with the fields value-grouping keys on.
+func insertValueFinding(t *testing.T, db *DB, ctx context.Context, projectUUID, module, sev, host, matchedURL, extracted, tagsJSON string) int64 {
+	t.Helper()
+	return insertGroupFinding(t, db, ctx, projectUUID, module, sev, "firm", host, matchedURL, extracted, tagsJSON, "")
 }
 
 func TestGroupFindingsByValue(t *testing.T) {
@@ -219,6 +227,97 @@ func TestGroupFindingsByValue_ByModule(t *testing.T) {
 	}
 	if len(s.MatchedAt) != 3 {
 		t.Fatalf("expected survivor to span 3 URLs, got %d: %v", len(s.MatchedAt), s.MatchedAt)
+	}
+}
+
+// insertDescFinding inserts a by-module-style finding carrying a description so the
+// rollup-note behaviour can be asserted.
+func insertDescFinding(t *testing.T, db *DB, ctx context.Context, projectUUID, module, host, matchedURL, extracted, desc string) int64 {
+	t.Helper()
+	return insertGroupFinding(t, db, ctx, projectUUID, module, "info", "certain", host, matchedURL, extracted, "[]", desc)
+}
+
+// TestGroupFindingsByValue_ByModuleMergesValues verifies that collapsing a
+// by-module group unions the distinct per-URL extracted values onto the survivor
+// (not just the URLs) and annotates the description with an idempotent rollup note.
+func TestGroupFindingsByValue_ByModuleMergesValues(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	projectUUID := DefaultProjectUUID
+
+	// baas-endpoint-fingerprint fires once per response, each naming a DIFFERENT
+	// third-party service. By-module grouping collapses them but must keep every
+	// service name visible on the survivor.
+	survivor := insertDescFinding(t, db, ctx, projectUUID, "baas-endpoint-fingerprint", "portal.x.com",
+		"https://portal.x.com/a", `["AWS API Gateway: pgnsgvwfw0"]`, "AWS API Gateway endpoint referenced")
+	insertDescFinding(t, db, ctx, projectUUID, "baas-endpoint-fingerprint", "portal.x.com",
+		"https://portal.x.com/b", `["AWS Cognito (Hosted UI): portal-kios"]`, "AWS Cognito endpoint referenced")
+	insertDescFinding(t, db, ctx, projectUUID, "baas-endpoint-fingerprint", "portal.x.com",
+		"https://portal.x.com/c", `["AWS Cognito (IdP): ap-southeast-1"]`, "AWS Cognito IdP referenced")
+
+	opts := GroupFindingOptions{PerHost: true, ByModule: []string{"baas-endpoint-fingerprint"}, MaxURLs: 50}
+	deleted, grouped, err := repo.GroupFindingsByValue(ctx, projectUUID, opts)
+	if err != nil {
+		t.Fatalf("GroupFindingsByValue: %v", err)
+	}
+	if deleted != 2 || grouped != 1 {
+		t.Fatalf("expected 2 deleted / 1 grouped, got %d / %d", deleted, grouped)
+	}
+
+	s := &Finding{}
+	if err := db.NewSelect().Model(s).Where("id = ?", survivor).Scan(ctx); err != nil {
+		t.Fatalf("select survivor: %v", err)
+	}
+	// All three distinct service names must be unioned onto the survivor.
+	if len(s.ExtractedResults) != 3 {
+		t.Fatalf("expected survivor to carry 3 distinct values, got %d: %v", len(s.ExtractedResults), s.ExtractedResults)
+	}
+	wantVals := map[string]bool{
+		"AWS API Gateway: pgnsgvwfw0":          false,
+		"AWS Cognito (Hosted UI): portal-kios": false,
+		"AWS Cognito (IdP): ap-southeast-1":    false,
+	}
+	for _, v := range s.ExtractedResults {
+		if _, ok := wantVals[v]; !ok {
+			t.Errorf("unexpected value on survivor: %q", v)
+		}
+		wantVals[v] = true
+	}
+	for v, seen := range wantVals {
+		if !seen {
+			t.Errorf("survivor missing value: %q", v)
+		}
+	}
+	if len(s.MatchedAt) != 3 {
+		t.Errorf("expected survivor to span 3 URLs, got %d: %v", len(s.MatchedAt), s.MatchedAt)
+	}
+	// Description keeps its original lead and gains a single rollup note.
+	if !strings.HasPrefix(s.Description, "AWS API Gateway endpoint referenced") {
+		t.Errorf("survivor lost its base description: %q", s.Description)
+	}
+	if c := strings.Count(s.Description, groupRollupMarker); c != 1 {
+		t.Errorf("expected exactly one rollup marker, got %d: %q", c, s.Description)
+	}
+	if !strings.Contains(s.Description, "3 distinct value(s)") {
+		t.Errorf("rollup note missing distinct-value count: %q", s.Description)
+	}
+
+	// Idempotency: a later pass that folds in one more occurrence must rewrite the
+	// note in place (not stack a second marker) and grow the value union to 4.
+	insertDescFinding(t, db, ctx, projectUUID, "baas-endpoint-fingerprint", "portal.x.com",
+		"https://portal.x.com/d", `["AWS AppSync: graphql-xyz"]`, "AWS AppSync endpoint referenced")
+	if _, _, err := repo.GroupFindingsByValue(ctx, projectUUID, opts); err != nil {
+		t.Fatalf("GroupFindingsByValue (second pass): %v", err)
+	}
+	if err := db.NewSelect().Model(s).Where("id = ?", survivor).Scan(ctx); err != nil {
+		t.Fatalf("re-select survivor: %v", err)
+	}
+	if len(s.ExtractedResults) != 4 {
+		t.Errorf("expected 4 distinct values after second pass, got %d: %v", len(s.ExtractedResults), s.ExtractedResults)
+	}
+	if c := strings.Count(s.Description, groupRollupMarker); c != 1 {
+		t.Errorf("rollup note stacked across passes (got %d markers): %q", c, s.Description)
 	}
 }
 

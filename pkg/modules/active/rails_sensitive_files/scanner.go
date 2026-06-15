@@ -249,8 +249,8 @@ func (m *Module) probeFile(
 		Info: output.Info{
 			Name:        fmt.Sprintf("Rails Sensitive File: %s", sf.name),
 			Description: sf.desc,
-			Severity:    sf.sev,
-			Confidence:  severity.Firm,
+			Severity:    modkit.CapSeverity(sf.sev, severity.Medium),
+			Confidence:  severity.Tentative,
 			Tags:        []string{"rails", "ruby", "sensitive-file", "information-disclosure"},
 			Reference:   []string{"https://guides.rubyonrails.org/security.html"},
 		},

@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A resource that returns 401 Unauthorized or 403 Forbidden can be reached anyway by a simple request trick, so the access-control check that was supposed to protect it does not actually hold. The scanner confirmed a tweaked request that turned the forbidden response into a 200 serving distinct content for the same resource, after ruling out catch-all pages, soft-404s, login redirects, and one-off flaps.
+	ModuleDesc = `**What it means:** A resource returning 401 or 403 can be reached anyway via a simple request trick, so its access-control check does not hold. A tweaked request turned the forbidden response into a 200 with distinct content.
 
-**How it's exploited:** An attacker reaches a protected page or API without proper authorization by mutating the path (added segments, encoded slashes, trailing characters, case changes), spoofing IP/rewrite headers such as X-Forwarded-For or X-Original-URL, asserting a privileged identity via trusted reverse-proxy/SSO headers like X-Forwarded-User or X-Auth-Request-Email, abusing the Next.js x-middleware-subrequest bypass (CVE-2025-29927), or tampering with the HTTP method or method-override headers. The result is unauthorized access to restricted functionality or data.
+**How it's exploited:** An attacker reaches a protected page or API by mutating the path (added segments, encoded slashes, case changes), spoofing headers like X-Forwarded-For, X-Original-URL, or X-Forwarded-User, or abusing the Next.js x-middleware-subrequest bypass (CVE-2025-29927).
 
-**Fix:** Enforce authorization at the application layer for every request regardless of path encoding, method, or client-supplied proxy/identity headers, and strip untrusted forwarding headers at the edge.`
+**Fix:** Enforce authorization at the application layer for every request regardless of path encoding, method, or proxy/identity headers, and strip untrusted forwarding headers.`
 
 	ModuleConfirmation = "Confirmed when a bypass technique produces a non-403 response with valid content for a previously forbidden resource"
 	ModuleSeverity     = severity.Medium

@@ -49,8 +49,10 @@ const EvidenceSeparator = output.EvidenceSeparator
 
 // maxAdditionalEvidence caps how many request/response pairs a survivor finding
 // retains under AdditionalEvidence when duplicates are folded in (the evidence
-// merge paths in repository_dedup.go).
-const maxAdditionalEvidence = 10
+// merge paths in repository_dedup.go). Kept small so a noisy module (one that
+// fires on many sibling paths of the same host) does not balloon the stored
+// request/response payload — and, via the converter cap, the http_records table.
+const maxAdditionalEvidence = 5
 
 // appendUniqueEvidence appends each candidate to existing, skipping any that is
 // empty, byte-identical to primary, or already present. primary is the survivor's

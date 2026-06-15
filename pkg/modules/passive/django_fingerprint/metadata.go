@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application is built on the Django (Python) web framework, identified passively from default CSRF and session cookies (csrftoken, sessionid), the csrfmiddlewaretoken hidden form field, Django admin or "powered by Django" references, the X-Frame-Options: DENY default, and Django error strings. Detection requires 2 or more independent signals to limit false positives. This is informational technology fingerprinting, not a vulnerability on its own. If a Django error page (ImproperlyConfigured or OperationalError) is observed, the finding also notes a debug error page is exposed, which can leak settings, file paths, and stack traces.
+	ModuleDesc = `**What it means:** The app runs the Django (Python) framework, identified passively from default cookies (csrftoken, sessionid), the csrfmiddlewaretoken form field, admin references, and error strings. Two or more signals are required to limit false positives. Informational fingerprinting. An observed Django error page is also noted as an exposed debug page.
 
-**How it's exploited:** Knowing the target runs Django lets an attacker narrow attack surface and focus on framework-specific weaknesses, such as known CVEs in the detected Django/Python versions, default admin paths, insecure SECRET_KEY usage, and template or deserialization issues. An exposed debug error page can directly reveal configuration, environment variables, and internal paths that aid further attacks.
+**How it's exploited:** Knowing the target runs Django lets an attacker focus on framework-specific weaknesses - version CVEs, default admin paths, insecure SECRET_KEY use, deserialization issues. A debug page reveals config and paths.
 
-**Fix:** Disable DEBUG in production, suppress framework and version banners, and keep Django patched to a supported release.`
+**Fix:** Disable DEBUG in production, suppress framework and version banners, and keep Django patched.`
 
 	ModuleConfirmation = "Confirmed when 2+ independent Django-specific signals are detected in the response"
 	ModuleSeverity     = severity.Info

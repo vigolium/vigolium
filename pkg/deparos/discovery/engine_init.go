@@ -11,6 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/fingerprint"
 	pkghttp "github.com/vigolium/vigolium/pkg/deparos/http"
 	"github.com/vigolium/vigolium/pkg/deparos/storage"
+	"github.com/vigolium/vigolium/pkg/spitolas/loginsig"
 	"go.uber.org/zap"
 )
 
@@ -47,6 +48,12 @@ func (e *Engine) initSession() error {
 	if err := e.loadExtractionsFromDB(); err != nil {
 		logger.Warn("Failed to load extractions from database", zap.Error(err))
 	}
+
+	// Parse the JS that earlier phases (spidering) already collected for routes the
+	// discovery crawl would otherwise miss — it only parses JS it fetches itself,
+	// so framework bundles the browser captured (e.g. a Salesforce Aura app bundle
+	// embedding an /apex/... captcha route) are never mined for endpoints.
+	e.extractRoutesFromStoredJS()
 
 	// Re-extract words from stored response bodies if -extract-words is enabled
 	if e.wordlistExtractor != nil && e.config.Filenames.WordlistExtraction.Enabled {
@@ -266,6 +273,16 @@ func (e *Engine) probeStartURL(targetURL *url.URL) error {
 	// record the landing page's shape (HTML? JS-shell SPA?) for the JS-bundle sweep.
 	if resp != nil {
 		e.startURLHeader = resp.Header.Clone()
+		e.startURLStatus = resp.StatusCode
+		// A 3xx redirect target (Location) or a 200-served login form both mean the
+		// root is an auth gate, not the app — used to gate fingerprint confirmation.
+		e.startURLIsLogin = loginsig.LooksLikeLoginURL(targetURL) ||
+			loginsig.BodyLooksLikeLogin(body)
+		if loc := resp.Header.Get("Location"); loc != "" {
+			if locURL, err := targetURL.Parse(loc); err == nil && loginsig.LooksLikeLoginURL(locURL) {
+				e.startURLIsLogin = true
+			}
+		}
 		e.captureStartURLAppShape(targetURL.Path, resp.Header.Get("Content-Type"), body)
 	}
 

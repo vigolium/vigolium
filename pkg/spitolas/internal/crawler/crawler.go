@@ -92,6 +92,16 @@ type Crawler struct {
 	// default host-scope rule — an explicit CrawlScope is never widened.
 	adoptedHost string
 
+	// primedFrames dedups iframe-source priming across the whole crawl so a frame
+	// that recurs in many states (a persistent header/captcha iframe) is fetched
+	// once, not once per state. Guarded by primedFramesMu.
+	primedFramesMu sync.Mutex
+	primedFrames   map[string]bool
+
+	// loginCTAPrimed marks that the one-shot login-CTA drive has already run, so a
+	// crawl that revisits the landing does not re-enter the auth flow repeatedly.
+	loginCTAPrimed bool
+
 	mu      sync.Mutex
 	stats   Stats
 	running bool
@@ -120,6 +130,12 @@ type Stats struct {
 	LandingURL     string
 	LandingIsLogin bool
 	HostAdopted    bool
+
+	// LoginCTADriven is true when the one-shot login-CTA priming found and clicked
+	// a login call-to-action on the landing, driving the OAuth/SAML/SSO flow.
+	// LoginCTAText is the CTA's visible label (for logging).
+	LoginCTADriven bool
+	LoginCTAText   string
 }
 
 // New creates a new crawler.
@@ -397,17 +413,28 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 		}
 	}
 
+	// Let a heavy SPA finish its bootstrap XHR chain (config/i18n/content/feature
+	// flags) before we snapshot the page and extract clickables — otherwise we
+	// capture a half-rendered shell whose login CTA and data calls have not landed
+	// yet. Then clear any cookie-consent overlay so it neither blocks the real
+	// content from rendering nor masks the elements we extract/click, and scroll
+	// the page so content/assets that only load as sections enter the viewport are
+	// requested and captured.
+	c.settleSPA(ctx, page)
+	c.dismissConsentOverlays(ctx, page)
+	c.scrollToLoadContent(ctx, page)
+
 	// Prime service-worker assets: fetch the files a PWA service worker would
 	// pre-cache (e.g. Angular's lazy webpack chunks listed in ngsw.json) so the
 	// network capture records them. A short headless visit never runs the
 	// worker's precache, so these are otherwise missed.
 	c.primeServiceWorkerAssets(ctx, page)
 
-	// Fill forms if present
-	if c.config.FormFillEnabled {
-		zap.L().Debug("Form filling enabled, detecting forms")
-		c.fillFormsIfPresent(page, "")
-	}
+	// Prime iframe sources: fetch the same-origin <iframe>/<frame> URLs present
+	// in the rendered DOM (including frames injected client-side after first
+	// paint) so the page they point at — and any reflected query parameters on
+	// it — is recorded and scanned even when the served HTML never linked it.
+	c.primeIframeAssets(ctx, page)
 
 	// Capture index state
 	zap.L().Debug("Capturing index state")
@@ -459,6 +486,27 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 
 		// NOTE: Frame extraction is already handled by c.extractor.Extract() which
 		// recursively processes frames with correct framePath. No separate call needed.
+	}
+
+	// Drive the login CTA once. An unauthenticated visit to many enterprise apps
+	// bounces to a portal landing whose "Log on" button kicks off an OAuth/SAML/SSO
+	// navigation chain (… /oauth2/authorize → /idp/login → SAML → vendor login). The
+	// normal state machine may never click it — it triggers a full cross-origin
+	// navigation away from the landing — so the entire flow, and every URL it
+	// touches, is missed. Clicking it here lets the network capture record the chain
+	// and the destination login page's own XHRs; we then return to the landing so
+	// the loop resumes from a known state.
+	//
+	// Runs BEFORE form-filling: a cookie-consent preference form (OneTrust et al.)
+	// can carry dozens of controls that the form filler spends the element timeout
+	// on apiece, which would otherwise burn the whole spider budget before the
+	// login CTA is ever driven.
+	c.primeLoginCTA(ctx, page, indexState.URL)
+
+	// Fill forms if present.
+	if c.config.FormFillEnabled {
+		zap.L().Debug("Form filling enabled, detecting forms")
+		c.fillFormsIfPresent(page, "")
 	}
 
 	return nil
@@ -1492,6 +1540,12 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, event
 	// New state discovered!
 	zap.L().Debug("New state discovered", zap.String("state", newState.Name), zap.Int("depth", newState.Depth))
 	c.candidates.RecordStateCreation(newState.ID)
+
+	// Harvest iframe sources mounted in this newly reached state — a click/form
+	// (e.g. opening a registration step) can inject a frame whose URL the served
+	// HTML never contained. Deduped across the crawl so a recurring frame is
+	// fetched once.
+	c.primeIframeAssets(ctx, page)
 
 	// RLCRAWLER PARITY: Register new state with MAB policy
 	if c.mabPolicy != nil {

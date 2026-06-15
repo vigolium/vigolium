@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application reveals which JavaScript framework powers its front end (Next.js with Pages or App Router, Nuxt.js, Angular, React CRA, Remix, SvelteKit, or Gatsby), detected passively from HTML body markers such as __NEXT_DATA__, __NUXT__, ng-version, and asset URLs, plus headers like X-Powered-By. For Next.js it also surfaces the build identifier. This is informational technology disclosure, not a vulnerability on its own, but it narrows the attacker's search space.
+	ModuleDesc = `**What it means:** The app reveals its front-end JavaScript framework (Next.js, Nuxt.js, Angular, React CRA, Remix, SvelteKit, or Gatsby), detected from HTML markers like __NEXT_DATA__, __NUXT__, ng-version, asset URLs, and X-Powered-By. For Next.js it surfaces the build identifier. Informational disclosure, not a vulnerability.
 
-**How it's exploited:** Knowing the exact framework lets an attacker focus reconnaissance and select framework-specific exploits and misconfigurations (for example Next.js data-fetching and middleware bypass classes, Nuxt SSR issues, or Angular template flaws) rather than probing blindly. The disclosed Next.js buildId and router type can be reused to reach internal data and asset endpoints and to fingerprint the deployed version for targeting.
+**How it's exploited:** An attacker selects framework-specific exploits (Next.js middleware bypass, Nuxt SSR issues, Angular template flaws) instead of probing blindly. The Next.js buildId and router type help reach internal data and asset endpoints.
 
-**Fix:** Treat this as low-risk informational disclosure; you cannot fully hide a client-side framework, so instead remove unnecessary version and X-Powered-By headers, keep the framework patched, and ensure security does not rely on hiding the stack.`
+**Fix:** Remove unnecessary version and X-Powered-By headers, keep the framework patched, and never rely on hiding the stack for security.`
 
 	ModuleConfirmation = "Confirmed when framework-specific markers (script tags, headers, or asset URL patterns) are detected in the response"
 	ModuleSeverity     = severity.Info

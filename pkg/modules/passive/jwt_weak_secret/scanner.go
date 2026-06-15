@@ -19,6 +19,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/jwtutil"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
@@ -321,6 +322,13 @@ func findJWTs(ctx *httpmsg.HttpRequestResponse) []string {
 	var tokens []string
 	seen := make(map[string]struct{})
 	add := func(token string) {
+		// Skip Cloudflare-Access-style pre-auth / metadata tokens (type=meta,
+		// auth_status=NONE). These RS256 SSO login-flow tokens are reflected into
+		// login pages and would otherwise emit a spurious "potential algorithm
+		// confusion" finding — they are not the application's own JWTs.
+		if jwtutil.IsPreAuthMetaTokenString(token) {
+			return
+		}
 		if _, ok := seen[token]; !ok {
 			seen[token] = struct{}{}
 			tokens = append(tokens, token)
@@ -350,7 +358,9 @@ func findJWTs(ctx *httpmsg.HttpRequestResponse) []string {
 	}
 
 	// --- Response ---
-	if ctx.Response() != nil {
+	// Skip WAF/CDN edge blocks: a JWT-shaped string on a challenge/error page is
+	// the edge's, not the application's. Request-side tokens above are kept.
+	if ctx.Response() != nil && !modkit.IsEdgeBlockedResponse(ctx.Response()) {
 		// Check response Authorization header (some APIs echo tokens back)
 		auth := ctx.Response().Header("Authorization")
 		if token, ok := strings.CutPrefix(auth, "Bearer "); ok {

@@ -182,18 +182,10 @@ func (m *Module) probeFile(
 		return nil
 	}
 
-	// Require at least one marker match
-	if len(probe.markers) == 0 {
-		return nil
-	}
-
-	var matchedMarkers []string
-	for _, marker := range probe.markers {
-		if strings.Contains(body, marker) {
-			matchedMarkers = append(matchedMarkers, marker)
-		}
-	}
-	if len(matchedMarkers) == 0 {
+	// Require every marker group (Firebase-specific anchor + corroboration), so a
+	// generic JSON body sharing one weak key cannot match.
+	matchedMarkers, ok := modkit.MatchAllGroups(body, probe.markers)
+	if !ok {
 		return nil
 	}
 

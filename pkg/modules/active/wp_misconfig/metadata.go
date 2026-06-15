@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A WordPress site is exposing files and endpoints that should never be publicly reachable. Depending on what is found, the impact ranges from informational version disclosure to full database credential exposure, so individual findings carry their own severity (from Info up to Critical).
+	ModuleDesc = `**What it means:** A WordPress site exposes files and endpoints that should never be publicly reachable. Impact ranges from version disclosure to database credential exposure, so each finding carries its own severity (Info up to Critical).
 
-**How it's exploited:** The most damaging cases are a readable wp-config.php (or its editor backups such as wp-config.php~, .old, .save, .swp, .txt, .bak) and exposed SQL dumps, which hand an attacker database credentials, secret auth salts, and potentially the entire user table. Other findings are stepping stones: an open installer or repair endpoint can let an attacker reset or corrupt the site, a readable debug.log leaks stack traces and filesystem paths, directory listings reveal uploaded files and plugin slugs, readme.html discloses the version while license.txt confirms the install, and a triggerable wp-cron.php can be hammered for denial of service.
+**How it's exploited:** The worst cases are a readable wp-config.php (or backups like wp-config.php~, .old, .bak) and SQL dumps, handing an attacker DB credentials, auth salts, and the user table. Lesser findings are stepping stones: installer endpoints can reset the site and debug.log leaks paths.
 
-**Fix:** Block direct web access to wp-config.php, backups, debug logs, SQL dumps, and installer/repair endpoints, disable directory listing, and serve wp-cron only internally.`
+**Fix:** Block web access to wp-config.php, backups, debug logs, SQL dumps, and installer/repair endpoints, and disable directory listing.`
 
 	ModuleConfirmation = "Confirmed when probed WordPress files return 200 with expected content markers (PHP constants, log entries, directory index HTML)"
 	ModuleSeverity     = severity.High

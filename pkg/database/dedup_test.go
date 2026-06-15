@@ -233,6 +233,59 @@ func TestDeduplicateFindings(t *testing.T) {
 	}
 }
 
+func TestDeduplicateFindings_HostScoped(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	projectUUID := DefaultProjectUUID
+
+	insert := func(host, matchedAtURL string) int64 {
+		res, err := db.ExecContext(ctx,
+			`INSERT INTO findings (project_uuid, scan_uuid, hostname, module_id, module_name,
+				finding_hash, severity, confidence, http_record_uuids, matched_at)
+			VALUES (?, 'scan1', ?, 'input-behavior-probe', 'input-behavior-probe', ?, 'info', 'firm', '[]', ?)`,
+			projectUUID, host, uuid.NewString(), `["`+matchedAtURL+`"]`)
+		if err != nil {
+			t.Fatalf("insert finding: %v", err)
+		}
+		id, _ := res.LastInsertId()
+		return id
+	}
+
+	// 3 duplicates on host A and 3 on host B (same module/severity/URL within each host).
+	insert("a.example.com", "http://a.example.com/x")
+	insert("a.example.com", "http://a.example.com/x")
+	insert("a.example.com", "http://a.example.com/x")
+	insert("b.example.com", "http://b.example.com/y")
+	insert("b.example.com", "http://b.example.com/y")
+	insert("b.example.com", "http://b.example.com/y")
+
+	// Scoped to host A: only A's 2 redundant findings collapse; B is untouched.
+	deleted, grouped, err := repo.DeduplicateFindings(ctx, projectUUID, "a.example.com")
+	if err != nil {
+		t.Fatalf("DeduplicateFindings (scoped): %v", err)
+	}
+	if deleted != 2 || grouped != 1 {
+		t.Fatalf("scoped pass: expected 2 deleted / 1 grouped, got %d / %d", deleted, grouped)
+	}
+	var bCount int
+	if err := db.NewRaw("SELECT COUNT(*) FROM findings WHERE hostname = ?", "b.example.com").Scan(ctx, &bCount); err != nil {
+		t.Fatalf("count B: %v", err)
+	}
+	if bCount != 3 {
+		t.Fatalf("host B should be untouched by an A-scoped pass, got %d findings", bCount)
+	}
+
+	// Unscoped pass now collapses host B's duplicates too.
+	deleted, grouped, err = repo.DeduplicateFindings(ctx, projectUUID)
+	if err != nil {
+		t.Fatalf("DeduplicateFindings (unscoped): %v", err)
+	}
+	if deleted != 2 || grouped != 1 {
+		t.Fatalf("unscoped pass: expected 2 deleted / 1 grouped, got %d / %d", deleted, grouped)
+	}
+}
+
 func TestDeduplicateFindings_EvidenceCollected(t *testing.T) {
 	db := newTestDB(t)
 	repo := NewRepository(db)
@@ -328,14 +381,14 @@ func TestDeduplicateFindings_EvidenceCapped(t *testing.T) {
 		t.Errorf("expected 1 grouped, got %d", grouped)
 	}
 
-	// Verify survivor's AdditionalEvidence is capped at 10.
+	// Verify survivor's AdditionalEvidence is capped at maxAdditionalEvidence.
 	survivor := &Finding{}
 	err = db.NewSelect().Model(survivor).Where("id = ?", survivorID).Scan(ctx)
 	if err != nil {
 		t.Fatalf("select survivor: %v", err)
 	}
-	if len(survivor.AdditionalEvidence) != 10 {
-		t.Fatalf("expected 10 additional evidence entries (capped), got %d", len(survivor.AdditionalEvidence))
+	if len(survivor.AdditionalEvidence) != maxAdditionalEvidence {
+		t.Fatalf("expected %d additional evidence entries (capped), got %d", maxAdditionalEvidence, len(survivor.AdditionalEvidence))
 	}
 }
 
@@ -561,6 +614,247 @@ func TestDeduplicateSoftDeparosRecords_DifferentCharacteristics(t *testing.T) {
 	}
 	if deleted != 0 {
 		t.Errorf("expected 0 deleted, got %d", deleted)
+	}
+}
+
+// TestDeduplicateSoftDeparosRecords_ReflectedURLLength is the regression for the
+// reflected-URL case: a family of probes against an error page that echoes the
+// requested URI share status/words/content-type/prefix but differ in
+// response_content_length (the echoed URI's length varies per probe). Now that
+// exact length is no longer part of the soft-dedup key, the family collapses.
+func TestDeduplicateSoftDeparosRecords_ReflectedURLLength(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	projectUUID := DefaultProjectUUID
+	now := time.Now()
+
+	insertRec := func(path string, contentLength int64) {
+		id := uuid.NewString()
+		rec := &HTTPRecord{
+			UUID:                  id,
+			ProjectUUID:           projectUUID,
+			Scheme:                "https",
+			Hostname:              "host1.com",
+			Port:                  443,
+			Method:                "GET",
+			Path:                  path,
+			URL:                   "https://host1.com" + path,
+			HTTPVersion:           "HTTP/1.1",
+			RequestHash:           id,
+			ResponseHash:          id, // unique hash → exact dedup can't help
+			StatusCode:            400,
+			ResponseContentLength: contentLength, // varies with the echoed URI
+			ResponseWords:         42,
+			ResponseContentType:   "text/html",
+			HasResponse:           true,
+			Source:                "deparos",
+			SentAt:                now,
+			CreatedAt:             now,
+		}
+		if _, err := db.NewInsert().Model(rec).Exec(ctx); err != nil {
+			t.Fatalf("insert record: %v", err)
+		}
+	}
+
+	// 4 probes under /jboss-net/, identical shape but each a different length.
+	insertRec("/jboss-net//happyaxis.jsp", 430)
+	insertRec("/jboss-net//happyaxis.jsp.OLD", 434)
+	insertRec("/jboss-net//happyaxis.jsp.orig", 435)
+	insertRec("/jboss-net//happyaxis.jsp.csproj", 437)
+
+	deleted, _, err := repo.DeduplicateSoftDeparosRecords(ctx, projectUUID)
+	if err != nil {
+		t.Fatalf("DeduplicateSoftDeparosRecords: %v", err)
+	}
+	// 4 → 1 survivor = 3 deleted, despite the differing content lengths.
+	if deleted != 3 {
+		t.Errorf("expected 3 deleted (reflected-URL family collapses regardless of length), got %d", deleted)
+	}
+}
+
+func TestApplyDeparosStatusPolicy(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	projectUUID := DefaultProjectUUID
+	now := time.Now()
+
+	insertRec := func(hostname, path string, statusCode int, source string) string {
+		id := uuid.NewString()
+		rec := &HTTPRecord{
+			UUID:         id,
+			ProjectUUID:  projectUUID,
+			Scheme:       "https",
+			Hostname:     hostname,
+			Port:         443,
+			Method:       "GET",
+			Path:         path,
+			URL:          "https://" + hostname + path,
+			HTTPVersion:  "HTTP/1.1",
+			RequestHash:  id,
+			ResponseHash: id,
+			StatusCode:   statusCode,
+			HasResponse:  true,
+			Source:       source,
+			SentAt:       now,
+			CreatedAt:    now,
+		}
+		if _, err := db.NewInsert().Model(rec).Exec(ctx); err != nil {
+			t.Fatalf("insert record: %v", err)
+		}
+		return id
+	}
+
+	// 4xx that must be dropped.
+	insertRec("h1.com", "/bad-400", 400, "deparos")
+	insertRec("h1.com", "/forbidden-403", 403, "deparos")
+	insertRec("h1.com", "/gone-410", 410, "deparos")
+	// 401s on h1: collapse to one representative (shortest path survives).
+	a1 := insertRec("h1.com", "/a", 401, "deparos")
+	insertRec("h1.com", "/admin/secret", 401, "deparos")
+	insertRec("h1.com", "/another/longer/path", 401, "deparos")
+	// 401 on a second host keeps its own representative.
+	b1 := insertRec("h2.com", "/login", 401, "deparos")
+	// Kept statuses (not 4xx).
+	ok200 := insertRec("h1.com", "/index", 200, "deparos")
+	redir := insertRec("h1.com", "/old", 301, "deparos")
+	serr := insertRec("h1.com", "/boom", 500, "deparos")
+	// A 403 from a non-deparos source must be untouched.
+	nonDeparos := insertRec("h1.com", "/scanner-403", 403, "scanner")
+
+	deleted, statusCodes, err := repo.ApplyDeparosStatusPolicy(ctx, projectUUID, []int{401})
+	if err != nil {
+		t.Fatalf("ApplyDeparosStatusPolicy: %v", err)
+	}
+	// Dropped: 400, 403, 410 (3) + two extra 401s on h1 (2) = 5.
+	if deleted != 5 {
+		t.Errorf("expected 5 deleted, got %d", deleted)
+	}
+	if statusCodes[401] != 2 {
+		t.Errorf("expected 2 collapsed 401 records in breakdown, got %d", statusCodes[401])
+	}
+
+	survivors := map[string]bool{a1: true, b1: true, ok200: true, redir: true, serr: true, nonDeparos: true}
+	var remaining []*HTTPRecord
+	if err := db.NewSelect().Model(&remaining).Scan(ctx); err != nil {
+		t.Fatalf("select remaining: %v", err)
+	}
+	if len(remaining) != len(survivors) {
+		t.Errorf("expected %d remaining, got %d", len(survivors), len(remaining))
+	}
+	for _, rec := range remaining {
+		if !survivors[rec.UUID] {
+			t.Errorf("unexpected survivor: %s (path=%s status=%d source=%s)", rec.UUID, rec.Path, rec.StatusCode, rec.Source)
+		}
+	}
+}
+
+func TestApplyDeparosStatusPolicy_NoKeepDropsAll4xx(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	projectUUID := DefaultProjectUUID
+	now := time.Now()
+
+	insert := func(path string, status int) {
+		id := uuid.NewString()
+		_, err := db.NewInsert().Model(&HTTPRecord{
+			UUID: id, ProjectUUID: projectUUID, Scheme: "https", Hostname: "h.com", Port: 443,
+			Method: "GET", Path: path, URL: "https://h.com" + path, HTTPVersion: "HTTP/1.1",
+			RequestHash: id, ResponseHash: id, StatusCode: status, HasResponse: true,
+			Source: "deparos", SentAt: now, CreatedAt: now,
+		}).Exec(ctx)
+		if err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+	insert("/a", 401)
+	insert("/b", 403)
+	insert("/c", 200)
+
+	// Empty keep list ⇒ every 4xx (including 401) is dropped.
+	deleted, _, err := repo.ApplyDeparosStatusPolicy(ctx, projectUUID, nil)
+	if err != nil {
+		t.Fatalf("ApplyDeparosStatusPolicy: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("expected 2 deleted (401+403), got %d", deleted)
+	}
+}
+
+func TestDeduplicateDeparosByNormHash(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	projectUUID := DefaultProjectUUID
+	now := time.Now()
+
+	insertRec := func(hostname, path string, status int, normHash, source string) string {
+		id := uuid.NewString()
+		rec := &HTTPRecord{
+			UUID:                id,
+			ProjectUUID:         projectUUID,
+			Scheme:              "https",
+			Hostname:            hostname,
+			Port:                443,
+			Method:              "GET",
+			Path:                path,
+			URL:                 "https://" + hostname + path,
+			HTTPVersion:         "HTTP/1.1",
+			RequestHash:         id,
+			ResponseHash:        id, // unique — exact dedup never fires
+			ResponseNormHash:    normHash,
+			StatusCode:          status,
+			ResponseContentType: "text/html",
+			HasResponse:         true,
+			Source:              source,
+			SentAt:              now,
+			CreatedAt:           now,
+		}
+		if _, err := db.NewInsert().Model(rec).Exec(ctx); err != nil {
+			t.Fatalf("insert record: %v", err)
+		}
+		return id
+	}
+
+	// Same normalized body across 3 echoing paths — shortest path survives.
+	keep := insertRec("h1.com", "/x", 200, "NORM-AAA", "deparos")
+	insertRec("h1.com", "/x/longer", 200, "NORM-AAA", "deparos")
+	insertRec("h1.com", "/x/longest/path", 200, "NORM-AAA", "deparos")
+	// Different normalized body — kept.
+	other := insertRec("h1.com", "/y", 200, "NORM-BBB", "deparos")
+	// Same norm hash but different status — not collapsed together.
+	diffStatus := insertRec("h1.com", "/z", 500, "NORM-AAA", "deparos")
+	// Empty norm hash (e.g. empty body) — left to exact dedup, untouched.
+	emptyNorm1 := insertRec("h1.com", "/e1", 204, "", "deparos")
+	emptyNorm2 := insertRec("h1.com", "/e2", 204, "", "deparos")
+	// Matching norm hash but non-deparos source — untouched.
+	nonDeparos := insertRec("h1.com", "/n", 200, "NORM-AAA", "scanner")
+
+	deleted, _, err := repo.DeduplicateDeparosByNormHash(ctx, projectUUID)
+	if err != nil {
+		t.Fatalf("DeduplicateDeparosByNormHash: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("expected 2 deleted, got %d", deleted)
+	}
+
+	survivors := map[string]bool{keep: true, other: true, diffStatus: true, emptyNorm1: true, emptyNorm2: true, nonDeparos: true}
+	var remaining []*HTTPRecord
+	if err := db.NewSelect().Model(&remaining).Scan(ctx); err != nil {
+		t.Fatalf("select remaining: %v", err)
+	}
+	if len(remaining) != len(survivors) {
+		t.Errorf("expected %d remaining, got %d", len(survivors), len(remaining))
+	}
+	for _, rec := range remaining {
+		if !survivors[rec.UUID] {
+			t.Errorf("unexpected survivor: %s (path=%s norm=%s)", rec.UUID, rec.Path, rec.ResponseNormHash)
+		}
 	}
 }
 

@@ -270,6 +270,86 @@ func DecoyFileBaseline(
 	return fetchGET(ctx, client, decoyPath, http.Options{NoRedirects: true, NoClustering: true})
 }
 
+// RandomDirCatchAll GETs a guaranteed-nonexistent directory (a random path with
+// a trailing slash, at the web root) and reports whether its 2xx body already
+// satisfies match. It is the host-wide catch-all guard for directory-listing
+// probes: a real autoindex/serve-index server returns a listing only for
+// directories that exist on disk and 404s a random non-existent dir, so if a
+// random dir already "lists" (or matches the detector at all), the host renders
+// that body for ANY path — an SPA shell, a wildcard rewrite, a templated soft-404
+// — and every per-directory finding is spurious. Drop the whole host's findings
+// when this returns true.
+//
+// The trailing slash matters: directory handlers key on it. Runs with
+// NoRedirects (a 30x is not a served listing) and NoClustering (so the probe is
+// not aliased to a cached entry). Returns false on any build/transport error, a
+// missing/non-2xx response, or a nil match (fail-open — a flaky probe never
+// suppresses a real finding).
+func RandomDirCatchAll(
+	ctx *httpmsg.HttpRequestResponse,
+	client *http.Requester,
+	match func(body string) bool,
+) bool {
+	if match == nil {
+		return false
+	}
+	status, body, ok := fetchGET(ctx, client, "/vigolium-catchall-dir-"+FreshCanary()+"/", http.Options{NoRedirects: true, NoClustering: true})
+	if !ok || status < 200 || status >= 300 {
+		return false
+	}
+	return match(body)
+}
+
+// MultiRoundExtDecoyCatchAll probes `rounds` distinct guaranteed-nonexistent
+// siblings that share probePath's parent directory AND file extension (e.g.
+// /WEB-INF/vigolium-decoy-<rand>.xml for /WEB-INF/web.xml) and reports whether
+// the path is served by an extension-scoped catch-all rather than a real file.
+//
+// It is the multi-round companion to DecoyFileBaseline, built for the
+// application-shell host that answers EVERY /<dir>/<anything>.<ext> with the
+// same 200 page (a SPA fallback, a reverse-proxy wildcard, a Salesforce-style
+// framework shell). The root soft-404 fingerprint these modules take cannot see
+// such a catch-all — it probes a no-extension path at the web root, and a shell
+// that embeds the request path / a session token differs enough per path to dodge
+// the fingerprint's hash and length checks — so a weak content marker that merely
+// appears somewhere in the shell forges a finding. Requesting
+// /WEB-INF/thisisclearly404.xml and observing the same shell come back is the
+// direct disproof.
+//
+// A round trips the catch-all when its decoy returns the SAME status as the
+// candidate AND either the decoy body satisfies markerMatch (the same markers the
+// candidate matched) or is textually ~equal (BodiesSimilar) to candidateBody.
+// Returns true (catch-all → drop the candidate) as soon as any round trips;
+// returns false when every round 404s / errors / serves a clearly different body.
+// Each round uses a fresh canary (DecoyFileBaseline) so a per-path response cache
+// cannot alias the decoys to one another. rounds < 1 is treated as 1. Fails OPEN
+// per round (a transport error or missing decoy response cannot prove a catch-all)
+// so a flaky probe never suppresses a real finding.
+func MultiRoundExtDecoyCatchAll(
+	ctx *httpmsg.HttpRequestResponse,
+	client *http.Requester,
+	probePath, candidateBody string,
+	candidateStatus, rounds int,
+	markerMatch func(body string) bool,
+) bool {
+	if rounds < 1 {
+		rounds = 1
+	}
+	for i := 0; i < rounds; i++ {
+		decoyStatus, decoyBody, served := DecoyFileBaseline(ctx, client, probePath)
+		if !served || decoyStatus != candidateStatus {
+			continue // a 404 / differently-statused / errored decoy is the real-file case
+		}
+		if markerMatch != nil && markerMatch(decoyBody) {
+			return true // decoy carries the same markers → extension-scoped catch-all
+		}
+		if candidateBody != "" && BodiesSimilar(decoyBody, candidateBody) {
+			return true // decoy body ≈ candidate body → catch-all shell
+		}
+	}
+	return false
+}
+
 // FetchPath issues a fresh GET to probePath carrying the observed request's
 // headers and service, with the response cache bypassed (NoClustering) so a
 // reproduce/re-confirmation probe is never aliased to a cached entry. It returns

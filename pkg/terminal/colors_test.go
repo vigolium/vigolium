@@ -47,6 +47,52 @@ func TestColorize(t *testing.T) {
 	}
 }
 
+// EnableCLIColor forces color on for the interactive CLI (overriding the non-TTY
+// auto-disable), but the explicit opt-outs must win — including NO_COLOR, which
+// it re-checks precisely because it unconditionally resets the color state.
+func TestEnableCLIColor(t *testing.T) {
+	originalEnabled := colorEnabled
+	originalNoColor, hadNoColor := os.LookupEnv("NO_COLOR")
+	defer func() {
+		colorEnabled = originalEnabled
+		if hadNoColor {
+			_ = os.Setenv("NO_COLOR", originalNoColor)
+		} else {
+			_ = os.Unsetenv("NO_COLOR")
+		}
+	}()
+
+	tests := []struct {
+		name     string
+		noColor  bool
+		ciOutput bool
+		noColEnv bool // NO_COLOR present in the environment
+		want     bool
+	}{
+		{"plain CLI run enables color even off a non-TTY", false, false, false, true},
+		{"--no-color forces off", true, false, false, false},
+		{"--ci-output-format forces off", false, true, false, false},
+		{"NO_COLOR env forces off despite reset", false, false, true, false},
+		{"any opt-out forces off", true, true, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.noColEnv {
+				_ = os.Setenv("NO_COLOR", "1")
+			} else {
+				_ = os.Unsetenv("NO_COLOR")
+			}
+			// Start from the opposite state to prove the call sets it, not luck.
+			SetColorEnabled(!tt.want)
+			EnableCLIColor(tt.noColor, tt.ciOutput)
+			if got := IsColorEnabled(); got != tt.want {
+				t.Errorf("EnableCLIColor(noColor=%v, ciOutput=%v, NO_COLOR=%v) -> %v, want %v",
+					tt.noColor, tt.ciOutput, tt.noColEnv, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBasicColors(t *testing.T) {
 	// Save original state
 	originalEnabled := colorEnabled

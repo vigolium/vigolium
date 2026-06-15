@@ -46,9 +46,26 @@ func (h *hostHeap) Pop() any {
 const numShards = 32
 
 // hostEntry holds the semaphore and metadata for a single host.
+//
+// Two concurrency primitives, picked at creation by the limiter's mode:
+//   - Static mode uses sem, a fixed-capacity channel (acquire = send, release =
+//     receive). This is the original lock-free hot path and is unchanged.
+//   - Adaptive mode uses tokens, a resizable token pool (acquire = receive,
+//     release = send-back), whose effective limit AIMD-adjusts from request
+//     health. The pool channel is sized to the ramp ceiling; limit/inflight/debt
+//     and the AIMD bookkeeping fields below are used only in this mode.
 type hostEntry struct {
-	sem      chan struct{} // Semaphore for concurrency limiting
+	sem      chan struct{} // static mode: fixed-cap semaphore (acquire = send)
 	lastUsed atomic.Int64  // Unix nanos — updated atomically, no lock needed
+
+	// Adaptive-mode fields (zero/unused in static mode).
+	tokens   chan struct{} // resizable token pool (acquire = receive), cap = ceiling
+	limit    atomic.Int64  // current allowed concurrency (available + inflight)
+	inflight atomic.Int64  // checked-out tokens (for idle-eviction "active" check)
+	debt     atomic.Int64  // tokens to drop on release (pending shrink)
+	healthy  atomic.Int64  // consecutive healthy completions since last change
+	lastDecr atomic.Int64  // unix nanos of last decrease (back-off cooldown)
+	mu       sync.Mutex    // serializes setLimit; never held on the acquire hot path
 }
 
 func (e *hostEntry) touch() {
@@ -57,6 +74,16 @@ func (e *hostEntry) touch() {
 
 func (e *hostEntry) idleSince(d time.Duration) bool {
 	return time.Since(time.Unix(0, e.lastUsed.Load())) > d
+}
+
+// hasInflight reports whether the entry has in-flight (acquired-not-released)
+// requests, so the eviction loop won't reclaim a host mid-request. Static mode
+// reads the semaphore length; adaptive mode reads the inflight counter.
+func (e *hostEntry) hasInflight() bool {
+	if e.tokens != nil {
+		return e.inflight.Load() > 0
+	}
+	return len(e.sem) > 0
 }
 
 // hostShard is one bucket of the sharded host map.
@@ -77,6 +104,15 @@ type HostRateLimiter struct {
 	evictAfter     time.Duration // Evict hosts idle for this duration
 	acquireTimeout time.Duration // Max time to wait for a slot
 
+	// Adaptive mode (off by default). When enabled, each host starts at
+	// maxPerHost and AIMD-adjusts within [minPerHost, ceilingPerHost] from
+	// per-request health fed back via Feedback: a distress signal (429/503/502/504,
+	// connection error, timeout) halves the limit (bounded by a cooldown); a run of
+	// healthy completions additively grows it back toward the ceiling.
+	adaptive       bool
+	minPerHost     int
+	ceilingPerHost int
+
 	stopEvict chan struct{}
 	evictWg   conc.WaitGroup
 }
@@ -88,6 +124,19 @@ type HostRateLimiterConfig struct {
 	EvictAfter     time.Duration // Evict idle hosts after (default: 30s)
 	EvictInterval  time.Duration // How often to run eviction (default: 10s)
 	AcquireTimeout time.Duration // Max time to wait for a slot (default: 30s)
+
+	// Adaptive enables per-host AIMD concurrency control (default: false — the
+	// static MaxPerHost semaphore). Each host still starts at MaxPerHost, so a
+	// healthy scan behaves exactly like the static limiter; it only diverges by
+	// backing off a host that returns distress signals and recovering afterwards.
+	Adaptive bool
+	// MinPerHost is the back-off floor in adaptive mode (default: max(1,
+	// MaxPerHost/10)). Ignored when Adaptive is false.
+	MinPerHost int
+	// CeilingPerHost is the ramp ceiling in adaptive mode (default: MaxPerHost, so
+	// adaptive never exceeds the configured concurrency). Set above MaxPerHost to
+	// let healthy hosts ramp past it. Ignored when Adaptive is false.
+	CeilingPerHost int
 }
 
 // DefaultHostRateLimiterConfig returns sensible defaults.
@@ -120,11 +169,23 @@ func NewHostRateLimiter(cfg HostRateLimiterConfig) *HostRateLimiter {
 		cfg.AcquireTimeout = 30 * time.Second
 	}
 
+	// Adaptive bounds: floor defaults to a tenth of the start (min 1); ceiling
+	// defaults to MaxPerHost so adaptive never exceeds the configured concurrency.
+	minPerHost := cfg.MinPerHost
+	if minPerHost <= 0 {
+		minPerHost = max(cfg.MaxPerHost/10, 1)
+	}
+	minPerHost = min(minPerHost, cfg.MaxPerHost)
+	ceilingPerHost := max(cfg.CeilingPerHost, cfg.MaxPerHost)
+
 	h := &HostRateLimiter{
 		maxPerHost:     cfg.MaxPerHost,
 		maxEntries:     cfg.MaxEntries,
 		evictAfter:     cfg.EvictAfter,
 		acquireTimeout: cfg.AcquireTimeout,
+		adaptive:       cfg.Adaptive,
+		minPerHost:     minPerHost,
+		ceilingPerHost: ceilingPerHost,
 		stopEvict:      make(chan struct{}),
 	}
 
@@ -162,6 +223,20 @@ func (h *HostRateLimiter) shardFor(host string) *hostShard {
 func (h *HostRateLimiter) Acquire(ctx context.Context, host string) error {
 	shard := h.shardFor(host)
 	entry := h.getOrCreateEntry(shard, host)
+
+	// Adaptive mode: acquire a token from the resizable pool (receive). Same
+	// lock-free hot path as the static send below, just the opposite channel
+	// direction; the pool's current size is the effective per-host limit.
+	if entry.tokens != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-entry.tokens:
+			entry.inflight.Add(1)
+			entry.touch()
+			return nil
+		}
+	}
 
 	select {
 	case <-ctx.Done():
@@ -203,6 +278,30 @@ func (h *HostRateLimiter) Release(host string) {
 		return
 	}
 
+	// Adaptive mode: return the token unless the pool is shrinking, in which case
+	// this token is retired against the outstanding debt (the limit decreased
+	// while it was checked out, so it must not come back into circulation).
+	if entry.tokens != nil {
+		entry.inflight.Add(-1)
+		for {
+			d := entry.debt.Load()
+			if d <= 0 {
+				break
+			}
+			if entry.debt.CompareAndSwap(d, d-1) {
+				return // token retired, not returned
+			}
+		}
+		select {
+		case entry.tokens <- struct{}{}:
+		default:
+			// Pool already at capacity — should not happen given the invariant
+			// available+inflight == limit <= cap, but never block a release.
+			zap.L().Warn("HostRateLimiter: adaptive token pool full on release", zap.String("host", host))
+		}
+		return
+	}
+
 	select {
 	case <-entry.sem:
 		// Released
@@ -237,7 +336,7 @@ func (h *HostRateLimiter) getOrCreateEntry(shard *hostShard, host string) *hostE
 	// transient, immediately usable entry instead of panicking on a write to a
 	// nil map. The entry isn't tracked — there's nothing left to track into.
 	if shard.hosts == nil {
-		return &hostEntry{sem: make(chan struct{}, h.maxPerHost)}
+		return h.newEntry()
 	}
 
 	// Check if we need to evict (approximate: per-shard cap)
@@ -246,9 +345,7 @@ func (h *HostRateLimiter) getOrCreateEntry(shard *hostShard, host string) *hostE
 	}
 
 	now := time.Now().UnixNano()
-	entry = &hostEntry{
-		sem: make(chan struct{}, h.maxPerHost),
-	}
+	entry = h.newEntry()
 	entry.lastUsed.Store(now)
 	shard.hosts[host] = entry
 
@@ -319,7 +416,7 @@ func (h *HostRateLimiter) evictIdle() {
 				continue
 			}
 
-			if !entry.idleSince(h.evictAfter) || len(entry.sem) > 0 {
+			if !entry.idleSince(h.evictAfter) || entry.hasInflight() {
 				break // Oldest isn't idle yet, nothing else will be
 			}
 

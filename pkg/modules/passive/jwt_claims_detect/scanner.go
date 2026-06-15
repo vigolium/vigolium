@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/jwtutil"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
@@ -103,7 +104,11 @@ func (m *Module) findTokens(ctx *httpmsg.HttpRequestResponse) []string {
 	var tokens []string
 
 	add := func(t string) {
-		if _, ok := seen[t]; !ok && isJWT(t) {
+		// Skip Cloudflare-Access-style pre-auth / metadata tokens (type=meta,
+		// auth_status=NONE). They are framework SSO login-flow tokens embedded in
+		// login URLs and reflected into the page body, not the application's own
+		// JWTs, so claim-hygiene checks on them (e.g. "missing iss") are noise.
+		if _, ok := seen[t]; !ok && isJWT(t) && !jwtutil.IsPreAuthMetaTokenString(t) {
 			seen[t] = struct{}{}
 			tokens = append(tokens, t)
 		}
@@ -128,8 +133,10 @@ func (m *Module) findTokens(ctx *httpmsg.HttpRequestResponse) []string {
 		}
 	}
 
-	// Check response body
-	if ctx.Response() != nil {
+	// Check response body. Skip WAF/CDN edge blocks: a JWT-shaped string on a
+	// challenge/error page is the edge's, not the application's. Request-side
+	// tokens above are kept — the client really sent them.
+	if ctx.Response() != nil && !modkit.IsEdgeBlockedResponse(ctx.Response()) {
 		body := ctx.Response().BodyToString()
 		if body != "" {
 			matches := jwtBodyRegex.FindAllString(body, maxTokensPerResponse)

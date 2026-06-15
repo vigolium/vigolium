@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The response sends a Content-Security-Policy header, but parsing its directives shows configurations that weaken the protection CSP is meant to provide. This module passively flags specific weak directives on HTML responses: unsafe-inline or unsafe-eval in the script source, a wildcard or data:/blob: scheme allowed for scripts, a missing frame-ancestors directive, a missing base-uri restriction, and an object-src that is not locked to 'none'. A flawed CSP gives a false sense of safety because it does not actually contain the attacks it appears to block.
+	ModuleDesc = `**What it means:** A Content-Security-Policy header is present but its directives weaken the protection it should provide - unsafe-inline/unsafe-eval, wildcard or data:/blob: script sources, a missing frame-ancestors or base-uri, or an object-src not set to 'none'.
 
-**How it's exploited:** Each weakness reduces the policy's value against real attacks. unsafe-inline, unsafe-eval, wildcard, or data:/blob: script sources let injected payloads run despite CSP, so an XSS bug stays exploitable. A missing frame-ancestors directive permits clickjacking via framing, and an unrestricted base-uri lets a base tag hijack relative resource and form URLs. A permissive object-src can load dangerous plugin content.
+**How it's exploited:** Weak script sources let injected payloads run despite CSP, so an XSS bug stays exploitable. Missing frame-ancestors permits clickjacking, an open base-uri lets a base tag hijack relative URLs, and a loose object-src can load dangerous plugin content.
 
-**Fix:** Tighten the policy by removing unsafe-inline/unsafe-eval and wildcard/data:/blob: script sources, and set frame-ancestors, base-uri, and object-src to 'none' or trusted values.`
+**Fix:** Remove unsafe-inline/unsafe-eval and wildcard/data:/blob: script sources; set frame-ancestors, base-uri, and object-src to 'none' or trusted values.`
 
 	ModuleConfirmation = "Confirmed when CSP header contains directives that significantly weaken its protection"
 	ModuleSeverity     = severity.Low

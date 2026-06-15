@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A request parameter is copied into the HTTP response headers without stripping carriage-return/line-feed (CRLF) characters. The scanner injected CRLF sequences plus a unique canary header into the parameter and confirmed, across multiple replays with fresh canaries, that the canary surfaced as a brand-new response header line or split the header block into the response body. This means an attacker controls part of the raw response stream.
+	ModuleDesc = `**What it means:** A request parameter is copied into the HTTP response headers without stripping CRLF characters. An injected canary surfaced as a new header line or split the header block into the body, so an attacker controls part of the response.
 
-**How it's exploited:** By submitting a value containing CRLF, an attacker injects arbitrary headers (for example a Set-Cookie for session fixation) or terminates the header block early to control the response body, enabling HTTP response splitting, cache poisoning of shared proxy caches, and script injection. When the response is served over a reused HTTP/1.1 keep-alive connection behind a pooling proxy, the scanner flags the injection as likely escalatable to Response Queue Poisoning, where other users receive the attacker-controlled response.
+**How it's exploited:** A CRLF-laden value injects arbitrary headers (such as a Set-Cookie) or ends the header block early to control the body, enabling response splitting, cache poisoning, and script injection. Behind a pooling proxy it can become Response Queue Poisoning.
 
-**Fix:** Reject or URL-encode CR and LF characters in any user input before placing it in a response header.`
+**Fix:** Reject or URL-encode CR and LF in user input before using it in a response header.`
 
 	ModuleConfirmation = "Confirmed when an injected canary value with CRLF sequences appears as a new header line in the HTTP response"
 	ModuleSeverity     = severity.Medium

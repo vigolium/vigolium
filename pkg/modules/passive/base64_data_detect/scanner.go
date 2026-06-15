@@ -77,8 +77,9 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	var results []*output.ResultEvent
 
-	// Check response body
-	if ctx.Response() != nil {
+	// Check response body. Skip WAF/CDN edge blocks: base64 on a challenge/error
+	// page is the edge's, not the application's output.
+	if ctx.Response() != nil && !modkit.IsEdgeBlockedResponse(ctx.Response()) {
 		body := ctx.Response().BodyToString()
 		if body != "" {
 			ct := strings.ToLower(ctx.Response().Header("Content-Type"))

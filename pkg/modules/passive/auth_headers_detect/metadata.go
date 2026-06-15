@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This is an informational finding: the scanner passively observed an HTTP request that carries an Authorization header (for example a Bearer token or HTTP Basic credentials) and records the endpoint together with the captured credential value. It marks an authenticated boundary of the application rather than a vulnerability in itself, though the captured token or Basic credential is sensitive and should be handled carefully.
+	ModuleDesc = `**What it means:** Informational: the scanner observed a request carrying an Authorization header (a Bearer token or Basic credentials) and records the endpoint and credential. This marks an authenticated boundary; the credential is sensitive.
 
-**How it's exploited:** The disclosed information maps which endpoints require authentication and what credential scheme they use, helping an attacker focus on authenticated attack surface. If the underlying token or Basic credential is otherwise leaked, logged, or transmitted over a weak channel, an attacker who recovers it can replay it to impersonate the user and access protected resources.
+**How it's exploited:** The disclosure maps which endpoints need authentication. If the credential is leaked, logged, or sent over a weak channel, an attacker who recovers it replays it to impersonate the user.
 
-**Fix:** Treat Authorization values as secrets: keep them out of logs, caches, and URLs, send them only over TLS, scope and expire tokens tightly, and rotate any credential that may have been exposed.`
+**Fix:** Treat Authorization values as secrets: keep them out of logs, caches, and URLs, send only over TLS, scope and expire tokens, and rotate exposed credentials.`
 
-	ModuleConfirmation = "Confirmed when request contains recognized authentication headers (Authorization, Bearer tokens, API keys)"
+	ModuleConfirmation = "Confirmed when a request carries an Authorization header with a real credential (not a bare scheme or placeholder) and the response is the application, not a WAF/CDN edge block"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"authentication", "info-disclosure", "light"}

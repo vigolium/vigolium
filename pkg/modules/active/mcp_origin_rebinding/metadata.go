@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Model Context Protocol (MCP) server reachable over streamable HTTP accepted an initialize handshake that carried a foreign Origin header (https://attacker.example) instead of rejecting it. The MCP transport spec requires servers, especially those bound to localhost or a private interface, to validate Origin so that a web page in the victim's browser cannot talk to the server. Missing this check makes the server a DNS-rebinding sink.
+	ModuleDesc = `**What it means:** A Model Context Protocol (MCP) server over streamable HTTP accepted an initialize handshake carrying a foreign Origin header (https://attacker.example) instead of rejecting it. The spec requires Origin validation, especially for localhost-bound servers; missing it makes the server a DNS-rebinding sink.
 
-**How it's exploited:** An attacker lures the victim to a malicious web page whose domain resolves (via DNS rebinding) to 127.0.0.1 or the MCP host. The victim's browser then issues cross-origin requests that the server answers, letting the attacker drive the MCP server, invoke its tools, and read or act on the user's local data and resources on their behalf.
+**How it's exploited:** An attacker lures the victim to a page whose domain rebinds via DNS to the MCP host; the browser then issues cross-origin requests the server answers, letting the attacker invoke its tools and read local data.
 
-**Fix:** Enforce strict Origin allow-listing on all MCP HTTP transports, rejecting any handshake whose Origin is not a trusted local value, and bind local servers to loopback only.`
+**Fix:** Enforce strict Origin allow-listing on MCP HTTP transports and bind local servers to loopback only.`
 
 	ModuleConfirmation = "Confirmed when an initialize request carrying a foreign Origin succeeds (HTTP 2xx + valid JSON-RPC result) without being rejected by the server"
 	ModuleSeverity     = severity.High

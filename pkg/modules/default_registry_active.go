@@ -58,6 +58,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/firebase_storage_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/flask_werkzeug_debugger"
 	"github.com/vigolium/vigolium/pkg/modules/active/forbidden_bypass"
+	"github.com/vigolium/vigolium/pkg/modules/active/go_debug_endpoint_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/graphql_scan"
 	"github.com/vigolium/vigolium/pkg/modules/active/host_header_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/http_method_tampering"
@@ -154,6 +155,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/suspect_transform"
 	"github.com/vigolium/vigolium/pkg/modules/active/swagger_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/symfony_misconfig"
+	"github.com/vigolium/vigolium/pkg/modules/active/tls_cert_recon"
 	"github.com/vigolium/vigolium/pkg/modules/active/tomcat_manager_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/upgrade_routing_ssrf"
 	"github.com/vigolium/vigolium/pkg/modules/active/web_cache_poisoning"
@@ -220,6 +222,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(cors_misconfiguration.New())
 	r.RegisterActive(internal_header_probe.New())
 	r.RegisterActive(spring_actuator_misconfig.New())
+	r.RegisterActive(go_debug_endpoint_exposure.New())
 	r.RegisterActive(host_header_injection.New())
 	r.RegisterActive(web_cache_poisoning.New())
 	r.RegisterActive(prototype_pollution.New())
@@ -378,6 +381,8 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(bfla_detection.New())
 	r.RegisterActive(oauth_misconfiguration.New())
 	r.RegisterActive(api_key_url_exposure.New())
+	// Active modules - TLS / Certificate Recon
+	r.RegisterActive(tls_cert_recon.New())
 	// Active modules - Fastify/Hono Security
 	r.RegisterActive(fastify_hono_probe.New())
 	// Active modules - Meta-Framework Security

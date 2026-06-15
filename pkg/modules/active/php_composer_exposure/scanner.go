@@ -16,9 +16,13 @@ import (
 )
 
 type probe struct {
-	path        string
-	name        string
-	markers     []string
+	path string
+	name string
+	// markers is an AND-of-OR group set (see modkit.MatchAllGroups): the body must
+	// contain at least one substring from EVERY group. Composer JSON files share
+	// generic keys ("name","version") with almost any JSON payload, so each probe
+	// anchors on a Composer-specific key and corroborates with a second group.
+	markers     [][]string
 	antiMarkers []string
 	sev         severity.Severity
 	desc        string
@@ -27,17 +31,21 @@ type probe struct {
 var probes = []probe{
 	// Composer manifests
 	{
-		path:        "/composer.json",
-		name:        "Composer Manifest",
-		markers:     []string{`"require"`, `"name"`, `"autoload"`},
+		path: "/composer.json",
+		name: "Composer Manifest",
+		// "require"/"autoload"/"require-dev" are Composer-specific JSON keys; bare
+		// "name" matched any JSON object.
+		markers:     [][]string{{`"require"`, `"autoload"`, `"require-dev"`, `"minimum-stability"`}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Medium,
 		desc:        "Composer manifest exposed, revealing project dependencies and potentially private repository URLs",
 	},
 	{
-		path:        "/composer.lock",
-		name:        "Composer Lock File",
-		markers:     []string{`"packages"`, `"name"`, `"version"`, `"dist"`},
+		path: "/composer.lock",
+		name: "Composer Lock File",
+		// "_readme"/"content-hash" are unique to a composer.lock; require one of
+		// those plus a package-detail key so a generic JSON cannot match on "name".
+		markers:     [][]string{{`"_readme"`, `"content-hash"`, `"packages"`}, {`"dist"`, `"reference"`, `"source"`}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Medium,
 		desc:        "Composer lock file exposed, revealing exact dependency versions for CVE correlation",
@@ -46,30 +54,34 @@ var probes = []probe{
 	{
 		path:    "/vendor/",
 		name:    "Vendor Directory Listing",
-		markers: []string{"Index of", "Parent Directory", "autoload"},
+		markers: [][]string{{"Index of", "Parent Directory", "autoload"}},
 		sev:     severity.High,
 		desc:    "Composer vendor directory listing enabled, exposing all installed packages",
 	},
 	{
-		path:        "/vendor/autoload.php",
-		name:        "Vendor Autoload",
-		markers:     []string{"<?php", "autoload", "ComposerAutoloader", "getLoader"},
+		path: "/vendor/autoload.php",
+		name: "Vendor Autoload",
+		// ComposerAutoloader/getLoader are the disclosure; drop bare "<?php".
+		markers:     [][]string{{"ComposerAutoloader", "getLoader", "composerRequire", "autoload_real"}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.High,
 		desc:        "Composer autoload.php accessible, indicating vendor directory is web-reachable",
 	},
 	{
-		path:        "/vendor/composer/installed.json",
-		name:        "Composer Installed Metadata",
-		markers:     []string{`"packages"`, `"name"`, `"version"`},
+		path: "/vendor/composer/installed.json",
+		name: "Composer Installed Metadata",
+		// "dev-package-names" is unique to a Composer v2 installed.json; require a
+		// packages anchor plus a package-detail key.
+		markers:     [][]string{{`"dev-package-names"`, `"packages"`}, {`"version_normalized"`, `"install-path"`, `"dist"`}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Medium,
 		desc:        "Composer installed.json exposed, listing all packages with exact versions",
 	},
 	{
-		path:        "/vendor/composer/installed.php",
-		name:        "Composer Installed PHP",
-		markers:     []string{"<?php", "installed", "versions"},
+		path: "/vendor/composer/installed.php",
+		name: "Composer Installed PHP",
+		// The disclosure is the raw PHP returning Composer's metadata array.
+		markers:     [][]string{{"<?php"}, {"'pretty_version'", "'install_path'", "'reference'", "InstalledVersions"}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Medium,
 		desc:        "Composer installed.php exposed, listing all installed package versions",
@@ -77,7 +89,7 @@ var probes = []probe{
 	{
 		path:        "/vendor/composer/autoload_classmap.php",
 		name:        "Composer Classmap",
-		markers:     []string{"<?php", "return array", "vendor"},
+		markers:     [][]string{{"<?php"}, {"$vendorDir", "$baseDir", "return array"}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Medium,
 		desc:        "Composer autoload classmap exposed, revealing internal class structure and file paths",
@@ -86,7 +98,7 @@ var probes = []probe{
 	{
 		path:        "/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php",
 		name:        "PHPUnit eval-stdin.php",
-		markers:     []string{"<?php", "eval", "php://stdin", "php://input"},
+		markers:     [][]string{{"php://stdin", "php://input", "eval-stdin"}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Critical,
 		desc:        "PHPUnit eval-stdin.php exposed, potentially allowing remote code execution (CVE-2017-9841)",
@@ -95,7 +107,7 @@ var probes = []probe{
 	{
 		path:        "/vendor/composer/LICENSE",
 		name:        "Composer License",
-		markers:     []string{"MIT License", "Composer", "Nils Adermann", "Jordi Boggiano"},
+		markers:     [][]string{{"Nils Adermann", "Jordi Boggiano"}, {"MIT License", "Composer"}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Low,
 		desc:        "Composer LICENSE file accessible, confirming vendor directory is web-reachable",
@@ -306,15 +318,10 @@ func (m *Module) probeFile(
 		return nil
 	}
 
-	matched := false
-	var matchedMarkers []string
-	for _, marker := range p.markers {
-		if strings.Contains(body, marker) {
-			matched = true
-			matchedMarkers = append(matchedMarkers, marker)
-		}
-	}
-	if !matched {
+	// Require every marker group (Composer-specific anchor + corroboration), so a
+	// generic JSON body sharing a key like "name"/"version" cannot match.
+	matchedMarkers, ok := modkit.MatchAllGroups(body, p.markers)
+	if !ok {
 		return nil
 	}
 

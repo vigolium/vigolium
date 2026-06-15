@@ -64,3 +64,19 @@ func TestScanPerRequest_Benign(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
+
+// TestScanPerRequest_EdgeBlockSkipped verifies that a token-shaped value in the
+// headers of a WAF/CDN edge block (a CloudFront 403) is not flagged: those
+// headers are the edge's, not the application's.
+func TestScanPerRequest_EdgeBlockSkipped(t *testing.T) {
+	t.Parallel()
+	m := New()
+	rawReq := []byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+	req := httpmsg.NewHttpRequestWithService(httpmsg.NewServiceSecure("example.com", 443, true), rawReq)
+	rawResp := "HTTP/1.1 403 Forbidden\r\nServer: CloudFront\r\nX-Internal-Token: AKIAIOSFODNN7EXAMPLE\r\n\r\nThe request could not be satisfied."
+	ctx := httpmsg.NewHttpRequestResponse(req, httpmsg.NewHttpResponse([]byte(rawResp)))
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}

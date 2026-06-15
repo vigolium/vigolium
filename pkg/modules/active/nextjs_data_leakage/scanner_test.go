@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -110,6 +111,51 @@ func TestScanPerRequest_DataRouteRedirectNoFalsePositive(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "a data route that itself redirects to login must not be flagged as a leak")
+}
+
+// TestScanPerRequest_CatchAllDataRouteNoFalsePositive guards the new catch-all
+// gate: a host whose data route returns the SAME 200 pageProps body for EVERY path
+// (a CDN/error-boundary that 200s everything) must not be flagged, because the
+// target's 200 then proves nothing about authorization.
+func TestScanPerRequest_CatchAllDataRouteNoFalsePositive(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"pageProps":{}}`)) // identical body for any path
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	base := modtest.Request(t, srv.URL+"/dashboard")
+	rr := responseWith(base, 401, "Unauthorized", nil, nextBody)
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a data route that 200s every path with the same pageProps body is a catch-all, not a leak")
+}
+
+// TestScanPerRequest_TransientDataRouteNoFalsePositive guards the reproduce gate: a
+// one-off 200 pageProps on the data route that does NOT recur on the confirm
+// re-fetch (a cache/edge flap) must not be reported.
+func TestScanPerRequest_TransientDataRouteNoFalsePositive(t *testing.T) {
+	want := fmt.Sprintf("/_next/data/%s/dashboard.json", nextBuildID)
+	var hits int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == want && atomic.AddInt64(&hits, 1) == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"pageProps":{"secret":"data"}}`)) // one-off only
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	base := modtest.Request(t, srv.URL+"/dashboard")
+	rr := responseWith(base, 401, "Unauthorized", nil, nextBody)
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a data-route 200 that does not reproduce on the confirm re-fetch must not be reported")
 }
 
 func TestBuildIDRegex(t *testing.T) {

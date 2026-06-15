@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Firebase Realtime Database referenced by the application is publicly readable over its REST API, meaning anyone can fetch its stored data without authentication. The module extracts the database URL from the page or JavaScript, then confirms exposure by retrieving genuine JSON data (a non-empty object or array, not a permission-denied or error response) from the database root or a common subpath such as users, admin, tokens, or accounts.
+	ModuleDesc = `**What it means:** A Firebase Realtime Database referenced by the app is publicly readable over its REST API, so anyone can fetch stored data without authentication. The check extracts the URL and confirms by retrieving genuine JSON.
 
-**How it's exploited:** An attacker requests the database JSON endpoint directly (for example database.firebaseio.com/.json) and downloads the entire data tree or readable branches, harvesting user records, credentials, and configuration. When the scanner spots embedded secrets such as JWTs, Google API keys, Stripe keys, Slack tokens, or private keys in the exposed data, those can be reused immediately to escalate access. Misconfigured rules often also allow writes, enabling data tampering.
+**How it's exploited:** An attacker requests the JSON endpoint directly (for example database.firebaseio.com/.json) and downloads the data tree, harvesting user records, credentials, and config. Embedded secrets like JWTs or API keys can be reused to escalate. Permissive rules often also allow writes.
 
-**Fix:** Set Firebase security rules so reads (and writes) require authentication and authorization instead of allowing public access, and rotate any secrets that were exposed in the database.`
+**Fix:** Set security rules so reads and writes require authentication and authorization instead of public access, and rotate any exposed secrets.`
 
 	ModuleConfirmation = "Confirmed when Firebase RTDB REST endpoint returns HTTP 200 with JSON data instead of permission denied"
 	ModuleSeverity     = severity.Critical

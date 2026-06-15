@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -16,11 +17,15 @@ import (
 // removed. It runs two passes: the URL-keyed pass (same module/severity/URL fired
 // many times) followed by the value-keyed pass (same extracted value — e.g. one
 // leaked secret — reported once per URL).
-func (r *Runner) deduplicateFindings(ctx context.Context, phase string) {
+//
+// When hostnames are supplied the passes are scoped to those hosts, so a per-round
+// caller (dynamic-assessment) doesn't full-scan a growing project-wide findings
+// table every feedback round. An empty list dedupes project-wide.
+func (r *Runner) deduplicateFindings(ctx context.Context, phase string, hostnames ...string) {
 	if r.repository == nil {
 		return
 	}
-	deleted, grouped, err := r.repository.DeduplicateFindings(ctx, r.options.ProjectUUID)
+	deleted, grouped, err := r.repository.DeduplicateFindings(ctx, r.options.ProjectUUID, hostnames...)
 	if err != nil {
 		zap.L().Warn("Finding deduplication failed", zap.String("phase", phase), zap.Error(err))
 	} else if deleted > 0 {
@@ -31,13 +36,14 @@ func (r *Runner) deduplicateFindings(ctx context.Context, phase string) {
 		r.scanLogger.Info(phase, fmt.Sprintf("grouped %d findings into %d (%d duplicates merged)", deleted+grouped, grouped, deleted))
 	}
 
-	r.groupFindingsByValue(ctx, phase)
+	r.groupFindingsByValue(ctx, phase, hostnames...)
 }
 
 // groupFindingsByValue collapses findings that repeat the same extracted value
 // across many URLs (e.g. one leaked secret reported once per page) into a single
 // finding, merging the URLs into MatchedAt. Gated by known_issue_scan.group_by_value.
-func (r *Runner) groupFindingsByValue(ctx context.Context, phase string) {
+// Optional hostnames scope the pass to those hosts (empty = project-wide).
+func (r *Runner) groupFindingsByValue(ctx context.Context, phase string, hostnames ...string) {
 	if r.repository == nil {
 		return
 	}
@@ -46,10 +52,11 @@ func (r *Runner) groupFindingsByValue(ctx context.Context, phase string) {
 		return
 	}
 	deleted, grouped, err := r.repository.GroupFindingsByValue(ctx, r.options.ProjectUUID, database.GroupFindingOptions{
-		PerHost:  gc.PerHost,
-		Tags:     gc.Tags,
-		ByModule: gc.ByModule,
-		MaxURLs:  gc.MaxURLs,
+		PerHost:   gc.PerHost,
+		Tags:      gc.Tags,
+		ByModule:  gc.ByModule,
+		MaxURLs:   gc.MaxURLs,
+		Hostnames: hostnames,
 	})
 	if err != nil {
 		zap.L().Warn("Finding value-grouping failed", zap.String("phase", phase), zap.Error(err))
@@ -116,17 +123,34 @@ func (r *Runner) getModulesToExecute() ([]modules.ActiveModule, []modules.Passiv
 		}
 	}
 
-	// Filter modules based on enabled_modules config (only when CLI uses "all")
+	// Filter modules based on enabled_modules config (only when CLI uses "all").
+	// A config allowlist is a deliberate selection, so it also opts out of the
+	// intensity tier ceiling below.
+	activeNarrowedByConfig := false
+	passiveNarrowedByConfig := false
 	if r.settings != nil {
 		if activeUsingAll && !isAllModules(r.settings.DynamicAssessment.EnabledModules.ActiveModules) {
 			activeModules = modules.GetActiveModulesByIDs(r.settings.DynamicAssessment.EnabledModules.ActiveModules)
+			activeNarrowedByConfig = true
 			zap.L().Info("Active modules filtered by config", zap.Strings("ids", r.settings.DynamicAssessment.EnabledModules.ActiveModules))
 		}
 
 		if passiveUsingAll && !isAllModules(r.settings.DynamicAssessment.EnabledModules.PassiveModules) {
 			passiveModules = modules.GetPassiveModulesByIDs(r.settings.DynamicAssessment.EnabledModules.PassiveModules)
+			passiveNarrowedByConfig = true
 			zap.L().Info("Passive modules filtered by config", zap.Strings("ids", r.settings.DynamicAssessment.EnabledModules.PassiveModules))
 		}
+	}
+
+	// Apply the intensity tier ceiling. This only narrows a broad ("all")
+	// selection: an explicit -m / --module-tag list or a config allowlist
+	// reflects deliberate intent and runs verbatim regardless of intensity.
+	ceiling := intensityTierCeiling(r.options.Intensity)
+	if activeUsingAll && !activeNarrowedByConfig {
+		activeModules = r.filterActiveModulesByTier(activeModules, ceiling)
+	}
+	if passiveUsingAll && !passiveNarrowedByConfig {
+		passiveModules = r.filterPassiveModulesByTier(passiveModules, ceiling)
 	}
 
 	// Sort by execution priority to keep scheduling policy aligned with the executor.
@@ -165,6 +189,38 @@ func moduleExecutionPriority(m modules.Module) int {
 // isAllModules returns true when the list is empty or contains only "all".
 func isAllModules(ids []string) bool {
 	return len(ids) == 0 || (len(ids) == 1 && ids[0] == "all")
+}
+
+// resolveMaxParamShapeSamples resolves the dynamic-assessment param-shape
+// coalescing cap from settings. Mirroring the MaxFeedbackRounds convention, a
+// zero/unset value (including when a scanning profile overlays the
+// dynamic-assessment section and resets it) falls back to the built-in default;
+// a negative value disables coalescing.
+func (r *Runner) resolveMaxParamShapeSamples() int {
+	if r.settings == nil {
+		return database.DefaultMaxParamShapeSamples
+	}
+	v := r.settings.DynamicAssessment.MaxParamShapeSamples
+	switch {
+	case v < 0:
+		return 0 // explicitly disabled
+	case v == 0:
+		return database.DefaultMaxParamShapeSamples
+	default:
+		return v
+	}
+}
+
+// adaptiveHostLimiterSettings reads the adaptive per-host rate-limiter knobs from
+// scanning-pace settings, returning (enabled, minPerHost, ceilingPerHost). The
+// limiter applies its own defaults for zero min/ceiling, so unset values pass
+// through as 0. Defaults to disabled when settings is nil.
+func adaptiveHostLimiterSettings(settings *config.Settings) (bool, int, int) {
+	if settings == nil {
+		return false, 0, 0
+	}
+	sp := settings.ScanningPace
+	return sp.AdaptivePerHost, sp.MinPerHost, sp.MaxPerHostCeiling
 }
 
 // filterOutPassiveModule removes a passive module with the given ID from the list.

@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An input probe made the application respond differently from its normal baseline: injecting proxy/host headers (X-Forwarded-Host, X-Original-URL, Host), traversal and encoding tricks in path segments, debug/admin parameters (debug=true, admin=1), special fuzz characters, or a polyglot payload changed the response's HTML tag structure or status code (for example 403 to 200, or 200 to 500). This is an informational triage lead, not a confirmed vulnerability: it flags an input the app handles inconsistently, which often sits next to a real flaw such as path traversal, an auth bypass, a hidden debug mode, request smuggling, or injection.
+	ModuleDesc = `**What it means:** An input probe made the application respond differently from its baseline: proxy/host headers (X-Forwarded-Host, X-Original-URL), path traversal, debug/admin parameters (debug=true, admin=1), or a polyglot changed the HTML structure or status code (for example 403 to 200). An informational triage lead, not a confirmed flaw.
 
-**How it's exploited:** An attacker treats the diverging input as a starting point and pursues it manually. A 403-to-200 transition can mean an access-control bypass, a header that alters the page can mean host-header or routing abuse, and a 500 or structural break can expose a parser or injection weakness.
+**How it's exploited:** An attacker pursues the diverging input. A 403-to-200 transition can signal an access-control bypass, a header altering the page can signal host-header or routing abuse, and a 500 can expose injection.
 
-**Fix:** Validate and canonicalize all inputs, ignore untrusted proxy/host headers, disable debug parameters, and remediate the underlying issue the probe surfaced.`
+**Fix:** Validate and canonicalize inputs, ignore untrusted proxy/host headers, disable debug parameters, and fix the underlying issue.`
 
 	ModuleConfirmation = "Indicated when probed requests cause structural changes in the response HTML tag tree or notable status code transitions compared to the baseline"
 	// ModuleSeverity is Info: this diff-based behavior-probing module compares

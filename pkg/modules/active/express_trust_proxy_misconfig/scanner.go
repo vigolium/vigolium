@@ -122,8 +122,6 @@ func (m *Module) ScanPerRequest(
 	}
 	baselineBody := baselineResp.Body().String()
 	baselineHeaders := baselineResp.Headers().String()
-	baselineHasSecureCookie := strings.Contains(baselineHeaders, "Secure")
-	_ = baselineLocation
 
 	// Retain the no-header baseline request/response so each finding can carry the
 	// differential it was judged against (the spoofed-header probe is the attack
@@ -167,8 +165,8 @@ func (m *Module) ScanPerRequest(
 		case "X-Forwarded-Proto":
 			finding = checkProtocolConfusion(
 				baselineStatus, probeStatus,
-				baselineHasSecureCookie, probeHeaders,
-				probeLocation,
+				baselineHeaders, probeHeaders,
+				baselineLocation, probeLocation,
 			)
 
 		case "X-Forwarded-Host":
@@ -182,14 +180,15 @@ func (m *Module) ScanPerRequest(
 		}
 
 		if finding != "" {
-			// Reflection findings (host, port) must be re-confirmed against the
-			// original request: a genuine trust-proxy reflection tracks the value
-			// we inject and is ABSENT from the no-header baseline, whereas a
-			// coincidental static string — or per-request volatile content that
-			// merely happened to contain the fixed probe value — does not. The
-			// X-Forwarded-For probe already self-confirms (confirmIPBypass /
-			// confirmSizeShift) and X-Forwarded-Proto is a behavioral baseline
-			// diff, so only the reflection probes need this extra gate.
+			// Every positive must be re-confirmed against the original request: a
+			// genuine trust-proxy effect tracks the value/behaviour our header
+			// introduces and is ABSENT from the no-header baseline, whereas a
+			// coincidental static string — or per-request volatile content (an edge
+			// affinity cookie issued only on first contact, a rotating redirect) that
+			// merely happened to differ in one sample — does not. Host/Port re-prove
+			// the reflection; Proto re-proves the behavioural diff reproduces on fresh
+			// interleaved samples; For self-confirms (confirmIPBypass/confirmSizeShift).
+			confidence := severity.ConfidenceUndefined // → module default (Firm)
 			switch probe.headerName {
 			case "X-Forwarded-Host":
 				if !m.confirmHostReflection(ctx, httpClient) {
@@ -201,6 +200,16 @@ func (m *Module) ScanPerRequest(
 					resp.Close()
 					continue
 				}
+			case "X-Forwarded-Proto":
+				if !m.confirmProtoEffect(ctx, httpClient) {
+					resp.Close()
+					continue
+				}
+				// A proto-downgrade effect is a behavioural baseline diff (cookie-flag
+				// or redirect change), the weakest signal class in this module and the
+				// most exposed to edge/CDN volatility, so it ships as Tentative even
+				// after reproduction.
+				confidence = severity.Tentative
 			}
 
 			extracted := []string{
@@ -221,6 +230,7 @@ func (m *Module) ScanPerRequest(
 					Name:        fmt.Sprintf("Express Trust Proxy Misconfiguration: %s", probe.headerName),
 					Description: probe.desc,
 					Severity:    severity.Medium,
+					Confidence:  confidence,
 				},
 			})
 			resp.Close()
@@ -232,31 +242,155 @@ func (m *Module) ScanPerRequest(
 	return results, nil
 }
 
-// checkProtocolConfusion detects if X-Forwarded-Proto: http causes redirect
-// behavior changes or strips the Secure flag from Set-Cookie headers.
+// checkProtocolConfusion detects if X-Forwarded-Proto: http causes a
+// security-relevant behavioural change versus the no-header baseline: it either
+// introduces a NEW plaintext-HTTP redirect the baseline didn't have, or strips
+// the Secure attribute off a cookie the app STILL re-issues. Both effects are
+// header-attributable changes, not mere differences between two responses.
 func checkProtocolConfusion(
 	baselineStatus, probeStatus int,
-	baselineHasSecureCookie bool,
-	probeHeaders string,
-	probeLocation string,
+	baselineHeaders, probeHeaders string,
+	baselineLocation, probeLocation string,
 ) string {
-	// Check if the probe triggered a new redirect that the baseline didn't have.
+	// New redirect the baseline didn't have. Only meaningful when the probe
+	// INTRODUCES a redirect (baseline didn't redirect) AND the new target is an
+	// explicit plaintext http:// URL — i.e. the app honoured X-Forwarded-Proto:
+	// http and downgraded the scheme. A 3xx→3xx pair where both sides already
+	// redirect (e.g. an access-proxy/SSO login redirect) is NOT proto-attributable,
+	// and an https:// redirect is the app forcing TLS — neither is a vulnerability.
 	isBaselineRedirect := baselineStatus >= 300 && baselineStatus < 400
 	isProbeRedirect := probeStatus >= 300 && probeStatus < 400
-
 	if !isBaselineRedirect && isProbeRedirect {
-		if strings.Contains(strings.ToLower(probeLocation), "https") {
-			return fmt.Sprintf("Proto downgrade caused HTTPS redirect (status %d, Location: %s)", probeStatus, probeLocation)
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(probeLocation)), "http://") {
+			return fmt.Sprintf("Proto downgrade introduced plaintext-HTTP redirect (status %d, Location: %s)", probeStatus, probeLocation)
 		}
-		return fmt.Sprintf("Proto downgrade caused redirect (status %d)", probeStatus)
+		return ""
 	}
 
-	// Check if Secure flag disappeared from cookies.
-	if baselineHasSecureCookie && !strings.Contains(probeHeaders, "Secure") {
-		return "Proto downgrade stripped Secure flag from Set-Cookie header"
+	// Genuine Secure-flag strip: the SAME cookie is re-issued WITHOUT Secure. A
+	// cookie that simply vanishes from the probe response (a volatile edge/affinity
+	// cookie set only on first contact, or any per-request Set-Cookie that wasn't
+	// re-emitted) is NOT a downgrade and must not be reported — that disappearance
+	// is exactly the X-Forwarded-Proto false positive this guard exists to kill.
+	if name := secureCookieStripped(baselineHeaders, probeHeaders); name != "" {
+		return fmt.Sprintf("Proto downgrade stripped Secure flag from re-issued Set-Cookie %q", name)
 	}
 
 	return ""
+}
+
+// secureCookieStripped reports the name of a cookie that carried the Secure
+// attribute in the no-header baseline AND is re-issued by the proto-downgrade
+// probe WITHOUT it. It returns "" when no such cookie exists — in particular when
+// a baseline Secure cookie is absent from the probe entirely (not re-issued), the
+// classic volatile-edge-cookie case, since a missing Set-Cookie is no evidence
+// the Secure flag was stripped.
+func secureCookieStripped(baselineHeaders, probeHeaders string) string {
+	baseline := setCookieSecurity(baselineHeaders)
+	probe := setCookieSecurity(probeHeaders)
+	for name, hadSecure := range baseline {
+		if !hadSecure {
+			continue
+		}
+		if reSecure, reissued := probe[name]; reissued && !reSecure {
+			return name
+		}
+	}
+	return ""
+}
+
+// setCookieSecurity parses the Set-Cookie lines out of a raw response header
+// block, returning a map of cookie name → whether that Set-Cookie carries the
+// Secure attribute as a distinct directive. Bare substring matching of "Secure"
+// is deliberately avoided: it would match a cookie value, a CSP token, or another
+// header and falsely read as a Secure flag.
+func setCookieSecurity(headers string) map[string]bool {
+	const prefix = "set-cookie:"
+	out := map[string]bool{}
+	for _, line := range strings.Split(headers, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if len(line) < len(prefix) || !strings.EqualFold(line[:len(prefix)], prefix) {
+			continue
+		}
+		val := strings.TrimSpace(line[len(prefix):])
+		// Cookie name = text before the first ';' and the first '='.
+		nameAndValue := val
+		if i := strings.IndexByte(nameAndValue, ';'); i >= 0 {
+			nameAndValue = nameAndValue[:i]
+		}
+		name := nameAndValue
+		if i := strings.IndexByte(name, '='); i >= 0 {
+			name = name[:i]
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		out[name] = cookieHasSecure(val)
+	}
+	return out
+}
+
+// cookieHasSecure reports whether a single Set-Cookie value carries the Secure
+// attribute as its own ';'-delimited directive (case-insensitive), not as a
+// substring of the cookie value or another attribute.
+func cookieHasSecure(setCookieValue string) bool {
+	for _, part := range strings.Split(setCookieValue, ";") {
+		if strings.EqualFold(strings.TrimSpace(part), "Secure") {
+			return true
+		}
+	}
+	return false
+}
+
+// confirmProtoEffect re-confirms an X-Forwarded-Proto behavioural diff is
+// reproducible and header-attributable rather than an artifact of volatile
+// per-request content (an edge cookie issued only on first contact, a rotating
+// redirect). It re-fetches a FRESH no-header control and a fresh proto-downgrade
+// probe, interleaved, and requires checkProtocolConfusion to fire on the same
+// effect every round. Drops on any miss or fetch error so an unverifiable diff is
+// never reported.
+func (m *Module) confirmProtoEffect(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) bool {
+	raw, err := httpmsg.AddOrReplaceHeader(ctx.Request().Raw(), "X-Forwarded-Proto", "http")
+	if err != nil {
+		return false
+	}
+	const rounds = 2
+	for range rounds {
+		ctrlHeaders, ctrlStatus, ctrlLoc, ok := fetchHeadStatusLoc(ctx, httpClient, ctx.Request().Raw())
+		if !ok {
+			return false
+		}
+		probeHeaders, probeStatus, probeLoc, ok := fetchHeadStatusLoc(ctx, httpClient, raw)
+		if !ok {
+			return false
+		}
+		if checkProtocolConfusion(ctrlStatus, probeStatus, ctrlHeaders, probeHeaders, ctrlLoc, probeLoc) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// fetchHeadStatusLoc re-issues raw with the response cache bypassed (NoClustering)
+// so each confirmation sample is a genuinely fresh render, returning the raw
+// header block, status code, and Location header. ok is false on a build/parse/
+// transport error or nil response.
+func fetchHeadStatusLoc(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, raw []byte) (headers string, status int, location string, ok bool) {
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	if err != nil {
+		return "", 0, "", false
+	}
+	req = req.WithService(ctx.Service())
+	resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true})
+	if err != nil {
+		return "", 0, "", false
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return "", 0, "", false
+	}
+	return resp.Headers().String(), resp.Response().StatusCode, resp.Response().Header.Get("Location"), true
 }
 
 // confirmHostReflection re-sends X-Forwarded-Host with a FRESH random host each

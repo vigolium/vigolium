@@ -104,9 +104,12 @@ type ExtensionConfig struct {
 	// JSESSIONID → jsp/action, ASP.NET_SessionId → aspx/ashx, …).
 	ConfirmViaFingerprint bool `json:"confirm_via_fingerprint"`
 	// ConfirmViaProbe confirms an extension via an active soft-404 differential
-	// probe (e.g. GET index.aspx vs a random nonce.aspx, compared against the
-	// per-extension baseline). This is the fallback that keeps rewrite-heavy
-	// apps from going un-fuzzed when no link or header reveals the stack.
+	// probe: it GETs guessed filenames (index/default/login.<ext>) and confirms
+	// if the analyzer reports a non-soft-404 hit. This is a brute-force guess, not
+	// something the site revealed, so it false-positives on catch-all / SPA-shell
+	// hosts that answer 200 for any path — confirming (and then wordlist-fuzzing)
+	// extensions the server does not actually run. OFF by default; opt in only for
+	// rewrite-heavy apps where no link or header reveals the stack.
 	ConfirmViaProbe bool `json:"confirm_via_probe"`
 	// Candidates is the set of server-side extensions eligible for confirmation
 	// + fuzzing (no leading dot). Only extensions in this set are ever probed,

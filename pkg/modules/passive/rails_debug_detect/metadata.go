@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Ruby on Rails application is serving development or debug tooling in what should be a production response. The scanner passively matched markers for Rails detailed exception pages (ActionController/ActionView errors with backtraces), the Better Errors and Web Console development gems, leaked ActiveRecord database errors (PostgreSQL, MySQL, SQLite), or absolute Rails filesystem paths. These responses expose internal detail that should never reach end users; impact ranges from information disclosure up to remote code execution depending on which tooling is exposed.
+	ModuleDesc = `**What it means:** A Ruby on Rails app serves debug tooling in a production response. The scanner matched detailed exception pages, the Better Errors and Web Console gems, leaked ActiveRecord errors, or filesystem paths. Impact ranges from information disclosure to remote code execution.
 
-**How it's exploited:** An attacker reads the leaked stack traces, source paths, gem versions, and database error text to map the codebase, schema, and table or column names for targeted SQL injection and exploit selection. If the Better Errors or Web Console interactive consoles are reachable, an attacker can run arbitrary Ruby on the server, achieving full remote code execution.
+**How it's exploited:** An attacker reads leaked stack traces and database errors to map the schema and column names for targeted SQL injection. If the Better Errors or Web Console consoles are reachable, they run arbitrary Ruby.
 
-**Fix:** Remove the better_errors and web-console gems from production and configure Rails to return generic error pages with config.consider_all_requests_local set to false.`
+**Fix:** Remove the better_errors and web-console gems from production and set config.consider_all_requests_local to false so Rails returns generic error pages.`
 
 	ModuleConfirmation = "Confirmed when Rails-specific debug patterns or exception details are found in response bodies"
 	ModuleSeverity     = severity.High

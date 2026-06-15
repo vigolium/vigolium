@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An unauthenticated Jolokia endpoint is exposed, giving HTTP/JSON access to the application's JMX (Java Management Extensions) layer. The scanner confirmed this by requesting known Jolokia paths (such as /jolokia, /jolokia/list, /jolokia/version, and Spring Boot Actuator variants like /actuator/jolokia) and matching Jolokia-specific JSON markers (agent, agentId, protocol, and MBean listings), after fingerprinting a random 404 path and a sibling catch-all to suppress false positives. This is a serious misconfiguration because JMX often exposes internal runtime state and management operations to anyone who can reach the URL.
+	ModuleDesc = `**What it means:** An unauthenticated Jolokia endpoint (/jolokia, /jolokia/list, /actuator/jolokia) gives HTTP/JSON access to the application's JMX layer, exposing internal runtime state and management operations to anyone who reaches the URL. Hits are confirmed by Jolokia-specific JSON markers.
 
-**How it's exploited:** An attacker reads JMX attributes to harvest configuration, credentials, and environment details, and enumerates registered MBeans via /jolokia/list to map management operations. Depending on the MBeans available and Jolokia's write/exec configuration, attackers can invoke dangerous MBean operations, alter logging or datasource settings, and in some setups chain MBean invocation into remote code execution.
+**How it's exploited:** An attacker reads JMX attributes to harvest configuration, credentials, and environment details, and enumerates MBeans via /jolokia/list. Where write/exec is enabled, dangerous MBean operations can alter settings or chain into remote code execution.
 
-**Fix:** Disable or remove the Jolokia endpoint in production, or restrict it behind authentication and network controls and turn off write/exec access.`
+**Fix:** Disable Jolokia in production, or restrict it behind authentication and network controls and turn off write/exec access.`
 
 	ModuleConfirmation = "Confirmed when Jolokia endpoints return valid JSON responses with agent information or MBean data"
 	ModuleSeverity     = severity.High

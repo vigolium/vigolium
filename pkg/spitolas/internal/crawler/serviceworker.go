@@ -35,9 +35,17 @@ const serviceWorkerPrimeTimeout = 90 * time.Second
 //
 // It is bounded: same-origin only, capped at %d fetches, and rate-limited to a
 // small concurrency so a precache-everything manifest cannot flood the target.
-// The well-known-name guesses are gated behind a PWA / SPA signal so plain
-// static / server-rendered sites are not probed with a dozen 404-ing requests;
-// the registered-worker and declared-manifest sources always run.
+//
+// It only follows resources the live app actually registers or declares — an
+// installed worker (navigator.serviceWorker.getRegistrations, which sees workers
+// a static-HTML scan cannot, e.g. ones registered from a bundled JS file), a
+// <link rel=manifest>, an inline serviceWorker.register('...') target — and the
+// asset lists those declared manifests enumerate. It deliberately does NOT guess
+// well-known PWA/framework filenames: that is path brute-forcing, the discovery
+// phase's job, already done there with soft-404 gating
+// (discovery.spaManifestCandidateURLs). Guessing here too only duplicated that
+// work and, on a SPA catch-all host (200 + index shell for any path), recorded a
+// soft-404 per guess.
 const serviceWorkerPrimeScript = `(async () => {
   const origin = location.origin;
   const MAX = %d;
@@ -63,18 +71,13 @@ const serviceWorkerPrimeScript = `(async () => {
     catch (e) { return null; }
   };
 
-  // pwaSignal records whether the page actually looks like a PWA / SPA. It gates
-  // the well-known-name guesses in step 3 — steps 1-2 below only act on what the
-  // page genuinely declares (a registered worker, a <link rel=manifest>), so they
-  // never emit a spurious request, but the hand-written filenames would 404 on
-  // every plain server-rendered / static site if probed unconditionally.
-  let pwaSignal = false;
-
-  // 1) Any service worker already registered for this page.
+  // 1) Any service worker already registered for this page. The live browser has
+  //    run the page's scripts, so getRegistrations() reports the worker the app
+  //    actually installed — including one registered from a bundled JS file, which
+  //    a static-HTML scan never sees. This is the browser-native source.
   try {
     if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
       const regs = await navigator.serviceWorker.getRegistrations();
-      if (regs.length > 0) pwaSignal = true;
       for (const r of regs) {
         for (const w of [r.active, r.installing, r.waiting]) {
           if (w && w.scriptURL) add(w.scriptURL);
@@ -83,40 +86,34 @@ const serviceWorkerPrimeScript = `(async () => {
     }
   } catch (e) {}
 
-  // 2) Manifest / service-worker <link>s declared in the document.
+  // 2) Resources the document explicitly declares: a <link rel=manifest> /
+  //    <link rel=serviceworker> href, and the URL passed to an inline
+  //    serviceWorker.register('...') call (caught even when registration has not
+  //    yet resolved, so getRegistrations above missed it). These are read off the
+  //    page, never guessed, so a site that declares none emits no request.
   try {
-    const links = document.querySelectorAll('link[rel~="manifest"],link[rel="serviceworker"]');
-    if (links.length > 0) pwaSignal = true;
-    links.forEach(l => { const h = l.getAttribute('href'); if (h) add(h); });
+    document.querySelectorAll('link[rel~="manifest"],link[rel="serviceworker"]')
+      .forEach(l => { const h = l.getAttribute('href'); if (h) add(h); });
+  } catch (e) {}
+  try {
+    const reRegister = /serviceWorker\s*\.\s*register\s*\(\s*['"]([^'"]+)['"]/ig;
+    for (const s of document.scripts) {
+      if (!s.textContent) continue;
+      reRegister.lastIndex = 0;
+      let m;
+      while ((m = reRegister.exec(s.textContent)) !== null) add(m[1]);
+    }
   } catch (e) {}
 
-  // 2b) Other modern-SPA / PWA markers in the rendered page — framework globals,
-  //     root elements, or an inline serviceWorker.register call. Each probe is
-  //     isolated so a throwing access can't abort the others, and the || short
-  //     -circuits as soon as one signal matches.
-  const sig = (fn) => { try { return !!fn(); } catch (e) { return false; } };
-  pwaSignal = pwaSignal ||
-    sig(() => window.__NEXT_DATA__ || window.__NUXT__ || window.$nuxt || window.__remixContext ||
-              window.ng || window.getAllAngularRootElements || window.__VUE__) ||
-    sig(() => document.querySelector('[ng-version],app-root,[data-reactroot],#__next,#__nuxt,[data-sveltekit-preload-data]')) ||
-    sig(() => { for (const s of document.scripts) { if (s.textContent && /serviceWorker\s*\.\s*register\s*\(/i.test(s.textContent)) return true; } return false; });
-
-  // 3) Well-known framework / PWA manifest + worker filenames — probed only when
-  //    the page shows a PWA / SPA signal, so plain static / server-rendered sites
-  //    are not blindly hit with a dozen 404-ing guesses (a real browser would
-  //    never request these on such a site either).
-  if (pwaSignal) {
-    ['ngsw.json','ngsw-worker.js','safety-worker.js','worker-basic.min.js',
-     'firebase-messaging-sw.js','combined-sw.js','service-worker.js','sw.js',
-     'manifest.webmanifest','manifest.json','asset-manifest.json'].forEach(n => add('/' + n));
-    add('/_nuxt/builds/latest.json');
-  }
+  // Guessing well-known PWA/framework filenames is intentionally NOT done here —
+  // that is path brute-forcing (the discovery phase's job, already done with
+  // soft-404 gating). Spidering only follows what the live app registers/declares.
 
   const isJsonManifest = (u) => /\.json(\?|$)/i.test(u) || /\.webmanifest(\?|$)/i.test(u);
   const swNameRe = /(?:^|\/)(?:sw|service-worker|serviceworker|ngsw-worker|firebase-messaging-sw|combined-sw|safety-worker|worker-basic\.min)\.js(?:\?|$)/i;
   const isSW = (u) => swNameRe.test(u) || /workbox/i.test(u);
 
-  // 4) Read JSON manifests for their asset lists. Multi-round because one
+  // 3) Read JSON manifests for their asset lists. Multi-round because one
   //    manifest can point at another (Nuxt latest.json -> meta -> routes).
   const parsed = new Set();
   for (let round = 0; round < 4; round++) {
@@ -147,7 +144,7 @@ const serviceWorkerPrimeScript = `(async () => {
     }
   }
 
-  // 5) Workbox precache lists embedded in service workers. Each entry is an
+  // 4) Workbox precache lists embedded in service workers. Each entry is an
   //    object carrying a url + revision; that shape is unique to a precache list.
   const wbRe = /\{\s*["']?url["']?\s*:\s*["']([^"']+)["']\s*,\s*["']?revision["']?\s*:\s*(?:null|"[^"]*"|'[^']*')\s*\}|\{\s*["']?revision["']?\s*:\s*(?:null|"[^"]*"|'[^']*')\s*,\s*["']?url["']?\s*:\s*["']([^"']+)["']\s*\}/g;
   for (const s of queue.filter(isSW)) {
@@ -158,7 +155,7 @@ const serviceWorkerPrimeScript = `(async () => {
     while ((mm = wbRe.exec(txt)) !== null) add(mm[1] || mm[2]);
   }
 
-  // 6) Fetch every queued asset not already fetched (bounded + rate-limited) so
+  // 5) Fetch every queued asset not already fetched (bounded + rate-limited) so
   //    each gets recorded.
   const targets = queue.filter(u => !fetched.has(u)).slice(0, MAX);
   let idx = 0, ok = 0;

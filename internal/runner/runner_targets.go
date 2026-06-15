@@ -401,11 +401,14 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		TestBackupExtensions: true,
 		TestNoExtension:      true,
 		CaseSensitivity:      "auto_detect",
-		// Confirmation-gated extension fuzzing: on by default, all sources.
+		// Confirmation-gated extension fuzzing: on by default. Confirm from what
+		// the site reveals (observed URLs + tech fingerprint); the brute-force
+		// active probe is off by default (see ConfirmViaProbe — it confirms off
+		// guessed filenames and false-positives on catch-all hosts).
 		ConfirmRequired:       true,
 		ConfirmViaObserved:    true,
 		ConfirmViaFingerprint: true,
-		ConfirmViaProbe:       true,
+		ConfirmViaProbe:       false,
 	}
 
 	// Apply YAML settings if available
@@ -439,7 +442,7 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		cfg.ConfirmRequired = boolPtrOr(dc.Extensions.ConfirmRequired, true)
 		cfg.ConfirmViaObserved = boolPtrOr(dc.Extensions.ConfirmViaObserved, true)
 		cfg.ConfirmViaFingerprint = boolPtrOr(dc.Extensions.ConfirmViaFingerprint, true)
-		cfg.ConfirmViaProbe = boolPtrOr(dc.Extensions.ConfirmViaProbe, true)
+		cfg.ConfirmViaProbe = boolPtrOr(dc.Extensions.ConfirmViaProbe, false)
 		cfg.Candidates = dc.Extensions.Candidates
 		cfg.ProbeFilenames = dc.Extensions.ProbeFilenames
 

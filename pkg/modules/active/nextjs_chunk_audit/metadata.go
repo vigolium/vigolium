@@ -9,9 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This Next.js application ships static JavaScript chunks (and sometimes their source maps) that the scanner fetched and parsed, revealing internal API routes, referenced third-party domains, and in some cases hard-coded secrets baked into the bundle. The route and domain findings are informational attack-surface intel; an embedded secret is a High-severity disclosure because credentials in a public bundle are exposed to anyone who loads the site.
-**How it's exploited:** An attacker downloads the same public chunks, harvests the disclosed API endpoints and back-end domains to map otherwise-hidden functionality, and feeds them into further testing. Any leaked API key, token, or secret (AWS, Google, GitHub, Stripe, Slack, or a generic key/secret assignment) can be used directly to authenticate to the corresponding service or pivot deeper.
-**Fix:** Keep credentials and secrets out of client-side bundles by injecting them only on the server, rotate any key that was exposed, and disable production source maps so internal structure is not published.`
+	ModuleDesc = `**What it means:** This Next.js app ships static JavaScript chunks (and sometimes source maps) that, when parsed, reveal internal API routes, third-party domains, and sometimes hard-coded secrets. Route and domain findings are informational intel; an embedded secret is a High-severity disclosure.
+
+**How it's exploited:** An attacker downloads the same public chunks and harvests disclosed API endpoints and domains to map hidden functionality. Any leaked key or token (AWS, GitHub, Stripe) authenticates to that service or pivots deeper.
+
+**Fix:** Keep credentials out of client-side bundles by injecting them only server-side, rotate exposed keys, and disable production source maps.`
 
 	ModuleConfirmation = "Confirmed when /_next/static/chunks/<chunk>.js returns 200 with JavaScript content and is successfully parsed"
 	ModuleSeverity     = severity.Info

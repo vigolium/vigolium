@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The site's HTTPS responses are missing the Strict-Transport-Security (HSTS) header, or the header is present but not strong enough for browser preload eligibility. The module reports the specific gaps: header absent, max-age missing or below one year (31536000 seconds), no includeSubDomains directive, or no preload directive. Without a complete HSTS policy, browsers are not forced to use HTTPS for the host and its subdomains.
+	ModuleDesc = `**What it means:** HTTPS responses lack the Strict-Transport-Security header or it is too weak for browser preload. Gaps include header absent, max-age missing or below one year (31536000), or no includeSubDomains/preload directive, so browsers are not forced onto HTTPS for the host and subdomains.
 
-**How it's exploited:** A network attacker (rogue Wi-Fi, ARP spoofing, malicious proxy) can intercept a victim's first or non-HTTPS request and strip TLS (SSL-stripping) or serve a forged certificate, downgrading the connection to plaintext to read or modify traffic including session cookies. A missing includeSubDomains or preload entry leaves subdomains and the initial visit unprotected.
+**How it's exploited:** A network attacker (rogue Wi-Fi, ARP spoofing, proxy) intercepts a first or non-HTTPS request and strips TLS or serves a forged certificate, downgrading to plaintext to read or modify traffic including session cookies.
 
-**Fix:** Send Strict-Transport-Security: max-age=31536000; includeSubDomains; preload on all HTTPS responses and submit the domain to the browser preload list.`
+**Fix:** Send Strict-Transport-Security: max-age=31536000; includeSubDomains; preload on all HTTPS responses and submit the domain to the preload list.`
 
 	ModuleConfirmation = "Confirmed when HSTS header is missing, incomplete, or not preload-ready"
 	ModuleSeverity     = severity.Low

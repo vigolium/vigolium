@@ -9,9 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An OAuth/OpenID Connect authorization endpoint accepts requests it should reject. This module probes detected OAuth endpoints for three weaknesses: a redirect_uri that can be pointed at an attacker host, an authorization request missing the CSRF state parameter, and a response_type that downgrades from code to the less safe implicit (token) flow. Each weakens the protections stopping one user's login from being hijacked.
+	ModuleDesc = `**What it means:** An OAuth/OpenID Connect authorization endpoint accepts requests it should reject. The check probes three weaknesses: a redirect_uri pointable at an attacker host, a request missing the CSRF state parameter, and a response_type downgrade to the implicit (token) flow.
 
-**How it's exploited:** If redirect_uri manipulation is accepted (confirmed by re-sending a fresh attacker domain and seeing it echoed in the Location header), an attacker crafts a login link that delivers the victim's authorization code or access token to a server they control, enabling account takeover. A missing state parameter lets an attacker CSRF the flow to bind their own account to the victim's session. An accepted token downgrade (confirmed when a junk response_type is still rejected) exposes access tokens in the URL fragment, where they leak via history and referrers.
+**How it's exploited:** An attacker abuses an accepted redirect_uri to deliver the victim's code or token to a server they control, enabling account takeover. Missing state allows a CSRF login-binding attack, and a token downgrade exposes tokens in the URL fragment.
 
 **Fix:** Exact-match allowlist redirect_uri, require an unguessable state value, and reject any unregistered response_type.`
 

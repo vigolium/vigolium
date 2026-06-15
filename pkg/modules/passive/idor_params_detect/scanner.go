@@ -68,6 +68,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	var results []*output.ResultEvent
 
 	for _, param := range params {
+		// A placeholder value ("id=null", "uid=undefined") is not a testable
+		// object reference, so it is not an IDOR candidate.
+		if modkit.IsPlaceholderValue(param.Value()) {
+			continue
+		}
 		isPath := param.Type() == httpmsg.ParamPathFolder || param.Type() == httpmsg.ParamPathFilename
 		classification := authzutil.ClassifyParam(param.Name(), param.Value(), isPath, pathSegments)
 
@@ -131,8 +136,9 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		}
 	}
 
-	// Check for excessive data exposure in JSON responses
-	if ctx.HasResponse() && isJSONResponse(ctx.Response().Header("Content-Type")) {
+	// Check for excessive data exposure in JSON responses. Skip WAF/CDN edge
+	// blocks: a JSON error body from the edge is not the application leaking data.
+	if ctx.HasResponse() && !modkit.IsEdgeBlockedResponse(ctx.Response()) && isJSONResponse(ctx.Response().Header("Content-Type")) {
 		body := ctx.Response().BodyToString()
 		if len(body) > 0 {
 			results = append(results, m.detectExcessiveData(body, urlx.Host, urlx.String(), ctx)...)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
@@ -78,6 +79,54 @@ func (e *Executor) passesTechFilter(m modules.Module, item *httpmsg.HttpRequestR
 		return true
 	}
 	return e.scanCtx.TechStack.Allows(hostFromItem(item), required)
+}
+
+// passesContentClassFilter applies the content-class gate to a passive module:
+// a module that structurally requires a body shape (e.g. clickjacking needs an
+// HTML document) is skipped on a record whose response is a confirmed different
+// structured class. Fails open on unknown/text responses, on content-agnostic
+// modules, and when the tech filter is disabled (--no-tech-filter / deep). The
+// per-host heuristics class is consulted only when the record's own Content-Type
+// is indeterminate.
+func (e *Executor) passesContentClassFilter(m modules.Module, item *httpmsg.HttpRequestResponse) bool {
+	if e.cfg.TechFilterDisabled {
+		return true
+	}
+	required := e.requiredContentClassesFor(m)
+	if len(required) == 0 {
+		return true
+	}
+	class := modkit.ResponseContentClass(item)
+	if class == modkit.ContentClassUnknown && e.scanCtx != nil && e.scanCtx.ContentClass != nil {
+		// Record's own type is indeterminate — fall back to the host's root class.
+		class = e.scanCtx.ContentClass.Get(hostFromItem(item))
+	}
+	return modkit.ContentClassAllows(required, class)
+}
+
+// requiredContentClassesFor returns the module's required content-class list,
+// memoized on the executor. Prefers an explicit ContentClassAware implementation
+// and otherwise derives the requirement from the module's tags.
+func (e *Executor) requiredContentClassesFor(m modules.Module) []string {
+	id := m.ID()
+	if v, ok := e.caches.moduleContentClassReq.Load(id); ok {
+		if v == nil {
+			return nil
+		}
+		return v.([]string)
+	}
+	var derived []string
+	if aware, ok := m.(modules.ContentClassAware); ok {
+		derived = normalizeTechTags(aware.RequiredContentClasses())
+	} else {
+		derived = modules.DerivedContentClasses(m.Tags())
+	}
+	var stored any
+	if len(derived) > 0 {
+		stored = derived
+	}
+	e.caches.moduleContentClassReq.Store(id, stored)
+	return derived
 }
 
 // requiredTechsFor returns the module's required-tech allowlist. Results are

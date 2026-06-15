@@ -180,5 +180,5 @@ func (t *ModuleTask) buildURL(word, extension []byte) string {
 		buf.Write(extension)
 	}
 
-	return buf.String()
+	return collapseDoubleSlashes(buf.String())
 }

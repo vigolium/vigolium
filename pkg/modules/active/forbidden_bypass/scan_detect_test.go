@@ -77,9 +77,9 @@ func TestScanPerRequest_NoFalsePositive_Catchall(t *testing.T) {
 }
 
 // TestScanPerRequest_NoFalsePositive_EmptyBodyCatchall reproduces the
-// bsr.netflix.net false positive: a Google-fronted edge that answers EVERY path —
-// including space-mangled payloads like "/ /logout /" and a clean random probe —
-// with a blank 200 (Content-Length: 0). The wildcard guard (ConfirmNotSoft404)
+// bsr.netflix.net false positive: a Google-fronted edge that answers EVERY path
+// (the seeded resource, every mutated payload, and a clean random probe) with a
+// blank 200 (Content-Length: 0). The wildcard guard (ConfirmNotSoft404)
 // misses this because WildcardEntry.IsWildcard requires a non-empty body, and the
 // reproducibility gate passes because a blank 200 reproduces perfectly. The
 // random-path catch-all guard, which treats two empty bodies as identical, must
@@ -99,6 +99,46 @@ func TestScanPerRequest_NoFalsePositive_EmptyBodyCatchall(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "an empty-body 200 catch-all must not be reported as a 403 bypass")
+}
+
+// TestScanPerRequest_NoFalsePositive_WhitespacePayloadRootCollapse reproduces the
+// login-uat.example.com false positive. The protected resource
+// (/ui-sfdc-javascript-impl/) is 403 and a random path 404s — NOT a catch-all — so
+// the wildcard/catch-all guards all pass. The trap is the legacy whitespace payload
+// "/ <path> /": its request line "GET / /ui-sfdc-javascript-impl/ / HTTP/1.1" is
+// parsed (by our own builder AND the origin) only up to the first interior space,
+// collapsing the wire request to "GET /". The server's legitimate homepage 200 was
+// then misreported as a path bypass. With the whitespace payloads removed and the
+// collapse guard in place, no probe fetches the root, so nothing is reported.
+func TestScanPerRequest_NoFalsePositive_WhitespacePayloadRootCollapse(t *testing.T) {
+	t.Parallel()
+	const homepage = "<!doctype html><html><head><title>Example Portal</title></head>" +
+		"<body><h1>Welcome</h1><script>var OneTrust={};</script></body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/" || r.URL.Path == "":
+			// Site root: a real, substantial homepage (not a soft-404).
+			w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(homepage))
+		case strings.Contains(r.URL.Path, "sfdc"):
+			// The genuinely protected resource stays forbidden for every mutation.
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte("Forbidden"))
+		default:
+			// Unrelated/random paths are a clean 404 — proving this host is NOT a
+			// catch-all, so the existing catch-all guards cannot save us here.
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := seed403(t, srv.URL+"/ui-sfdc-javascript-impl/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a whitespace payload that collapses to the homepage must not be reported as a 403 bypass")
 }
 
 // TestScanPerRequest_DetectsTrustedHeaderBypass drives the scan against a backend

@@ -316,6 +316,12 @@ func (m *Module) probeFile(
 		}
 	}
 
+	// Catch-all / SPA shell guard: a themed app that returns the same shell for
+	// any path is a false positive even when a weak marker appears in that shell.
+	if modkit.ResemblesObservedPage(ctx, body) {
+		return nil
+	}
+
 	for _, anti := range p.antiMarkers {
 		if strings.Contains(body, anti) {
 			return nil
@@ -355,7 +361,7 @@ func (m *Module) probeFile(
 		Info: output.Info{
 			Name:        fmt.Sprintf("Laravel Sensitive File: %s", p.name),
 			Description: p.desc,
-			Severity:    p.sev,
+			Severity:    modkit.CapSeverity(p.sev, severity.Medium),
 			Confidence:  ModuleConfidence,
 			Tags:        []string{"php", "laravel", "sensitive-file", "misconfiguration"},
 			Reference:   refs,

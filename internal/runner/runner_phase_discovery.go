@@ -593,6 +593,19 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			zap.Int("actions", result.ActionsExecuted),
 			zap.Int("records_saved", result.RecordsSaved))
 
+		// A landing whose "Log on" CTA was driven means the crawler entered the
+		// app's OAuth/SAML/SSO flow — surface it so the captured login-flow URLs
+		// aren't a surprise.
+		if result.LoginCTADriven {
+			zap.L().Info("Spidering: drove login CTA into the auth flow",
+				zap.String("target", target),
+				zap.String("cta", result.LoginCTAText))
+			r.printPhaseDetail(fmt.Sprintf("%s clicked the %s call-to-action on %s to enter and capture the OAuth/SAML login flow.",
+				terminal.Purple(terminal.SymbolArrow),
+				terminal.Orange(fmt.Sprintf("%q", result.LoginCTAText)),
+				terminal.Gray(target)))
+		}
+
 		// The start URL bounced the browser off-host. Two cases: a login/SSO wall
 		// (the crawler can't go past it unauthenticated, so the run yields next
 		// to nothing — advise auth), or a relocated app on another host (the

@@ -58,9 +58,15 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	urlx.Params.Iterate(func(key string, value []string) bool {
 		if sensitiveParamPattern.MatchString(key) {
+			joined := strings.Join(value, ",")
+			// Skip empty / JS-placeholder values ("token=null", "secret="): nothing
+			// sensitive is disclosed, so flagging the bare parameter name is noise.
+			if modkit.IsPlaceholderValue(joined) {
+				return true
+			}
 			if rhm == nil || rhm.ShouldCheck3(urlx, ctx.Request().Method(), ctx.Request().BodyToString(), key, "", "inURL") {
 				// Mask the value for reporting
-				maskedValue := maskValue(strings.Join(value, ","))
+				maskedValue := maskValue(joined)
 				results = append(results, &output.ResultEvent{
 					Host:             urlx.Host,
 					URL:              urlx.String(),

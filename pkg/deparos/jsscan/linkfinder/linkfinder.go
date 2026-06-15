@@ -7,6 +7,21 @@
 //   - Object notation: {url: '/api'}
 package linkfinder
 
+import "strings"
+
+// PathHasQuery reports whether an extracted path carries a real query parameter
+// (a "?" followed by a "name=" pair). Callers use this to preserve the full URL
+// — query and all — as a scannable request instead of letting the query be
+// stripped into a paramless observed path, which would drop the reflected
+// parameter that a vuln scanner needs (e.g. /apex/Foo?source=x).
+func PathHasQuery(path string) bool {
+	q := strings.IndexByte(path, '?')
+	if q < 0 || q == len(path)-1 {
+		return false
+	}
+	return strings.Contains(path[q+1:], "=")
+}
+
 // ExtractPaths extracts API paths from JavaScript content using regex patterns.
 // Returns normalized paths ready for discovery (template variables replaced).
 func ExtractPaths(content []byte) []string {

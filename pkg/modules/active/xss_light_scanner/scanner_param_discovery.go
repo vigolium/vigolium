@@ -1,7 +1,6 @@
 package xss_light_scanner
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -13,7 +12,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/spitolas"
-	"github.com/vigolium/vigolium/pkg/types/severity"
 	"go.uber.org/zap"
 )
 
@@ -173,8 +171,7 @@ func (m *ParamDiscoveryModule) scanDiscoveredParameters(
 			// drop it when the executable breakout never survives in the body,
 			// report Low when it survives but no popup fires, and only report
 			// High once a headless browser actually pops alert(marker).
-			outcome := m.confirmCandidate(modifiedParsed, ip, result, httpClient)
-			evt := m.buildConfirmedResultEvent(modifiedParsed, ip, result, outcome)
+			evt := confirmXSS(m.Probe, modifiedParsed, ip, result, httpClient, "[discovered:"+ip.Name()+"] ", nil)
 			if evt == nil {
 				continue
 			}
@@ -391,85 +388,4 @@ func (m *ParamDiscoveryModule) detectContext(
 	}
 }
 
-// buildResultEvent creates a ResultEvent from scan result
-func (m *ParamDiscoveryModule) buildResultEvent(
-	ctx *httpmsg.HttpRequestResponse,
-	ip httpmsg.InsertionPoint,
-	result *XSSScanResult,
-) *output.ResultEvent {
-	urlx, _ := ctx.URL()
 
-	var evidenceParts []string
-	for _, ea := range result.ExploitableAnalyses {
-		evidenceParts = append(evidenceParts, ea.Context.String())
-	}
-	description := strings.Join(evidenceParts, " | ")
-
-	if result.UsedPrefix != "" && result.UsedPrefix != "none" {
-		description += " [bypass: " + result.UsedPrefix + "]"
-	}
-
-	return &output.ResultEvent{
-		URL:              urlx.String(),
-		Request:          string(ip.BuildRequest([]byte(result.PrimaryPayload.FullPayload))),
-		Response:         string(result.PrimaryResponse),
-		FuzzingParameter: ip.Name(),
-		ExtractedResults: []string{ip.BaseValue()},
-		Info: output.Info{
-			Description: description,
-		},
-	}
-}
-
-// buildConfirmedResultEvent grades the base reflection finding by confirmation
-// outcome. It returns nil (the caller drops the finding) when the executable
-// payload's breakout signature never survived in the body — that is the
-// reflection-only false positive this confirmation step exists to suppress.
-func (m *ParamDiscoveryModule) buildConfirmedResultEvent(
-	ctx *httpmsg.HttpRequestResponse,
-	ip httpmsg.InsertionPoint,
-	result *XSSScanResult,
-	outcome confirmOutcome,
-) *output.ResultEvent {
-	// No surviving breakout signature → the reflection-only false positive this
-	// confirmation step exists to suppress. (browserConfirmed implies httpBreakout,
-	// so this guard also covers the unconfirmed case.)
-	if !outcome.httpBreakout {
-		return nil
-	}
-
-	evt := m.buildResultEvent(ctx, ip, result)
-	evt.Info.Description = "[discovered:" + ip.Name() + "] " + evt.Info.Description
-	evt.Request = outcome.request
-
-	evidenceLabel := "reflection-only payload"
-	if outcome.browserConfirmed {
-		evidenceLabel = "browser-confirm payload"
-		evt.Info.Severity = severity.High
-		evt.Info.Confidence = severity.Certain
-		evt.Info.Description += fmt.Sprintf(
-			" — browser-confirmed: alert(%q) fired in a headless browser", outcome.dialogMessage,
-		)
-		evt.ExtractedResults = append(evt.ExtractedResults, "alert: "+outcome.dialogMessage)
-	} else {
-		// Reflection broke out in the raw HTTP body but no popup fired — downgrade
-		// to Low/Tentative rather than reporting a scary High on something the
-		// browser never executed (CSP-locked page, JSON echo, non-script context).
-		evt.Info.Severity = severity.Low
-		evt.Info.Confidence = severity.Tentative
-		note := " — reflection-only: executable payload survived unescaped in the response" +
-			" (signature: " + sigPreview(outcome.signature) + "), but no JavaScript dialog fired"
-		if outcome.browserRan {
-			note += " in a headless browser (execution likely blocked by CSP or a non-executing context)"
-		} else {
-			note += " (no browser confirmation was performed)"
-		}
-		note += "; manual verification recommended"
-		evt.Info.Description += note
-	}
-
-	if ev := output.BuildEvidence(evidenceLabel, outcome.request, outcome.bodySnippet); ev != "" {
-		evt.AdditionalEvidence = append(evt.AdditionalEvidence, ev)
-	}
-	return evt
-}

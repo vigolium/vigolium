@@ -21,6 +21,50 @@ type DiscoveryConfig struct {
 	ExpandSeedParents        bool                     `yaml:"expand_seed_parents"` // expand each seed URL into its parent directories (e.g., /a/b/c -> /, /a/, /a/b/, /a/b/c) and feed them as additional targets to discovery and spidering
 	PassiveModuleTags        []string                 `yaml:"passive_module_tags"` // run passive modules matching these tags during discovery (e.g., ["fingerprint"])
 	ReSpider                 DiscoveryReSpiderConfig  `yaml:"respider"`            // targeted re-spider of rich/SPA routes found after discovery dedup
+	DeparosDedup             DeparosDedupConfig       `yaml:"deparos_dedup"`       // post-discovery status-retention + reflected-URL-robust record dedup
+}
+
+// DeparosDedupConfig controls the post-discovery cleanup of stored deparos
+// records, running after the discovery phase over the full record set (in
+// addition to the in-engine per-target hard dedup and the soft-dedup pass):
+//
+//   - a status-retention policy that drops 4xx discovery records (a fuzzed path
+//     the server rejects with a client error is not a discovered resource),
+//     keeping a single representative per host for "auth wall exists" statuses;
+//   - reflected-URL-robust dedup that collapses records differing only by an
+//     echoed request URL/path or per-request dynamic tokens.
+type DeparosDedupConfig struct {
+	Enabled            *bool `yaml:"enabled"`             // nil = default (true)
+	DropClientErrors   *bool `yaml:"drop_client_errors"`  // drop 4xx discovery records; nil = default (true)
+	KeepOnePerHost     []int `yaml:"keep_one_per_host"`   // statuses collapsed to one representative per host instead of dropped; nil = default ([401]); empty slice = collapse none
+	NormalizeReflected *bool `yaml:"normalize_reflected"` // collapse records differing only by a reflected URL/path or dynamic tokens; nil = default (true)
+}
+
+// IsEnabled reports whether the post-discovery deparos dedup runs (default on).
+func (c *DeparosDedupConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+// DropClientErrorsEnabled reports whether 4xx discovery records are dropped
+// (default on).
+func (c *DeparosDedupConfig) DropClientErrorsEnabled() bool {
+	return c.DropClientErrors == nil || *c.DropClientErrors
+}
+
+// NormalizeReflectedEnabled reports whether reflected-URL-robust dedup runs
+// (default on).
+func (c *DeparosDedupConfig) NormalizeReflectedEnabled() bool {
+	return c.NormalizeReflected == nil || *c.NormalizeReflected
+}
+
+// KeepOneStatuses returns the statuses collapsed to a single record per host
+// rather than dropped. nil (absent YAML) defaults to {401}; an explicit empty
+// slice keeps the default off (collapse nothing, so every 4xx is dropped).
+func (c *DeparosDedupConfig) KeepOneStatuses() []int {
+	if c.KeepOnePerHost == nil {
+		return []int{401}
+	}
+	return c.KeepOnePerHost
 }
 
 // DiscoveryReSpiderConfig controls the targeted re-spider step that runs after
@@ -128,13 +172,15 @@ type DiscoveryExtensionConfig struct {
 	TestNoExtension      bool     `yaml:"test_no_extension"`
 
 	// Confirmation-gated server-side extension fuzzing. Pointer-bool semantics:
-	// absent YAML (nil) means use the default (all on). When ConfirmRequired is
-	// true the engine only sweeps the wordlist for an extension (.php/.aspx/
-	// .jsp/.action/.cgi/…) after confirming the app serves it as a valid route.
+	// absent YAML (nil) means use the default. When ConfirmRequired is true the
+	// engine only sweeps the wordlist for an extension (.php/.aspx/.jsp/.action/
+	// .cgi/…) after confirming the app serves it as a valid route — confirmation
+	// is driven by what the site reveals (observed URLs + tech fingerprint), not
+	// by brute-force guessing (the active probe is off by default).
 	ConfirmRequired       *bool    `yaml:"confirm_required"`        // nil = default (true)
 	ConfirmViaObserved    *bool    `yaml:"confirm_via_observed"`    // confirm from observed URLs; nil = true
 	ConfirmViaFingerprint *bool    `yaml:"confirm_via_fingerprint"` // confirm from response/cookie fingerprint; nil = true
-	ConfirmViaProbe       *bool    `yaml:"confirm_via_probe"`       // confirm via active soft-404 differential probe; nil = true
+	ConfirmViaProbe       *bool    `yaml:"confirm_via_probe"`       // confirm via active brute-force soft-404 probe; nil = false (FP-prone on catch-all hosts)
 	Candidates            []string `yaml:"candidates"`              // candidate extensions (no dot); empty = built-in
 	ProbeFilenames        []string `yaml:"probe_filenames"`         // probe base names; empty = built-in
 

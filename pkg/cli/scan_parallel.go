@@ -54,8 +54,23 @@ func validateParallelScan(opts *types.Options) error {
 	if opts.Parallel <= 1 {
 		return nil
 	}
-	statelessOK := opts.Stateless && opts.TargetsFilePath != "" && opts.SplitByHost
-	isolateOK := opts.DBIsolate && opts.TargetsFilePath != ""
+	// Parallel fan-out only operates on a -T/--target-file: it scans each line as
+	// its own isolated child. A single -t/inline/stdin target has nothing to fan
+	// out, so -P (and the --split-by-host it would pair with) can't take effect.
+	// Rather than reject the combination, warn and degrade to a normal one-target
+	// scan — the dispatch already falls through to the single-pass path here.
+	if opts.TargetsFilePath == "" {
+		if !opts.Silent {
+			fmt.Fprintf(os.Stderr,
+				"%s --parallel/-P and --split-by-host apply only to multi-target scans (-T/--target-file); with a single target they are ignored — running a normal scan\n",
+				terminal.WarnPrefix())
+		}
+		opts.Parallel = 1
+		opts.SplitByHost = false
+		return nil
+	}
+	statelessOK := opts.Stateless && opts.SplitByHost
+	isolateOK := opts.DBIsolate
 	if !statelessOK && !isolateOK {
 		return fmt.Errorf("--parallel > 1 requires either --stateless (-S) -T --split-by-host, or --db-isolate -T (results merge into --db)")
 	}

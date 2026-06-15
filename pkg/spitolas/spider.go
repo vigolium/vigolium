@@ -71,6 +71,12 @@ type SpiderResult struct {
 	// wall and its host was pulled into scope so the crawl could continue
 	// against the relocated app.
 	HostAdopted bool
+
+	// LoginCTADriven is true when the crawler found and clicked a login
+	// call-to-action on the landing to enter an OAuth/SAML/SSO flow. LoginCTAText
+	// is the CTA's visible label.
+	LoginCTADriven bool
+	LoginCTAText   string
 }
 
 // RunSpider executes browser-based spidering against the target URL,
@@ -145,5 +151,7 @@ func RunSpider(ctx context.Context, cfg SpiderConfig, repo RecordSaver) (*Spider
 		OffHostRedirect:  result.Stats.OffHostLanding,
 		LandingIsLogin:   result.Stats.LandingIsLogin,
 		HostAdopted:      result.Stats.HostAdopted,
+		LoginCTADriven:   result.Stats.LoginCTADriven,
+		LoginCTAText:     result.Stats.LoginCTAText,
 	}, nil
 }

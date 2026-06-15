@@ -130,6 +130,22 @@ func TestConfigDefaults(t *testing.T) {
 	if cfg.AvoidDifferentBacktracking {
 		t.Error("AvoidDifferentBacktracking should be false by default")
 	}
+
+	// SPA landing / login-flow priming defaults — these must stay on so a heavy
+	// SPA portal renders its login CTA and the crawler drives the auth flow
+	// (regression guard for the missed OAuth/SAML login URLs).
+	if cfg.SPASettleTimeout != 12*time.Second {
+		t.Errorf("SPASettleTimeout = %v, want 12s", cfg.SPASettleTimeout)
+	}
+	if !cfg.DismissConsent {
+		t.Error("DismissConsent should be true by default")
+	}
+	if !cfg.LoginCTAPriming {
+		t.Error("LoginCTAPriming should be true by default")
+	}
+	if !cfg.AutoScroll {
+		t.Error("AutoScroll should be true by default")
+	}
 }
 
 func TestConfigValidate(t *testing.T) {

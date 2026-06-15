@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A backup archive or database dump (such as a .zip, .tar.gz, .sql, or .bak file) is downloadable from the web server without authentication. The module guessed common backup filenames built from the hostname, common stems, and recent-year variants, then confirmed a real download by verifying the response is a genuine archive (archive magic bytes plus an archive Content-Type) or a real SQL dump (markers like CREATE TABLE / INSERT INTO), while rejecting 404 lookalikes, soft-404 wildcard pages, and HTML error shells.
+	ModuleDesc = `**What it means:** A backup archive or database dump (.zip, .tar.gz, .sql, or .bak) is downloadable without authentication. The module guessed filenames from the hostname, common stems, and year variants, then confirmed via archive magic bytes or SQL markers, rejecting soft-404 shells.
 
-**How it's exploited:** An attacker requests the same predictable URL and downloads the file directly in a browser. These backups commonly contain full source code, configuration files, database contents, password hashes, API keys, and other secrets, which can be mined offline to fully compromise the application and its users.
+**How it's exploited:** An attacker requests the same predictable URL and downloads the file directly. These backups commonly contain source code, configuration, database contents, password hashes, and API keys, mined offline to compromise the application.
 
-**Fix:** Remove backup and dump files from web-accessible directories and store them outside the document root, or deny access to backup/archive/dump extensions at the web server.`
+**Fix:** Remove backup and dump files from web-accessible directories, or deny backup/archive/dump extensions at the web server.`
 
 	ModuleConfirmation = "Confirmed when response returns 200 with matching archive Content-Type, body size >1KB, and body differs from 404 fingerprint. SQL dumps additionally validated via content markers."
-	ModuleSeverity     = severity.High
-	ModuleConfidence   = severity.Firm
+	ModuleSeverity     = severity.Medium
+	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"sensitive-file", "info-disclosure", "moderate"}
 )

@@ -9,9 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An MCP server is advertising tool, prompt, or resource descriptions that contain prompt-injection content: direct LLM imperatives (for example, ignore all previous instructions, reveal your system prompt), bidi-control or zero-width unicode hidden inside the text, or base64 blobs that decode to ASCII instructions. These descriptions are normally rendered verbatim into a downstream LLM agent's context as trusted text, so this is a tool-poisoning / supply-chain risk.
-**How it's exploited:** A malicious or compromised MCP server uses the description field as a side-channel to inject commands into any agent that connects, steering the model to leak its system prompt, exfiltrate API keys or data, or invoke other tools without the operator noticing, since hidden unicode and base64 keep the payload invisible in normal UI review.
-**Fix:** Do not connect to untrusted MCP servers, and sanitize or strip imperative phrasing, control/zero-width unicode, and encoded blobs from tool/prompt/resource descriptions before they reach the LLM context.`
+	ModuleDesc = `**What it means:** An MCP server advertises tool, prompt, or resource descriptions containing prompt-injection content: direct LLM imperatives, hidden bidi-control or zero-width unicode, or base64 blobs decoding to ASCII instructions. These render verbatim into a downstream LLM agent - a tool-poisoning risk.
+
+**How it's exploited:** The description field injects commands into any connecting agent, steering it to leak its system prompt, exfiltrate keys or data, or invoke other tools - hidden unicode and base64 hide the payload from UI review.
+
+**Fix:** Avoid untrusted MCP servers, and sanitize imperatives, control/zero-width unicode, and encoded blobs before descriptions reach the LLM context.`
 
 	ModuleConfirmation = "Confirmed when an MCP description contains direct LLM imperatives, bidi-control or zero-width unicode, or a base64 blob that decodes to ASCII instructions"
 	ModuleSeverity     = severity.High

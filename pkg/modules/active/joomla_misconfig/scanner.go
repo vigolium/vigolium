@@ -16,20 +16,27 @@ import (
 )
 
 type probe struct {
-	path        string
-	name        string
-	markers     []string
+	path string
+	name string
+	// markers is an AND-of-OR group set (see modkit.MatchAllGroups): the body must
+	// contain at least one substring from EVERY group. Joomla's JSON/XML surfaces
+	// share generic keys ("success"/"message"/"data", "name"/"version", "<version>")
+	// with almost any payload, so each anchors on a Joomla/Composer-specific token.
+	// Directory-listing probes keep a single OR group — "Index of" already means a
+	// real autoindex page, which is the finding.
+	markers     [][]string
 	antiMarkers []string
 	sev         severity.Severity
 	desc        string
 }
 
 var probes = []probe{
-	// Configuration backups
+	// Configuration backups — anchor on the JConfig class / Joomla-specific keys so
+	// a generic PHP file carrying a bare $password var cannot match.
 	{
 		path:        "/configuration.php~",
 		name:        "Joomla Config Backup (~)",
-		markers:     []string{"$host", "$user", "$db", "$password", "$secret", "JConfig"},
+		markers:     [][]string{{"JConfig", "$secret", "$sitename", "$mailfrom"}, {"$host", "$user", "$db", "$password"}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Critical,
 		desc:        "Joomla configuration.php editor backup exposed, containing database credentials and secret key",
@@ -37,7 +44,7 @@ var probes = []probe{
 	{
 		path:        "/configuration.php.bak",
 		name:        "Joomla Config Backup (.bak)",
-		markers:     []string{"$host", "$user", "$db", "$password", "$secret", "JConfig"},
+		markers:     [][]string{{"JConfig", "$secret", "$sitename", "$mailfrom"}, {"$host", "$user", "$db", "$password"}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Critical,
 		desc:        "Joomla configuration.php backup exposed, containing database credentials and secret key",
@@ -45,7 +52,7 @@ var probes = []probe{
 	{
 		path:        "/configuration.php.old",
 		name:        "Joomla Config Backup (.old)",
-		markers:     []string{"$host", "$user", "$db", "$password", "$secret", "JConfig"},
+		markers:     [][]string{{"JConfig", "$secret", "$sitename", "$mailfrom"}, {"$host", "$user", "$db", "$password"}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Critical,
 		desc:        "Joomla configuration.php old backup exposed, containing database credentials and secret key",
@@ -54,14 +61,14 @@ var probes = []probe{
 	{
 		path:    "/logs/",
 		name:    "Joomla Logs Directory",
-		markers: []string{"Index of", "Parent Directory", ".log"},
+		markers: [][]string{{"Index of", "Parent Directory", ".log"}},
 		sev:     severity.Medium,
 		desc:    "Joomla logs directory listing enabled, potentially exposing error logs with sensitive details",
 	},
 	{
 		path:    "/administrator/logs/",
 		name:    "Joomla Admin Logs Directory",
-		markers: []string{"Index of", "Parent Directory", ".log"},
+		markers: [][]string{{"Index of", "Parent Directory", ".log"}},
 		sev:     severity.Medium,
 		desc:    "Joomla administrator logs directory listing enabled",
 	},
@@ -69,7 +76,7 @@ var probes = []probe{
 	{
 		path:    "/tmp/",
 		name:    "Joomla Temp Directory",
-		markers: []string{"Index of", "Parent Directory"},
+		markers: [][]string{{"Index of", "Parent Directory"}},
 		sev:     severity.Medium,
 		desc:    "Joomla temp directory listing enabled, potentially exposing temporary uploads and session data",
 	},
@@ -77,46 +84,47 @@ var probes = []probe{
 	{
 		path:    "/administrator/components/com_akeeba/backup/",
 		name:    "Akeeba Backup Directory",
-		markers: []string{"Index of", "Parent Directory", ".jpa", ".zip"},
+		markers: [][]string{{"Index of", "Parent Directory", ".jpa", ".zip"}},
 		sev:     severity.Critical,
 		desc:    "Akeeba backup directory exposed, containing full site backup archives with database dumps",
 	},
 	{
 		path:    "/backups/",
 		name:    "Backups Directory",
-		markers: []string{"Index of", "Parent Directory"},
+		markers: [][]string{{"Index of", "Parent Directory"}},
 		sev:     severity.High,
 		desc:    "Backups directory listing enabled, potentially exposing full site backup archives",
 	},
-	// Version disclosure via manifests
+	// Version disclosure via manifests — drop the bare "<version>" XML tag.
 	{
 		path:    "/administrator/manifests/files/joomla.xml",
 		name:    "Joomla Version Manifest",
-		markers: []string{"<version>", "<name>Joomla", "files_joomla"},
+		markers: [][]string{{"files_joomla", "<name>Joomla"}},
 		sev:     severity.Low,
 		desc:    "Joomla version manifest exposed, revealing exact core version number",
 	},
 	{
 		path:    "/language/en-GB/en-GB.xml",
 		name:    "Joomla Language XML",
-		markers: []string{"<version>", "<name>English", "en-GB"},
+		markers: [][]string{{"<name>English"}, {"en-GB"}},
 		sev:     severity.Info,
 		desc:    "Joomla language XML exposed, potentially revealing version information",
 	},
-	// com_ajax info disclosure
+	// com_ajax info disclosure — require the full {success,message,data} envelope
+	// shape, not a lone "data" key.
 	{
 		path:        "/index.php?option=com_ajax&format=json",
 		name:        "Joomla com_ajax Disclosure",
-		markers:     []string{`"success"`, `"message"`, `"data"`},
+		markers:     [][]string{{`"success"`}, {`"message"`}, {`"data"`}},
 		antiMarkers: []string{"403 Forbidden"},
 		sev:         severity.Low,
 		desc:        "Joomla com_ajax endpoint publicly accessible, may expose plugin names or error details",
 	},
-	// Composer metadata
+	// Composer metadata — anchor on a Composer-specific key (+ the joomla vendor).
 	{
 		path:        "/composer.json",
 		name:        "Composer JSON",
-		markers:     []string{`"require"`, `"joomla"`, `"name"`},
+		markers:     [][]string{{`"require"`, `"autoload"`, `"require-dev"`}, {`"joomla"`, `"name"`, `"description"`}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Medium,
 		desc:        "Composer configuration exposed, revealing dependencies and internal package information",
@@ -124,7 +132,7 @@ var probes = []probe{
 	{
 		path:        "/composer.lock",
 		name:        "Composer Lock",
-		markers:     []string{`"packages"`, `"name"`, `"version"`},
+		markers:     [][]string{{`"_readme"`, `"content-hash"`, `"packages"`}, {`"dist"`, `"reference"`, `"source"`}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Medium,
 		desc:        "Composer lock file exposed, revealing exact dependency versions for vulnerability mapping",
@@ -132,7 +140,7 @@ var probes = []probe{
 	{
 		path:        "/vendor/composer/installed.json",
 		name:        "Vendor Installed JSON",
-		markers:     []string{`"packages"`, `"name"`, `"version"`},
+		markers:     [][]string{{`"dev-package-names"`, `"packages"`}, {`"version_normalized"`, `"install-path"`, `"dist"`}},
 		antiMarkers: []string{"<html", "<!DOCTYPE"},
 		sev:         severity.Medium,
 		desc:        "Composer vendor installed.json exposed, revealing all installed packages with versions",
@@ -336,23 +344,13 @@ func (m *Module) probeFile(
 		return nil
 	}
 
-	matched := false
-	var matchedMarkers []string
-	for _, marker := range p.markers {
-		if strings.Contains(body, marker) {
-			matched = true
-			matchedMarkers = append(matchedMarkers, marker)
-		}
-	}
-	if !matched {
-		return nil
-	}
-
-	// Sub-directory catch-all guard: now that we probe under context-path prefixes,
-	// drop the finding if a nonexistent sibling under the same parent returns the
-	// same markers (a handler that 200s every child path). Root-level probes are
-	// already covered by the random-path 404 fingerprint above.
-	if modkit.SiblingServesAnyMarker(ctx, httpClient, probePath, p.markers) {
+	// Require every marker group (Joomla/Composer-specific anchor + corroboration),
+	// so a generic JSON envelope or XML tag cannot match on a single weak key, then
+	// drop the finding if a nonexistent sibling under the same parent satisfies the
+	// same groups (a sub-directory catch-all that 200s every child path). Root-level
+	// probes are already covered by the random-path 404 fingerprint above.
+	matchedMarkers, ok := modkit.MatchAndConfirmSibling(ctx, httpClient, probePath, body, p.markers)
+	if !ok {
 		return nil
 	}
 

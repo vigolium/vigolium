@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The Microsoft IIS server leaks partial file and directory names because 8.3 short-filename (tilde) generation is enabled. By sending wildcard paths containing a tilde and watching for differential HTTP status codes, anyone can recover the first six characters and three-character extension of files under the web root, even when directory listing is disabled. This module confirmed the oracle and brute-forced the disclosed short names it reports.
+	ModuleDesc = `**What it means:** The IIS server leaks partial file and directory names because 8.3 short-filename (tilde) generation is enabled. Wildcard paths with a tilde return differential HTTP status codes recovering the first six characters and three-character extension of files under the web root. Informational recon.
 
-**How it's exploited:** An attacker maps the hidden attack surface from these fragments: backup files (web~1.zip), config and credential files, admin pages, and unlinked endpoints never meant to be reachable. The short names narrow guessing of full filenames dramatically, turning blind discovery into targeted requests that can pull source, secrets, or otherwise restricted resources. It is information disclosure on its own, but a strong stepping stone to further compromise.
+**How it's exploited:** An attacker maps hidden surface from these fragments: backup files (web~1.zip), config and credential files, admin pages, and unlinked endpoints, narrowing full-filename guessing into targeted requests.
 
-**Fix:** Disable 8.3 short-name generation on the volume (set NtfsDisable8dot3NameCreation and strip existing short names with fsutil), or restrict the surface so the tilde oracle no longer returns distinct status codes.`
+**Fix:** Disable 8.3 short-name generation on the volume (NtfsDisable8dot3NameCreation, strip names with fsutil), or restrict the surface so the tilde oracle returns no distinct status.`
 
 	ModuleConfirmation = "Confirmed when the server returns distinct status codes for wildcard patterns matching existing vs non-existing 8.3 short filenames"
 	ModuleSeverity     = severity.Medium

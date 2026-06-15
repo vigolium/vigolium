@@ -53,7 +53,17 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	authValue := ctx.Request().Header("Authorization")
-	if authValue == "" {
+	// Require an actual credential, not just a bare scheme keyword. JS clients
+	// routinely emit "Authorization: Bearer" (or "Bearer null"/"Bearer undefined")
+	// when no token exists — that carries nothing sensitive and is not a credential,
+	// so flagging it High/Firm is a false positive.
+	if !hasCredentialMaterial(authValue) {
+		return results, nil
+	}
+	// Drop responses that came from a WAF/CDN/edge block (e.g. a CloudFront
+	// "Request blocked" 403) rather than the application: the request never
+	// reached an authenticated boundary, so recording one is a false positive.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
 		return results, nil
 	}
 	diskSet := m.ds.Get(scanCtx.DedupMgr())
@@ -91,4 +101,33 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 func (m *Module) getHash(urlx *urlutil.URL, name, value string) string {
 	return utils.Sha1(fmt.Sprintf("%s%s%s", urlx.Host, name, value))
+}
+
+// authSchemes are HTTP authentication scheme keywords. A header that is only one
+// of these words (e.g. "Bearer") carries no credential and must not be flagged.
+var authSchemes = map[string]bool{
+	"basic": true, "bearer": true, "digest": true, "negotiate": true,
+	"ntlm": true, "oauth": true, "hoba": true, "mutual": true,
+	"vapid": true, "token": true, "apikey": true, "key": true,
+	"scram-sha-1": true, "scram-sha-256": true, "aws4-hmac-sha256": true,
+}
+
+// hasCredentialMaterial reports whether an Authorization header value carries an
+// actual credential. It rejects the empty header, a bare scheme keyword with no
+// token ("Bearer"), and JS placeholder values ("Bearer null", "undefined").
+func hasCredentialMaterial(authValue string) bool {
+	v := strings.TrimSpace(authValue)
+	if v == "" {
+		return false
+	}
+	fields := strings.Fields(v)
+	if len(fields) == 1 {
+		// A single token: a raw scheme-less credential (some APIs do this), unless
+		// it is a bare scheme word or a placeholder.
+		return !authSchemes[strings.ToLower(fields[0])] && !modkit.IsPlaceholderValue(fields[0])
+	}
+	// scheme + credential: the credential portion must be real. strings.Fields
+	// already stripped surrounding whitespace, so the rejoin needs no trim.
+	cred := strings.Join(fields[1:], " ")
+	return cred != "" && !modkit.IsPlaceholderValue(cred)
 }

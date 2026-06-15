@@ -189,7 +189,7 @@ func formatFindingLine(scanID string, result *output.ResultEvent) string {
 	// a single bracket, matching format_screen.go's canonical form).
 	suffix := ""
 	if len(result.ExtractedResults) > 0 {
-		suffix = " [" + strings.Join(result.ExtractedResults, ",") + "]"
+		suffix = " [" + output.EscapeOneLine(strings.Join(result.ExtractedResults, ",")) + "]"
 	}
 	if result.IsFuzzingResult && result.FuzzingParameter != "" {
 		suffix += " [" + result.FuzzingParameter + "]"

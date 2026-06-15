@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application runs on Apache Struts and evaluates attacker-supplied OGNL (Object-Graph Navigation Language) expressions instead of treating them as inert data. This is a server-side code execution flaw (the CVE-2017-5638 / S2-045 class of bug) and one of the most damaging vulnerabilities a Java web app can have.
+	ModuleDesc = `**What it means:** Apache Struts evaluates attacker-supplied OGNL expressions as code instead of inert data - the CVE-2017-5638 / S2-045 class, one of the most damaging bugs a Java web app can have.
 
-**How it's exploited:** The scanner injects a benign OGNL math expression (41273 multiplied by 39127) into the Content-Type header and into request parameters using the %{...} and ${...} syntax; when the precomputed product appears in the response, the server provably evaluated the expression. A real attacker swaps the math for OGNL that invokes Java runtime methods, achieving full remote command execution as the web server user, which typically leads to complete server compromise and lateral movement into the internal network.
+**How it's exploited:** A benign OGNL math expression injected into the Content-Type header via %{...} syntax appears computed in the response, proving evaluation. An attacker swaps the math for OGNL invoking Java runtime methods, gaining remote command execution.
 
-**Fix:** Upgrade Apache Struts to a patched release and apply the official S2-045 / CVE-2017-5638 mitigations, and never pass user-controlled input into OGNL or the Struts ValueStack.`
+**Fix:** Upgrade Struts to a patched release, apply the S2-045 mitigations, and never pass user input into OGNL or the ValueStack.`
 
 	ModuleConfirmation = "Confirmed when injected OGNL math expression is evaluated and the computed result appears in the response body or headers"
 	ModuleSeverity     = severity.Critical

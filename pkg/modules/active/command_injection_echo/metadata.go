@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application passes attacker-controlled input into an operating-system shell command without proper sanitization, so the attacker's input is executed as commands on the server. This was proven, not guessed: the scanner injected an arithmetic expression and the server's shell computed and returned the unique result, confirming real command execution.
+	ModuleDesc = `**What it means:** The application passes attacker-controlled input into an OS shell command without sanitization, executing it on the server. Proven by injecting an arithmetic expression the shell computed and returned.
 
-**How it's exploited:** An attacker injects shell metacharacters (such as separators, quote breakouts, or command substitution) into the affected parameter to run arbitrary commands as the web service account. This typically leads to full server compromise, including reading or modifying files, harvesting credentials, pivoting into the internal network, and deploying malware. The scanner confirmed execution across two independent rounds with fresh random markers, each absent from the clean baseline, so this is a high-confidence, exploitable finding rather than mere reflection.
+**How it's exploited:** An attacker injects shell metacharacters to run arbitrary commands as the web service account - reading files, harvesting credentials, pivoting internally, and deploying malware for full server compromise. Confirmed across two rounds with fresh markers, so it is exploitable, not reflection.
 
-**Fix:** Avoid invoking the shell on user input; use parameterized OS APIs or safe library calls, and if a command must be built, strictly allow-list permitted values and escape arguments.`
+**Fix:** Avoid invoking the shell on user input; use parameterized OS APIs, and where unavoidable, allow-list values and escape arguments.`
 
 	ModuleConfirmation = "Confirmed when the shell evaluates an injected arithmetic expression and the resulting unique needle appears in the response across two independent rounds while being absent from the unpayloaded baseline"
 	ModuleSeverity     = severity.Critical

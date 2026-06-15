@@ -173,7 +173,7 @@ func probeResult(probeType string, base, fuzz int, payload string) *output.Resul
 // AdditionalEvidence — the table-flooding guard.
 func TestCollapseProbeFindings_FoldsToSingleRecord(t *testing.T) {
 	in := []*output.ResultEvent{
-		probeResult("path_prefix", 200, 200, "../"),       // tag-only, rank 0
+		probeResult("path_prefix", 200, 200, "../"),        // tag-only, rank 0
 		probeResult("debug_param", 200, 500, "debug=true"), // →5xx, rank 2
 		probeResult("header", 200, 200, "localhost"),       // tag-only, rank 0
 	}
@@ -287,6 +287,114 @@ func TestScanPerRequest_ServerErrorIsReported(t *testing.T) {
 	require.Len(t, res, 1, "diverging probes must collapse into a single finding/record")
 	assert.Equal(t, 500, res[0].Metadata["fuzz_status"], "the 500 status signal must be the primary")
 	assert.NotEmpty(t, res[0].AdditionalEvidence, "other diverging probes must be retained as inline evidence")
+}
+
+// TestNotableStatusTransition covers the status-transition gate in isolation: only
+// a 403→200 access flip or a genuine (non-CDN) server error counts; ordinary
+// cross-class moves a path/param probe naturally produces do not.
+func TestNotableStatusTransition(t *testing.T) {
+	cases := []struct {
+		base, fuzz int
+		want       bool
+		why        string
+	}{
+		{403, 200, true, "403→200 is an access-control flip"},
+		{200, 500, true, "200→500 is a server/parser error"},
+		{200, 501, true, "200→501 is a server error"},
+		{200, 502, true, "502 gateway error is kept (confirm leg guards flakiness)"},
+		{200, 520, false, "520 is a Cloudflare origin blip, not an app error"},
+		{200, 521, false, "521 is a Cloudflare origin blip"},
+		{200, 530, false, "530 is a Cloudflare origin blip"},
+		{200, 404, false, "200→404 is a different resource, not a signal"},
+		{200, 302, false, "200→302 is a redirect to a different resource"},
+		{403, 404, false, "403→404 is just another not-served class"},
+		{404, 404, false, "no change at all"},
+		{200, 200, false, "no change at all"},
+		{500, 500, false, "a stable 5xx baseline is not a transition"},
+	}
+	for _, c := range cases {
+		assert.Equalf(t, c.want, notableStatusTransition(c.base, c.fuzz), "%d→%d: %s", c.base, c.fuzz, c.why)
+	}
+}
+
+func TestIsCDNOriginError(t *testing.T) {
+	assert.False(t, isCDNOriginError(500))
+	assert.False(t, isCDNOriginError(519))
+	assert.True(t, isCDNOriginError(520))
+	assert.True(t, isCDNOriginError(525))
+	assert.True(t, isCDNOriginError(530))
+	assert.False(t, isCDNOriginError(531))
+}
+
+// TestScanPerRequest_TransientServerErrorNotReported is the negative for the
+// status-confirm leg: a single probe trips a one-off 5xx (an origin/CDN blip) that
+// does NOT reproduce on the confirm re-fetch. The status signal must be dropped
+// rather than reported, since the response is no longer different on retry.
+func TestScanPerRequest_TransientServerErrorNotReported(t *testing.T) {
+	var queryHits int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" && atomic.AddInt64(&queryHits, 1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError) // one-off blip on the first probe
+			return
+		}
+		_, _ = w.Write([]byte("<html><body>ok</body></html>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a 5xx that does not reproduce on confirm must not be reported")
+}
+
+// TestScanPerRequest_FlappingBaselineNotReportedAsBypass is the control leg of the
+// status confirm: the baseline request itself returned a transient 403 (cold start
+// / edge hiccup), and the page then serves 200 to EVERYTHING — including the
+// no-payload control. detectChange sees a 403→200 "bypass", but since the control
+// reproduces 200 just as the probe does, it is not payload-driven and must drop.
+func TestScanPerRequest_FlappingBaselineNotReportedAsBypass(t *testing.T) {
+	var hits int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt64(&hits, 1) == 1 {
+			w.WriteHeader(http.StatusForbidden) // transient 403 captured as the baseline
+			return
+		}
+		_, _ = w.Write([]byte("<html><body>app</body></html>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/app")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a 403→200 where the no-payload control is also 200 is a flapping baseline, not a bypass")
+}
+
+// TestScanPerRequest_AccessBypassConfirmedAndReported is the status-confirm
+// positive: a header probe genuinely flips a stable 403 to 200 while the no-payload
+// control stays 403. The transition reproduces and is attributable to the probe, so
+// it survives confirmation and is reported as a 403→200 bypass.
+func TestScanPerRequest_AccessBypassConfirmedAndReported(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Forwarded-Host") != "" { // the probe header unlocks the page
+			_, _ = w.Write([]byte("<html><body>app</body></html>"))
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/app")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, res, 1, "a confirmed access bypass must be reported as one finding")
+	assert.Equal(t, 403, res[0].Metadata["base_status"])
+	assert.Equal(t, 200, res[0].Metadata["fuzz_status"], "403→200 bypass must be the primary signal")
 }
 
 // TestScanPerInsertionPoint_ReflectedStructureIsReported is the tag-signal

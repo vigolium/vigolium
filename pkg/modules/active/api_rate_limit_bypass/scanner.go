@@ -183,31 +183,45 @@ func (m *Module) ScanPerHost(
 }
 
 // confirmRateLimitBypass re-verifies that the header genuinely bypasses the
-// limiter rather than the window having reset between probes. It requires a
-// differential: a plain request (no bypass header) must still be throttled
-// (429) AND a request carrying the header must succeed again (2xx). Both are
-// re-issued with NoClustering so each is a fresh observation. It fails closed
-// (returns false when the differential cannot be established) because a reset
-// window is the dominant false-positive cause for this check.
+// limiter rather than the window having reset between probes. It SANDWICHES the
+// header success between two throttled plain samples: a plain request (no bypass
+// header) must still be 429, then the header request must succeed (2xx), then a
+// plain request must STILL be 429. All are re-issued with NoClustering so each is
+// a fresh observation. The trailing plain-429 check is the key guard — if the
+// limiter window simply reset between probes (the dominant false-positive cause),
+// the reset would let the plain request through too, so a still-throttled plain
+// request after the apparent bypass proves the differential is real and not just a
+// cleared window. Fails closed when the differential cannot be established.
 func (m *Module) confirmRateLimitBypass(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	name, value string,
 ) bool {
-	// 1) Without the bypass header, the limiter must still be active.
-	stillLimited := false
-	for i := 0; i < 3; i++ {
-		if st, ok := m.sendStatus(ctx, httpClient, "", ""); ok && st == 429 {
-			stillLimited = true
-			break
-		}
-	}
-	if !stillLimited {
+	// 1) Before: without the bypass header, the limiter must be active.
+	if !m.plainStillLimited(ctx, httpClient) {
 		return false
 	}
-	// 2) With the bypass header, the request must succeed again (reproducible).
-	st, ok := m.sendStatus(ctx, httpClient, name, value)
-	return ok && st >= 200 && st < 300
+	// 2) With the bypass header, the request must succeed (the apparent bypass).
+	if st, ok := m.sendStatus(ctx, httpClient, name, value); !ok || st < 200 || st >= 300 {
+		return false
+	}
+	// 3) After: without the header, the limiter must STILL be active. A window that
+	//    reset between steps 1 and 2 (and only looked like a bypass) would also let
+	//    this plain request through — so requiring it to stay 429 rejects that FP.
+	return m.plainStillLimited(ctx, httpClient)
+}
+
+// plainStillLimited reports whether the unmodified request (no bypass header) is
+// still being throttled. It samples up to three times and accepts a single 429 so
+// a leaky-bucket limiter that occasionally lets a request through is not misread
+// as "no longer limited".
+func (m *Module) plainStillLimited(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) bool {
+	for i := 0; i < 3; i++ {
+		if st, ok := m.sendStatus(ctx, httpClient, "", ""); ok && st == 429 {
+			return true
+		}
+	}
+	return false
 }
 
 // sendStatus issues one request and returns its status code. When name is

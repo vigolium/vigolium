@@ -43,6 +43,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if ctx.Response() == nil {
 		return nil, nil
 	}
+	// A WAF/CDN edge block is the edge talking, not the application — a signed URL
+	// in such a page is not the app leaking one.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
+		return nil, nil
+	}
 
 	body := ctx.Response().BodyToString()
 	if len(body) == 0 || len(body) > 2<<20 {

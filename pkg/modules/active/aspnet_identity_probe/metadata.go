@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The host publicly exposes ASP.NET Identity authentication surfaces that should be locked down or are otherwise sensitive: scaffolded Identity UI pages (login, register, password reset), IdentityServer/Duende OAuth2/OIDC endpoints (token, authorize, JWKS), the ASP.NET Core 8+ Identity API endpoints (register, manage/info), and the OIDC discovery document. The most serious case is the management API (/manage/info) returning account data without authentication; an open registration endpoint and the broader exposed auth attack surface are also reported. The disclosure ranges from informational fingerprinting to a real authentication gap.
+	ModuleDesc = `**What it means:** The host publicly exposes sensitive ASP.NET Identity surfaces: scaffolded UI pages (login, register, reset), IdentityServer/Duende OIDC endpoints (token, JWKS), the ASP.NET Core 8+ Identity API (register, manage/info), and the OIDC discovery document. The worst case is /manage/info returning account data.
 
-**How it's exploited:** An attacker uses an unauthenticated /manage/info or open register endpoint to read or create accounts directly, brute-forces or credential-stuffs an unthrottled token endpoint, enumerates valid emails via the password-reset page, and maps token endpoints, scopes, grant types, and signing keys from the discovery and JWKS documents to plan further attacks.
+**How it's exploited:** An attacker uses unauthenticated /manage/info or open register to read or create accounts, credential-stuffs an unthrottled token endpoint, enumerates emails via the reset page, and maps scopes and signing keys from the JWKS document.
 
-**Fix:** Restrict registration and Identity management endpoints behind authorization, enforce rate limiting on token and reset endpoints, and remove or protect any scaffolded Identity pages not needed in production.`
+**Fix:** Restrict registration and management endpoints behind authorization, rate-limit token and reset endpoints, and remove unneeded scaffolded pages.`
 
 	ModuleConfirmation = "Confirmed when Identity endpoints or OIDC discovery documents are publicly accessible"
 	ModuleSeverity     = severity.Medium

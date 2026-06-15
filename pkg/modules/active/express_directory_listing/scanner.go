@@ -86,6 +86,14 @@ func (m *Module) ScanPerRequest(
 	// Fingerprint 404 response body hash
 	notFoundHash := get404Hash(ctx, httpClient)
 
+	// Host-wide catch-all guard: if a random, guaranteed-nonexistent directory
+	// already "lists", the host renders a directory-listing-shaped body for any
+	// path (an SPA shell, a wildcard rewrite, a templated soft-404) and every
+	// per-directory finding below is spurious.
+	if modkit.RandomDirCatchAll(ctx, httpClient, isDirectoryListing) {
+		return nil, nil
+	}
+
 	var results []*output.ResultEvent
 	target := ctx.Target()
 
@@ -124,6 +132,15 @@ func (m *Module) ScanPerRequest(
 
 		// Skip if body hash matches 404
 		if notFoundHash != "" && utils.Sha1(body) == notFoundHash {
+			resp.Close()
+			continue
+		}
+
+		// Catch-all / SPA shell guard: these probe paths are static-asset
+		// directories (/public, /assets, /static, ...) — exactly where a catch-all
+		// reverse proxy serves the application index shell. A probe whose body is
+		// the observed page is that shell, not a listing.
+		if modkit.ResemblesObservedPage(ctx, body) {
 			resp.Close()
 			continue
 		}

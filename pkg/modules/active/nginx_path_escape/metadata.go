@@ -9,9 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The server appears to mishandle path normalization in a way characteristic of Nginx misconfigurations, letting a crafted URL reach content outside the intended directory or past an access-control rule. This is a Tentative, informational lead from differential response analysis (comparing a baseline request to path-escape payloads such as off-by-slash alias traversal, encoded-dot/encoded-slash and double-encoding bypasses, backslash and overlong-UTF-8 tricks, semicolon and matrix-parameter injection, and double-slash or case-sensitivity ACL bypasses), so a human should confirm it before treating it as an exploitable issue.
-**How it's exploited:** An attacker rewrites the request path (for example seg../ to escape a misconfigured alias root, or /..;/ to slip past a location block) so the server serves files or routes it should not, exposing source code, config, or internal endpoints that bypass authentication or access rules.
-**Fix:** Correct the Nginx alias/location configuration (avoid off-by-slash alias rules, normalize and reject traversal sequences and semicolon path parameters, and enforce access controls on the resolved path).`
+	ModuleDesc = `**What it means:** The server appears to mishandle path normalization like a misconfigured Nginx, letting a crafted URL reach content outside the intended directory or past an access rule. This Tentative, informational lead comes from differential analysis (alias traversal, encoded-dot/slash, semicolon injection, ACL bypasses); confirm it manually.
+
+**How it's exploited:** An attacker rewrites the path (seg../ to escape an alias root, or /..;/ to slip past a location block) so the server serves files it should not, exposing source or config.
+
+**Fix:** Correct the alias/location configuration, reject traversal sequences and semicolon parameters, and enforce access controls on the resolved path.`
 
 	ModuleConfirmation = "Confirmed when path escape payloads produce different response content or status compared to the baseline, indicating path traversal"
 	// ModuleSeverity is Info: this diff-based detector compares response

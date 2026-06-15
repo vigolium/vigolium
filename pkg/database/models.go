@@ -210,6 +210,7 @@ type HTTPRecord struct {
 	ResponseContentLength int64  `bun:"response_content_length,default:0" json:"response_content_length"`
 	RawResponse           []byte `bun:"raw_response,type:bytea,nullzero" json:"raw_response,omitempty"`
 	ResponseHash          string `bun:"response_hash,nullzero" json:"response_hash,omitempty"`
+	ResponseNormHash      string `bun:"response_norm_hash,nullzero" json:"response_norm_hash,omitempty"` // hash of the body with reflected URL/path + dynamic runs stripped, for reflected-URL-robust dedup
 	ResponseTimeMs        int64  `bun:"response_time_ms,default:0" json:"response_time_ms"`
 	ResponseWords         int64  `bun:"response_words,default:0" json:"response_words"`
 	HasResponse           bool   `bun:"has_response,notnull,default:false" json:"has_response"`

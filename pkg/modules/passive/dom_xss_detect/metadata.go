@@ -9,9 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** Inline JavaScript in the page reads attacker-influenceable browser sources (such as location.hash, location.search, document.referrer, window.name, or document.cookie) and passes that data into a dangerous DOM sink (such as innerHTML, document.write, eval, Function, or a location/window.open redirect target). This is a pattern-level indicator of a possible DOM-based XSS or DOM-based open redirect, detected statically without executing the script, so it requires manual confirmation.
-**How it's exploited:** An attacker crafts a URL (or sets window.name / a referrer) carrying a malicious value that the page's own script writes into the DOM, executing attacker JavaScript entirely in the victim's browser without ever touching the server. That allows session/cookie theft, account takeover, or, for the redirect variant, sending users to an attacker-controlled site for phishing.
-**Fix:** Avoid passing untrusted browser-sourced data into HTML/script/redirect sinks; use safe APIs (textContent, setAttribute) and validate or allowlist any values used in navigation.`
+	ModuleDesc = `**What it means:** Inline JavaScript reads an attacker-controllable source (location.hash, location.search, document.referrer, window.name) and passes it to a dangerous DOM sink (innerHTML, document.write, eval, Function). A static pattern indicator of possible DOM-based XSS or open redirect, needing manual confirmation.
+
+**How it's exploited:** A crafted URL makes the page's own script write the value into the DOM, executing attacker JavaScript in the victim's browser with no server round-trip - enabling cookie theft, account takeover, or phishing redirects.
+
+**Fix:** Keep untrusted browser data out of HTML, script, and redirect sinks; use textContent and validate navigation values.`
 
 	ModuleConfirmation = "Indicated when response JavaScript contains known source-to-sink patterns that could enable DOM-based XSS"
 	ModuleSeverity     = severity.Low

@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This Model Context Protocol (MCP) server mishandles its Mcp-Session-Id session lifecycle. The scanner found one or more of three weaknesses: session IDs that are short or low-entropy and therefore guessable; tools/list answered with no session at all (anonymous enumeration); or the server honouring an attacker-supplied Mcp-Session-Id during initialize (session fixation). Weak session handling lets an unauthenticated or unauthorized party reach MCP tools that should be gated behind a valid session.
+	ModuleDesc = `**What it means:** This MCP (Model Context Protocol) server mishandles its Mcp-Session-Id lifecycle: short or low-entropy guessable IDs; tools/list answered with no session (anonymous enumeration); or honouring an attacker-supplied ID during initialize (fixation). Weak handling lets an unauthorized party reach gated tools.
 
-**How it's exploited:** An attacker who can guess or brute-force a short session ID can hijack another client's MCP session; with anonymous enumeration they list and invoke server tools without any session; with fixation they pin a known Mcp-Session-Id, lure a victim onto it, and then ride the victim's authenticated session. Any of these exposes the tools, data, and downstream actions the MCP server offers.
+**How it's exploited:** An attacker guesses a short ID to hijack a session, enumerates and invokes tools with no session, or pins a known ID, lures a victim onto it, and rides their session.
 
-**Fix:** Issue session IDs that are long and high-entropy, generate them server-side only (reject and ignore client-supplied Mcp-Session-Id values), and require a valid, authenticated session before answering tools/list or any tool call.`
+**Fix:** Issue long, high-entropy session IDs server-side only (reject client-supplied values), and require a valid authenticated session before answering tools/list or any tool call.`
 
 	ModuleConfirmation = "Confirmed when sampled session IDs are short / low entropy, or the server accepts an attacker-supplied session ID, or tools/list succeeds without a session"
 	ModuleSeverity     = severity.Medium

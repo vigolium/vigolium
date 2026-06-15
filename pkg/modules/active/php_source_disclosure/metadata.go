@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The web server returns raw or syntax-highlighted PHP source code instead of executing it. This happens through .phps highlight handlers, PHP files served as plaintext due to a broken handler mapping, accessible alternate extensions (.phtml, .php5, .php7), or .inc include files served as static content. The module probes common paths (config.php, wp-config.php, db.inc, and similar) and confirms a hit only when the response is HTTP 200, differs from the host's 404 fingerprint, and contains real PHP source markers such as the opening PHP tag.
+	ModuleDesc = `**What it means:** The web server returns raw or syntax-highlighted PHP source instead of executing it - via .phps handlers, a broken handler mapping, accessible alternate extensions (.phtml, .php5), or .inc files served statically. The module probes paths like config.php and wp-config.php, confirmed by PHP source markers.
 
-**How it's exploited:** An attacker reads the leaked source in a browser to recover hardcoded database credentials, API keys, and connection strings (especially from config and .inc files), and to study application logic for further attacks like authentication bypass or injection. Exposed wp-config.php can hand over full database access.
+**How it's exploited:** An attacker reads the leaked source to recover hardcoded database credentials, API keys, and connection strings. Exposed wp-config.php hands over full database access.
 
-**Fix:** Configure the web server to execute every PHP-related extension and never serve .php, .phps, .phtml, or .inc files as static or highlighted content, and move secrets out of webroot-readable files.`
+**Fix:** Configure the server to execute every PHP-related extension, never serve .php, .phps, .phtml, or .inc statically.`
 
 	ModuleConfirmation = "Confirmed when probed endpoints return PHP source code markers in the response body"
 	ModuleSeverity     = severity.High

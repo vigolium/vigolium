@@ -8,8 +8,10 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/sourcegraph/conc/pool"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -28,6 +30,24 @@ type HeuristicsResult struct {
 	Reason        string
 }
 
+// maxHeuristicsProbeConcurrency caps how many target root pages are probed in
+// parallel. Each target is usually a distinct host (so the per-host rate limiter
+// doesn't serialize them); the cap keeps a huge target list from opening too many
+// connections at once.
+const maxHeuristicsProbeConcurrency = 20
+
+// heuristicsProbeConcurrency returns the worker count for the parallel root-page
+// probe: the smaller of the target count and the cap, with a floor of 1.
+func heuristicsProbeConcurrency(targets int) int {
+	if targets < 1 {
+		return 1
+	}
+	if targets > maxHeuristicsProbeConcurrency {
+		return maxHeuristicsProbeConcurrency
+	}
+	return targets
+}
+
 // runHeuristicsCheckPhase probes the root page of each CLI target and
 // classifies the response to decide whether spidering is worthwhile.
 func (r *Runner) runHeuristicsCheckPhase(ctx context.Context, infra *phaseInfra) (map[string]*HeuristicsResult, error) {
@@ -39,13 +59,35 @@ func (r *Runner) runHeuristicsCheckPhase(ctx context.Context, infra *phaseInfra)
 		terminal.HiTeal(level),
 		terminal.Orange(fmt.Sprintf("%d", len(r.options.Targets)))))
 
+	// Probe every target's root page concurrently — each probe is one to three
+	// blocking requests, and targets are typically distinct hosts, so a serial
+	// loop pays the full sum of per-target latency for nothing. The per-host rate
+	// limiter still bounds same-host concurrency. Results are collected under a
+	// mutex; the per-target log lines are emitted afterwards in target order so
+	// the phase output stays deterministic regardless of probe completion order.
 	results := make(map[string]*HeuristicsResult, len(r.options.Targets))
+	var resultsMu sync.Mutex
+	probePool := pool.New().WithMaxGoroutines(heuristicsProbeConcurrency(len(r.options.Targets)))
 	for _, target := range r.options.Targets {
+		target := target
 		rootURL := normalizeToRoot(target)
-		result := probeTarget(ctx, infra.httpRequester, rootURL, level)
-		results[target] = result
+		probePool.Go(func() {
+			if ctx.Err() != nil {
+				return
+			}
+			result := probeTarget(ctx, infra.httpRequester, rootURL, level)
+			resultsMu.Lock()
+			results[target] = result
+			resultsMu.Unlock()
+		})
+	}
+	probePool.Wait()
 
-		// Log each result
+	for _, target := range r.options.Targets {
+		result := results[target]
+		if result == nil {
+			continue // probe skipped due to cancellation
+		}
 		if result.SkipSpidering {
 			zap.L().Info("HeuristicsCheck: target flagged",
 				zap.String("target", target),
@@ -405,6 +447,40 @@ func confirmBlank(requester *http.Requester, rootURL string) bool {
 		}
 	}
 	return true
+}
+
+// contentClassByHostFromHeuristics projects the heuristics root-page
+// classification into a host → content-class map (modkit.ContentClass strings)
+// for seeding the executor's content-class registry. Only the determinate
+// document/data classes (html/json/xml/text) are carried; blank/redirect/error
+// roots are left unset so the gate fails open for those hosts. Returns nil when
+// no heuristics ran.
+func (r *Runner) contentClassByHostFromHeuristics() map[string]string {
+	if len(r.heuristicsResults) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(r.heuristicsResults))
+	for _, hr := range r.heuristicsResults {
+		if hr == nil {
+			continue
+		}
+		var class string
+		switch hr.ContentType {
+		case "html", "json", "xml", "text":
+			class = hr.ContentType
+		default:
+			continue
+		}
+		u, err := neturl.Parse(hr.Target)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		out[strings.ToLower(u.Host)] = class
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // filterTargetsByHeuristics returns only the targets that should proceed,

@@ -60,7 +60,19 @@ func confirmReached(body, baseline string, probe ssrfProbe) []string {
 	if probe.htmlExpected {
 		// HTML is allowed here; trust only content tokens absent from the benign
 		// baseline (the optimizer returned something different for the internal URL).
-		return infra.FreshMetadataMarkers(body, baseline, probe.markers)
+		fresh := infra.FreshMetadataMarkers(body, baseline, probe.markers)
+		if len(fresh) == 0 {
+			return nil
+		}
+		// Differential gate: the token alone is not enough. A genuine loopback fetch
+		// returns a DIFFERENT document than the benign dead-host (TEST-NET) baseline.
+		// If the optimizer echoes the same page for both (a catch-all / SPA shell
+		// that merely happens to drop the matched word for the dead host), the bodies
+		// are similar — so it did not reach localhost and we must not report it.
+		if modkit.BodiesSimilar(body, baseline) {
+			return nil
+		}
+		return fresh
 	}
 	// Metadata probes: reject the app's own HTML page and require a cluster of
 	// distinct self-evidencing tokens absent from the baseline (one generic word

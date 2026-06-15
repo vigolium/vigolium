@@ -273,10 +273,21 @@ const DEFAULT_COLUMNS = new Set([
   "response_title", "source", "remarks",
 ]);
 
+// Stable reference so AG Grid applies it once — makes column resizing explicit
+// rather than relying on AG Grid v33's implicit defaults under the Theming API.
+const DEFAULT_COL_DEF: ColDef<HttpRecord> = {
+  resizable: true,
+  sortable: true,
+  minWidth: 60,
+};
+
 export default function HttpTrafficTable({ data }: Props) {
   const { theme } = useTheme();
-  const methodColors = getMethodColors(theme);
-  const statusColors = getStatusColors(theme);
+  // Memoize so these color maps keep a stable reference across renders — otherwise
+  // they churn `columnDefs`, making ag-grid-react re-apply column definitions every
+  // render and reset user column-resizes (snap-back to the declared width).
+  const methodColors = useMemo(() => getMethodColors(theme), [theme]);
+  const statusColors = useMemo(() => getStatusColors(theme), [theme]);
 
   const [gridApi, setGridApi] = useState<GridApi | null>(null);
   const [searchText, setSearchText] = useState("");
@@ -641,6 +652,7 @@ export default function HttpTrafficTable({ data }: Props) {
           <AgGridReact<HttpRecord>
             rowData={filteredData}
             columnDefs={columnDefs}
+            defaultColDef={DEFAULT_COL_DEF}
             onGridReady={onGridReady}
             pagination={true}
             paginationPageSize={pageSize}
@@ -659,7 +671,7 @@ export default function HttpTrafficTable({ data }: Props) {
         </div>
         {selectedRecord && (
           <div className="w-1/2 flex flex-col min-h-0 border border-warm-border rounded-md">
-            <div className="flex items-center justify-between px-4 pt-3 pb-1 shrink-0 bg-cream-dark/90 backdrop-blur-sm">
+            <div className="flex items-center justify-between px-4 py-2 shrink-0 bg-cream-dark/90 backdrop-blur-sm">
               <span className="text-xs text-text-muted font-sans font-semibold uppercase tracking-wider">Record Detail</span>
               <button
                 onClick={() => setExpandedUuid(null)}

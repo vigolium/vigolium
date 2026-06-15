@@ -24,11 +24,33 @@ func FillText(elem *browser.Element, value string) error {
 		return nil // Already has correct value, no need to fill again
 	}
 
-	// Set value directly via JavaScript - most reliable and atomic method
+	// Set the value the way a real user would, so framework-controlled inputs
+	// and client-side validation actually register it. Two things matter for
+	// modern SPAs (React/Angular/Aura-Lightning), which is what gates multi-step
+	// login/registration flows:
+	//   1. Use the prototype's native value setter. React installs its own value
+	//      setter on the element instance and reverts a plain `this.value = x`
+	//      on the next render, leaving the field empty; calling the native setter
+	//      on the prototype is the canonical way to make the change stick.
+	//   2. Fire focus → input → change → keyup → blur. A flow's "Next/Continue"
+	//      button is commonly enabled only after these events (blur validation,
+	//      keyup availability checks), so without them the button stays disabled
+	//      or submits an empty value and the flow never advances to the next step.
+	// Everything is wrapped in try/catch so a quirky element never aborts the fill.
 	script := fmt.Sprintf(`() => {
-		this.value = %q;
+		const v = %q;
+		try { this.focus(); } catch (e) {}
+		try {
+			const proto = (this.tagName === 'TEXTAREA')
+				? window.HTMLTextAreaElement.prototype
+				: window.HTMLInputElement.prototype;
+			const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+			if (desc && desc.set) { desc.set.call(this, v); } else { this.value = v; }
+		} catch (e) { this.value = v; }
 		this.dispatchEvent(new Event('input', { bubbles: true }));
 		this.dispatchEvent(new Event('change', { bubbles: true }));
+		try { this.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true })); } catch (e) {}
+		try { this.blur(); } catch (e) {}
 	}`, value)
 
 	if err := elem.Eval(script); err != nil {

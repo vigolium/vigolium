@@ -117,7 +117,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		issues = append(issues, cacheIssue{
 			name:     "Static Generation with Auth Data",
 			desc:     "getStaticProps fetches authentication-scoped data; static pages are shared across all users",
-			severity: severity.High,
+			severity: severity.Medium,
 		})
 	}
 
@@ -126,7 +126,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		issues = append(issues, cacheIssue{
 			name:     "Force-Static Page with Auth",
 			desc:     "Page is forced to static rendering (dynamic = 'force-static') but imports authentication utilities",
-			severity: severity.High,
+			severity: severity.Medium,
 		})
 	}
 

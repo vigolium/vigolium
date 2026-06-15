@@ -72,6 +72,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/password_autocomplete_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/permissions_policy_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/php_generic_fingerprint"
+	"github.com/vigolium/vigolium/pkg/modules/passive/postmessage_handler_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/python_debug_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/rails_action_cable_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/rails_active_storage_detect"
@@ -159,6 +160,7 @@ func registerPassiveModules(r *Registry) {
 	r.RegisterPassive(insecure_token_storage.New())
 	r.RegisterPassive(env_secret_exposure.New())
 	r.RegisterPassive(build_misconfig_detect.New())
+	r.RegisterPassive(postmessage_handler_detect.New())
 	// Security Headers Audit
 	r.RegisterPassive(csp_weakness_audit.New())
 	r.RegisterPassive(hsts_preload_audit.New())

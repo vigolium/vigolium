@@ -246,6 +246,59 @@ func TestScanPerRequest_NoJWT(t *testing.T) {
 	assert.Empty(t, results)
 }
 
+// makeRSAMetaToken builds an RS256 token with a Cloudflare-Access pre-auth meta
+// payload and a non-HMAC signature, so it can't be brute-forced and would
+// otherwise emit the asymmetric "algorithm confusion" informational finding.
+func makeRSAMetaToken(payload string) string {
+	h := base64.RawURLEncoding.EncodeToString([]byte(`{"typ":"JWT","alg":"RS256"}`))
+	p := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	signingInput := h + "." + p
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		panic(err)
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(key.N.Bytes())
+}
+
+func TestFindJWTs_SkipsCloudflareAccessMetaToken(t *testing.T) {
+	// type=meta and auth_status=NONE are the Cloudflare Access pre-auth shape.
+	for _, payload := range []string{
+		`{"type":"meta","aud":"app","exp":1781357251}`,
+		`{"auth_status":"NONE","aud":"app","exp":1781357251}`,
+	} {
+		token := makeRSAMetaToken(payload)
+		ctx := makeHTTPCtxWithResponseBody(fmt.Sprintf(`{"meta":"%s"}`, token))
+		assert.Empty(t, findJWTs(ctx), "pre-auth meta token must be skipped: %s", payload)
+	}
+}
+
+func TestScanPerRequest_SkipsCloudflareAccessMetaToken(t *testing.T) {
+	m := New()
+	token := makeRSAMetaToken(`{"type":"meta","auth_status":"NONE","aud":"app","exp":1781357251}`)
+	// Reflected into the login-page body, exactly as on a Cloudflare Access SSO page.
+	ctx := makeHTTPCtxWithResponseBody(fmt.Sprintf(`<form action="/cdn-cgi/access/login?meta=%s">`, token))
+	scanCtx := &modkit.ScanContext{}
+
+	results, err := m.ScanPerRequest(ctx, scanCtx)
+	require.NoError(t, err)
+	assert.Empty(t, results, "pre-auth meta token must not produce an algorithm-confusion finding")
+}
+
+func TestScanPerRequest_AsymmetricNonMetaTokenStillFlagged(t *testing.T) {
+	// A normal asymmetric application token (real identity, no meta marker) must
+	// still produce the informational algorithm-confusion finding — the skip is
+	// scoped to pre-auth meta tokens only.
+	m := New()
+	token := makeRSAMetaToken(`{"sub":"1234567890","role":"user"}`)
+	ctx := makeHTTPCtxWithAuth(token)
+	scanCtx := &modkit.ScanContext{}
+
+	results, err := m.ScanPerRequest(ctx, scanCtx)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].Info.Name, "Algorithm Confusion")
+}
+
 // signHMAC creates a JWT signed with an arbitrary HMAC hash function.
 func signHMAC(headerJSON, payload string, secret []byte, newHash func() hash.Hash) string {
 	h := base64.RawURLEncoding.EncodeToString([]byte(headerJSON))

@@ -13,6 +13,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/xssbreakout"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/spitolas"
 )
@@ -94,23 +95,10 @@ func (m *Module) ScanPerInsertionPoint(
 		return nil, errors.Wrap(err, "failed to generate payload")
 	}
 
-	// 1. Write: inject the canary through the insertion point. ip.BuildRequest
-	// preserves the original method and auth headers.
-	if err := m.inject(ctx, ip, payload.Body, httpClient); err != nil {
-		return nil, nil
-	}
-
-	// 2. Retrieve: a clean GET of the same URL (carrying the scan session). The
-	// retrieval request never contains the payload, so a canary match here means
-	// the value was stored — not merely reflected.
-	body, err := m.retrieve(ctx, httpClient)
-	if err != nil || !strings.Contains(body, payload.Canary) {
-		return nil, nil
-	}
-
-	// 3. Confirm: navigate the retrieval URL in a headless browser and watch for
-	// the alert carrying our canary.
-	dialog, probeURL := m.confirm(ctx, urlx.String(), payload.Canary)
+	// Write → retrieve → browser-confirm. confirmStored tries the universal
+	// HTML-breakout payload first and, only if the value persists and reflects but
+	// doesn't execute, retries with operator-chaining JS-string breakouts.
+	dialog, probeURL, bodyUsed := m.confirmStored(ctx, ip, httpClient, payload)
 	if dialog == nil {
 		return nil, nil
 	}
@@ -119,7 +107,65 @@ func (m *Module) ScanPerInsertionPoint(
 		reg.MarkFound(hostPath, ip.Name(), vulnClass)
 	}
 
-	return []*output.ResultEvent{m.buildResult(ctx, ip, payload, probeURL, *dialog)}, nil
+	return []*output.ResultEvent{m.buildResult(ctx, ip, payload, bodyUsed, probeURL, *dialog)}, nil
+}
+
+// confirmStored stores an executable payload through ip, reloads the page, and
+// browser-confirms it. It returns the firing dialog, the navigated URL, and the
+// body that worked.
+//
+// The universal HTML payload breaks out of markup, so it misses a value stored
+// into a JS string. When the value persists and reflects but nothing executes,
+// confirmStored retries with operator-chaining breakouts ('^alert()^') that run
+// even inside a JS expression. The extra writes only happen once the value is
+// known to persist — a field that doesn't store at all short-circuits, so we
+// never pile mutations onto an unrelated endpoint.
+func (m *Module) confirmStored(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	httpClient *http.Requester,
+	payload *Payload,
+) (*spitolas.DialogEvent, string, string) {
+	dialog, probeURL, stored := m.injectAndConfirm(ctx, ip, httpClient, payload.Body, payload.Canary)
+	if !stored {
+		return nil, "", "" // nothing persisted/reflected — stop before extra writes
+	}
+	if dialog != nil {
+		return dialog, probeURL, payload.Body
+	}
+
+	alert := "alert(`" + payload.Canary + "`)"
+	for _, q := range []byte{'\'', '"'} {
+		for _, body := range xssbreakout.JSStringPayloads(q, alert) {
+			d, pu, ok := m.injectAndConfirm(ctx, ip, httpClient, body, payload.Canary)
+			if ok && d != nil {
+				return d, pu, body
+			}
+		}
+	}
+	return nil, "", ""
+}
+
+// injectAndConfirm stores bodyPayload, performs a clean retrieval GET, and (only
+// when the canary persisted) browser-confirms it. The bool reports whether the
+// value was stored and reflected at all — a clean GET never carries the payload,
+// so a canary match means it was persisted, not merely echoed.
+func (m *Module) injectAndConfirm(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	httpClient *http.Requester,
+	bodyPayload, canary string,
+) (*spitolas.DialogEvent, string, bool) {
+	if err := m.inject(ctx, ip, bodyPayload, httpClient); err != nil {
+		return nil, "", false
+	}
+	body, err := m.retrieve(ctx, httpClient)
+	if err != nil || !strings.Contains(body, canary) {
+		return nil, "", false
+	}
+	urlx, _ := ctx.URL()
+	dialog, probeURL := m.confirm(ctx, urlx.String(), canary)
+	return dialog, probeURL, true
 }
 
 // inject sends the write request that stores the payload.
@@ -227,6 +273,7 @@ func (m *Module) buildResult(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
 	payload *Payload,
+	bodyUsed string,
 	probeURL string,
 	dialog spitolas.DialogEvent,
 ) *output.ResultEvent {
@@ -235,10 +282,13 @@ func (m *Module) buildResult(
 		"Browser-confirmed STORED XSS via %s. Injected payload persisted and triggered %s(%q) on a later load of %s.",
 		ip.Name(), dialog.Type, dialog.Message, probeURL,
 	)
+	if bodyUsed != payload.Body {
+		desc += " [js-string-breakout]"
+	}
 	return &output.ResultEvent{
 		URL:              urlx.String(),
 		Host:             urlx.Host,
-		Request:          string(ip.BuildRequest([]byte(payload.Body))),
+		Request:          string(ip.BuildRequest([]byte(bodyUsed))),
 		FuzzingParameter: ip.Name(),
 		ExtractedResults: []string{dialog.Message},
 		Info:             output.Info{Description: desc},

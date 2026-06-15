@@ -48,7 +48,7 @@ func TestScanPerRequest_DetectsProviders(t *testing.T) {
 	m := New()
 	// One reference per provider category, mixed into a config blob.
 	body := `cfg={` +
-		`okta:"https://rocherapid-test.okta.com/oauth2/default",` +
+		`okta:"https://acme-test.okta.com/oauth2/default",` +
 		`fn:"https://europe-west1-harvester-dev-env.cloudfunctions.net/x",` + // firebase-owned: must be ignored
 		`supabase:"https://abcdefghijklmnopqrst.supabase.co",` +
 		`convex:"https://wandering-cat-123.convex.cloud",` +
@@ -56,7 +56,7 @@ func TestScanPerRequest_DetectsProviders(t *testing.T) {
 		`run:"https://my-svc-abcdef.europe-west1.run.app",` +
 		`sentry:"https://deadbeef@o4509.ingest.de.sentry.io/123"` +
 		`}`
-	ctx := makeHTTPCtx("app.navify.com", "/main.js", "application/javascript", body)
+	ctx := makeHTTPCtx("app.example.com", "/main.js", "application/javascript", body)
 
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestScanPerRequest_DetectsProviders(t *testing.T) {
 	// Okta tenant extracted.
 	okta := findByProvider(results, "okta")
 	require.NotNil(t, okta, "expected okta finding")
-	assert.Equal(t, "rocherapid-test", okta.Metadata["instance"])
+	assert.Equal(t, "acme-test", okta.Metadata["instance"])
 	assert.Equal(t, "identity", okta.Metadata["category"])
 	assert.Equal(t, ModuleSeverity, okta.Info.Severity)
 

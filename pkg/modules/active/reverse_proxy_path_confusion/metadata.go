@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A reverse proxy and its backend disagree about which path a request names, so an access-control rule enforced at the proxy can be sidestepped. A specially shaped path that the proxy reads as harmless is normalized by the backend back into a restricted admin endpoint and served. This module confirmed that a sensitive endpoint blocked when requested directly (such as Tomcat Manager, Spring Boot Actuator, Apache mod_status, nginx stub_status, or Prometheus metrics) became reachable through a path-confusion trick.
+	ModuleDesc = `**What it means:** A reverse proxy and its backend disagree about which path a request names, so a proxy-enforced access-control rule is sidestepped. The scanner confirmed an endpoint blocked directly (Tomcat Manager, Spring Actuator, Prometheus) became reachable via path confusion.
 
-**How it's exploited:** An attacker wraps the blocked path in a confusion shell (encoded fragment truncation like /%23/.., path-parameter traversal like /..; or /.;, or encoded-slash traversal) to slip past the proxy ACL and reach the backend. The exposed endpoint can leak configuration, environment variables, credentials, and internal metrics, or, for Tomcat Manager, allow application deployment leading to remote code execution.
+**How it's exploited:** An attacker wraps the blocked path in a confusion shell (fragment truncation, path-parameter traversal like /..;, or encoded-slash) to slip past the proxy ACL, leaking config, credentials, and metrics, or via Tomcat Manager allowing deployment that leads to remote code execution.
 
-**Fix:** Enforce access control on the normalized path at the backend itself, and configure the proxy to reject or canonicalize ambiguous path encodings before routing.`
+**Fix:** Enforce access control on the normalized path at the backend, and reject ambiguous path encodings.`
 
 	ModuleConfirmation = "Confirmed when a path-confusion shell reaches a restricted backend endpoint (matching its content fingerprint) that is blocked when requested directly, surviving a decoy-target negative, multi-round replay, and an introduced-content differential"
 	ModuleSeverity     = severity.High

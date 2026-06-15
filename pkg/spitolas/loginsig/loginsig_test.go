@@ -24,6 +24,9 @@ func TestLooksLikeLoginURL(t *testing.T) {
 		{"https://app.example.com/saml/acs", true},
 		{"https://app.example.com/signin", true},
 		{"https://app.example.com/login", true},
+		// Cloudflare Access — managed auth gateway by host and by portal path
+		{"https://acme-code.cloudflareaccess.com/cdn-cgi/access/verify-code/app.acme.com", true},
+		{"https://acme.example.com/cdn-cgi/access/login/app.acme.com", true},
 		// not login
 		{"https://app.example.com/console/", false},
 		{"https://app.example.com/dashboard", false},
@@ -53,6 +56,10 @@ func TestBodyLooksLikeLogin(t *testing.T) {
 		{"password input single quotes", `<input type='password'>`, true},
 		{"password input unquoted", `<input type=password>`, true},
 		{"uppercase TYPE", `<INPUT TYPE="PASSWORD">`, true},
+		// Cloudflare Access verify-code wall: an OTP text field, no password input,
+		// recognized by its auth-shell class names.
+		{"cloudflare access authbox", `<div class="AuthBox"><div class="AuthBox-body">`, true},
+		{"cloudflare access form", `<form class="AuthFormLogin" action="/cdn-cgi/access/callback">`, true},
 		{"no password field", `<form><input type="text"><button>Go</button></form>`, false},
 		{"empty", ``, false},
 	}

@@ -2,7 +2,6 @@ package nosqli_operator_injection
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -42,16 +41,20 @@ func New() *Module {
 	return m
 }
 
-// CanProcess extends the default to skip non-injectable content types.
+// CanProcess extends the default to skip static assets / code bundles (JS, CSS,
+// fonts, images, media, archives): a static file is never a NoSQL query handler,
+// so its body size, boolean differential, or any error token inside it is noise,
+// not an injection signal. Both the captured content-type and the URL path are
+// checked, mirroring the nosqli_error_based gate.
 func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
 	if !m.BaseActiveModule.CanProcess(ctx) {
 		return false
 	}
-	if ctx.Response() != nil {
-		ct := strings.ToLower(ctx.Response().Header("Content-Type"))
-		if strings.Contains(ct, "image/") || strings.Contains(ct, "audio/") || strings.Contains(ct, "video/") {
-			return false
-		}
+	if ctx.Response() != nil && modkit.IsStaticAssetContentType(ctx.Response().Header("Content-Type")) {
+		return false
+	}
+	if u, err := ctx.URL(); err == nil && modkit.IsStaticAssetPath(u.Path) {
+		return false
 	}
 	return true
 }
@@ -185,13 +188,13 @@ func (m *Module) testPayload(
 
 	var detected bool
 	var detectionDesc string
-	// Auth bypass is a directly observable 401/403→2xx transition (re-confirmed
-	// interleaved), so it stays high/firm. The size-increase path only INFERS
-	// exfiltration from response growth — it never proves leaked data is in the
-	// body — so it is FP-prone and reported as suspect/tentative, matching the
-	// time-based path.
+	// These paths are behavioral inferences, not direct proof of query control.
+	// Auth bypass (a re-confirmed 401/403→2xx transition) is the strongest signal,
+	// reported High/Tentative. The size-increase path only INFERS exfiltration
+	// from response growth — never proving leaked data is in the body — so it is
+	// the weakest and stays Suspect/Tentative, matching the time-based path.
 	findingSeverity := severity.High
-	findingConfidence := severity.Firm
+	findingConfidence := severity.Tentative
 
 	switch payload.detectType {
 	case detectAuthBypass:
@@ -381,9 +384,15 @@ func (m *Module) testTimeBasedPayload(
 	httpClient *http.Requester,
 	payload nosqliPayload,
 ) (*output.ResultEvent, error) {
-	baselineDuration, _, _, err := m.measureDuration(ctx, ip, httpClient, ip.BaseValue())
+	baselineDuration, _, baselineBlocked, err := m.measureDuration(ctx, ip, httpClient, ip.BaseValue())
 	if err != nil {
 		return nil, err
+	}
+	// A blocked baseline (WAF/CDN edge block, auth gate, rate-limit) is not an
+	// application surface to time-test — the request never reaches a backend
+	// query, so any latency here is the edge, not a sleep.
+	if baselineBlocked {
+		return nil, nil
 	}
 
 	fuzzedValue := ip.BaseValue() + payload.value
@@ -391,9 +400,14 @@ func (m *Module) testTimeBasedPayload(
 
 	var lastDelay time.Duration
 	for i := 0; i < timeBasedConfirmationRounds; i++ {
-		probeDuration, body, _, err := m.measureDuration(ctx, ip, httpClient, fuzzedValue)
+		probeDuration, body, blocked, err := m.measureDuration(ctx, ip, httpClient, fuzzedValue)
 		if err != nil {
 			return nil, err
+		}
+		// A 401/403/429/503 or WAF/CDN challenge on the sleep payload injects its
+		// own latency that masquerades as a time delay — drop, don't confirm.
+		if blocked {
+			return nil, nil
 		}
 		if containsNoSQLError(body) {
 			return nil, nil
@@ -422,7 +436,7 @@ func (m *Module) testTimeBasedPayload(
 				timeBasedConfirmationRounds, baselineDuration.Milliseconds(), lastDelay.Milliseconds(), payload.desc, ip.Name(),
 			),
 			// Time-based inference is prone to backend-delay false positives
-			// (unlike the auth-bypass/size/boolean paths) — flag as suspect.
+			// (unlike the auth-bypass/boolean paths) — flag as suspect.
 			Severity:   severity.Suspect,
 			Confidence: severity.Tentative,
 			Tags:       []string{"nosqli", "injection", "mongodb", "time-based"},
@@ -438,33 +452,33 @@ func (m *Module) testTimeBasedPayload(
 }
 
 // measureDuration executes a single request with the given fuzzed value and
-// returns its wall-clock duration along with the response body and status.
+// returns its wall-clock duration, the response body, and whether the response
+// was a WAF/CDN/auth/rate-limit block. A blocked response must never be read as a
+// time delay: its latency is the edge denying us (a 429/503 in particular adds
+// its own delay), not a backend query executing the injected sleep.
 func (m *Module) measureDuration(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
 	httpClient *http.Requester,
 	value string,
-) (time.Duration, string, int, error) {
+) (time.Duration, string, bool, error) {
 	raw := ip.BuildRequest([]byte(value))
 	req, err := httpmsg.ParseRawRequest(string(raw))
 	if err != nil {
-		return 0, "", 0, err
+		return 0, "", false, err
 	}
 	req = req.WithService(ctx.Service())
 
 	start := time.Now()
 	resp, _, err := httpClient.Execute(req, http.Options{})
 	if err != nil {
-		return 0, "", 0, err
+		return 0, "", false, err
 	}
 	duration := time.Since(start)
 	body := resp.Body().String()
-	status := 0
-	if resp.Response() != nil {
-		status = resp.Response().StatusCode
-	}
+	blocked := infra.IsBlockedResponse(resp)
 	resp.Close()
-	return duration, body, status, nil
+	return duration, body, blocked, nil
 }
 
 // boolSample is one probe of a boolean-diff condition, carrying the signals the
@@ -564,7 +578,7 @@ func (m *Module) testBooleanDiff(
 					len(trueBodies), len(falseBodies), ip.Name(), pair.desc,
 				),
 				Severity:   severity.High,
-				Confidence: severity.Firm,
+				Confidence: severity.Tentative,
 				Tags:       []string{"nosqli", "boolean-injection", "mongodb"},
 				Reference:  []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection"},
 			},

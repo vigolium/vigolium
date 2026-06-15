@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This finding flags shipped JavaScript or TypeScript code where a Next.js Server Action is created with .bind(null, identifier) and the bound argument looks like a resource reference (id, userId, postId, slug, orgId, and similar), with no authorization check (canAccess, isOwner, getSession, requireAuth, and similar) visible in the same code. Bound arguments travel to the browser unencrypted and can be tampered with, so if the server does not re-check ownership this is a likely Insecure Direct Object Reference (IDOR / CWE-639). This is a passive, heuristic source-analysis signal at Tentative confidence: it cannot see server-side authorization and may be a false positive.
+	ModuleDesc = `**What it means:** Shipped JS code creates a Next.js Server Action with .bind(null, identifier) where the bound argument looks like a resource reference (id, userId, postId), with no nearby authorization check. Bound arguments reach the browser unencrypted and are tamperable, so without an ownership re-check this is a likely IDOR (CWE-639).
 
-**How it's exploited:** An attacker who can call the Server Action substitutes another user's identifier for the bound value and, if the action trusts that ID without verifying ownership, reads, modifies, or deletes resources belonging to other accounts.
+**How it's exploited:** An attacker who can call the action swaps in another user's identifier and, if the action trusts that ID, reads or deletes others' resources.
 
-**Fix:** Re-authorize every resource inside the Server Action body by checking the current session against the bound identifier instead of trusting client-supplied IDs.`
+**Fix:** Re-authorize every resource inside the action body by checking the session against the bound identifier, never client IDs.`
 
 	ModuleConfirmation = "Confirmed when .bind() passes identifiers to a Server Action without re-authorization in the action body"
 	ModuleSeverity     = severity.Medium

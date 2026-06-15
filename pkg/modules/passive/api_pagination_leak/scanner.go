@@ -97,6 +97,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if ctx.Response() == nil {
 		return nil, nil
 	}
+	// A WAF/CDN edge block's JSON error body is the edge talking, not the
+	// application — pagination-shaped fields in it are not an app leak.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
+		return nil, nil
+	}
 
 	// Only inspect JSON responses
 	ct := strings.ToLower(ctx.Response().Header("Content-Type"))

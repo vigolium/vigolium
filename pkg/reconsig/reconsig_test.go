@@ -8,14 +8,14 @@ import (
 
 func TestExtractHosts(t *testing.T) {
 	t.Parallel()
-	body := `origin:"https://cds-apps-harvester-dev.hi5.platform.navify.com",` +
-		`url:"https://su-appsdev.appsdev-tumorboard.hi5.platform.navify.com",` +
+	body := `origin:"https://svc-a.dev.platform.example.com",` +
+		`url:"https://svc-b.staging.platform.example.com",` +
 		`authDomain:"harvester-dev-env.firebaseapp.com",` +
 		`version:e(26660).version,exports.default,a.b`
 	hosts := ExtractHosts(body, 100)
 
-	assert.Contains(t, hosts, "cds-apps-harvester-dev.hi5.platform.navify.com")
-	assert.Contains(t, hosts, "su-appsdev.appsdev-tumorboard.hi5.platform.navify.com")
+	assert.Contains(t, hosts, "svc-a.dev.platform.example.com")
+	assert.Contains(t, hosts, "svc-b.staging.platform.example.com")
 	assert.Contains(t, hosts, "harvester-dev-env.firebaseapp.com")
 	// Numeric "version" tokens and single-letter TLDs are not FQDN-shaped.
 	assert.NotContains(t, hosts, "26660.version")
@@ -38,13 +38,13 @@ func TestNormalizeHost(t *testing.T) {
 func TestRegistrableDomain(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"cds-apps-harvester-dev.hi5.platform.navify.com": "navify.com",
-		"https://app.navify.com/path":                    "navify.com",
-		"sub.example.co.uk":                              "example.co.uk",
-		"foo.myapp.vercel.app":                           "myapp.vercel.app", // PSL private suffix
-		"exports.default":                                "exports.default",  // unmanaged TLD, still resolves
-		"localhost":                                      "",
-		"":                                               "",
+		"svc-a.dev.platform.example.com": "example.com",
+		"https://app.example.com/path":   "example.com",
+		"sub.example.co.uk":              "example.co.uk",
+		"foo.myapp.vercel.app":           "myapp.vercel.app", // PSL private suffix
+		"exports.default":                "exports.default",  // unmanaged TLD, still resolves
+		"localhost":                      "",
+		"":                               "",
 	}
 	for in, want := range cases {
 		assert.Equal(t, want, RegistrableDomain(in), "RegistrableDomain(%q)", in)

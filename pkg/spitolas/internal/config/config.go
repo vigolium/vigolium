@@ -163,6 +163,57 @@ type Config struct {
 	ServiceWorkerPriming   bool // Enable service-worker asset priming (default on)
 	ServiceWorkerMaxAssets int  // Cap on primed asset fetches (0 = default)
 
+	// Iframe-source priming. After a page (the index and every newly discovered
+	// state) settles, the crawler enumerates the <iframe>/<frame> src URLs in the
+	// live, post-render DOM — including frames a framework injects after first
+	// paint (Aura/Lightning, Angular, etc.) that never appear in the served HTML —
+	// and fetches the same-origin ones so the browser's network capture records
+	// them. A short headless visit that does not exercise the exact flow which
+	// mounts a dynamic iframe would otherwise never request its URL, so the page
+	// (and any reflected query parameters on it) is never scanned.
+	IframePriming   bool // Enable iframe-source priming (default on)
+	IframeMaxAssets int  // Cap on primed iframe fetches per crawl (0 = default)
+
+	// NetworkIdleTimeout bounds the extra "wait for the network to go idle" settle
+	// performed before harvesting iframe sources, so subframe loads a framework
+	// kicks off after first paint complete before the DOM is read (0 = default).
+	NetworkIdleTimeout time.Duration
+
+	// SPASettleTimeout bounds an extra "wait for the network to go idle" settle on
+	// the index/seed page before its state is captured and its clickables are
+	// extracted. A heavy enterprise SPA (Angular, Salesforce Lightning, …) renders
+	// its real UI — including the login CTA — only after a chain of sequential
+	// bootstrap XHRs (config → region → i18n → feature flags → content) lands; the
+	// short DOMStableTime wait fires while it is still a half-rendered shell, so the
+	// CTA and most data calls are missed. This longer settle lets the bootstrap
+	// quiesce first (0 = disabled).
+	SPASettleTimeout time.Duration
+
+	// DismissConsent makes the crawler click cookie-consent "accept" controls
+	// (OneTrust et al., piercing shadow DOM) on the index page before capture, so a
+	// consent overlay neither blocks the app from rendering its real content nor
+	// masks the elements that get extracted/clicked (default on).
+	DismissConsent bool
+
+	// AutoScroll makes the crawler scroll the index page through its full height
+	// before capture so content and assets that load lazily on scroll
+	// (IntersectionObserver-gated sections, infinite-scroll data fetches, deferred
+	// hero/bundled-media images) are actually requested and recorded. A content-
+	// heavy SPA landing fetches much of its data and imagery only as each section
+	// enters the viewport, so a static headless visit that never scrolls misses it
+	// (default on).
+	AutoScroll bool
+
+	// LoginCTAPriming makes the crawler find and click a login call-to-action
+	// ("Log on"/"Sign in"/…) on the landing page to drive the OAuth/SAML/SSO
+	// navigation chain it kicks off. An unauthenticated visit to many enterprise
+	// apps bounces to a portal landing whose login button starts a cross-origin
+	// flow (… /oauth2/authorize → /idp/login → SAML → vendor login); the normal
+	// state machine may never click it, so the whole flow — and every URL it
+	// touches — is missed. Done once per crawl; the network capture records the
+	// chain and the destination page's own XHRs (default on).
+	LoginCTAPriming bool
+
 	CrawlScope CrawlScope // Custom URL scope filter (nil = default same-domain check)
 
 	// Crawl strategy - determines both state selection and action selection
@@ -290,8 +341,40 @@ func New(targetURL string) (*Config, error) {
 		// precache-everything manifest from ballooning the crawl.
 		ServiceWorkerPriming:   true,
 		ServiceWorkerMaxAssets: defaultServiceWorkerMaxAssets,
+
+		// Iframe-source priming on by default; bounded per crawl so a page that
+		// mounts many frames cannot flood the target.
+		IframePriming:      true,
+		IframeMaxAssets:    defaultIframeMaxAssets,
+		NetworkIdleTimeout: defaultNetworkIdleTimeout,
+
+		// SPA bootstrap settle + consent dismissal + login-CTA priming on by
+		// default: together they get a heavy enterprise SPA to fully render its
+		// landing, clear a consent overlay, and enter the OAuth/SAML login flow so
+		// the deep login URLs are actually requested and captured.
+		SPASettleTimeout: defaultSPASettleTimeout,
+		DismissConsent:   true,
+		LoginCTAPriming:  true,
+		AutoScroll:       true,
 	}, nil
 }
+
+// defaultSPASettleTimeout bounds the extra network-idle settle on the index page
+// before capture. Long enough to absorb a multi-step SPA bootstrap (several
+// sequential config/i18n/content round-trips) but capped so a long-poll/SSE app
+// cannot stall the crawl — WaitNetworkIdle returns at this bound regardless.
+const defaultSPASettleTimeout = 12 * time.Second
+
+// defaultIframeMaxAssets bounds how many distinct same-origin iframe sources the
+// priming step fetches over the whole crawl. Most apps embed a handful of
+// same-origin frames; the cap guards against a pathological page wiring up
+// hundreds without truncating real-world apps.
+const defaultIframeMaxAssets = 200
+
+// defaultNetworkIdleTimeout caps the network-idle settle performed before iframe
+// harvesting. Kept short so it only absorbs the tail of a framework's
+// after-paint subframe loads rather than blocking on long-poll/XHR-heavy pages.
+const defaultNetworkIdleTimeout = 3 * time.Second
 
 // defaultServiceWorkerMaxAssets bounds how many service-worker-listed assets the
 // priming step fetches. Angular ngsw.json manifests routinely list a few dozen

@@ -104,8 +104,8 @@ func TestDefaultRegistry_ModuleMetadataContract(t *testing.T) {
 var requiredDescSections = []string{"**What it means:**", "**How it's exploited:**", "**Fix:**"}
 
 // maxDescWords bounds the explanation block so the composed finding description
-// (per-finding context line + this block) stays within the ~200-word budget.
-const maxDescWords = 170
+// (per-finding context line + this block) stays concise in reports.
+const maxDescWords = 100
 
 // TestDefaultRegistry_DescriptionFormatContract asserts every built-in module's
 // Description() is a reader-facing What/Exploit/Fix block within the word budget.

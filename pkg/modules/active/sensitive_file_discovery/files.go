@@ -145,9 +145,12 @@ var sensitiveFiles = []sensitiveFile{
 	},
 	// IDE and editor files
 	{
-		path:    "/.vscode/settings.json",
-		name:    "VS Code Settings",
-		markers: []string{"{", "}"},
+		path: "/.vscode/settings.json",
+		name: "VS Code Settings",
+		// Bare "{"/"}" matched ANY JSON body (a catch-all could also serve JSON to
+		// the decoy round). Require a VS Code setting-key prefix, which a generic
+		// JSON payload does not carry.
+		markers: []string{`"editor.`, `"workbench.`, `"files.`, `"python.`, `"[json]"`, `"terminal.`},
 		sev:     severity.Low,
 		desc:    "VS Code settings file exposed, potentially revealing project configuration",
 	},

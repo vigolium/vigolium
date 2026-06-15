@@ -200,9 +200,10 @@ func TestFormatScreenNonTTYCapsSuffixKeepsURL(t *testing.T) {
 	assert.NotContains(t, out, "…")
 }
 
-func TestFormatScreenSanitizesMultilineExtracted(t *testing.T) {
+func TestFormatScreenEscapesMultilineExtracted(t *testing.T) {
 	// Snippets with embedded newlines (regex context windows over pretty-printed
-	// JS) must collapse to a single line in every mode.
+	// JS) must render as a single line in every mode, with the newlines shown as
+	// literal \n escapes rather than as real line breaks that fracture the line.
 	w := &StandardWriter{}
 	ev := &ResultEvent{
 		ModuleID:         "unsafe-html-sink",
@@ -216,8 +217,9 @@ func TestFormatScreenSanitizesMultilineExtracted(t *testing.T) {
 	for _, tty := range []bool{false, true} {
 		terminal.SetIsTerminal(tty)
 		out := terminal.StripANSI(string(w.formatScreen(ev)))
-		assert.NotContains(t, out, "\n", "finding must render as one line (tty=%v)", tty)
-		assert.Contains(t, out, `dropdownContent) { dropdownContent.innerHTML = ""; next`, "whitespace runs collapsed (tty=%v)", tty)
+		assert.NotContains(t, out, "\n", "finding must render as one line, no real newlines (tty=%v)", tty)
+		assert.NotContains(t, out, "\r", "carriage returns must be escaped (tty=%v)", tty)
+		assert.Contains(t, out, `dropdownContent) {\n      dropdownContent.innerHTML = "";\n      next`, "newlines escaped to literal \\n, indentation preserved (tty=%v)", tty)
 	}
 }
 

@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An ASP.NET web service is leaking its internal definition or error details. The scanner confirmed at least one of: an ASMX or WCF service serving its WSDL/discovery document, an OData service exposing its $metadata entity model, a SharePoint or Services directory listing, or a WCF endpoint returning verbose .NET exception faults (includeExceptionDetailInFaults left on). This hands an outsider a map of the backend that should not be public.
+	ModuleDesc = `**What it means:** An ASP.NET web service leaks its internal definition or error details - an ASMX/WCF service serving its WSDL, an OData service exposing $metadata, or a WCF endpoint returning verbose .NET faults (includeExceptionDetailInFaults left on).
 
-**How it's exploited:** An attacker reads the WSDL, discovery, or OData metadata to enumerate every operation, parameter, and data type the service accepts, then crafts targeted SOAP or OData calls to reach functionality that was assumed hidden. Verbose WCF faults leak stack traces, type names, and file paths that reveal internal structure and aid further attacks. The disclosure itself is not code execution but sharply lowers the effort to find and abuse weak operations.
+**How it's exploited:** An attacker reads the WSDL or OData metadata to enumerate every operation, parameter, and data type, then crafts targeted SOAP or OData calls to reach hidden functionality. Verbose faults leak stack traces and file paths, easing further attacks.
 
-**Fix:** Disable WSDL/metadata publishing on production service endpoints, restrict directory browsing, and set includeExceptionDetailInFaults to false so WCF returns generic faults.`
+**Fix:** Disable WSDL/metadata publishing on production endpoints, restrict directory browsing, and set includeExceptionDetailInFaults to false.`
 
 	ModuleConfirmation = "Confirmed when service endpoints return WSDL definitions, OData metadata, or verbose fault details"
 	ModuleSeverity     = severity.Medium

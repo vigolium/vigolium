@@ -128,9 +128,11 @@ func TestValidateParallelScan(t *testing.T) {
 			false,
 		},
 		{
-			"parallel>1 db-isolate missing target file rejected",
+			// db-isolate with no -T file is also a single target — nothing to fan
+			// out, so -P degrades to a normal scan rather than erroring.
+			"parallel>1 db-isolate single target degrades (no target file)",
 			&types.Options{Parallel: 4, DBIsolate: true},
-			true,
+			false,
 		},
 		{
 			"parallel>1 with neither stateless nor db-isolate rejected",
@@ -138,9 +140,11 @@ func TestValidateParallelScan(t *testing.T) {
 			true,
 		},
 		{
-			"parallel>1 stateless missing target file rejected",
+			// A single target (no -T file) can't fan out, so -P/--split-by-host
+			// degrade to a normal scan instead of erroring.
+			"parallel>1 single target degrades (no target file)",
 			&types.Options{Parallel: 4, Stateless: true, SplitByHost: true},
-			true,
+			false,
 		},
 		{
 			"parallel>1 stateless missing split-by-host rejected",
@@ -158,6 +162,16 @@ func TestValidateParallelScan(t *testing.T) {
 			}
 		})
 	}
+}
+
+// With a single target (no -T target file), -P/--split-by-host can't fan out, so
+// validateParallelScan degrades the options to a plain one-target scan rather
+// than erroring (the dispatch then falls through to the single-pass path).
+func TestValidateParallelScanSingleTargetDegrades(t *testing.T) {
+	opts := &types.Options{Parallel: 4, Stateless: true, SplitByHost: true, Silent: true}
+	require.NoError(t, validateParallelScan(opts))
+	assert.Equal(t, 1, opts.Parallel, "parallel should degrade to 1 for a single target")
+	assert.False(t, opts.SplitByHost, "split-by-host should be cleared for a single target")
 }
 
 // parallelBatchError exits non-zero only when every target genuinely failed, or

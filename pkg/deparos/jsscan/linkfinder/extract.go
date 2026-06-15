@@ -132,6 +132,17 @@ func processMatchesForPatterns(pattern *regexp.Regexp, data string, seen map[str
 			continue
 		}
 
+		// Root-relative paths: "/apex/APP_Login_NewCaptcha?source=x", "/register?ref=y".
+		// These appear as quoted attribute/route strings in framework payloads
+		// (Salesforce Aura component defs, SPA route tables) and were previously
+		// dropped unless they had 2+ slashes or an api/ marker — so a single-segment
+		// route with a reflected query param was lost. shouldKeepMatch downstream
+		// still prunes junk like a bare "/".
+		if strings.HasPrefix(link, "/") && !strings.HasPrefix(link, "//") && len(link) > 1 {
+			seen[link] = struct{}{}
+			continue
+		}
+
 		// Multiple slashes indicate path
 		if strings.Count(link, "/") > 1 {
 			seen[link] = struct{}{}

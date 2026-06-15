@@ -98,6 +98,11 @@ type Product struct {
 	Mounts     []string // extra mount prefixes tried at deep intensity (e.g. "/grafana")
 	Confirmers []Confirmer
 
+	// Login, when set, is a default-credential check the active prober runs after
+	// the product is confirmed present (documented default pairs only; see
+	// LoginProbe). nil for products with no known default-login template.
+	Login *LoginProbe
+
 	PresenceSev severity.Severity // severity for "recognised, no leak" (default Info)
 
 	versionRe *regexp.Regexp

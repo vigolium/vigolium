@@ -387,7 +387,65 @@ func (h *Handler) DetectInputs(page *browser.Page) ([]*DetectedInput, error) {
 		}
 	}
 
+	// Web-component apps render their form fields inside shadow roots, invisible
+	// to the document.querySelectorAll above. Surface those too so login/register
+	// forms in design-system components get filled and submitted.
+	inputs = append(inputs, h.detectShadowInputs(page)...)
+
 	return inputs, nil
+}
+
+// detectShadowInputs finds fillable inputs inside shadow roots (which the
+// light-DOM detection misses) and returns them identified by a stable
+// data-vgo-uid attribute selector that getElementByIdentification re-resolves.
+func (h *Handler) detectShadowInputs(page *browser.Page) []*DetectedInput {
+	elems, err := page.ShadowElements("input, textarea, select")
+	if err != nil || len(elems) == 0 {
+		return nil
+	}
+
+	attr := func(el *browser.Element, name string) string {
+		v, _ := el.Attribute(name)
+		if v == "<nil>" {
+			return ""
+		}
+		return v
+	}
+
+	out := make([]*DetectedInput, 0, len(elems))
+	for _, el := range elems {
+		uid := attr(el, browser.ShadowUIDAttr)
+		if uid == "" {
+			continue
+		}
+		typeStr := attr(el, "type")
+		if typeStr == "" {
+			if tag, terr := el.TagName(); terr == nil {
+				typeStr = strings.ToLower(tag)
+			}
+		}
+		switch strings.ToLower(typeStr) {
+		case "submit", "button", "image", "reset":
+			continue // not fillable
+		}
+
+		ident := action.NewIdentification(action.HowID, browser.ShadowUIDSelector(uid))
+		d := NewDetectedInput(action.NewFormInput(action.GetTypeFromStr(typeStr), ident))
+		d.Name = attr(el, "name")
+		d.ID = attr(el, "id")
+		d.Placeholder = attr(el, "placeholder")
+		d.Pattern = attr(el, "pattern")
+		d.Min = attr(el, "min")
+		d.Max = attr(el, "max")
+		if attr(el, "disabled") != "" {
+			d.Disabled = true
+		}
+		if attr(el, "readonly") != "" {
+			d.ReadOnly = true
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // DetectAll finds all forms AND orphan inputs (inputs not inside any <form>) in a single JS call.
@@ -635,6 +693,13 @@ func (h *Handler) FillInputs(page *browser.Page, inputs []*DetectedInput) *FillI
 // - HowXPath: Use xpath value directly
 // - HowID/HowName: Build XPath "//TAG[@name='X' or @id='X']" where TAG is INPUT/SELECT/TEXTAREA
 func (h *Handler) getElementByIdentification(page *browser.Page, input *DetectedInput) (*browser.Element, error) {
+	// Shadow-DOM inputs are identified by a stable attribute selector (an XPath
+	// cannot cross a shadow boundary). Resolve them via Page.Element, whose
+	// shadow-piercing fallback handles the tag.
+	if input.Identification != nil && browser.IsShadowUIDSelector(input.Identification.Value) {
+		return page.Element(input.Identification.Value)
+	}
+
 	if input.FormInput == nil || input.Identification == nil {
 		// Fallback to XPath field if set
 		if input.XPath != "" {
@@ -961,6 +1026,17 @@ func (h *Handler) getValueForInput(input *DetectedInput) string {
 		return val
 	}
 
+	// 3. Strict HTML5 typed inputs (url/tel/number/range/color/date/time) need a
+	// format-valid value: the name-based smart step below returns "a" for an
+	// unmatched field, which these types reject — so the form fails validation
+	// and a multi-step flow stalls. Resolve them by type first. Text/email/
+	// password/search return "" here and fall through to the smart step.
+	if input.FormInput != nil {
+		if val := h.typedFormatValue(input.Type); val != "" {
+			return val
+		}
+	}
+
 	// Skip for SELECT - smart values are text, but SELECT needs option values
 	// Skip for FILE - file handling uses default file path, not smart values
 	// Random option selection is handled in FillInput instead
@@ -1042,9 +1118,24 @@ func (h *Handler) generateConstrainedValue(input *DetectedInput) string {
 	}
 
 	// Number/Range with min/max/step
-	if input.FormInput != nil && input.Type == action.InputTypeNumber &&
+	if input.FormInput != nil && (input.Type == action.InputTypeNumber || input.Type == action.InputTypeRange) &&
 		(input.Min != "" || input.Max != "") {
 		return h.generateNumberInRange(input.Min, input.Max, input.Step)
+	}
+
+	// Date with min/max → a real date inside the range (YYYY-MM-DD), so the
+	// field validates and the form submits.
+	if input.FormInput != nil && input.Type == action.InputTypeDate && (input.Min != "" || input.Max != "") {
+		if val := h.generateDateInRange(input.Min, input.Max); val != "" {
+			return val
+		}
+	}
+
+	// Time with min/max → a real time inside the range (HH:MM).
+	if input.FormInput != nil && input.Type == action.InputTypeTime && (input.Min != "" || input.Max != "") {
+		if val := h.generateTimeInRange(input.Min, input.Max); val != "" {
+			return val
+		}
 	}
 
 	// String length constraints (only for text-like inputs without pattern)
@@ -1289,10 +1380,114 @@ func (h *Handler) getSmartValue(input *DetectedInput) string {
 	return "a"
 }
 
+// Default format-valid values for strict HTML5 input types whose client-side
+// validation rejects a generic placeholder. A date/time/url/tel field left with
+// "a" (or empty) fails validation, so the form never submits and a multi-step
+// flow stalls — emitting one valid value per type lets the request go through.
+const (
+	defaultDateValue  = "2024-06-15"
+	defaultTimeValue  = "12:00"
+	defaultURLValue   = "https://example.com"
+	defaultTelValue   = "+15555555555"
+	defaultColorValue = "#000000"
+	defaultRangeValue = "50"
+)
+
+// typedFormatValue returns a format-valid value for HTML5 input types whose
+// strict validation rejects a name guess / "a". Returns "" for types better
+// served by name-based smart values (text/search/textarea) or fixed-credential
+// values (email/password), which are resolved elsewhere — so wiring this in
+// before the smart step does not disturb those.
+func (h *Handler) typedFormatValue(inputType action.InputType) string {
+	switch inputType {
+	case action.InputTypeURL:
+		return defaultURLValue
+	case action.InputTypeTel:
+		return defaultTelValue
+	case action.InputTypeNumber:
+		return "42"
+	case action.InputTypeRange:
+		return defaultRangeValue
+	case action.InputTypeColor:
+		return defaultColorValue
+	case action.InputTypeDate:
+		return defaultDateValue
+	case action.InputTypeTime:
+		return defaultTimeValue
+	default:
+		return ""
+	}
+}
+
+// generateDateInRange returns a random YYYY-MM-DD date within [min, max].
+// Either bound may be empty; an unparseable pair falls back to the default date.
+func (h *Handler) generateDateInRange(min, max string) string {
+	const layout = "2006-01-02"
+	minT, errMin := time.Parse(layout, min)
+	maxT, errMax := time.Parse(layout, max)
+	switch {
+	case errMin == nil && errMax == nil:
+		if maxT.Before(minT) {
+			minT, maxT = maxT, minT
+		}
+		days := int(maxT.Sub(minT).Hours() / 24)
+		if days <= 0 {
+			return minT.Format(layout)
+		}
+		return minT.AddDate(0, 0, h.rng.Intn(days+1)).Format(layout)
+	case errMin == nil:
+		return minT.Format(layout)
+	case errMax == nil:
+		return maxT.Format(layout)
+	default:
+		return defaultDateValue
+	}
+}
+
+// generateTimeInRange returns a random HH:MM time within [min, max].
+// Either bound may be empty; an unparseable pair falls back to the default time.
+func (h *Handler) generateTimeInRange(min, max string) string {
+	toMinutes := func(s string) (int, bool) {
+		var hh, mm int
+		if _, err := fmt.Sscanf(s, "%d:%d", &hh, &mm); err != nil {
+			return 0, false
+		}
+		if hh < 0 || hh > 23 || mm < 0 || mm > 59 {
+			return 0, false
+		}
+		return hh*60 + mm, true
+	}
+	lo, okLo := toMinutes(min)
+	hi, okHi := toMinutes(max)
+	switch {
+	case okLo && okHi:
+		if hi < lo {
+			lo, hi = hi, lo
+		}
+		m := lo
+		if hi > lo {
+			m = lo + h.rng.Intn(hi-lo+1)
+		}
+		return fmt.Sprintf("%02d:%02d", m/60, m%60)
+	case okLo:
+		return fmt.Sprintf("%02d:%02d", lo/60, lo%60)
+	case okHi:
+		return fmt.Sprintf("%02d:%02d", hi/60, hi%60)
+	default:
+		return defaultTimeValue
+	}
+}
+
 // getDefaultValue returns a default value for the input type.
 func (h *Handler) getDefaultValue(input *DetectedInput) string {
 	if input.FormInput == nil {
 		return "a"
+	}
+
+	// Strict typed inputs (url/tel/number/range/color/date/time) take a
+	// format-valid value; the switch below covers the text-oriented types.
+	if v := h.typedFormatValue(input.Type); v != "" {
+		return v
 	}
 
 	switch input.Type {

@@ -96,8 +96,12 @@ func shouldKeepMatch(match string) bool {
 		return false
 	}
 
-	// Check spam patterns
-	if isSpamPattern(match) {
+	// Check spam patterns. The X_Y spam heuristic (meant for minified JS tokens
+	// like "A_B") also fires on legitimate enterprise route identifiers such as
+	// Salesforce Visualforce pages (/apex/APP_Login_NewCaptcha) or JSP/.NET
+	// handlers (/My_Servlet) — so exempt clearly structured root-relative paths
+	// that contain real lowercase words, which all-caps minified noise lacks.
+	if isSpamPattern(match) && !looksLikeStructuredPath(match) {
 		return false
 	}
 
@@ -131,6 +135,30 @@ func shouldKeepMatch(match string) bool {
 	}
 
 	return true
+}
+
+// looksLikeStructuredPath reports whether a match is a well-formed root-relative
+// path with real (lowercase-bearing) word segments — e.g. "/apex/APP_Login_
+// NewCaptcha?source=x". This separates genuine enterprise routes from all-caps
+// minified noise like "/A_B", which the X_Y spam heuristic targets. Used only to
+// soften the spam rejection, never to accept a path on its own.
+func looksLikeStructuredPath(p string) bool {
+	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") {
+		return false
+	}
+	// Path portion before any query/fragment.
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	if len(p) < 2 {
+		return false
+	}
+	for _, c := range p {
+		if c >= 'a' && c <= 'z' {
+			return true
+		}
+	}
+	return false
 }
 
 // filterNewLines removes non-printable characters and trims whitespace.

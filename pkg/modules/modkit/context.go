@@ -96,6 +96,7 @@ type ScanContext struct {
 	ParamFindings       *ParameterFindingRegistry // Cross-module finding dedup
 	TechStack           *TechRegistry             // Per-host tech-stack detections (populated by *_fingerprint passive modules)
 	WAFStack            *WAFRegistry              // Per-host WAF/CDN detections (populated by XSS modules on block responses)
+	ContentClass        *ContentClassRegistry     // Per-host content-class hint (seeded from the heuristics root probe; fallback for content-class module gating)
 
 	// FollowSubdomains gates the subdomain_harvest feed-back behavior: when true
 	// the module adds discovered in-scope subdomains to scope (via ScopeExpander)

@@ -110,6 +110,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, _ *modkit.Scan
 	}
 
 	resp := ctx.Response()
+	// A WAF/CDN edge block is the edge talking, not the application — skip it so a
+	// challenge/error page's random tokens are never scanned as app secrets.
+	if modkit.IsEdgeBlockedResponse(resp) {
+		return nil, nil
+	}
 	body := resp.Body()
 	urlStr := ""
 	host := ""
@@ -211,20 +216,34 @@ func (m *Module) FlushFindings(_ *modkit.ScanContext) ([]*output.ResultEvent, er
 			continue
 		}
 
-		sev, conf := SecretFindingSeverity(
-			f.IsValidated(),
-			IsRedirectStatus(entry.statusCode),
-			SnippetInHeaderValues(f.Snippet(), entry.headerValues),
-		)
-
-		// Reconstruct the matched response (head + full-or-windowed body) so the
-		// finding shows the actual leak in context. Read the body back from the
-		// temp file it was buffered to, caching per file.
+		// Read the body back from the temp file it was buffered to (caching per
+		// file) — needed both for the blob guard below and to reconstruct the
+		// finding's evidence response.
 		body, cached := bodyByFile[basename]
 		if !cached {
 			body, _ = os.ReadFile(filepath.Join(dir, basename))
 			bodyByFile[basename] = body
 		}
+
+		// A match buried inside a long base64 run is a chunk of encoded binary
+		// (an inline data: URI image / asset blob), not a real secret — drop it
+		// before it becomes a finding. This kills the common "32-char token rule
+		// hits inside an inline image on an error page" false positive.
+		if IsBinaryBlobMatch(body, f.Snippet()) {
+			continue
+		}
+
+		sev, conf := SecretFindingSeverity(
+			f.IsValidated(),
+			IsRedirectStatus(entry.statusCode),
+			SnippetInHeaderValues(f.Snippet(), entry.headerValues),
+			LowValueJWT(f.Snippet()),
+			IsReCaptchaSiteKey(f.RuleName()),
+			IsGoogleAPIKey(f.RuleName(), f.Snippet()),
+		)
+
+		// Reconstruct the matched response (head + full-or-windowed body) so the
+		// finding shows the actual leak in context.
 		response := BuildEvidenceResponse(entry.respHead, body, f.Snippet(), f.Finding.Line)
 
 		event := NewSecretFinding(f, sev, conf, entry.host, entry.url, entry.request, response)

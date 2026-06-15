@@ -139,7 +139,9 @@ func (ea *EscapeAnalysis) IsExploitable() bool {
 		return ea.hasURLAttributeBreakout()
 
 	// JS string contexts - exploitable via:
-	// 1. Quote breakout: '-alert(1)-'
+	// 1. Quote breakout: the confirm step runs operator-chaining payloads
+	//    ('^alert()^', '-alert()-') that execute even inside an expression — see
+	//    execContextCandidates / xssbreakout.JSStringPayloads.
 	// 2. Double-backslash bypass: \' → \\' (quote unescaped)
 	// 3. Script tag breakout: </script><svg/onload=...>
 	case JSStringSQBreakout:

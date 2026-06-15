@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application exposes a Firebase apiKey in its HTML or JavaScript, and the linked Firebase Identity Toolkit project is misconfigured in at least one way: anonymous sign-in is enabled (anyone gets an authenticated token without a real identity), the login endpoint returns distinguishable errors that confirm which emails are registered, or the createAuthUri endpoint reveals whether an account exists and which auth providers it uses. These weaken the trust boundary of Firebase Authentication.
+	ModuleDesc = `**What it means:** A Firebase apiKey exposed in the page or JavaScript links to a misconfigured Identity Toolkit project: anonymous sign-in is enabled, login errors confirm registered emails, or createAuthUri reveals whether an account exists and its providers.
 
-**How it's exploited:** An attacker reuses the public API key against identitytoolkit.googleapis.com to mint anonymous tokens that may satisfy auth != null security rules and reach protected Firestore or Storage data, and to enumerate or correlate valid user accounts (existence and linked sign-in providers) for targeted phishing, credential stuffing, or account-takeover attempts.
+**How it's exploited:** An attacker reuses the public key against identitytoolkit.googleapis.com to mint anonymous tokens that may satisfy auth != null rules and reach protected data, and to enumerate accounts for phishing or account takeover.
 
-**Fix:** Disable anonymous sign-in if unused, enable Firebase email-enumeration protection so error responses are uniform, restrict the API key by referrer or app, and enforce strict Firestore/Storage security rules that do not trust anonymous accounts.`
+**Fix:** Disable unused anonymous sign-in, enable email-enumeration protection, restrict the API key by referrer or app, and enforce rules that distrust anonymous accounts.`
 
 	ModuleConfirmation = "Confirmed when Identity Toolkit endpoints respond with auth tokens or distinguishable error codes indicating misconfiguration"
 	ModuleSeverity     = severity.Medium

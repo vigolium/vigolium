@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A request parameter (query, path, cookie, or body) carries a serialized object whose byte signature matches a known format for Java, PHP, .NET, Python, Ruby, or Node.js, including base64-wrapped values. The application accepts attacker-controllable serialized data from the client, which is exactly the input that drives insecure deserialization. This is a passive, signature-based detection: it confirms the presence of serialized input as a deserialization attack surface, not that the endpoint is provably exploitable.
+	ModuleDesc = `**What it means:** A request parameter (query, path, cookie, or body) carries a serialized object whose byte signature matches a known Java, PHP, .NET, Python, Ruby, or Node.js format, including base64-wrapped values. Accepting client-controllable serialized data drives insecure deserialization. This signature check confirms an attack surface, not exploitability.
 
-**How it's exploited:** If the server deserializes this value without strict type allow-listing, an attacker can supply a crafted object that triggers dangerous gadget chains during deserialization, leading to remote code execution, authentication bypass, or object injection. Client-controlled serialized blobs in cookies or parameters are a classic vector (for example node-serialize _$$ND_FUNC$$_ payloads or Java/PHP/.NET/Python/Ruby gadgets).
+**How it's exploited:** If the server deserializes the value without strict type allow-listing, an attacker supplies a crafted object that triggers gadget chains, leading to remote code execution, auth bypass, or object injection.
 
-**Fix:** Avoid deserializing untrusted input; if unavoidable, use a safe data format such as JSON with schema validation, or enforce strict type/class allow-listing and integrity checks (signed, tamper-proof state) on any serialized data accepted from clients.`
+**Fix:** Avoid deserializing untrusted input; if unavoidable, use JSON with schema validation or strict class allow-listing.`
 
 	ModuleConfirmation = "Confirmed when request parameter values contain known serialization format signatures"
 	ModuleSeverity     = severity.Medium

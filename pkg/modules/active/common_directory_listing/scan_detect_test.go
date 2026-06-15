@@ -37,6 +37,33 @@ func TestScanPerRequest_DetectsApacheListing(t *testing.T) {
 	require.NotEmpty(t, res, "expected a directory-listing finding when an Apache Index of page is served")
 }
 
+// TestScanPerRequest_CatchAllListingNoFinding reproduces the catch-all false
+// positive: a host that renders an "Index of" page for EVERY path (including a
+// random nonexistent directory) is a templated soft-404 / SPA shell, not real
+// autoindex, and must not yield a finding.
+func TestScanPerRequest_CatchAllListingNoFinding(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Keep the 404-fingerprint body benign so the per-probe hash gate does not
+		// short-circuit; every other path (incl. the random catch-all dir) "lists".
+		if r.URL.Path == "/vigolium-nonexistent-path-404-check" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("plain not found body"))
+			return
+		}
+		_, _ = w.Write([]byte("<html><head><title>Index of /</title></head>" +
+			"<body><h1>Index of /</h1><pre><a href=\"x\">x</a></pre></body></html>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a host that 'lists' every random directory is a catch-all, not an exposure")
+}
+
 // TestScanPerRequest_NoFalsePositive ensures a host serving ordinary HTML
 // (no listing markers) yields no finding.
 func TestScanPerRequest_NoFalsePositive(t *testing.T) {

@@ -276,8 +276,12 @@ func (c *PayloadCoordinator) executeWorkItem(ctx context.Context, item *WorkItem
 		return
 	}
 
-	// Discovery callbacks
-	c.triggerDiscoveryCallbacks(item.URL, item.Depth, cb)
+	// Discovery callbacks. This is the generic brute-force path (wordlist/fuzz/
+	// observed-recombination/ext-variant/numeric tasks), so confirmExt is keyed on
+	// the task's provenance — guessed paths must not confirm an extension off a
+	// catch-all 200.
+	foundBy := item.Task.FoundByName()
+	c.triggerDiscoveryCallbacks(item.URL, item.Depth, cb, foundByConfirmsExtension(foundBy))
 
 	// Result callback
 	if cb.OnResult != nil {
@@ -285,7 +289,7 @@ func (c *PayloadCoordinator) executeWorkItem(ctx context.Context, item *WorkItem
 			URL:     parseURL(item.URL),
 			Request: &storage.RequestData{Method: req.Method},
 			Metadata: &storage.DiscoveryMetadata{
-				FoundBy:   item.Task.FoundByName(),
+				FoundBy:   foundBy,
 				Depth:     item.Depth,
 				Timestamp: time.Now(),
 			},
@@ -491,7 +495,10 @@ func hasJSONExtension(u *url.URL) bool {
 }
 
 // triggerDiscoveryCallbacks invokes OnFileDiscovered or OnDirectoryDiscovered.
-func (c *PayloadCoordinator) triggerDiscoveryCallbacks(urlStr string, depth uint16, cb *Callbacks) {
+// confirmExt (derived from the task's provenance via foundByConfirmsExtension)
+// tells OnFileDiscovered whether the served extension may be trusted as proof the
+// server runs that stack — true only for genuine application references.
+func (c *PayloadCoordinator) triggerDiscoveryCallbacks(urlStr string, depth uint16, cb *Callbacks, confirmExt bool) {
 	if strings.HasSuffix(urlStr, "/") {
 		if cb.OnDirectoryDiscovered != nil {
 			if err := cb.OnDirectoryDiscovered(urlStr, depth); err != nil {
@@ -500,10 +507,39 @@ func (c *PayloadCoordinator) triggerDiscoveryCallbacks(urlStr string, depth uint
 		}
 	} else {
 		if cb.OnFileDiscovered != nil {
-			if err := cb.OnFileDiscovered(urlStr, depth); err != nil {
+			if err := cb.OnFileDiscovered(urlStr, depth, confirmExt); err != nil {
 				logger.Warn("File callback error", zap.String("url", urlStr), zap.Error(err))
 			}
 		}
+	}
+}
+
+// foundByConfirmsExtension reports whether a discovery's provenance is a genuine
+// application reference whose *served* extension can be trusted as proof the
+// server runs that stack — and may therefore confirm the extension and trigger a
+// wordlist fuzz for hidden <word>.<ext> files.
+//
+// Only references the application itself emitted qualify: a spider <a href>, a
+// JS-extracted request, a form action, a server-issued redirect target. Every
+// brute-forced provenance — the fuzz wordlist, the dir/file wordlists, observed-
+// name recombinations, extension variants, numeric fuzzing — is a *guess*. On a
+// catch-all / SPA-shell / over-permissive host those guesses return a non-soft-404
+// 200 for paths the server never serves (e.g. a fuzz.txt /axis2/…/HappyAxis.jsp
+// answered 200 by a Next.js shell), so letting them confirm an extension is
+// circular: the fuzzer's own guess bootstraps more fuzzing of that extension.
+// Such paths are still harvested for names/paths — only the extension
+// confirmation is withheld. The allow-list is conservative: an unknown/new task
+// type defaults to a guess (no confirmation) rather than risking a false confirm
+// — so a renamed FoundByName fails safe (a missed confirm, never a false one).
+//
+// This is the served-path (FoundBy-keyed) sibling of Engine.extensionConfirmAllowed,
+// which gates the legacy link-time path on spider.LinkSourceType.IsGenuineReference.
+func foundByConfirmsExtension(foundBy string) bool {
+	switch foundBy {
+	case "spider", "js-extracted", "jsfetch", "form", "redirect":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -527,6 +563,7 @@ func (c *PayloadCoordinator) executeCaseSenseDetectionTask(ctx context.Context, 
 func (c *PayloadCoordinator) executeJSExtractedRequestTask(ctx context.Context, task *JSExtractedRequestTask) {
 	cb := c.callbacks
 	variants := task.GenerateAllVariants()
+	foundBy := task.FoundByName()
 
 	logger.Info("Executing JS extracted request task",
 		zap.String("directory", task.DirURL().Path),
@@ -610,8 +647,10 @@ func (c *PayloadCoordinator) executeJSExtractedRequestTask(ctx context.Context, 
 			continue
 		}
 
-		// Discovery callbacks
-		c.triggerDiscoveryCallbacks(variant.URL, task.Depth(), cb)
+		// Discovery callbacks. This task's provenance is a genuine application
+		// reference, so a served extension confirms (keyed on provenance for
+		// self-documentation rather than a bare true).
+		c.triggerDiscoveryCallbacks(variant.URL, task.Depth(), cb, foundByConfirmsExtension(foundBy))
 
 		// Result callback
 		if cb.OnResult != nil {
@@ -622,7 +661,7 @@ func (c *PayloadCoordinator) executeJSExtractedRequestTask(ctx context.Context, 
 					Body:   []byte(variant.Body),
 				},
 				Metadata: &storage.DiscoveryMetadata{
-					FoundBy:   task.FoundByName(),
+					FoundBy:   foundBy,
 					Depth:     task.Depth(),
 					Timestamp: time.Now(),
 				},
@@ -639,6 +678,7 @@ func (c *PayloadCoordinator) executeJSExtractedRequestTask(ctx context.Context, 
 func (c *PayloadCoordinator) executeFormSubmissionTask(ctx context.Context, task *FormSubmissionTask) {
 	cb := c.callbacks
 	variants := task.GenerateAllVariants()
+	foundBy := task.FoundByName()
 
 	logger.Info("Executing form submission task",
 		zap.String("source", task.SourceURL().Path),
@@ -722,8 +762,10 @@ func (c *PayloadCoordinator) executeFormSubmissionTask(ctx context.Context, task
 			continue
 		}
 
-		// Discovery callbacks
-		c.triggerDiscoveryCallbacks(variant.URL, task.Depth(), cb)
+		// Discovery callbacks. This task's provenance is a genuine application
+		// reference, so a served extension confirms (keyed on provenance for
+		// self-documentation rather than a bare true).
+		c.triggerDiscoveryCallbacks(variant.URL, task.Depth(), cb, foundByConfirmsExtension(foundBy))
 
 		// Result callback
 		if cb.OnResult != nil {
@@ -734,7 +776,7 @@ func (c *PayloadCoordinator) executeFormSubmissionTask(ctx context.Context, task
 					Body:   []byte(variant.Body),
 				},
 				Metadata: &storage.DiscoveryMetadata{
-					FoundBy:   task.FoundByName(),
+					FoundBy:   foundBy,
 					Depth:     task.Depth(),
 					Timestamp: time.Now(),
 				},
@@ -890,7 +932,9 @@ func (c *PayloadCoordinator) handleRedirect(
 
 		if redirectInfo.ExtractedFilename != "" && cb.OnFileDiscovered != nil {
 			fileURL := normalizeRedirectForDiscovery(urlStr, redirectInfo.ResolvedLocation)
-			_ = cb.OnFileDiscovered(fileURL, depth)
+			// A redirect target is a server-emitted reference (already soft-404
+			// filtered above), so its extension is trusted to confirm.
+			_ = cb.OnFileDiscovered(fileURL, depth, foundByConfirmsExtension("redirect"))
 		}
 
 		// Create Result for non-trailing-slash redirect

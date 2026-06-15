@@ -47,9 +47,22 @@ func (e *Engine) confirmStartURLExtensions() {
 		}
 	}
 
-	// Source 2: fingerprint the start URL's response headers/cookies.
+	// Source 2: fingerprint the start URL's response headers/cookies — but only
+	// when the start URL actually landed on a genuine app page. A stack
+	// fingerprint taken from a 3xx redirect (commonly an off-host SSO/login
+	// bounce), a 4xx/5xx error, or a login/SSO interstitial describes the
+	// gateway/IdP, not the application, and produces phantom extensions (e.g. a
+	// Salesforce 302 mis-read as PHP). The observed source above is still allowed
+	// — a literal .php start URL proves a PHP handler ran even if it redirects —
+	// and the active probe below is self-validating against the soft-404 baseline.
 	if e.config.Extensions.ConfirmViaFingerprint && e.startURLHeader != nil {
-		e.confirmExtensionsFromHeaders(e.startURLHeader.Get, e.startURLHeader.Values("Set-Cookie"), "start URL", 0)
+		if e.startURLIsGenuineLanding() {
+			e.confirmExtensionsFromHeaders(e.startURLHeader.Get, e.startURLHeader.Values("Set-Cookie"), "start URL", 0)
+		} else {
+			logger.Info("Skipping fingerprint-based extension confirmation — start URL is not a genuine landing page",
+				zap.Int("status", e.startURLStatus),
+				zap.Bool("login_or_sso", e.startURLIsLogin))
+		}
 	}
 
 	// Source 3: actively probe the residual candidates that nothing else
@@ -58,6 +71,23 @@ func (e *Engine) confirmStartURLExtensions() {
 	if e.config.Extensions.ConfirmViaProbe {
 		e.probeCandidateExtensions(startURLDirectory(startURL), 0)
 	}
+}
+
+// startURLIsGenuineLanding reports whether the start URL's response is a real
+// application page whose headers can be trusted as a server-stack fingerprint.
+// It rejects 3xx redirects (often an off-host SSO/login bounce), 4xx/5xx errors,
+// and login/SSO interstitials — in all of those the response describes a
+// gateway/IdP rather than the app, so fingerprinting an extension off it is a
+// false positive. An unknown status (0, e.g. the probe never ran) is treated as
+// not-genuine so the fingerprint source stays off rather than guessing.
+func (e *Engine) startURLIsGenuineLanding() bool {
+	if e.startURLStatus < 200 || e.startURLStatus >= 300 {
+		return false
+	}
+	if e.startURLIsLogin {
+		return false
+	}
+	return true
 }
 
 // confirmExtensionsFromHeaders maps response headers/cookies to a server stack

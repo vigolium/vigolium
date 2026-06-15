@@ -16,7 +16,7 @@ func NewSecretFinding(f *kingfisher.Finding, sev severity.Severity, conf severit
 	return &output.ResultEvent{
 		Info: output.Info{
 			Name:        f.RuleName(),
-			Description: "Leaked secret detected: " + f.RuleName(),
+			Description: secretFindingDescription(f.RuleName(), f.Snippet()),
 			Severity:    sev,
 			Confidence:  conf,
 			Tags:        []string{"secret", "credential", "exposure"},

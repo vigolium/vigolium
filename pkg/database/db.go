@@ -338,6 +338,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			response_content_length INTEGER DEFAULT 0,
 			raw_response BLOB,
 			response_hash TEXT,
+			response_norm_hash TEXT,
 			response_time_ms INTEGER DEFAULT 0,
 			response_words INTEGER DEFAULT 0,
 			has_response INTEGER NOT NULL DEFAULT 0,
@@ -616,6 +617,7 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	db.addColumnIfNotExists(ctx, "http_records", "request_authorization", "TEXT")
 	db.addColumnIfNotExists(ctx, "http_records", "response_title", "TEXT")
 	db.addColumnIfNotExists(ctx, "http_records", "response_words", "INTEGER DEFAULT 0")
+	db.addColumnIfNotExists(ctx, "http_records", "response_norm_hash", "TEXT")
 	db.addColumnIfNotExists(ctx, "http_records", "source", "TEXT DEFAULT ''")
 	db.addColumnIfNotExists(ctx, "http_records", "remarks", "TEXT")
 	db.addColumnIfNotExists(ctx, "http_records", "risk_score", "INTEGER DEFAULT 0")

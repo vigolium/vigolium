@@ -3,7 +3,10 @@
 // vLLM, ...) using the shared dashboardsig catalog. It confirms each product via
 // its health/version/config endpoints and reports a tiered finding: a reachable
 // console is attack-surface (Info/Low), while an unauthenticated version/config/
-// data leak is escalated to High.
+// data leak is escalated to High. When a confirmed product carries a default-login
+// probe (see dashboardsig.LoginProbe), the module then submits that product's
+// vendor-documented default credentials — only those, negative-control gated — and
+// escalates a working pair to a Critical default-credentials finding.
 //
 // Cost is bounded like the other exposure modules: per-(host, base) dedup so each
 // base is probed once per host, a soft-404 catch-all guard, and a probe budget.
@@ -16,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	httpUtils "github.com/projectdiscovery/utils/http"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -37,7 +41,8 @@ const (
 // Module is the active third-party dashboard exposure scanner.
 type Module struct {
 	modkit.BaseActiveModule
-	hostDS dedup.Lazy[dedup.DiskSet] // per (host, base) dedup
+	hostDS  dedup.Lazy[dedup.DiskSet] // per (host, base) dedup
+	loginDS dedup.Lazy[dedup.DiskSet] // per (host, product) default-login dedup
 }
 
 // New creates a new dashboard exposure module.
@@ -54,7 +59,8 @@ func New() *Module {
 			modkit.ScanScopeRequest,
 			modkit.AllInsertionPointTypes,
 		),
-		hostDS: dedup.LazyDiskSet("dashboard_exposure_base"),
+		hostDS:  dedup.LazyDiskSet("dashboard_exposure_base"),
+		loginDS: dedup.LazyDiskSet("dashboard_exposure_login"),
 	}
 	m.ModuleTags = ModuleTags
 	return m
@@ -83,6 +89,7 @@ func (m *Module) ScanPerRequest(
 
 	hostKey := urlx.Scheme + "|" + urlx.Host
 	hostDS := m.hostDS.Get(scanCtx.DedupMgr())
+	loginDS := m.loginDS.Get(scanCtx.DedupMgr())
 	bases := modkit.UnclaimedBasePaths(hostDS, hostKey, modkit.CandidateBasePaths(urlx.Path))
 	if len(bases) == 0 {
 		return nil, nil
@@ -139,9 +146,9 @@ func (m *Module) ScanPerRequest(
 			// Full sweep when deep, when the shell fingerprinted the product, or
 			// when passive fingerprinting already hinted it on this host.
 			full := deep || hinted || recog
-			res := m.probeProduct(httpClient, rawHTTP, svc, baseURL, host, base, p, baseline, full, &budget)
-			if res != nil {
-				results = append(results, res)
+			res := m.probeProduct(httpClient, rawHTTP, svc, baseURL, host, base, p, baseline, full, loginDS, &budget)
+			if len(res) > 0 {
+				results = append(results, res...)
 				reported[p.ID] = true
 				scanCtx.MarkTech(host, p.ID)
 				scanCtx.MarkTech(host, "dashboard")
@@ -155,17 +162,20 @@ type hit struct {
 	c       *dashboardsig.Confirmer
 	version string
 	url     string
+	prefix  string // the confirmed base+mount, so a default-login probe targets the right context path
 	sev     severity.Severity
 }
 
 // probeProduct probes a single product's confirmers under the given base (and, in
 // full mode, its extra mount paths). It returns the strongest finding for the
-// product, preferring an unauthenticated leak over a bare presence hit.
+// product (preferring an unauthenticated leak over a bare presence hit) and, when
+// the confirmed product carries a default-login probe, appends a Critical
+// default-credentials finding if a documented pair authenticates.
 func (m *Module) probeProduct(
 	client *http.Requester, rawHTTP []byte, svc *httpmsg.Service,
 	baseURL, host, base string, p *dashboardsig.Product, baseline *probeResp,
-	full bool, budget *int,
-) *output.ResultEvent {
+	full bool, loginDS *dedup.DiskSet, budget *int,
+) []*output.ResultEvent {
 	prefixes := []string{base}
 	if full {
 		for _, mnt := range p.Mounts {
@@ -174,6 +184,7 @@ func (m *Module) probeProduct(
 	}
 
 	var best *hit
+probe:
 	for _, prefix := range prefixes {
 		for ci := range p.Confirmers {
 			c := &p.Confirmers[ci]
@@ -181,7 +192,7 @@ func (m *Module) probeProduct(
 				continue
 			}
 			if *budget <= 0 {
-				return m.buildResult(p, best, host)
+				break probe
 			}
 			probePath := prefix + c.Path
 			version, ok := m.confirmHit(client, rawHTTP, svc, probePath, c, baseline, budget)
@@ -193,15 +204,28 @@ func (m *Module) probeProduct(
 				sev = p.PresenceSeverity()
 			}
 			if best == nil || sev > best.sev {
-				best = &hit{c: c, version: version, url: baseURL + probePath, sev: sev}
+				best = &hit{c: c, version: version, url: baseURL + probePath, prefix: prefix, sev: sev}
 			}
 			// A leak is the strongest possible signal for this product — stop here.
 			if c.UnauthLeak {
-				return m.buildResult(p, best, host)
+				break probe
 			}
 		}
 	}
-	return m.buildResult(p, best, host)
+
+	res := m.buildResult(p, best, host)
+	if res == nil {
+		return nil
+	}
+	out := []*output.ResultEvent{res}
+	// When the confirmed product carries a default-login probe, attempt its
+	// documented default credentials against the confirmed context path.
+	if p.Login != nil {
+		if lr := m.tryDefaultLogin(client, rawHTTP, svc, baseURL, best.prefix, host, p, loginDS, budget); lr != nil {
+			out = append(out, lr)
+		}
+	}
+	return out
 }
 
 // confirmHit fetches probePath, evaluates the confirmer, and runs the
@@ -363,7 +387,18 @@ func (m *Module) fetch(client *http.Requester, rawHTTP []byte, svc *httpmsg.Serv
 		return nil
 	}
 	defer resp.Close()
+	return newProbeResp(resp, false)
+}
 
+// newProbeResp copies an executed response into a probeResp: the body is read,
+// truncated at maxBodyMatch, and lowercased once, and the header map is built with
+// lowercase keys. When joinHeaders is set, multi-valued headers (Set-Cookie can
+// repeat) are joined with "\n" so a "contains" matcher sees every value; otherwise
+// only the first value is kept. Returns nil when the chain carries no response.
+func newProbeResp(resp *httpUtils.ResponseChain, joinHeaders bool) *probeResp {
+	if resp == nil || resp.Response() == nil {
+		return nil
+	}
 	body := resp.Body().Bytes()
 	if len(body) > maxBodyMatch {
 		body = body[:maxBodyMatch]
@@ -376,7 +411,12 @@ func (m *Module) fetch(client *http.Requester, rawHTTP []byte, svc *httpmsg.Serv
 		header:    map[string]string{},
 	}
 	for k, v := range resp.Response().Header {
-		if len(v) > 0 {
+		if len(v) == 0 {
+			continue
+		}
+		if joinHeaders {
+			pr.header[strings.ToLower(k)] = strings.Join(v, "\n")
+		} else {
 			pr.header[strings.ToLower(k)] = v[0]
 		}
 	}

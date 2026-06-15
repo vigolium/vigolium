@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The server reveals that the application is built on PHP, and sometimes the exact PHP version, through response headers, the PHPSESSID session cookie, or .php URLs. This is an informational fingerprint, not a vulnerability, but it discloses backend technology details that aid an attacker.
+	ModuleDesc = `**What it means:** The server reveals the application is built on PHP, sometimes the exact version, through response headers, the PHPSESSID cookie, or .php URLs. An informational fingerprint that discloses backend technology aiding an attacker.
 
-**How it's exploited:** Knowing the platform lets an attacker narrow their attack surface to PHP-specific weaknesses (local file inclusion, deserialization, type-juggling). When the X-Powered-By header also leaks a precise version such as PHP/8.2.1, the attacker can look up published CVEs for that exact build and target known, version-specific exploits instead of probing blindly.
+**How it's exploited:** Knowing the platform narrows the attack surface to PHP-specific weaknesses (local file inclusion, deserialization, type-juggling). When X-Powered-By leaks a precise version such as PHP/8.2.1, an attacker looks up CVEs for that exact build.
 
-**Fix:** Suppress technology disclosure by setting expose_php = Off in php.ini, removing or rewriting the X-Powered-By header at the web server or proxy, and renaming the PHPSESSID session cookie.`
+**Fix:** Set expose_php = Off in php.ini, remove or rewrite the X-Powered-By header at the web server or proxy, and rename the PHPSESSID cookie.`
 
 	ModuleConfirmation = "Confirmed when an X-Powered-By PHP header or PHPSESSID cookie is observed"
 	ModuleSeverity     = severity.Info

@@ -2,6 +2,7 @@ package modkit
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -88,6 +89,34 @@ func NormalizeForRatio(body, reflect string) string {
 	s = reHexLong.ReplaceAllString(s, " ")
 	s = reDigits.ReplaceAllString(s, " ")
 	return s
+}
+
+// NormalizedBodyHash returns a stable hex SHA-256 over a response body that has
+// been normalized for dedup: lowercased, with each reflect value (e.g. the
+// request URL and path that an error/echo page mirrors back into the body) and
+// dynamic-looking runs (long hex/digit sequences — timestamps, ids, hashes)
+// collapsed to a space. Two bodies that differ ONLY by the reflected request
+// target or per-request dynamic tokens therefore hash identically, so the single
+// byte differential an echoed URL introduces no longer defeats record dedup
+// (the classic "404/400 page mirrors the requested URI" case where every probed
+// path yields a distinct response_hash + content_length).
+//
+// An empty/whitespace-only body yields "" — callers skip those: they carry no
+// signal and are already collapsed by exact response-hash dedup.
+func NormalizedBodyHash(body string, reflects ...string) string {
+	if strings.TrimSpace(body) == "" {
+		return ""
+	}
+	s := strings.ToLower(body)
+	for _, ref := range reflects {
+		if len(ref) >= 3 {
+			s = strings.ReplaceAll(s, strings.ToLower(ref), " ")
+		}
+	}
+	s = reHexLong.ReplaceAllString(s, " ")
+	s = reDigits.ReplaceAllString(s, " ")
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
 }
 
 // Tokenize splits normalized text into a token-count multiset and total count.

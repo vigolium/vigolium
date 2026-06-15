@@ -12,6 +12,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
 // TestScanPerRequest_DetectsHostInjection reflects the X-Forwarded-Host header
@@ -168,6 +169,87 @@ func TestScanPerRequest_NoFalsePositive_PortAlreadyInBaseline(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "a port string present in the no-header baseline must not be reported as injection")
+}
+
+// TestScanPerRequest_VolatileSecureCookieNoFalsePositive reproduces the reported
+// X-Forwarded-Proto false positive (a.pages-perf.example.com behind Cloudflare
+// Access): the baseline 302 issues a volatile edge affinity cookie carrying the
+// Secure flag, but the proto-downgrade probe response carries NO Set-Cookie at
+// all. A cookie that simply vanishes is not a Secure-flag strip, so the old bare
+// "Secure present in baseline, absent in probe" substring check must no longer
+// fire.
+func TestScanPerRequest_VolatileSecureCookieNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Edge-style affinity cookie: issued (with Secure) ONLY when no
+		// X-Forwarded-Proto header is present, never re-issued on the probe.
+		if r.Header.Get("X-Forwarded-Proto") == "" {
+			w.Header().Set("Set-Cookie", "_cfuvid=abc123; HttpOnly; SameSite=None; Secure; Path=/")
+		}
+		w.WriteHeader(http.StatusFound) // 302, empty body — same with or without the header
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a volatile edge cookie that simply disappears from the probe must not be reported as a Secure-flag strip")
+}
+
+// TestScanPerRequest_DetectsGenuineSecureStrip is the positive counterpart: the
+// app re-issues the SAME session cookie WITHOUT the Secure flag when it trusts
+// X-Forwarded-Proto: http. That is a real downgrade, reproducible across fresh
+// samples, so it surfaces — but as Tentative confidence (a behavioural baseline
+// diff, the weakest signal class).
+func TestScanPerRequest_DetectsGenuineSecureStrip(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Forwarded-Proto") == "http" {
+			// Trusts the spoofed proto → drops Secure off the same cookie.
+			w.Header().Set("Set-Cookie", "sess=abc; HttpOnly; Path=/")
+		} else {
+			w.Header().Set("Set-Cookie", "sess=abc; HttpOnly; Secure; Path=/")
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html><body>dashboard</body></html>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/account")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "a reproducible Secure-flag strip on a re-issued cookie must be reported")
+	assert.Contains(t, res[0].Info.Name, "X-Forwarded-Proto")
+	assert.Equal(t, severity.Tentative, res[0].Info.Confidence, "proto-downgrade behavioural diffs ship as Tentative")
+}
+
+// TestSecureCookieStripped exercises the structural cookie-strip helper directly.
+func TestSecureCookieStripped(t *testing.T) {
+	t.Parallel()
+	// Same cookie re-issued without Secure → genuine strip.
+	assert.Equal(t, "sess", secureCookieStripped(
+		"Set-Cookie: sess=a; Secure; Path=/\r\n",
+		"Set-Cookie: sess=a; Path=/\r\n",
+	))
+	// Secure cookie vanishes from the probe entirely → NOT a strip (the FP).
+	assert.Empty(t, secureCookieStripped(
+		"Set-Cookie: _cfuvid=a; HttpOnly; SameSite=None; Secure; Path=/\r\n",
+		"Content-Length: 0\r\n",
+	))
+	// Different cookie issued without Secure, original Secure cookie still present.
+	assert.Empty(t, secureCookieStripped(
+		"Set-Cookie: sess=a; Secure\r\n",
+		"Set-Cookie: sess=a; Secure\r\nSet-Cookie: other=b\r\n",
+	))
+	// "Secure" only as a substring of a value, never a real directive.
+	assert.Empty(t, secureCookieStripped(
+		"Set-Cookie: token=Secureish; Path=/\r\n",
+		"Set-Cookie: token=Secureish; Path=/\r\n",
+	))
 }
 
 // TestCheckHostInjection exercises the pure host-reflection helper directly.

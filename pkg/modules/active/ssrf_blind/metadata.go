@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A URL-like parameter (for example url, uri, redirect, callback, proxy, fetch) causes the server to make an outbound request to a destination the client controls, without echoing the fetched response back. This is a blind Server-Side Request Forgery (SSRF) flaw: the application can be coerced into acting as a proxy from inside its own network.
+	ModuleDesc = `**What it means:** A URL-like parameter (url, uri, redirect, proxy, fetch) makes the server send an outbound request to a client-controlled destination without echoing the response back. This is blind Server-Side Request Forgery (SSRF).
 
-**How it's exploited:** This module confirmed the vulnerability by injecting an out-of-band (OAST) callback URL into the parameter and observing the server make a DNS or HTTP request back to that host. An attacker swaps the callback for internal targets to reach cloud metadata endpoints (such as 169.254.169.254 for credentials), internal admin panels, or other services unreachable from the outside, and to scan or pivot within the trusted network even though no response is returned to them.
+**How it's exploited:** Confirmed by injecting an out-of-band (OAST) callback URL and seeing the server make a DNS or HTTP request to it. An attacker swaps the callback for internal targets - cloud metadata (169.254.169.254), admin panels, internal services - to scan or pivot.
 
-**Fix:** Validate and allowlist outbound destinations, resolve and block requests to private/link-local/loopback ranges and cloud metadata IPs, and disable unneeded URL schemes and redirect following.`
+**Fix:** Allowlist outbound destinations, block private/link-local/loopback ranges and metadata IPs, and disable unneeded schemes and redirect following.`
 
 	ModuleConfirmation = "Confirmed when target server makes outbound DNS or HTTP request to OAST callback URL injected into a URL-like parameter"
 	ModuleSeverity     = severity.High

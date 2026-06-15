@@ -16,9 +16,13 @@ import (
 )
 
 type probe struct {
-	path    string
-	name    string
-	markers []string
+	path string
+	name string
+	// markers is an AND-of-OR group set (see modkit.MatchAllGroups): the body must
+	// contain at least one substring from EVERY group. Bare generic JSON keys
+	// ("paths","info") never form a group on their own — a generic JSON catch-all
+	// or status payload satisfies them; only the version-key anchor confirms a spec.
+	markers [][]string
 	desc    string
 }
 
@@ -28,7 +32,7 @@ var probes = []probe{
 		name: "Swagger UI",
 		// Swagger-UNIQUE markers only — bare "openapi" is a generic token present in
 		// many JS bundles/SPA shells.
-		markers: []string{"swagger-ui", "SwaggerUIBundle"},
+		markers: [][]string{{"swagger-ui", "SwaggerUIBundle"}},
 		desc:    "FastAPI Swagger UI documentation is publicly accessible, revealing all API endpoints and schemas",
 	},
 	{
@@ -36,13 +40,16 @@ var probes = []probe{
 		name: "ReDoc",
 		// Drop generic "openapi"; keep "redoc"/"ReDoc" (the <redoc> element survives
 		// the reflected-path strip while a reflected href "/redoc" does not).
-		markers: []string{"redoc", "ReDoc"},
+		markers: [][]string{{"redoc", "ReDoc"}},
 		desc:    "FastAPI ReDoc documentation is publicly accessible, revealing all API endpoints and schemas",
 	},
 	{
-		path:    "/openapi.json",
-		name:    "OpenAPI Spec",
-		markers: []string{`"openapi"`, `"paths"`, `"info"`},
+		path: "/openapi.json",
+		name: "OpenAPI Spec",
+		// A real spec carries the openapi/swagger version key AND a paths/info
+		// object; require both so a generic JSON body with only "info" or "paths"
+		// (an arbitrary API response, a catch-all) cannot match.
+		markers: [][]string{{`"openapi"`, `"swagger"`}, {`"paths"`, `"info"`}},
 		desc:    "FastAPI OpenAPI specification is publicly accessible, revealing all API endpoints, parameters, and schemas",
 	},
 }
@@ -240,24 +247,12 @@ func (m *Module) probeEndpoint(
 	// slash), which the strip leaves intact.
 	matchBody := modkit.StripReflectedProbePath(body, probePath)
 
-	matched := false
-	var matchedMarkers []string
-	for _, marker := range p.markers {
-		if strings.Contains(matchBody, marker) {
-			matched = true
-			matchedMarkers = append(matchedMarkers, marker)
-		}
-	}
-	if !matched {
-		return nil
-	}
-
-	// Sub-directory catch-all guard: now that we probe under context-path prefixes
-	// (e.g. /api/docs), a handler that 200s every child of /api/ with a page that
-	// happens to contain a marker would forge a finding. Drop it if a nonexistent
-	// sibling under the same parent returns the same markers. Root-level probes are
-	// already covered by the random-path 404 fingerprint above.
-	if modkit.SiblingServesAnyMarker(ctx, httpClient, probePath, p.markers) {
+	// Require every marker group (anchor + corroboration), not a single weak token,
+	// then drop the finding if a nonexistent sibling under the same parent satisfies
+	// the same groups — a sub-directory catch-all that 200s every child of /api/.
+	// Root-level probes are already covered by the random-path 404 fingerprint above.
+	matchedMarkers, ok := modkit.MatchAndConfirmSibling(ctx, httpClient, probePath, matchBody, p.markers)
+	if !ok {
 		return nil
 	}
 

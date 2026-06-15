@@ -9,9 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** Static analysis of the served JavaScript, TypeScript, Vue, or Svelte code found a call to a known unsafe HTML or code-execution sink. These include framework sinks like React dangerouslySetInnerHTML, Vue v-html, Svelte at-html, and Angular bypassSecurityTrust, vanilla DOM sinks like innerHTML, outerHTML, insertAdjacentHTML, and document.write, plus eval and new Function. If any of these is fed attacker-controllable data without sanitization, it becomes a DOM-based XSS or code-injection vector. This is an informational source-analysis lead: the scanner flags the sink pattern but does not confirm that untrusted input actually reaches it.
+	ModuleDesc = `**What it means:** Static analysis of served JS, Vue, or Svelte code found a known unsafe HTML or code-execution sink - framework sinks (dangerouslySetInnerHTML, v-html, bypassSecurityTrust), DOM sinks (innerHTML, insertAdjacentHTML, document.write), or eval and new Function. Informational lead; it does not confirm untrusted input reaches the sink.
 
-**How it's exploited:** The finding marks attack surface to investigate. An attacker reviews how each sink is supplied data, and if a value derived from the URL, fragment, postMessage, or other user input flows into it unsanitized, they craft input that injects script and executes arbitrary code in the victim's browser session.
+**How it's exploited:** If a value from the URL, fragment, postMessage, or other user input reaches the sink unsanitized, an attacker injects script and runs arbitrary code in the victim's browser.
 
 **Fix:** Sanitize untrusted input before any HTML sink (for example DOMPurify) and avoid eval and new Function on dynamic data.`
 

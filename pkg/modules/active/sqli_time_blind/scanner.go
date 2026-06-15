@@ -107,6 +107,8 @@ ipScan:
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return results, nil
 			}
+			// errBaselineBlocked or a sampling error — either way this insertion
+			// point has no reliable timing oracle, so move to the next one.
 			continue
 		}
 		if threshold > maxThreshold {
@@ -135,6 +137,13 @@ ipScan:
 	return results, nil
 }
 
+// errBaselineBlocked signals that the insertion point's unmodified baseline is a
+// WAF/CDN edge block, auth gate, or rate-limit response rather than an
+// application response. Timing such a surface is meaningless (the request never
+// reaches a backend query), so the caller skips the insertion point. It is not a
+// host error — the host is up, it is just denying this request.
+var errBaselineBlocked = errors.New("sqli_time_blind: baseline response is blocked")
+
 // deriveThreshold samples the insertion point's unmodified latency a few times
 // and returns the delay a sleep payload must exceed to be believed:
 // max(absoluteFloor, mean + max(coeff·stdev, minSleepMargin)).
@@ -149,6 +158,12 @@ func (m *Module) deriveThreshold(
 		d, err := m.sendTimedPayload(ctx, httpClient, ip, base, false)
 		if err != nil {
 			return 0, err
+		}
+		// If even the unmodified request is blocked (CloudFront/WAF 403, 429
+		// rate-limit, auth gate), there is no application surface to time-test —
+		// skip rather than spend a probe per payload only to drop each one.
+		if d.blocked {
+			return 0, errBaselineBlocked
 		}
 		samples = append(samples, d.elapsed)
 	}
@@ -213,6 +228,15 @@ func (m *Module) confirmTiming(
 		if err != nil {
 			return nil, err
 		}
+		// A WAF/CDN block, auth gate, or rate-limit response is never a reliable
+		// timing oracle: the request never reaches a backend query, and a 429/503
+		// in particular injects its own latency that masquerades as a SQL sleep
+		// (the motivating false positive: a CloudFront 403 on an X-Forwarded-For
+		// payload whose round-trip jitter looked like a scaling delay). If any
+		// probe in the round is blocked, the round proves nothing — drop it.
+		if noSleep.blocked {
+			return nil, nil
+		}
 		if noSleep.elapsed >= threshold {
 			return nil, nil // Host is uniformly slow — not a reliable signal
 		}
@@ -221,6 +245,9 @@ func (m *Module) confirmTiming(
 		if err != nil {
 			return nil, err
 		}
+		if high.blocked {
+			return nil, nil // The slow response is the edge denying us, not SQL
+		}
 		if high.elapsed < threshold {
 			return nil, nil // No delay from the high sleep payload
 		}
@@ -228,6 +255,9 @@ func (m *Module) confirmTiming(
 		low, err := m.sendTimedPayload(ctx, httpClient, ip, render(sleepLow), false)
 		if err != nil {
 			return nil, err
+		}
+		if low.blocked {
+			return nil, nil
 		}
 		// The low sleep must itself add a partial delay (rules out a one-off
 		// spike on the high request)...
@@ -280,8 +310,12 @@ func (m *Module) confirmTiming(
 					"Database type: %s",
 				timeRounds, last.noSleep.Milliseconds(), sleepLow, last.low.Milliseconds(),
 				sleepHigh, last.high.Milliseconds(), pair.dbType),
-			Severity:   severity.High,
-			Confidence: severity.Firm,
+			// Time-based blind is the least reliable SQLi confirmation: the only
+			// signal is wall-clock latency, which network/edge jitter can forge.
+			// Report it as a lead to verify by hand (Suspect/Tentative), not a
+			// firmly-confirmed High.
+			Severity:   severity.Suspect,
+			Confidence: severity.Tentative,
 		},
 		// Per-round timings live in ExtractedResults (every round) and the
 		// Description (final round); Metadata carries only the scan configuration.
@@ -294,11 +328,13 @@ func (m *Module) confirmTiming(
 	}, nil
 }
 
-// timedResult is one timed probe: its wall-clock latency plus, when capture is
-// requested, the raw request/response so a confirmed finding can carry the
-// actual proof pair as evidence instead of discarding it.
+// timedResult is one timed probe: its wall-clock latency, whether the response
+// was a WAF/CDN/auth/rate-limit block (so timing it proves nothing), plus, when
+// capture is requested, the raw request/response so a confirmed finding can
+// carry the actual proof pair as evidence instead of discarding it.
 type timedResult struct {
 	elapsed  time.Duration
+	blocked  bool
 	request  string
 	response string
 }
@@ -329,7 +365,10 @@ func (m *Module) sendTimedPayload(
 		return timedResult{}, err
 	}
 
-	res := timedResult{elapsed: elapsed}
+	// Classify the response while it is still open: a 401/403/429/503 or a
+	// WAF/CDN challenge means the request was denied, not processed by a backend
+	// query, so its latency must never be read as a SQL sleep.
+	res := timedResult{elapsed: elapsed, blocked: infra.IsBlockedResponse(resp)}
 	if capture {
 		res.request = string(fuzzedRaw)
 		res.response = resp.FullResponseString()

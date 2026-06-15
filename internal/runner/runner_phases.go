@@ -290,6 +290,15 @@ func (r *Runner) executeNativePhase(ctx context.Context, infra *phaseInfra, phas
 			r.heuristicsResults = results
 			r.scanLogger.Info("heuristics", "phase completed")
 		}
+	case PhasePortSweep:
+		r.setPhaseTag("port-sweep")
+		r.scanLogger.Info("port-sweep", "phase started")
+		if err := r.runPortSweepPhase(ctx, infra); err != nil {
+			zap.L().Error("PortSweep phase failed", zap.Error(err))
+			r.scanLogger.Error("port-sweep", "phase failed: "+err.Error())
+		} else {
+			r.scanLogger.Info("port-sweep", "phase completed")
+		}
 	case PhaseExternalHarvest:
 		r.setPhaseTag("harvest")
 		r.scanLogger.Info("harvest", "phase started")
@@ -317,18 +326,7 @@ func (r *Runner) executeNativePhase(ctx context.Context, infra *phaseInfra, phas
 		}
 		r.scanLogger.Info("discovery", "phase completed")
 		if r.repository != nil {
-			softDeleted, statusCodes, softErr := r.repository.DeduplicateSoftDeparosRecords(ctx, r.options.ProjectUUID)
-			if softErr != nil {
-				zap.L().Warn("Deparos soft deduplication failed", zap.Error(softErr))
-			} else if softDeleted > 0 {
-				detail := fmt.Sprintf("soft-deduplicated %s similar records",
-					terminal.Orange(fmt.Sprintf("%d", softDeleted)))
-				if len(statusCodes) > 0 {
-					detail += " — " + formatStatusCodeMap(statusCodes)
-				}
-				r.printPhaseFeedback("Discovery", detail)
-				r.scanLogger.Info("discovery", fmt.Sprintf("soft-deduplicated %d similar records", softDeleted))
-			}
+			r.cleanupDeparosRecords(ctx)
 		}
 	case PhaseTargetedReSpider:
 		r.setPhaseTag("respider")
@@ -377,6 +375,61 @@ func (r *Runner) executeNativePhase(ctx context.Context, infra *phaseInfra, phas
 		}
 	}
 	return nil
+}
+
+// cleanupDeparosRecords runs the post-discovery record-dedup passes over the full
+// stored set (the in-engine hard dedup only sees one target at a time):
+//
+//  1. status-retention policy — drop 4xx discovery rejections (a fuzzed path the
+//     server answers with a client error is not a discovered resource), keeping a
+//     single representative per host for "auth wall exists" statuses;
+//  2. reflected-URL-robust dedup — collapse records that differ only by an echoed
+//     request URL/path or per-request dynamic tokens (the error-page-mirrors-the-URI
+//     case that defeats exact-hash dedup);
+//  3. shape-based soft-dedup backstop.
+//
+// (1) and (2) are config-gated (Discovery.DeparosDedup); (3) always runs,
+// preserving prior behavior. Each pass emits one feedback line when it removes
+// anything.
+func (r *Runner) cleanupDeparosRecords(ctx context.Context) {
+	report := func(label string, n int64, codes map[int]int64) {
+		if n <= 0 {
+			return
+		}
+		detail := fmt.Sprintf("%s %s records", label, terminal.Orange(fmt.Sprintf("%d", n)))
+		if len(codes) > 0 {
+			detail += " — " + formatStatusCodeMap(codes)
+		}
+		r.printPhaseFeedback("Discovery", detail)
+		r.scanLogger.Info("discovery", fmt.Sprintf("%s %d records", label, n))
+	}
+
+	if r.settings != nil && r.settings.Discovery.DeparosDedup.IsEnabled() {
+		dedupCfg := &r.settings.Discovery.DeparosDedup
+		if dedupCfg.DropClientErrorsEnabled() {
+			dropped, codes, err := r.repository.ApplyDeparosStatusPolicy(ctx, r.options.ProjectUUID, dedupCfg.KeepOneStatuses())
+			if err != nil {
+				zap.L().Warn("Deparos status-policy cleanup failed", zap.Error(err))
+			} else {
+				report("dropped client-error", dropped, codes)
+			}
+		}
+		if dedupCfg.NormalizeReflectedEnabled() {
+			deleted, codes, err := r.repository.DeduplicateDeparosByNormHash(ctx, r.options.ProjectUUID)
+			if err != nil {
+				zap.L().Warn("Deparos reflected-URL dedup failed", zap.Error(err))
+			} else {
+				report("collapsed reflected-URL", deleted, codes)
+			}
+		}
+	}
+
+	softDeleted, codes, err := r.repository.DeduplicateSoftDeparosRecords(ctx, r.options.ProjectUUID)
+	if err != nil {
+		zap.L().Warn("Deparos soft deduplication failed", zap.Error(err))
+	} else {
+		report("soft-deduplicated", softDeleted, codes)
+	}
 }
 
 // buildInfrastructure extracts common setup from the old RunNativeScan into a reusable struct.
@@ -475,11 +528,15 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 	if maxPerHost <= 0 {
 		maxPerHost = 10
 	}
+	adaptive, minPerHost, ceilingPerHost := adaptiveHostLimiterSettings(r.settings)
 	hostLimiter := hostlimit.NewHostRateLimiter(hostlimit.HostRateLimiterConfig{
-		MaxPerHost:    maxPerHost,
-		MaxEntries:    1000,
-		EvictAfter:    30 * time.Second,
-		EvictInterval: 10 * time.Second,
+		MaxPerHost:     maxPerHost,
+		MaxEntries:     1000,
+		EvictAfter:     30 * time.Second,
+		EvictInterval:  10 * time.Second,
+		Adaptive:       adaptive,
+		MinPerHost:     minPerHost,
+		CeilingPerHost: ceilingPerHost,
 	})
 	svc.HostLimiter = hostLimiter
 	infra.hostLimiter = hostLimiter
@@ -819,14 +876,27 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 			for i := range result.Findings {
 				f := &result.Findings[i]
 
+				// A match buried inside a long base64 run is a chunk of encoded
+				// binary (an inline data: URI image / asset blob), not a real
+				// secret — drop it before it becomes a finding.
+				if secret_detect.IsBinaryBlobMatch(body, f.Snippet()) {
+					continue
+				}
+
 				// Downgrade matches that ride on a redirect or are only
 				// reflected into a response header (e.g. an OAuth identifier in
 				// a Location URL bouncing to an SSO login) — usually low-value
-				// reflections rather than secrets leaked in page content.
+				// reflections rather than secrets leaked in page content. JWTs
+				// that don't decode into a usable credential (SSO pre-auth "meta"
+				// tokens) drop to Medium/Tentative. reCAPTCHA site keys (public by
+				// design) drop to Info; Google AIza… API keys drop to Medium.
 				sev, conf := secret_detect.SecretFindingSeverity(
 					f.IsValidated(),
 					redirect,
 					secret_detect.SnippetInHeaderValues(f.Snippet(), headerValues),
+					secret_detect.LowValueJWT(f.Snippet()),
+					secret_detect.IsReCaptchaSiteKey(f.RuleName()),
+					secret_detect.IsGoogleAPIKey(f.RuleName(), f.Snippet()),
 				)
 
 				response := secret_detect.BuildEvidenceResponse(respHead, body, f.Snippet(), f.Finding.Line)
@@ -1053,6 +1123,11 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		PauseCtrl:            r.pauseCtrl,
 		MaxFindingsPerModule: r.options.MaxFindingsPerModule,
 		TechFilterDisabled:   r.options.NoTechFilter || strings.EqualFold(r.options.Intensity, "deep"),
+		// Seed the per-host content-class fallback from the heuristics root probe
+		// so markup-only passive modules (clickjacking, autocomplete, SRI, mixed-
+		// content) defer on confirmed JSON/XML API hosts even when a record lacks
+		// its own Content-Type. Honors the same TechFilterDisabled switch.
+		ContentClassByHost: r.contentClassByHostFromHeuristics(),
 		OnTechDetected: func(host, tag string) {
 			line := fmt.Sprintf("%s %s %s %s %s %s\n",
 				terminal.PhasePrefix(string(PhaseDynamicAssessment)),
@@ -1356,8 +1431,13 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 			break
 		}
 
-		// Deduplicate findings after each dynamic-assessment round
-		r.deduplicateFindings(ctx, "DynamicAssessment")
+		// Deduplicate findings after each dynamic-assessment round, scoped to the
+		// hosts being scanned. DA runs before known-issue-scan and only scans
+		// in-scope hosts, so every finding present now is on one of these hosts —
+		// host-scoping is coverage-equivalent here but avoids re-scanning the whole
+		// project's findings table each round. Empty inScopeHostnames (no targets/
+		// scope) falls back to a project-wide pass.
+		r.deduplicateFindings(ctx, "DynamicAssessment", inScopeHostnames...)
 
 		if ctx.Err() != nil {
 			zap.L().Info("DynamicAssessment: phase deadline reached, stopping feedback loop",
@@ -1412,7 +1492,8 @@ func (r *Runner) runDynamicAssessmentRound(
 ) (int64, error) {
 	roundStart := time.Now()
 	dbSource := database.NewRiskPrioritizedDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
-		WithHostnames(inScopeHostnames)
+		WithHostnames(inScopeHostnames).
+		WithParamShapeCoalescing(r.resolveMaxParamShapeSamples())
 
 	executor := core.NewExecutor(baseCfg, dbSource, activeModules, passiveModules)
 	if oastService != nil {
@@ -1432,6 +1513,15 @@ func (r *Runner) runDynamicAssessmentRound(
 
 	processed := executor.Processed()
 	roundElapsed := time.Since(roundStart)
+	// Surface how many redundant value-only-different records the param-shape
+	// coalescing skipped this round, so the reduced item count isn't mistaken
+	// for missing coverage (no silent caps).
+	if dropped := dbSource.CoalescedDropped(); dropped > 0 {
+		r.printPhaseFeedback("DynamicAssessment", fmt.Sprintf("coalesced %s same-shape records (kept up to %s value-distinct samples per endpoint shape: query, form, or JSON params)",
+			terminal.Orange(fmt.Sprintf("%d", dropped)),
+			terminal.Orange(fmt.Sprintf("%d", r.resolveMaxParamShapeSamples()))))
+		r.scanLogger.Info("DynamicAssessment", fmt.Sprintf("param-shape coalescing skipped %d redundant records", dropped))
+	}
 	r.printPhaseComplete("DynamicAssessment",
 		fmt.Sprintf("round %d — %s items in %s", round+1, terminal.Orange(fmt.Sprintf("%d", processed)), terminal.HiPurple(fmtDuration(roundElapsed))))
 	fields := []zap.Field{

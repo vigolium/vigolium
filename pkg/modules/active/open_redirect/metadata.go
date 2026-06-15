@@ -9,9 +9,9 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A request parameter that controls where the application redirects accepts an arbitrary, attacker-supplied destination without validating it against an allowlist. The server sends the browser to whatever URL the attacker puts in that parameter, so the application can be used to bounce visitors to any external site while appearing to originate from the trusted domain.
+	ModuleDesc = `**What it means:** A redirect parameter accepts an arbitrary, attacker-supplied destination without validating it against an allowlist. The server bounces visitors to any external site while appearing to come from the trusted domain.
 
-**How it's exploited:** An attacker crafts a link to the legitimate site with the redirect parameter set to a domain they control (the scanner confirmed this by injecting external and look-alike subdomain URLs and observing the response redirect there via a Location/Refresh header, a meta refresh tag, or a JavaScript location/window redirect, re-verified across multiple rounds with fresh random domains). This is used for convincing phishing and credential-harvesting lures, to bypass redirect-based allowlists, and to steal OAuth tokens or auth codes when the sink is an OAuth/SSO return-URL parameter.
+**How it's exploited:** An attacker sets the redirect parameter to a domain they control, confirmed when the injected URL appears in a Location/Refresh header, meta refresh tag, or JavaScript redirect. This drives phishing lures and steals OAuth tokens on SSO return-URL sinks.
 
 **Fix:** Validate redirect targets against a server-side allowlist of permitted destinations and reject or default any value pointing off-site.`
 

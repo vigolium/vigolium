@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A JSON Web Token observed in this traffic (in an Authorization Bearer header, a cookie, or a response body) carries claim or header settings that weaken its security. The scanner decodes the header and payload without verifying the signature and flags issues such as alg=none (no signature verification), a missing exp claim (token never expires), a long-lived token (lifetime over 24 hours), missing iss or aud claims, or privileged claims like admin=true, is_admin=true, or an admin/superuser role.
+	ModuleDesc = `**What it means:** A JWT seen in traffic (Bearer header, cookie, or body) carries weak settings. The check decodes header and payload and flags alg=none, a missing or over-24-hour exp, missing iss or aud, or privileged claims like admin=true.
 
-**How it's exploited:** With alg=none an attacker can forge a valid token by stripping the signature, and embedded privileged claims reveal which fields to tamper with to escalate to admin. Missing or overly long expiration means a stolen token stays usable indefinitely, and missing iss/aud lets a token meant for one service be replayed against another.
+**How it's exploited:** With alg=none an attacker forges a token by stripping the signature; privileged claims show which fields to tamper with to escalate. Long exp keeps a stolen token usable; missing iss/aud lets it be replayed against another service.
 
-**Fix:** Require a strong signature algorithm and reject alg=none, set short exp lifetimes, validate iss and aud on every request, and derive privilege from server-side state rather than trusting client-held claims.`
+**Fix:** Reject alg=none, require a strong algorithm, set short exp, validate iss and aud, and derive privilege from server-side state.`
 
 	ModuleConfirmation = "Confirmed when JWT claims contain security misconfigurations"
 	ModuleSeverity     = severity.Medium

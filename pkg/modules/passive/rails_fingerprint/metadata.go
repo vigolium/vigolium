@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application reveals that it is built on Ruby on Rails. This module passively fingerprints Rails by observing tell-tale response signals: the X-Request-Id plus X-Runtime header pair, a Puma/Unicorn/Passenger Server header, a Rails _session cookie, or HTML markers such as the default 404/500 error pages, the CSRF meta tag, Turbo/Turbolinks attributes, or the Action Cable meta tag. This is informational technology disclosure, not a vulnerability by itself.
+	ModuleDesc = `**What it means:** The application reveals it is built on Ruby on Rails, fingerprinted passively via signals such as the X-Request-Id and X-Runtime headers, a Rails _session cookie, or HTML markers like default 404/500 pages and the CSRF meta tag. Informational technology disclosure, not a vulnerability.
 
-**How it's exploited:** Knowing the framework lets an attacker narrow attack-surface mapping and target Rails-specific weaknesses, for example deserialization and CVE chains in Rails, Devise, or the underlying gems, mass-assignment issues, and Action Cable or Active Storage endpoints. Default error pages and the X-Runtime timing header can further leak environment and response-time signals useful for tuning attacks.
+**How it's exploited:** Knowing the framework lets an attacker target Rails-specific weaknesses: deserialization and CVE chains in Rails, Devise, or gems, mass-assignment, and Action Cable or Active Storage endpoints.
 
-**Fix:** Strip framework-identifying response headers (X-Runtime, X-Request-Id, Server) at the reverse proxy and replace default Rails error pages with generic custom pages.`
+**Fix:** Strip framework-identifying headers (X-Runtime, X-Request-Id, Server) at the reverse proxy and replace default Rails error pages with generic custom pages.`
 
 	ModuleConfirmation = "Confirmed when Rails-specific headers, cookies, or body patterns are detected in the response"
 	ModuleSeverity     = severity.Info

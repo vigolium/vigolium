@@ -9,14 +9,17 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A request parameter is passed into a backend SQL query without proper sanitization, so an attacker can alter the query. This module confirms it by injecting database sleep functions and observing the response time grow in step with the requested delay, proving the injected SQL actually executes even though no data or error is visible in the response.
+	ModuleDesc = `**What it means:** A request parameter reaches a backend SQL query unsanitized. Confirmed by injecting database sleep functions (MySQL SLEEP, PostgreSQL pg_sleep, MSSQL WAITFOR, Oracle DBMS_PIPE) and seeing response time grow in step with the requested delay, proving the SQL executes even though nothing is visible.
 
-**How it's exploited:** An attacker uses time delays as a yes/no oracle, asking the database one true/false question per request (for example, whether the first character of the admin password hash is an "a"). By chaining many such timed queries they can extract usernames, password hashes, session tokens, and any other data the database account can read, and in some configurations escalate to writing data or running commands. The scanner verified it with MySQL SLEEP, PostgreSQL pg_sleep, MSSQL WAITFOR, or Oracle DBMS_PIPE payloads.
+**How it's exploited:** An attacker uses the timed delay as a yes/no oracle, asking one true/false question per request and chaining many to extract usernames, hashes, and session tokens - sometimes escalating to writing data or running commands.
 
-**Fix:** Use parameterized queries or prepared statements for all database access so user input is never concatenated into SQL, and apply least-privilege database accounts.`
+**Fix:** Use parameterized queries or prepared statements for all database access, and apply least-privilege accounts.`
 
 	ModuleConfirmation = "Confirmed when sleep payloads consistently cause measurable time delays compared to no-sleep payloads across triple verification"
-	ModuleSeverity     = severity.High
-	ModuleConfidence   = severity.Firm
-	ModuleTags         = []string{"injection", "sqli", "heavy"}
+	// Time-based blind is the least reliable SQLi signal — it rides on wall-clock
+	// latency alone, which edge/network jitter can forge — so findings are
+	// reported as a lead to verify by hand (Suspect/Tentative), not High/Firm.
+	ModuleSeverity   = severity.Suspect
+	ModuleConfidence = severity.Tentative
+	ModuleTags       = []string{"injection", "sqli", "heavy"}
 )

@@ -48,26 +48,148 @@ type FindingGroupingConfig struct {
 	// ByModule lists module IDs whose findings collapse to a single finding per
 	// (module, severity[, host]) regardless of the per-URL extracted value. Use
 	// it for modules that fire once per asset where the differing value is noise,
-	// not signal — e.g. sourcemap-detect, which reports a distinct .map filename
-	// for every JS/CSS bundle on a site. Module identity (plus severity, so a Low
-	// "sourcemap advertised" never merges with a High "full source exposed") is
-	// the guardrail; the Tags gate does not apply to these modules.
+	// not signal — e.g. sourcemap-detect (a distinct .map filename per JS/CSS
+	// bundle), the static source-analysis sink/audit family (one snippet context
+	// per matched file), and per-response hygiene checks (one finding per page).
+	// Module identity (plus severity, so a Low "sourcemap advertised" never merges
+	// with a High "full source exposed") is the guardrail; the Tags gate does not
+	// apply to these modules. See perAssetGroupModules for the shipped default.
 	ByModule []string `yaml:"by_module"`
 	// MaxURLs caps how many distinct matched URLs are retained on the survivor
 	// finding (0 = unlimited), bounding MatchedAt on very noisy sites.
 	MaxURLs int `yaml:"max_urls"`
 }
 
+// perAssetGroupModules are the modules whose findings collapse to a single
+// finding per (module, severity, host) regardless of their per-URL extracted
+// value, because they fire once per asset (JS/CSS bundle, page, or response) and
+// the differing value is noise, not signal. When such a group is collapsed the
+// distinct extracted values are unioned onto the survivor (see
+// GroupFindingsByValue), so the merged finding still lists every matched value and
+// URL — just as one finding instead of dozens. Several classes live here:
+//
+//   - Static source-analysis leads — "this sink / misconfig / boundary-violation
+//     pattern exists somewhere on this host." On an SPA these fire once per JS
+//     bundle, producing dozens of near-identical Low findings that differ only in
+//     which file/snippet matched.
+//   - Per-response client-side hygiene — one finding per page that sets a cookie
+//     (or per response), which on a large site is one finding per crawled URL.
+//   - Informational recon & fingerprinting — Info/Low observations that fire once
+//     per response (tech-stack fingerprints, cloud/recon harvest, endpoint/param
+//     enumeration, response header hygiene). On a crawl of any size these produce
+//     one near-identical row per URL; the operator wants "this host runs Laravel"
+//     or "these params reflect" once, with the affected URLs/values attached.
+//
+// Collapsing them per host keeps the merged survivor's MatchedAt URL list (capped
+// by MaxURLs) so the operator can still see every affected asset.
+//
+// Deliberately excluded: modules where each distinct extracted value IS the
+// signal and deserves its own triage row — secret-bearing source analysis
+// (env-secret-exposure) and content-disclosure detectors (base64-data-detect,
+// error-message-detect, info-disclosure-detect, directory-listing-detect) — those
+// stay value-grouped so two different leaks remain two findings. (HSTS preload
+// audit already fires once per host via ScanPerHost, so it needs no entry.)
+var perAssetGroupModules = []string{
+	// Asset enumeration: a distinct .map filename per JS/CSS bundle.
+	"sourcemap-detect",
+	// Static sink / DOM-XSS source analysis: one snippet context per matched file.
+	"unsafe-html-sink",
+	"dom-xss-taint",
+	"dom-xss-detect",
+	"javascript-uri-sink",
+	"insecure-token-storage",
+	// Framework / build / SSR config & boundary audits: the issue class is the
+	// finding; which file or route surfaced it is noise.
+	"build-misconfig-detect",
+	"client-auth-guard",
+	"cache-data-leak",
+	"nextjs-config-audit",
+	"nextjs-dynamic-param-audit",
+	"nuxt-config-audit",
+	"nextauth-config-audit",
+	"server-action-auth",
+	"server-action-bind-audit",
+	"server-action-input-audit",
+	"server-only-boundary-audit",
+	"ssr-data-exposure",
+	"ssr-hydration-xss",
+	"remix-loader-exposure",
+	// Per-response header / cookie hygiene: one finding per Set-Cookie response.
+	"cookie-security-detect",
+
+	// --- Informational recon & fingerprinting (Info/Low, fire once per response) ---
+
+	// Tech-stack / framework fingerprints: "what stack is this host", repeated per URL.
+	"wp-fingerprint",
+	"flask-fingerprint",
+	"rails-fingerprint",
+	"aspnet-fingerprint",
+	"django-fingerprint",
+	"drupal-fingerprint",
+	"joomla-fingerprint",
+	"spring-fingerprint",
+	"express-fingerprint",
+	"fastapi-fingerprint",
+	"graphql-fingerprint",
+	"laravel-fingerprint",
+	"symfony-fingerprint",
+	"firebase-fingerprint",
+	"dashboard-fingerprint",
+	"java-server-fingerprint",
+	"php-generic-fingerprint",
+	"js-framework-fingerprint",
+	"metaframework-fingerprint",
+	"baas-endpoint-fingerprint",
+	"grpc-web-detect",
+	// Cloud / recon harvest & version disclosure: one fact per response.
+	"subdomain-harvest",
+	"cloud-storage-fingerprint",
+	"cloud-storage-url-harvest",
+	"cloud-storage-error-info",
+	"software-version-header",
+	"security-headers-missing",
+	"permissions-policy-detect",
+	// Endpoint / param observation: candidate lists, not vulns.
+	"api-spec-detect",
+	"api-version-detect",
+	"endpoint-classifier",
+	"idor-params-detect",
+	"openredirect-params",
+	"input-reflection-detect",
+	"wasm-module-detect",
+	"rails-action-cable-detect",
+	"rails-active-storage-detect",
+	"password-autocomplete-detect",
+	"sql-syntax-detect",
+	// Per-response header / hygiene (Low): one finding per crawled page.
+	"csp-weakness-audit",
+	"cors-headers-detect",
+	"cors-vary-origin-missing",
+	"mixed-content-detect",
+	"content-type-mismatch",
+	"express-session-audit",
+	"aspnet-viewstate-detect",
+	"subresource-integrity-detect",
+	"wp-rest-api-detect",
+	"drupal-api-detect",
+	"joomla-api-detect",
+	// Active, but fires once-per-asset informationally (escalates to High, which
+	// keys separately): Next.js static chunk intel extraction.
+	"nextjs-chunk-audit",
+}
+
 // defaultFindingGrouping is the effective grouping config when none is set in
 // YAML. Grouping is on by default with per-host scoping so a leaked secret seen
-// across a site collapses to one finding without merging across hostnames.
+// across a site collapses to one finding without merging across hostnames, and
+// the per-asset modules in perAssetGroupModules collapse to one finding per host
+// instead of one per JS bundle / page.
 func defaultFindingGrouping() FindingGroupingConfig {
 	return FindingGroupingConfig{
 		Enabled: true,
 		PerHost: true,
-		// sourcemap-detect emits a distinct .map filename per JS/CSS bundle, so a
-		// single site collapses to one finding per host instead of one per asset.
-		ByModule: []string{"sourcemap-detect"},
+		// Copy rather than share the package var: this config is subject to YAML
+		// profile overlays, and a slice-appending merge must not mutate the global.
+		ByModule: append([]string(nil), perAssetGroupModules...),
 		MaxURLs:  50,
 	}
 }

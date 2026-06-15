@@ -9,11 +9,12 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application serves content from, or links to, a cloud object-storage backend (AWS S3, Google Cloud Storage, or Azure Blob Storage), identified passively from provider-specific response headers (x-amz-*, x-goog-*, x-ms-*), the Server header, the request host suffix, or storage URLs in the response body. This is an informational fingerprint, not a vulnerability on its own, but it discloses where assets and potentially sensitive files live.
+	ModuleDesc = `**What it means:** The app serves content from or links to a cloud object-storage backend (S3, GCS, or Azure Blob), identified passively from provider headers (x-amz-*, x-goog-*, x-ms-*), the Server header, the host suffix, or storage URLs. Informational fingerprint that discloses where assets live.
 
-**How it's exploited:** An attacker uses the disclosed bucket and account names to map attack surface and directly probe the storage endpoint for misconfigurations, such as public/anonymous read or write access, world-listable buckets, or overly broad ACLs, which can lead to data exposure or content tampering outside the application's own access controls.
 
-**Fix:** Treat bucket names as known and lock down storage permissions: disable public/anonymous access, enforce least-privilege bucket policies and ACLs, block public listing, and serve assets through a controlled CDN or signed URLs rather than exposing raw storage endpoints.`
+**How it's exploited:** An attacker uses the disclosed bucket and account names to probe the endpoint for misconfigurations - public read/write, listable buckets, or broad ACLs - leading to data exposure or tampering.
+
+**Fix:** Lock down storage permissions: disable public access, enforce least-privilege ACLs, block listing, and serve assets via a CDN or signed URLs.`
 
 	ModuleConfirmation = "Confirmed when response headers or body contain cloud storage service identifiers"
 	ModuleSeverity     = severity.Info

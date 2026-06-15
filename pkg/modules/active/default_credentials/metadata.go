@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A login endpoint on this host accepts a well-known default or common credential pair (such as admin/admin, root/root, tomcat/tomcat, or postgres/postgres) that was never changed after install. This grants anyone direct, authenticated access to an account without needing to discover or steal a real password.
+	ModuleDesc = `**What it means:** A login endpoint accepts a well-known default credential pair (admin/admin, root/root, tomcat/tomcat, postgres/postgres) never changed after install, granting direct authenticated access without stealing a password.
 
-**How it's exploited:** The module finds a username/password login form (POST with form-encoded or JSON body), records the response to deliberately invalid credentials, then submits a short list of factory defaults; a response that clearly differs from the invalid-credential baseline (status change to success/redirect, a new session cookie with a substantially different body, or success wording like dashboard or logout) confirms a working login. An attacker logs in with the same pair to take over the account, often reaching administrative panels and the data or functionality behind them, and can pivot to fuller compromise.
+**How it's exploited:** An attacker logs in with the same default pair to take over the account, often reaching administrative panels and the data behind them. Confirmed when a factory-default pair produces a response clearly differing from the invalid-credential baseline (success redirect or new session cookie).
 
-**Fix:** Force a change of all default and shared accounts at first use, disable or remove built-in demo accounts, and enforce strong unique passwords.`
+**Fix:** Force a password change on all default and shared accounts at first use, disable built-in demo accounts, and enforce strong unique passwords.`
 
 	ModuleConfirmation = "Confirmed when a known credential pair produces a response significantly different from the invalid-credential baseline, indicating successful authentication"
 	ModuleSeverity     = severity.High

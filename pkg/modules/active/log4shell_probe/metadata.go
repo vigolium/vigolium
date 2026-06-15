@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application uses a vulnerable version of the Apache Log4j logging library affected by Log4Shell (CVE-2021-44228). When user-supplied input reaches a log statement, Log4j evaluates embedded JNDI lookup expressions, letting an attacker make the server fetch and execute attacker-controlled code. This module confirmed the flaw by injecting JNDI payloads into commonly logged HTTP headers (X-Forwarded-For, User-Agent, Referer, Authorization, and others) and request parameters, including lowercase-obfuscated variants to slip past WAF rules, and observing an out-of-band DNS or LDAP callback to the OAST server it controls.
+	ModuleDesc = `**What it means:** The app uses an Apache Log4j version vulnerable to Log4Shell (CVE-2021-44228), where user input reaching a log statement triggers JNDI lookups that fetch and run remote code. Confirmed by injecting JNDI payloads into logged headers and seeing an out-of-band DNS/LDAP callback to the OAST server.
 
-**How it's exploited:** An attacker sends a request containing a JNDI lookup that points the server at a malicious LDAP/RMI endpoint; Log4j resolves it and loads a remote class, achieving unauthenticated remote code execution on the host. This typically leads to full server compromise, data theft, and lateral movement.
+**How it's exploited:** An attacker sends a JNDI lookup pointing the server at a malicious LDAP/RMI endpoint; Log4j resolves it and loads a remote class, achieving unauthenticated RCE and full server compromise.
 
-**Fix:** Upgrade Log4j to 2.17.1 or later (or remove the JndiLookup class) and patch all transitive dependencies that bundle vulnerable Log4j.`
+**Fix:** Upgrade Log4j to 2.17.1 or later (or remove the JndiLookup class) and patch all dependencies bundling vulnerable Log4j.`
 
 	ModuleConfirmation = "Confirmed when target server performs outbound DNS or LDAP lookup to OAST callback URL injected via JNDI expression"
 	ModuleSeverity     = severity.Critical

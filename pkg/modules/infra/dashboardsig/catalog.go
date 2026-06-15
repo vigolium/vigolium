@@ -21,6 +21,17 @@ var Catalog = []Product{
 				Primary: true, UnauthLeak: true, LeakName: "version + database status",
 				VersionRe: `"version"\s*:\s*"([^"]+)"`},
 		},
+		Login: &LoginProbe{
+			Paths:       []string{"/login"},
+			ContentType: "application/json",
+			Body:        `{"user":"{{user}}","password":"{{pass}}"}`,
+			Creds:       [][2]string{{"admin", "admin"}, {"admin", "prom-operator"}},
+			Success: LoginSuccess{
+				Status:       []int{200},
+				Headers:      []HeaderSig{{Name: "Set-Cookie", Contains: "grafana_session"}},
+				BodyContains: []string{"logged in"},
+			},
+		},
 	},
 	{
 		ID: "kibana", Name: "Kibana", Category: CatObservability,
@@ -185,6 +196,20 @@ var Catalog = []Product{
 				Primary: true, UnauthLeak: true, LeakName: "version (anonymous API)",
 				VersionRe: `"version"\s*:\s*"([^"]+)"`},
 		},
+		Login: &LoginProbe{
+			Paths:       []string{"/oauth/token"},
+			ContentType: "application/json",
+			Body:        `{"grant_type":"password","username":"{{user}}","password":"{{pass}}"}`,
+			Creds: [][2]string{
+				{"root", "5iveL!fe"}, {"root", "123456789"},
+				{"admin", "5iveL!fe"}, {"admin@local.host", "5iveL!fe"},
+			},
+			Success: LoginSuccess{
+				Status:       []int{200},
+				Headers:      []HeaderSig{{Name: "Content-Type", Contains: "application/json"}},
+				BodyContains: []string{`"access_token"`, `"token_type"`, `"refresh_token"`},
+			},
+		},
 		PresenceSev: severity.Low,
 	},
 	{
@@ -224,6 +249,17 @@ var Catalog = []Product{
 				VersionRe: `(\d+\.\d+(?:\.\d+)+)`},
 			{Path: "/api/system/status", Markers: [][]string{{`"status"`}, {`"version"`, `"id"`}},
 				UnauthLeak: true, LeakName: "system status + version"},
+		},
+		Login: &LoginProbe{
+			Paths:       []string{"/api/authentication/login"},
+			ContentType: "application/x-www-form-urlencoded",
+			Body:        "login={{user}}&password={{pass}}",
+			Creds:       [][2]string{{"admin", "admin"}, {"sonar", "sonar"}},
+			Success: LoginSuccess{
+				Status:    []int{200},
+				EmptyBody: true,
+				Headers:   []HeaderSig{{Name: "Set-Cookie", Contains: "jwt-session="}},
+			},
 		},
 	},
 	{
@@ -310,6 +346,17 @@ var Catalog = []Product{
 			{Path: "/api/overview", Markers: [][]string{{"rabbitmq_version", "management_version"}},
 				Primary: true, UnauthLeak: true, LeakName: "cluster overview (weak/default credentials?)"},
 		},
+		Login: &LoginProbe{
+			Paths:     []string{"/api/whoami"},
+			Method:    "GET",
+			BasicAuth: true,
+			Creds:     [][2]string{{"guest", "guest"}},
+			Success: LoginSuccess{
+				Status:       []int{200},
+				Headers:      []HeaderSig{{Name: "Content-Type", Contains: "application/json"}},
+				BodyContains: []string{`"name":"guest"`},
+			},
+		},
 	},
 	{
 		ID: "keycloak", Name: "Keycloak", Category: CatInfra,
@@ -353,6 +400,17 @@ var Catalog = []Product{
 				Primary: true, LeakName: "object-storage endpoint"},
 			{Path: "/minio/health/cluster", OKStatus: []int{200}, HeaderName: "Server", HeaderContains: "minio",
 				LeakName: "cluster health endpoint"},
+		},
+		Login: &LoginProbe{
+			Paths:       []string{"/minio/webrpc"},
+			ContentType: "application/json",
+			Body:        `{"id":1,"jsonrpc":"2.0","params":{"username":"{{user}}","password":"{{pass}}"},"method":"Web.Login"}`,
+			Creds:       [][2]string{{"minioadmin", "minioadmin"}},
+			Success: LoginSuccess{
+				Status:       []int{200},
+				Headers:      []HeaderSig{{Name: "Content-Type", Contains: "application/json"}},
+				BodyContains: []string{`"token"`, `"uiversion"`},
+			},
 		},
 	},
 
@@ -443,6 +501,17 @@ var Catalog = []Product{
 			{Path: "/api/config", Markers: [][]string{{`"name"`}, {`"version"`, `"features"`, "default_models"}},
 				Primary: true, UnauthLeak: true, LeakName: "instance configuration",
 				VersionRe: `"version"\s*:\s*"([^"]+)"`},
+		},
+		Login: &LoginProbe{
+			Paths:       []string{"/api/v1/auths/signin"},
+			ContentType: "application/json",
+			Body:        `{"email":"{{user}}","password":"{{pass}}"}`,
+			Creds:       [][2]string{{"admin@localhost", "admin"}, {"admin@example.com", "admin"}},
+			Success: LoginSuccess{
+				Status:       []int{200},
+				Headers:      []HeaderSig{{Name: "Content-Type", Contains: "application/json"}},
+				BodyContains: []string{`"token"`, `"role"`, `"token_type"`},
+			},
 		},
 	},
 	{
@@ -550,6 +619,17 @@ var Catalog = []Product{
 			// Presence (login page, UI markers) handled passively; active probe is
 			// the health endpoint only.
 			{Path: "/health", BodyRe: `(?i)^\s*ok`, Primary: true, LeakName: "health endpoint"},
+		},
+		Login: &LoginProbe{
+			Paths:       []string{"/api/v1/security/login"},
+			ContentType: "application/json",
+			Body:        `{"username":"{{user}}","password":"{{pass}}","provider":"db","refresh":true}`,
+			Creds:       [][2]string{{"admin", "admin"}},
+			Success: LoginSuccess{
+				Status:       []int{200},
+				Headers:      []HeaderSig{{Name: "Content-Type", Contains: "application/json"}},
+				BodyContains: []string{`"access_token"`, `"refresh_token"`},
+			},
 		},
 	},
 	{
@@ -666,6 +746,17 @@ var Catalog = []Product{
 			{Path: "/settings", Markers: [][]string{{"httpnoderoot", "editortheme"}, {`"version"`}},
 				Primary: true, UnauthLeak: true, LeakName: "settings + version (unauthenticated editor enables code execution)",
 				LeakSev: severity.High, VersionRe: `"version"\s*:\s*"([^"]+)"`},
+		},
+		Login: &LoginProbe{
+			Paths:       []string{"/auth/token"},
+			ContentType: "application/x-www-form-urlencoded;charset=UTF-8",
+			Body:        "client_id=node-red-editor&grant_type=password&scope=&username={{user}}&password={{pass}}",
+			Creds:       [][2]string{{"admin", "password"}},
+			Success: LoginSuccess{
+				Status:       []int{200},
+				Headers:      []HeaderSig{{Name: "Content-Type", Contains: "application/json"}},
+				BodyContains: []string{`"access_token"`, `"expires_in"`, `"token_type"`},
+			},
 		},
 	},
 	{

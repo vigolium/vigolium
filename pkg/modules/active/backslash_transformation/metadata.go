@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A reflected parameter handles injected backslash escape sequences and special characters in a way that reveals server-side processing of the input. The scanner saw the server either strip backslashes, decode escape sequences (for example turning \x41 into A), or otherwise transform special characters such as quotes, braces, and command separators rather than echoing them literally. This is a probe-level signal that the value is parsed by an interpreter or backend, suggesting the parameter may be reachable by a deeper injection.
+	ModuleDesc = `**What it means:** A reflected parameter transforms injected backslash escapes and special characters, revealing server-side processing. The server stripped backslashes, decoded escape sequences (for example \x41 into A), or altered quotes rather than echoing them literally - a probe-level signal the value is parsed by an interpreter.
 
-**How it's exploited:** This finding is reconnaissance, not a confirmed exploit. The observed transformation tells an attacker the input feeds an escape-aware parser and helps target follow-up tests for SQL injection, command injection, template injection, or escape-bypass attacks; backslash consumption in particular hints that escaping defenses can be neutralized. Confirmed impact depends on what that parser does with the decoded characters.
+**How it's exploited:** This is reconnaissance, not a confirmed exploit. The transformation tells an attacker the input feeds an escape-aware parser, helping target follow-up tests for SQL, command, or template injection.
 
-**Fix:** Treat untrusted input as literal data using context-appropriate parameterization or output encoding, and avoid unescaping or re-interpreting client-supplied escape sequences before use.`
+**Fix:** Treat untrusted input as literal data using parameterization or output encoding, and avoid unescaping client-supplied escape sequences before use.`
 
 	ModuleConfirmation = "Confirmed when injected backslash sequences are transformed differently than literal characters in the response"
 	ModuleSeverity     = severity.Suspect

@@ -29,6 +29,12 @@ type Browser struct {
 	launcher    *launcher.Launcher
 	currentPage *Page // Persistent page for session state preservation
 
+	// uaOverride is the realistic User-Agent applied to every page (the real
+	// browser UA with "HeadlessChrome" stripped). Computed once per browser
+	// (uaOnce) so NewPage doesn't re-query the browser version per page/tab.
+	uaOnce     sync.Once
+	uaOverride string
+
 	mu    sync.Mutex
 	pages []*Page
 }
@@ -128,6 +134,7 @@ func (b *Browser) launch() error {
 		Set("media-cache-size", "0").
 		Set("use-fake-device-for-media-stream").
 		Set("dbus-stub").
+		Set("lang", "en-US").
 		Set("disable-background-networking").
 		// Disable HTTPS upgrade features to prevent Chrome from auto-upgrading HTTP to HTTPS
 		// which causes timeout when target doesn't have HTTPS server
@@ -212,6 +219,25 @@ func (b *Browser) NewPage() (*Page, error) {
 	// Browser.EachEvent only enables domains at browser level, but Network events
 	// are only emitted from pages that have the Network domain explicitly enabled.
 	_ = proto.NetworkEnable{}.Call(rodPage)
+
+	// Present as a normal browser, not HeadlessChrome. Many SPAs gate their
+	// content/locale routing (and some anti-bot layers gate rendering) on a real
+	// User-Agent + Accept-Language; the default headless UA both advertises
+	// automation and can trigger a degraded experience where the app never renders
+	// its real content. Strip "Headless" from the actual UA (keeping the accurate
+	// Chrome version) and pin Accept-Language to en-US. The UA is resolved once per
+	// browser; the override itself is a page-level CDP call, so it's applied here.
+	b.uaOnce.Do(func() {
+		if ver, verr := (proto.BrowserGetVersion{}).Call(b.rodBrowser); verr == nil {
+			b.uaOverride = strings.ReplaceAll(ver.UserAgent, "HeadlessChrome", "Chrome")
+		}
+	})
+	if b.uaOverride != "" {
+		_ = proto.NetworkSetUserAgentOverride{
+			UserAgent:      b.uaOverride,
+			AcceptLanguage: "en-US,en;q=0.9",
+		}.Call(rodPage)
+	}
 
 	page := &Page{
 		rodPage: rodPage,

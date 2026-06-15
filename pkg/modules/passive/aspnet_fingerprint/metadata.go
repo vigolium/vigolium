@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application reveals that it runs on Microsoft IIS and/or the ASP.NET stack, and often the exact framework version, through response headers (X-AspNet-Version, X-AspNetMvc-Version, X-Powered-By, Server), session cookies (ASP.NET_SessionId, .ASPXAUTH, .AspNetCore.Cookies, ASPSESSIONID), and HTML body markers (__VIEWSTATE, __EVENTVALIDATION, WebResource.axd). This is an informational fingerprint, not a vulnerability on its own, but it leaks technology and version detail that should not be advertised.
+	ModuleDesc = `**What it means:** The target reveals it runs Microsoft IIS and/or the ASP.NET stack, often with the exact version, via headers (X-AspNet-Version, X-AspNetMvc-Version, X-Powered-By, Server), cookies (ASP.NET_SessionId, .ASPXAUTH, .AspNetCore.Cookies), and body markers (__VIEWSTATE, WebResource.axd). Informational fingerprint, not a vulnerability on its own.
 
-**How it's exploited:** An attacker uses the disclosed platform and version to map attack surface and target known, version-specific weaknesses (for example padding-oracle and ViewState deserialization issues in vulnerable ASP.NET builds, or CVEs affecting a specific IIS release), skipping reconnaissance and going straight to applicable exploits.
+**How it's exploited:** An attacker uses the disclosed platform and version to target known, version-specific weaknesses (padding-oracle and ViewState deserialization in vulnerable ASP.NET builds, or IIS CVEs) without reconnaissance.
 
-**Fix:** Suppress version-disclosing headers (remove X-AspNet-Version, X-AspNetMvc-Version, X-Powered-By, and trim the Server banner) and keep the framework patched.`
+**Fix:** Suppress version-disclosing headers (X-AspNet-Version, X-AspNetMvc-Version, X-Powered-By, and trim the Server banner) and keep the framework patched.`
 
 	ModuleConfirmation = "Confirmed when ASP.NET-specific headers, cookies, or body patterns are detected in the response"
 	ModuleSeverity     = severity.Info

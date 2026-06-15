@@ -157,6 +157,29 @@ func (p *Page) WaitLoad() error {
 	return p.rodPage.Timeout(p.config.PageLoadTimeout).WaitLoad()
 }
 
+// WaitNetworkIdle blocks until no in-flight document/XHR/fetch request has been
+// seen for idle duration, bounded by max (returns at max even if the network
+// never quiesces, e.g. a long-poll/SSE app). Unlike WaitStable's fixed window
+// this is a targeted second settle used right before reading the DOM to harvest
+// dynamically-injected iframes: frameworks such as Aura/Lightning or Angular
+// mount subframes from an after-paint component fetch, and this gives that fetch
+// (and the subframe load it triggers) time to land in the network capture.
+// Best-effort: a go-rod panic on a detached/navigating page is contained.
+func (p *Page) WaitNetworkIdle(idle, max time.Duration) {
+	if max <= 0 {
+		return
+	}
+	if idle <= 0 {
+		idle = 500 * time.Millisecond
+	}
+	_ = safeRod("WaitNetworkIdle", func() error {
+		// Timeout caps the whole wait: when it fires the cloned page's context is
+		// cancelled and WaitRequestIdle's wait returns promptly.
+		p.rodPage.Timeout(max).WaitRequestIdle(idle, nil, nil, nil)()
+		return nil
+	})
+}
+
 // WaitElement waits for an element to exist.
 func (p *Page) WaitElement(selector string, timeout time.Duration) error {
 	rodPage := p.rodPage.Timeout(timeout)
@@ -220,17 +243,128 @@ func (p *Page) SetCookies(cookies []*http.Cookie) error {
 	return p.rodPage.SetCookies(params)
 }
 
+// ShadowUIDAttr is the attribute the shadow-piercing queries stamp on each element
+// they surface so it can be re-resolved later by an attribute selector — an XPath
+// cannot cross a shadow boundary. It is the single source of truth for the tag,
+// shared by the tagging JS, the resolver, and the callers that build/match it.
+const ShadowUIDAttr = "data-vgo-uid"
+
+// ShadowUIDSelector builds the attribute selector that re-resolves a tagged shadow
+// element (resolved via Page.Element's shadow-piercing fallback).
+func ShadowUIDSelector(uid string) string {
+	return "[" + ShadowUIDAttr + `="` + uid + `"]`
+}
+
+// IsShadowUIDSelector reports whether a selector targets a shadow-tagged element.
+func IsShadowUIDSelector(selector string) bool {
+	return strings.Contains(selector, ShadowUIDAttr)
+}
+
+// shadowQueryAllJS collects elements matching a selector across the light DOM and
+// every (open) shadow root, recursively. Web-component apps (a web-component design system,
+// Stencil, Lit, Angular ShadowDom encapsulation) render their interactive UI
+// inside shadow roots, where a plain document.querySelectorAll can't see it — so
+// the crawler would find no clickables/inputs and drive nothing. Each match is
+// tagged with ShadowUIDAttr (injected via fmt) so it can be re-resolved later.
+var shadowQueryAllJS = fmt.Sprintf(`(selector, shadowOnly) => {
+  if (!window.__vgoUid) window.__vgoUid = 0;
+  const out = [];
+  const visit = (root, inShadow) => {
+    if (!shadowOnly || inShadow) {
+      let m; try { m = root.querySelectorAll(selector); } catch (e) { m = []; }
+      for (const el of m) {
+        if (el.getAttribute && el.setAttribute && !el.getAttribute('%[1]s')) {
+          el.setAttribute('%[1]s', String(++window.__vgoUid));
+        }
+        out.push(el);
+      }
+    }
+    let all; try { all = root.querySelectorAll('*'); } catch (e) { all = []; }
+    for (const el of all) { if (el.shadowRoot) visit(el.shadowRoot, true); }
+  };
+  visit(document, false);
+  return out;
+}`, ShadowUIDAttr)
+
+// shadowQueryOneJS returns the first element matching selector, piercing shadow
+// roots — used to re-resolve a shadow element by its data-vgo-uid tag.
+const shadowQueryOneJS = `(selector) => {
+  const visit = (root) => {
+    let el; try { el = root.querySelector(selector); } catch (e) { el = null; }
+    if (el) return el;
+    let all; try { all = root.querySelectorAll('*'); } catch (e) { all = []; }
+    for (const e of all) { if (e.shadowRoot) { const r = visit(e.shadowRoot); if (r) return r; } }
+    return null;
+  };
+  return visit(document);
+}`
+
 // Element finds an element by CSS selector with safe timeout.
-// Uses config.ElementTimeout to prevent infinite waits.
+// Uses config.ElementTimeout to prevent infinite waits. When the selector targets
+// a shadow-tagged element ([data-vgo-uid=...]) and the light-DOM lookup misses, it
+// falls back to a shadow-piercing query so candidates/inputs discovered inside web
+// components can be re-resolved and acted on. The fallback is gated on the tag so
+// every other lookup keeps its fast light-only path.
 func (p *Page) Element(selector string) (*Element, error) {
+	// A shadow-tagged selector targets an element we tagged inside a shadow root.
+	// Resolve it directly with the shadow-piercing query (which also matches the
+	// light DOM), skipping the light-only lookup that would otherwise burn the
+	// full ElementTimeout retrying a selector it can never match.
+	if IsShadowUIDSelector(selector) {
+		if deep, derr := p.shadowElement(selector); derr == nil && deep != nil {
+			return deep, nil
+		}
+	}
 	var rodElem *rod.Element
-	if err := safeRod("Element", func() (err error) {
-		rodElem, err = p.rodPage.Timeout(p.config.ElementTimeout).Element(selector)
-		return err
+	if err := safeRod("Element", func() (e error) {
+		rodElem, e = p.rodPage.Timeout(p.config.ElementTimeout).Element(selector)
+		return e
 	}); err != nil {
 		return nil, err
 	}
 	return &Element{rodElem: rodElem, page: p}, nil
+}
+
+// shadowElement re-resolves a single element by a shadow-piercing query.
+func (p *Page) shadowElement(selector string) (*Element, error) {
+	var rodElem *rod.Element
+	if err := safeRod("shadowElement", func() (e error) {
+		rodElem, e = p.rodPage.Timeout(p.config.ElementTimeout).ElementByJS(rod.Eval(shadowQueryOneJS, selector))
+		return e
+	}); err != nil {
+		return nil, err
+	}
+	if rodElem == nil {
+		return nil, fmt.Errorf("shadow element not found: %s", selector)
+	}
+	return &Element{rodElem: rodElem, page: p}, nil
+}
+
+// ElementPiercing resolves the first element matching selector across both the
+// light DOM and every open shadow root (unlike Element, which is light-DOM-first
+// and only pierces for data-vgo-uid selectors). Use it to act — e.g. a real CDP
+// click — on an element tagged inside a web component's shadow tree by a custom
+// attribute. Returns an error if nothing matches.
+func (p *Page) ElementPiercing(selector string) (*Element, error) {
+	return p.shadowElement(selector)
+}
+
+// ShadowElements returns interactive elements matching selector that live INSIDE
+// shadow roots (light-DOM matches are returned by Elements). Each is tagged with a
+// stable data-vgo-uid so it can be re-resolved later via Element([data-vgo-uid=…]).
+func (p *Page) ShadowElements(selector string) ([]*Element, error) {
+	var rodElems rod.Elements
+	if err := safeRod("ShadowElements", func() (err error) {
+		rodElems, err = p.rodPage.Timeout(p.config.ElementTimeout).ElementsByJS(rod.Eval(shadowQueryAllJS, selector, true))
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	elements := make([]*Element, len(rodElems))
+	for i, re := range rodElems {
+		elements[i] = &Element{rodElem: re, page: p}
+	}
+	return elements, nil
 }
 
 // Elements finds all elements matching a CSS selector with safe timeout.

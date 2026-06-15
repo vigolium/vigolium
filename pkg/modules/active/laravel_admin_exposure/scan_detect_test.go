@@ -1,6 +1,7 @@
 package laravel_admin_exposure
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,6 +41,34 @@ func TestScanPerRequest_DetectsOpenAPISpec(t *testing.T) {
 	assert.Contains(t, strings.ToLower(res[0].Info.Name), "laravel admin exposure")
 }
 
+// TestScanPerRequest_DetectsNovaLogin confirms the grouped-marker tightening did
+// not kill the true positive: a genuine Nova login page (carrying the
+// "laravel-nova" anchor plus a login form) must still surface a finding.
+func TestScanPerRequest_DetectsNovaLogin(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/nova/login" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><link href="/nova-api/scripts/laravel-nova.js"></head>` +
+				`<body><div id="nova-login"><form><input name="email" type="email"/>` +
+				`<input name="password" type="password"/><button>Sign in</button></form></div></body></html>`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("nope"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "a genuine Nova login page must still yield a finding")
+	assert.Contains(t, strings.ToLower(res[0].Info.Name), "nova")
+}
+
 // TestScanPerRequest_NoFalsePositive ensures a host that 404s every probe path
 // yields no finding.
 func TestScanPerRequest_NoFalsePositive(t *testing.T) {
@@ -71,6 +100,56 @@ func loginShell(reqPath string) string {
 <button class="btn" type="submit">Dang nhap / Sign In</button>
 </form>
 <footer>Cong ty TNHH Grab</footer></body></html>`
+}
+
+// salesforceLoginShell renders a Salesforce/Visualforce login shell like the one
+// at login-uat.example.com: it contains the generic words "login", "email"
+// and a password field, but NO Laravel framework token. The per-request token
+// (a unique ViewState-style blob) makes every response body distinct, defeating
+// the soft-404 hash/length fingerprint — exactly the property that let the old
+// single-OR-token matcher fire on the bare word "login".
+func salesforceLoginShell(token string) string {
+	return `<!DOCTYPE html><html lang=""><head><title>Welcome</title></head><body>
+<form id="j_id0:form" name="j_id0:form" method="post" action="/DLG_Access_Login">
+<input type="hidden" id="com.salesforce.visualforce.ViewState" value="` + token + `" />
+<input type="email" name="username" placeholder="email" />
+<input type="password" name="pw" />
+<script>$Lightning.use("c:APP_LoginPage");</script>
+<div>This feature is not available in your country. Please login.</div>
+</form></body></html>`
+}
+
+// TestScanPerRequest_NoFP_SalesforceLoginShell reproduces the
+// login-uat.example.com false positive: a Salesforce/Visualforce app returns
+// the SAME login shell (200) for every probed path, embedding a per-request token
+// so the soft-404 fingerprint never matches. The old matcher fired on the generic
+// word "login" for /nova/login, /filament/login, etc. The grouped-marker
+// confirmation (which requires a framework anchor the shell never carries) must
+// suppress every probe.
+func TestScanPerRequest_NoFP_SalesforceLoginShell(t *testing.T) {
+	t.Parallel()
+	var n int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The random fingerprint path 404s so the soft-404 guard does NOT fire,
+		// isolating the grouped-marker confirmation as the suppressing layer.
+		if strings.Contains(r.URL.Path, "vigolium-admin-404-") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not found"))
+			return
+		}
+		n++
+		w.Header().Set("Content-Type", "text/html;charset=UTF-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(salesforceLoginShell(fmt.Sprintf("viewstate-%d-%s", n, strings.Repeat("A", 64)))))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a Salesforce login shell with no Laravel framework token must not yield a finding")
 }
 
 // TestScanPerRequest_NoFP_ReflectedLoginWall reproduces the einvoice.grab.com

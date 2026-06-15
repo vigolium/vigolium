@@ -4,13 +4,14 @@ import (
 	"context"
 
 	"github.com/sourcegraph/conc"
+	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/output"
 	"go.uber.org/zap"
 )
 
-func (e *Executor) runActivePerHost(ctx context.Context, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
+func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Requester, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
 	if len(e.perHostActive) == 0 {
 		return
 	}
@@ -39,15 +40,6 @@ func (e *Executor) runActivePerHost(ctx context.Context, item *httpmsg.HttpReque
 		e.goActiveTask(ctx, g, func() {
 			results, completed := e.runActiveWithTimeout(ctx,
 				func(runCtx context.Context) ([]*output.ResultEvent, error) {
-					// Bind the PHASE context (not the per-module runCtx) into the
-					// requester so even legacy modules calling the context-less Execute
-					// get in-flight requests aborted on scan shutdown / phase deadline.
-					// We must NOT bind runCtx: the request clusterer shares one in-flight
-					// request across modules via singleflight, so a single module's
-					// per-module timeout would cancel a request other modules deduped
-					// onto, poisoning them. Per-module timeouts are still enforced by
-					// runActiveWithTimeout (it discards late results).
-					reqClient := e.httpClient.WithContext(ctx)
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
 						return contextual.ScanPerHostContext(runCtx, item, reqClient, e.scanCtx)
 					}
@@ -61,7 +53,7 @@ func (e *Executor) runActivePerHost(ctx context.Context, item *httpmsg.HttpReque
 	}
 }
 
-func (e *Executor) runActivePerRequest(ctx context.Context, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
+func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requester, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
 	if len(e.perRequestActive) == 0 {
 		return
 	}
@@ -82,9 +74,6 @@ func (e *Executor) runActivePerRequest(ctx context.Context, item *httpmsg.HttpRe
 		e.goActiveTask(ctx, g, func() {
 			results, completed := e.runActiveWithTimeout(ctx,
 				func(runCtx context.Context) ([]*output.ResultEvent, error) {
-					// Phase context (not runCtx) — see runActivePerHost for why the
-					// shared clusterer rules out binding the per-module timeout here.
-					reqClient := e.httpClient.WithContext(ctx)
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
 						return contextual.ScanPerRequestContext(runCtx, item, reqClient, e.scanCtx)
 					}
@@ -98,7 +87,7 @@ func (e *Executor) runActivePerRequest(ctx context.Context, item *httpmsg.HttpRe
 	}
 }
 
-func (e *Executor) runActivePerInsertionPoint(ctx context.Context, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
+func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *http.Requester, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, g *conc.WaitGroup) {
 	if len(e.perIPActive) == 0 {
 		return
 	}
@@ -126,36 +115,42 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, item *httpmsg
 		itemHostPath = paramFindingLocationKeyFromItem(item)
 	}
 
-	for _, ip := range allPoints {
-		for _, module := range e.perIPActive {
-			if !filter.allows(module.ID()) {
-				continue
-			}
-			if !e.passesTechFilter(module, item) {
-				continue
-			}
-			e.moduleMetrics.MarkConsidered(module.ID())
-			if !activeModuleCanProcess(module, item, elig) {
-				continue
-			}
-			if !module.AllowedInsertionPointTypes().Contains(ip.Type()) {
+	// Module-outer, insertion-point-inner: the module-level gates
+	// (filter / tech-filter / MarkConsidered / CanProcess) don't depend on the
+	// insertion point, so evaluate them once per module rather than once per
+	// (module × insertion-point). Only the type check and the cross-module
+	// vuln-class dedup are point-dependent and stay in the inner loop.
+	for _, module := range e.perIPActive {
+		if !filter.allows(module.ID()) {
+			continue
+		}
+		if !e.passesTechFilter(module, item) {
+			continue
+		}
+		e.moduleMetrics.MarkConsidered(module.ID())
+		if !activeModuleCanProcess(module, item, elig) {
+			continue
+		}
+
+		allowedTypes := module.AllowedInsertionPointTypes()
+		vc, isVulnClassifier := module.(modules.VulnClassifier)
+		dedupByParam := isVulnClassifier && e.scanCtx != nil && e.scanCtx.ParamFindings != nil
+
+		for _, ip := range allPoints {
+			if !allowedTypes.Contains(ip.Type()) {
 				continue
 			}
 
-			// Cross-module dedup: skip if another module already found this vuln class on this param
-			if vc, ok := module.(modules.VulnClassifier); ok && e.scanCtx != nil && e.scanCtx.ParamFindings != nil {
-				if e.scanCtx.ParamFindings.HasFinding(itemHostPath, ip.Name(), vc.VulnClass()) {
-					continue
-				}
+			// Cross-module dedup: skip if another module already found this vuln
+			// class on this param.
+			if dedupByParam && e.scanCtx.ParamFindings.HasFinding(itemHostPath, ip.Name(), vc.VulnClass()) {
+				continue
 			}
 
 			mod, pt := module, ip // capture loop variables
 			e.goActiveTask(ctx, g, func() {
 				results, completed := e.runActiveWithTimeout(ctx,
 					func(runCtx context.Context) ([]*output.ResultEvent, error) {
-						// Phase context (not runCtx) — see runActivePerHost for why the
-						// shared clusterer rules out binding the per-module timeout here.
-						reqClient := e.httpClient.WithContext(ctx)
 						if contextual, ok := mod.(modules.ContextualActiveModule); ok {
 							return contextual.ScanPerInsertionPointContext(runCtx, item, pt, reqClient, e.scanCtx)
 						}

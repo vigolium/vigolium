@@ -55,14 +55,26 @@ func TestDefaultFindingGrouping_GroupsSourcemapByModule(t *testing.T) {
 	if !gc.Enabled || !gc.PerHost {
 		t.Fatalf("default grouping should be enabled per-host, got %+v", gc)
 	}
-	found := false
+	set := make(map[string]bool, len(gc.ByModule))
 	for _, m := range gc.ByModule {
-		if m == "sourcemap-detect" {
-			found = true
-			break
+		set[m] = true
+	}
+	// sourcemap-detect plus the per-asset source-analysis / hygiene family collapse
+	// to one finding per host regardless of per-URL value.
+	for _, want := range []string{
+		"sourcemap-detect",
+		"unsafe-html-sink",
+		"dom-xss-taint",
+		"cookie-security-detect",
+		"server-action-auth",
+	} {
+		if !set[want] {
+			t.Errorf("default ByModule should include %q, got %v", want, gc.ByModule)
 		}
 	}
-	if !found {
-		t.Errorf("default ByModule should include sourcemap-detect, got %v", gc.ByModule)
+	// Secret-bearing modules stay value-grouped so distinct leaked secrets remain
+	// distinct findings — they must NOT collapse by module.
+	if set["env-secret-exposure"] {
+		t.Errorf("env-secret-exposure must not be in default ByModule (value is signal), got %v", gc.ByModule)
 	}
 }

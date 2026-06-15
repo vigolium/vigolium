@@ -65,8 +65,9 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
-	// Fingerprint 404 response body hash
-	notFoundHash := get404Hash(ctx, httpClient)
+	// Fingerprint the 404 response (body hash + status) so probes can tell a
+	// distinctive dev-server response from the host's generic answer to any path.
+	notFoundHash, notFoundStatus := fingerprint404(ctx, httpClient)
 
 	var results []*output.ResultEvent
 	target := ctx.Target()
@@ -101,12 +102,12 @@ func (m *Module) ScanPerRequest(
 
 		statusCode := resp.Response().StatusCode
 
-		// Check expected status
+		// Check expected status. Require the status to be DISTINCTIVE — if the
+		// random 404 probe returned the same status, the host answers every path
+		// that way (a blanket 204/200 catch-all) and the match proves nothing.
 		if probe.expectedStatus > 0 {
-			if statusCode == probe.expectedStatus {
+			if statusCode == probe.expectedStatus && statusCode != notFoundStatus {
 				results = append(results, buildResult(target, host, probe, string(probeRaw), resp.FullResponseString()))
-				resp.Close()
-				continue
 			}
 			resp.Close()
 			continue
@@ -123,6 +124,15 @@ func (m *Module) ScanPerRequest(
 
 		// Skip if body hash matches 404
 		if notFoundHash != "" && utils.Sha1(body) == notFoundHash {
+			resp.Close()
+			continue
+		}
+
+		// Catch-all / SPA shell guard: a real dev-server endpoint streams SSE or
+		// serves a terse JSON status — it never returns the application page. A
+		// probe whose body is the observed page is the catch-all shell, even when
+		// the exact-hash 404 check above misses a shell that varies per path.
+		if modkit.ResemblesObservedPage(ctx, body) {
 			resp.Close()
 			continue
 		}
@@ -177,28 +187,34 @@ func isHTMLShell(contentType, body string) bool {
 	return strings.HasPrefix(head, "<!doctype html") || strings.HasPrefix(head, "<html")
 }
 
-// get404Hash fetches a known-missing path to fingerprint the 404 page.
-func get404Hash(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) string {
+// fingerprint404 fetches a known-missing path to learn the host's answer to an
+// unknown path: the body hash (to drop probes that echo the 404 page) and the
+// status code (to drop status-only probes whose expected status the host returns
+// for every path). Returns ("", 0) on any error.
+func fingerprint404(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) (hash string, status int) {
 	notFoundPath := "/vigolium-nonexistent-path-404-check"
 	raw, err := httpmsg.SetPath(ctx.Request().Raw(), notFoundPath)
 	if err != nil {
-		return ""
+		return "", 0
 	}
 	raw, _ = httpmsg.SetMethod(raw, "GET")
 
 	req, err := httpmsg.ParseRawRequest(string(raw))
 	if err != nil {
-		return ""
+		return "", 0
 	}
 	req = req.WithService(ctx.Service())
 
 	resp, _, err := httpClient.Execute(req, http.Options{})
 	if err != nil {
-		return ""
+		return "", 0
 	}
 	defer resp.Close()
 
-	return utils.Sha1(resp.Body().String())
+	if resp.Response() != nil {
+		status = resp.Response().StatusCode
+	}
+	return utils.Sha1(resp.Body().String()), status
 }
 
 func buildResult(target, host string, probe devProbe, request, response string) *output.ResultEvent {

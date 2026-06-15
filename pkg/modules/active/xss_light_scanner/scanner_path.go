@@ -11,6 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/spitolas"
 	"go.uber.org/zap"
 )
 
@@ -22,6 +23,10 @@ type PathModule struct {
 	transformAnalyzer *TransformAnalyzer
 	jsAnalyzer        *JavaScriptContextAnalyzer
 	pathInjection     *PathInjectionGenerator
+
+	// Probe runs the headless-browser confirmation step. Overridable so tests
+	// never spawn a real browser. Default: spitolas.ProbeURL.
+	Probe ProbeFunc
 }
 
 // NewPathScanner creates a new path injection XSS scanner.
@@ -42,6 +47,7 @@ func NewPathScanner() *PathModule {
 		transformAnalyzer: NewTransformAnalyzer(),
 		jsAnalyzer:        NewJavaScriptContextAnalyzer(),
 		pathInjection:     &PathInjectionGenerator{},
+		Probe:             spitolas.ProbeURL,
 	}
 	m.ModuleTags = ModuleTags
 	return m
@@ -132,10 +138,10 @@ func (m *PathModule) scanPathRecursive(
 		}
 
 		if result != nil && result.HasVulnerability() {
-			*foundXSS = true
-			evt := m.buildResultEvent(ctx, ip, result)
-			evt.Info.Description = "[path:recursive] " + evt.Info.Description
-			results = append(results, evt)
+			if evt := confirmXSS(m.Probe, ctx, ip, result, httpClient, "[path:recursive] ", nil); evt != nil {
+				*foundXSS = true
+				results = append(results, evt)
+			}
 		}
 	}
 
@@ -185,10 +191,10 @@ func (m *PathModule) scanPathCut(
 		}
 
 		if result != nil && result.HasVulnerability() {
-			*foundXSS = true
-			evt := m.buildResultEvent(ctx, ip, result)
-			evt.Info.Description = "[path:cut] " + evt.Info.Description
-			results = append(results, evt)
+			if evt := confirmXSS(m.Probe, ctx, ip, result, httpClient, "[path:cut] ", nil); evt != nil {
+				*foundXSS = true
+				results = append(results, evt)
+			}
 		}
 	}
 
@@ -236,10 +242,10 @@ func (m *PathModule) scanPathAppend(
 	}
 
 	if result != nil && result.HasVulnerability() {
-		*foundXSS = true
-		evt := m.buildResultEvent(ctx, ip, result)
-		evt.Info.Description = "[path:append] " + evt.Info.Description
-		results = append(results, evt)
+		if evt := confirmXSS(m.Probe, ctx, ip, result, httpClient, "[path:append] ", nil); evt != nil {
+			*foundXSS = true
+			results = append(results, evt)
+		}
 	}
 
 	return results, nil
@@ -453,32 +459,3 @@ func (m *PathModule) detectContext(
 	}
 }
 
-// buildResultEvent creates a ResultEvent from scan result
-func (m *PathModule) buildResultEvent(
-	ctx *httpmsg.HttpRequestResponse,
-	ip httpmsg.InsertionPoint,
-	result *XSSScanResult,
-) *output.ResultEvent {
-	urlx, _ := ctx.URL()
-
-	var evidenceParts []string
-	for _, ea := range result.ExploitableAnalyses {
-		evidenceParts = append(evidenceParts, ea.Context.String())
-	}
-	description := strings.Join(evidenceParts, " | ")
-
-	if result.UsedPrefix != "" && result.UsedPrefix != "none" {
-		description += " [bypass: " + result.UsedPrefix + "]"
-	}
-
-	return &output.ResultEvent{
-		URL:              urlx.String(),
-		Request:          string(ip.BuildRequest([]byte(result.PrimaryPayload.FullPayload))),
-		Response:         string(result.PrimaryResponse),
-		FuzzingParameter: ip.Name(),
-		ExtractedResults: []string{ip.BaseValue()},
-		Info: output.Info{
-			Description: description,
-		},
-	}
-}

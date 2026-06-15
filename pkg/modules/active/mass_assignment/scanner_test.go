@@ -2,12 +2,9 @@ package mass_assignment
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -79,24 +76,7 @@ func TestIsRejected(t *testing.T) {
 // attaching baselineBody as the captured (un-injected) baseline response.
 func jsonPost(t *testing.T, rawURL, reqBody, baselineBody string) *httpmsg.HttpRequestResponse {
 	t.Helper()
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parse %q: %v", rawURL, err)
-	}
-	port, err := strconv.Atoi(u.Port())
-	if err != nil {
-		t.Fatalf("port %q: %v", u.Port(), err)
-	}
-	svc, err := httpmsg.NewService(u.Hostname(), port, u.Scheme)
-	if err != nil {
-		t.Fatalf("NewService: %v", err)
-	}
-	raw := fmt.Sprintf(
-		"POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
-		u.RequestURI(), u.Host, len(reqBody), reqBody,
-	)
-	req := httpmsg.NewHttpRequestWithService(svc, []byte(raw))
-	rr := httpmsg.NewHttpRequestResponse(req, nil)
+	rr := modtest.RequestJSON(t, rawURL, reqBody)
 	return modtest.Response(rr, "application/json", baselineBody)
 }
 

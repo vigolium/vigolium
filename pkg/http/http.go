@@ -130,6 +130,20 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 		tlsConfig.ServerName = options.SNI
 	}
 
+	// Size the idle-connection pool to the per-host concurrency cap. A scanner
+	// fans out many requests at the same host, so the transport must keep at
+	// least MaxPerHost keep-alive connections warm — otherwise every request past
+	// MaxIdleConnsPerHost closes its connection on return and the next one pays a
+	// fresh TCP+TLS handshake (~50-150ms). The old hardcoded 10 throttled reuse
+	// badly: MaxPerHost defaults to 50, so 40 of every 50 connections churned.
+	// Floor at the old 10 and cap at 256 so a pathological --max-per-host can't
+	// pin an unbounded idle pool of file descriptors.
+	maxIdlePerHost := min(max(options.MaxPerHost, 10), 256)
+	// The global idle pool scales with the per-host cap so multi-host scans keep
+	// enough warm connections across hosts. maxIdlePerHost >= 10 guarantees this is
+	// always >= the old 100 floor.
+	maxIdleConns := maxIdlePerHost * 10
+
 	// Transport factory
 	makeTransport := func() *http.Transport {
 		t := &http.Transport{
@@ -140,8 +154,8 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 			},
 			TLSClientConfig:        tlsConfig,
 			DisableKeepAlives:      false,
-			MaxIdleConns:           100,
-			MaxIdleConnsPerHost:    10,
+			MaxIdleConns:           maxIdleConns,
+			MaxIdleConnsPerHost:    maxIdlePerHost,
 			IdleConnTimeout:        90 * time.Second,
 			ResponseHeaderTimeout:  responseHeaderTimeout,
 			MaxResponseHeaderBytes: 48 * 1024,
@@ -226,7 +240,9 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 	}
 
 	if options.ClusterRequests {
-		r.clusterer = NewRequestClusterer()
+		// Size the dedup LRU to scan concurrency so a wide active-module fan-out
+		// doesn't evict still-fresh entries before their TTL elapses.
+		r.clusterer = NewRequestClustererWithSize(ClustererSizeForConcurrency(options.Concurrency))
 	}
 
 	return r, nil
@@ -291,18 +307,19 @@ func (r *Requester) Clusterer() *RequestClusterer {
 // executeDirectly sends HTTP request with rate limiting and host error tracking.
 // ctx is propagated to the outgoing request for cancellation.
 func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, int, error) {
+	host := ""
+	if input.Service() != nil {
+		host = input.Service().Host()
+	}
+
 	// Per-host rate limiting (concurrency control)
-	if r.services.HostLimiter != nil {
-		host := ""
-		if input.Service() != nil {
-			host = input.Service().Host()
+	if r.services.HostLimiter != nil && host != "" {
+		if err := r.services.HostLimiter.AcquireWithTimeout(host); err != nil {
+			// Acquire timeout is our own saturation, not host distress — don't
+			// feed it back to the adaptive controller.
+			return nil, 0, err
 		}
-		if host != "" {
-			if err := r.services.HostLimiter.AcquireWithTimeout(host); err != nil {
-				return nil, 0, err
-			}
-			defer r.services.HostLimiter.Release(host)
-		}
+		defer r.services.HostLimiter.Release(host)
 	}
 
 	if r.services.HostErrors != nil && r.services.HostErrors.Check(input.ID()) {
@@ -315,13 +332,40 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		if r.services.HostErrors != nil {
 			r.services.HostErrors.MarkFailed(input.ID(), err, opts.IgnoreTimeoutTracking)
 		}
+		// Feed transport failures (timeout/reset/refused) to the adaptive limiter
+		// so it can back the host off; a no-op in static mode.
+		r.reportHostFeedback(host, 0, err)
 		return nil, 0, err
 	}
 
 	if r.services.HostErrors != nil {
 		r.services.HostErrors.MarkSuccess(input.ID())
 	}
+	r.reportHostFeedback(host, responseChainStatus(resp), nil)
 	return resp, int(time.Since(start).Seconds()), nil
+}
+
+// reportHostFeedback forwards a per-request outcome to the adaptive host limiter.
+// No-op without a limiter/host; in static mode Feedback itself is a no-op. It runs
+// only on the executeDirectly path, so a clusterer cache hit (no network request)
+// correctly produces no feedback.
+func (r *Requester) reportHostFeedback(host string, statusCode int, err error) {
+	if host == "" || r.services.HostLimiter == nil {
+		return
+	}
+	r.services.HostLimiter.Feedback(host, statusCode, err)
+}
+
+// responseChainStatus returns the HTTP status code from a response chain, or 0
+// when unavailable.
+func responseChainStatus(resp *httpUtils.ResponseChain) int {
+	if resp == nil {
+		return 0
+	}
+	if r := resp.Response(); r != nil {
+		return r.StatusCode
+	}
+	return 0
 }
 
 func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, error) {

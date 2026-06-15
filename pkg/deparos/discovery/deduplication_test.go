@@ -512,14 +512,14 @@ func TestHashDeduplication_FileDiscovery_NoDuplicates(t *testing.T) {
 	initialSize := engine.taskQueue.Size()
 
 	// First call should create derivation tasks
-	err1 := engine.OnFileDiscovered(server.URL+"/admin/config.php", 0)
+	err1 := engine.OnFileDiscovered(server.URL+"/admin/config.php", 0, true)
 	assert.NoError(t, err1)
 
 	sizeAfterFirst := engine.taskQueue.Size()
 
 	// Second and third calls should be deduplicated at OnFileDiscovered level
-	err2 := engine.OnFileDiscovered(server.URL+"/admin/config.php", 0)
-	err3 := engine.OnFileDiscovered(server.URL+"/admin/config.php", 0)
+	err2 := engine.OnFileDiscovered(server.URL+"/admin/config.php", 0, true)
+	err3 := engine.OnFileDiscovered(server.URL+"/admin/config.php", 0, true)
 
 	assert.NoError(t, err2)
 	assert.NoError(t, err3)

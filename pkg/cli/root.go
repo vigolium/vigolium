@@ -86,6 +86,7 @@ var (
 	// Output format
 	globalFormat   string
 	globalCIOutput bool
+	globalNoColor  bool
 
 	// Full example flag
 	globalFullExample bool
@@ -127,6 +128,15 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		// Initialize logger for all commands
 		zapLogger := initLogger(globalVerbose, globalSilent, globalDebug, globalDumpTraffic, globalLogFile)
 		_ = zapLogger // logger is set globally via zap.ReplaceGlobals
+
+		// Color is on by default for every command — including output captured to
+		// a file or pipe, such as the -P/--parallel fan-out's per-host
+		// <output>.console.log, which should read like a live console scan instead
+		// of losing its color the moment stdout isn't a TTY. --no-color,
+		// --ci-output-format (CI wants plain logs), and the NO_COLOR env var opt
+		// back out; the -P parent forwards --no-color to each child and children
+		// inherit NO_COLOR via the environment, so the opt-out reaches every log.
+		terminal.EnableCLIColor(globalNoColor, globalCIOutput)
 
 		// The olium agent runtime (providers/engine) doesn't log through zap,
 		// so --debug alone shows nothing for agent commands. Bridge it to the
@@ -245,6 +255,7 @@ func init() {
 	pf.StringVar(&globalScanUUID, "scan-uuid", "", "Pin scan UUID for this session (use to sync results across nodes; defaults to a freshly-minted UUID)")
 	pf.StringVar(&globalFormat, "format", "console", "Output format (comma-separated for multiple): console, jsonl, html")
 	pf.BoolVar(&globalCIOutput, "ci-output-format", false, "CI-friendly output: JSONL findings only, no color, no banners")
+	pf.BoolVar(&globalNoColor, "no-color", false, "Disable ANSI color in all output (also honored via the NO_COLOR env var)")
 	pf.BoolVar(&globalFullExample, "full-example", false, "Show full example commands organized by section")
 	pf.StringArrayVar(&globalExtScripts, "ext", nil, "Load JavaScript extension script (repeatable)")
 	pf.StringVar(&globalExtDir, "ext-dir", "", "Override extension scripts directory")

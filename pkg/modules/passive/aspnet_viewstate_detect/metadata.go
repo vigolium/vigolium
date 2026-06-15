@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This passive check found an ASP.NET page whose __VIEWSTATE field is configured insecurely. It reports up to four conditions: ViewState that is base64-encoded but not encrypted (so its serialized contents are readable by the client), an oversized ViewState over 4KB (which may carry more state than expected), a postback form missing __EVENTVALIDATION, and a postback form missing __RequestVerificationToken. These point to weak control over server-side state and form integrity, not a confirmed compromise.
+	ModuleDesc = `**What it means:** An ASP.NET page has an insecurely configured __VIEWSTATE: base64-encoded but not encrypted (contents client-readable), oversized (over 4KB), a postback form missing __EVENTVALIDATION, or missing __RequestVerificationToken. Signals weak control over server-side state and form integrity.
 
-**How it's exploited:** Unencrypted or large ViewState lets an attacker decode the base64 to inspect application state and any sensitive values stored there. Missing EventValidation allows tampering with postback parameters and control values the server assumes are fixed. A missing anti-forgery token suggests the form may accept cross-site forged requests, letting an attacker trigger actions in a victim's authenticated session.
+**How it's exploited:** Unencrypted ViewState can be decoded to inspect application state and secrets. Missing EventValidation allows tampering with postback parameters. A missing anti-forgery token suggests the form may accept cross-site forged requests in a victim's session.
 
-**Fix:** Enable ViewState encryption and MAC, keep EventValidation on, store no secrets in ViewState, and add ASP.NET anti-forgery tokens to state-changing forms.`
+**Fix:** Enable ViewState encryption and MAC, keep EventValidation on, store no secrets in ViewState, and add anti-forgery tokens to state-changing forms.`
 
 	ModuleConfirmation = "Confirmed when ViewState is present and lacks encryption or associated security tokens"
 	ModuleSeverity     = severity.Low

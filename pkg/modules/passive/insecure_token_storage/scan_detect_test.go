@@ -53,8 +53,7 @@ func TestScanPerRequest_LocalStorageSetItem(t *testing.T) {
 }
 
 // TestScanPerRequest_AuthHeaderFromStorage drives a JS body reading a token from
-// localStorage into an Authorization header and expects the higher-severity
-// finding.
+// localStorage into an Authorization header and expects a finding.
 func TestScanPerRequest_AuthHeaderFromStorage(t *testing.T) {
 	t.Parallel()
 	m := New()
@@ -66,8 +65,8 @@ func TestScanPerRequest_AuthHeaderFromStorage(t *testing.T) {
 	require.NotEmpty(t, results)
 }
 
-// TestScanPerRequest_NoStrayBearerStitch is a regression for the High-severity
-// pattern: an unrelated localStorage.getItem('theme') must NOT be stitched to a
+// TestScanPerRequest_NoStrayBearerStitch is a regression for the Authorization
+// header pattern: an unrelated localStorage.getItem('theme') must NOT be stitched to a
 // stray "Bearer" literal elsewhere on the same minified line. Statements are
 // semicolon-separated, so the bounded gap should prevent a match.
 func TestScanPerRequest_NoStrayBearerStitch(t *testing.T) {

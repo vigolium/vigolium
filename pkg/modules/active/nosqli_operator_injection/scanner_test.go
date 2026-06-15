@@ -113,6 +113,49 @@ func TestAnalyzeTimeDelay(t *testing.T) {
 	}
 }
 
+// TestTestTimeBasedPayload_BlockedResponseDropped covers the time-based FP class:
+// a WAF answers the sleep payload with a 403 that only arrives after a long stall
+// (the edge parking/throttling the request, not a backend query running the
+// sleep). Without the block gate the slow response confirms a phantom time delay;
+// with it the probe is dropped because a blocked response is never a sleep oracle.
+func TestTestTimeBasedPayload_BlockedResponseDropped(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-second timing test in -short mode")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(b), "sleep(") {
+			// Flush the 403 status before stalling so the delay lands on the body
+			// (clear of the requester's response-header timeout). The probe still
+			// reads as a block (403) AND takes ~8s — without the gate that slow
+			// blocked response would confirm a phantom time delay.
+			w.WriteHeader(http.StatusForbidden)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			time.Sleep(8 * time.Second) // long enough to clear the time-delay threshold
+			_, _ = io.WriteString(w, "blocked")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true}`) // fast, small clean baseline
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.RequestJSON(t, srv.URL+"/api/users", `{"user":"smith"}`)
+	ip := modtest.InsertionPoint(t, rr, "user")
+	payload := nosqliPayload{value: `{"$where":"sleep(10000)"}`, detectType: detectTimeDelay, desc: "time-based"}
+
+	res, err := New().testTimeBasedPayload(rr, ip, client, payload)
+	if err != nil {
+		t.Fatalf("testTimeBasedPayload: %v", err)
+	}
+	if res != nil {
+		t.Fatalf("a blocked (403) response must not be reported as time-based NoSQLi, got: %+v", res)
+	}
+}
+
 func TestNormalizeResponse(t *testing.T) {
 	// Two responses that differ only in a rotating token + timestamp should
 	// normalize to the same structural string.

@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This Express.js or NestJS application returns verbose error responses that leak internal debug information. When the probe sent a request a real backend would error on (a random 404 path, a malformed JSON body, or a non-numeric value where a numeric path segment was expected), the response exposed a Node.js stack trace, an internal filesystem path, or a NODE_ENV configuration entry. This indicates the app is not running with production error handling, so detailed internals are disclosed to clients.
+	ModuleDesc = `**What it means:** This Express.js or NestJS app returns verbose error responses leaking internals. A request a real backend errors on (random 404, malformed JSON, non-numeric value in a numeric segment) exposed a Node.js stack trace, filesystem path, or NODE_ENV entry - production error handling is off.
 
-**How it's exploited:** An attacker triggers these error responses to harvest absolute server file paths, module and dependency layout (node_modules, app source directories), and runtime environment details. This maps the internal structure of the deployment and pinpoints code locations and library versions, making follow-up attacks such as path traversal, dependency-specific exploits, and source-code probing far more precise.
+**How it's exploited:** An attacker triggers these errors to harvest absolute file paths, dependency layout (node_modules), and library versions, making path traversal and dependency-specific exploits more precise.
 
-**Fix:** Run the application with NODE_ENV set to production and add a global error handler that returns generic error messages without stack traces, file paths, or environment details.`
+**Fix:** Run with NODE_ENV set to production and add a global error handler returning generic messages without stack traces, file paths, or environment details.`
 
 	ModuleConfirmation = "Confirmed when an error response contains stack traces, file paths, or debug markers"
 	ModuleSeverity     = severity.Low

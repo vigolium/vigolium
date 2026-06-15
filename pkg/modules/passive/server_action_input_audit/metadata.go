@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Next.js Server Action (a server-side handler marked with the "use server" directive) was found in served JavaScript or TypeScript that reads user-supplied input (FormData fields or function arguments) and uses it in database operations without any runtime schema validation. TypeScript types are erased at runtime, so without a validation library (zod, yup, joi, valibot, superstruct, etc.) the action trusts whatever data the client sends. This is a passive, source-code-pattern finding (Tentative confidence): it flags a likely missing-validation pattern, not a confirmed exploitable bug.
+	ModuleDesc = `**What it means:** A Next.js "use server" Server Action reads user input (FormData or arguments) and uses it in database operations with no runtime schema validation. TypeScript types are erased at runtime, so without a library like zod the action trusts whatever the client sends. Tentative source-pattern finding.
 
-**How it's exploited:** An attacker invokes the Server Action directly with crafted FormData or arguments, supplying unexpected types, extra fields, or injection payloads (for example NoSQL/ORM operators, mass-assignment fields, or oversized values) that reach the database write or query unchecked, potentially corrupting data, bypassing business logic, or enabling injection.
+**How it's exploited:** An attacker invokes the action directly with unexpected types, extra fields, or injection payloads (NoSQL operators, mass-assignment) that reach the query unchecked, corrupting data or bypassing business logic.
 
-**Fix:** Validate and coerce every Server Action input at runtime with a schema validation library (zod safeParse, yup, joi, valibot) before using it in any database or sensitive operation.`
+**Fix:** Validate and coerce every Server Action input at runtime with a schema library before any database operation.`
 
 	ModuleConfirmation = "Confirmed when a Server Action processes input without any runtime validation library"
 	ModuleSeverity     = severity.Medium

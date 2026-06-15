@@ -85,28 +85,73 @@ func init() {
 	flags.StringVar(&scanURLBody, "body", "", "Request body")
 	flags.StringSliceVarP(&scanURLHeaders, "header", "H", nil, "Custom header (repeatable, e.g. -H 'Cookie: x=1')")
 	flags.BoolVar(&scanURLNoPassive, "no-passive", false, "Skip passive modules")
+	flags.StringSliceVarP(&globalTargets, "target", "t", nil, "Target URL to scan (repeatable; alternative to the positional URL argument)")
 	registerScanModuleFlags(flags)
 	registerHTTPClientFlags(flags)
 	registerPhaseFlags(flags)
+	registerLightweightScanIOFlags(flags)
+}
+
+// hasFileOutputFormat reports whether --format requests a file-materialized
+// format (jsonl/html/report/pdf) as opposed to the default console view. The
+// lightweight commands route to the Runner for these so the export tail
+// (finishStatelessExport / maybeGenerateReports / finishScanJSONLExport) runs.
+// Plain --json / --ci-output-format leave globalFormat at "console" and keep the
+// fast in-memory direct path, preserving the JSON shape AI agents consume.
+func hasFileOutputFormat() bool {
+	for _, f := range parseFormats(globalFormat) {
+		switch f {
+		case "jsonl", "html", "report", "pdf":
+			return true
+		}
+	}
+	return false
+}
+
+// needsRunnerScan reports whether the request must run through the full
+// native-scan Runner rather than the lightweight in-memory direct path. That is
+// required whenever a phase is enabled, results are persisted/exported to a file
+// (-o), the run is stateless (-S), phases are skipped (--skip), or a file output
+// format is requested — none of which the direct path implements.
+func needsRunnerScan() bool {
+	return hasPhaseFlags() ||
+		globalStateless ||
+		scanOpts.Output != "" ||
+		len(globalSkipPhases) > 0 ||
+		hasFileOutputFormat()
+}
+
+// dispatchSingleScan routes one parsed request to either the Runner-backed scan
+// (when output/persistence/phase flags are in play) or the fast direct path.
+func dispatchSingleScan(rr *httpmsg.HttpRequestResponse, target, method string) error {
+	if needsRunnerScan() {
+		return runRunnerScan(rr, target)
+	}
+	return runScanWithRR(rr, target, method)
 }
 
 func runScanURLCmd(_ *cobra.Command, args []string) error {
 	defer syncLogger()
 
-	// If a URL argument is provided, use existing behavior
-	if len(args) == 1 {
-		target := args[0]
+	// Targets come from the positional URL argument and/or repeatable -t/--target
+	// flags. The positional arg is kept for the original single-URL ergonomics;
+	// -t lets the command match `vigolium scan`'s muscle memory and pass several
+	// URLs at once.
+	targets := append([]string{}, args...)
+	targets = append(targets, globalTargets...)
 
-		rr, err := buildRequestFromFlags(target, scanURLMethod, scanURLBody, scanURLHeaders)
-		if err != nil {
-			return fmt.Errorf("failed to build request: %w", err)
+	if len(targets) > 0 {
+		var lastErr error
+		for _, target := range targets {
+			rr, err := buildRequestFromFlags(target, scanURLMethod, scanURLBody, scanURLHeaders)
+			if err != nil {
+				return fmt.Errorf("failed to build request: %w", err)
+			}
+			if err := dispatchSingleScan(rr, target, scanURLMethod); err != nil {
+				lastErr = err
+			}
 		}
-
-		if hasPhaseFlags() {
-			return runPhaseMode(rr, target, scanURLMethod)
-		}
-
-		return runScanWithRR(rr, target, scanURLMethod)
+		return lastErr
 	}
 
 	// No args — try reading from stdin
@@ -135,15 +180,8 @@ func runScanURLCmd(_ *cobra.Command, args []string) error {
 	for _, rr := range items {
 		target := rr.Target()
 		method := rr.Request().Method()
-
-		if hasPhaseFlags() {
-			if err := runPhaseMode(rr, target, method); err != nil {
-				lastErr = err
-			}
-		} else {
-			if err := runScanWithRR(rr, target, method); err != nil {
-				lastErr = err
-			}
+		if err := dispatchSingleScan(rr, target, method); err != nil {
+			lastErr = err
 		}
 	}
 
@@ -357,7 +395,7 @@ func formatStreamingFindingLine(result *output.ResultEvent) string {
 
 	suffix := ""
 	if len(result.ExtractedResults) > 0 {
-		suffix = " [" + strings.Join(result.ExtractedResults, ",") + "]"
+		suffix = " [" + output.EscapeOneLine(strings.Join(result.ExtractedResults, ",")) + "]"
 	}
 	if result.IsFuzzingResult && result.FuzzingParameter != "" {
 		suffix += " [" + result.FuzzingParameter + "]"
@@ -582,8 +620,18 @@ func buildPhaseOptions(target string) *types.Options {
 	opts.ScopeOriginMode = globalScopeOrigin
 	opts.OutputFormats = parseFormats(globalFormat)
 	// reconcileOutputFormats errors are ignored here because buildPhaseOptions
-	// is called with already-validated global flags.
+	// is called with already-validated global flags. It also sets
+	// DeferredJSONLExport, which the post-scan jsonl export keys off of.
 	_ = reconcileOutputFormats(opts)
+
+	// Output / persistence flags (shared with `vigolium scan`).
+	opts.Output = scanOpts.Output
+	opts.Stateless = globalStateless
+	opts.SkipPhases = globalSkipPhases
+	opts.OmitResponse = scanOpts.OmitResponse
+	if projectUUID, perr := resolveProjectUUID(); perr == nil {
+		opts.ProjectUUID = projectUUID
+	}
 
 	// Phase flags
 	opts.DiscoverEnabled = scanPhaseDiscover
@@ -601,12 +649,49 @@ func buildPhaseOptions(target string) *types.Options {
 	return opts
 }
 
-// runPhaseMode delegates scanning to the Runner when any phase flag is set.
-// This enables full-pipeline phases (discover, spider, external-harvest, known-issue-scan)
-// from the lightweight scan-url and scan-request commands.
-func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) (err error) {
+// validateRunnerScanOutput rejects output-format / -o combinations the export
+// tail cannot satisfy, mirroring the equivalent guards on `vigolium scan` so the
+// lightweight commands fail the same way instead of silently producing nothing.
+func validateRunnerScanOutput(opts *types.Options) error {
+	if opts.Output == "" {
+		if opts.HasFormat("html") || opts.HasFormat("report") || opts.HasFormat("pdf") {
+			return fmt.Errorf("--format html/report/pdf requires -o/--output to specify the report file path")
+		}
+		if len(opts.OutputFormats) > 1 {
+			return fmt.Errorf("multiple --format values require -o/--output as a base path")
+		}
+	}
+	return nil
+}
+
+// runRunnerScan scans a single parsed request (or, when phase flags are set, the
+// target URL) through the full native-scan Runner so the lightweight scan-url /
+// scan-request commands honor -o/--output, -S/--stateless, --skip, and file
+// output formats (jsonl/html/...) exactly like `vigolium scan`. It mirrors
+// executeNativeScan's stateless temp-DB lifecycle and post-scan export tail.
+//
+// With no phase flags the exact request (method/body/headers) is fed straight to
+// the executor via a SingleSource, so scan-request's raw POST bodies survive. A
+// phase flag (discover/spider/...) instead routes through runner.New, which
+// crawls from the target URL like the full pipeline.
+func runRunnerScan(rr *httpmsg.HttpRequestResponse, target string) (err error) {
 	scanStart := time.Now()
 	opts := buildPhaseOptions(target)
+
+	if err := validateRunnerScanOutput(opts); err != nil {
+		return err
+	}
+	if opts.Stateless && globalDB != "" {
+		return fmt.Errorf("--stateless and --db are mutually exclusive")
+	}
+	if opts.Stateless && opts.Output == "" && !opts.Silent {
+		fmt.Fprintf(os.Stderr,
+			"%s %s: no %s set — scan results will be discarded with the temporary database. "+
+				"Pass %s %s and %s %s to persist results.\n",
+			terminal.WarnPrefix(), terminal.BoldCyan("--stateless"), terminal.BoldCyan("-o/--output"),
+			terminal.BoldCyan("--output"), terminal.BoldYellow("<path>"),
+			terminal.BoldCyan("--format"), terminal.BoldYellow("jsonl|html"))
+	}
 
 	// Load settings from config file
 	settings, err := config.LoadSettings(opts.ConfigPath)
@@ -623,7 +708,25 @@ func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) (err error) 
 	if opts.ScopeOriginMode != "" {
 		settings.Scope.CLIOriginMode = opts.ScopeOriginMode
 	}
-	if globalDB != "" {
+
+	// Stateless mode: scan into a throwaway temp SQLite DB that is removed after
+	// the run, so the main DB stays untouched (mirrors `vigolium scan -S`).
+	var statelessDBPath string
+	if opts.Stateless {
+		tmpFile, tmpErr := os.CreateTemp("", "vigolium-stateless-*.sqlite")
+		if tmpErr != nil {
+			return fmt.Errorf("failed to create temporary database: %w", tmpErr)
+		}
+		statelessDBPath = tmpFile.Name()
+		_ = tmpFile.Close()
+		defer func() {
+			_ = os.Remove(statelessDBPath)
+			_ = os.Remove(statelessDBPath + "-wal")
+			_ = os.Remove(statelessDBPath + "-shm")
+		}()
+		settings.Database.Driver = "sqlite"
+		settings.Database.SQLite.Path = statelessDBPath
+	} else if globalDB != "" {
 		settings.Database.Driver = "sqlite"
 		settings.Database.SQLite.Path = globalDB
 	}
@@ -659,25 +762,11 @@ func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) (err error) 
 		}
 	}
 
-	// Database is mandatory for phase mode
 	db, err := database.NewDB(&settings.Database)
 	if err != nil {
-		return fmt.Errorf("phase mode requires a database; use --db <path> or configure vigolium-configs.yaml: %w", err)
+		return fmt.Errorf("scan requires a database; use --db <path> or configure vigolium-configs.yaml: %w", err)
 	}
 	defer func() { _ = db.Close() }()
-	// Persisted --format jsonl emits the unified project-scoped envelope post-scan
-	// (live nuclei output is suppressed via DeferredJSONLExport). Registered before
-	// the runner so it runs after scanRunner.Close() flushes records, but before
-	// db.Close().
-	defer func() {
-		// Skip the export on a hard-failed scan so a failed run doesn't write a
-		// success-looking file/stream of stale project data (phase mode is always
-		// persisted, never stateless).
-		if err != nil {
-			return
-		}
-		finishScanJSONLExport(db, opts)
-	}()
 
 	ctx := context.Background()
 	if err := db.CreateSchema(ctx); err != nil {
@@ -685,28 +774,59 @@ func runPhaseMode(_ *httpmsg.HttpRequestResponse, target, _ string) (err error) 
 	}
 	repo := database.NewRepository(db)
 
-	// Create Runner from options (creates InputSource from opts.Targets)
-	scanRunner, err := runner.New(opts)
+	// Stateless + -o: suppress StandardWriter's live file output and materialize
+	// every requested format from the temp DB post-scan (mirrors executeNativeScan).
+	var statelessOutputPath string
+	if opts.Stateless && opts.Output != "" {
+		statelessOutputPath = opts.Output
+		opts.Output = ""
+	}
+	// Export tail. Registered before the runner is closed; both read the DB after
+	// the explicit scanRunner.Close() below flushes records, but before db.Close().
+	defer func() { finishStatelessExport(db, opts, statelessOutputPath, false) }()
+	defer func() {
+		// Skip the deferred jsonl envelope when stateless already materialized
+		// every format to the file, or when a persisted scan hard-failed (don't
+		// write a success-looking file of stale data).
+		if opts.Stateless && statelessOutputPath != "" {
+			return
+		}
+		if err != nil && !opts.Stateless {
+			return
+		}
+		finishScanJSONLExport(db, opts)
+	}()
+
+	// Build the Runner. No phase flags → scan the exact request via SingleSource;
+	// a phase flag → crawl from the target URL via the standard input source.
+	var scanRunner *runner.Runner
+	if hasPhaseFlags() {
+		scanRunner, err = runner.New(opts)
+	} else {
+		scanRunner, err = runner.NewWithInputSource(opts, source.NewSingleSource(rr, opts.Modules))
+	}
 	if err != nil {
 		return fmt.Errorf("failed to create scan runner: %w", err)
 	}
 	if scanRunner == nil {
 		return nil
 	}
-	defer scanRunner.Close()
-
 	scanRunner.SetSettings(settings)
 	scanRunner.SetRepository(repo)
-
 	setupScanSignalHandler(scanRunner)
 
-	// A failed scan must abort visibly (return non-zero, skip the success
-	// banner) rather than logging at INFO and claiming completion — matching the
-	// direct-target path in executeNativeScan.
-	if scanErr := scanRunner.RunNativeScan(); scanErr != nil {
-		return scanErr
+	// Close before the export defers read the DB so any buffered records land
+	// first. A failed scan must abort visibly (non-zero, no success banner).
+	scanErr := scanRunner.RunNativeScan()
+	scanRunner.Close()
+	if scanErr != nil {
+		err = scanErr
+		return err
 	}
 
+	// maybeGenerateReports self-guards on opts.Output=="" (blanked above for the
+	// stateless path, where finishStatelessExport handles reports instead).
+	maybeGenerateReports(db, opts)
 	if !opts.Silent {
 		fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.Aqua(terminal.SymbolSparkle), terminal.BoldAqua("Native scan completed"))
 		printScanCompletionSummary(repo, time.Since(scanStart))

@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A request parameter is concatenated into a backend SQL query, letting an attacker inject conditions that alter the query's logic. The application returns no SQL errors or query output, but a payload that evaluates TRUE produces a different page than one that evaluates FALSE, proving the injection is exploitable (boolean-based blind SQL injection). This module confirms the flaw by injecting matched TRUE (e.g. AND 1=1) and FALSE (e.g. AND 1=2) conditions and observing a stable, reproducible content difference.
+	ModuleDesc = `**What it means:** A request parameter is concatenated into a backend SQL query, letting an attacker alter its logic. No errors or output appear, but a TRUE payload returns a different page than a FALSE one (boolean-based blind SQL injection), confirmed via matched AND 1=1 / AND 1=2 conditions.
 
-**How it's exploited:** An attacker turns the TRUE/FALSE page difference into a one-bit oracle and asks yes/no questions of the database, extracting data character by character (credentials, password hashes, session tokens, entire tables) and enumerating its structure. Depending on the database account's privileges, this can escalate to authentication bypass, full data exfiltration, or further compromise of the backend.
+**How it's exploited:** An attacker turns the TRUE/FALSE difference into a one-bit oracle, extracting data character by character - credentials, hashes, whole tables - and escalating to authentication bypass or data exfiltration.
 
-**Fix:** Use parameterized queries or prepared statements for all database access, and never build SQL by concatenating user input.`
+**Fix:** Use parameterized queries or prepared statements for all database access, never concatenating user input into SQL.`
 
 	ModuleConfirmation = "Confirmed when TRUE payloads consistently produce different responses from FALSE payloads across multiple verification requests"
 	ModuleSeverity     = severity.High

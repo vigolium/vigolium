@@ -175,8 +175,9 @@ func TestCollectValidatedLinks_NoEagerConfirmUnderConfirmRequired(t *testing.T) 
 
 // TestOnFileDiscovered_ConfirmsServedExtensionInScope proves the deferred
 // confirm-on-served path that replaces eager link-time confirmation: a same-host
-// file the server actually serves confirms its extension, while an out-of-scope
-// served file is scope-dropped and never confirms.
+// file the server actually serves (via a genuine-reference provenance, confirmExt
+// = true) confirms its extension, while an out-of-scope served file is
+// scope-dropped and never confirms.
 func TestOnFileDiscovered_ConfirmsServedExtensionInScope(t *testing.T) {
 	cfg := confirmTestConfig("http://example.test/", false)
 	cfg.Target.ScopeMode = "exact" // so other.test is genuinely out of scope
@@ -198,14 +199,61 @@ func TestOnFileDiscovered_ConfirmsServedExtensionInScope(t *testing.T) {
 		{"http://example.test/struts/save.action", "action"},
 		{"http://example.test/svc/handler.ashx", "ashx"},
 	} {
-		require.NoError(t, engine.OnFileDiscovered(tc.url, 0))
+		require.NoError(t, engine.OnFileDiscovered(tc.url, 0, true))
 		assert.True(t, engine.isExtensionConfirmed(tc.ext), "%s should confirm once a same-host file is served", tc.ext)
 		assert.True(t, got[tc.ext], "%s callback should fire", tc.ext)
 	}
 
 	// Out-of-scope served file → scope-dropped before metadata extraction.
-	require.NoError(t, engine.OnFileDiscovered("http://other.test/x.php", 0))
+	require.NoError(t, engine.OnFileDiscovered("http://other.test/x.php", 0, true))
 	assert.False(t, engine.isExtensionConfirmed("php"), "a cross-host file must not confirm")
+}
+
+// TestOnFileDiscovered_BruteForcedHitDoesNotConfirm is the partnergears.grab.com
+// regression: a brute-force fuzz wordlist guess (/axis2//axis2-web/HappyAxis.jsp,
+// fuzz.txt) answered with a non-soft-404 200 by a catch-all SPA shell reached
+// OnFileDiscovered and "confirmed" .jsp via the observed source, queuing a full
+// *.jsp wordlist sweep on a host that runs no JSP at all. With confirmExt=false
+// (a guessed provenance) the extension must NOT confirm — but the filename is
+// still harvested for discovery.
+func TestOnFileDiscovered_BruteForcedHitDoesNotConfirm(t *testing.T) {
+	engine, err := testEngineWithConfig(confirmTestConfig("http://example.test/", false))
+	require.NoError(t, err)
+	defer engine.Stop()
+	engine.config.Target.Recursion.Enabled = false
+
+	got := map[string]bool{}
+	engine.SetExtensionConfirmCallback(func(ev ExtensionConfirmEvent) { got[ev.Extension] = true })
+
+	before := engine.observedNames.Count()
+	require.NoError(t, engine.OnFileDiscovered("http://example.test/axis2//axis2-web/HappyAxis.jsp", 0, false))
+
+	assert.False(t, engine.isExtensionConfirmed("jsp"),
+		"a brute-forced guess must not confirm .jsp off a catch-all 200")
+	assert.Empty(t, got, "no extension-confirm callback should fire for a guessed path")
+	assert.Greater(t, engine.observedNames.Count(), before,
+		"the filename should still be harvested for discovery")
+}
+
+// TestFoundByConfirmsExtension pins the provenance allow-list: genuine
+// application references confirm a served extension; every brute-forced task type
+// (and any unknown/future type) does not.
+func TestFoundByConfirmsExtension(t *testing.T) {
+	genuine := []string{"spider", "js-extracted", "jsfetch", "form", "redirect"}
+	for _, fb := range genuine {
+		assert.True(t, foundByConfirmsExtension(fb), "%q is a genuine reference and should confirm", fb)
+	}
+
+	guessed := []string{
+		"fuzzer", "numeric", "ext-variant", "malformed-path-probe",
+		"short-file-no-ext", "short-file-custom-ext", "short-file-observed-ext",
+		"long-file-no-ext", "long-file-custom-ext", "long-file-observed-ext",
+		"short-dir", "long-dir", "wordlist", "observed-no-ext", "observed",
+		"", "something-new",
+	}
+	for _, fb := range guessed {
+		assert.False(t, foundByConfirmsExtension(fb), "%q is a guess and must not confirm", fb)
+	}
 }
 
 // TestCollectValidatedLinks_LegacyEagerConfirm proves legacy (non-ConfirmRequired)

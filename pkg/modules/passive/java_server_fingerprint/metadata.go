@@ -9,11 +9,11 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application's responses reveal that it runs on a Java application server (Apache Tomcat, Eclipse Jetty, JBoss, or a generic Servlet container), identified passively from the Server header, an X-Powered-By: Servlet header, or a JSESSIONID session cookie. This is an informational technology-fingerprint finding, not a vulnerability by itself, but disclosing the backend platform narrows the attack surface for an attacker.
+	ModuleDesc = `**What it means:** Responses reveal a Java application server (Tomcat, Jetty, JBoss, or a generic Servlet container), identified passively from the Server header, an X-Powered-By: Servlet header, or a JSESSIONID cookie. Informational technology fingerprint, not a vulnerability, but it narrows the attack surface.
 
-**How it's exploited:** Knowing the target is a specific Java app server lets an attacker focus reconnaissance and select platform-specific exploits and known CVEs (for example Tomcat manager or AJP weaknesses, JBoss deserialization, or default management consoles), probe for default paths and admin endpoints, and tailor payloads instead of guessing the stack blindly.
+**How it's exploited:** Knowing the specific server lets an attacker focus recon and select platform CVEs (Tomcat manager or AJP, JBoss deserialization, default consoles), probe for default admin paths, and tailor payloads.
 
-**Fix:** Suppress or genericize version-revealing headers (Server, X-Powered-By) and avoid leaking the framework in cookie names where feasible, so the underlying server software is not advertised to unauthenticated clients.`
+**Fix:** Suppress or genericize version-revealing headers (Server, X-Powered-By) and avoid leaking the framework in cookie names, so the server software is not advertised.`
 
 	ModuleConfirmation = "Confirmed when a Java app-server header or JSESSIONID cookie is observed"
 	ModuleSeverity     = severity.Info

@@ -19,9 +19,30 @@ import (
 )
 
 const (
-	clusterCacheTTL  = 500 * time.Millisecond
+	// clusterCacheTTL bounds how long a cached response stays fresh. Kept short
+	// on purpose: the clusterer keys on the raw request bytes, so it also collapses
+	// identical *non-idempotent* probes (e.g. two byte-identical POSTs) within the
+	// window — a deliberate safety valve. A cache hit also returns duration=0 so a
+	// stale RTT can't poison timing-based modules. Raising it widens both hazards,
+	// so it stays a conservative constant rather than a tunable.
+	clusterCacheTTL = 500 * time.Millisecond
+	// clusterCacheSize is the floor for the LRU entry cap. The effective size
+	// scales up with scan concurrency (see ClustererSizeForConcurrency) so wide
+	// fan-out doesn't evict still-fresh entries before their TTL elapses.
 	clusterCacheSize = 2048
+	// clusterCacheSizeMax caps the LRU so a very high --concurrency can't retain an
+	// unbounded set of response bodies (each entry holds a ref-counted body).
+	clusterCacheSizeMax = 8192
 )
+
+// ClustererSizeForConcurrency returns the LRU entry cap for a clusterer given the
+// scan's concurrency. The set of TTL-fresh entries at any instant grows with
+// in-flight request throughput, so the cache must be at least a few multiples of
+// concurrency to avoid evicting fresh entries under wide fan-out — bounded by
+// clusterCacheSizeMax to keep retained body memory in check.
+func ClustererSizeForConcurrency(concurrency int) int {
+	return min(max(concurrency*16, clusterCacheSize), clusterCacheSizeMax)
+}
 
 // sharedBytes is a reference-counted byte slice that avoids copying response
 // bodies on every cache hit. When the last reference is released the slice
@@ -162,9 +183,19 @@ type ClustererStats struct {
 	CacheHits int64
 }
 
-// NewRequestClusterer creates a new RequestClusterer.
+// NewRequestClusterer creates a new RequestClusterer with the default LRU size.
 func NewRequestClusterer() *RequestClusterer {
-	cache, _ := lru.New[string, *CachedResponse](clusterCacheSize)
+	return NewRequestClustererWithSize(clusterCacheSize)
+}
+
+// NewRequestClustererWithSize creates a RequestClusterer with an explicit LRU
+// entry cap. Sizes below the floor (clusterCacheSize) are raised to it. Callers
+// typically derive size from scan concurrency via ClustererSizeForConcurrency.
+func NewRequestClustererWithSize(size int) *RequestClusterer {
+	if size < clusterCacheSize {
+		size = clusterCacheSize
+	}
+	cache, _ := lru.New[string, *CachedResponse](size)
 	return &RequestClusterer{
 		cache: cache,
 	}

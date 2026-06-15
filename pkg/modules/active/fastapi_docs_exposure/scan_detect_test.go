@@ -70,6 +70,29 @@ func TestScanPerRequest_DetectsContextPathDocs(t *testing.T) {
 	assert.Contains(t, res[0].URL, "/api/docs", "the finding URL must point at the context-path mount")
 }
 
+// TestScanPerRequest_NoFP_GenericJSONShell reproduces the generic-JSON-catch-all
+// FP class: a host that 200s every path with a JSON body carrying the generic
+// keys "info" and "paths" but NO "openapi"/"swagger" version key. The old
+// single-OR matcher fired on the bare "info"/"paths" tokens; the anchor-group
+// requirement must suppress it.
+func TestScanPerRequest_NoFP_GenericJSONShell(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Generic API envelope: has "info" and "paths" but no version key.
+		_, _ = w.Write([]byte(`{"info":"service up","paths":["/a","/b"],"status":"ok"}`))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", "<html>app</html>")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a generic JSON body with only info/paths (no openapi key) must not yield a finding")
+}
+
 // TestScanPerRequest_NoFalsePositive returns 404 for every docs path, so nothing
 // should be flagged.
 func TestScanPerRequest_NoFalsePositive(t *testing.T) {

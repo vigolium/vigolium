@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	neturl "net/url"
 	"sync"
 	"testing"
 	"time"
@@ -335,6 +336,154 @@ func TestRiskPrioritizedDBInputSource_DoesNotSkipNonRiskRecords(t *testing.T) {
 	}
 	if remaining != 0 {
 		t.Fatalf("remaining=%d, want 0", remaining)
+	}
+}
+
+// TestRiskPrioritizedDBInputSource_BatchedFetchAcrossChunks verifies the
+// prefetch-buffered Next() returns every record exactly once across multiple
+// fetch chunks, keeps the high-risk records at the front (risk_score DESC), and
+// still advances the scan cursor fully.
+func TestRiskPrioritizedDBInputSource_BatchedFetchAcrossChunks(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	scanUUID := createTestScan(t, repo)
+
+	host := "batch.example.com"
+	n := riskPrefetchBatchSize*2 + 5 // spans 3 prefetch chunks
+	inserted := insertTestRecordsWithHost(t, repo, host, n)
+
+	// Two records deep in the natural order are flagged high-risk with distinct
+	// scores so they must surface first, score-descending, regardless of which
+	// chunk they fall in.
+	hiA := inserted[riskPrefetchBatchSize+3] // 2nd chunk in natural order
+	hiB := inserted[n-2]                     // last chunk in natural order
+	if err := repo.UpdateRiskScores(ctx, map[string]int{hiA: 20, hiB: 10}); err != nil {
+		t.Fatalf("UpdateRiskScores: %v", err)
+	}
+
+	source := NewRiskPrioritizedDBInputSource(db, repo, scanUUID).WithHostnames([]string{host})
+	var got []string
+	for {
+		item, err := source.Next(ctx)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Next(): %v", err)
+		}
+		got = append(got, item.RecordUUID)
+		item.Complete()
+	}
+
+	// Completeness: every inserted record returned exactly once.
+	if len(got) != n {
+		t.Fatalf("got %d records, want %d", len(got), n)
+	}
+	seen := make(map[string]int, len(got))
+	for _, u := range got {
+		seen[u]++
+	}
+	for _, u := range inserted {
+		if seen[u] != 1 {
+			t.Fatalf("UUID %s returned %d times, want 1", u, seen[u])
+		}
+	}
+
+	// Risk ordering: the two high-risk records lead, score-descending.
+	if got[0] != hiA || got[1] != hiB {
+		t.Fatalf("risk ordering: got[0]=%s got[1]=%s, want %s then %s", got[0], got[1], hiA, hiB)
+	}
+
+	// Cursor advanced fully across all chunks.
+	scan, _ := repo.GetScanByUUID(ctx, scanUUID)
+	if scan.ProcessedCount != int64(n) {
+		t.Fatalf("processed_count=%d, want %d", scan.ProcessedCount, n)
+	}
+	remaining, err := repo.CountRecordsAfterCursor(ctx, scan.CursorAt, scan.CursorUUID, host)
+	if err != nil {
+		t.Fatalf("CountRecordsAfterCursor: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining=%d, want 0", remaining)
+	}
+}
+
+// insertQueryRecord saves a single GET record with an explicit URL (carrying a
+// query string) so the param-shape coalescing path can see it.
+func insertQueryRecord(t *testing.T, repo *Repository, host, fullURL string) string {
+	t.Helper()
+	ctx := context.Background()
+	u, err := neturl.Parse(fullURL)
+	if err != nil {
+		t.Fatalf("parse %q: %v", fullURL, err)
+	}
+	raw := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", u.RequestURI(), host)
+	rr, err := httpmsg.ParseRawRequestWithURL(raw, fullURL)
+	if err != nil {
+		t.Fatalf("ParseRawRequestWithURL: %v", err)
+	}
+	rr = rr.WithResponse(httpmsg.NewHttpResponse([]byte("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html></html>")))
+	recordUUID, err := repo.SaveRecord(ctx, rr, "test", DefaultProjectUUID)
+	if err != nil {
+		t.Fatalf("SaveRecord(%q): %v", fullURL, err)
+	}
+	return recordUUID
+}
+
+// TestRiskPrioritizedDBInputSource_ParamShapeCoalescing verifies that same-shape
+// GET records (differing only in query value) are coalesced to the configured
+// sample cap, while distinct shapes survive, and — critically — the scan cursor
+// still advances past every record so coalesced-away rows are not re-scanned.
+func TestRiskPrioritizedDBInputSource_ParamShapeCoalescing(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	scanUUID := createTestScan(t, repo)
+
+	host := "shape.example.com"
+	// 5 value-only-different /search?q=* records (same shape).
+	for i := 0; i < 5; i++ {
+		insertQueryRecord(t, repo, host, fmt.Sprintf("https://%s/search?q=%d", host, i))
+	}
+	// A distinct shape (extra param) and a param-less GET — both must survive.
+	insertQueryRecord(t, repo, host, fmt.Sprintf("https://%s/search?q=1&page=2", host))
+	insertQueryRecord(t, repo, host, fmt.Sprintf("https://%s/about", host))
+
+	const maxSamples = 2
+	source := NewRiskPrioritizedDBInputSource(db, repo, scanUUID).
+		WithHostnames([]string{host}).
+		WithParamShapeCoalescing(maxSamples)
+
+	var got int
+	for {
+		item, err := source.Next(ctx)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Next(): %v", err)
+		}
+		got++
+		item.Complete()
+	}
+
+	// Expect: 2 of the /search?q=* (cap), + 1 distinct shape + 1 param-less = 4.
+	if got != 4 {
+		t.Fatalf("scanned %d records, want 4 (coalesced)", got)
+	}
+	if dropped := source.CoalescedDropped(); dropped != 3 {
+		t.Fatalf("CoalescedDropped()=%d, want 3", dropped)
+	}
+
+	// The cursor must advance past ALL 7 inserted records, not just the 4 scanned.
+	scan, _ := repo.GetScanByUUID(ctx, scanUUID)
+	remaining, err := repo.CountRecordsAfterCursor(ctx, scan.CursorAt, scan.CursorUUID, host)
+	if err != nil {
+		t.Fatalf("CountRecordsAfterCursor: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining=%d, want 0 (coalesced records must not be left for a later round)", remaining)
 	}
 }
 

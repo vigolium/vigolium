@@ -175,6 +175,52 @@ func TestConfirmStartURLExtensions_ObservedSeedExt(t *testing.T) {
 	assert.Equal(t, "observed", sources[0])
 }
 
+// TestConfirmStartURLExtensions_FingerprintGatedOnGenuineLanding proves the
+// start-URL fingerprint source only fires on a genuine 2xx, non-login landing
+// page. This is the orders-test.example.com regression: the root 302'd off-host
+// to a Salesforce SSO page, yet PHP (php/php3/php4/php5/phtml) was "confirmed via
+// fingerprint (PHP via start URL)" and a full *.php wordlist fuzz was queued on a
+// host that serves no PHP at all. The observed/probe sources are unaffected.
+func TestConfirmStartURLExtensions_FingerprintGatedOnGenuineLanding(t *testing.T) {
+	// A header that fingerprints as PHP regardless of the response status.
+	phpHeader := http.Header{"Set-Cookie": {"PHPSESSID=abc; path=/"}}
+
+	cases := []struct {
+		name    string
+		status  int
+		isLogin bool
+		want    bool // php confirmed from the fingerprint?
+	}{
+		{"200 genuine app page confirms", 200, false, true},
+		{"204 served confirms", 204, false, true},
+		{"301 redirect skips", 301, false, false},
+		{"302 off-host SSO bounce skips", 302, false, false},
+		{"401 auth wall skips", 401, false, false},
+		{"403 forbidden skips", 403, false, false},
+		{"404 not found skips", 404, false, false},
+		{"500 server error skips", 500, false, false},
+		{"unknown status skips", 0, false, false},
+		{"200 but login/SSO interstitial skips", 200, true, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			engine, err := testEngineWithConfig(confirmTestConfig("http://example.test/", false))
+			require.NoError(t, err)
+			defer engine.Stop()
+
+			engine.startURLHeader = phpHeader
+			engine.startURLStatus = tc.status
+			engine.startURLIsLogin = tc.isLogin
+
+			engine.confirmStartURLExtensions()
+
+			assert.Equal(t, tc.want, engine.isExtensionConfirmed("php"),
+				"php fingerprint confirmation for status=%d login=%v", tc.status, tc.isLogin)
+		})
+	}
+}
+
 // probeServer serves a real resource at /index.<ext> and 404s everything else,
 // so the analyzer sees index.<ext> as distinct from the soft-404 baseline.
 func probeServer(realPath string) *httptest.Server {

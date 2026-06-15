@@ -1419,7 +1419,7 @@ func consoleFindingLine(data any) string {
 	}
 	line := fmt.Sprintf("[%s] [%s] %s", strings.ToUpper(f.Severity), f.ModuleID, loc)
 	if len(f.ExtractedResults) > 0 {
-		line += " [" + strings.Join(f.ExtractedResults, ",") + "]"
+		line += " [" + output.EscapeOneLine(strings.Join(f.ExtractedResults, ",")) + "]"
 	}
 	return line
 }
