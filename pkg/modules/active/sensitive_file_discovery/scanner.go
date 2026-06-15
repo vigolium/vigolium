@@ -108,7 +108,7 @@ func (m *Module) ScanPerRequest(
 	// /<context>/.git/config or /assets/.env is found, not only the web root.
 	for _, base := range bases {
 		for _, sf := range sensitiveFiles {
-			result := m.probeFile(ctx, httpClient, sf, base+sf.path, fp)
+			result := m.probeFile(ctx, httpClient, scanCtx, sf, base+sf.path, fp)
 			if result != nil {
 				results = append(results, result)
 			}
@@ -222,6 +222,7 @@ func (sf sensitiveFile) confirms(body string) (matched []string, ok bool) {
 func (m *Module) probeFile(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
+	scanCtx *modkit.ScanContext,
 	sf sensitiveFile,
 	probePath string,
 	fp *notFoundFingerprint,
@@ -309,7 +310,7 @@ func (m *Module) probeFile(
 	// fallback, a logging proxy, an object-store wildcard) that serve identical
 	// content for every <dir>/*.<ext> — the "/orders/run.log equals
 	// /orders/<random>.log" false positive.
-	if decoyStatus, decoyBody, served := modkit.DecoyFileBaseline(ctx, httpClient, probePath); served && decoyStatus == status {
+	if decoyStatus, decoyBody, served := modkit.DecoyFileBaseline(scanCtx, ctx, httpClient, probePath); served && decoyStatus == status {
 		if modkit.BodiesSimilar(body, decoyBody) {
 			return nil
 		}

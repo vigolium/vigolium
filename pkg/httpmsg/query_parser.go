@@ -489,38 +489,45 @@ func EncodeQueryValue(decoded string) string {
 	if decoded == "" {
 		return ""
 	}
+	return string(appendQueryEncoded(make([]byte, 0, len(decoded)+8), decoded))
+}
 
-	result := make([]byte, 0, len(decoded)*3) // Pre-allocate for worst case
+// EncodeQueryValueBytes is the []byte-native form of EncodeQueryValue. It avoids
+// the []byte→string→[]byte round trips the string form forces on the
+// insertion-point fuzzing hot path (encodePayload). Returns nil for empty input.
+func EncodeQueryValueBytes(src []byte) []byte {
+	if len(src) == 0 {
+		return nil
+	}
+	return appendQueryEncoded(make([]byte, 0, len(src)+8), src)
+}
 
-	// Hex digits for encoding
-	hexDigits := "0123456789ABCDEF"
+// byteSeq constrains the percent-encoder helpers to string and []byte so both
+// the string and []byte entry points share one loop with no intermediate copy.
+type byteSeq interface{ ~string | ~[]byte }
 
-	for i := 0; i < len(decoded); i++ {
-		ch := decoded[i]
+const hexUpper = "0123456789ABCDEF"
 
-		// Check if character is unreserved (safe to include as-is)
+// appendQueryEncoded percent-encodes src for a URL query parameter (unreserved
+// passed through, space → '+', everything else → %XX) and appends to dst.
+func appendQueryEncoded[T byteSeq](dst []byte, src T) []byte {
+	for i := 0; i < len(src); i++ {
+		ch := src[i]
 		// Unreserved: A-Z, a-z, 0-9, -, _, ., ~
 		if (ch >= 'A' && ch <= 'Z') ||
 			(ch >= 'a' && ch <= 'z') ||
 			(ch >= '0' && ch <= '9') ||
 			ch == '-' || ch == '_' || ch == '.' || ch == '~' {
-			result = append(result, ch)
+			dst = append(dst, ch)
 			continue
 		}
-
-		// Encode space as '+'
 		if ch == ' ' {
-			result = append(result, '+')
+			dst = append(dst, '+')
 			continue
 		}
-
-		// Encode everything else as %XX
-		result = append(result, '%')
-		result = append(result, hexDigits[ch>>4])   // High nibble
-		result = append(result, hexDigits[ch&0x0F]) // Low nibble
+		dst = append(dst, '%', hexUpper[ch>>4], hexUpper[ch&0x0F])
 	}
-
-	return string(result)
+	return dst
 }
 
 // DecodePathValue decodes URL-encoded path segments (RFC 3986).
@@ -605,27 +612,35 @@ func EncodePathValue(decoded string) string {
 	if decoded == "" {
 		return ""
 	}
+	return string(appendPathEncoded(make([]byte, 0, len(decoded)+8), decoded))
+}
 
-	result := make([]byte, 0, len(decoded)*3)
-	hexDigits := "0123456789ABCDEF"
+// EncodePathValueBytes is the []byte-native form of EncodePathValue, avoiding the
+// []byte→string→[]byte round trips on the path-parameter fuzzing hot path.
+// Returns nil for empty input.
+func EncodePathValueBytes(src []byte) []byte {
+	if len(src) == 0 {
+		return nil
+	}
+	return appendPathEncoded(make([]byte, 0, len(src)+8), src)
+}
 
-	for i := 0; i < len(decoded); i++ {
-		ch := decoded[i]
-
+// appendPathEncoded encodes src for a URL path segment (RFC 3986: unreserved
+// passed through, everything else — including space and '+' — → %XX) and appends
+// to dst.
+func appendPathEncoded[T byteSeq](dst []byte, src T) []byte {
+	for i := 0; i < len(src); i++ {
+		ch := src[i]
 		// Unreserved characters (RFC 3986 §2.3): pass through
 		if (ch >= 'A' && ch <= 'Z') ||
 			(ch >= 'a' && ch <= 'z') ||
 			(ch >= '0' && ch <= '9') ||
 			ch == '-' || ch == '_' || ch == '.' || ch == '~' {
-			result = append(result, ch)
+			dst = append(dst, ch)
 			continue
 		}
-
 		// Everything else (including space and +): percent-encode
-		result = append(result, '%')
-		result = append(result, hexDigits[ch>>4])
-		result = append(result, hexDigits[ch&0x0F])
+		dst = append(dst, '%', hexUpper[ch>>4], hexUpper[ch&0x0F])
 	}
-
-	return string(result)
+	return dst
 }

@@ -193,11 +193,17 @@ func (p *ParameterInsertionPoint) BuildRequest(payload []byte) []byte {
 
 // splice replaces the parameter value with encoded in a freshly allocated slice.
 func (p *ParameterInsertionPoint) splice(encoded []byte, startOffset, endOffset int) []byte {
-	resultSize := len(p.baseRequest) - (endOffset - startOffset) + len(encoded)
-	result := make([]byte, resultSize)
-	n := copy(result, p.baseRequest[:startOffset])
-	n += copy(result[n:], encoded)
-	copy(result[n:], p.baseRequest[endOffset:])
+	return spliceBytes(p.baseRequest, startOffset, endOffset, encoded)
+}
+
+// spliceBytes returns base with base[start:end] replaced by repl, in a single
+// freshly allocated slice. Shared by the parameter and header insertion-point
+// fast paths.
+func spliceBytes(base []byte, start, end int, repl []byte) []byte {
+	result := make([]byte, len(base)-(end-start)+len(repl))
+	n := copy(result, base[:start])
+	n += copy(result[n:], repl)
+	copy(result[n:], base[end:])
 	return result
 }
 
@@ -312,13 +318,11 @@ func (p *ParameterInsertionPoint) encodePayload(payload []byte) []byte {
 	// Use path-specific encoding for path parameters (RFC 3986)
 	// Path encoding: space → %20 (not +), literal + preserved
 	if p.parameter.Type() == ParamPathFolder || p.parameter.Type() == ParamPathFilename {
-		encoded := EncodePathValue(string(payload))
-		return []byte(encoded)
+		return EncodePathValueBytes(payload)
 	}
 
 	if p.parameter.CanURLEncode() {
-		encoded := EncodeQueryValue(string(payload))
-		return []byte(encoded)
+		return EncodeQueryValueBytes(payload)
 	}
 
 	// Apply type-aware encoding for JSON parameters
@@ -985,7 +989,7 @@ func encodePayloadForIP(ip InsertionPoint, payload []byte) []byte {
 	switch v := ip.(type) {
 	case *ParameterInsertionPoint:
 		if v.parameter.CanURLEncode() {
-			return []byte(EncodeQueryValue(string(payload)))
+			return EncodeQueryValueBytes(payload)
 		}
 		return payload
 	case *EncodedInsertionPoint:

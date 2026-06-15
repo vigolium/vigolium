@@ -347,7 +347,7 @@ func (m *Module) probePath(
 	// a no-extension random path and so cannot see an extension-scoped catch-all (a
 	// wildcard that hands back the same archive/dump for every *.zip / *.sql); the
 	// same-extension decoy can.
-	if decoyStatus, decoyBody, served := modkit.DecoyFileBaseline(ctx, httpClient, path); served && decoyStatus == status && modkit.BodiesSimilar(body, decoyBody) {
+	if decoyStatus, decoyBody, served := modkit.DecoyFileBaseline(scanCtx, ctx, httpClient, path); served && decoyStatus == status && modkit.BodiesSimilar(body, decoyBody) {
 		return nil
 	}
 

@@ -200,7 +200,7 @@ func (m *Module) ScanPerRequest(
 	var results []*output.ResultEvent
 	for _, base := range bases {
 		for _, p := range probes {
-			if result := m.probeFile(ctx, httpClient, p, base+p.path, fp); result != nil {
+			if result := m.probeFile(ctx, httpClient, scanCtx, p, base+p.path, fp); result != nil {
 				results = append(results, result)
 			}
 		}
@@ -258,6 +258,7 @@ func (m *Module) fingerprint404(
 func (m *Module) probeFile(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
+	scanCtx *modkit.ScanContext,
 	p probe,
 	probePath string,
 	fp *notFoundFingerprint,
@@ -360,7 +361,7 @@ func (m *Module) probeFile(
 	// drop the finding if a nonexistent sibling under the same parent returns the
 	// same markers (a handler that 200s every child path). Root-level probes are
 	// already covered by the random-path 404 fingerprint above.
-	if modkit.SiblingServesAnyMarker(ctx, httpClient, probePath, p.markers) {
+	if modkit.SiblingServesAnyMarker(scanCtx, ctx, httpClient, probePath, p.markers) {
 		return nil
 	}
 

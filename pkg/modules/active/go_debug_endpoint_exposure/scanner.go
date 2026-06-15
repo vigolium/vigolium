@@ -169,7 +169,7 @@ func (m *Module) probeEndpoint(
 	// answers an unknown profile with a 404 "Unknown profile", so the sibling fails
 	// the predicate and the finding survives; a wildcard handler echoes the same
 	// body for the sibling and is dropped.
-	if modkit.SiblingPathCatchAll(ctx, httpClient, probePath, ep.confirm) {
+	if modkit.SiblingPathCatchAll(scanCtx, ctx, httpClient, probePath, ep.confirm) {
 		return nil
 	}
 

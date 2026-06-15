@@ -283,7 +283,7 @@ func (m *Module) probeFile(
 	// host-wide random path, which cannot see a catch-all scoped to a sub-directory
 	// prefix (now that we probe under context paths). Drop the finding if a
 	// nonexistent sibling under the same parent returns the same markers.
-	if modkit.SiblingServesAnyMarker(ctx, httpClient, probePath, probe.markers) {
+	if modkit.SiblingServesAnyMarker(scanCtx, ctx, httpClient, probePath, probe.markers) {
 		return nil
 	}
 

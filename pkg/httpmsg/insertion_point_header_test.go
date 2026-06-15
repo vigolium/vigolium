@@ -191,6 +191,57 @@ func TestCreateAllInsertionPoints_NoDuplicateSynthetic(t *testing.T) {
 	}
 }
 
+// TestHeaderInsertionPoint_FastPathEquivalence verifies that the precomputed
+// splice fast path (engaged when IPs are created via the real construction path)
+// produces functionally equivalent output to the AddOrReplaceHeader fallback:
+// the payload is the header's value, prior headers are preserved, and
+// PayloadOffsets locates the payload. The synthetic-insert path must additionally
+// be byte-identical to AddOrReplaceHeader on a CRLF-normalized base.
+func TestHeaderInsertionPoint_FastPathEquivalence(t *testing.T) {
+	request := []byte("GET / HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"User-Agent: Mozilla/5.0\r\n" +
+		"\r\n")
+
+	shared := &sharedBaseRequest{raw: request}
+	headers, _, _, err := ExtractAllHeaders(request)
+	if err != nil {
+		t.Fatalf("ExtractAllHeaders error: %v", err)
+	}
+	points := createHeaderInsertionPoints(shared, headers)
+
+	payload := []byte("PWN ' OR 1=1--")
+	for _, ip := range points {
+		hip := ip.(*HeaderInsertionPoint)
+		built := hip.BuildRequest(payload)
+
+		// Payload must be present as the header value.
+		want := hip.Name() + ": " + string(payload)
+		if !bytes.Contains(built, []byte(want)) {
+			t.Errorf("%s: built request missing %q\n%s", hip.Name(), want, built)
+		}
+		// Host header must survive.
+		if !bytes.Contains(built, []byte("Host: example.com")) {
+			t.Errorf("%s: Host header lost\n%s", hip.Name(), built)
+		}
+		// PayloadOffsets must locate the payload in the built request.
+		offs := hip.PayloadOffsets(payload)
+		if len(offs) != 2 || offs[0] < 0 || offs[1] > len(built) {
+			t.Fatalf("%s: bad offsets %v", hip.Name(), offs)
+		}
+		if got := string(built[offs[0]:offs[1]]); got != string(payload) {
+			t.Errorf("%s: payload at offsets = %q, want %q", hip.Name(), got, payload)
+		}
+
+		// Fast path must agree with the AddOrReplaceHeader reference: identical
+		// for synthetic inserts; for existing-header in-place splice, equal value.
+		ref, _ := AddOrReplaceHeader(request, hip.Name(), string(payload))
+		if hip.fastInsert && !bytes.Equal(built, ref) {
+			t.Errorf("%s: fastInsert output not byte-identical to AddOrReplaceHeader\n got: %s\nwant: %s", hip.Name(), built, ref)
+		}
+	}
+}
+
 func TestCreateAllInsertionPoints_ExistingInjectableHeaders(t *testing.T) {
 	request := []byte("GET / HTTP/1.1\r\n" +
 		"Host: example.com\r\n" +

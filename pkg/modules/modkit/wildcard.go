@@ -1,10 +1,9 @@
 package modkit
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"math"
+	mrand "math/rand/v2"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -158,12 +157,23 @@ func (sc *ScanContext) getWildcardCache() *lru.Cache[string, *WildcardEntry] {
 	return sc.wildcardCache
 }
 
+// randomToken returns an n-char lowercase hex token. These tokens only need to
+// be unlikely to collide with a real route (decoy/canary paths), so a fast
+// lock-free PRNG (math/rand/v2) is used instead of crypto/rand — this avoids a
+// syscall on the hot catch-all/sibling probe loops.
 func randomToken(n int) string {
-	b := make([]byte, (n+1)/2)
-	if _, err := rand.Read(b); err != nil {
-		// Fall back to a deterministic token — the path just needs to be
-		// unlikely to collide with a real route.
-		return fmt.Sprintf("rnd%dxx", time.Now().UnixNano()&0xffff)
+	const hexdigits = "0123456789abcdef"
+	out := make([]byte, n)
+	var bits uint64
+	var have int
+	for i := 0; i < n; i++ {
+		if have == 0 {
+			bits = mrand.Uint64()
+			have = 16 // 16 hex nibbles per uint64
+		}
+		out[i] = hexdigits[bits&0xf]
+		bits >>= 4
+		have--
 	}
-	return hex.EncodeToString(b)[:n]
+	return string(out)
 }

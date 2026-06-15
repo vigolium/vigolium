@@ -38,9 +38,8 @@ func (h HttpHeader) String() string {
 // FindHttpHeader searches for a header by name (case-insensitive) in a slice of headers.
 // Returns the value and true if found, empty string and false otherwise.
 func FindHttpHeader(headers []HttpHeader, name string) (string, bool) {
-	nameLower := strings.ToLower(name)
 	for _, h := range headers {
-		if strings.ToLower(h.Name) == nameLower {
+		if strings.EqualFold(h.Name, name) {
 			return h.Value, true
 		}
 	}
@@ -56,12 +55,11 @@ func HttpHeadersContain(headers []HttpHeader, name string) bool {
 // SetHttpHeader returns a new headers slice with the header added or updated.
 // If a header with the same name exists, it will be replaced.
 func SetHttpHeader(headers []HttpHeader, name, value string) []HttpHeader {
-	nameLower := strings.ToLower(name)
 	result := make([]HttpHeader, 0, len(headers)+1)
 	found := false
 
 	for _, h := range headers {
-		if strings.ToLower(h.Name) == nameLower {
+		if strings.EqualFold(h.Name, name) {
 			result = append(result, HttpHeader{Name: name, Value: value})
 			found = true
 		} else {
@@ -87,11 +85,10 @@ func AppendHttpHeader(headers []HttpHeader, name, value string) []HttpHeader {
 
 // RemoveHttpHeader returns a new headers slice with all headers of the given name removed.
 func RemoveHttpHeader(headers []HttpHeader, name string) []HttpHeader {
-	nameLower := strings.ToLower(name)
 	result := make([]HttpHeader, 0, len(headers))
 
 	for _, h := range headers {
-		if strings.ToLower(h.Name) != nameLower {
+		if !strings.EqualFold(h.Name, name) {
 			result = append(result, h)
 		}
 	}

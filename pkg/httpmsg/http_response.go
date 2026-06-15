@@ -36,6 +36,15 @@ type HttpResponse struct {
 	bodyLowerString string
 	bodyLowerStrOK  bool
 
+	// Opaque, memoized token-similarity signature for this response's body. The
+	// signature type lives in modkit (which depends on httpmsg), so it is held as
+	// an any here to avoid an import cycle; modkit computes it once per response
+	// via RatioSignature. The catch-all-shell guard (ResemblesObservedPage) reuses
+	// it across a module's whole probe loop instead of re-tokenizing the constant
+	// baseline per probe. Guarded by mu; invalidated by TruncateBody.
+	ratioSig   any
+	ratioSigOK bool
+
 	mu sync.RWMutex
 }
 
@@ -148,6 +157,34 @@ func (r *HttpResponse) BodyLowerString() string {
 	return s
 }
 
+// RatioSignature returns an opaque, memoized token-similarity signature for this
+// response's body, computed by compute on first access and shared across callers.
+// compute receives the memoized body string. The signature type lives in the
+// modkit package (which imports httpmsg), so httpmsg keeps it opaque to avoid an
+// import cycle. Invalidated by TruncateBody.
+func (r *HttpResponse) RatioSignature(compute func(body string) any) any {
+	r.mu.RLock()
+	if r.ratioSigOK {
+		v := r.ratioSig
+		r.mu.RUnlock()
+		return v
+	}
+	r.mu.RUnlock()
+
+	// Compute outside the lock (BodyToString takes the lock itself).
+	v := compute(r.BodyToString())
+
+	r.mu.Lock()
+	if r.ratioSigOK {
+		v = r.ratioSig // another goroutine won the race; keep its value
+	} else {
+		r.ratioSig = v
+		r.ratioSigOK = true
+	}
+	r.mu.Unlock()
+	return v
+}
+
 // Cookies parses and returns cookies from Set-Cookie headers.
 // This is NOT cached as it involves parsing.
 func (r *HttpResponse) Cookies() []*Cookie {
@@ -223,6 +260,7 @@ func (r *HttpResponse) TruncateBody(maxSize int) {
 	// against the truncated body instead of returning the pre-truncation copy.
 	r.bodyString, r.bodyStringOK = "", false
 	r.bodyLowerString, r.bodyLowerStrOK = "", false
+	r.ratioSig, r.ratioSigOK = nil, false
 	r.mu.Unlock()
 }
 

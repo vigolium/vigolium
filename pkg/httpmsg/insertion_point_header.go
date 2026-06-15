@@ -40,11 +40,27 @@ var syntheticHeaders = []syntheticHeader{
 }
 
 // HeaderInsertionPoint implements InsertionPoint for HTTP header value injection.
-// It uses AddOrReplaceHeader to build modified requests rather than offset-based replacement.
+//
+// BuildRequest uses a precomputed-offset splice (a single allocation, no header
+// re-parse) when the layout is eligible, mirroring the ParameterInsertionPoint
+// fast path. It falls back to AddOrReplaceHeader otherwise (and when the IP is
+// constructed directly without precomputed offsets). The splice keeps an existing
+// header in its original position instead of moving it to the end as
+// AddOrReplaceHeader (RemoveHeader+AddHeader) does — an HTTP-semantically
+// irrelevant difference, the same trade-off buildWithContentLength makes.
 type HeaderInsertionPoint struct {
 	headerName  string
 	baseValue   string
 	baseRequest []byte // shared reference from sharedBaseRequest
+
+	// Precomputed splice layout (set in createHeaderInsertionPoints). At most one
+	// of fastValue/fastInsert is set when eligible.
+	fastValue  bool   // existing unique header: splice payload into [valueStart:valueEnd]
+	fastInsert bool   // absent header: splice "Name: payload\r\n" at insertPos
+	valueStart int    // value region start (fastValue)
+	valueEnd   int    // value region end (fastValue)
+	insertPos  int    // header/body separator position (fastInsert)
+	linePrefix string // "Name: " (fastInsert)
 }
 
 // Name returns the header name.
@@ -63,12 +79,32 @@ func (h *HeaderInsertionPoint) Type() InsertionPointType {
 }
 
 // BuildRequest creates a new request with the payload injected as the header value.
-// Works for both existing and synthetic headers via AddOrReplaceHeader.
+// Works for both existing and synthetic headers.
 func (h *HeaderInsertionPoint) BuildRequest(payload []byte) []byte {
 	if payload == nil {
 		panic("Payload cannot be nil")
 	}
 
+	// Fast path: single-allocation splice using the layout precomputed at
+	// construction, avoiding the two full re-parses + rebuilds that
+	// AddOrReplaceHeader (RemoveHeader+AddHeader) performs per payload.
+	if h.fastValue {
+		return spliceBytes(h.baseRequest, h.valueStart, h.valueEnd, payload)
+	}
+	if h.fastInsert {
+		// Insert "Name: <payload>\r\n" before the header/body separator.
+		base := h.baseRequest
+		result := make([]byte, 0, len(base)+len(h.linePrefix)+len(payload)+2)
+		result = append(result, base[:h.insertPos]...)
+		result = append(result, h.linePrefix...)
+		result = append(result, payload...)
+		result = append(result, CR, LF)
+		result = append(result, base[h.insertPos:]...)
+		return result
+	}
+
+	// Fallback (e.g. directly-constructed IP, duplicate header, or malformed
+	// request): full rebuild via AddOrReplaceHeader.
 	result, err := AddOrReplaceHeader(h.baseRequest, h.headerName, string(payload))
 	if err != nil {
 		// Fallback: return base request unchanged
@@ -101,6 +137,20 @@ func createHeaderInsertionPoints(shared *sharedBaseRequest, headers []string) []
 	var points []InsertionPoint
 	seen := make(map[string]bool)
 
+	// Count header occurrences so the fast-path splice is only enabled for
+	// unique headers — a duplicate header must go through AddOrReplaceHeader,
+	// which collapses all occurrences into one, whereas an in-place splice would
+	// leave the duplicate behind.
+	nameCounts := make(map[string]int)
+	for i := 1; i < len(headers); i++ {
+		if c := FindColonIndex(headers[i]); c > 0 {
+			nameCounts[ToLowerString(headers[i][:c])]++
+		}
+	}
+
+	// Separator position for synthetic-header inserts, computed once.
+	separatorPos := findHeaderEndPosition(shared.raw, 0)
+
 	// Parse existing headers (skip request line at index 0)
 	for i := 1; i < len(headers); i++ {
 		colonIdx := FindColonIndex(headers[i])
@@ -129,11 +179,20 @@ func createHeaderInsertionPoints(shared *sharedBaseRequest, headers []string) []
 			value = TrimSpace(headers[i][valueStart:])
 		}
 
-		points = append(points, &HeaderInsertionPoint{
+		hip := &HeaderInsertionPoint{
 			headerName:  name,
 			baseValue:   value,
 			baseRequest: shared.raw,
-		})
+		}
+		// Precompute the value-splice layout for unique headers.
+		if nameCounts[nameLower] == 1 {
+			if offs := GetHeaderOffsets(shared.raw, name); offs != nil {
+				hip.fastValue = true
+				hip.valueStart = offs[1]
+				hip.valueEnd = offs[2]
+			}
+		}
+		points = append(points, hip)
 	}
 
 	// Determine dynamic defaults for synthetic headers
@@ -174,11 +233,19 @@ func createHeaderInsertionPoints(shared *sharedBaseRequest, headers []string) []
 			defaultVal = "127.0.0.1"
 		}
 
-		points = append(points, &HeaderInsertionPoint{
+		hip := &HeaderInsertionPoint{
 			headerName:  sh.name,
 			baseValue:   defaultVal,
 			baseRequest: shared.raw,
-		})
+		}
+		// Precompute the insert layout (header absent → splice a new line before
+		// the separator, mirroring AddHeader).
+		if separatorPos >= 0 {
+			hip.fastInsert = true
+			hip.insertPos = separatorPos
+			hip.linePrefix = sh.name + ": "
+		}
+		points = append(points, hip)
 	}
 
 	return points

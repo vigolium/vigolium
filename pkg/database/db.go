@@ -522,6 +522,10 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_records_dedup ON http_records(project_uuid, method, hostname, path)",
 		"CREATE INDEX IF NOT EXISTS idx_records_request_hash ON http_records(request_hash)",
 		"CREATE INDEX IF NOT EXISTS idx_records_response_hash ON http_records(response_hash)",
+		// Supports DeduplicateDeparosByNormHash: narrows the full http_records scan to
+		// the (project, deparos) subset and surfaces response_norm_hash for the
+		// reflected-URL-robust dedup pass run after discovery.
+		"CREATE INDEX IF NOT EXISTS idx_records_norm_hash ON http_records(project_uuid, source, response_norm_hash)",
 
 		// -- http_records: scan_uuid index --
 		"CREATE INDEX IF NOT EXISTS idx_records_project_scan ON http_records(project_uuid, scan_uuid)",

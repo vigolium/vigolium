@@ -101,7 +101,7 @@ func (m *Module) ScanPerRequest(
 	// directory, so if a random guaranteed-nonexistent dir already renders a
 	// listing-shaped body the host templates that body for any path (SPA shell,
 	// wildcard rewrite, soft-404) and every per-directory finding is spurious.
-	if modkit.RandomDirCatchAll(ctx, httpClient, func(b string) bool { return detectDirectoryListing(b) != "" }) {
+	if modkit.RandomDirCatchAll(scanCtx, ctx, httpClient, func(b string) bool { return detectDirectoryListing(b) != "" }) {
 		return nil, nil
 	}
 

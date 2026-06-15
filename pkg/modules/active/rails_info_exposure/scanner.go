@@ -233,7 +233,7 @@ func (m *Module) probeEndpoint(
 	// under context-path prefixes, drop the finding if a nonexistent sibling under
 	// the same parent returns the same markers (a handler that 200s every child).
 	// The markerless /up probe is already guarded by ConfirmNotSoft404 above.
-	if len(p.markers) > 0 && modkit.SiblingServesAnyMarker(ctx, httpClient, probePath, p.markers) {
+	if len(p.markers) > 0 && modkit.SiblingServesAnyMarker(scanCtx, ctx, httpClient, probePath, p.markers) {
 		return nil
 	}
 

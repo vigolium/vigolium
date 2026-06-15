@@ -1463,6 +1463,25 @@ func callGuard(ctx context.Context, timeout time.Duration) (callCtx context.Cont
 	}
 }
 
+// moduleCallResult carries a module scan function's return across the watchdog
+// goroutine. Shared by the active and passive wrappers so they can use one
+// channel pool.
+type moduleCallResult struct {
+	events []*output.ResultEvent
+	err    error
+}
+
+// moduleResultChanPool recycles the 1-slot result channels used by the per-module
+// timeout wrappers — the single highest-frequency allocation site in the
+// dispatch loop (one per active and passive module call). A channel is returned
+// to the pool ONLY on the normal completion path, where the watchdog goroutine
+// has finished sending and will never touch it again; on the timeout / parent-
+// cancel paths the abandoned goroutine still owns the channel (it sends when the
+// slow scanFn eventually returns), so those channels are left for the GC.
+var moduleResultChanPool = sync.Pool{
+	New: func() any { return make(chan moduleCallResult, 1) },
+}
+
 // runPassiveWithTimeout executes a passive module scan function with a timeout guard.
 func (e *Executor) runPassiveWithTimeout(
 	ctx context.Context,
@@ -1481,20 +1500,16 @@ func (e *Executor) runPassiveWithTimeout(
 	callCtx, timeoutC, stop := callGuard(ctx, timeout)
 	defer stop()
 
-	type result struct {
-		events []*output.ResultEvent
-		err    error
-	}
-
 	start := time.Now()
-	ch := make(chan result, 1)
+	ch := moduleResultChanPool.Get().(chan moduleCallResult)
 	go func() {
 		events, err := scanFn(callCtx)
-		ch <- result{events, err}
+		ch <- moduleCallResult{events, err}
 	}()
 
 	select {
 	case r := <-ch:
+		moduleResultChanPool.Put(ch) // goroutine done; channel drained and safe to reuse
 		e.moduleMetrics.Record(module.ID(), time.Since(start), len(r.events), r.err)
 		if r.err != nil {
 			zap.L().Debug("Passive module error",
@@ -1549,20 +1564,16 @@ func (e *Executor) runActiveWithTimeout(
 	callCtx, timeoutC, stop := callGuard(ctx, timeout)
 	defer stop()
 
-	type result struct {
-		events []*output.ResultEvent
-		err    error
-	}
-
 	start := time.Now()
-	ch := make(chan result, 1)
+	ch := moduleResultChanPool.Get().(chan moduleCallResult)
 	go func() {
 		events, err := scanFn(callCtx)
-		ch <- result{events, err}
+		ch <- moduleCallResult{events, err}
 	}()
 
 	select {
 	case r := <-ch:
+		moduleResultChanPool.Put(ch) // goroutine done; channel drained and safe to reuse
 		e.moduleMetrics.Record(module.ID(), time.Since(start), len(r.events), r.err)
 		if r.err != nil {
 			if isLevelDBClosed(r.err) {

@@ -313,6 +313,33 @@ func findingHostnameFilter(hostnames []string) (string, []any) {
 	return " AND hostname IN (?)", []any{bun.List(clean)}
 }
 
+// findingBody holds a finding's heavy request/response body text, loaded in the
+// two-pass dedup passes' second pass.
+type findingBody struct {
+	ID       int64  `bun:"id"`
+	Request  string `bun:"request"`
+	Response string `bun:"response"`
+}
+
+// loadFindingBodies fetches the request/response body text for the given finding
+// IDs, keyed by ID. It is the shared "pass 2" of the two-pass dedup passes
+// (DeduplicateFindings / GroupFindingsByValue), which defer body loads to the
+// few findings in groups that actually have duplicates.
+func (r *Repository) loadFindingBodies(ctx context.Context, ids []int64) (map[int64]findingBody, error) {
+	var rows []findingBody
+	if err := r.db.NewSelect().Model((*Finding)(nil)).
+		Column("id", "request", "response").
+		Where("id IN (?)", bun.List(ids)).
+		Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	m := make(map[int64]findingBody, len(rows))
+	for _, br := range rows {
+		m[br.ID] = br
+	}
+	return m, nil
+}
+
 // DeduplicateFindings merges duplicate findings that share the same
 // (module_id, severity, matched_at URL) within a project. This collapses
 // findings where the same module fires many times on the same URL with different
@@ -330,9 +357,12 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 	projectUUID = defaultProjectUUID(projectUUID)
 	hostFilter, hostArgs := findingHostnameFilter(hostnames)
 
-	// Identify duplicate groups: for each group, get the survivor (rn=1) and duplicates (rn>1).
+	// Pass 1 — identify duplicate groups WITHOUT loading the heavy request/response
+	// body columns. Most findings are singletons (no duplicate), so loading their
+	// bodies here would be pure waste, repeated every feedback round. We fetch only
+	// id, rn, group_key, and the (small) additional_evidence jsonb.
 	groupQuery := `
-		SELECT id, request, response, additional_evidence, ROW_NUMBER() OVER (
+		SELECT id, additional_evidence, ROW_NUMBER() OVER (
 			PARTITION BY module_id, severity, json_extract(matched_at, '$[0]')
 			ORDER BY created_at ASC
 		) AS rn,
@@ -346,8 +376,6 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 
 	type findingRow struct {
 		ID                 int64    `bun:"id"`
-		Request            string   `bun:"request"`
-		Response           string   `bun:"response"`
 		AdditionalEvidence []string `bun:"additional_evidence,type:jsonb"`
 		RN                 int64    `bun:"rn"`
 		GroupKey           string   `bun:"group_key"`
@@ -359,14 +387,17 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 		return 0, 0, fmt.Errorf("failed to identify duplicate findings: %w", err)
 	}
 
-	// Build survivor map and collect evidence from duplicates per group.
+	type dupRow struct {
+		id       int64
+		evidence []string
+	}
 	type groupData struct {
 		survivorID       int64
 		survivorRequest  string
 		survivorResponse string
 		existingEvidence []string
 		newEvidence      []string
-		dupIDs           []int64
+		dups             []dupRow
 	}
 	groups := make(map[string]*groupData)
 	for _, row := range rows {
@@ -377,38 +408,58 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 		}
 		if row.RN == 1 {
 			g.survivorID = row.ID
-			g.survivorRequest = row.Request
-			g.survivorResponse = row.Response
 			g.existingEvidence = row.AdditionalEvidence
 		} else {
-			g.dupIDs = append(g.dupIDs, row.ID)
-			ev := buildEvidence(row.Request, row.Response)
-			if ev != "" {
-				g.newEvidence = append(g.newEvidence, ev)
-			}
-			// Carry forward any evidence the duplicate already had.
-			g.newEvidence = append(g.newEvidence, row.AdditionalEvidence...)
+			g.dups = append(g.dups, dupRow{id: row.ID, evidence: row.AdditionalEvidence})
 		}
 	}
 
-	// Collect all duplicate IDs and count groups that actually had duplicates.
+	// Collect the groups that actually have duplicates, plus the finding IDs whose
+	// bodies we must load (each dup group's survivor + its duplicates).
 	var allDupIDs []int64
+	var bodyIDs []int64
 	var groupCount int64
+	dupGroups := make([]*groupData, 0)
 	for _, g := range groups {
-		if len(g.dupIDs) == 0 {
+		if len(g.dups) == 0 {
 			continue
 		}
 		groupCount++
-		allDupIDs = append(allDupIDs, g.dupIDs...)
+		dupGroups = append(dupGroups, g)
+		bodyIDs = append(bodyIDs, g.survivorID)
+		for _, d := range g.dups {
+			allDupIDs = append(allDupIDs, d.id)
+			bodyIDs = append(bodyIDs, d.id)
+		}
 	}
 
 	if len(allDupIDs) == 0 {
 		return 0, 0, nil
 	}
 
+	// Pass 2 — load request/response bodies only for findings in groups that have
+	// duplicates, then build the merged evidence.
+	bodyByID, err := r.loadFindingBodies(ctx, bodyIDs)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to load finding bodies for dedup: %w", err)
+	}
+	for _, g := range dupGroups {
+		sb := bodyByID[g.survivorID]
+		g.survivorRequest = sb.Request
+		g.survivorResponse = sb.Response
+		for _, d := range g.dups {
+			db := bodyByID[d.id]
+			if ev := buildEvidence(db.Request, db.Response); ev != "" {
+				g.newEvidence = append(g.newEvidence, ev)
+			}
+			// Carry forward any evidence the duplicate already had.
+			g.newEvidence = append(g.newEvidence, d.evidence...)
+		}
+	}
+
 	// Update survivors with merged evidence, then delete duplicates.
 	err = r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
-		for _, g := range groups {
+		for _, g := range dupGroups {
 			if len(g.newEvidence) == 0 {
 				continue
 			}
@@ -485,6 +536,8 @@ type GroupFindingOptions struct {
 func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID string, opts GroupFindingOptions) (deleted int64, grouped int64, err error) {
 	projectUUID = defaultProjectUUID(projectUUID)
 
+	// Pass 1 loads grouping inputs WITHOUT the heavy request/response body columns;
+	// they are fetched in pass 2 only for groups that actually have duplicates.
 	type findingRow struct {
 		ID                 int64    `bun:"id"`
 		Hostname           string   `bun:"hostname"`
@@ -494,8 +547,6 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 		MatchedAt          []string `bun:"matched_at,type:jsonb"`
 		ExtractedResults   []string `bun:"extracted_results,type:jsonb"`
 		Tags               []string `bun:"tags,type:jsonb"`
-		Request            string   `bun:"request"`
-		Response           string   `bun:"response"`
 		AdditionalEvidence []string `bun:"additional_evidence,type:jsonb"`
 	}
 
@@ -521,7 +572,7 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 	}
 	loadQuery := `
 		SELECT id, hostname, module_id, severity, description, matched_at, extracted_results, tags,
-		       request, response, additional_evidence
+		       additional_evidence
 		FROM findings
 		WHERE project_uuid = ?` + hostFilter + ` AND ` + where + `
 		ORDER BY created_at ASC, id ASC`
@@ -533,18 +584,22 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 
 	tagFilter := output.NormalizeTagSet(opts.Tags)
 
+	type dupRow struct {
+		id       int64
+		evidence []string
+	}
 	type groupData struct {
 		survivorID          int64
-		survivorRequest     string
-		survivorResponse    string
+		survivorRequest     string // filled in pass 2
+		survivorResponse    string // filled in pass 2
 		survivorDescription string
 		survivorMatched     []string
 		survivorExtracted   []string
 		existingEvidence    []string
-		dupEvidence         []string
+		dupEvidence         []string // filled in pass 2
 		extraMatched        []string
 		extraExtracted      []string
-		dupIDs              []int64
+		dups                []dupRow
 		// byModule marks a group collapsed by (module, severity[, host]) regardless
 		// of value. Only these merge the differing per-URL extracted values onto the
 		// survivor — value groups share an identical value, so there is nothing to
@@ -573,8 +628,6 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 		if !ok {
 			groups[key] = &groupData{
 				survivorID:          row.ID,
-				survivorRequest:     row.Request,
-				survivorResponse:    row.Response,
 				survivorDescription: row.Description,
 				survivorMatched:     row.MatchedAt,
 				survivorExtracted:   row.ExtractedResults,
@@ -584,8 +637,9 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 			order = append(order, key)
 			continue
 		}
-		// Duplicate: fold its URLs and evidence into the survivor.
-		g.dupIDs = append(g.dupIDs, row.ID)
+		// Duplicate: fold its URLs and evidence into the survivor (body-derived
+		// evidence is built in pass 2).
+		g.dups = append(g.dups, dupRow{id: row.ID, evidence: row.AdditionalEvidence})
 		g.extraMatched = append(g.extraMatched, row.MatchedAt...)
 		// For by-module groups the differing values are signal the operator wants to
 		// keep — union them onto the survivor so the collapsed finding lists every
@@ -593,28 +647,54 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 		if g.byModule {
 			g.extraExtracted = append(g.extraExtracted, row.ExtractedResults...)
 		}
-		if ev := buildEvidence(row.Request, row.Response); ev != "" {
-			g.dupEvidence = append(g.dupEvidence, ev)
-		}
-		g.dupEvidence = append(g.dupEvidence, row.AdditionalEvidence...)
 	}
 
+	// Collect duplicates and the finding IDs whose bodies pass 2 must load.
 	var allDupIDs []int64
+	var bodyIDs []int64
 	for _, key := range order {
 		g := groups[key]
-		if len(g.dupIDs) > 0 {
-			grouped++
-			allDupIDs = append(allDupIDs, g.dupIDs...)
+		if len(g.dups) == 0 {
+			continue
+		}
+		grouped++
+		bodyIDs = append(bodyIDs, g.survivorID)
+		for _, d := range g.dups {
+			allDupIDs = append(allDupIDs, d.id)
+			bodyIDs = append(bodyIDs, d.id)
 		}
 	}
 	if len(allDupIDs) == 0 {
 		return 0, 0, nil
 	}
 
+	// Pass 2 — load request/response bodies only for dup-group members and build
+	// the survivor's body-derived evidence.
+	bodyByID, err := r.loadFindingBodies(ctx, bodyIDs)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to load finding bodies for value grouping: %w", err)
+	}
+	for _, key := range order {
+		g := groups[key]
+		if len(g.dups) == 0 {
+			continue
+		}
+		sb := bodyByID[g.survivorID]
+		g.survivorRequest = sb.Request
+		g.survivorResponse = sb.Response
+		for _, d := range g.dups {
+			db := bodyByID[d.id]
+			if ev := buildEvidence(db.Request, db.Response); ev != "" {
+				g.dupEvidence = append(g.dupEvidence, ev)
+			}
+			g.dupEvidence = append(g.dupEvidence, d.evidence...)
+		}
+	}
+
 	err = r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
 		for _, key := range order {
 			g := groups[key]
-			if len(g.dupIDs) == 0 {
+			if len(g.dups) == 0 {
 				continue
 			}
 			mergedMatched := mergeUniqueStrings(g.survivorMatched, g.extraMatched)

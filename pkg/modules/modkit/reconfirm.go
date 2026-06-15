@@ -36,7 +36,26 @@ const (
 	// treated as meaningful.
 	SubstantialBodyDeltaBytes = 100
 	SubstantialBodyDeltaRatio = 0.20
+
+	// ratioBodyScanLimit bounds how much of a response body the similarity /
+	// normalization helpers tokenize. Page-identity and introduced-content
+	// signals live in the head of a document; regex-scanning megabytes of a
+	// minified bundle or data blob past this adds cost (and noise), not signal.
+	// Mirrors the body-scan cap that block detection already applies. The
+	// fast pre-filters (full-body hash + length) are unaffected — only the
+	// token multiset is built from the capped head.
+	ratioBodyScanLimit = 256 << 10 // 256 KiB
 )
+
+// capForRatio truncates s to at most ratioBodyScanLimit bytes for tokenization.
+// Slicing on a byte boundary may split a trailing multibyte rune, which only
+// produces a token boundary (harmless for the alnum tokenizer).
+func capForRatio(s string) string {
+	if len(s) > ratioBodyScanLimit {
+		return s[:ratioBodyScanLimit]
+	}
+	return s
+}
 
 var (
 	// reHexLong collapses long hex runs (session ids, hashes, ETags).
@@ -62,6 +81,34 @@ type ResponseSignature struct {
 	tokenTotal  int
 }
 
+// newRatioSignature builds a ResponseSignature for QuickRatio-only comparison.
+// Unlike NewResponseSignature it skips the body SHA-256 (and the full-body []byte
+// copy it requires): QuickRatio/BodiesSimilar use only the token multiset, never
+// BodyHash, so the hash is pure waste on the similarity path.
+func newRatioSignature(body string) ResponseSignature {
+	counts, total := Tokenize(NormalizeForRatio(body, ""))
+	return ResponseSignature{
+		BodyLength:  len(body),
+		tokenCounts: counts,
+		tokenTotal:  total,
+	}
+}
+
+// observedPageSignature returns the memoized ratio signature for resp's body. The
+// observed baseline is constant across a path-probing module's whole probe loop,
+// so caching it on the response collapses ~N re-tokenizations (one per probe) into
+// one. Returns the zero signature for a nil response.
+func observedPageSignature(resp *httpmsg.HttpResponse) ResponseSignature {
+	if resp == nil {
+		return ResponseSignature{}
+	}
+	return resp.RatioSignature(ratioSignatureCompute).(ResponseSignature)
+}
+
+// ratioSignatureCompute is a captureless adapter passed to HttpResponse.RatioSignature
+// (captureless so it is a static func value, not a per-call closure allocation).
+func ratioSignatureCompute(body string) any { return newRatioSignature(body) }
+
 // NewResponseSignature creates a signature from response attributes. reflect is
 // the value injected into the request (payload or base value); its occurrences
 // are stripped before tokenization so reflected input does not skew similarity.
@@ -82,7 +129,7 @@ func NewResponseSignature(statusCode int, body, reflect string) ResponseSignatur
 // dynamic-looking runs (long hex/digit sequences) so they don't add noise to
 // the token multiset.
 func NormalizeForRatio(body, reflect string) string {
-	s := strings.ToLower(body)
+	s := strings.ToLower(capForRatio(body))
 	if len(reflect) >= 3 {
 		s = strings.ReplaceAll(s, strings.ToLower(reflect), " ")
 	}
@@ -182,7 +229,7 @@ func RatioSimilar(a, b ResponseSignature) bool {
 // status) and centralizes the "same page?" check shared by the re-confirmation
 // gates (jwt/csrf accepted-as-baseline, forbidden/nginx/firebase stability).
 func BodiesSimilar(a, b string) bool {
-	return QuickRatio(NewResponseSignature(0, a, ""), NewResponseSignature(0, b, "")) >= UpperRatioBound
+	return QuickRatio(newRatioSignature(a), newRatioSignature(b)) >= UpperRatioBound
 }
 
 // IsDifferent returns true if two signatures are meaningfully different by the
@@ -340,11 +387,20 @@ func ConfirmBodyDifferential(
 		return BodyDifferentialResult{Ran: false, Reason: "missing client or request data"}
 	}
 
+	// Parse the payload request once; it is replayed PayloadRounds times below.
+	payloadReq, err := httpmsg.ParseRawRequest(string(payloadRaw))
+	if err != nil {
+		return BodyDifferentialResult{Ran: false, Reason: "payload request parse failed"}
+	}
+	if service != nil {
+		payloadReq = payloadReq.WithService(service)
+	}
+
 	// Replay the payload request; collect the introduced-content token set of each
 	// replay so per-request dynamic tokens (varying run-to-run) drop out.
 	payloadTokenSets := make([]map[string]int, 0, cfg.PayloadRounds)
 	for i := 0; i < cfg.PayloadRounds; i++ {
-		_, raw, ok := fetchResponse(client, service, payloadRaw, cfg.NoRedirects)
+		_, raw, ok := fetchResponseParsed(client, payloadReq, cfg.NoRedirects)
 		if !ok {
 			return BodyDifferentialResult{Ran: false, Reason: "payload request fetch failed"}
 		}
@@ -409,7 +465,7 @@ var volatileHeaderLine = regexp.MustCompile(`(?im)^(date|set-cookie|etag|age|exp
 // collapses very long hex/digit runs (ids/hashes). Single-character tokens are
 // dropped to reduce noise.
 func deltaTokenSet(raw string) map[string]int {
-	s := strings.ToLower(raw)
+	s := strings.ToLower(capForRatio(raw))
 	s = volatileHeaderLine.ReplaceAllString(s, " ")
 	s = reVeryLongHexRun.ReplaceAllString(s, " ")
 	counts := make(map[string]int)
@@ -463,6 +519,14 @@ func fetchResponse(client *http.Requester, service *httpmsg.Service, raw []byte,
 	if service != nil {
 		req = req.WithService(service)
 	}
+	return fetchResponseParsed(client, req, noRedirects)
+}
+
+// fetchResponseParsed is fetchResponse for an already-parsed (and service-bound)
+// request. Confirmation helpers that replay the SAME request across multiple
+// rounds parse the raw once and reuse the parsed request here, instead of
+// re-parsing per round. The request is treated as immutable by Execute.
+func fetchResponseParsed(client *http.Requester, req *httpmsg.HttpRequestResponse, noRedirects bool) (int, string, bool) {
 	// NoClustering bypasses the requester's 500ms response cache. These
 	// confirmation replays run back-to-back (well within the TTL); a cached replay
 	// would return a byte-identical response and collapse the measured run-to-run
@@ -640,9 +704,18 @@ func ConfirmCrossIDDifferential(
 		return CrossIDVerdict{Ran: false, CrossRatio: crossRatio, Reason: "missing client or original request"}
 	}
 
+	// Parse the original request once; it is replayed SelfRounds times below.
+	originalReq, err := httpmsg.ParseRawRequest(string(originalRaw))
+	if err != nil {
+		return CrossIDVerdict{Ran: false, CrossRatio: crossRatio, Reason: "same-id request parse failed"}
+	}
+	if service != nil {
+		originalReq = originalReq.WithService(service)
+	}
+
 	selfRatio := 1.0
 	for i := 0; i < cfg.SelfRounds; i++ {
-		status, body, ok := fetchResponseBody(client, service, originalRaw, cfg.NoRedirects)
+		status, body, ok := fetchResponseBodyParsed(client, originalReq, cfg.NoRedirects)
 		if !ok {
 			return CrossIDVerdict{Ran: false, CrossRatio: crossRatio, Reason: "same-id refetch failed"}
 		}
@@ -699,6 +772,13 @@ func fetchResponseBody(client *http.Requester, service *httpmsg.Service, raw []b
 	if service != nil {
 		req = req.WithService(service)
 	}
+	return fetchResponseBodyParsed(client, req, noRedirects)
+}
+
+// fetchResponseBodyParsed is fetchResponseBody for an already-parsed (and
+// service-bound) request, so a same-id determinism loop parses the raw once and
+// replays the parsed request across rounds. The request is immutable to Execute.
+func fetchResponseBodyParsed(client *http.Requester, req *httpmsg.HttpRequestResponse, noRedirects bool) (int, string, bool) {
 	// NoClustering bypasses the 500ms response cache so each same-id refetch is a
 	// genuinely fresh observation. A cached replay would report perfect self-
 	// similarity (selfRatio≈1.0) and make a non-deterministic endpoint look stable,

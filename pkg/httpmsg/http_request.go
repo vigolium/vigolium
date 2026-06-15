@@ -28,7 +28,14 @@ type HttpRequest struct {
 	bodyOffset int
 	parsed     bool
 	cachedID   string // Cached SHA-256 hash (computed once by ID())
-	mu         sync.RWMutex
+
+	// Cached URL (computed once by URL()). Invalidated when the service
+	// changes via HttpRequestResponse.WithService.
+	cachedURL    *urlutil.URL
+	cachedURLErr error
+	urlComputed  bool
+
+	mu sync.RWMutex
 }
 
 // NewHttpRequest creates a new HttpRequest from raw bytes.
@@ -116,11 +123,34 @@ func (r *HttpRequest) BodyToString() string {
 }
 
 // URL constructs and returns the full URL.
+//
+// The parsed URL is computed once and cached for subsequent calls (raw bytes
+// are immutable; the cache is invalidated when the service changes via
+// HttpRequestResponse.WithService). The returned *urlutil.URL is SHARED across
+// callers and MUST be treated as read-only — callers that need to mutate it
+// (e.g. rewrite the path or params) must Clone() it first, as
+// BuildRetryableRequest already does.
 func (r *HttpRequest) URL() (*urlutil.URL, error) {
 	if r.service == nil {
 		return nil, ErrNilService
 	}
-	return GetURLFromService(r.raw, r.service)
+
+	r.mu.RLock()
+	if r.urlComputed {
+		u, err := r.cachedURL, r.cachedURLErr
+		r.mu.RUnlock()
+		return u, err
+	}
+	r.mu.RUnlock()
+
+	u, err := GetURLFromService(r.raw, r.service)
+
+	r.mu.Lock()
+	r.cachedURL = u
+	r.cachedURLErr = err
+	r.urlComputed = true
+	r.mu.Unlock()
+	return u, err
 }
 
 // Parameters analyzes the request and returns all parameters.

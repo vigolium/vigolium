@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"hash/maphash"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"go.uber.org/zap"
 )
@@ -39,6 +41,13 @@ type RecordWriterConfig struct {
 	// budget, so a wedged database can't block Close() forever while a healthy one
 	// still drains in full. Default: 2m (far longer than any healthy drain).
 	FlushTimeout time.Duration
+
+	// DedupCacheSize bounds the in-memory dedup cache (LRU) that maps a record's
+	// dedup key to its UUID. A cache hit lets Write skip the per-record SELECT and
+	// the redundant insert for a key already seen by this writer (common in
+	// discovery/spidering, which re-encounter the same URLs). 0 disables the
+	// cache. Default: 50000.
+	DedupCacheSize int
 }
 
 func (c *RecordWriterConfig) withDefaults() RecordWriterConfig {
@@ -57,6 +66,9 @@ func (c *RecordWriterConfig) withDefaults() RecordWriterConfig {
 	}
 	if out.FlushTimeout <= 0 {
 		out.FlushTimeout = 2 * time.Minute
+	}
+	if out.DedupCacheSize == 0 {
+		out.DedupCacheSize = 50000
 	}
 	return out
 }
@@ -108,6 +120,10 @@ type RecordWriter struct {
 	cancel context.CancelFunc
 	closed atomic.Bool
 	wg     sync.WaitGroup
+
+	// dedupCache maps a record's dedup key → UUID so a key already seen by this
+	// writer skips the per-record SELECT and the redundant insert. nil disables it.
+	dedupCache *lru.Cache[string, string]
 }
 
 // hashSeed is a package-level seed for consistent host hashing within
@@ -130,6 +146,11 @@ func NewRecordWriter(repo *Repository, cfg RecordWriterConfig) *RecordWriter {
 		shards: make([]*writerShard, cfg.Shards),
 		ctx:    ctx,
 		cancel: cancel,
+	}
+
+	if cfg.DedupCacheSize > 0 {
+		// Error only on a non-positive size, already guarded above.
+		w.dedupCache, _ = lru.New[string, string](cfg.DedupCacheSize)
 	}
 
 	for i := range w.shards {
@@ -167,7 +188,17 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 	// DefaultProjectUUID, and duplicates slip through.
 	record.ProjectUUID = defaultProjectUUID(projectUUID)
 
+	// Fast path: a key already seen by this writer (cross-request repeat, common
+	// in discovery/spidering) skips both the SELECT and the redundant insert.
+	dedupKey := recordDedupKey(record)
+	if w.dedupCache != nil {
+		if existingUUID, ok := w.dedupCache.Get(dedupKey); ok {
+			return existingUUID, nil
+		}
+	}
+
 	if existingUUID, err := w.repo.findDuplicateRecord(ctx, record); err == nil && existingUUID != "" {
+		w.cacheDedup(dedupKey, existingUUID)
 		return existingUUID, nil
 	}
 
@@ -191,6 +222,9 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 	// caller should see the success rather than ErrRecordWriterClosed.
 	select {
 	case res := <-resultCh:
+		if res.Err == nil {
+			w.cacheDedup(dedupKey, res.UUID)
+		}
 		return res.UUID, res.Err
 	default:
 	}
@@ -203,12 +237,46 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 	// blocks forever on a Close() that won the race.
 	select {
 	case res := <-resultCh:
+		if res.Err == nil {
+			w.cacheDedup(dedupKey, res.UUID)
+		}
 		return res.UUID, res.Err
 	case <-w.ctx.Done():
 		return "", ErrRecordWriterClosed
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
+}
+
+// cacheDedup records a dedup key → UUID mapping so a later Write of the same key
+// short-circuits the SELECT and insert. No-op for an empty UUID or disabled cache.
+func (w *RecordWriter) cacheDedup(key, uuid string) {
+	if w.dedupCache != nil && uuid != "" {
+		w.dedupCache.Add(key, uuid)
+	}
+}
+
+// recordDedupKey builds the in-memory dedup key. It MUST mirror the columns
+// findDuplicateRecord filters on: (project_uuid, method, hostname, path, url),
+// plus request_hash when the request carries a body — otherwise the cache would
+// collapse distinct payloads to the same endpoint into one entry.
+func recordDedupKey(r *HTTPRecord) string {
+	var b strings.Builder
+	b.Grow(len(r.ProjectUUID) + len(r.Method) + len(r.Hostname) + len(r.Path) + len(r.URL) + len(r.RequestHash) + 6)
+	b.WriteString(r.ProjectUUID)
+	b.WriteByte('\x00')
+	b.WriteString(r.Method)
+	b.WriteByte('\x00')
+	b.WriteString(r.Hostname)
+	b.WriteByte('\x00')
+	b.WriteString(r.Path)
+	b.WriteByte('\x00')
+	b.WriteString(r.URL)
+	if r.RequestContentLength > 0 {
+		b.WriteByte('\x00')
+		b.WriteString(r.RequestHash)
+	}
+	return b.String()
 }
 
 // shardFor returns the shard responsible for the given hostname.

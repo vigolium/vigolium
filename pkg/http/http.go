@@ -147,6 +147,15 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 	// Transport factory
 	makeTransport := func() *http.Transport {
 		t := &http.Transport{
+			// NOTE: ForceAttemptHTTP2 is currently inert. Setting a custom
+			// DialTLSContext makes Go skip its own TLS+ALPN handling, so the
+			// transport never negotiates h2 and never populates TLSNextProto —
+			// regardless of this flag. This is deliberate: the scanner operates over
+			// HTTP/1.1 so request smuggling, header-ordering, raw-request, and
+			// timing modules keep a 1:1 request↔connection mapping that h2
+			// multiplexing would break. To ever enable h2, the custom
+			// DialTLSContext below must be removed and ALPN wired via the shared
+			// tlsConfig (NextProtos) / http2.ConfigureTransport.
 			ForceAttemptHTTP2: options.ForceAttemptHTTP2,
 			DialContext:       dialer.Dial,
 			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {

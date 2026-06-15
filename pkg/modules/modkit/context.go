@@ -115,6 +115,14 @@ type ScanContext struct {
 	wildcardOnce   sync.Once
 	wildcardCache  *lru.Cache[string, *WildcardEntry]
 	wildcardFlight singleflight.Group
+
+	// Catch-all decoy probe cache: a guaranteed-nonexistent sibling/decoy/random-
+	// dir probe's response is stable for the host, so it is fetched once per
+	// (observed record, probe kind, dir, ext) and reused across a module's whole
+	// probe loop and across modules processing the same record. See decoyProbe.
+	decoyOnce   sync.Once
+	decoyCache  *lru.Cache[string, *decoyResult]
+	decoyFlight singleflight.Group
 }
 
 // getBaselineCache returns the LRU baseline cache, lazily initializing on first use.

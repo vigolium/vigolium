@@ -269,7 +269,7 @@ func TestDecoyFileBaseline_ExtensionScopedCatchAll(t *testing.T) {
 	client := modtest.Requester(t)
 	rr := modtest.Request(t, srv.URL+"/")
 
-	status, body, ok := modkit.DecoyFileBaseline(rr, client, "/orders/run.log")
+	status, body, ok := modkit.DecoyFileBaseline(nil, rr, client, "/orders/run.log")
 	require.True(t, ok, "decoy fetch must succeed")
 	assert.Equal(t, http.StatusOK, status)
 	assert.True(t, modkit.BodiesSimilar(body, catchAll), "decoy body must match the catch-all body the candidate also returns")
@@ -295,7 +295,7 @@ func TestDecoyFileBaseline_RealFile(t *testing.T) {
 	client := modtest.Requester(t)
 	rr := modtest.Request(t, srv.URL+"/")
 
-	status, _, ok := modkit.DecoyFileBaseline(rr, client, "/orders/.git/config")
+	status, _, ok := modkit.DecoyFileBaseline(nil, rr, client, "/orders/.git/config")
 	require.True(t, ok)
 	assert.Equal(t, http.StatusNotFound, status, "a genuine file whose siblings 404 must yield a non-200 decoy")
 }
@@ -318,7 +318,7 @@ func TestSiblingPathCatchAll_SubDirCatchAll(t *testing.T) {
 	rr := modtest.Request(t, srv.URL+"/")
 	match := func(b string) bool { return strings.Contains(b, `"registration"`) }
 
-	assert.True(t, modkit.SiblingPathCatchAll(rr, client, "/admin/instances", match),
+	assert.True(t, modkit.SiblingPathCatchAll(nil, rr, client, "/admin/instances", match),
 		"a sub-directory catch-all under /admin/ must be detected")
 }
 
@@ -340,7 +340,7 @@ func TestSiblingPathCatchAll_RealEndpoint(t *testing.T) {
 	rr := modtest.Request(t, srv.URL+"/")
 	match := func(b string) bool { return strings.Contains(b, `"registration"`) }
 
-	assert.False(t, modkit.SiblingPathCatchAll(rr, client, "/admin/instances", match),
+	assert.False(t, modkit.SiblingPathCatchAll(nil, rr, client, "/admin/instances", match),
 		"a real endpoint whose siblings 404 must not be flagged as a catch-all")
 }
 
@@ -358,7 +358,7 @@ func TestSiblingPathCatchAll_RootPathSkipped(t *testing.T) {
 	rr := modtest.Request(t, srv.URL+"/")
 	match := func(b string) bool { return strings.Contains(b, `"registration"`) }
 
-	assert.False(t, modkit.SiblingPathCatchAll(rr, client, "/admin", match),
+	assert.False(t, modkit.SiblingPathCatchAll(nil, rr, client, "/admin", match),
 		"a root-level probe path must be skipped (no sibling request)")
 }
 

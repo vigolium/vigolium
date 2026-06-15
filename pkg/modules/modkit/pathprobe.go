@@ -3,11 +3,80 @@ package modkit
 import (
 	"strings"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
+
+const (
+	// decoyCacheSize bounds the per-scan catch-all decoy cache (LRU).
+	decoyCacheSize = 512
+	// decoyBodyCap caps how much of a decoy body is retained for comparison; the
+	// catch-all shell identity lives in the head and the similarity helpers cap
+	// their scan at ratioBodyScanLimit anyway, so retaining more wastes memory.
+	decoyBodyCap = ratioBodyScanLimit
+)
+
+// decoyResult is a memoized catch-all decoy probe response.
+type decoyResult struct {
+	status int
+	body   string
+	ok     bool
+}
+
+func (sc *ScanContext) getDecoyCache() *lru.Cache[string, *decoyResult] {
+	sc.decoyOnce.Do(func() {
+		sc.decoyCache, _ = lru.New[string, *decoyResult](decoyCacheSize)
+	})
+	return sc.decoyCache
+}
+
+// decoyProbe fetches (once per observed-record + kind + dir + ext, memoized) a
+// guaranteed-nonexistent GET probe and returns its status/body. A probe to a
+// random nonexistent path under a given directory is host-stable, so reusing it
+// across a module's probe loop — and across modules processing the same record —
+// avoids re-firing the same catch-all detection round-trip. buildPath maps a
+// fresh canary to the probe path (invoked only on a cache miss). The cache is
+// keyed on the observed request's ID so the auth/header context is captured
+// (the native scan hands the same raw request to every module for a record, so
+// the key is shared within a record and isolated across records). A nil sc
+// disables caching (direct fetch), preserving the original behavior.
+func (sc *ScanContext) decoyProbe(
+	ctx *httpmsg.HttpRequestResponse,
+	client *http.Requester,
+	kind, dir, ext string,
+	opts http.Options,
+	buildPath func(canary string) string,
+) decoyResult {
+	fetch := func() decoyResult {
+		status, body, ok := fetchGET(ctx, client, buildPath(FreshCanary()), opts)
+		if len(body) > decoyBodyCap {
+			body = body[:decoyBodyCap]
+		}
+		return decoyResult{status: status, body: body, ok: ok}
+	}
+
+	if sc == nil || ctx == nil || ctx.Request() == nil {
+		return fetch()
+	}
+
+	key := ctx.Request().ID() + "\x00" + kind + "\x00" + dir + "\x00" + ext
+	cache := sc.getDecoyCache()
+	if v, ok := cache.Get(key); ok {
+		return *v
+	}
+	res, _, _ := sc.decoyFlight.Do(key, func() (interface{}, error) {
+		if v, ok := cache.Get(key); ok {
+			return v, nil
+		}
+		r := fetch()
+		cache.Add(key, &r)
+		return &r, nil
+	})
+	return *res.(*decoyResult)
+}
 
 // MaxBasePathDepth caps how many base paths CandidateBasePaths returns (the web
 // root plus ancestor directories of the observed path). It bounds the request
@@ -177,6 +246,7 @@ func MatchAllGroups(body string, requireAll [][]string) (matched []string, ok bo
 // build/transport error or a non-200 sibling so a flaky probe never suppresses a
 // real finding.
 func SiblingPathCatchAll(
+	sc *ScanContext,
 	ctx *httpmsg.HttpRequestResponse,
 	client *http.Requester,
 	probePath string,
@@ -199,31 +269,13 @@ func SiblingPathCatchAll(
 	if parent == "" {
 		return false // root-level path: covered by the caller's root soft-404 fingerprint
 	}
-	siblingPath := parent + "/" + FreshCanary()
 
-	raw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
-	if err != nil {
+	res := sc.decoyProbe(ctx, client, "sibling", parent, "", http.Options{NoRedirects: true},
+		func(canary string) string { return parent + "/" + canary })
+	if !res.ok || res.status != 200 {
 		return false
 	}
-	raw, err = httpmsg.SetPath(raw, siblingPath)
-	if err != nil {
-		return false
-	}
-	req, err := httpmsg.ParseRawRequest(string(raw))
-	if err != nil {
-		return false
-	}
-	req = req.WithService(ctx.Service())
-
-	resp, _, err := client.Execute(req, http.Options{NoRedirects: true})
-	if err != nil {
-		return false
-	}
-	defer resp.Close()
-	if resp.Response() == nil || resp.Response().StatusCode != 200 {
-		return false
-	}
-	return match(resp.Body().String())
+	return match(res.body)
 }
 
 // DecoyFileBaseline fetches a guaranteed-nonexistent file that shares probePath's
@@ -243,6 +295,7 @@ func SiblingPathCatchAll(
 // The probe runs with NoClustering so the host's per-request response cache does
 // not alias it to the candidate's own cached entry.
 func DecoyFileBaseline(
+	sc *ScanContext,
 	ctx *httpmsg.HttpRequestResponse,
 	client *http.Requester,
 	probePath string,
@@ -250,7 +303,18 @@ func DecoyFileBaseline(
 	if ctx == nil || ctx.Request() == nil || client == nil {
 		return 0, "", false
 	}
+	dir, ext := decoyFileParts(probePath)
+	// NoRedirects: a decoy that 30x-redirects is not a served baseline body.
+	res := sc.decoyProbe(ctx, client, "decoyfile", dir, ext, http.Options{NoRedirects: true, NoClustering: true},
+		func(canary string) string { return dir + "vigolium-decoy-" + canary + ext })
+	return res.status, res.body, res.ok
+}
 
+// decoyFileParts splits probePath into its parent directory (with trailing slash)
+// and file extension for decoy construction. A dot at index > 0 marks a real
+// extension; a leading dot (.env, .git) is a dotfile name, not an extension, so
+// it yields no decoy suffix.
+func decoyFileParts(probePath string) (dir, ext string) {
 	p := probePath
 	if q := strings.IndexAny(p, "?#"); q >= 0 {
 		p = p[:q]
@@ -259,15 +323,10 @@ func DecoyFileBaseline(
 	if i := strings.LastIndex(p, "/"); i >= 0 {
 		dir, name = p[:i+1], p[i+1:] // keep the trailing slash on dir
 	}
-	// A dot at index > 0 marks a real extension; a leading dot (.env, .git) is a
-	// dotfile name, not an extension, so it yields no decoy suffix.
-	ext := ""
 	if d := strings.LastIndex(name, "."); d > 0 {
 		ext = name[d:]
 	}
-	decoyPath := dir + "vigolium-decoy-" + FreshCanary() + ext
-	// NoRedirects: a decoy that 30x-redirects is not a served baseline body.
-	return fetchGET(ctx, client, decoyPath, http.Options{NoRedirects: true, NoClustering: true})
+	return dir, ext
 }
 
 // RandomDirCatchAll GETs a guaranteed-nonexistent directory (a random path with
@@ -286,6 +345,7 @@ func DecoyFileBaseline(
 // missing/non-2xx response, or a nil match (fail-open — a flaky probe never
 // suppresses a real finding).
 func RandomDirCatchAll(
+	sc *ScanContext,
 	ctx *httpmsg.HttpRequestResponse,
 	client *http.Requester,
 	match func(body string) bool,
@@ -293,11 +353,12 @@ func RandomDirCatchAll(
 	if match == nil {
 		return false
 	}
-	status, body, ok := fetchGET(ctx, client, "/vigolium-catchall-dir-"+FreshCanary()+"/", http.Options{NoRedirects: true, NoClustering: true})
-	if !ok || status < 200 || status >= 300 {
+	res := sc.decoyProbe(ctx, client, "randomdir", "/", "", http.Options{NoRedirects: true, NoClustering: true},
+		func(canary string) string { return "/vigolium-catchall-dir-" + canary + "/" })
+	if !res.ok || res.status < 200 || res.status >= 300 {
 		return false
 	}
-	return match(body)
+	return match(res.body)
 }
 
 // MultiRoundExtDecoyCatchAll probes `rounds` distinct guaranteed-nonexistent
@@ -336,7 +397,10 @@ func MultiRoundExtDecoyCatchAll(
 		rounds = 1
 	}
 	for i := 0; i < rounds; i++ {
-		decoyStatus, decoyBody, served := DecoyFileBaseline(ctx, client, probePath)
+		// Pass a nil ScanContext so each round is a genuinely distinct fetch with
+		// a fresh canary — the multi-round confirmation deliberately wants several
+		// independent decoys, not one memoized result.
+		decoyStatus, decoyBody, served := DecoyFileBaseline(nil, ctx, client, probePath)
 		if !served || decoyStatus != candidateStatus {
 			continue // a 404 / differently-statused / errored decoy is the real-file case
 		}
@@ -405,12 +469,13 @@ func fetchGET(
 // modules each hand-rolled. Returns false (no catch-all detected) for empty
 // markers, a root-level probe path, or any probe error.
 func SiblingServesAnyMarker(
+	sc *ScanContext,
 	ctx *httpmsg.HttpRequestResponse,
 	client *http.Requester,
 	probePath string,
 	markers []string,
 ) bool {
-	return SiblingPathCatchAll(ctx, client, probePath, func(b string) bool {
+	return SiblingPathCatchAll(sc, ctx, client, probePath, func(b string) bool {
 		for _, marker := range markers {
 			if marker != "" && strings.Contains(b, marker) {
 				return true
@@ -439,11 +504,14 @@ func ResemblesObservedPage(ctx *httpmsg.HttpRequestResponse, probeBody string) b
 	if ctx == nil || ctx.Response() == nil {
 		return false
 	}
-	baseline := ctx.Response().BodyToString()
-	if baseline == "" {
+	// The observed baseline is constant across a module's probe loop, so its
+	// ratio signature is memoized on the response and reused per probe; only the
+	// probe body is tokenized each call.
+	baselineSig := observedPageSignature(ctx.Response())
+	if baselineSig.BodyLength == 0 {
 		return false
 	}
-	return BodiesSimilar(probeBody, baseline)
+	return QuickRatio(newRatioSignature(probeBody), baselineSig) >= UpperRatioBound
 }
 
 // StripReflectedProbePath removes occurrences of the probe path from body so a
@@ -492,7 +560,10 @@ func MatchAndConfirmSibling(
 	if !ok {
 		return nil, false
 	}
-	if SiblingPathCatchAll(ctx, client, probePath, func(b string) bool {
+	// Uncached sibling probe (nil ScanContext): these marker-confirmation callers
+	// span the FP-tuned Spring/CMS family and are left on the direct path. The
+	// per-record decoy cache is opt-in via the sc-taking probe entry points.
+	if SiblingPathCatchAll(nil, ctx, client, probePath, func(b string) bool {
 		_, sibOK := MatchAllGroups(b, markers)
 		return sibOK
 	}) {

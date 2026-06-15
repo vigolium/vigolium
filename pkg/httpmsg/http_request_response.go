@@ -131,7 +131,13 @@ func (h *HttpRequestResponse) Clone() *HttpRequestResponse {
 // This is a mutating method for convenience when building requests.
 func (h *HttpRequestResponse) WithService(service *Service) *HttpRequestResponse {
 	if h.request != nil {
+		h.request.mu.Lock()
 		h.request.service = service
+		// Invalidate the cached URL since it depends on the service.
+		h.request.cachedURL = nil
+		h.request.cachedURLErr = nil
+		h.request.urlComputed = false
+		h.request.mu.Unlock()
 	}
 	return h
 }

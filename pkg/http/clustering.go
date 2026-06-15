@@ -44,41 +44,15 @@ func ClustererSizeForConcurrency(concurrency int) int {
 	return min(max(concurrency*16, clusterCacheSize), clusterCacheSizeMax)
 }
 
-// sharedBytes is a reference-counted byte slice that avoids copying response
-// bodies on every cache hit. When the last reference is released the slice
-// becomes eligible for GC.
-type sharedBytes struct {
-	data []byte
-	refs atomic.Int64
-}
-
-// newSharedBytes wraps data in a reference-counted container with refcount=1.
-func newSharedBytes(data []byte) *sharedBytes {
-	sb := &sharedBytes{data: data}
-	sb.refs.Store(1)
-	return sb
-}
-
-// acquire increments the reference count and returns the underlying slice.
-// Returns nil if the buffer has already been fully released (should not happen
-// in normal usage since the cache holds a reference).
-func (sb *sharedBytes) acquire() []byte {
-	if sb.refs.Add(1) <= 1 {
-		// Was zero — already released; undo the add (best-effort)
-		sb.refs.Add(-1)
-		return nil
-	}
-	return sb.data
-}
-
 // CachedResponse holds a snapshot of response data that can be used to
-// reconstruct independent ResponseChain instances.
+// reconstruct independent ResponseChain instances. The body is a plain shared
+// slice — its lifetime is managed by the LRU + GC (an entry's body is freed once
+// the entry is evicted and every reconstructed chain referencing it is dropped).
 type CachedResponse struct {
 	StatusCode int
 	Proto      string
 	Header     http.Header
-	body       *sharedBytes // reference-counted shared body
-	headerDump *sharedBytes // reference-counted shared headers
+	body       []byte
 	Request    *http.Request
 	Duration   int
 	CachedAt   time.Time
@@ -86,10 +60,7 @@ type CachedResponse struct {
 
 // Body returns the cached response body bytes (shared, do not modify).
 func (c *CachedResponse) Body() []byte {
-	if c.body == nil {
-		return nil
-	}
-	return c.body.data
+	return c.body
 }
 
 // snapshotResponse captures response data from a ResponseChain before Close().
@@ -99,17 +70,24 @@ func snapshotResponse(resp *httpUtils.ResponseChain, duration int) *CachedRespon
 		CachedAt: time.Now(),
 	}
 
-	// Copy header and body bytes once (they reference pooled buffers).
-	// These shared buffers start with refcount=1 (owned by the cache entry).
-	cr.headerDump = newSharedBytes(append([]byte(nil), resp.HeadersBytes()...))
-	cr.body = newSharedBytes(append([]byte(nil), resp.BodyBytes()...))
+	// Copy the body bytes once (they reference pooled buffers reclaimed on Close).
+	cr.body = append([]byte(nil), resp.BodyBytes()...)
 
 	// Copy metadata from the underlying http.Response
 	if r := resp.Response(); r != nil {
 		cr.StatusCode = r.StatusCode
 		cr.Proto = r.Proto
 		cr.Header = r.Header.Clone()
-		cr.Request = r.Request
+		// Retain a shallow copy of the request with Body and Response nilled: the
+		// response dump only reads Method/URL/Proto, while the original request's
+		// .Response pins the entire redirect chain (each prior response + body) for
+		// the cache entry's lifetime, and .Body can pin a sent request body.
+		if r.Request != nil {
+			reqCopy := *r.Request
+			reqCopy.Body = nil
+			reqCopy.Response = nil
+			cr.Request = &reqCopy
+		}
 	}
 
 	return cr
@@ -119,14 +97,9 @@ func snapshotResponse(resp *httpUtils.ResponseChain, duration int) *CachedRespon
 // The caller must call Close() on the returned chain when done.
 // Uses reference-counted shared buffers to avoid copying body/header bytes.
 func (c *CachedResponse) ToResponseChain() *httpUtils.ResponseChain {
-	// Acquire shared references — these are the same underlying slices as the
-	// cache entry, avoiding a full copy on every cache hit.
-	var bodyBytes []byte
-	if c.body != nil {
-		if acquired := c.body.acquire(); acquired != nil {
-			bodyBytes = acquired
-		}
-	}
+	// Share the cache entry's body slice (read-only) — avoids a full copy on every
+	// cache hit. Lifetime is managed by the LRU + GC.
+	bodyBytes := c.body
 
 	// http.Response.Write renders the status line from ProtoMajor/ProtoMinor —
 	// parse Proto so the dumped response keeps the original HTTP version instead
@@ -224,14 +197,22 @@ func (rc *RequestClusterer) Execute(
 
 	// Layer 1: LRU cache check (TTL-aware)
 	rc.mu.RLock()
-	if cached, ok := rc.cache.Get(key); ok {
-		if time.Since(cached.CachedAt) < clusterCacheTTL {
-			rc.mu.RUnlock()
-			rc.cacheHits.Add(1)
-			return cached.ToResponseChain(), 0, nil
-		}
-	}
+	cached, ok := rc.cache.Get(key)
+	fresh := ok && time.Since(cached.CachedAt) < clusterCacheTTL
 	rc.mu.RUnlock()
+	if fresh {
+		rc.cacheHits.Add(1)
+		return cached.ToResponseChain(), 0, nil
+	}
+	if ok {
+		// Stale hit: drop it now so its body/request are freed immediately instead
+		// of lingering in the LRU (TTL is short, 500ms) until capacity eviction.
+		rc.mu.Lock()
+		if c, stillThere := rc.cache.Peek(key); stillThere && c == cached {
+			rc.cache.Remove(key)
+		}
+		rc.mu.Unlock()
+	}
 
 	// Layer 2: singleflight clustering
 	resultIface, err, shared := rc.group.Do(key, func() (interface{}, error) {

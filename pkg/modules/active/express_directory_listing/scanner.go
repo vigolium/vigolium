@@ -90,7 +90,7 @@ func (m *Module) ScanPerRequest(
 	// already "lists", the host renders a directory-listing-shaped body for any
 	// path (an SPA shell, a wildcard rewrite, a templated soft-404) and every
 	// per-directory finding below is spurious.
-	if modkit.RandomDirCatchAll(ctx, httpClient, isDirectoryListing) {
+	if modkit.RandomDirCatchAll(scanCtx, ctx, httpClient, isDirectoryListing) {
 		return nil, nil
 	}
 

@@ -43,9 +43,10 @@ func BuildHttpMessage(headers []string, body []byte) []byte {
 	// Build message
 	result := make([]byte, 0, totalSize)
 
-	// Write headers with CRLF
+	// Write headers with CRLF. Appending the string directly avoids the
+	// per-header []byte(header) conversion (one transient alloc per line).
 	for _, header := range headers {
-		result = append(result, []byte(header)...)
+		result = append(result, header...)
 		// Write CRLF
 		result = append(result, CR, LF)
 	}

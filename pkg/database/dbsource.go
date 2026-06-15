@@ -266,7 +266,15 @@ func (s *DBInputSource) fetchNextBatch(ctx context.Context) ([]*HTTPRecord, erro
 	// Format cursor as plain string to match SQLite's CURRENT_TIMESTAMP format —
 	// bun serializes time.Time with timezone suffix that breaks text comparison.
 	var records []*HTTPRecord
-	q := s.db.NewSelect().Model(&records)
+	// Project only the columns the scan feed consumes: the cursor keys, the URL,
+	// the raw request/response bytes, and the has_response gate that
+	// ParsedResponse() checks. This avoids loading (and JSON-deserializing) the
+	// parameters/technology/remarks jsonb columns and ~25 unused scalar columns
+	// per record. The hostname/source WHERE filters below don't require selecting
+	// those columns. Modules receive the reconstructed HttpRequestResponse, never
+	// the HTTPRecord, so no downstream consumer reads the dropped fields.
+	q := s.db.NewSelect().Model(&records).
+		Column("uuid", "created_at", "url", "raw_request", "raw_response", "has_response")
 
 	if !s.readCursorAt.IsZero() {
 		cursorAt := s.readCursorAt.UTC().Format("2006-01-02 15:04:05")

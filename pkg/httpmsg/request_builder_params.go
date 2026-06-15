@@ -480,6 +480,9 @@ func removeParameterFromQueryString(queryString string, paramName string) string
 	start := queryStart
 	queryLen := len(queryString)
 
+	// Encode the target name once, not per iteration.
+	encodedParamName := EncodeQueryValue(paramName)
+
 	for i := queryStart; i <= queryLen; i++ {
 		// Check for separator or end
 		if i == queryLen || queryString[i] == '&' {
@@ -497,7 +500,7 @@ func removeParameterFromQueryString(queryString string, paramName string) string
 				}
 
 				// Keep parameter if name doesn't match
-				if name != paramName && name != EncodeQueryValue(paramName) {
+				if name != paramName && name != encodedParamName {
 					result = append(result, paramPair)
 				}
 			}
@@ -537,6 +540,9 @@ func removeParameterFromCookieString(cookieString string, paramName string) stri
 	start := 0
 	cookieLen := len(cookieString)
 
+	// Encode the target name once, not per iteration.
+	encodedParamName := EncodeQueryValue(paramName)
+
 	for i := 0; i <= cookieLen; i++ {
 		// Check for separator or end
 		if i == cookieLen || cookieString[i] == ';' {
@@ -554,7 +560,7 @@ func removeParameterFromCookieString(cookieString string, paramName string) stri
 				}
 
 				// Keep parameter if name doesn't match
-				if name != paramName && name != EncodeQueryValue(paramName) {
+				if name != paramName && name != encodedParamName {
 					result = append(result, paramPair)
 				}
 			}
