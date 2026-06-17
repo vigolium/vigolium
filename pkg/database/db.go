@@ -749,12 +749,11 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		db.execBestEffort(ctx, "drop legacy index "+idx, "DROP INDEX IF EXISTS "+idx)
 	}
 
-	for _, ddl := range indexes {
-		if _, err := db.ExecContext(ctx, ddl); err != nil {
-			return fmt.Errorf("failed to create index: %w", err)
-		}
-	}
-
+	// Column migrations for existing databases — MUST run before the index loop
+	// (moved below). Several indexes reference columns added here, e.g.
+	// idx_records_norm_hash → http_records.response_norm_hash. The index loop
+	// aborts CreateSchema on the first error, so building a new column's index
+	// before the column exists fails schema init entirely and leaves repo nil.
 	// Migrations for existing databases
 	db.addColumnIfNotExists(ctx, "findings", "request", "TEXT")
 	db.addColumnIfNotExists(ctx, "findings", "response", "TEXT")
@@ -795,6 +794,8 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	// Scans
 	db.addColumnIfNotExists(ctx, "scans", "profile", "TEXT")
 	db.addColumnIfNotExists(ctx, "scans", "source_path", "TEXT")
+	db.addColumnIfNotExists(ctx, "scans", "source_type", "TEXT")
+	db.addColumnIfNotExists(ctx, "scans", "http_record_uuid", "TEXT")
 	db.addColumnIfNotExists(ctx, "scans", "tags", "TEXT")
 	db.addColumnIfNotExists(ctx, "scans", "triggered_by", "TEXT")
 	db.addColumnIfNotExists(ctx, "scans", "agentic_scan_uuid", "TEXT")
@@ -850,6 +851,14 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	projectTables := []string{"scans", "http_records", "findings", "scopes", "oast_interactions", "scan_logs"}
 	for _, table := range projectTables {
 		db.addColumnIfNotExists(ctx, table, "project_uuid", fmt.Sprintf("TEXT NOT NULL DEFAULT '%s'", DefaultProjectUUID))
+	}
+
+	// Create indexes now that all column migrations above have run — some indexes
+	// reference newly added columns (e.g. idx_records_norm_hash → response_norm_hash).
+	for _, ddl := range indexes {
+		if _, err := db.ExecContext(ctx, ddl); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
 	}
 
 	// Backfill empty project_uuid values — Bun ORM inserts explicit empty strings

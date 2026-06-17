@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.36-beta] - 2026-06-18
+
+A hotfix release for a schema-migration ordering bug that could break an upgraded database.
+
+### Fixed
+
+- **`CreateSchema` no longer aborts on a pre-existing database missing a migration-added column** — v0.1.35 added `http_records.response_norm_hash` together with an index on it (`idx_records_norm_hash`), but on a database created by an older binary the index-creation loop ran *before* the column-add migration. `CREATE INDEX` then referenced a column that did not exist yet, errored, and aborted schema init entirely — leaving the server's repository `nil` and breaking a swathe of endpoints. The index loop now runs after all `addColumnIfNotExists` migrations, so an upgraded database heals itself (adding both the column and its index) instead of failing to open. Added `schema_migration_test.go` covering the legacy-DB heal path and `CreateSchema` idempotency.
+
 ## [v0.1.35-beta] - 2026-06-17
 
 A performance and false-positive-hardening release. The native-scan hot path and ingest write path shed redundant allocations and DB work, and the discovery engine's server-side extension-confirmation gate gains two catch-all guards so an SPA/catch-all gateway that bounces or echoes every guessed path can no longer confirm (and then wordlist-fuzz) a phantom stack. The workbench HTTP-records page gains a source filter and a curl export.
