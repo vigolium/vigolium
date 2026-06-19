@@ -245,6 +245,13 @@ type Options struct {
 	// mutually exclusive with --stateless (which discards results entirely).
 	DBIsolate bool
 
+	// Resume, in the stateless parallel fan-out (-S -T --split-by-host -P>1),
+	// loads the run's progress manifest (<output>.progress.json) and skips every
+	// target that already completed cleanly, scanning only the remainder. The
+	// manifest is written incrementally during every such run regardless of this
+	// flag; Resume only changes the read path. No effect outside that fan-out.
+	Resume bool
+
 	// Parallel is how many targets to scan at once in stateless multi-target
 	// mode (-S -T file --split-by-host). Each target runs as an isolated child
 	// vigolium process that keeps its own --concurrency worker pool, so the real

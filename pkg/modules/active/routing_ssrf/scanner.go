@@ -213,7 +213,7 @@ func (m *Module) confirmInternal(
 		Info: output.Info{
 			Name:        "Routing-Based SSRF (Internal Metadata Reached)",
 			Description: desc,
-			Severity:    severity.High,
+			Severity:    severity.Info,
 			Confidence:  severity.Tentative,
 		},
 	}

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.37-beta] - 2026-06-19
+
+Adds resumable parallel scans: a stateless `-S -T --split-by-host -P` fan-out stopped with Ctrl-C can now be picked up where it left off.
+
+### Added
+
+- **`--resume` for the stateless parallel fan-out** — `vigolium scan -S -T <file> --split-by-host -P <n>` now writes a tiny line-cursor progress manifest (`<output>.progress.json`) tracking how far the contiguous run of cleanly-completed targets reached. Re-running the same command with `--resume` skips that prefix and scans only the remainder, while the final roll-up still reflects the whole batch (previously-completed hosts are folded in from the manifest). On Ctrl-C — or a failure — the summary prints a copy-pasteable resume command. The manifest stores only a cursor plus aggregate counts, never the target list, so it stays small for huge target files; out-of-order completions under `-P` are buffered so at most a handful of in-flight targets are ever re-scanned. The progress file is also surfaced on the scan banner's `Output:` line. Scoped to the stateless fan-out — the `--db-isolate` parallel path and the single-target/sequential split path are unaffected (the latter warns that `--resume` is fan-out-only).
+
 ## [v0.1.36-beta] - 2026-06-18
 
 A hotfix release for a schema-migration ordering bug that could break an upgraded database.

@@ -143,12 +143,22 @@ func TestEnrichOASTResult(t *testing.T) {
 
 	enrichOASTResult(result, interaction, pctx, origin)
 
-	// The planting request/response are embedded inline.
-	if result.Request != string(origin.RawRequest) {
-		t.Errorf("Request not embedded: got %q", result.Request)
+	// The planting request is embedded with the request-line payload re-applied,
+	// so the panel shows where the callback URL was planted — not the bare
+	// original. The original Host header (the victim) is preserved.
+	if !strings.Contains(result.Request, "GET http://nonce123.oast.pro/ HTTP/1.1") {
+		t.Errorf("Request missing reconstructed request-line payload: got %q", result.Request)
+	}
+	if !strings.Contains(result.Request, "Host: victim.example") {
+		t.Errorf("Request dropped the victim Host header: got %q", result.Request)
 	}
 	if result.Response != string(origin.RawResponse) {
 		t.Errorf("Response not embedded: got %q", result.Response)
+	}
+
+	// The planted payload + injection point are stated explicitly.
+	if v, ok := extractedValue(result.ExtractedResults, "injected_payload="); !ok || v != "http://nonce123.oast.pro/ (request-line)" {
+		t.Errorf("injected_payload anchor missing/wrong: %q ok=%v", v, ok)
 	}
 
 	// Trace anchors are present in extracted-results.
@@ -175,6 +185,48 @@ func TestEnrichOASTResult(t *testing.T) {
 	if len(result.AdditionalEvidence) == 0 ||
 		!strings.Contains(result.AdditionalEvidence[0], "nonce123.oast.pro") {
 		t.Errorf("callback evidence missing: %v", result.AdditionalEvidence)
+	}
+}
+
+// TestPayloadRequest verifies the payload is re-applied at the right injection
+// point so the Request panel is never a bare original. Covers the real-world
+// bare-host callback (no scheme), header injection, and the parameter fallback.
+func TestPayloadRequest(t *testing.T) {
+	raw := []byte("GET /foo?a=1 HTTP/1.1\r\nHost: victim.example\r\nAccept: */*\r\n\r\n")
+
+	// Request-line SSRF with a bare-host callback (as interactsh emits it) over
+	// https → absolute-URI target on the request line, Host header untouched.
+	rl := payloadRequest(raw, PayloadContext{
+		ParameterName: "request-line",
+		InjectionType: "routing-ssrf (request-line)",
+		CallbackURL:   "abc123.oast.vigolium.com",
+	}, "https")
+	if !strings.HasPrefix(rl, "GET https://abc123.oast.vigolium.com/ HTTP/1.1\r\n") {
+		t.Errorf("request-line reconstruction wrong: %q", rl)
+	}
+	if !strings.Contains(rl, "Host: victim.example") || !strings.Contains(rl, "Accept: */*") {
+		t.Errorf("request-line reconstruction dropped headers: %q", rl)
+	}
+
+	// Header injection → the named header carries the callback URL.
+	hdr := payloadRequest(raw, PayloadContext{
+		ParameterName: "X-Forwarded-Host",
+		InjectionType: "header",
+		CallbackURL:   "abc123.oast.vigolium.com",
+	}, "http")
+	if !strings.Contains(hdr, "X-Forwarded-Host: http://abc123.oast.vigolium.com") {
+		t.Errorf("header reconstruction missing payload: %q", hdr)
+	}
+
+	// Parameter injection is not reconstructed (the wire form is unknown) — the
+	// original request is returned unchanged.
+	param := payloadRequest(raw, PayloadContext{
+		ParameterName: "url",
+		InjectionType: "parameter",
+		CallbackURL:   "abc123.oast.vigolium.com",
+	}, "http")
+	if param != string(raw) {
+		t.Errorf("parameter injection should return original request, got: %q", param)
 	}
 }
 
@@ -227,5 +279,41 @@ func TestClassifyInteraction(t *testing.T) {
 		if desc == "" {
 			t.Errorf("classifyInteraction(%q) returned empty description", tt.protocol)
 		}
+	}
+}
+
+// TestClassifyInteractionHostRoutingInfo locks in the host-routing SSRF
+// downgrade: request-line manipulation (routing-ssrf) and X-Forwarded-Host
+// header injection are reported as informational (often low-impact), while
+// generic parameter-based blind SSRF and the other forwarding headers stay high.
+func TestClassifyInteractionHostRoutingInfo(t *testing.T) {
+	// routing-ssrf (request-line) → Info on any HTTP-family callback.
+	routing := PayloadContext{TargetURL: "http://target.com", InjectionType: "request-line", ModuleID: "routing-ssrf"}
+	for _, proto := range []string{"http", "https", "HTTPS"} {
+		if sev, _ := classifyInteraction(proto, routing); sev.String() != "info" {
+			t.Errorf("routing-ssrf classifyInteraction(%q) severity = %s, want info", proto, sev)
+		}
+	}
+
+	// X-Forwarded-Host header injection → Info (case-insensitive on the name).
+	for _, name := range []string{"X-Forwarded-Host", "x-forwarded-host"} {
+		xfh := PayloadContext{TargetURL: "http://target.com", InjectionType: "header", ParameterName: name, ModuleID: "oast-probe"}
+		if sev, _ := classifyInteraction("http", xfh); sev.String() != "info" {
+			t.Errorf("X-Forwarded-Host (%q) classifyInteraction severity = %s, want info", name, sev)
+		}
+	}
+
+	// Other forwarding headers from the same module must remain high.
+	for _, name := range []string{"X-Forwarded-For", "Referer", "Origin"} {
+		other := PayloadContext{TargetURL: "http://target.com", InjectionType: "header", ParameterName: name, ModuleID: "oast-probe"}
+		if sev, _ := classifyInteraction("http", other); sev.String() != "high" {
+			t.Errorf("header %q classifyInteraction severity = %s, want high", name, sev)
+		}
+	}
+
+	// A different module's parameter-based HTTP callback must remain high.
+	generic := PayloadContext{TargetURL: "http://target.com", InjectionType: "parameter", ParameterName: "url", ModuleID: "ssrf-detection"}
+	if sev, _ := classifyInteraction("http", generic); sev.String() != "high" {
+		t.Errorf("generic SSRF classifyInteraction severity = %s, want high", sev)
 	}
 }

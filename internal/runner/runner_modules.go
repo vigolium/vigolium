@@ -70,6 +70,27 @@ func (r *Runner) groupFindingsByValue(ctx context.Context, phase string, hostnam
 	}
 }
 
+// finalizeFindingGrouping runs a single project-wide finding dedup + grouping pass
+// at scan completion, covering every host regardless of which phases ran.
+//
+// The per-phase passes are each scoped: dynamic-assessment dedups only the in-scope
+// hostnames (see runDynamicAssessmentRound), and the only project-wide pass
+// otherwise lives in the known-issue-scan phase. So a scan that skips known-issue-scan
+// — or whose crawl redirects/expands findings onto hosts outside the original scope
+// set (e.g. a target that 301s to www.* or pulls in third-party CDN/analytics hosts)
+// — leaves those findings untouched by any grouping pass and ships them ungrouped:
+// dozens of near-identical per-asset Low/Info rows instead of one-per-host.
+//
+// This final pass closes that gap. It is project-wide (no hostnames) and idempotent:
+// when a prior pass already collapsed everything there is nothing left to merge, so it
+// scans the findings table, deletes nothing, and prints nothing. Runs on r.ctx (the
+// un-bounded parent), not the --scanning-max-duration-bounded ctx, so it still groups
+// after the scan budget fires — mirroring the scan-record finalization. The guard for a
+// nil repository lives in deduplicateFindings, so a no-DB scan is already a no-op here.
+func (r *Runner) finalizeFindingGrouping() {
+	r.deduplicateFindings(r.ctx, "Finalize")
+}
+
 // resolveAllModules combines getModulesToExecute() with JS extension modules.
 func (r *Runner) resolveAllModules(infra *phaseInfra) ([]modules.ActiveModule, []modules.PassiveModule) {
 	var activeModules []modules.ActiveModule

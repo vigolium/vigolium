@@ -98,6 +98,11 @@ var perAssetGroupModules = []string{
 	"dom-xss-detect",
 	"javascript-uri-sink",
 	"insecure-token-storage",
+	// postMessage handler/usage analysis: one listener/call site per JS bundle. The
+	// Info "handler detected" lead fires once per bundle (pure source-analysis noise);
+	// its higher-severity siblings (sent-to-wildcard-origin, no-origin-validation) key
+	// separately by severity and still collapse per host with sinks kept as evidence.
+	"postmessage-handler-detect",
 	// Framework / build / SSR config & boundary audits: the issue class is the
 	// finding; which file or route surfaced it is noise.
 	"build-misconfig-detect",
@@ -159,11 +164,22 @@ var perAssetGroupModules = []string{
 	"wasm-module-detect",
 	"rails-action-cable-detect",
 	"rails-active-storage-detect",
+	// Rails health/info endpoint exposed (/up and friends): the same "Rails internals
+	// reachable" fact reported once per matched path on a host.
+	"rails-info-exposure",
 	"password-autocomplete-detect",
 	"sql-syntax-detect",
 	// Per-response header / hygiene (Low): one finding per crawled page.
 	"csp-weakness-audit",
 	"cors-headers-detect",
+	// Permissive CORS on one host, demonstrated via several probe techniques
+	// (reflected / null / subdomain / prefix / suffix / port / scheme bypass) — each
+	// fires as its own row with a distinct probe value, but they are all the same
+	// broken-CORS issue on that asset. Collapse per host: same-URL technique variants
+	// fold via the URL-dedup pass (each probe's request/response kept on the survivor
+	// as AdditionalEvidence), and where the techniques span multiple URLs this
+	// by-module entry unions their probe values onto the survivor.
+	"cors-misconfiguration",
 	"cors-vary-origin-missing",
 	"mixed-content-detect",
 	"content-type-mismatch",
@@ -176,6 +192,20 @@ var perAssetGroupModules = []string{
 	// Active, but fires once-per-asset informationally (escalates to High, which
 	// keys separately): Next.js static chunk intel extraction.
 	"nextjs-chunk-audit",
+
+	// --- Active probe / behavior observations (Info candidates, one per probed URL) ---
+	//
+	// These send probes and record an Info-tier "this surface behaved like X" lead per
+	// URL/param/payload. The differing URL/payload is the noise; the host-level fact —
+	// "this host has cacheable path-confusion surface" / "template-ish reflection" /
+	// "anomalous input behavior" — is what the operator triages, with the probed URLs
+	// and payloads preserved on the survivor (MatchedAt + unioned extracted values). A
+	// genuinely-confirmed finding from the same area escalates above Info and keys on
+	// its own severity, so a real SSTI/cache vuln never merges into these Info leads.
+	"cache-deception",
+	"ssti-detection",
+	"input-behavior-probe",
+	"smart-behavior-detection",
 }
 
 // defaultFindingGrouping is the effective grouping config when none is set in

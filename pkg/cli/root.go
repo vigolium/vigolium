@@ -101,6 +101,7 @@ var (
 	globalSplitByHost bool
 	globalDBIsolate   bool
 	globalParallel    int
+	globalResume      bool
 
 	// Memory ceiling (GOMEMLIMIT)
 	globalMemLimit string

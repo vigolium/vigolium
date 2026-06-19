@@ -1335,8 +1335,24 @@ func (e *Executor) saveToDatabase(ctx context.Context, item *work.WorkItem, req 
 		return
 	}
 	if item.RecordUUID != "" {
-		// Item came from DB watcher — use existing record UUID, skip insert
+		// Item maps to an existing DB record — reuse its UUID (skip insert) so
+		// findings link to it instead of creating a duplicate record.
 		e.caches.requestUUIDs.Store(req.Request().ID(), item.RecordUUID)
+
+		// Backfill the response for records stored as request-only stubs (e.g.
+		// endpoints synthesized from a discovered OpenAPI/Swagger spec). The
+		// executor just fetched a real baseline to scan the endpoint; persist it
+		// so the route shows its actual status/body instead of staying at
+		// status 0 with an empty response in the traffic view. item.Request is
+		// the untouched stub (fetchBaselineResponse returns a copy via
+		// WithResponse), so a nil response there marks a stub even though req now
+		// carries one. The repo update is a no-op once the record has a response.
+		if item.Request != nil && item.Request.Response() == nil && req.Response() != nil {
+			if err := e.repo.BackfillRecordResponse(ctx, item.RecordUUID, req); err != nil {
+				zap.L().Debug("Failed to backfill stub record response",
+					zap.String("uuid", item.RecordUUID), zap.Error(err))
+			}
+		}
 		return
 	}
 

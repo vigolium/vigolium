@@ -11,6 +11,7 @@ import (
 	"github.com/projectdiscovery/interactsh/pkg/server"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 	"go.uber.org/zap"
@@ -363,6 +364,11 @@ func (s *Service) originRecord(requestHash string) (string, *database.HTTPRecord
 func enrichOASTResult(result *output.ResultEvent, interaction *server.Interaction, pctx PayloadContext, origin *database.HTTPRecord) {
 	if pctx.CallbackURL != "" {
 		result.ExtractedResults = append(result.ExtractedResults, "callback_url="+pctx.CallbackURL)
+		// State the planted payload and its injection point explicitly, so plain-text
+		// outputs answer "what was injected, and where?" even when no request panel
+		// is rendered.
+		result.ExtractedResults = append(result.ExtractedResults,
+			"injected_payload="+describeInjectedPayload(pctx, interaction.Protocol))
 	}
 
 	if origin != nil {
@@ -373,10 +379,13 @@ func enrichOASTResult(result *output.ResultEvent, interaction *server.Interactio
 		if originLine != "" {
 			result.ExtractedResults = append(result.ExtractedResults, "origin_request="+originLine)
 		}
-		// Embed the planting request/response so the finding card shows them inline
-		// instead of an empty Request panel.
+		// Embed the planting request with the OAST payload re-applied at its
+		// injection point, so the Request panel shows where the callback URL was
+		// planted. The raw modified request that fired the callback is not retained
+		// (correlation is keyed by the original request's hash); payloadRequest
+		// reconstructs it from the original request plus the payload context.
 		if len(origin.RawRequest) > 0 {
-			result.Request = string(origin.RawRequest)
+			result.Request = payloadRequest(origin.RawRequest, pctx, interaction.Protocol)
 		}
 		if len(origin.RawResponse) > 0 {
 			result.Response = string(origin.RawResponse)
@@ -409,6 +418,98 @@ func enrichOASTResult(result *output.ResultEvent, interaction *server.Interactio
 			result.AdditionalEvidence = append(result.AdditionalEvidence, ev)
 		}
 	}
+}
+
+// payloadRequest re-applies the OAST payload onto a copy of the original request
+// at its injection point, so the finding's Request panel shows where the callback
+// URL was planted rather than the bare original. It reconstructs the two
+// deterministic injection forms faithfully — request-line targets (routing-based
+// SSRF, written verbatim on the request line while the Host header stays the
+// victim) and header injections — and otherwise returns the original request
+// unchanged (the injected_payload / callback_url anchors still record the
+// payload). proto is the callback protocol (http/https).
+func payloadRequest(raw []byte, pctx PayloadContext, proto string) string {
+	host := callbackHost(pctx.CallbackURL)
+	if len(raw) == 0 || host == "" {
+		return string(raw)
+	}
+
+	switch {
+	case strings.EqualFold(pctx.ParameterName, "request-line"):
+		return rewriteRequestTarget(raw, callbackScheme(proto)+"://"+host+"/")
+	case isHeaderInjection(pctx):
+		if out, err := httpmsg.AddOrReplaceHeader(raw, pctx.ParameterName, "http://"+host); err == nil {
+			return string(out)
+		}
+	}
+	return string(raw)
+}
+
+// describeInjectedPayload renders a one-line "<payload> (<where>)" summary of the
+// planted OAST payload for the injected_payload anchor.
+func describeInjectedPayload(pctx PayloadContext, proto string) string {
+	host := callbackHost(pctx.CallbackURL)
+	switch {
+	case strings.EqualFold(pctx.ParameterName, "request-line"):
+		return callbackScheme(proto) + "://" + host + "/ (request-line)"
+	case isHeaderInjection(pctx):
+		return "http://" + host + " (header " + pctx.ParameterName + ")"
+	case pctx.ParameterName != "":
+		return host + " (parameter " + pctx.ParameterName + ")"
+	default:
+		return host
+	}
+}
+
+// isHeaderInjection reports whether the payload was planted in a named request
+// header (oast_probe, log4shell/command-injection header legs, internal-header
+// probe, …). The injection-type label carries "header" for every such module.
+func isHeaderInjection(pctx PayloadContext) bool {
+	return pctx.ParameterName != "" && strings.Contains(strings.ToLower(pctx.InjectionType), "header")
+}
+
+// callbackHost strips any scheme/path from a stored callback URL, returning the
+// bare collaborator host. The interactsh client URL is normally a bare host, but
+// the fixed-URL mode may carry a scheme — normalize both.
+func callbackHost(callbackURL string) string {
+	h := strings.TrimPrefix(callbackURL, "https://")
+	h = strings.TrimPrefix(h, "http://")
+	if i := strings.IndexByte(h, '/'); i >= 0 {
+		h = h[:i]
+	}
+	return h
+}
+
+// callbackScheme normalizes the interaction protocol to an http(s) URL scheme,
+// defaulting to https for any non-HTTP protocol.
+func callbackScheme(proto string) string {
+	if scheme := strings.ToLower(proto); scheme == "http" || scheme == "https" {
+		return scheme
+	}
+	return "https"
+}
+
+// rewriteRequestTarget returns raw with its request-line target replaced by
+// target, preserving the original method, HTTP version, and all headers. This is
+// the request-line SSRF wire form: an absolute-URI target while the connection
+// and Host header remain the victim.
+func rewriteRequestTarget(raw []byte, target string) string {
+	s := string(raw)
+	nl := strings.IndexByte(s, '\n')
+	if nl < 0 {
+		return s
+	}
+	firstLine := strings.TrimRight(s[:nl], "\r")
+	rest := s[nl+1:]
+
+	method, version := "GET", "HTTP/1.1"
+	if parts := strings.Fields(firstLine); len(parts) > 0 {
+		method = parts[0]
+		if len(parts) >= 3 {
+			version = parts[len(parts)-1]
+		}
+	}
+	return method + " " + target + " " + version + "\r\n" + rest
 }
 
 // saveFinding persists a Finding to the database, linked to the originating HTTP
@@ -453,6 +554,19 @@ func classifyInteraction(protocol string, pctx PayloadContext) (severity.Severit
 	// because the per-payload subdomain rules out coincidental resolution.
 	if strings.Contains(strings.ToLower(pctx.InjectionType), "xxe") {
 		return classifyXXE(proto, injectionDesc)
+	}
+
+	// Host-routing SSRF — request-line manipulation (routing-ssrf) and
+	// X-Forwarded-Host header injection — is frequently low-impact: the proxy's
+	// outbound fetch often reaches nothing exploitable. Its OAST callbacks are
+	// reported as informational rather than high. Scoped narrowly: genuine
+	// parameter-based blind SSRF and the other forwarding-header injections
+	// (X-Forwarded-For, Referer, Origin, …) stay high. The routing_ssrf module ID
+	// is matched as a string literal to avoid an import cycle (it imports this
+	// package); the header name is matched case-insensitively.
+	hostRoutingSSRF := pctx.ModuleID == "routing-ssrf" || strings.EqualFold(pctx.ParameterName, "X-Forwarded-Host")
+	if hostRoutingSSRF && (proto == "http" || proto == "https") {
+		return severity.Info, "Blind SSRF confirmed: target made outbound HTTP request to OAST server (" + injectionDesc + ")"
 	}
 
 	switch proto {

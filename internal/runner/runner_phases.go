@@ -219,6 +219,15 @@ func (r *Runner) RunNativeScan() error {
 		}
 	}()
 
+	// Final project-wide finding grouping, on every exit path (success, phase error,
+	// budget cutoff, panic) via defer, so findings on redirected / third-party hosts —
+	// and any scan that skipped known-issue-scan — still collapse per-asset rows before
+	// results are read. Registered here (after infra/scanLogger exist) so it runs first
+	// among the teardown defers: while stderr is still tee'd to the run log and before
+	// the finished-banner reads the finding count. Idempotent when prior passes already
+	// covered everything; see finalizeFindingGrouping.
+	defer r.finalizeFindingGrouping()
+
 	plan := BuildNativeScanPlan(r.options)
 
 	// Full-scan-on-receive: loop waiting for new records, then run all phases

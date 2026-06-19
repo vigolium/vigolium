@@ -239,6 +239,75 @@ func runStatelessTargetsParallel(cmd *cobra.Command, settings *config.Settings, 
 		return fmt.Errorf("cannot locate the vigolium binary for parallel fan-out: %w", err)
 	}
 
+	// Progress manifest: a tiny line-cursor sidecar (<output>.progress.json),
+	// rewritten atomically whenever the completed prefix advances, so a later
+	// --resume can pick up from the next unscanned line without storing a row per
+	// target (the list may be huge). allCount is the full batch size; targets is
+	// narrowed to the remaining tail when resuming, so the roll-up and exit code
+	// still reason about the whole batch (the completed prefix counts as success).
+	allCount := len(targets)
+	manifestPath := resumeManifestPath(scanOpts.Output, scanOpts.TargetsFilePaths)
+	fingerprint := scanSettingsFingerprint(cmd)
+	var manifest *resumeManifest
+
+	if scanOpts.Resume {
+		if m, ok := loadResumeManifest(manifestPath); ok {
+			manifest = m
+			manifest.path = manifestPath
+			if !scanOpts.Silent && m.SettingsFingerprint != "" && m.SettingsFingerprint != fingerprint {
+				fmt.Fprintf(os.Stderr, "%s resume manifest %s was created with different scan settings; the completed prefix is kept as-is (scanned under the old settings)\n",
+					terminal.WarnPrefix(), terminal.Cyan(manifestPath))
+			}
+		} else if !scanOpts.Silent {
+			fmt.Fprintf(os.Stderr, "%s no resume manifest at %s — scanning all %d targets\n",
+				terminal.WarnPrefix(), terminal.Cyan(manifestPath), allCount)
+		}
+	}
+	if manifest == nil {
+		// A fresh (non-resume) run starts a clean manifest, overwriting any stale
+		// one immediately so a --resume after an early Ctrl-C — before any target
+		// finished this run — never reads a completed prefix from a prior batch.
+		manifest = newResumeManifest(manifestPath, scanOpts.Output, scanOpts.OutputFormats, scanOpts.TargetsFilePaths, fingerprint)
+		if err := manifest.save(); err != nil {
+			zap.L().Warn("Failed to initialize resume manifest", zap.String("path", manifestPath), zap.Error(err))
+		}
+	}
+
+	// Capture prior progress before the fan-out mutates the cursor, then skip the
+	// completed prefix. startOffset maps a scanned target's slice index back to
+	// its absolute line for the cursor (see onComplete below).
+	startOffset := manifest.startOffset(allCount)
+	priorCarry := manifest.carryover()
+	if scanOpts.Resume && startOffset > 0 {
+		remaining := allCount - startOffset
+		if remaining <= 0 {
+			if !scanOpts.Silent {
+				fmt.Fprintf(os.Stderr, "%s all %d targets already complete — nothing to resume\n",
+					terminal.Purple(terminal.SymbolInfo), allCount)
+			}
+			printParallelSummary(nil, 0, 0, manifestPath, priorCarry)
+			return nil
+		}
+		if !scanOpts.Silent {
+			// Sanity-check the cursor against the current file: the target on the
+			// cursor line should still be the one the manifest recorded. A mismatch
+			// means the completed prefix was edited or reordered, so the cursor may
+			// skip or rescan the wrong lines — warn but honor the operator's --resume.
+			// startOffset is in [1, allCount), so targets[startOffset-1] is in bounds.
+			if targets[startOffset-1] != manifest.CursorTarget {
+				fmt.Fprintf(os.Stderr, "%s target file changed since the last run (line %d is now %s, manifest recorded %s); resume cursor may be misaligned\n",
+					terminal.WarnPrefix(), startOffset, terminal.Cyan(targets[startOffset-1]), terminal.Cyan(manifest.CursorTarget))
+			}
+			fmt.Fprintf(os.Stderr, "%s %s %s of %s targets already complete — scanning %s remaining\n",
+				terminal.Aqua("↻"),
+				terminal.BoldAqua("Resuming:"),
+				terminal.HiCyan(fmt.Sprintf("%d", startOffset)),
+				terminal.HiCyan(fmt.Sprintf("%d", allCount)),
+				terminal.HiCyan(fmt.Sprintf("%d", remaining)))
+		}
+		targets = targets[startOffset:]
+	}
+
 	parallel := scanOpts.Parallel
 	if parallel > len(targets) {
 		parallel = len(targets)
@@ -257,7 +326,7 @@ func runStatelessTargetsParallel(cmd *cobra.Command, settings *config.Settings, 
 		origBannerOutput := scanOpts.Output
 		scanOpts.Targets = targets
 		scanOpts.Output = perHostOutputPattern(scanOpts.Output)
-		printScanSummary(scanOpts, settings, strategyName, nil)
+		printScanSummary(scanOpts, settings, strategyName, nil, manifestPath)
 		scanOpts.Targets = origBannerTargets
 		scanOpts.Output = origBannerOutput
 		scanOpts.ScanConfigPrinted = true
@@ -323,10 +392,29 @@ func runStatelessTargetsParallel(cmd *cobra.Command, settings *config.Settings, 
 		}
 	}
 
-	results, failed, interrupted := fanOutTargetScans(ctx, exe, targets, parallel, planFor)
+	// Advance the manifest cursor as targets finish cleanly, so a Ctrl-C keeps the
+	// record of how far the contiguous completed prefix reached. Runs under the
+	// fan-out's result lock (see fanOutTargetScans), so the cursor update and
+	// atomic save are serialized against concurrent completions. idx is the index
+	// within this run's (possibly narrowed) slice; startOffset maps it back to the
+	// absolute line. We only rewrite the file when the cursor actually moved.
+	onComplete := func(idx int, res targetResult) {
+		if res.err != nil || res.interrupted {
+			return
+		}
+		if manifest.markDone(startOffset+idx, res.target, res.stats) {
+			if err := manifest.save(); err != nil {
+				zap.L().Warn("Failed to persist resume manifest", zap.String("path", manifestPath), zap.Error(err))
+			}
+		}
+	}
 
-	printParallelSummary(results, failed, interrupted)
-	return parallelBatchError(failed, interrupted, len(targets))
+	results, failed, interrupted := fanOutTargetScans(ctx, exe, targets, parallel, planFor, onComplete)
+
+	// priorCarry folds the previously-completed prefix into the roll-up and exit
+	// status so they reason about the whole batch, not just this run's remainder.
+	printParallelSummary(results, failed, interrupted, manifestPath, priorCarry)
+	return parallelBatchError(failed, interrupted, allCount)
 }
 
 // childPlan describes one child scan the parent will spawn: the full argv (with
@@ -347,7 +435,12 @@ type childPlan struct {
 // (via runChildScan) SIGINT forwarding; callers print the banner before the call
 // and the roll-up / unified export after it. Shared by the stateless (per-host
 // files) and db-isolate (merge into --db) parallel paths.
-func fanOutTargetScans(ctx context.Context, exe string, targets []string, parallel int, planFor func(i int, target string) childPlan) ([]targetResult, int, int) {
+//
+// onComplete, when non-nil, is invoked once per target as it finishes — while
+// the result lock is held, so it may safely mutate shared state (the stateless
+// path uses it to checkpoint each completed target to the resume manifest). It
+// receives the target's index and its fully-populated result.
+func fanOutTargetScans(ctx context.Context, exe string, targets []string, parallel int, planFor func(i int, target string) childPlan, onComplete func(idx int, res targetResult)) ([]targetResult, int, int) {
 	var (
 		mu          sync.Mutex // guards results, completed, failed, interrupted, and stderr prints
 		results     = make([]targetResult, len(targets))
@@ -380,6 +473,9 @@ func fanOutTargetScans(ctx context.Context, exe string, targets []string, parall
 				results[i] = targetResult{target: target, console: plan.console, err: ctx.Err(), interrupted: true}
 				completed++
 				interrupted++
+				if onComplete != nil {
+					onComplete(i, results[i])
+				}
 				mu.Unlock()
 				return
 			}
@@ -449,6 +545,9 @@ func fanOutTargetScans(ctx context.Context, exe string, targets []string, parall
 						statsSegment(stats, statsOK),
 						doneCount, total, failCount)
 				}
+			}
+			if onComplete != nil {
+				onComplete(i, results[i])
 			}
 			mu.Unlock()
 
@@ -526,7 +625,7 @@ func runIsolatedTargetsParallel(cmd *cobra.Command, settings *config.Settings, s
 	if !scanOpts.Silent {
 		origBannerTargets := scanOpts.Targets
 		scanOpts.Targets = targets
-		printScanSummary(scanOpts, settings, strategyName, nil)
+		printScanSummary(scanOpts, settings, strategyName, nil, "")
 		scanOpts.Targets = origBannerTargets
 		scanOpts.ScanConfigPrinted = true
 	}
@@ -577,9 +676,12 @@ func runIsolatedTargetsParallel(cmd *cobra.Command, settings *config.Settings, s
 		}
 	}
 
-	results, failed, interrupted := fanOutTargetScans(ctx, exe, targets, parallel, planFor)
+	// The db-isolate path merges into one shared DB and has no per-host output
+	// files, so host-level resume does not apply here (v1): no manifest callback,
+	// and the summary prints the generic re-run hint rather than a --resume tip.
+	results, failed, interrupted := fanOutTargetScans(ctx, exe, targets, parallel, planFor, nil)
 
-	printParallelSummary(results, failed, interrupted)
+	printParallelSummary(results, failed, interrupted, "", carryoverStats{})
 
 	// Export the unified output only when at least one child merged something —
 	// if every child failed or was interrupted there is nothing new in the
@@ -669,16 +771,27 @@ func runChildScan(ctx context.Context, exe string, args []string, consolePath st
 // the operator interrupted (Ctrl-C) before they finished are not enumerated —
 // they collapse into a single "N not scanned" line, since listing every
 // un-started target is pure noise the operator didn't ask to wait on.
-func printParallelSummary(results []targetResult, failed, interrupted int) {
+// printParallelSummary prints the final roll-up. manifestPath, when set (the
+// stateless per-host path), turns the trailing "re-run to finish" hint into a
+// copy-pasteable --resume command plus the manifest's done/total progress; an
+// empty manifestPath (the db-isolate path) keeps the generic re-run line. carry
+// folds a resumed run's previously-completed prefix into the totals so the
+// counts reflect the whole batch, not just this run's remainder.
+func printParallelSummary(results []targetResult, failed, interrupted int, manifestPath string, carry carryoverStats) {
 	if scanOpts.Silent {
 		return
 	}
-	total := len(results)
+	total := carry.count + len(results)
 	succeeded := total - failed - interrupted
 
 	var longest time.Duration
 	agg := childStats{sev: make(map[string]int)}
-	haveStats := false
+	haveStats := carry.count > 0
+	agg.records += carry.stats.records
+	agg.findings += carry.stats.findings
+	for k, v := range carry.stats.sev {
+		agg.sev[k] += v
+	}
 	for _, r := range results {
 		if r.duration > longest {
 			longest = r.duration
@@ -741,10 +854,28 @@ func printParallelSummary(results []targetResult, failed, interrupted int) {
 		}
 	}
 
-	// One general line for everything the Ctrl-C left un-scanned — no per-target
-	// dump, no console paths (there is nothing to triage in a target that was
-	// never run). Re-run the batch to scan the remainder.
-	if interrupted > 0 {
+	// Everything the run left undone — interrupted (Ctrl-C) or genuinely failed —
+	// can be picked up with --resume, which skips the targets already recorded
+	// complete in the manifest. Render the exact resume command so it pastes back.
+	remaining := failed + interrupted
+	switch {
+	case manifestPath != "" && remaining > 0:
+		desc := "still need scanning"
+		if interrupted == 0 {
+			desc = "failed"
+		}
+		fmt.Fprintf(os.Stderr, "\n  %s %s target(s) %s — resume where you left off:\n\n",
+			terminal.Aqua("↻"),
+			terminal.BoldYellow(fmt.Sprintf("%d", remaining)),
+			desc)
+		fmt.Fprintf(os.Stderr, "      %s\n\n", terminal.Cyan(resumeCommandLine(os.Args)))
+		fmt.Fprintf(os.Stderr, "  %s Progress saved to %s (%d of %d complete; done hosts will be skipped)\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.Cyan(manifestPath),
+			succeeded, total)
+	case interrupted > 0:
+		// db-isolate path (no per-host manifest): the generic re-run hint. No
+		// per-target dump — there is nothing to triage in a target never run.
 		fmt.Fprintf(os.Stderr, "  %s %s target(s) stopped before completing and were not scanned — re-run to finish them\n",
 			terminal.Gray(terminal.SymbolSkipped),
 			terminal.BoldYellow(fmt.Sprintf("%d", interrupted)))
@@ -825,6 +956,7 @@ func childScanArgs(cmd *cobra.Command) []string {
 		"output":        true,
 		"parallel":      true,
 		"split-by-host": true,
+		"resume":        true, // parent-only fan-out coordination; children scan a single target
 	}
 
 	var args []string

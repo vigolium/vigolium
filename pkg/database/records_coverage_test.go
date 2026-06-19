@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -378,6 +379,57 @@ func TestUpdateRecordResponse(t *testing.T) {
 	// Missing record errors.
 	if err := repo.UpdateRecordResponse(ctx, "no-such", update); err == nil {
 		t.Error("UpdateRecordResponse on missing record should error")
+	}
+}
+
+func TestBackfillRecordResponse(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	// Insert a request-only stub (no response), as discovery does for endpoints
+	// synthesized from a parsed API spec.
+	stub, _ := httpmsg.ParseRawRequest("GET /api/users HTTP/1.1\r\nHost: api.example.com\r\n\r\n")
+	u, err := repo.SaveRecord(ctx, stub, "api-spec", DefaultProjectUUID)
+	if err != nil {
+		t.Fatalf("SaveRecord: %v", err)
+	}
+	if rec, _ := repo.GetRecordByUUID(ctx, u); rec.HasResponse || rec.StatusCode != 0 {
+		t.Fatalf("precondition: stub should have no response, got status=%d hasResp=%v", rec.StatusCode, rec.HasResponse)
+	}
+
+	// Backfill with a freshly fetched baseline (401 auth wall).
+	withResp := stub.WithResponse(httpmsg.NewHttpResponse(
+		[]byte("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\n\r\n{\"error\":\"unauthorized\"}")))
+	if err := repo.BackfillRecordResponse(ctx, u, withResp); err != nil {
+		t.Fatalf("BackfillRecordResponse: %v", err)
+	}
+
+	rec, _ := repo.GetRecordByUUID(ctx, u)
+	if !rec.HasResponse || rec.StatusCode != 401 {
+		t.Errorf("backfill did not apply: status=%d hasResp=%v", rec.StatusCode, rec.HasResponse)
+	}
+	if !strings.Contains(rec.ResponseContentType, "application/json") {
+		t.Errorf("content-type not backfilled: %q", rec.ResponseContentType)
+	}
+	if len(rec.RawResponse) == 0 {
+		t.Error("raw response not backfilled")
+	}
+
+	// Idempotent: a second backfill must NOT clobber an already-probed record
+	// (guarded on has_response = false), so the original 401 survives.
+	second := stub.WithResponse(httpmsg.NewHttpResponse(
+		[]byte("HTTP/1.1 500 Internal Server Error\r\n\r\nboom")))
+	if err := repo.BackfillRecordResponse(ctx, u, second); err != nil {
+		t.Fatalf("BackfillRecordResponse (second): %v", err)
+	}
+	if rec, _ := repo.GetRecordByUUID(ctx, u); rec.StatusCode != 401 {
+		t.Errorf("second backfill clobbered an existing response: status=%d, want 401", rec.StatusCode)
+	}
+
+	// A request-only rr (no response) is a no-op, not an error.
+	if err := repo.BackfillRecordResponse(ctx, u, stub); err != nil {
+		t.Errorf("BackfillRecordResponse with no response should be a no-op, got %v", err)
 	}
 }
 

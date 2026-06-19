@@ -123,6 +123,19 @@ const (
 	// dedupClusterTolerance is the relative band (0.5%) within which two
 	// responses' body size and word count are treated as the same shape.
 	dedupClusterTolerance = 0.005
+
+	// crawlRecordSource labels http_records produced by deparos content
+	// discovery (crawled directories/files/fuzzed paths). The post-discovery
+	// dedup/status-retention passes are all scoped to this source.
+	crawlRecordSource = "deparos"
+
+	// specRecordSource labels http_records synthesized from a discovered API
+	// spec (OpenAPI/Swagger/Postman). Kept DISTINCT from crawlRecordSource so the
+	// post-discovery deparos dedup/status passes (which drop 4xx and collapse 401s
+	// to one-per-host, scoped to source='deparos') leave these alone: spec routes
+	// are real, documented endpoints — not fuzzed guesses — and every one must
+	// survive (often as a uniform 401) to be scanned by dynamic assessment.
+	specRecordSource = "api-spec"
 )
 
 // resolveClusterCap resolves the effective near-identical response cap.
@@ -704,38 +717,26 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 		localStats.CappedCodes = cappedCodes
 	}
 
-	// Collect survivors (records + spec endpoints below).
-	survivors := make([]*httpmsg.HttpRequestResponse, 0, len(compacted))
+	// Crawled discovery records keep the crawlRecordSource ("deparos") label so
+	// the post-discovery dedup/status passes apply to them.
+	crawled := make([]*httpmsg.HttpRequestResponse, 0, len(compacted))
 	for _, rec := range compacted {
-		survivors = append(survivors, rec.rr)
+		crawled = append(crawled, rec.rr)
 	}
 
-	// Parse API specs (OpenAPI/Swagger/Postman) found among survivors and add parsed endpoints
-	specEndpoints := extractSpecEndpoints(survivors)
+	// Parse API specs (OpenAPI/Swagger/Postman) found among the crawled responses
+	// and queue their documented endpoints. They are persisted separately under
+	// specRecordSource so the deparos dedup/status passes don't drop or collapse
+	// them once each carries a real (often uniform 401) baseline response.
+	specEndpoints := extractSpecEndpoints(crawled)
 	if len(specEndpoints) > 0 {
-		survivors = append(survivors, specEndpoints...)
 		terminal.Notice("api-spec", fmt.Sprintf(
 			"Ingested %d API spec endpoints from discovery of %s — extra requests "+
 				"queued for dynamic assessment (longer scan, more results)",
 			len(specEndpoints), target))
 	}
 
-	localStats.Imported = len(survivors)
-
-	// Batch save to DB
-	var uuids []string
-	if d.cfg.Repository != nil && len(survivors) > 0 {
-		var saveErr error
-		uuids, saveErr = d.cfg.Repository.SaveRecordBatch(ctx, survivors, "deparos", d.cfg.ProjectUUID)
-		if saveErr != nil {
-			zap.L().Warn("Failed to batch save deparos results to DB", zap.Error(saveErr))
-			// Fall back to emitting without UUIDs
-			uuids = make([]string, len(survivors))
-		}
-	} else {
-		uuids = make([]string, len(survivors))
-	}
-
+	localStats.Imported = len(crawled) + len(specEndpoints)
 	if localStats.Imported > 0 {
 		zap.L().Info("Deparos discovery results imported to DB",
 			zap.String("target", target),
@@ -760,8 +761,43 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	}
 	d.mu.Unlock()
 
-	// Emit WorkItems
-	for i, rr := range survivors {
+	// Persist + emit each record set under its own source label. Spec endpoints
+	// go out as request-only stubs (no response); the executor fetches a baseline
+	// for each and backfills the stored record so the route isn't left empty.
+	if err := d.saveAndEmit(ctx, crawled, crawlRecordSource); err != nil {
+		return err
+	}
+	if err := d.saveAndEmit(ctx, specEndpoints, specRecordSource); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// saveAndEmit batch-saves a set of discovery records under the given source
+// label, then emits each as a WorkItem tagged with its persisted record UUID
+// (so downstream findings link back to the stored record). A DB save failure is
+// logged and the records are still emitted (without UUIDs) so scanning proceeds.
+func (d *DeparosDiscoverySource) saveAndEmit(ctx context.Context, records []*httpmsg.HttpRequestResponse, recordSource string) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	var uuids []string
+	if d.cfg.Repository != nil {
+		saved, err := d.cfg.Repository.SaveRecordBatch(ctx, records, recordSource, d.cfg.ProjectUUID)
+		if err != nil {
+			zap.L().Warn("Failed to batch save discovery results to DB",
+				zap.String("source", recordSource), zap.Error(err))
+			uuids = make([]string, len(records)) // emit without UUIDs
+		} else {
+			uuids = saved
+		}
+	} else {
+		uuids = make([]string, len(records))
+	}
+
+	for i, rr := range records {
 		item := work.NewWithModules(rr, d.cfg.EnableModules)
 		if i < len(uuids) {
 			item.RecordUUID = uuids[i]

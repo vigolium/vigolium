@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,9 +12,11 @@ import (
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/sqliteshim"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
+	"github.com/vigolium/vigolium/pkg/work"
 )
 
 // metaStub is an activeStub with a configurable static Description (the
@@ -201,5 +204,92 @@ func TestProcessResults_MutatedFindingDoesNotLinkBaseline(t *testing.T) {
 	}
 	if linked[0] == baselineUUID {
 		t.Errorf("mutated finding incorrectly linked to the baseline record %s", baselineUUID)
+	}
+}
+
+// newStubRecord builds a request-only HttpRequestResponse (no response), as
+// discovery does for endpoints synthesized from a parsed API spec.
+func newStubRecord(host, path string) *httpmsg.HttpRequestResponse {
+	svc := httpmsg.NewServiceSecure(host, 443, true)
+	raw := []byte(fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\n\r\n", path, host))
+	return httpmsg.NewHttpRequestResponse(httpmsg.NewHttpRequestWithService(svc, raw), nil)
+}
+
+// TestSaveToDatabase_BackfillsStubResponse is the core regression guard for the
+// "spec endpoints show empty traffic" bug: a record stored as a request-only
+// stub (status 0, no response) that maps to an existing RecordUUID must have the
+// executor's freshly fetched baseline persisted back onto it — not discarded.
+func TestSaveToDatabase_BackfillsStubResponse(t *testing.T) {
+	e, db := newRepoExecutor(t)
+	ctx := context.Background()
+
+	// Persist the stub exactly as the discovery source does.
+	stub := newStubRecord("api.example.com", "/api/users")
+	uuid, err := e.repo.SaveRecord(ctx, stub, "api-spec", database.DefaultProjectUUID)
+	if err != nil {
+		t.Fatalf("SaveRecord: %v", err)
+	}
+	if rec, _ := e.repo.GetRecordByUUID(ctx, uuid); rec.HasResponse || rec.StatusCode != 0 {
+		t.Fatalf("precondition: stub must have no response, got status=%d hasResp=%v", rec.StatusCode, rec.HasResponse)
+	}
+
+	// The item carries the untouched stub (no response) + its RecordUUID; req is
+	// the post-fetch copy with the real baseline attached (what the executor
+	// passes to saveToDatabase after fetchBaselineResponse).
+	item := work.NewWithModules(stub, nil)
+	item.RecordUUID = uuid
+	req := stub.WithResponse(httpmsg.NewHttpResponse(
+		[]byte("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\n\r\n{\"error\":\"unauthorized\"}")))
+
+	e.saveToDatabase(ctx, item, req)
+
+	rec, err := e.repo.GetRecordByUUID(ctx, uuid)
+	if err != nil {
+		t.Fatalf("GetRecordByUUID: %v", err)
+	}
+	if !rec.HasResponse || rec.StatusCode != 401 {
+		t.Errorf("stub response not backfilled: status=%d hasResp=%v", rec.StatusCode, rec.HasResponse)
+	}
+	if !strings.Contains(rec.ResponseContentType, "application/json") {
+		t.Errorf("content-type not backfilled: %q", rec.ResponseContentType)
+	}
+	if len(rec.RawResponse) == 0 {
+		t.Error("raw response not backfilled")
+	}
+	if got := countRecords(t, db); got != 1 {
+		t.Errorf("http_records = %d, want 1 (backfill must UPDATE, not insert a duplicate)", got)
+	}
+}
+
+// TestSaveToDatabase_DoesNotClobberExistingResponse proves the guard: a record
+// that already captured a response (item.Request carries one) is never
+// overwritten by the backfill, even if req holds a different response. This
+// keeps crawled/ingested records — which already have their real response — safe.
+func TestSaveToDatabase_DoesNotClobberExistingResponse(t *testing.T) {
+	e, _ := newRepoExecutor(t)
+	ctx := context.Background()
+
+	// A record saved WITH a 200 response (a normal crawled/ingested record).
+	full := newStubRecord("api.example.com", "/api/health").WithResponse(
+		httpmsg.NewHttpResponse([]byte("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nok")))
+	uuid, err := e.repo.SaveRecord(ctx, full, "deparos", database.DefaultProjectUUID)
+	if err != nil {
+		t.Fatalf("SaveRecord: %v", err)
+	}
+
+	item := work.NewWithModules(full, nil)
+	item.RecordUUID = uuid
+	// A different (500) response that must NOT overwrite the stored 200.
+	req := full.WithResponse(httpmsg.NewHttpResponse(
+		[]byte("HTTP/1.1 500 Internal Server Error\r\n\r\nboom")))
+
+	e.saveToDatabase(ctx, item, req)
+
+	rec, err := e.repo.GetRecordByUUID(ctx, uuid)
+	if err != nil {
+		t.Fatalf("GetRecordByUUID: %v", err)
+	}
+	if rec.StatusCode != 200 {
+		t.Errorf("existing response was clobbered: status=%d, want 200", rec.StatusCode)
 	}
 }

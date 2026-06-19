@@ -146,6 +146,7 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	scanOpts.SplitByHost = globalSplitByHost
 	scanOpts.DBIsolate = globalDBIsolate
 	scanOpts.Parallel = globalParallel
+	scanOpts.Resume = globalResume
 
 	// --split-by-host names each per-host output file after the target's hostname
 	// (acme-<host>.jsonl with a base, or just <host>.jsonl when no -o is given), so
@@ -562,7 +563,7 @@ func executeNativeScan(cmd *cobra.Command, settings *config.Settings, strategyNa
 	// the runner reuses the same identifier instead of minting its own.
 	scanOpts.ScanUUID = pinnedOrNewUUID(scanOpts.ScanUUID)
 	// Print scan summary banner (after DB init so we can show HTTP record count)
-	printScanSummary(scanOpts, settings, strategyName, repo)
+	printScanSummary(scanOpts, settings, strategyName, repo, "")
 	scanOpts.ScanConfigPrinted = true
 
 	// For stateless mode with --output: suppress StandardWriter's live file
@@ -742,6 +743,11 @@ func runStatelessTargetFile(cmd *cobra.Command, settings *config.Settings, strat
 	// below unchanged — there is nothing to parallelize and no exec overhead.
 	if scanOpts.Parallel > 1 && len(targets) > 1 {
 		return runStatelessTargetsParallel(cmd, settings, strategyName, targets)
+	}
+
+	if scanOpts.Resume && !scanOpts.Silent {
+		fmt.Fprintf(os.Stderr, "%s --resume currently applies only to the parallel fan-out (-S -T --split-by-host -P>1); running a full sequential scan over all targets\n",
+			terminal.WarnPrefix())
 	}
 
 	origTargets := append([]string(nil), scanOpts.Targets...)
@@ -1551,30 +1557,31 @@ func setupScanSignalHandler(r *runner.Runner) {
 	}()
 }
 
-// heapCeilingBannerLine renders the colored memory-ceiling line shown after the
-// scan banner under a parallel fan-out (-P > 1): a cyan ◆ prefix and label with
-// the byte amounts highlighted, matching the rest of the config banner. The
-// common auto-derived case reads "◆ Memory ceiling 12 GiB/process (auto from
-// 36 GiB RAM)"; explicit/percent/disabled/inherited ceilings fall back to the
-// raw note (which carries its own descriptor). Returns "" when there is nothing
-// to report (machine too small or RAM undetectable).
-func heapCeilingBannerLine(res memlimit.Result) string {
+// heapCeilingConfigLine renders the memory-ceiling detail shown inside the
+// Native Scan Configuration block under a parallel fan-out (-P > 1): plain
+// (uncolored) descriptive text with only the byte amounts highlighted, matching
+// the rest of the config lines. The common auto-derived case reads "Memory
+// ceiling 12 GiB/process (auto from 36 GiB RAM)"; explicit/percent/disabled/
+// inherited ceilings fall back to the raw note (which carries its own
+// descriptor). Returns "" when there is nothing to report (machine too small or
+// RAM undetectable).
+func heapCeilingConfigLine(res memlimit.Result) string {
 	if res.Note == "" {
 		return ""
 	}
-	symbol := terminal.InfoSymbol()
 	if res.Auto && res.TotalRAMBytes > 0 {
-		return fmt.Sprintf("%s %s %s %s",
-			symbol,
-			terminal.White("Memory ceiling"),
-			terminal.Orange(humanize.IBytes(uint64(res.LimitBytes)))+terminal.Gray("/process"),
-			terminal.Gray("(auto from ")+terminal.Orange(humanize.IBytes(res.TotalRAMBytes))+terminal.Gray(" RAM)"))
+		return fmt.Sprintf("Memory ceiling %s/process (auto from %s RAM)",
+			terminal.Orange(humanize.IBytes(uint64(res.LimitBytes))),
+			terminal.Orange(humanize.IBytes(res.TotalRAMBytes)))
 	}
-	return symbol + " " + terminal.Cyan(res.Note)
+	return res.Note
 }
 
 // printScanSummary prints a human-readable scan configuration overview to stderr.
-func printScanSummary(opts *types.Options, settings *config.Settings, strategyName string, repo *database.Repository) {
+// progressFile, when non-empty, is the resume progress manifest written by the
+// stateless parallel fan-out; it is appended to the Output line so the operator
+// can see (and resume from) it. Empty for every other scan mode.
+func printScanSummary(opts *types.Options, settings *config.Settings, strategyName string, repo *database.Repository, progressFile string) {
 	if opts.Silent || globalJSON || globalCIOutput {
 		return
 	}
@@ -1585,15 +1592,6 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		fmt.Fprint(os.Stderr, GetDiscoveryBanner())
 	} else {
 		fmt.Fprint(os.Stderr, GetBanner())
-	}
-
-	// Under a parallel fan-out (-P > 1), surface the per-process heap ceiling the
-	// isolated child scans inherit, right after the banner. A single scan omits it
-	// — the ceiling is rarely worth a line when only one process runs.
-	if opts.Parallel > 1 {
-		if line := heapCeilingBannerLine(scanHeapCeiling); line != "" {
-			fmt.Fprintln(os.Stderr, line)
-		}
 	}
 
 	// Phase status indicators: symbol + colored name + optional pace detail
@@ -1732,6 +1730,14 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		terminal.HiBlue(fmt.Sprintf("%d", opts.Concurrency)),
 		terminal.HiBlue(fmt.Sprintf("%d", globalRateLimit)),
 		terminal.HiBlue(fmt.Sprintf("%d", opts.MaxPerHost)))
+	// Under a parallel fan-out (-P > 1), surface the per-process heap ceiling the
+	// isolated child scans inherit. A single scan omits it — the ceiling is rarely
+	// worth a line when only one process runs.
+	if opts.Parallel > 1 {
+		if line := heapCeilingConfigLine(scanHeapCeiling); line != "" {
+			fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), line)
+		}
+	}
 	originDesc := map[string]string{
 		"relaxed":  "host must contain the target's keyword (e.g. \"example\")",
 		"all":      "no origin restriction, all hosts are in scope",
@@ -1782,6 +1788,16 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 			}
 			if len(paths) > 0 {
 				dest = strings.Join(paths, ", ")
+			}
+		}
+		// Surface the resume progress manifest (stateless parallel fan-out) on the
+		// same line so the operator can see where progress is checkpointed and what
+		// --resume reads. Appended after the per-host output files.
+		if progressFile != "" {
+			if dest == "stdout" {
+				dest = progressFile
+			} else {
+				dest += ", " + progressFile
 			}
 		}
 		fmt.Fprintf(os.Stderr, "  %s Output: %s %s\n",
