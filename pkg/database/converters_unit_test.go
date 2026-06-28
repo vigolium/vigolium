@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -182,24 +183,34 @@ func TestResolveHostnameIP_LiteralIP(t *testing.T) {
 
 func TestResolveHostnameIP_CachesResult(t *testing.T) {
 	// Use a clearly-invalid hostname so the DNS lookup fails and an empty
-	// result is cached. The second call must observe the cached empty value
-	// (we can't easily assert the lack of a lookup, but we assert consistency).
+	// result is cached. Resolution is now asynchronous (it must not block the
+	// write path), so the first call returns "" immediately and schedules a
+	// background resolve; the cache entry appears once that completes.
 	host := "definitely-not-a-real-host.invalid-tld-xyz"
-	first := resolveHostnameIP(host)
-	second := resolveHostnameIP(host)
-	if first != second {
-		t.Errorf("resolveHostnameIP not stable across calls: %q vs %q", first, second)
+	if first := resolveHostnameIP(host); first != "" {
+		t.Errorf("first resolveHostnameIP should return %q (async), got %q", "", first)
 	}
 
-	// Verify the failed lookup landed in the cache.
-	dnsCache.RLock()
-	cached, found := dnsCache.m[host]
-	dnsCache.RUnlock()
-	if !found {
-		t.Fatalf("expected %q to be cached after lookup", host)
+	// Wait for the background resolve (a failed lookup) to land in the cache.
+	deadline := time.Now().Add(5 * time.Second)
+	var cached string
+	var found bool
+	for time.Now().Before(deadline) {
+		dnsCache.RLock()
+		cached, found = dnsCache.m[host]
+		dnsCache.RUnlock()
+		if found {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	if cached != first {
-		t.Errorf("cached value %q != returned value %q", cached, first)
+	if !found {
+		t.Fatalf("expected %q to be cached after background lookup", host)
+	}
+
+	// Once cached, the value is returned consistently.
+	if got := resolveHostnameIP(host); got != cached {
+		t.Errorf("resolveHostnameIP not stable: cached %q vs returned %q", cached, got)
 	}
 }
 

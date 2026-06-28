@@ -28,6 +28,18 @@ func analyse(response string) string {
 
 	scripts := scriptExtract.FindAllStringSubmatch(response, -1)
 	sinkFound, sourceFound := false, false
+	// Cache the per-variable `\bNAME\b` regexes for the whole call: the same
+	// controlled variable is otherwise recompiled on every line (and twice per
+	// line — once for match, once for replace).
+	varWordRegex := make(map[string]*regexp.Regexp)
+	wordRegex := func(name string) *regexp.Regexp {
+		if re, ok := varWordRegex[name]; ok {
+			return re
+		}
+		re := regexp.MustCompile(`\b` + name + `\b`)
+		varWordRegex[name] = re
+		return re
+	}
 	for _, script := range scripts {
 		lines := strings.Split(script[1], "\n")
 		num := 1
@@ -41,7 +53,7 @@ func analyse(response string) string {
 				for _, part := range parts {
 					for controlledVariable := range allControlledVariables {
 						if strings.Contains(part, controlledVariable) {
-							controlledVariables[regexp.MustCompile(`[a-zA-Z$_][a-zA-Z0-9$_]+`).FindString(part)] = true
+							controlledVariables[identifierPattern.FindString(part)] = true
 						}
 					}
 				}
@@ -56,7 +68,7 @@ func analyse(response string) string {
 						if len(parts) > 1 {
 							for _, part := range parts {
 								if strings.Contains(part, source) {
-									controlledVariables[regexp.MustCompile(`[a-zA-Z$_][a-zA-Z0-9$_]+`).FindString(part)] = true
+									controlledVariables[identifierPattern.FindString(part)] = true
 								}
 							}
 						}
@@ -70,10 +82,11 @@ func analyse(response string) string {
 			}
 
 			for controlledVariable := range allControlledVariables {
-				matches := regexp.MustCompile(`\b`+controlledVariable+`\b`).FindAllStringIndex(line, -1)
+				re := wordRegex(controlledVariable)
+				matches := re.FindAllStringIndex(line, -1)
 				if len(matches) > 0 {
 					sourceFound = true
-					line = regexp.MustCompile(`\b`+controlledVariable+`\b`).ReplaceAllString(line, "**"+controlledVariable+"**")
+					line = re.ReplaceAllString(line, "**"+controlledVariable+"**")
 				}
 			}
 

@@ -6,7 +6,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
-	"github.com/vigolium/vigolium/pkg/utils"
 )
 
 // requestEligibility caches common CanProcess checks for a single request.
@@ -20,11 +19,12 @@ func computeEligibility(item *httpmsg.HttpRequestResponse) requestEligibility {
 	if item == nil || item.Request() == nil {
 		return requestEligibility{}
 	}
-	urlx, err := item.URL()
-	if err != nil {
+	if _, err := item.URL(); err != nil {
 		return requestEligibility{}
 	}
-	if utils.IsMediaAndJSURL(urlx.Path) {
+	// Seeds the per-request media memo so every module's base CanProcess reuses
+	// it instead of re-running the regex.
+	if item.Request().IsMediaPath() {
 		return requestEligibility{}
 	}
 	method := item.Request().Method()

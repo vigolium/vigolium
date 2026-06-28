@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,7 +55,12 @@ installer as:
 
 which installs to ` + installedBinaryPath + ` regardless of where the current
 binary lives — a warning is printed if the running binary is somewhere else
-(e.g. a ` + "`make install`" + ` build in $GOPATH/bin or a Homebrew install).`,
+(e.g. a ` + "`make install`" + ` build in $GOPATH/bin or a Homebrew install).
+
+Vigolium also checks npm for a newer release on startup (at most once per day)
+and prints a notice when one is available. Set ` + envDisableUpdateCheck + `=1
+to silence that check, or ` + envAutoUpdate + `=1 to have it update and re-exec
+the new binary automatically.`,
 	RunE: runUpdateCmd,
 }
 
@@ -161,19 +167,25 @@ func runUpdateCmd(cmd *cobra.Command, args []string) error {
 	return firstErr
 }
 
+// runInstallScript runs the public installer one-liner with both stdout and
+// stderr wired to w. Shared by `vigolium update` (which streams to the console)
+// and the silent auto-update path (which captures to a buffer).
+func runInstallScript(ctx context.Context, w io.Writer) error {
+	cmd := exec.CommandContext(ctx, "bash", "-c", "curl -fsSL "+installScriptURL+" | bash")
+	cmd.Stdout = w
+	cmd.Stderr = w
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("install script failed: %w", err)
+	}
+	return nil
+}
+
 // updateBinary re-runs the public installer. Its output is routed to stderr so
 // stdout stays a clean JSON document under --json.
 func updateBinary() error {
 	ctx, cancel := context.WithTimeout(context.Background(), updateStepTimeout)
 	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "bash", "-c", "curl -fsSL "+installScriptURL+" | bash")
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("install script failed: %w", err)
-	}
-	return nil
+	return runInstallScript(ctx, os.Stderr)
 }
 
 // updateNucleiTemplates refreshes the templates checkout in place when it is an

@@ -10,7 +10,19 @@ type Registry struct {
 	mu      sync.RWMutex
 	modules map[string]Module
 	order   []string // Maintains registration order
+
+	// enabledCache memoizes the sorted Enabled() slice. Enabled() is called on
+	// the per-task hot path (TaskFilter.ShouldAdd) but the enabled set almost
+	// never changes mid-crawl, so rebuilding+sorting it per task was pure waste.
+	// Invalidated by every method that can change membership or enabled state
+	// (all of which hold mu.Lock).
+	enabledCache      []Module
+	enabledCacheValid bool
 }
+
+// invalidateEnabledCache marks the memoized Enabled() slice stale. Callers must
+// hold mu.Lock.
+func (r *Registry) invalidateEnabledCache() { r.enabledCacheValid = false }
 
 // NewRegistry creates a new module registry.
 func NewRegistry() *Registry {
@@ -32,6 +44,7 @@ func (r *Registry) Register(m Module) bool {
 
 	r.modules[name] = m
 	r.order = append(r.order, name)
+	r.invalidateEnabledCache()
 	return true
 }
 
@@ -55,6 +68,7 @@ func (r *Registry) Unregister(name string) bool {
 		}
 	}
 
+	r.invalidateEnabledCache()
 	return true
 }
 
@@ -83,23 +97,34 @@ func (r *Registry) All() []Module {
 	return modules
 }
 
-// Enabled returns all enabled modules sorted by priority.
+// Enabled returns all enabled modules sorted by priority. The result is memoized
+// and rebuilt only when membership/enabled state changes; callers must treat the
+// returned slice as read-only (it is shared).
 func (r *Registry) Enabled() []Module {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	var modules []Module
-	for _, m := range r.modules {
-		if m.Enabled() {
-			modules = append(modules, m)
-		}
+	if r.enabledCacheValid {
+		c := r.enabledCache
+		r.mu.RUnlock()
+		return c
 	}
+	r.mu.RUnlock()
 
-	sort.Slice(modules, func(i, j int) bool {
-		return modules[i].Priority() < modules[j].Priority()
-	})
-
-	return modules
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.enabledCacheValid {
+		modules := make([]Module, 0, len(r.modules))
+		for _, m := range r.modules {
+			if m.Enabled() {
+				modules = append(modules, m)
+			}
+		}
+		sort.Slice(modules, func(i, j int) bool {
+			return modules[i].Priority() < modules[j].Priority()
+		})
+		r.enabledCache = modules
+		r.enabledCacheValid = true
+	}
+	return r.enabledCache
 }
 
 // MatchDirectory returns enabled modules matching the directory path.
@@ -179,6 +204,7 @@ func (r *Registry) Enable(name string) bool {
 
 	if base, ok := m.(*BaseModule); ok {
 		base.SetEnabled(true)
+		r.invalidateEnabledCache()
 		return true
 	}
 
@@ -201,6 +227,7 @@ func (r *Registry) Disable(name string) bool {
 
 	if base, ok := m.(*BaseModule); ok {
 		base.SetEnabled(false)
+		r.invalidateEnabledCache()
 		return true
 	}
 
@@ -223,6 +250,7 @@ func (r *Registry) EnableOnly(names []string) {
 			base.SetEnabled(shouldEnable)
 		}
 	}
+	r.invalidateEnabledCache()
 }
 
 // DisableAll disables all modules.
@@ -235,6 +263,7 @@ func (r *Registry) DisableAll() {
 			base.SetEnabled(false)
 		}
 	}
+	r.invalidateEnabledCache()
 }
 
 // EnableAll enables all modules.
@@ -247,4 +276,5 @@ func (r *Registry) EnableAll() {
 			base.SetEnabled(true)
 		}
 	}
+	r.invalidateEnabledCache()
 }

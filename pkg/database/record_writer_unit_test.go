@@ -17,14 +17,17 @@ func TestRecordWriterConfig_WithDefaults(t *testing.T) {
 	if zero.FlushInterval != 50*time.Millisecond {
 		t.Errorf("FlushInterval default = %v, want 50ms", zero.FlushInterval)
 	}
-	if zero.Shards != 4 {
-		t.Errorf("Shards default = %d, want 4", zero.Shards)
+	// Shards is intentionally NOT defaulted by withDefaults — NewRecordWriter
+	// sets it driver-aware (1 for SQLite, 4 for PostgreSQL).
+	if zero.Shards != 0 {
+		t.Errorf("Shards from withDefaults = %d, want 0 (defaulted in NewRecordWriter)", zero.Shards)
 	}
 	if zero.FlushTimeout != 2*time.Minute {
 		t.Errorf("FlushTimeout default = %v, want 2m", zero.FlushTimeout)
 	}
 
-	// Negative values are treated as unset and defaulted.
+	// Negative values are treated as unset and defaulted (except Shards, which
+	// NewRecordWriter resolves against the driver).
 	neg := (&RecordWriterConfig{
 		BufferSize:    -1,
 		BatchSize:     -1,
@@ -32,7 +35,7 @@ func TestRecordWriterConfig_WithDefaults(t *testing.T) {
 		Shards:        -1,
 		FlushTimeout:  -1,
 	}).withDefaults()
-	if neg.BufferSize != 4096 || neg.BatchSize != 128 || neg.Shards != 4 {
+	if neg.BufferSize != 4096 || neg.BatchSize != 128 {
 		t.Errorf("negative values not defaulted: %+v", neg)
 	}
 
@@ -54,12 +57,12 @@ func TestNewRecordWriter_AppliesDefaultsAndShards(t *testing.T) {
 	db := newTestDB(t)
 	repo := NewRepository(db)
 
-	// Shards left at 0 → defaults to 4 shards.
+	// newTestDB is SQLite (single writer) → Shards left at 0 defaults to 1.
 	w := NewRecordWriter(repo, RecordWriterConfig{})
 	defer w.Close()
 
-	if len(w.shards) != 4 {
-		t.Errorf("expected 4 default shards, got %d", len(w.shards))
+	if len(w.shards) != 1 {
+		t.Errorf("expected 1 default shard for SQLite, got %d", len(w.shards))
 	}
 	if w.cfg.BatchSize != 128 {
 		t.Errorf("cfg.BatchSize = %d, want default 128", w.cfg.BatchSize)

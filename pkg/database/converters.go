@@ -25,9 +25,27 @@ var dnsCache = struct {
 	m map[string]string
 }{m: make(map[string]string)}
 
-// resolveHostnameIP resolves a hostname to its first IPv4 (or IPv6) address,
-// caching the result so subsequent calls for the same hostname skip DNS.
-// Returns empty string on failure (also cached to avoid repeated failures).
+// dnsInflight dedupes concurrent background resolves so each unresolved
+// hostname spawns at most one in-flight lookup at a time.
+var dnsInflight = struct {
+	sync.Mutex
+	m map[string]struct{}
+}{m: make(map[string]struct{})}
+
+// dnsResolveSem bounds how many background DNS lookups run concurrently, so a
+// broad subdomain scan can't fan out into thousands of simultaneous resolvers.
+var dnsResolveSem = make(chan struct{}, 16)
+
+// resolveHostnameIP returns the cached IP for a hostname if known, and otherwise
+// returns "" immediately while scheduling the DNS lookup in the background.
+//
+// This deliberately does NOT block on net.LookupHost: it runs on the
+// record-write/convert path (RecordWriter.Write -> FromHttpRequestResponse),
+// where a dead or slow host would otherwise stall the writer for a full DNS
+// timeout (~5s). IP is best-effort metadata, so the first record for a host may
+// be persisted without it; once the background resolve completes, every later
+// record for that host picks up the cached value. Literal IPs are still
+// resolved synchronously (no DNS involved).
 func resolveHostnameIP(hostname string) string {
 	// Check cache first (fast path)
 	dnsCache.RLock()
@@ -45,19 +63,41 @@ func resolveHostnameIP(hostname string) string {
 		return hostname
 	}
 
-	// Resolve via DNS
-	addrs, err := net.LookupHost(hostname)
-	resolved := ""
-	if err == nil && len(addrs) > 0 {
-		resolved = addrs[0]
+	// Not cached and needs a real DNS lookup: schedule it off the write path.
+	scheduleHostnameResolve(hostname)
+	return ""
+}
+
+// scheduleHostnameResolve kicks off a single background DNS resolve for hostname
+// (deduped via dnsInflight, concurrency-bounded via dnsResolveSem) and caches
+// the result — including "" for failures, to avoid re-resolving dead hosts.
+func scheduleHostnameResolve(hostname string) {
+	dnsInflight.Lock()
+	if _, busy := dnsInflight.m[hostname]; busy {
+		dnsInflight.Unlock()
+		return
 	}
+	dnsInflight.m[hostname] = struct{}{}
+	dnsInflight.Unlock()
 
-	// Cache the result (including empty string for failed lookups)
-	dnsCache.Lock()
-	dnsCache.m[hostname] = resolved
-	dnsCache.Unlock()
+	go func() {
+		dnsResolveSem <- struct{}{}
+		addrs, err := net.LookupHost(hostname)
+		<-dnsResolveSem
 
-	return resolved
+		resolved := ""
+		if err == nil && len(addrs) > 0 {
+			resolved = addrs[0]
+		}
+
+		dnsCache.Lock()
+		dnsCache.m[hostname] = resolved
+		dnsCache.Unlock()
+
+		dnsInflight.Lock()
+		delete(dnsInflight.m, hostname)
+		dnsInflight.Unlock()
+	}()
 }
 
 // FromHttpRequestResponse populates an HTTPRecord from httpmsg.HttpRequestResponse

@@ -43,25 +43,125 @@ func (r *Repository) SaveRecord(ctx context.Context, httpRR *httpmsg.HttpRequest
 
 // findDuplicateRecord checks whether a record with the same method, hostname,
 // path, and URL already exists. For requests with a body, the request_hash is
-// also compared to distinguish different payloads to the same endpoint.
+// also compared to distinguish different payloads to the same endpoint. It is a
+// thin wrapper over the batched findDuplicateRecordUUIDs so the duplicate rule
+// lives in exactly one place.
 func (r *Repository) findDuplicateRecord(ctx context.Context, record *HTTPRecord) (string, error) {
-	var existingUUID string
-	q := r.db.NewSelect().
-		Model((*HTTPRecord)(nil)).
-		Column("uuid").
-		Where("project_uuid = ?", record.ProjectUUID).
-		Where("method = ?", record.Method).
-		Where("hostname = ?", record.Hostname).
-		Where("path = ?", record.Path).
-		Where("url = ?", record.URL).
-		Limit(1)
+	uuids, err := r.findDuplicateRecordUUIDs(ctx, []*HTTPRecord{record})
+	if err != nil {
+		return "", err
+	}
+	return uuids[0], nil
+}
 
-	if record.RequestContentLength > 0 {
-		q = q.Where("request_hash = ?", record.RequestHash)
+// recordDedupTuple is the (method, hostname, path, url) identity shared by the
+// duplicate lookup for grouping and matching. request_hash is compared
+// separately because it only narrows records that carry a body.
+func recordDedupTuple(method, host, path, url string) string {
+	return method + "\x00" + host + "\x00" + path + "\x00" + url
+}
+
+// dedupCandidate is the narrow projection findDuplicateRecordUUIDs scans — only
+// the columns the duplicate rule needs, so candidate rows don't allocate full
+// HTTPRecord structs.
+type dedupCandidate struct {
+	Method      string `bun:"method"`
+	Hostname    string `bun:"hostname"`
+	Path        string `bun:"path"`
+	URL         string `bun:"url"`
+	RequestHash string `bun:"request_hash"`
+	UUID        string `bun:"uuid"`
+}
+
+// findDuplicateRecordUUIDs is the batched duplicate lookup: for each input
+// record it returns the UUID of a pre-existing duplicate (same project, method,
+// hostname, path, url — plus request_hash when the request carries a body) or ""
+// when none exists; the result slice is parallel to records.
+//
+// It runs one SELECT per distinct project (instead of one per record), letting
+// the batched record writer keep the dedup check off the scan worker's hot path.
+// The lookup columns line up with the idx_records_dedup covering index
+// (project_uuid, method, hostname, path, url, request_hash, uuid), so the
+// row-value IN list resolves via the index instead of a table scan.
+func (r *Repository) findDuplicateRecordUUIDs(ctx context.Context, records []*HTTPRecord) ([]string, error) {
+	out := make([]string, len(records))
+	if len(records) == 0 {
+		return out, nil
 	}
 
-	err := q.Scan(ctx, &existingUUID)
-	return existingUUID, err
+	// Per-record tuple key, computed once and reused for grouping and matching.
+	// Records are grouped by project so each query can pin project_uuid, the
+	// leading column of idx_records_dedup.
+	keys := make([]string, len(records))
+	byProject := make(map[string][]int)
+	for i, rec := range records {
+		keys[i] = recordDedupTuple(rec.Method, rec.Hostname, rec.Path, rec.URL)
+		byProject[rec.ProjectUUID] = append(byProject[rec.ProjectUUID], i)
+	}
+
+	for project, idxs := range byProject {
+		// Distinct (method, hostname, path, url) tuples for the IN list.
+		seen := make(map[string]struct{}, len(idxs))
+		clause := strings.Builder{}
+		clause.WriteString("(method, hostname, path, url) IN (")
+		args := make([]interface{}, 0, len(idxs)*4)
+		for _, i := range idxs {
+			if _, ok := seen[keys[i]]; ok {
+				continue
+			}
+			seen[keys[i]] = struct{}{}
+			if len(args) > 0 {
+				clause.WriteByte(',')
+			}
+			clause.WriteString("(?,?,?,?)")
+			rec := records[i]
+			args = append(args, rec.Method, rec.Hostname, rec.Path, rec.URL)
+		}
+		clause.WriteByte(')')
+		if len(args) == 0 {
+			continue
+		}
+
+		var rows []dedupCandidate
+		err := r.db.NewSelect().
+			Model((*HTTPRecord)(nil)).
+			Column("method", "hostname", "path", "url", "request_hash", "uuid").
+			Where("project_uuid = ?", project).
+			Where(clause.String(), args...).
+			Scan(ctx, &rows)
+		if err != nil {
+			return nil, err
+		}
+
+		// A body record matches the candidate with the same request_hash; a
+		// no-body record matches any candidate (mirroring findDuplicateRecord,
+		// which omits the request_hash filter when there is no body).
+		byTuple := make(map[string][]dedupCandidate, len(rows))
+		for _, row := range rows {
+			k := recordDedupTuple(row.Method, row.Hostname, row.Path, row.URL)
+			byTuple[k] = append(byTuple[k], row)
+		}
+
+		for _, i := range idxs {
+			cands := byTuple[keys[i]]
+			if len(cands) == 0 {
+				continue
+			}
+			rec := records[i]
+			if rec.RequestContentLength == 0 {
+				out[i] = cands[0].UUID
+				continue
+			}
+			for _, c := range cands {
+				if c.RequestHash == rec.RequestHash {
+					out[i] = c.UUID
+					break
+				}
+			}
+		}
+	}
+
+	return out, nil
 }
 
 // SaveRecordBatch converts httpmsg.HttpRequestResponse objects to HTTPRecord models and

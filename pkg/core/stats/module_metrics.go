@@ -28,7 +28,13 @@ func (mm *ModuleMetrics) Record(moduleID string, duration time.Duration, finding
 	if mm == nil {
 		return
 	}
-	val, _ := mm.metrics.LoadOrStore(moduleID, &ModuleStats{})
+	// Load-first: avoid the eager &ModuleStats{} heap allocation that
+	// LoadOrStore would discard on the common (already-present) path. This is
+	// the hottest call in the dispatcher (once per module invocation).
+	val, ok := mm.metrics.Load(moduleID)
+	if !ok {
+		val, _ = mm.metrics.LoadOrStore(moduleID, &ModuleStats{})
+	}
 	ms := val.(*ModuleStats)
 	ms.Invocations.Add(1)
 	ms.TotalTimeNs.Add(int64(duration))

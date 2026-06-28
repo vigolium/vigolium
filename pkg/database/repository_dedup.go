@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/uptrace/bun"
@@ -25,6 +26,44 @@ import (
 // Hardcoded (not imported) to avoid a modules→database import cycle, mirroring
 // the existing 'deparos' source literals in this file.
 const secretDetectModuleID = "secret-detect"
+
+// dedupDeleteChunk bounds each IN-list delete/select so a dedup pass over a very
+// large duplicate set stays within the driver's bound-parameter limit (SQLite's
+// SQLITE_MAX_VARIABLE_NUMBER is 32766). A deparos discovery phase whose error/echo
+// pages mirror the requested URI can produce tens of thousands of duplicate
+// records — exactly what the deparos dedup passes target — so a single unbounded
+// "uuid IN (?)" would error the whole transaction once the set crossed the limit.
+const dedupDeleteChunk = 10000
+
+// deleteRecordsByUUIDsTx deletes the http_records identified by uuids and their
+// finding_records junction rows inside tx, chunking the IN lists so a large set
+// never exceeds the bound-parameter limit. Shared by the record-dedup passes.
+func deleteRecordsByUUIDsTx(ctx context.Context, tx bun.Tx, uuids []string) error {
+	for chunk := range slices.Chunk(uuids, dedupDeleteChunk) {
+		if _, err := tx.NewRaw("DELETE FROM finding_records WHERE record_uuid IN (?)", bun.List(chunk)).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to delete finding_records: %w", err)
+		}
+		if _, err := tx.NewDelete().Model((*HTTPRecord)(nil)).Where("uuid IN (?)", bun.List(chunk)).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to delete records: %w", err)
+		}
+	}
+	return nil
+}
+
+// deleteFindingsByIDsTx deletes the findings identified by ids and their
+// finding_records junction rows inside tx, chunking the IN lists. Shared by the
+// finding-dedup passes.
+func deleteFindingsByIDsTx(ctx context.Context, tx bun.Tx, ids []int64) error {
+	for chunk := range slices.Chunk(ids, dedupDeleteChunk) {
+		if _, err := tx.NewRaw("DELETE FROM finding_records WHERE finding_id IN (?)", bun.List(chunk)).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to delete finding_records: %w", err)
+		}
+		if _, err := tx.NewDelete().Model((*Finding)(nil)).Where("id IN (?)", bun.List(chunk)).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to delete findings: %w", err)
+		}
+	}
+	return nil
+}
 
 // DeduplicateRecordsBySource removes duplicate HTTP records for a given source that share
 // identical (hostname, method, status_code, response_content_length, response_hash).
@@ -57,17 +96,9 @@ func (r *Repository) DeduplicateRecordsBySource(ctx context.Context, projectUUID
 		return 0, nil
 	}
 
-	// Delete junction rows and records in a transaction
+	// Delete junction rows and records in a transaction (chunked IN lists).
 	err := r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
-		// Clean up finding_records junction rows
-		if _, err := tx.NewRaw("DELETE FROM finding_records WHERE record_uuid IN (?)", bun.List(uuids)).Exec(ctx); err != nil {
-			return fmt.Errorf("failed to delete finding_records: %w", err)
-		}
-		// Delete the duplicate records
-		if _, err := tx.NewDelete().Model((*HTTPRecord)(nil)).Where("uuid IN (?)", bun.List(uuids)).Exec(ctx); err != nil {
-			return fmt.Errorf("failed to delete duplicate records: %w", err)
-		}
-		return nil
+		return deleteRecordsByUUIDsTx(ctx, tx, uuids)
 	})
 	if err != nil {
 		return 0, err
@@ -272,26 +303,22 @@ func (r *Repository) deleteRecordsWithStatusBreakdown(ctx context.Context, uuids
 		StatusCode int   `bun:"status_code"`
 		Count      int64 `bun:"cnt"`
 	}
-	var counts []statusCount
-	if err := r.db.NewRaw(
-		"SELECT status_code, COUNT(*) AS cnt FROM http_records WHERE uuid IN (?) GROUP BY status_code",
-		bun.List(uuids),
-	).Scan(ctx, &counts); err != nil {
-		zap.L().Debug("Failed to collect status code stats for dedup", zap.Error(err))
-	}
-	statusCodes := make(map[int]int64, len(counts))
-	for _, c := range counts {
-		statusCodes[c.StatusCode] = c.Count
+	statusCodes := make(map[int]int64)
+	for chunk := range slices.Chunk(uuids, dedupDeleteChunk) {
+		var counts []statusCount
+		if err := r.db.NewRaw(
+			"SELECT status_code, COUNT(*) AS cnt FROM http_records WHERE uuid IN (?) GROUP BY status_code",
+			bun.List(chunk),
+		).Scan(ctx, &counts); err != nil {
+			zap.L().Debug("Failed to collect status code stats for dedup", zap.Error(err))
+		}
+		for _, c := range counts {
+			statusCodes[c.StatusCode] += c.Count
+		}
 	}
 
 	err := r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.NewRaw("DELETE FROM finding_records WHERE record_uuid IN (?)", bun.List(uuids)).Exec(ctx); err != nil {
-			return fmt.Errorf("failed to delete finding_records: %w", err)
-		}
-		if _, err := tx.NewDelete().Model((*HTTPRecord)(nil)).Where("uuid IN (?)", bun.List(uuids)).Exec(ctx); err != nil {
-			return fmt.Errorf("failed to delete records: %w", err)
-		}
-		return nil
+		return deleteRecordsByUUIDsTx(ctx, tx, uuids)
 	})
 	if err != nil {
 		return nil, err
@@ -340,16 +367,21 @@ type findingBody struct {
 // (DeduplicateFindings / GroupFindingsByValue), which defer body loads to the
 // few findings in groups that actually have duplicates.
 func (r *Repository) loadFindingBodies(ctx context.Context, ids []int64) (map[int64]findingBody, error) {
-	var rows []findingBody
-	if err := r.db.NewSelect().Model((*Finding)(nil)).
-		Column("id", "request", "response").
-		Where("id IN (?)", bun.List(ids)).
-		Scan(ctx, &rows); err != nil {
-		return nil, err
-	}
-	m := make(map[int64]findingBody, len(rows))
-	for _, br := range rows {
-		m[br.ID] = br
+	m := make(map[int64]findingBody, len(ids))
+	// Chunk the IN list: ids here is the survivor + every duplicate id (a
+	// superset of the delete set), so it can exceed the bound-parameter limit on
+	// the same large dedups the delete legs chunk for.
+	for chunk := range slices.Chunk(ids, dedupDeleteChunk) {
+		var rows []findingBody
+		if err := r.db.NewSelect().Model((*Finding)(nil)).
+			Column("id", "request", "response").
+			Where("id IN (?)", bun.List(chunk)).
+			Scan(ctx, &rows); err != nil {
+			return nil, err
+		}
+		for _, br := range rows {
+			m[br.ID] = br
+		}
 	}
 	return m, nil
 }
@@ -510,13 +542,7 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 				return fmt.Errorf("failed to update survivor evidence: %w", err)
 			}
 		}
-		if _, err := tx.NewRaw("DELETE FROM finding_records WHERE finding_id IN (?)", bun.List(allDupIDs)).Exec(ctx); err != nil {
-			return fmt.Errorf("failed to delete finding_records: %w", err)
-		}
-		if _, err := tx.NewDelete().Model((*Finding)(nil)).Where("id IN (?)", bun.List(allDupIDs)).Exec(ctx); err != nil {
-			return fmt.Errorf("failed to delete duplicate findings: %w", err)
-		}
-		return nil
+		return deleteFindingsByIDsTx(ctx, tx, allDupIDs)
 	})
 	if err != nil {
 		return 0, 0, err
@@ -785,13 +811,7 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 				return fmt.Errorf("failed to update grouped survivor: %w", err)
 			}
 		}
-		if _, err := tx.NewRaw("DELETE FROM finding_records WHERE finding_id IN (?)", bun.List(allDupIDs)).Exec(ctx); err != nil {
-			return fmt.Errorf("failed to delete finding_records: %w", err)
-		}
-		if _, err := tx.NewDelete().Model((*Finding)(nil)).Where("id IN (?)", bun.List(allDupIDs)).Exec(ctx); err != nil {
-			return fmt.Errorf("failed to delete grouped findings: %w", err)
-		}
-		return nil
+		return deleteFindingsByIDsTx(ctx, tx, allDupIDs)
 	})
 	if err != nil {
 		return 0, 0, err

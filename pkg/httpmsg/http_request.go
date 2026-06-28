@@ -8,6 +8,8 @@ import (
 
 	urlutil "github.com/projectdiscovery/utils/url"
 	"go.uber.org/zap"
+
+	"github.com/vigolium/vigolium/pkg/utils"
 )
 
 // HttpRequest represents an HTTP request with raw bytes as source of truth.
@@ -34,6 +36,12 @@ type HttpRequest struct {
 	cachedURL    *urlutil.URL
 	cachedURLErr error
 	urlComputed  bool
+
+	// Cached media/JS-path classification (computed once by IsMediaPath()).
+	// Derived from the URL path, which comes from the immutable raw request
+	// line and is independent of the service, so it never needs invalidation.
+	mediaPath         bool
+	mediaPathComputed bool
 
 	mu sync.RWMutex
 }
@@ -143,6 +151,13 @@ func (r *HttpRequest) URL() (*urlutil.URL, error) {
 	}
 	r.mu.RUnlock()
 
+	// GetURLFromService now extracts the path via a cheap first-line scan
+	// (GetPath no longer parses the whole header block), so this no longer pays
+	// a full ExtractAllHeaders pass per probe on top of the one ensureParsed
+	// does for the headers/body accessors. We deliberately go through GetPath
+	// (parseRequestLineString) rather than the cached r.path: the two request-
+	// line parsers disagree on malformed empty-path request lines, and GetPath's
+	// is the one that yields the correct ("" -> "/") result for any raw source.
 	u, err := GetURLFromService(r.raw, r.service)
 
 	r.mu.Lock()
@@ -151,6 +166,34 @@ func (r *HttpRequest) URL() (*urlutil.URL, error) {
 	r.urlComputed = true
 	r.mu.Unlock()
 	return u, err
+}
+
+// IsMediaPath reports whether the request targets a media or JS/static asset
+// (the default-skip set used by active-module eligibility). The result is
+// computed once from the cached URL path and memoized, so the regex is not
+// re-run for every module's CanProcess on the dispatch hot path. A request
+// whose URL cannot be parsed is treated as not media (false); callers that must
+// reject unparseable URLs check URL() separately.
+func (r *HttpRequest) IsMediaPath() bool {
+	r.mu.RLock()
+	if r.mediaPathComputed {
+		v := r.mediaPath
+		r.mu.RUnlock()
+		return v
+	}
+	r.mu.RUnlock()
+
+	// Compute outside the lock: URL() takes r.mu itself.
+	var res bool
+	if u, err := r.URL(); err == nil && u != nil {
+		res = utils.IsMediaAndJSURL(u.Path)
+	}
+
+	r.mu.Lock()
+	r.mediaPath = res
+	r.mediaPathComputed = true
+	r.mu.Unlock()
+	return res
 }
 
 // Parameters analyzes the request and returns all parameters.

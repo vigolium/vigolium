@@ -1,14 +1,79 @@
 package reflected_ssti
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/vigolium/vigolium/pkg/modules/modtest"
+
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
+
+// mulExprRe matches the N*M multiplication embedded in every breakout payload,
+// regardless of the surrounding template delimiters, so the test backend can
+// emulate a template engine by evaluating it.
+var mulExprRe = regexp.MustCompile(`(\d+)\*(\d+)`)
+
+// evalSSTI replaces any N*M expression in s with the computed product, emulating
+// server-side template evaluation across every delimiter form the module probes.
+func evalSSTI(s string) string {
+	return mulExprRe.ReplaceAllStringFunc(s, func(m string) string {
+		parts := mulExprRe.FindStringSubmatch(m)
+		a, _ := strconv.Atoi(parts[1])
+		b, _ := strconv.Atoi(parts[2])
+		return strconv.Itoa(a * b)
+	})
+}
+
+// TestScanPerInsertionPoint_EvaluatedSSTIConfirmed drives the module against a
+// backend that evaluates the injected expression and reflects the product. The
+// primary probe matches and the reflection-tracking confirmation (fresh random
+// operands) evaluates every round, so the finding is reported.
+func TestScanPerInsertionPoint_EvaluatedSSTIConfirmed(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("<html><body>result: " + evalSSTI(r.URL.Query().Get("q")) + "</body></html>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/?q=hello")
+	ip := modtest.InsertionPoint(t, rr, "q")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "an endpoint that evaluates the expression (tracking fresh operands) must be reported")
+}
+
+// TestScanPerInsertionPoint_CoincidentalResultDropped is the generic-value false
+// positive: the backend always contains the fixed primary result (3987280) for an
+// unrelated reason — here a static product id — but never evaluates any template.
+// The primary substring match fires, yet the confirmation's fresh random products
+// never appear, so the finding is dropped.
+func TestScanPerInsertionPoint_CoincidentalResultDropped(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// 3987280 is baked into the page (a product id), not produced by evaluating
+		// the injected expression.
+		_, _ = w.Write([]byte(`<html><body data-product-id="3987280">no templating here</body></html>`))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/?q=hello")
+	ip := modtest.InsertionPoint(t, rr, "q")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "the fixed result appearing in the page by coincidence (no evaluation) must not be flagged")
+}
 
 func TestNew(t *testing.T) {
 	m := New()

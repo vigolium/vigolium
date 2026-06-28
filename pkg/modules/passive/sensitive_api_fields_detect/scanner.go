@@ -69,6 +69,24 @@ var secretExclusions = []string{
 	`"secret_question"`,
 }
 
+// Pre-lowercase the static match catalogs once at init so the per-response scan
+// (which compares against the memoized lowercased body) doesn't re-lowercase
+// these constants on every JSON response. Several patterns carry camelCase
+// (apiKey, accessToken, …), so the lowercase form is required for matching.
+func init() {
+	for i := range sensitiveFields {
+		for j := range sensitiveFields[i].patterns {
+			sensitiveFields[i].patterns[j] = strings.ToLower(sensitiveFields[i].patterns[j])
+		}
+	}
+	for i := range passwordExclusions {
+		passwordExclusions[i] = strings.ToLower(passwordExclusions[i])
+	}
+	for i := range secretExclusions {
+		secretExclusions[i] = strings.ToLower(secretExclusions[i])
+	}
+}
+
 // Module implements the Sensitive API Fields Detect passive scanner.
 type Module struct {
 	modkit.BasePassiveModule
@@ -143,7 +161,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	for _, sf := range sensitiveFields {
 		matched := false
 		for _, pat := range sf.patterns {
-			if strings.Contains(bodyLower, strings.ToLower(pat)) {
+			if strings.Contains(bodyLower, pat) { // pat pre-lowercased at init
 				matched = true
 				break
 			}
@@ -156,7 +174,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		if sf.label == "password" {
 			excluded := false
 			for _, ex := range passwordExclusions {
-				if strings.Contains(bodyLower, strings.ToLower(ex)) {
+				if strings.Contains(bodyLower, ex) { // ex pre-lowercased at init
 					excluded = true
 					break
 				}
@@ -168,7 +186,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		if sf.label == "secret" {
 			excluded := false
 			for _, ex := range secretExclusions {
-				if strings.Contains(bodyLower, strings.ToLower(ex)) {
+				if strings.Contains(bodyLower, ex) { // ex pre-lowercased at init
 					excluded = true
 					break
 				}

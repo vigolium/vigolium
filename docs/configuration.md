@@ -35,6 +35,19 @@ Higher-precedence sources override lower ones. Within the config file, environme
 | `VIGOLIUM_PROJECT` | Default project UUID for CLI operations (equivalent to `--project`) |
 | `VIGOLIUM_PROXY` | HTTP/SOCKS proxy URL, used when `--proxy` is not set |
 | `VIGOLIUM_HOME` | Base directory for Vigolium data (used by the installer; defaults to `~/.vigolium`) |
+| `VIGOLIUM_DISABLE_UPDATE_CHECK` | Set truthy to disable the periodic "new version available" check entirely |
+| `VIGOLIUM_AUTO_UPDATE` | Set truthy to silently run `vigolium update` and re-exec the new binary when a newer release is detected |
+
+### Update check
+
+On startup Vigolium compares the running version against the latest `@vigolium/vigolium` release on the npm registry (cached to at most once per 24 h in `~/.vigolium/update-check.json`). When a newer version exists it prints a one-line notice at the end of the run:
+
+```
+▼ A new vigolium version is available: v0.1.41-beta → v0.1.42-beta
+  Run `vigolium update` to upgrade.
+```
+
+The check is automatically skipped for `--json`, CI (`--ci-output-format`), and non-interactive (piped) output, and for the `version`, `update`, and `init` commands. Set `VIGOLIUM_DISABLE_UPDATE_CHECK=1` to turn it off, or `VIGOLIUM_AUTO_UPDATE=1` to have Vigolium silently update and re-exec the freshly installed binary to continue the current command.
 
 Any environment variable can also be interpolated inside `vigolium-configs.yaml`:
 

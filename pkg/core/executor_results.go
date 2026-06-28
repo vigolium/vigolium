@@ -146,7 +146,12 @@ func (e *Executor) moduleFindingAllowed(moduleID string) bool {
 	if cap <= 0 {
 		return true
 	}
-	val, _ := e.caches.moduleFindingCount.LoadOrStore(moduleID, &moduleFindingTracker{})
+	// Load-first to avoid the eager &moduleFindingTracker{} alloc on the common
+	// (already-present) path.
+	val, ok := e.caches.moduleFindingCount.Load(moduleID)
+	if !ok {
+		val, _ = e.caches.moduleFindingCount.LoadOrStore(moduleID, &moduleFindingTracker{})
+	}
 	tracker := val.(*moduleFindingTracker)
 	n := tracker.count.Add(1)
 	if n > int64(cap) {

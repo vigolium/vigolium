@@ -103,6 +103,52 @@ func TestScanPerRequest_UncacheableReflectionNoFinding(t *testing.T) {
 	assert.Empty(t, res, "a reflected header in an uncacheable response must not be flagged")
 }
 
+// TestScanPerRequest_PortReflectionConfirmedTracksValue covers a GENUINE
+// X-Forwarded-Port reflection: the backend echoes the injected port verbatim into a
+// cacheable link, so the reflection-tracking confirmation (re-probing with fresh
+// distinct ports) reflects every round and the finding is reported.
+func TestScanPerRequest_PortReflectionConfirmedTracksValue(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Reflect whatever port the client supplies into the asset URL authority.
+		port := r.Header.Get("X-Forwarded-Port")
+		w.Header().Set("Cache-Control", "public, max-age=60")
+		_, _ = fmt.Fprintf(w, `<html><body><link href="https://cdn.example.com:%s/app.css"></body></html>`, port)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/home")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "a port the backend reflects verbatim (tracking fresh confirmation values) must be reported")
+}
+
+// TestScanPerRequest_PortCoincidentalMatchDropped is the reported false positive:
+// the generic value 1337 appears in the (cacheable) body by coincidence — here as a
+// static asset content hash — but the header is never reflected. The primary
+// substring match fires, yet the reflection-tracking confirmation re-probes with
+// fresh distinct ports that do NOT appear, proving the match was coincidental, and
+// the finding is dropped.
+func TestScanPerRequest_PortCoincidentalMatchDropped(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// "1337" is baked into the asset hash regardless of any request header — the
+		// generic-substring false positive. No header value is ever reflected.
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		_, _ = fmt.Fprint(w, `<html><body><link href="https://static.example.com/app.1337abcd.css"></body></html>`)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/home")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a generic value present in the body by coincidence (not reflected from the header) must not be flagged")
+}
+
 // TestGenuinelyCacheable exercises the cacheability gate directly, including the
 // exact Atlassian login-redirect false positive: a 302 whose Location echoes
 // X-Forwarded-Host into a continue URL, behind a CDN reporting X-Cache: Miss,

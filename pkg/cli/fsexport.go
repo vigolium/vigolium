@@ -154,7 +154,7 @@ func writeFSExport(ctx context.Context, db *database.DB, filters database.QueryF
 		for i, s := range filters.Severity {
 			sevs[i] = strings.ToLower(strings.TrimSpace(s))
 		}
-		fq = fq.Where("LOWER(severity) IN (?)", bun.In(sevs))
+		fq = fq.Where("LOWER(severity) IN (?)", bun.List(sevs))
 	}
 	if term := fsSearchTerm(filters); term != "" {
 		p := "%" + term + "%"

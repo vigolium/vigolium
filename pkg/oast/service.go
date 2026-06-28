@@ -302,15 +302,14 @@ func (s *Service) handleInteraction(interaction *server.Interaction) {
 	nonce := interaction.UniqueID
 	pctx, found := s.trackerCache().Get(nonce)
 
-	zap.L().Info("OAST: interaction received",
+	// Debug, not Info: a single planted payload fans out into ~5-6 callbacks
+	// (DNS A/AAAA, several recursive resolvers, then the HTTP leg), so logging
+	// every callback at Info floods the log even though only one emits a finding.
+	zap.L().Debug("OAST: interaction received",
 		zap.String("protocol", interaction.Protocol),
 		zap.String("unique_id", interaction.UniqueID),
 		zap.String("remote_addr", interaction.RemoteAddress),
 		zap.Bool("correlated", found))
-
-	// Recover the request that planted the payload so both the persisted
-	// interaction and the finding can be traced back to it without a manual join.
-	originUUID, origin := s.originRecord(pctx.RequestHash)
 
 	// Save to database
 	if s.repo != nil {
@@ -350,6 +349,12 @@ func (s *Service) handleInteraction(interaction *server.Interaction) {
 	if !emit {
 		return
 	}
+
+	// Recover the request that planted the payload so both the finding's trace
+	// anchors and its DB link resolve without a manual join. Done only after the
+	// emit gate: this loads up to two full request/response blobs, and only one
+	// of a payload's ~5-6 callbacks ever reaches here.
+	originUUID, origin := s.originRecord(pctx.RequestHash)
 
 	sev, conf, desc := classifyInteraction(interaction.Protocol, pctx)
 	result := &output.ResultEvent{

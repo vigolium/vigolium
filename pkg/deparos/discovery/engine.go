@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -804,7 +805,7 @@ func (e *Engine) AddTask(task Task) bool {
 		return false
 	}
 
-	hashKey := fmt.Sprintf("%x", hash)
+	hashKey := strconv.FormatUint(hash, 16)
 	if e.taskHashes.IsSeen(hashKey) {
 		dedupedCount := e.incrementTasksDeduped()
 		logger.Debug("Task deduplicated - hash already exists",

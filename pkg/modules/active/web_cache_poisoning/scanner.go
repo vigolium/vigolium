@@ -2,6 +2,7 @@ package web_cache_poisoning
 
 import (
 	"fmt"
+	mrand "math/rand/v2"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,18 @@ type cacheProbe struct {
 	// unchanged). Non-host probes (scheme, path override, port, language) keep plain
 	// substring matching.
 	hostShaped bool
+	// newConfirmValue, when non-nil, returns a FRESH, distinct value (different from
+	// `value` and from prior calls) used to re-probe the header during reflection-
+	// tracking confirmation. It mirrors `value`'s shape (a port number for the port
+	// probe, a token for the scheme probe) so a genuine verbatim echo still reflects,
+	// while a coincidental static substring match cannot track the changing value. It
+	// is set only for probes whose value is generic enough to appear in a body by
+	// chance (the X-Forwarded-Port: 1337 false positive — 1337 matching an asset
+	// hash / story id — and the short X-Forwarded-Scheme token). Probes carrying a
+	// long unique sentinel (host, X-Original-URL, Accept-Language) leave it nil:
+	// coincidental collision is negligible and they are already authority- or
+	// sentinel-gated.
+	newConfirmValue func() string
 }
 
 var probes = []cacheProbe{
@@ -38,9 +51,10 @@ var probes = []cacheProbe{
 		hostShaped: true,
 	},
 	{
-		headerName: "X-Forwarded-Scheme",
-		value:      "nothttps",
-		desc:       "X-Forwarded-Scheme manipulation causing redirect to attacker-controlled scheme",
+		headerName:      "X-Forwarded-Scheme",
+		value:           "nothttps",
+		desc:            "X-Forwarded-Scheme manipulation causing redirect to attacker-controlled scheme",
+		newConfirmValue: func() string { return "vgnscheme-" + modkit.FreshCanary() },
 	},
 	{
 		headerName: "X-Original-URL",
@@ -53,9 +67,10 @@ var probes = []cacheProbe{
 		desc:       "X-Rewrite-URL override affecting cached content",
 	},
 	{
-		headerName: "X-Forwarded-Port",
-		value:      "1337",
-		desc:       "X-Forwarded-Port injection reflected in response URLs",
+		headerName:      "X-Forwarded-Port",
+		value:           "1337",
+		desc:            "X-Forwarded-Port injection reflected in response URLs",
+		newConfirmValue: freshPort,
 	},
 	{
 		headerName: "Accept-Language",
@@ -142,18 +157,7 @@ func (m *Module) ScanPerRequest(
 
 		body := resp.Body().String()
 		location := respObj.Header.Get("Location")
-		var reflectedInBody, reflectedInLocation bool
-		if probe.hostShaped {
-			// A host poisons a shared cache only when it becomes the AUTHORITY of a
-			// cached URL (a link/script src/redirect other users load), not when it is
-			// echoed into a query value whose real destination is unchanged — the same
-			// continue=/redirect_uri= false positive the host-trust modules guard.
-			reflectedInBody = modkit.HostReflectedAsAuthority(body, probe.value)
-			reflectedInLocation = modkit.HostReflectedAsAuthority(location, probe.value)
-		} else {
-			reflectedInBody = strings.Contains(body, probe.value)
-			reflectedInLocation = strings.Contains(location, probe.value)
-		}
+		reflectedInBody, reflectedInLocation := probeReflected(probe, probe.value, body, location)
 
 		if !reflectedInBody && !reflectedInLocation {
 			resp.Close()
@@ -167,6 +171,19 @@ func (m *Module) ScanPerRequest(
 		// return URL (normal SSO behavior, never cached by a shared cache).
 		cacheable, evidence := genuinelyCacheable(respObj.Header.Get, respObj.StatusCode, probe.headerName)
 		if !cacheable {
+			resp.Close()
+			continue
+		}
+
+		// Reflection-tracking confirmation: a generic value — notably
+		// X-Forwarded-Port: 1337 — routinely appears in a body by coincidence (an
+		// asset/chunk hash, a story id, a timestamp), so a single substring hit is
+		// NOT proof the unkeyed header is reflected. Re-inject the header with fresh,
+		// distinct values and require each to reflect the same way; a value that
+		// truly flows from the header into the response tracks the change, while a
+		// coincidental static match cannot. Fail OPEN on a transport error (err !=
+		// nil) so a transient failure never suppresses a genuine finding.
+		if tracked, err := m.confirmReflectionTracks(ctx, httpClient, probe); err == nil && !tracked {
 			resp.Close()
 			continue
 		}
@@ -195,6 +212,74 @@ func (m *Module) ScanPerRequest(
 	}
 
 	return results, nil
+}
+
+// probeReflected reports whether value is reflected in the response body and/or
+// the Location header the way the probe cares about. A host-shaped probe poisons a
+// shared cache only when its value becomes the AUTHORITY of a cached URL (a
+// link/script src/redirect other users load), so it is matched in authority
+// position — not as an incidental substring inside a query value whose real
+// destination is unchanged (the continue=/redirect_uri= false positive the
+// host-trust modules guard). Other probes (scheme, path override, port, language)
+// reflect verbatim, so a plain substring match is correct.
+func probeReflected(probe cacheProbe, value, body, location string) (inBody, inLocation bool) {
+	if probe.hostShaped {
+		return modkit.HostReflectedAsAuthority(body, value), modkit.HostReflectedAsAuthority(location, value)
+	}
+	return strings.Contains(body, value), strings.Contains(location, value)
+}
+
+// confirmReflectionTracks re-injects probe.headerName with FRESH, distinct values
+// (probe.newConfirmValue) and requires each to reflect the same way the primary
+// value did. A value that genuinely flows from the unkeyed header into the
+// (already-confirmed cacheable) response tracks the change every round; a
+// coincidental static substring — the generic X-Forwarded-Port: 1337 matching a
+// CSS/chunk hash or story id already in the page — does not, so two independent
+// fresh values both reflecting is decisive. Each request bypasses the response
+// cache (NoClustering) so every round is a genuinely fresh observation.
+//
+// It delegates the round loop to modkit.ConfirmReflectionWithValue, supplying the
+// probe's value generator: err != nil signals a transport/parse failure so the
+// caller fails OPEN (keeps the finding). A probe with no newConfirmValue carries a
+// long unique sentinel whose coincidental collision is negligible, so it is treated
+// as already confirmed.
+func (m *Module) confirmReflectionTracks(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	probe cacheProbe,
+) (bool, error) {
+	if probe.newConfirmValue == nil {
+		return true, nil
+	}
+	return modkit.ConfirmReflectionWithValue(2, probe.newConfirmValue, func(value string) (bool, error) {
+		raw, err := httpmsg.AddOrReplaceHeader(ctx.Request().Raw(), probe.headerName, value)
+		if err != nil {
+			return false, err
+		}
+		req := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
+		resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true})
+		if err != nil {
+			return false, err
+		}
+		respObj := resp.Response()
+		if respObj == nil {
+			resp.Close()
+			return false, fmt.Errorf("cache-poisoning confirmation: nil response")
+		}
+		inBody, inLoc := probeReflected(probe, value, resp.Body().String(), respObj.Header.Get("Location"))
+		resp.Close()
+		return inBody || inLoc, nil
+	})
+}
+
+// freshPort returns a fresh, pseudo-random high TCP port as a string, used as a
+// reflection-tracking confirmation value for the X-Forwarded-Port probe. It stays
+// numeric so a port-validating origin still echoes it, and the range (20000-64535)
+// keeps it well clear of the primary 1337 probe and of common service ports. A
+// lock-free PRNG is enough: the only requirement is that successive values differ,
+// which makes two coincidental matches astronomically unlikely.
+func freshPort() string {
+	return strconv.Itoa(20000 + mrand.IntN(44536))
 }
 
 // genuinelyCacheable reports whether a response is one a shared cache would

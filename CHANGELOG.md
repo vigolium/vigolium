@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.42-beta] - 2026-06-28
+
+A performance and false-positive-hardening release. The CLI gains an opt-in update check, the evaluated-math and reflected-value detectors now confirm a match tracks fresh inputs instead of a fixed substring, and a broad hot-path sweep cuts allocations and blocking work across deduplication, the database, discovery, and HTML analysis.
+
+### Added
+
+- **Startup update check (`vigolium update`)** — Vigolium now checks the npm registry at most once every 24 hours (cached in `~/.vigolium/update-check.json`, 1.5s timeout, fetched in the background) and prints a one-line upgrade notice after the run when a newer `@vigolium/vigolium` is available. The notice is suppressed for `--json`, CI, non-TTY/piped output, and the `version`/`update`/`init` commands. Set `VIGOLIUM_AUTO_UPDATE=1` to silently install the new version and re-exec the original command; set `VIGOLIUM_DISABLE_UPDATE_CHECK=1` to turn the whole thing off.
+
+### Fixed
+
+- **`reflected-ssti` and `struts-ognl-injection` confirm the evaluated result tracks fresh operands** — both detectors previously matched a single hard-coded product (`1970×2024` for SSTI; a fixed constant for OGNL) appearing anywhere in the body, which collides with incidental numbers (product ids, file sizes, timestamps). Each now re-injects the winning payload with two rounds of fresh random operands and requires the newly *computed* product to appear each time. This also repairs `struts-ognl-injection`, whose hard-coded result string (`1614244871`) didn't equal the operands it claimed (`41273×39127 = 1614888671`), so genuine detections were being silently dropped — the marker is now computed, not hardcoded.
+- **`web-cache-poisoning` confirms generic header values actually reflect** — short, common probe values such as `X-Forwarded-Port: 1337` or a scheme override matched on a single coincidental substring (an asset hash, a story id). The detector now re-injects two fresh, distinct values (a random high port, a canarized scheme token) and requires each to reflect the same way before flagging.
+
+### Performance
+
+- **Lower-contention deduplication** — `DiskSet` lookups take a read lock and escalate to a write lock only for genuinely new keys, and request hashing no longer materializes per-insertion-point body copies when body hashing is off (the default), unblocking the 60+ modules that share one dedup set.
+- **Off-hot-path database writes** — DNS resolution for saved records moved to a bounded background pool (no more ~5s blocking timeouts on the write path; IP is now best-effort metadata), record dedup collapsed from a per-record `SELECT` on each worker to one batched lookup in the flush goroutine, and a new covering index makes the scan-status severity aggregation index-only.
+- **Cheaper per-request and per-module work** — `IsMediaPath`/media-class results are memoized on the request, `GetMethod`/`GetPath` scan only the request line, the tech registry serves read queries via lock-free `Peek`, the discovery enabled-module set is memoized, and the anomaly HTML extractor shares one lazily-built DOM index across its ~18 attribute checksums instead of re-walking the tree each time. Hot-path regexes and string formatting were hoisted/precompiled throughout.
+
 ## [v0.1.41-beta] - 2026-06-27
 
 A finding-deduplication and false-positive-hardening release. Out-of-band (OAST) callbacks now collapse to one finding per planted payload, the secret detector ignores build-tool content-hash maps and folds repeats of a single rule, and the path-traversal / forbidden-bypass family confirms the target isn't already reachable by a plain request.

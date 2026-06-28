@@ -824,6 +824,18 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 	return nil
 }
 
+// kfRecordMeta carries the per-record context a Kingfisher batch needs to grade
+// and persist a finding once the single ScanDir invocation returns, keyed by the
+// temp filename the record's body was written to.
+type kfRecordMeta struct {
+	record       *database.HTTPRecord
+	filename     string // basename the body was written to (== how findings map back)
+	body         []byte
+	respHead     string
+	redirect     bool
+	headerValues string
+}
+
 // runKingfisherBatch scans all response bodies in the database for secrets using Kingfisher.
 func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onResult func(*output.ResultEvent)) error {
 	if r.repository == nil {
@@ -866,10 +878,22 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 			break
 		}
 
+		// Buffer this batch's eligible response bodies to a temp dir and scan them
+		// all in ONE kingfisher invocation (ScanDir) instead of forking a process
+		// + writing a temp file per record (which also reloaded the full ruleset
+		// each time). Findings carry the file path, which maps back to the record.
+		// This mirrors the proven deparos discovery batch path.
+		batchDir, err := os.MkdirTemp("", "kingfisher-kis-*")
+		if err != nil {
+			return fmt.Errorf("kingfisher batch: failed to create temp dir: %w", err)
+		}
+
+		metas := make([]*kfRecordMeta, 0, len(records)) // in record (fetch) order
 		for _, record := range records {
 			cursor = record.UUID
 
 			if err := ctx.Err(); err != nil {
+				_ = os.RemoveAll(batchDir)
 				return err
 			}
 
@@ -884,85 +908,127 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 			if resp == nil {
 				continue
 			}
-			redirect := secret_detect.IsRedirectStatus(resp.StatusCode())
-			headerValues := secret_detect.JoinHeaderValues(resp.Headers())
-
 			body := resp.Body()
-			respHead := string(resp.Head())
-
-			result, scanErr := scanner.Scan(ctx, body)
-			if scanErr != nil || !result.HasFindings() {
+			if len(body) == 0 {
 				continue
 			}
 
+			// Name the file by the record UUID so findings map back unambiguously.
+			filename := record.UUID + ".txt"
+			if err := os.WriteFile(filepath.Join(batchDir, filename), body, 0o600); err != nil {
+				zap.L().Debug("kingfisher batch: failed to buffer body", zap.String("uuid", record.UUID), zap.Error(err))
+				continue
+			}
+			metas = append(metas, &kfRecordMeta{
+				record:       record,
+				filename:     filename,
+				body:         body,
+				respHead:     string(resp.Head()),
+				redirect:     secret_detect.IsRedirectStatus(resp.StatusCode()),
+				headerValues: secret_detect.JoinHeaderValues(resp.Headers()),
+			})
+		}
+
+		if len(metas) > 0 {
+			result, scanErr := scanner.ScanDir(ctx, batchDir)
+			if scanErr != nil {
+				_ = os.RemoveAll(batchDir)
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				// Non-fatal: skip this batch's findings and keep scanning, mirroring
+				// the old per-record "continue on scan error" behavior.
+				zap.L().Warn("kingfisher batch: scan failed, skipping batch", zap.Error(scanErr))
+				if len(records) < kingfisherBatchSize {
+					break
+				}
+				continue
+			}
+
+			// Group findings by the file (record) they came from, preserving
+			// kingfisher's per-file finding order.
+			findingsByFile := make(map[string][]kingfisher.Finding, len(metas))
 			for i := range result.Findings {
-				f := &result.Findings[i]
+				f := result.Findings[i]
+				base := filepath.Base(f.Finding.Path)
+				findingsByFile[base] = append(findingsByFile[base], f)
+			}
 
-				// Drop matches that are structural false positives — an
-				// encoded-binary blob, a JS unicode-escape source artifact, or a
-				// build-tool content-hash manifest entry — rather than real
-				// credentials (see secret_detect.IsNonSecretMatch).
-				if secret_detect.IsNonSecretMatch(body, f.Snippet()) {
-					continue
+			// Process records in deterministic (fetch) order so seenSecret's
+			// first-wins dedup is stable across the batch.
+			for _, meta := range metas {
+				record := meta.record
+				body := meta.body
+				for i := range findingsByFile[meta.filename] {
+					f := &findingsByFile[meta.filename][i]
+
+					// Drop matches that are structural false positives — an
+					// encoded-binary blob, a JS unicode-escape source artifact, or a
+					// build-tool content-hash manifest entry — rather than real
+					// credentials (see secret_detect.IsNonSecretMatch).
+					if secret_detect.IsNonSecretMatch(body, f.Snippet()) {
+						continue
+					}
+
+					// Skip the same secret already reported on this URL by an earlier
+					// record (marked seen only after a match survives the guards, so a
+					// body-dependent blob/JS-escape drop never suppresses a genuine
+					// match of the same value elsewhere).
+					dedupKey := secret_detect.SecretDedupKey(record.Hostname, record.URL, f.RuleID(), f.Snippet())
+					if _, dup := seenSecret[dedupKey]; dup {
+						continue
+					}
+
+					// Downgrade matches that ride on a redirect, are only reflected
+					// into a response header (e.g. an OAuth identifier in a Location
+					// URL bouncing to an SSO login), or are echoed straight back out
+					// of the request URL/bytes (e.g. a Cloudflare Access app id in a
+					// /cdn-cgi/access/verify-code SSO URL) — usually low-value
+					// reflections rather than secrets leaked in page content. JWTs
+					// that don't decode into a usable credential (SSO pre-auth "meta"
+					// tokens) drop to Medium/Tentative. reCAPTCHA site keys and OAuth
+					// client IDs (public by design) drop to Info; Google AIza… API
+					// keys drop to Medium.
+					sev, conf := secret_detect.SecretFindingSeverity(
+						f.IsValidated(),
+						meta.redirect,
+						secret_detect.SnippetInHeaderValues(f.Snippet(), meta.headerValues),
+						secret_detect.SnippetReflectedFromRequest(f.Snippet(), record.URL, string(record.RawRequest)),
+						secret_detect.LowValueJWT(f.Snippet()),
+						secret_detect.IsReCaptchaSiteKey(f.RuleName()),
+						secret_detect.IsGoogleAPIKey(f.RuleName(), f.Snippet()),
+						secret_detect.IsGoogleOAuthClientID(f.Snippet()),
+					)
+
+					seenSecret[dedupKey] = struct{}{}
+
+					response := secret_detect.BuildEvidenceResponse(meta.respHead, body, f.Snippet(), f.Finding.Line)
+					event := secret_detect.NewSecretFinding(f, sev, conf, record.Hostname, record.URL, string(record.RawRequest), response)
+					// Tag with the secret-detect module ID (same as the passive path) so
+					// the URL-keyed finding dedup excludes these too — distinct secrets on
+					// one URL are not duplicates. Without it KIS findings carry an empty
+					// module_id and would merge with each other (and other empty-id
+					// findings) by URL+severity.
+					event.ModuleID = secret_detect.ModuleID
+					event.Info.Tags = append(event.Info.Tags, "known-issue-scan")
+					event.ModuleType = database.ModuleTypeSecretScan
+					event.FindingSource = database.FindingSourceKnownIssueScan
+					event.ModuleShort = "Leaked secret detected in HTTP response body"
+
+					// Save to DB
+					if saveErr := r.repository.SaveFinding(ctx, event, []string{record.UUID}, infra.scanUUID, r.options.ProjectUUID); saveErr != nil {
+						zap.L().Debug("Failed to save kingfisher finding", zap.Error(saveErr))
+					}
+
+					// Write to output via callback
+					if onResult != nil {
+						onResult(event)
+					}
+					totalFindings++
 				}
-
-				// Skip the same secret already reported on this URL by an earlier
-				// record (marked seen only after a match survives the guards, so a
-				// body-dependent blob/JS-escape drop never suppresses a genuine
-				// match of the same value elsewhere).
-				dedupKey := secret_detect.SecretDedupKey(record.Hostname, record.URL, f.RuleID(), f.Snippet())
-				if _, dup := seenSecret[dedupKey]; dup {
-					continue
-				}
-
-				// Downgrade matches that ride on a redirect, are only reflected
-				// into a response header (e.g. an OAuth identifier in a Location
-				// URL bouncing to an SSO login), or are echoed straight back out
-				// of the request URL/bytes (e.g. a Cloudflare Access app id in a
-				// /cdn-cgi/access/verify-code SSO URL) — usually low-value
-				// reflections rather than secrets leaked in page content. JWTs
-				// that don't decode into a usable credential (SSO pre-auth "meta"
-				// tokens) drop to Medium/Tentative. reCAPTCHA site keys and OAuth
-				// client IDs (public by design) drop to Info; Google AIza… API
-				// keys drop to Medium.
-				sev, conf := secret_detect.SecretFindingSeverity(
-					f.IsValidated(),
-					redirect,
-					secret_detect.SnippetInHeaderValues(f.Snippet(), headerValues),
-					secret_detect.SnippetReflectedFromRequest(f.Snippet(), record.URL, string(record.RawRequest)),
-					secret_detect.LowValueJWT(f.Snippet()),
-					secret_detect.IsReCaptchaSiteKey(f.RuleName()),
-					secret_detect.IsGoogleAPIKey(f.RuleName(), f.Snippet()),
-					secret_detect.IsGoogleOAuthClientID(f.Snippet()),
-				)
-
-				seenSecret[dedupKey] = struct{}{}
-
-				response := secret_detect.BuildEvidenceResponse(respHead, body, f.Snippet(), f.Finding.Line)
-				event := secret_detect.NewSecretFinding(f, sev, conf, record.Hostname, record.URL, string(record.RawRequest), response)
-				// Tag with the secret-detect module ID (same as the passive path) so
-				// the URL-keyed finding dedup excludes these too — distinct secrets on
-				// one URL are not duplicates. Without it KIS findings carry an empty
-				// module_id and would merge with each other (and other empty-id
-				// findings) by URL+severity.
-				event.ModuleID = secret_detect.ModuleID
-				event.Info.Tags = append(event.Info.Tags, "known-issue-scan")
-				event.ModuleType = database.ModuleTypeSecretScan
-				event.FindingSource = database.FindingSourceKnownIssueScan
-				event.ModuleShort = "Leaked secret detected in HTTP response body"
-
-				// Save to DB
-				if saveErr := r.repository.SaveFinding(ctx, event, []string{record.UUID}, infra.scanUUID, r.options.ProjectUUID); saveErr != nil {
-					zap.L().Debug("Failed to save kingfisher finding", zap.Error(saveErr))
-				}
-
-				// Write to output via callback
-				if onResult != nil {
-					onResult(event)
-				}
-				totalFindings++
 			}
 		}
+		_ = os.RemoveAll(batchDir)
 
 		if len(records) < kingfisherBatchSize {
 			break

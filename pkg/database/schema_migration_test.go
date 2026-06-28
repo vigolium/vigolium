@@ -209,7 +209,7 @@ func pragmaColumns(t *testing.T, db *DB, table string) []string {
 	if err != nil {
 		t.Fatalf("pragma_table_info(%s): %v", table, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var cols []string
 	for rows.Next() {
 		var name string

@@ -1512,9 +1512,16 @@ func releaseTimer(t *time.Timer) {
 // is intentionally NOT bound into the requester — that is phase-context-bound in
 // runActiveStage — so one module's timeout never cancels a request the clusterer
 // shares with others.
-func callGuard(ctx context.Context, timeout time.Duration) (callCtx context.Context, timeoutC <-chan time.Time, stop func()) {
-	callCtx, cancel := context.WithCancel(ctx)
+func callGuard(ctx context.Context, timeout time.Duration, needCancel bool) (callCtx context.Context, timeoutC <-chan time.Time, stop func()) {
 	t := acquireTimer(timeout)
+	if !needCancel {
+		// Non-contextual module: its scanFn ignores the handed context (it runs
+		// against the phase-bound requester / e.scanCtx), so the WithCancel child
+		// would never be observed. Skip that per-call heap allocation; the pooled
+		// timer still enforces the per-module timeout via timeoutC.
+		return ctx, t.C, func() { releaseTimer(t) }
+	}
+	callCtx, cancel := context.WithCancel(ctx)
 	return callCtx, t.C, func() {
 		cancel()
 		releaseTimer(t)
@@ -1563,7 +1570,10 @@ func (e *Executor) runPassiveWithTimeout(
 		}
 	}
 
-	callCtx, timeoutC, stop := callGuard(ctx, timeout)
+	// Only contextual passive modules observe the handed context, so only they
+	// need a cancellable child (see callGuard).
+	_, needCancel := module.(modules.ContextualPassiveModule)
+	callCtx, timeoutC, stop := callGuard(ctx, timeout, needCancel)
 	defer stop()
 
 	start := time.Now()
@@ -1635,7 +1645,10 @@ func (e *Executor) runActiveWithTimeout(
 		}
 	}
 
-	callCtx, timeoutC, stop := callGuard(ctx, timeout)
+	// Only contextual active modules observe the handed context, so only they
+	// need a cancellable child (see callGuard).
+	_, needCancel := module.(modules.ContextualActiveModule)
+	callCtx, timeoutC, stop := callGuard(ctx, timeout, needCancel)
 	defer stop()
 
 	start := time.Now()

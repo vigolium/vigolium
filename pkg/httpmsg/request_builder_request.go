@@ -2,9 +2,18 @@ package httpmsg
 
 import (
 	"fmt"
+	"strings"
 
 	urlutil "github.com/projectdiscovery/utils/url"
 )
+
+// firstRequestLine returns the request line (first line) of a raw HTTP request,
+// scanning only up to the first CR/LF. GetMethod/GetPath only need the request
+// line, so this avoids parsing — and allocating a string copy of — every header
+// line via ExtractAllHeaders on the per-probe hot path.
+func firstRequestLine(request []byte) string {
+	return string(request[:FindLineEnd(request, 0, len(request))])
+}
 
 // request_builder_request.go - HTTP request component manipulation
 //
@@ -39,18 +48,8 @@ func GetMethod(request []byte) (string, error) {
 		return "", nil
 	}
 
-	// Extract headers
-	headers, _, _, err := ExtractAllHeaders(request)
-	if err != nil {
-		return "", err
-	}
-
-	if len(headers) == 0 {
-		return "", nil
-	}
-
-	// Parse request line
-	method, _, _ := parseRequestLineString(headers[0])
+	// Parse only the request line (first line) — no need to parse all headers.
+	method, _, _ := parseRequestLineString(firstRequestLine(request))
 	return method, nil
 }
 
@@ -78,18 +77,8 @@ func GetPath(request []byte) (string, error) {
 		return "", nil
 	}
 
-	// Extract headers
-	headers, _, _, err := ExtractAllHeaders(request)
-	if err != nil {
-		return "", err
-	}
-
-	if len(headers) == 0 {
-		return "", nil
-	}
-
-	// Parse request line
-	_, path, _ := parseRequestLineString(headers[0])
+	// Parse only the request line (first line) — no need to parse all headers.
+	_, path, _ := parseRequestLineString(firstRequestLine(request))
 	return path, nil
 }
 
@@ -166,22 +155,26 @@ func GetURLFromService(request []byte, httpService *Service) (*urlutil.URL, erro
 		path = "/"
 	}
 
-	// Build URL string: scheme://host:port/path
 	scheme := httpService.Protocol()
 	host := httpService.Host()
 	port := httpService.Port()
 
-	// Format host:port (omit default ports)
-	hostPort := host
+	// Build "scheme://host[:port]path" with a strings.Builder rather than two
+	// fmt.Sprintf calls (reflection overhead per probe).
+	var b strings.Builder
+	b.Grow(len(scheme) + 3 + len(host) + 6 + len(path))
+	b.WriteString(scheme)
+	b.WriteString("://")
+	b.WriteString(host)
+	// Append :port only for non-default ports.
 	if (scheme == "http" && port != 80) || (scheme == "https" && port != 443) {
-		hostPort = fmt.Sprintf("%s:%d", host, port)
+		b.WriteByte(':')
+		b.WriteString(intToString(port))
 	}
-
-	// Construct full URL
-	urlStr := fmt.Sprintf("%s://%s%s", scheme, hostPort, path)
+	b.WriteString(path)
 
 	// Parse into urlutil.URL to populate all fields (including Params)
-	return urlutil.ParseAbsoluteURL(urlStr, false)
+	return urlutil.ParseAbsoluteURL(b.String(), false)
 }
 
 // GetHTTPVersion extracts the HTTP version from a request.

@@ -32,7 +32,10 @@ type RecordWriterConfig struct {
 	// Shards is the number of independent flush goroutines. Each shard has its
 	// own channel and flushLoop. Records are routed to shards by hashing the
 	// host name, so writes for the same host are serialized within a shard.
-	// Default: 1 (backward-compatible single-goroutine behavior).
+	// Default (when <= 0): 1 for SQLite, 4 for PostgreSQL. SQLite is a
+	// single-writer database, so multiple flush goroutines would only contend
+	// on BEGIN IMMEDIATE / busy_timeout without gaining write parallelism;
+	// PostgreSQL supports genuinely concurrent writers, so it fans out.
 	Shards int
 
 	// FlushTimeout bounds the shutdown drain, not steady-state flushes. Normal
@@ -61,9 +64,9 @@ func (c *RecordWriterConfig) withDefaults() RecordWriterConfig {
 	if out.FlushInterval <= 0 {
 		out.FlushInterval = 50 * time.Millisecond
 	}
-	if out.Shards <= 0 {
-		out.Shards = 4
-	}
+	// Shards is defaulted driver-aware in NewRecordWriter (1 for SQLite, 4 for
+	// PostgreSQL); leave a non-positive value untouched here so that decision
+	// has the driver available.
 	if out.FlushTimeout <= 0 {
 		out.FlushTimeout = 2 * time.Minute
 	}
@@ -138,6 +141,17 @@ var ErrRecordWriterClosed = errors.New("record writer is closed")
 func NewRecordWriter(repo *Repository, cfg RecordWriterConfig) *RecordWriter {
 	cfg = cfg.withDefaults()
 
+	// Driver-aware shard default: SQLite has a single writer, so extra flush
+	// goroutines only fight over BEGIN IMMEDIATE / busy_timeout. PostgreSQL has
+	// real concurrent writers and benefits from fan-out.
+	if cfg.Shards <= 0 {
+		if repo != nil && repo.DB() != nil && repo.DB().Driver() == "postgres" {
+			cfg.Shards = 4
+		} else {
+			cfg.Shards = 1
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	w := &RecordWriter{
@@ -189,17 +203,15 @@ func (w *RecordWriter) Write(ctx context.Context, rr *httpmsg.HttpRequestRespons
 	record.ProjectUUID = defaultProjectUUID(projectUUID)
 
 	// Fast path: a key already seen by this writer (cross-request repeat, common
-	// in discovery/spidering) skips both the SELECT and the redundant insert.
+	// in discovery/spidering) skips both the dedup SELECT and the redundant
+	// insert without touching the database. On a miss the record is enqueued and
+	// the flush goroutine runs the duplicate check in a single batched query
+	// (findDuplicateRecordUUIDs) rather than a per-record SELECT on this hot path.
 	dedupKey := recordDedupKey(record)
 	if w.dedupCache != nil {
 		if existingUUID, ok := w.dedupCache.Get(dedupKey); ok {
 			return existingUUID, nil
 		}
-	}
-
-	if existingUUID, err := w.repo.findDuplicateRecord(ctx, record); err == nil && existingUUID != "" {
-		w.cacheDedup(dedupKey, existingUUID)
-		return existingUUID, nil
 	}
 
 	resultCh := make(chan WriteResult, 1)
@@ -391,36 +403,79 @@ func (w *RecordWriter) flushLoop(ctx context.Context, s *writerShard) {
 	}
 }
 
-// flush inserts a batch of records in a single transaction and notifies callers.
+// flush resolves a batch of records and notifies callers. It first runs one
+// batched duplicate lookup for the whole batch (replacing the per-record SELECT
+// that used to sit on the scan worker's hot path), returns the existing UUID for
+// any record that already lives in the database, collapses identical new records
+// within the batch to a single insert, and inserts the remaining distinct new
+// records in one transaction.
+//
 // The caller chooses the context: flushLoop uses an uncancellable
 // context.Background() for steady-state flushes and a bounded context only for
 // the shutdown drain (see flushLoop).
 func (w *RecordWriter) flush(ctx context.Context, batch []writeRequest) {
+	w.batchCount.Add(1)
+
 	records := make([]*HTTPRecord, len(batch))
 	for i, req := range batch {
 		records[i] = req.record
 	}
 
-	uuids, err := w.repo.SaveRecordsBatch(ctx, records)
-
-	w.batchCount.Add(1)
-
+	// Batched duplicate lookup. On failure, fall back to treating every record as
+	// new (all ""), matching the prior behavior where a failed dedup SELECT still
+	// proceeded to insert; the post-scan dedup passes reconcile any duplicates.
+	existing, err := w.repo.findDuplicateRecordUUIDs(ctx, records)
 	if err != nil {
+		zap.L().Debug("RecordWriter batched dedup lookup failed; inserting all",
+			zap.Int("batch_size", len(batch)), zap.Error(err))
+		existing = make([]string, len(batch))
+	}
+
+	// Partition into pre-existing duplicates (existing[i] != "") and new records,
+	// collapsing identical new records in this batch so two callers with the same
+	// key share one insert and one UUID instead of racing to insert two rows.
+	// rep[i] points a new record at the batch index that carries its insert (its
+	// own, or an earlier duplicate's); it is unused for pre-existing duplicates.
+	rep := make([]int, len(batch))
+	groups := make(map[string]int, len(batch)) // dedup key -> representative index
+	var toInsert []*HTTPRecord
+	for i := range batch {
+		if existing[i] != "" {
+			continue
+		}
+		key := recordDedupKey(records[i])
+		repIdx, ok := groups[key]
+		if !ok {
+			repIdx = i
+			groups[key] = i
+			toInsert = append(toInsert, records[i])
+		}
+		rep[i] = repIdx
+	}
+
+	var insErr error
+	if len(toInsert) > 0 {
+		_, insErr = w.repo.SaveRecordsBatch(ctx, toInsert)
+	}
+	if insErr != nil {
 		w.flushErrors.Add(1)
 		zap.L().Error("RecordWriter batch flush failed",
+			zap.Int("insert_count", len(toInsert)),
 			zap.Int("batch_size", len(batch)),
-			zap.Error(err))
-		// Notify all callers of the error
-		for _, req := range batch {
-			req.result <- WriteResult{Err: fmt.Errorf("batch insert failed: %w", err)}
-		}
-		return
+			zap.Error(insErr))
 	}
 
 	w.flushed.Add(int64(len(batch)))
 
-	// Notify each caller with their UUID
 	for i, req := range batch {
-		req.result <- WriteResult{UUID: uuids[i]}
+		switch {
+		case existing[i] != "":
+			req.result <- WriteResult{UUID: existing[i]}
+		case insErr != nil:
+			req.result <- WriteResult{Err: fmt.Errorf("batch insert failed: %w", insErr)}
+		default:
+			// The representative record carries the freshly assigned UUID.
+			req.result <- WriteResult{UUID: records[rep[i]].UUID}
+		}
 	}
 }

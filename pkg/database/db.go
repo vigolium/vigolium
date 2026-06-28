@@ -666,6 +666,12 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_module_type ON findings(project_uuid, module_type)",
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_finding_source ON findings(project_uuid, finding_source)",
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_scan ON findings(project_uuid, scan_uuid)",
+		// Covers aggregateScanFindings (SELECT severity, COUNT(*) WHERE scan_uuid = ?
+		// GROUP BY severity), which runs on every scan-status tick. scan_uuid is not
+		// the leading column of idx_findings_project_scan, so without this the count
+		// fell back to a full findings scan each tick; (scan_uuid, severity) makes it
+		// index-only.
+		"CREATE INDEX IF NOT EXISTS idx_findings_scan_severity ON findings(scan_uuid, severity)",
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_status ON findings(project_uuid, status)",
 		"CREATE INDEX IF NOT EXISTS idx_findings_project_hostname ON findings(project_uuid, hostname)",
 		// Backs the per-round dynamic-assessment dedup grouping

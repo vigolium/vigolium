@@ -4,9 +4,47 @@ import (
 	"bytes"
 	"regexp"
 	"strings"
+	"sync"
 
 	"golang.org/x/net/html"
 )
+
+// Whitespace-normalization patterns, compiled once. normalizeWhitespace runs on
+// every captured DOM state and every URL reload, so compiling these per call was
+// pure overhead.
+var (
+	reStripControlWS = regexp.MustCompile(`[\t\n\x0B\f\r]+`)
+	reSpaceAfterGt   = regexp.MustCompile(`>[ ]+`)
+	reSpaceBeforeLt  = regexp.MustCompile(`[ ]+<`)
+)
+
+// attrPatternCache memoizes the compiled attribute-strip patterns keyed on the
+// attribute list, so the default set (and any fixed comparator set) is compiled
+// once for the whole crawl rather than ~4 regexes per StripDOM call.
+var attrPatternCache sync.Map // key: joined stripAttrs → []*regexp.Regexp
+
+func compileAttrPatterns(stripAttrs []string) []*regexp.Regexp {
+	key := strings.Join(stripAttrs, "\x00")
+	if v, ok := attrPatternCache.Load(key); ok {
+		return v.([]*regexp.Regexp)
+	}
+	patterns := make([]*regexp.Regexp, 0, len(stripAttrs))
+	for _, attr := range stripAttrs {
+		var pattern string
+		if strings.Contains(attr, "*") {
+			// Convert glob pattern to regex
+			pattern = "^" + strings.ReplaceAll(regexp.QuoteMeta(attr), "\\*", ".*") + "$"
+		} else {
+			// Exact match
+			pattern = "^" + regexp.QuoteMeta(attr) + "$"
+		}
+		if re, err := regexp.Compile(pattern); err == nil {
+			patterns = append(patterns, re)
+		}
+	}
+	attrPatternCache.Store(key, patterns)
+	return patterns
+}
 
 // DefaultStripTags are tags removed before comparison.
 var DefaultStripTags = []string{
@@ -49,23 +87,8 @@ func StripDOM(rawHTML string, stripTags, stripAttrs []string) string {
 		tagSet[strings.ToLower(tag)] = true
 	}
 
-	// Build patterns for attributes to strip
-	attrPatterns := make([]*regexp.Regexp, 0)
-	for _, attr := range stripAttrs {
-		if strings.Contains(attr, "*") {
-			// Convert glob pattern to regex
-			pattern := "^" + strings.ReplaceAll(regexp.QuoteMeta(attr), "\\*", ".*") + "$"
-			if re, err := regexp.Compile(pattern); err == nil {
-				attrPatterns = append(attrPatterns, re)
-			}
-		} else {
-			// Exact match
-			pattern := "^" + regexp.QuoteMeta(attr) + "$"
-			if re, err := regexp.Compile(pattern); err == nil {
-				attrPatterns = append(attrPatterns, re)
-			}
-		}
-	}
+	// Build (memoized) patterns for attributes to strip
+	attrPatterns := compileAttrPatterns(stripAttrs)
 
 	// Process the DOM tree
 	stripNode(doc, tagSet, attrPatterns)
@@ -141,14 +164,13 @@ func filterAttributes(attrs []html.Attribute, patterns []*regexp.Regexp) []html.
 func normalizeWhitespace(s string) string {
 	// Step 1: Remove control whitespace (tab, newline, form-feed, carriage-return, vertical-tab)
 	// but preserve regular spaces within text content
-	re := regexp.MustCompile(`[\t\n\x0B\f\r]+`)
-	s = re.ReplaceAllString(s, "")
+	s = reStripControlWS.ReplaceAllString(s, "")
 
 	// Step 2: Remove spaces immediately after closing angle bracket: ">[ ]*" → ">"
-	s = regexp.MustCompile(`>[ ]+`).ReplaceAllString(s, ">")
+	s = reSpaceAfterGt.ReplaceAllString(s, ">")
 
 	// Step 3: Remove spaces immediately before opening angle bracket: "[ ]*<" → "<"
-	s = regexp.MustCompile(`[ ]+<`).ReplaceAllString(s, "<")
+	s = reSpaceBeforeLt.ReplaceAllString(s, "<")
 
 	// Trim
 	s = strings.TrimSpace(s)

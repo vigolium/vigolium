@@ -69,7 +69,9 @@ func (r *TechRegistry) Has(host, tag string) bool {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	set, ok := r.byHost.Get(host)
+	// Peek, not Get: Get takes the LRU's internal write lock to bump recency,
+	// which would serialize concurrent read-only queries despite the outer RLock.
+	set, ok := r.byHost.Peek(host)
 	if !ok {
 		return false
 	}
@@ -89,7 +91,7 @@ func (r *TechRegistry) HasAny(host string, tags []string) bool {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	set, ok := r.byHost.Get(host)
+	set, ok := r.byHost.Peek(host) // Peek: see Has (avoid LRU write-lock on the read path)
 	if !ok || len(set) == 0 {
 		return false
 	}
@@ -122,7 +124,7 @@ func (r *TechRegistry) Allows(host string, candidates []string) bool {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	set, ok := r.byHost.Get(host)
+	set, ok := r.byHost.Peek(host) // Peek: see Has (avoid LRU write-lock on the read path)
 	if !ok || len(set) == 0 {
 		return true // fail-open: host unknown
 	}
@@ -145,6 +147,6 @@ func (r *TechRegistry) HostKnown(host string) bool {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	set, ok := r.byHost.Get(host)
+	set, ok := r.byHost.Peek(host) // Peek: see Has (avoid LRU write-lock on the read path)
 	return ok && len(set) > 0
 }

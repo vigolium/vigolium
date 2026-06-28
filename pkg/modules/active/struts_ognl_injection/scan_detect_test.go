@@ -3,7 +3,8 @@ package struts_ognl_injection
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
+	"regexp"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,9 +14,33 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
 
-// ognlExpr is the multiplication the module injects; a vulnerable server
-// evaluates it and the product (ognlResult) surfaces in the response.
-const ognlExpr = "41273*39127"
+// TestOgnlResultMatchesProduct pins the core detection invariant: the marker the
+// module searches for must equal the actual product of the operands it injects. A
+// prior hardcoded literal (1614244871) did not, so the module looked for a product
+// no real target returns. Guarding it prevents that class of silent false negative.
+func TestOgnlResultMatchesProduct(t *testing.T) {
+	want := strconv.Itoa(ognlMultA * ognlMultB)
+	assert.Equal(t, want, ognlResult,
+		"ognlResult must equal %d*%d (=%s) so the detector matches a genuinely evaluated expression", ognlMultA, ognlMultB, want)
+}
+
+// ognlMulRe matches the N*M expression inside an injected OGNL payload (e.g.
+// %{41273*39127}); the test backends use it to emulate a real evaluator so the
+// module's fresh-operand reflection-tracking confirmation also evaluates.
+var ognlMulRe = regexp.MustCompile(`(\d+)\*(\d+)`)
+
+// evalOGNL returns the product of the first N*M expression found in s, as a
+// string, or "" when s carries no such expression — emulating server-side OGNL
+// arithmetic evaluation for any operands the module injects.
+func evalOGNL(s string) string {
+	parts := ognlMulRe.FindStringSubmatch(s)
+	if parts == nil {
+		return ""
+	}
+	a, _ := strconv.Atoi(parts[1])
+	b, _ := strconv.Atoi(parts[2])
+	return strconv.Itoa(a * b)
+}
 
 // TestScanPerInsertionPoint_DetectsParamOGNL drives the parameter-level scan
 // against a server that evaluates an OGNL expression supplied in a query param
@@ -26,8 +51,10 @@ func TestScanPerInsertionPoint_DetectsParamOGNL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v := r.URL.Query().Get("name")
 		w.WriteHeader(http.StatusOK)
-		if strings.Contains(v, ognlExpr) {
-			_, _ = w.Write([]byte("Welcome " + ognlResult))
+		// Emulate a real OGNL evaluator: compute any injected N*M (so the module's
+		// fresh-operand confirmation evaluates too), else echo the raw value.
+		if product := evalOGNL(v); product != "" {
+			_, _ = w.Write([]byte("Welcome " + product))
 			return
 		}
 		_, _ = w.Write([]byte("Welcome " + v))
@@ -41,6 +68,29 @@ func TestScanPerInsertionPoint_DetectsParamOGNL(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected an OGNL finding when the evaluated product appears in the body")
+}
+
+// TestScanPerInsertionPoint_CoincidentalResultDropped is the generic-value false
+// positive: the server emits the fixed product (1614244871) regardless of input —
+// a static id / old timestamp — and never evaluates any expression. The primary
+// match fires, but the reflection-tracking confirmation's fresh products never
+// appear, so the candidate is dropped.
+func TestScanPerInsertionPoint_CoincidentalResultDropped(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		// 1614244871 is baked into the page, not produced by evaluating the payload.
+		_, _ = w.Write([]byte("order " + ognlResult + " confirmed"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/?name=guest")
+	ip := modtest.InsertionPoint(t, rr, "name")
+
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "the fixed product appearing in the page by coincidence (no evaluation) must not be flagged")
 }
 
 // TestScanPerInsertionPoint_NoFalsePositive ensures a server that reflects the
@@ -71,8 +121,9 @@ func TestScanPerRequest_DetectsContentTypeOGNL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ct := r.Header.Get("Content-Type")
 		w.WriteHeader(http.StatusOK)
-		if strings.Contains(ct, ognlExpr) {
-			_, _ = w.Write([]byte("evaluated: " + ognlResult))
+		// Emulate a real OGNL evaluator so the fresh-operand confirmation evaluates too.
+		if product := evalOGNL(ct); product != "" {
+			_, _ = w.Write([]byte("evaluated: " + product))
 			return
 		}
 		_, _ = w.Write([]byte("ok"))

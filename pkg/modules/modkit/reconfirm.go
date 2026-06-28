@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	mrand "math/rand/v2"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/http"
@@ -587,18 +589,30 @@ func fetchResponseParsed(client *http.Requester, req *httpmsg.HttpRequestRespons
 type ReflectionProbe func(canary string) (reflected bool, err error)
 
 // ConfirmReflection runs probe across `rounds` (minimum 2) with a fresh random
-// canary each round, and returns true only if EVERY round observed the canary
-// reflected. Using a fresh random canary per round makes a coincidental static
-// match astronomically unlikely, so this doubles as a payload-applied-vs-not
-// differential: a value that genuinely flows from input to output reflects
-// every time, while a page that merely happens to contain a fixed string does
-// not track the changing canary.
+// alphanumeric canary (FreshCanary) each round, and returns true only if EVERY
+// round observed the canary reflected. Using a fresh random canary per round makes
+// a coincidental static match astronomically unlikely, so this doubles as a
+// payload-applied-vs-not differential: a value that genuinely flows from input to
+// output reflects every time, while a page that merely happens to contain a fixed
+// string does not track the changing canary.
 func ConfirmReflection(rounds int, probe ReflectionProbe) (bool, error) {
+	return ConfirmReflectionWithValue(rounds, FreshCanary, probe)
+}
+
+// ConfirmReflectionWithValue is ConfirmReflection with a caller-supplied value
+// generator instead of the built-in alphanumeric FreshCanary: each round it draws
+// a fresh value from genValue, passes it to probe, and returns true only if EVERY
+// round observed it reflected. Use this when the probed field constrains the value
+// SHAPE — a port that must stay numeric, a structured token — so a generic
+// FreshCanary would not exercise the same code path. genValue must return a
+// distinct value each call (e.g. a random port / canary) for the tracking guarantee
+// to hold.
+func ConfirmReflectionWithValue(rounds int, genValue func() string, probe ReflectionProbe) (bool, error) {
 	if rounds < 2 {
 		rounds = 2
 	}
 	for i := 0; i < rounds; i++ {
-		reflected, err := probe(FreshCanary())
+		reflected, err := probe(genValue())
 		if err != nil {
 			return false, err
 		}
@@ -613,6 +627,19 @@ func ConfirmReflection(rounds int, probe ReflectionProbe) (bool, error) {
 // embed in URLs, headers, and HTML) for reflection probes.
 func FreshCanary() string {
 	return "vgo" + randomToken(10)
+}
+
+// FreshMultExpr returns a fresh random multiplication expression ("A*B") and its
+// product, both as decimal strings, for evaluation-oracle confirmation (SSTI /
+// OGNL): re-inject the expression and confirm the product appears, so the result
+// tracks the changing operands and a fixed number already in the page cannot match.
+// Operands are 4 digits so the product stays well under Java's 32-bit
+// Integer.MAX_VALUE — OGNL evaluates int*int with 32-bit semantics, and an
+// overflowed product would render wrapped and never match.
+func FreshMultExpr() (expr, product string) {
+	a := 1000 + mrand.IntN(9000)
+	b := 1000 + mrand.IntN(9000)
+	return strconv.Itoa(a) + "*" + strconv.Itoa(b), strconv.Itoa(a * b)
 }
 
 // HostReflectedAsAuthority reports whether host appears as the authority (host

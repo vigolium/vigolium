@@ -89,15 +89,21 @@ func Generate(value string, vtype ValueType, opts *GenerateOptions) MutationSet 
 // dedup removes duplicate mutations and those matching the original value,
 // enforcing MaxPerIntent limits.
 func dedup(mutations []Mutation, original string, maxPerIntent int) []Mutation {
-	seen := make(map[string]bool)
+	// Struct key (intent, value) avoids the per-mutation fmt.Sprintf allocation
+	// this hot loop otherwise pays for every candidate.
+	type dedupKey struct {
+		intent MutationIntent
+		value  string
+	}
+	seen := make(map[dedupKey]bool, len(mutations))
 	intentCounts := make(map[MutationIntent]int)
-	var result []Mutation
+	result := make([]Mutation, 0, len(mutations))
 
 	for _, m := range mutations {
 		if m.Value == original {
 			continue
 		}
-		key := fmt.Sprintf("%d:%s", m.Intent, m.Value)
+		key := dedupKey{m.Intent, m.Value}
 		if seen[key] {
 			continue
 		}

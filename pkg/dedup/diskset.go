@@ -28,7 +28,7 @@ const diskSetEvictBatch = 16384
 // Thread-safe for concurrent access.
 type DiskSet struct {
 	db      *leveldb.DB
-	mu      sync.Mutex // Required for atomic check-then-put in IsSeen
+	mu      sync.RWMutex // RLock guards the IsSeen read fast path; Lock guards inserts/eviction/Close
 	hits    atomic.Uint64
 	size    atomic.Int64
 	maxKeys int64
@@ -96,27 +96,45 @@ func NewDiskSet(opts DiskSetOptions) (*DiskSet, error) {
 
 // IsSeen returns true if key was seen before.
 // If not seen, marks it as seen atomically.
-// Thread-safe: mutex ensures atomic check-then-put.
+//
+// Hot path: most calls on a warm set are duplicates, so the common case takes
+// only a read lock (concurrent with other readers) and a single LevelDB Has.
+// Only a genuinely new key escalates to the write lock for the Put. This avoids
+// serializing every worker — and every one of the 61 modules sharing a DiskSet
+// — behind a single mutex held across LevelDB I/O.
 func (d *DiskSet) IsSeen(key string) bool {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	keyBytes := []byte(key)
 
+	d.mu.RLock()
 	if d.db == nil {
+		d.mu.RUnlock()
 		return true // Treat as already seen to stop processing
 	}
-
-	keyBytes := []byte(key)
 	has, err := d.db.Has(keyBytes, nil)
-	if err != nil || !has {
-		_ = d.db.Put(keyBytes, nil, nil)
-		if d.size.Add(1) > d.maxKeys && d.maxKeys > 0 {
-			d.evictLocked()
-		}
-		return false
+	d.mu.RUnlock()
+	if err == nil && has {
+		d.hits.Add(1)
+		return true
 	}
 
-	d.hits.Add(1)
-	return true
+	// New (or unreadable) key: take the write lock and insert. Re-check under
+	// the lock so a key inserted by another goroutine between the two locks is
+	// reported as seen exactly once (keeps dedup precise and the size counter
+	// accurate).
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.db == nil {
+		return true
+	}
+	if has, err := d.db.Has(keyBytes, nil); err == nil && has {
+		d.hits.Add(1)
+		return true
+	}
+	_ = d.db.Put(keyBytes, nil, nil)
+	if d.size.Add(1) > d.maxKeys && d.maxKeys > 0 {
+		d.evictLocked()
+	}
+	return false
 }
 
 // evictLocked drops a batch of keys to keep the set under maxKeys. The caller

@@ -120,8 +120,19 @@ func (m *RequestHashManager) ShouldCheckInsertionPoint(
 	request *httpmsg.HttpRequest,
 	paramName, paramValue, paramType string,
 ) bool {
-	rHash := m.hash(urlx, request.Method(), string(request.Body()), paramName, paramValue, paramType)
+	rHash := m.hash(urlx, request.Method(), m.bodyForHash(request), paramName, paramValue, paramType)
 	return !m.diskSet.IsSeen(rHash)
+}
+
+// bodyForHash returns the request body only when the body is actually part of
+// the hash. By default (DefaultOption.Body == false) the body is never hashed,
+// so materializing string(request.Body()) per insertion point is pure waste —
+// a request with K insertion points would otherwise pay K full-body copies.
+func (m *RequestHashManager) bodyForHash(request *httpmsg.HttpRequest) string {
+	if !m.option.Body || request == nil {
+		return ""
+	}
+	return string(request.Body())
 }
 
 // hasOrAdd returns true if the request exists in the data.
@@ -141,7 +152,7 @@ func (m *RequestHashManager) hasOrAdd(
 		paramValue = param.Value()
 		paramPosition = param.Type().String()
 	}
-	rHash := m.hash(urlx, method, string(request.Body()), paramName, paramValue, paramPosition)
+	rHash := m.hash(urlx, method, m.bodyForHash(request), paramName, paramValue, paramPosition)
 	return m.diskSet.IsSeen(rHash)
 }
 

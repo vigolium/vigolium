@@ -8,7 +8,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
-	"github.com/vigolium/vigolium/pkg/utils"
 )
 
 func validateModuleID(id string) {
@@ -119,13 +118,13 @@ func (b BaseActiveModule) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
 		return false
 	}
 
-	urlx, err := ctx.URL()
-	if err != nil {
+	if _, err := ctx.URL(); err != nil {
 		return false
 	}
 
-	// Default: skip media/JS extensions
-	if utils.IsMediaAndJSURL(urlx.Path) {
+	// Default: skip media/JS extensions. Memoized on the request so the regex
+	// runs once per request rather than once per module's CanProcess.
+	if ctx.Request().IsMediaPath() {
 		return false
 	}
 

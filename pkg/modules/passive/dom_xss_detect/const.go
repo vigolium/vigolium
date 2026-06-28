@@ -9,4 +9,8 @@ var (
 
 	// openRedirectSinks matches JavaScript patterns that can trigger navigation/redirect.
 	openRedirectSinks = regexp.MustCompile(`\b(?:location\.href\s*=|location\.(assign|replace)\s*\(|window\.open\s*\()`)
+
+	// identifierPattern extracts the first JS identifier from a fragment. Hoisted
+	// to package scope so it is compiled once, not per fragment inside analyse().
+	identifierPattern = regexp.MustCompile(`[a-zA-Z$_][a-zA-Z0-9$_]+`)
 )
