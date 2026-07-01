@@ -1,9 +1,11 @@
 package secret_detect
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -38,18 +40,27 @@ import (
 //     than account takeover. A live-validated Google key still escalates ahead of
 //     this to Critical.
 //
+//   - A match served from a documentation / reference / manual / CLI-guide route
+//     as rendered page content (docDemoContext — see IsDocDemoSecretContext) drops
+//     to Low/Tentative. Docs pages are full of copy-paste sample credentials —
+//     Supabase's `supabase-demo` anon/service_role JWTs, the local-dev
+//     `postgresql://postgres:postgres@127.0.0.1:54322` URL, placeholder
+//     `user:pass@host` connection strings — that a secret rule matches verbatim,
+//     but they are illustrative demo values, not a live leak. A validated live
+//     secret still outranks this to Critical.
+//
 //   - A JWT we cannot decode into a usable credential (lowValueJWT — see
 //     LowValueJWT) drops to Medium/Tentative. This catches Cloudflare Access and
 //     similar SSO pre-auth "meta" tokens that are embedded in login-page URLs and
 //     reflected into the page body: they decode to an unauthenticated metadata
 //     token (auth_status=NONE, no identity), not a leaked secret.
-func SecretFindingSeverity(validated, redirect, inHeader, reflectedFromRequest, lowValueJWT, recaptchaSiteKey, googleAPIKey, oauthClientID bool) (severity.Severity, severity.Confidence) {
+func SecretFindingSeverity(validated, redirect, inHeader, reflectedFromRequest, docDemoContext, lowValueJWT, recaptchaSiteKey, googleAPIKey, oauthClientID bool) (severity.Severity, severity.Confidence) {
 	switch {
 	case recaptchaSiteKey, oauthClientID:
 		return severity.Info, severity.Tentative
 	case validated:
 		return severity.Critical, severity.Certain
-	case redirect || inHeader || reflectedFromRequest:
+	case redirect || inHeader || reflectedFromRequest || docDemoContext:
 		return severity.Low, severity.Tentative
 	case googleAPIKey:
 		return severity.Medium, severity.Firm
@@ -58,6 +69,74 @@ func SecretFindingSeverity(validated, redirect, inHeader, reflectedFromRequest, 
 	default:
 		return severity.High, severity.Firm
 	}
+}
+
+// docRouteSegments are URL path segments that mark a page as documentation,
+// reference material, a manual, or a CLI guide. Content on these routes is
+// written for humans to read and copy, so any secret-shaped string is almost
+// always an illustrative sample or demo credential rather than a live secret.
+var docRouteSegments = map[string]struct{}{
+	"doc":           {},
+	"docs":          {},
+	"documentation": {},
+	"reference":     {},
+	"references":    {},
+	"manual":        {},
+	"manuals":       {},
+	"guide":         {},
+	"guides":        {},
+	"cli":           {},
+	"tutorial":      {},
+	"tutorials":     {},
+	"example":       {},
+	"examples":      {},
+}
+
+// IsDocDemoSecretContext reports whether a secret match should be treated as a
+// documentation sample/demo credential rather than a live leak. It is true only
+// when both hold: the response was served from a documentation route (see
+// isDocumentationRoute) AND it is rendered page content (see
+// isDocPageContentType). Both gates matter — a JWT embedded in a JS bundle under
+// /docs/_next/static/... is still a real embedded credential, and an API JSON
+// response under a docs path may carry a live token — so we only relax severity
+// for the human-readable page itself.
+func IsDocDemoSecretContext(rawURL, contentType string) bool {
+	if !isDocPageContentType(contentType) {
+		return false
+	}
+	return isDocumentationRoute(rawURL)
+}
+
+// isDocumentationRoute reports whether any path segment of rawURL names a
+// documentation/reference/manual/CLI route (see docRouteSegments). Matching is
+// per-segment so "/cli/" hits but "client" does not, and case-insensitive.
+// Callers pass an absolute request URL; a parse failure or empty path simply
+// yields no matching segment.
+func isDocumentationRoute(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	for _, seg := range strings.Split(strings.ToLower(u.Path), "/") {
+		if _, ok := docRouteSegments[seg]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// isDocPageContentType reports whether contentType is rendered, human-readable
+// page content: HTML/XHTML (via the shared modkit.ClassifyContentType) or the
+// Next.js React Server Component payload (text/x-component) that carries the same
+// server-rendered documentation page for a `?_rsc=` navigation request — which
+// classifies as plain text, so it needs its own clause. Bundled scripts,
+// stylesheets, and JSON APIs are excluded — a secret in those is more likely a
+// real embedded credential.
+func isDocPageContentType(contentType string) bool {
+	if modkit.ClassifyContentType(contentType) == modkit.ContentClassHTML {
+		return true
+	}
+	return strings.Contains(strings.ToLower(contentType), "x-component")
 }
 
 // IsRedirectStatus reports whether code is an HTTP 3xx redirect status.

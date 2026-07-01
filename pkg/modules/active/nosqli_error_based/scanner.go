@@ -3,7 +3,6 @@ package nosqli_error_based
 import (
 	"fmt"
 	"regexp"
-	"strings"
 
 	"github.com/pkg/errors"
 	httputil "github.com/projectdiscovery/utils/http"
@@ -207,7 +206,7 @@ func (m *Module) ScanPerInsertionPoint(
 		// {$where:...}, {$expr:...}) can never satisfy a pattern as the app simply
 		// echoing the request back — the match must come from the database, not
 		// from our payload bouncing off the page.
-		dbms, regExp, matched := checkNoSQLError(strings.ReplaceAll(body, fullPayload, ""), origBody)
+		dbms, regExp, matched := checkNoSQLError(modkit.StripReflected(body, fullPayload), origBody)
 		if !matched {
 			resp.Close()
 			continue

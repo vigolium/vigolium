@@ -26,6 +26,7 @@ type batchEntry struct {
 	url          string
 	host         string
 	statusCode   int    // response status — 3xx redirects downgrade secret severity
+	contentType  string // response Content-Type — docs-page HTML/RSC downgrades demo secrets
 	headerValues string // joined response header values, for header-reflection downgrade
 	respHead     string // raw response head (status line + headers, no body), for finding evidence
 	request      string // raw request, for finding evidence and http_record linkage
@@ -149,6 +150,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, _ *modkit.Scan
 		url:          urlStr,
 		host:         host,
 		statusCode:   resp.StatusCode(),
+		contentType:  resp.Header("Content-Type"),
 		headerValues: JoinHeaderValues(resp.Headers()),
 		respHead:     respHead,
 		request:      request,
@@ -249,6 +251,7 @@ func (m *Module) FlushFindings(_ *modkit.ScanContext) ([]*output.ResultEvent, er
 			IsRedirectStatus(entry.statusCode),
 			SnippetInHeaderValues(f.Snippet(), entry.headerValues),
 			SnippetReflectedFromRequest(f.Snippet(), entry.url, entry.request),
+			IsDocDemoSecretContext(entry.url, entry.contentType),
 			LowValueJWT(f.Snippet()),
 			IsReCaptchaSiteKey(f.RuleName()),
 			IsGoogleAPIKey(f.RuleName(), f.Snippet()),

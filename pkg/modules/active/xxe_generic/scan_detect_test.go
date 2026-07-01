@@ -74,6 +74,61 @@ func TestScanPerRequest_NotFoundShellNotXXE(t *testing.T) {
 	assert.Empty(t, res, "a 404 catch-all shell containing a --dxp-g-root: CSS var must not be reported as XXE")
 }
 
+// TestScanPerRequest_ReflectedPayloadNotXXE is the struts-class reflection FP: the
+// internal-entity probe carries its OWN success marker as the entity value, and an
+// endpoint that rejects the XML with a 400 while ECHOING the document back would
+// otherwise self-trigger a High XXE finding — even though no entity was ever
+// expanded. Stripping the reflected payload before marker matching keeps it quiet.
+func TestScanPerRequest_ReflectedPayloadNotXXE(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/xml")
+		// 400 is an error surface (passes IsErrorSurfaceStatus) and reflects the
+		// rejected document verbatim, exactly like a validation error page.
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, "<error>Invalid XML document: "+string(body)+"</error>")
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.RequestMethod(t, "POST", srv.URL+"/api/orders", seedXML)
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a 400 error that reflects the injected XML (marker inside the echoed payload) must not be reported as XXE")
+}
+
+// TestScanPerRequest_DetectsInternalEntityExpansion confirms the strip does not
+// cause a false NEGATIVE: a parser that genuinely expands the internal entity
+// emits the marker where &xxe; stood — as element content, NOT as part of the
+// echoed <!ENTITY ...> definition — so it survives the payload strip and is
+// correctly reported.
+func TestScanPerRequest_DetectsInternalEntityExpansion(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		// Vulnerable parser expands &xxe; into the entity value and returns it as
+		// element content, without echoing the raw DTD/entity definition.
+		if strings.Contains(string(body), `<!ENTITY xxe "vigolium-xxe-test-entity">`) {
+			_, _ = w.Write([]byte("<result>vigolium-xxe-test-entity</result>"))
+			return
+		}
+		_, _ = w.Write([]byte("<result>ok</result>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.RequestMethod(t, "POST", srv.URL+"/api/orders", seedXML)
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "a genuine internal-entity expansion must still be reported")
+	assert.Contains(t, res[0].ExtractedResults[0], "vigolium-xxe-test-entity")
+}
+
 // TestScanPerRequest_NoFalsePositive ensures a hardened parser that never
 // resolves external entities (returns a fixed benign body) yields no finding.
 func TestScanPerRequest_NoFalsePositive(t *testing.T) {

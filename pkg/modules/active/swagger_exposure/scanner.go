@@ -162,11 +162,22 @@ func (m *Module) ScanPerRequest(
 			var kind string
 			switch {
 			case specutil.DetectSpecType(body) != specutil.Unknown:
+				// Structural spec detection (JSON/YAML shape) — a reflected HTML
+				// slug cannot satisfy it, so no slug-reflection guard is needed.
 				kind = "OpenAPI/Swagger specification document"
-			case looksLikeSwaggerUI(body):
-				kind = "interactive API documentation UI"
 			default:
-				continue
+				marker, ok := swaggerUIMarker(body)
+				if !ok {
+					continue
+				}
+				// Slug-reflection guard: a probe like /<dir>/redoc whose only signal
+				// is the UI marker "redoc" self-matches when a content route echoes
+				// the requested slug into the page. Confirm the marker is not merely
+				// the reflected path segment before reporting.
+				if modkit.SlugReflectionFP(ctx, httpClient, probePath, []string{marker}) {
+					continue
+				}
+				kind = "interactive API documentation UI"
 			}
 
 			// First confirmed exposure is sufficient — stop probing this host.
@@ -192,6 +203,15 @@ func (m *Module) ScanPerRequest(
 // looksLikeSwaggerUI reports whether the response body looks like a rendered
 // Swagger/Redoc/RapiDoc documentation page.
 func looksLikeSwaggerUI(body []byte) bool {
+	_, ok := swaggerUIMarker(body)
+	return ok
+}
+
+// swaggerUIMarker returns the first UI marker found in body (and true), or ""
+// (and false) if none match. The caller needs the specific marker so it can apply
+// the slug-reflection guard: a probe like /<dir>/redoc whose only signal is the
+// marker "redoc" self-matches when a content route echoes the requested slug.
+func swaggerUIMarker(body []byte) (string, bool) {
 	n := len(body)
 	if n > 8192 {
 		n = 8192
@@ -199,8 +219,8 @@ func looksLikeSwaggerUI(body []byte) bool {
 	s := strings.ToLower(string(body[:n]))
 	for _, marker := range uiMarkers {
 		if strings.Contains(s, marker) {
-			return true
+			return marker, true
 		}
 	}
-	return false
+	return "", false
 }

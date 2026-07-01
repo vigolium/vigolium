@@ -143,7 +143,7 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 
 		body := resp.Body().String()
-		if framework, matched := checkDeserError(body, origBody); matched {
+		if framework, matched := checkDeserError(body, origBody, p.payload); matched {
 			results = append(results, &output.ResultEvent{
 				URL:              urlx.String(),
 				Request:          string(fuzzedRaw),
@@ -163,8 +163,22 @@ func (m *Module) ScanPerInsertionPoint(
 	return results, nil
 }
 
-// checkDeserError checks if response contains deserialization error patterns not in original.
-func checkDeserError(body, origBody string) (string, bool) {
+// checkDeserError reports whether the response surfaced a framework
+// deserialization error signature that is ABSENT from the baseline.
+//
+// The injected payload is stripped (modkit.StripReflected) before matching:
+// several serialized wire formats are themselves matched by the framework error
+// patterns — most notably PHP's O:N:"class":... form, which satisfies the
+// `O:\d+:"[^"]+"` alternative — so an endpoint that merely REFLECTS the rejected
+// payload back in an error or echo (e.g. `invalid input: O:8:"stdClass":0:{}`)
+// would otherwise self-trigger a High/Firm finding without ever deserializing
+// anything. Removing the reflected payload first leaves only server-emitted text,
+// so a genuine unserialize() / __wakeup() / ObjectInputStream signature still
+// matches while a bare echo of our own probe does not. (An error that quotes the
+// payload amid a real signature — `unserialize(): Error ... O:8:"stdClass":0:{}` —
+// still matches on the surviving `unserialize()` keyword.)
+func checkDeserError(body, origBody, payload string) (string, bool) {
+	body = modkit.StripReflected(body, payload)
 	for _, ep := range errorPatterns {
 		if ep.pattern.MatchString(body) {
 			if origBody != "" && ep.pattern.MatchString(origBody) {

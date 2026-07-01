@@ -1,10 +1,17 @@
 package swagger_exposure
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/modtest"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -79,4 +86,62 @@ func TestLooksLikeSwaggerUI(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestScanPerRequest_NoFP_SlugReflectingRoute reproduces the slug-reflection FP
+// class: a content route under /api/ echoes the requested slug into the page, so
+// /api/redoc returns 200 HTML containing the word "redoc" and self-matches the
+// "redoc" UI marker even though no ReDoc page is served. The SlugReflectionFP
+// control (a canary sibling that reflects too) must suppress it.
+func TestScanPerRequest_NoFP_SlugReflectingRoute(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if slug, ok := strings.CutPrefix(r.URL.Path, "/api/"); ok && slug != "" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><title>` + slug +
+				` — Docs</title></head><body><h1>Documentation for ` + slug +
+				`</h1><p>Everything about ` + slug + ` on our platform.</p></body></html>`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// Observe a page under /api/ so CandidateBasePaths walks /api and the module
+	// probes /api/redoc (UI marker == reflected slug).
+	rr := modtest.Request(t, srv.URL+"/api/products")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a slug-reflecting content route must not yield a swagger/redoc-exposure finding")
+}
+
+// TestScanPerRequest_DetectsRealReDocSubPath confirms the guard does not kill the
+// true positive: a genuine ReDoc UI mounted at /api/redoc (siblings 404, so no
+// slug reflection) must still surface a finding.
+func TestScanPerRequest_DetectsRealReDocSubPath(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/redoc" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<!DOCTYPE html><html><head><title>API docs</title></head>` +
+				`<body><redoc spec-url="/api/openapi.json"></redoc>` +
+				`<script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>` +
+				`</body></html>`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/api/v1")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "a genuine ReDoc UI at /api/redoc (siblings 404) must still yield a finding")
+	assert.Contains(t, res[0].URL, "/api/redoc")
 }

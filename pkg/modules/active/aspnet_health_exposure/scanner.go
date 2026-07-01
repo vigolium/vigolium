@@ -228,6 +228,18 @@ func (m *Module) probeEndpoint(
 		return nil
 	}
 
+	// Slug-reflection guard: some probes carry a marker that IS their own last path
+	// segment ("healthchecks-ui" for /healthchecks-ui, "browserLink" for
+	// /_vs/browserLink). A content route that echoes the requested slug into the
+	// page (a topic/SEO route rendering the slug in a title/JSON-LD/canonical link)
+	// self-matches that marker without the endpoint existing. StripReflectedProbePath
+	// removes the full path, not the standalone slug word, and the sibling check
+	// above cannot see it (a random sibling reflects a DIFFERENT slug). Only when
+	// the whole match is the reflected segment do we pay for a control probe.
+	if modkit.SlugReflectionFP(ctx, httpClient, probePath, matchedMarkers) {
+		return nil
+	}
+
 	urlx, _ := ctx.URL()
 	targetURL := urlx.Scheme + "://" + urlx.Host + probePath
 

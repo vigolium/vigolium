@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.44-beta] - 2026-07-01
+
+A false-positive-hardening release. Path-probe exposure modules no longer confirm on their own last path segment reflected into a content route, several injection detectors no longer self-trigger on an endpoint that merely echoes the rejected payload back, and secret-detect treats copy-paste sample credentials on documentation pages as low-value.
+
+### Fixed
+
+- **Path-probe exposure modules ignore their own reflected slug** — a marker that is just the probe's last path segment (`filament` for `/filament`, `redoc` for `/<dir>/redoc`, `healthchecks-ui` for `/healthchecks-ui`) self-matched when a content/SEO route echoes the requested slug into the page (a `/topic/filament` route rendering "Filament Lenses" in the title/JSON-LD/canonical link). A new slug-reflection control probes a nonexistent sibling carrying a distinctive canary and drops the finding only when the route reflects that canary into a 200 response. Applied to **`laravel-admin-exposure`** (bare `filament`/`Filament` tokens dropped in favor of structural anchors like `filament-panels`, `/filament/assets/`, `fi-sidebar`), **`swagger-exposure`**, and **`aspnet-health-exposure`**.
+- **`struts-ognl-injection` confirms the addHeader variant via a real response header** — the `struts2-ct-ognl` payload sets `X-Struts-Test` via OGNL, but a gateway that rejects the request (415/400) commonly echoes the injected `Content-Type` verbatim into the error body and into other header values (e.g. gRPC's `Grpc-Message`), forging both `X-Struts-Test` and the baked marker with no OGNL ever running. Detection now keys on `X-Struts-Test` being a genuinely parsed **response header**, and confirmation re-injects a fresh random marker and requires it back as a real header each round.
+- **Injection detectors strip the reflected payload before matching** — a new `modkit.StripReflected` removes the injected payload from the response before signature matching, so an endpoint that merely rejects and quotes the input back (a 400 "invalid input: `<payload>`") can't self-trigger. Fixes **`insecure-deserialization`** (PHP's `O:8:"stdClass":0:{}` wire form matched the `O:\d+:"..."` error pattern) and **`xxe-generic`** (the internal-entity probe carried its own success marker as the entity value); **`nosqli-error-based`** now uses the shared helper, and the `struts-ognl-injection` arithmetic variant strips the payload as defense in depth.
+- **`secret-detect` downgrades documentation-page demo credentials** — a secret-shaped string served as rendered page content from a docs/reference/manual/CLI/tutorial route (Supabase's `supabase-demo` anon/service_role JWTs, local-dev `postgresql://postgres:postgres@…` URLs, placeholder connection strings) is almost always an illustrative sample, so it drops to **Low/Tentative**. Gated on both the route and an HTML/RSC (`text/x-component`) content type, so a JWT in a `/docs/_next/static/...` bundle or a live token in a docs-path JSON API still keeps full severity. A validated live secret always outranks this to Critical. Wired into both the passive flush and the known-issue-scan path.
+
+### Internal
+
+- New shared path-decomposition and slug-reflection helpers in `modkit/pathprobe.go`: `splitProbePath`, `PathSegmentReflected`, `SlugReflectionFP`, and a slug-reflection control folded into `MatchAndConfirmSibling` (grouped callers pass only the anchor; flat-marker callers pass every matched marker). `modkit.StripReflected` is the request-body analogue of `StripReflectedProbePath`. `secret-detect` gains `IsDocDemoSecretContext` (plus the `docRouteSegments` set and content-type gate) and threads the response `Content-Type` through its batch entries.
+
 ## [v0.1.43-beta] - 2026-06-30
 
 A scope-isolation fix release. The known-issue-scan phase, dynamic-assessment, and the scan-completion summary now restrict themselves to the exact origins (scheme + host + port) actually being scanned, so records left in a shared project by prior scans of other origins no longer leak into a run's targets or counts.

@@ -990,7 +990,9 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 					// URL bouncing to an SSO login), or are echoed straight back out
 					// of the request URL/bytes (e.g. a Cloudflare Access app id in a
 					// /cdn-cgi/access/verify-code SSO URL) — usually low-value
-					// reflections rather than secrets leaked in page content. JWTs
+					// reflections rather than secrets leaked in page content. A match
+					// served as rendered page content from a docs/reference/manual/CLI
+					// route is a copy-paste demo credential and drops to Low. JWTs
 					// that don't decode into a usable credential (SSO pre-auth "meta"
 					// tokens) drop to Medium/Tentative. reCAPTCHA site keys and OAuth
 					// client IDs (public by design) drop to Info; Google AIza… API
@@ -1000,6 +1002,7 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 						meta.redirect,
 						secret_detect.SnippetInHeaderValues(f.Snippet(), meta.headerValues),
 						secret_detect.SnippetReflectedFromRequest(f.Snippet(), record.URL, string(record.RawRequest)),
+						secret_detect.IsDocDemoSecretContext(record.URL, record.ResponseContentType),
 						secret_detect.LowValueJWT(f.Snippet()),
 						secret_detect.IsReCaptchaSiteKey(f.RuleName()),
 						secret_detect.IsGoogleAPIKey(f.RuleName(), f.Snippet()),

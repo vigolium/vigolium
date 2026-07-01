@@ -208,7 +208,16 @@ func (m *Module) ScanPerRequest(
 // indicator — a specific literal marker or the structural passwd-line marker —
 // that is absent from the unfuzzed baseline (so static page content cannot
 // produce a false positive). It returns the matched text, or "" for no match.
+//
+// The injected XML is stripped (modkit.StripReflected) before matching: the
+// internal-entity probe embeds its OWN success marker ("vigolium-xxe-test-entity")
+// as the entity's literal value, so an endpoint that merely REFLECTS the rejected
+// document in an error page (the very 4xx/5xx surfaces this module targets) would
+// otherwise echo the marker and self-trigger a High finding with no entity ever
+// expanded. A genuine expansion emits the marker where "&xxe;" stood — text that is
+// NOT part of the literal payload — so it survives the strip; a raw reflection does not.
 func checkXXEMarkers(body, origBody string, p xxePayload) string {
+	body = modkit.StripReflected(body, p.payload)
 	for _, marker := range p.markers {
 		if strings.Contains(body, marker) && !strings.Contains(origBody, marker) {
 			return marker

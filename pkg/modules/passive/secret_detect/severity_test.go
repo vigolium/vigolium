@@ -14,6 +14,7 @@ func TestSecretFindingSeverity(t *testing.T) {
 		redirect             bool
 		inHeader             bool
 		reflectedFromRequest bool
+		docDemoContext       bool
 		lowValueJWT          bool
 		recaptchaSiteKey     bool
 		googleAPIKey         bool
@@ -50,6 +51,33 @@ func TestSecretFindingSeverity(t *testing.T) {
 			validated:            true,
 			wantSev:              severity.Critical,
 			wantConf:             severity.Certain,
+		},
+		{
+			name:           "docs-page demo secret downgrades to Low/Tentative",
+			docDemoContext: true,
+			wantSev:        severity.Low,
+			wantConf:       severity.Tentative,
+		},
+		{
+			name:           "validation outranks docs-page demo context (stays Critical)",
+			docDemoContext: true,
+			validated:      true,
+			wantSev:        severity.Critical,
+			wantConf:       severity.Certain,
+		},
+		{
+			name:           "docs-page demo context outranks Google API key (stays Low)",
+			docDemoContext: true,
+			googleAPIKey:   true,
+			wantSev:        severity.Low,
+			wantConf:       severity.Tentative,
+		},
+		{
+			name:           "docs-page demo context outranks low-value JWT (stays Low)",
+			docDemoContext: true,
+			lowValueJWT:    true,
+			wantSev:        severity.Low,
+			wantConf:       severity.Tentative,
 		},
 		{
 			name:        "low-value JWT downgrades to Medium/Tentative",
@@ -128,12 +156,83 @@ func TestSecretFindingSeverity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotSev, gotConf := SecretFindingSeverity(tt.validated, tt.redirect, tt.inHeader, tt.reflectedFromRequest, tt.lowValueJWT, tt.recaptchaSiteKey, tt.googleAPIKey, tt.oauthClientID)
+			gotSev, gotConf := SecretFindingSeverity(tt.validated, tt.redirect, tt.inHeader, tt.reflectedFromRequest, tt.docDemoContext, tt.lowValueJWT, tt.recaptchaSiteKey, tt.googleAPIKey, tt.oauthClientID)
 			if gotSev != tt.wantSev {
 				t.Errorf("severity = %v, want %v", gotSev, tt.wantSev)
 			}
 			if gotConf != tt.wantConf {
 				t.Errorf("confidence = %v, want %v", gotConf, tt.wantConf)
+			}
+		})
+	}
+}
+
+func TestIsDocDemoSecretContext(t *testing.T) {
+	tests := []struct {
+		name        string
+		url         string
+		contentType string
+		want        bool
+	}{
+		{
+			// The real-world case: Supabase demo creds on a CLI docs page, served
+			// as a Next.js RSC (?_rsc=) payload.
+			name:        "docs/reference/cli RSC page is demo context",
+			url:         "https://cloud.example.com/docs/reference/cli/introduction?_rsc=1p-R_iEY6bj0jY31",
+			contentType: "text/x-component",
+			want:        true,
+		},
+		{
+			name:        "docs page served as HTML is demo context",
+			url:         "https://cloud.example.com/docs/guides/getting-started",
+			contentType: "text/html; charset=utf-8",
+			want:        true,
+		},
+		{
+			name:        "manual route HTML is demo context",
+			url:         "https://acme.example.com/manual/config",
+			contentType: "text/html",
+			want:        true,
+		},
+		{
+			// A JWT inside a JS bundle under /docs/_next/... is a real embedded
+			// credential, not page prose — must NOT be downgraded.
+			name:        "JS bundle under a docs path is not demo context",
+			url:         "https://cloud.example.com/docs/_next/static/chunks/3318-b4ad80c3468c46cc.js",
+			contentType: "application/javascript; charset=utf-8",
+			want:        false,
+		},
+		{
+			name:        "docs JSON API response is not demo context",
+			url:         "https://api.example.com/docs/config.json",
+			contentType: "application/json",
+			want:        false,
+		},
+		{
+			name:        "non-docs HTML page is not demo context",
+			url:         "https://example.com/account/settings",
+			contentType: "text/html",
+			want:        false,
+		},
+		{
+			// "client" must not be mistaken for the "cli" segment.
+			name:        "client segment does not match cli",
+			url:         "https://example.com/client/dashboard",
+			contentType: "text/html",
+			want:        false,
+		},
+		{
+			name:        "docs path with empty content type is not demo context",
+			url:         "https://example.com/docs/intro",
+			contentType: "",
+			want:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsDocDemoSecretContext(tt.url, tt.contentType); got != tt.want {
+				t.Errorf("IsDocDemoSecretContext(%q, %q) = %v, want %v", tt.url, tt.contentType, got, tt.want)
 			}
 		})
 	}
@@ -209,12 +308,12 @@ func TestSnippetInHeaderValues(t *testing.T) {
 }
 
 func TestSnippetReflectedFromRequest(t *testing.T) {
-	// The real Cloudflare Access SSO case: the app id sits in the verify-code
-	// URL path and is reflected into the login page body, where a generic
+	// The Cloudflare Access SSO case: the app id sits in the verify-code URL
+	// path and is reflected into the login page body, where a generic
 	// Cloudflare-token rule matches it.
-	const appID = "abc84c1452a446328be5a8141b812b7f-ambarvale"
-	const ssoURL = "https://roche-code.cloudflareaccess.com/cdn-cgi/access/verify-code/" + appID + "-p.pages.roche.com?kid=46de"
-	const ssoRequest = "GET /cdn-cgi/access/verify-code/" + appID + "-p.pages.roche.com HTTP/1.1\r\nHost: roche-code.cloudflareaccess.com\r\n\r\n"
+	const appID = "abc84c1452a446328be5a8141b812b7f-acmeapp"
+	const ssoURL = "https://acme-code.cloudflareaccess.com/cdn-cgi/access/verify-code/" + appID + "-p.pages.example.com?kid=46de"
+	const ssoRequest = "GET /cdn-cgi/access/verify-code/" + appID + "-p.pages.example.com HTTP/1.1\r\nHost: acme-code.cloudflareaccess.com\r\n\r\n"
 
 	tests := []struct {
 		name       string

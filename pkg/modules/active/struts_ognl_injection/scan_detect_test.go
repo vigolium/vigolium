@@ -138,6 +138,65 @@ func TestScanPerRequest_DetectsContentTypeOGNL(t *testing.T) {
 	require.NotEmpty(t, res, "expected an OGNL finding when the Content-Type expression product appears in the body")
 }
 
+// ognlAddHeaderRe extracts the marker from an addHeader('X-Struts-Test','<marker>')
+// OGNL payload so a test backend can emulate genuine evaluation by echoing the
+// marker back as a real response header.
+var ognlAddHeaderRe = regexp.MustCompile(`addHeader\('` + strutsTestHeader + `','([^']+)'\)`)
+
+// TestScanPerRequest_DetectsHeaderAddOGNL drives the Content-Type scan against a
+// server that genuinely evaluates the addHeader() OGNL payload — surfacing the
+// injected marker as a real X-Struts-Test RESPONSE HEADER (never in the body). The
+// module must confirm via the parsed header and via a fresh-marker re-injection.
+func TestScanPerRequest_DetectsHeaderAddOGNL(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ct := r.Header.Get("Content-Type")
+		// Emulate OGNL res.addHeader(): reflect the injected marker as a real header
+		// for whatever value the module (or its fresh-marker confirmation) picks.
+		if parts := ognlAddHeaderRe.FindStringSubmatch(ct); parts != nil {
+			w.Header().Set(strutsTestHeader, parts[1])
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/struts/action.do")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "expected an OGNL finding when the addHeader marker is returned as a real response header")
+}
+
+// TestScanPerRequest_ReflectedContentTypeErrorNotFlagged is the Snapchat
+// camera-kit / gRPC gateway false positive: a 415 "Content-Type '<payload>' is not
+// supported" error echoes the injected Content-Type verbatim into the body AND into
+// a Grpc-Message header value. The reflected text carries both "X-Struts-Test" and
+// the baked marker (1614888671), yet no OGNL ever ran and no genuine X-Struts-Test
+// header exists — so the module must NOT report a finding.
+func TestScanPerRequest_ReflectedContentTypeErrorNotFlagged(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ct := r.Header.Get("Content-Type")
+		// Reflect the whole Content-Type into a header VALUE and the body, exactly as
+		// an API gateway rejecting an unsupported content type does. Never sets a
+		// real X-Struts-Test header key and never evaluates the arithmetic.
+		w.Header().Set("Grpc-Message", "Content-Type '"+ct+"' is not supported")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusUnsupportedMediaType)
+		_, _ = w.Write([]byte("Content-Type '" + ct + "' is not supported"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/snapchat.cdp.cof.CircumstancesService/targetingQuery")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "an error page that reflects the injected Content-Type verbatim must not be flagged as OGNL evaluation")
+}
+
 // TestScanPerRequest_NoFalsePositive ensures a server that ignores the
 // Content-Type header yields no finding.
 func TestScanPerRequest_NoFalsePositive(t *testing.T) {

@@ -421,4 +421,186 @@ func TestMatchAndConfirmSibling(t *testing.T) {
 		assert.False(t, ok, "a sub-directory catch-all that serves the markers for every child must be suppressed")
 		assert.Nil(t, matched)
 	})
+
+	// slug-reflection: the anchor is only the probe's own last path segment echoed
+	// into a content route (/topic/<slug> -> "<slug> …"). A random sibling
+	// reflects a DIFFERENT slug, so the sibling catch-all check can't see it — the
+	// PathSegmentReflected control must. This is the /topic/filament FP: the anchor
+	// "filament" equals the segment, and /topic/<canary> reflects the canary too.
+	t.Run("slug-reflecting content route suppressed", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if slug, ok := strings.CutPrefix(r.URL.Path, "/topic/"); ok && slug != "" {
+				w.WriteHeader(http.StatusOK)
+				// Reflect the requested slug — the anchor word for the real probe,
+				// the canary word for the control probe.
+				_, _ = w.Write([]byte("<h1>Explore " + slug + " Lenses</h1>"))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		// Anchor "filament" is a substring of the /topic/filament segment, so the
+		// reflection control fires; the sibling catch-all check alone would miss it.
+		reflMarkers := [][]string{{"filament"}}
+		body := "<h1>Explore filament Lenses</h1>"
+
+		matched, ok := modkit.MatchAndConfirmSibling(rr, client, "/topic/filament", body, reflMarkers)
+		assert.False(t, ok, "a slug-reflecting content route whose anchor is the reflected path segment must be suppressed")
+		assert.Nil(t, matched)
+	})
+
+	// A real endpoint whose anchor happens to equal its path segment (siblings 404,
+	// no slug reflection) must still confirm — the control probe 404s, so the
+	// reflection guard is a no-op and the finding stands.
+	t.Run("real endpoint with segment-equal anchor confirms", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/graphql" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"graphql":{"__schema":{}}}`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		// Anchor "graphql" is a substring of the /api/graphql segment, so the
+		// control probe runs — but /api/<canary> 404s (not reflected), so confirm.
+		gqlMarkers := [][]string{{"graphql"}, {"__schema"}}
+		body := `{"graphql":{"__schema":{}}}`
+
+		matched, ok := modkit.MatchAndConfirmSibling(rr, client, "/api/graphql", body, gqlMarkers)
+		require.True(t, ok, "a real endpoint whose siblings 404 must confirm even when its anchor equals its path segment")
+		assert.Equal(t, []string{"graphql", "__schema"}, matched)
+	})
+}
+
+// TestPathSegmentReflected exercises the slug-reflection control directly: it
+// returns true only when a sibling carrying a distinctive canary slug is echoed
+// into a 200 body, and is a no-op (false) for root-level paths.
+func TestPathSegmentReflected(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reflecting content route", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if slug, ok := strings.CutPrefix(r.URL.Path, "/topic/"); ok && slug != "" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("<h1>" + slug + " Lenses</h1>"))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		assert.True(t, modkit.PathSegmentReflected(rr, client, "/topic/filament"),
+			"a route echoing an arbitrary slug into a 200 body must be detected as reflecting")
+	})
+
+	t.Run("non-reflecting endpoint (siblings 404)", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/topic/filament" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("<h1>real</h1>"))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		assert.False(t, modkit.PathSegmentReflected(rr, client, "/topic/filament"),
+			"an endpoint whose random siblings 404 is not a reflecting route")
+	})
+
+	t.Run("root-level path is a no-op", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Even a root catch-all that echoes the path must not count: root probes
+			// are covered by the caller's root soft-404 fingerprint.
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("<h1>" + r.URL.Path + "</h1>"))
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		assert.False(t, modkit.PathSegmentReflected(rr, client, "/redoc"),
+			"a root-level probe path must be a no-op (no control probe, never dropped)")
+	})
+}
+
+// TestSlugReflectionFP exercises the flat-marker convenience guard: it drops a
+// finding only when EVERY matched marker is the reflected path segment AND the
+// route echoes an arbitrary canary slug; any structural (non-segment) marker or a
+// non-reflecting route keeps the finding.
+func TestSlugReflectionFP(t *testing.T) {
+	t.Parallel()
+	reflecting := func() *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if slug, ok := strings.CutPrefix(r.URL.Path, "/topic/"); ok && slug != "" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("<h1>Posts about " + slug + "</h1>"))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+	}
+
+	t.Run("all matched markers are the reflected segment -> drop", func(t *testing.T) {
+		t.Parallel()
+		srv := reflecting()
+		defer srv.Close()
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		assert.True(t, modkit.SlugReflectionFP(rr, client, "/topic/healthchecks-ui", []string{"healthchecks-ui"}),
+			"a match resting only on the reflected path slug must be dropped")
+	})
+
+	t.Run("a structural marker also matched -> keep", func(t *testing.T) {
+		t.Parallel()
+		srv := reflecting()
+		defer srv.Close()
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		// "AspNetCore.HealthChecks.UI" is not a substring of the "healthchecks-ui"
+		// segment, so the finding has independent support and no control probe runs.
+		assert.False(t, modkit.SlugReflectionFP(rr, client, "/topic/healthchecks-ui",
+			[]string{"healthchecks-ui", "AspNetCore.HealthChecks.UI"}),
+			"a finding backed by a non-segment structural marker must be kept")
+	})
+
+	t.Run("reflected segment but route does not reflect (siblings 404) -> keep", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/topic/healthchecks-ui" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("real dashboard"))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		assert.False(t, modkit.SlugReflectionFP(rr, client, "/topic/healthchecks-ui", []string{"healthchecks-ui"}),
+			"a real endpoint whose siblings 404 must be kept even when the marker equals the segment")
+	})
+
+	t.Run("empty markers -> keep (no probe)", func(t *testing.T) {
+		t.Parallel()
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, "http://example.invalid/")
+		assert.False(t, modkit.SlugReflectionFP(rr, client, "/topic/x", nil))
+	})
 }

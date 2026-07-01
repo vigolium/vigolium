@@ -73,9 +73,17 @@ var probes = []probe{
 	{
 		path: "/filament",
 		name: "Laravel Filament",
-		// "filament"/"filament-panels" are Filament-unique; "livewire" alone is not
-		// (Livewire ships in many non-Filament Laravel apps), so it is dropped.
-		markers:       [][]string{{"filament-panels", "/filament/assets/", "fi-sidebar", "filament", "Filament"}},
+		// Anchor ONLY on Filament-unique structural strings a real panel renders:
+		// the "filament-panels" Livewire component tag, the "/filament/assets/"
+		// bundled CSS/JS URLs, the "fi-*" body/layout classes. The bare words
+		// "filament"/"Filament" were REMOVED — "filament" is the probe's own last
+		// path segment (/…/filament), and a content site that reflects the requested
+		// slug into the page (a topic route rendering "Filament Lenses", JSON-LD, a
+		// breadcrumb, a canonical <link>) contains that word without any Filament
+		// install. Stripping the full reflected path does not remove the standalone
+		// slug word, and the sibling catch-all guard cannot see it (a random sibling
+		// reflects a DIFFERENT slug), so the bare token self-matched the reflection.
+		markers:       [][]string{{"filament-panels", "/filament/assets/", "fi-sidebar"}},
 		antiMarkers:   []string{"404 Not Found"},
 		sev:           severity.High,
 		desc:          "Laravel Filament admin panel is accessible without authentication",
@@ -85,8 +93,10 @@ var probes = []probe{
 	{
 		path: "/filament/login",
 		name: "Laravel Filament Login",
+		// Same reasoning as /filament: bare "filament"/"Filament" is the reflected
+		// probe slug, not a Filament signal — require a structural anchor.
 		markers: [][]string{
-			{"filament-panels", "/filament/assets/", "fi-sidebar", "filament", "Filament"},
+			{"filament-panels", "/filament/assets/", "fi-sidebar"},
 			{"password", "Password", `name="email"`, "Sign in", "Log in"},
 		},
 		antiMarkers: []string{"404 Not Found"},

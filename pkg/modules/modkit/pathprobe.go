@@ -256,16 +256,7 @@ func SiblingPathCatchAll(
 		return false
 	}
 
-	parent := ""
-	if trimmed := strings.TrimRight(probePath, "/"); trimmed != "" {
-		// Drop any query string so the parent is a real directory.
-		if q := strings.IndexByte(trimmed, '?'); q >= 0 {
-			trimmed = trimmed[:q]
-		}
-		if i := strings.LastIndex(trimmed, "/"); i > 0 {
-			parent = trimmed[:i]
-		}
-	}
+	parent, _ := splitProbePath(probePath)
 	if parent == "" {
 		return false // root-level path: covered by the caller's root soft-404 fingerprint
 	}
@@ -546,17 +537,44 @@ func StripReflectedProbePath(body, probePath string) string {
 	return body
 }
 
+// StripReflected removes occurrences of an injected payload from body so a
+// signature or marker that is itself part of that payload cannot self-match when a
+// validation/error response echoes the rejected input verbatim. It is the
+// request-body analogue of StripReflectedProbePath (which strips a reflected URL
+// path): an endpoint that merely REJECTS a request and quotes it back — a 400
+// "invalid input: <payload>", a gRPC 415 echoing the Content-Type — would otherwise
+// trip any detector whose marker the payload contains. Examples this defends: the
+// PHP unserialize probe O:8:"stdClass":0:{} matching an O:\d+:"..." error pattern,
+// an XXE internal-entity probe carrying its own success marker as the entity value,
+// a NoSQL operator payload echoed back into a would-be error string.
+//
+// A genuine server-side signal (a real deserialization error, an expanded entity,
+// an evaluated expression) emits its OWN text that is not part of the literal
+// payload, so it survives the strip while a bare reflection does not. Returns body
+// unchanged for an empty payload or body. Run it ONLY for the marker/signature
+// match — keep the original body for stored response evidence.
+func StripReflected(body, payload string) string {
+	if payload == "" || body == "" {
+		return body
+	}
+	return strings.ReplaceAll(body, payload, "")
+}
+
 // MatchAndConfirmSibling is the combined marker-match + catch-all guard used by
 // the marker-based path-probing exposure modules. It confirms body satisfies the
 // marker groups (MatchAllGroups), then drops the finding if a guaranteed-
 // nonexistent sibling under the same parent directory returns the same markers
 // (SiblingPathCatchAll) — a catch-all handler that 200s every child path. Root-
 // level probe paths are already covered by the caller's root soft-404
-// fingerprint, so the sibling probe is a no-op for them.
+// fingerprint, so the sibling probe is a no-op for them. Finally, when the
+// framework anchor is merely the probe's own last path segment echoed back, it
+// applies a slug-reflection control (PathSegmentReflected) so a content route
+// that renders the requested slug (/topic/<slug> -> "<slug> …") does not
+// self-confirm on the reflected word.
 //
 // matched carries the evidence substrings for ExtractedResults; ok is false (and
-// matched nil) when the body doesn't satisfy the groups or the sibling reveals a
-// catch-all.
+// matched nil) when the body doesn't satisfy the groups, the sibling reveals a
+// catch-all, or the anchor is only a reflected path slug.
 func MatchAndConfirmSibling(
 	ctx *httpmsg.HttpRequestResponse,
 	client *http.Requester,
@@ -576,5 +594,119 @@ func MatchAndConfirmSibling(
 	}) {
 		return nil, false
 	}
+	// Slug-reflection guard: when the framework anchor (the first group's hit) is
+	// merely the probe's own last path segment echoed back — a content route where
+	// /topic/<slug> renders "<slug> …" in the title/JSON-LD/breadcrumb/canonical
+	// link — the marker proves nothing about the endpoint. The sibling catch-all
+	// check above cannot catch this because a random sibling reflects a DIFFERENT
+	// slug (so it never carries the anchor word). Pass only the anchor
+	// (matched[:1]): the grouped confirmation already required real corroboration
+	// from the later groups, so the anchor is the one hit that must not be a mere
+	// slug echo. This is the /topic/filament FP that matched the reflected word
+	// "Filament", not a Filament panel.
+	if SlugReflectionFP(ctx, client, probePath, matched[:1]) {
+		return nil, false
+	}
 	return matched, true
+}
+
+// splitProbePath splits probePath into its parent directory and final path
+// segment, dropping any query/fragment and trailing slash. "/topic/filament" ->
+// ("/topic", "filament"); "/redoc" -> ("", "redoc"); "/a/b/" -> ("/a", "b").
+// parent is "" for a root-level (single-segment) path, so callers can treat ""
+// as "no same-parent sibling exists". It is the shared path-decomposition used by
+// SiblingPathCatchAll, PathSegmentReflected, and SlugReflectionFP.
+func splitProbePath(probePath string) (parent, segment string) {
+	p := probePath
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		p = p[:i]
+	}
+	p = strings.TrimRight(p, "/")
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		return p[:i], p[i+1:]
+	}
+	return "", p
+}
+
+// PathSegmentReflected reports whether the application is a slug-reflecting content
+// route — one that echoes an arbitrary last path segment under probePath's parent
+// directory back into a 200 response body (the /topic/<slug> -> "<slug> …" SEO
+// pattern). It probes a guaranteed-nonexistent sibling carrying a distinctive
+// canary slug and reports whether the app served 200 AND reflected that exact
+// canary. Requiring a 200 sibling is what separates a real endpoint (whose random
+// siblings 404) from a content route (whose every child slug renders): if the
+// canary sibling 404s or errors, this is NOT a reflecting route and the finding
+// stands.
+//
+// Root-level probe paths (no parent directory) return false: their slug IS the
+// whole path, already covered by the caller's root soft-404 fingerprint, and the
+// sibling of a root path is a random root path (a 404), not a same-parent content
+// route — so a bare /redoc or /h2-console whose anchor equals its segment is never
+// dropped by this guard. Fails open (returns false) on any build/transport error
+// so a flaky control probe never suppresses a real finding.
+func PathSegmentReflected(
+	ctx *httpmsg.HttpRequestResponse,
+	client *http.Requester,
+	probePath string,
+) bool {
+	if ctx == nil || ctx.Request() == nil || client == nil {
+		return false
+	}
+
+	parent, _ := splitProbePath(probePath)
+	if parent == "" {
+		return false // root-level path: covered by the caller's root soft-404 fingerprint
+	}
+
+	canary := FreshCanary()
+	// NoRedirects: a slug that 30x-redirects is not a reflected content body.
+	// NoClustering: the control must be a genuinely distinct fetch, never aliased
+	// to the candidate's cached entry.
+	status, body, ok := fetchGET(ctx, client, parent+"/"+canary, http.Options{NoRedirects: true, NoClustering: true})
+	if !ok || status != 200 {
+		return false
+	}
+	return strings.Contains(body, canary)
+}
+
+// SlugReflectionFP reports whether a flat-marker path-probe match is merely the
+// probe's own last path segment reflected into a content route — the false
+// positive PathSegmentReflected guards. It is the flat-[]string companion to the
+// grouped slug-reflection guard inside MatchAndConfirmSibling, for modules that
+// confirm with a plain "any marker in the list matched" loop (the
+// SiblingServesAnyMarker callers): pass the markers that ACTUALLY matched the body.
+//
+// It fires (returns true → drop the finding) ONLY when EVERY passed marker is a
+// case-insensitive substring of probePath's last segment — so no structural marker
+// (a hyphenated tag, an asset URL, a quoted JSON key) is holding the finding up —
+// AND PathSegmentReflected confirms the route echoes an arbitrary slug. Returning
+// early on the first non-segment marker keeps the network control probe off the
+// common path and preserves any finding backed by real endpoint content. Returns
+// false for empty markers or a segmentless / root-level path.
+//
+// Flat-marker callers pass every marker that matched (pure-OR: a single reflected
+// slug is the whole finding, so all must be segment-explained to drop). The
+// grouped MatchAndConfirmSibling passes only the anchor (matched[:1]): its later
+// groups already supplied real corroboration, so only the anchor hit needs the
+// reflection check.
+func SlugReflectionFP(
+	ctx *httpmsg.HttpRequestResponse,
+	client *http.Requester,
+	probePath string,
+	matchedMarkers []string,
+) bool {
+	if len(matchedMarkers) == 0 {
+		return false
+	}
+	_, segment := splitProbePath(probePath)
+	seg := strings.ToLower(segment)
+	if seg == "" {
+		return false
+	}
+	for _, mk := range matchedMarkers {
+		if mk == "" || !strings.Contains(seg, strings.ToLower(mk)) {
+			return false // a structural / non-reflected marker supports the finding
+		}
+	}
+	return PathSegmentReflected(ctx, client, probePath)
 }

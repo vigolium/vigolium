@@ -152,6 +152,89 @@ func TestScanPerRequest_NoFP_SalesforceLoginShell(t *testing.T) {
 	assert.Empty(t, res, "a Salesforce login shell with no Laravel framework token must not yield a finding")
 }
 
+// topicRoute renders the easylens.snapchat.com content page that caused the
+// Filament false positive: a SEO topic route where /topic/<slug> reflects the
+// slug word into the <h1>, JSON-LD, breadcrumb, and canonical <link>. The word
+// "Filament" therefore appears all over /topic/filament even though no Filament
+// admin panel is installed — none of the structural Filament anchors
+// ("filament-panels", "/filament/assets/", "fi-sidebar") are present.
+func topicRoute(slug string) string {
+	return `<!DOCTYPE html><html><head><title>` + slug + ` Lenses - Easy Lens</title>` +
+		`<link rel="canonical" href="https://easylens.snapchat.com/topic/` + slug + `" />` +
+		`<script type="application/ld+json">{"@type":"CollectionPage","name":"` + slug + ` Lenses - Easy Lens",` +
+		`"url":"https://easylens.snapchat.com/topic/` + slug + `"}</script></head>` +
+		`<body><main><h1>Explore ` + slug + ` Lenses on Snapchat</h1>` +
+		`<nav aria-label="breadcrumb"><a href="/">Home</a> / ` + slug + `</nav></main></body></html>`
+}
+
+// TestScanPerRequest_NoFP_SlugReflectingTopicRoute reproduces the
+// easylens.snapchat.com Filament false positive: the module walked the observed
+// /topic/ context path and probed /topic/filament, which — being a slug-reflecting
+// content route — returned 200 with the word "Filament" echoed throughout. The old
+// bare "filament"/"Filament" markers self-matched that reflected slug. Dropping
+// the bare tokens (only structural Filament anchors remain) must suppress it.
+func TestScanPerRequest_NoFP_SlugReflectingTopicRoute(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The random soft-404 fingerprint path 404s so that guard does NOT fire,
+		// isolating the marker tightening as the suppressing layer.
+		if strings.Contains(r.URL.Path, "vigolium-admin-404-") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("not found"))
+			return
+		}
+		// Every /topic/<slug> renders the slug into the page; anything else 404s.
+		if slug, ok := strings.CutPrefix(r.URL.Path, "/topic/"); ok && slug != "" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(topicRoute(slug)))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("not found"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// Observe a page under /topic/ so CandidateBasePaths walks /topic and the
+	// module probes /topic/filament (the exact FP path).
+	rr := modtest.Request(t, srv.URL+"/topic/anime")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a slug-reflecting topic route must not yield a Filament admin-exposure finding")
+}
+
+// TestScanPerRequest_DetectsFilamentPanel confirms the marker tightening did not
+// kill the true positive: a genuine exposed Filament panel (carrying the
+// structural "filament-panels"/"/filament/assets/"/"fi-sidebar" anchors) must
+// still surface a finding.
+func TestScanPerRequest_DetectsFilamentPanel(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/filament" || r.URL.Path == "/filament/" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<!DOCTYPE html><html><head>` +
+				`<link rel="stylesheet" href="/filament/assets/app.css" /></head>` +
+				`<body class="fi-body"><div class="fi-sidebar"><filament-panels>` +
+				`<div class="fi-main">Dashboard</div></filament-panels></div></body></html>`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("not found"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.NotEmpty(t, res, "a genuine exposed Filament panel must still yield a finding")
+	assert.Contains(t, strings.ToLower(res[0].Info.Name), "filament")
+}
+
 // TestScanPerRequest_NoFP_ReflectedLoginWall reproduces the einvoice.grab.com
 // false positive: a path-routing app serves the SAME login page for every
 // sub-path and reflects the requested path into the <form action>. The old code
