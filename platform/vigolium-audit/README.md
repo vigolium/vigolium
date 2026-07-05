@@ -99,6 +99,22 @@ vigolium-audit verify claude --json | jq .ok
 vigolium-audit run --mode lite --agent claude --json | jq -c 'select(.kind == "phaseEnd")'
 ```
 
+### `bridge` — SDK sidecar for non-TS callers
+
+`vigolium-audit bridge <task>` drives Claude/Codex through the Agent SDK for a
+single job — **triage** a finding, develop an **exploit**, or **plan** an attack
+— and streams a normalized NDJSON event stream back. It is how the Go `vigolium`
+scanner calls into the TypeScript-only Agent SDK. The `vigolium-scanner` skill
+is always loaded so the agent can operate the `vigolium` CLI.
+
+```bash
+vigolium-audit bridge triage --input-file finding.json --cwd ./repo --json
+vigolium-audit bridge serve --cwd ./repo --json      # long-lived NDJSON daemon
+```
+
+See [docs/bridge.md](docs/bridge.md) for the task presets, flags, event
+contract, and a Go caller example.
+
 ## Audit Modes
 
 Vigolium-Audit ships a handful of audit modes — each is a different phase graph

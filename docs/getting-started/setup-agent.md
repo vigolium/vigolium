@@ -29,7 +29,8 @@ The supported providers:
 | `anthropic-api-key` | `$ANTHROPIC_API_KEY` | `claude-opus-4-7` | Direct Anthropic API billing. |
 | `anthropic-oauth` | `claude setup-token` bearer | `claude-opus-4-7` | Uses your Claude Pro/Max plan. |
 | `openai-api-key` | `$OPENAI_API_KEY` | `gpt-5.5` | Direct OpenAI API billing. |
-| `anthropic-cli` | `claude` binary on `$PATH` | `claude-opus-4-7` | Shells out to Claude Code. |
+| `anthropic-cli` | `claude` binary on `$PATH` | `claude-opus-4-7` | Shells out to Claude Code (alias: `anthropic-claude-cli`). |
+| `anthropic-claude-sdk-bridge` | Claude Code subscription (no key) | bridge default | Claude Code via the Agent SDK (`vigolium-audit bridge` sidecar). |
 | `anthropic-vertex` | GCP service-account JSON | `claude-opus-4-6` | Claude on Vertex AI. |
 | `google-vertex` | GCP service-account JSON | `gemini-2.5-pro` | Gemini on Vertex AI. |
 | `openai-compatible` | optional `api_key` | none — pick one | Ollama, OpenRouter, LM Studio, vLLM, … |
@@ -244,6 +245,23 @@ vigolium config set agent.olium.model claude-opus-4-7
 This mode is slower than the API-key/OAuth paths (subprocess overhead) but useful when you want a single source of auth across `claude` and `vigolium`.
 
 > **Note on permissions.** vigolium invokes `claude -p` with `--permission-mode bypassPermissions` so Bash / Read / WebFetch tool calls execute without interactive approval (the wrapper is non-interactive — there's no TTY for you to confirm prompts on). This is equivalent to running `claude --dangerously-skip-permissions` and applies for the duration of the subprocess only.
+
+### 4d. Claude Code via the Agent SDK (`anthropic-claude-sdk-bridge`)
+
+Drives Claude Code through the **Agent SDK** instead of the plain `claude -p` CLI, by shelling out to the `vigolium-audit bridge` sidecar. Like `anthropic-cli` it uses your logged-in Claude Code subscription (no key), but the run is a controlled, reproducible SDK invocation: it always loads the `vigolium-scanner` skill (so the agent knows the `vigolium` CLI) and does **not** pull in your personal `~/.claude` config or a project's `CLAUDE.md`.
+
+```bash
+claude            # be logged in once
+
+vigolium config set agent.olium.provider anthropic-claude-sdk-bridge
+vigolium config set agent.olium.model opus   # optional: opus | sonnet | a full id; omit for the bridge default
+
+vigolium ol -p 'what model are you running'
+```
+
+The `vigolium-audit` binary that hosts the bridge is **embedded** in vigolium — no separate install. Override it with `vigolium config set agent.olium.bridge_binary /path/to/vigolium-audit` or the per-run `--bridge-bin` flag. If you have an API key or OAuth token in `agent.olium.llm_api_key` / `oauth_token`, it's forwarded to the bridge; otherwise the ambient subscription is used.
+
+**When to pick this over `anthropic-cli`:** choose the bridge for a portable, self-contained run that behaves the same on any machine (CI, containers) and comes pre-wired with the vigolium scanner skill. Choose `anthropic-cli` when you want your full personal Claude Code environment — your `CLAUDE.md`, MCP servers, and installed skills — applied to the current project directory.
 
 ---
 

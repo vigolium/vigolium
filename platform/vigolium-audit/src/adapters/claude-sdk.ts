@@ -81,6 +81,7 @@ export class ClaudeSdkAdapter implements Adapter {
       ...(input.pluginDir && {
         plugins: [{ type: "local", path: input.pluginDir }],
       }),
+      ...(input.resume ? { resume: input.resume } : {}),
       ...(input.bypassPermissions && {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,

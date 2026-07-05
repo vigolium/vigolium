@@ -31,31 +31,42 @@ type AgentConfig struct {
 // Provider naming is vendor-first (anthropic-* / openai-* / google-*) so the
 // prefix tells you which credentials to provide:
 //   - openai-codex-oauth — uses oauth_cred_path (a JSON file produced by `codex login`)
-//   - openai-api-key     — uses llm_api_key (or $OPENAI_API_KEY)
+//   - openai-api-key     — uses llm_api_key (or $OPENAI_API_KEY); OpenAI Chat Completions API
+//   - openai-responses   — uses llm_api_key (or $OPENAI_API_KEY); public OpenAI Responses API (/v1/responses)
 //   - anthropic-api-key  — uses llm_api_key (or $ANTHROPIC_API_KEY)
 //   - anthropic-oauth    — uses oauth_token (or $ANTHROPIC_API_KEY); for tokens minted with `claude setup-token`
 //   - anthropic-cli      — shells out to the `claude` binary; no key needed here
+//     (alias: anthropic-claude-cli)
+//   - anthropic-claude-sdk-bridge — drives Claude Code through the Agent SDK via
+//     the `vigolium-audit bridge` sidecar (bridge_binary; empty = embedded blob,
+//     then PATH). No key needed — uses ambient Claude Code subscription auth;
+//     an explicit llm_api_key / oauth_token is forwarded when set.
 //   - anthropic-vertex   — uses oauth_cred_path (GCP service-account JSON, or $GOOGLE_APPLICATION_CREDENTIALS),
 //     plus google_cloud_project + google_cloud_location; routes claude-* models to publishers/anthropic.
 //   - google-vertex      — same GCP creds as anthropic-vertex, but routes gemini-* models to publishers/google.
 //   - openai-compatible  — any OpenAI Chat-Completions-compatible endpoint
 //     (Ollama, OpenRouter, LM Studio, vLLM, Together, Groq, LocalAI, custom
 //     proxies); configured under olium.custom_provider.
+//   - anthropic-compatible — any Anthropic Messages-compatible endpoint
+//     (a self-hosted gateway or Messages-format proxy) at a custom base_url;
+//     configured under olium.custom_provider (base_url / model_id / api_key /
+//     extra_headers).
 //
 // YAML tags intentionally omit `omitempty` so that every field surfaces in
 // `vigolium config ls olium` (including empty strings rendered as "(empty)"),
 // making the available knobs discoverable.
 type OliumConfig struct {
-	Provider            string               `yaml:"provider"`              // openai-codex-oauth | openai-api-key | anthropic-api-key | anthropic-oauth | anthropic-cli | anthropic-vertex | google-vertex | openai-compatible
-	Model               string               `yaml:"model"`                 // empty (default) = provider default; for openai-compatible this falls back to custom_provider.model_id
+	Provider            string               `yaml:"provider"`              // openai-codex-oauth | openai-api-key | openai-responses | anthropic-api-key | anthropic-oauth | anthropic-cli | anthropic-vertex | google-vertex | openai-compatible | anthropic-compatible
+	Model               string               `yaml:"model"`                 // empty (default) = provider default; for openai-compatible / anthropic-compatible this falls back to custom_provider.model_id
 	OAuthCredPath       string               `yaml:"oauth_cred_path"`       // OAuth/SA file path (openai-codex-oauth, anthropic-vertex, google-vertex); default ~/.codex/auth.json. For Vertex providers, falls back to $GOOGLE_APPLICATION_CREDENTIALS.
+	BridgeBinary        string               `yaml:"bridge_binary"`         // path to the `vigolium-audit` binary hosting the SDK bridge (anthropic-claude-sdk-bridge); empty = embedded blob, then PATH
 	OAuthToken          string               `yaml:"oauth_token"`           // OAuth bearer token (anthropic-oauth); produced by `claude setup-token`. Supports ${ENV_VAR} expansion, falls back to $ANTHROPIC_API_KEY when empty
-	LLMAPIKey           string               `yaml:"llm_api_key"`           // API-key providers (anthropic-api-key, openai-api-key); supports ${ENV_VAR} expansion at load time, falls back to provider-specific env (ANTHROPIC_API_KEY / OPENAI_API_KEY)
+	LLMAPIKey           string               `yaml:"llm_api_key"`           // API-key providers (anthropic-api-key, openai-api-key, openai-responses); supports ${ENV_VAR} expansion at load time, falls back to provider-specific env (ANTHROPIC_API_KEY / OPENAI_API_KEY)
 	GoogleCloudProject  string               `yaml:"google_cloud_project"`  // GCP project for Vertex providers; $GOOGLE_CLOUD_PROJECT wins, then YAML, then SA file's project_id
 	GoogleCloudLocation string               `yaml:"google_cloud_location"` // GCP region for Vertex providers; $GOOGLE_CLOUD_LOCATION wins, then YAML, default us-central1
 	ReasoningEffort     string               `yaml:"reasoning_effort"`      // minimal|low|medium|high|xhigh (codex today); default medium
 	SystemPrompt        string               `yaml:"system_prompt"`         // empty = built-in olium prompt
-	CustomProvider      CustomProviderConfig `yaml:"custom_provider"`       // openai-compatible knobs: base_url / model_id / api_key / extra_headers
+	CustomProvider      CustomProviderConfig `yaml:"custom_provider"`       // openai-compatible / anthropic-compatible knobs: base_url / model_id / api_key / extra_headers
 	MaxTokens           int                  `yaml:"max_tokens"`            // default 1000000
 	Temperature         float64              `yaml:"temperature"`           // default 0.0
 	MaxTurns            int                  `yaml:"max_turns"`             // default 32. Applies to short non-autopilot engine uses (swarm phases, source analysis, query). Autopilot ignores this and uses its own pkg/olium/autopilot.DefaultAutopilotMaxTurns (200); override autopilot via --max-commands or the API MaxCommands field.
@@ -82,10 +93,13 @@ func (c *OliumConfig) EffectiveAlwaysOnSkills() []string {
 	return c.AlwaysOnSkills
 }
 
-// CustomProviderConfig configures the `openai-compatible` provider — any
-// backend that speaks the OpenAI Chat Completions wire format. Examples:
-// Ollama (http://localhost:11434/v1), OpenRouter, LM Studio, vLLM, Together,
-// Groq, LocalAI, or a custom proxy.
+// CustomProviderConfig configures the custom-base-url providers. For
+// `openai-compatible` it fronts any OpenAI Chat Completions endpoint — Ollama
+// (http://localhost:11434/v1), OpenRouter, LM Studio, vLLM, Together, Groq,
+// LocalAI, or a custom proxy. For `anthropic-compatible` it fronts any
+// Anthropic Messages (/v1/messages) endpoint — a self-hosted gateway or
+// Messages-format proxy. (ExtraBody / provider_routing apply to
+// openai-compatible only.)
 //
 // BaseURL is the only required field. APIKey is optional (Ollama, LM Studio,
 // and local proxies typically don't need one — when empty, no Authorization

@@ -38,6 +38,7 @@ Control it:
 | `--with-records` | (finding) resolve + embed the linked HTTP records — a self-contained triage bundle |
 | `--full-body` | include complete, decoded bodies (use when you need to write an exploit) |
 | `--raw` | full raw HTTP request/response, human format (not JSON) |
+| `--pick` | (finding) keep only the 1-based position(s) from the result list — `2`, `1,3`, or `2-4`; applied after `--search`/filters + sort |
 
 ## Run a scan and gate on results
 
@@ -68,6 +69,9 @@ vigolium finding --min-severity high --json --compact \
 
 # One finding, fully self-contained (finding + linked request/response).
 vigolium finding --id 42 --json --with-records
+
+# Narrow a search to the Nth match by list position (1-based), e.g. the 2nd.
+vigolium finding --search 'Reverse Proxy' --pick 2 --raw
 
 # Findings from a specific agent run (autopilot/swarm/audit).
 vigolium finding --agentic-scan <agentic_scan_uuid> --json --with-records

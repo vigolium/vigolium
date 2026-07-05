@@ -32,6 +32,15 @@ func UserSkillsDir() string {
 	return filepath.Join(home, ".vigolium", "skills")
 }
 
+// Project-scope skill subdirectories, relative to a project root. Single source
+// of truth for where agent skills live on disk: the loader (read) walks these
+// and `vigolium skills install` (write) targets them, so the two must stay in
+// lockstep — a mismatch silently produces installs the loader never finds.
+var (
+	ClaudeSkillsSubdir = filepath.Join(".claude", "skills")
+	AgentsSkillsSubdir = filepath.Join(".agents", "skills")
+)
+
 // Registry holds skills loaded for a single olium session. First-found-by-name
 // wins across scopes, following the precedence declared at Load time.
 type Registry struct {
@@ -125,8 +134,8 @@ func Load(opts LoadOptions) (*Registry, error) {
 	// Walk: project-scope (.agents/skills/, .claude/skills/) across cwd
 	// and ancestors. Closer to cwd wins on conflict.
 	for _, dir := range ancestorDirs(cwd) {
-		loadDiskDir(reg, filepath.Join(dir, ".agents", "skills"), SourceProjectAgents, opts.Warnings)
-		loadDiskDir(reg, filepath.Join(dir, ".claude", "skills"), SourceProjectClaude, opts.Warnings)
+		loadDiskDir(reg, filepath.Join(dir, AgentsSkillsSubdir), SourceProjectAgents, opts.Warnings)
+		loadDiskDir(reg, filepath.Join(dir, ClaudeSkillsSubdir), SourceProjectClaude, opts.Warnings)
 	}
 
 	// User scope (autopilot/swarm only). Honors VIGOLIUM_SKILLS_DIR.

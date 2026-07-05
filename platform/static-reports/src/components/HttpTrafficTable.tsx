@@ -11,6 +11,7 @@ import { Download, Search, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsR
 import type { HttpRecord } from "../types";
 import { useTheme } from "../utils/theme";
 import { getMethodColors, getStatusColors, getSourceColor } from "../utils/chartTheme";
+import { curlNeedsPathAsIs, curlEncodeTarget } from "../utils/curl";
 import FilterDropdown from "./FilterDropdown";
 import HostSitemap from "./HostSitemap";
 import ColumnChooser, { type ColumnOption } from "./ColumnChooser";
@@ -46,14 +47,19 @@ function TrimNote({ note }: { note?: string | null }) {
   );
 }
 
-// Derive the origin-form request target (path + query) the way Burp shows it on
-// the request line. Prefer parsing the full URL so the query string survives.
+// The origin-form request target for the request line, Burp-style. record.path
+// is the verbatim on-the-wire target (escaped path + query) parsed straight from
+// the request line, so it preserves fuzz/bypass encodings — a crafted
+// "/#/../demo.log" or "/%23/../x" stays intact. Parsing record.url with URL()
+// silently drops the fragment (collapsing "/#/../demo.log" down to "/"), so only
+// fall back to it when path is absent.
 function requestTarget(record: HttpRecord): string {
+  if (record.path) return record.path;
   try {
     const u = new URL(record.url);
     return (u.pathname || "/") + u.search;
   } catch {
-    return record.path || "/";
+    return "/";
   }
 }
 
@@ -117,14 +123,30 @@ function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
+// Rebuild the request URL from scheme + authority + the verbatim wire target so
+// bypass paths survive; used only when --path-as-is is in play, since record.url
+// has already lost the fragment for those. Absolute-form targets pass through.
+function curlTargetUrl(record: HttpRecord, target: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) return curlEncodeTarget(target);
+  const scheme = record.scheme || "https";
+  const isDefaultPort = (scheme === "https" && record.port === 443) || (scheme === "http" && record.port === 80);
+  const authority = `${record.hostname}${record.port && !isDefaultPort ? `:${record.port}` : ""}`;
+  return `${scheme}://${authority}${curlEncodeTarget(target)}`;
+}
+
 // Build a copy-paste curl command for the request. Host/Content-Length are
 // dropped since curl derives them; the method is only emitted when not GET.
+// Bypass/fuzz targets (dot-segments or a literal "#") get --path-as-is and a
+// URL rebuilt from the wire target so curl replays them without normalizing.
 function toCurl(record: HttpRecord): string {
   const parts = ["curl"];
+  const target = requestTarget(record);
+  const pathAsIs = curlNeedsPathAsIs(target);
+  if (pathAsIs) parts.push("--path-as-is");
   if (record.method && record.method.toUpperCase() !== "GET") {
     parts.push(`-X ${record.method.toUpperCase()}`);
   }
-  parts.push(shellQuote(record.url));
+  parts.push(shellQuote(pathAsIs ? curlTargetUrl(record, target) : record.url));
   const headers = record.request_headers || {};
   for (const [k, v] of Object.entries(headers)) {
     const kl = k.toLowerCase();

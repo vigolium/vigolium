@@ -729,7 +729,7 @@ func (f *Factory) CreateMalformedPathProbeTask(schemeHost, path []byte, depth ui
 		pathStr += "/"
 	}
 
-	urlTemplate := string(schemeHost) + pathStr + "FUZZ"
+	urlTemplate := string(schemeHost) + pathStr + fuzzMarker
 	provider := payload.NewStaticProvider(f.config.Filenames.MalformedPathProbePayloads)
 
 	return NewMalformedPathProbeTask(&MalformedPathProbeTaskConfig{
@@ -787,22 +787,9 @@ func extractSchemeHost(urlStr string) string {
 	return urlStr
 }
 
-// extractPathFromURL extracts the path portion from a URL string.
-// Example: "http://example.com/api/v1/" → "/api/v1/"
-// If input is already a path, returns it unchanged.
+// extractPathFromURL extracts the path portion from a URL string, delegating to
+// the canonical payload.ExtractPathFromURL so the escaped-wire-path handling
+// (critical for "/%23/../" bypass templates) lives in exactly one place.
 func extractPathFromURL(urlStr string) string {
-	if urlStr == "" {
-		return "/"
-	}
-	parsed, err := url.Parse(urlStr)
-	if err != nil {
-		return urlStr
-	}
-	if parsed.Scheme != "" && parsed.Host != "" {
-		if parsed.Path == "" {
-			return "/"
-		}
-		return parsed.Path
-	}
-	return urlStr
+	return payload.ExtractPathFromURL(urlStr)
 }

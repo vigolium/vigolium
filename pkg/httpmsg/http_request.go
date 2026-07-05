@@ -373,6 +373,18 @@ func (r *HttpRequest) Clone() *HttpRequest {
 
 // ============== Factory Functions ==============
 
+// escapedRequestTarget returns the origin-form request target (escaped path plus
+// query) for urlx. Unlike urlutil's GetRelativePath — which emits the DECODED
+// url.Path and would turn a crafted "/%23/../x" into "/#/../x" or "/foo%2ebar"
+// into "/foo.bar", silently breaking path-normalization bypasses — this preserves
+// the on-the-wire percent-encoding. The fragment is intentionally omitted: it is
+// not part of an HTTP request target. Empty paths normalize to "/".
+func escapedRequestTarget(urlx *urlutil.URL) string {
+	// Sync RawQuery from the parsed ordered params so RequestURI reflects them.
+	urlx.Update()
+	return urlx.RequestURI()
+}
+
 // HttpRequestFromURL creates a basic GET request from a URL string.
 // Uses DefaultBrowserHeaders to mimic a real Chrome browser.
 func HttpRequestFromURL(urlStr string) (*HttpRequest, error) {
@@ -384,7 +396,7 @@ func HttpRequestFromURL(urlStr string) (*HttpRequest, error) {
 	// Build raw request
 	var buf bytes.Buffer
 	buf.WriteString("GET ")
-	buf.WriteString(urlx.GetRelativePath())
+	buf.WriteString(escapedRequestTarget(urlx))
 	buf.WriteString(" HTTP/1.1\r\n")
 	buf.WriteString("Host: ")
 	buf.WriteString(urlx.Host)

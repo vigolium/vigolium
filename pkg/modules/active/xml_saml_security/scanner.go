@@ -70,13 +70,6 @@ func (m *Module) ScanPerInsertionPoint(
 		return nil, nil
 	}
 
-	// Confirmation requires an out-of-band channel — without it there is no sound
-	// signal, so do nothing rather than fall back to a heuristic.
-	oast := scanCtx.OASTProv()
-	if oast == nil || !oast.Enabled() {
-		return nil, nil
-	}
-
 	urlx, err := ctx.URL()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get URL")
@@ -104,7 +97,20 @@ func (m *Module) ScanPerInsertionPoint(
 		return nil, nil
 	}
 
-	// Don't inject into a document that already carries a DOCTYPE.
+	// Signature-stripping leg (synchronous, no OAST needed): report when the SP
+	// accepts an unsigned-but-valid assertion while rejecting a wrong-identity one.
+	if res := m.scanSignatureBypass(ctx, ip, httpClient, decoded); res != nil {
+		return []*output.ResultEvent{res}, nil
+	}
+
+	// Remaining checks are out-of-band XXE probes — without an OAST channel there
+	// is no sound signal, so stop here rather than fall back to a heuristic.
+	oast := scanCtx.OASTProv()
+	if oast == nil || !oast.Enabled() {
+		return nil, nil
+	}
+
+	// Don't inject external entities into a document that already carries a DOCTYPE.
 	if doc.HasDoctype {
 		zap.L().Debug("XMLSAMLSecurity: document already has DOCTYPE, skipping", zap.String("param", ip.Name()))
 		return nil, nil

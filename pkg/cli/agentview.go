@@ -50,8 +50,8 @@ var (
 // to a command's local flag set.
 func registerAgentJSONFlags(flags *pflag.FlagSet) {
 	flags.StringSliceVar(&jsonFields, "fields", nil, "Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url)")
-	flags.BoolVar(&jsonCompact, "compact", false, "Compact output: with --json, metadata only (omit bodies); with --stateless --markdown, window the response around matched_at/extracted_results")
-	flags.BoolVar(&jsonFullBody, "full-body", false, "Include complete request/response bodies in --json (no truncation or binary stubbing)")
+	flags.BoolVar(&jsonCompact, "compact", false, "With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole")
+	flags.BoolVar(&jsonFullBody, "full-body", false, "Render complete request/response bodies (no truncation/stubbing) with --json, and whole (uncompacted) bodies with --markdown")
 }
 
 // agentViewOptions controls how compactRecordView / compactFindingView render.

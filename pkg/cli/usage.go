@@ -98,28 +98,37 @@ type flagGroup struct {
 	Flags []string // flag names (long form, no --)
 }
 
+// globalFlagGroups categorizes the root command's persistent flags. It is
+// rendered as the "Global Flags:" block inherited by every subcommand (and only
+// ever receives those persistent flags — the scan-local names of the past no
+// longer appear here). Every persistent flag registered in root.go should live
+// in exactly one group so no persistent flag falls into an "Other:" section.
 var globalFlagGroups = []flagGroup{
-	{"Target", []string{"target", "target-file"}},
-	{"Ingest Input", []string{"input", "input-mode", "input-read-timeout", "disable-fetch-response"}},
-	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
-	{"Module Selection", []string{"modules", "list-modules", "list-input-mode"}},
-	{"Scanning", []string{"scan-on-receive", "scan-uuid", "scanning-profile", "strategy", "only", "skip", "scope-origin", "source", "scanning-max-duration"}},
-	{"Network", []string{"proxy", "timeout"}},
-	{"Speed Control", []string{"concurrency", "rate-limit", "max-per-host", "max-host-error", "max-findings-per-module"}},
-	{"Output", []string{"verbose", "silent", "debug", "json", "format", "width"}},
-	{"Configuration", []string{"config", "db", "force"}},
+	{"Output", []string{"verbose", "silent", "debug", "dump-traffic", "log-file", "json", "format", "ci-output-format", "no-color", "width"}},
+	{"Network", []string{"proxy"}},
+	{"Extensions", []string{"ext", "ext-dir"}},
+	{"Project", []string{"project-uuid", "project-name"}},
+	{"Info", []string{"list-modules", "list-input-mode", "full-example"}},
+	{"Configuration", []string{"config", "db", "force", "scan-uuid", "mem-limit", "skip-dependency-check", "soft-fail"}},
 }
 
-// renderGroupedFlags renders flags organized by section with styled sub-headings.
-// The outerHeading is printed first (e.g. "Global Flags:" or "Flags:").
-func renderGroupedFlags(fs *pflag.FlagSet, outerHeading string, groups []flagGroup) string {
-	// Build a set of all flag names that belong to a group
+// groupedFlagSet flattens a group table into the set of flag names it covers.
+// Shared by renderGroupedFlags (to decide what falls into "Other:") and the
+// help-coverage tests, so both agree on what "grouped" means.
+func groupedFlagSet(groups []flagGroup) map[string]bool {
 	grouped := make(map[string]bool)
 	for _, g := range groups {
 		for _, name := range g.Flags {
 			grouped[name] = true
 		}
 	}
+	return grouped
+}
+
+// renderGroupedFlags renders flags organized by section with styled sub-headings.
+// The outerHeading is printed first (e.g. "Global Flags:" or "Flags:").
+func renderGroupedFlags(fs *pflag.FlagSet, outerHeading string, groups []flagGroup) string {
+	grouped := groupedFlagSet(groups)
 
 	var sections []string
 	sections = append(sections, terminal.BoldYellow(outerHeading))
@@ -154,19 +163,67 @@ func renderGroupedFlags(fs *pflag.FlagSet, outerHeading string, groups []flagGro
 	return strings.Join(sections, "\n")
 }
 
-// groupedFlagUsages renders inherited (global) flags grouped by section.
+// terseGlobalFlagHints are the handful of global flags surfaced inline in the
+// piped/agent one-liner. The rest stay reachable via `vigolium --help`.
+var terseGlobalFlagHints = []string{"verbose", "json", "proxy", "format", "config", "db", "force"}
+
+// groupedFlagUsages renders inherited (global) flags for a subcommand's help.
+// On an interactive TTY it prints the full grouped block, unchanged. When stdout
+// is piped or redirected (coding agents, CI, `cmd | less`) it collapses to a
+// single-line pointer so the identical block isn't repeated on every
+// subcommand's help. The full list always remains reachable via `vigolium
+// --help`, where the persistent flags render as the root's own local flags via
+// localFlagUsages (root has no inherited flags, so this path never runs for it).
 func groupedFlagUsages(fs *pflag.FlagSet) string {
+	if !terminal.IsTerminal() {
+		return terseGlobalFlags(fs)
+	}
 	return renderGroupedFlags(fs, "Global Flags:", globalFlagGroups)
 }
 
+// terseGlobalFlags renders the compact, one-line replacement for the full global
+// flags block: the heading, a few high-traffic flags, and a pointer to the full
+// list. Only hint flags actually inherited by this command are shown. Every hint
+// is a root persistent flag, so a real subcommand always yields at least one.
+func terseGlobalFlags(fs *pflag.FlagSet) string {
+	var hints []string
+	for _, name := range terseGlobalFlagHints {
+		f := fs.Lookup(name)
+		if f == nil {
+			continue
+		}
+		if f.Shorthand != "" {
+			hints = append(hints, "-"+f.Shorthand+"/--"+f.Name)
+		} else {
+			hints = append(hints, "--"+f.Name)
+		}
+	}
+	return terminal.BoldYellow("Global Flags:") + " " +
+		strings.Join(hints, "  ") + "  " +
+		terminal.Gray("(+more — run 'vigolium --help')")
+}
+
+// scanFlagGroups categorizes the local flags of the native-scan commands (scan,
+// run, scan-url, scan-request — all detected via their shared `spider` flag).
+// It is the union of every local flag those commands register; flags absent on a
+// given command are silently skipped by renderGroupedFlags, so one table serves
+// all four. Every non-hidden local flag should live in exactly one group here so
+// the "Other:" section only ever holds cobra's auto-added --help.
 var scanFlagGroups = []flagGroup{
-	{"Spidering", []string{"spider", "spider-max-time", "browser-engine", "browsers", "headless", "no-cdp", "no-forms"}},
-	{"Discovery", []string{"discover", "discover-max-time"}},
-	{"Harvest", []string{"external-harvest"}},
-	{"KnownIssueScan", []string{"known-issue-scan-tags", "known-issue-scan-exclude-tags", "known-issue-scan-severities", "known-issue-scan-templates-dir"}},
+	{"Target & Input", []string{"target", "target-file", "input", "input-mode", "input-read-timeout"}},
 	{"Input Format", []string{"required-only", "skip-format-validation"}},
-	{"Request", []string{"header", "advanced-options", "retries", "stream"}},
-	{"Output", []string{"output", "stats", "include-response", "omit-response", "stateless"}},
+	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
+	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter"}},
+	{"Scanning", []string{"only", "skip", "strategy", "scanning-profile", "intensity", "scope-origin", "scanning-max-duration", "heuristics-check", "skip-heuristics", "oast-url"}},
+	{"Discovery", []string{"discover", "discover-max-time", "fuzz-wordlist", "no-prefix-breaker", "follow-subdomains", "port-sweep-ports"}},
+	{"Spidering", []string{"spider", "spider-max-time", "browser-engine", "browsers", "headless", "headed", "no-cdp", "no-forms", "no-carry-browser-session"}},
+	{"Harvest", []string{"external-harvest"}},
+	{"KnownIssueScan", []string{"known-issue-scan", "known-issue-scan-tags", "known-issue-scan-exclude-tags", "known-issue-scan-severities", "known-issue-scan-templates-dir"}},
+	{"Request", []string{"method", "body", "header", "advanced-options", "retries", "stream"}},
+	{"Authentication", []string{"auth", "auth-file"}},
+	{"Speed Control", []string{"timeout", "concurrency", "rate-limit", "max-per-host", "max-host-error", "max-findings-per-module", "no-clustering"}},
+	{"Output", []string{"output", "stats", "fail-on", "include-response", "omit-response", "report-url", "upload-results", "print-finding", "print-traffic", "print-traffic-tree"}},
+	{"Stateless & Parallel", []string{"stateless", "split-by-host", "db-isolate", "parallel", "resume"}},
 }
 
 // localFlagUsages renders local flags. For the root command (which contains

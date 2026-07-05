@@ -69,6 +69,33 @@ func HashFormStructure(actionURL, method string, sortedInputNames []string) stri
 	return NormalizeURL(actionURL) + "|" + method + "|" + inputHash
 }
 
+// isBypassPath reports whether an ESCAPED URL path carries a path-normalization
+// bypass — a percent-ENCODED dot / slash / backslash / hash / semicolon
+// deliberately crafted so the request resolves differently on the wire than after
+// canonicalization (e.g. "/%23/../x", "/%2e%2e/x", "/..%2fx"). Such a request is
+// distinct from its cleaned target for dedup purposes and must be keyed verbatim,
+// never path.Clean-collapsed.
+//
+// Only percent-encoded markers count: a no normal client emits "%23"/"%2e"/"%2f",
+// so their presence signals a deliberate bypass. Plain "..", "//" and ";" are
+// ordinary relative-path / matrix syntax that clients and servers canonicalize, so
+// they stay on the normal cleaning path (preserving existing dedup of e.g.
+// "/api/../v1" == "/v1"). The input must be the escaped path so "%23" is visible.
+func isBypassPath(escPath string) bool {
+	// Fast path: every marker below is percent-encoded, so a path with no '%'
+	// (the overwhelming majority) can never be a bypass — skip the ToLower
+	// allocation and the substring scans. This runs once per deduped request.
+	if strings.IndexByte(escPath, '%') < 0 {
+		return false
+	}
+	lower := strings.ToLower(escPath)
+	return strings.Contains(lower, "%2e") || // .
+		strings.Contains(lower, "%2f") || // /
+		strings.Contains(lower, "%5c") || // \
+		strings.Contains(lower, "%23") || // #
+		strings.Contains(lower, "%3b") // ;
+}
+
 // normalizePath normalizes a URL path.
 // - Collapse multiple slashes: //api → /api
 // - Resolve . and .. segments
@@ -171,8 +198,19 @@ func NormalizeURL(rawURL string) string {
 		}
 	}
 
-	// Normalize path: clean + collapse repeating segments
-	u.Path = collapseRepeatingSegments(normalizePath(u.Path))
+	// Normalize path: clean + collapse repeating segments.
+	//
+	// EXCEPTION: a percent-encoded path-normalization bypass ("/%23/../x",
+	// "/%2e%2e/x", "/..%2fx") is a DISTINCT request from its resolved target — the
+	// origin may route or gate them differently, which is the entire point of
+	// sending it. It must neither collapse to root (a decoded "#" is a fragment
+	// delimiter) nor dedupe against the clean target ("/%23/../x" vs "/x"), so its
+	// wire path — already carried by u.Path/u.RawPath as parsed — is left untouched.
+	// Plain "..", "//" and ";" are ordinary syntax that still normalizes (see
+	// isBypassPath).
+	if !isBypassPath(u.EscapedPath()) {
+		u.Path = collapseRepeatingSegments(normalizePath(u.Path))
+	}
 
 	// For static files, strip query params entirely (version hashes, cache busters)
 	// For other URLs, include sorted key=value pairs

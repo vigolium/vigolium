@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +23,7 @@ var (
 	findingPath          string
 	findingFrom          string
 	findingTo            string
-	findingSearch        string
+	findingSearch        []string
 	findingHeader        string
 	findingBody          string
 	findingSource        string
@@ -41,10 +43,12 @@ var (
 	// Display-only flags
 	findingRaw         bool
 	findingBurp        bool
+	findingTree        bool
 	findingMarkdown    bool
 	findingWithRecords bool
 	findingColumns     []string
 	findingExclude     []string
+	findingPick        string
 )
 
 // findingColumnDef defines a displayable column for the findings table.
@@ -94,7 +98,7 @@ var findingCmd = &cobra.Command{
 	Use:     "finding [search-term]",
 	Aliases: []string{"findings"},
 	Short:   "Browse vulnerability findings with fuzzy search and filtering",
-	Long:    "Browse stored vulnerability findings with fuzzy search, raw display, and column selection.",
+	Long:    "Browse stored vulnerability findings with fuzzy search, raw display, tree view, and column selection.",
 	Args:    cobra.MaximumNArgs(1),
 	RunE:    runFinding,
 }
@@ -111,7 +115,7 @@ func init() {
 	pf.StringVar(&findingPath, "path", "", "Filter by URL path pattern")
 	pf.StringVar(&findingFrom, "from", "", "Show findings after this date (YYYY-MM-DD or RFC3339)")
 	pf.StringVar(&findingTo, "to", "", "Show findings before this date (YYYY-MM-DD or RFC3339)")
-	pf.StringVar(&findingSearch, "search", "", "Search across descriptions, module IDs, and matched_at")
+	pf.StringArrayVar(&findingSearch, "search", nil, "Search across module name, short description, description, module ID, and matched_at (repeatable; each term further narrows, AND-combined)")
 	pf.StringVar(&findingHeader, "header", "", "Search within HTTP header names and values")
 	pf.StringVar(&findingBody, "body", "", "Search within HTTP request/response body content")
 	pf.StringVar(&findingSource, "source", "", "Filter by record source (e.g. scanner, ingest-cli)")
@@ -134,12 +138,14 @@ func init() {
 	f := findingCmd.Flags()
 	f.BoolVar(&findingRaw, "raw", false, "Show full raw HTTP request and response for each finding")
 	f.BoolVar(&findingBurp, "burp", false, "Display in Burp Suite-style format (colored request/response)")
-	f.BoolVar(&findingMarkdown, "markdown", false, "Render the matched findings as Markdown (evidence + request/response in fenced http blocks) to stdout")
+	f.BoolVar(&findingTree, "tree", false, "Display as a host/path hierarchy tree; repeated titles collapse into one node with each affected URL listed below")
+	f.BoolVar(&findingMarkdown, "markdown", false, "Render the matched findings as Markdown (evidence + request/response in fenced http blocks) to stdout; response bodies are compacted to a preview by default (use --full-body for whole bodies)")
 	f.BoolVarP(&globalStateless, "stateless", "S", false, "Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB")
 	f.StringVar(&globalGlobDB, "glob-db", "", "Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S")
 	f.BoolVar(&findingWithRecords, "with-records", false, "With --json: resolve and embed the linked HTTP records (self-contained triage bundle)")
 	f.StringSliceVar(&findingColumns, "columns", nil, "Columns to show (comma-separated, e.g. ID,SEVERITY,MODULE)")
 	f.StringSliceVar(&findingExclude, "exclude-columns", nil, "Columns to hide (comma-separated)")
+	f.StringVar(&findingPick, "pick", "", "Select finding(s) by 1-based position in the result list (e.g. 2, 1,3, 2-4); applied after --search/filters and sort")
 	registerAgentJSONFlags(f)
 	tui.AddFlags(findingCmd, &findingTUIFlag, &findingNoTUIFlag)
 }
@@ -153,8 +159,17 @@ func runFinding(cmd *cobra.Command, args []string) error {
 	}
 
 	var fuzzyTerm string
+	// Argument routing mirrors traffic: "tree" activates tree mode, "ls"/"list"
+	// are no-ops (default table view), anything else is a fuzzy search term.
 	if len(args) == 1 {
-		fuzzyTerm = args[0]
+		switch strings.ToLower(args[0]) {
+		case "tree":
+			findingTree = true
+		case "ls", "list":
+			// no-op — default table view
+		default:
+			fuzzyTerm = args[0]
+		}
 	}
 
 	return runWithWatch(func() error {
@@ -176,6 +191,22 @@ func runFinding(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to query findings: %w", err)
 		}
 
+		// --pick narrows the fetched page to specific 1-based positions (after
+		// filters + sort). Applied here — before any display path — so it composes
+		// with --raw/--burp/--markdown/--json/--tui alike. The picked findings
+		// become the result set: total and offset are normalized together so the
+		// "Showing X of Y" summary and JSON stay internally consistent (otherwise
+		// a leftover non-zero --offset would desync into e.g. "Showing 11-1 of 1").
+		if findingPick != "" {
+			picked, perr := selectFindingsByPosition(findings, findingPick)
+			if perr != nil {
+				return perr
+			}
+			findings = picked
+			total = int64(len(findings))
+			findingOffset = 0
+		}
+
 		if active, tuiErr := tui.Active(findingTUIFlag, findingNoTUIFlag, globalJSON); tuiErr != nil {
 			return tuiErr
 		} else if active {
@@ -194,9 +225,139 @@ func runFinding(cmd *cobra.Command, args []string) error {
 			return displayFindingsBurp(db, ctx, findings)
 		} else if findingRaw {
 			return displayFindingsRaw(db, ctx, findings)
+		} else if findingTree {
+			return displayFindingTree(db, ctx, findings, total)
 		}
 		return findingDisplayTable(db, ctx, findings, total)
 	})
+}
+
+// selectFindingsByPosition narrows findings to the 1-based positions named by
+// spec — a comma list of single indices and A-B ranges (e.g. "2", "1,3",
+// "2-4"). Positions index into the already-filtered, already-sorted result
+// list; input order is preserved as written and duplicates are collapsed.
+// Out-of-range positions are warned about on stderr and skipped; a spec that
+// selects nothing from a non-empty list is an error naming the valid range.
+func selectFindingsByPosition(findings []*database.Finding, spec string) ([]*database.Finding, error) {
+	n := len(findings)
+	if n == 0 {
+		return findings, nil
+	}
+
+	positions, err := parsePositionSpec(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	// Both collections hold at most one entry per distinct in-range position, so
+	// they can never exceed n — size to that, not to len(positions), which the
+	// spec can inflate well past the page size.
+	sizeHint := min(len(positions), n)
+	seen := make(map[int]bool, sizeHint)
+	picked := make([]*database.Finding, 0, sizeHint)
+	var outOfRange []int
+	for _, p := range positions {
+		if p < 1 || p > n {
+			outOfRange = append(outOfRange, p)
+			continue
+		}
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		picked = append(picked, findings[p-1])
+	}
+
+	if len(outOfRange) > 0 {
+		fmt.Fprintf(os.Stderr, "%s --pick: position(s) %s out of range (valid: 1-%d)\n",
+			terminal.WarningSymbol(), summarizeInts(outOfRange, 10), n)
+	}
+	if len(picked) == 0 {
+		return nil, fmt.Errorf("--pick %q selected no findings (valid range: 1-%d)", spec, n)
+	}
+	return picked, nil
+}
+
+// maxPickPositions caps how many positions a --pick spec may expand to. A
+// selection can never usefully exceed the result page (bounded by --limit), so
+// this rejects a fat-fingered range like "1-1000000" up front instead of
+// eagerly allocating millions of throwaway ints.
+const maxPickPositions = 10000
+
+// parsePositionSpec parses a comma list of 1-based positions and A-B ranges
+// (e.g. "2", "1,3", "2-4") into a flat, ordered slice. It validates syntax and
+// 1-based positivity but not against any result-set length, and bounds the
+// total expansion at maxPickPositions.
+func parsePositionSpec(spec string) ([]int, error) {
+	// parsePos parses one 1-based index; the caller wraps the error with the
+	// offending token so the single-index and range paths share one validation.
+	parsePos := func(s string) (int, error) {
+		v, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil {
+			return 0, err
+		}
+		if v < 1 {
+			return 0, fmt.Errorf("positions are 1-based")
+		}
+		return v, nil
+	}
+
+	var positions []int
+	for _, tok := range strings.Split(spec, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		if lo, hi, isRange := strings.Cut(tok, "-"); isRange {
+			a, err := parsePos(lo)
+			if err != nil {
+				return nil, fmt.Errorf("invalid --pick range %q: %v", tok, err)
+			}
+			b, err := parsePos(hi)
+			if err != nil {
+				return nil, fmt.Errorf("invalid --pick range %q: %v", tok, err)
+			}
+			if a > b {
+				return nil, fmt.Errorf("invalid --pick range %q: start must be <= end", tok)
+			}
+			if b-a+1 > maxPickPositions {
+				return nil, fmt.Errorf("invalid --pick range %q: spans more than %d positions", tok, maxPickPositions)
+			}
+			for i := a; i <= b; i++ {
+				positions = append(positions, i)
+			}
+		} else {
+			v, err := parsePos(tok)
+			if err != nil {
+				return nil, fmt.Errorf("invalid --pick position %q: %v", tok, err)
+			}
+			positions = append(positions, v)
+		}
+		if len(positions) > maxPickPositions {
+			return nil, fmt.Errorf("--pick: too many positions (max %d)", maxPickPositions)
+		}
+	}
+	if len(positions) == 0 {
+		return nil, fmt.Errorf("--pick: no positions given")
+	}
+	return positions, nil
+}
+
+// summarizeInts renders nums as a comma-separated string, truncating to the
+// first max entries with a "(+N more)" suffix so an oversized spec can't dump a
+// huge warning line.
+func summarizeInts(nums []int, max int) string {
+	shown := nums
+	suffix := ""
+	if len(nums) > max {
+		shown = nums[:max]
+		suffix = fmt.Sprintf(" (+%d more)", len(nums)-max)
+	}
+	parts := make([]string, len(shown))
+	for i, v := range shown {
+		parts[i] = strconv.Itoa(v)
+	}
+	return strings.Join(parts, ", ") + suffix
 }
 
 func buildFindingFilters(fuzzyTerm string) (database.QueryFilters, error) {
@@ -256,7 +417,7 @@ func buildFindingFilters(fuzzyTerm string) (database.QueryFilters, error) {
 		DateFrom:      dateFrom,
 		DateTo:        dateTo,
 		FuzzyTerm:     fuzzyTerm,
-		SearchTerm:    findingSearch,
+		SearchTerms:   findingSearch,
 		HeaderSearch:  findingHeader,
 		BodySearch:    findingBody,
 		Limit:         findingLimit,
@@ -398,7 +559,10 @@ func recordsForFinding(byUUID map[string]*database.HTTPRecord, f *database.Findi
 	return records
 }
 
-func findingDisplayTable(db *database.DB, ctx context.Context, findings []*database.Finding, total int64) error {
+// printFindingsSummary prints the "Showing X-Y of Z findings" line plus the
+// project-wide severity and confidence breakdown. Shared by the default table
+// view and the tree view so both surface the same totals.
+func printFindingsSummary(db *database.DB, ctx context.Context, shown int, total int64) {
 	// Stateless counts across the whole file (effectiveProjectUUID returns "").
 	projectUUID, _ := effectiveProjectUUID()
 
@@ -429,7 +593,7 @@ func findingDisplayTable(db *database.DB, ctx context.Context, findings []*datab
 	fmt.Printf("%s Showing %d-%d of %d findings\n",
 		terminal.InfoSymbol(),
 		findingOffset+1,
-		min(findingOffset+len(findings), int(total)),
+		min(findingOffset+shown, int(total)),
 		total)
 	if sevLine != "" {
 		fmt.Printf("  %s Severity:  %s\n", terminal.Cyan(terminal.SymbolSparkle), sevLine)
@@ -438,6 +602,10 @@ func findingDisplayTable(db *database.DB, ctx context.Context, findings []*datab
 		fmt.Printf("  %s Confidence:%s\n", terminal.Cyan(terminal.SymbolSparkle2), confLine)
 	}
 	fmt.Println()
+}
+
+func findingDisplayTable(db *database.DB, ctx context.Context, findings []*database.Finding, total int64) error {
+	printFindingsSummary(db, ctx, len(findings), total)
 
 	cols := resolveFindingColumns(findingColumns, findingExclude)
 	if len(cols) == 0 {

@@ -50,10 +50,11 @@ type QueryFilters struct {
 	DateTo   *time.Time
 
 	// Full-text search
-	SearchTerm   string // Search across URLs, paths
-	FuzzyTerm    string // Broad fuzzy search across multiple fields
-	HeaderSearch string // Search in headers
-	BodySearch   string // Search in request/response body
+	SearchTerm   string   // Search across URLs, paths
+	SearchTerms  []string // Findings: repeatable search terms, AND-combined (each further narrows the match)
+	FuzzyTerm    string   // Broad fuzzy search across multiple fields
+	HeaderSearch string   // Search in headers
+	BodySearch   string   // Search in request/response body
 
 	// Pagination
 	Limit  int
@@ -62,6 +63,23 @@ type QueryFilters struct {
 	// Sorting
 	SortBy  string // Field to sort by
 	SortAsc bool   // Sort ascending (default: descending)
+}
+
+// EffectiveSearchTerms returns the search terms to AND-combine: the repeatable
+// SearchTerms when set, otherwise the single SearchTerm. Blank terms are
+// dropped, so callers can loop the result directly.
+func (f QueryFilters) EffectiveSearchTerms() []string {
+	terms := f.SearchTerms
+	if len(terms) == 0 && f.SearchTerm != "" {
+		terms = []string{f.SearchTerm}
+	}
+	var out []string
+	for _, t := range terms {
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // QueryBuilder builds filtered database queries
@@ -239,9 +257,11 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 		}
 	}
 
-	if qb.filters.SearchTerm != "" {
-		searchPattern := "%" + qb.filters.SearchTerm + "%"
-		query.Where("r.url LIKE ? OR r.path LIKE ?", searchPattern, searchPattern)
+	// Search across URL and path. Multiple terms are AND-combined: every term
+	// must match, so repeating --search progressively narrows the results.
+	for _, term := range qb.filters.EffectiveSearchTerms() {
+		searchPattern := "%" + term + "%"
+		query.Where("(r.url LIKE ? OR r.path LIKE ?)", searchPattern, searchPattern)
 	}
 
 	// Header and body searches scan raw_request/raw_response — these contain
@@ -672,10 +692,14 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 		}
 	}
 
-	// Search across description, module_id, matched_at
-	if fqb.filters.SearchTerm != "" {
-		p := "%" + fqb.filters.SearchTerm + "%"
-		query.Where("(f.description LIKE ? OR f.module_id LIKE ? OR f.matched_at LIKE ?)", p, p, p)
+	// Search across module name/short, description, module_id, matched_at.
+	// Multiple terms are AND-combined: every term must match somewhere, so
+	// repeating --search progressively narrows to the exact finding.
+	for _, term := range fqb.filters.EffectiveSearchTerms() {
+		p := "%" + term + "%"
+		query.Where(
+			"(f.module_name LIKE ? OR f.module_short LIKE ? OR f.description LIKE ? OR f.module_id LIKE ? OR f.matched_at LIKE ?)",
+			p, p, p, p, p)
 	}
 
 	// Fuzzy search across finding fields and associated HTTP records
@@ -771,6 +795,13 @@ func (fqb *FindingsQueryBuilder) applyFindingSorting(query *bun.SelectQuery) {
 		order = "ASC"
 	}
 	query.Order(fmt.Sprintf("%s %s", sortColumn, order))
+	// Secondary key on the unique id makes the row order total (and therefore
+	// list positions reproducible across runs) when the primary sort column has
+	// ties — e.g. several findings sharing a found_at, common under --glob-db
+	// merges. Skipped when id is already the primary sort.
+	if sortColumn != "f.id" {
+		query.Order("f.id " + order)
+	}
 }
 
 // mapFindingSortColumn maps sort names to actual finding column names

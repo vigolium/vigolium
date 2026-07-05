@@ -81,7 +81,7 @@ var (
 	trafficPath    string
 	trafficFrom    string
 	trafficTo      string
-	trafficSearch  string
+	trafficSearch  []string
 	trafficHeader  string
 	trafficBody    string
 	trafficSource  string
@@ -133,7 +133,7 @@ func init() {
 	pf.StringVar(&trafficPath, "path", "", "Filter by URL path pattern")
 	pf.StringVar(&trafficFrom, "from", "", "Show records after this date (YYYY-MM-DD or RFC3339)")
 	pf.StringVar(&trafficTo, "to", "", "Show records before this date (YYYY-MM-DD or RFC3339)")
-	pf.StringVar(&trafficSearch, "search", "", "Fuzzy search across URLs, paths, and hostnames")
+	pf.StringArrayVar(&trafficSearch, "search", nil, "Search across URLs and paths (repeatable; each term further narrows, AND-combined)")
 	pf.StringVar(&trafficHeader, "header", "", "Search within HTTP header names and values")
 	pf.StringVar(&trafficBody, "body", "", "Search within HTTP request/response body content")
 	pf.StringVar(&trafficSource, "source", "", "Filter by record source (e.g. scanner, ingest-cli, ingest-server, ingest-proxy, seed)")
@@ -147,7 +147,7 @@ func init() {
 	f.BoolVar(&trafficTree, "tree", false, "Display as host/path hierarchy tree")
 	f.BoolVar(&trafficRaw, "raw", false, "Show full raw HTTP request and response")
 	f.BoolVar(&trafficBurp, "burp", false, "Display in Burp Suite-style format (colored request/response)")
-	f.BoolVar(&trafficMarkdown, "markdown", false, "Render the matched records as Markdown (request/response in fenced http blocks) to stdout")
+	f.BoolVar(&trafficMarkdown, "markdown", false, "Render the matched records as Markdown (request/response in fenced http blocks) to stdout; response bodies are compacted to a preview by default (use --full-body for whole bodies)")
 	f.BoolVarP(&globalStateless, "stateless", "S", false, "Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB")
 	f.StringVar(&globalGlobDB, "glob-db", "", "Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S")
 	f.StringSliceVar(&trafficColumns, "columns", nil, "Columns to show (comma-separated, e.g. HOST,METHOD,PATH,STATUS)")
@@ -270,7 +270,7 @@ func buildTrafficFilters(fuzzyTerm string) (database.QueryFilters, error) {
 		DateFrom:     dateFrom,
 		DateTo:       dateTo,
 		FuzzyTerm:    fuzzyTerm,
-		SearchTerm:   trafficSearch,
+		SearchTerms:  trafficSearch,
 		HeaderSearch: trafficHeader,
 		BodySearch:   trafficBody,
 		Limit:        limit,

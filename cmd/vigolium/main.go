@@ -17,7 +17,7 @@ func main() {
 	if !hasFlag("--json", "-j") && !hasFlag("--silent") && !isSubcommand(
 		"version", "config", "agent", "traffic", "finding", "findings", "db",
 		"export", "scan", "scan-url", "scan-request", "run", "r", "replay",
-		"import", "log", "olium", "ol",
+		"import", "log", "olium", "ol", "skills", "skill",
 	) {
 		fmt.Print(cli.GetBanner())
 	}

@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An XML, SOAP, or XInclude endpoint parses untrusted XML with external entity resolution enabled - a classic XML External Entity (XXE) flaw that lets the server read and disclose local files. The scanner confirms in-band: injected entities make targeted content (a /etc/passwd line or unique marker) appear in the response.
+	ModuleDesc = `**What it means:** An XML/SOAP/XInclude endpoint parses untrusted XML with external entities enabled (XXE). The scanner confirms in-band (a leaked /etc/passwd line or unique marker in the response) or out-of-band, where an external entity/DTD references a unique OAST subdomain the parser fetches - proving resolution even when nothing is reflected (blind XXE).
 
-**How it's exploited:** An attacker submits XML whose DOCTYPE or XInclude references file:///etc/passwd, config, or secrets, then reads the leaked content. XXE can also escalate to server-side request forgery and denial of service.
+**How it's exploited:** An attacker references file:///etc/passwd or secrets and reads the leak; blind, an external DTD exfiltrates data or confirms via callback. XXE also escalates to SSRF and DoS.
 
-**Fix:** Disable DOCTYPE and external entity/DTD processing (FEATURE_SECURE_PROCESSING, disallow-doctype-decl, disable external entities and XInclude).`
+**Fix:** Disable DOCTYPE and external entity/DTD processing (disallow-doctype-decl, disable external entities and XInclude).`
 
-	ModuleConfirmation = "Confirmed when injected XML entities are expanded and their values appear in the response body"
+	ModuleConfirmation = "Confirmed when injected XML entities are expanded and their values appear in the response body, OR when the target's XML parser makes an out-of-band callback to the unique OAST subdomain planted in an external entity/DTD (blind XXE)"
 	ModuleSeverity     = severity.Critical
 	ModuleConfidence   = severity.Certain
 	ModuleTags         = []string{"injection", "xxe", "moderate"}

@@ -20,6 +20,10 @@ func TestValidateKeyShape(t *testing.T) {
 		{"empty passthrough", "openai-api-key", "", ""},
 		{"whitespace passthrough", "openai-api-key", "   ", ""},
 
+		// openai-responses shares openai-api-key's key resolution + shape check
+		{"openai-responses proxy key ok", "openai-responses", "sk-proj-abcdef", ""},
+		{"anthropic key on openai-responses", "openai-responses", "sk-ant-api03-abc", "sk-ant-"},
+
 		// cross-wires
 		{"anthropic key on openai", "openai-api-key", "sk-ant-api03-abc", "sk-ant-"},
 		{"anthropic oauth on openai", "openai-api-key", "sk-ant-oat01-abc", "sk-ant-"},

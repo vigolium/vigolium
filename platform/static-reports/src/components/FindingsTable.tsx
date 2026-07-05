@@ -15,6 +15,7 @@ marked.setOptions({ breaks: false, gfm: true });
 import { useTheme } from "../utils/theme";
 import { getSeverityColors, getConfidenceColors, getChartColors } from "../utils/chartTheme";
 import { sanitizeHtml, escapeHtml } from "../utils/sanitize";
+import { curlNeedsPathAsIs, curlEncodeTarget } from "../utils/curl";
 import FilterDropdown from "./FilterDropdown";
 import HostSitemap from "./HostSitemap";
 import ColumnChooser, { type ColumnOption } from "./ColumnChooser";
@@ -157,11 +158,17 @@ function rawRequestToCurl(raw: string): string {
   // Remaining lines are the body
   const body = lines.slice(i).join("\n").trim();
 
-  // Build URL — guess scheme from port or default to https
+  // Build URL — guess scheme from port or default to https. Encode a literal "#"
+  // so curl keeps it in the path (else it is dropped as a fragment).
   const scheme = host.endsWith(":80") ? "http" : "https";
-  const url = `${scheme}://${host}${path}`;
+  const url = `${scheme}://${host}${curlEncodeTarget(path)}`;
 
   const parts: string[] = ["curl"];
+  // Bypass/fuzz targets (dot-segments or a literal "#") need --path-as-is so curl
+  // replays them without collapsing "/../" or "/./".
+  if (curlNeedsPathAsIs(path)) {
+    parts.push("--path-as-is");
+  }
   if (method !== "GET") {
     parts.push(`-X '${method}'`);
   }

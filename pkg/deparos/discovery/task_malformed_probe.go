@@ -109,7 +109,7 @@ func (t *MalformedPathProbeTask) Expand(ctx context.Context, callback func(url s
 			continue
 		}
 
-		replaced := strings.ReplaceAll(t.urlTemplate, "FUZZ", string(word))
+		replaced := strings.ReplaceAll(t.urlTemplate, fuzzMarker, string(word))
 
 		// Validate the resulting URL
 		if _, err := url.Parse(replaced); err != nil {

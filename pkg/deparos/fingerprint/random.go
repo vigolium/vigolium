@@ -35,46 +35,43 @@ func GenerateRandomPaths(baseURL *url.URL) ([]string, error) {
 		return nil, fmt.Errorf("base URL is nil")
 	}
 
-	basePath := baseURL.Path
+	// Use the escaped (on-the-wire) path, not the decoded url.Path, so a
+	// deliberately-crafted path-normalization bypass prefix (e.g. "/%23/../",
+	// "//", "..;/") is preserved verbatim in the baseline probes instead of being
+	// collapsed — otherwise the probes route to a different server layer than the
+	// real request and the learned soft-404 baseline is meaningless.
+	basePath := baseURL.EscapedPath()
 	if basePath == "" {
 		basePath = "/"
 	}
 
-	paths := make([]string, 4)
-
-	// Variation 1: Prepend 6-char hex to last segment
-	// Example: /api/users.json -> /api/{random}users.json
+	// Variation 1: Prepend 6-char hex to last segment (/api/users.json -> /api/{random}users.json)
 	prefix, err := generateRandomHex(6)
 	if err != nil {
 		return nil, err
 	}
-	paths[0] = prependToLastSegment(basePath, prefix)
-
-	// Variation 2: Append 6-char hex to last segment (before extension)
-	// Example: /api/users.json -> /api/users{random}.json
+	// Variation 2: Append 6-char hex before the extension (/api/users.json -> /api/users{random}.json)
 	suffix, err := generateRandomHex(6)
 	if err != nil {
 		return nil, err
 	}
-	paths[1] = appendToLastSegment(basePath, suffix)
-
-	// Variation 3: Add 4-char hex as fake extension
-	// Example: /api/users.json -> /api/users.json.{random}
+	// Variation 3: Add 4-char hex as a fake extension (/api/users.json -> /api/users.json.{random})
 	fakeExt, err := generateRandomHex(4)
 	if err != nil {
 		return nil, err
 	}
-	paths[2] = addFakeExtension(basePath, fakeExt)
-
-	// Variation 4: Insert 9-char hex into middle of last segment
-	// Example: /api/users.json -> /api/us{random}ers.json
+	// Variation 4: Insert 9-char hex into the middle of the last segment (/api/users.json -> /api/us{random}ers.json)
 	middle, err := generateRandomHex(9)
 	if err != nil {
 		return nil, err
 	}
-	paths[3] = insertIntoLastSegment(basePath, middle)
 
-	return paths, nil
+	return []string{
+		prependToLastSegment(basePath, prefix),
+		appendToLastSegment(basePath, suffix),
+		addFakeExtension(basePath, fakeExt),
+		insertIntoLastSegment(basePath, middle),
+	}, nil
 }
 
 // GenerateRandomPathWithVariation generates a single random path with specific variation and length.
@@ -111,30 +108,11 @@ func GenerateRandomPathWithVariation(basePath string, variation PathVariation, l
 //	/api/users/     -> /api/{random}users/
 //	/site/hc/site/  -> /site/hc/{random}site/
 func prependToLastSegment(basePath string, randomStr string) string {
-	if basePath == "" || basePath == "/" {
+	dir, seg, trailingSlash := splitLastSegment(basePath)
+	if seg == "" {
 		return "/" + randomStr
 	}
-
-	// Check if path ends with /
-	endsWithSlash := strings.HasSuffix(basePath, "/")
-
-	// Clean path (removes trailing slash)
-	basePath = path.Clean(basePath)
-
-	// Split into directory and file
-	dir, file := path.Split(basePath)
-
-	if file == "" {
-		// After Clean, if file is empty, basePath was just "/"
-		return "/" + randomStr
-	}
-
-	// Prepend random to the filename
-	result := path.Join(dir, randomStr+file)
-	if endsWithSlash {
-		return result + "/"
-	}
-	return result
+	return rebuildPath(dir, randomStr+seg, trailingSlash)
 }
 
 // appendToLastSegment appends random string to the end of the last segment (before extension).
@@ -150,41 +128,16 @@ func prependToLastSegment(basePath string, randomStr string) string {
 //	/api/users/     -> /api/users{random}/
 //	/site/hc/site/  -> /site/hc/site{random}/
 func appendToLastSegment(basePath string, randomStr string) string {
-	if basePath == "" || basePath == "/" {
+	dir, seg, trailingSlash := splitLastSegment(basePath)
+	if seg == "" {
 		return "/" + randomStr
 	}
-
-	// Check if path ends with /
-	endsWithSlash := strings.HasSuffix(basePath, "/")
-
-	// Clean path
-	basePath = path.Clean(basePath)
-
-	// Split into directory and file
-	dir, file := path.Split(basePath)
-
-	if file == "" {
-		return "/" + randomStr
+	if ext := path.Ext(seg); ext != "" {
+		// Insert before the extension.
+		return rebuildPath(dir, strings.TrimSuffix(seg, ext)+randomStr+ext, trailingSlash)
 	}
-
-	// Check if file has extension
-	ext := path.Ext(file)
-	if ext != "" {
-		// Has extension: insert before extension
-		nameWithoutExt := strings.TrimSuffix(file, ext)
-		result := path.Join(dir, nameWithoutExt+randomStr+ext)
-		if endsWithSlash {
-			return result + "/"
-		}
-		return result
-	}
-
-	// No extension: append to filename
-	result := path.Join(dir, file+randomStr)
-	if endsWithSlash {
-		return result + "/"
-	}
-	return result
+	// No extension: append to the segment.
+	return rebuildPath(dir, seg+randomStr, trailingSlash)
 }
 
 // addFakeExtension adds random string as a fake extension to the last segment.
@@ -200,22 +153,11 @@ func appendToLastSegment(basePath string, randomStr string) string {
 //	/api/users/     -> /api/users.{random}/
 //	/site/hc/site/  -> /site/hc/site.{random}/
 func addFakeExtension(basePath string, randomStr string) string {
-	if basePath == "" || basePath == "/" {
+	dir, seg, trailingSlash := splitLastSegment(basePath)
+	if seg == "" {
 		return "/" + randomStr
 	}
-
-	// Check if path ends with /
-	endsWithSlash := strings.HasSuffix(basePath, "/")
-
-	// Clean path
-	basePath = path.Clean(basePath)
-
-	// Simply append .{random} to the path
-	result := basePath + "." + randomStr
-	if endsWithSlash {
-		return result + "/"
-	}
-	return result
+	return rebuildPath(dir, seg+"."+randomStr, trailingSlash)
 }
 
 // insertIntoLastSegment inserts random string into the middle of the last segment.
@@ -233,26 +175,13 @@ func addFakeExtension(basePath string, randomStr string) string {
 //	/api/users/     -> /api/us{random}ers/
 //	/site/hc/site/  -> /site/hc/si{random}te/
 func insertIntoLastSegment(basePath string, randomStr string) string {
-	if basePath == "" || basePath == "/" {
+	dir, seg, trailingSlash := splitLastSegment(basePath)
+	if seg == "" {
 		return "/" + randomStr
 	}
 
-	// Check if path ends with /
-	endsWithSlash := strings.HasSuffix(basePath, "/")
-
-	// Clean path
-	basePath = path.Clean(basePath)
-
-	// Split into directory and file
-	dir, file := path.Split(basePath)
-
-	if file == "" {
-		return "/" + randomStr
-	}
-
-	// Get filename without extension
-	ext := path.Ext(file)
-	nameWithoutExt := strings.TrimSuffix(file, ext)
+	ext := path.Ext(seg)
+	nameWithoutExt := strings.TrimSuffix(seg, ext)
 
 	// Insert into middle of name
 	var newName string
@@ -264,11 +193,7 @@ func insertIntoLastSegment(basePath string, randomStr string) string {
 		newName = nameWithoutExt + randomStr
 	}
 
-	result := path.Join(dir, newName+ext)
-	if endsWithSlash {
-		return result + "/"
-	}
-	return result
+	return rebuildPath(dir, newName+ext, trailingSlash)
 }
 
 // generateRandomHex generates random hex string of specified length.
@@ -300,6 +225,60 @@ func generateRandomHex(length int) (string, error) {
 // BuildFullURL constructs full URL from base URL and path variation.
 func BuildFullURL(baseURL *url.URL, pathVariation string) string {
 	newURL := *baseURL // Copy
-	newURL.Path = pathVariation
+	SetWirePath(&newURL, pathVariation)
 	return newURL.String()
+}
+
+// splitLastSegment splits an escaped path into its directory prefix (including the
+// trailing slash) and last non-empty segment WITHOUT resolving dot-segments or
+// collapsing slashes, so a path-normalization bypass prefix ("/%23/../", "//",
+// "..;/") is preserved byte-for-byte. trailingSlash reports directory form.
+func splitLastSegment(p string) (dir, seg string, trailingSlash bool) {
+	if p == "" || p == "/" {
+		return "", "", false
+	}
+	trailingSlash = strings.HasSuffix(p, "/")
+	q := p
+	if trailingSlash {
+		q = strings.TrimSuffix(q, "/")
+	}
+	if idx := strings.LastIndex(q, "/"); idx >= 0 {
+		return q[:idx+1], q[idx+1:], trailingSlash
+	}
+	return "", q, trailingSlash
+}
+
+// rebuildPath reassembles a dir prefix and (mutated) last segment, restoring the
+// leading slash and any trailing slash.
+func rebuildPath(dir, seg string, trailingSlash bool) string {
+	out := dir + seg
+	if !strings.HasPrefix(out, "/") {
+		out = "/" + out
+	}
+	if trailingSlash && !strings.HasSuffix(out, "/") {
+		out += "/"
+	}
+	return out
+}
+
+// SetWirePath assigns an escaped, on-the-wire path (e.g. "/%23/../abc") to u so
+// that u.String()/RequestURI() emit it byte-for-byte, preserving bypass sequences
+// (%23, .., //) that a naive u.Path assignment would collapse or double-encode.
+// It mirrors net/url's EscapedPath invariant: RawPath is kept only when the
+// default encoding of the decoded path differs from wirePath. (Not url.Parse,
+// which would misread a leading "//" as a host.)
+func SetWirePath(u *url.URL, wirePath string) {
+	decoded, err := url.PathUnescape(wirePath)
+	if err != nil {
+		// Not valid percent-encoding — best effort: emit the segment verbatim.
+		u.Path = wirePath
+		u.RawPath = ""
+		return
+	}
+	u.Path = decoded
+	if (&url.URL{Path: decoded}).EscapedPath() == wirePath {
+		u.RawPath = ""
+	} else {
+		u.RawPath = wirePath
+	}
 }

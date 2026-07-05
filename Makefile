@@ -1,4 +1,4 @@
-.PHONY: build build-embedded build-all snapshot release public public-release prepare-public-scripts clean test test-unit test-integration test-spitolas-browser test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit ensure-audit-dist restage-host-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
+.PHONY: build build-embedded build-all snapshot release public public-release github-release prepare-public-scripts clean test test-unit test-integration test-spitolas-browser test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit ensure-audit-dist restage-host-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
 
 # Go parameters
 GOCMD=go
@@ -979,6 +979,16 @@ public-release: prepare-public-scripts ensure-audit-dist
 	mc cp build/public-install.sh r2/vigolium-dist/$(R2_PUBLIC_PREFIX)/install.sh
 	@echo "$(PREFIX) Public release uploaded to $(PUBLIC_INSTALL_BASE_URL)/"
 
+# Run the normal public release (build cross-platform tarballs + upload to R2),
+# then publish those same artifacts to a GitHub release via
+# build/scripts/github-release.sh. The release tag/title is the current version
+# ($(VERSION)) — the script creates + pushes that git tag if it does not exist —
+# and the body is that version's section pulled from CHANGELOG.md. Re-running for
+# an unchanged version edits the existing release in place — refreshing the notes
+# and re-uploading (clobbering) every artifact — instead of failing.
+github-release: public-release
+	@VERSION="$(VERSION)" PUBLIC_DIST_DIR="$(PUBLIC_DIST_DIR)" bash build/scripts/github-release.sh
+
 # Sync scripts to R2 CDN without rebuilding
 cdn-sync: prepare-release-scripts generate-metadata
 	@echo "$(PREFIX) Syncing scripts and metadata to R2 CDN..."
@@ -1267,6 +1277,7 @@ help:
 	@echo "    make snapshot         Build local snapshot release (no publish)"
 	@echo "    make release          Build and upload nightly artifacts to R2 (cdn.vigolium.com/vigolium-nightly-release/)"
 	@echo "    make public-release   Build cross-platform tarballs and upload to the public/stable R2 prefix (cdn.vigolium.com/vigolium-release/)"
+	@echo "    make github-release   Run public-release, then publish the artifacts to a GitHub release (notes from CHANGELOG.md; edits in place if the version is unchanged)"
 	@echo "    make cdn-sync         Sync nightly scripts (install.sh, bootstrap.sh) to R2 CDN"
 	@echo "    make bump-version     Bump pkg/cli/version.go (PART=patch|minor|major|pre|release, DRY_RUN=1)"
 	@echo "    make npm-build        Stage @vigolium/vigolium npm packages into build/dist-npm/"

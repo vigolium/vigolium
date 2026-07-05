@@ -509,7 +509,7 @@ func GetRawRequestFromURL(url string) (*HttpRequestResponse, error) {
 	}
 	raw := fmt.Sprintf(
 		"GET %s HTTP/1.1\r\nHost: %s\r\n\r\n",
-		urlx.GetRelativePath(),
+		escapedRequestTarget(urlx),
 		urlx.Host,
 	)
 	rr, err := ParseRawRequest(raw)

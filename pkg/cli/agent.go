@@ -14,6 +14,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/olium"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
 )
@@ -133,7 +134,7 @@ func init() {
 	rf.StringVar(&agentInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompt)")
 	rf.StringVar(&agentInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	rf.BoolVar(&agentUploadResults, "upload-results", false, "Upload session bundle to cloud storage after completion (requires storage config)")
-	rf.StringVar(&agentQueryOliumProvider, "provider", "", "Olium provider override: openai-codex-oauth | openai-api-key | anthropic-api-key | anthropic-oauth | anthropic-cli | anthropic-vertex | google-vertex | openai-compatible (falls back to agent.olium.provider config)")
+	rf.StringVar(&agentQueryOliumProvider, "provider", "", "Olium provider override: openai-codex-oauth | openai-api-key | anthropic-api-key | anthropic-oauth | anthropic-cli | anthropic-claude-sdk-bridge | anthropic-vertex | google-vertex | openai-compatible (falls back to agent.olium.provider config)")
 	rf.StringVar(&agentQueryOliumModel, "model", "", "Olium model id override (falls back to agent.olium.model)")
 	rf.StringVar(&agentQueryOliumOAuthCred, "oauth-cred", "", "Olium OAuth/SA credential file (openai-codex-oauth, anthropic-vertex, or google-vertex; falls back to agent.olium.oauth_cred_path or $GOOGLE_APPLICATION_CREDENTIALS)")
 	rf.StringVar(&agentQueryOliumOAuthToken, "oauth-token", "", "Olium Anthropic OAuth bearer token (anthropic-oauth provider; falls back to agent.olium.oauth_token or $ANTHROPIC_API_KEY)")
@@ -308,12 +309,13 @@ func printAgentList(settings *config.Settings) error {
 		{"openai-api-key", "gpt-5.5", "$OPENAI_API_KEY", "OpenAI chat API via API key"},
 		{"anthropic-api-key", "claude-opus-4-7", "$ANTHROPIC_API_KEY", "Anthropic Claude via API key"},
 		{"anthropic-oauth", "claude-opus-4-7", "$ANTHROPIC_API_KEY", "Anthropic Claude via OAuth bearer token (claude setup-token)"},
-		{"anthropic-cli", "claude-opus-4-7", "claude binary in PATH", "Anthropic Claude via local claude CLI"},
+		{"anthropic-cli", "claude-opus-4-7", "claude binary in PATH", "Anthropic Claude via local claude CLI (alias: anthropic-claude-cli)"},
+		{"anthropic-claude-sdk-bridge", "(claude default)", "Claude Code subscription", "Claude Code via Agent SDK (vigolium-audit bridge)"},
 		{"anthropic-vertex", "claude-opus-4-6", "GCP service-account JSON", "Anthropic Claude on Google Vertex AI"},
 		{"google-vertex", "gemini-2.5-pro", "GCP service-account JSON", "Google Gemini on Vertex AI"},
 	}
 
-	activeProvider := settings.Agent.Olium.Provider
+	activeProvider := olium.CanonicalProviderName(settings.Agent.Olium.Provider)
 	if activeProvider == "" {
 		activeProvider = "openai-codex-oauth"
 	}

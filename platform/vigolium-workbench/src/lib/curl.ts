@@ -15,6 +15,26 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+// curl rewrites the request target in two ways that break fuzz/bypass paths: it
+// squashes RFC 3986 dot-segments ("/../", "/./") on the path unless --path-as-is
+// is set, and it treats an unencoded "#" as a fragment (never sent). Bypass
+// targets like "/#/../demo.log" or "/%23/../admin" rely on both surviving.
+
+// True when the target needs --path-as-is to reach the wire unmodified: a literal
+// "#" (which, once encoded to %23, leaves a "/../" curl would squash) or a
+// literal dot-segment in the path.
+function needsPathAsIs(target: string): boolean {
+  if (target.includes('#')) return true;
+  const path = target.split('?')[0];
+  return /(^|\/)\.{1,2}(\/|$)/.test(path);
+}
+
+// Encode "#" as %23 so curl keeps it in the path instead of dropping the rest of
+// the target as a fragment. Everything else is already on-the-wire escaped.
+function encodeTarget(target: string): string {
+  return target.replace(/#/g, '%23');
+}
+
 export function rawRequestToCurl(rawRequest: string, matchedAt?: string[]): string {
   const normalized = rawRequest.replace(/\r\n/g, '\n');
   // Split head (request line + headers) from body at the first blank line.
@@ -39,10 +59,11 @@ export function rawRequestToCurl(rawRequest: string, matchedAt?: string[]): stri
   }
 
   // Build the absolute URL. If the request target is already absolute
-  // (proxy-style), use it as-is; otherwise join scheme + host + target.
+  // (proxy-style), use it as-is; otherwise join scheme + host + target. "#" is
+  // encoded so curl keeps the bypass segment in the path.
   let url: string;
   if (/^https?:\/\//i.test(target)) {
-    url = target;
+    url = encodeTarget(target);
   } else {
     let scheme = 'https';
     const matched = matchedAt?.find((u) => /^https?:\/\//i.test(u));
@@ -51,10 +72,13 @@ export function rawRequestToCurl(rawRequest: string, matchedAt?: string[]): stri
     } else if (!host) {
       scheme = 'http';
     }
-    url = `${scheme}://${host}${target}`;
+    url = `${scheme}://${host}${encodeTarget(target)}`;
   }
 
-  const parts: string[] = [`curl -i -s -k -X ${method} ${shellQuote(url)}`];
+  // Bypass/fuzz targets (dot-segments or a literal "#") need --path-as-is so curl
+  // replays them without collapsing "/../" or "/./".
+  const flags = needsPathAsIs(target) ? '-i -s -k --path-as-is' : '-i -s -k';
+  const parts: string[] = [`curl ${flags} -X ${method} ${shellQuote(url)}`];
   for (const [name, val] of headers) {
     parts.push(`  -H ${shellQuote(`${name}: ${val}`)}`);
   }

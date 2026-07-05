@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
 func TestCompactRawHTTP(t *testing.T) {
@@ -101,6 +102,35 @@ func TestRenderRecordMarkdownRequestOnly(t *testing.T) {
 	}
 	if strings.Contains(out, "### Response") {
 		t.Fatalf("requestOnly should omit the response section:\n%s", out)
+	}
+}
+
+func TestHighlightMarkdown(t *testing.T) {
+	md := "## [HIGH] Title\n\n**Module:** `mod-id`\n\n```http\nGET / HTTP/1.1\n**not-bold** `not-code`\n```\n"
+
+	// Not a terminal → untouched, so redirected/piped output stays plain Markdown.
+	defer terminal.SetIsTerminal(terminal.IsTerminal())
+	defer terminal.SetColorEnabled(terminal.IsColorEnabled())
+	terminal.SetIsTerminal(false)
+	terminal.SetColorEnabled(true)
+	if got := highlightMarkdown(md); got != md {
+		t.Fatalf("non-TTY highlight should be a no-op:\n%q", got)
+	}
+
+	// Interactive terminal → ANSI added for heading / bold / inline code, but the
+	// content inside the ```http fence is left verbatim (still greppable).
+	terminal.SetIsTerminal(true)
+	got := highlightMarkdown(md)
+	if !strings.Contains(got, "\x1b[") {
+		t.Fatalf("TTY highlight added no ANSI:\n%q", got)
+	}
+	if !strings.Contains(got, "GET / HTTP/1.1") {
+		t.Fatalf("fenced content mangled: %q", got)
+	}
+	// The bold/code markers inside the fence must survive verbatim — proof the
+	// fence body is skipped rather than reformatted.
+	if !strings.Contains(got, "**not-bold** `not-code`") {
+		t.Fatalf("fence body should not be reformatted:\n%q", got)
 	}
 }
 

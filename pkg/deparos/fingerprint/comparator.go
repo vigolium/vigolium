@@ -163,7 +163,7 @@ func (c *Comparator) ValidateDynamic(ctx context.Context, req *http.Request, sam
 	// Request each variation and check if it matches existing signatures
 	for _, pathVariation := range paths {
 		testURL := *req.URL // Copy
-		testURL.Path = pathVariation
+		SetWirePath(&testURL, pathVariation)
 
 		// Request the variation
 		varSample, err := c.learner.RequestAndExtract(ctx, &testURL)
@@ -257,13 +257,29 @@ func (c *Comparator) CheckWildcardWithValidation(ctx context.Context, targetURL 
 // Uses 4 strategies that only modify the last segment, preserving directory structure.
 // This ensures test paths stay within path-based catch-all patterns like /api/v1/*
 //
+// The 4 strategies split into two classes by whether they break the segment's
+// leading characters:
+//   - prefix-BREAKING: Prefix (prepend random) and Middle (insert random) — the
+//     probed path no longer starts with the target segment.
+//   - prefix-PRESERVING: Suffix (append) and Extension (add fake ext) — the probed
+//     path still starts with the target segment.
+//
+// A GENUINE host-wide catch-all answers content even for prefix-breaking probes.
+// A server that merely routes on the segment prefix (e.g. a gateway mapping
+// "/metrics*" to a real /metrics endpoint that returns an empty 200 on the
+// backends without the exporter) answers content ONLY for the prefix-preserving
+// probes while prefix-breaking probes 404. Treating that as a wildcard drops a
+// real resource, so we suppress ONLY when a prefix-breaking probe returns content.
+//
 // Algorithm:
 // 1. Generate 4 random path variations (Prefix, Suffix, Extension, Middle)
 // 2. Fetch each path with delays
-// 3. If ALL return non-content (404, errors) -> content is VALID
-// 4. If ANY return content -> learn as wildcard and return FALSE
+// 3. If NO prefix-breaking probe returns content -> content is VALID (covers both
+//    "all probes 404" unique files and "only prefix-preserving 200" real routes)
+// 4. If a prefix-breaking probe returns content -> learn as wildcard and return FALSE
 func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *url.URL, key CacheKey) (bool, error) {
-	basePath := targetURL.Path
+	// Escaped (wire) path so a bypass prefix survives into the sibling probes.
+	basePath := targetURL.EscapedPath()
 	if basePath == "" {
 		basePath = "/"
 	}
@@ -311,9 +327,14 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 		{testPath4, VariationMiddle},
 	}
 
-	// Fetch all 4 random paths and track which strategy detected wildcard
+	// Fetch all 4 random paths and track which strategy detected wildcard.
+	// breakingContent records whether a PREFIX-BREAKING probe (Prefix/Middle)
+	// returned content — the decisive signal for a genuine host-wide wildcard.
+	// Prefix-preserving probes (Suffix/Extension) returning content alone only
+	// indicate the origin routes on the segment prefix, which does not make the
+	// exact target a false positive (see the function doc).
 	wildcardDetections := make([]WildcardDetection, 0, 4)
-	foundContent := false
+	breakingContent := false
 
 	for i, config := range testConfigs {
 		// Add delay between requests (except first)
@@ -327,7 +348,7 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 
 		// Build test URL
 		testURL := *targetURL
-		testURL.Path = config.path
+		SetWirePath(&testURL, config.path)
 
 		// Fetch the random path
 		sample, hasContent, err := c.fetchAndCheckContent(ctx, &testURL)
@@ -336,26 +357,35 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 			continue
 		}
 
+		if !hasContent {
+			continue
+		}
+
 		// Track which strategy detected this wildcard
-		if hasContent {
-			foundContent = true
-			wildcardDetections = append(wildcardDetections, WildcardDetection{
-				Sample:   sample,
-				Strategy: config.strategy,
-			})
+		wildcardDetections = append(wildcardDetections, WildcardDetection{
+			Sample:   sample,
+			Strategy: config.strategy,
+		})
+
+		// A prefix-breaking probe returning content means the catch-all does not
+		// require the segment's real leading characters -> genuine wildcard.
+		switch config.strategy {
+		case VariationPrefix, VariationMiddle:
+			breakingContent = true
 		}
 	}
 
-	// If ALL random paths returned no content -> target is VALID
-	if !foundContent {
+	// No prefix-breaking probe returned content -> target is VALID. This covers
+	// both the "all probes 404" unique-resource case and the "only
+	// prefix-preserving probes returned 200" real-route-behind-a-prefix-router case.
+	if !breakingContent {
 		return true, nil
 	}
 
-	// At least one random path returned content -> wildcard detected
-	// Learn these wildcard responses and cache them
-	if len(wildcardDetections) > 0 {
-		_ = c.learnWildcardPatterns(ctx, key, targetURL, wildcardDetections)
-	}
+	// A prefix-breaking probe returned content -> genuine host-wide wildcard.
+	// Learn these wildcard responses and cache them. wildcardDetections is
+	// non-empty here: breakingContent is only set after appending to it.
+	_ = c.learnWildcardPatterns(ctx, key, targetURL, wildcardDetections)
 
 	return false, nil
 }
@@ -406,12 +436,12 @@ func (c *Comparator) learnWildcardPatterns(ctx context.Context, key CacheKey, ba
 		}
 
 		// Generate 2 random paths using SAME strategy with different lengths
-		path1, err := GenerateRandomPathWithVariation(baseURL.Path, detection.Strategy, length1)
+		path1, err := GenerateRandomPathWithVariation(baseURL.EscapedPath(), detection.Strategy, length1)
 		if err != nil {
 			continue
 		}
 
-		path2, err := GenerateRandomPathWithVariation(baseURL.Path, detection.Strategy, length2)
+		path2, err := GenerateRandomPathWithVariation(baseURL.EscapedPath(), detection.Strategy, length2)
 		if err != nil {
 			continue
 		}
@@ -430,7 +460,7 @@ func (c *Comparator) learnWildcardPatterns(ctx context.Context, key CacheKey, ba
 			}
 
 			testURL := *baseURL
-			testURL.Path = path
+			SetWirePath(&testURL, path)
 
 			sample, err := c.learner.RequestAndExtract(ctx, &testURL)
 			if err != nil {

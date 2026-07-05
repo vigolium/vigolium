@@ -61,7 +61,12 @@ Use them freely to explore code, run commands, and make changes. Be concise.`
 //   - Provider="anthropic-api-key"  → LLMAPIKey (or $ANTHROPIC_API_KEY)
 //   - Provider="anthropic-oauth"    → OAuthToken  (or $ANTHROPIC_API_KEY); produced by `claude setup-token`
 //   - Provider="openai-api-key"     → LLMAPIKey (or $OPENAI_API_KEY)
+//   - Provider="openai-responses"   → LLMAPIKey (or $OPENAI_API_KEY); public
+//     OpenAI Responses API (/v1/responses) instead of Chat Completions.
 //   - Provider="anthropic-cli"      → ClaudeBinary
+//   - Provider="anthropic-claude-sdk-bridge" → BridgeBinary (empty = embedded
+//     vigolium-audit blob, then PATH); optional LLMAPIKey / OAuthToken are
+//     forwarded, else the bridge uses ambient Claude Code subscription auth.
 //   - Provider="anthropic-vertex"   → OAuthCredPath (SA JSON, or $GOOGLE_APPLICATION_CREDENTIALS),
 //     plus GoogleCloudProject and GoogleCloudLocation; routes claude-* models.
 //   - Provider="google-vertex"      → OAuthCredPath (SA JSON, or $GOOGLE_APPLICATION_CREDENTIALS),
@@ -71,6 +76,10 @@ Use them freely to explore code, run commands, and make changes. Be concise.`
 //     CustomExtraBody.
 //     Covers Ollama / OpenRouter / LM Studio / vLLM / Together / Groq /
 //     LocalAI / custom proxies.
+//   - Provider="anthropic-compatible" → CustomBaseURL (required), CustomAPIKey
+//     (optional), CustomModelID (fallback for Model), CustomExtraHeaders.
+//     Speaks the Anthropic Messages API (/v1/messages) against a custom base
+//     URL — a self-hosted gateway or Messages-compatible proxy.
 type Options struct {
 	// Provider selection. Empty = auto-detect (defaults to openai-codex-oauth).
 	Provider string
@@ -81,6 +90,7 @@ type Options struct {
 	Model         string
 	SystemPrompt  string
 	ClaudeBinary  string // path to `claude` executable for anthropic-cli provider
+	BridgeBinary  string // path to `vigolium-audit` executable for anthropic-claude-sdk-bridge (empty = embedded blob, then PATH)
 
 	// Vertex tuning (anthropic-vertex, google-vertex). ENV (GOOGLE_CLOUD_PROJECT
 	// / GOOGLE_CLOUD_LOCATION) takes precedence at provider-construction time;
@@ -240,7 +250,7 @@ func ResolveProvider(opts Options) (provider.Provider, string, string, error) {
 // resolveProvider is the internal implementation. Kept lowercase so
 // existing callers (RunTUI, buildHeadlessEngine) continue to work.
 func resolveProvider(opts Options) (provider.Provider, string, string, error) {
-	name := opts.Provider
+	name := CanonicalProviderName(opts.Provider)
 	if name == "" {
 		name = autoDetectProvider(opts)
 	}
@@ -267,11 +277,24 @@ func resolveProvider(opts Options) (provider.Provider, string, string, error) {
 			model = "gpt-5.5"
 		}
 		return newOpenAIAPIKeyProvider(opts, model)
+	case "openai-responses":
+		if model == "" || model == DefaultModel {
+			model = "gpt-5.5"
+		}
+		return newOpenAIResponsesProvider(opts, model)
 	case "anthropic-cli":
 		if model == "" || model == DefaultModel {
 			model = "claude-opus-4-7"
 		}
 		return newAnthropicCLIProvider(opts, model)
+	case "anthropic-claude-sdk-bridge":
+		// Empty model → let the bridge/Claude Code pick its own default (it
+		// accepts short aliases like "opus"/"sonnet" or full ids). Only strip
+		// the cross-provider DefaultModel sentinel so it isn't sent verbatim.
+		if model == DefaultModel {
+			model = ""
+		}
+		return newClaudeSDKBridgeProvider(opts, model)
 	case "anthropic-vertex":
 		if model == "" || model == DefaultModel {
 			model = "claude-opus-4-6"
@@ -289,7 +312,15 @@ func resolveProvider(opts Options) (provider.Provider, string, string, error) {
 			model = opts.CustomModelID
 		}
 		return newOpenAICompatibleProvider(opts, model)
+	case "anthropic-compatible":
+		// No universal default — a gateway can front any Claude/other model.
+		// Fall back to custom_provider.model_id when --model / agent.olium.model
+		// is empty.
+		if model == "" || model == DefaultModel {
+			model = opts.CustomModelID
+		}
+		return newAnthropicCompatibleProvider(opts, model)
 	default:
-		return nil, "", "", fmt.Errorf("unknown provider %q (valid: openai-codex-oauth, openai-api-key, anthropic-api-key, anthropic-oauth, anthropic-cli, anthropic-vertex, google-vertex, openai-compatible)", name)
+		return nil, "", "", fmt.Errorf("unknown provider %q (valid: openai-codex-oauth, openai-api-key, openai-responses, anthropic-api-key, anthropic-oauth, anthropic-cli, anthropic-claude-sdk-bridge, anthropic-vertex, google-vertex, openai-compatible, anthropic-compatible)", name)
 	}
 }

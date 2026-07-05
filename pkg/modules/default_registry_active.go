@@ -154,6 +154,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/sensitive_file_discovery"
 	"github.com/vigolium/vigolium/pkg/modules/active/servicenow_kb_widget_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/servicenow_widget_data_exposure"
+	"github.com/vigolium/vigolium/pkg/modules/active/session_fixation"
 	"github.com/vigolium/vigolium/pkg/modules/active/smart_behavior_detection"
 	"github.com/vigolium/vigolium/pkg/modules/active/spring_actuator_misconfig"
 	"github.com/vigolium/vigolium/pkg/modules/active/spring_boot_admin_exposure"
@@ -165,6 +166,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/spring_jolokia_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/sqli_boolean_blind"
 	"github.com/vigolium/vigolium/pkg/modules/active/sqli_error_based"
+	"github.com/vigolium/vigolium/pkg/modules/active/sqli_out_of_band"
 	"github.com/vigolium/vigolium/pkg/modules/active/sqli_time_blind"
 	"github.com/vigolium/vigolium/pkg/modules/active/ssrf_blind"
 	"github.com/vigolium/vigolium/pkg/modules/active/ssrf_detection"
@@ -178,7 +180,9 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/swagger_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/symfony_misconfig"
 	"github.com/vigolium/vigolium/pkg/modules/active/tls_cert_recon"
+	"github.com/vigolium/vigolium/pkg/modules/active/tls_protocol_cipher_audit"
 	"github.com/vigolium/vigolium/pkg/modules/active/tomcat_manager_exposure"
+	"github.com/vigolium/vigolium/pkg/modules/active/unauth_service_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/upgrade_routing_ssrf"
 	"github.com/vigolium/vigolium/pkg/modules/active/web_cache_poisoning"
 	"github.com/vigolium/vigolium/pkg/modules/active/websocket_security"
@@ -189,6 +193,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/ws_cswsh"
 	"github.com/vigolium/vigolium/pkg/modules/active/ws_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/xml_saml_security"
+	"github.com/vigolium/vigolium/pkg/modules/active/xpath_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_dom_confirm"
 	"github.com/vigolium/vigolium/pkg/modules/active/xss_stored"
 	"github.com/vigolium/vigolium/pkg/modules/active/xxe_generic"
@@ -216,6 +221,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(sqli_error_based.New())
 	r.RegisterActive(sqli_boolean_blind.New())
 	r.RegisterActive(sqli_time_blind.New())
+	r.RegisterActive(sqli_out_of_band.New())
 	r.RegisterActive(nosqli_error_based.New())
 	r.RegisterActive(nosqli_operator_injection.New())
 	r.RegisterActive(crlf_injection.New())
@@ -234,6 +240,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(ssrf_protocol_smuggling.New())
 	// Active modules - Routing-based SSRF (request-line; "Cracking the lens")
 	r.RegisterActive(routing_ssrf.New())
+	r.RegisterActive(unauth_service_exposure.New())
 	r.RegisterActive(upgrade_routing_ssrf.New())
 	// Active modules - SSTI (Blind)
 	r.RegisterActive(ssti_blind.New())
@@ -254,6 +261,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(nginx_off_by_slash.New())
 	r.RegisterActive(nginx_path_escape.New())
 	r.RegisterActive(reverse_proxy_path_confusion.New())
+	r.RegisterActive(session_fixation.New())
 	r.RegisterActive(smart_behavior_detection.New())
 	r.RegisterActive(suspect_transform.New())
 	r.RegisterActive(backslash_transformation.New())
@@ -261,6 +269,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(race_interference.New())
 	// Active modules - XML Security
 	r.RegisterActive(xml_saml_security.New())
+	r.RegisterActive(xpath_injection.New())
 	// Active modules - JWT
 	r.RegisterActive(jwt_vulnerability.New())
 	// Active modules - HTTP Smuggling
@@ -419,6 +428,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(api_key_url_exposure.New())
 	// Active modules - TLS / Certificate Recon
 	r.RegisterActive(tls_cert_recon.New())
+	r.RegisterActive(tls_protocol_cipher_audit.New())
 	// Active modules - Fastify/Hono Security
 	r.RegisterActive(fastify_hono_probe.New())
 	// Active modules - Meta-Framework Security

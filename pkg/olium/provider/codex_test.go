@@ -10,9 +10,9 @@ import (
 	"github.com/vigolium/vigolium/pkg/olium/stream"
 )
 
-// drainState feeds one decoded SSE event into a fresh codexStreamState and
+// drainState feeds one decoded SSE event into a fresh responsesStreamState and
 // returns whatever the handler emits on the channel.
-func drainState(s *codexStreamState, t string, ev map[string]any) []stream.Event {
+func drainState(s *responsesStreamState, t string, ev map[string]any) []stream.Event {
 	out := make(chan stream.Event, 8)
 	s.handle(t, ev, out)
 	close(out)
@@ -32,7 +32,7 @@ func drainState(s *codexStreamState, t string, ev map[string]any) []stream.Event
 // out of TransientErrSubstrings, this test catches it before production does.
 func TestCodex_ContentlessErrorIsTransient(t *testing.T) {
 	// Empty-message error frame — the exact shape reported in the field.
-	got := drainState(&codexStreamState{}, "error", map[string]any{})
+	got := drainState(&responsesStreamState{label: "codex"}, "error", map[string]any{})
 	if len(got) != 1 {
 		t.Fatalf("expected exactly 1 event, got %d: %+v", len(got), got)
 	}
@@ -51,7 +51,7 @@ func TestCodex_ContentlessErrorIsTransient(t *testing.T) {
 // TestCodex_ErrorPassesThroughMessage verifies the non-empty path is left
 // intact — a real upstream message must not be clobbered by the fallback.
 func TestCodex_ErrorPassesThroughMessage(t *testing.T) {
-	got := drainState(&codexStreamState{}, "error", map[string]any{"message": "rate limited"})
+	got := drainState(&responsesStreamState{label: "codex"}, "error", map[string]any{"message": "rate limited"})
 	if len(got) != 1 || got[0].Type != stream.EventError {
 		t.Fatalf("expected 1 EventError, got %+v", got)
 	}

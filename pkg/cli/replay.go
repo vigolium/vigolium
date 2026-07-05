@@ -101,7 +101,7 @@ func init() {
 
 	// Header / auth merges.
 	f.StringArrayVarP(&replayHeaders, "header", "H", nil, "Extra request header 'Name: value' (repeatable, overrides baseline)")
-	f.StringVar(&replayAuthSession, "auth-session", "", "Auth session name to merge headers from (from `vigolium auth list`)")
+	f.StringVar(&replayAuthSession, "auth-session", "", "Auth session name to merge headers from (from 'vigolium auth list')")
 
 	// Session / cookies.
 	f.StringVar(&replaySessionID, "session-id", "",

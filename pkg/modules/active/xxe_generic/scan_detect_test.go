@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +14,68 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
+
+// fakeOAST is a minimal modkit.OASTProvider stub: it hands out a fixed callback
+// host and records the injection type and every planted payload so a test can
+// assert the blind-XXE leg planted external-entity XML pointing at the OAST host.
+type fakeOAST struct {
+	host           string
+	injectionTypes []string
+	payloads       []string
+}
+
+func (f *fakeOAST) GenerateURL(_, _, injectionType, _, _ string) string {
+	f.injectionTypes = append(f.injectionTypes, injectionType)
+	return f.host
+}
+func (f *fakeOAST) RecordPayload(_, payload string) { f.payloads = append(f.payloads, payload) }
+func (f *fakeOAST) Enabled() bool                   { return true }
+
+// TestScanPerRequest_BlindXXEPlantsOASTPayloads verifies the out-of-band leg:
+// with an enabled OAST provider, the module sends XML bodies carrying external
+// entity/DTD references to the unique OAST host, labelled with an "xxe" injection
+// type so a callback classifies as blind XXE. No in-band marker is involved.
+func TestScanPerRequest_BlindXXEPlantsOASTPayloads(t *testing.T) {
+	t.Parallel()
+
+	const oastHost = "abc123nonce.oast.example"
+	var (
+		mu     sync.Mutex
+		bodies []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(body))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<result>ok</result>"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.RequestMethod(t, "POST", srv.URL+"/api/orders", seedXML)
+	oast := &fakeOAST{host: oastHost}
+
+	_, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{OASTProvider: oast})
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	var planted string
+	for _, b := range bodies {
+		if strings.Contains(b, oastHost) && (strings.Contains(b, "<!ENTITY") || strings.Contains(b, "xi:include")) {
+			planted = b
+			break
+		}
+	}
+	require.NotEmpty(t, planted, "expected an out-of-band XXE body referencing the OAST host, got %v", bodies)
+	require.NotEmpty(t, oast.injectionTypes)
+	for _, it := range oast.injectionTypes {
+		assert.Contains(t, it, "xxe", "injection type must contain 'xxe' so callbacks classify as blind XXE")
+	}
+}
 
 const seedXML = `<?xml version="1.0" encoding="UTF-8"?><order><item>1</item></order>`
 

@@ -370,7 +370,10 @@ func (s *SiteMap) Store(result *Result) error {
 			result.Request.Method,
 			result.Response.StatusCode,
 			serverHeader,
-			result.URL.Path,
+			// Escaped (wire) path: keeps a path-normalization bypass distinct
+			// ("/%23/../x" vs "/x", or the decoded "/#/../x" whose "#" would
+			// otherwise strip to "/"), matching the request actually sent.
+			result.URL.EscapedPath(),
 			result.URL.RawQuery,
 			result.Request.Body,
 		)

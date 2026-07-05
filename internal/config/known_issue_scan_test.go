@@ -63,6 +63,7 @@ func TestDefaultFindingGrouping_GroupsSourcemapByModule(t *testing.T) {
 	// to one finding per host regardless of per-URL value.
 	for _, want := range []string{
 		"sourcemap-detect",
+		"js-beautify",
 		"unsafe-html-sink",
 		"dom-xss-taint",
 		"cookie-security-detect",

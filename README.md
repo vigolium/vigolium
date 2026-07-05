@@ -225,7 +225,7 @@ The native scan pipeline is composed of modular layers, each documented separate
 
 ## Documentation
 
-Full documentation lives at [docs.vigolium.com](https://docs.vigolium.com/). Quick links:
+Full documentation lives at [docs.vigolium.com](https://docs.vigolium.com/). Release notes and version history are in the [CHANGELOG](CHANGELOG.md). Quick links:
 
 | Topic | Link |
 |-------|------|

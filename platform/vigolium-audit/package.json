@@ -1,6 +1,6 @@
 {
   "name": "@vigolium/vigolium-audit",
-  "version": "0.1.14-alpha",
+  "version": "0.1.15-alpha",
   "private": true,
   "description": "vigolium-audit — autonomous agent that performs thorough security audits on your codebase, part of Vigolium",
   "keywords": [
@@ -33,6 +33,7 @@
     "build": "bun run build.ts",
     "build:all": "bun run build.ts --all",
     "transform": "bun run scripts/transform-content.ts",
+    "sync-scanner-skill": "bun run scripts/sync-scanner-skill.ts",
     "upgrade": "bun run scripts/upgrade.ts",
     "release": "bun run scripts/release.ts",
     "release:dry": "VIGOLIUM_AUDIT_RELEASE_DRY_RUN=1 bun run scripts/release.ts",

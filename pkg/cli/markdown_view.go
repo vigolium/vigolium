@@ -15,28 +15,31 @@ import (
 // stdout as plain Markdown (request/response in ```http fences), so it pipes
 // cleanly into a file or a viewer like `glow`.
 //
-// Under -S/--stateless, --compact windows the response around the finding's
-// matched_at / extracted_results (or caps a record's response body), keeping
-// the proof on screen without dumping a whole page. Outside --stateless,
-// bodies render whole — compact-windowing of the human output is stateless-only.
+// Response bodies are compacted by default: windowed around the finding's
+// matched_at / extracted_results, or capped to a leading preview, so a match
+// never drags a multi-MB page onto the screen (much like `traffic --burp`).
+// Pass --full-body to render bodies whole. The request is always shown whole —
+// it carries the payload/injection point.
 
 // statelessEvidenceWindow is the number of characters kept on each side of the
-// match when --compact windows a response body. Wider than the JSON evidence
-// window (agentEvidenceWindow) because Markdown is read by a human, not budgeted
-// in tokens.
+// match when the compact default windows a response body. Wider than the JSON
+// evidence window (agentEvidenceWindow) because Markdown is read by a human, not
+// budgeted in tokens.
 const statelessEvidenceWindow = 360
 
 // displayFindingsMarkdown renders each finding (and its linked HTTP records) as
-// Markdown to stdout. Compact-windowing applies only under --stateless.
+// Markdown to stdout. Bodies are compacted unless --full-body is set. The page
+// is rendered to a buffer and passed through highlightMarkdown so an interactive
+// terminal gets syntax coloring while piped/redirected output stays plain.
 func displayFindingsMarkdown(ctx context.Context, db *database.DB, findings []*database.Finding) error {
-	compact := jsonCompact && globalStateless
+	compact := !jsonFullBody
 	// Resolve every linked record for the page in one query (not per finding),
 	// mirroring the --json path's findingViews.
 	byUUID := batchLoadFindingRecords(ctx, db, findings)
+	var buf strings.Builder
 	for i, f := range findings {
 		if i > 0 {
-			fmt.Println("---")
-			fmt.Println()
+			buf.WriteString("---\n\n")
 		}
 		var records []*database.HTTPRecord
 		for _, u := range f.HTTPRecordUUIDs {
@@ -44,22 +47,25 @@ func displayFindingsMarkdown(ctx context.Context, db *database.DB, findings []*d
 				records = append(records, r)
 			}
 		}
-		renderFindingMarkdown(f, records, os.Stdout, compact)
+		renderFindingMarkdown(f, records, &buf, compact)
 	}
-	return nil
+	_, err := fmt.Fprint(os.Stdout, highlightMarkdown(buf.String()))
+	return err
 }
 
-// displayTrafficMarkdown renders each HTTP record as Markdown to stdout.
+// displayTrafficMarkdown renders each HTTP record as Markdown to stdout, with
+// the same buffer-then-highlight pass as displayFindingsMarkdown.
 func displayTrafficMarkdown(records []*database.HTTPRecord) error {
-	compact := jsonCompact && globalStateless
+	compact := !jsonFullBody
+	var buf strings.Builder
 	for i, rec := range records {
 		if i > 0 {
-			fmt.Println("---")
-			fmt.Println()
+			buf.WriteString("---\n\n")
 		}
-		renderRecordMarkdown(rec, os.Stdout, false, compact)
+		renderRecordMarkdown(rec, &buf, false, compact)
 	}
-	return nil
+	_, err := fmt.Fprint(os.Stdout, highlightMarkdown(buf.String()))
+	return err
 }
 
 // renderFindingMarkdown writes one finding as Markdown: a severity-tagged
@@ -197,16 +203,26 @@ func writeHTTPSection(ew *errWriter, title, raw string, compact bool, needles []
 func compactRawHTTP(raw string, needles []string, bodyCap int) string {
 	headers, body := splitHeadersBody([]byte(raw))
 	if len(body) == 0 {
-		return headers
+		// No header/body boundary — the whole message is effectively a body
+		// (e.g. a stored body-only response). Window/cap it directly so we
+		// never dump a multi-MB blob just because it lacks a blank line.
+		return capBodyText(string(maybeGunzip([]byte(headers))), needles, bodyCap)
 	}
 	bodyStr := string(maybeGunzip(body))
+	return headers + "\r\n\r\n" + capBodyText(bodyStr, needles, bodyCap)
+}
 
+// capBodyText shrinks a decoded body for compact display: a window around the
+// first needle (matched_at / extracted evidence) when one is found, otherwise
+// the leading bodyCap bytes with a truncation note. A zero bodyCap disables the
+// cap (returns the whole body when no needle matches).
+func capBodyText(bodyStr string, needles []string, bodyCap int) string {
 	if snip := evidenceSnippet(bodyStr, needles, statelessEvidenceWindow); snip != "" {
-		return headers + "\r\n\r\n" + snip
+		return snip
 	}
 	if bodyCap > 0 && len(bodyStr) > bodyCap {
-		return headers + "\r\n\r\n" + bodyStr[:bodyCap] +
+		return bodyStr[:bodyCap] +
 			fmt.Sprintf("\n… (%d more bytes truncated)", len(bodyStr)-bodyCap)
 	}
-	return headers + "\r\n\r\n" + bodyStr
+	return bodyStr
 }

@@ -139,7 +139,7 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 	var weaknesses []cspWeakness
 
 	scriptSrc, hasScriptSrc := directives["script-src"]
-	defaultSrc := directives["default-src"]
+	defaultSrc, hasDefaultSrc := directives["default-src"]
 
 	// Effective script source (script-src falls back to default-src)
 	effectiveScriptSrc := scriptSrc
@@ -147,18 +147,49 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 		effectiveScriptSrc = defaultSrc
 	}
 
+	// No script restriction at all: neither script-src nor default-src is present,
+	// so scripts are unrestricted and every script sub-check below would silently
+	// pass on an empty string. This is the strongest script weakness — report it
+	// explicitly so a policy that only sets img-src isn't reported "clean". The
+	// script sub-checks then no-op on the empty effective source; the frame-ancestors
+	// / base-uri / object-src checks below still run.
+	if !hasScriptSrc && !hasDefaultSrc {
+		weaknesses = append(weaknesses, cspWeakness{
+			name:      "No script-src or default-src",
+			directive: "script-src",
+			severity:  severity.Medium,
+			desc:      "CSP defines neither script-src nor default-src, so scripts are not restricted at all — the policy provides no XSS protection for script execution",
+		})
+	}
+
+	// A nonce, hash, or strict-dynamic neutralizes 'unsafe-inline' in modern
+	// browsers (they ignore unsafe-inline when any of these is present) and makes a
+	// host allowlist / wildcard dead weight under strict-dynamic. Track both so the
+	// findings below aren't over-flagged on an actually-hardened policy.
+	strictDynamic := hasStrictDynamic(effectiveScriptSrc)
+	neutralizesInline := hasNonceOrHash(effectiveScriptSrc) || strictDynamic
+
 	// Check unsafe-inline in script context
 	if strings.Contains(effectiveScriptSrc, "'unsafe-inline'") {
 		directive := "script-src"
 		if !hasScriptSrc {
 			directive = "default-src (fallback for script-src)"
 		}
-		weaknesses = append(weaknesses, cspWeakness{
-			name:      "unsafe-inline in Script Source",
-			directive: directive,
-			severity:  severity.Medium,
-			desc:      "CSP allows 'unsafe-inline' for scripts, which permits inline script execution and largely negates XSS protection",
-		})
+		if neutralizesInline {
+			weaknesses = append(weaknesses, cspWeakness{
+				name:      "unsafe-inline present but neutralized (legacy fallback)",
+				directive: directive,
+				severity:  severity.Info,
+				desc:      "CSP lists 'unsafe-inline' but modern browsers ignore it because a nonce/hash/'strict-dynamic' is also present; it still applies to legacy browsers that don't support those, so it's kept as a hardening note",
+			})
+		} else {
+			weaknesses = append(weaknesses, cspWeakness{
+				name:      "unsafe-inline in Script Source",
+				directive: directive,
+				severity:  severity.Medium,
+				desc:      "CSP allows 'unsafe-inline' for scripts, which permits inline script execution and largely negates XSS protection",
+			})
+		}
 	}
 
 	// Check unsafe-eval in script context
@@ -175,14 +206,25 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 		})
 	}
 
-	// Check wildcard in script context
+	// Check wildcard in script context. Under 'strict-dynamic' browsers ignore host
+	// expressions (including '*'), so the wildcard is not actually exploitable there —
+	// downgrade to an Info note rather than a Medium false positive.
 	if hasScriptSrc && containsWildcard(scriptSrc) {
-		weaknesses = append(weaknesses, cspWeakness{
-			name:      "Wildcard Script Source",
-			directive: "script-src",
-			severity:  severity.Medium,
-			desc:      "CSP script-src contains wildcard '*', allowing scripts from any origin",
-		})
+		if strictDynamic {
+			weaknesses = append(weaknesses, cspWeakness{
+				name:      "Wildcard Script Source (ignored under strict-dynamic)",
+				directive: "script-src",
+				severity:  severity.Info,
+				desc:      "CSP script-src contains '*', but 'strict-dynamic' makes browsers ignore host allowlists — the wildcard is dead weight, not an active weakness; remove it to avoid confusion",
+			})
+		} else {
+			weaknesses = append(weaknesses, cspWeakness{
+				name:      "Wildcard Script Source",
+				directive: "script-src",
+				severity:  severity.Medium,
+				desc:      "CSP script-src contains wildcard '*', allowing scripts from any origin",
+			})
+		}
 	}
 
 	// Check data: URI in script context
@@ -254,6 +296,22 @@ func analyzeCSP(directives map[string]string) []cspWeakness {
 	}
 
 	return weaknesses
+}
+
+// hasNonceOrHash reports whether a source list carries a nonce or hash source
+// expression ('nonce-...' / 'sha256-...' / 'sha384-...' / 'sha512-...'). Their
+// presence makes modern browsers ignore 'unsafe-inline'.
+func hasNonceOrHash(value string) bool {
+	return strings.Contains(value, "'nonce-") ||
+		strings.Contains(value, "'sha256-") ||
+		strings.Contains(value, "'sha384-") ||
+		strings.Contains(value, "'sha512-")
+}
+
+// hasStrictDynamic reports whether a source list carries 'strict-dynamic', which
+// makes browsers ignore host allowlists (and 'unsafe-inline').
+func hasStrictDynamic(value string) bool {
+	return strings.Contains(value, "'strict-dynamic'")
 }
 
 // containsWildcard checks if a directive value contains a standalone wildcard.

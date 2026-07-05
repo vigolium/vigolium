@@ -14,6 +14,7 @@ package tracker
 
 import (
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 )
@@ -104,7 +105,7 @@ func (b *PrefixBreaker) Observe(reqURL *url.URL, status int, contentType string,
 	}
 
 	host := reqURL.Host
-	prefix := PrefixOf(reqURL.Path, b.cfg.PrefixSegments)
+	prefix := effectivePrefix(reqURL.Path, b.cfg.PrefixSegments)
 	if prefix == "" {
 		return TrippedReason{}, false
 	}
@@ -171,7 +172,7 @@ func (b *PrefixBreaker) IsDead(reqURL *url.URL) bool {
 	if b == nil || !b.cfg.Enabled || reqURL == nil {
 		return false
 	}
-	prefix := PrefixOf(reqURL.Path, b.cfg.PrefixSegments)
+	prefix := effectivePrefix(reqURL.Path, b.cfg.PrefixSegments)
 	if prefix == "" {
 		return false
 	}
@@ -188,7 +189,7 @@ func (b *PrefixBreaker) IsDeadReason(reqURL *url.URL) (TrippedReason, bool) {
 	if b == nil || !b.cfg.Enabled || reqURL == nil {
 		return TrippedReason{}, false
 	}
-	prefix := PrefixOf(reqURL.Path, b.cfg.PrefixSegments)
+	prefix := effectivePrefix(reqURL.Path, b.cfg.PrefixSegments)
 	if prefix == "" {
 		return TrippedReason{}, false
 	}
@@ -208,6 +209,30 @@ func (b *PrefixBreaker) TrippedCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return len(b.tripped)
+}
+
+// effectivePrefix groups a request by the resource it EFFECTIVELY targets, so a
+// path-normalization bypass template does not collapse an entire flat enumeration
+// into a single bucket.
+//
+// A FUZZ template like ".../%23/../FUZZ" produces decoded paths "/#/../metrics",
+// "/#/../admin.js", … whose literal first segment is the synthetic bypass token
+// "#". Grouping on that raw first segment would file every fuzzed word under one
+// prefix ("/#"), let it reach MinSamples on uniform 404s, trip, and then drop all
+// remaining words — silently killing a user-supplied wordlist. Resolving the path
+// first ("/#/../metrics" → "/metrics") restores a per-resource prefix so each word
+// is grouped by its real target. For ordinary (already-clean) paths this is a
+// no-op, so recursive-directory black-hole detection is unchanged.
+func effectivePrefix(urlPath string, n int) string {
+	// path.Clean only changes the prefix for paths carrying dot-segments or double
+	// slashes (the bypass "/#/../metrics" matches via ".."); the guard skips the
+	// clean — which would also strip a meaningful trailing slash — for the ordinary
+	// already-clean paths that dominate recursive-directory discovery.
+	cleaned := urlPath
+	if strings.Contains(urlPath, "..") || strings.Contains(urlPath, "//") {
+		cleaned = path.Clean(urlPath)
+	}
+	return PrefixOf(cleaned, n)
 }
 
 // PrefixOf returns the leading n path segments of urlPath, joined with "/"

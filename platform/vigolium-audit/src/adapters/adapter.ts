@@ -97,6 +97,14 @@ export interface AdapterRunInput {
   maxTurns?: number;
   /** Externally-driven abort. Adapter should propagate to its runtime. */
   abortSignal?: AbortSignal;
+  /**
+   * Resume a prior conversation by session id (from a previous run's `session`
+   * event). Loads that session's history so a follow-up prompt continues it —
+   * e.g. triage → exploit on the same finding without re-establishing context.
+   * Claude SDK maps this to `query`'s `resume` option; codex has no equivalent
+   * and ignores it.
+   */
+  resume?: string;
   /** Hint label for logs / TUI; usually the phase id. */
   label?: string;
   /**

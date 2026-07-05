@@ -502,10 +502,9 @@ func parseOriginTargets(targets []string) []originTarget {
 		// Extract eTLD+1 using publicsuffix
 		if etld, err := publicsuffix.EffectiveTLDPlusOne(host); err == nil {
 			ot.etldPlus1 = etld
-			// Extract keyword: the label before the TLD portion
-			// For "example.com" → "example", for "example.co.uk" → "example"
-			tldPart := etld[strings.Index(etld, ".")+1:]
-			ot.keyword = strings.TrimSuffix(etld, "."+tldPart)
+			// Keyword is the registrable-domain label (the label before the TLD):
+			// "example.com" → "example", "example.co.uk" → "example".
+			ot.keyword = leadingLabel(etld)
 		}
 
 		result = append(result, ot)
@@ -573,10 +572,32 @@ func (m *ScopeMatcher) hostMatchesSingleOrigin(host string, ot *originTarget) bo
 		if ot.keyword == "" {
 			return host == ot.exactHost
 		}
-		return strings.Contains(host, ot.keyword)
+		// Match the keyword against the host's registrable-domain leading label
+		// (the eTLD+1 label), NOT the full hostname. This keeps same-org hosts on
+		// other TLDs / brand domains in scope (e.g. keyword "roche" matches
+		// roche.io, rochegroup.com) while rejecting unrelated third parties whose
+		// subdomain merely contains the keyword — e.g. rochegroup.cloudflareaccess.com,
+		// a Cloudflare SSO wall whose registrable label is "cloudflareaccess", not
+		// a match. A bare strings.Contains(host, keyword) would wrongly admit it.
+		hostETLD, err := publicsuffix.EffectiveTLDPlusOne(host)
+		if err != nil {
+			// No registrable domain (e.g. a single-label internal host) — out of
+			// scope, matching how balanced treats the same case. Falling back to a
+			// full-host substring here would reintroduce the leak this fix closes.
+			return false
+		}
+		return strings.Contains(leadingLabel(hostETLD), ot.keyword)
 	default: // "all"
 		return true
 	}
+}
+
+// leadingLabel returns the registrable-domain label of an eTLD+1 — the label
+// before its first dot: "roche.com" → "roche", "example.co.uk" → "example".
+// A dotless input (no eTLD+1) is returned unchanged.
+func leadingLabel(etldPlus1 string) string {
+	label, _, _ := strings.Cut(etldPlus1, ".")
+	return label
 }
 
 func mustAtoi(s string, fallback int) int {

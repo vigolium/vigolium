@@ -1174,24 +1174,35 @@ agent:
     # Options:
     #   openai-codex-oauth — ChatGPT Plus/Pro subscription via OAuth json (uses oauth_cred_path)
     #   openai-api-key     — OpenAI Chat Completions API (uses llm_api_key or $OPENAI_API_KEY)
+    #   openai-responses   — Public OpenAI Responses API /v1/responses (uses llm_api_key or $OPENAI_API_KEY)
     #   anthropic-api-key  — Anthropic Messages API (uses llm_api_key or $ANTHROPIC_API_KEY)
     #   anthropic-oauth    — Anthropic OAuth bearer token from `claude setup-token` (uses oauth_token or $ANTHROPIC_API_KEY)
-    #   anthropic-cli      — Shells out to the local `claude` CLI (uses Claude Max sub; no key here)
+    #   anthropic-cli      — Shells out to the local `claude` CLI (uses Claude Max sub; no key here). Alias: anthropic-claude-cli
+    #   anthropic-claude-sdk-bridge — Claude Code via the Agent SDK, through the `vigolium-audit bridge`
+    #                        sidecar (uses bridge_binary below, else the embedded blob, then PATH). No key —
+    #                        uses your logged-in Claude Code subscription; an explicit llm_api_key/oauth_token is forwarded.
     #   anthropic-vertex   — Claude on Google Vertex AI (uses oauth_cred_path + google_cloud_project/location)
     #   google-vertex      — Gemini on Google Vertex AI (same GCP creds as anthropic-vertex)
     #   openai-compatible  — Any OpenAI Chat Completions-compatible endpoint
     #                        (Ollama, OpenRouter, LM Studio, vLLM, Together,
     #                        Groq, LocalAI, custom proxies); configured under
     #                        `custom_provider` below.
+    #   anthropic-compatible — Any Anthropic Messages (/v1/messages)-compatible
+    #                        endpoint at a custom base_url (self-hosted gateway
+    #                        or Messages-format proxy); configured under
+    #                        `custom_provider` below.
     # Default: openai-compatible (local Ollama via custom_provider below)
     provider: openai-compatible
 
     # Model identifier. Empty = provider default.
     # Provider defaults: openai-codex-oauth → "gpt-5.5"; openai-api-key → "gpt-5.5";
-    # anthropic-api-key → "claude-opus-4-7"; anthropic-oauth → "claude-opus-4-7";
+    # openai-responses → "gpt-5.5"; anthropic-api-key → "claude-opus-4-7";
+    # anthropic-oauth → "claude-opus-4-7";
     # anthropic-cli → "claude-opus-4-7"; anthropic-vertex → "claude-opus-4-6";
-    # google-vertex → "gemini-2.5-pro"; openai-compatible → uses
-    # `custom_provider.model_id` below.
+    # anthropic-claude-sdk-bridge → bridge/Claude Code default (accepts short
+    # aliases like "opus"/"sonnet" or a full model id);
+    # google-vertex → "gemini-2.5-pro"; openai-compatible / anthropic-compatible
+    # → uses `custom_provider.model_id` below.
     # Override per-run with --model.
     # Default: "" (empty). Leave empty so the provider default applies — for
     # openai-compatible that means custom_provider.model_id wins. Setting any
@@ -1204,6 +1215,14 @@ agent:
     #                    (falls back to $GOOGLE_APPLICATION_CREDENTIALS).
     # Default: ~/.codex/auth.json
     oauth_cred_path: ~/.codex/auth.json
+
+    # Path to the `vigolium-audit` binary that hosts the SDK bridge, used only
+    # by the anthropic-claude-sdk-bridge provider. Supports ~ expansion and a
+    # bare command name (resolved via PATH). Leave empty to use the embedded
+    # vigolium-audit blob shipped with this binary, falling back to a
+    # `vigolium-audit` on PATH. Override per-run with --bridge-bin.
+    # Default: "" (embedded blob, then PATH)
+    bridge_binary: ""
 
     # Anthropic OAuth bearer token (anthropic-oauth provider). Produced by
     # `claude setup-token` — typically a `sk-ant-oat01-…` value. Supports
@@ -1272,12 +1291,17 @@ agent:
     #   - write-jsext
 
     # --------------------------------------------------------------------------
-    # custom_provider — settings for provider: openai-compatible
+    # custom_provider — settings for provider: openai-compatible / anthropic-compatible
     # --------------------------------------------------------------------------
-    # Only consulted when provider is set to "openai-compatible". Speaks the
-    # OpenAI Chat Completions wire format, so any backend that does too works:
-    # Ollama, OpenRouter, LM Studio, vLLM, Together, Groq, LocalAI, or your
-    # own proxy.
+    # Consulted when provider is "openai-compatible" (OpenAI Chat Completions
+    # wire format) or "anthropic-compatible" (Anthropic Messages /v1/messages
+    # wire format). For openai-compatible, any backend that speaks Chat
+    # Completions works: Ollama, OpenRouter, LM Studio, vLLM, Together, Groq,
+    # LocalAI, or your own proxy. For anthropic-compatible, point base_url at a
+    # self-hosted Claude gateway or a Messages-format proxy (base_url accepts a
+    # /v1 root or a full /v1/messages path; extra_headers can switch the auth
+    # scheme to `Authorization: Bearer`). Note: extra_body / provider_routing
+    # apply to openai-compatible only.
     #
     # Examples:
     #   Ollama (local, no auth):    base_url: http://localhost:11434/v1

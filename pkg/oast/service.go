@@ -711,6 +711,23 @@ func classifyInteraction(protocol string, pctx PayloadContext) (severity.Severit
 		return classifyXXE(proto, injectionDesc)
 	}
 
+	// SQLi out-of-band payloads (MySQL LOAD_FILE of a UNC path, MSSQL xp_dirtree,
+	// Oracle UTL_INADDR/UTL_HTTP, PostgreSQL COPY ... TO PROGRAM) make the database
+	// itself resolve or fetch a unique, unguessable OAST subdomain. A correlated
+	// callback means the injected SQL executed inside the query — proof of blind SQL
+	// injection, not SSRF, so it gets its own classifier.
+	if strings.Contains(strings.ToLower(pctx.InjectionType), "sql") {
+		return classifySQLi(proto, injectionDesc)
+	}
+
+	// JWT header key-URL injection (jku/x5u pointing at a unique OAST subdomain):
+	// a callback means the server dereferenced an attacker-controlled URL from the
+	// token header to fetch a verification key — the precursor to signing-key
+	// injection (full auth bypass), and at minimum a server-side request forgery.
+	if strings.Contains(strings.ToLower(pctx.InjectionType), "jwt") {
+		return classifyJWT(proto, injectionDesc)
+	}
+
 	// Host-routing / host-reflection SSRF — request-line manipulation
 	// (routing-ssrf) and the proxy-reflected host-header family (X-Forwarded-Host,
 	// X-Forwarded-Server, X-Host, X-Original-Host, X-Original-URL, X-Rewrite-URL) —
@@ -751,6 +768,39 @@ func classifyXXE(proto, injectionDesc string) (severity.Severity, severity.Confi
 		return severity.High, severity.Certain, "Blind XXE confirmed: the target's XML parser resolved the injected external-entity OAST subdomain (DNS) (" + injectionDesc + "). The unguessable per-payload subdomain rules out coincidental resolution."
 	default:
 		return severity.High, severity.Certain, "Blind XXE confirmed via out-of-band " + proto + " interaction (" + injectionDesc + ")"
+	}
+}
+
+// classifySQLi rates out-of-band interactions triggered by an injected SQL
+// out-of-band function. The per-payload subdomain is random and unguessable, so a
+// correlated callback proves the database executed the injected function inside
+// the query. An HTTP fetch (UTL_HTTP / COPY TO PROGRAM curl) is the strongest
+// signal; a DNS-only hit (LOAD_FILE UNC / xp_dirtree / UTL_INADDR resolving the
+// host) is one notch below but still rules out coincidence via the unique host.
+func classifySQLi(proto, injectionDesc string) (severity.Severity, severity.Confidence, string) {
+	switch proto {
+	case "http", "https":
+		return severity.Critical, severity.Certain, "Blind SQL injection confirmed: the database executed an injected out-of-band function that fetched the OAST server over HTTP (" + injectionDesc + ")"
+	case "dns":
+		return severity.High, severity.Firm, "Blind SQL injection likely: the database resolved a unique OAST subdomain via an injected out-of-band function (LOAD_FILE UNC / xp_dirtree / UTL_INADDR) (" + injectionDesc + "). The unguessable per-payload subdomain rules out coincidental resolution; DNS-only (no outbound fetch) keeps confidence at Firm."
+	default:
+		return severity.High, severity.Firm, "Blind SQL injection confirmed via out-of-band " + proto + " interaction (" + injectionDesc + ")"
+	}
+}
+
+// classifyJWT rates out-of-band interactions triggered by a jku/x5u claim in a
+// JWT header pointing at a unique OAST subdomain. A callback proves the server
+// fetched the attacker-controlled key URL — one step from swapping in an attacker
+// signing key (full authentication bypass), so it is reported High regardless of
+// protocol (both DNS and HTTP legs mean the server resolved/fetched the URL).
+func classifyJWT(proto, injectionDesc string) (severity.Severity, severity.Confidence, string) {
+	switch proto {
+	case "http", "https":
+		return severity.High, severity.Certain, "JWT header key-URL injection confirmed: the server fetched the attacker-controlled jku/x5u URL from the token header over HTTP (" + injectionDesc + "). This enables signing-key injection / authentication bypass and is itself a server-side request forgery."
+	case "dns":
+		return severity.High, severity.Firm, "JWT header key-URL injection likely: the server resolved the attacker-controlled jku/x5u OAST subdomain from the token header via DNS (" + injectionDesc + "). The unguessable per-payload subdomain rules out coincidence; DNS-only (no fetch observed) keeps confidence at Firm."
+	default:
+		return severity.High, severity.Firm, "JWT header key-URL injection confirmed via out-of-band " + proto + " interaction (" + injectionDesc + ")"
 	}
 }
 

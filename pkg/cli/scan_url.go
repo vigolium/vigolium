@@ -113,14 +113,16 @@ func hasFileOutputFormat() bool {
 // native-scan Runner rather than the lightweight in-memory direct path. That is
 // required whenever a phase is enabled, results are persisted/exported to a file
 // (-o), the run is stateless (-S), phases are skipped (--skip), findings are
-// printed as Markdown (--print-finding, which renders from the DB), or a file
-// output format is requested — none of which the direct path implements.
+// printed as Markdown (--print-finding), traffic is printed (--print-traffic /
+// --print-traffic-tree) — all of which render from the DB — or a file output
+// format is requested; none of which the direct path implements.
 func needsRunnerScan() bool {
 	return hasPhaseFlags() ||
 		globalStateless ||
 		scanOpts.Output != "" ||
 		len(globalSkipPhases) > 0 ||
 		scanPrintFinding ||
+		hasPrintTrafficFlags() ||
 		hasFileOutputFormat()
 }
 
@@ -844,6 +846,7 @@ func runRunnerScan(rr *httpmsg.HttpRequestResponse, target string) (err error) {
 		printScanCompletionSummary(repo, opts.ProjectUUID, hosts, time.Since(scanStart))
 	}
 	maybePrintScanFindings(context.Background(), db, opts.ProjectUUID, opts.ScanUUID)
+	maybePrintScanTraffic(context.Background(), db, opts.ProjectUUID)
 	evaluateFailOnGate(repo, opts.ProjectUUID, opts.ScanUUID, opts.Silent)
 
 	return nil

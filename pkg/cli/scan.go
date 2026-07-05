@@ -736,6 +736,7 @@ func reportNativeScanSuccess(db *database.DB, settings *config.Settings, repo *d
 		printScanCompletionSummary(repo, scanOpts.ProjectUUID, hosts, time.Since(scanStart))
 	}
 	maybePrintScanFindings(context.Background(), db, scanOpts.ProjectUUID, scanOpts.ScanUUID)
+	maybePrintScanTraffic(context.Background(), db, scanOpts.ProjectUUID)
 	evaluateFailOnGate(repo, scanOpts.ProjectUUID, scanOpts.ScanUUID, scanOpts.Silent)
 }
 
@@ -1369,21 +1370,34 @@ func finishDBIsolateMerge(destCfg config.DatabaseConfig, scratchPath string, sil
 	ctx := context.Background()
 	destPath := database.ExpandPath(destCfg.SQLite.Path)
 
-	dest, err := database.NewDB(&destCfg)
-	if err != nil {
-		return dbIsolateMergeFailed(scratchPath, scanErr, fmt.Errorf("open destination database: %w", err))
-	}
-	defer func() { _ = dest.Close() }()
-
-	if err := dest.CreateSchema(ctx); err != nil {
-		return dbIsolateMergeFailed(scratchPath, scanErr, fmt.Errorf("prepare destination schema: %w", err))
-	}
-	// Best-effort: seed the default project/FTS so a brand-new destination is
-	// fully usable; a failure here doesn't block the merge of the result rows.
-	_ = dest.SeedDefaults(ctx)
-
+	// Serialize the ENTIRE destination-DB critical section — open, schema
+	// creation, default seeding, and the merge — under one cross-process lock.
+	// When many --db-isolate finishers target a single fresh shared --db (the
+	// -P fan-out and parallel-process case), opening the DB runs a WAL-mode
+	// switch + initial checkpoint and CreateSchema runs a batch of
+	// CREATE TABLE/INDEX IF NOT EXISTS DDL — all write operations that, outside
+	// the lock, run with no busy-retry of their own and can surface SQLITE_BUSY
+	// under heavy concurrent load, failing the merge. Holding the lock across
+	// open→schema→seed→merge means only one process initializes/writes the
+	// shared destination at a time; the rest see an already-initialized DB and
+	// their IF NOT EXISTS DDL is a fast no-op. The lock stays best-effort (it
+	// degrades to DB-level serialization on timeout), and MergeSQLiteFile keeps
+	// its own busy-retry for that degraded path.
 	var stats *database.MergeStats
 	mergeErr := database.WithMergeLock(destPath, 60*time.Second, func() error {
+		dest, err := database.NewDB(&destCfg)
+		if err != nil {
+			return fmt.Errorf("open destination database: %w", err)
+		}
+		defer func() { _ = dest.Close() }()
+
+		if err := dest.CreateSchema(ctx); err != nil {
+			return fmt.Errorf("prepare destination schema: %w", err)
+		}
+		// Best-effort: seed the default project/FTS so a brand-new destination is
+		// fully usable; a failure here doesn't block the merge of the result rows.
+		_ = dest.SeedDefaults(ctx)
+
 		var e error
 		stats, e = database.MergeSQLiteFile(ctx, dest, scratchPath)
 		return e

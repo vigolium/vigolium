@@ -5,18 +5,18 @@ import "github.com/vigolium/vigolium/pkg/types/severity"
 const (
 	ModuleID    = "xml-saml-security"
 	ModuleName  = "XML SAML Security"
-	ModuleShort = "SAML XML security checks (XXE/DTD)"
+	ModuleShort = "SAML XML security checks (XXE + signature verification)"
 )
 
 var (
-	ModuleDesc = `**What it means:** The SAML endpoint parses SAMLRequest/SAMLResponse XML with a parser that resolves external DTDs and entities - an XML External Entity (XXE) flaw at a trusted, pre-auth boundary.
+	ModuleDesc = `**What it means:** The SAML endpoint either parses SAMLRequest/SAMLResponse XML with external-entity resolution enabled (XXE at a pre-auth boundary), or accepts an assertion without verifying its XML signature.
 
-**How it's exploited:** An attacker submits a SAML message with a crafted DOCTYPE or entity whose SYSTEM identifier points to their server. The parser can be coerced into fetching attacker URLs (server-side request forgery) and, per config, reading files or causing denial of service. The scanner confirms out-of-band via a unique OAST callback.
+**How it's exploited:** An XXE DOCTYPE/entity coerces the parser into fetching attacker URLs (SSRF) or reading files. Separately, if the SP validates assertion content but not the signature, an attacker strips the signature and forges assertions to authenticate as any user.
 
-**Fix:** Disable DOCTYPE declarations and external entity/DTD resolution (set FEATURE_SECURE_PROCESSING and reject documents with a DOCTYPE).`
+**Fix:** Disable DOCTYPE/external-entity resolution (FEATURE_SECURE_PROCESSING), and always verify the XML signature against a trusted IdP key, rejecting unsigned or wrapped assertions.`
 
-	ModuleConfirmation = "Confirmed out-of-band: an injected external DTD/entity pointing at a unique OAST callback URL is resolved by the target's XML parser, producing a correlated out-of-band interaction"
+	ModuleConfirmation = "XXE confirmed out-of-band via a unique OAST callback the parser resolves; signature stripping confirmed when an unsigned-but-valid assertion reproduces the signed baseline response while a wrong-identity control is rejected"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
-	ModuleTags         = []string{"injection", "xxe", "authentication", "moderate"}
+	ModuleTags         = []string{"injection", "xxe", "authentication", "auth-bypass", "moderate"}
 )

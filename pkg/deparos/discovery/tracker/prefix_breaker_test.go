@@ -208,6 +208,50 @@ func TestPrefixBreaker_RootPathIgnored(t *testing.T) {
 	}
 }
 
+// TestPrefixBreaker_BypassTemplateDoesNotCollapse is a regression test for a
+// path-normalization bypass FUZZ template (".../%23/../FUZZ") silently killing a
+// whole wordlist. Every fuzzed word decodes to "/#/../<word>", whose raw first
+// segment is the synthetic bypass token "#". Grouping on that raw segment filed
+// all words under one prefix ("/#"), tripped it on uniform 404s, and then dropped
+// every remaining word (IsDead). effectivePrefix resolves the path first so each
+// word groups by its real target ("/metrics", "/admin.js", …) and no single
+// bypass bucket accumulates.
+func TestPrefixBreaker_BypassTemplateDoesNotCollapse(t *testing.T) {
+	b := NewPrefixBreaker(BreakerConfig{
+		Enabled: true, MinSamples: 5, TripRatio: 0.9, PrefixSegments: 1, LengthBucket: 256,
+	})
+	// The url.URL.Path for a "/%23/../<word>" wire path decodes to "/#/../<word>".
+	u := func(word string) *url.URL {
+		return &url.URL{Scheme: "http", Host: "example.com", Path: "/#/../" + word}
+	}
+
+	// A flat wordlist of distinct single-segment words, all uniformly 404/empty —
+	// exactly the shape that used to trip the shared "/#" bucket.
+	words := []string{"a", "b", "c", "d", "e", "f", "g", "admin.js", "metrics"}
+	for _, w := range words {
+		if _, tripped := b.Observe(u(w), 404, "", 0); tripped {
+			t.Fatalf("bypass fuzz word %q must not trip a shared prefix", w)
+		}
+	}
+
+	// The real target the user cares about must remain probeable.
+	if b.IsDead(u("metrics")) {
+		t.Fatal("/#/../metrics must not be dead — each fuzz word is its own effective resource")
+	}
+	if b.TrippedCount() != 0 {
+		t.Fatalf("no prefix should have tripped, got TrippedCount=%d", b.TrippedCount())
+	}
+
+	// A genuine catch-all subtree under a bypass prefix must still trip: many
+	// distinct words that all resolve under "/actuator/*" returning uniform 404s.
+	for _, w := range []string{"actuator/a", "actuator/b", "actuator/c", "actuator/d", "actuator/e"} {
+		b.Observe(u(w), 404, "", 0)
+	}
+	if !b.IsDead(u("actuator/health")) {
+		t.Fatal("a uniform /actuator/* subtree should still trip after cleaning")
+	}
+}
+
 func TestPrefixBreaker_NilSafe(t *testing.T) {
 	var b *PrefixBreaker
 	if _, tripped := b.Observe(mustURL(t, "http://h/x"), 200, "text/html", 100); tripped {

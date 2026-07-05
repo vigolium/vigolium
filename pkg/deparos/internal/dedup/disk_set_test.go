@@ -273,6 +273,20 @@ func TestNormalizeURL(t *testing.T) {
 		// Static files without query params (unchanged)
 		{"http://example.com/app.js", "http://example.com/app.js"},
 		{"http://example.com/style.css", "http://example.com/style.css"},
+
+		// Path-normalization bypass (percent-ENCODED markers): the wire form is
+		// kept verbatim so a fuzz wordlist under a "/%23/../FUZZ" template does NOT
+		// collapse every distinct word to one key, and a bypass stays distinct from
+		// its resolved target. A decoded "#" is a fragment delimiter, so the
+		// discovery pipeline emits the escaped "%23" form (see extractPathFromURL).
+		{"https://example.com/%23/../metrics", "https://example.com/%23/../metrics"},
+		{"https://example.com/%23/../admin.js", "https://example.com/%23/../admin.js"},
+		{"https://example.com/%23/../metrics/", "https://example.com/%23/../metrics/"},
+		{"https://example.com/%2e%2e/metrics", "https://example.com/%2e%2e/metrics"},
+		{"https://example.com/..%2fmetrics", "https://example.com/..%2fmetrics"},
+		// A genuine (decoded, unencoded) fragment is still stripped — "#frag" is not
+		// part of the request and must dedupe with the fragment-less URL.
+		{"https://example.com/page#frag", "https://example.com/page"},
 	}
 
 	for _, tt := range tests {
@@ -280,6 +294,44 @@ func TestNormalizeURL(t *testing.T) {
 			got := NormalizeURL(tt.input)
 			assert.Equal(t, tt.want, got)
 		})
+	}
+}
+
+// TestNormalizeURL_BypassPathsStayDistinct is a regression test for a FUZZ template
+// using a path-normalization bypass ("/%23/../FUZZ"). Before the fix, NormalizeURL
+// parsed the decoded URL — where "#" is a fragment delimiter — so every word
+// collapsed to the root key and only the first fuzz word was ever probed; and even
+// the escaped form was path.Clean-collapsed onto its resolved target. This asserts
+// each word now hashes distinctly and a bypass is distinct from its clean target.
+func TestNormalizeURL_BypassPathsStayDistinct(t *testing.T) {
+	key := func(u string) string { return HashRequest("GET", u, "") }
+
+	// Each fuzz word must produce a UNIQUE request key (no collapse to root).
+	words := []string{"metrics", "admin.js", "actuator", "health", "robots.txt"}
+	seen := make(map[string]string, len(words))
+	for _, w := range words {
+		u := "https://h.com/%23/../" + w
+		k := key(u)
+		if prev, dup := seen[k]; dup {
+			t.Fatalf("bypass fuzz words %q and %q collapsed to the same dedup key %q", prev, u, k)
+		}
+		seen[k] = u
+	}
+
+	// A bypass request is distinct from its resolved target (the origin may gate
+	// them differently — the whole reason for sending it).
+	if key("https://h.com/%23/../metrics") == key("https://h.com/metrics") {
+		t.Fatal("bypass /%23/../metrics must not dedupe against the clean /metrics")
+	}
+	// Other encodings of the same technique are also preserved.
+	if key("https://h.com/%2e%2e/metrics") == key("https://h.com/metrics") {
+		t.Fatal("encoded-dot bypass must stay distinct from the clean target")
+	}
+
+	// Regression guard: an ordinary (unencoded) relative path is still canonicalized
+	// so genuine duplicates keep deduping.
+	if key("https://h.com/api/../v1") != key("https://h.com/v1") {
+		t.Fatal("plain relative /api/../v1 must still normalize to /v1")
 	}
 }
 

@@ -92,6 +92,27 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			issues = append(issues, "Missing SameSite attribute")
 		}
 
+		// SameSite=None requires Secure: modern browsers reject a None cookie without
+		// Secure, and it marks an intentionally cross-site cookie shipped insecurely.
+		if strings.Contains(cookieLower, "samesite=none") && !strings.Contains(cookieLower, "secure") {
+			issues = append(issues, "SameSite=None without Secure")
+		}
+
+		// Cookie name prefixes carry browser-enforced guarantees: __Secure- and
+		// __Host- both require Secure, and __Host- forbids a Domain attribute.
+		nameLower := strings.ToLower(cookieName)
+		if strings.HasPrefix(nameLower, "__secure-") && !strings.Contains(cookieLower, "secure") {
+			issues = append(issues, "__Secure- prefix without Secure flag")
+		}
+		if strings.HasPrefix(nameLower, "__host-") {
+			if !strings.Contains(cookieLower, "secure") {
+				issues = append(issues, "__Host- prefix without Secure flag")
+			}
+			if strings.Contains(cookieLower, "domain=") {
+				issues = append(issues, "__Host- prefix with a Domain attribute (violates the __Host- rule)")
+			}
+		}
+
 		if len(issues) > 0 {
 			results = append(results, &output.ResultEvent{
 				Host: urlx.Host,

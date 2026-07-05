@@ -34,17 +34,23 @@ const (
 //   - oauthToken: `Authorization: Bearer …` plus the OAuth beta header,
 //     used for Claude Code OAuth tokens (`sk-ant-oat01-…`).
 //
-// Both fields are wrapped in a formatter-safe secret so a stray `%v` on
-// the provider value can't leak the raw credential.
+// Both credential fields are wrapped in a formatter-safe secret so a stray
+// `%v` on the provider value can't leak the raw credential. baseURL and
+// extraHeaders back the anthropic-compatible variant — a gateway or proxy that
+// mirrors POST /v1/messages — and default to the canonical Anthropic endpoint
+// with no extra headers for the api-key / oauth providers.
 type Anthropic struct {
-	apiKey     secret
-	oauthToken secret
-	client     *http.Client
+	apiKey       secret
+	oauthToken   secret
+	baseURL      string
+	extraHeaders map[string]string
+	name         string
+	client       *http.Client
 }
 
 // NewAnthropic constructs an Anthropic provider authenticated with an API key.
 func NewAnthropic(apiKey string) *Anthropic {
-	return &Anthropic{apiKey: secret(apiKey), client: newHTTPClient()}
+	return &Anthropic{apiKey: secret(apiKey), baseURL: anthropicMessagesURL, name: "anthropic", client: newHTTPClient()}
 }
 
 // NewAnthropicOAuth constructs an Anthropic provider authenticated with a
@@ -52,10 +58,45 @@ func NewAnthropic(apiKey string) *Anthropic {
 // through this provider include the `oauth-2025-04-20` beta header and the
 // Claude Code system-prompt preamble required by the OAuth grant.
 func NewAnthropicOAuth(token string) *Anthropic {
-	return &Anthropic{oauthToken: secret(token), client: newHTTPClient()}
+	return &Anthropic{oauthToken: secret(token), baseURL: anthropicMessagesURL, name: "anthropic", client: newHTTPClient()}
 }
 
-func (*Anthropic) Name() string { return "anthropic" }
+// NewAnthropicCompatible speaks the Anthropic Messages wire format against an
+// arbitrary base URL — a self-hosted gateway, a LiteLLM-style proxy, or any
+// endpoint that mirrors POST /v1/messages. baseURL accepts a full messages URL
+// (http://host/v1/messages), a /v1 root (http://host/v1 — /messages is
+// appended), or a bare host (http://host — /v1/messages is appended). An empty
+// apiKey suppresses the x-api-key header for unauthenticated local proxies;
+// extraHeaders are applied last so callers can switch to a Bearer scheme or
+// pin a specific anthropic-version.
+func NewAnthropicCompatible(baseURL, apiKey string, extraHeaders map[string]string) *Anthropic {
+	return &Anthropic{
+		apiKey:       secret(apiKey),
+		baseURL:      normalizeAnthropicBaseURL(baseURL),
+		extraHeaders: extraHeaders,
+		name:         "anthropic-compatible",
+		client:       newHTTPClient(),
+	}
+}
+
+func (a *Anthropic) Name() string { return a.name }
+
+// normalizeAnthropicBaseURL tolerates a full /v1/messages URL, a /v1 root, or
+// a bare host, resolving each to a complete messages endpoint. Trailing
+// slashes are trimmed so we never emit /v1//messages.
+func normalizeAnthropicBaseURL(raw string) string {
+	u := strings.TrimRight(strings.TrimSpace(raw), "/")
+	switch {
+	case u == "":
+		return ""
+	case strings.HasSuffix(u, "/messages"):
+		return u
+	case strings.HasSuffix(u, "/v1"):
+		return u + "/messages"
+	default:
+		return u + "/v1/messages"
+	}
+}
 
 // CloseIdleConnections drops idle HTTP/2 conns on this provider's transport
 // so the next request opens a fresh one. Engine calls this between retry
@@ -133,19 +174,26 @@ func (a *Anthropic) Stream(ctx context.Context, req Request) (<-chan stream.Even
 		return nil, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicMessagesURL, bytes.NewReader(payload))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	if !a.oauthToken.IsZero() {
 		httpReq.Header.Set("authorization", "Bearer "+a.oauthToken.Reveal())
 		httpReq.Header.Set("anthropic-beta", claudeCodeOAuthBeta)
-	} else {
+	} else if !a.apiKey.IsZero() {
+		// Empty api key (anthropic-compatible against an unauthenticated local
+		// proxy) suppresses the header entirely, mirroring openai-compatible.
 		httpReq.Header.Set("x-api-key", a.apiKey.Reveal())
 	}
 	httpReq.Header.Set("anthropic-version", anthropicVersion)
 	httpReq.Header.Set("content-type", "application/json")
 	httpReq.Header.Set("accept", "text/event-stream")
+	// extraHeaders are applied last so a compatible gateway can override the
+	// auth scheme (e.g. Authorization: Bearer) or pin its own anthropic-version.
+	for k, v := range a.extraHeaders {
+		httpReq.Header.Set(k, v)
+	}
 
 	resp, err := a.client.Do(httpReq)
 	if err != nil {

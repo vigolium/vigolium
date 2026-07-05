@@ -63,7 +63,7 @@ func (l *Learner) Learn(ctx context.Context, baseURL *url.URL) (*Signature, erro
 	for i, pathVariation := range paths {
 		// Build full URL
 		testURL := *baseURL // Copy
-		testURL.Path = pathVariation
+		SetWirePath(&testURL, pathVariation)
 
 		// Add delay between requests (except first)
 		if i > 0 && l.delay > 0 {
@@ -110,7 +110,7 @@ func (l *Learner) LearnFromPaths(ctx context.Context, baseURL *url.URL, paths []
 	for i, pathVariation := range paths {
 		// Build full URL
 		testURL := *baseURL // Copy
-		testURL.Path = pathVariation
+		SetWirePath(&testURL, pathVariation)
 
 		// Add delay between requests (except first)
 		if i > 0 && l.delay > 0 {

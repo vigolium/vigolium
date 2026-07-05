@@ -268,6 +268,48 @@ runCmdEx("stream NDJSON phase events", "vigolium-audit run --mode lite --json | 
 runCmdEx("verbose: tool inputs/results, thinking, child stderr", "vigolium-audit run --mode lite --debug");
 runCmdEx("capture verbose output to a file", "vigolium-audit run --mode lite --debug 2> vigolium-audit.log");
 
+const bridgeCmd = cli
+  .command(
+    "bridge <action>",
+    "Sidecar: drive Claude/Codex via the Agent SDK for a single task. <action> is a task preset (triage|exploit|plan), `run` (raw prompt), `serve` (long-lived NDJSON daemon), or `list`. The vigolium-scanner skill is always loaded so the agent can operate the vigolium CLI. Built for the Go vigolium binary to call.",
+  )
+  .option("--model <model>", "Model forwarded to the agent runtime (e.g. sonnet|opus|a full model id). Defaults to the task preset or the runtime default; VIGOLIUM_AUDIT_MODEL also honored.")
+  .option("--cwd <dir>", "Working directory the agent operates on (the target under assessment). Defaults to --target or the current directory.")
+  .option("--target <dir>", "Alias of --cwd.")
+  .option("--prompt <text>", "User instruction / task text.")
+  .option("--prompt-file <path>", "Read the user prompt from a file (use '-' semantics by piping stdin instead).")
+  .option("--input <text>", "Structured input context (e.g. a finding), inlined under a '# Task input' block.")
+  .option("--input-file <path>", "Read structured input context (e.g. a finding JSON) from a file.")
+  .option("--system-prompt <text>", "Override the system prompt (honored for the `run` action only).")
+  .option("--system-prompt-file <path>", "Read the system-prompt override from a file.")
+  .option("--skill <name>", "Load an extra skill on top of the task defaults (repeatable). vigolium-scanner is always loaded.")
+  .option("--allow-tools <list>", "Comma-separated tool allow-list. Default: no restriction (all tools).")
+  .option("--deny-tools <list>", "Comma-separated tools to deny. AskUserQuestion is always denied (headless).")
+  .option("--max-turns <n>", "Hard cap on conversation turns.")
+  .option("--resume <sessionId>", "Resume a prior session (from an earlier run's `session` event) so a follow-up continues the same conversation, e.g. triage → exploit.")
+  .option("--output <mode>", "json|text — override the task's output mode. json extracts the final fenced JSON block into result.output.")
+  .option("--no-bypass-permissions", "Do NOT bypass tool-permission prompts (default: bypass, required for autonomous tool use).")
+  .option("--oauth-token <token>", "Set CLAUDE_CODE_OAUTH_TOKEN for the run/daemon")
+  .option("--oauth-cred-file <path>", "Override platform creds for the run/daemon; original backed up + restored on exit")
+  .option("--api-key <key>", "Pass as platform API key env (claude → ANTHROPIC_API_KEY, codex → OPENAI_API_KEY)")
+  .action(async (action: string, opts) => {
+    const { bridgeCommand } = await import("./cli/bridge.js");
+    await bridgeCommand(action, opts);
+  });
+
+const bridgeEx = (comment: string, command: string) => {
+  bridgeCmd.example(`# ${comment}`);
+  bridgeCmd.example(`  ${command}`);
+};
+bridgeEx("triage a finding (JSON in, JSON verdict out), machine-readable", "vigolium-audit bridge triage --input-file finding.json --cwd ./repo --json");
+bridgeEx("plan an attack against a target's code + attack surface", "vigolium-audit bridge plan --input-file vigolium-results/attack-surface/summary.md --cwd ./repo");
+bridgeEx("develop a PoC for a confirmed finding against a live target", "vigolium-audit bridge exploit --input-file finding.json --prompt 'target: https://staging.example.com' --cwd ./repo");
+bridgeEx("triage then exploit on the SAME conversation (chain via --resume)", "vigolium-audit bridge exploit --resume <sessionId-from-triage> --json");
+bridgeEx("raw prompt, no preset, pick a skill and model", "vigolium-audit bridge run --prompt 'summarize the auth flow' --skill audit --model opus --cwd ./repo");
+bridgeEx("pipe the prompt via stdin", "echo 'is the /admin route authenticated?' | vigolium-audit bridge run --cwd ./repo");
+bridgeEx("long-lived daemon: Go sends NDJSON requests on stdin, reads events on stdout", "vigolium-audit bridge serve --cwd ./repo --json");
+bridgeEx("list available task presets", "vigolium-audit bridge list");
+
 cli
   .command("verify <platform>", "Verify install + adapter probe")
   .action(async (platform: string, opts: { json?: boolean }) => {

@@ -106,6 +106,9 @@ type FindingGroupingConfig struct {
 var perAssetGroupModules = []string{
 	// Asset enumeration: a distinct .map filename per JS/CSS bundle.
 	"sourcemap-detect",
+	// Informational JS beautification: one Info finding per unminified JS bundle,
+	// keyed only by its distinct URL — collapse per host, keeping every URL.
+	"js-beautify",
 	// Static sink / DOM-XSS source analysis: one snippet context per matched file.
 	"unsafe-html-sink",
 	"dom-xss-taint",

@@ -507,7 +507,9 @@ func checkAgent(settings *config.Settings) *AgentCheck {
 				Tip:      "Run `claude setup-token` and export the result as $ANTHROPIC_API_KEY, or set agent.olium.oauth_token in ~/.vigolium/vigolium-configs.yaml.",
 			}
 		}
-	case "openai-api-key":
+	case "openai-api-key", "openai-responses":
+		// openai-responses uses the same OpenAI key resolution as openai-api-key;
+		// only the wire format differs (Responses vs Chat Completions).
 		if cfg.LLMAPIKey == "" && os.Getenv("OPENAI_API_KEY") == "" {
 			return &AgentCheck{
 				Status:   StatusError,
@@ -544,17 +546,19 @@ func checkAgent(settings *config.Settings) *AgentCheck {
 		if envPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); envPath != "" {
 			details = append(details, fmt.Sprintf("GOOGLE_APPLICATION_CREDENTIALS: %s", envPath))
 		}
-	case "openai-compatible":
-		// Any backend speaking the OpenAI Chat Completions wire format
-		// (Ollama, LM Studio, vLLM, OpenRouter, …). base_url is the only
-		// hard requirement; api_key is optional (local backends omit it).
+	case "openai-compatible", "anthropic-compatible":
+		// A backend fronting a custom base_url — openai-compatible speaks the
+		// OpenAI Chat Completions wire format (Ollama, LM Studio, vLLM,
+		// OpenRouter, …); anthropic-compatible speaks the Anthropic Messages
+		// format against a gateway/proxy. Both require base_url + a model;
+		// api_key is optional (local backends omit it).
 		baseURL := cfg.CustomProvider.BaseURL
 		if baseURL == "" {
 			return &AgentCheck{
 				Status:   StatusError,
 				Name:     "olium",
 				Protocol: provider,
-				Message:  "openai-compatible provider requires a base URL",
+				Message:  fmt.Sprintf("%s provider requires a base URL", provider),
 				Details:  details,
 				Tip:      "Set agent.olium.custom_provider.base_url in ~/.vigolium/vigolium-configs.yaml (e.g. `http://localhost:11434/v1` for Ollama).",
 			}
@@ -565,7 +569,7 @@ func checkAgent(settings *config.Settings) *AgentCheck {
 				Status:   StatusError,
 				Name:     "olium",
 				Protocol: provider,
-				Message:  "openai-compatible provider requires a model",
+				Message:  fmt.Sprintf("%s provider requires a model", provider),
 				Details:  details,
 				Tip:      "Set agent.olium.model or agent.olium.custom_provider.model_id in ~/.vigolium/vigolium-configs.yaml.",
 			}
@@ -577,7 +581,7 @@ func checkAgent(settings *config.Settings) *AgentCheck {
 			Protocol: provider,
 			Message:  fmt.Sprintf("unknown olium provider %q", provider),
 			Details:  details,
-			Tip:      "Set agent.olium.provider to one of: openai-codex-oauth, openai-api-key, anthropic-api-key, anthropic-oauth, anthropic-cli, anthropic-vertex, google-vertex, openai-compatible.",
+			Tip:      "Set agent.olium.provider to one of: openai-codex-oauth, openai-api-key, openai-responses, anthropic-api-key, anthropic-oauth, anthropic-cli, anthropic-vertex, google-vertex, openai-compatible, anthropic-compatible.",
 		}
 	}
 

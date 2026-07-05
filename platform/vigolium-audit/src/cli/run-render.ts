@@ -240,7 +240,7 @@ export function makeJsonLogger(): (e: OrchestratorEvent) => void {
   };
 }
 
-function serializeAdapterEvent(e: AdapterEvent): Record<string, unknown> {
+export function serializeAdapterEvent(e: AdapterEvent): Record<string, unknown> {
   switch (e.kind) {
     case "error":
       return { kind: "error", message: e.cause.message, transient: e.transient ?? false };

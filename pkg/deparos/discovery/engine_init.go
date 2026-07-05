@@ -62,22 +62,34 @@ func (e *Engine) initSession() error {
 		}
 	}
 
+	// For a FUZZ template (e.g. "…/%23/../FUZZ"), probe the start URL and pre-warm
+	// around the marker's directory rather than the literal "FUZZ" path (see
+	// resolveFuzzProbeURL); baseline learning resolves the marker itself (see
+	// baselineKeyAndProbe). The FuzzTask still fuzzes the raw marked position.
+	probeURL, isFuzzTemplate := resolveFuzzProbeURL(targetURL)
+	if isFuzzTemplate {
+		logger.Info("FUZZ template detected — probing and baseline-learning around the insertion point",
+			zap.String("template", targetURL.String()),
+			zap.String("probe_base", probeURL.String()))
+	}
+
 	// Probe start URL before scanning
-	logger.Info("Probing start URL", zap.String("url", targetURL.String()))
-	if err := e.probeStartURL(targetURL); err != nil {
+	logger.Info("Probing start URL", zap.String("url", probeURL.String()))
+	if err := e.probeStartURL(probeURL); err != nil {
 		return fmt.Errorf("start URL probe failed: %w", err)
 	}
 
 	// Learn baseline fingerprints for common extensions
 	if !e.config.Engine.SkipFingerprintLearning {
 		logger.Info("Learning baseline fingerprints for soft 404 detection")
+		// Pass the raw target (marker intact): baselineKeyAndProbe resolves it.
 		if err := e.learnBaselineFingerprints(targetURL); err != nil {
 			logger.Warn("Fingerprint learning failed, continuing without baseline", zap.Error(err))
 		}
 		// Pre-warm cache for common paths/extensions beyond root to reduce
 		// inline learning pauses during the main discovery phase.
 		if e.fpCache != nil {
-			e.fpCache.PreWarm(e.ctx, targetURL)
+			e.fpCache.PreWarm(e.ctx, probeURL)
 		}
 	} else {
 		logger.Debug("Skipping fingerprint learning (SkipFingerprintLearning=true)")
@@ -105,14 +117,9 @@ func (e *Engine) learnBaselineFingerprints(baseURL *url.URL) error {
 // learnBaselineFingerprintsForDirectory learns 404 signatures for a specific directory.
 // Called at startup for root, and when discovering new directories before bruteforce.
 func (e *Engine) learnBaselineFingerprintsForDirectory(dirURL *url.URL) error {
-	// Normalize directory path
-	dirPath := dirURL.Path
-	if dirPath == "" {
-		dirPath = "/"
-	}
-	if dirPath[len(dirPath)-1] != '/' {
-		dirPath += "/"
-	}
+	// Cache-key directory and the URL used to probe the baseline (see
+	// baselineKeyAndProbe — they differ only for a FUZZ template).
+	dirPath, probeBaseURL := e.baselineKeyAndProbe(dirURL)
 
 	// CRITICAL: "" (no extension) MUST be learned FIRST
 	var extensions []string
@@ -143,8 +150,7 @@ func (e *Engine) learnBaselineFingerprintsForDirectory(dirURL *url.URL) error {
 			Extension: ext,
 		}
 		if _, ok := e.fpCache.Get(key); !ok {
-			learnURL := *dirURL
-			learnURL.Path = dirPath
+			learnURL := *probeBaseURL
 			_, err := e.fpCache.LearnAndCache(e.ctx, key, &learnURL)
 			if err != nil {
 				logger.Debug("Failed to learn fingerprint for extension",
@@ -182,8 +188,7 @@ func (e *Engine) learnBaselineFingerprintsForDirectory(dirURL *url.URL) error {
 				defer wg.Done()
 				defer func() { <-sem }() // release semaphore slot
 
-				learnURL := *dirURL
-				learnURL.Path = dirPath
+				learnURL := *probeBaseURL
 
 				_, err := e.fpCache.LearnAndCache(e.ctx, key, &learnURL)
 				if err != nil {
@@ -315,10 +320,15 @@ func (e *Engine) generateInitialTasks() {
 		logger.Error("Failed to parse start URL", zap.Error(err))
 		return
 	}
+	// For a FUZZ template, the observed/wordlist/malformed bruteforce builds off
+	// the marker's directory (through any bypass prefix), not the literal "…/FUZZ/"
+	// path. The FuzzTask below still fuzzes the raw marked position. No-op otherwise.
+	parsedStart, _ = resolveFuzzProbeURL(parsedStart)
 	baseURLNoQuery := &url.URL{
-		Scheme: parsedStart.Scheme,
-		Host:   parsedStart.Host,
-		Path:   parsedStart.Path,
+		Scheme:  parsedStart.Scheme,
+		Host:    parsedStart.Host,
+		Path:    parsedStart.Path,
+		RawPath: parsedStart.RawPath,
 	}
 	baseURL := []byte(baseURLNoQuery.String())
 	depth := uint16(0)
@@ -375,8 +385,8 @@ func (e *Engine) generateInitialTasks() {
 		// Build URL template: use StartURL as-is if it contains FUZZ,
 		// otherwise auto-append /FUZZ to the URL.
 		fuzzTemplate := e.config.Target.StartURL
-		if !strings.Contains(fuzzTemplate, "FUZZ") {
-			fuzzTemplate = strings.TrimRight(fuzzTemplate, "/") + "/FUZZ"
+		if !strings.Contains(fuzzTemplate, fuzzMarker) {
+			fuzzTemplate = strings.TrimRight(fuzzTemplate, "/") + "/" + fuzzMarker
 		}
 
 		fuzzTask, err := e.factory.CreateFuzzTask(
@@ -532,4 +542,75 @@ func (e *Engine) fetchRobotsTxt(baseURL *url.URL) {
 	// Extract links using spider coordinator (runs RobotsTxtParser)
 	e.extractLinks(&robotsURL, rc, 0)
 	logger.Info("robots.txt parsed", zap.String("url", robotsURL.String()))
+}
+
+// fuzzMarker is the placeholder the discovery fuzzer substitutes with each
+// wordlist word (see FuzzTask). Start-URL probing, soft-404 baseline learning and
+// the observed/wordlist/malformed task bases must resolve it — not treat it as a
+// literal path segment — so their requests land where the real fuzz requests do.
+const fuzzMarker = "FUZZ"
+
+// fuzzBaselineToken is the fixed, never-existent segment the marker is replaced
+// with when sampling the soft-404 baseline for a FUZZ template.
+const fuzzBaselineToken = "vigoliumbaseline"
+
+// resolveFuzzProbeURL returns the URL that start-URL probing and soft-404 baseline
+// learning should use for a FUZZ template. When the marker is in the path, the URL
+// is reduced to the directory that CONTAINS the marker (preserving any
+// path-normalization bypass prefix like "/%23/../" verbatim on the wire) so
+// baselines are learned AROUND the insertion point and keyed to the same directory
+// as the real fuzzed hits. When the marker is only in the query, the path is the
+// real endpoint and only the query is dropped. The second return is true when the
+// URL carried a marker; otherwise a copy is returned unchanged.
+func resolveFuzzProbeURL(startURL *url.URL) (*url.URL, bool) {
+	u := *startURL
+	esc := u.EscapedPath()
+	if i := strings.Index(esc, fuzzMarker); i >= 0 {
+		dir := "/"
+		if cut := strings.LastIndex(esc[:i], "/"); cut >= 0 {
+			dir = esc[:cut+1]
+		}
+		fingerprint.SetWirePath(&u, dir)
+		u.RawQuery = ""
+		u.Fragment = ""
+		return &u, true
+	}
+	if strings.Contains(u.RawQuery, fuzzMarker) {
+		u.RawQuery = ""
+		return &u, true
+	}
+	return &u, false
+}
+
+// baselineKeyAndProbe returns the cache-key directory path and the URL used to
+// probe the soft-404 baseline for dirURL. For a normal directory both describe
+// the same directory. For a FUZZ template the marker is substituted (see below) so
+// the baseline is sampled at the real fuzzed hits' routing and keyed to their
+// directory.
+func (e *Engine) baselineKeyAndProbe(dirURL *url.URL) (keyDirPath string, probeBaseURL *url.URL) {
+	esc := dirURL.EscapedPath()
+	if strings.Contains(esc, fuzzMarker) {
+		// Substitute the marker with a fixed non-existent token, preserving the rest
+		// of the wire path (including any "/%23/../" bypass prefix). Both the probe
+		// AND the key are derived from this substituted URL: the learner mutates the
+		// token to generate never-existent siblings at the same routing as the real
+		// hits, and the key is computed by the SAME ExtractCacheKey the hits use —
+		// whose directory is path.Dir-cleaned, so a bypass prefix collapses (e.g. to
+		// "/"). Keeps the fingerprint layer marker-agnostic.
+		rep := *dirURL
+		fingerprint.SetWirePath(&rep, strings.ReplaceAll(esc, fuzzMarker, fuzzBaselineToken))
+		return fingerprint.ExtractCacheKey(&rep).Path, &rep
+	}
+
+	// Normal directory: key and probe both describe dirURL with a trailing slash.
+	dirPath := dirURL.Path
+	if dirPath == "" {
+		dirPath = "/"
+	}
+	if dirPath[len(dirPath)-1] != '/' {
+		dirPath += "/"
+	}
+	probe := *dirURL
+	probe.Path = dirPath
+	return dirPath, &probe
 }

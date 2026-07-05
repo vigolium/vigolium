@@ -165,7 +165,7 @@ func registerAuditFlags(cmd *cobra.Command) {
 	f.StringVar(&auditSource, "source", ".", "Source: local directory, git URL, gs://<project>/<key> archive, or local .zip/.tar.gz")
 	f.BoolVarP(&auditInteractive, "interactive", "i", false, "Drop into the coding agent with the audit harness installed and drive the audit yourself (audit-only; the embedded vigolium-audit binary's -i). Skips NDJSON streaming, the AgenticScan row, and findings auto-import — results land in <source>/vigolium-results/; import them afterward with 'vigolium import'. Not valid with --driver=piolium.")
 	f.BoolVar(&auditNoStream, "no-stream", false, "Don't echo agent output to the console (still written to {session}/<driver>/runtime.log)")
-	f.BoolVar(&auditShowThinking, "show-thinking", false, "Render the agent's internal thinking blocks (audit NDJSON `thinking` events) in the live stream. Off by default — thinking is verbose and produces many lines per phase.")
+	f.BoolVar(&auditShowThinking, "show-thinking", false, "Render the agent's internal thinking blocks (audit NDJSON 'thinking' events) in the live stream. Off by default — thinking is verbose and produces many lines per phase.")
 	f.BoolVar(&auditUploadResults, "upload-results", false, "Upload session bundle to cloud storage after completion (requires storage config)")
 	f.IntVar(&auditCommitDepth, "commit-depth", 1, "git clone --depth value when --source is a git URL (default 1; use 0 for full history; overrides --intensity)")
 	f.BoolVar(&auditNoDedup, "no-dedup", false, "Skip the post-pass project-wide findings dedup that runs after the audit completes")
@@ -200,8 +200,8 @@ func registerAuditFlags(cmd *cobra.Command) {
 	// run on this invocation; the underlying mapping is described in
 	// pkg/agent/auth_override.go.
 	f.StringVar(&auditAPIKey, "api-key", "", "BYOK API key for the run (literal, $ENV_NAME, or @path). claude→ANTHROPIC_API_KEY, codex→OPENAI_API_KEY. Empty inherits agent.olium.* config. Mutually exclusive with --oauth-token / --oauth-cred-file.")
-	f.StringVar(&auditOAuthToken, "oauth-token", "", "BYOK Anthropic OAuth bearer token (literal, $ENV_NAME, or @path). Claude only — produced by `claude setup-token`. Mutually exclusive with --api-key / --oauth-cred-file.")
-	f.StringVar(&auditOAuthCredFile, "oauth-cred-file", "", "BYOK OAuth credential file path (literal or $ENV_NAME). Codex (`~/.codex/auth.json` shape). Staged under <pi-agent-dir>/auth.json with backup-and-restore for piolium runs. Mutually exclusive with --api-key / --oauth-token.")
+	f.StringVar(&auditOAuthToken, "oauth-token", "", "BYOK Anthropic OAuth bearer token (literal, $ENV_NAME, or @path). Claude only — produced by 'claude setup-token'. Mutually exclusive with --api-key / --oauth-cred-file.")
+	f.StringVar(&auditOAuthCredFile, "oauth-cred-file", "", "BYOK OAuth credential file path (literal or $ENV_NAME). Codex ('~/.codex/auth.json' shape). Staged under <pi-agent-dir>/auth.json with backup-and-restore for piolium runs. Mutually exclusive with --api-key / --oauth-token.")
 }
 
 // driverPlan tags one driver's invocation: the harness identity, where its

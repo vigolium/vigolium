@@ -291,6 +291,74 @@ func createTestHTTPRequest(t *testing.T, method, urlStr string, body io.Reader) 
 	return req
 }
 
+// TestComparator_PrefixRoutedEmptyBody_NotWildcard is a regression test for a real
+// endpoint dropped by naive wildcard validation.
+//
+// Scenario (mirrors login.aspciamqalogin.roche.com's SAP Gigya gateway): the origin
+// routes on the last-segment PREFIX — any path whose last segment starts with a real
+// route name ("metrics") returns 200 with an empty body, while paths that break the
+// prefix return 404. /metrics is a genuine Prometheus endpoint that returns an empty
+// body on the cluster backends without the exporter.
+//
+// Before the fix the Suffix ("metrics{rand}") and Extension ("metrics.{rand}")
+// wildcard probes preserve the prefix and return 200, so the OR-logic classified
+// /metrics as a wildcard false-positive and dropped it. After the fix only
+// prefix-BREAKING probes (Prefix/Middle) count toward wildcard detection; those 404
+// here, so /metrics is correctly TruePositive.
+func TestComparator_PrefixRoutedEmptyBody_NotWildcard(t *testing.T) {
+	lastSegHasPrefix := func(rawPath, prefix string) bool {
+		seg := rawPath
+		if i := strings.LastIndex(seg, "/"); i >= 0 {
+			seg = seg[i+1:]
+		}
+		return strings.HasPrefix(seg, prefix)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Route on the last-segment prefix, like the real gateway: "metrics*" is a
+		// registered route that answers an empty 200 on this backend; everything
+		// that breaks the prefix is a genuine 404.
+		if lastSegHasPrefix(r.URL.EscapedPath(), "metrics") {
+			w.WriteHeader(http.StatusOK) // empty body, no content-type
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	learner := NewLearner(client, nil)
+	learner.SetDelay(0)
+	cache := NewCache(learner)
+	comparator := NewComparator(cache, learner)
+
+	baseURL, err := url.Parse(server.URL + "/")
+	require.NoError(t, err)
+
+	// Learn the root ("") baseline from random paths (all 404 here).
+	rootKey := CacheKey{Host: baseURL.Host, Path: "/", Extension: ""}
+	_, err = cache.LearnAndCache(context.Background(), rootKey, baseURL)
+	require.NoError(t, err)
+
+	// Evaluate /metrics — a real route that returns an empty 200.
+	metricsURL := server.URL + "/metrics"
+	req := createTestHTTPRequest(t, "GET", metricsURL, nil)
+	resp, err := client.Get(metricsURL)
+	require.NoError(t, err)
+	rc := responsechain.NewResponseChain(resp, 0)
+	require.NoError(t, rc.Fill())
+	defer rc.Close()
+
+	result, err := comparator.Compare(context.Background(), req, rc)
+	require.NoError(t, err)
+	assert.Equal(t, TruePositive, result,
+		"/metrics behind a prefix-router must be TruePositive, not dropped as a wildcard")
+}
+
 func BenchmarkComparator_Compare(b *testing.B) {
 	cache := NewCache(nil)
 	learner := NewLearner(nil, nil)

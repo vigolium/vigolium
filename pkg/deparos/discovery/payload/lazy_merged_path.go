@@ -54,7 +54,7 @@ func (p *LazyMergedPathProvider) initialize() {
 
 	// Extract path portion from dirPath if it's a full URL
 	// e.g., "http://host/api/v1/" → "/api/v1/"
-	dirPathOnly := extractPathFromURL(p.dirPath)
+	dirPathOnly := ExtractPathFromURL(p.dirPath)
 
 	// Apply merge transformation using MergePathWithBase directly
 	p.items = make([][]byte, 0, len(allPaths))
@@ -73,12 +73,19 @@ func (p *LazyMergedPathProvider) initialize() {
 	p.initialized = true
 }
 
-// extractPathFromURL extracts the path portion from a URL string.
+// ExtractPathFromURL extracts the path portion from a URL string. It is the single
+// source of truth for path extraction across the discovery packages (the
+// discovery package delegates to it).
 // If the input is already just a path (no scheme), returns it unchanged.
 // Example: "http://example.com/api/v1/" → "/api/v1/"
 // Example: "http://example.com/api?q=test" → "/api" (query stripped)
 // Example: "/api/v1/" → "/api/v1/"
-func extractPathFromURL(urlStr string) string {
+//
+// Returns the ESCAPED (on-the-wire) path so a path-normalization bypass base
+// ("/%23/../") survives verbatim into probes instead of decoding to "/#/../"
+// (whose "#" is a fragment delimiter). For ordinary paths this is a no-op since
+// EscapedPath() equals Path.
+func ExtractPathFromURL(urlStr string) string {
 	if urlStr == "" {
 		return "/"
 	}
@@ -90,7 +97,7 @@ func extractPathFromURL(urlStr string) string {
 
 	// If it has scheme and host, extract path ONLY (no query)
 	if parsed.Scheme != "" && parsed.Host != "" {
-		p := parsed.Path
+		p := parsed.EscapedPath()
 		if p == "" {
 			p = "/"
 		}

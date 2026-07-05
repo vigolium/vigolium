@@ -66,6 +66,38 @@ func TestScanPerHost_StrongCSP(t *testing.T) {
 	assert.Empty(t, results)
 }
 
+// TestScanPerHost_NeutralizedUnsafeInline: a nonce (or hash/strict-dynamic)
+// present alongside 'unsafe-inline' makes modern browsers ignore the latter, so it
+// must be reported as a low-severity legacy note, not a Medium weakness.
+func TestScanPerHost_NeutralizedUnsafeInline(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("default-src 'none'; script-src 'self' 'unsafe-inline' 'nonce-abc123' 'strict-dynamic'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+	results, err := m.ScanPerHost(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	for _, r := range results {
+		assert.NotEqual(t, "CSP Weakness: unsafe-inline in Script Source", r.Info.Name,
+			"unsafe-inline must not be reported as a Medium weakness when a nonce neutralizes it")
+	}
+}
+
+// TestScanPerHost_NoScriptRestriction: a policy that sets neither script-src nor
+// default-src leaves scripts unrestricted — it must NOT be reported clean.
+func TestScanPerHost_NoScriptRestriction(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("img-src 'self'; style-src 'self'")
+	results, err := m.ScanPerHost(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	found := false
+	for _, r := range results {
+		if r.Info.Name == "CSP Weakness: No script-src or default-src" {
+			found = true
+		}
+	}
+	assert.True(t, found, "a CSP with no script-src/default-src must be flagged as unrestricted scripts")
+}
+
 // TestScanPerHost_NoCSP verifies that an HTML response without a CSP header is
 // not flagged (a separate module handles absent CSP).
 func TestScanPerHost_NoCSP(t *testing.T) {

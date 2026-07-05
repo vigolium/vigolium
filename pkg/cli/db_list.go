@@ -704,9 +704,6 @@ func displayTree(records []*database.HTTPRecord) error {
 					}
 				}
 
-				headerCount := len(rec.RequestHeadersMap())
-				headerTag := terminal.Gray(fmt.Sprintf("[%dh]", headerCount))
-
 				respPart := ""
 				if rec.HasResponse {
 					statusColor := terminal.Green
@@ -726,7 +723,7 @@ func displayTree(records []*database.HTTPRecord) error {
 						if idx := strings.Index(ct, ";"); idx > 0 {
 							ct = ct[:idx]
 						}
-						respPart += " " + terminal.Gray(ct)
+						respPart += " " + terminal.Orange(ct)
 					}
 
 					if rec.ResponseTitle != "" {
@@ -742,11 +739,10 @@ func displayTree(records []*database.HTTPRecord) error {
 					}
 				}
 
-				fmt.Printf("%s %s %s %s%s\n",
+				fmt.Printf("%s %s %s%s\n",
 					reqConnector,
 					terminal.Cyan(rec.Method),
-					terminal.Gray(rec.Path),
-					headerTag,
+					terminal.White(rec.Path),
 					respPart)
 			}
 		}

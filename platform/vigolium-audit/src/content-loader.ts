@@ -44,6 +44,21 @@ interface ResolvedRoots {
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
+/**
+ * Split a markdown source into its YAML frontmatter (parsed to an object) and
+ * the body after the closing `---`. Non-object / absent frontmatter yields an
+ * empty object and the whole source as the body. Shared by every content kind
+ * (agent-defs here, bridge task presets) so the frontmatter contract stays in
+ * one place.
+ */
+export function parseFrontmatter(src: string): { data: Record<string, unknown>; body: string } {
+  const match = src.match(FRONTMATTER_RE);
+  if (!match) return { data: {}, body: src };
+  const parsed = parseYaml(match[1]!);
+  const data = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  return { data, body: match[2] ?? "" };
+}
+
 class FilesystemContentLoader implements ContentLoader {
   constructor(private readonly roots: ResolvedRoots) {}
 
@@ -88,14 +103,7 @@ class FilesystemContentLoader implements ContentLoader {
       ?? join(this.roots.contentRoot, "agent-defs", `${name}.md`);
     if (!existsSync(path)) throw new Error(`agent-def not found: ${name} (looked in ${path})`);
     const src = await readFile(path, "utf8");
-    const match = src.match(FRONTMATTER_RE);
-    let fm: Record<string, unknown> = {};
-    let body = src;
-    if (match) {
-      const parsed = parseYaml(match[1]!);
-      if (parsed && typeof parsed === "object") fm = parsed as Record<string, unknown>;
-      body = match[2] ?? "";
-    }
+    const { data: fm, body } = parseFrontmatter(src);
     const tools = parseToolsList(fm["allowed-tools"] ?? fm["tools"]);
     return {
       name,
