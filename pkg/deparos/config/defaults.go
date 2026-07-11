@@ -128,7 +128,7 @@ func NewDefaultConfig() *Config {
 			ConfirmViaProbe:       false,
 			Candidates:            DefaultCandidateExtensions,
 			// SPA-gated JS-bundle name sweep (default on): probe common bundle
-			// names on monolith apps and feed hits to jsscan. No-op on SPAs.
+			// names on monolith apps and feed hits to jstangle. No-op on SPAs.
 			JSBundleSweep: true,
 		},
 		Engine: EngineConfig{
@@ -144,8 +144,8 @@ func NewDefaultConfig() *Config {
 				LengthBucket:   256,
 			},
 		},
-		JSScan: JSScanConfig{
-			Enabled: true, ReplayMode: "exact", SourceMaps: true, AssetGraph: true,
+		JSTangle: JSTangleConfig{
+			Enabled: true, ReplayMode: "exact", ReplaySafety: "read-only", SourceMaps: true, AssetGraph: true,
 			WorkerCount: 0, MemoryBudgetMB: 768, CacheMB: 128,
 			WorkerMaxJobs: 100, WorkerMaxRSSMB: 1024, JobTimeout: 60 * time.Second,
 			NormalInputMB: 1, MaxASTInputMB: 4, HardInputMB: 10, MaxRequestsPerFile: 500,

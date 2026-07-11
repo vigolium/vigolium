@@ -4,7 +4,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
-import type { AgentPlatform } from "../engine/types.js";
+import type { AgentPlatform, AgentTransport } from "../engine/types.js";
 
 export interface BinaryProbe {
   /** Absolute path to the resolved binary, or null if none found. */
@@ -99,11 +99,6 @@ export interface ResolvedAdapterChoice {
 }
 
 /**
- * Pick an adapter for a platform based on what's installed and what auth is
- * available. v1 strategy: SDK if API key present, else CLI (relies on the
- * binary's ambient auth, e.g. claude-pro / claude-team subscription).
- */
-/**
  * Env var name that holds the platform's API key.
  *   claude → ANTHROPIC_API_KEY
  *   codex  → OPENAI_API_KEY
@@ -112,10 +107,28 @@ export function platformApiKeyEnv(platform: AgentPlatform): string {
   return platform === "claude" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
 }
 
-export function chooseAdapter(platform: AgentPlatform): ResolvedAdapterChoice {
+/**
+ * Pick an adapter for a platform based on the requested transport, installed
+ * binary, and available auth. Codex SDK can reuse the CLI's ambient ChatGPT
+ * authentication, so Codex `auto` prefers SDK even without OPENAI_API_KEY.
+ * Claude retains the established API-key-to-SDK / subscription-to-CLI policy.
+ */
+export function chooseAdapter(
+  platform: AgentPlatform,
+  transport: AgentTransport = "auto",
+): ResolvedAdapterChoice {
   const probe = platform === "claude" ? probeClaudeBinary() : probeCodexBinary();
   const hasKey = !!process.env[platformApiKeyEnv(platform)];
-  const flavor: "sdk" | "cli" = hasKey ? "sdk" : "cli";
+  const flavor: "sdk" | "cli" =
+    transport === "sdk"
+      ? "sdk"
+      : transport === "cli"
+        ? "cli"
+        : platform === "codex"
+          ? "sdk"
+          : hasKey
+            ? "sdk"
+            : "cli";
   const authSource: ResolvedAdapterChoice["authSource"] = hasKey
     ? "api-key"
     : probe.path
@@ -128,4 +141,13 @@ export function chooseAdapter(platform: AgentPlatform): ResolvedAdapterChoice {
     binarySource: probe.source,
     authSource,
   };
+}
+
+/** Validate a value received from the CLI and normalize an omitted flag. */
+export function resolveAgentTransport(value: unknown): AgentTransport {
+  const resolved = value ?? "auto";
+  if (resolved !== "auto" && resolved !== "sdk" && resolved !== "cli") {
+    throw new Error(`--transport must be "auto", "sdk", or "cli" (got ${JSON.stringify(value)})`);
+  }
+  return resolved;
 }

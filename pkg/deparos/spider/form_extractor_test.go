@@ -362,6 +362,32 @@ func TestFormExtractor_MultiSelectLargeNoDuplicateParams(t *testing.T) {
 }
 
 // Helper function to extract form requests from HTML
+// TestFormExtractor_MultiGroupProductBounded proves the Cartesian product of
+// MANY radio/select groups is bounded rather than exploding exponentially. Four
+// selects with ten options each would be 10^4 = 10,000 combinations (× submit) —
+// the cap truncates that to maxFormOptionCombinations.
+func TestFormExtractor_MultiGroupProductBounded(t *testing.T) {
+	var selects strings.Builder
+	for g := 0; g < 4; g++ {
+		selects.WriteString(`<select name="g` + string(rune('A'+g)) + `">`)
+		for o := 0; o < 10; o++ {
+			selects.WriteString(`<option value="v` + string(rune('0'+o)) + `">o</option>`)
+		}
+		selects.WriteString(`</select>`)
+	}
+	htmlStr := `<form action="/submit" method="GET">` + selects.String() +
+		`<input type="submit" value="go"></form>`
+
+	requests := extractFormRequests(t, htmlStr)
+
+	if len(requests) == 0 {
+		t.Fatal("expected some form requests")
+	}
+	// One submit button, so requests == combinations, which must be capped.
+	require.LessOrEqual(t, len(requests), maxFormOptionCombinations,
+		"multi-group product must be bounded, got %d requests", len(requests))
+}
+
 func extractFormRequests(t *testing.T, htmlStr string) []*FormRequest {
 	t.Helper()
 

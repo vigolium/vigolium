@@ -12,6 +12,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestScanPerRequest_DetectsUserEnum drives the real scan method against a host
@@ -40,6 +41,8 @@ func TestScanPerRequest_DetectsUserEnum(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a user-enumeration finding when /user/N redirects to /users/<name>")
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+	assert.False(t, res[0].IsFinding(), "public profile names are not necessarily login identities")
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a host that 404s the profile paths
@@ -199,4 +202,16 @@ func TestScanPerRequest_DetectsTitleVector(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a finding when a Drupal host leaks distinct usernames in the profile title")
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+}
+
+func TestParseDrupalJSONAPIUsersRequiresStructuredResources(t *testing.T) {
+	t.Parallel()
+	count, labels, ok := parseDrupalJSONAPIUsers(`{"data":[{"type":"user--user","id":"u1","attributes":{"display_name":"Alice"}}]}`)
+	assert.True(t, ok)
+	assert.Equal(t, 1, count)
+	assert.Equal(t, []string{"Alice"}, labels)
+
+	_, _, ok = parseDrupalJSONAPIUsers(`{"message":"type user--user"}`)
+	assert.False(t, ok, "a generic string mention is not a JSON:API user collection")
 }

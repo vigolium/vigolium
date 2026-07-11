@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Next.js "use server" Server Action reads user input (FormData or arguments) and uses it in database operations with no runtime schema validation. TypeScript types are erased at runtime, so without a library like zod the action trusts whatever the client sends. Tentative source-pattern finding.
+	ModuleDesc = `**What it means:** A source-like JS/TS file contains server-action, input-access, and database-operation patterns without a recognized schema-library token. This is file-level proximity, not proven source-to-sink flow.
 
-**How it's exploited:** An attacker invokes the action directly with unexpected types, extra fields, or injection payloads (NoSQL operators, mass-assignment) that reach the query unchecked, corrupting data or bypassing business logic.
+**How it's exploited:** Exploitation requires attacker input to reach a sensitive operation without imported or manual validation. The module neither resolves helpers nor executes payloads, so it reports a candidate.
 
 **Fix:** Validate and coerce every Server Action input at runtime with a schema library before any database operation.`
 
-	ModuleConfirmation = "Confirmed when a Server Action processes input without any runtime validation library"
+	ModuleConfirmation = "Candidate when source-like code co-locates action, input, and write patterns without recognized validation; connected flow or dynamic impact is required"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "injection", "light"}

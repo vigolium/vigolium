@@ -1,5 +1,15 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "fs";
-import { copyFile, mkdir, readFile, readdir, stat, unlink, writeFile } from "fs/promises";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  readdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
+import { copyFile, lstat, mkdir, readFile, readlink, readdir, stat, symlink, unlink, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { join, relative } from "path";
 import { stringify as stringifyYaml } from "yaml";
@@ -16,6 +26,8 @@ import { getContentLoader } from "../content-loader.js";
  */
 export const CODEX_AGENTS_BEGIN = "# BEGIN vigolium-audit";
 export const CODEX_AGENTS_END = "# END vigolium-audit";
+const LEGACY_CODEX_AGENTS_BEGIN = "# BEGIN archon-audit";
+const LEGACY_CODEX_AGENTS_END = "# END archon-audit";
 
 /**
  * Install-time merge & install of vendored content into a platform's plugin /
@@ -61,16 +73,124 @@ export function codexAgentsMdPath(): string {
 }
 
 /**
+ * Stable path used by command definitions that invoke audit helper scripts.
+ * The directory is a managed symlink to the content bundle, not a second
+ * copied tree, so an upgraded binary cannot keep executing stale helpers.
+ */
+export function runtimeSkillsDir(): string {
+  return process.env.VIGOLIUM_AUDIT_RUNTIME_SKILLS_DIR
+    ?? join(homedir(), ".config", "vigolium-audit", "runtime-skills");
+}
+
+function legacyRuntimeSkillsDir(): string {
+  return join(homedir(), ".config", "vigolium-audit", "skills");
+}
+
+function isManagedRuntimeSkillsTarget(target: string, currentSource?: string): boolean {
+  if (currentSource !== undefined && target === currentSource) return true;
+  const normalized = target.replaceAll("\\", "/");
+  return normalized.endsWith("/archon-audit/skills")
+    || normalized.includes("/.cache/vigolium-audit/content-");
+}
+
+async function removeManagedRuntimeSkillsLink(
+  path: string,
+  currentSource?: string,
+): Promise<boolean> {
+  const current = await lstat(path).catch(() => null);
+  if (!current?.isSymbolicLink()) return false;
+  const target = await readlink(path).catch(() => "");
+  if (!isManagedRuntimeSkillsTarget(target, currentSource)) return false;
+  await unlink(path);
+  return true;
+}
+
+function removeManagedRuntimeSkillsLinkSync(path: string, currentSource?: string): boolean {
+  let current: import("fs").Stats;
+  try {
+    current = lstatSync(path);
+  } catch {
+    return false;
+  }
+  if (!current.isSymbolicLink()) return false;
+  let target: string;
+  try {
+    target = readlinkSync(path);
+  } catch {
+    return false;
+  }
+  if (!isManagedRuntimeSkillsTarget(target, currentSource)) return false;
+  unlinkSync(path);
+  return true;
+}
+
+async function removeLegacyManagedRuntimeSkillsLink(
+  loader: ReturnType<typeof getContentLoader>,
+): Promise<void> {
+  // The previous TS release used the documented user-override directory as its
+  // managed runtime mount. Remove only links we can prove were ours; preserve
+  // real directories and custom symlinks byte-for-byte.
+  if (process.env.VIGOLIUM_AUDIT_RUNTIME_SKILLS_DIR !== undefined) return;
+  const source = join(loader.rootDir(), "skills");
+  await removeManagedRuntimeSkillsLink(legacyRuntimeSkillsDir(), source);
+}
+
+function removeLegacyManagedRuntimeSkillsLinkSync(
+  loader: ReturnType<typeof getContentLoader>,
+): void {
+  if (process.env.VIGOLIUM_AUDIT_RUNTIME_SKILLS_DIR !== undefined) return;
+  const source = join(loader.rootDir(), "skills");
+  removeManagedRuntimeSkillsLinkSync(legacyRuntimeSkillsDir(), source);
+}
+
+async function ensureRuntimeSkillsLink(loader: ReturnType<typeof getContentLoader>): Promise<void> {
+  const source = join(loader.rootDir(), "skills");
+  const destination = runtimeSkillsDir();
+  await removeLegacyManagedRuntimeSkillsLink(loader);
+  let current: import("fs").Stats | null = null;
+  try {
+    current = await lstat(destination);
+  } catch {
+    /* missing (or a dangling parent) — create it below */
+  }
+
+  if (current?.isSymbolicLink()) {
+    const target = await readlink(destination).catch(() => "");
+    if (target === source) return;
+    // Migrate links created by the retired installation, and refresh links to
+    // an older extracted content bundle after an upgrade.
+    if (isManagedRuntimeSkillsTarget(target, source)) {
+      await unlink(destination);
+      current = null;
+    } else {
+      // A custom user-managed runtime link is an override. Leave it untouched.
+      return;
+    }
+  } else if (current) {
+    // A real runtime directory is also a user override; never replace it.
+    return;
+  }
+
+  await mkdir(join(destination, ".."), { recursive: true });
+  await symlink(source, destination, "dir");
+}
+
+/**
  * Codex skills live at `~/.codex/skills/vigolium-audit-<skill>/`. Agent bodies still
- * reference the legacy Go-binary path (`~/.config/vigolium-audit/skills/<skill>/...`),
+ * reference the stable runtime path (`~/.config/vigolium-audit/runtime-skills/<skill>/...`),
  * so we rewrite those references during install so the same agent body works
  * for both the Go and TS installs.
  */
 function rewriteCodexSkillPaths(body: string): string {
-  // `~/.config/vigolium-audit/skills/audit/foo` → `~/.codex/skills/vigolium-audit/foo`.
+  // `~/.config/vigolium-audit/runtime-skills/audit/foo` →
+  // `~/.codex/skills/vigolium-audit-audit/foo`.
   // The trailing slash on `skills/` matters: it forces consumption of the
-  // legacy "audit" segment so we don't leave a stale path component.
-  return body.replace(/~\/\.config\/vigolium-audit\/skills\/([^/\s)]+)\//g, "~/.codex/skills/vigolium-audit-$1/");
+  // skill-name segment so we don't leave a stale path component. Keep accepting
+  // the retired path for user-authored agent overrides during migration.
+  return body.replace(
+    /~\/\.config\/vigolium-audit\/(?:runtime-skills|skills)\/([^/\s)]+)\//g,
+    "~/.codex/skills/vigolium-audit-$1/",
+  );
 }
 
 const ClaudeHarnessSchema = z.object({
@@ -92,6 +212,7 @@ const CodexHarnessSchema = z.object({
 
 export async function installHarness(platform: "claude" | "codex"): Promise<SetupResult> {
   const loader = getContentLoader();
+  await ensureRuntimeSkillsLink(loader);
   if (platform === "claude") return installClaudeHarness(loader);
   return installCodexHarness(loader);
 }
@@ -176,9 +297,12 @@ async function installCodexHarness(loader: ReturnType<typeof getContentLoader>):
   const dir = codexAgentsDir();
   mkdirSync(dir, { recursive: true });
 
-  // Best-effort: clean up any prior vigolium-audit-* installs so this is idempotent.
+  // Best-effort: clean up current and retired installs so this is idempotent.
   for (const entry of await readdir(dir).catch(() => [])) {
-    if (entry.startsWith("vigolium-audit-") && entry.endsWith(".toml")) {
+    if (
+      (entry.startsWith("vigolium-audit-") || entry.startsWith("archon-audit-"))
+      && entry.endsWith(".toml")
+    ) {
       rmSync(join(dir, entry), { force: true });
     }
   }
@@ -215,7 +339,7 @@ async function installCodexHarness(loader: ReturnType<typeof getContentLoader>):
   const skillsDst = codexSkillsDir();
   mkdirSync(skillsDst, { recursive: true });
   for (const entry of await readdir(skillsDst).catch(() => [])) {
-    if (entry.startsWith("vigolium-audit-")) {
+    if (entry.startsWith("vigolium-audit-") || entry.startsWith("archon-audit-")) {
       rmSync(join(skillsDst, entry), { recursive: true, force: true });
     }
   }
@@ -272,6 +396,7 @@ async function spliceAgentsMd(path: string, fragment: string): Promise<void> {
   } catch {
     /* file may not exist — we'll create it */
   }
+  existing = removeMarkedBlock(existing, LEGACY_CODEX_AGENTS_BEGIN, LEGACY_CODEX_AGENTS_END);
   const beginIdx = existing.indexOf(CODEX_AGENTS_BEGIN);
   const endIdx = existing.indexOf(CODEX_AGENTS_END);
   let next: string;
@@ -289,6 +414,19 @@ async function spliceAgentsMd(path: string, fragment: string): Promise<void> {
   await writeFile(path, next, "utf8");
 }
 
+function removeMarkedBlock(existing: string, begin: string, end: string): string {
+  let next = existing;
+  while (true) {
+    const beginIdx = next.indexOf(begin);
+    const endIdx = next.indexOf(end);
+    if (beginIdx < 0 || endIdx <= beginIdx) return next;
+    const after = endIdx + end.length;
+    // Preserve all bytes outside the managed range. In particular, do not
+    // normalize blank-line runs in unrelated user-authored AGENTS.md content.
+    next = next.slice(0, beginIdx) + next.slice(after);
+  }
+}
+
 /**
  * Inverse of `spliceAgentsMd`: remove the vigolium-audit-managed block and clean up
  * trailing whitespace. Called on uninstall and from the ephemeral cleanup
@@ -304,8 +442,7 @@ async function unspliceAgentsMd(path: string): Promise<boolean> {
   const beginIdx = existing.indexOf(CODEX_AGENTS_BEGIN);
   const endIdx = existing.indexOf(CODEX_AGENTS_END);
   if (beginIdx < 0 || endIdx <= beginIdx) return false;
-  const after = endIdx + CODEX_AGENTS_END.length;
-  const next = (existing.slice(0, beginIdx) + existing.slice(after)).replace(/\n{3,}/g, "\n\n").trimEnd();
+  const next = removeMarkedBlock(existing, CODEX_AGENTS_BEGIN, CODEX_AGENTS_END).trimEnd();
   if (next.length === 0) {
     await unlink(path).catch(() => {});
   } else {
@@ -324,8 +461,7 @@ function unspliceAgentsMdSync(path: string): boolean {
   const beginIdx = existing.indexOf(CODEX_AGENTS_BEGIN);
   const endIdx = existing.indexOf(CODEX_AGENTS_END);
   if (beginIdx < 0 || endIdx <= beginIdx) return false;
-  const after = endIdx + CODEX_AGENTS_END.length;
-  const next = (existing.slice(0, beginIdx) + existing.slice(after)).replace(/\n{3,}/g, "\n\n").trimEnd();
+  const next = removeMarkedBlock(existing, CODEX_AGENTS_BEGIN, CODEX_AGENTS_END).trimEnd();
   if (next.length === 0) {
     try {
       unlinkSync(path);
@@ -379,43 +515,65 @@ async function copyDir(src: string, dst: string): Promise<void> {
   }
 }
 
+async function removeRuntimeSkillsLinkIfUnused(removed: string[]): Promise<void> {
+  if (harnessInstalled("claude") || harnessInstalled("codex")) return;
+  const loader = getContentLoader();
+  await removeLegacyManagedRuntimeSkillsLink(loader);
+  const path = runtimeSkillsDir();
+  const source = join(loader.rootDir(), "skills");
+  if (await removeManagedRuntimeSkillsLink(path, source)) {
+    removed.push(relative(homedir(), path) + " (runtime skills)");
+  }
+}
+
+function removeRuntimeSkillsLinkIfUnusedSync(): void {
+  if (harnessInstalled("claude") || harnessInstalled("codex")) return;
+  const loader = getContentLoader();
+  removeLegacyManagedRuntimeSkillsLinkSync(loader);
+  const source = join(loader.rootDir(), "skills");
+  removeManagedRuntimeSkillsLinkSync(runtimeSkillsDir(), source);
+}
+
 export async function uninstallHarness(platform: "claude" | "codex"): Promise<{ removed: string[] }> {
+  const removed: string[] = [];
   if (platform === "claude") {
     const dir = claudePluginDir();
-    if (!existsSync(dir)) return { removed: [] };
-    rmSync(dir, { recursive: true, force: true });
-    return { removed: [dir] };
-  }
-  const dir = codexAgentsDir();
-  const removed: string[] = [];
-  if (existsSync(dir)) {
-    for (const entry of await readdir(dir)) {
-      if (entry.startsWith("vigolium-audit-") && entry.endsWith(".toml")) {
-        const path = join(dir, entry);
-        rmSync(path, { force: true });
-        removed.push(relative(homedir(), path));
+    if (existsSync(dir)) {
+      rmSync(dir, { recursive: true, force: true });
+      removed.push(dir);
+    }
+  } else {
+    const dir = codexAgentsDir();
+    if (existsSync(dir)) {
+      for (const entry of await readdir(dir)) {
+        if (entry.startsWith("vigolium-audit-") && entry.endsWith(".toml")) {
+          const path = join(dir, entry);
+          rmSync(path, { force: true });
+          removed.push(relative(homedir(), path));
+        }
       }
+    }
+
+    // Skills installed alongside agents — remove the vigolium-audit-prefixed entries.
+    const skillsDst = codexSkillsDir();
+    if (existsSync(skillsDst)) {
+      for (const entry of await readdir(skillsDst)) {
+        if (entry.startsWith("vigolium-audit-")) {
+          const path = join(skillsDst, entry);
+          rmSync(path, { recursive: true, force: true });
+          removed.push(relative(homedir(), path));
+        }
+      }
+    }
+
+    // Splice out the AGENTS.md dispatch fragment if we wrote one.
+    const agentsMd = codexAgentsMdPath();
+    if (await unspliceAgentsMd(agentsMd)) {
+      removed.push(relative(homedir(), agentsMd) + " (dispatch block)");
     }
   }
 
-  // Skills installed alongside agents — remove the vigolium-audit-prefixed entries.
-  const skillsDst = codexSkillsDir();
-  if (existsSync(skillsDst)) {
-    for (const entry of await readdir(skillsDst)) {
-      if (entry.startsWith("vigolium-audit-")) {
-        const path = join(skillsDst, entry);
-        rmSync(path, { recursive: true, force: true });
-        removed.push(relative(homedir(), path));
-      }
-    }
-  }
-
-  // Splice out the AGENTS.md dispatch fragment if we wrote one.
-  const agentsMd = codexAgentsMdPath();
-  if (await unspliceAgentsMd(agentsMd)) {
-    removed.push(relative(homedir(), agentsMd) + " (dispatch block)");
-  }
-
+  await removeRuntimeSkillsLinkIfUnused(removed);
   return { removed };
 }
 
@@ -423,27 +581,29 @@ function uninstallHarnessSync(platform: "claude" | "codex"): void {
   if (platform === "claude") {
     const dir = claudePluginDir();
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
-    return;
-  }
-  const dir = codexAgentsDir();
-  if (existsSync(dir)) {
-    for (const entry of readdirSync(dir)) {
-      if (entry.startsWith("vigolium-audit-") && entry.endsWith(".toml")) {
-        rmSync(join(dir, entry), { force: true });
+  } else {
+    const dir = codexAgentsDir();
+    if (existsSync(dir)) {
+      for (const entry of readdirSync(dir)) {
+        if (entry.startsWith("vigolium-audit-") && entry.endsWith(".toml")) {
+          rmSync(join(dir, entry), { force: true });
+        }
       }
     }
-  }
 
-  const skillsDst = codexSkillsDir();
-  if (existsSync(skillsDst)) {
-    for (const entry of readdirSync(skillsDst)) {
-      if (entry.startsWith("vigolium-audit-")) {
-        rmSync(join(skillsDst, entry), { recursive: true, force: true });
+    const skillsDst = codexSkillsDir();
+    if (existsSync(skillsDst)) {
+      for (const entry of readdirSync(skillsDst)) {
+        if (entry.startsWith("vigolium-audit-")) {
+          rmSync(join(skillsDst, entry), { recursive: true, force: true });
+        }
       }
     }
+
+    unspliceAgentsMdSync(codexAgentsMdPath());
   }
 
-  unspliceAgentsMdSync(codexAgentsMdPath());
+  removeRuntimeSkillsLinkIfUnusedSync();
 }
 
 /**

@@ -119,7 +119,7 @@ docker run -d \
 
 #### Makefile / Package scripts / Native binary
 ```bash
-# All non-Docker strategies write their PID to app.pid for trap-based cleanup.
+# All non-Docker strategies write their PID to app.pid for engine-owned cleanup.
 VIGOLIUM_AUDIT_SESSION_UUID="$VIGOLIUM_AUDIT_SESSION_UUID" PORT="$ACTUAL_PORT" \
   nohup <strategy_command> >> vigolium-results/confirm-workspace/setup.log 2>&1 &
 echo $! > vigolium-results/confirm-workspace/app.pid
@@ -239,7 +239,6 @@ Write connection details to `vigolium-results/confirm-workspace/env-connection.j
   "healthcheck_endpoint": "/healthz",
   "containers": ["app", "db", "redis"],
   "ports": {"app": 3001, "db": 5432, "actual_port_was_fallback": true},
-  "cleanup_cmd": "docker rm -f $(docker ps -aq --filter label=vigolium-audit.session=<VIGOLIUM_AUDIT_SESSION_UUID>)",
   "process_pid": null,
   "test_identities": [
     {"label": "admin", "email": "vigolium-audit-admin@audit.local", "password": "...", "role": "admin", "token": "eyJhbGc..."},

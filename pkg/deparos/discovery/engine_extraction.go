@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/url"
 
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan/linkfinder"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle/linkfinder"
 	"github.com/vigolium/vigolium/pkg/deparos/spider"
 	"github.com/vigolium/vigolium/pkg/deparos/storage"
 	"go.uber.org/zap"
@@ -40,9 +40,9 @@ func (e *Engine) storeSpiderLinks(sourceURL *url.URL, links []*spider.Discovered
 	}
 }
 
-// storeJSScanRequests persists jsscan extracted requests to database.
-// Called asynchronously after jsscan extraction completes.
-func (e *Engine) storeJSScanRequests(jsURL *url.URL, reqs []jsscan.ExtractedRequest) {
+// storeJSTangleRequests persists jstangle extracted requests to database.
+// Called asynchronously after jstangle extraction completes.
+func (e *Engine) storeJSTangleRequests(jsURL *url.URL, reqs []jstangle.ExtractedRequest) {
 	if e.storage == nil || len(reqs) == 0 {
 		return
 	}
@@ -55,30 +55,30 @@ func (e *Engine) storeJSScanRequests(jsURL *url.URL, reqs []jsscan.ExtractedRequ
 		return
 	}
 
-	if err := repo.BatchStoreJSScanRequests(nodeID, sessionID, reqs); err != nil {
-		logger.Warn("Failed to store jsscan requests",
+	if err := repo.BatchStoreJSTangleRequests(nodeID, sessionID, reqs); err != nil {
+		logger.Warn("Failed to store jstangle requests",
 			zap.String("source", jsURL.String()),
 			zap.Int("count", len(reqs)),
 			zap.Error(err))
 	} else {
-		logger.Debug("Stored jsscan requests to DB",
+		logger.Debug("Stored jstangle requests to DB",
 			zap.String("source", jsURL.String()),
 			zap.Int("count", len(reqs)))
 	}
 }
 
-func (e *Engine) storeJSScanFacts(jsURL *url.URL, facts []jsscan.HTTPRequestFact) {
+func (e *Engine) storeJSTangleFacts(jsURL *url.URL, facts []jstangle.HTTPRequestFact) {
 	if jsURL == nil {
 		return
 	}
-	e.storeJSScanFactsAtSource(jsURL, jsURL.String(), facts)
+	e.storeJSTangleFactsAtSource(jsURL, jsURL.String(), facts)
 }
 
-// storeJSScanFactsAtSource keeps the database node anchored to the fetched
+// storeJSTangleFactsAtSource keeps the database node anchored to the fetched
 // generated asset while allowing source-map facts to retain their virtual
 // original-source URL. That source URL is authoritative for provenance and
 // source-relative replay after a discovery session is resumed.
-func (e *Engine) storeJSScanFactsAtSource(nodeURL *url.URL, sourceURL string, facts []jsscan.HTTPRequestFact) {
+func (e *Engine) storeJSTangleFactsAtSource(nodeURL *url.URL, sourceURL string, facts []jstangle.HTTPRequestFact) {
 	if e.storage == nil || nodeURL == nil || sourceURL == "" || len(facts) == 0 {
 		return
 	}
@@ -86,10 +86,10 @@ func (e *Engine) storeJSScanFactsAtSource(nodeURL *url.URL, sourceURL string, fa
 	if repo == nil {
 		return
 	}
-	if err := repo.BatchStoreJSScanFacts(
+	if err := repo.BatchStoreJSTangleFacts(
 		e.getNodeIDForURL(nodeURL), e.storage.SessionDBID(), sourceURL, facts,
 	); err != nil {
-		logger.Warn("Failed to store typed jsscan facts",
+		logger.Warn("Failed to store typed jstangle facts",
 			zap.String("source", sourceURL), zap.Int("count", len(facts)), zap.Error(err))
 	}
 }
@@ -152,10 +152,10 @@ func (e *Engine) loadExtractionsFromDB() error {
 
 	sessionID := e.storage.SessionDBID()
 
-	// Load JSScan requests from all sessions (for full history)
+	// Load JSTangle requests from all sessions (for full history)
 	// Note: We load from all sessions because extracted endpoints may be useful
 	// even if discovered in previous sessions
-	jsRequests, err := repo.GetJSScanRequests(sessionID)
+	jsRequests, err := repo.GetJSTangleRequests(sessionID)
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func (e *Engine) loadExtractionsFromDB() error {
 	loadedCount := 0
 	for _, model := range jsRequests {
 		if model.SchemaVersion >= 2 && model.TemplateJSON.Valid {
-			var fact jsscan.HTTPRequestFact
+			var fact jstangle.HTTPRequestFact
 			if err := json.Unmarshal([]byte(model.TemplateJSON.String), &fact); err == nil {
 				if e.AddRequestFact(model.SourceURL.String, fact) {
 					loadedCount++
@@ -171,7 +171,7 @@ func (e *Engine) loadExtractionsFromDB() error {
 				continue
 			}
 		}
-		req := convertModelToJSScanRequest(model)
+		req := convertModelToJSTangleRequest(model)
 		// Use dedup to avoid duplicates
 		if e.AddExtractedRequest(&req) {
 			loadedCount++
@@ -179,7 +179,7 @@ func (e *Engine) loadExtractionsFromDB() error {
 	}
 
 	if loadedCount > 0 {
-		logger.Info("Loaded jsscan extractions from DB",
+		logger.Info("Loaded jstangle extractions from DB",
 			zap.Int("loaded", loadedCount),
 			zap.Int("total", len(jsRequests)))
 	}
@@ -187,11 +187,11 @@ func (e *Engine) loadExtractionsFromDB() error {
 	// Restore non-HTTP capability facts separately. Grouping by source preserves
 	// source-relative GraphQL endpoint and route resolution while WS/SSE records
 	// remain metadata-only.
-	capabilityRows, err := repo.GetJSScanCapabilityFacts(sessionID)
+	capabilityRows, err := repo.GetJSTangleCapabilityFacts(sessionID)
 	if err != nil {
 		return err
 	}
-	bySource := make(map[string]*jsscan.ScanResult)
+	bySource := make(map[string]*jstangle.ScanResult)
 	for _, model := range capabilityRows {
 		if !model.TemplateJSON.Valid || !model.RecordKind.Valid {
 			continue
@@ -199,47 +199,47 @@ func (e *Engine) loadExtractionsFromDB() error {
 		sourceURL := model.SourceURL.String
 		result := bySource[sourceURL]
 		if result == nil {
-			result = &jsscan.ScanResult{}
+			result = &jstangle.ScanResult{}
 			bySource[sourceURL] = result
 		}
 		payload := []byte(model.TemplateJSON.String)
 		switch model.RecordKind.String {
 		case "graphqlOperation":
-			var fact jsscan.GraphQLOperationFact
+			var fact jstangle.GraphQLOperationFact
 			if json.Unmarshal(payload, &fact) == nil {
 				result.GraphQLOperations = append(result.GraphQLOperations, fact)
 			}
 		case "websocket":
-			var fact jsscan.WebSocketFact
+			var fact jstangle.WebSocketFact
 			if json.Unmarshal(payload, &fact) == nil {
 				result.WebSockets = append(result.WebSockets, fact)
 			}
 		case "eventSource":
-			var fact jsscan.EventSourceFact
+			var fact jstangle.EventSourceFact
 			if json.Unmarshal(payload, &fact) == nil {
 				result.EventSources = append(result.EventSources, fact)
 			}
 		case "clientRoute":
-			var fact jsscan.ClientRouteFact
+			var fact jstangle.ClientRouteFact
 			if json.Unmarshal(payload, &fact) == nil {
 				result.ClientRoutes = append(result.ClientRoutes, fact)
 			}
 		case "browserSecurityFlow":
-			var fact jsscan.BrowserSecurityFlowFact
+			var fact jstangle.BrowserSecurityFlowFact
 			if json.Unmarshal(payload, &fact) == nil {
 				result.BrowserFlows = append(result.BrowserFlows, fact)
 			}
 		}
 	}
 	for sourceURL, result := range bySource {
-		e.processJSScanCapabilityFacts(sourceURL, result)
+		e.processJSTangleCapabilityFacts(sourceURL, result)
 	}
 
 	return nil
 }
 
 // extractRoutesFromStoredJS feeds JavaScript that earlier phases (notably
-// spidering) already captured through the SAME jsscan + linkfinder extraction the
+// spidering) already captured through the SAME jstangle + linkfinder extraction the
 // discovery crawl runs on JS it fetches itself. The discovery crawl only parses
 // JS it fetches during its own run, so a bundle the browser collected — e.g. a
 // Salesforce Aura/Lightning app bundle that embeds an /apex/... route for a
@@ -247,7 +247,7 @@ func (e *Engine) loadExtractionsFromDB() error {
 // in storage unparsed and its routes are never requested. linkfinder extracts the
 // root-relative routes (AddObservedPath also preserves a query param by queuing it
 // as an ExtractedRequest, so `/apex/X?source=Y` is fetched with its param) and
-// jsscan extracts XHR/fetch endpoints. Best-effort; runs once at init before tasks
+// jstangle extracts XHR/fetch endpoints. Best-effort; runs once at init before tasks
 // are generated. Re-uses the already-stored body, so no JS is re-fetched.
 func (e *Engine) extractRoutesFromStoredJS() {
 	if e.storage == nil {
@@ -266,16 +266,16 @@ func (e *Engine) extractRoutesFromStoredJS() {
 		jsFiles++
 
 		body := resp.Body
-		// jsscan extracts HTTP requests (XHR/fetch endpoints) and returns
+		// jstangle extracts HTTP requests (XHR/fetch endpoints) and returns
 		// transformed code that linkfinder reads more reliably. It parses/transforms
 		// the whole body, so skip it for very large bundles to keep this init step
 		// bounded — linkfinder (a cheap regex pass below) still mines their routes.
-		if e.jsscanService != nil && len(body) <= maxStoredJSScanBytes {
+		if e.jstangleService != nil && len(body) <= maxStoredJSTangleBytes {
 			sourceURL := ""
 			if u := node.URL(); u != nil {
 				sourceURL = u.String()
 			}
-			if sr, err := e.jsscanService.ScanWithOptions(e.ctx, body, e.jsScanOptions(jsscan.ProfileDiscovery, sourceURL)); err == nil && sr != nil {
+			if sr, err := e.jstangleService.ScanWithOptions(e.ctx, body, e.jsTangleOptions(jstangle.ProfileDiscovery, sourceURL)); err == nil && sr != nil {
 				if len(sr.RequestFacts) > 0 {
 					for i := range sr.RequestFacts {
 						if e.AddRequestFact(sourceURL, sr.RequestFacts[i]) {
@@ -293,7 +293,7 @@ func (e *Engine) extractRoutesFromStoredJS() {
 					body = []byte(sr.Code.Content)
 				}
 				e.processAssetFacts(e.ctx, sourceURL, resp.Body, sr.AssetFacts)
-				e.processJSScanCapabilityFacts(sourceURL, sr)
+				e.processJSTangleCapabilityFacts(sourceURL, sr)
 			}
 		}
 
@@ -319,10 +319,10 @@ func (e *Engine) extractRoutesFromStoredJS() {
 	}
 }
 
-// maxStoredJSScanBytes caps the body size fed to jsscan during the stored-JS
-// route mining (jsscan parses/transforms the whole body); larger bundles are
-// still mined by the cheap linkfinder regex pass, just not jsscan-transformed.
-const maxStoredJSScanBytes = 4 * 1024 * 1024
+// maxStoredJSTangleBytes caps the body size fed to jstangle during the stored-JS
+// route mining (jstangle parses/transforms the whole body); larger bundles are
+// still mined by the cheap linkfinder regex pass, just not jstangle-transformed.
+const maxStoredJSTangleBytes = 4 * 1024 * 1024
 
 // isJavaScriptResponse reports whether a stored response is JavaScript, by MIME
 // type or URL extension (the extension catches framework bundles served with an
@@ -332,23 +332,23 @@ func isJavaScriptResponse(u *url.URL, mime string) bool {
 	return isJavaScriptContentType(mime) || (u != nil && hasJavaScriptExtension(u))
 }
 
-// convertModelToJSScanRequest converts a storage model to jsscan request.
-func convertModelToJSScanRequest(m storage.ExtractionModel) jsscan.ExtractedRequest {
+// convertModelToJSTangleRequest converts a storage model to jstangle request.
+func convertModelToJSTangleRequest(m storage.ExtractionModel) jstangle.ExtractedRequest {
 	var headers []string
 	var cookies []string
 
 	if m.Headers.Valid && m.Headers.String != "" {
 		if err := json.Unmarshal([]byte(m.Headers.String), &headers); err != nil {
-			zap.L().Debug("failed to decode stored jsscan headers", zap.Error(err))
+			zap.L().Debug("failed to decode stored jstangle headers", zap.Error(err))
 		}
 	}
 	if m.Cookies.Valid && m.Cookies.String != "" {
 		if err := json.Unmarshal([]byte(m.Cookies.String), &cookies); err != nil {
-			zap.L().Debug("failed to decode stored jsscan cookies", zap.Error(err))
+			zap.L().Debug("failed to decode stored jstangle cookies", zap.Error(err))
 		}
 	}
 
-	return jsscan.ExtractedRequest{
+	return jstangle.ExtractedRequest{
 		URL:     m.URL,
 		Method:  m.Method,
 		Body:    m.Body.String,

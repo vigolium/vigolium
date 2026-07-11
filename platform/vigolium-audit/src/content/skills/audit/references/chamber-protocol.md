@@ -1,7 +1,7 @@
 # Review Chamber Protocol
 
 Defines the debate format, agent interaction rules, round limits, and convergence criteria for the
-Phase 10 Review Chamber multi-agent debate system.
+Review Chamber multi-agent debate system. The active command supplies its phase ID and namespace.
 
 ## Overview
 
@@ -17,8 +17,8 @@ confirmation bias inherent in a single agent both imagining and validating an at
 
 ### Cluster Formation
 
-After Phase 4 (SAST + inline enrichment) and Phase 9 (spec gap) complete, the orchestrator forms threat
-clusters from the KB:
+After the active mode's structural/SAST, systematic-review, and spec-context prerequisites complete,
+the orchestrator forms threat clusters from the KB:
 
 1. Read `## High-Risk DFD Slices` and `## High-Risk CFD Slices` from `vigolium-results/attack-surface/knowledge-base-report.md`
 2. Group slices by shared trust boundary or component affinity (slices accessing the same data store,
@@ -48,10 +48,10 @@ To prevent finding ID collisions across parallel chambers, the orchestrator assi
 ranges before spawning:
 
 ```
-Chamber 1: p7-001 through p7-019
-Chamber 2: p7-020 through p7-039
-Chamber 3: p7-040 through p7-059
-Chamber 4: p7-060 through p7-079
+Chamber 1: <prefix>-001 through <prefix>-019
+Chamber 2: <prefix>-020 through <prefix>-039
+Chamber 3: <prefix>-040 through <prefix>-059
+Chamber 4: <prefix>-060 through <prefix>-079
 ...
 ```
 
@@ -191,7 +191,7 @@ Before the Synthesizer writes any finding draft, apply this 5-point check:
 5. **Test/example code?** Vulnerable code ships to production?
 
 If any check fails, the finding is dropped. If ambiguous, the Synthesizer adds
-`Pre-FP-Flag: check-N-ambiguous` to the finding draft for Phase 11 priority.
+`Pre-FP-Flag: check-N-ambiguous` to the finding draft for FP-check priority.
 
 ## Cross-Chamber Intelligence
 
@@ -236,7 +236,7 @@ Schema:
 The Variant Scout (optional 5th agent) monitors the debate transcript for confirmed patterns
 and immediately searches for structural variants in sibling components. Findings are written to
 `vigolium-results/chamber-workspace/<chamber-id>/variant-candidates/` for the Synthesizer to decide
-whether to open a new debate round or defer to Phase 12.
+whether to open a new debate round or defer to the variant-analysis tail.
 
 ## Debate Transcript Format
 
@@ -362,10 +362,10 @@ Variant candidates: <count>
 Chamber closed: <ISO timestamp>
 ```
 
-## Relationship to Phase 11
+## Relationship to the FP-check tail
 
-The Devil's Advocate within the chamber subsumes most of Phase 11 Stage 2's adversarial function.
-Phase 11 is reduced to **P11-LITE**:
+The Devil's Advocate within the chamber subsumes most repeated adversarial review. The active
+command can therefore use a compact FP-check tail:
 
 - **Stage 1 (unchanged)**: apply `fp-check` skill to all VALID findings. Catches systematic
   FP patterns the Advocate might share with other chamber agents.

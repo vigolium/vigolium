@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This WordPress site leaks valid usernames to unauthenticated visitors via author archives (/?author=N redirects to /author/<username>/) and/or the public REST API (/wp-json/wp/v2/users returns JSON objects whose slug fields are usernames). Usernames are meant to be private.
+	ModuleDesc = `**What it means:** Credential-free controls found distinct WordPress author slugs through canonical author redirects or the public REST author collection. These slugs often identify content authors by design.
 
-**How it's exploited:** An attacker harvests the real usernames (including the administrator) as the known half for password brute-force, spraying, or credential-stuffing against /wp-login.php or XML-RPC, improving their odds of takeover. The list also aids targeted phishing.
+**How it's exploited:** Author slugs may help password spraying if they equal login names, but this module does not prove that mapping, identify private accounts, or test login controls. Results therefore remain observations.
 
 **Fix:** Block author-scan redirects, restrict the REST users endpoint to authenticated requests, and enforce strong passwords plus login rate-limiting or 2FA.`
 
-	ModuleConfirmation = "Confirmed when author archive redirects expose usernames or REST API returns user objects"
-	ModuleSeverity     = severity.Medium
+	ModuleConfirmation = "Observed when credential-free author-ID controls yield distinct non-catch-all slugs or structurally parsed REST author objects; login identity is not inferred"
+	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Certain
 	ModuleTags         = []string{"wordpress", "cms", "php", "authentication", "light"}
 )

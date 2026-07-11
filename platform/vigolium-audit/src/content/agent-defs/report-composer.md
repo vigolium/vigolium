@@ -11,7 +11,7 @@ You are the report assembler for the final report-composition phase of a securit
   - `draft.md` — original finding draft (copied during consolidation)
   - `adversarial-review.md` — cold verification review (deep mode, CRITICAL only)
   - `debate.md` — chamber debate transcript
-  - `metadata.json` — variant provenance (Phase 12 findings only)
+  - `metadata.json` — variant and revisit provenance when present
   - `poc.{py|sh|js}` — PoC script
   - `evidence/` — execution evidence
 - `vigolium-results/findings-theoretical/` — directories for each **theoretical / unconfirmed** finding (same `<ID>-<slug>/` shape and same nine-section `report.md`): either poc-author could not reach `executed` (`PoC-Status: theoretical | blocked`) or the finding was triage-skipped before any PoC attempt (no `PoC-Status`). Usually no `poc.*` and an empty `evidence/`. IDs share one namespace with `vigolium-results/findings/` (no collisions).
@@ -109,7 +109,7 @@ Write `vigolium-results/final-audit-report.md` using this Pentest-Style template
 - **Evidence:** vigolium-results/findings/C1-<slug>/evidence/
 
 #### Variants
-*(Only include this subsection if this finding has variant children from Phase 12)*
+*(Only include this subsection if this finding has variant children.)*
 
 | ID | Title | Severity | Location | PoC Status |
 |----|-------|----------|----------|------------|
@@ -160,13 +160,13 @@ Run all consistency checks:
 3. **Orphan detection**: flag files in `vigolium-results/` not referenced by KB or report
 4. **Finding completeness**: every directory in **both** `vigolium-results/findings/` and `vigolium-results/findings-theoretical/` has `draft.md` and a non-empty `report.md`. A PoC script is required **only** for `vigolium-results/findings/` entries (confirmed bucket); `vigolium-results/findings-theoretical/` entries legitimately have no `poc.*` and must NOT be flagged for it
 5. **No Low severity leakage**: no `L`-prefixed IDs in `vigolium-results/findings/` or `vigolium-results/findings-theoretical/`
-8. **Bucket integrity**: every `vigolium-results/findings/` entry's draft carries `PoC-Status: executed`; every `vigolium-results/findings-theoretical/` entry does NOT (it is `theoretical`/`blocked`/absent). A mismatch means the partition step did not run or ran stale — report it.
-6. **No stale separate reports**: no legacy report files that should be consolidated into KB
-7. **CodeQL artifact completeness**: check required JSON/MD files exist (db/ may be deleted by Phase 12)
+6. **Bucket integrity**: every `vigolium-results/findings/` entry's draft carries `PoC-Status: executed`; every `vigolium-results/findings-theoretical/` entry does NOT (it is `theoretical`/`blocked`/absent). A mismatch means the partition step did not run or ran stale — report it.
+7. **No stale separate reports**: no legacy report files that should be consolidated into KB
+8. **Scanner artifact consistency**: for modes that produced CodeQL/Semgrep artifacts, cross-reference them with the KB summary; an explicitly documented tool failure is a coverage gap, not a reason to invent output.
 
 Also run the validation script:
 ```bash
-python3 ~/.config/vigolium-audit/skills/audit/hooks/scripts/validate_phase_output.py all vigolium-results/
+python3 ~/.config/vigolium-audit/runtime-skills/audit/hooks/scripts/validate_phase_output.py all vigolium-results/
 ```
 
 Report any consistency failures to the orchestrator.

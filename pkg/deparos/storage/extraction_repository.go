@@ -12,7 +12,7 @@ import (
 
 	"github.com/uptrace/bun"
 
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/deparos/spider"
 )
 
@@ -113,13 +113,13 @@ func (r *ExtractionRepository) BatchStoreSpiderLinks(
 	return r.insertInBatches(ctx, models, 100)
 }
 
-// ============ JSScan Methods ============
+// ============ JSTangle Methods ============
 
-// StoreJSScanRequest stores a jsscan extracted request.
+// StoreJSTangleRequest stores a jstangle extracted request.
 // Uses hash-based deduplication - duplicates are silently ignored.
-func (r *ExtractionRepository) StoreJSScanRequest(
+func (r *ExtractionRepository) StoreJSTangleRequest(
 	sourceNodeID, sessionID int64,
-	req *jsscan.ExtractedRequest,
+	req *jstangle.ExtractedRequest,
 ) error {
 	if req == nil {
 		return nil
@@ -140,14 +140,14 @@ func (r *ExtractionRepository) StoreJSScanRequest(
 		}
 	}
 
-	hash := computeExtractionHash(SourceJSScan, finalURL, req.Method, req.Body)
+	hash := computeExtractionHash(SourceJSTangle, finalURL, req.Method, req.Body)
 	hostname := ExtractHostname(finalURL)
 
 	model := &ExtractionModel{
 		SourceNodeID: sourceNodeID,
 		SessionID:    sessionID,
 		Hash:         hash,
-		Source:       uint8(SourceJSScan),
+		Source:       uint8(SourceJSTangle),
 		Hostname:     hostname,
 		URL:          finalURL,
 		Method:       req.Method,
@@ -172,11 +172,11 @@ func (r *ExtractionRepository) StoreJSScanRequest(
 	return err
 }
 
-// BatchStoreJSScanRequests stores multiple jsscan requests efficiently.
+// BatchStoreJSTangleRequests stores multiple jstangle requests efficiently.
 // Uses hash-based deduplication - duplicates are silently ignored.
-func (r *ExtractionRepository) BatchStoreJSScanRequests(
+func (r *ExtractionRepository) BatchStoreJSTangleRequests(
 	sourceNodeID, sessionID int64,
-	reqs []jsscan.ExtractedRequest,
+	reqs []jstangle.ExtractedRequest,
 ) error {
 	if len(reqs) == 0 {
 		return nil
@@ -202,14 +202,14 @@ func (r *ExtractionRepository) BatchStoreJSScanRequests(
 			}
 		}
 
-		hash := computeExtractionHash(SourceJSScan, finalURL, req.Method, req.Body)
+		hash := computeExtractionHash(SourceJSTangle, finalURL, req.Method, req.Body)
 		hostname := ExtractHostname(finalURL)
 
 		model := ExtractionModel{
 			SourceNodeID: sourceNodeID,
 			SessionID:    sessionID,
 			Hash:         hash,
-			Source:       uint8(SourceJSScan),
+			Source:       uint8(SourceJSTangle),
 			Hostname:     hostname,
 			URL:          finalURL,
 			Method:       req.Method,
@@ -234,12 +234,12 @@ func (r *ExtractionRepository) BatchStoreJSScanRequests(
 	return r.insertInBatches(ctx, models, 100)
 }
 
-// StoreJSScanFact stores the complete typed v2 request template while also
+// StoreJSTangleFact stores the complete typed v2 request template while also
 // populating compatibility columns used by existing extraction queries.
-func (r *ExtractionRepository) StoreJSScanFact(
+func (r *ExtractionRepository) StoreJSTangleFact(
 	sourceNodeID, sessionID int64,
 	sourceURL string,
-	fact *jsscan.HTTPRequestFact,
+	fact *jstangle.HTTPRequestFact,
 ) error {
 	if fact == nil {
 		return nil
@@ -249,10 +249,10 @@ func (r *ExtractionRepository) StoreJSScanFact(
 	return err
 }
 
-func (r *ExtractionRepository) BatchStoreJSScanFacts(
+func (r *ExtractionRepository) BatchStoreJSTangleFacts(
 	sourceNodeID, sessionID int64,
 	sourceURL string,
-	facts []jsscan.HTTPRequestFact,
+	facts []jstangle.HTTPRequestFact,
 ) error {
 	if len(facts) == 0 {
 		return nil
@@ -265,7 +265,7 @@ func (r *ExtractionRepository) BatchStoreJSScanFacts(
 	return r.insertInBatches(context.Background(), models, 100)
 }
 
-func extractionModelFromFact(sourceNodeID, sessionID int64, sourceURL string, fact *jsscan.HTTPRequestFact, now int64) ExtractionModel {
+func extractionModelFromFact(sourceNodeID, sessionID int64, sourceURL string, fact *jstangle.HTTPRequestFact, now int64) ExtractionModel {
 	query := renderFactQuery(fact.Query)
 	finalURL := fact.URL.Rendered
 	if query != "" {
@@ -301,8 +301,8 @@ func extractionModelFromFact(sourceNodeID, sessionID int64, sourceURL string, fa
 	identity := sourceURL + "|" + fact.ID + "|" + finalURL + "|" + fact.Method.Rendered + "|" + body
 	model := ExtractionModel{
 		SourceNodeID: sourceNodeID, SessionID: sessionID,
-		Hash:   computeExtractionHash(SourceJSScan, identity, fact.Method.Rendered, body),
-		Source: uint8(SourceJSScan), Hostname: ExtractHostname(finalURL), URL: finalURL,
+		Hash:   computeExtractionHash(SourceJSTangle, identity, fact.Method.Rendered, body),
+		Source: uint8(SourceJSTangle), Hostname: ExtractHostname(finalURL), URL: finalURL,
 		Method: fact.Method.Rendered, Body: nullString(body), ContentType: nullString(contentType),
 		Headers: nullString(string(headersJSON)), Cookies: nullString(string(cookiesJSON)),
 		SourceURL: nullString(sourceURL), RecordKind: nullString("httpRequest"),
@@ -316,14 +316,14 @@ func extractionModelFromFact(sourceNodeID, sessionID int64, sourceURL string, fa
 	return model
 }
 
-// BatchStoreJSScanCapabilityFacts persists non-HTTP protocol, route, and
+// BatchStoreJSTangleCapabilityFacts persists non-HTTP protocol, route, and
 // browser-flow records. They share the additive v2 extraction schema for
 // export/resume compatibility but are deliberately excluded from
-// GetJSScanRequests so no generic HTTP replay path can consume them.
-func (r *ExtractionRepository) BatchStoreJSScanCapabilityFacts(
+// GetJSTangleRequests so no generic HTTP replay path can consume them.
+func (r *ExtractionRepository) BatchStoreJSTangleCapabilityFacts(
 	sourceNodeID, sessionID int64,
 	sourceURL string,
-	result *jsscan.ScanResult,
+	result *jstangle.ScanResult,
 ) error {
 	if result == nil {
 		return nil
@@ -332,7 +332,7 @@ func (r *ExtractionRepository) BatchStoreJSScanCapabilityFacts(
 	models := make([]ExtractionModel, 0,
 		len(result.GraphQLOperations)+len(result.WebSockets)+len(result.EventSources)+
 			len(result.ClientRoutes)+len(result.BrowserFlows))
-	appendRecord := func(kind, id, target, method string, provenance jsscan.Provenance, value any) {
+	appendRecord := func(kind, id, target, method string, provenance jstangle.Provenance, value any) {
 		payload, err := json.Marshal(value)
 		if err != nil {
 			return
@@ -347,8 +347,8 @@ func (r *ExtractionRepository) BatchStoreJSScanCapabilityFacts(
 		identity := sourceURL + "|" + kind + "|" + id + "|" + string(payload)
 		model := ExtractionModel{
 			SourceNodeID: sourceNodeID, SessionID: sessionID,
-			Hash:   computeExtractionHash(SourceJSScan, identity, method, ""),
-			Source: uint8(SourceJSScan), Hostname: hostname, URL: target, Method: method,
+			Hash:   computeExtractionHash(SourceJSTangle, identity, method, ""),
+			Source: uint8(SourceJSTangle), Hostname: hostname, URL: target, Method: method,
 			SourceURL: nullString(sourceURL), RecordKind: nullString(kind),
 			Confidence: nullString(provenance.Confidence), Extractor: nullString(provenance.Extractor),
 			ModulePath: nullString(provenance.ModulePath), TemplateJSON: nullString(string(payload)),
@@ -388,13 +388,13 @@ func (r *ExtractionRepository) BatchStoreJSScanCapabilityFacts(
 
 func sourceArtifactHash(sessionID int64, generatedURL, sourcePath, contentSHA256 string) string {
 	identity := fmt.Sprintf("source-artifact|%d|%s|%s|%s", sessionID, generatedURL, sourcePath, contentSHA256)
-	return computeExtractionHash(SourceJSScan, identity, "SOURCE", "")
+	return computeExtractionHash(SourceJSTangle, identity, "SOURCE", "")
 }
 
-// StoreJSScanSourceArtifact persists one bounded source-map sourcesContent
+// StoreJSTangleSourceArtifact persists one bounded source-map sourcesContent
 // entry. The caller validates source-map limits and normalizes SourcePath;
 // this method remains content-addressed and never writes that path to disk.
-func (r *ExtractionRepository) StoreJSScanSourceArtifact(model *JSScanSourceArtifactModel) error {
+func (r *ExtractionRepository) StoreJSTangleSourceArtifact(model *JSTangleSourceArtifactModel) error {
 	if model == nil || model.SessionID == 0 || model.GeneratedURL == "" ||
 		model.SourcePath == "" || model.ContentSHA256 == "" {
 		return nil
@@ -409,10 +409,10 @@ func (r *ExtractionRepository) StoreJSScanSourceArtifact(model *JSScanSourceArti
 	return err
 }
 
-// GetJSScanSourceArtifacts returns recovered original sources for one session.
+// GetJSTangleSourceArtifacts returns recovered original sources for one session.
 // A zero session ID intentionally selects all sessions for offline inspection.
-func (r *ExtractionRepository) GetJSScanSourceArtifacts(sessionID int64) ([]JSScanSourceArtifactModel, error) {
-	models := make([]JSScanSourceArtifactModel, 0)
+func (r *ExtractionRepository) GetJSTangleSourceArtifacts(sessionID int64) ([]JSTangleSourceArtifactModel, error) {
+	models := make([]JSTangleSourceArtifactModel, 0)
 	query := r.db.NewSelect().Model(&models).OrderExpr("created_at ASC, id ASC")
 	if sessionID != 0 {
 		query = query.Where("session_id = ?", sessionID)
@@ -423,7 +423,7 @@ func (r *ExtractionRepository) GetJSScanSourceArtifacts(sessionID int64) ([]JSSc
 	return models, nil
 }
 
-func renderFactQuery(fields []jsscan.FieldTemplate) string {
+func renderFactQuery(fields []jstangle.FieldTemplate) string {
 	values := url.Values{}
 	for _, field := range fields {
 		values.Add(field.Name.Rendered, field.Value.Rendered)
@@ -633,26 +633,26 @@ func (r *ExtractionRepository) GetSpiderLinks(sessionID int64) ([]ExtractionMode
 	return r.GetBySource(sessionID, SourceSpider)
 }
 
-// GetJSScanRequests returns only replay-compatible request rows. Protocol,
+// GetJSTangleRequests returns only replay-compatible request rows. Protocol,
 // route, and browser-flow metadata are intentionally excluded.
-func (r *ExtractionRepository) GetJSScanRequests(sessionID int64) ([]ExtractionModel, error) {
+func (r *ExtractionRepository) GetJSTangleRequests(sessionID int64) ([]ExtractionModel, error) {
 	ctx := context.Background()
 	var extractions []ExtractionModel
 	err := r.db.NewSelect().Model(&extractions).
-		Where("session_id = ? AND source = ?", sessionID, uint8(SourceJSScan)).
+		Where("session_id = ? AND source = ?", sessionID, uint8(SourceJSTangle)).
 		Where("record_kind IS NULL OR record_kind = '' OR record_kind = 'httpRequest'").
 		Order("created_at").
 		Scan(ctx)
 	return extractions, err
 }
 
-// GetJSScanCapabilityFacts returns the typed non-HTTP records for resume and
+// GetJSTangleCapabilityFacts returns the typed non-HTTP records for resume and
 // export paths.
-func (r *ExtractionRepository) GetJSScanCapabilityFacts(sessionID int64) ([]ExtractionModel, error) {
+func (r *ExtractionRepository) GetJSTangleCapabilityFacts(sessionID int64) ([]ExtractionModel, error) {
 	ctx := context.Background()
 	var extractions []ExtractionModel
 	err := r.db.NewSelect().Model(&extractions).
-		Where("session_id = ? AND source = ?", sessionID, uint8(SourceJSScan)).
+		Where("session_id = ? AND source = ?", sessionID, uint8(SourceJSTangle)).
 		Where("record_kind IS NOT NULL AND record_kind != '' AND record_kind != 'httpRequest'").
 		Order("created_at").
 		Scan(ctx)

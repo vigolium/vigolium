@@ -44,7 +44,7 @@ func (e *Engine) initSession() error {
 		logger.Warn("Failed to copy from sitemap", zap.Error(err))
 	}
 
-	// Load extractions from database (jsscan requests for task generation)
+	// Load extractions from database (jstangle requests for task generation)
 	if err := e.loadExtractionsFromDB(); err != nil {
 		logger.Warn("Failed to load extractions from database", zap.Error(err))
 	}
@@ -101,7 +101,7 @@ func (e *Engine) initSession() error {
 	e.confirmStartURLExtensions()
 
 	// On a monolith / server-rendered app, sweep common JavaScript bundle names
-	// (main.js, admin.js, config.js, …) and feed confirmed hits to jsscan. No-op
+	// (main.js, admin.js, config.js, …) and feed confirmed hits to jstangle. No-op
 	// on JS-shell SPAs (content-hashed, unguessable bundles) and when disabled.
 	e.sweepJSBundles()
 
@@ -365,7 +365,7 @@ func (e *Engine) generateInitialTasks() {
 	}
 
 	// Create JS extracted request task for root URL
-	if e.jsscanService != nil {
+	if e.jstangleService != nil {
 		targetURL, err := url.Parse(e.config.Target.StartURL)
 		if err == nil {
 			jsExtTask := e.factory.CreateJSExtractedRequestTask(

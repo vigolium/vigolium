@@ -10,6 +10,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestScanPerRequest_CatchAllEndpoint reproduces the reported false positive:
@@ -52,8 +53,11 @@ func TestScanPerRequest_DangerousMethodEnabled(t *testing.T) {
 		switch r.Method {
 		case "GET":
 			_, _ = io.WriteString(w, "<html><body>resource listing: alpha beta gamma delta epsilon zeta</body></html>")
+		case "OPTIONS":
+			w.Header().Set("Allow", "GET, PUT, DELETE, PATCH")
+			w.WriteHeader(http.StatusNoContent)
 		case "PUT", "DELETE", "PATCH", "MKCOL", "MOVE", "COPY":
-			_, _ = io.WriteString(w, "<html><body>resource modified by "+r.Method+" successfully, new state persisted</body></html>")
+			t.Fatal("safe capability audit must never send a state-changing method: " + r.Method)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			_, _ = io.WriteString(w, "method not allowed")
@@ -73,7 +77,10 @@ func TestScanPerRequest_DangerousMethodEnabled(t *testing.T) {
 		t.Fatalf("scan: %v", err)
 	}
 	if len(res) == 0 {
-		t.Fatal("expected a finding: write methods are enabled and the sentinel method is rejected (not a catch-all)")
+		t.Fatal("expected an observation for methods declared by OPTIONS")
+	}
+	if res[0].RecordKind != output.RecordKindObservation {
+		t.Fatalf("declared capability must be an observation, got %q", res[0].RecordKind)
 	}
 }
 
@@ -149,18 +156,23 @@ func TestScanPerRequest_OverrideIgnored_SameBody(t *testing.T) {
 // guard fires), leaving the override differential as the sole, confirmed signal.
 func TestScanPerRequest_OverrideRespected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "POST" && r.Header.Get("X-HTTP-Method-Override") == "DELETE" {
-			_, _ = io.WriteString(w, "<html><body>resource 42 was permanently deleted from the collection</body></html>")
+		if r.Method == "GET" && r.Header.Get("X-HTTP-Method-Override") == "OPTIONS" {
+			w.Header().Set("Allow", "GET, PUT")
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = io.WriteString(w, "GET, PUT")
 			return
 		}
 		switch r.Method {
 		case "GET":
+			w.Header().Set("Content-Type", "text/html")
 			_, _ = io.WriteString(w, "<html><body>resource 42 listing: created updated owner tags status</body></html>")
-		case "POST":
-			_, _ = io.WriteString(w, "<html><body>nothing to submit here, this form has no fields to process</body></html>")
-		default: // direct PUT/DELETE/PATCH/... and the VIGOLIUMX sentinel
+		case "OPTIONS":
+			w.Header().Set("Allow", "GET, PUT")
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = io.WriteString(w, "GET, PUT")
+		default:
+			t.Fatal("safe override audit sent an unexpected method: " + r.Method)
 			w.WriteHeader(http.StatusMethodNotAllowed)
-			_, _ = io.WriteString(w, "method not allowed")
 		}
 	}))
 	defer srv.Close()
@@ -174,7 +186,19 @@ func TestScanPerRequest_OverrideRespected(t *testing.T) {
 		t.Fatalf("scan: %v", err)
 	}
 	if len(res) == 0 {
-		t.Fatal("expected a finding: the override is honored and materially changes the response vs a plain POST")
+		t.Fatal("expected observations for declared methods and a reproducible safe override")
+	}
+	foundOverride := false
+	for _, result := range res {
+		if result.Info.Name == "HTTP Method Override Mechanism Observed" {
+			foundOverride = true
+			if result.RecordKind != output.RecordKindObservation {
+				t.Fatalf("override capability must be an observation, got %q", result.RecordKind)
+			}
+		}
+	}
+	if !foundOverride {
+		t.Fatal("expected safe OPTIONS override observation")
 	}
 }
 

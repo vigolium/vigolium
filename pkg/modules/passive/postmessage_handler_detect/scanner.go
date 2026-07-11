@@ -143,7 +143,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path — scan each endpoint once.
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -403,8 +406,17 @@ func appendCapped(dst []string, s string) []string {
 
 // finding builds a ResultEvent for a detection bucket.
 func (m *Module) finding(host, url, name, desc string, sev severity.Severity, extracted []string, kind string) *output.ResultEvent {
+	recordKind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	if kind == "wildcard-send" || kind == "unchecked-handler" {
+		recordKind = output.RecordKindCandidate
+		grade = output.EvidenceGradeCandidate
+		desc += " This is a static candidate: sensitive payload flow, attacker-controlled window reachability, and a dangerous message-data sink were not proven."
+	}
 	return &output.ResultEvent{
 		ModuleID:         ModuleID,
+		RecordKind:       recordKind,
+		EvidenceGrade:    grade,
 		Host:             host,
 		URL:              url,
 		Matched:          url,
@@ -421,8 +433,11 @@ func (m *Module) finding(host, url, name, desc string, sev severity.Severity, ex
 			},
 		},
 		Metadata: map[string]any{
-			"kind":       kind,
-			"matchCount": len(extracted),
+			"kind":                     kind,
+			"matchCount":               len(extracted),
+			"connected_flow_proven":    false,
+			"sensitive_payload_proven": false,
+			"dangerous_sink_proven":    false,
 		},
 	}
 }

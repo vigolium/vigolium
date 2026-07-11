@@ -44,10 +44,10 @@ func TestSPAManifestCandidateURLs(t *testing.T) {
 			`<script>navigator.serviceWorker.register('ngsw-worker.js')</script></body></html>`
 		got := sortedURLStrings(spaManifestCandidateURLs(base, []byte(body)))
 		for _, want := range []string{
-			origin + "/ngsw.json",        // angular-specific
-			origin + "/ngsw-worker.js",   // angular-specific
+			origin + "/ngsw.json",           // angular-specific
+			origin + "/ngsw-worker.js",      // angular-specific
 			origin + "/asset-manifest.json", // generic
-			origin + "/sw.js",            // generic
+			origin + "/sw.js",               // generic
 			origin + "/firebase-messaging-sw.js",
 			origin + "/manifest.webmanifest", // generic + link
 		} {

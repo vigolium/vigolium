@@ -1,6 +1,63 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import type { CommandDef, PhaseDef } from "./types.js";
+import type { ArtifactRule, CommandDef, PhaseDef } from "./types.js";
+
+function isSafeArtifactPath(value: string): boolean {
+  if (value.length === 0 || value.startsWith("/") || value.startsWith("\\")) return false;
+  if (/^[A-Za-z]:[\\/]/.test(value)) return false;
+  return !value.split(/[\\/]+/).some((part) => part === "..");
+}
+
+const ArtifactPathSchema = z.string().min(1).refine(isSafeArtifactPath, {
+  message: "must stay inside the results directory",
+});
+
+const FileArtifactRuleSchema = z.object({
+  kind: z.literal("file"),
+  path: ArtifactPathSchema,
+  min_bytes: z.number().int().nonnegative().default(1),
+  contains: z.array(z.string().min(1)).default([]),
+  json: z.boolean().default(false),
+});
+
+const GlobArtifactRuleSchema = z.object({
+  kind: z.literal("glob"),
+  pattern: ArtifactPathSchema,
+  min_matches: z.number().int().nonnegative().default(1),
+  each_min_bytes: z.number().int().nonnegative().default(1),
+  select_contains: z.array(z.string().min(1)).default([]),
+  each_contains: z.array(z.string().min(1)).default([]),
+});
+
+const FindingReportsArtifactRuleSchema = z.object({
+  kind: z.literal("finding_reports"),
+  roots: z.array(ArtifactPathSchema).min(1),
+  filename: z.string().min(1).refine((value) => !/[\\/]/.test(value) && value !== "..", {
+    message: "must be a single filename",
+  }).default("report.md"),
+  min_bytes: z.number().int().nonnegative().default(501),
+  allow_empty: z.boolean().default(true),
+  manifest_path: ArtifactPathSchema.optional(),
+  manifest_lists: z.array(z.string().min(1)).min(1).default(["findings", "theoretical"]),
+});
+
+const ArtifactRuleSchema: z.ZodType<ArtifactRule> = z.lazy(() =>
+  z.discriminatedUnion("kind", [
+    FileArtifactRuleSchema,
+    GlobArtifactRuleSchema,
+    FindingReportsArtifactRuleSchema,
+    z.object({
+      kind: z.literal("any"),
+      rules: z.array(ArtifactRuleSchema).min(1),
+    }),
+  ]),
+);
+
+const PhaseCompletionSchema = z.object({
+  artifacts: z.array(ArtifactRuleSchema).min(1),
+  repair_attempts: z.number().int().min(0).max(3).default(1),
+  enforcement: z.enum(["required", "advisory"]).default("required"),
+});
 
 const PhaseSchema = z.object({
   id: z.union([z.string(), z.number()]).transform((v) => String(v)),
@@ -9,6 +66,7 @@ const PhaseSchema = z.object({
   requires_git: z.boolean().default(false),
   parallel_with: z.array(z.union([z.string(), z.number()]).transform((v) => String(v))).default([]),
   depends_on: z.array(z.union([z.string(), z.number()]).transform((v) => String(v))).default([]),
+  completion: PhaseCompletionSchema.optional(),
 });
 
 const FrontmatterSchema = z.object({

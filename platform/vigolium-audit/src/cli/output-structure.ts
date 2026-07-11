@@ -50,6 +50,7 @@ const KEEP_NOTES: Record<string, string> = {
 // confirm-workspace/, and *.md, and drops the rest. Listed explicitly here so
 // the downstream agent knows what to expect (illustrative, not exhaustive).
 const COMMON_RAW_DIRS: RemoveEntry[] = [
+  { path: ".archive/", note: "reversible pre-run snapshots and failed-phase quarantine; keep while resuming, remove only after successful delivery" },
   { path: "findings-draft/", note: "in-progress candidate drafts; promote any VALID draft into findings/ FIRST, then delete" },
   { path: "codeql-artifacts/", note: "built CodeQL DB + SARIF — large, raw" },
   { path: "codeql-queries/", note: "generated per-variant .ql queries" },

@@ -3,6 +3,7 @@ package mcp_session_checks
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
@@ -62,7 +63,11 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 	host := ctx.Service().Host()
-	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil && ds.IsSeen(host) {
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
+	if ds := diskSet; ds != nil && ds.IsSeen(host) {
 		return nil, nil
 	}
 
@@ -94,17 +99,37 @@ func (m *Module) ScanPerHost(
 		}
 		ent := shannonEntropy(shortest)
 		if len(shortest) < minAcceptableLength || ent < minAcceptableEntropy {
+			uniqueLengths, uniqueCount := summarizeSessionSamples(samples)
+			kind := output.RecordKindObservation
+			grade := output.EvidenceGradeObservation
+			sev := severity.Low
+			description := fmt.Sprintf("Sampled Mcp-Session-Id values use short length or low character diversity (minimum length=%d, diversity=%.2f bits/char). This is a hardening observation, not a measured brute-force probability.", len(shortest), ent)
+			if uniqueCount < len(samples) {
+				kind = output.RecordKindCandidate
+				grade = output.EvidenceGradeDifferential
+				sev = severity.Medium
+				description = fmt.Sprintf("Repeated initialization returned only %d unique Mcp-Session-Id value(s) across %d samples, alongside weak length/diversity characteristics. Cross-client session reuse or hijack impact was not tested.", uniqueCount, len(samples))
+			}
 			findings = append(findings, &output.ResultEvent{
-				URL:              urlx.String(),
-				Matched:          urlx.String(),
-				ExtractedResults: append([]string{fmt.Sprintf("len=%d entropy=%.2f", len(shortest), ent)}, samples...),
+				ModuleID:      ModuleID,
+				RecordKind:    kind,
+				EvidenceGrade: grade,
+				URL:           urlx.String(),
+				Matched:       urlx.String(),
+				Request:       string(ctx.Request().Raw()),
+				ExtractedResults: []string{
+					fmt.Sprintf("sample_count=%d unique_count=%d", len(samples), uniqueCount),
+					fmt.Sprintf("minimum_length=%d character_diversity=%.2f", len(shortest), ent),
+					fmt.Sprintf("observed_lengths=%v (session values redacted)", uniqueLengths),
+				},
 				Info: output.Info{
 					Name:        "MCP Session ID Weakness",
-					Description: fmt.Sprintf("Mcp-Session-Id values are short or low-entropy. Length=%d, Shannon entropy=%.2f bits/char.", len(shortest), ent),
-					Severity:    severity.Medium,
+					Description: description,
+					Severity:    sev,
 					Confidence:  severity.Firm,
 					Tags:        []string{"mcp", "session", "weak-secret"},
 				},
+				Metadata: map[string]any{"sample_count": len(samples), "unique_count": uniqueCount, "session_values_redacted": true, "hijack_tested": false},
 			})
 		}
 	}
@@ -124,16 +149,21 @@ func (m *Module) ScanPerHost(
 		if r, err := client.ListTools(); err == nil && r != nil && len(r.Tools) > 0 {
 			anonymousWorks = true
 			findings = append(findings, &output.ResultEvent{
+				ModuleID:         ModuleID,
+				RecordKind:       output.RecordKindObservation,
+				EvidenceGrade:    output.EvidenceGradeObservation,
 				URL:              urlx.String(),
 				Matched:          urlx.String(),
-				ExtractedResults: []string{fmt.Sprintf("%d tools enumerable without session", len(r.Tools))},
+				Request:          string(ctx.Request().Raw()),
+				ExtractedResults: []string{fmt.Sprintf("%d tools enumerable without an MCP session", len(r.Tools))},
 				Info: output.Info{
-					Name:        "MCP Anonymous Tool Enumeration (No Session Required)",
-					Description: "tools/list succeeded without performing initialize or supplying Mcp-Session-Id - the server does not require a session.",
-					Severity:    severity.Medium,
+					Name:        "MCP Tool List Available Without Session",
+					Description: "tools/list succeeded without initialize or Mcp-Session-Id. MCP sessions are optional and existing HTTP credentials may still apply, so this is protocol inventory rather than an authentication bypass.",
+					Severity:    severity.Info,
 					Confidence:  severity.Certain,
-					Tags:        []string{"mcp", "auth-bypass", "session"},
+					Tags:        []string{"mcp", "enumeration", "session"},
 				},
+				Metadata: map[string]any{"mcp_session_supplied": false, "http_identity": ctx.Request().IdentityFingerprint(), "authentication_bypass_proven": false},
 			})
 		}
 	}
@@ -147,19 +177,24 @@ func (m *Module) ScanPerHost(
 		client := mcpinfra.NewClient(ctx, httpClient, urlx.Path)
 		client.SetSessionID(fixationCandidate)
 		if _, err := client.Initialize(); err == nil {
-			if got := client.SessionID(); got == fixationCandidate {
+			if got := client.IssuedSessionID(); got == fixationCandidate {
 				if tools, err := client.ListTools(); err == nil && tools != nil {
 					findings = append(findings, &output.ResultEvent{
+						ModuleID:         ModuleID,
+						RecordKind:       output.RecordKindCandidate,
+						EvidenceGrade:    output.EvidenceGradeDifferential,
 						URL:              urlx.String(),
 						Matched:          urlx.String(),
-						ExtractedResults: []string{fmt.Sprintf("server accepted client-supplied SID %q", fixationCandidate)},
+						Request:          string(ctx.Request().Raw()),
+						ExtractedResults: []string{"initialize response explicitly echoed the attacker-chosen Mcp-Session-Id (value redacted)", "tools/list subsequently succeeded with that ID"},
 						Info: output.Info{
-							Name:        "MCP Session Fixation (Attacker-Supplied Mcp-Session-Id)",
-							Description: "Server accepted an attacker-controlled Mcp-Session-Id during initialize and continued to honour it for tools/list. This is a session-fixation primitive.",
+							Name:        "MCP Session Fixation Candidate (Attacker-Supplied Mcp-Session-Id)",
+							Description: "The initialize response explicitly echoed an attacker-chosen Mcp-Session-Id and tools/list honored it. This is a fixation candidate; adoption by a victim identity and reuse from a second client were not demonstrated.",
 							Severity:    severity.High,
 							Confidence:  severity.Firm,
 							Tags:        []string{"mcp", "session", "auth-bypass"},
 						},
+						Metadata: map[string]any{"server_echoed_supplied_id": true, "second_client_replay_tested": false, "victim_adoption_tested": false},
 					})
 				}
 			}
@@ -167,6 +202,17 @@ func (m *Module) ScanPerHost(
 	}
 
 	return findings, nil
+}
+
+func summarizeSessionSamples(samples []string) ([]int, int) {
+	lengths := make([]int, 0, len(samples))
+	unique := make(map[string]bool)
+	for _, sample := range samples {
+		lengths = append(lengths, len(sample))
+		unique[sample] = true
+	}
+	sort.Ints(lengths)
+	return lengths, len(unique)
 }
 
 // shannonEntropy returns the Shannon entropy of s in bits per character.

@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -23,8 +25,7 @@ var (
 		name    string
 		pattern *regexp.Regexp
 	}{
-		{"JWT Token", regexp.MustCompile(`eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}`)},
-		{"Google API Key", regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`)},
+		{"JWT Token", regexp.MustCompile(`eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{16,}`)},
 		{"Stripe Secret Key", regexp.MustCompile(`sk_live_[a-zA-Z0-9]{24,}`)},
 		{"Private Key", regexp.MustCompile(`-----BEGIN (?:RSA )?PRIVATE KEY-----`)},
 		{"Slack Token", regexp.MustCompile(`xox[bprs]-[a-zA-Z0-9-]+`)},
@@ -50,6 +51,13 @@ var rtdbSubpaths = []string{
 type Module struct {
 	modkit.BaseActiveModule
 	ds dedup.Lazy[dedup.DiskSet]
+}
+
+type rtdbExchange struct {
+	status       int
+	body         string
+	rawRequest   string
+	fullResponse string
 }
 
 func New() *Module {
@@ -113,7 +121,14 @@ func (m *Module) ScanPerRequest(
 		}
 	}
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
+	probeClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
 
 	var results []*output.ResultEvent
 	for _, dbName := range dbNames {
@@ -125,13 +140,8 @@ func (m *Module) ScanPerRequest(
 		dbURL := fmt.Sprintf("https://%s.firebaseio.com", dbName)
 
 		// Probe root with shallow=true
-		if result := m.probeRTDB(ctx, httpClient, dbURL, "", true); result != nil {
+		if result := m.probeRTDB(ctx, probeClient, dbURL, "", true); result != nil {
 			results = append(results, result)
-
-			// If root is readable, check for secrets in the data
-			if secretResults := m.checkSecrets(ctx, httpClient, dbURL, result.Response); len(secretResults) > 0 {
-				results = append(results, secretResults...)
-			}
 			continue
 		}
 
@@ -141,7 +151,7 @@ func (m *Module) ScanPerRequest(
 		// extra readable paths ride along as inline evidence.
 		var subResults []*output.ResultEvent
 		for _, subpath := range rtdbSubpaths {
-			if result := m.probeRTDB(ctx, httpClient, dbURL, subpath, false); result != nil {
+			if result := m.probeRTDB(ctx, probeClient, dbURL, subpath, false); result != nil {
 				subResults = append(subResults, result)
 			}
 		}
@@ -185,7 +195,7 @@ func looksLikeRTDBData(body string) bool {
 }
 
 func (m *Module) probeRTDB(
-	ctx *httpmsg.HttpRequestResponse,
+	_ *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	dbURL string,
 	subpath string,
@@ -200,30 +210,11 @@ func (m *Module) probeRTDB(
 		targetURL += "?shallow=true"
 	}
 
-	rawReq := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nAccept: application/json\r\n\r\n",
-		targetURL, strings.TrimPrefix(strings.TrimPrefix(dbURL, "https://"), "http://"))
-
-	fuzzedReq, err := httpmsg.ParseRawRequest(rawReq)
-	if err != nil {
+	first, ok := fetchRTDB(httpClient, targetURL, dbURL)
+	if !ok || first.status != 200 {
 		return nil
 	}
-
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
-	if err != nil {
-		return nil
-	}
-	defer resp.Close()
-
-	if resp.Response() == nil {
-		return nil
-	}
-
-	status := resp.Response().StatusCode
-	if status != 200 {
-		return nil
-	}
-
-	respBody := resp.Body().String()
+	respBody := first.body
 
 	// Skip permission denied responses
 	if strings.Contains(respBody, "Permission denied") {
@@ -237,27 +228,47 @@ func (m *Module) probeRTDB(
 	if !looksLikeRTDBData(respBody) {
 		return nil
 	}
+	replay, ok := fetchRTDB(httpClient, targetURL, dbURL)
+	if !ok || replay.status != 200 || !looksLikeRTDBData(replay.body) {
+		return nil
+	}
 
-	name := "Firebase RTDB World-Readable (Root)"
-	desc := fmt.Sprintf("Firebase Realtime Database at %s is publicly readable at root — full data exposure", dbURL)
-	sev := severity.Critical
+	assessment := assessRTDBData(respBody)
+	kind := output.RecordKindCandidate
+	grade := output.EvidenceGradeDifferential
+	name := "Firebase RTDB Public Read Candidate (Root)"
+	desc := fmt.Sprintf("Firebase Realtime Database at %s reproducibly returns a non-empty JSON tree without credentials. Public read may be intentional; sensitive values and write access were not established.", dbURL)
+	sev := severity.Medium
 	if subpath != "" {
-		name = fmt.Sprintf("Firebase RTDB Partial Exposure (/%s)", subpath)
-		desc = fmt.Sprintf("Firebase Realtime Database at %s has publicly readable path /%s", dbURL, subpath)
+		name = fmt.Sprintf("Firebase RTDB Public Read Candidate (/%s)", subpath)
+		desc = fmt.Sprintf("Firebase Realtime Database at %s reproducibly returns non-empty JSON from /%s without credentials. Public read may be intentional; sensitive values and write access were not established.", dbURL, subpath)
+	}
+	if len(assessment) > 0 {
+		kind = output.RecordKindFinding
+		grade = output.EvidenceGradeImpact
+		name = "Sensitive Data Read from Firebase RTDB"
+		desc = fmt.Sprintf("Firebase Realtime Database at %s returned credential-free JSON containing sensitive field or private-credential evidence: %s.", dbURL, strings.Join(assessment, ", "))
 		sev = severity.High
 	}
 
 	// Truncate response for storage
-	responseStr := resp.FullResponseString()
+	responseStr := first.fullResponse
 	if len(responseStr) > 4096 {
 		responseStr = responseStr[:4096] + "\n... (truncated)"
 	}
 
 	return &output.ResultEvent{
-		URL:      targetURL,
-		Matched:  targetURL,
-		Request:  rawReq,
-		Response: responseStr,
+		ModuleID:      ModuleID,
+		RecordKind:    kind,
+		EvidenceGrade: grade,
+		URL:           targetURL,
+		Matched:       targetURL,
+		Request:       first.rawRequest,
+		Response:      responseStr,
+		AdditionalEvidence: []string{
+			output.BuildEvidence("credential-free RTDB replay", replay.rawRequest, replay.fullResponse),
+		},
+		ExtractedResults: assessment,
 		Info: output.Info{
 			Name:        name,
 			Description: desc,
@@ -266,38 +277,96 @@ func (m *Module) probeRTDB(
 			Tags:        []string{"firebase", "rtdb", "data-exposure"},
 		},
 		Metadata: map[string]any{
-			"database": dbURL,
-			"subpath":  subpath,
-			"shallow":  shallow,
+			"database":                 dbURL,
+			"subpath":                  subpath,
+			"shallow":                  shallow,
+			"credential_free":          true,
+			"sensitive_data_confirmed": len(assessment) > 0,
+			"write_access_tested":      false,
 		},
 	}
 }
 
-func (m *Module) checkSecrets(
-	ctx *httpmsg.HttpRequestResponse,
-	httpClient *http.Requester,
-	dbURL string,
-	responseBody string,
-) []*output.ResultEvent {
-	var results []*output.ResultEvent
-	for _, sp := range secretPatterns {
-		if sp.pattern.MatchString(responseBody) {
-			results = append(results, &output.ResultEvent{
-				URL:     dbURL + "/.json",
-				Matched: sp.name + " found in RTDB data",
-				Info: output.Info{
-					Name:        fmt.Sprintf("Secret Leaked in Firebase RTDB (%s)", sp.name),
-					Description: fmt.Sprintf("Publicly readable Firebase RTDB at %s contains embedded %s", dbURL, sp.name),
-					Severity:    severity.Critical,
-					Confidence:  severity.Firm,
-					Tags:        []string{"firebase", "rtdb", "secret-leak"},
-				},
-				Metadata: map[string]any{
-					"database":   dbURL,
-					"secretType": sp.name,
-				},
-			})
+func fetchRTDB(httpClient *http.Requester, targetURL, dbURL string) (rtdbExchange, bool) {
+	host := strings.TrimPrefix(strings.TrimPrefix(dbURL, "https://"), "http://")
+	rawReq := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nAccept: application/json\r\n\r\n", targetURL, host)
+	fuzzedReq, err := httpmsg.ParseRawRequest(rawReq)
+	if err != nil {
+		return rtdbExchange{}, false
+	}
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
+	if err != nil {
+		return rtdbExchange{}, false
+	}
+	defer resp.Close()
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
+		return rtdbExchange{}, false
+	}
+	return rtdbExchange{
+		status:       resp.Response().StatusCode,
+		body:         resp.BodyString(),
+		rawRequest:   rawReq,
+		fullResponse: resp.FullResponseString(),
+	}, true
+}
+
+var sensitiveRTDBKeys = map[string]bool{
+	"password": true, "passwd": true, "secret": true, "private_key": true,
+	"id_token": true, "refresh_token": true, "access_token": true,
+	"session_token": true, "ssn": true, "credit_card": true, "card_number": true,
+	"email": true, "phone": true, "address": true,
+}
+
+// assessRTDBData returns labels only; it never copies sensitive values into the
+// finding summary. Boolean shallow-tree markers do not qualify as sensitive
+// values, so {"tokens":true} remains a public-read candidate.
+func assessRTDBData(body string) []string {
+	labels := map[string]bool{}
+	for _, pattern := range secretPatterns {
+		if pattern.pattern.MatchString(body) {
+			labels["private credential: "+pattern.name] = true
 		}
 	}
-	return results
+	var value any
+	if json.Unmarshal([]byte(body), &value) == nil {
+		walkRTDBValue(value, 0, labels)
+	}
+	result := make([]string, 0, len(labels))
+	for label := range labels {
+		result = append(result, label)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func walkRTDBValue(value any, depth int, labels map[string]bool) {
+	if depth > 8 || len(labels) >= 20 {
+		return
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(key), "-", "_"))
+			if sensitiveRTDBKeys[normalized] && substantiveRTDBValue(child) {
+				labels["sensitive field: "+normalized] = true
+			}
+			walkRTDBValue(child, depth+1, labels)
+		}
+	case []any:
+		for _, child := range typed {
+			walkRTDBValue(child, depth+1, labels)
+		}
+	}
+}
+
+func substantiveRTDBValue(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		return len(trimmed) >= 3 && !modkit.IsPlaceholderValue(trimmed)
+	case float64:
+		return typed != 0
+	default:
+		return false
+	}
 }

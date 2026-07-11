@@ -11,6 +11,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestScanPerRequest_DetectsRegistrationForm drives the real scan method against
@@ -40,6 +41,19 @@ func TestScanPerRequest_DetectsRegistrationForm(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a user-enumeration finding when the registration form is exposed")
 	assert.Contains(t, strings.ToLower(res[0].Info.Name), "joomla")
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+	assert.False(t, res[0].IsFinding(), "registration-form presence does not prove enumeration")
+}
+
+func TestParseJoomlaAPIUsersRequiresStructuredResources(t *testing.T) {
+	t.Parallel()
+	count, labels, ok := parseJoomlaAPIUsers(`{"data":[{"type":"users","id":"1","attributes":{"name":"Alice"}}]}`)
+	assert.True(t, ok)
+	assert.Equal(t, 1, count)
+	assert.Equal(t, []string{"Alice"}, labels)
+
+	_, _, ok = parseJoomlaAPIUsers(`{"message":"type users"}`)
+	assert.False(t, ok, "a string marker is not a Joomla users collection")
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a host that 404s every vector path

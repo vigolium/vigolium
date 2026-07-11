@@ -2,6 +2,7 @@ package aspnet_viewstate_scan
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -15,11 +16,13 @@ import (
 )
 
 var (
-	viewstateRe      = regexp.MustCompile(`name="__VIEWSTATE"[^>]*value="([^"]*)"`)
-	vsGeneratorRe    = regexp.MustCompile(`name="__VIEWSTATEGENERATOR"[^>]*value="([^"]*)"`)
-	formActionRe     = regexp.MustCompile(`<form[^>]*action="([^"]*)"[^>]*method="post"`)
-	formActionRe2    = regexp.MustCompile(`<form[^>]*method="post"[^>]*action="([^"]*)"`)
-	cookielessSessRe = regexp.MustCompile(`/\(S\([a-zA-Z0-9_-]+\)\)/`)
+	viewstateRe       = regexp.MustCompile(`name="__VIEWSTATE"[^>]*value="([^"]*)"`)
+	vsGeneratorRe     = regexp.MustCompile(`name="__VIEWSTATEGENERATOR"[^>]*value="([^"]*)"`)
+	eventValidationRe = regexp.MustCompile(`name="__EVENTVALIDATION"[^>]*value="([^"]*)"`)
+	postbackTargetRe  = regexp.MustCompile(`(?i)__doPostBack\(\s*['"]([^'"]+)['"]`)
+	formActionRe      = regexp.MustCompile(`<form[^>]*action="([^"]*)"[^>]*method="post"`)
+	formActionRe2     = regexp.MustCompile(`<form[^>]*method="post"[^>]*action="([^"]*)"`)
+	cookielessSessRe  = regexp.MustCompile(`/\(S\([a-zA-Z0-9_-]+\)\)/`)
 )
 
 type Module struct {
@@ -128,12 +131,15 @@ func (m *Module) ScanPerRequest(
 	}
 
 	// Test 1: ViewState MAC disabled
-	if result := m.testMACDisabled(ctx, httpClient, vsValue, formAction); result != nil {
+	if result := m.testMACDisabled(ctx, httpClient, vsValue, formAction, body); result != nil {
 		results = append(results, result)
 	}
 
-	// Test 2: Event validation disabled
-	if result := m.testEventValidationDisabled(ctx, httpClient, vsValue, formAction, body); result != nil {
+	// Event validation cannot be confirmed merely because an unknown target gets
+	// a 200; WebForms often ignores unknown events and renders the same page. Keep
+	// only the configuration-level candidate when a real postback target exists
+	// but the page emits no __EVENTVALIDATION field.
+	if result := eventValidationCandidate(ctx, body); result != nil {
 		results = append(results, result)
 	}
 
@@ -145,6 +151,7 @@ func (m *Module) testMACDisabled(
 	httpClient *http.Requester,
 	vsValue string,
 	formAction string,
+	body string,
 ) *output.ResultEvent {
 	// Tamper ViewState by bitflipping middle bytes
 	decoded, err := base64.StdEncoding.DecodeString(vsValue)
@@ -163,142 +170,102 @@ func (m *Module) testMACDisabled(
 	}
 	tamperedVS := base64.StdEncoding.EncodeToString(tampered)
 
-	// Build POST body
-	postBody := url.Values{
-		"__VIEWSTATE": {tamperedVS},
-	}.Encode()
-
-	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "POST")
-	if err != nil {
-		return nil
-	}
-	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, formAction)
-	if err != nil {
-		return nil
-	}
-	modifiedRaw, err = httpmsg.SetBody(modifiedRaw, []byte(postBody))
-	if err != nil {
-		return nil
-	}
-	modifiedRaw, err = httpmsg.AddOrReplaceHeader(modifiedRaw, "Content-Type", "application/x-www-form-urlencoded")
-	if err != nil {
+	baseValues := hiddenStateValues(body)
+	baseValues.Set("__VIEWSTATE", vsValue)
+	valid := m.postForm(ctx, httpClient, formAction, baseValues)
+	if valid == nil || !normalWebFormsResponse(valid) {
 		return nil
 	}
 
-	// SetMethod/SetPath/SetBody produce well-formed raw, so wrap directly
-	// instead of re-parsing on this hot path.
-	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
-
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
-	if err != nil {
-		return nil
-	}
-	defer resp.Close()
-
-	if resp.Response() == nil {
+	tamperedValues := cloneValues(baseValues)
+	tamperedValues.Set("__VIEWSTATE", tamperedVS)
+	tamperedProbe := m.postForm(ctx, httpClient, formAction, tamperedValues)
+	if tamperedProbe == nil {
 		return nil
 	}
 
-	respBody := resp.Body().String()
-	status := resp.Response().StatusCode
-
-	// If we get MAC failure error, MAC is enabled (good)
-	macFailMarkers := []string{
-		"Validation of viewstate MAC failed",
-		"The state information is invalid for this page",
-		"Invalid viewstate",
-	}
-	for _, marker := range macFailMarkers {
-		if strings.Contains(respBody, marker) {
-			// Check if verbose error is disclosed (secondary finding)
-			if strings.Contains(respBody, "Stack Trace:") || strings.Contains(respBody, "StackTrace") {
-				urlx, _ := ctx.URL()
-				return &output.ResultEvent{
-					ModuleID: ModuleID,
-					Host:     urlx.Host,
-					URL:      urlx.Scheme + "://" + urlx.Host + formAction,
-					Matched:  urlx.Scheme + "://" + urlx.Host + formAction,
-					Request:  string(modifiedRaw),
-					Response: resp.FullResponseString(),
-					ExtractedResults: []string{
-						"Verbose ViewState MAC error with stack trace",
-					},
-					Info: output.Info{
-						Name:        "ASP.NET Verbose ViewState Error",
-						Description: "ViewState MAC validation fails with verbose error information including stack traces, revealing internal application details.",
-						Severity:    severity.Medium,
-						Confidence:  severity.Firm,
-						Tags:        []string{"aspnet", "viewstate", "verbose-error", "information-disclosure"},
-						Reference:   []string{"https://learn.microsoft.com/en-us/previous-versions/aspnet/bb386448(v=vs.100)"},
-					},
-				}
+	if containsViewStateRejection(tamperedProbe.body) {
+		if containsStackTrace(tamperedProbe.body) {
+			urlx, _ := ctx.URL()
+			return &output.ResultEvent{
+				ModuleID:      ModuleID,
+				Host:          urlx.Host,
+				URL:           urlx.Scheme + "://" + urlx.Host + formAction,
+				Matched:       urlx.Scheme + "://" + urlx.Host + formAction,
+				Request:       tamperedProbe.request,
+				Response:      tamperedProbe.response,
+				RecordKind:    output.RecordKindFinding,
+				EvidenceGrade: output.EvidenceGradeImpact,
+				ExtractedResults: []string{
+					"Verbose ViewState MAC error with stack trace",
+				},
+				Info: output.Info{
+					Name:        "ASP.NET Verbose ViewState Error",
+					Description: "ViewState MAC validation fails with verbose error information including stack traces, revealing internal application details.",
+					Severity:    severity.Medium,
+					Confidence:  severity.Firm,
+					Tags:        []string{"aspnet", "viewstate", "verbose-error", "information-disclosure"},
+					Reference:   []string{"https://learn.microsoft.com/en-us/previous-versions/aspnet/bb386448(v=vs.100)"},
+				},
 			}
-			return nil // MAC is enabled, no finding
 		}
+		return nil
 	}
 
-	// If status is 200 and no MAC error, MAC may be disabled
-	if status == 200 && !strings.Contains(respBody, "Error") && len(respBody) > 100 {
-		urlx, _ := ctx.URL()
-		return &output.ResultEvent{
-			ModuleID: ModuleID,
-			Host:     urlx.Host,
-			URL:      urlx.Scheme + "://" + urlx.Host + formAction,
-			Matched:  urlx.Scheme + "://" + urlx.Host + formAction,
-			Request:  string(modifiedRaw),
-			Response: resp.FullResponseString(),
-			ExtractedResults: []string{
-				"Tampered ViewState accepted without MAC validation error",
-			},
-			Info: output.Info{
-				Name:        "ASP.NET ViewState MAC Disabled",
-				Description: "The application accepted a tampered ViewState without MAC validation, indicating EnableViewStateMac is set to false. This allows ViewState deserialization attacks.",
-				Severity:    severity.High,
-				Confidence:  severity.Firm,
-				Tags:        []string{"aspnet", "viewstate", "mac-disabled", "deserialization"},
-				Reference:   []string{"https://learn.microsoft.com/en-us/previous-versions/aspnet/bb386448(v=vs.100)"},
-			},
-		}
+	if !normalWebFormsResponse(tamperedProbe) || !modkit.BodiesSimilar(valid.body, tamperedProbe.body) {
+		return nil
 	}
 
-	return nil
+	malformedValues := cloneValues(baseValues)
+	malformedValues.Set("__VIEWSTATE", "not-base64-"+strings.Repeat("!", 24))
+	malformed := m.postForm(ctx, httpClient, formAction, malformedValues)
+	if malformed == nil || !probeRejectedOrDistinct(valid, malformed) {
+		return nil
+	}
+
+	urlx, _ := ctx.URL()
+	return &output.ResultEvent{
+		ModuleID:           ModuleID,
+		Host:               urlx.Host,
+		URL:                urlx.Scheme + "://" + urlx.Host + formAction,
+		Matched:            urlx.Scheme + "://" + urlx.Host + formAction,
+		Request:            tamperedProbe.request,
+		Response:           tamperedProbe.response,
+		AdditionalEvidence: []string{valid.request, valid.response, malformed.request, malformed.response},
+		RecordKind:         output.RecordKindCandidate,
+		EvidenceGrade:      output.EvidenceGradeDifferential,
+		ExtractedResults: []string{
+			"Valid and bit-flipped ViewState produced equivalent processed WebForms responses",
+			"Malformed non-base64 control was rejected or produced a distinct response",
+		},
+		Info: output.Info{
+			Name:        "ASP.NET ViewState Integrity Validation Candidate",
+			Description: "A bit-flipped, syntactically valid ViewState was processed like the valid control while a malformed control was rejected. This differential suggests missing integrity validation, but a semantic state change or safe deserialization proof is required before treating it as confirmed exploitation.",
+			Severity:    severity.High,
+			Confidence:  severity.Firm,
+			Tags:        []string{"aspnet", "viewstate", "mac-disabled", "deserialization"},
+			Reference:   []string{"https://learn.microsoft.com/en-us/previous-versions/aspnet/bb386448(v=vs.100)"},
+		},
+	}
 }
 
-func (m *Module) testEventValidationDisabled(
-	ctx *httpmsg.HttpRequestResponse,
-	httpClient *http.Requester,
-	vsValue string,
-	formAction string,
-	body string,
-) *output.ResultEvent {
-	// Extract ViewStateGenerator and EventValidation if present
-	vsGen := ""
-	if m := vsGeneratorRe.FindStringSubmatch(body); len(m) > 1 {
-		vsGen = m[1]
-	}
+type formProbe struct {
+	status   int
+	body     string
+	request  string
+	response string
+}
 
-	// Build POST with forged EVENTTARGET
-	formValues := url.Values{
-		"__VIEWSTATE":     {vsValue},
-		"__EVENTTARGET":   {"FakeControl123"},
-		"__EVENTARGUMENT": {"test"},
-	}
-	if vsGen != "" {
-		formValues.Set("__VIEWSTATEGENERATOR", vsGen)
-	}
-	// Intentionally omit __EVENTVALIDATION
-
-	postBody := formValues.Encode()
-
+func (m *Module) postForm(ctx *httpmsg.HttpRequestResponse, client *http.Requester, action string, values url.Values) *formProbe {
 	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "POST")
 	if err != nil {
 		return nil
 	}
-	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, formAction)
+	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, action)
 	if err != nil {
 		return nil
 	}
-	modifiedRaw, err = httpmsg.SetBody(modifiedRaw, []byte(postBody))
+	modifiedRaw, err = httpmsg.SetBody(modifiedRaw, []byte(values.Encode()))
 	if err != nil {
 		return nil
 	}
@@ -306,58 +273,104 @@ func (m *Module) testEventValidationDisabled(
 	if err != nil {
 		return nil
 	}
-
-	// SetMethod/SetPath/SetBody produce well-formed raw, so wrap directly
-	// instead of re-parsing on this hot path.
-	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
-
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	request := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
+	resp, _, err := client.Execute(request, http.Options{NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
-
 	if resp.Response() == nil {
 		return nil
 	}
-
-	respBody := resp.Body().String()
-	status := resp.Response().StatusCode
-
-	// If event validation is enabled, we should see an error
-	eventValFailMarkers := []string{
-		"Invalid postback or callback argument",
-		"Event validation is enabled",
+	return &formProbe{
+		status:   resp.Response().StatusCode,
+		body:     resp.Body().String(),
+		request:  string(modifiedRaw),
+		response: resp.FullResponseString(),
 	}
-	for _, marker := range eventValFailMarkers {
-		if strings.Contains(respBody, marker) {
-			return nil // Event validation is enabled (good)
+}
+
+func hiddenStateValues(body string) url.Values {
+	values := make(url.Values)
+	for name, re := range map[string]*regexp.Regexp{
+		"__VIEWSTATEGENERATOR": vsGeneratorRe,
+		"__EVENTVALIDATION":    eventValidationRe,
+	} {
+		if match := re.FindStringSubmatch(body); len(match) > 1 {
+			values.Set(name, match[1])
 		}
 	}
+	return values
+}
 
-	// If status 200 and no validation error, event validation may be disabled
-	if status == 200 && len(respBody) > 100 {
-		urlx, _ := ctx.URL()
-		return &output.ResultEvent{
-			ModuleID: ModuleID,
-			Host:     urlx.Host,
-			URL:      urlx.Scheme + "://" + urlx.Host + formAction,
-			Matched:  urlx.Scheme + "://" + urlx.Host + formAction,
-			Request:  string(modifiedRaw),
-			Response: resp.FullResponseString(),
-			ExtractedResults: []string{
-				"Forged __EVENTTARGET=FakeControl123 accepted without validation error",
-			},
-			Info: output.Info{
-				Name:        "ASP.NET Event Validation Disabled",
-				Description: "The application accepted a forged event target without event validation, indicating EnableEventValidation is disabled. This may allow parameter tampering and unauthorized control invocation.",
-				Severity:    severity.Medium,
-				Confidence:  severity.Firm,
-				Tags:        []string{"aspnet", "viewstate", "event-validation", "tampering"},
-				Reference:   []string{"https://learn.microsoft.com/en-us/dotnet/api/system.web.ui.page.enableeventvalidation"},
-			},
+func cloneValues(values url.Values) url.Values {
+	clone := make(url.Values, len(values))
+	for key, entries := range values {
+		clone[key] = append([]string(nil), entries...)
+	}
+	return clone
+}
+
+func normalWebFormsResponse(probe *formProbe) bool {
+	return probe != nil && probe.status >= 200 && probe.status < 300 && viewstateRe.MatchString(probe.body) && !containsViewStateRejection(probe.body)
+}
+
+func containsViewStateRejection(body string) bool {
+	lower := strings.ToLower(body)
+	for _, marker := range []string{
+		"validation of viewstate mac failed", "state information is invalid",
+		"invalid viewstate", "viewstate is invalid", "failed to load viewstate",
+		"viewstateexception", "invalid postback or callback argument",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
 		}
 	}
+	return false
+}
 
-	return nil
+func containsStackTrace(body string) bool {
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "stack trace:") || strings.Contains(lower, "stacktrace") || strings.Contains(lower, "system.web.")
+}
+
+func probeRejectedOrDistinct(valid, control *formProbe) bool {
+	if control.status < 200 || control.status >= 300 || containsViewStateRejection(control.body) || !viewstateRe.MatchString(control.body) {
+		return true
+	}
+	return !modkit.BodiesSimilar(valid.body, control.body)
+}
+
+func eventValidationCandidate(ctx *httpmsg.HttpRequestResponse, body string) *output.ResultEvent {
+	if eventValidationRe.MatchString(body) {
+		return nil
+	}
+	match := postbackTargetRe.FindStringSubmatch(body)
+	if len(match) < 2 {
+		return nil
+	}
+	urlx, err := ctx.URL()
+	if err != nil {
+		return nil
+	}
+	return &output.ResultEvent{
+		ModuleID:      ModuleID,
+		Host:          urlx.Host,
+		URL:           urlx.String(),
+		Matched:       urlx.String(),
+		RecordKind:    output.RecordKindCandidate,
+		EvidenceGrade: output.EvidenceGradeCandidate,
+		ExtractedResults: []string{
+			fmt.Sprintf("real_postback_target=%s", match[1]),
+			"__EVENTVALIDATION field absent",
+		},
+		Info: output.Info{
+			Name:        "ASP.NET Event Validation Configuration Candidate",
+			Description: "The page exposes a real __doPostBack target but does not emit __EVENTVALIDATION. This is configuration evidence only; a safe target-specific effect comparison is required to confirm exploitable parameter tampering.",
+			Severity:    severity.Medium,
+			Confidence:  severity.Firm,
+			Tags:        []string{"aspnet", "viewstate", "event-validation", "tampering"},
+			Reference:   []string{"https://learn.microsoft.com/en-us/dotnet/api/system.web.ui.page.enableeventvalidation"},
+		},
+	}
 }

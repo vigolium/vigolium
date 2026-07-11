@@ -37,7 +37,7 @@ discovery:
     max_consecutive_errors: 10
     max_consecutive_waf_blocks: 5
     observed_max_items: 1000
-    disable_kingfisher: true
+    disable_secret_scan: true
 
 known_issue_scan:
   enrich_targets: false

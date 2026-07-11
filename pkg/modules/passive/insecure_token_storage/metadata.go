@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This flags JavaScript that stores auth tokens, API keys, or session IDs in localStorage or sessionStorage (a setItem call using a key like token, jwt, or access_token). Unlike an HttpOnly cookie, Web Storage is readable by any same-origin JavaScript, so the token has no protection from client-side script.
+	ModuleDesc = `**What it means:** JavaScript writes an authentication token, API key, or session identifier to localStorage or sessionStorage. Strong token keys are candidates; ambiguous keys are observations. Web Storage is readable by same-origin scripts.
 
-**How it's exploited:** Any cross-site scripting (XSS) flaw lets an injected script read and exfiltrate the token, hijacking the session. A token read into an Authorization/Bearer header confirms a live credential, raising impact to takeover.
+**How it's exploited:** A separate XSS flaw can read and exfiltrate the stored token. Authorization-header use strengthens the storage link but does not prove token validity or takeover.
 
-**Fix:** Keep session and access tokens in HttpOnly, Secure, SameSite cookies, not Web Storage.`
+**Fix:** Keep session and access tokens in HttpOnly, Secure, SameSite cookies instead of Web Storage.`
 
-	ModuleConfirmation = "Confirmed when JavaScript code stores auth tokens or secrets in localStorage or sessionStorage"
+	ModuleConfirmation = "Candidate for connected strong-token storage/use patterns; ambiguous keys remain observations, and confirmation requires a valid token plus an exploit path such as XSS"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"authentication", "session", "javascript", "light"}

@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A hostname still points (via DNS or CNAME) to a cloud storage endpoint (AWS S3, GCS, or Azure Blob), but the bucket no longer exists - shown by a not-found error like NoSuchBucket. This dangling reference is a classic subdomain-takeover condition.
+	ModuleDesc = `**What it means:** An AWS S3, Google Cloud Storage, or Azure storage hostname reproducibly returns a provider-specific structured bucket/container-not-found error to a credential-free client.
 
-**How it's exploited:** Because the name is unclaimed, an attacker registers a bucket with that exact name in the same provider. The dangling DNS record then routes victim traffic to attacker storage under the trusted domain.
+**How it's exploited:** If the namespace is genuinely unclaimed and a trusted custom domain still points to it, an attacker may register the name and serve content. The scanner does not register resources, so it reports a candidate rather than claiming takeover.
 
 **Fix:** Remove the stale DNS record, or reclaim the bucket under the original name so an attacker cannot register it.`
 
-	ModuleConfirmation = "Confirmed when cloud storage endpoint returns bucket/container not-found error while DNS still resolves"
+	ModuleConfirmation = "Candidate requires provider-host binding plus the same structured resource-not-found error in two credential-free requests; claimability is never inferred from a generic 404"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"cloud", "misconfiguration", "moderate"}

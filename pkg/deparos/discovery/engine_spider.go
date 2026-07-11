@@ -45,9 +45,9 @@ func (e *Engine) extractLinks(baseURL *url.URL, rc *responsechain.ResponseChain,
 	// Extract words from response body for wordlist augmentation
 	e.extractWordsFromResponse(rc)
 
-	// Process script tags with jsscan for HTML responses.
+	// Process script tags with jstangle for HTML responses.
 	// This extracts HTTP requests from inline <script> content.
-	e.processScriptTagsWithJSScan(e.ctx, baseURL, rc)
+	e.processScriptTagsWithJSTangle(e.ctx, baseURL, rc)
 
 	// Harvest Next.js route manifests (_buildManifest.js / _ssgManifest.js) for
 	// the full page-route table and concrete pre-rendered paths, which are often
@@ -96,14 +96,14 @@ func (e *Engine) extractLinks(baseURL *url.URL, rc *responsechain.ResponseChain,
 		zap.Uint16("parent_depth", parentDepth))
 
 	// Collect and validate all links (DiscoveredLinks carry the source type used
-	// to gate server-side extension confirmation).
-	batch := e.collectValidatedLinks(result.DiscoveredLinks, parentDepth)
-	if batch == nil {
-		return
-	}
+	// to gate server-side extension confirmation). Links are grouped by origin so
+	// each batch is replayed against its own host — see collectValidatedLinks.
+	batches := e.collectValidatedLinks(result.DiscoveredLinks, parentDepth)
 
-	// Create single batched task
-	e.createSpiderBatchTask(batch)
+	// Create one batched task set per origin.
+	for _, batch := range batches {
+		e.createSpiderBatchTask(batch)
+	}
 }
 
 // extensionConfirmAllowed reports whether a spider link from the given source
@@ -127,12 +127,26 @@ func (e *Engine) extensionConfirmAllowed(src spider.LinkSourceType) bool {
 	return !e.startURLIsModernApp && src.IsGenuineReference()
 }
 
-// collectValidatedLinks validates all extracted links and returns a batch.
-// Handles observed name/extension extraction and breadcrumb processing.
+// collectValidatedLinks validates all extracted links and returns one batch per
+// origin (scheme://host). Handles observed name/extension extraction and
+// breadcrumb processing.
+//
+// Links are grouped by origin because the spider scope admits sibling
+// subdomains, so a single page can legitimately reference links on multiple
+// hosts (e.g. api.example.com/users and admin.example.com/panel). Batching all
+// paths under one BaseURL — historically the first link's host — would replay
+// every path against whichever host appeared first, silently requesting paths
+// against the wrong host. One batch per origin keeps each path bound to its own
+// host.
+//
 // NOTE: Spider tasks do NOT increment depth and have no maxDepth limit.
-func (e *Engine) collectValidatedLinks(links []*spider.DiscoveredLink, parentDepth uint16) *SpiderLinkBatch {
-	var files, dirs [][]byte
-	var baseURL []byte
+func (e *Engine) collectValidatedLinks(links []*spider.DiscoveredLink, parentDepth uint16) []*SpiderLinkBatch {
+	// originBatch accumulates the files/directories for a single origin.
+	type originBatch struct {
+		files, dirs [][]byte
+	}
+	batches := make(map[string]*originBatch)
+	var order []string // first-seen origin order → deterministic task creation
 
 	// Pre-pass: record every directory that directly holds a content-hash
 	// fingerprinted bundle before breadcrumb processing (below) recurses into any
@@ -192,9 +206,14 @@ func (e *Engine) collectValidatedLinks(links []*spider.DiscoveredLink, parentDep
 		// Extract breadcrumbs (triggers recursive brute force)
 		e.processSpiderPathBreadcrumbs(link, parentDepth)
 
-		// Set base URL from first valid link
-		if baseURL == nil {
-			baseURL = []byte(link.Scheme + "://" + link.Host)
+		// Resolve the batch for this link's own origin (never re-based onto a
+		// different sibling host).
+		origin := link.Scheme + "://" + link.Host
+		b := batches[origin]
+		if b == nil {
+			b = &originBatch{}
+			batches[origin] = b
+			order = append(order, origin)
 		}
 
 		// Build path with query params for HTTP request
@@ -206,22 +225,30 @@ func (e *Engine) collectValidatedLinks(links []*spider.DiscoveredLink, parentDep
 
 		// Categorize as file or directory based on path (not query)
 		if len(link.Path) > 0 && link.Path[len(link.Path)-1] == '/' {
-			dirs = append(dirs, []byte(pathWithQuery))
+			b.dirs = append(b.dirs, []byte(pathWithQuery))
 		} else {
-			files = append(files, []byte(pathWithQuery))
+			b.files = append(b.files, []byte(pathWithQuery))
 		}
 	}
 
-	if len(files) == 0 && len(dirs) == 0 {
+	if len(order) == 0 {
 		return nil
 	}
 
-	return &SpiderLinkBatch{
-		Files:       files,
-		Directories: dirs,
-		Depth:       parentDepth, // Pass as-is, NOT incremented
-		BaseURL:     baseURL,
+	result := make([]*SpiderLinkBatch, 0, len(order))
+	for _, origin := range order {
+		b := batches[origin]
+		if len(b.files) == 0 && len(b.dirs) == 0 {
+			continue
+		}
+		result = append(result, &SpiderLinkBatch{
+			Files:       b.files,
+			Directories: b.dirs,
+			Depth:       parentDepth, // Pass as-is, NOT incremented
+			BaseURL:     []byte(origin),
+		})
 	}
+	return result
 }
 
 // createSpiderBatchTask creates a single task from batched spider links.
@@ -249,12 +276,29 @@ func (e *Engine) createSpiderBatchTask(batch *SpiderLinkBatch) {
 	}
 }
 
+// vendorJSFetchBudget caps how many vendor/CDN/library JS bundles are fetched
+// per scan for jstangle endpoint extraction. These bundles are analyzed for the
+// real API calls they make (their path→wordlist amplification is suppressed
+// separately in the coordinator), but a site that self-hosts many framework
+// files must not flood the JS fetcher — hence a bounded, scan-lifetime budget.
+const vendorJSFetchBudget = 50
+
+// admitVendorJSFetch reports whether another vendor/CDN/library JS bundle may be
+// fetched under the per-scan asset budget. Safe for concurrent callers.
+func (e *Engine) admitVendorJSFetch() bool {
+	return e.vendorJSFetched.Add(1) <= vendorJSFetchBudget
+}
+
 // queueJSFetch creates a single batched JSFetchTask for all JavaScript URLs.
 // JS files are fetched and parsed to extract API paths
 // that get added to observedPaths and observedNames collections.
 //
-// CDN domains and known library files are skipped entirely
-// as they don't contain application-specific endpoints.
+// Vendor/CDN/library assets are NOT skipped entirely: they are still fetched for
+// jstangle endpoint extraction (the API calls a bundle makes are real regardless
+// of where it's hosted — the coordinator suppresses only their path→wordlist
+// amplification), but under a bounded per-scan asset budget and excluded from the
+// observed-JS-dir wordlist sweep. Previously they were dropped here, which made
+// the coordinator's vendor-analysis branch dead code.
 //
 // URLs are deduplicated by normalized form (scheme://host/path, query params stripped)
 // before batching to avoid fetching the same file multiple times.
@@ -272,24 +316,31 @@ func (e *Engine) queueJSFetch(jsURLs []*url.URL, _ uint16) {
 			continue
 		}
 
-		// Skip CDN domains and library files entirely
-		if spider.ShouldSkipJSPathExtraction(jsURL) {
-			continue
-		}
-
-		// Remember the app's real JS mount directory for the JS-bundle sweep
-		// (e.g. /js/, /assets/js/) so it probes there too, not just root.
-		e.recordObservedJSDir(jsURL)
-
 		// Normalize URL for dedup: scheme://host/path (strip query params)
 		normalizedURL := strings.ToLower(jsURL.Scheme) + "://" +
 			strings.ToLower(jsURL.Host) + jsURL.Path
 
-		// URL-level dedup across all batches
+		// URL-level dedup across all batches (before consuming any budget).
 		if e.seenJSURLs != nil && e.seenJSURLs.IsSeen(normalizedURL) {
 			logger.Debug("JS URL already seen, skipping",
 				zap.String("url", jsURL.String()))
 			continue
+		}
+
+		if spider.ShouldSkipJSPathExtraction(jsURL) {
+			// Vendor/CDN/library asset: still fetched for jstangle endpoint
+			// extraction, but capped by a separate asset budget so a site that
+			// self-hosts many framework files can't flood the JS fetcher. Not fed
+			// to the observed-JS-dir wordlist sweep.
+			if !e.admitVendorJSFetch() {
+				logger.Debug("Vendor JS asset budget exhausted, skipping",
+					zap.String("url", jsURL.String()))
+				continue
+			}
+		} else {
+			// First-party JS: remember the app's real JS mount directory for the
+			// JS-bundle sweep (e.g. /js/, /assets/js/) so it probes there too.
+			e.recordObservedJSDir(jsURL)
 		}
 
 		// Add full URL (with query if present) for actual fetch

@@ -7,7 +7,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/payload"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/tracker"
 	"github.com/vigolium/vigolium/pkg/deparos/http"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/deparos/reqcache"
 	"github.com/vigolium/vigolium/pkg/deparos/scope"
 	"github.com/vigolium/vigolium/pkg/deparos/waf"
@@ -115,27 +115,33 @@ type Callbacks struct {
 	// Applied to every request during discovery.
 	CustomHeaders map[string]string
 
-	// JSScan integration for endpoint extraction from JavaScript files.
+	// JSTangle integration for endpoint extraction from JavaScript files.
 
-	// JSScanService is the shared broker for JS endpoint extraction.
-	// If nil, jsscan is disabled.
-	JSScanService *jsscan.Service
-	JSScanOptions func(profile jsscan.AnalysisProfile, sourceURL string) jsscan.ScanOptions
+	// JSTangleService is the shared broker for JS endpoint extraction.
+	// If nil, jstangle is disabled.
+	JSTangleService *jstangle.Service
+	JSTangleOptions func(profile jstangle.AnalysisProfile, sourceURL string) jstangle.ScanOptions
 
 	// AddExtractedRequest adds an extracted request to the engine's collection.
 	// Returns true if the request was new (not a duplicate).
-	AddExtractedRequest func(req *jsscan.ExtractedRequest) bool
+	AddExtractedRequest func(req *jstangle.ExtractedRequest) bool
 
 	// AddRequestFact retains typed provenance and source-scoped replay policy.
-	AddRequestFact func(sourceURL string, fact jsscan.HTTPRequestFact) bool
+	AddRequestFact func(sourceURL string, fact jstangle.HTTPRequestFact) bool
 
-	// StoreJSScanRequests persists extracted jsscan requests to database.
-	// Called after jsscan completes. jsURL is the source JavaScript file.
-	StoreJSScanRequests       func(jsURL *url.URL, reqs []jsscan.ExtractedRequest)
-	StoreJSScanFacts          func(jsURL *url.URL, facts []jsscan.HTTPRequestFact)
-	ProcessJSScanCapabilities func(sourceURL string, result *jsscan.ScanResult)
+	// RequeueReplayTemplate returns a claimed JS-replay template (keyed by its
+	// source URL + template id) to the pending set so a later flush round retries
+	// it when its replay failed to send or was cancelled before dispatch. May be
+	// nil (retry disabled, e.g. for non-engine callers).
+	RequeueReplayTemplate func(sourceURL, id string) bool
 
-	ProcessAssetFacts func(ctx context.Context, parentURL string, source []byte, facts []jsscan.AssetReferenceFact)
+	// StoreJSTangleRequests persists extracted jstangle requests to database.
+	// Called after jstangle completes. jsURL is the source JavaScript file.
+	StoreJSTangleRequests       func(jsURL *url.URL, reqs []jstangle.ExtractedRequest)
+	StoreJSTangleFacts          func(jsURL *url.URL, facts []jstangle.HTTPRequestFact)
+	ProcessJSTangleCapabilities func(sourceURL string, result *jstangle.ScanResult)
+
+	ProcessAssetFacts func(ctx context.Context, parentURL string, source []byte, facts []jstangle.AssetReferenceFact)
 	ProcessSourceMap  func(ctx context.Context, mapURL *url.URL, content []byte)
 
 	// ScopeChecker validates if URLs are within scan scope.

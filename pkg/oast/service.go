@@ -3,6 +3,7 @@ package oast
 import (
 	"context"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -346,6 +347,21 @@ func (s *Service) handleInteraction(interaction *server.Interaction) {
 
 	// Classify first (cheap, no I/O) so the emission key can depend on severity.
 	sev, conf, desc := classifyInteraction(interaction.Protocol, pctx)
+
+	// Second-signal confirmation. A correlated hit on the unguessable per-payload
+	// subdomain proves the injected http://<oast> URL was reached — but not
+	// necessarily by the vulnerability firing. URL-preview bots, site-monitoring
+	// crawlers, and WAF/threat-intel enrichment routinely harvest an injected URL
+	// from request logs (or a feed) and fetch it later with a browser/crawler HTTP
+	// client; that callback correlates to the nonce yet has nothing to do with the
+	// vuln. refineOASTCallback inspects the raw callback request and downgrades to an
+	// unconfirmed lead when it bears fingerprints the vuln's real out-of-band fetcher
+	// never has, so the classic harvested-URL OAST false positive (blind XXE/SQLi/JWT
+	// and, narrowly, SSRF) no longer surfaces as a Certain High finding. Runs before
+	// the emission key is derived because it can change the severity (Low/Info are
+	// still handled by oastEmissionKey — a Low keeps per-nonce identity).
+	sev, conf, desc = refineOASTCallback(interaction, pctx, sev, conf, desc)
+
 	emitKey := oastEmissionKey(sev, nonce, pctx)
 
 	// Coalesce per emission key. A single planted payload fans out into many
@@ -819,16 +835,249 @@ func classifyInteraction(protocol string, pctx PayloadContext) (severity.Severit
 
 // classifyXXE rates out-of-band interactions triggered by an injected external
 // DTD/entity. The per-payload subdomain is random and unguessable, so a
-// correlated callback is proof the XML parser resolved the external reference.
+// correlated callback proves the injected URL was reached. Whether an XML parser
+// reached it — versus a crawler that harvested the injected URL — is decided by
+// refineXXECallback, which inspects the raw callback request on the HTTP leg. A
+// DNS-only hit carries no request to inspect and can be produced by any resolver
+// in the path (the eventual HTTP fetch's own lookup, a crawler prefetch, a
+// caching resolver), so it is rated Firm rather than Certain — one notch below
+// the HTTP-fetch leg — matching how the SQLi/JWT out-of-band DNS legs are rated.
 func classifyXXE(proto, injectionDesc string) (severity.Severity, severity.Confidence, string) {
 	switch proto {
 	case "http", "https":
 		return severity.High, severity.Certain, "Blind XXE confirmed: the target's XML parser fetched the injected external entity/DTD over HTTP from the OAST server (" + injectionDesc + ")"
 	case "dns":
-		return severity.High, severity.Certain, "Blind XXE confirmed: the target's XML parser resolved the injected external-entity OAST subdomain (DNS) (" + injectionDesc + "). The unguessable per-payload subdomain rules out coincidental resolution."
+		return severity.High, severity.Firm, "Blind XXE likely: the injected external-entity OAST subdomain was resolved over DNS (" + injectionDesc + "). The unguessable per-payload subdomain rules out coincidental resolution; DNS-only (no outbound fetch observed) keeps confidence at Firm — confirm via the HTTP-fetch leg or an in-band file:// read."
 	default:
-		return severity.High, severity.Certain, "Blind XXE confirmed via out-of-band " + proto + " interaction (" + injectionDesc + ")"
+		return severity.High, severity.Firm, "Blind XXE likely via out-of-band " + proto + " interaction (" + injectionDesc + ")"
 	}
+}
+
+// refineOASTCallback is the second-signal confirmation for out-of-band findings.
+// A correlated hit on the unguessable per-payload subdomain proves the injected
+// http://<oast> URL was reached — but NOT necessarily by the vulnerability firing.
+// The systems that most often reach an injected URL are not the target's
+// vulnerable code path at all:
+//
+//   - URL-preview / link-unfurling bots (Slack, Facebook, chat apps) that a
+//     logged/echoed injected URL reaches.
+//   - Site-monitoring & security crawlers (the reported wild FP: ginandjuice.shop's
+//     own monitor fetching the injected URL with User-Agent "ginandjuice.shop;
+//     support@portswigger.net" and an HTTP/2 cleartext upgrade).
+//   - WAF / threat-intel enrichment pipelines that fetch URLs seen in traffic.
+//
+// These fetch the injected URL with a full browser/crawler HTTP client, so the
+// callback carries fingerprints (a browser/bot User-Agent, an h2c upgrade, browser-
+// only headers) that the vulnerability's real out-of-band fetcher never has. The
+// refinement splits by how identifiable that real fetcher is:
+//
+//   - XXE, JWT jku/x5u, out-of-band SQLi, and command injection each have a SPECIFIC
+//     non-browser fetcher — the XML parser, the JWKS/key fetcher, the database
+//     engine, or curl/wget. None is ever a web browser or a crawler bot, so ANY
+//     browser/crawler/h2c fingerprint on the HTTP leg is unambiguously a harvested-
+//     URL fetch, not the vuln → Low / Tentative UNCONFIRMED (the aggressive
+//     looksLikeHarvestedURLFetch check).
+//   - Generic blind SSRF is different: its legitimate fetcher CAN be a headless
+//     browser or an internal link-preview / unfurl service (both classic SSRF
+//     sinks), so a browser UA or h2c handshake is not by itself a false positive.
+//     It is downgraded only on the narrow signals no server-side fetcher ever
+//     carries — a self-identifying contact address in the UA, or the UA naming the
+//     target host (looksLikeExternalMonitor) — which preserves genuine headless-
+//     browser SSRF.
+//
+// DNS callbacks (no request to fingerprint) and bare fetches consistent with the
+// real fetcher are returned unchanged. This is the same downgrade idiom the
+// command-injection classifier already uses for its protocol-mismatch / reflected-
+// host guards.
+func refineOASTCallback(interaction *server.Interaction, pctx PayloadContext, sev severity.Severity, conf severity.Confidence, desc string) (severity.Severity, severity.Confidence, string) {
+	if interaction == nil {
+		return sev, conf, desc
+	}
+	switch strings.ToLower(interaction.Protocol) {
+	case "http", "https":
+	default:
+		// Only the HTTP leg carries a request whose client can be fingerprinted.
+		return sev, conf, desc
+	}
+	raw, target := interaction.RawRequest, pctx.TargetURL
+
+	// Classes with a specific, non-browser out-of-band fetcher → aggressive check.
+	if label := harvestableFetchLabel(pctx.InjectionType); label != "" {
+		if harvested, reason := looksLikeHarvestedURLFetch(raw, target); harvested {
+			return severity.Low, severity.Tentative, "Possible " + label + ", UNCONFIRMED: an out-of-band HTTP request reached the OAST server for the injected out-of-band URL, but " + reason +
+				". A crawler / URL-preview bot / site monitor / threat-intel pipeline that harvested the injected http://<oast> URL from request logs (or a feed) calls back identically without the vulnerability firing — this class's real out-of-band fetcher (XML parser / JWKS fetcher / database engine / curl-wget) is never a web browser or crawler. Confirm with an in-band signal, or a callback whose client is consistent with that fetcher (a library/tool User-Agent, no browser/h2c handshake), before treating this as confirmed."
+		}
+		return sev, conf, desc
+	}
+
+	// Generic blind SSRF → narrow check only (its fetcher may legitimately be a
+	// headless browser / link-preview service). Skip anything already Info.
+	if sev != severity.Info {
+		if monitor, reason := looksLikeExternalMonitor(raw, target); monitor {
+			return severity.Info, severity.Tentative, "Possible blind SSRF, UNCONFIRMED: an out-of-band HTTP request reached the OAST server, but " + reason +
+				". An external site monitor / crawler that harvested the injected URL calls back identically without any server-side request forgery. Confirm the fetch originates from the target's own infrastructure before treating this as SSRF."
+		}
+	}
+	return sev, conf, desc
+}
+
+// harvestableFetchLabel maps an OAST injection-type label to a human finding label
+// when the class has a SPECIFIC non-browser out-of-band fetcher (so a browser/
+// crawler callback is unambiguously a harvested-URL fetch, not the vuln). It
+// mirrors the same substrings classifyInteraction dispatches on, so the two stay in
+// lockstep. Returns "" for classes whose fetcher can legitimately be browser-like
+// (generic SSRF), which refineOASTCallback handles with the narrower monitor check.
+func harvestableFetchLabel(injectionType string) string {
+	switch inj := strings.ToLower(injectionType); {
+	case strings.Contains(inj, "xxe"):
+		return "XXE"
+	case strings.Contains(inj, "jwt"):
+		return "JWT key-URL dereference"
+	case strings.Contains(inj, "sql"):
+		return "SQL injection"
+	case strings.Contains(inj, "command"):
+		return "OS command injection"
+	default:
+		return ""
+	}
+}
+
+// browserUATokens are substrings that appear only in a browser / rendering-engine
+// User-Agent — never in the client that dereferences an out-of-band URL for the
+// classes handled by the aggressive check (an XML parser emits no UA / "Java/<ver>"
+// / a library token; a JWKS fetcher, database engine, or curl/wget likewise carry a
+// tool/library UA). Their presence on such a callback means a browser or headless
+// renderer fetched the injected URL. Matched on a lowercased User-Agent value.
+var browserUATokens = []string{
+	"mozilla/", "applewebkit", "chrome/", "safari/", "gecko/", "firefox/",
+	"edg/", "opr/", "msie ", "trident/", "headlesschrome",
+}
+
+// crawlerUATokens flag self-identifying crawlers, monitors, link/URL-preview bots,
+// and out-of-band scanners — the systems that harvest an injected http://<oast>
+// URL from request logs / threat-intel feeds and visit it independently of the
+// vulnerable code path. curl/wget are deliberately NOT listed (curl/wget IS the
+// command-injection fetcher, and a genuine server-side fetch may use them);
+// "python-requests" is likewise omitted because a server's own JWKS/URL fetch can
+// legitimately use the requests library. Matched on a lowercased User-Agent value.
+var crawlerUATokens = []string{
+	"bot", "crawler", "spider", "crawl", "slurp", "preview",
+	"fetcher", "monitor", "scanner", "facebookexternalhit",
+}
+
+// uaContactRe matches an email/contact address embedded in a User-Agent — a
+// self-identifying crawler / monitoring / abuse-contact convention (e.g.
+// "ginandjuice.shop; support@portswigger.net") that a server-side out-of-band
+// fetcher never advertises. Used by both the aggressive and the narrow checks.
+var uaContactRe = regexp.MustCompile(`@[a-z0-9._%+-]+\.[a-z]{2,}`)
+
+// looksLikeHarvestedURLFetch reports whether an out-of-band HTTP callback request
+// was made by a crawler / URL-preview bot / security scanner / enrichment pipeline
+// that harvested the injected OAST URL, rather than by the target's real out-of-band
+// fetcher for a class whose fetcher is a specific non-browser client (XML parser,
+// JWKS fetcher, database engine, curl/wget — see harvestableFetchLabel). It returns
+// (true, reason) when a non-fetcher fingerprint is found — the reason is a lowercase
+// clause for the finding description — and (false, "") for a bare fetch consistent
+// with that fetcher or when there is no HTTP request to inspect. Deliberately
+// conservative: it fires only on strong, fetcher-inconsistent signals so it never
+// downgrades a genuine finding whose fetcher uses a minimal/library HTTP client.
+func looksLikeHarvestedURLFetch(rawRequest, targetURL string) (bool, string) {
+	if strings.TrimSpace(rawRequest) == "" {
+		return false, ""
+	}
+	h := callbackHeaderMap(rawRequest)
+
+	if ua := strings.ToLower(strings.TrimSpace(h["user-agent"])); ua != "" {
+		for _, t := range browserUATokens {
+			if strings.Contains(ua, t) {
+				return true, "the callback came from a web browser / rendering engine (User-Agent \"" + ua + "\"), not a server-side out-of-band fetcher"
+			}
+		}
+		for _, t := range crawlerUATokens {
+			if strings.Contains(ua, t) {
+				return true, "the callback identifies as a crawler / bot (User-Agent \"" + ua + "\"), not a server-side out-of-band fetcher"
+			}
+		}
+		if uaContactRe.MatchString(ua) {
+			return true, "the callback User-Agent advertises a contact address (\"" + ua + "\"), a self-identifying crawler / monitoring bot convention a server-side fetcher never uses"
+		}
+		if host := oastHost(targetURL); host != "" && strings.Contains(ua, host) {
+			return true, "the callback User-Agent names the target host (\"" + ua + "\"), a site monitor / crawler, not a server-side out-of-band fetcher"
+		}
+	}
+
+	// HTTP/2 cleartext upgrade negotiation is a full HTTP client / crawler behaviour
+	// — a server-side out-of-band fetch is a plain request and never negotiates h2c.
+	if strings.Contains(strings.ToLower(h["upgrade"]), "h2c") {
+		return true, "the callback negotiated an HTTP/2 cleartext (h2c) upgrade, a full HTTP client / crawler behaviour a server-side out-of-band fetch never performs"
+	}
+	if _, ok := h["http2-settings"]; ok {
+		return true, "the callback carried an HTTP2-Settings upgrade header, a full HTTP client / crawler behaviour a server-side out-of-band fetch never performs"
+	}
+
+	// Browser-only request headers. Require two so a lone header a proxy might add
+	// (e.g. Accept-Language) cannot by itself downgrade a genuine callback.
+	browserHdrs := 0
+	for name := range h {
+		if name == "accept-language" || name == "sec-ch-ua" || name == "upgrade-insecure-requests" ||
+			name == "cookie" || name == "referer" || strings.HasPrefix(name, "sec-fetch-") {
+			browserHdrs++
+		}
+	}
+	if browserHdrs >= 2 {
+		return true, "the callback carried browser-only request headers (Sec-Fetch-*/Accept-Language/Cookie/…) a server-side out-of-band fetch never sends"
+	}
+
+	return false, ""
+}
+
+// looksLikeExternalMonitor is the NARROW callback-source check for generic blind
+// SSRF, whose legitimate fetcher can itself be a headless browser or an internal
+// link-preview/unfurl service — so the aggressive browser/h2c fingerprints above
+// would wrongly downgrade a genuine SSRF. It fires ONLY on the two signals no
+// server-side fetcher ever carries: a self-identifying contact address in the
+// User-Agent, or the User-Agent naming the target host (an external site monitor).
+// Returns (true, reason) on a match, (false, "") otherwise or with no request.
+func looksLikeExternalMonitor(rawRequest, targetURL string) (bool, string) {
+	if strings.TrimSpace(rawRequest) == "" {
+		return false, ""
+	}
+	ua := strings.ToLower(strings.TrimSpace(callbackHeaderMap(rawRequest)["user-agent"]))
+	if ua == "" {
+		return false, ""
+	}
+	if uaContactRe.MatchString(ua) {
+		return true, "the callback User-Agent advertises a contact address (\"" + ua + "\"), a self-identifying external crawler / monitoring bot a server-side SSRF fetcher never uses"
+	}
+	if host := oastHost(targetURL); host != "" && strings.Contains(ua, host) {
+		return true, "the callback User-Agent names the target host (\"" + ua + "\"), an external site monitor / crawler rather than the target's own fetcher"
+	}
+	return false, ""
+}
+
+// callbackHeaderMap parses the header lines of a raw HTTP callback request into a
+// lowercased name → trimmed-value map. The request line (line 0) is skipped and
+// parsing stops at the first blank line (end of headers), so a callback body can
+// never be mistaken for a header. On a duplicated header the last value wins; that
+// is sufficient for the presence/substring checks in looksLikeHarvestedURLFetch.
+func callbackHeaderMap(rawRequest string) map[string]string {
+	h := make(map[string]string)
+	for i, line := range strings.Split(rawRequest, "\n") {
+		if i == 0 {
+			continue // request line
+		}
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			break // end of headers
+		}
+		idx := strings.IndexByte(line, ':')
+		if idx <= 0 {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(line[:idx]))
+		h[name] = strings.TrimSpace(line[idx+1:])
+	}
+	return h
 }
 
 // classifySQLi rates out-of-band interactions triggered by an injected SQL

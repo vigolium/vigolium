@@ -325,6 +325,17 @@ func (sc *ScanContext) MarkTech(host, tag string) {
 	sc.TechStack.Mark(host, tag)
 }
 
+// HasTech reports whether tag was detected for host during the scan. It is the
+// read-side mirror of MarkTech and is fail-closed: a nil ScanContext or unset
+// registry returns false, so a tech-gated active module never probes a host
+// whose stack was not fingerprinted (or in tests with a bare ScanContext).
+func (sc *ScanContext) HasTech(host, tag string) bool {
+	if sc == nil || sc.TechStack == nil {
+		return false
+	}
+	return sc.TechStack.Has(host, tag)
+}
+
 // MarkWAF records the WAF/CDN type observed fronting host. No-op when the
 // registry is unset (e.g. tests with a bare ScanContext).
 func (sc *ScanContext) MarkWAF(host, wafType string) {

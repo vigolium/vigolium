@@ -9,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -32,6 +33,8 @@ type probe struct {
 	antiMarkers []string
 	sev         severity.Severity
 	desc        string
+	kind        output.RecordKind
+	grade       output.EvidenceGrade
 	detect401   bool // if true, also detect 401 with WWW-Authenticate as Tomcat
 	bypass      bool // if true, also probe reverse-proxy path-normalization bypasses
 }
@@ -43,8 +46,10 @@ var probes = []probe{
 		// Anchor on the manager title, corroborate with a deploy action.
 		markers:     [][]string{{"Tomcat Manager", "Tomcat Web Application Manager"}, {"Deploy", "Undeploy", "WAR file to deploy"}},
 		antiMarkers: []string{"404", "Not Found"},
-		sev:         severity.Critical,
-		desc:        "Tomcat Manager web interface is accessible, enabling WAR deployment and application management. Brute-force or default credentials may lead to full server compromise",
+		sev:         severity.High,
+		desc:        "The Tomcat Manager interface and deployment controls are reachable without credentials. This is a strong administrative-access candidate, but no deployment or state-changing action was attempted.",
+		kind:        output.RecordKindCandidate,
+		grade:       output.EvidenceGradeDifferential,
 		detect401:   true,
 		bypass:      true,
 	},
@@ -53,8 +58,10 @@ var probes = []probe{
 		name:        "Tomcat Host Manager",
 		markers:     [][]string{{"Tomcat Virtual Host Manager", "Host Manager"}, {"Add Virtual Host", "host-manager"}},
 		antiMarkers: []string{"404", "Not Found"},
-		sev:         severity.Critical,
-		desc:        "Tomcat Host Manager is accessible, enabling virtual host manipulation. Combined with default credentials, this can lead to server compromise",
+		sev:         severity.High,
+		desc:        "The Tomcat Host Manager interface and virtual-host controls are reachable without credentials. This is a strong administrative-access candidate, but no state-changing action was attempted.",
+		kind:        output.RecordKindCandidate,
+		grade:       output.EvidenceGradeDifferential,
 		detect401:   true,
 		bypass:      true,
 	},
@@ -66,7 +73,9 @@ var probes = []probe{
 		markers:     [][]string{{"Max threads", "Apache Tomcat", "Tomcat"}, {"Server Status", "JVM", "Current threads busy"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Medium,
-		desc:        "Tomcat server status page exposed, revealing JVM information, connector details, and thread usage",
+		desc:        "The Tomcat server status interface is reachable without credentials and exposes operational details; no administrative action was attempted.",
+		kind:        output.RecordKindCandidate,
+		grade:       output.EvidenceGradeCandidate,
 		detect401:   true,
 		bypass:      true,
 	},
@@ -76,7 +85,9 @@ var probes = []probe{
 		markers:     [][]string{{"Servlet Examples", "JSP Examples", "WebSocket Examples"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Low,
-		desc:        "Tomcat example servlets are deployed, indicating incomplete hardening. Example apps may contain known vulnerabilities",
+		desc:        "Tomcat example applications are deployed and reachable without credentials. This is a hardening observation, not proof that an example is vulnerable.",
+		kind:        output.RecordKindObservation,
+		grade:       output.EvidenceGradeObservation,
 	},
 	{
 		path:        "/docs/",
@@ -84,7 +95,9 @@ var probes = []probe{
 		markers:     [][]string{{"Apache Tomcat"}},
 		antiMarkers: []string{"404", "Not Found"},
 		sev:         severity.Info,
-		desc:        "Tomcat documentation pages are deployed, revealing server version and indicating incomplete hardening",
+		desc:        "Tomcat documentation pages are deployed and reachable without credentials. This records framework attack surface, not a direct vulnerability.",
+		kind:        output.RecordKindObservation,
+		grade:       output.EvidenceGradeObservation,
 	},
 }
 
@@ -136,7 +149,20 @@ func (m *Module) ScanPerRequest(
 
 	host := service.Host()
 
-	urlx, err := ctx.URL()
+	cleanRaw, err := modkit.StripCredentialHeaders(ctx.Request().Raw())
+	if err != nil {
+		return nil, nil
+	}
+	anonymousClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
+	anonymousCtx := httpmsg.NewHttpRequestResponse(
+		httpmsg.NewHttpRequestWithService(service, cleanRaw),
+		ctx.Response(),
+	)
+
+	urlx, err := anonymousCtx.URL()
 	if err != nil {
 		return nil, nil
 	}
@@ -145,13 +171,16 @@ func (m *Module) ScanPerRequest(
 	// manager app mounted under a non-root path is reached, not just /manager.
 	// Claim each (host, base) pair up front so a fully-deduped request issues no
 	// traffic — including the soft-404 fingerprint.
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	bases := modkit.UnclaimedBasePaths(diskSet, host, modkit.CandidateBasePaths(urlx.Path))
 	if len(bases) == 0 {
 		return nil, nil
 	}
 
-	fp := m.fingerprint404(ctx, httpClient)
+	fp := m.fingerprint404(anonymousCtx, anonymousClient)
 
 	// Walk the bases and, once per host, fall back to the reverse-proxy path-
 	// normalization bypass for any bypass-eligible admin endpoint the direct root
@@ -162,7 +191,7 @@ func (m *Module) ScanPerRequest(
 		func(p probe) string { return p.path },
 		func(p probe) bool { return p.bypass },
 		func(p probe, probePath string) (*output.ResultEvent, int) {
-			return m.probeEndpoint(ctx, httpClient, p, probePath, fp)
+			return m.probeEndpoint(anonymousCtx, anonymousClient, p, probePath, fp)
 		})
 
 	return results, nil
@@ -187,11 +216,14 @@ func (m *Module) fingerprint404(
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
+		return nil
+	}
 
 	body := resp.Body().String()
 	return &notFoundFingerprint{
@@ -220,7 +252,7 @@ func (m *Module) probeEndpoint(
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil, 0
 	}
@@ -231,6 +263,9 @@ func (m *Module) probeEndpoint(
 	}
 
 	status := resp.Response().StatusCode
+	if infra.GetBlockDetectionValidator().Validate(resp) != nil {
+		return nil, status
+	}
 
 	// Check for 401 with Tomcat auth challenge
 	if p.detect401 && status == 401 {
@@ -239,18 +274,27 @@ func (m *Module) probeEndpoint(
 			urlx, _ := ctx.URL()
 			targetURL := urlx.Scheme + "://" + urlx.Host + probePath
 			return &output.ResultEvent{
+				ModuleID:         ModuleID,
+				RecordKind:       output.RecordKindObservation,
+				EvidenceGrade:    output.EvidenceGradeObservation,
 				URL:              targetURL,
 				Matched:          targetURL,
 				Request:          string(modifiedRaw),
 				Response:         resp.FullResponseString(),
 				ExtractedResults: []string{"WWW-Authenticate: " + wwwAuth},
 				Info: output.Info{
-					Name:        fmt.Sprintf("Tomcat Admin Interface: %s (Auth Required)", p.name),
-					Description: p.desc,
-					Severity:    severity.Medium,
+					Name:        fmt.Sprintf("Tomcat Admin Interface Observed: %s (Authentication Required)", p.name),
+					Description: "A credential-free request received a Tomcat-specific authentication challenge. This identifies an administrative surface, but the server denied access and no credential weakness was tested.",
+					Severity:    severity.Info,
 					Confidence:  severity.Firm,
 					Tags:        []string{"tomcat", "java", "admin", "misconfiguration"},
 					Reference:   []string{"https://tomcat.apache.org/tomcat-10.1-doc/security-howto.html"},
+				},
+				Metadata: map[string]any{
+					"credential_free":         true,
+					"authentication_required": true,
+					"administrative_access":   false,
+					"state_change_attempted":  false,
 				},
 			}, status
 		}
@@ -316,19 +360,33 @@ func (m *Module) probeEndpoint(
 	urlx, _ := ctx.URL()
 	targetURL := urlx.Scheme + "://" + urlx.Host + probePath
 
+	resultName := fmt.Sprintf("Tomcat Surface Observed: %s", p.name)
+	if p.kind == output.RecordKindCandidate {
+		resultName = fmt.Sprintf("Tomcat Administrative Surface Candidate: %s", p.name)
+	}
+
 	return &output.ResultEvent{
+		ModuleID:         ModuleID,
+		RecordKind:       p.kind,
+		EvidenceGrade:    p.grade,
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
 		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
-			Name:        fmt.Sprintf("Tomcat Admin Interface: %s", p.name),
+			Name:        resultName,
 			Description: p.desc,
 			Severity:    p.sev,
 			Confidence:  severity.Firm,
 			Tags:        []string{"tomcat", "java", "admin", "misconfiguration"},
 			Reference:   []string{"https://tomcat.apache.org/tomcat-10.1-doc/security-howto.html"},
+		},
+		Metadata: map[string]any{
+			"credential_free":                 true,
+			"authentication_required":         false,
+			"state_change_attempted":          false,
+			"administrative_action_confirmed": false,
 		},
 	}, status
 }

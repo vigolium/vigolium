@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A request parameter feeds attacker-controlled data into an unsafe deserialization routine. Injected serialized payloads (Java, PHP, Python, Ruby, .NET) triggered a framework-specific deserialization error absent from the baseline, proving the endpoint deserializes untrusted input.
+	ModuleDesc = `**What it means:** An inert Java, PHP, Python, Ruby, or .NET wire-format probe reproducibly introduced a matching server-side deserialization exception while a plain malformed-value control stayed clean.
 
-**How it's exploited:** An attacker crafts a malicious object using gadget chains (such as ysoserial) so deserialization instantiates dangerous objects, frequently leading to remote code execution, or otherwise denial of service, authentication bypass, or arbitrary file access.
+**How it's exploited:** Deserializer reachability is a high-priority candidate because a compatible gadget chain may lead to code execution or other impact. This module sends no gadget and does not label an exception as RCE; execution requires an OAST callback or safe side effect.
 
 **Fix:** Never deserialize untrusted input; use safe formats like JSON with strict schemas, and if unavoidable enforce type allow-lists and payload integrity checks.`
 
-	ModuleConfirmation = "Confirmed when injected serialized payloads trigger deserialization error messages in the response"
+	ModuleConfirmation = "Candidate requires a framework-matched error absent from baseline/control and reproduced by a second inert probe; findings require separate execution or side-effect proof"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"deserialization", "rce", "moderate"}

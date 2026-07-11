@@ -208,7 +208,12 @@ const loginCTADetectScript = `(() => {
     try { s.el.setAttribute('data-vgo-login-cta', String(out.length)); } catch (e) { continue; }
     out.push({idx: out.length, text: s.text, href: s.href, reason: s.reason, tag: s.tag, score: s.score});
   }
-  return JSON.stringify({found: out.length > 0, candidates: out, pending: pending});
+  // loading = the document itself has not finished loading yet, so a login
+  // control that renders on load may still appear. Lets the Go caller keep
+  // polling a slow landing while distinguishing it from a fully-quiesced page
+  // that simply has no login affordance (which should stop immediately).
+  const loading = document.readyState !== 'complete';
+  return JSON.stringify({found: out.length > 0, candidates: out, pending: pending, loading: loading});
 })()`
 
 // loginCTASelector re-resolves the i-th candidate tagged by loginCTADetectScript.
@@ -250,11 +255,15 @@ type loginCTACandidate struct {
 // loginCTAResult is the JSON shape returned by loginCTADetectScript: the
 // highest-scoring login CTAs (most likely first), each tagged for re-resolution.
 // Pending is true when a login control is present but still hydrating (a
-// non-interactive skeleton), so the caller should keep waiting for it.
+// non-interactive skeleton), so the caller should keep waiting for it. Loading is
+// true when the document itself has not finished loading (readyState != complete)
+// — either signal means the page is still working and a login control may yet
+// appear; neither means it is quiescent and can stop polling.
 type loginCTAResult struct {
 	Found      bool                `json:"found"`
 	Candidates []loginCTACandidate `json:"candidates"`
 	Pending    bool                `json:"pending"`
+	Loading    bool                `json:"loading"`
 }
 
 // primeLoginCTA finds and clicks a login call-to-action on the landing page (once
@@ -277,9 +286,11 @@ func (c *Crawler) primeLoginCTA(ctx context.Context, page *browser.Page, landing
 	// loading-skeleton placeholder for the login button first and only hydrates the
 	// real, clickable one a beat later (after its config/auth XHRs land) — and on a
 	// slow landing (an SSO bounce that then client-routes + loads content) that can
-	// take many seconds. Keep retrying ONLY while the page still shows a hydrating
-	// login control (res.Pending); a page with no login affordance at all returns
-	// immediately so ordinary pages aren't slowed.
+	// take many seconds. Keep polling ONLY while the page is still doing something
+	// that could surface a login control — a login skeleton is hydrating
+	// (res.Pending) or the document has not finished loading (res.Loading). Once the
+	// page is quiescent with no login affordance, stop right after a short floor so
+	// an ordinary landing pays ~loginCTAMinAttempts seconds, not the full budget.
 	var res loginCTAResult
 	for attempt := 0; attempt < loginCTADetectAttempts; attempt++ {
 		if attempt > 0 {
@@ -303,13 +314,11 @@ func (c *Crawler) primeLoginCTA(ctx context.Context, page *browser.Page, landing
 		if res.Found {
 			break
 		}
-		// Probe a minimum window unconditionally — a slow landing (SSO bounce →
-		// client-route → content load) renders the login control a few seconds in,
-		// after this step starts, so the first probe(s) legitimately see nothing.
-		// Past that window, keep going ONLY while a login control is actively
-		// hydrating (res.Pending), so ordinary pages with no login affordance stop
-		// instead of burning the full budget.
-		if attempt+1 >= loginCTAMinAttempts && !res.Pending {
+		// A short floor covers a login control that renders a beat after first
+		// paint. Past it, stop as soon as the page is quiescent (neither a login
+		// skeleton hydrating nor the document still loading) — the extended budget
+		// is reserved for pages that are demonstrably still working.
+		if attempt+1 >= loginCTAMinAttempts && !res.Pending && !res.Loading {
 			break
 		}
 	}
@@ -419,11 +428,14 @@ func (c *Crawler) clickLoginCTA(page *browser.Page, idx int, tag string) {
 // loginCTADetectAttempts / loginCTADetectInterval bound the poll for an
 // interactive login CTA to appear (a SPA hydrates the real button shortly after
 // rendering a loading skeleton). The full budget (~25s) is only ever spent while
-// the page still shows a hydrating login control; a page with no login affordance
-// returns after the first probe, so ordinary pages pay almost nothing.
+// the page is demonstrably still working — a login control is hydrating (pending)
+// or the document is still loading. loginCTAMinAttempts is a short floor (~3s)
+// that catches a control rendering a beat after first paint; a quiescent page
+// with no login affordance stops right after it, so an ordinary landing pays only
+// a couple of seconds instead of the old fixed ten.
 const (
 	loginCTADetectAttempts = 25
-	loginCTAMinAttempts    = 10
+	loginCTAMinAttempts    = 3
 	loginCTADetectInterval = 1 * time.Second
 )
 

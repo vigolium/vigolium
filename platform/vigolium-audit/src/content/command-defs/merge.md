@@ -40,12 +40,24 @@ phases:
     requires_git: false
     parallel_with: []
     depends_on: [M5]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: final-audit-report.md
+          min_bytes: 120
   - id: M7
     title: Cleanup + merge-report.md
     agent: null
     requires_git: false
     parallel_with: []
     depends_on: [M6]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: merge-report.md
+          min_bytes: 120
 ---
 
 ## Context
@@ -283,7 +295,7 @@ Spawn `vigolium-audit:report-composer` (foreground):
 
 If `vigolium-results/attack-surface/knowledge-base-report.md` is present, append a `## Merge Normalization Addendum` section with one line per source dir listed in merge_metadata.sources, plus the dedup/quarantine/renumber counts.
 
-**Consolidate the unified attack-surface.** The pre-merge took the *union* of every source's `attack-surface/`, so same-named files whose contents differed now sit side-by-side as `<name>.<source-label>.<ext>` (see `merge_metadata.attack_surface_renamed`). For each such pair (e.g. `authz-matrix.md` + `authz-matrix.next.js-archon.md`), read both and fold the labelled variant's unique content into the canonical file (preserving each source's distinct findings/edges/entities), then delete the now-redundant `.<source-label>` copy. Leave non-overlapping recon files (present in only one source) as-is. Note the consolidation in the addendum.
+**Consolidate the unified attack-surface.** The pre-merge took the *union* of every source's `attack-surface/`, so same-named files whose contents differed now sit side-by-side as `<name>.<source-label>.<ext>` (see `merge_metadata.attack_surface_renamed`). For each such pair (e.g. `authz-matrix.md` + `authz-matrix.next.js-run-b.md`), read both and fold the labelled variant's unique content into the canonical file (preserving each source's distinct findings/edges/entities), then delete the now-redundant `.<source-label>` copy. Leave non-overlapping recon files (present in only one source) as-is. Note the consolidation in the addendum.
 
 Mark M6 complete.
 

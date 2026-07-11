@@ -1,53 +1,35 @@
 package secret_detect
 
 import (
-	"context"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+	"bytes"
 	"sync"
-	"sync/atomic"
 
-	pkghttp "github.com/vigolium/vigolium/pkg/deparos/http"
+	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
-	"github.com/vigolium/vigolium/pkg/toolexec/kingfisher"
-	"go.uber.org/zap"
+	"github.com/vigolium/vigolium/pkg/secretscan"
 )
 
-// maxBodySize is the maximum response body size to scan (10MB).
-const maxBodySize = 10 * 1024 * 1024
-
-// batchEntry tracks a buffered response body for batch scanning.
-type batchEntry struct {
-	filename     string // basename of the temp file within batchDir
-	url          string
-	host         string
-	statusCode   int    // response status — 3xx redirects downgrade secret severity
-	contentType  string // response Content-Type — docs-page HTML/RSC downgrades demo secrets
-	headerValues string // joined response header values, for header-reflection downgrade
-	respHead     string // raw response head (status line + headers, no body), for finding evidence
-	request      string // raw request, for finding evidence and http_record linkage
-}
-
-// Module detects leaked secrets in HTTP response bodies using Kingfisher.
-// Response bodies are buffered during scanning and batch-scanned at end-of-scan
-// via the BatchFlusher interface for efficiency.
+// Module detects leaked secrets in HTTP response bodies using the native
+// in-process secret detector (pkg/secretscan). Detection runs inline per
+// response — no external binary, no temp files, no end-of-scan batch.
 type Module struct {
 	modkit.BasePassiveModule
-	scannerOnce sync.Once
-	scanner     *kingfisher.Scanner
-	scannerErr  error
 
-	// Batch scanning state
-	batchDirOnce sync.Once
-	batchDir     string
-	batchDirErr  error
-	batchMu      sync.Mutex
-	batchSeq     atomic.Int64
-	batchEntries []batchEntry
+	detectorOnce sync.Once
+	detector     *secretscan.Detector
+	detectorErr  error
+
+	// ds collapses the same secret re-detected on the same URL across scan passes
+	// (discovery, spidering, re-spider, and the dynamic-assessment baseline all
+	// fetch the same page), keyed by a hash of SecretDedupKey. It resolves to the
+	// per-runner dedup Manager on the ScanContext, so — unlike a module-level map
+	// on this registry singleton — it is bounded (LRU-evicted), isolated per scan,
+	// and never carries a finding (or suppression) from one scan or project into
+	// the next in the long-lived server. Its check-and-set is atomic, so two
+	// worker-pool goroutines can't both emit the same secret.
+	ds dedup.Lazy[dedup.DiskSet]
 }
 
 // New creates a new secret detection passive module.
@@ -64,6 +46,7 @@ func New() *Module {
 			modkit.ScanScopeRequest,
 			modkit.PassiveScanScopeResponse,
 		),
+		ds: dedup.LazyDiskSet("secret_detect"),
 	}
 	m.ModuleTags = ModuleTags
 	return m
@@ -71,41 +54,27 @@ func New() *Module {
 
 // CanProcess filters out responses that are not worth scanning:
 // nil/empty responses, media content, non-text MIME types, and oversized bodies.
+// The eligibility decision itself is the shared ShouldScanBody policy.
 func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
 	if ctx == nil || ctx.Response() == nil {
 		return false
 	}
 
 	body := ctx.Response().Body()
-	if len(body) == 0 || len(body) > maxBodySize {
-		return false
-	}
-
 	mimeType := ctx.Response().Header("Content-Type")
 	urlPath := ""
 	if u, err := ctx.URL(); err == nil {
 		urlPath = u.Path
 	}
 
-	if pkghttp.IsMediaContent(mimeType, urlPath) {
-		return false
-	}
-
-	if !isTextBasedMIME(mimeType) {
-		return false
-	}
-
-	return true
+	return ShouldScanBody(mimeType, urlPath, len(body))
 }
 
-// ScanPerRequest buffers the response body for batch scanning at end-of-scan.
-// Returns nil immediately — findings are produced by FlushFindings.
-func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, _ *modkit.ScanContext) ([]*output.ResultEvent, error) {
-	if _, err := m.getScanner(); err != nil {
-		return nil, nil
-	}
-
-	dir, err := m.getBatchDir()
+// ScanPerRequest scans the response body for leaked secrets and returns the
+// findings immediately. Matches are graded and false-positive-filtered exactly
+// as the previous batch path did; only the detection engine changed.
+func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
+	det, err := m.getDetector()
 	if err != nil {
 		return nil, nil
 	}
@@ -116,212 +85,89 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, _ *modkit.Scan
 	if modkit.IsEdgeBlockedResponse(resp) {
 		return nil, nil
 	}
+
 	body := resp.Body()
-	urlStr := ""
-	host := ""
+	matches := det.Detect(body)
+	if len(matches) == 0 {
+		return nil, nil
+	}
+
+	ev := EvidenceContext{
+		Body:         body,
+		RespHead:     string(resp.Head()),
+		StatusCode:   resp.StatusCode(),
+		ContentType:  resp.Header("Content-Type"),
+		HeaderValues: JoinHeaderValues(resp.Headers()),
+	}
 	if u, err := ctx.URL(); err == nil {
-		urlStr = u.String()
-		host = u.Host
+		ev.URL = u.String()
+		ev.Host = u.Host
 	}
-
-	// Retain the response head (status line + headers, no body) and the raw
-	// request so FlushFindings can attach human-readable evidence to each finding
-	// without re-buffering the body in memory.
-	respHead := string(resp.Head())
-	request := ""
 	if req := ctx.Request(); req != nil {
-		request = string(req.Raw())
+		ev.Request = string(req.Raw())
 	}
 
-	// Write body to temp file with unique name
-	seq := m.batchSeq.Add(1)
-	filename := fmt.Sprintf("%d.txt", seq)
-	if err := os.WriteFile(filepath.Join(dir, filename), body, 0600); err != nil {
-		zap.L().Debug("Kingfisher: failed to buffer body", zap.Error(err))
-		return nil, nil
-	}
-
-	// Retain the status code and header values so FlushFindings can downgrade
-	// matches that ride on a redirect or are merely reflected into a header
-	// (e.g. an OAuth identifier in a Location URL bouncing to an SSO login).
-	m.batchMu.Lock()
-	m.batchEntries = append(m.batchEntries, batchEntry{
-		filename:     filename,
-		url:          urlStr,
-		host:         host,
-		statusCode:   resp.StatusCode(),
-		contentType:  resp.Header("Content-Type"),
-		headerValues: JoinHeaderValues(resp.Headers()),
-		respHead:     respHead,
-		request:      request,
-	})
-	m.batchMu.Unlock()
-
-	return nil, nil
-}
-
-// FlushFindings batch-scans all buffered response bodies using a single
-// kingfisher invocation and returns the collected findings.
-func (m *Module) FlushFindings(_ *modkit.ScanContext) ([]*output.ResultEvent, error) {
-	m.batchMu.Lock()
-	entries := m.batchEntries
-	m.batchEntries = nil
-	dir := m.batchDir
-	m.batchMu.Unlock()
-
-	// Clean up temp dir when done
-	if dir != "" {
-		defer func() { _ = os.RemoveAll(dir) }()
-	}
-
-	if len(entries) == 0 || dir == "" {
-		return nil, nil
-	}
-
-	scanner, err := m.getScanner()
-	if err != nil {
-		return nil, nil
-	}
-
-	zap.L().Info("Kingfisher batch scan starting",
-		zap.Int("buffered_responses", len(entries)))
-
-	result, err := scanner.ScanDir(context.Background(), dir)
-	if err != nil {
-		zap.L().Warn("Kingfisher batch scan failed", zap.Error(err))
-		return nil, nil
-	}
-
-	if !result.HasFindings() {
-		zap.L().Info("Kingfisher batch scan: no findings")
-		return nil, nil
-	}
-
-	// Build filename→entry lookup
-	entryByFile := make(map[string]*batchEntry, len(entries))
-	for i := range entries {
-		entryByFile[entries[i].filename] = &entries[i]
-	}
-
-	// Cache bodies read back from the temp dir so a file with several secrets is
-	// read only once.
-	bodyByFile := make(map[string][]byte)
-
-	// Collapse the same secret re-detected on the same URL across scan passes:
-	// the page is buffered once per pass (discovery, spidering, re-spider, DA
-	// baseline), so Kingfisher reports the identical (url, rule, snippet) leak
-	// several times. Emitting it once keeps near-identical request/response copies
-	// from accumulating as redundant Additional Evidence downstream.
-	seen := make(map[string]struct{}, len(result.Findings))
+	// Resolve the scan-scoped dedup set once for this response (nil when no dedup
+	// Manager is wired, e.g. unit tests — then every match is emitted and the
+	// storage layer collapses any duplicates).
+	ds := m.ds.Get(scanCtx.DedupMgr())
 
 	var results []*output.ResultEvent
-	for i := range result.Findings {
-		f := &result.Findings[i]
-
-		// Map finding back to the original URL via filename
-		basename := filepath.Base(f.Finding.Path)
-		entry, ok := entryByFile[basename]
-		if !ok {
-			continue
+	for _, mt := range matches {
+		if event := m.buildFinding(mt, ev, ds); event != nil {
+			results = append(results, event)
 		}
-
-		dedupKey := SecretDedupKey(entry.host, entry.url, f.RuleID(), f.Snippet())
-		if _, dup := seen[dedupKey]; dup {
-			continue
-		}
-
-		// Read the body back from the temp file it was buffered to (caching per
-		// file) — needed both for the blob guard below and to reconstruct the
-		// finding's evidence response.
-		body, cached := bodyByFile[basename]
-		if !cached {
-			body, _ = os.ReadFile(filepath.Join(dir, basename))
-			bodyByFile[basename] = body
-		}
-
-		// Drop matches that are structural false positives — an encoded-binary
-		// blob, a JS unicode-escape source artifact, or a build-tool content-hash
-		// manifest entry — rather than real credentials (see IsNonSecretMatch).
-		if IsNonSecretMatch(body, f.Snippet()) {
-			continue
-		}
-
-		sev, conf := SecretFindingSeverity(
-			f.IsValidated(),
-			IsRedirectStatus(entry.statusCode),
-			SnippetInHeaderValues(f.Snippet(), entry.headerValues),
-			SnippetReflectedFromRequest(f.Snippet(), entry.url, entry.request),
-			IsDocDemoSecretContext(entry.url, entry.contentType),
-			LowValueJWT(f.Snippet()),
-			IsReCaptchaSiteKey(f.RuleName()),
-			IsGoogleAPIKey(f.RuleName(), f.Snippet()),
-			IsGoogleOAuthClientID(f.Snippet()),
-		)
-
-		// Reconstruct the matched response (head + full-or-windowed body) so the
-		// finding shows the actual leak in context.
-		response := BuildEvidenceResponse(entry.respHead, body, f.Snippet(), f.Finding.Line)
-
-		event := NewSecretFinding(f, sev, conf, entry.host, entry.url, entry.request, response)
-		event.ModuleID = ModuleID
-		results = append(results, event)
-		// Mark seen only after the match survives the guards above: a value
-		// dropped here as a blob/JS-escape artifact in one body may be a genuine
-		// leak in another (the guards are body-dependent), so an early mark could
-		// suppress the real one.
-		seen[dedupKey] = struct{}{}
 	}
-
-	zap.L().Info("Kingfisher batch scan completed",
-		zap.Int("findings", len(results)),
-		zap.Duration("duration", result.ScanDuration))
-
 	return results, nil
 }
 
-// getBatchDir lazily creates the temp directory for buffering response bodies.
-func (m *Module) getBatchDir() (string, error) {
-	m.batchDirOnce.Do(func() {
-		m.batchDir, m.batchDirErr = os.MkdirTemp("", "kingfisher-batch-*")
-	})
-	return m.batchDir, m.batchDirErr
+// buildFinding deduplicates then grades one match via the shared GradeMatch
+// helper, returning the finding or nil (duplicate or structural false positive).
+func (m *Module) buildFinding(mt secretscan.Match, ev EvidenceContext, ds *dedup.DiskSet) *output.ResultEvent {
+	// Hash the dedup identity so plaintext credentials are never written into the
+	// on-disk dedup set. FNV is sufficient: a collision only risks dropping one
+	// finding, and the (host,url,rule,value) tuple makes that astronomically rare.
+	dedupKey := dedup.FNVHash(SecretDedupKey(ev.Host, ev.URL, mt.RuleID, mt.Secret))
+
+	// Cheap early-out for the common duplicate — the same page is re-fetched across
+	// discovery/spider/re-spider/assessment passes — so grading work is skipped.
+	if ds != nil && ds.Contains(dedupKey) {
+		return nil
+	}
+
+	event, ok := GradeMatch(mt, ev)
+	if !ok {
+		return nil
+	}
+	event.ModuleID = ModuleID
+
+	// Commit atomically, and only now that the match survived GradeMatch's
+	// body-dependent guards: a value dropped as a blob/JS-escape artifact in one
+	// body may be a genuine leak in another, so an early mark could suppress the
+	// real one. IsSeen marks-and-reports in one locked step, so if a concurrent
+	// worker committed this identity between the Contains check and here, the
+	// second caller collapses to nil — no duplicate emission.
+	if ds != nil && ds.IsSeen(dedupKey) {
+		return nil
+	}
+
+	return event
 }
 
-// getScanner returns the lazily-initialized Kingfisher scanner.
-func (m *Module) getScanner() (*kingfisher.Scanner, error) {
-	m.scannerOnce.Do(func() {
-		m.scanner, m.scannerErr = kingfisher.NewScanner(nil)
-		if m.scannerErr == nil {
-			m.scannerErr = m.scanner.EnsureBinary(context.Background())
-		}
-	})
-	return m.scanner, m.scannerErr
+// MatchLine returns the 1-indexed line number of the byte at offset, used as a
+// fallback anchor when the snippet can't be located verbatim in the body. Shared
+// by the passive module and the known-issue-scan secret pass.
+func MatchLine(body []byte, offset int) int {
+	if offset < 0 || offset > len(body) {
+		return 1
+	}
+	return 1 + bytes.Count(body[:offset], []byte("\n"))
 }
 
-// isTextBasedMIME checks if the MIME type indicates text-based content.
-func isTextBasedMIME(mimeType string) bool { return IsTextBasedMIME(mimeType) }
-
-// IsTextBasedMIME checks if the MIME type indicates text-based content.
-func IsTextBasedMIME(mimeType string) bool {
-	if mimeType == "" {
-		return true
-	}
-	mt := strings.ToLower(mimeType)
-	if strings.HasPrefix(mt, "text/") {
-		return true
-	}
-	textTypes := []string{
-		"/json",
-		"/javascript",
-		"/x-javascript",
-		"/xml",
-		"/x-yaml",
-		"/yaml",
-	}
-	for _, t := range textTypes {
-		if strings.Contains(mt, t) {
-			return true
-		}
-	}
-	return strings.HasSuffix(mt, "+json") || strings.HasSuffix(mt, "+xml")
+// getDetector returns the process-wide native secret detector, built once.
+func (m *Module) getDetector() (*secretscan.Detector, error) {
+	m.detectorOnce.Do(func() {
+		m.detector, m.detectorErr = secretscan.Default()
+	})
+	return m.detector, m.detectorErr
 }

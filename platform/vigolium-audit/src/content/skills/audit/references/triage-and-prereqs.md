@@ -9,9 +9,9 @@ Out of scope: deep-analysis methodology and report output templates.
 2. HIGH
 3. MEDIUM (secondary pass only)
 
-Low severity findings are eliminated from the audit pipeline entirely. Drop them at whichever phase
-first determines their severity (Phase 5, 7, or 8). Never carry a Low finding to Phase 12 or
-Phase 15. The final audit report covers Medium, High, and Critical findings only.
+Low severity findings are eliminated from the audit pipeline entirely. Drop them as soon as a
+scanner-enrichment, chamber, or FP-check step determines their severity. Never carry a Low finding
+to variant analysis or finalization. The final audit report covers Medium, High, and Critical findings only.
 
 If no path to material impact exists, do not report.
 
@@ -66,7 +66,7 @@ The report decision should follow project context, not a fixed AV requirement.
 
 ## Bug Bounty Scope Gate
 
-Before advancing a finding to Phase 12 or Phase 15, confirm all five:
+Before advancing a finding to variant analysis, PoC construction, or final reporting, confirm all five:
 
 - [ ] Target (domain, binary, repo, service) is explicitly listed in-scope for the program
 - [ ] Bug class is not in the program's exclusion list (e.g., "rate limiting not accepted", "self-XSS out of scope")

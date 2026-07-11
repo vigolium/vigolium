@@ -141,20 +141,22 @@ export async function summarizeFindings(
     }
   }
 
-  // Draft findings are historically flat markdown files. Keep counting them
-  // separately so in-progress audits still surface candidate volume, but do
-  // not recurse and double-count directory-shaped finalized findings.
-  const draftsDir = join(resultsDir, "findings-draft");
-  try {
-    for (const entry of await readdir(draftsDir, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
-      total++;
-      const body = await readFile(join(draftsDir, entry.name), "utf8").catch(() => "");
-      const sev = parseSeverity(body) ?? "Unknown";
-      bySeverity[sev] = (bySeverity[sev] ?? 0) + 1;
+  // Drafts and finalized directories usually represent the same findings.
+  // Prefer finalized buckets once they exist; count flat drafts only while no
+  // finding has been materialized, avoiding double-counted completion totals.
+  if (total === 0) {
+    const draftsDir = join(resultsDir, "findings-draft");
+    try {
+      for (const entry of await readdir(draftsDir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
+        total++;
+        const body = await readFile(join(draftsDir, entry.name), "utf8").catch(() => "");
+        const sev = parseSeverity(body) ?? "Unknown";
+        bySeverity[sev] = (bySeverity[sev] ?? 0) + 1;
+      }
+    } catch {
+      /* no drafts */
     }
-  } catch {
-    /* no drafts */
   }
   return { total, bySeverity: sortSeverity(bySeverity) };
 }

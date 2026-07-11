@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Nuxt.js app leaks sensitive data or insecure config into the page. This passive check flags secrets in the embedded __NUXT__ / __NUXT_DATA__ state (API keys, tokens, admin/role flags, internal IPs, database strings, AWS keys), risky config (devtools, client-exposed runtimeConfig secrets, source maps, debug mode).
+	ModuleDesc = `**What it means:** Nuxt client state or source contains security-relevant values and configuration. Routine role data, public identifiers, internal addresses, config flags, and source-map references are observations. Substantive private credentials in state are candidates.
 
 **How it's exploited:** Anyone who loads the page reads the disclosed values. Leaked keys, tokens, or database URLs are reused against backends; internal IPs map the network; source maps reconstruct the original source.
 
 **Fix:** Keep secrets in server-only runtimeConfig, never in public state; disable devtools, debug, and production source maps.`
 
-	ModuleConfirmation = "Confirmed when insecure configuration patterns or sensitive data are found in Nuxt state or config"
+	ModuleConfirmation = "Candidate for substantive private credentials in Nuxt state; config strings and source-map references remain observations until runtime access or sensitive content is verified"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"nuxt", "javascript", "misconfiguration", "light"}

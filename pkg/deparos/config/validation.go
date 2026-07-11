@@ -41,14 +41,14 @@ func (c *Config) Validate() error {
 	if err := c.Engine.Validate(); err != nil {
 		return fmt.Errorf("engine config: %w", err)
 	}
-	if err := c.JSScan.Validate(); err != nil {
-		return fmt.Errorf("jsscan config: %w", err)
+	if err := c.JSTangle.Validate(); err != nil {
+		return fmt.Errorf("jstangle config: %w", err)
 	}
 
 	return nil
 }
 
-func (c *JSScanConfig) Validate() error {
+func (c *JSTangleConfig) Validate() error {
 	if !c.Enabled {
 		return nil
 	}
@@ -56,6 +56,11 @@ func (c *JSScanConfig) Validate() error {
 	case "", "exact", "conservative", "off":
 	default:
 		return fmt.Errorf("replay_mode must be exact, conservative, or off")
+	}
+	switch c.ReplaySafety {
+	case "", "metadata-only", "read-only", "safe-baseline", "state-changing":
+	default:
+		return fmt.Errorf("replay_safety must be metadata-only, read-only, safe-baseline, or state-changing")
 	}
 	if c.WorkerCount < 0 || c.WorkerCount > 16 || c.MemoryBudgetMB < 128 || c.CacheMB < 0 {
 		return fmt.Errorf("invalid worker_count/memory_budget_mb/cache_mb")

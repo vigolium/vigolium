@@ -18,7 +18,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
-var jwtBodyRegex = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
+var jwtBodyRegex = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*`)
 
 const maxTokensPerResponse = 5
 const longLivedSeconds = 86400 // 24 hours
@@ -61,7 +61,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup on host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	hash := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(hash) {
 		return nil, nil
@@ -87,8 +90,8 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	// Severity tracks the WORST issue found rather than a flat module default:
-	// alg=none is genuinely dangerous (forgeable token), but the common findings —
+	// Severity tracks the WORST issue found rather than a flat module default.
+	// alg=none is a strong candidate only after server acceptance is tested; the common observations —
 	// a long exp, a missing iss/aud, or a privileged claim on an otherwise
 	// well-signed token — are hygiene/best-practice observations, not exploitable
 	// on their own. Reporting those at Medium over-severed one finding per
@@ -98,20 +101,41 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if maxSev >= severity.High {
 		conf = severity.Firm
 	}
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	description := fmt.Sprintf("Found %d JWT claim/configuration observation(s). Server-side validation, revocation, and authorization behavior were not tested.", len(allIssues))
+	if maxSev >= severity.High {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeCandidate
+		description = fmt.Sprintf("Found %d JWT issue(s), including an unsecured-algorithm candidate. The scanner did not submit a forged token, so server acceptance and authorization impact remain unconfirmed.", len(allIssues))
+	}
+	response := ""
+	if ctx.Response() != nil {
+		response = string(ctx.Response().Raw())
+	}
 
 	return []*output.ResultEvent{
 		{
 			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
 			Request:          string(ctx.Request().Raw()),
+			Response:         response,
 			ExtractedResults: allIssues,
 			Info: output.Info{
 				Name:        "JWT Claim Security Issues",
-				Description: fmt.Sprintf("Found %d JWT claim issue(s)", len(allIssues)),
+				Description: description,
 				Severity:    maxSev,
 				Confidence:  conf,
+			},
+			Metadata: map[string]any{
+				"token_count":              len(tokens),
+				"forged_token_submitted":   false,
+				"server_acceptance_tested": false,
+				"authorization_tested":     false,
 			},
 		},
 	}, nil
@@ -135,9 +159,9 @@ func (m *Module) findTokens(ctx *httpmsg.HttpRequestResponse) []string {
 
 	// Check request Authorization header
 	if ctx.Request() != nil {
-		auth := ctx.Request().Header("Authorization")
-		if token, ok := strings.CutPrefix(auth, "Bearer "); ok {
-			add(token)
+		auth := strings.TrimSpace(ctx.Request().Header("Authorization"))
+		if fields := strings.Fields(auth); len(fields) == 2 && strings.EqualFold(fields[0], "Bearer") {
+			add(fields[1])
 		}
 
 		// Check cookies
@@ -194,7 +218,6 @@ func analyzeToken(token string) ([]string, severity.Severity) {
 		return nil, severity.Undefined
 	}
 
-	tokenStr := token
 	var issues []string
 	maxSev := severity.Undefined
 	// add records an issue and raises the running max severity. Hygiene / best-
@@ -209,14 +232,14 @@ func analyzeToken(token string) ([]string, severity.Severity) {
 	// Check alg:none
 	if alg, ok := header["alg"]; ok {
 		if algStr, ok := alg.(string); ok && strings.EqualFold(algStr, "none") {
-			add(severity.High, "CRITICAL: alg=none (no signature verification) [%s]", tokenStr)
+			add(severity.High, "Candidate: JWT header declares alg=none; server acceptance was not tested")
 		}
 	}
 
 	// Check missing exp
 	exp, hasExp := payload["exp"]
 	if !hasExp {
-		add(severity.Low, "Missing 'exp' claim (token never expires) [%s]", tokenStr)
+		add(severity.Low, "Observation: Missing 'exp' claim; server-side lifetime and revocation were not assessed")
 	}
 
 	// Check long-lived token
@@ -228,10 +251,10 @@ func analyzeToken(token string) ([]string, severity.Severity) {
 			if hasIat {
 				iatFloat, iatOk := toFloat64(iat)
 				if iatOk && (expFloat-iatFloat) > longLivedSeconds {
-					add(severity.Low, "Long-lived token: exp-iat=%.0fs (>24h) [%s]", expFloat-iatFloat, tokenStr)
+					add(severity.Low, "Observation: Long-lived token declaration, exp-iat=%.0fs (>24h)", expFloat-iatFloat)
 				}
 			} else if (expFloat - now) > longLivedSeconds {
-				add(severity.Low, "Long-lived token: exp-now=%.0fs (>24h) [%s]", expFloat-now, tokenStr)
+				add(severity.Low, "Observation: Long-lived token declaration, more than 24h remains until exp (%.0fs)", expFloat-now)
 			}
 		}
 	}
@@ -239,29 +262,29 @@ func analyzeToken(token string) ([]string, severity.Severity) {
 	// Check privileged claims
 	if admin, ok := payload["admin"]; ok {
 		if b, ok := admin.(bool); ok && b {
-			add(severity.Low, "Privileged claim: admin=true [%s]", tokenStr)
+			add(severity.Low, "Observation: privileged claim admin=true; claim enforcement was not tested")
 		}
 	}
 	if isAdmin, ok := payload["is_admin"]; ok {
 		if b, ok := isAdmin.(bool); ok && b {
-			add(severity.Low, "Privileged claim: is_admin=true [%s]", tokenStr)
+			add(severity.Low, "Observation: privileged claim is_admin=true; claim enforcement was not tested")
 		}
 	}
 	if role, ok := payload["role"]; ok {
 		if roleStr, ok := role.(string); ok {
 			lower := strings.ToLower(roleStr)
 			if strings.Contains(lower, "admin") || strings.Contains(lower, "superuser") {
-				add(severity.Low, "Privileged claim: role=%s [%s]", roleStr, tokenStr)
+				add(severity.Low, "Observation: privileged claim role=%s; claim enforcement was not tested", roleStr)
 			}
 		}
 	}
 
 	// Check missing iss/aud
 	if _, ok := payload["iss"]; !ok {
-		add(severity.Low, "Missing 'iss' claim [%s]", tokenStr)
+		add(severity.Low, "Observation: missing 'iss' claim; single-issuer server policy may still be safe")
 	}
 	if _, ok := payload["aud"]; !ok {
-		add(severity.Low, "Missing 'aud' claim [%s]", tokenStr)
+		add(severity.Low, "Observation: missing 'aud' claim; audience enforcement was not tested")
 	}
 
 	return issues, maxSev

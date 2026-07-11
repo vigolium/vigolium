@@ -9,6 +9,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -32,15 +33,11 @@ func buildCtx(t *testing.T, path, reqHeaders string, respHeaders []string) *http
 
 // scan runs the module once and returns the number of findings. A fresh module
 // is used so the disk-set dedup never interferes (ScanContext{} has no manager).
-func scan(t *testing.T, path, reqHeaders string, respHeaders []string) []interface{} {
+func scan(t *testing.T, path, reqHeaders string, respHeaders []string) []*output.ResultEvent {
 	t.Helper()
 	res, err := New().ScanPerRequest(buildCtx(t, path, reqHeaders, respHeaders), &modkit.ScanContext{})
 	require.NoError(t, err)
-	out := make([]interface{}, len(res))
-	for i := range res {
-		out[i] = res[i]
-	}
-	return out
+	return res
 }
 
 func TestNew(t *testing.T) {
@@ -61,8 +58,11 @@ func TestScanPerRequest_SensitiveCookieCachedNoVary_Flags(t *testing.T) {
 		"Set-Cookie: session=abc123; HttpOnly; Secure",
 		"CF-Cache-Status: HIT",
 	}
-	assert.Len(t, scan(t, "/account/profile", "", resp), 1,
+	res := scan(t, "/account/profile", "", resp)
+	assert.Len(t, res, 1,
 		"sensitive cookie + shared cache + cacheable + no Vary must flag")
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.False(t, res[0].Metadata["cross_user_replay"].(bool))
 }
 
 // Authorization-keyed cacheable response through a shared cache, no Vary:Authorization.
@@ -71,8 +71,33 @@ func TestScanPerRequest_AuthHeaderCachedNoVary_Flags(t *testing.T) {
 		"Cache-Control: s-maxage=300",
 		"Age: 12",
 	}
-	assert.Len(t, scan(t, "/api/me", "Authorization: Bearer eyJ\r\n", resp), 1,
+	assert.Len(t, scan(t, "/api/me", "Authorization: Bearer eyJabcdefghijk\r\n", resp), 1,
 		"Authorization + shared cache + cacheable + no Vary:Authorization must flag")
+}
+
+func TestScanPerRequest_CacheMissIsNotReplayEvidence(t *testing.T) {
+	resp := []string{
+		"Cache-Control: public, max-age=60",
+		"Set-Cookie: session=abc123; HttpOnly; Secure",
+		"CF-Cache-Status: MISS",
+	}
+	assert.Empty(t, scan(t, "/account/profile", "", resp))
+}
+
+func TestScanPerRequest_DeletedCookieIsNotLiveSessionEvidence(t *testing.T) {
+	resp := []string{
+		"Cache-Control: public, max-age=60",
+		"Set-Cookie: session=; Max-Age=0; Path=/",
+		"CF-Cache-Status: HIT",
+	}
+	assert.Empty(t, scan(t, "/logout", "", resp))
+}
+
+func TestScanPerRequest_SensitiveRequestCookieIsCandidate(t *testing.T) {
+	resp := []string{"Cache-Control: public, max-age=60", "Age: 4"}
+	res := scan(t, "/account", "Cookie: session=abc123def456\r\n", resp)
+	require.Len(t, res, 1)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
 }
 
 // --- Negative: static-asset path by segment (the reported FP) ---------------

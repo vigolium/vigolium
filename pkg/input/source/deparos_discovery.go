@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -38,6 +39,24 @@ type analysisArtifactSaver interface {
 		httpRecordUUID, kind, filename, mediaType, sha256 string,
 		content []byte,
 		metadata string,
+	) error
+}
+
+// spideredJSProvider is an optional capability of the record repository: it walks
+// JavaScript responses earlier phases (spidering, proxy/Burp ingestion) already
+// captured for a host, handing each to a callback as (url, content-type, decoded
+// body). Discovery uses it to feed browser-collected bundles through the same
+// JSTangle+linkfinder extraction the crawl runs on JS it fetches itself — those
+// bundles live in the main DB, not the ephemeral discovery sitemap, so without
+// this bridge their endpoints are never analyzed in the native pipeline. The
+// signature is intentionally primitive-typed so pkg/database satisfies it
+// structurally without either package importing the other.
+type spideredJSProvider interface {
+	WalkJavaScriptRecords(
+		ctx context.Context,
+		projectUUID, hostname string,
+		limit int,
+		fn func(recordURL, contentType string, body []byte) error,
 	) error
 }
 
@@ -86,7 +105,7 @@ type DeparosDiscoveryConfig struct {
 	ProbeFilenames        []string
 
 	// JSBundleSweep enables the SPA-gated JS-bundle name sweep (main.js,
-	// admin.js, config.js, …) on monolith apps; hits are fed to jsscan.
+	// admin.js, config.js, …) on monolith apps; hits are fed to jstangle.
 	// JSBundleNames overrides the curated name list (empty = built-in).
 	JSBundleSweep bool
 	JSBundleNames []string
@@ -106,8 +125,7 @@ type DeparosDiscoveryConfig struct {
 	MaxConsecutiveErrors    int
 	MaxConsecutiveWAFBlocks int
 	ObservedMaxItems        int
-	DisableKingfisher       bool
-	JSScan                  *deparosconfig.JSScanConfig
+	JSTangle                *deparosconfig.JSTangleConfig
 
 	// Per-prefix circuit breaker (zero values = use deparos defaults).
 	PrefixBreakerEnabled        *bool   // nil = default (true)
@@ -153,7 +171,70 @@ const (
 	// are real, documented endpoints — not fuzzed guesses — and every one must
 	// survive (often as a uniform 401) to be scanned by dynamic assessment.
 	specRecordSource = "api-spec"
+
+	// jstangleRecordSource labels http_records recovered from the application's
+	// own JavaScript by JSTangle (fetch/XHR/axios calls and GraphQL operations the
+	// app actually makes). Like specRecordSource it is kept DISTINCT from
+	// crawlRecordSource so the fuzz-oriented deparos dedup/status/cluster-cap
+	// passes don't drop or collapse them: these are high-precision,
+	// application-referenced requests — often non-GET with a real body — not
+	// speculative wordlist guesses. An authenticated API commonly answers 401/403
+	// without a session and placeholder substitution can make a genuine route 404,
+	// exactly the responses the deparos passes prune.
+	jstangleRecordSource = "jstangle"
+
+	// formRecordSource labels http_records produced by submitting an HTML form
+	// discovered during the crawl. Same rationale as jstangleRecordSource: these
+	// are method/body-bearing, application-referenced requests, so they are kept
+	// out of the fuzz-noise cleanup.
+	formRecordSource = "html-form"
 )
+
+// classifyDiscoverySource maps a node's discovery provenance (FoundBy) to the
+// http_records source label it should be persisted under. Code-referenced,
+// method/body-bearing classes get their own label so the source='deparos'
+// dedup/status/cluster-cap passes (which exist to tame catch-all/SPA fuzz
+// floods) leave them intact. Everything else — spider links, wordlist/fuzz
+// guesses, observed tokens, asset/manifest walks — keeps the crawlRecordSource
+// label and remains subject to those passes; spider-referenced links in
+// particular are the very catch-all surface the flood control targets, so they
+// are deliberately NOT exempted here.
+func classifyDiscoverySource(foundBy string) string {
+	switch foundBy {
+	case "js-extracted":
+		return jstangleRecordSource
+	case "form":
+		return formRecordSource
+	default:
+		return crawlRecordSource
+	}
+}
+
+// groupCollectedBySource buckets records by their source label, preserving the
+// order in which each label is first seen (so the fuzz class, appended first,
+// leads and per-run output is deterministic). It returns that first-seen label
+// order, the per-label record slices, and a flat all-source list used for spec
+// extraction and source-map artifact mapping.
+func groupCollectedBySource(records []collectedRecord) (order []string, bySource map[string][]*httpmsg.HttpRequestResponse, flat []*httpmsg.HttpRequestResponse) {
+	bySource = make(map[string][]*httpmsg.HttpRequestResponse, 3)
+	order = make([]string, 0, 3)
+	flat = make([]*httpmsg.HttpRequestResponse, 0, len(records))
+	for _, rec := range records {
+		if rec.rr == nil {
+			continue
+		}
+		label := rec.source
+		if label == "" {
+			label = crawlRecordSource
+		}
+		if _, seen := bySource[label]; !seen {
+			order = append(order, label)
+		}
+		bySource[label] = append(bySource[label], rec.rr)
+		flat = append(flat, rec.rr)
+	}
+	return order, bySource, flat
+}
 
 // resolveClusterCap resolves the effective near-identical response cap.
 // 0 => default (defaultDedupClusterCap); negative => disabled (returns 0);
@@ -210,6 +291,14 @@ type collectedRecord struct {
 	rr     *httpmsg.HttpRequestResponse
 	path   string
 	host   string
+	method string
+	// source is the http_records source label this record is persisted under,
+	// derived from the node's discovery provenance (see classifyDiscoverySource).
+	// crawlRecordSource ("deparos") records are the fuzz/crawl class subject to
+	// the post-discovery flood-control passes; a distinct label (jstangle,
+	// html-form) marks a code-referenced record that bypasses hard-dedup, the
+	// cluster cap, and the DB-side deparos passes.
+	source string
 	status int
 	ctype  string
 	size   int64
@@ -220,6 +309,7 @@ type collectedRecord struct {
 // responses during greedy clustering.
 type respCluster struct {
 	host    string
+	method  string
 	status  int
 	ctype   string
 	repSize int64
@@ -265,7 +355,7 @@ func capNearIdenticalClusters(records []collectedRecord, capN int) ([]collectedR
 
 		var match *respCluster
 		for _, cl := range clusters {
-			if cl.status != rec.status || cl.host != rec.host || cl.ctype != rec.ctype {
+			if cl.status != rec.status || cl.host != rec.host || cl.method != rec.method || cl.ctype != rec.ctype {
 				continue
 			}
 			if withinDedupTolerance(cl.repSize, rec.size) && withinDedupTolerance(cl.repWord, rec.words) {
@@ -277,6 +367,7 @@ func capNearIdenticalClusters(records []collectedRecord, capN int) ([]collectedR
 		if match == nil {
 			clusters = append(clusters, &respCluster{
 				host:    rec.host,
+				method:  rec.method,
 				status:  rec.status,
 				ctype:   rec.ctype,
 				repSize: rec.size,
@@ -571,9 +662,17 @@ func (d *DeparosDiscoverySource) buildDeparosConfig(target string) *deparosconfi
 	if d.cfg.ObservedMaxItems > 0 {
 		cfg.Engine.ObservedMaxItems = d.cfg.ObservedMaxItems
 	}
-	cfg.Engine.DisableKingfisher = d.cfg.DisableKingfisher
-	if d.cfg.JSScan != nil {
-		cfg.JSScan = *d.cfg.JSScan
+	// Always disable the crawl's inline secret scan on the integrated path. The
+	// records this adapter collects are persisted and then scanned for secrets by
+	// the main pipeline — the secret_detect passive module (dynamic-assessment) and
+	// the known-issue-scan batch — so an in-crawl scan is pure double work whose
+	// matches are, in any case, never promoted out of the ephemeral sitemap into
+	// the findings DB (StreamAllResults below does not read node.SecretFindings()).
+	// To surface discovery-native secrets instead, re-enable this and promote
+	// node.SecretFindings() in the StreamAllResults loop.
+	cfg.Engine.DisableSecretScan = true
+	if d.cfg.JSTangle != nil {
+		cfg.JSTangle = *d.cfg.JSTangle
 	}
 
 	// Prefix breaker overrides — zero/nil values keep deparos defaults.
@@ -647,6 +746,11 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	ctx, cancel := context.WithTimeout(parentCtx, d.cfg.MaxDuration)
 	defer cancel()
 
+	// Bridge browser-spidered JS into the discovery sitemap before the engine
+	// starts, so its init-time JSTangle pass analyzes bundles the crawl itself
+	// never fetches (SPA bundles the browser revealed).
+	d.seedSpideredJS(ctx, siteMap, target)
+
 	engine, err := discovery.NewEngineWithContext(ctx, cfg, siteMap)
 	if err != nil {
 		return fmt.Errorf("create engine: %w", err)
@@ -672,7 +776,7 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	}
 
 	_ = engine.WaitForQueues(ctx)
-	engine.FlushKingfisher()
+	engine.FlushSecretFindings()
 	engine.Stop()
 
 	// Collect all results into memory for in-memory hard dedup
@@ -693,15 +797,38 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 			return nil
 		}
 
-		rr, err := httpmsg.GetRawRequestFromURL(nodeURL.String())
+		// Preserve the discovered method/headers/body. Deparos storage persists
+		// these (req_method/req_headers/req_body) for form POSTs and JS-derived
+		// API calls; importing them as a bodyless GET would silently drop that
+		// API/form coverage from dynamic assessment.
+		method := "GET"
+		var reqHeaders map[string]string
+		var reqBody []byte
+		if req := node.Request(); req != nil {
+			if req.Method != "" {
+				method = strings.ToUpper(req.Method)
+			}
+			reqHeaders = req.Headers
+			reqBody = req.Body
+		}
+
+		rr, err := httpmsg.GetRawRequestFromURLWithMethod(nodeURL.String(), method, reqHeaders, reqBody)
 		if err != nil {
 			return nil // skip URLs we can't parse
 		}
 
+		// Classify provenance: code-referenced classes (JSTangle/form) carry a
+		// distinct source label and bypass the fuzz-noise cleanup entirely.
+		recSource := crawlRecordSource
+		if meta := node.Metadata(); meta != nil {
+			recSource = classifyDiscoverySource(meta.FoundBy)
+		}
+		referenced := recSource != crawlRecordSource
+
 		resp := node.Response()
 		hasResp := resp != nil && resp.StatusCode > 0
 
-		rec := collectedRecord{rr: rr, path: nodeURL.Path, host: nodeURL.Hostname()}
+		rec := collectedRecord{rr: rr, path: nodeURL.Path, host: nodeURL.Hostname(), method: method, source: recSource}
 
 		// Attach response data if available
 		if hasResp {
@@ -723,8 +850,12 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 			localStats.AllCodes[statusCodeBucket(resp.StatusCode)]++
 		}
 
-		// Skip dedup for records without response (no body to hash)
-		if !hasResp {
+		// Skip the fuzz-noise hard dedup for records without a response (no body to
+		// hash) and for code-referenced records (JSTangle/form): the latter are
+		// high-precision application endpoints that must all survive, even when two
+		// distinct routes happen to return byte-identical bodies (e.g. two APIs
+		// both answering `{}`).
+		if !hasResp || referenced {
 			allRecords = append(allRecords, rec)
 			return nil
 		}
@@ -737,7 +868,7 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 		h := sha256.Sum256(resp.Body)
 		key := hardDedupKey{
 			hostname: rec.host,
-			method:   "GET",
+			method:   rec.method,
 			status:   resp.StatusCode,
 			length:   rec.size,
 			respHash: hex.EncodeToString(h[:]),
@@ -767,14 +898,21 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 		return err
 	}
 
-	// Compact: drop exact-dedup tombstones.
-	compacted := make([]collectedRecord, 0, len(allRecords))
+	// Drop exact-dedup tombstones and partition survivors by class in one pass:
+	// only the fuzz/crawl class (crawlRecordSource) is subject to the flood-control
+	// cap below — code-referenced records (JSTangle/form) must all survive.
+	var fuzz, referenced []collectedRecord
 	for _, rec := range allRecords {
-		if rec.rr != nil {
-			compacted = append(compacted, rec)
+		switch {
+		case rec.rr == nil: // tombstone
+			continue
+		case rec.source == crawlRecordSource:
+			fuzz = append(fuzz, rec)
+		default:
+			referenced = append(referenced, rec)
 		}
 	}
-	localStats.HardDedupRemoved = localStats.TotalDiscovered - len(compacted)
+	localStats.HardDedupRemoved = localStats.TotalDiscovered - (len(fuzz) + len(referenced))
 
 	// Near-identical cluster cap: backstop for catch-all/SPA targets that the
 	// exact hash and the engine's soft-404 detection can't collapse because each
@@ -785,17 +923,20 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	if clusterCap > 0 {
 		var capped int
 		var cappedCodes [5]int
-		compacted, capped, cappedCodes = capNearIdenticalClusters(compacted, clusterCap)
+		fuzz, capped, cappedCodes = capNearIdenticalClusters(fuzz, clusterCap)
 		localStats.FuzzyCappedRemoved = capped
 		localStats.CappedCodes = cappedCodes
 	}
 
-	// Crawled discovery records keep the crawlRecordSource ("deparos") label so
-	// the post-discovery dedup/status passes apply to them.
-	crawled := make([]*httpmsg.HttpRequestResponse, 0, len(compacted))
-	for _, rec := range compacted {
-		crawled = append(crawled, rec.rr)
-	}
+	// Regroup the survivors by source label. The fuzz class keeps the
+	// crawlRecordSource ("deparos") label so the post-discovery dedup/status
+	// passes apply to it; code-referenced classes carry their own label and are
+	// left alone (see classifyDiscoverySource). `crawled` is the flat, all-source
+	// list used for spec extraction and source-map artifact mapping.
+	kept := make([]collectedRecord, 0, len(fuzz)+len(referenced))
+	kept = append(kept, fuzz...)
+	kept = append(kept, referenced...)
+	sourceOrder, bySource, crawled := groupCollectedBySource(kept)
 
 	// Parse API specs (OpenAPI/Swagger/Postman) found among the crawled responses
 	// and queue their documented endpoints. They are persisted separately under
@@ -809,6 +950,15 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 			len(specEndpoints), target))
 	}
 
+	if len(referenced) > 0 {
+		terminal.Notice("jstangle", fmt.Sprintf(
+			"Preserved %d application-referenced (JS/form) requests from discovery of "+
+				"%s under provenance-specific labels — exempt from the fuzz-noise "+
+				"dedup/status cleanup so their real methods, bodies and 401/403/404 "+
+				"baselines reach dynamic assessment intact",
+			len(referenced), target))
+	}
+
 	localStats.Imported = len(crawled) + len(specEndpoints)
 	if localStats.Imported > 0 {
 		zap.L().Info("Deparos discovery results imported to DB",
@@ -817,6 +967,7 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 			zap.Int("hard_dedup_removed", localStats.HardDedupRemoved),
 			zap.Int("fuzzy_capped_removed", localStats.FuzzyCappedRemoved),
 			zap.Int("cluster_cap", localStats.ClusterCap),
+			zap.Int("referenced_preserved", len(referenced)),
 			zap.Int("imported", localStats.Imported))
 	}
 
@@ -834,14 +985,26 @@ func (d *DeparosDiscoverySource) discoverTarget(parentCtx context.Context, targe
 	}
 	d.mu.Unlock()
 
-	// Persist + emit each record set under its own source label. Spec endpoints
-	// go out as request-only stubs (no response); the executor fetches a baseline
-	// for each and backfills the stored record so the route isn't left empty.
-	crawledUUIDs, err := d.saveAndEmitWithUUIDs(ctx, crawled, crawlRecordSource)
-	if err != nil {
-		return err
+	// Persist + emit each provenance group under its own source label, then the
+	// spec endpoints. Spec endpoints go out as request-only stubs (no response);
+	// the executor fetches a baseline for each and backfills the stored record so
+	// the route isn't left empty. recordUUIDByURL maps every saved record's target
+	// URL to its persisted UUID across all groups, so source-map artifacts can be
+	// mapped back regardless of which label carried the asset.
+	recordUUIDByURL := make(map[string]string)
+	for _, label := range sourceOrder {
+		records := bySource[label]
+		uuids, err := d.saveAndEmitWithUUIDs(ctx, records, label)
+		if err != nil {
+			return err
+		}
+		for i, rec := range records {
+			if rec != nil && i < len(uuids) && uuids[i] != "" {
+				recordUUIDByURL[rec.Target()] = uuids[i]
+			}
+		}
 	}
-	d.persistJSScanSourceArtifacts(ctx, siteMap, crawled, crawledUUIDs)
+	d.persistJSTangleSourceArtifacts(ctx, siteMap, recordUUIDByURL)
 	if err := d.saveAndEmit(ctx, specEndpoints, specRecordSource); err != nil {
 		return err
 	}
@@ -893,24 +1056,90 @@ func (d *DeparosDiscoverySource) saveAndEmitWithUUIDs(ctx context.Context, recor
 	return uuids, nil
 }
 
-func (d *DeparosDiscoverySource) persistJSScanSourceArtifacts(
+// maxSeededSpideredJS bounds how many browser-spidered JavaScript files are
+// seeded into the discovery sitemap per host. Real apps ship well under this; the
+// cap keeps the one-shot seed (each body is loaded into memory and, when small
+// enough, jstangle-parsed) bounded on pathological targets.
+const maxSeededSpideredJS = 300
+
+// seedSpideredJS loads JavaScript already captured for this target's host by
+// earlier phases (spidering, proxy/Burp ingestion) from the main DB and stores it
+// into the ephemeral discovery sitemap BEFORE the engine starts. The engine's
+// initSession then runs extractRoutesFromStoredJS over these bodies — the same
+// JSTangle+linkfinder extraction it applies to JS it fetches itself — so SPA
+// bundles the browser revealed (but the initial HTML/crawl never links) still
+// have their fetch/XHR endpoints recovered and queued for replay. Without this the
+// bridge is inert in the native pipeline: the sitemap is created empty and the
+// browser's JS lives only in the main DB. Best-effort — any failure is logged and
+// discovery proceeds; a no-op when the repository can't provide stored JS or when
+// JSTangle is explicitly disabled.
+func (d *DeparosDiscoverySource) seedSpideredJS(ctx context.Context, siteMap *deparosstorage.SiteMap, target string) {
+	if siteMap == nil {
+		return
+	}
+	if d.cfg.JSTangle != nil && !d.cfg.JSTangle.Enabled {
+		return
+	}
+	provider, ok := d.cfg.Repository.(spideredJSProvider)
+	if !ok {
+		return
+	}
+	// Normalized (lowercased, port-stripped) hostname so the scope matches the DB's
+	// normalized `hostname` column that WalkJavaScriptRecords filters on.
+	host := httpmsg.HostnameFromURL(target)
+	if host == "" {
+		return
+	}
+
+	seeded := 0
+	walkErr := provider.WalkJavaScriptRecords(ctx, d.cfg.ProjectUUID, host, maxSeededSpideredJS,
+		func(recordURL, contentType string, body []byte) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			ju, perr := url.Parse(recordURL)
+			if perr != nil || ju.Scheme == "" || ju.Host == "" {
+				return nil // skip unparseable/relative rows
+			}
+			result := deparosstorage.NewResult(ju)
+			result.Request.Method = "GET"
+			result.Response.StatusCode = 200
+			result.Response.Body = body
+			result.Response.MIMEType = contentType
+			result.Metadata.FoundBy = "spider"
+			result.Metadata.Timestamp = time.Now()
+			if serr := siteMap.Store(result); serr != nil {
+				zap.L().Debug("Failed to seed spidered JS into discovery sitemap",
+					zap.String("url", recordURL), zap.Error(serr))
+				return nil
+			}
+			seeded++
+			return nil
+		})
+	if walkErr != nil {
+		zap.L().Debug("Failed to load spidered JS for discovery seeding",
+			zap.String("target", target), zap.Error(walkErr))
+	}
+	if seeded > 0 {
+		terminal.Notice("jstangle", fmt.Sprintf(
+			"Seeded %d browser-spidered JavaScript file(s) for %s into JSTangle analysis — "+
+				"endpoints in bundles the crawl never fetched will be recovered and replayed",
+			seeded, target))
+	}
+}
+
+func (d *DeparosDiscoverySource) persistJSTangleSourceArtifacts(
 	ctx context.Context,
 	siteMap *deparosstorage.SiteMap,
-	records []*httpmsg.HttpRequestResponse,
-	uuids []string,
+	recordUUIDByURL map[string]string,
 ) {
 	saver, ok := d.cfg.Repository.(analysisArtifactSaver)
 	if !ok || siteMap == nil {
 		return
 	}
-	recordUUIDByURL := make(map[string]string, len(records))
-	for i, record := range records {
-		if record == nil || i >= len(uuids) || uuids[i] == "" {
-			continue
-		}
-		recordUUIDByURL[record.Target()] = uuids[i]
-	}
-	artifacts, err := siteMap.Extractions().GetJSScanSourceArtifacts(siteMap.SessionDBID())
+	artifacts, err := siteMap.Extractions().GetJSTangleSourceArtifacts(siteMap.SessionDBID())
 	if err != nil {
 		zap.L().Debug("Failed to load recovered source-map artifacts", zap.Error(err))
 		return

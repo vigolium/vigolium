@@ -211,6 +211,92 @@ func shellFingerprint(u *url.URL, body []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// routeUUIDRe matches a full UUID path segment.
+var routeUUIDRe = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// canonicalRoute reduces a URL to a route TEMPLATE — host + path with id-like
+// segments (numeric, UUID, long hex, long token-with-digit) collapsed to "*",
+// plus the sorted query KEYS (not values). It gives the re-spider frontier a
+// per-route-template dedup key so a family of data pages sharing one template
+// (/product/1, /product/2, /users/{uuid}) contributes a single browser seed
+// instead of N near-identical crawls — complementing shellFingerprint, which only
+// collapses pages that serve the same client-side bundle set.
+func canonicalRoute(u *url.URL) string {
+	host := strings.ToLower(u.Hostname())
+	segs := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for i, s := range segs {
+		if idLikeSegment(s) {
+			segs[i] = "*"
+		} else {
+			segs[i] = strings.ToLower(s)
+		}
+	}
+	route := host + "/" + strings.Join(segs, "/")
+
+	// Query keys distinguish SPA/API routes; the values do not (they are the
+	// volatile per-request part). Sort + dedup the keys for a stable template.
+	if q := u.Query(); len(q) > 0 {
+		keys := make([]string, 0, len(q))
+		for k := range q {
+			keys = append(keys, strings.ToLower(k))
+		}
+		sort.Strings(keys)
+		route += "?" + strings.Join(keys, "&")
+	}
+	return route
+}
+
+// idLikeSegment reports whether a path segment looks like a volatile identifier
+// rather than a stable route label: all-digits, a UUID, a long hex string, or a
+// long token/slug containing a digit. Stable words (products, settings, v1) are
+// kept so genuinely different routes stay distinct.
+func idLikeSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	if isAllDigits(s) {
+		return true
+	}
+	if routeUUIDRe.MatchString(s) {
+		return true
+	}
+	if len(s) >= 16 && isAllHex(s) {
+		return true
+	}
+	if len(s) >= 24 && hasAnyDigit(s) {
+		return true
+	}
+	return false
+}
+
+func isAllDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func isAllHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasAnyDigit(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
 // scoreCandidate ranks kept candidates so the most promising win a tight budget.
 func scoreCandidate(u *url.URL, reason string) int {
 	score := 0

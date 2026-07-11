@@ -31,21 +31,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # jsscan is compiled with bun and embedded via //go:embed
-      # (internal/resources/deparos/jsscan/jsscan-linux-amd64). That file is
+      # jstangle is compiled with bun and embedded via //go:embed
+      # (internal/resources/deparos/jstangle/jstangle-linux-amd64). That file is
       # generated, not committed, so the tree won't build until it exists.
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Build embedded jsscan binaries
-        run: make ensure-jsscan
+      - name: Build embedded jstangle binaries
+        run: make ensure-jstangle
 
-      - name: Verify jsscan contracts and mandatory bundle corpus
+      - name: Verify jstangle contracts and mandatory bundle corpus
         run: |
-          cd platform/jsscan
+          cd platform/jstangle
           bun run test:ci
           cd ../..
-          make verify-jsscan-fresh
+          make verify-jstangle-fresh
 
       - name: Verify generated/managed sources (gofmt + go.mod tidy)
         run: make verify-generated
@@ -90,8 +90,8 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Build embedded jsscan binaries
-        run: make ensure-jsscan
+      - name: Build embedded jstangle binaries
+        run: make ensure-jstangle
 
       - name: Combined coverage report
         run: make coverage-combined
@@ -124,8 +124,8 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Build embedded jsscan binaries
-        run: make ensure-jsscan
+      - name: Build embedded jstangle binaries
+        run: make ensure-jstangle
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -137,7 +137,7 @@ jobs:
     name: SBOM (CycloneDX)
     runs-on: ubuntu-latest
     # Informational supply-chain artifact, not a gate. syft reads go.mod
-    # directly, so this needs neither a build nor the embedded jsscan binaries.
+    # directly, so this needs neither a build nor the embedded jstangle binaries.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6

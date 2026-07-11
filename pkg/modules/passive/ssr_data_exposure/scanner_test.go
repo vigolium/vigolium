@@ -2,6 +2,12 @@ package ssr_data_exposure
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -48,55 +54,32 @@ func TestExtractState(t *testing.T) {
 	}
 }
 
-func TestSensitivePatterns(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  bool
-	}{
-		{
-			name:  "API key",
-			input: `"api_key": "abcdefghijklmnopqrstuvwxyz1234567890"`,
-			want:  true,
-		},
-		{
-			name:  "Admin flag",
-			input: `"isAdmin": true`,
-			want:  true,
-		},
-		{
-			name:  "Email",
-			input: `"email": "user@example.com"`,
-			want:  true,
-		},
-		{
-			name:  "No match",
-			input: `"name": "John"`,
-			want:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			matched := false
-			for _, sp := range sensitivePatterns {
-				if sp.pattern.MatchString(tt.input) {
-					matched = true
-					break
-				}
-			}
-			if matched != tt.want {
-				t.Errorf("pattern match = %v, want %v", matched, tt.want)
-			}
-		})
-	}
+func makeSSRCtx(state string) *httpmsg.HttpRequestResponse {
+	req := httpmsg.NewHttpRequestWithService(
+		httpmsg.NewServiceSecure("example.com", 443, true),
+		[]byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"),
+	)
+	body := `<script id="__NEXT_DATA__" type="application/json">` + state + `</script>`
+	resp := httpmsg.NewHttpResponse([]byte("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n" + body))
+	return httpmsg.NewHttpRequestResponse(req, resp)
 }
 
-func TestIsPlaceholder(t *testing.T) {
-	if !isPlaceholder(`"api_key": "YOUR_API_KEY"`) {
-		t.Error("expected YOUR_API_KEY to be a placeholder")
-	}
-	if isPlaceholder(`"api_key": "sk-abc123def456ghi789"`) {
-		t.Error("expected real key to not be a placeholder")
-	}
+func TestScanPerRequest_PrivateTokenIsCandidate(t *testing.T) {
+	m := New()
+	results, err := m.ScanPerRequest(makeSSRCtx(`{"api_key":"sk_live_01` + `23456789ab` + `cdef"}`), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, results[0].EvidenceGrade)
+	assert.NotContains(t, results[0].ExtractedResults[0], "sk_live_01" + "23456789ab" + "cdef")
+}
+
+func TestScanPerRequest_RoutineClientStateIsObservation(t *testing.T) {
+	m := New()
+	state := `{"isAdmin":true,"email":"user@example.test","aws_key":"AKIAIOSFODNN7EXAMPLE"}`
+	results, err := m.ScanPerRequest(makeSSRCtx(state), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
 }

@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The endpoint serves data as JSONP, wrapping its JSON in a function call whose name comes from a request parameter. A script tag ignores same-origin policy, so any site can read this data. Severity rises to High when sensitive fields appear.
+	ModuleDesc = `**What it means:** The endpoint returns a valid JSON object or array inside a JavaScript callback. Two fresh callback names distinguish dynamic JSONP support from a fixed function call or generic reflection.
 
-**How it's exploited:** An attacker hosts a page that loads this URL in a script tag and defines the callback; a logged-in victim's cookies are sent automatically and the attacker reads the returned data cross-origin (XSSI).
+**How it's exploited:** Public JSONP is often intentional. Sensitive values become a candidate only in a browser-executable response. A finding additionally requires a known cross-site session cookie and repeated credential-free controls that cannot retrieve the same sensitive fields.
 
 **Fix:** Do not serve sensitive data as JSONP; return plain JSON with a controlled CORS policy and reject untrusted callbacks.`
 
-	ModuleConfirmation = "Confirmed when injecting a callback parameter causes the response to be wrapped in the specified function call"
+	ModuleConfirmation = "Requires exact fresh callback wrappers around valid JSON twice; credentialed findings also require executable MIME behavior, a cross-site session cookie, and two anonymous negative controls"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"xss", "info-disclosure", "moderate"}

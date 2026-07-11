@@ -58,11 +58,34 @@ identically.
 | `--max-turns <n>` | `maxTurns` | Hard turn cap. |
 | `--resume <sessionId>` | `resume` | Continue a prior session (see [Chaining](#chaining-triage--exploit)). |
 | `--output json\|text` | `output` | Override the preset's output mode. |
-| `--no-bypass-permissions` | `bypassPermissions: false` | Default is to bypass (required for autonomous tool use). |
+| `--permission <profile>` | `permission` | Least-privilege profile: `read-only` / `workspace-write` / `full-access`. Overrides the task default. |
+| `--network` / `--no-network` | `network` (bool) | Allow/deny network egress. Codex **enforces** it via its OS sandbox; Claude has no per-run egress control and treats it as advisory (the system prompt carries the intent). Profile default otherwise. |
+| — | `timeoutMs` (daemon only) | Per-run wall-clock deadline in ms (covers queue wait + retries). Falls back to the daemon default (`VIGOLIUM_AUDIT_BRIDGE_TIMEOUT_MS`, off by default). |
+| `--no-bypass-permissions` | `bypassPermissions: false` | Explicit override. By default the resolved profile decides — always bypass in a headless run (the sandbox / tool deny-list is the real boundary, not a prompt the agent can't answer). |
 | `--api-key` / `--oauth-token` / `--oauth-cred-file` | — (set once at daemon launch) | Per-run auth; restored on exit. |
 
 At least one of `prompt` / `input` must be non-empty, or the run errors before
 starting.
+
+### Permission profiles (least privilege)
+
+Each task runs under a profile that bounds what it can touch. A profile resolves
+to a Codex OS sandbox (enforced), a Claude tool deny-list + advisory prompt
+(best-effort — a headless run can't answer a permission prompt), and a network
+scope:
+
+| Profile | Codex sandbox | Network | Claude tools | Default for |
+|---|---|---|---|---|
+| `read-only` | `read-only` | off (opt-in) | write family (`Write`/`Edit`/`MultiEdit`/`NotebookEdit`) denied | `plan`, `triage` |
+| `workspace-write` | `workspace-write` | on | unrestricted | `exploit` |
+| `full-access` | `danger-full-access` | on | unrestricted | `run`, and any task without a `permission:` |
+
+`triage` is `read-only` but opts network **on** (`network: true`) so it can
+replay a request to confirm exploitability; it still cannot write the workspace.
+A task or request can override both: `--permission workspace-write --network` to
+loosen, or `--permission read-only --no-network` to tighten. Presets declare
+their profile in frontmatter (`permission:` / `network:`); a task with neither
+falls back to `full-access` for backward compatibility.
 
 ## Event schema
 
@@ -90,7 +113,9 @@ The final object for a run (`BridgeRunResult` in
 
 ```jsonc
 {
-  "ok": true,
+  "ok": true,                 // compatibility summary === transportOk
+  "transportOk": true,        // the adapter run completed (no error / finish.ok)
+  "contractOk": true,         // json output validated? true/false, or null for text
   "action": "triage",
   "platform": "claude",
   "sessionId": "…",           // resumable via `resume`
@@ -98,28 +123,45 @@ The final object for a run (`BridgeRunResult` in
   "usd": 0.42,
   "tokens": { "input": 12000, "output": 900 },
   "durationMs": 38000,
+  "attempts": 1,              // >1 means a transient/quota retry fired
   "output": { "verdict": "false-positive", "confidence": 0.9, "…": "…" },
   "outputRaw": "…",           // the agent's final message, verbatim
   "outputParseError": "…",    // present only when output===json but no JSON was found
   "loadedSkills": ["fp-check", "vigolium-scanner"],
   "missingSkills": [],
-  "error": "…"                // present only when ok===false
+  "error": "…"                // present only when transportOk===false
 }
 ```
 
+- **Three independent outcomes** — don't overload `ok`:
+  - `transportOk` — did the run *execute*? `false` = adapter error / non-ok finish
+    (see `error`). `ok` mirrors this for older callers.
+  - `contractOk` — was the *requested output shape* produced? `true`/`false` for
+    `output:"json"`, `null` for `output:"text"` (not requested). `transportOk:true`
+    + `contractOk:false` = the agent ran fine but its final message wasn't valid
+    JSON (see `outputParseError`).
+  - the **task verdict** lives inside `output` (e.g. `verdict`, `exploited`). A
+    legitimate negative (`"exploited": false`) is `transportOk:true` +
+    `contractOk:true` — distinct from a malformed result.
 - `output` is parsed from the **last fenced ` ```json ` block** in the agent's
   final message (falls back to any fenced block that parses, then the whole
   message). `null` with `outputParseError` set if nothing parsed. Only populated
   when the effective `output` mode is `json`.
 - `outputRaw` is always the verbatim final message — parse it yourself if you
   need something the preset didn't emit as JSON.
+- `attempts` counts adapter tries. A **cold** transient failure (429/5xx/idle
+  timeout that lands *before any output streams*) or a quota limit is retried
+  with backoff; a failure *after* progress is **not** replayed (a half-run
+  exploit/replay must not re-fire). `usd`/`tokens`/`durationMs` are cumulative
+  across attempts. Tune with `VIGOLIUM_AUDIT_TRANSIENT_MAX_RETRIES` /
+  `…_TRANSIENT_BACKOFF_MS` / `…_QUOTA_MAX_RETRIES`.
 
 ## One-shot NDJSON contract (`--json`)
 
 One JSON object per line on stdout:
 
 ```jsonc
-{"kind":"ready","action":"triage","platform":"claude","cwd":"/abs/repo","model":null,"output":"json","skills":["fp-check","vigolium-scanner"],"authSource":"subscription"}
+{"kind":"ready","action":"triage","platform":"claude","cwd":"/abs/repo","model":null,"output":"json","permission":"read-only","skills":["fp-check","vigolium-scanner"],"requestedSkills":["fp-check"],"authSource":"subscription"}
 {"kind":"event","event":{"kind":"session","sessionId":"…","model":"claude-…"}}
 {"kind":"event","event":{"kind":"toolCall","id":"…","tool":"Bash","input":{"command":"vigolium finding --id 42 --json --with-records"}}}
 {"kind":"event","event":{"kind":"toolResult","id":"…","output":"…","isError":false}}
@@ -129,6 +171,11 @@ One JSON object per line on stdout:
 - Line 1 is always `ready` (echoes the resolved plan). Then zero or more
   `event` lines. The last line is `result` (the result object is nested under
   `result`, same as the daemon).
+- `skills` on `ready`/`accepted` is the set that will **actually load** — it
+  includes the always-on `vigolium-scanner`, and is empty on Codex (no plugin
+  mechanism). `requestedSkills` is what the caller asked for; compare the two to
+  detect a platform that dropped skills. The post-run `loadedSkills` /
+  `missingSkills` on the result reflect the real plugin build.
 - **Exit codes:** `0` when `result.ok`, `1` when the agent ran but `ok===false`,
   `2` for a fatal before the run (bad flags, missing binary). A fatal prints a
   single `{"kind":"bridge","ok":false,"error":"…"}` line instead of `result`.
@@ -138,46 +185,68 @@ One JSON object per line on stdout:
 ## Daemon protocol (`bridge serve`)
 
 Newline-delimited JSON in on stdin, out on stdout. Runs are concurrent and
-demultiplexed by the caller-chosen `id`.
+demultiplexed by the caller-chosen `id`. Every request is schema-validated before
+dispatch (see [`bridge-protocol.ts`](../src/cli/bridge-protocol.ts)); a malformed
+one is rejected structurally instead of crashing the daemon.
 
-**Server → on start:**
+**Server → on start** (advertises the protocol version and scheduler limits):
 ```jsonc
-{"kind":"ready-daemon","tasks":["exploit","plan","triage"],"defaultPlatform":"claude","cwd":"/abs/repo"}
+{"kind":"ready-daemon","protocolVersion":1,"tasks":["exploit","plan","triage"],"defaultPlatform":"claude","cwd":"/abs/repo","limits":{"maxConcurrent":4,"maxQueued":64,"defaultTimeoutMs":0}}
 ```
 
 **Client → run** (kick off a task):
 ```jsonc
-{"id":"r1","method":"run","params":{"action":"triage","input":"{…finding…}","cwd":"/abs/repo","model":"sonnet"}}
+{"id":"r1","method":"run","params":{"action":"triage","input":"{…finding…}","cwd":"/abs/repo","model":"sonnet","timeoutMs":120000}}
 ```
 **Server → for that run:**
 ```jsonc
-{"id":"r1","kind":"accepted","action":"triage","platform":"claude","model":"sonnet","output":"json","skills":["fp-check","vigolium-scanner"],"authSource":"subscription"}
-{"id":"r1","kind":"event","event":{ /* adapter event */ }}     // many
-{"id":"r1","kind":"result","result":{ /* BridgeRunResult */ }} // exactly one, terminal
+{"id":"r1","kind":"queued","position":2}                        // only if it had to wait for a slot
+{"id":"r1","kind":"accepted","protocolVersion":1,"action":"triage","platform":"claude","model":"sonnet","output":"json","permission":"read-only","skills":["fp-check","vigolium-scanner"],"requestedSkills":["fp-check"],"authSource":"subscription"}
+{"id":"r1","kind":"event","event":{ /* adapter event */ }}      // many
+{"id":"r1","kind":"result","result":{ /* BridgeRunResult */ }}  // exactly one terminal
 ```
 
 **Control messages:**
 ```jsonc
-{"id":"r1","method":"cancel"}   // → {"id":"r1","kind":"cancelled"}; the run then emits its terminal result (ok:false)
+{"id":"r1","method":"cancel"}    // → exactly one {"id":"r1","kind":"cancelled"} terminal (no separate result)
 {"method":"ping"}                // → {"kind":"pong"}
-{"method":"shutdown"}            // → aborts in-flight runs, {"kind":"bye"}, exit 0
+{"method":"shutdown"}            // → aborts in-flight + queued runs (each gets a cancelled terminal), {"kind":"bye"}, exit 0
 ```
 
-Error lines carry the offending `id` when known:
-`{"id":"r1","kind":"error","error":"duplicate run id: r1"}`. A malformed input
-line yields `{"kind":"error","error":"malformed request (invalid JSON)"}` and is
-otherwise ignored.
+**Terminal / error taxonomy.** A run ends in exactly one of: `result` (ran),
+`cancelled` (cancel / shutdown), or `error` (with a stable `code`). Non-run
+errors (bad request, cancel of an unknown id) also use `error`:
+
+```jsonc
+{"id":"r1","kind":"error","code":"invalid_request","retryable":false,"error":"invalid run request: params.skills: expected array, received string"}
+```
+
+| `code` | Meaning | `retryable` |
+|---|---|---|
+| `invalid_request` | Malformed JSON, unknown method, wrong field type, duplicate id, cancel of an unknown id. | `false` |
+| `queue_full` | `maxConcurrent + maxQueued` reached; run not accepted. | `true` |
+| `deadline_exceeded` | Run passed its `timeoutMs` (or the daemon default). | `true` |
+| `internal_error` | Setup threw (e.g. no binary) or an unexpected failure. | `false` |
+
+Scheduler limits come from env: `VIGOLIUM_AUDIT_BRIDGE_MAX_CONCURRENT` (4),
+`…_MAX_QUEUED` (64), `…_TIMEOUT_MS` (0 = no default deadline; per-run `timeoutMs`
+still applies).
 
 Rules to implement against:
-- Every `run` gets exactly one **terminal** line: `result` (normal) or `error`
-  (setup failed, e.g. no binary / bad params). After that, the `id` is free to
-  reuse.
-- A `cancel` is acked immediately with `cancelled`, but the run still emits its
-  terminal `result` a moment later (with `ok:false`). Don't treat `cancelled` as
-  terminal.
-- `id`s must be unique among *in-flight* runs; reuse after the terminal line.
+- **Exactly one terminal per accepted run**: `result`, `cancelled`, or `error`.
+  Treat all three as terminal — the earlier "cancel is acked, then a result
+  follows" behavior is gone; a cancelled run emits **only** `cancelled`. After
+  the terminal, the `id` is free to reuse.
+- A `run` that has to wait for a concurrency slot first emits `queued`
+  (non-terminal) with its 1-based `position`, then `accepted` when it starts.
+- `queue_full` and `deadline_exceeded` are `retryable:true` — back off and
+  resubmit (a new `id`).
+- `id`s must be unique among *in-flight / queued* runs; reuse after the terminal.
 - Auth is established **once** at launch (flags/env), not per request.
-- Closing stdin drains in-flight runs, emits `bye`, and exits.
+- `shutdown` aborts everything and flushes `bye` before exit; closing stdin
+  drains in-flight + queued runs, then emits `bye` and exits. `bye` is flushed to
+  the pipe (no truncation under a slow reader). A dead reader (EPIPE) aborts runs
+  and exits quietly.
 
 ## Go client
 
@@ -195,15 +264,19 @@ import (
 
 // Result mirrors BridgeRunResult (see docs/bridge.md).
 type Result struct {
-	OK        bool            `json:"ok"`
-	Action    string          `json:"action"`
-	SessionID string          `json:"sessionId"`
-	Model     string          `json:"model"`
-	USD       float64         `json:"usd"`
-	Tokens    struct{ Input, Output int } `json:"tokens"`
-	Output    json.RawMessage `json:"output"`    // task-specific verdict/plan/PoC
-	OutputRaw string          `json:"outputRaw"`
-	Error     string          `json:"error,omitempty"`
+	OK          bool            `json:"ok"`          // == TransportOK
+	TransportOK bool            `json:"transportOk"` // adapter run completed
+	ContractOK  *bool           `json:"contractOk"`  // json validated? nil for text
+	Action      string          `json:"action"`
+	Permission  string          `json:"permission"`
+	SessionID   string          `json:"sessionId"`
+	Model       string          `json:"model"`
+	USD         float64         `json:"usd"`
+	Tokens      struct{ Input, Output int } `json:"tokens"`
+	Attempts    int             `json:"attempts"`
+	Output      json.RawMessage `json:"output"`    // task-specific verdict/plan/PoC
+	OutputRaw   string          `json:"outputRaw"`
+	Error       string          `json:"error,omitempty"`
 }
 
 type envelope struct {
@@ -279,7 +352,10 @@ type RunParams struct {
 	Model      string   `json:"model,omitempty"`
 	MaxTurns   int      `json:"maxTurns,omitempty"`
 	Resume     string   `json:"resume,omitempty"`
-	Output     string   `json:"output,omitempty"` // "json" | "text"
+	Output     string   `json:"output,omitempty"`     // "json" | "text"
+	Permission string   `json:"permission,omitempty"` // read-only | workspace-write | full-access
+	Network    *bool    `json:"network,omitempty"`
+	TimeoutMs  int      `json:"timeoutMs,omitempty"`
 }
 
 type request struct {
@@ -320,11 +396,13 @@ func (c *Client) readLoop(stdout io.Reader) {
 	sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
 	for sc.Scan() {
 		var msg struct {
-			ID     string          `json:"id"`
-			Kind   string          `json:"kind"`
-			Event  json.RawMessage `json:"event"`
-			Result *Result         `json:"result"`
-			Error  string          `json:"error"`
+			ID       string          `json:"id"`
+			Kind     string          `json:"kind"`
+			Event    json.RawMessage `json:"event"`
+			Result   *Result         `json:"result"`
+			Error    string          `json:"error"`
+			Code     string          `json:"code"`     // on kind:error
+			Position int             `json:"position"` // on kind:queued
 		}
 		if json.Unmarshal(sc.Bytes(), &msg) != nil {
 			continue
@@ -338,12 +416,16 @@ func (c *Client) readLoop(stdout io.Reader) {
 		switch msg.Kind {
 		case "event":
 			run.Events <- msg.Event
-		case "result":
+		case "result": // terminal
 			run.Done <- msg.Result
 			c.finish(msg.ID)
-		case "error":
+		case "cancelled": // terminal (cancel / deadline via error, or shutdown)
+			run.Done <- &Result{Error: "cancelled"}
+			c.finish(msg.ID)
+		case "error": // terminal (msg.Code: invalid_request | queue_full | deadline_exceeded | internal_error)
 			run.Done <- &Result{Error: msg.Error}
 			c.finish(msg.ID)
+			// queued (non-terminal) carries msg.Position; ignore or surface as progress.
 		}
 	}
 }

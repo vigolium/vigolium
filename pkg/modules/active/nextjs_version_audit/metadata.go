@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The Next.js version exposed in this site's client-side JavaScript bundles falls inside the affected range of published security advisories. Reported severity reflects the most serious matched CVE, which may include middleware authorization bypass (CVE-2025-29927), SSRF via Server Actions (CVE-2024-34351), cache-poisoning DoS (CVE-2024-46982), or parallel-route auth bypass (CVE-2024-51479).
+	ModuleDesc = `**What it means:** A Next.js-qualified version marker exposed by the site falls inside a branch-specific affected interval from a reviewed advisory. Generic application "version" fields are ignored. Advisories with deployment or feature prerequisites are candidates until those prerequisites are confirmed.
 
 **How it's exploited:** An attacker reads the served bundle to confirm the version, then runs the matching public exploit - bypassing middleware authentication, forcing outbound requests, or taking the app offline.
 
 **Fix:** Upgrade Next.js to at or above the fixed version for the matched advisory.`
 
-	ModuleConfirmation = "Confirmed when Next.js version is extracted and matches a known vulnerable version range"
+	ModuleConfirmation = "Version match requires an explicitly Next.js-qualified marker and a reviewed branch-specific interval; prerequisite-dependent advisories remain candidates"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"nextjs", "javascript", "fingerprint", "light"}

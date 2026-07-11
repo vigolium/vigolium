@@ -10,15 +10,16 @@ type Config struct {
 	Filenames  FilenameConfig  `json:"filenames"`
 	Extensions ExtensionConfig `json:"extensions"`
 	Engine     EngineConfig    `json:"engine"`
-	JSScan     JSScanConfig    `json:"jsscan" yaml:"jsscan"`
+	JSTangle   JSTangleConfig  `json:"jstangle" yaml:"jstangle"`
 	Modules    ModuleConfig    `json:"modules"`
 }
 
-// JSScanConfig exposes safe, high-level JavaScript intelligence controls.
-// Byte-heavy internals remain owned by the shared jsscan service.
-type JSScanConfig struct {
+// JSTangleConfig exposes safe, high-level JavaScript intelligence controls.
+// Byte-heavy internals remain owned by the shared jstangle service.
+type JSTangleConfig struct {
 	Enabled            bool          `json:"enabled" yaml:"enabled"`
 	ReplayMode         string        `json:"replay_mode" yaml:"replay_mode"`
+	ReplaySafety       string        `json:"replay_safety" yaml:"replay_safety"`
 	SourceMaps         bool          `json:"source_maps" yaml:"source_maps"`
 	AssetGraph         bool          `json:"asset_graph" yaml:"asset_graph"`
 	ProtocolHandshake  bool          `json:"protocol_handshake" yaml:"protocol_handshake"`
@@ -174,17 +175,17 @@ func (ec ExtensionConfig) EffectiveCustomList() []string {
 type EngineConfig struct {
 	CaseSensitivity         CaseSensitivityMode `json:"case_sensitivity" validate:"oneof=sensitive insensitive auto_detect"`
 	DiscoveryThreads        int                 `json:"discovery_threads" validate:"min=1,max=255"`
-	Timeout                 time.Duration       `json:"timeout" validate:"min=1s,max=300s"`           // HTTP per-request timeout
-	SkipFingerprintLearning bool                `json:"skip_fingerprint_learning"`                    // Skip 404 fingerprint learning (for tests)
-	MaxConsecutiveErrors    int                 `json:"max_consecutive_errors"`                       // Exit after N consecutive network errors (0 = disabled)
-	MaxConsecutiveWAFBlocks int                 `json:"max_consecutive_waf_blocks"`                   // Exit after N consecutive WAF/CDN blocks (0 = disabled)
-	CustomHeaders           map[string]string   `json:"custom_headers"`                               // User-defined HTTP request headers
-	ObservedMaxItems        int                 `json:"observed_max_items"`                           // Max items per observed provider (0 = default 50000)
-	DisableKingfisher       bool                `json:"disable_kingfisher"`                           // Disable kingfisher secret scanning
-	EnableCookieJar         bool                `json:"enable_cookie_jar"`                            // Enable cookie jar for session persistence
-	ProxyURL                string              `json:"proxy_url"`                                    // HTTP proxy URL for discovery requests
-	JSScanConcurrency       int                 `yaml:"jsscan_concurrency" json:"jsscan_concurrency"` // Max concurrent jsscan analyses (0 = conservative default of 1)
-	PrefixBreaker           PrefixBreakerConfig `json:"prefix_breaker"`                               // Per-prefix circuit breaker for soft-404 / trap directories
+	Timeout                 time.Duration       `json:"timeout" validate:"min=1s,max=300s"`               // HTTP per-request timeout
+	SkipFingerprintLearning bool                `json:"skip_fingerprint_learning"`                        // Skip 404 fingerprint learning (for tests)
+	MaxConsecutiveErrors    int                 `json:"max_consecutive_errors"`                           // Exit after N consecutive network errors (0 = disabled)
+	MaxConsecutiveWAFBlocks int                 `json:"max_consecutive_waf_blocks"`                       // Exit after N consecutive WAF/CDN blocks (0 = disabled)
+	CustomHeaders           map[string]string   `json:"custom_headers"`                                   // User-defined HTTP request headers
+	ObservedMaxItems        int                 `json:"observed_max_items"`                               // Max items per observed provider (0 = default 50000)
+	DisableSecretScan       bool                `json:"disable_secret_scan"`                              // Disable native secret scanning during discovery
+	EnableCookieJar         bool                `json:"enable_cookie_jar"`                                // Enable cookie jar for session persistence
+	ProxyURL                string              `json:"proxy_url"`                                        // HTTP proxy URL for discovery requests
+	JSTangleConcurrency     int                 `yaml:"jstangle_concurrency" json:"jstangle_concurrency"` // Max concurrent jstangle analyses (0 = conservative default of 1)
+	PrefixBreaker           PrefixBreakerConfig `json:"prefix_breaker"`                                   // Per-prefix circuit breaker for soft-404 / trap directories
 }
 
 // PrefixBreakerConfig tunes the per-prefix discovery circuit breaker.

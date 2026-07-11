@@ -14,6 +14,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestFirstCleanProbe verifies the contrast-probe selector: it returns the first
@@ -70,6 +71,17 @@ func TestScanPerInsertionPoint_DetectsInputStorage(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a race finding when input from one request is stored and served to another")
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
+	assert.False(t, res[0].Metadata["cross_user_proven"].(bool))
+}
+
+func TestBuildResult_DivergenceAloneIsObservation(t *testing.T) {
+	t.Parallel()
+	finding := &Finding{Type: FindingRequestInterference, Parameter: "q", Anchor: "abc", Request: "GET /", Response: "HTTP/1.1 200 OK"}
+	result := New().buildResult(finding, "https://example.com/search", "q", nil)
+	assert.Equal(t, output.RecordKindObservation, result.RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, result.EvidenceGrade)
 }
 
 // TestScanPerInsertionPoint_NonDeterministicNotInterference reproduces the

@@ -42,7 +42,8 @@ Vigolium's own source code, not to these independently obtained tools.
 | [ProjectDiscovery interactsh](https://github.com/projectdiscovery/interactsh) | OAST callback correlation for blind vulnerability testing. |
 | [ProjectDiscovery retryablehttp-go](https://github.com/projectdiscovery/retryablehttp-go) | Retrying HTTP client behavior used by scanner/network tooling. |
 | [ProjectDiscovery rawhttp](https://github.com/projectdiscovery/rawhttp) | Raw HTTP request handling for lower-level scanner requests. |
-| [MongoDB Kingfisher](https://github.com/mongodb/kingfisher) | Secret and credential detection engine for passive response scanning and Deparos batch secret detection. |
+| [wasilibs/go-re2](https://github.com/wasilibs/go-re2) (MIT) | Google RE2 (BSD-3-Clause) compiled to WebAssembly; the in-process regex engine backing `pkg/secretscan` native secret detection. |
+| [coregx/ahocorasick](https://github.com/coregx/ahocorasick) (MIT) | Aho-Corasick multi-string matcher used as the keyword prefilter for `pkg/secretscan`. |
 | [Semgrep](https://github.com/semgrep/semgrep) | Optional SAST engine invoked by vigolium-audit agents. |
 | [GitHub CodeQL](https://github.com/github/codeql) | Optional static-analysis engine invoked by vigolium-audit agents. |
 
@@ -50,10 +51,11 @@ Vigolium's own source code, not to these independently obtained tools.
 
 | Project or source | Function in Vigolium |
 | --- | --- |
+| [MongoDB Kingfisher](https://github.com/mongodb/kingfisher) (Apache-2.0) | Source of the native secret-detection rules embedded in `pkg/secretscan/catalog.json`. The rule patterns are normalized from the kingfisher Rust-regex ruleset to RE2 syntax; live-validation blocks are removed. Regenerated via `make update-secret-rules`. |
 | [Bo0oM/fuzz.txt](https://github.com/Bo0oM/fuzz.txt) | Likely source for `internal/resources/wordlists/fuzz.txt`, used for malformed path and discovery fuzzing. Verify provenance before release. |
 | [wallarm/jwt-secrets](https://github.com/wallarm/jwt-secrets) | Likely source family for `internal/resources/wordlists/jwt.secrets.list`, used for weak JWT secret detection. Verify provenance before release. |
 | `dir-short.txt`, `dir-long.txt`, `file-short.txt`, `file-long.txt` | Embedded content-discovery wordlists used by Deparos. Source provenance is not documented in-tree and should be verified before release. |
-| [GerbenJavado/LinkFinder](https://github.com/GerbenJavado/LinkFinder) | LinkFinder-style JavaScript URL and endpoint extraction patterns in `pkg/deparos/jsscan/linkfinder`. |
+| [GerbenJavado/LinkFinder](https://github.com/GerbenJavado/LinkFinder) | LinkFinder-style JavaScript URL and endpoint extraction patterns in `pkg/deparos/jstangle/linkfinder`. |
 | [PortSwigger Web Security Academy and Research](https://portswigger.net/web-security) | Vulnerability technique references, module references, payload inspiration, and scanner behavior references across active/passive modules. |
 | [PortSwigger error-message-checks](https://github.com/PortSwigger/error-message-checks) | Error-message detection reference patterns for passive information-disclosure checks. |
 | [Bugcrowd HUNT](https://github.com/bugcrowd/HUNT) | Interesting-parameter reference source for the `interesting_params.js` extension. |

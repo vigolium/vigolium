@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** JS frameworks serialize application state into the HTML for client hydration, in blobs such as __NEXT_DATA__, __NUXT__, and __APOLLO_STATE__. This module found sensitive values inside that server-rendered state, so data meant to stay server-side ships to every visitor in the page source.
+	ModuleDesc = `**What it means:** A framework serialized security-relevant data into client-visible hydration state. Routine identity/role data, internal addresses, and public credential identifiers are observations. Substantive private-token formats, hashes, or password-bearing service URLs are candidates.
 
 **How it's exploited:** Anyone viewing the page source (no authentication) reads the leaked values - API keys, AWS keys, connection strings, internal IPs, emails, password hashes, or admin flags - then replays them against the relevant service.
 
 **Fix:** Strip secrets, credentials, and internal infrastructure details from SSR state, serializing only non-sensitive data the client needs.`
 
-	ModuleConfirmation = "Confirmed when sensitive patterns (API keys, tokens, admin flags, credentials) are found in SSR state blobs"
+	ModuleConfirmation = "Candidate for substantive private credentials in parsed state; routine identity data and public identifiers remain observations until sensitivity and authorization are established"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"javascript", "info-disclosure", "light"}

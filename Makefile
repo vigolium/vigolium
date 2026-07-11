@@ -1,4 +1,4 @@
-.PHONY: build build-embedded build-all snapshot release public public-release github-release prepare-public-scripts clean test test-unit test-integration test-spitolas-browser test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jsscan ensure-jsscan sync-audit update-audit ensure-audit ensure-audit-dist restage-host-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
+.PHONY: build build-embedded build-all snapshot release public public-release github-release prepare-public-scripts clean test test-unit test-integration test-spitolas-browser test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check smoke-autopilot-auth test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jstangle ensure-jstangle sync-audit update-audit ensure-audit ensure-audit-dist restage-host-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
 
 # Go parameters
 GOCMD=go
@@ -74,8 +74,8 @@ all: build
 
 # Build main binary and install to GOBIN
 build: ensure-audit
-	@if [ -z "$$(ls $(JSSCAN_RES_DST_DIR)/ 2>/dev/null)" ]; then \
-		echo "$(PREFIX) First build on this machine — jsscan binaries not found, running 'make deps' to prepare dependencies..."; \
+	@if [ -z "$$(ls $(JSTANGLE_RES_DST_DIR)/ 2>/dev/null)" ]; then \
+		echo "$(PREFIX) First build on this machine — jstangle binaries not found, running 'make deps' to prepare dependencies..."; \
 		$(MAKE) deps; \
 	fi
 	@echo "$(PREFIX) Building $(BINARY_NAME)..."
@@ -122,17 +122,17 @@ install-gotestsum:
 	fi
 
 # Run all tests (install gotestsum first; see GOLIST_EXCLUDE for what's filtered)
-test: install-gotestsum ensure-jsscan
+test: install-gotestsum ensure-jstangle
 	@echo "$(PREFIX) Running all tests..."
 	$(TESTCMD) $(TESTFLAGS) $$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')
 
 # Run tests with race detector (see GOLIST_EXCLUDE for what's filtered)
-test-race: install-gotestsum ensure-jsscan
+test-race: install-gotestsum ensure-jstangle
 	@echo "$(PREFIX) Running tests with race detector..."
 	$(TESTCMD) $(TESTFLAGS) -race $$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')
 
 # Run unit tests (excludes integration, e2e; see GOLIST_EXCLUDE for what's filtered)
-test-unit: install-gotestsum ensure-jsscan
+test-unit: install-gotestsum ensure-jstangle
 	@echo "$(PREFIX) Running unit tests..."
 	$(TESTCMD) $(TESTFLAGS) -short $$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')
 
@@ -364,7 +364,7 @@ xbow-build:
 	@echo "$(PREFIX) XBOW containers pre-built"
 
 # Run tests with coverage
-test-coverage: install-gotestsum ensure-jsscan
+test-coverage: install-gotestsum ensure-jstangle
 	@echo "$(PREFIX) Running tests with coverage..."
 	$(TESTCMD) $(TESTFLAGS) -coverprofile=coverage.out ./...
 	$(GOCMD) tool cover -html=coverage.out -o coverage.html
@@ -372,7 +372,7 @@ test-coverage: install-gotestsum ensure-jsscan
 
 # Test with JUnit XML output (for CI). Emits a coverage profile and enforces
 # the COVERAGE_MIN floor after the run so a coverage regression fails the build.
-test-ci: install-gotestsum ensure-jsscan
+test-ci: install-gotestsum ensure-jstangle
 	@echo "$(PREFIX) Running tests for CI..."
 	@$(GOPATH_BIN)/gotestsum --junitfile test-results.xml --format testdox --format-hide-empty-pkg --hide-summary=skipped,output -- -v -race -coverprofile=coverage.out ./...
 	@$(MAKE) --no-print-directory coverage-gate
@@ -389,7 +389,7 @@ coverage-gate:
 
 # Standalone coverage floor check over the unit-test scope. Runs the -short
 # suite once with coverage and enforces COVERAGE_MIN via coverage-gate.
-test-coverage-check: install-gotestsum ensure-jsscan
+test-coverage-check: install-gotestsum ensure-jstangle
 	@echo "$(PREFIX) Checking coverage floor ($(COVERAGE_MIN)%)..."
 	@$(GOCMD) test -short -coverprofile=coverage.out $$($(GOCMD) list ./... | grep -Ev '$(GOLIST_EXCLUDE)') > /dev/null
 	@$(MAKE) --no-print-directory coverage-gate
@@ -409,7 +409,7 @@ test-coverage-check: install-gotestsum ensure-jsscan
 # denominators: per-package unit is over packages-with-tests; whole-tree combined
 # is over every package (the e2e leg's untested-package blocks are in the base).
 # `set -e` makes any failing leg or merge abort the target (no silent stale report).
-coverage-combined: install-gotestsum ensure-jsscan
+coverage-combined: install-gotestsum ensure-jstangle
 	@echo "$(PREFIX) Combined coverage (unit + no-Docker e2e; report only, not gated)..."
 	@set -e; \
 	pkgs=$$($(GOCMD) list ./... | grep -Ev '$(GOLIST_EXCLUDE)'); \
@@ -596,50 +596,50 @@ vulnerable-nginx-logs:
 vulnerable-nginx-status:
 	docker compose -f $(VULN_NGINX_DIR)/docker-compose.yaml ps
 
-# jsscan binary management
-.PHONY: update-jsscan ensure-jsscan verify-jsscan-fresh build-jsscan-current build-jsscan-all
-JSSCAN_SRC_DIR=platform/jsscan/bin
-JSSCAN_DST_DIR=internal/resources/deparos/jsscan
+# jstangle binary management
+.PHONY: update-jstangle ensure-jstangle verify-jstangle-fresh build-jstangle-current build-jstangle-all
+JSTANGLE_SRC_DIR=platform/jstangle/bin
+JSTANGLE_DST_DIR=internal/resources/deparos/jstangle
 
-# jsscan embedded resources (internal/resources)
-JSSCAN_RES_SRC_DIR=platform/jsscan/bin
-JSSCAN_RES_DST_DIR=internal/resources/deparos/jsscan
-JSSCAN_RES_BINS=jsscan-darwin-amd64 jsscan-darwin-arm64 jsscan-linux-amd64 jsscan-linux-arm64 jsscan-windows-amd64.exe
+# jstangle embedded resources (internal/resources)
+JSTANGLE_RES_SRC_DIR=platform/jstangle/bin
+JSTANGLE_RES_DST_DIR=internal/resources/deparos/jstangle
+JSTANGLE_RES_BINS=jstangle-darwin-amd64 jstangle-darwin-arm64 jstangle-linux-amd64 jstangle-linux-arm64 jstangle-windows-amd64.exe
 
 # Build every release helper from source and copy binaries.
-build-jsscan-all update-jsscan:
-	@echo "$(PREFIX) Building jsscan from source..."
-	cd platform/jsscan && bun install --linker isolated --ignore-scripts && bun run build:bin
-	@echo "$(PREFIX) Copying jsscan binaries to $(JSSCAN_DST_DIR)..."
-	@mkdir -p $(JSSCAN_DST_DIR)
-	@cp -R $(JSSCAN_SRC_DIR)/* $(JSSCAN_DST_DIR)/
-	@echo "$(PREFIX) jsscan release binaries updated"
+build-jstangle-all update-jstangle:
+	@echo "$(PREFIX) Building jstangle from source..."
+	cd platform/jstangle && bun install --linker isolated --ignore-scripts && bun run build:bin
+	@echo "$(PREFIX) Copying jstangle binaries to $(JSTANGLE_DST_DIR)..."
+	@mkdir -p $(JSTANGLE_DST_DIR)
+	@cp -R $(JSTANGLE_SRC_DIR)/* $(JSTANGLE_DST_DIR)/
+	@echo "$(PREFIX) jstangle release binaries updated"
 
 # Build and stage only the current host helper. Ordinary tests and development
 # do not need to spend time producing four binaries that cannot run locally.
-build-jsscan-current:
+build-jstangle-current:
 	@set -e; \
 	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
 	arch=$$(uname -m); \
 	case "$$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; esac; \
-	name="jsscan-$$os-$$arch"; \
-	cd platform/jsscan; \
+	name="jstangle-$$os-$$arch"; \
+	cd platform/jstangle; \
 	bun install --linker isolated --ignore-scripts; \
 	bun run build:bin:host; \
 	cd ../..; \
-	mkdir -p $(JSSCAN_RES_DST_DIR); \
-	cp "$(JSSCAN_SRC_DIR)/$$name" "$(JSSCAN_RES_DST_DIR)/$$name"
+	mkdir -p $(JSTANGLE_RES_DST_DIR); \
+	cp "$(JSTANGLE_SRC_DIR)/$$name" "$(JSTANGLE_RES_DST_DIR)/$$name"
 
 # Pre-test step: compare the executable's compiled source fingerprint and
 # protocol contract with the current TypeScript tree. A source edit that keeps
 # the same flags must still invalidate the helper.
-ensure-jsscan:
+ensure-jstangle:
 	@set -e; \
 	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); \
 	arch=$$(uname -m); \
 	case "$$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; esac; \
-	host_bin="$(JSSCAN_RES_DST_DIR)/jsscan-$$os-$$arch"; \
-	source_hash=$$(cd platform/jsscan && bun scripts/source-fingerprint.ts); \
+	host_bin="$(JSTANGLE_RES_DST_DIR)/jstangle-$$os-$$arch"; \
+	source_hash=$$(cd platform/jstangle && bun scripts/source-fingerprint.ts); \
 	needs_build=0; \
 	if [ ! -x "$$host_bin" ] || [ $$(wc -c < "$$host_bin" 2>/dev/null || echo 0) -lt 1024 ]; then \
 		needs_build=1; \
@@ -650,14 +650,14 @@ ensure-jsscan:
 		printf '%s' "$$caps" | grep -Fq '"profiles"' || needs_build=1; \
 	fi; \
 	if [ $$needs_build -eq 1 ]; then \
-		echo "$(PREFIX) jsscan host helper missing or stale; rebuilding..."; \
-		$(MAKE) --no-print-directory build-jsscan-current; \
+		echo "$(PREFIX) jstangle host helper missing or stale; rebuilding..."; \
+		$(MAKE) --no-print-directory build-jstangle-current; \
 	else \
-		echo "$(PREFIX) jsscan host helper is fresh ($$source_hash)"; \
+		echo "$(PREFIX) jstangle host helper is fresh ($$source_hash)"; \
 	fi
 
-verify-jsscan-fresh:
-	@$(MAKE) --no-print-directory ensure-jsscan
+verify-jstangle-fresh:
+	@$(MAKE) --no-print-directory ensure-jstangle
 
 # vigolium-audit security audit binary management.
 # Source lives under platform/vigolium-audit/. `bun run build` produces a host
@@ -782,6 +782,27 @@ restage-host-audit:
 		cp "$$host_bin" $(AUDIT_BIN_HOST); chmod +x $(AUDIT_BIN_HOST); \
 		echo "$(PREFIX) Restored host vigolium-audit blob ($$host_os-$$host_arch) to $(AUDIT_BIN_HOST)"; \
 	fi
+
+# Regenerate the native secret-detection rule catalog (pkg/secretscan/catalog.json)
+# from the pinned kingfisher rule set. Requires network + git.
+# (The gitleaks/betterleaks family was removed as noisy and redundant with
+# kingfisher's better-anchored provider rules.)
+KINGFISHER_VERSION ?= v1.106.0
+
+.PHONY: update-secret-rules
+update-secret-rules:
+	@echo "$(PREFIX) Regenerating secret catalog (kingfisher $(KINGFISHER_VERSION))..."
+	@set -e; \
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	echo "  fetching kingfisher rules ($(KINGFISHER_VERSION))..."; \
+	git clone --quiet --depth 1 --branch $(KINGFISHER_VERSION) https://github.com/mongodb/kingfisher "$$tmp/kingfisher"; \
+	go run ./pkg/secretscan/secretgen \
+		-kingfisher "$$tmp/kingfisher/crates/kingfisher-rules/data/rules" \
+		-kingfisher-version $(KINGFISHER_VERSION) \
+		-out pkg/secretscan/catalog.json \
+		-examples-out pkg/secretscan/testdata/examples.json
+	@echo "$(PREFIX) Wrote pkg/secretscan/catalog.json + pkg/secretscan/testdata/examples.json"
 
 # Copy fresh UI builds into embedded public/ paths
 update-ui:
@@ -1141,7 +1162,7 @@ lint:
 
 # Verify checked-in, machine-managed sources are in sync with their generators.
 # Covers the deterministic artifacts: gofmt output and the go.mod/go.sum manifest.
-# (Binary assets — jsscan, the audit harness, UI bundles — are non-deterministic
+# (Binary assets — jstangle, the audit harness, UI bundles — are non-deterministic
 # build outputs regenerated by `make deps`, `make update-audit`, `make update-ui`;
 # they are not diff-verifiable here. See docs/development/generated-assets.md.)
 verify-generated:
@@ -1172,8 +1193,8 @@ tidy:
 # Helper scripts
 SCRIPTS_DIR := internal/resources/scripts
 
-# Download dependencies, build jsscan, and check Chromium
-deps: update-jsscan
+# Download dependencies, build jstangle, and check Chromium
+deps: update-jstangle
 	@echo "$(PREFIX) Downloading Go dependencies..."
 	$(GOMOD) download
 	@$(SCRIPTS_DIR)/deps-check.sh
@@ -1260,7 +1281,7 @@ help:
 	@echo "    make fmt              Format code"
 	@echo "    make lint             Run golangci-lint"
 	@echo "    make tidy             Tidy go.mod dependencies"
-	@echo "    make deps             Download dependencies + ensure jsscan binaries"
+	@echo "    make deps             Download dependencies + ensure jstangle binaries"
 	@echo "    make deps-chrome      Download Chromium browser archives from versions.go"
 	@echo "    make deps-chrome-update  Update browser version+URL (NAME= PLATFORM= VERSION= URL=)"
 	@echo "    make swagger          Sync Swagger spec to embedded copy"

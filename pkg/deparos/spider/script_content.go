@@ -49,8 +49,11 @@ func (e *ScriptContentExtractor) Extract(ctx context.Context, baseURL *url.URL, 
 					// Scan for JavaScript strings
 					jsStrings := e.jsExtractor.ExtractStrings(scriptContent, response.BodyStart)
 					for _, jsStr := range jsStrings {
-						// Check for inline URLs in string
-						e.inlineScanner.ScanBytes(ctx, baseURL, []byte(jsStr.Value), jsStr.Position)
+						// Emit RELATIVE routes found in the string (e.g. "/api/users").
+						// Absolute scheme URLs are already emitted by the whole-content
+						// Extract below, so scanning per-string for relative-only here
+						// avoids duplicating them.
+						e.inlineScanner.ScanBytesRelativeEmit(ctx, baseURL, []byte(jsStr.Value), jsStr.Position, callback)
 					}
 
 					// Also scan script content directly for inline URLs

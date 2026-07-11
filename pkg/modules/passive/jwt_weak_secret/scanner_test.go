@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -193,6 +194,8 @@ func TestScanPerRequest_RS256AlgConfusion(t *testing.T) {
 	assert.Contains(t, results[0].ExtractedResults[0], "RS256")
 	assert.Contains(t, results[0].ExtractedResults[0], "alg-confusion")
 	assert.Contains(t, results[0].Info.Description, "RS256")
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, results[0].EvidenceGrade)
 }
 
 func TestScanPerRequest_HS256WeakSecret(t *testing.T) {
@@ -207,6 +210,11 @@ func TestScanPerRequest_HS256WeakSecret(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.Contains(t, results[0].ExtractedResults[0], "HS256")
 	assert.NotContains(t, results[0].ExtractedResults[0], "alg-confusion")
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	for _, evidence := range results[0].ExtractedResults {
+		assert.NotContains(t, evidence, token)
+		assert.NotEqual(t, "Weak secret: secret", evidence)
+	}
 }
 
 func TestScanPerRequest_JWTInResponseBody(t *testing.T) {
@@ -221,6 +229,7 @@ func TestScanPerRequest_JWTInResponseBody(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Contains(t, results[0].ExtractedResults[0], "HS256")
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
 }
 
 func TestScanPerRequest_JWTInResponseSetCookie(t *testing.T) {
@@ -234,6 +243,8 @@ func TestScanPerRequest_JWTInResponseSetCookie(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	assert.Contains(t, results[0].ExtractedResults[0], "HS256")
+	assert.Equal(t, output.RecordKindFinding, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeImpact, results[0].EvidenceGrade)
 }
 
 func TestScanPerRequest_NoJWT(t *testing.T) {
@@ -378,10 +389,12 @@ func TestScanPerRequest_PlaintextSignature(t *testing.T) {
 
 	assert.Equal(t, severity.High, results[0].Info.Severity)
 	assert.Equal(t, severity.Firm, results[0].Info.Confidence)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
 	assert.Contains(t, results[0].Info.Name, "Non-Cryptographic Signature")
-	assert.Contains(t, results[0].Info.Description, "plaintext ASCII")
+	assert.Contains(t, results[0].Info.Description, "printable text")
 	assert.Contains(t, results[0].ExtractedResults[0], "HS256")
-	assert.Contains(t, results[0].ExtractedResults[1], "Plaintext signature")
+	assert.Contains(t, results[0].ExtractedResults[1], "Printable signature length")
+	assert.NotContains(t, results[0].ExtractedResults[1], "signature_generated_with_secret123")
 }
 
 func TestScanPerRequest_PlaintextSignature_NotEmittedWhenSecretFound(t *testing.T) {
@@ -413,9 +426,11 @@ func TestScanPerRequest_AsymmetricJWT_InformationalFinding(t *testing.T) {
 	// Should be low severity, tentative confidence
 	assert.Equal(t, severity.Low, results[0].Info.Severity)
 	assert.Equal(t, severity.Tentative, results[0].Info.Confidence)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
 	assert.Contains(t, results[0].Info.Name, "Algorithm Confusion")
 	assert.Contains(t, results[0].Info.Description, "RS256")
-	assert.Contains(t, results[0].Info.Description, "CVE-2015-9235")
+	assert.Contains(t, results[0].Info.Description, "not tested")
 	assert.Contains(t, results[0].ExtractedResults[0], "RS256")
 }
 

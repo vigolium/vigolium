@@ -18,6 +18,41 @@ var (
 	reSpaceBeforeLt  = regexp.MustCompile(`[ ]+<`)
 )
 
+// Volatile-content patterns, compiled once. NormalizeVolatile collapses content
+// that legitimately changes between otherwise-identical page loads so it does not
+// mint a brand-new crawl state every visit. Ordered so more specific shapes
+// (UUID, ISO datetime) run before the generic hex/token/number catch-alls.
+var (
+	reVolatileUUID     = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+	reVolatileDateTime = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?\b`)
+	reVolatileClock    = regexp.MustCompile(`(?i)\b\d{1,2}:\d{2}(?::\d{2})?(?:\s?[ap]m)?\b`)
+	reVolatileHex      = regexp.MustCompile(`\b[0-9a-fA-F]{16,}\b`)
+	reVolatileToken    = regexp.MustCompile(`\b[A-Za-z0-9_-]{24,}\b`)
+	reVolatileLongNum  = regexp.MustCompile(`\b\d{9,}\b`)
+)
+
+// NormalizeVolatile neutralizes content that changes between otherwise-identical
+// page loads — CSRF/nonce/session tokens, cache-busting asset hashes, live clocks,
+// dates, and long counters — replacing each with a fixed placeholder so a page
+// carrying such content does not mint a brand-new crawl state on every visit
+// (the unbounded state-explosion the exact-DOM hash otherwise causes). It runs
+// only on the already-stripped DOM used for STATE IDENTITY; raw HTML and captured
+// traffic are untouched. Patterns are deliberately tight — long random-looking
+// runs and explicit date/time shapes — so page structure and short human-readable
+// text, the things that actually distinguish two pages, are left intact.
+func NormalizeVolatile(s string) string {
+	if s == "" {
+		return s
+	}
+	s = reVolatileUUID.ReplaceAllString(s, "\x01u")
+	s = reVolatileDateTime.ReplaceAllString(s, "\x01d")
+	s = reVolatileClock.ReplaceAllString(s, "\x01t")
+	s = reVolatileHex.ReplaceAllString(s, "\x01h")
+	s = reVolatileToken.ReplaceAllString(s, "\x01k")
+	s = reVolatileLongNum.ReplaceAllString(s, "\x01n")
+	return s
+}
+
 // attrPatternCache memoizes the compiled attribute-strip patterns keyed on the
 // attribute list, so the default set (and any fixed comparator set) is compiled
 // once for the whole crawl rather than ~4 regexes per StripDOM call.

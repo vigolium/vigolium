@@ -3,6 +3,7 @@ package mcp_completion_enum
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
@@ -61,7 +62,11 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 	host := ctx.Service().Host()
-	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil && ds.IsSeen(host) {
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
+	if ds := diskSet; ds != nil && ds.IsSeen(host) {
 		return nil, nil
 	}
 
@@ -77,6 +82,7 @@ func (m *Module) ScanPerHost(
 	_ = client.SendInitializedNotification()
 
 	var findings []*output.ResultEvent
+	identity := ctx.Request().IdentityFingerprint()
 
 	// Prompt argument completion
 	if prompts, err := client.ListPrompts(); err == nil && prompts != nil {
@@ -96,23 +102,29 @@ func (m *Module) ScanPerHost(
 				if err != nil || res == nil || len(res.Completion.Values) == 0 {
 					continue
 				}
+				kind, grade, sev, reason := classifyCompletionValues(res.Completion.Values)
 				findings = append(findings, &output.ResultEvent{
-					URL:     urlx.String(),
-					Matched: urlx.String(),
+					ModuleID:      ModuleID,
+					RecordKind:    kind,
+					EvidenceGrade: grade,
+					URL:           urlx.String(),
+					Matched:       urlx.String(),
+					Request:       string(ctx.Request().Raw()),
 					ExtractedResults: append(
 						[]string{fmt.Sprintf("prompt=%s arg=%s", p.Name, arg.Name)},
-						res.Completion.Values...,
+						safeCompletionValues(res.Completion.Values)...,
 					),
 					Info: output.Info{
-						Name: "MCP Prompt Argument Values Disclosed via completion/complete",
+						Name: "MCP Prompt Argument Completion Values Returned",
 						Description: fmt.Sprintf(
-							"Prompt %q exposes %d completion value(s) for argument %q without authentication.",
-							p.Name, len(res.Completion.Values), arg.Name),
-						Severity:   severity.Medium,
-						Confidence: severity.Firm,
+							"Prompt %q returned %d completion value(s) for argument %q. %s",
+							p.Name, len(res.Completion.Values), arg.Name, reason),
+						Severity:   sev,
+						Confidence: confidenceForCompletion(kind),
 						Tags:       []string{"mcp", "info-disclosure", "enumeration"},
 						Reference:  []string{"https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/completion"},
 					},
+					Metadata: map[string]any{"identity": identity, "anonymous": identity == "anonymous", "value_count": len(res.Completion.Values), "authorization_compared": false},
 				})
 			}
 		}
@@ -132,23 +144,29 @@ func (m *Module) ScanPerHost(
 				if err != nil || res == nil || len(res.Completion.Values) == 0 {
 					continue
 				}
+				kind, grade, sev, reason := classifyCompletionValues(res.Completion.Values)
 				findings = append(findings, &output.ResultEvent{
-					URL:     urlx.String(),
-					Matched: tpl.URITemplate,
+					ModuleID:      ModuleID,
+					RecordKind:    kind,
+					EvidenceGrade: grade,
+					URL:           urlx.String(),
+					Matched:       tpl.URITemplate,
+					Request:       string(ctx.Request().Raw()),
 					ExtractedResults: append(
 						[]string{fmt.Sprintf("template=%s placeholder=%s", tpl.URITemplate, ph)},
-						res.Completion.Values...,
+						safeCompletionValues(res.Completion.Values)...,
 					),
 					Info: output.Info{
-						Name: "MCP Resource Template Values Disclosed via completion/complete",
+						Name: "MCP Resource Template Completion Values Returned",
 						Description: fmt.Sprintf(
-							"Resource template %q exposes %d completion value(s) for placeholder %q without authentication.",
-							tpl.URITemplate, len(res.Completion.Values), ph),
-						Severity:   severity.Medium,
-						Confidence: severity.Firm,
+							"Resource template %q returned %d completion value(s) for placeholder %q. %s",
+							tpl.URITemplate, len(res.Completion.Values), ph, reason),
+						Severity:   sev,
+						Confidence: confidenceForCompletion(kind),
 						Tags:       []string{"mcp", "info-disclosure", "enumeration"},
 						Reference:  []string{"https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/completion"},
 					},
+					Metadata: map[string]any{"identity": identity, "anonymous": identity == "anonymous", "value_count": len(res.Completion.Values), "authorization_compared": false},
 				})
 			}
 		}
@@ -158,6 +176,38 @@ func (m *Module) ScanPerHost(
 }
 
 var placeholderRe = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
+var sensitiveCompletionValue = regexp.MustCompile(`(?i)(?:^gh[pousr]_[0-9a-z]{36,}$|^xox[abprs]-[0-9a-z-]{10,}$|^sk_live_[0-9a-z]{16,}$|^-----BEGIN .*PRIVATE KEY-----|^[^@\s]+@[^@\s]+\.[^@\s]+$|^(?:/etc/|/home/|/users/|~?/?\.ssh/|[a-z]:\\))`)
+
+func classifyCompletionValues(values []string) (output.RecordKind, output.EvidenceGrade, severity.Severity, string) {
+	for _, value := range values {
+		if sensitiveCompletionValue.MatchString(strings.TrimSpace(value)) {
+			return output.RecordKindCandidate, output.EvidenceGradeCandidate, severity.Medium,
+				"At least one value resembles identity data, a private credential, or a sensitive filesystem path. Authorization and downstream access were not tested."
+		}
+	}
+	return output.RecordKindObservation, output.EvidenceGradeObservation, severity.Info,
+		"Returning completion values is normal MCP behavior; value sensitivity and authorization were not established."
+}
+
+func safeCompletionValues(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if sensitiveCompletionValue.MatchString(trimmed) && (strings.HasPrefix(trimmed, "gh") || strings.HasPrefix(trimmed, "xox") || strings.HasPrefix(trimmed, "sk_live_") || strings.Contains(trimmed, "PRIVATE KEY")) {
+			result = append(result, "<credential-shaped completion value redacted>")
+			continue
+		}
+		result = append(result, modkit.Truncate(trimmed, 160))
+	}
+	return result
+}
+
+func confidenceForCompletion(kind output.RecordKind) severity.Confidence {
+	if kind == output.RecordKindCandidate {
+		return severity.Firm
+	}
+	return severity.Tentative
+}
 
 func extractPlaceholders(tpl string) []string {
 	matches := placeholderRe.FindAllStringSubmatch(tpl, -1)

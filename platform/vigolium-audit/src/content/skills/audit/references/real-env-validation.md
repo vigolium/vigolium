@@ -1,12 +1,12 @@
 # Real-Environment Validation
 
-Procedures for provisioning real test environments and capturing exploitation evidence. Used in Phase 11 Stage 2 (adversarial validation) and Phase 15 Task B (final PoC execution).
+Procedures for provisioning real test environments and capturing exploitation evidence. Used by cold verification, PoC construction, and confirmation workflows.
 
 ## Mandatory Scope
 
 Real-environment reproduction is required for:
-- Phase 11 Stage 2: all findings that survive Stage 1 fp-check with verdict `VALID` and severity MEDIUM or higher
-- Phase 15 Task B: all CRITICAL/HIGH findings promoted to `vigolium-results/findings/`
+- Cold verification: findings that survive analytical FP checking and meet the active mode's severity gate
+- Final PoC construction: all CRITICAL/HIGH findings being promoted to `vigolium-results/findings/`
 
 ---
 

@@ -96,8 +96,8 @@ test/integration/*-test/
 
 # some binaries and outputs from the skill that we don't want to accidentally commit
 # better to ignore the whole directory since there are multiple outputs and it can be hard to keep track of them all
-public/presets/deparos/jsscan/jsscan-*
-internal/resources/deparos/jsscan/*
+public/presets/deparos/jstangle/jstangle-*
+internal/resources/deparos/jstangle/*
 
 internal/resources/spitolas/chromium/*
 

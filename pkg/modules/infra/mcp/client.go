@@ -13,10 +13,11 @@ import (
 // service/cookies/auth from a seed HttpRequestResponse. It mints fresh raw
 // requests for every call so the underlying request pipeline is unchanged.
 type Client struct {
-	seed       *httpmsg.HttpRequestResponse
-	httpClient *http.Requester
-	path       string
-	sessionID  string
+	seed            *httpmsg.HttpRequestResponse
+	httpClient      *http.Requester
+	path            string
+	sessionID       string
+	issuedSessionID string
 	// extraHeaders are added to every outgoing request (e.g. fixation tests).
 	extraHeaders map[string]string
 }
@@ -34,6 +35,12 @@ func NewClient(seed *httpmsg.HttpRequestResponse, httpClient *http.Requester, pa
 // SessionID returns the captured Mcp-Session-Id, or "" if none.
 func (c *Client) SessionID() string { return c.sessionID }
 
+// IssuedSessionID returns the Mcp-Session-Id explicitly returned by the most
+// recent initialize response. Unlike SessionID, it is not populated merely by
+// SetSessionID, which lets fixation checks distinguish server echo from local
+// client state.
+func (c *Client) IssuedSessionID() string { return c.issuedSessionID }
+
 // SetSessionID overrides the session ID (used by fixation tests).
 func (c *Client) SetSessionID(id string) { c.sessionID = id }
 
@@ -48,12 +55,14 @@ func (c *Client) SetExtraHeaders(h map[string]string) { c.extraHeaders = h }
 
 // Initialize negotiates protocol version and captures the session ID.
 func (c *Client) Initialize() (*InitializeResult, error) {
+	c.issuedSessionID = ""
 	body, resp, err := c.PostJSONRPC(BuildInitializeRequest())
 	if err != nil {
 		return nil, err
 	}
 	if resp != nil && resp.Response() != nil {
 		if sid := resp.Response().Header.Get("Mcp-Session-Id"); sid != "" {
+			c.issuedSessionID = sid
 			c.sessionID = sid
 		}
 	}

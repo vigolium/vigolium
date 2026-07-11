@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -452,6 +453,72 @@ func TestDeduplicateFindings_EvidenceCapped(t *testing.T) {
 	}
 }
 
+// TestDeduplicateFindings_MigratesEvidenceLinks is the Claim-3 regression: when a
+// duplicate finding is folded into the survivor, its finding_records (evidence)
+// links must move to the survivor rather than being deleted, so the survivor can
+// still reach the exact record that proved the folded variant.
+func TestDeduplicateFindings_MigratesEvidenceLinks(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	projectUUID := DefaultProjectUUID
+	matchedAt := `["http://example.com/api"]`
+
+	insertFinding := func() int64 {
+		res, err := db.ExecContext(ctx,
+			`INSERT INTO findings (project_uuid, scan_uuid, module_id, module_name,
+				finding_hash, severity, confidence, http_record_uuids, matched_at, request, response)
+			VALUES (?, 'scan1', 'sqli', 'sqli', ?, 'high', 'firm', '[]', ?, 'req', 'resp')`,
+			projectUUID, uuid.NewString(), matchedAt)
+		if err != nil {
+			t.Fatalf("insert finding: %v", err)
+		}
+		id, _ := res.LastInsertId()
+		return id
+	}
+	linkRecord := func(fid int64, recUUID string) {
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO finding_records (finding_id, record_uuid) VALUES (?, ?)`, fid, recUUID); err != nil {
+			t.Fatalf("insert finding_records: %v", err)
+		}
+	}
+
+	survivorID := insertFinding() // lower id → survivor (created_at/id ASC)
+	dupID := insertFinding()
+	linkRecord(survivorID, "rec-survivor")
+	linkRecord(dupID, "rec-dup")
+	// A record BOTH already link to must not create a duplicate junction row.
+	linkRecord(survivorID, "rec-shared")
+	linkRecord(dupID, "rec-shared")
+
+	deleted, grouped, err := repo.DeduplicateFindings(ctx, projectUUID)
+	if err != nil {
+		t.Fatalf("DeduplicateFindings: %v", err)
+	}
+	if deleted != 1 || grouped != 1 {
+		t.Fatalf("expected 1 deleted / 1 grouped, got %d / %d", deleted, grouped)
+	}
+
+	var survivorRecords []string
+	if err := db.NewSelect().TableExpr("finding_records").Column("record_uuid").
+		Where("finding_id = ?", survivorID).OrderExpr("record_uuid").Scan(ctx, &survivorRecords); err != nil {
+		t.Fatalf("select survivor records: %v", err)
+	}
+	if got := strings.Join(survivorRecords, ","); got != "rec-dup,rec-shared,rec-survivor" {
+		t.Fatalf("survivor records = %q, want the migrated union without duplication", got)
+	}
+
+	var dupCount int
+	if err := db.NewSelect().TableExpr("finding_records").ColumnExpr("COUNT(*)").
+		Where("finding_id = ?", dupID).Scan(ctx, &dupCount); err != nil {
+		t.Fatalf("count dup records: %v", err)
+	}
+	if dupCount != 0 {
+		t.Fatalf("expected the duplicate's junction rows removed, got %d", dupCount)
+	}
+}
+
 func TestDeduplicateFindings_NoFindings(t *testing.T) {
 	db := newTestDB(t)
 	repo := NewRepository(db)
@@ -785,7 +852,7 @@ func TestApplyDeparosStatusPolicy(t *testing.T) {
 	// A 403 from a non-deparos source must be untouched.
 	nonDeparos := insertRec("h1.com", "/scanner-403", 403, "scanner")
 
-	deleted, statusCodes, err := repo.ApplyDeparosStatusPolicy(ctx, projectUUID, []int{401})
+	deleted, statusCodes, err := repo.ApplyDeparosStatusPolicy(ctx, projectUUID, DeparosStatusPolicy{KeepOnePerHost: []int{401}})
 	if err != nil {
 		t.Fatalf("ApplyDeparosStatusPolicy: %v", err)
 	}
@@ -835,13 +902,115 @@ func TestApplyDeparosStatusPolicy_NoKeepDropsAll4xx(t *testing.T) {
 	insert("/b", 403)
 	insert("/c", 200)
 
-	// Empty keep list ⇒ every 4xx (including 401) is dropped.
-	deleted, _, err := repo.ApplyDeparosStatusPolicy(ctx, projectUUID, nil)
+	// Empty policy ⇒ every 4xx (including 401) is dropped.
+	deleted, _, err := repo.ApplyDeparosStatusPolicy(ctx, projectUUID, DeparosStatusPolicy{})
 	if err != nil {
 		t.Fatalf("ApplyDeparosStatusPolicy: %v", err)
 	}
 	if deleted != 2 {
 		t.Errorf("expected 2 deleted (401+403), got %d", deleted)
+	}
+}
+
+// TestApplyDeparosStatusPolicy_Tiers proves the tiered retention policy:
+//   - KeepOnePerHost (401/403): collapse to one representative per (host,status).
+//   - KeepPerPath (405): preserve EVERY distinct path (route identity), collapse
+//     only exact-duplicate paths, and cap distinct paths per (host,status).
+//   - Noise (404): dropped entirely.
+func TestApplyDeparosStatusPolicy_Tiers(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	projectUUID := DefaultProjectUUID
+	now := time.Now()
+
+	insert := func(host, path string, status int) string {
+		id := uuid.NewString()
+		_, err := db.NewInsert().Model(&HTTPRecord{
+			UUID: id, ProjectUUID: projectUUID, Scheme: "https", Hostname: host, Port: 443,
+			Method: "GET", Path: path, URL: "https://" + host + path, HTTPVersion: "HTTP/1.1",
+			RequestHash: id, ResponseHash: id, StatusCode: status, HasResponse: true,
+			Source: "deparos", SentAt: now, CreatedAt: now,
+		}).Exec(ctx)
+		if err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+		return id
+	}
+
+	// Authz tier: three 403s on one host collapse to the shortest path.
+	f1 := insert("h.com", "/x", 403)
+	insert("h.com", "/admin/panel", 403)
+	insert("h.com", "/very/long/forbidden/path", 403)
+	// Endpoint-exists tier: two DISTINCT 405 paths must BOTH survive (route
+	// identity), plus an exact-duplicate of one that must collapse.
+	m1 := insert("h.com", "/api/users", 405)
+	m2 := insert("h.com", "/api/orders", 405)
+	insert("h.com", "/api/users", 405) // exact-dup path → dropped
+	// Noise tier: 404 dropped entirely.
+	insert("h.com", "/nope", 404)
+	// Untouched: 200.
+	ok := insert("h.com", "/", 200)
+
+	deleted, _, err := repo.ApplyDeparosStatusPolicy(ctx, projectUUID, DeparosStatusPolicy{
+		KeepOnePerHost: []int{401, 403, 429},
+		KeepPerPath:    []int{405, 415, 422},
+		PerPathCap:     100,
+	})
+	if err != nil {
+		t.Fatalf("ApplyDeparosStatusPolicy: %v", err)
+	}
+	// Dropped: two extra 403s (2) + one dup 405 path (1) + one 404 (1) = 4.
+	if deleted != 4 {
+		t.Errorf("expected 4 deleted, got %d", deleted)
+	}
+
+	survivors := map[string]bool{f1: true, m1: true, m2: true, ok: true}
+	var remaining []*HTTPRecord
+	if err := db.NewSelect().Model(&remaining).Scan(ctx); err != nil {
+		t.Fatalf("select remaining: %v", err)
+	}
+	if len(remaining) != len(survivors) {
+		t.Errorf("expected %d remaining, got %d", len(survivors), len(remaining))
+	}
+	for _, rec := range remaining {
+		if !survivors[rec.UUID] {
+			t.Errorf("unexpected survivor: path=%s status=%d", rec.Path, rec.StatusCode)
+		}
+	}
+}
+
+// TestApplyDeparosStatusPolicy_PerPathCap proves distinct KeepPerPath paths are
+// bounded per (host,status) so a pathological host can't flood the store.
+func TestApplyDeparosStatusPolicy_PerPathCap(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	projectUUID := DefaultProjectUUID
+	now := time.Now()
+
+	for i := 0; i < 10; i++ {
+		id := uuid.NewString()
+		_, err := db.NewInsert().Model(&HTTPRecord{
+			UUID: id, ProjectUUID: projectUUID, Scheme: "https", Hostname: "flood.com", Port: 443,
+			Method: "GET", Path: fmt.Sprintf("/p%02d", i), URL: fmt.Sprintf("https://flood.com/p%02d", i),
+			HTTPVersion: "HTTP/1.1", RequestHash: id, ResponseHash: id, StatusCode: 422, HasResponse: true,
+			Source: "deparos", SentAt: now, CreatedAt: now,
+		}).Exec(ctx)
+		if err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	deleted, _, err := repo.ApplyDeparosStatusPolicy(ctx, projectUUID, DeparosStatusPolicy{
+		KeepPerPath: []int{422},
+		PerPathCap:  3,
+	})
+	if err != nil {
+		t.Fatalf("ApplyDeparosStatusPolicy: %v", err)
+	}
+	if deleted != 7 {
+		t.Errorf("expected 7 deleted (10 distinct paths capped to 3), got %d", deleted)
 	}
 }
 

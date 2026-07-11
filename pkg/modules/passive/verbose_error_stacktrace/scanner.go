@@ -116,6 +116,9 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if ctx.Response() == nil {
 		return nil, nil
 	}
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
+		return nil, nil
+	}
 
 	// Skip binary content
 	ct := strings.ToLower(ctx.Response().Header("Content-Type"))
@@ -125,7 +128,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -144,22 +150,42 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			continue
 		}
 
+		kind := output.RecordKindObservation
+		grade := output.EvidenceGradeObservation
+		sev := severity.Info
+		description := fmt.Sprintf("A structured %s stack-trace pattern appears in a successful response. It is retained as reconnaissance context because documentation and examples can contain the same structure.", stp.technology)
+		if status := ctx.Response().StatusCode(); status >= 400 && status <= 599 {
+			kind = output.RecordKindCandidate
+			grade = output.EvidenceGradeCandidate
+			sev = stp.severity
+			description = fmt.Sprintf("A structured %s stack trace with file paths appears in an HTTP error response. The disclosure is strongly supported, but no underlying injection or code-execution flaw is inferred.", stp.technology)
+		}
+
 		results = append(results, &output.ResultEvent{
-			ModuleID: ModuleID,
-			Host:     urlx.Host,
-			URL:      urlx.String(),
-			Matched:  urlx.String(),
-			Request:  string(ctx.Request().Raw()),
+			ModuleID:      ModuleID,
+			RecordKind:    kind,
+			EvidenceGrade: grade,
+			Host:          urlx.Host,
+			URL:           urlx.String(),
+			Matched:       urlx.String(),
+			Request:       string(ctx.Request().Raw()),
+			Response:      string(ctx.Response().Raw()),
 			ExtractedResults: []string{
 				fmt.Sprintf("Technology: %s", stp.technology),
+				fmt.Sprintf("HTTP status: %d", ctx.Response().StatusCode()),
 				fmt.Sprintf("Stack trace: %s", truncate(match, 200)),
 			},
 			Info: output.Info{
 				Name:        fmt.Sprintf("%s Stack Trace Exposed", stp.technology),
-				Description: fmt.Sprintf("Verbose %s stack trace with file paths detected at %s", stp.technology, urlx.String()),
-				Severity:    stp.severity,
+				Description: description,
+				Severity:    sev,
 				Confidence:  stp.confidence,
 				Tags:        []string{"passive", "stacktrace", strings.ToLower(stp.technology)},
+			},
+			Metadata: map[string]any{
+				"status_code":            ctx.Response().StatusCode(),
+				"error_context":          ctx.Response().StatusCode() >= 400 && ctx.Response().StatusCode() <= 599,
+				"underlying_vuln_tested": false,
 			},
 		})
 	}

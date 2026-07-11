@@ -15,7 +15,7 @@ var (
 
 **Fix:** Require authentication and authorization on the endpoint, restrict it to trusted networks, and avoid disclosing server version and the tool catalog.`
 
-	ModuleConfirmation = "Confirmed when response contains JSON-RPC 2.0 structure with MCP-specific method names or MCP transport indicators"
+	ModuleConfirmation = "Observation only when multiple protocol-specific indicators or an MCP session header confirm the endpoint; a path name alone never triggers and no vulnerability is inferred"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"mcp", "api-security", "misconfiguration", "light"}

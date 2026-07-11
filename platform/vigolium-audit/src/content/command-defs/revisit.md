@@ -10,12 +10,28 @@ phases:
     requires_git: false
     parallel_with: []
     depends_on: []
+    completion:
+      enforcement: advisory
+      repair_attempts: 0
+      artifacts:
+        - kind: file
+          path: attack-surface/intent-corpus.json
+          min_bytes: 2
+          json: true
   - id: "1"
     title: Deep Probe (fresh teams, anti-anchored)
     agent: probe-lead
     requires_git: false
     parallel_with: []
     depends_on: ["0"]
+    completion:
+      enforcement: advisory
+      repair_attempts: 0
+      artifacts:
+        - kind: glob
+          pattern: probe-workspace/*/probe-summary.md
+          min_matches: 1
+          each_min_bytes: 40
   - id: "2"
     title: Enrichment Re-classify
     agent: null
@@ -28,6 +44,13 @@ phases:
     requires_git: false
     parallel_with: []
     depends_on: ["2"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: attack-surface/knowledge-base-report.md
+          min_bytes: 120
+          contains: ["## Round "]
   - id: "4"
     title: FP Check
     agent: independent-verifier
@@ -51,19 +74,43 @@ phases:
     agent: poc-author
     requires_git: false
     parallel_with: []
-    depends_on: ["6"]
+    depends_on: ["5", "6"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: findings-draft/consolidation-manifest.json
+          min_bytes: 20
+          json: true
   - id: "8"
     title: Finding Finalization
     agent: finding-writer
     requires_git: false
     parallel_with: []
     depends_on: ["7"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: finding_reports
+          roots: [findings, findings-theoretical]
+          filename: report.md
+          min_bytes: 501
+          allow_empty: true
+          manifest_path: findings-draft/consolidation-manifest.json
+          manifest_lists: [findings, theoretical]
   - id: "9"
     title: Final Report Regeneration
     agent: report-composer
     requires_git: false
     parallel_with: []
     depends_on: ["8"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: final-audit-report.md
+          min_bytes: 200
+          contains: ["## Discoveries by Round"]
 ---
 
 ## Context
@@ -275,7 +322,7 @@ Mark 6 complete when all finish.
 Run the consolidation helper with **ID continuation mode** so new findings get IDs that do not collide with round-1:
 
 ```bash
-VIGOLIUM_AUDIT_REVISIT_ROUND=<N> python3 ~/.config/vigolium-audit/skills/audit/scripts/consolidate_drafts.py vigolium-results --continue-ids
+VIGOLIUM_AUDIT_REVISIT_ROUND=<N> python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/consolidate_drafts.py vigolium-results --continue-ids
 ```
 
 The script reads existing IDs from **both** `vigolium-results/findings/*/` and `vigolium-results/findings-theoretical/*/` to determine the max existing ID per severity and continues numbering from there (one global namespace, no cross-bucket collisions). New triage-skipped drafts go straight to `vigolium-results/findings-theoretical/`; the rest to `vigolium-results/findings/`. It also writes `metadata.json` on every newly-created finding directory with:
@@ -291,13 +338,13 @@ The script reads existing IDs from **both** `vigolium-results/findings/*/` and `
 }
 ```
 
-If the script exits non-zero (nothing promoted at all), STOP. Do not proceed to 8 or 9. An empty `findings` array with a non-empty `theoretical` array is normal (all new drafts triage-skipped) — skip PoC + partition and go straight to finalization over the new theoretical dirs.
+Exit 1 with empty `findings` and `theoretical` arrays is a clean no-new-findings round: record an empty `new_finding_ids` list, skip PoC/partition/finding-writer work, and continue through 9 so the round is represented in the regenerated report. Other helper errors are fatal. An empty `findings` array with non-empty `theoretical` is normal (all new drafts triage-skipped) — skip PoC + partition and finalize the new theoretical dirs.
 
 Read `vigolium-results/findings-draft/consolidation-manifest.json`. For each entry in its `findings` array, spawn `vigolium-audit:poc-author` with `run_in_background: true`, passing the entry's `draft_path` and `id`. poc-author writes `PoC-Status` back into the finding's `draft.md` and is NOT responsible for `report.md` (same as deep mode — that is 8).
 
 Capture each new finding's ID in `audits[-1].new_finding_ids[]` of `revisit-audit-state.json`.
 
-Wait for all PoC builders. **Confirmed/theoretical partition**: run `python3 ~/.config/vigolium-audit/skills/audit/scripts/partition_findings.py vigolium-results`. It demotes any `vigolium-results/findings/<ID>-<slug>/` lacking `PoC-Status: executed` into `vigolium-results/findings-theoretical/`. In practice this only touches the current round's new findings — round-1 confirmed findings already carry `PoC-Status: executed`, and round-1 theoretical findings are already in the theoretical bucket. Mark 7 complete.
+Wait for all PoC builders. **Confirmed/theoretical partition**: run `python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/partition_findings.py vigolium-results`. It demotes any `vigolium-results/findings/<ID>-<slug>/` lacking `PoC-Status: executed` into `vigolium-results/findings-theoretical/`. In practice this only touches the current round's new findings — round-1 confirmed findings already carry `PoC-Status: executed`, and round-1 theoretical findings are already in the theoretical bucket. Mark 7 complete.
 
 ### Phase 8 — Finding Finalization
 
@@ -328,17 +375,7 @@ When the assembler finishes, mark 9 complete and set `revisits[-1].status = "com
 
 ### Post-audit Cleanup
 
-Delete the round-<N> working artifacts (same policy as round-1):
-
-```bash
-rm -rf vigolium-results/findings-draft/
-rm -rf vigolium-results/probe-workspace/
-rm -rf vigolium-results/chamber-workspace/
-rm -rf vigolium-results/adversarial-reviews/
-rm -f  vigolium-results/attack-pattern-registry.json
-```
-
-Retained: `vigolium-results/audit-state.json`, `vigolium-results/revisit-audit-state.json`, `vigolium-results/attack-surface/knowledge-base-report.md`, `vigolium-results/attack-surface/intent-corpus.json`, `vigolium-results/findings/` (confirmed, merged across rounds), `vigolium-results/findings-theoretical/` (theoretical/unconfirmed, merged across rounds), `vigolium-results/final-audit-report.md`, `vigolium-results/attack-surface/authz-matrix.md`, `vigolium-results/attack-surface/unauthenticated-surface.md`, `vigolium-results/attack-surface/cross-service-edges.{json,md}`.
+Do not delete round working artifacts inside the agent run. The consolidation manifest, probe summaries, and chamber evidence are completion-gate and resume inputs. The trusted CLI may strip them only after deterministic validation (or when the user explicitly runs `vigolium-audit strip`).
 
 ### Resume Logic
 

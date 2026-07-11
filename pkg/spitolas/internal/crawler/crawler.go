@@ -294,6 +294,17 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 		c.mu.Unlock()
 	}()
 
+	// The single-threaded crawler pins exactly one browser for the entire crawl
+	// (see the Pool.Get() note below), so launching the configured BrowserCount>1
+	// only burns startup time and memory without adding any crawl throughput. Cap
+	// it to one until real multi-browser scheduling (ParallelCrawler) is
+	// production-ready — the configured value still flows into that path unchanged.
+	if c.config.BrowserCount > 1 {
+		zap.L().Debug("Capping browser pool to 1 for single-threaded crawl",
+			zap.Int("configured", c.config.BrowserCount))
+		c.config.BrowserCount = 1
+	}
+
 	// Create browser pool FIRST (needed for browser-level capture)
 	pool, err := browser.NewPool(c.config)
 	if err != nil {
@@ -334,6 +345,58 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 		return nil, fmt.Errorf("failed to start traffic capture: %w", err)
 	}
 	zap.L().Debug("Traffic capture enabled")
+
+	return c.crawlWithBrowser(ctx, br, capture)
+}
+
+// RunOnBrowser crawls this seed using a browser + capture owned by an external
+// SpiderSession instead of creating (and tearing down) its own pool/capture. This
+// is how one browser context is reused across several same-host seeds so cookies,
+// local storage, and capture-level dedup persist between them. The session owns
+// the pool/capture lifecycle; this method only rebinds the seed's deadline onto
+// the shared browser and runs the crawl.
+func (c *Crawler) RunOnBrowser(ctx context.Context, br *browser.Browser, capture *network.Capture) (*Result, error) {
+	c.mu.Lock()
+	if c.running {
+		c.mu.Unlock()
+		return nil, fmt.Errorf("crawler is already running")
+	}
+	c.running = true
+	c.stats.StartTime = time.Now()
+	c.mu.Unlock()
+
+	defer func() {
+		c.mu.Lock()
+		c.running = false
+		c.stats.EndTime = time.Now()
+		c.mu.Unlock()
+	}()
+
+	if br == nil {
+		return nil, fmt.Errorf("RunOnBrowser: nil browser")
+	}
+	c.browserPool = nil // session owns the pool; never close it from here
+	// Rebind THIS seed's deadline/cancellation onto every page the shared browser
+	// creates, exactly as Run does via pool.SetCrawlContext for a fresh pool.
+	br.SetCrawlContext(ctx)
+
+	zap.L().Debug("Crawler starting on shared browser",
+		zap.String("url", c.config.URL.String()),
+		zap.Int("max_states", c.config.MaxStates),
+		zap.String("strategy", string(c.config.CrawlStrategy)))
+
+	return c.crawlWithBrowser(ctx, br, capture)
+}
+
+// crawlWithBrowser runs the seed-level crawl once the browser and capture are
+// ready: it pins the browser, initializes the index state, runs the main loop,
+// and builds the result. It is the shared body of Run (own pool/capture) and
+// RunOnBrowser (session-owned pool/capture).
+func (c *Crawler) crawlWithBrowser(ctx context.Context, br *browser.Browser, capture *network.Capture) (*Result, error) {
+	if br == nil {
+		return nil, fmt.Errorf("browser pool returned nil browser")
+	}
+	c.browser = br
 
 	if c.eventableConditions != nil && c.eventableConditions.Count() > 0 {
 		c.extractor.SetFormHandler(&formHandlerAdapter{checker: c.eventableConditions})
@@ -384,6 +447,30 @@ func (c *Crawler) logMABFinalSummary() {
 		zap.Int("total_actions", actionCount))
 }
 
+// applyPageAuth seeds operator-supplied authentication onto a freshly created
+// page before navigation: initial cookies (written into the browser's cookie
+// jar, so they persist for every subsequent navigation) and extra HTTP headers
+// such as Authorization / X-Api-Key (set per-page via CDP). Both are best-effort
+// — a failure leaves the crawl running unauthenticated rather than aborting it.
+func (c *Crawler) applyPageAuth(page *browser.Page) {
+	if len(c.config.InitialCookies) > 0 {
+		zap.L().Debug("Setting initial cookies", zap.Int("count", len(c.config.InitialCookies)))
+		if err := page.SetCookies(c.config.InitialCookies); err != nil {
+			zap.L().Warn("Failed to set initial cookies", zap.Error(err))
+		}
+	}
+	if len(c.config.ExtraHeaders) > 0 {
+		dict := make([]string, 0, len(c.config.ExtraHeaders)*2)
+		for k, v := range c.config.ExtraHeaders {
+			dict = append(dict, k, v)
+		}
+		zap.L().Debug("Setting extra headers", zap.Int("count", len(c.config.ExtraHeaders)))
+		if _, err := page.RodPage().SetExtraHeaders(dict); err != nil {
+			zap.L().Warn("Failed to set extra headers", zap.Error(err))
+		}
+	}
+}
+
 // initializeIndexState loads the initial page and captures the index state.
 func (c *Crawler) initializeIndexState(ctx context.Context) error {
 	zap.L().Debug("Initializing index state")
@@ -401,13 +488,10 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 	// Set as current page so executeActionDFS can access it
 	br.SetCurrentPage(page)
 
-	// Set initial cookies if provided (from auth bootstrap)
-	if len(c.config.InitialCookies) > 0 {
-		zap.L().Debug("Setting initial cookies", zap.Int("count", len(c.config.InitialCookies)))
-		if err := page.SetCookies(c.config.InitialCookies); err != nil {
-			zap.L().Warn("Failed to set initial cookies", zap.Error(err))
-		}
-	}
+	// Seed operator-supplied authentication (cookies + extra headers) before the
+	// first navigation so the crawl explores authenticated rather than only the
+	// unauthenticated shell.
+	c.applyPageAuth(page)
 
 	// Navigate to target URL
 	url := c.config.URL.String()
@@ -436,13 +520,10 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 	// Check wait conditions
 	c.checkWaitConditions(page)
 
-	// Wait for DOM to stabilize
-	zap.L().Debug("Waiting for DOM to stabilize", zap.Duration("wait_time", c.config.DOMStableTime))
-	if err := page.WaitStable(c.config.DOMStableTime); err != nil {
-		if ctxErr := sleepWithContext(ctx, c.config.DOMStableTime); ctxErr != nil {
-			return ctxErr
-		}
-	}
+	// NOTE: no explicit WaitStable here — NavigateCtx already waited for the DOM
+	// to stabilize (WaitStable(DOMStableTime)) as part of the navigation above, so
+	// repeating it only doubled the settle. The heavier SPA settle below picks up
+	// anything still in flight.
 
 	// Let a heavy SPA finish its bootstrap XHR chain (config/i18n/content/feature
 	// flags) before we snapshot the page and extract clickables — otherwise we
@@ -506,6 +587,7 @@ func (c *Crawler) initializeIndexState(ctx context.Context) error {
 
 	// Extract initial actions (check crawl conditions first)
 	if c.shouldCrawl(page) {
+		c.extractor.SetCurrentState(indexState.ID)
 		actions, err := c.extractor.Extract(ctx, page)
 		if err != nil {
 			zap.L().Debug("Failed to extract actions", zap.Error(err))
@@ -800,6 +882,9 @@ func (c *Crawler) reset(ctx context.Context, nextTarget string) error {
 			return err
 		}
 		br.SetCurrentPage(page)
+		// Extra headers are set per-page in CDP, so a freshly created reset page
+		// needs them re-applied (cookies persist in the browser jar).
+		c.applyPageAuth(page)
 	}
 
 	if err := page.NavigateCtx(ctx, resetURL); err != nil {
@@ -1597,6 +1682,12 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, event
 	c.stats.StatesDiscovered++
 	zap.L().Debug("Current state updated to new state", zap.String("state_id", newState.ID))
 
+	// Let this newly reached state settle and (if it has content below the fold)
+	// scroll to trigger lazy loads BEFORE extracting its fragments/actions, so a
+	// deep SPA route contributes its lazy content and data fetches instead of just
+	// its above-the-fold shell. Bounded and skipped for short, quiescent states.
+	c.settleNewState(ctx, page)
+
 	// Extract fragments
 	c.extractFragments(page, newState)
 
@@ -1615,6 +1706,7 @@ func (c *Crawler) inspectNewState(ctx context.Context, page *browser.Page, event
 	}
 
 	zap.L().Debug("Extracting actions from new state")
+	c.extractor.SetCurrentState(newState.ID)
 	actions, err := c.extractor.Extract(ctx, page)
 	if err != nil {
 		zap.L().Debug("Failed to extract actions", zap.Error(err))
@@ -1650,8 +1742,11 @@ func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previ
 		return
 	}
 
-	// Strip DOM for comparison
-	strippedDOM := state.StripDOMDefault(combinedDOM)
+	// Strip DOM for comparison via the comparator so this state's identity uses
+	// the exact same stripping + volatile-content normalization as every other
+	// state (otherwise a clock/nonce here would still mint a fresh state, and a
+	// config-customized strip set would be ignored on this path).
+	strippedDOM := c.comparator.PrepareForComparison(combinedDOM)
 	currentURL, _ := page.URL()
 
 	newState := state.New(currentURL, combinedDOM, strippedDOM, 1)
@@ -1676,6 +1771,7 @@ func (c *Crawler) checkOnURLState(ctx context.Context, page *browser.Page, previ
 
 		zap.L().Debug("checkOnURLState: NEW state discovered after reload", zap.String("state", newState.Name))
 
+		c.extractor.SetCurrentState(newState.ID)
 		actions, err := c.extractor.Extract(ctx, page)
 		if err == nil && len(actions) > 0 {
 			c.candidates.AddActions(actions, newState.ID)
@@ -1894,7 +1990,7 @@ func sameOrSubdomain(host, base string) bool {
 // Only applies under the default host-scope rule — an explicit CrawlScope is
 // the operator's own boundary and is never widened here.
 func (c *Crawler) evaluateStartRedirect(page *browser.Page, indexState *state.State) {
-	if c.config.CrawlScope != nil || indexState == nil {
+	if indexState == nil {
 		return
 	}
 
@@ -1911,6 +2007,9 @@ func (c *Crawler) evaluateStartRedirect(page *browser.Page, indexState *state.St
 	c.stats.OffHostLanding = true
 	c.stats.LandingURL = indexState.URL
 
+	// Login/SSO-wall detection runs regardless of scope mode so the caller still
+	// gets the "supply --auth" advice and the SSO host is excluded from fuzzing —
+	// even under an explicit operator scope.
 	if c.landingLooksLikeLogin(page, landing) {
 		c.stats.LandingIsLogin = true
 		zap.L().Warn("Spidering: start URL redirected to an off-host login wall",
@@ -1919,7 +2018,13 @@ func (c *Crawler) evaluateStartRedirect(page *browser.Page, indexState *state.St
 		return
 	}
 
-	// Non-login off-host landing: adopt it so the crawl can continue.
+	// Non-login off-host landing: adopt it so the crawl can continue — but ONLY
+	// under the default host-scope rule. An explicit CrawlScope is the operator's
+	// own boundary and is never widened; if the relocated host is genuinely in
+	// scope the CrawlScope filter already admits it, so no adoption is needed.
+	if c.config.CrawlScope != nil {
+		return
+	}
 	c.adoptedHost = landHost
 	c.stats.HostAdopted = true
 	zap.L().Info("Spidering: adopting off-host redirect target into scope",

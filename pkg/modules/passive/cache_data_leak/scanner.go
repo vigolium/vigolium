@@ -127,7 +127,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -195,25 +198,29 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	var results []*output.ResultEvent
 	for _, issue := range issues {
 		results = append(results, &output.ResultEvent{
-			ModuleID: ModuleID,
-			Host:     urlx.Host,
-			URL:      urlx.String(),
-			Matched:  urlx.String(),
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindCandidate,
+			EvidenceGrade: output.EvidenceGradeCandidate,
+			Host:          urlx.Host,
+			URL:           urlx.String(),
+			Matched:       urlx.String(),
 			ExtractedResults: []string{
 				fmt.Sprintf("Issue: %s", issue.name),
 				issue.desc,
 			},
 			Info: output.Info{
-				Name:        fmt.Sprintf("Cache Data Leak: %s", issue.name),
-				Description: fmt.Sprintf("%s at %s", issue.desc, urlx.Path),
+				Name:        fmt.Sprintf("Cache Data-Flow Candidate: %s", issue.name),
+				Description: fmt.Sprintf("%s at %s. This file-level pattern does not prove that authenticated data reaches the shared cache or that another user receives it.", issue.desc, urlx.Path),
 				Severity:    issue.severity,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"caching", "information-disclosure", "nextjs", "source-analysis"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/524.html"},
 			},
 			Metadata: map[string]any{
-				"cwe":     "CWE-524",
-				"pattern": issue.name,
+				"cwe":                   "CWE-524",
+				"pattern":               issue.name,
+				"connected_flow_proven": false,
+				"cross_user_replay":     false,
 			},
 		})
 	}

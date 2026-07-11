@@ -7,15 +7,19 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 )
 
 var (
-	// strongMarkers are Django-REST-Framework-specific tokens that appear only in
-	// a genuine DRF browsable-API page (framework name, static asset path, the
-	// browsable-api class). At least one MUST be present to report.
-	strongMarkers = []string{"django-rest-framework", "rest_framework", "browsable-api"}
+	// A real browsable renderer needs both a DRF/framework anchor and an interface
+	// structure marker. A source-code mention or generic Bootstrap layout alone is
+	// not enough.
+	drfMarkerGroups = [][]string{
+		{"django-rest-framework", "/static/rest_framework/", "rest_framework"},
+		{"browsable-api", "api-breadcrumb", "content-main"},
+	}
 	// corroborators are generic layout tokens that DRF's template also uses but
 	// which occur widely in unrelated themes/SPAs ("content-main", "api-breadcrumb").
 	// They are recorded as supporting evidence only — NEVER a sole trigger. The
@@ -56,13 +60,9 @@ func New() *Module {
 // anchor. It is the accept predicate shared by the probe and the catch-all decoy
 // confirmation: a guaranteed-nonexistent sibling carrying the same anchor proves
 // the host is a catch-all / echo shell rather than a real browsable endpoint.
-func hasStrongMarker(body string) bool {
-	for _, marker := range strongMarkers {
-		if strings.Contains(body, marker) {
-			return true
-		}
-	}
-	return false
+func hasDRFBrowsableMarkers(body string) bool {
+	_, ok := modkit.MatchAllGroups(body, drfMarkerGroups)
+	return ok
 }
 
 func (m *Module) IncludesBaseCanProcess() bool { return false }
@@ -87,24 +87,37 @@ func (m *Module) ScanPerRequest(
 
 	host := service.Host()
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
-		return nil, nil
+	if scanCtx != nil {
+		diskSet := m.ds.Get(scanCtx.DedupMgr())
+		if diskSet != nil && diskSet.IsSeen(host) {
+			return nil, nil
+		}
 	}
 
-	var results []*output.ResultEvent
+	cleanRaw, err := modkit.StripCredentialHeaders(ctx.Request().Raw())
+	if err != nil {
+		return nil, nil
+	}
+	anonymousClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
+	anonymousCtx := httpmsg.NewHttpRequestResponse(
+		httpmsg.NewHttpRequestWithService(service, cleanRaw),
+		ctx.Response(),
+	)
 
 	// Probe 1: Re-request the original URL with Accept: text/html.
-	if result := m.probeWithAcceptHTML(ctx, httpClient, "", "Original endpoint with Accept: text/html"); result != nil {
-		results = append(results, result)
+	if result := m.probeWithAcceptHTML(anonymousCtx, anonymousClient, "", "Original endpoint with Accept: text/html"); result != nil {
+		return []*output.ResultEvent{result}, nil
 	}
 
 	// Probe 2: Request /api/ with Accept: text/html.
-	if result := m.probeWithAcceptHTML(ctx, httpClient, "/api/", "DRF API root"); result != nil {
-		results = append(results, result)
+	if result := m.probeWithAcceptHTML(anonymousCtx, anonymousClient, "/api/", "DRF API root"); result != nil {
+		return []*output.ResultEvent{result}, nil
 	}
 
-	return results, nil
+	return nil, nil
 }
 
 func (m *Module) probeWithAcceptHTML(
@@ -118,11 +131,17 @@ func (m *Module) probeWithAcceptHTML(
 		return nil
 	}
 
-	if overridePath != "" {
-		modifiedRaw, err = httpmsg.SetPath(modifiedRaw, overridePath)
-		if err != nil {
-			return nil
-		}
+	urlx, err := ctx.URL()
+	if err != nil || urlx == nil {
+		return nil
+	}
+	probePath := overridePath
+	if probePath == "" {
+		probePath = urlx.Path // intentionally drop credential-bearing query strings
+	}
+	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, probePath)
+	if err != nil {
+		return nil
 	}
 
 	modifiedRaw, err = httpmsg.AddOrReplaceHeader(modifiedRaw, "Accept", "text/html")
@@ -133,13 +152,13 @@ func (m *Module) probeWithAcceptHTML(
 	// modifiedRaw is well-formed raw, so wrap directly instead of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
 		return nil
 	}
 
@@ -167,23 +186,14 @@ func (m *Module) probeWithAcceptHTML(
 	if status != 200 {
 		return nil
 	}
-
-	// A DRF-specific anchor must be present; generic layout tokens alone are not
-	// enough (they occur in unrelated pages the module re-fetches with Accept: html).
-	var matchedMarkers []string
-	for _, marker := range strongMarkers {
-		if strings.Contains(body, marker) {
-			matchedMarkers = append(matchedMarkers, marker)
-		}
-	}
-	if len(matchedMarkers) == 0 {
+	contentType := strings.ToLower(resp.Response().Header.Get("Content-Type"))
+	if !strings.Contains(contentType, "text/html") && !strings.Contains(contentType, "application/xhtml+xml") {
 		return nil
 	}
 
-	urlx, _ := ctx.URL()
-	probePath := overridePath
-	if probePath == "" {
-		probePath = urlx.Path
+	matchedMarkers, ok := modkit.MatchAllGroups(body, drfMarkerGroups)
+	if !ok {
+		return nil
 	}
 
 	// Catch-all / echo confirmation. The genuine DRF browsable API legitimately IS
@@ -197,7 +207,7 @@ func (m *Module) probeWithAcceptHTML(
 	// siblings under this path's directory and dropping the finding when they return
 	// the SAME 200 status carrying the same DRF anchor — a real browsable API serves
 	// its markers only at its own route (siblings 404), so a genuine finding stands.
-	if modkit.MultiRoundExtDecoyCatchAll(ctx, httpClient, probePath, body, status, 2, hasStrongMarker) {
+	if modkit.MultiRoundExtDecoyCatchAll(ctx, httpClient, probePath, body, status, 2, hasDRFBrowsableMarkers) {
 		return nil
 	}
 
@@ -211,18 +221,26 @@ func (m *Module) probeWithAcceptHTML(
 	targetURL := urlx.Scheme + "://" + urlx.Host + probePath
 
 	return &output.ResultEvent{
+		ModuleID:         ModuleID,
+		RecordKind:       output.RecordKindObservation,
+		EvidenceGrade:    output.EvidenceGradeObservation,
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
 		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
-			Name:        fmt.Sprintf("Django Browsable API Exposure: %s", name),
-			Description: "Django REST Framework browsable API is enabled in production, exposing interactive API documentation and schema details",
+			Name:        fmt.Sprintf("Django REST Framework Browsable API Observed: %s", name),
+			Description: "A credential-free HTML request returned a marker-confirmed DRF browsable interface. This records interactive API attack surface; it does not prove unauthorized access to a protected operation.",
 			Severity:    ModuleSeverity,
 			Confidence:  ModuleConfidence,
 			Tags:        []string{"python", "django", "drf", "browsable-api", "information-disclosure"},
 			Reference:   []string{"https://www.django-rest-framework.org/topics/browsable-api/"},
+		},
+		Metadata: map[string]any{
+			"credential_free":        true,
+			"authorization_bypassed": false,
+			"write_action_tested":    false,
 		},
 	}
 }

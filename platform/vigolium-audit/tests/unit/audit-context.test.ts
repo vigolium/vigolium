@@ -17,6 +17,24 @@ class CapturingAdapter implements Adapter {
   async probe(): Promise<void> {}
   async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
     this.calls.push(input);
+    if (input.cwd) {
+      const attackSurface = join(input.cwd, "vigolium-results", "attack-surface");
+      mkdirSync(attackSurface, { recursive: true });
+      if (input.label?.startsWith("lite:L1")) {
+        writeFileSync(join(attackSurface, "lite-recon.md"), "## Lite Recon\n\nFixture recon completed.\n");
+        writeFileSync(
+          join(attackSurface, "unauthenticated-surface.md"),
+          "# Unauthenticated Attack Surface\n\nNo fixture surface.\n",
+        );
+      } else if (input.label?.startsWith("lite:L2")) {
+        writeFileSync(join(attackSurface, "lite-secrets-scan.md"), "## Lite Secrets Scan\n\nNo fixture secrets.\n");
+      } else if (input.label?.startsWith("lite:L3")) {
+        writeFileSync(join(attackSurface, "lite-sast-summary.md"), "## Lite SAST Summary\n\nNo fixture findings.\n");
+        const drafts = join(input.cwd, "vigolium-results", "findings-draft");
+        mkdirSync(drafts, { recursive: true });
+        writeFileSync(join(drafts, "consolidation-manifest.json"), '{"findings":[],"theoretical":[],"dropped":[]}\n');
+      }
+    }
     yield { kind: "textDelta", text: "ok" };
     yield {
       kind: "finish",
@@ -126,6 +144,16 @@ describe("audit context — prompt injection + persistence", () => {
 });
 
 describe("audit context — handoff auto-confirm policy", () => {
+  test("fresh context leaves stale artifact lifecycle to the trusted CLI", async () => {
+    const target = makeTarget();
+    const resultsDir = join(target, "vigolium-results");
+    await writeAuditContext(resultsDir, {});
+    const body = readFileSync(join(resultsDir, "audit-context.md"), "utf8");
+    expect(body).toContain("trusted CLI handles stale core artifacts");
+    expect(body).toContain("do not delete retained state");
+    expect(body).not.toContain("Clean up stale working state");
+  });
+
   test("resume context tells agents to continue, not start fresh", async () => {
     const target = makeTarget();
     const resultsDir = join(target, "vigolium-results");

@@ -19,7 +19,4 @@ subagent_overrides:
 # Agents absent from codex's current installed roster.
 # Confirmation-mode agents are intentionally included for `--mode confirm`.
 exclude:
-  - independent-verifier
-  - history-miner
-  - assumption-breaker
   - deep-reviewer

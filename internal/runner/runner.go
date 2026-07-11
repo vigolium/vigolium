@@ -36,8 +36,8 @@ import (
 // maxFeedbackRounds limits re-scanning of newly discovered URLs in the dynamic-assessment phase.
 const maxFeedbackRounds = 1
 
-// kingfisherBatchSize is the number of records per batch when scanning response bodies for secrets.
-const kingfisherBatchSize = 500
+// secretScanBatchSize is the number of records per batch when scanning response bodies for secrets.
+const secretScanBatchSize = 500
 
 // Runner is a client for running the enumeration process.
 type Runner struct {

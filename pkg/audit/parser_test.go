@@ -542,6 +542,13 @@ func TestFlexTimeDateOnly(t *testing.T) {
 	assert.True(t, p3.CompletedAt.IsZero())
 }
 
+func TestFlexTimeTimezoneLessDateTime(t *testing.T) {
+	data := `{"status":"complete","completed_at":"2026-07-10T20:31:58"}`
+	var p PhaseEntry
+	require.NoError(t, json.Unmarshal([]byte(data), &p))
+	assert.Equal(t, time.Date(2026, time.July, 10, 20, 31, 58, 0, time.UTC), p.CompletedAt.Time)
+}
+
 func TestMapConfidence(t *testing.T) {
 	assert.Equal(t, "firm", mapConfidence("CONFIRMED"))
 	assert.Equal(t, "firm", mapConfidence("HIGH"))

@@ -27,8 +27,8 @@ type DiscoveredNode struct {
 	// Cached tags (computed from request/response analysis)
 	tags []string
 
-	// Cached kingfisher findings (secrets detected in response)
-	kingfisherFindings []KingfisherFinding
+	// Cached secret findings (secrets detected in response)
+	secretFindings []SecretFinding
 }
 
 // ID returns the database ID of the node.
@@ -134,12 +134,12 @@ func (n *DiscoveredNode) SetTags(tags []string) {
 	n.tags = tags
 }
 
-// KingfisherFindings returns the cached kingfisher findings for this node
-func (n *DiscoveredNode) KingfisherFindings() []KingfisherFinding {
-	return n.kingfisherFindings
+// SecretFindings returns the cached secret findings for this node
+func (n *DiscoveredNode) SecretFindings() []SecretFinding {
+	return n.secretFindings
 }
 
-// SetKingfisherFindings sets the cached kingfisher findings for this node
-func (n *DiscoveredNode) SetKingfisherFindings(findings []KingfisherFinding) {
-	n.kingfisherFindings = findings
+// SetSecretFindings sets the cached secret findings for this node
+func (n *DiscoveredNode) SetSecretFindings(findings []SecretFinding) {
+	n.secretFindings = findings
 }

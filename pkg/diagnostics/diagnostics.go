@@ -19,7 +19,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/browserprobe"
 	"github.com/vigolium/vigolium/pkg/cftbrowser"
 	"github.com/vigolium/vigolium/pkg/database"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/olium/auth"
 	"github.com/vigolium/vigolium/pkg/piolium"
 	"github.com/vigolium/vigolium/pkg/queue"
@@ -235,7 +235,7 @@ func Run(deps Deps) *Report {
 
 	r.SessionsDir = checkSessionsDir(settings)
 	r.EmbeddedBinaries = map[string]*CheckResult{
-		"jsscan":         checkJSScanBinary(),
+		"jstangle":         checkJSTangleBinary(),
 		"vigolium-audit": checkAuditBinary(),
 	}
 	r.Audit = checkAudit(settings, r.EmbeddedBinaries["vigolium-audit"])
@@ -733,19 +733,19 @@ func checkAudit(settings *config.Settings, auditBinary *CheckResult) *CheckResul
 	}
 }
 
-func checkJSScanBinary() *CheckResult {
+func checkJSTangleBinary() *CheckResult {
 	details := []string{
 		fmt.Sprintf("runtime: %s/%s", runtime.GOOS, runtime.GOARCH),
-		"extracting embedded jsscan and validating cache checksum",
+		"extracting embedded jstangle and validating cache checksum",
 	}
 
-	scanner, err := jsscan.NewScanner(jsscan.DefaultConfig())
+	scanner, err := jstangle.NewScanner(jstangle.DefaultConfig())
 	if err != nil {
 		return &CheckResult{
 			Status:  StatusError,
 			Message: fmt.Sprintf("not available: %v", err),
 			Details: details,
-			Tip:     "This installed Vigolium binary does not contain a usable jsscan for this platform. Reinstall the latest release; if it persists, report the package platform and `vigolium version` output.",
+			Tip:     "This installed Vigolium binary does not contain a usable jstangle for this platform. Reinstall the latest release; if it persists, report the package platform and `vigolium version` output.",
 		}
 	}
 	if err := scanner.EnsureBinary(); err != nil {
@@ -770,7 +770,7 @@ func checkJSScanBinary() *CheckResult {
 			Status:  StatusError,
 			Message: fmt.Sprintf("capability handshake failed: %v", err),
 			Details: details,
-			Tip:     "The embedded helper and Go wrapper use incompatible protocols. Rebuild with `make ensure-jsscan`, or reinstall a matching Vigolium release.",
+			Tip:     "The embedded helper and Go wrapper use incompatible protocols. Rebuild with `make ensure-jstangle`, or reinstall a matching Vigolium release.",
 		}
 	}
 	details = append(details,
@@ -785,13 +785,25 @@ func checkJSScanBinary() *CheckResult {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, err := scanner.ScanWithOptions(ctx, []byte(`fetch("/vigolium-doctor-jsscan", {method: "POST", body: JSON.stringify({ok: true})});`), jsscan.ScanOptions{Profile: jsscan.ProfileEndpoints})
+	// Run the probe through the worker-pool Service — the same length-prefixed
+	// path production scans use — rather than a one-shot invocation.
+	service, err := jstangle.NewService(nil)
+	if err != nil {
+		return &CheckResult{
+			Status:  StatusError,
+			Message: fmt.Sprintf("worker pool init failed: %v", err),
+			Details: details,
+			Tip:     "The embedded jstangle extracted but its worker pool could not start. Reinstall the correct platform build; if it persists, report the package platform and this doctor output.",
+		}
+	}
+	defer func() { _ = service.Close() }()
+	result, err := service.ScanWithOptions(ctx, []byte(`fetch("/vigolium-doctor-jstangle", {method: "POST", body: JSON.stringify({ok: true})});`), jstangle.ScanOptions{Profile: jstangle.ProfileEndpoints})
 	if err != nil {
 		return &CheckResult{
 			Status:  StatusError,
 			Message: fmt.Sprintf("probe failed: %v", err),
 			Details: details,
-			Tip:     "The embedded jsscan extracted but could not execute. Reinstall the correct platform build; if it persists, report the package platform and this doctor output.",
+			Tip:     "The embedded jstangle extracted but could not execute. Reinstall the correct platform build; if it persists, report the package platform and this doctor output.",
 		}
 	}
 
@@ -1082,7 +1094,7 @@ func checkNucleiTemplates(settings *config.Settings) *CheckResult {
 //   - Core: only Database. A DB failure is the single condition that drops
 //     the system to "not_ready" — every scan path needs storage.
 //   - Native scan (vigolium scan / vigolium run): chromium, nuclei templates,
-//     and the embedded jsscan binary. Failures here drop to "degraded" —
+//     and the embedded jstangle binary. Failures here drop to "degraded" —
 //     native scans are partially broken but the rest of the system still works.
 //   - Olium-based agentic modes (autopilot + swarm + query): olium provider,
 //     sessions dir, prompt templates dir, and (when explicitly enabled) the
@@ -1107,7 +1119,7 @@ func computeOverallStatus(r *Report) Status {
 		return "degraded"
 	}
 	if r.EmbeddedBinaries != nil {
-		if c := r.EmbeddedBinaries["jsscan"]; c != nil && c.Status != StatusOK {
+		if c := r.EmbeddedBinaries["jstangle"]; c != nil && c.Status != StatusOK {
 			return "degraded"
 		}
 	}

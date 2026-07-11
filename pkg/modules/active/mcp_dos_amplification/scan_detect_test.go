@@ -14,6 +14,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -100,8 +101,11 @@ func TestScanPerHost_DetectsUnboundedBatch(t *testing.T) {
 	res, err := New().ScanPerHost(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "a server that processes an unbounded oversized batch must be flagged")
-	assert.Equal(t, "MCP Unbounded JSON-RPC Batch (Request Amplification / DoS)", res[0].Info.Name)
+	assert.Equal(t, "MCP Large JSON-RPC Batch Processing Candidate", res[0].Info.Name)
 	assert.Equal(t, severity.Medium, res[0].Info.Severity)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
+	assert.Equal(t, false, res[0].Metadata["service_degradation_observed"])
 }
 
 // TestScanPerHost_CappedServerNoFinding ensures a server that caps the oversized

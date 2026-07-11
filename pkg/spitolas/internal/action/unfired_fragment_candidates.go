@@ -981,10 +981,11 @@ func (u *UnfiredFragmentCandidates) Stats() Stats {
 }
 
 // RecordStateCreation records when a state was created (for OLDEST_FIRST mode).
-// This is a no-op in UnfiredFragmentCandidates as it doesn't track creation order.
+// Discovery order is already captured by the statesWithCandidates FIFO queue
+// (a state is enqueued when its actions are added), which PollStateByPriority
+// selects from — so this needs no separate bookkeeping and stays a no-op.
 func (u *UnfiredFragmentCandidates) RecordStateCreation(stateID string) {
-	// No-op: UnfiredFragmentCandidates doesn't track state creation order
-	// This is here for API compatibility
+	// No-op: statesWithCandidates already preserves discovery order.
 }
 
 // PollStateByPriority polls the next state to work on based on crawl strategy.
@@ -994,7 +995,20 @@ func (u *UnfiredFragmentCandidates) PollStateByPriority(strategy interface{}) st
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	// Get first available state with pending actions
+	// Select in the deterministic order states were discovered — the FIFO
+	// statesWithCandidates queue — NOT Go's randomized map iteration. The old
+	// map-range made state scheduling nondeterministic (a different order every
+	// run) and silently ignored the configured strategy; FIFO gives the BFS-style
+	// progression "normal"/"oldest_first" intend, while adaptive/MAB still drives
+	// ACTION selection within a state via PollByMode.
+	for _, stateID := range u.statesWithCandidates.Snapshot() {
+		if len(u.cache[stateID]) > 0 {
+			return stateID
+		}
+	}
+	// Fallback: the queue and cache can drift (e.g. a state whose actions were
+	// restored directly into the cache). Scan the cache so a state with pending
+	// actions is never stranded just because it is missing from the queue.
 	for stateID, actions := range u.cache {
 		if len(actions) > 0 {
 			return stateID

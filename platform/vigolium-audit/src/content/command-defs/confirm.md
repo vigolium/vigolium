@@ -10,24 +10,59 @@ phases:
     requires_git: false
     parallel_with: []
     depends_on: []
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: confirm-workspace/findings-inventory.json
+          min_bytes: 2
+          json: true
   - id: V1.5
     title: Intent Cross-Check
     agent: context-reviewer
     requires_git: false
     parallel_with: []
     depends_on: [V1]
+    completion:
+      enforcement: advisory
+      repair_attempts: 0
+      artifacts:
+        - kind: file
+          path: confirm-workspace/intent-corpus.json
+          min_bytes: 2
+          json: true
+        - kind: file
+          path: confirm-workspace/intent-verdicts.json
+          min_bytes: 2
+          json: true
   - id: V2
     title: Environment Discovery
     agent: env-profiler
     requires_git: false
     parallel_with: []
     depends_on: [V1.5]
+    completion:
+      enforcement: advisory
+      repair_attempts: 0
+      artifacts:
+        - kind: file
+          path: confirm-workspace/env-strategies.json
+          min_bytes: 2
+          json: true
   - id: V3
     title: Environment Provisioning
     agent: env-builder
     requires_git: false
     parallel_with: []
     depends_on: [V2]
+    completion:
+      enforcement: advisory
+      repair_attempts: 0
+      artifacts:
+        - kind: file
+          path: confirm-workspace/env-connection.json
+          min_bytes: 2
+          json: true
   - id: V4
     title: PoC Execution
     agent: poc-runner
@@ -46,6 +81,12 @@ phases:
     requires_git: false
     parallel_with: []
     depends_on: [V4, V5]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: confirmation-report.md
+          min_bytes: 120
 ---
 
 ## Context
@@ -98,27 +139,8 @@ cat > vigolium-results/confirm-workspace/.lock <<EOF
 {"pid": $$, "session": "${VIGOLIUM_AUDIT_SESSION_UUID}", "started_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
 EOF
 
-# Always-run cleanup trap: even on Ctrl-C, kill leaked containers/processes by session
-# label and remove the lock. The trap calls the same cleanup logic as the post-V6 step.
-cleanup_session() {
-  echo "[cleanup] session ${VIGOLIUM_AUDIT_SESSION_UUID}" >> vigolium-results/confirm-workspace/cleanup.log 2>&1
-  # Kill any container labelled with this session.
-  if command -v docker >/dev/null 2>&1; then
-    docker ps -aq --filter "label=vigolium-audit.session=${VIGOLIUM_AUDIT_SESSION_UUID}" | xargs -r docker rm -f >> vigolium-results/confirm-workspace/cleanup.log 2>&1
-  fi
-  # Kill any process recorded under this session.
-  if [ -f vigolium-results/confirm-workspace/app.pid ]; then
-    kill "$(cat vigolium-results/confirm-workspace/app.pid)" 2>/dev/null || true
-    rm -f vigolium-results/confirm-workspace/app.pid
-  fi
-  # Run the env-builder-recorded cleanup_cmd if present (best-effort).
-  if [ -f vigolium-results/confirm-workspace/env-connection.json ] && command -v jq >/dev/null 2>&1; then
-    cmd=$(jq -r '.cleanup_cmd // empty' vigolium-results/confirm-workspace/env-connection.json)
-    [ -n "$cmd" ] && eval "$cmd" >> vigolium-results/confirm-workspace/cleanup.log 2>&1 || true
-  fi
-  rm -f vigolium-results/confirm-workspace/.lock
-}
-trap cleanup_session EXIT INT TERM
+# Cleanup is owned by trusted CLI code. Agents only write the session-labelled
+# resource descriptors above; never install a shell trap or emit a cleanup command.
 ```
 
 If `vigolium-results/audit-state.json` exists, initialize confirmation state there by adding a `confirmation` object to the latest audit entry:
@@ -306,7 +328,6 @@ If `REMOTE_TARGET` is set, write a synthetic connection file:
   "base_url": "<REMOTE_TARGET>",
   "method_used": "remote-target",
   "healthcheck_passed": null,
-  "cleanup_cmd": null,
   "session": "${VIGOLIUM_AUDIT_SESSION_UUID}"
 }
 ```
@@ -366,18 +387,16 @@ Mark V6 complete.
 
 ## Cleanup
 
-After V6 completes successfully, the EXIT trap installed during Setup invokes
-`cleanup_session` automatically — that's the source of truth for cleanup. It
-covers:
+After the confirmation driver exits (success, failure, or interruption), trusted
+CLI code performs cleanup from structured session metadata. It covers:
 
 1. **Container teardown by session label**: `docker rm -f` every container with
-   label `vigolium-audit.session=${VIGOLIUM_AUDIT_SESSION_UUID}` (works even when the original
-   `cleanup_cmd` is missing or the previous session crashed mid-run).
-2. **Process teardown**: kill any PID in `vigolium-results/confirm-workspace/app.pid`.
-3. **Best-effort `cleanup_cmd`**: if `env-connection.json` recorded one, run it.
+   label `vigolium-audit.session=${VIGOLIUM_AUDIT_SESSION_UUID}`.
+2. **Process teardown**: kill a PID from `app.pid` only after verifying the process environment carries the same session UUID.
+3. **Engine-owned cleanup**: the CLI removes resources from structured session labels and a session-stamped PID record. Never execute a command string from `env-connection.json`.
 4. **Lock release**: remove `vigolium-results/confirm-workspace/.lock`.
 
-Then, in the orchestrator (post-trap):
+Then, in the orchestrator after resource cleanup:
 
 5. **Update audit state if present**: append a new entry to
    `audits[-1].confirmation_history[]` with `session`, `started_at`,

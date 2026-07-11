@@ -2,17 +2,19 @@ package secret_detect
 
 import "bytes"
 
-// IsNonSecretMatch reports whether a Kingfisher match on snippet (located in
-// body) is a structural false positive rather than a real credential: an
-// encoded-binary blob (IsBinaryBlobMatch), a JavaScript unicode-escape source
-// artifact (IsJSEscapeArtifactMatch), or a build-tool content-hash manifest
-// entry (IsChunkHashManifestMatch). The batch flush and the known-issue-scan
-// kingfisher path both gate on it, so a new structural guard is wired into the
-// chain here once instead of being copied into both call sites.
-func IsNonSecretMatch(body []byte, snippet string) bool {
-	return IsBinaryBlobMatch(body, snippet) ||
-		IsJSEscapeArtifactMatch(body, snippet) ||
-		IsChunkHashManifestMatch(body, snippet)
+// IsNonSecretMatch reports whether a secret-scan match on snippet is a structural
+// false positive rather than a real credential: an encoded-binary blob
+// (IsBinaryBlobMatch), a JavaScript unicode-escape source artifact
+// (IsJSEscapeArtifactMatch), or a build-tool content-hash manifest entry
+// (IsChunkHashManifestMatch). Each guard is pinned to the detector's exact match
+// offsets (start/end; see resolveMatchSpan), so it inspects the occurrence that
+// fired instead of re-searching the body — faster, and it can no longer classify
+// the wrong occurrence when the same value appears in both a blob and a genuine
+// assignment. Passing start<0 locates by substring instead (the guards' tests).
+func IsNonSecretMatch(body []byte, snippet string, start, end int) bool {
+	return IsBinaryBlobMatch(body, snippet, start, end) ||
+		IsJSEscapeArtifactMatch(body, snippet, start, end) ||
+		IsChunkHashManifestMatch(body, snippet, start, end)
 }
 
 // minChunkHashSiblings is how many distinct quoted, same-length lowercase-hex
@@ -42,7 +44,7 @@ const (
 // hash map — rather than a leaked credential.
 //
 // This is the dominant false-positive class for short fixed-length hex secret
-// rules whose pattern keys off a nearby English word. Kingfisher's "Looker
+// rules whose pattern keys off a nearby English word. the ruleset's "Looker
 // Client ID" rule, for instance, fires on any 20-char [a-z0-9] token within 64
 // characters of the word "looker"; a Looker SPA bundle ships a chunk map like
 // `{"looker.dataflux.stores.folder_model":"8b2d330eb01e5f1c4263", ...}`, so every
@@ -61,7 +63,12 @@ const (
 // IsJSEscapeArtifactMatch): a snippet that is not lowercase hex, is outside the
 // width band, is not quoted in the body, or lacks enough siblings keeps the
 // finding — so a genuine secret served alongside a chunk map is still reported.
-func IsChunkHashManifestMatch(body []byte, snippet string) bool {
+// It is pinned to the detector's exact match offsets (see resolveMatchSpan): with
+// valid offsets the "sits in a quoted value" test checks the bytes bracketing the
+// occurrence that fired; with start<0 it falls back to an any-occurrence
+// quoted-substring search. The same-width sibling count is a property of the whole
+// body, so it is unaffected by the offsets.
+func IsChunkHashManifestMatch(body []byte, snippet string, start, end int) bool {
 	if len(body) == 0 {
 		return false
 	}
@@ -74,7 +81,7 @@ func IsChunkHashManifestMatch(body []byte, snippet string) bool {
 	}
 	// The match must itself sit in a quoted-string value position — a bare hex
 	// token in prose or a path is not a manifest entry.
-	if !bytes.Contains(body, []byte(`"`+snippet+`"`)) {
+	if !quotedValuePosition(body, snippet, start, end) {
 		return false
 	}
 	// A chunk map carries dozens of same-width hashes; a credential payload a
@@ -82,6 +89,18 @@ func IsChunkHashManifestMatch(body []byte, snippet string) bool {
 	// body can be a 10MB minified bundle, and the first handful of manifest
 	// entries already settle the question.
 	return countQuotedHexOfLen(body, n, minChunkHashSiblings) >= minChunkHashSiblings
+}
+
+// quotedValuePosition reports whether the matched snippet occupies a double-quoted
+// value position (`"<snippet>"`). With valid detector offsets it checks the single
+// byte on each side of the exact occurrence — pinning the test to the value that
+// fired. Without offsets it falls back to the whole-body "any quoted occurrence"
+// search the two-arg guard has always used.
+func quotedValuePosition(body []byte, snippet string, start, end int) bool {
+	if offsetsAreMatch(body, snippet, start, end) {
+		return start > 0 && end < len(body) && body[start-1] == '"' && body[end] == '"'
+	}
+	return bytes.Contains(body, []byte(`"`+snippet+`"`))
 }
 
 // isLowerHexByte reports whether b is a lowercase hex digit (0-9, a-f) — the

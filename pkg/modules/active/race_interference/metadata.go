@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application mishandles concurrent requests to this parameter. Sending parallel requests with tagged canaries, the scanner observed input storage (a value persisted into a later response), cross-contamination (a value from one request surfaced in another), or interference (parallel requests diverged from baseline). The first two are high-confidence.
+	ModuleDesc = `**What it means:** Parallel tagged GET requests showed repeatable input storage, same-session cross-contamination, or response divergence. Divergence is an observation; repeatable wrong-ID behavior is a candidate until cross-user or durable impact is proven.
 
-**How it's exploited:** Overlapping requests exploit the lack of isolation: cross-contamination can leak one user's data, session tokens, or input into another's response, and storage races can poison shared caches.
+**How it's exploited:** Concurrent requests may receive another operation's data or corrupt shared state, potentially crossing an authorization boundary.
 
-**Fix:** Isolate per-request state and serialize access to shared resources with locks.`
+**Fix:** Isolate per-request state and serialize access to shared mutable resources.`
 
-	ModuleConfirmation = "Confirmed when parallel requests with different payloads produce cross-contaminated responses, indicating shared mutable state"
-	ModuleSeverity     = severity.High
+	ModuleConfirmation = "Candidate when wrong-id behavior repeats with a fresh canary in one session; confirmed impact requires cross-user or durable state proof"
+	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"race-condition", "heavy"}
 )

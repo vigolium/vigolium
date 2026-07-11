@@ -75,22 +75,31 @@ func (m *Module) phaseDoS(
 	}
 
 	return &output.ResultEvent{
-		URL:     target,
-		Matched: target + endpointPath,
+		ModuleID:      ModuleID,
+		RecordKind:    output.RecordKindCandidate,
+		EvidenceGrade: output.EvidenceGradeCandidate,
+		URL:           target,
+		Matched:       target + endpointPath,
 		ExtractedResults: []string{
 			fmt.Sprintf("GraphQL endpoint: %s", endpointPath),
 			fmt.Sprintf("Executed a depth-%d nested query with no depth/complexity limit", dosProbeDepth),
 		},
 		Info: output.Info{
-			Name: "GraphQL Query Depth Not Limited",
+			Name: "GraphQL Depth-Limit Candidate",
 			Description: fmt.Sprintf(
-				"The GraphQL endpoint executed a depth-%d nested query without enforcing a depth or "+
-					"complexity limit. Unbounded query nesting through circular relationships lets an "+
-					"attacker craft expensive queries that exhaust CPU and memory (denial of service). "+
-					"Enforce a maximum query depth and a query-complexity/cost limit.",
+				"The GraphQL endpoint executed a bounded depth-%d nested query without returning an "+
+					"explicit depth/complexity rejection. This does not prove that no higher limit exists "+
+					"or that the query causes meaningful resource amplification; review the configured "+
+					"cost controls before treating it as a denial-of-service vulnerability.",
 				dosProbeDepth),
 			Severity:   severity.Low,
 			Confidence: severity.Tentative,
+			Tags:       ModuleTags,
+		},
+		Metadata: map[string]any{
+			"probe_depth":          dosProbeDepth,
+			"resource_impact":      false,
+			"higher_limit_unknown": true,
 		},
 	}
 }

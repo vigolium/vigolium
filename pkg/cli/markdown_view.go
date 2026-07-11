@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // This file renders findings and HTTP records as Markdown for the --markdown
@@ -121,8 +122,30 @@ func renderFindingMarkdown(f *database.Finding, records []*database.HTTPRecord, 
 	if len(f.ExtractedResults) > 0 {
 		ew.printf("**Extracted:** %s\n\n", strings.Join(f.ExtractedResults, ", "))
 	}
+	// Needles the compact response windows key on — shared by the primary response
+	// and any additional-evidence response rendered below.
+	needles := append(append([]string{}, f.ExtractedResults...), f.MatchedAt...)
+	// Additional evidence: parse each entry via the shared output.ParseEvidence so
+	// a labeled request/response pair renders as structured http blocks (with the
+	// response windowed like the primary) and free-form prose renders as text —
+	// instead of dumping raw "req\n---------\nresp" blobs comma-joined.
 	if len(f.AdditionalEvidence) > 0 {
-		ew.printf("**Additional evidence:** %s\n\n", strings.Join(f.AdditionalEvidence, ", "))
+		ew.println("**Additional evidence:**")
+		ew.println()
+		for i, entry := range f.AdditionalEvidence {
+			p := output.ParseEvidence(entry)
+			label := p.Label
+			if label == "" {
+				label = fmt.Sprintf("evidence %d", i+1)
+			}
+			if !p.IsPair() {
+				ew.printf("- **%s:** %s\n\n", label, strings.TrimSpace(p.Prose))
+				continue
+			}
+			ew.printf("- **%s**\n\n", label)
+			writeHTTPSection(ew, "Request", p.Request, false, nil, 0)
+			writeHTTPSection(ew, "Response", p.Response, compact, needles, agentRespBodyPreviewMax)
+		}
 	}
 	if len(f.Tags) > 0 {
 		ew.printf("**Tags:** %s\n\n", strings.Join(f.Tags, ", "))
@@ -132,7 +155,6 @@ func renderFindingMarkdown(f *database.Finding, records []*database.HTTPRecord, 
 	// The request carries the payload — always show it whole. The response is
 	// what compact windows around the match.
 	writeHTTPSection(ew, "Request", req, false, nil, 0)
-	needles := append(append([]string{}, f.ExtractedResults...), f.MatchedAt...)
 	writeHTTPSection(ew, "Response", resp, compact, needles, agentRespBodyPreviewMax)
 }
 
@@ -162,10 +184,23 @@ func renderRecordMarkdown(rec *database.HTTPRecord, out io.Writer, requestOnly, 
 	}
 }
 
-// findingRequestResponse picks the request/response to render for a finding,
-// preferring the first linked record that carries each and falling back to the
-// request/response stored inline on the finding itself.
+// findingRequestResponse picks the request/response to render for a finding. It
+// keeps the rendered request and response from the SAME HTTP exchange so the proof
+// never shows one record's request beside an unrelated record's response:
+//  1. the first linked record that carries a COMPLETE exchange (request + its own
+//     response) wins;
+//  2. otherwise the finding's own inline pair, which the module captured together;
+//  3. only as a last resort — no complete exchange anywhere — each half is filled
+//     independently from the best available source.
 func findingRequestResponse(f *database.Finding, records []*database.HTTPRecord) (req, resp string) {
+	for _, rec := range records {
+		if len(rec.RawRequest) > 0 && rec.HasResponse && len(rec.RawResponse) > 0 {
+			return string(rec.RawRequest), string(rec.RawResponse)
+		}
+	}
+	if f.Request != "" && f.Response != "" {
+		return f.Request, f.Response
+	}
 	for _, rec := range records {
 		if req == "" && len(rec.RawRequest) > 0 {
 			req = string(rec.RawRequest)

@@ -15,7 +15,7 @@ import (
 	"github.com/uptrace/bun"
 
 	"github.com/vigolium/vigolium/pkg/deparos/internal/dedup"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan/linkfinder"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle/linkfinder"
 )
 
 // SiteMap implements Storage using database backend with bun
@@ -191,7 +191,7 @@ func migrateSchema(ctx context.Context, db *bun.DB) error {
 			discovered_at INTEGER,
 			fingerprint_attrs TEXT,
 			tags TEXT,
-			kingfisher_findings TEXT,
+			secret_findings TEXT,
 			first_seen_session INTEGER,
 			last_seen_session INTEGER,
 			hash TEXT
@@ -235,7 +235,7 @@ func migrateSchema(ctx context.Context, db *bun.DB) error {
 			frequency INTEGER NOT NULL DEFAULT 1,
 			updated_at INTEGER NOT NULL
 		)`,
-		`CREATE TABLE IF NOT EXISTS jsscan_source_artifacts (
+		`CREATE TABLE IF NOT EXISTS jstangle_source_artifacts (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			source_node_id INTEGER NOT NULL,
 			session_id INTEGER NOT NULL,
@@ -284,9 +284,9 @@ func migrateSchema(ctx context.Context, db *bun.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_session_nodes_timestamp ON session_nodes(timestamp)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_ext_hash ON extractions(hash)",
 		"CREATE INDEX IF NOT EXISTS idx_ext_hostname ON extractions(hostname)",
-		"CREATE UNIQUE INDEX IF NOT EXISTS idx_jsscan_source_artifact_hash ON jsscan_source_artifacts(hash)",
-		"CREATE INDEX IF NOT EXISTS idx_jsscan_source_artifact_session ON jsscan_source_artifacts(session_id)",
-		"CREATE INDEX IF NOT EXISTS idx_jsscan_source_artifact_generated ON jsscan_source_artifacts(generated_url)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_jstangle_source_artifact_hash ON jstangle_source_artifacts(hash)",
+		"CREATE INDEX IF NOT EXISTS idx_jstangle_source_artifact_session ON jstangle_source_artifacts(session_id)",
+		"CREATE INDEX IF NOT EXISTS idx_jstangle_source_artifact_generated ON jstangle_source_artifacts(generated_url)",
 		"CREATE INDEX IF NOT EXISTS idx_obs_hostname ON observed(hostname)",
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_obs_hostname_type_value ON observed(hostname, type, value)",
 	}
@@ -324,10 +324,10 @@ func (s *SiteMap) ensureSession() error {
 	return nil
 }
 
-// BatchUpdateKingfisherFindings updates kingfisher findings for nodes identified by URL.
-func (s *SiteMap) BatchUpdateKingfisherFindings(urlFindings map[string]string) error {
+// BatchUpdateSecretFindings updates secret findings for nodes identified by URL.
+func (s *SiteMap) BatchUpdateSecretFindings(urlFindings map[string]string) error {
 	ctx := context.Background()
-	return s.repo.BatchUpdateKingfisherFindings(ctx, urlFindings)
+	return s.repo.BatchUpdateSecretFindings(ctx, urlFindings)
 }
 
 // Close ends the session and releases resources
@@ -376,7 +376,7 @@ func (s *SiteMap) SessionDBID() int64 {
 	return s.sessionDBID
 }
 
-// Extractions returns the extraction repository for storing spider/jsscan/form extractions.
+// Extractions returns the extraction repository for storing spider/jstangle/form extractions.
 func (s *SiteMap) Extractions() *ExtractionRepository {
 	return s.extractionRepo
 }

@@ -5,17 +5,17 @@ import "github.com/vigolium/vigolium/pkg/types/severity"
 const (
 	ModuleID    = "mixed-content-detect"
 	ModuleName  = "Mixed Content Detect"
-	ModuleShort = "Detects mixed HTTP/HTTPS content in responses"
+	ModuleShort = "Classifies insecure subresources and HTTP form submissions on HTTPS pages"
 )
 
 var (
-	ModuleDesc = `**What it means:** This HTTPS page loads sub-resources over plain HTTP via src, href, or action attributes, breaking encryption since those resources travel unprotected.
+	ModuleDesc = `**What it means:** An HTTPS page loads an HTTP subresource or submits a form over HTTP. Ordinary HTTP hyperlinks are excluded. The reference is a deployment observation, not proof that current browsers executed it or sent sensitive data.
 
-**How it's exploited:** An attacker on the network path (shared Wi-Fi, malicious proxy, compromised upstream) intercepts or tampers with HTTP-loaded resources in transit. A modified script or stylesheet runs code in the page's origin, while image or form-action references can leak data or redirect submissions.
+**How it's exploited:** A network attacker may alter an insecure resource or intercept downgraded form data when the browser permits the request.
 
-**Fix:** Serve every sub-resource and form action over HTTPS, and add a Content-Security-Policy upgrade-insecure-requests directive.`
+**Fix:** Serve all subresources and form actions over HTTPS and enable Content-Security-Policy upgrade-insecure-requests.`
 
-	ModuleConfirmation = "Confirmed when HTTPS page contains references to resources loaded over insecure HTTP"
+	ModuleConfirmation = "Candidate or observation when an HTTPS document contains a real HTTP subresource load or HTTP form action; ordinary hyperlinks are excluded"
 	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Certain
 	ModuleTags         = []string{"misconfiguration", "cryptography", "light"}

@@ -3,6 +3,7 @@ package database
 import (
 	"errors"
 
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 )
 
@@ -72,12 +73,16 @@ func buildEvidence(request, response string) string {
 // the storage-layer dedup/merge path splits evidence the same way modules emit it.
 const EvidenceSeparator = output.EvidenceSeparator
 
-// maxAdditionalEvidence caps how many request/response pairs a survivor finding
-// retains under AdditionalEvidence when duplicates are folded in (the evidence
-// merge paths in repository_dedup.go). Kept small so a noisy module (one that
+// maxAdditionalEvidence caps how many request/response pairs a finding retains
+// under AdditionalEvidence, both for its own emitted evidence (the converter cap
+// in converters.go) and for a survivor that folds in duplicates (the evidence
+// merge paths in repository_dedup.go). It is pinned to modkit.MaxEvidencePairs —
+// the same cap the emit-time collector enforces — so a module's carefully
+// collected pairs are never silently truncated on the way to storage, and the two
+// layers can never drift apart again. Kept bounded so a noisy module (one that
 // fires on many sibling paths of the same host) does not balloon the stored
 // request/response payload — and, via the converter cap, the http_records table.
-const maxAdditionalEvidence = 5
+const maxAdditionalEvidence = modkit.MaxEvidencePairs
 
 // appendUniqueEvidence appends each candidate to existing, skipping any that is
 // empty, byte-identical to primary, or already present. primary is the survivor's

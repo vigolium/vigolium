@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# bun is required by `make build` (compiles embedded archon + jsscan binaries).
+# bun is required by `make build` (compiles embedded archon + jstangle binaries).
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
@@ -42,7 +42,7 @@ RUN set -e; \
     else \
         echo "prebuilt $audit_blob not found; make build will rebuild vigolium-audit"; \
     fi; \
-    make ensure-jsscan \
+    make ensure-jstangle \
     && make build \
     && mkdir -p /out \
     && cp bin/vigolium /out/vigolium

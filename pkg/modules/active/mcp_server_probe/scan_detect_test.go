@@ -13,6 +13,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // rpcMethod pulls the JSON-RPC "method" out of a request body, returning "" for
@@ -71,7 +72,11 @@ func TestScanPerHost_DetectsExposedMCP(t *testing.T) {
 	if assert.NotEmpty(t, res[0].ExtractedResults) {
 		joined := strings.Join(res[0].ExtractedResults, "\n")
 		assert.Contains(t, joined, "demo-mcp", "evidence should carry the server name")
+		assert.NotContains(t, joined, "sess-1234567890", "session identifiers must be redacted")
 	}
+	assert.Equal(t, "MCP Credential-Free Tool Invocation Candidate", res[0].Info.Name)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
 }
 
 // TestScanPerHost_NoMCPServer ensures a plain HTTP server that never speaks
@@ -134,8 +139,9 @@ func TestScanPerHost_ToolErrorNotCallable(t *testing.T) {
 	res, err := New().ScanPerHost(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res)
-	assert.Equal(t, "MCP Server Exposed - Unauthenticated Tool Enumeration", res[0].Info.Name,
+	assert.Equal(t, "MCP Server Discovered", res[0].Info.Name,
 		"a tool returning isError must not be reported as callable")
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
 	joined := strings.Join(res[0].ExtractedResults, "\n")
 	assert.NotContains(t, joined, "Callable:", "no tool should be listed as callable")
 }
@@ -184,7 +190,8 @@ func TestScanPerHost_SkipsStateChangingTool(t *testing.T) {
 	res, err := New().ScanPerHost(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res)
-	assert.Equal(t, "MCP Server Exposed - Unauthenticated Tool Enumeration", res[0].Info.Name)
+	assert.Equal(t, "MCP Server Discovered", res[0].Info.Name)
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
 	joined := strings.Join(res[0].ExtractedResults, "\n")
 	assert.Contains(t, joined, "Not invoked", "skipped state-changing tool must be recorded")
 	assert.Contains(t, joined, "delete_account")
@@ -214,7 +221,7 @@ func secretLeakingMCPHandler() http.HandlerFunc {
 		case "prompts/list":
 			_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":5,"result":{"prompts":[]}}`)
 		case "tools/call":
-			_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":100,"result":{"content":[{"type":"text","text":"aws_access_key_id=AKIAIOSFODNN7EXAMPLE region=us-east-1"}],"isError":false}}`)
+			_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":100,"result":{"content":[{"type":"text","text":"github_token=ghp_012345` + `6789abcdef` + `ghijklmnop` + `qrstuvwxyz"}],"isError":false}}`)
 		default:
 			_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found"}}`)
 		}
@@ -236,7 +243,9 @@ func TestScanPerHost_DetectsSecretInToolOutput(t *testing.T) {
 	for _, e := range res {
 		if e.Info.Name == "MCP Tool Output Leaks Secret" {
 			found = true
-			assert.Contains(t, strings.Join(e.ExtractedResults, "\n"), "AWS access key id")
+			assert.Contains(t, strings.Join(e.ExtractedResults, "\n"), "GitHub token")
+			assert.Equal(t, output.RecordKindFinding, e.RecordKind)
+			assert.Equal(t, output.EvidenceGradeImpact, e.EvidenceGrade)
 		}
 	}
 	assert.True(t, found, "an AWS key in tool output must produce a secret-leak finding")
@@ -245,7 +254,8 @@ func TestScanPerHost_DetectsSecretInToolOutput(t *testing.T) {
 // TestScanSecrets covers the high-precision secret matcher.
 func TestScanSecrets(t *testing.T) {
 	assert.Empty(t, scanSecrets("just a normal tool response with no secrets"))
-	assert.Contains(t, scanSecrets("key AKIAIOSFODNN7EXAMPLE here"), "AWS access key id")
+	assert.Empty(t, scanSecrets("key AKIAIOSFODNN7EXAMPLE here"), "an AWS access-key ID is not the private secret")
+	assert.Contains(t, scanSecrets("aws_secret_access_key=abcdefghijklmnopqrstuvwxyz1234567890ABCD"), "AWS secret access key")
 	assert.Contains(t, scanSecrets("token ghp_0123456789abcdefghijABCDEFGHIJ012345"), "GitHub token")
 	assert.Empty(t, scanSecrets("the aws documentation mentions AKIA but not a full key"))
 }

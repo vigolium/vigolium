@@ -50,6 +50,41 @@ func deleteRecordsByUUIDsTx(ctx context.Context, tx bun.Tx, uuids []string) erro
 	return nil
 }
 
+// migrateFindingRecordsTx re-points the evidence links (finding_records junction
+// rows) of the duplicate findings onto the survivor BEFORE the duplicates are
+// deleted, so the survivor can still reach every HTTP record that proved a folded
+// variant — for replay, Burp export, and `finding --with-records`. Without this,
+// deleting a duplicate finding orphaned its exact request/response record: the
+// survivor's merged AdditionalEvidence kept a text copy but carried no record
+// identity, so those exchanges became unreachable for replay/export.
+//
+// The INSERT ... SELECT ... WHERE NOT EXISTS form is dialect-agnostic (SQLite and
+// PostgreSQL) and cannot violate the finding_records PRIMARY KEY (finding_id,
+// record_uuid): DISTINCT collapses a record linked by more than one duplicate, and
+// NOT EXISTS skips any record the survivor already links. The duplicates' own
+// junction rows are removed afterward by deleteFindingsByIDsTx.
+func migrateFindingRecordsTx(ctx context.Context, tx bun.Tx, survivorID int64, dupIDs []int64) error {
+	if len(dupIDs) == 0 {
+		return nil
+	}
+	for chunk := range slices.Chunk(dupIDs, dedupDeleteChunk) {
+		if _, err := tx.NewRaw(
+			`INSERT INTO finding_records (finding_id, record_uuid)
+			 SELECT DISTINCT ?, fr.record_uuid
+			 FROM finding_records fr
+			 WHERE fr.finding_id IN (?)
+			   AND NOT EXISTS (
+			       SELECT 1 FROM finding_records s
+			       WHERE s.finding_id = ? AND s.record_uuid = fr.record_uuid
+			   )`,
+			survivorID, bun.List(chunk), survivorID,
+		).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to migrate finding_records to survivor: %w", err)
+		}
+	}
+	return nil
+}
+
 // deleteFindingsByIDsTx deletes the findings identified by ids and their
 // finding_records junction rows inside tx, chunking the IN lists. Shared by the
 // finding-dedup passes.
@@ -165,45 +200,91 @@ func (r *Repository) DeduplicateSoftDeparosRecords(ctx context.Context, projectU
 	return int64(len(uuids)), statusCodes, nil
 }
 
-// ApplyDeparosStatusPolicy enforces the discovery status-retention policy on
-// stored deparos records. A fuzzed path the server answers with a 4xx is not a
-// discovered resource — it's a rejection (malformed/ambiguous path → 400,
-// not-found → 404, forbidden → 403). Keeping one record per probed variant is
-// pure noise, made worse when the error page echoes the requested URI: every
-// variant then carries a distinct body, length, and hash, so they all survive
-// the exact-hash dedup as separate records.
-//
-// It deletes every deparos record whose status is a client error (4xx) EXCEPT
-// statuses in keepOnePerHost, which are instead collapsed to a single
-// representative per (hostname, status_code) — the shortest path. keepOnePerHost
-// is typically {401}: "an authenticated area exists here" is worth keeping, but
-// one record per host is enough. Returns the number of deleted records and a
-// status-code breakdown of them.
-func (r *Repository) ApplyDeparosStatusPolicy(ctx context.Context, projectUUID string, keepOnePerHost []int) (int64, map[int]int64, error) {
-	projectUUID = defaultProjectUUID(projectUUID)
+// DeparosStatusPolicy controls how discovery client-error (4xx) records are
+// retained. It replaces a blanket "drop all 4xx" with priority tiers so that
+// distinct route identities carrying real attack-surface signal survive, while
+// fuzz noise (nonexistent paths → 404/400) is still pruned. Statuses in neither
+// tier are dropped entirely.
+type DeparosStatusPolicy struct {
+	// KeepOnePerHost statuses collapse to a single representative per
+	// (hostname, status_code) — the shortest path. Use where "this host has one"
+	// is enough signal: authentication/authorization walls (401/403) and pacing
+	// (429). Route identity across paths is intentionally NOT preserved here — an
+	// authz wall is a host-level fact, and keeping every 403 would reintroduce
+	// catch-all floods.
+	KeepOnePerHost []int
+	// KeepPerPath statuses preserve every DISTINCT path (only exact-duplicate
+	// paths collapse), capped at PerPathCap records per (hostname, status_code) to
+	// bound pathological floods. Use for "endpoint exists" evidence where the path
+	// itself is the attack surface: 405/415/422 mean the route is real but the
+	// method/payload was wrong, so dynamic assessment should retry it with the
+	// right method. Routers only emit these for matched routes, so fuzz-flood risk
+	// is low — the cap is a backstop, not the primary control.
+	KeepPerPath []int
+	// PerPathCap bounds the KeepPerPath tier per (hostname, status_code). <=0
+	// disables the cap (keep all distinct paths).
+	PerPathCap int
+}
 
-	// De-dup the keep list so the IN clauses stay tidy.
-	keepSeen := make(map[int]struct{}, len(keepOnePerHost))
-	keepList := make([]int, 0, len(keepOnePerHost))
-	for _, c := range keepOnePerHost {
-		if _, ok := keepSeen[c]; ok {
+func dedupeInts(in []int) []int {
+	seen := make(map[int]struct{}, len(in))
+	out := make([]int, 0, len(in))
+	for _, v := range in {
+		if _, ok := seen[v]; ok {
 			continue
 		}
-		keepSeen[c] = struct{}{}
-		keepList = append(keepList, c)
+		seen[v] = struct{}{}
+		out = append(out, v)
 	}
+	return out
+}
+
+// ApplyDeparosStatusPolicy enforces the discovery status-retention policy on
+// stored deparos records. A fuzzed path the server answers with a 4xx is usually
+// not a discovered resource — it's a rejection (malformed/ambiguous path → 400,
+// not-found → 404). But some 4xx statuses carry real attack surface: 401/403
+// prove an authz boundary exists, 405/415/422 prove a route exists but was hit
+// with the wrong method/payload, and 429 is a pacing signal. The policy retains
+// those (see DeparosStatusPolicy) and drops the rest, rather than deleting every
+// 4xx and losing the signal.
+//
+// Returns the number of deleted records and a status-code breakdown of them.
+func (r *Repository) ApplyDeparosStatusPolicy(ctx context.Context, projectUUID string, policy DeparosStatusPolicy) (int64, map[int]int64, error) {
+	projectUUID = defaultProjectUUID(projectUUID)
+
+	keepOne := dedupeInts(policy.KeepOnePerHost)
+	keepPath := dedupeInts(policy.KeepPerPath)
+
+	// A status can only belong to one tier; if it appears in both, KeepPerPath
+	// (finer-grained) wins so we don't over-collapse.
+	if len(keepPath) > 0 && len(keepOne) > 0 {
+		pathSet := make(map[int]struct{}, len(keepPath))
+		for _, s := range keepPath {
+			pathSet[s] = struct{}{}
+		}
+		filtered := keepOne[:0]
+		for _, s := range keepOne {
+			if _, ok := pathSet[s]; !ok {
+				filtered = append(filtered, s)
+			}
+		}
+		keepOne = filtered
+	}
+
+	// The full set of statuses spared from the blanket drop.
+	kept := append(append([]int{}, keepOne...), keepPath...)
 
 	uuidSet := make(map[string]struct{})
 
-	// (1) Drop all 4xx that are not kept-one-per-host.
+	// (1) Drop all 4xx that are not retained by either tier.
 	dropQuery := `
 		SELECT uuid FROM http_records
 		WHERE source = 'deparos' AND project_uuid = ?
 		  AND status_code >= 400 AND status_code < 500`
 	dropArgs := []any{projectUUID}
-	if len(keepList) > 0 {
+	if len(kept) > 0 {
 		dropQuery += ` AND status_code NOT IN (?)`
-		dropArgs = append(dropArgs, bun.List(keepList))
+		dropArgs = append(dropArgs, bun.List(kept))
 	}
 	var dropUUIDs []string
 	if err := r.db.NewRaw(dropQuery, dropArgs...).Scan(ctx, &dropUUIDs); err != nil {
@@ -213,8 +294,8 @@ func (r *Repository) ApplyDeparosStatusPolicy(ctx context.Context, projectUUID s
 		uuidSet[u] = struct{}{}
 	}
 
-	// (2) Collapse kept statuses to a single representative per (host, status).
-	if len(keepList) > 0 {
+	// (2) KeepOnePerHost: collapse to a single representative per (host, status).
+	if len(keepOne) > 0 {
 		collapseQuery := `
 			SELECT uuid FROM (
 				SELECT uuid, ROW_NUMBER() OVER (
@@ -226,11 +307,57 @@ func (r *Repository) ApplyDeparosStatusPolicy(ctx context.Context, projectUUID s
 				  AND status_code IN (?)
 			) sub WHERE rn > 1`
 		var collapseUUIDs []string
-		if err := r.db.NewRaw(collapseQuery, projectUUID, bun.List(keepList)).Scan(ctx, &collapseUUIDs); err != nil {
+		if err := r.db.NewRaw(collapseQuery, projectUUID, bun.List(keepOne)).Scan(ctx, &collapseUUIDs); err != nil {
 			return 0, nil, fmt.Errorf("failed to identify collapsible deparos records: %w", err)
 		}
 		for _, u := range collapseUUIDs {
 			uuidSet[u] = struct{}{}
+		}
+	}
+
+	// (3) KeepPerPath: keep every distinct path, but (3a) collapse exact-duplicate
+	// paths to one record and (3b) cap distinct paths per (host, status).
+	if len(keepPath) > 0 {
+		// (3a) Exact-duplicate paths → keep the earliest, drop the rest.
+		pathDupQuery := `
+			SELECT uuid FROM (
+				SELECT uuid, ROW_NUMBER() OVER (
+					PARTITION BY hostname, status_code, path
+					ORDER BY created_at ASC
+				) AS rn
+				FROM http_records
+				WHERE source = 'deparos' AND project_uuid = ?
+				  AND status_code IN (?)
+			) sub WHERE rn > 1`
+		var pathDupUUIDs []string
+		if err := r.db.NewRaw(pathDupQuery, projectUUID, bun.List(keepPath)).Scan(ctx, &pathDupUUIDs); err != nil {
+			return 0, nil, fmt.Errorf("failed to identify duplicate-path deparos records: %w", err)
+		}
+		for _, u := range pathDupUUIDs {
+			uuidSet[u] = struct{}{}
+		}
+
+		// (3b) Cap the number of DISTINCT paths kept per (host, status). DENSE_RANK
+		// gives identical paths the same rank, so pr > cap drops paths beyond the
+		// cap while path-dupes (removed in 3a) don't consume separate ranks.
+		if policy.PerPathCap > 0 {
+			capQuery := `
+				SELECT uuid FROM (
+					SELECT uuid, DENSE_RANK() OVER (
+						PARTITION BY hostname, status_code
+						ORDER BY LENGTH(path) ASC, path ASC
+					) AS pr
+					FROM http_records
+					WHERE source = 'deparos' AND project_uuid = ?
+					  AND status_code IN (?)
+				) sub WHERE pr > ?`
+			var capUUIDs []string
+			if err := r.db.NewRaw(capQuery, projectUUID, bun.List(keepPath), policy.PerPathCap).Scan(ctx, &capUUIDs); err != nil {
+				return 0, nil, fmt.Errorf("failed to identify over-cap deparos records: %w", err)
+			}
+			for _, u := range capUUIDs {
+				uuidSet[u] = struct{}{}
+			}
 		}
 	}
 
@@ -521,9 +648,21 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 		}
 	}
 
-	// Update survivors with merged evidence, then delete duplicates.
+	// Update survivors with merged evidence, migrate the duplicates' evidence
+	// links onto the survivor, then delete duplicates.
 	err = r.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
 		for _, g := range dupGroups {
+			// Preserve exact evidence links regardless of whether there is new
+			// text evidence to merge — the duplicate's record must stay reachable
+			// from the survivor after it's deleted.
+			dupIDs := make([]int64, len(g.dups))
+			for i, d := range g.dups {
+				dupIDs[i] = d.id
+			}
+			if err := migrateFindingRecordsTx(ctx, tx, g.survivorID, dupIDs); err != nil {
+				return err
+			}
+
 			if len(g.newEvidence) == 0 {
 				continue
 			}
@@ -570,12 +709,23 @@ type GroupFindingOptions struct {
 	// severity[, host]) regardless of value — like ByModule, but the rule
 	// (module_name) stays part of the key, so DISTINCT rules remain distinct
 	// findings while repeats of the SAME rule fold together. This is for
-	// secret-detect, whose one module_id carries many rule_names (Kingfisher
+	// secret-detect, whose one module_id carries many rule_names (secret-scan
 	// rules): a "Looker Client ID" rule matching every chunk hash in a minified
 	// bundle's content-hash map yields dozens of identical findings differing only
 	// by value, which collapse to one finding (all values unioned on), while a
 	// genuinely different secret — an AWS key, a Slack token — keeps its own row.
 	ByRule []string
+	// BundleSuspect lists module IDs whose GENERIC Suspect-severity findings
+	// collapse by (module, severity[, host]) — the rule dropped from the key — so
+	// the family-less low-signal noise on a host folds into ONE bundle. Only
+	// findings carrying output.SuspectBundleTag qualify (secret-detect sets it on
+	// its generic-namespace rules); a NAMED provider family at Suspect severity is
+	// left untagged and stays per-rule via ByRule, so distinct families are never
+	// merged into one rollup. The module's higher-severity findings also stay
+	// per-rule. The bundle survivor's module_name is relabeled to
+	// suspectBundleFindingName and its description to suspectBundleDescription so it
+	// isn't mislabeled with just the first rule's name/text. Default: secret-detect.
+	BundleSuspect []string
 	// MaxURLs caps the merged matched-URL list on the survivor (0 = unlimited).
 	MaxURLs int
 	// Hostnames, when non-empty, scopes the pass to findings on those hosts. The
@@ -632,6 +782,7 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 	// earliest finding in each group becomes the survivor.
 	byModule := output.NormalizeStringSet(opts.ByModule)
 	byRule := output.NormalizeStringSet(opts.ByRule)
+	bundleSuspect := output.NormalizeStringSet(opts.BundleSuspect)
 	const valueCond = "(extracted_results IS NOT NULL AND extracted_results != '[]' AND extracted_results != '')"
 	where := valueCond
 	queryArgs := []any{projectUUID}
@@ -639,14 +790,18 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 	// optional module_id IN (?) below — keep the arg order matching the SQL text.
 	hostFilter, hostArgs := findingHostnameFilter(opts.Hostnames)
 	queryArgs = append(queryArgs, hostArgs...)
-	// By-module and by-rule modules both bypass the value condition (their value is
-	// noise or merely a sub-key), so pull them in even with an empty value. A
-	// module listed under both lands in the IN clause twice, which is harmless.
-	moduleList := make([]string, 0, len(byModule)+len(byRule))
+	// By-module, by-rule, and bundle-suspect modules all bypass the value condition
+	// (their value is noise or merely a sub-key), so pull them in even with an empty
+	// value. A module listed under several sets lands in the IN clause more than
+	// once, which is harmless.
+	moduleList := make([]string, 0, len(byModule)+len(byRule)+len(bundleSuspect))
 	for id := range byModule {
 		moduleList = append(moduleList, id)
 	}
 	for id := range byRule {
+		moduleList = append(moduleList, id)
+	}
+	for id := range bundleSuspect {
 		moduleList = append(moduleList, id)
 	}
 	if len(moduleList) > 0 {
@@ -689,6 +844,10 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 		// values onto the survivor; plain value groups share an identical value, so
 		// there is nothing to merge.
 		mergeValues bool
+		// suspectBundle marks a Suspect-tier bundle (a BundleSuspect module collapsed
+		// by module) whose survivor is relabeled to suspectBundleFindingName so a
+		// bundle of many low-confidence rules isn't titled with just the first rule.
+		suspectBundle bool
 	}
 	groups := make(map[string]*groupData)
 	var order []string
@@ -696,7 +855,7 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 	for i := range rows {
 		row := &rows[i]
 		moduleKey, valueKey, groupable := output.GroupingBranch(
-			row.ModuleID, row.ModuleName, output.NormalizedValueKey(row.ExtractedResults), row.Tags, byModule, byRule, tagFilter)
+			row.ModuleID, row.ModuleName, output.NormalizedValueKey(row.ExtractedResults), row.Severity, row.Tags, byModule, byRule, bundleSuspect, tagFilter)
 		if !groupable {
 			continue
 		}
@@ -713,6 +872,7 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 				survivorExtracted:   row.ExtractedResults,
 				existingEvidence:    row.AdditionalEvidence,
 				mergeValues:         mergeValues,
+				suspectBundle:       output.IsSuspectBundle(row.ModuleID, row.Severity, row.Tags, bundleSuspect),
 			}
 			order = append(order, key)
 			continue
@@ -777,6 +937,16 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 			if len(g.dups) == 0 {
 				continue
 			}
+			// Migrate the duplicates' evidence links onto the survivor before they
+			// are deleted, so a value-grouped survivor still reaches every proving
+			// record (replay / Burp / --with-records).
+			dupIDs := make([]int64, len(g.dups))
+			for i, d := range g.dups {
+				dupIDs[i] = d.id
+			}
+			if err := migrateFindingRecordsTx(ctx, tx, g.survivorID, dupIDs); err != nil {
+				return err
+			}
 			mergedMatched := mergeUniqueStrings(g.survivorMatched, g.extraMatched)
 			if opts.MaxURLs > 0 && len(mergedMatched) > opts.MaxURLs {
 				mergedMatched = mergedMatched[:opts.MaxURLs]
@@ -804,9 +974,22 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 				if len(mergedExtracted) > 0 {
 					upd = upd.Set("extracted_results = ?", mergedExtracted)
 				}
-				if desc := withGroupRollup(g.survivorDescription, len(mergedMatched), len(mergedExtracted)); desc != "" {
+				// A Suspect bundle folds several DISTINCT generic rules under one
+				// survivor, so the survivor's own (single-rule) description would
+				// misdescribe the mix — describe the bundle generically instead. A
+				// by-rule group is single-rule, so it keeps the survivor's description.
+				descBase := g.survivorDescription
+				if g.suspectBundle {
+					descBase = suspectBundleDescription
+				}
+				if desc := withGroupRollup(descBase, len(mergedMatched), len(mergedExtracted)); desc != "" {
 					upd = upd.Set("description = ?", desc)
 				}
+			}
+			// A collapsed Suspect bundle folds many distinct rules into one survivor,
+			// so retitle it rather than leave it labeled with the first rule's name.
+			if g.suspectBundle {
+				upd = upd.Set("module_name = ?", suspectBundleFindingName)
 			}
 			if _, err := upd.Exec(ctx); err != nil {
 				return fmt.Errorf("failed to update grouped survivor: %w", err)
@@ -820,6 +1003,23 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 
 	return int64(len(allDupIDs)), grouped, nil
 }
+
+// suspectBundleFindingName is the module_name given to a collapsed Suspect-tier
+// secret bundle survivor (see GroupFindingOptions.BundleSuspect), so a bundle of
+// many distinct low-confidence rules reads as one "secret-shaped matches" rollup
+// rather than being mislabeled with whichever rule happened to appear first.
+const suspectBundleFindingName = "Low-confidence secret-shaped matches"
+
+// suspectBundleDescription is the survivor description for a collapsed Suspect
+// bundle. The bundle mixes several DISTINCT generic rules (a "Generic Password"
+// folded together with a "Generic API Key"), so the first rule's own description
+// would misrepresent the group; this generic text matches the relabeled
+// suspectBundleFindingName title and points the reviewer at the merged value list.
+const suspectBundleDescription = `**What it means:** Several low-confidence, secret-shaped strings — generic API-key, password, and token patterns that name no specific provider — were served in responses on this host and are collapsed here to keep the noise in one place. These are unverified pattern matches, not confirmed live credentials.
+
+**How it's exploited:** Each value may or may not be a real secret. Review the matched values listed below; any that is a genuine live credential can be replayed against its service for account takeover or data access.
+
+**Fix:** Triage the listed values — rotate and remove any that are real secrets, and keep credentials out of client-facing responses. Recognisable provider keys (Google, AWS, Slack, …) are reported as their own findings, not bundled here.`
 
 // groupRollupMarker delimits the appended rollup note on a by-module grouped
 // survivor's description. It is a stable sentinel so re-running the grouping pass

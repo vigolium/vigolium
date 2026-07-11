@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This FastAPI service publishes its OpenAPI schema at /openapi.json, and one or more operations under /api declare no authentication - opting out of global security (security: []) or defining none - so they are reachable without credentials.
+	ModuleDesc = `**What it means:** FastAPI's OpenAPI security contract and runtime behavior differ. Missing metadata is an observation because middleware or in-function checks may apply. A finding requires a declared-protected operation to return stable, substantive data to a credential-free client.
 
-**How it's exploited:** An attacker reads the public schema to enumerate the unprotected operations, then calls them with no token, cookie, or API key, so read/write actions meant for authenticated users can be done by anyone.
+**How it's exploited:** An attacker enumerates the schema and calls an operation without the token, cookie, or API key its contract requires.
 
-**Fix:** Apply a consistent auth dependency (global security or a per-route dependency) to every operation and remove any unintended security: [] overrides.`
+**Fix:** Apply consistent authentication dependencies and remove unintended security: [] overrides.`
 
-	ModuleConfirmation = "Confirmed when OpenAPI spec reveals operations without security requirements, optionally verified by unauthenticated access"
+	ModuleConfirmation = "Confirmed only when an operation declared protected returns repeated, stable, substantive JSON to a fresh credential-free requester; missing security metadata and 422 responses are not bypass evidence"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"fastapi", "python", "auth-bypass", "audit", "moderate"}

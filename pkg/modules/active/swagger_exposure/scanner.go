@@ -7,6 +7,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modkit/specutil"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -45,15 +46,28 @@ var probePaths = []string{
 	".well-known/openapi.json",
 }
 
-// uiMarkers identify a rendered API documentation UI page. Kept specific to
-// avoid false positives on generic HTML.
-var uiMarkers = []string{
-	"swagger-ui",
-	"swaggeruibundle",
-	"redoc",
-	"rapidoc",
-	"stoplight-elements",
-	"swagger ui",
+// uiMarkerGroups identify real documentation loaders. Every group must match:
+// one broad product token is only a mention, bundle, or reflected route slug.
+var uiMarkerGroups = []struct {
+	name   string
+	groups [][]string
+}{
+	{name: "swagger-ui", groups: [][]string{
+		{`id="swagger-ui"`, `id='swagger-ui'`},
+		{"swaggeruibundle", "swagger-ui-bundle.js", "swaggeruistandalonepreset"},
+	}},
+	{name: "redoc", groups: [][]string{
+		{"<redoc", "redoc.init"},
+		{"spec-url", "redoc.standalone.js"},
+	}},
+	{name: "rapidoc", groups: [][]string{
+		{"<rapi-doc", "rapidoc"},
+		{"spec-url", "specurl"},
+	}},
+	{name: "stoplight-elements", groups: [][]string{
+		{"<elements-api", "stoplight-elements"},
+		{"apidescriptionurl", "api-description-url"},
+	}},
 }
 
 // Module is the active Swagger/OpenAPI exposure detection scanner.
@@ -95,7 +109,24 @@ func (m *Module) ScanPerRequest(
 	httpClient *http.Requester,
 	scanCtx *modkit.ScanContext,
 ) ([]*output.ResultEvent, error) {
-	urlx, err := ctx.URL()
+	service := ctx.Service()
+	if service == nil {
+		return nil, nil
+	}
+	cleanRaw, err := modkit.StripCredentialHeaders(ctx.Request().Raw())
+	if err != nil {
+		return nil, nil
+	}
+	anonymousClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
+	anonymousCtx := httpmsg.NewHttpRequestResponse(
+		httpmsg.NewHttpRequestWithService(service, cleanRaw),
+		ctx.Response(),
+	)
+
+	urlx, err := anonymousCtx.URL()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get URL")
 	}
@@ -110,7 +141,10 @@ func (m *Module) ScanPerRequest(
 	// Dedup per (host, base) — IsSeen is test-and-set — so each base is probed
 	// once per host across all requests.
 	hostKey := urlx.Scheme + "|" + urlx.Host
-	hostDS := m.hostDS.Get(scanCtx.DedupMgr())
+	var hostDS *dedup.DiskSet
+	if scanCtx != nil {
+		hostDS = m.hostDS.Get(scanCtx.DedupMgr())
+	}
 	bases := modkit.UnclaimedBasePaths(hostDS, hostKey, modkit.CandidateBasePaths(urlx.Path))
 	if len(bases) == 0 {
 		return nil, nil
@@ -118,13 +152,13 @@ func (m *Module) ScanPerRequest(
 
 	// Build a base GET request from the observed request.
 	var rawHTTP []byte
-	if ctx.Request().Method() != "GET" {
-		rawHTTP, err = httpmsg.SetMethod(ctx.Request().Raw(), "GET")
+	if anonymousCtx.Request().Method() != "GET" {
+		rawHTTP, err = httpmsg.SetMethod(anonymousCtx.Request().Raw(), "GET")
 		if err != nil {
 			return nil, nil
 		}
 	} else {
-		rawHTTP = ctx.Request().Raw()
+		rawHTTP = anonymousCtx.Request().Raw()
 	}
 
 	baseURL := urlx.Scheme + "://" + urlx.Host
@@ -140,10 +174,14 @@ func (m *Module) ScanPerRequest(
 
 			// SetPath produces well-formed raw, so wrap directly instead
 			// of re-parsing on this hot path.
-			fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
+			fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, service)
 
-			resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+			resp, _, err := anonymousClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 			if err != nil {
+				continue
+			}
+			if resp.Response() == nil || infra.IsBlockedResponse(resp) {
+				resp.Close()
 				continue
 			}
 
@@ -153,6 +191,7 @@ func (m *Module) ScanPerRequest(
 			// `body` afterwards (DetectSpecType, looksLikeSwaggerUI) races with a
 			// concurrent request reusing that buffer. (Same fix as idor_detection.)
 			body := append([]byte(nil), resp.Body().Bytes()...)
+			fullResponse := resp.FullResponseString()
 			resp.Close()
 
 			if statusCode != 200 || len(body) < 32 {
@@ -170,11 +209,19 @@ func (m *Module) ScanPerRequest(
 				if !ok {
 					continue
 				}
-				// Slug-reflection guard: a probe like /<dir>/redoc whose only signal
-				// is the UI marker "redoc" self-matches when a content route echoes
-				// the requested slug into the page. Confirm the marker is not merely
-				// the reflected path segment before reporting.
-				if modkit.SlugReflectionFP(ctx, httpClient, probePath, []string{marker}) {
+				// A path-reflecting SPA/CMS shell serves one page for every route and
+				// reflects the requested slug into it, so a "docs UI" body carrying a UI
+				// marker that IS its own path slug (/redoc, /swagger-ui/) is that shell,
+				// not a real docs page. Run the memoized wildcard-shell guard first
+				// (site root + random directory, body similarity), then fall back to the
+				// per-candidate slug-reflection canary probe for the residual reflecting
+				// host the shell guard misses (e.g. a 302 root). Both cost no true
+				// positives — a genuine Swagger/Redoc UI is never ~equal to the homepage,
+				// and SlugReflectionFP requires an exact 200 canary reflection.
+				if modkit.ResemblesCatchAllShell(scanCtx, anonymousCtx, anonymousClient, string(body)) {
+					continue
+				}
+				if modkit.SlugReflectionFP(anonymousCtx, anonymousClient, probePath, []string{marker}) {
 					continue
 				}
 				kind = "interactive API documentation UI"
@@ -184,13 +231,26 @@ func (m *Module) ScanPerRequest(
 			hit := baseURL + probePath
 			return []*output.ResultEvent{
 				{
-					URL:     hit,
-					Matched: hit,
+					ModuleID:      ModuleID,
+					RecordKind:    output.RecordKindObservation,
+					EvidenceGrade: output.EvidenceGradeObservation,
+					URL:           hit,
+					Matched:       hit,
+					Request:       string(modifiedRaw),
+					Response:      fullResponse,
 					Info: output.Info{
-						Name: ModuleName,
-						Description: "Publicly accessible " + kind + " exposed at " + probePath +
-							". This discloses the API attack surface (endpoints, parameters, " +
-							"authentication scheme) to unauthenticated users.",
+						Name: "API Documentation Observed",
+						Description: "A credential-free request reached a " + kind + " at " + probePath +
+							". This is security-relevant reconnaissance; it does not prove that any documented operation is sensitive or unauthorized.",
+						Severity:   ModuleSeverity,
+						Confidence: ModuleConfidence,
+						Tags:       ModuleTags,
+					},
+					Metadata: map[string]any{
+						"credential_free":        true,
+						"documentation_kind":     kind,
+						"authorization_bypassed": false,
+						"sensitive_route_proven": false,
 					},
 				},
 			}, nil
@@ -207,19 +267,32 @@ func looksLikeSwaggerUI(body []byte) bool {
 	return ok
 }
 
-// swaggerUIMarker returns the first UI marker found in body (and true), or ""
-// (and false) if none match. The caller needs the specific marker so it can apply
-// the slug-reflection guard: a probe like /<dir>/redoc whose only signal is the
-// marker "redoc" self-matches when a content route echoes the requested slug.
+// swaggerUIMarker returns the first documentation product whose complete loader
+// marker groups are present. A single title, bundle name, or route slug is not a
+// UI and cannot satisfy this predicate.
 func swaggerUIMarker(body []byte) (string, bool) {
 	n := len(body)
-	if n > 8192 {
-		n = 8192
+	if n > 32<<10 {
+		n = 32 << 10
 	}
 	s := strings.ToLower(string(body[:n]))
-	for _, marker := range uiMarkers {
-		if strings.Contains(s, marker) {
-			return marker, true
+	for _, product := range uiMarkerGroups {
+		matched := true
+		for _, group := range product.groups {
+			groupMatched := false
+			for _, marker := range group {
+				if strings.Contains(s, marker) {
+					groupMatched = true
+					break
+				}
+			}
+			if !groupMatched {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return product.name, true
 		}
 	}
 	return "", false

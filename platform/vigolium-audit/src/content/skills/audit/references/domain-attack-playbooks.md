@@ -1,20 +1,20 @@
 # Domain-Specific Attack Playbooks
 
-Reference for Mode C of Phase 3 Domain Attack Research. Provides per-domain attack patterns,
+Reference for Mode C of Domain Attack Research. Provides per-domain attack patterns,
 research signals, and mapping to testing skills.
 
 ---
 
 ## Domain Identification Signals
 
-Trigger Mode C when any of the following are detected during Phase 3 Steps 1-2:
+Trigger Mode C when any of the following are detected during architecture and domain inventory:
 
 | Signal | Where to look | Example trigger |
 |--------|--------------|-----------------|
 | Protocol/format keyword in project name or description | README, package.json, go.mod, Cargo.toml | "saml", "oauth", "jwt", "grpc", "graphql", "mqtt" |
-| RFC/spec listed in `## Specs and RFCs Implemented` | Phase 3 Step 2 output | RFC 6749, RFC 7519, RFC 9110 |
+| RFC/spec listed in `## Specs and RFCs Implemented` | Threat-model output | RFC 6749, RFC 7519, RFC 9110 |
 | Security-sensitive library in dependencies | manifests, lockfiles | xmlsec, python-jose, openssl, bouncycastle, pyyaml, pickle |
-| Transport, storage, or compute type in architecture inventory | Phase 3 Step 2 | WebSocket, gRPC, Kafka, Redis, S3, Lambda, Docker |
+| Transport, storage, or compute type in architecture inventory | Threat-model output | WebSocket, gRPC, Kafka, Redis, S3, Lambda, Docker |
 | Project type is `protocol`, `library`, `plugin`, `CI action` | Step 1 classification | OIDC provider, SAML SP, image processor, template renderer |
 | Auth/crypto/parsing/rendering in component names | DFD slices | `SAMLValidator`, `OAuthHandler`, `TemplateEngine`, `PDFRenderer` |
 | Keyword in source files | grep across codebase | `subprocess`, `eval`, `pickle.loads`, `Template(`, `innerHTML` |
@@ -1121,8 +1121,8 @@ for each identified domain, the following subsection:
   and 3-5 web searches. Do not research more than 5 domains in depth in a single session without
   explicit user instruction. Prioritize by relevance to high-risk DFD/CFD slices.
 - When MCP tools are unavailable, `WebSearch` + `WebFetch` of top 2-3 results is sufficient.
-- The attack taxonomy produced here is the primary input for Phase 4 custom SAST rule generation
-  and Phase 9 spec gap analysis. Quality over quantity — a focused 5-item checklist is more useful
+- The attack taxonomy produced here is a primary input for custom SAST modeling
+  and spec-compliance analysis. Quality over quantity — a focused 5-item checklist is more useful
   than an exhaustive 30-item generic list.
 - Record which research sources were used in the `## Domain Attack Research` section for auditability.
 - **Domain identification is exhaustive, not exclusive**: a single project may trigger 5+ domains.

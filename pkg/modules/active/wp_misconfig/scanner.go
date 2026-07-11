@@ -239,6 +239,10 @@ func (m *Module) probeFile(
 				URL:     targetURL,
 				Matched: targetURL,
 				Request: string(modifiedRaw),
+				// The empty-200 response IS the proof (specific to wp-cron.php).
+				// resp is still open here (deferred Close), so capture the real
+				// response rather than letting the executor backfill a baseline.
+				Response: resp.FullResponseString(),
 				Info: output.Info{
 					Name:        probe.name,
 					Description: probe.desc,

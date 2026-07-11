@@ -9,7 +9,9 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/modkit/specutil"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
@@ -24,6 +26,7 @@ type probe struct {
 	// or status payload satisfies them; only the version-key anchor confirms a spec.
 	markers [][]string
 	desc    string
+	spec    bool
 }
 
 var probes = []probe{
@@ -32,16 +35,16 @@ var probes = []probe{
 		name: "Swagger UI",
 		// Swagger-UNIQUE markers only — bare "openapi" is a generic token present in
 		// many JS bundles/SPA shells.
-		markers: [][]string{{"swagger-ui", "SwaggerUIBundle"}},
-		desc:    "FastAPI Swagger UI documentation is publicly accessible, revealing all API endpoints and schemas",
+		markers: [][]string{{`id="swagger-ui"`, `id='swagger-ui'`}, {"SwaggerUIBundle", "SwaggerUIStandalonePreset"}},
+		desc:    "A Swagger UI loader is reachable without credentials at a FastAPI-default path. This is an API attack-surface observation, not an authorization flaw.",
 	},
 	{
 		path: "/redoc",
 		name: "ReDoc",
 		// Drop generic "openapi"; keep "redoc"/"ReDoc" (the <redoc> element survives
 		// the reflected-path strip while a reflected href "/redoc" does not).
-		markers: [][]string{{"redoc", "ReDoc"}},
-		desc:    "FastAPI ReDoc documentation is publicly accessible, revealing all API endpoints and schemas",
+		markers: [][]string{{"<redoc", "Redoc.init"}, {"spec-url", "redoc.standalone.js"}},
+		desc:    "A ReDoc loader is reachable without credentials at a FastAPI-default path. This is an API attack-surface observation, not an authorization flaw.",
 	},
 	{
 		path: "/openapi.json",
@@ -50,7 +53,8 @@ var probes = []probe{
 		// object; require both so a generic JSON body with only "info" or "paths"
 		// (an arbitrary API response, a catch-all) cannot match.
 		markers: [][]string{{`"openapi"`, `"swagger"`}, {`"paths"`, `"info"`}},
-		desc:    "FastAPI OpenAPI specification is publicly accessible, revealing all API endpoints, parameters, and schemas",
+		desc:    "A structurally valid OpenAPI specification is reachable without credentials at a FastAPI-default path. This records documented API attack surface.",
+		spec:    true,
 	},
 }
 
@@ -107,7 +111,20 @@ func (m *Module) ScanPerRequest(
 
 	host := service.Host()
 
-	urlx, err := ctx.URL()
+	cleanRaw, err := modkit.StripCredentialHeaders(ctx.Request().Raw())
+	if err != nil {
+		return nil, nil
+	}
+	anonymousClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
+	anonymousCtx := httpmsg.NewHttpRequestResponse(
+		httpmsg.NewHttpRequestWithService(service, cleanRaw),
+		ctx.Response(),
+	)
+
+	urlx, err := anonymousCtx.URL()
 	if err != nil {
 		return nil, nil
 	}
@@ -116,24 +133,26 @@ func (m *Module) ScanPerRequest(
 	// FastAPI sub-app mounted under a prefix (e.g. /api/docs, /v1/openapi.json) is
 	// reached, not just the root. Claim each (host, base) pair up front so a
 	// fully-deduped request issues no traffic — including the soft-404 fingerprint.
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	bases := modkit.UnclaimedBasePaths(diskSet, host, modkit.CandidateBasePaths(urlx.Path))
 	if len(bases) == 0 {
 		return nil, nil
 	}
 
-	fp := m.fingerprint404(ctx, httpClient)
+	fp := m.fingerprint404(anonymousCtx, anonymousClient)
 
-	var results []*output.ResultEvent
 	for _, base := range bases {
 		for _, p := range probes {
-			if result := m.probeEndpoint(ctx, httpClient, p, base+p.path, fp); result != nil {
-				results = append(results, result)
+			if result := m.probeEndpoint(anonymousCtx, anonymousClient, p, base+p.path, fp); result != nil {
+				return []*output.ResultEvent{result}, nil
 			}
 		}
 	}
 
-	return results, nil
+	return nil, nil
 }
 
 func (m *Module) fingerprint404(
@@ -154,11 +173,14 @@ func (m *Module) fingerprint404(
 	// modifiedRaw is well-formed raw, so wrap directly instead of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
+		return nil
+	}
 
 	body := resp.Body().String()
 	return &notFoundFingerprint{
@@ -186,13 +208,13 @@ func (m *Module) probeEndpoint(
 	// modifiedRaw is well-formed raw, so wrap directly instead of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
 		return nil
 	}
 
@@ -234,6 +256,9 @@ func (m *Module) probeEndpoint(
 	if status != 200 {
 		return nil
 	}
+	if p.spec && specutil.DetectSpecType([]byte(body)) == specutil.Unknown {
+		return nil
+	}
 
 	// Strip the reflected probe path before matching: the /redoc marker "redoc" is
 	// the path slug, so a page echoing a href/canonical "/redoc" would otherwise
@@ -254,18 +279,27 @@ func (m *Module) probeEndpoint(
 	targetURL := urlx.Scheme + "://" + urlx.Host + probePath
 
 	return &output.ResultEvent{
+		ModuleID:         ModuleID,
+		RecordKind:       output.RecordKindObservation,
+		EvidenceGrade:    output.EvidenceGradeObservation,
 		URL:              targetURL,
 		Matched:          targetURL,
 		Request:          string(modifiedRaw),
 		Response:         resp.FullResponseString(),
 		ExtractedResults: matchedMarkers,
 		Info: output.Info{
-			Name:        fmt.Sprintf("FastAPI Docs Exposure: %s", p.name),
+			Name:        fmt.Sprintf("API Documentation Observed at FastAPI-Default Path: %s", p.name),
 			Description: p.desc,
-			Severity:    severity.Low,
+			Severity:    severity.Info,
 			Confidence:  ModuleConfidence,
 			Tags:        []string{"python", "fastapi", "exposure", "api-docs"},
 			Reference:   []string{"https://fastapi.tiangolo.com/tutorial/metadata/"},
+		},
+		Metadata: map[string]any{
+			"credential_free":        true,
+			"framework_confirmed":    false,
+			"authorization_bypassed": false,
+			"sensitive_route_proven": false,
 		},
 	}
 }

@@ -455,9 +455,9 @@ func TestDiscoveryConfig_Validate(t *testing.T) {
 		{"engine timeout out of range", func(c *DiscoveryConfig) { c.Engine.Timeout = "500s" }, true},
 		{"engine timeout invalid", func(c *DiscoveryConfig) { c.Engine.Timeout = "bogus" }, true},
 		{"bad case_sensitivity", func(c *DiscoveryConfig) { c.Engine.CaseSensitivity = "weird" }, true},
-		{"bad jsscan replay mode", func(c *DiscoveryConfig) { c.JSScan.ReplayMode = "mutation" }, true},
-		{"too few AST nodes", func(c *DiscoveryConfig) { c.JSScan.MaxASTNodes = 10 }, true},
-		{"too many jsscan workers", func(c *DiscoveryConfig) { c.JSScan.WorkerCount = 99 }, true},
+		{"bad jstangle replay mode", func(c *DiscoveryConfig) { c.JSTangle.ReplayMode = "mutation" }, true},
+		{"too few AST nodes", func(c *DiscoveryConfig) { c.JSTangle.MaxASTNodes = 10 }, true},
+		{"too many jstangle workers", func(c *DiscoveryConfig) { c.JSTangle.WorkerCount = 99 }, true},
 		{"valid in-range timeout", func(c *DiscoveryConfig) { c.Engine.Timeout = "30s" }, false},
 	}
 	for _, tt := range cases {

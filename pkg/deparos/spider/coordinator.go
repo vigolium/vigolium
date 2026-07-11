@@ -89,11 +89,20 @@ func (ec *ExtractionCoordinator) Extract(ctx context.Context, baseURL *url.URL, 
 	// so the coordinator's own MaxBodySize DoS guard still applies, and tiny
 	// bodies skip parsing entirely (extractInternal returns early below 10 bytes).
 	var response *HTTPResponse
-	if len(body) >= 10 && len(body) <= MaxBodySize {
+	switch {
+	case len(body) < 10 || len(body) > MaxBodySize:
+		// Too small to parse, or oversized (ParseHTML's own size guard applies).
+		response = NewHTTPResponse(baseURL, resp.Header, body, 0)
+	case !isHTMLParseableContentType(resp.Header.Get("Content-Type")):
+		// MIME-aware: skip the HTML parser on JSON/JS/CSS/binary bodies — running
+		// html.Parse over a large non-HTML body is wasted work. Pre-seed HTML=nil
+		// with the not-HTML sentinel so extractInternal's lazy ParseHTML no-ops and
+		// the DOM extractors are skipped; the inline URL scanner still runs on the
+		// raw bytes (so URLs inside JSON/JS are still discovered).
+		response = NewHTTPResponseWithHTML(baseURL, resp.Header, body, 0, nil, ErrNotHTMLContentType)
+	default:
 		doc, parseErr := rc.ParseHTML()
 		response = NewHTTPResponseWithHTML(baseURL, resp.Header, body, 0, doc, parseErr)
-	} else {
-		response = NewHTTPResponse(baseURL, resp.Header, body, 0)
 	}
 	return ec.extractInternal(ctx, baseURL, response)
 }

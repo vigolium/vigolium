@@ -1,551 +1,158 @@
 ---
 name: audit
-description: Use when running a full security audit of an arbitrary source code repository, especially large, complex, multi-component, distributed, or non-standard architectures. Defines a 10-phase security audit methodology combining advisory intelligence, patch bypass analysis, knowledge base construction, baseline and custom SAST, spec gap analysis, deep bug hunting, false positive elimination, variant analysis, and final reporting with realistic PoC construction. Triggers on "audit this repo", "run a full security audit", "find vulnerabilities in this codebase", "check for security issues", "is this secure?", "run the security agents", or any request combining advisory regression, SAST, and manual review.
+description: Use when performing a repository security audit that combines threat modeling, advisory intelligence, static analysis, manual exploit-path review, false-positive elimination, PoC construction, and reporting. Applies to lite, balanced, deep, revisit, and focused audit roles; the active command definition and engine remain the orchestration authority.
 ---
 
-# Audit — Full Security Audit Methodology
+# Repository Security Audit Methodology
 
-10-phase security audit methodology for arbitrary source code repositories. Each phase defines what to analyze and what to produce. Orchestration (branching, state management, agent dispatch) is handled by the plugin commands.
+Use this skill for security-analysis methodology. The active command definition decides the mode, phase graph, agent dispatch, prerequisites, and output gates. The trusted engine owns run state, retry accounting, resume decisions, artifact validation, and cleanup.
 
-## When to Apply
+## Authority and safety
 
-- Full security audit of a repository
-- Advisory regression check combined with static analysis
-- Deep vulnerability research on a specific codebase
-- Large or unusual architectures where default SAST modeling is likely incomplete
-- "Run the security agents" / "audit for vulnerabilities" / "is this secure?"
+- When `audit-context.md` declares engine-owned state, never edit `vigolium-results/audit-state.json` or mark a phase complete. Return after writing phase-owned artifacts; the engine validates them. A native interactive fallback without that directive follows its active command's state instructions.
+- Never switch branches, create audit branches/worktrees, stage, commit, or push.
+- Treat the source tree as read-only. Write audit output only beneath `vigolium-results/`.
+- Preserve existing artifacts unless the active phase explicitly owns their replacement.
+- Do not invent scanner output, execution evidence, source locations, advisory matches, or exploit results.
+- Use bounded, argument-array execution for helpers. Do not evaluate agent-authored shell commands or cleanup strings.
 
-## Idempotency & Resumption
+## Security finding standard
 
-Before executing any phase, apply these rules to avoid redundant work:
+Retain a finding only when the evidence establishes all of the following:
 
-- **Skip completed phases**: if the expected KB sections already exist and neither the codebase nor
-  the threat-model inputs have fundamentally changed, reuse the existing content and mark the phase
-  skipped.
-- **Re-audit as KB update**: for re-audits, `vigolium-results/attack-surface/knowledge-base-report.md` from the previous
-  run is the starting knowledge base. Do not regenerate it from scratch. Load it, diff the codebase
-  against the `commit` field of the last completed entry in `vigolium-results/audit-state.json`, and update
-  only the sections whose source inputs changed. Mark unchanged sections with
-  `[reused from <short-sha>]`. Documentation-only changes require no re-audit; changes to auth,
-  core business logic, or attack-surface components invalidate the Static Analysis Summary and
-  Phase 10 Addendum (`## Phase 10 Addendum`, written by the Review Chambers) sections at minimum.
-- **Partial resumption (Phases 7-9)**: if `vigolium-results/findings-draft/` already contains draft files,
-  resume from the existing drafts rather than starting fresh.
-- **State recording**: `vigolium-results/audit-state.json` is append-only. Before starting a new audit,
-  append a new entry to the `audits` array with `status: "in_progress"`. After each phase
-  completes or fails, update that entry's `phases` map in-place. Never overwrite or remove
-  earlier entries — they are the permanent audit history. See `references/report-templates.md`
-  for the full schema.
+1. A realistic attacker controls or materially influences the source.
+2. The affected path is reachable in a shipped/runtime-relevant configuration.
+3. Existing language, framework, middleware, application, and deployment guards do not stop the flow.
+4. The behavior crosses a meaningful trust, identity, tenant, privilege, or confidentiality boundary.
+5. The impact and severity reflect actual preconditions and reliability.
 
-## Setup
+Express every candidate as a source-to-sink chain:
 
-Before executing Phase 1, perform the following environment checks:
-
-1. **Security folder dirtiness check**: Run `git status vigolium-results/` to determine if `vigolium-results/` has
-   uncommitted changes or untracked files.
-
-2. **Concurrent agent detection**: Check whether another agent is actively writing to the source
-   code tree. Indicators include uncommitted modifications outside `vigolium-results/` in the working tree
-   (e.g., staged edits, new untracked source files) or the presence of `.claude/` task state that
-   suggests a live session.
-
-3. **Run in place — never switch branches or create a worktree**: The audit ALWAYS runs in the
-   target directory on the **current branch**. Do NOT run `git worktree add`, `git checkout`,
-   `git switch`, `git branch`, `git commit`, `git add`, or `git push` against the target repo at
-   any point, and never create an `../audit-*` worktree or an `audit` branch. Leave the user's
-   branch and working tree exactly as they were — the user controls staging and commits. All
-   audit output is written under `vigolium-results/` (untracked), so it never collides with the user's
-   source even when BOTH conditions above hold. If a concurrent agent is actively modifying
-   source, record `"snapshot": "non-stable"` in the current `vigolium-results/audit-state.json` entry and
-   continue auditing the working tree in place — do not isolate.
-
-## 10-Phase Workflow
-
-```mermaid
-flowchart TD
-    Start["Audit Request"] --> Setup["Setup + reuse check"]
-    Setup --> P1["1. Intelligence Gathering"]
-    P1 --> P2["2. Patch Bypass Analysis (per-patch parallel)"]
-    P2 --> P3["3. Knowledge Base"]
-    P3 --> P4["4. Static Analysis (incl. inline Enrichment)"]
-    P3 --> P6["6. Spec Gap Analysis"]
-    P4 --> P7["7. Deep Bug Hunting"]
-    P6 --> P7
-    P7 --> P8["8. P11-LITE: FP Check + Cold Verification (CRITICAL/HIGH only)"]
-    P8 --> P9["9. Variant Analysis"]
-    P9 --> P10["10. Exploitation & Final Reporting"]
+```text
+attacker source -> parsing/normalization -> validation/authorization -> state transition -> sensitive sink -> security impact
 ```
 
-## Phase 1 — Intelligence Gathering
+If a link is unproven, record the candidate as unresolved or theoretical; do not write a VALID claim as fact.
 
-Use the cve-scout workflow to collect:
+## Classification rules
 
-- advisories, CVEs, GHSAs, and patch commits
-- coarse architecture inventory: components, transports, execution contexts, trust boundaries
-- a general component inventory ("SBOM"): every software component the target directly relies on across all categories — runtimes, packages, frameworks, datastores, external services, container/OS layer, build/CI tooling, shelled-out binaries, and vendored code — written to `vigolium-results/attack-surface/sbom.json`
-- security-relevant dependencies: the `security_relevant` subset of that inventory, with runtime context noted for each one. Use the `supply-chain-risk-auditor` skill to systematically assess the flagged components' risks.
+- Keep Medium, High, and Critical security issues. Drop Low/informational items from finalized findings.
+- Do not convert correctness, robustness, availability hardening, admin safety, or best-practice gaps into vulnerabilities without a trust-boundary break.
+- Do not mechanically increase severity because a path is pre-auth. Record `Auth-Required` and combine privileges, impact, scope, and exploit reliability.
+- A dependency advisory is a hypothesis until the vulnerable feature and runtime path are both demonstrated.
+- Distinguish shipped runtime code from tests, examples, generated files, build tooling, local-only utilities, and source-controlled CI inputs.
+- Compare candidates with documented intent, but do not let a vague “by design” claim erase an in-scope security boundary violation.
+- Deduplicate by root cause and exploit path, not merely by title, sink, or CWE.
 
-Treat dependency findings as hypotheses until the audit proves the affected runtime path is reachable.
+## Coverage model
 
-Write all findings to the `## Advisory Intelligence` and `## Component Inventory` sections of `vigolium-results/attack-surface/knowledge-base-report.md`, and the full inventory to `vigolium-results/attack-surface/sbom.json`.
+Adapt depth to the active mode while preserving the same evidence standard.
 
-## Phase 2 — Patch Bypass Analysis
+| Workstream | Required capability |
+| --- | --- |
+| Recon and intelligence | Inventory languages, frameworks, execution contexts, entry points, dependencies, advisories, and history when available. |
+| Threat model | Identify assets, attacker positions, trust boundaries, DFD/CFD slices, auth decisions, state transitions, and implemented specs. |
+| Static analysis | Execute available tools, record exact suites/rules and failures, model architecture-specific sources/sinks, and enrich alerts with reachability. |
+| Systematic review | Enumerate unauthenticated and authorization surfaces; examine state machines, concurrency, parsing, normalization, and cross-service edges when present. |
+| Adversarial review | Generate hypotheses, trace real code paths, search all protection layers, challenge impact, and converge on evidence-backed verdicts. |
+| Validation | Run analytical false-positive checks, cold verification where required, same-pattern variant search, and intent reconciliation. |
+| Exploitation and reporting | Build safe realistic PoCs, preserve evidence, partition unexecuted claims as theoretical, and produce complete per-finding and consolidated reports. |
 
-For each advisory patch:
+## Threat-model and knowledge-base contract
 
-- fetch the full diff and surrounding callers
-- test bypass hypotheses: alternate entry points, config-gated checks, default-state gaps, compatibility branches, parser differentials, missing normalization
-- check whether a sibling or related path remains vulnerable even if the patched path is sound
-- cluster duplicate advisories by the same upstream commit or PR so one fix is not re-audited as multiple distinct bugs
+The central knowledge base is `vigolium-results/attack-surface/knowledge-base-report.md`. Append or update only the sections assigned to the current phase. Prefer compact high-risk slices over a diagram of every internal function.
 
-Write all findings to the `## Bypass Analysis` section of `vigolium-results/attack-surface/knowledge-base-report.md`.
+At minimum, later analysis should be able to recover:
 
-## Phase 3 — Knowledge Base
+- architecture and execution contexts;
+- attacker-controlled entry points and anonymous/pre-auth surface;
+- assets and trust boundaries;
+- authentication, authorization, tenant, and privilege decisions;
+- high-risk data-flow and control-flow slices;
+- stateful entities and concurrency boundaries;
+- relevant standards/protocols and domain attack patterns;
+- known false-positive sources and environment constraints.
 
-Build the project model from source:
+Use `references/knowledge-base-template.md` when authoring or repairing KB sections. Use `references/domain-attack-playbooks.md` only when the target exposes a relevant domain or protocol.
 
-- classify project type: web app, API, CLI, desktop, library, plugin, protocol, worker, CI action
-- map attacker-controlled inputs, trust boundaries, and security-critical decisions
-- build compact DFD/CFD slices only for the highest-risk flows
-- record implemented specs and RFCs
-- Use the `security-threat-model` skill to formally document the threat model.
-- Run **Domain Attack Research** (Modes A, B, and C) to build a domain-specific attack playbook:
-  use `last30days`, `wooyun-legacy`, MCP tools, and web search. See
-  `references/domain-attack-playbooks.md` for the research action sequence and per-domain templates.
+## Static-analysis contract
 
-Before completing Phase 3, add a `## Phase 4 CodeQL Extraction Targets` section to the KB draft.
-For each high-risk DFD slice, record the expected CodeQL source type (RemoteFlowSource,
-LocalUserInput, EnvironmentVariable) and the expected sink kind (sql-execution, command-execution,
-file-access, http-request, code-execution, deserialization). This is the data contract that tells
-Phase 4's structural extractor which per-slice call graph queries to run. Leave the section blank
-if no DFD slices were identified — structural extraction will run generic enumeration only.
+Static analysis must be executed, not narrated.
 
-Produce `vigolium-results/attack-surface/knowledge-base-report.md` with all Phase 3 sections populated. This is the
-single knowledge base file for the entire audit. The threat model and attack surface content
-live inside it as sections — no separate files.
+- Prefer CodeQL for structural extraction and interprocedural flow, and Semgrep Pro for scalable taint/structural coverage; document a fallback when either is unavailable.
+- Record the tool version, suites/configs, target languages, exit status, and coverage gaps.
+- Build custom models/rules only from concrete threat-model blind spots, wrappers, generated interfaces, custom transports, or security-critical framework abstractions.
+- Correlate findings with entry points, sinks, call paths, runtime context, and the threat model before promotion.
+- Keep raw tool alerts separate from validated finding drafts.
 
-The Phase 3 threat model is mandatory input for all later phases.
+Read `references/architecture-aware-sast.md` before structural extraction or custom CodeQL/Semgrep work. Use the dedicated CodeQL, Semgrep, SARIF, and agentic-actions skills when their triggers apply.
 
-## Phase 4 — Static Analysis
+## Manual review and chamber contract
 
-**CRITICAL ENFORCEMENT:** You MUST physically execute the SAST tools. Do not hallucinate results or skip execution. You must ensure `codeql` successfully runs and that `semgrep` uses the **Pro** engine (`--pro`) exclusively. Standard Semgrep is only permitted as a fallback when Pro is unavailable due to an authentication or licensing failure; document the fallback and its reason in the report.
+For each high-risk cluster:
 
-### Sub-step 4.1 — Structural Extraction (runs first, before security scan)
+1. Generate a small set of distinct attack hypotheses.
+2. Trace each hypothesis through actual code with file-and-line evidence.
+3. Search protection layers: language/runtime, framework, middleware, application logic, deployment/documentation.
+4. Test alternate entry points, normalization differentials, state transitions, cross-service trust, races/replay, and second-order flows.
+5. Issue VALID, FALSE POSITIVE, BY DESIGN, OUT OF SCOPE, or INCONCLUSIVE based on evidence.
+6. For every VALID pattern, search sibling paths for same-root-cause variants before leaving the chamber.
 
-Before running any security suite, build the CodeQL database and store it at
-`vigolium-results/codeql-artifacts/db/` (not a transient path). Do not delete it after this sub-step.
+Read these references only for chamber/deep-review work:
 
-Follow the `## Structural Extraction Workflow` in `references/architecture-aware-sast.md` to produce:
+- `references/chamber-protocol.md`
+- `references/creative-attack-modes.md`
+- `references/deep-analysis.md`
+- `references/triage-and-prereqs.md`
 
-- `vigolium-results/codeql-artifacts/entry-points.json`
-- `vigolium-results/codeql-artifacts/sinks.json`
-- `vigolium-results/codeql-artifacts/call-graph-slices.json`
-- `vigolium-results/codeql-artifacts/flow-paths-raw.sarif` (git-ignored, retained until Phase 12)
-- `vigolium-results/codeql-artifacts/flow-paths-all-severities.md`
-- Machine-generated DFD and CFD Mermaid diagrams embedded in `vigolium-results/attack-surface/knowledge-base-report.md`
+Use `references/adversarial-review.md` for cold independent verification.
 
-Populate the `## CodeQL Structural Analysis` section of `vigolium-results/attack-surface/knowledge-base-report.md`
-after extraction completes.
+## Finding artifact contract
 
-### Sub-step 4.2 — Security Scan
+Write one draft at a time under `vigolium-results/findings-draft/` using the phase namespace assigned by the command. A draft must identify:
 
-Baseline requirements:
+- title, phase, sequence, and stable slug;
+- original severity and confidence;
+- vulnerability class;
+- affected file and exact line/range;
+- attacker source, transformations, missing/insufficient guard, sink, and impact;
+- preconditions and authentication requirements;
+- evidence and counter-evidence;
+- verdict and triage priority;
+- origin finding/pattern for variants.
 
-- Delegate to the `codeql` skill to run built-in security suites against the database built in 4.1.
-- Delegate to the `semgrep` skill with `--pro` enforced for **all passes** (baseline, language, framework, and custom). Fall back to standard Semgrep only if the Pro engine fails with an authentication or licensing error; document the fallback reason in the `## Static Analysis Summary` section of `vigolium-results/attack-surface/knowledge-base-report.md`.
-- Explicitly output the list of CodeQL queries and Semgrep rules that you actually ran.
-- For Java applications, run SpotBugs with the FindSecBugs plugin as a required baseline pass; treat this as additive to CodeQL and Semgrep.
-- Run GitHub Actions review with `agentic-actions-auditor` when `.github/workflows/` exists; write results to the `## GitHub Actions Audit` section of `vigolium-results/attack-surface/knowledge-base-report.md`.
+Do not duplicate a pre-seeded draft. Extend, chain, challenge, or supersede it with explicit provenance.
 
-Custom Architecture Generalization (Dynamic Rules):
+Finalized findings share one ID namespace across:
 
-- Do not solely rely on generic or pre-baked rules. You MUST dynamically generate **custom CodeQL queries and Semgrep rules** specifically tailored to the ad-hoc architecture, framework, and threat model identified in Phase 3 (e.g., custom MCP protocols, specific custom RPC boundaries).
-- Store all dynamically generated custom rules in `vigolium-results/codeql-queries/` and `vigolium-results/semgrep-rules/`.
-- Document exactly what custom rules were created, why they match the Phase 3 architecture, and their execution results in the `## Static Analysis Summary` section of `vigolium-results/attack-surface/knowledge-base-report.md`.
+- `vigolium-results/findings/` — PoC executed/confirmed;
+- `vigolium-results/findings-theoretical/` — blocked, unexecuted, triage-deferred, or intentionally retained theoretical claims.
 
-Operational rules:
+Every finalized directory needs `draft.md` and a disclosure-quality `report.md`. Only the confirmed bucket requires an executed PoC/evidence contract. Use `references/report-templates.md` for schemas and `references/real-env-validation.md` before live validation.
 
-- Keep SAST concurrency low enough to avoid exhausting CPU/RAM.
-- Merge SARIF outputs with `sarif-parsing` if needed.
+## Deterministic helpers
 
-### Sub-step 4.3 — Inline Enrichment (Security Relevance Filter)
-
-After SAST runs complete and before deep bug hunting, classify each candidate finding as one of:
-
-- likely security
-- likely correctness/robustness
-- likely environment/tooling/admin-only
-
-For every candidate, answer:
-
-1. What attacker controls the input?
-2. Which runtime executes the vulnerable path?
-3. What trust boundary is crossed?
-4. Is the effect cross-user, cross-tenant, cross-privilege, or only same-user?
-5. Is the vulnerable dependency/code path actually used in that runtime?
-6. Query `vigolium-results/codeql-artifacts/call-graph-slices.json` for the finding's source-to-sink slice.
-   If `reachable: true`, that strengthens the finding. If `reachable: false` and both source and
-   sink appear in the enumeration files, that is evidence to downgrade — document the discrepancy.
-   For findings without a pre-computed slice, run an on-demand query against
-   `vigolium-results/codeql-artifacts/db/`.
-
-Downgrade or exclude by default when the issue is only:
-
-- build-time, source-controlled, CI-only, test-only, or dev-only
-- browser-only usage of a server-side CVE, or server-only usage of a browser-side CVE
-- same-user state/cache/UI correctness without a broader data boundary break
-- admin safety, migration robustness, retry/deadlock hardening, data-loss prevention, or workflow correctness
-- local tooling behavior where the attacker already has equivalent code execution
-- assessable as Low severity after answering the questions above — drop immediately; do not carry
-  forward to Phase 10
-
-Write enrichment verdicts to the `## SAST Enrichment` section of `vigolium-results/attack-surface/knowledge-base-report.md`. In the
-`## CodeQL Structural Analysis` section, note any entry points from `entry-points.json` not
-present in the Phase 3 DFD slices, and any sinks from `sinks.json` mapping to unmodeled
-high-risk flows.
-
-### Sub-step 4.4 — Cleanup
-
-Delete Semgrep cache, `semgrep-res/`, and `codeql-res/`. Do **not** delete
-`vigolium-results/codeql-artifacts/db/` — it is retained for Phases 7 and 9. Full database deletion
-happens at the end of Phase 12.
-
-## Phase 9 — Spec Gap Analysis
-
-If the repo implements specs or RFCs:
-
-1. Read the `## Domain Attack Research` section of `vigolium-results/attack-surface/knowledge-base-report.md` first —
-   it contains pre-computed domain attack patterns from Phase 3 that directly inform which spec
-   gaps to prioritize.
-2. Fetch the relevant documents using built-in web search or fetch tools (do not restrict yourself to MCP tools).
-3. Research the RFC for historical attacks, known edge cases, and common implementation failures.
-   Cross-reference against the domain attack playbook from Phase 3.
-4. Use `spec-to-code-compliance`.
-5. Focus on parsing, normalization, sanitization, canonicalization, and state-machine compliance.
-6. Identify gaps between the RFC spec and the codebase implementation clearly.
-7. Keep only medium-to-critical findings with a credible exploit path.
-
-Write all findings to the `## Spec Gap Analysis` section of `vigolium-results/attack-surface/knowledge-base-report.md`.
-If no specs or RFCs were identified in Phase 3, mark the section "None identified" and skip.
-
-## Phase 10 — Review Chamber Deep Bug Hunting
-
-Phase 10 uses a **Review Chamber** multi-agent debate system. Instead of a single deep-reviewer
-agent, four specialized roles collaborate through structured argumentation to produce findings
-with higher creativity and lower false-positive rates.
-
-### Chamber Formation
-
-After Phase 4 (SAST + inline enrichment) and Phase 9 (spec gap) complete:
-
-1. Read `## High-Risk DFD Slices` and `## High-Risk CFD Slices` from `vigolium-results/attack-surface/knowledge-base-report.md`
-2. Group slices by shared trust boundary or component affinity into **threat clusters**
-3. Each cluster becomes one Review Chamber (typical audit: 3-8 chambers)
-4. Priority: authentication/authorization first, then data ingestion, then API surface
-
-Create `vigolium-results/chamber-workspace/` and `vigolium-results/attack-pattern-registry.json`.
-
-### Four Debate Roles
-
-Each chamber spawns four agents that communicate through an append-only debate transcript at
-`vigolium-results/chamber-workspace/<chamber-id>/debate.md`:
-
-- **Attack Ideator** (Red Team Creative): generates 3-7 attack hypotheses per cluster by cycling
-  through 8 creative modes — vulnerability chaining, business logic abuse, race conditions/TOCTOU,
-  second-order/stored attacks, trust boundary confusion, parser/protocol differentials, state
-  machine attacks, and supply chain interaction. See `references/creative-attack-modes.md`.
-  Does NOT trace code or issue verdicts.
-
-- **Code Tracer** (Technical Analyst): takes each hypothesis and traces it through actual code.
-  Uses Method 2.6 from `references/deep-analysis.md` (call-graph slices, entry-points.json,
-  sinks.json, flow-paths-all-severities.md, on-demand QL queries). Produces reachability verdicts
-  (REACHABLE / UNREACHABLE / PARTIAL) with file:line evidence chains.
-  Does NOT generate hypotheses or issue final verdicts.
-
-- **Devil's Advocate** (Challenger): challenges EVERY finding. Searches 5 protection layers
-  (language, framework, middleware, application, documentation). Checks all 8 Claude-Specific FP
-  patterns from `references/triage-and-prereqs.md`. Must argue against even obvious vulnerabilities —
-  inability to construct credible defense is itself strong evidence.
-  Does NOT generate hypotheses or issue verdicts.
-
-- **Chamber Synthesizer** (Coordinator + Judge): orchestrates debate rounds, reads all arguments,
-  resolves disputes, assigns calibrated severity per `references/triage-and-prereqs.md`, and writes
-  finding drafts. Only role that writes to `vigolium-results/findings-draft/`. Manages the attack pattern
-  registry. May request up to 2 follow-up investigation rounds per hypothesis.
-
-Optional 5th role — **Variant Scout**: monitors debate for confirmed patterns and concurrently
-searches for structural variants in sibling components, front-loading Phase 12 work.
-
-### Debate Protocol
-
-Each chamber proceeds through structured rounds:
-
-```
-Round 1 (Ideation):  Ideator generates 3-7 hypotheses
-Round 2 (Tracing):   Tracer traces each hypothesis through code
-Round 3 (Challenge): Advocate writes defense brief per hypothesis
-Round 4 (Synthesis): Synthesizer evaluates arguments, issues verdicts
-Round 5-6 (Optional): Focused re-investigation on unresolved hypotheses
-```
-
-**Convergence criteria** — debate ends for a hypothesis when:
-- Tracer: UNREACHABLE + Advocate confirms no alternate path → DROP
-- Tracer: REACHABLE + Advocate cannot find blocking protection (2 attempts) → VALID
-- Tracer: REACHABLE + Advocate finds blocking protection → FALSE POSITIVE
-- 3 rounds without resolution → Synthesizer judgment call or INCONCLUSIVE
-- Low severity after calibration → DROP (low severity)
-
-**Limits**: max 7 hypotheses per batch, max 3 rounds per hypothesis, max 3 concurrent chambers.
-
-See `references/chamber-protocol.md` for complete debate format, transcript template, and
-convergence rules.
-
-### Pre-Finding Quality Gate
-
-Before writing any finding draft, the Synthesizer applies this 5-point check:
-
-1. Attacker control verified by Tracer (not just inferred)?
-2. Framework protection searched by Advocate (all 5 layers)?
-3. Trust boundary crossing confirmed (not same-origin)?
-4. Exploitation requires normal attacker position (not admin)?
-5. Vulnerable code ships to production (not test/example)?
-
-If any check fails, drop the finding. If ambiguous, add `Pre-FP-Flag: check-N-ambiguous` to the
-draft for Phase 11 priority.
-
-### Cross-Chamber Intelligence
-
-Chambers share a **pattern registry** at `vigolium-results/attack-pattern-registry.json`. When a
-Synthesizer confirms a finding, it adds the root cause pattern with detection signatures
-(CodeQL, grep, Semgrep). Other chambers read the registry before new ideation rounds,
-enabling cross-domain pattern discovery.
-
-### Output
-
-- Finding drafts: `vigolium-results/findings-draft/p7-<NNN>-<slug>.md` (Medium+ only, Low dropped)
-- Debate transcripts: `vigolium-results/chamber-workspace/<chamber-id>/debate.md` (audit artifact)
-- Variant candidates: `vigolium-results/chamber-workspace/<chamber-id>/variant-candidates/` (for Phase 12)
-- Pattern registry: `vigolium-results/attack-pattern-registry.json` (for Phases 8, 9)
-
-### KB Feedback Loop
-
-After all chambers close, append a `## Phase 10 Addendum` section to
-`vigolium-results/attack-surface/knowledge-base-report.md` containing: newly discovered attack surfaces, revised trust
-boundary assumptions, and additional DFD/CFD paths found during chamber debates. Forward-append
-only — Phase 3 content preserved for auditability.
-
-### Specialized Skill Delegation
-
-Chambers may delegate to specialized skills for scope NOT already covered by Phase 3 domain
-attack research:
-
-- `insecure-defaults` — fail-open configurations, weak auth defaults
-- `sharp-edges` — API design issues, dangerous configurations
-- `wooyun-legacy` — web vulnerability techniques
-- `zeroize-audit` — C/C++/Rust secret handling
-
-**Context**: Read `references/chamber-protocol.md`, `references/creative-attack-modes.md`,
-`references/deep-analysis.md`, and `references/triage-and-prereqs.md`.
-
-## Phase 11 — P11-LITE: FP Elimination and Cold Verification
-
-Phase 11 is reduced from full adversarial review to **P11-LITE** because the Devil's Advocate
-already challenged every finding during the Phase 10 chamber debate.
-
-### Stage 1 — Analytical FP Check
-
-Apply `fp-check` to all candidate findings with `Verdict: VALID` from Phase 10.
-
-Retain only findings exploitable within the project's actual threat model.
-
-- Judge the attack vector contextually against the project's threat model and attack surface.
-- Check `SECURITY.md` to understand what maintainers consider a vulnerability vs. accepted risk.
-- Apply the Bug Bounty Scope Gate and Claude-Specific FP Awareness checklist from
-  `references/triage-and-prereqs.md`.
-- Prioritize findings with `Pre-FP-Flag` annotations from the chamber debate.
-
-**CRITICAL**: Verify intended behavior vs. bug. Cross-reference framework documentation, user
-guides, and inline comments to prove a finding is an unintended flaw, not a documented feature.
-
-**CRITICAL**: Drop theoretical/unexploitable bugs — static IVs without key access, timing
-side-channels without practical exploit, by-design behavior, informational findings,
-defense-in-depth-only changes, correctness issues without trust boundary crossing, dependency
-alerts without reachable runtime path.
-
-**CRITICAL**: "Best practice" is not a valid FP verdict. A missing security control IS a
-vulnerability if the threat model shows attacker-controlled input reaches a sensitive sink
-without adequate protection.
-
-Use verdicts: `VALID`, `FALSE POSITIVE`, `BY DESIGN`, `OUT OF SCOPE`,
-`DROP (low severity)`.
-
-Write each verdict back into the corresponding `vigolium-results/findings-draft/` file immediately.
-
-### Stage 2 — Cold Verification (CRITICAL and HIGH only)
-
-**Medium findings skip Stage 2** — already challenged by the Devil's Advocate during the
-chamber debate. This reduces Phase 11 cost by ~60%.
-
-For each CRITICAL and HIGH finding with `Verdict: VALID` after Stage 1, spawn a **fresh agent**
-per finding. The task description contains only the finding draft file path — no debate transcript,
-no context, no Phase 10 reasoning.
-
-Each cold verifier independently:
-
-1. Restates and decomposes the claim into testable sub-claims
-2. Traces the code path from scratch
-3. Attempts real-environment reproduction following `references/real-env-validation.md`
-4. Writes prosecution and defense briefs
-5. Challenges severity starting from MEDIUM
-6. Issues CONFIRMED or DISPROVED
-
-Cold verifiers write verdicts back into finding drafts and produce
-`vigolium-results/adversarial-reviews/<slug>-review.md`. DISPROVED findings have their `Verdict:`
-updated to `FALSE POSITIVE (adversarial)`. Lower severity wins when challenged.
-
-See `references/adversarial-review.md` for the cold verification protocol (scoped to
-CRITICAL/HIGH only).
-
-## Phase 12 — Variant Analysis
-
-For each confirmed finding rated **Medium or higher**, search for variants using the same flow
-shape, not just the same syntax.
-
-**Primary input**: `vigolium-results/attack-pattern-registry.json` — the structured registry of confirmed
-patterns from Phase 10 Review Chambers. Each pattern includes `detection_signature` fields with
-ready-made CodeQL, grep, and Semgrep queries for automated variant hunting, plus
-`untested_candidates` identifying specific code locations to investigate.
-
-Also read:
-- `## Phase 10 Addendum` in `vigolium-results/attack-surface/knowledge-base-report.md` for attack surfaces discovered
-  during chamber debates
-- `vigolium-results/chamber-workspace/*/variant-candidates/` for pre-identified candidates from Variant
-  Scouts
-- `vigolium-results/codeql-artifacts/entry-points.json` and `sinks.json` for structurally similar
-  entry/sink combinations
-
-Use:
-
-- `variant-analysis` skill
-- Detection signatures from the attack pattern registry
-- DFD/CFD slices (including Phase 10 Addendum additions)
-- Custom CodeQL queries and Semgrep rules when they help scale the variant hunt
-- On-demand QL queries against `vigolium-results/codeql-artifacts/db/` for AST-level structural matches
-
-**Incremental persistence**: Write each confirmed variant immediately to `vigolium-results/findings-draft/p9-<NNN>-<slug>.md` using the finding draft template. Only create drafts for variants rated Medium or higher.
-
-**Database cleanup**: After all variant queries complete, delete the CodeQL database:
+Prefer the bundled helpers over reimplementing their logic:
 
 ```bash
-rm -rf vigolium-results/codeql-artifacts/db/
+python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/consolidate_drafts.py vigolium-results
+python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/partition_findings.py vigolium-results
+python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/stamp_file_state.py --target .
 ```
 
-The extracted JSON and markdown summaries in `vigolium-results/codeql-artifacts/` are retained as
-permanent audit record.
+- `consolidate_drafts.py` assigns stable severity IDs and materializes both finding buckets.
+- `partition_findings.py` moves non-executed PoCs to the theoretical bucket without changing IDs.
+- `stamp_file_state.py` writes the incremental SHA-256 snapshot consumed by diff mode.
 
-## Phase 15 — Exploitation & Final Reporting
+Treat helper failures as specified by the active command. Never falsify their output to satisfy a gate.
 
-**Draft promotion**: Before generating individual reports, collect all files in `vigolium-results/findings-draft/` with verdict `VALID`. Assign new severity-prefixed IDs (`C1`, `H1`, `M1`) now — discard any `F-NNN` or other ad-hoc IDs used during drafting. For each Critical/High/Medium finding, create the corresponding `vigolium-results/findings/<ID>-<slug>/` directory and copy the draft as the basis for the final `vuln-report` output. **Low severity findings are dropped entirely — they do not appear in individual reports, the summary table, or any other output. Never carry forward `F-NNN` draft IDs into final reports.**
+## Completion handoff
 
-For each critical, high, and medium bug confirmed:
+Before returning from a phase:
 
-1. Construct a realistic PoC on a real host or in a VM. You may spin up environments using the Azure CLI if already configured. Follow `references/real-env-validation.md` for provisioning procedures.
-2. Ensure PoCs are valid and do not trivially bypass a security guard unrepresentative of the real environment (e.g., executing a command directly on the host rather than through the intended sandbox).
-3. The PoC script must be minimized, clean, and highly effective—styled like a CTF exploit without excessive or unnecessary logging.
-4. Make sure that the generated report contains granular, step-by-step details required to reproduce the exact bug.
-5. Invoke the `vuln-report` skill for each Critical, High, and Medium finding. Follow its naming convention: number bugs with severity prefixes `C1`, `H1`, `M1`, incrementing the counter per severity tier. Prefix both the report title and the folder name with this ID.
-6. Output all technical details and the PoC script for each single bug in its own dedicated subfolder under `vigolium-results/findings/<Cn|Hn|Mn>-<bug-name>/`.
-7. **CRITICAL/HIGH real-environment mandate**: For every CRITICAL or HIGH finding, real-environment PoC execution is required. Reuse the Stage 2 adversarial environment if available; otherwise provision a new one. Capture evidence in `vigolium-results/findings/<ID>-<slug>/evidence/`. Annotate `PoC-Status: executed | theoretical | blocked` in the finding. A `theoretical` or `blocked` status requires a `PoC-Block-Reason:` line.
+- write required artifacts incrementally and keep individual writes bounded;
+- verify paths, JSON syntax, minimum report completeness, and cited source locations;
+- state tool failures and coverage gaps inside the phase artifact;
+- leave state transitions and completion decisions to the engine.
 
-**Consolidated Pentest-Style Report:**
-7. Generate a final `vigolium-results/final-audit-report.md` that synthesizes the entire audit:
-
-- **Executive Summary:** High-level risk assessment and key takeaways for non-technical stakeholders.
-- **Methodology Summary:** A concise overview of the audit process (Phases 1-9), highlighting the depth of analysis.
-- **Summary of Findings:** A prioritized list (table or list) of all **VALID** findings, focusing on Medium-to-Critical severities.
-- **Technical Findings Detail:** A consolidated section containing the technical summary, impact, and a link to the detailed report and PoC for each valid finding.
-- **Conclusion:** Final professional assessment of the project's security posture.
-- **Constraint:** Keep the report concise and professional. Do not include theoretical or unexploitable bugs.
-
-After the consolidated report is written, delete all working artifacts:
-
-```bash
-rm -rf vigolium-results/findings-draft/
-rm -rf vigolium-results/adversarial-reviews/
-rm -rf vigolium-results/real-env-evidence/
-rm -rf vigolium-results/codeql-artifacts/
-rm -rf vigolium-results/codeql-queries/
-rm -rf vigolium-results/semgrep-rules/
-rm -f vigolium-results/audit-state.json
-rm -f vigolium-results/merged-results.sarif
-rm -f vigolium-results/bounty-scope.md
-```
-
-Only four paths are retained: `vigolium-results/attack-surface/knowledge-base-report.md`, `vigolium-results/attack-surface/sbom.json`, `vigolium-results/final-audit-report.md`, and `vigolium-results/findings/`.
-
-## Output Directory
-
-All audit output lives in `<repo-root>/vigolium-results/`. Four paths are retained after the audit completes. Everything else is cleaned up at the end of Phase 15.
-
-**Retained after audit:**
-
-| Path                                            | Phases that write to it                                                                                                                                                  |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `vigolium-results/attack-surface/knowledge-base-report.md`           | 1 (advisory), 2 (bypass), 3 (arch/threat model/attack surface/domain attack research), 4 (SAST summary + CodeQL structural), 5 (enrichment), 6 (spec gaps), 7 (addendum) |
-| `vigolium-results/attack-surface/sbom.json`                          | 1 (general component inventory / SBOM)                                                                                                                                   |
-| `vigolium-results/final-audit-report.md`              | 10                                                                                                                                                                       |
-| `vigolium-results/findings/<Cn\|Hn\|Mn>-<bug-name>/` | 10 (promoted from draft)                                                                                                                                                 |
-
-**Working artifacts** (deleted at end of Phase 15):
-
-| Path                                                       | Phase             |
-| ---------------------------------------------------------- | ----------------- |
-| `vigolium-results/codeql-artifacts/`                             | 4-9               |
-| `vigolium-results/codeql-queries/`                               | 4, 9              |
-| `vigolium-results/semgrep-rules/`                                | 4, 9              |
-| `vigolium-results/chamber-workspace/<chamber-id>/debate.md`      | 7 (debate)        |
-| `vigolium-results/chamber-workspace/<chamber-id>/variant-candidates/` | 7 (scout)    |
-| `vigolium-results/attack-pattern-registry.json`                  | 7, 9 (intel)      |
-| `vigolium-results/findings-draft/<phase>-<NNN>-<slug>.md`        | 7-9 (incremental) |
-| `vigolium-results/adversarial-reviews/<slug>-review.md`          | 8 Stage 2 (C/H)   |
-| `vigolium-results/real-env-evidence/<finding-slug>/`             | 8 Stage 2         |
-| `vigolium-results/audit-state.json`                              | all phases        |
-| `vigolium-results/bounty-scope.md`                               | pre-audit (input) |
-
-## Shared Rules
-
-- Evidence over volume: every retained finding needs attacker control, a reachable path, and a crossed trust boundary.
-- Threat-model first: browser, server, CLI, desktop, library, CI, and admin control planes have different security boundaries.
-- Do not escalate correctness, robustness, operational safety, or data-loss-prevention fixes into security findings without a demonstrated trust-boundary break.
-- Dependency advisories are not enough on their own; prove the vulnerable runtime path is used.
-- Custom CodeQL or Semgrep coverage augments built-ins and should be architecture-driven.
-- Deduplicate by upstream commit, PR, advisory, and sink so the same underlying bug is reported once.
-- Delete Semgrep cache, `semgrep-res/`, and `codeql-res/` after Phase 4. Retain
-  `vigolium-results/codeql-artifacts/db/` through Phase 12 for on-demand reachability and variant queries.
-  Delete the database at the end of Phase 12. Delete all remaining working artifacts at the end of
-  Phase 15 — only `vigolium-results/attack-surface/knowledge-base-report.md`, `vigolium-results/attack-surface/sbom.json`,
-  `vigolium-results/final-audit-report.md`, and `vigolium-results/findings/` are retained.
-- Low severity findings are dropped at the earliest phase that determines their severity (Phase 5,
-  7, or 8). They do not appear in Phase 12, Phase 15, or any final output.
-- No fix recommendations by default unless the user asks.
-
-## Audit Consistency Checks
-
-Run consistency checks after Phase 15 completes, or on demand, to detect state drift and report inconsistencies:
-
-1. **Finding ID cross-reference**: Every finding ID referenced in `vigolium-results/final-audit-report.md` must correspond to a directory in `vigolium-results/findings/`.
-2. **KB section completeness**: `vigolium-results/attack-surface/knowledge-base-report.md` must contain all phase-labelled sections. Sections labelled Phase 1-6 must be non-empty. Phase 10 Addendum must exist after Phase 10.
-3. **Orphan detection**: Files present in `vigolium-results/` but not referenced by the KB or `final-audit-report.md` are flagged as orphans.
-4. **KB phase coverage**: For each completed phase (1-7), the corresponding KB section must be populated or explicitly marked "None identified" / "[reused from `<sha>`]".
-5. **Findings-draft promotion**: Before final cleanup, `vigolium-results/findings-draft/` should contain no files with verdict `VALID` that are missing a corresponding directory in `vigolium-results/findings/`.
-6. **CodeQL artifact completeness**: After Phase 4, `vigolium-results/codeql-artifacts/entry-points.json`, `sinks.json`, `call-graph-slices.json`, and `flow-paths-all-severities.md` must all exist.
-7. **No Low severity leakage**: `vigolium-results/findings/` must contain no directory with an `L`-prefixed ID, and `vigolium-results/final-audit-report.md` must contain no `LOW` entry in the findings table.
-8. **No stale separate reports**: `vigolium-results/` must not contain `cve-scout-report.md`, `bypass-analysis-report.md`, `threat-model-report.md`, `attack-surface-report.md`, `static-analysis-report.md`, `actions-audit-report.md`, `spec-gaps-report.md`, or `final-findings-report.md`. These have been consolidated into `knowledge-base-report.md`.
-
-## Post-Audit Skill Improvement
-
-After the audit, use:
-
-- `prompt-optimizer` to tighten weak prompts
-- `prompt-builder` to refine targeted audit prompts
-- `skill-creator` to update recurring audit workflows when new patterns emerge
+Artifact sufficiency—not a confident final message—is what completes the work.

@@ -61,6 +61,7 @@ const AuditRecordSchema = z.object({
   // all per-phase progress on schema mismatch.
   branch: z.string().nullable().default(null),
   repository: z.string().nullable().default(null),
+  history_available: z.boolean().optional(),
   mode: z.string(),
   model: z.string().nullable(),
   agent_sdk: z.string(),
@@ -353,6 +354,7 @@ export function newAuditRecord(opts: {
   commit: string | null;
   branch: string | null;
   repository: string | null;
+  historyAvailable: boolean;
   phaseIds: string[];
   startedAt?: string;
   context?: AuditContext;
@@ -365,6 +367,7 @@ export function newAuditRecord(opts: {
     commit: opts.commit,
     branch: opts.branch,
     repository: opts.repository,
+    history_available: opts.historyAvailable,
     mode: opts.mode,
     model: opts.model,
     agent_sdk: opts.agent_sdk,

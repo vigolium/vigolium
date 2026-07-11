@@ -109,9 +109,9 @@ func executeBurpCommand(ctx context.Context, _ *SessionsContext, commandType str
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := burpBridgeHTTPClient.Do(req)
 	if err != nil {
-		return bridgeToolError(commandType, fmt.Errorf("Burp bridge at %s is unavailable: %w", baseURL, err)), nil
+		return bridgeToolError(commandType, fmt.Errorf("burp bridge at %s is unavailable: %w", baseURL, err)), nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBridgeResponse+1))
 	if err != nil {
 		return bridgeToolError(commandType, err), nil

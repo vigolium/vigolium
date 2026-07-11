@@ -120,24 +120,33 @@ func (m *Module) phaseBatching(
 	formsStr := strings.Join(forms, " and ")
 
 	return &output.ResultEvent{
-		URL:     target,
-		Matched: target + endpointPath,
+		ModuleID:      ModuleID,
+		RecordKind:    output.RecordKindCandidate,
+		EvidenceGrade: output.EvidenceGradeCandidate,
+		URL:           target,
+		Matched:       target + endpointPath,
 		ExtractedResults: []string{
 			fmt.Sprintf("GraphQL endpoint: %s", endpointPath),
 			fmt.Sprintf("Uncapped batching: %s", formsStr),
 			fmt.Sprintf("%d operations executed in one request", batchProbeSize),
 		},
 		Info: output.Info{
-			Name: "GraphQL Batching Not Rate-Limited",
+			Name: "GraphQL Batch Execution Capability Observed",
 			Description: fmt.Sprintf(
-				"The GraphQL endpoint executed %d operations in a single request via %s with no batch "+
-					"limit. An attacker can pack many operations into one HTTP request to bypass "+
-					"request-based rate limiting and WAF controls — enabling ID/credential brute-forcing "+
-					"and MFA/OTP bypass against sensitive queries and mutations. Enforce a per-request "+
-					"operation/complexity cap and disable batching for authentication operations.",
+				"The GraphQL endpoint reproducibly executed %d harmless __typename operations in one "+
+					"request via %s. This establishes batching capacity, but it does not prove that a "+
+					"sensitive operation exists or that batching bypasses its rate limit. Verify with a "+
+					"non-destructive rate-limited operation before treating this as a bypass.",
 				batchProbeSize, formsStr),
 			Severity:   severity.Medium,
 			Confidence: severity.Certain,
+			Tags:       ModuleTags,
+		},
+		Metadata: map[string]any{
+			"batch_size":          batchProbeSize,
+			"rate_limit_bypassed": false,
+			"sensitive_operation": false,
+			"confirmation_rounds": defaultConfirmRounds,
 		},
 	}
 }

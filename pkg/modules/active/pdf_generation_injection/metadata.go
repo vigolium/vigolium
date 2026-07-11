@@ -9,12 +9,12 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A server-side PDF endpoint (wkhtmltopdf, Puppeteer, WeasyPrint, Prince) renders attacker-supplied input as live HTML/JavaScript instead of plain text, confirmed by marker reflection or an out-of-band callback.
+	ModuleDesc = `**What it means:** A PDF renderer processed attacker input as live HTML or JavaScript. Confirmation requires a runtime-only marker, recognizable local-file content, or an out-of-band callback; a PDF response or rendered payload text is insufficient.
 
-**How it's exploited:** An attacker submits img, link, iframe, or script tags loading remote or local URLs into a content parameter. The headless renderer fetches them from inside the server's network, enabling SSRF against internal services and metadata, file-scheme reads, and data-leaking JavaScript execution.
+**How it's exploited:** Injected tags make the server-side renderer fetch internal, remote, or file URLs, enabling SSRF or local-file reads.
 
-**Fix:** Sanitize or escape user input before rendering, and run the generator with remote resource loading and outbound network access disabled.`
-	ModuleConfirmation = "Confirmed when injected HTML/JS payloads produce evidence of server-side rendering in the response (PDF markers, reflected injection artifacts, or OAST callbacks)"
+**Fix:** Escape untrusted content and disable file access, remote resource loading, JavaScript, and outbound network access in the renderer.`
+	ModuleConfirmation = "Confirmed only by runtime-generated PDF markers, recognizable local-file contents, or OAST callbacks; plain PDF responses and raw payload reflection are ignored"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"ssrf", "injection", "moderate"}

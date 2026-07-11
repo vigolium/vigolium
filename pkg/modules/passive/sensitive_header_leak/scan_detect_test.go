@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -38,7 +39,7 @@ func TestNew(t *testing.T) {
 }
 
 // TestScanPerRequest_AWSKeyHeader drives a custom response header carrying an
-// AWS access key ID and expects a leak finding.
+// AWS access key ID and expects a public-identifier observation.
 func TestScanPerRequest_AWSKeyHeader(t *testing.T) {
 	t.Parallel()
 	m := New()
@@ -47,6 +48,7 @@ func TestScanPerRequest_AWSKeyHeader(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	assert.Equal(t, "Sensitive Data in Response Headers", results[0].Info.Name)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
 }
 
 // TestScanPerRequest_HighEntropyInSuspiciousHeader drives a header whose name
@@ -59,19 +61,33 @@ func TestScanPerRequest_HighEntropyInSuspiciousHeader(t *testing.T) {
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
 }
 
-// TestScanPerRequest_AWSKeyHeader_FullSeverity confirms a genuine secret in a
-// custom header on a 200 response is reported at full Medium/Firm severity.
-func TestScanPerRequest_AWSKeyHeader_FullSeverity(t *testing.T) {
+// TestScanPerRequest_AWSKeyHeaderIsPublicIdentifier ensures an access-key ID is
+// not confused with the private AWS secret access key.
+func TestScanPerRequest_AWSKeyHeaderIsPublicIdentifier(t *testing.T) {
 	t.Parallel()
 	m := New()
 	ctx := makeHTTPCtx("X-Internal-Token: AKIAIOSFODNN7EXAMPLE\r\n")
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
+	assert.Equal(t, severity.Info, results[0].Info.Severity)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+}
+
+func TestScanPerRequest_PrivateTokenFormatIsCandidate(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("X-Internal-Token: ghp_ABCDEF" + "GHIJKLMNOP" + "QRSTUVWXYZ" + "abcdefghij\r\n")
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
 	assert.Equal(t, severity.Medium, results[0].Info.Severity)
-	assert.Equal(t, severity.Firm, results[0].Info.Confidence)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, results[0].EvidenceGrade)
+	assert.NotContains(t, results[0].ExtractedResults[0], "ghp_ABCDEF" + "GHIJKLMNOP" + "QRSTUVWXYZ" + "abcdefghij")
 }
 
 // TestScanPerRequest_RedirectDowngraded mirrors the Cloudflare-Access finding: a
@@ -88,6 +104,7 @@ func TestScanPerRequest_RedirectDowngraded(t *testing.T) {
 	require.NotEmpty(t, results)
 	assert.Equal(t, severity.Info, results[0].Info.Severity)
 	assert.Equal(t, severity.Tentative, results[0].Info.Confidence)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
 }
 
 // TestScanPerRequest_AuthChallengeHeaderDowngraded covers a high-entropy
@@ -110,6 +127,16 @@ func TestScanPerRequest_Benign(t *testing.T) {
 	t.Parallel()
 	m := New()
 	ctx := makeHTTPCtx("Cache-Control: no-cache\r\nX-Request-Id: 12345\r\n")
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestScanPerRequest_SetCookieOwnedByCookieModules(t *testing.T) {
+	t.Parallel()
+	m := New()
+	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEiLCJyb2xlIjoiYWRtaW4ifQ.AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+	ctx := makeHTTPCtx("Set-Cookie: session=" + jwt + "; Path=/; HttpOnly; Secure\r\n")
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, results)

@@ -180,3 +180,61 @@ func TestFindDuplicateRecordUUIDs(t *testing.T) {
 		t.Errorf("brand-new record should not match, got %q", got[3])
 	}
 }
+
+// makeTestGet builds a no-body GET request with an optional extra header line
+// (e.g. "Origin: https://attacker.example"). method/host/path/url stay fixed, so
+// only the raw request bytes — and thus request_hash — change with the header.
+func makeTestGet(t *testing.T, path, headerLine string) *httpmsg.HttpRequestResponse {
+	t.Helper()
+	raw := "GET " + path + " HTTP/1.1\r\nHost: example.com\r\n"
+	if headerLine != "" {
+		raw += headerLine + "\r\n"
+	}
+	raw += "\r\n"
+	rr, err := httpmsg.ParseRawRequest(raw)
+	if err != nil {
+		t.Fatalf("ParseRawRequest(%q): %v", path, err)
+	}
+	return rr
+}
+
+// TestFindDuplicateRecordUUIDs_ExactIdentityForFindingSource is the Claim-1
+// regression: a no-body, header-only mutation (e.g. an Origin probe) that leaves
+// method/host/path/url unchanged must NOT collapse onto the baseline record when
+// its source is finding-evidence (finding/candidate/observation), but the coarse
+// no-body dedup is preserved for crawler/ingest sources.
+func TestFindDuplicateRecordUUIDs_ExactIdentityForFindingSource(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	// Baseline crawler record, no Origin header.
+	baselineUUID, err := repo.SaveRecord(ctx, makeTestGet(t, "/exact", ""), "scanner", "")
+	if err != nil {
+		t.Fatalf("seed baseline: %v", err)
+	}
+
+	findingProbe := toRecord(t, makeTestGet(t, "/exact", "Origin: https://attacker.example"), RecordKindFinding)
+	crawlerProbe := toRecord(t, makeTestGet(t, "/exact", "Origin: https://attacker.example"), "scanner")
+	findingSame := toRecord(t, makeTestGet(t, "/exact", ""), RecordKindFinding)
+
+	// Sanity: the header-mutated probe is a no-body request whose request_hash
+	// differs from the baseline (otherwise the test proves nothing).
+	if findingProbe.RequestContentLength != 0 {
+		t.Fatalf("expected no-body probe, got content length %d", findingProbe.RequestContentLength)
+	}
+
+	got, err := repo.findDuplicateRecordUUIDs(ctx, []*HTTPRecord{findingProbe, crawlerProbe, findingSame})
+	if err != nil {
+		t.Fatalf("findDuplicateRecordUUIDs: %v", err)
+	}
+	if got[0] != "" {
+		t.Errorf("finding-source header-mutated probe must not collapse onto baseline, got %q", got[0])
+	}
+	if got[1] != baselineUUID {
+		t.Errorf("crawler-source no-body probe should keep coarse dedup onto baseline, got %q want %q", got[1], baselineUUID)
+	}
+	if got[2] != baselineUUID {
+		t.Errorf("finding-source probe with identical bytes should link to the same exchange, got %q want %q", got[2], baselineUUID)
+	}
+}

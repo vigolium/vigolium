@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Next.js Server Action in a served JS bundle has a "use server" directive and a state-changing write, but no nearby authorization check (session lookup, auth() call, or token verification). Server Actions are invocable directly from the client, so a missing guard lets any visitor trigger the mutation. This can false-positive when auth sits in middleware.
+	ModuleDesc = `**What it means:** A source-like JS/TS file contains a server directive and mutation syntax but no recognized authorization token. File-level regex cannot resolve imported helpers, middleware, action registration, or call flow.
 
-**How it's exploited:** An attacker reads the action identifier from the public bundle and crafts a direct POST, invoking the write unauthenticated.
+**How it's exploited:** A real flaw requires a reachable action whose mutation succeeds without authorization. The module does not replay an anonymous action call, so it reports a candidate rather than a confirmed bypass.
 
 **Fix:** Enforce an explicit auth check at the start of every state-changing Server Action, not just UI or middleware.`
 
-	ModuleConfirmation = "Confirmed when a Server Action contains mutation operations but no authorization checks"
+	ModuleConfirmation = "Candidate when source-like code combines server directive and mutations without recognized auth; confirmation requires call-graph review or an unauthorized action replay"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "authentication", "light"}

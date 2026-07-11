@@ -12,8 +12,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	mcpinfra "github.com/vigolium/vigolium/pkg/modules/infra/mcp"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -121,8 +123,17 @@ func TestScanPerHost_DetectsDriftingDefinition(t *testing.T) {
 	require.NotEmpty(t, res, "a mutating tool definition must be flagged")
 	assert.Equal(t, severity.Medium, res[0].Info.Severity)
 	assert.Equal(t, severity.Tentative, res[0].Info.Confidence)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
+	assert.Equal(t, false, res[0].Metadata["rug_pull_confirmed"])
 	assert.Contains(t, strings.Join(res[0].ExtractedResults, " "), "read_file",
 		"evidence must name the changed tool")
+}
+
+func TestFingerprintCanonicalizesSchemaAndWhitespace(t *testing.T) {
+	a := mcpinfra.Tool{Description: "Searches   records", InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}}}`)}
+	b := mcpinfra.Tool{Description: "Searches records", InputSchema: json.RawMessage(`{"properties":{"q":{"type":"string"}},"type":"object"}`)}
+	assert.Equal(t, fingerprint(a), fingerprint(b))
 }
 
 // TestScanPerHost_StableServerNoFinding is the key regression: a server that

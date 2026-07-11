@@ -69,7 +69,7 @@ func (c *captureAnnotator) AppendRemarks(_ context.Context, ann map[string][]str
 
 func TestScanPerRequest_PreservesRawAndStoresArtifact(t *testing.T) {
 	if getScanner() == nil {
-		t.Skip("skipping: no valid jsscan binary available")
+		t.Skip("skipping: no valid jstangle binary available")
 	}
 	m := New()
 
@@ -122,7 +122,7 @@ func TestScanPerRequest_PreservesRawAndStoresArtifact(t *testing.T) {
 
 func TestScanPerRequest_InlineHTML(t *testing.T) {
 	if getScanner() == nil {
-		t.Skip("skipping: no valid jsscan binary available")
+		t.Skip("skipping: no valid jstangle binary available")
 	}
 	m := New()
 
@@ -170,7 +170,7 @@ func TestScanPerRequest_InlineHTML(t *testing.T) {
 
 func TestScanPerRequest_SkipsVendorContent(t *testing.T) {
 	if getScanner() == nil {
-		t.Skip("skipping: no valid jsscan binary available")
+		t.Skip("skipping: no valid jstangle binary available")
 	}
 	m := New()
 
@@ -202,7 +202,7 @@ func (f fakeScope) IsHostInScope(host string) bool { return f.inScope[host] }
 
 func TestScanPerRequest_TargetIsVendor(t *testing.T) {
 	if getScanner() == nil {
-		t.Skip("skipping: no valid jsscan binary available")
+		t.Skip("skipping: no valid jstangle binary available")
 	}
 	m := New()
 
@@ -308,7 +308,7 @@ func TestExtractInlineScripts_None(t *testing.T) {
 
 func TestScanPerRequest_EndToEnd(t *testing.T) {
 	if getScanner() == nil {
-		t.Skip("skipping: no valid jsscan binary available")
+		t.Skip("skipping: no valid jstangle binary available")
 	}
 	m := New()
 

@@ -268,9 +268,17 @@ func (m *Module) ScanPerRequest(
 
 		respStatus := 0
 		respBody := ""
+		respFull := ""
 		if resp.Response() != nil {
 			respStatus = resp.Response().StatusCode
 			respBody = resp.Body().String()
+			// Only a 2xx response can become a finding below (a reject is 4xx/5xx),
+			// so capture the full raw proof response — the forged cross-site request
+			// processed like the valid-token baseline — just for that path, before
+			// Close. Reject responses skip the headers+body copy they'd never use.
+			if respStatus >= 200 && respStatus < 300 {
+				respFull = resp.FullResponseString()
+			}
 		}
 		resp.Close()
 
@@ -293,6 +301,7 @@ func (m *Module) ScanPerRequest(
 				URL:              urlx.String(),
 				Matched:          urlx.String(),
 				Request:          string(mutatedRaw),
+				Response:         respFull,
 				FuzzingParameter: csrfParamName,
 				ExtractedResults: []string{probe.name},
 				RecordKind:       output.RecordKindCandidate,

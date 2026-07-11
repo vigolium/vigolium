@@ -42,7 +42,7 @@ This is the **native scan** pipeline — deterministic, Go-based scanning with n
 
 ### Module System
 
-All scanner logic lives in **modules** registered in the **Registry** (`pkg/modules/registry.go`); the wiring is in `pkg/modules/default_registry_active.go` / `default_registry_passive.go` (currently 198 active + 115 passive registrations = 313 modules). Two types:
+All scanner logic lives in **modules** registered in the **Registry** (`pkg/modules/registry.go`); the wiring is in `pkg/modules/default_registry_active.go` / `default_registry_passive.go` (currently 201 active + 116 passive registrations = 317 modules). Two types:
 
 - **ActiveModule** (`pkg/modules/active.go`): Sends modified requests to detect vulnerabilities. Methods: `ScanPerInsertionPoint`, `ScanPerRequest`, `ScanPerHost`. Each module declares which `ScanScope` and `InsertionPointType` it handles.
 - **PassiveModule** (`pkg/modules/passive.go`): Analyzes existing request/response pairs without sending new traffic. Optional `Flusher` interface for end-of-scan finalization.
@@ -59,7 +59,7 @@ Module helper code lives in `pkg/modules/modkit/` (shared constants, default imp
 
 - **`pkg/core/`** — Executor, worker pool, rate limiter, network utilities, scan statistics
 - **`pkg/modules/`** — Module interfaces, registry, all active/passive scanner modules
-- **`pkg/deparos/`** — Spider & discovery engine: crawling (`discovery/`), JS analysis (`jsscan/`), fingerprinting (`fingerprint/`), Wayback integration (`wayback/`), scope enforcement (`scope/`), WAF detection (`waf/`), storage (`storage/`)
+- **`pkg/deparos/`** — Spider & discovery engine: crawling (`discovery/`), JS analysis (`jstangle/`), fingerprinting (`fingerprint/`), Wayback integration (`wayback/`), scope enforcement (`scope/`), WAF detection (`waf/`), storage (`storage/`)
 - **`pkg/agent/`** — Agentic scan engine: prompt templates, context enrichment (`autopilot_context.go`), the autopilot pipeline runner (`autopilot_pipeline.go`) and swarm runner (`swarm.go`), output parsing (findings/HTTP records/attack plans/triage results/source analysis), and database ingestion. All AI dispatch goes through the in-process olium engine via `olium_adapter.go` — there are no subprocess SDK backends. Powers the agentic scan modes (autopilot, swarm) and the query mode.
 - **`pkg/olium/`** — In-process Go agent runtime: provider drivers (`provider/` for openai-codex-oauth, anthropic-api-key, anthropic-oauth, openai-api-key, anthropic-cli), turn-based engine (`engine/`), tool registry and built-ins (`tool/`), skills support (`skill/`), the autopilot agentic loop (`autopilot/`), TUI (`tui/`), and headless one-shot helper (`headless.go`). Used by every agent mode and exposed directly via `vigolium agent olium` (alias `vigolium olium` / `ol`).
 - **`pkg/audit/`** — Vigolium Audit harness driver: parser for the audit's on-disk output (`pkg/audit/parser.go`, `constants.go`), embedded binary management (`pkg/audit/bin/`), per-platform cost/stream support (`claudecost/`, `codexcost/`, `stream/`). Drives the `vigolium agent audit` foreground mode.

@@ -63,9 +63,30 @@ vigolium-audit run --mode deep --agent claude -i
 # Headless deep audit, abort if cost exceeds $20
 vigolium-audit run --mode deep --agent codex --max-cost 20
 
+# Force the Codex Agent SDK transport (Codex auto already prefers SDK)
+vigolium-audit run --mode deep --agent codex --transport sdk
+
+# Interactive Codex: submits "Full deep mode" automatically, then keeps the TUI attached
+vigolium-audit run --mode deep --agent codex -i
+
 # Preflight: binary, auth, content, real message round-trip
 vigolium-audit verify claude
+vigolium-audit verify codex --transport both
 ```
+
+### Agent transport
+
+Headless runs accept `--transport auto|sdk|cli`. For Codex, `auto` prefers the
+Codex Agent SDK and reuses either `OPENAI_API_KEY` or the ambient `codex login`
+session; pass `--transport cli` as an explicit native `codex exec` fallback.
+Claude keeps its existing auto-selection policy (SDK with an API key, CLI with
+ambient subscription auth).
+
+`vigolium-audit verify codex --transport both` probes both Codex paths with a
+real `ping` → `pong` round trip. Interactive `-i` always uses the native CLI,
+so it rejects `--transport sdk`. Codex interactive dispatch is available for
+`lite`, `balanced`, `deep`, `revisit`, and `confirm`; run `diff`, `merge`,
+`reinvest`, and `longshot` without `-i` so the phase orchestrator handles them.
 
 ### Auth overrides
 
@@ -158,8 +179,21 @@ run in parallel; `D2` and `D3` are skipped on a no-git target.
 | `D8` Review Panel | Adversarial review chamber: debates exploitability and kills false positives (also folds in taint reasoning + variant expansion). |
 | `D9` Intent Reconciliation | Reconcile survivors against intended behavior to drop by-design "findings". |
 | `D10` PoC Authoring | Write concrete proof-of-concept exploits for the surviving findings. |
-| `D11` Finding Finalize | Normalize and finalize findings into the canonical `vigolium-results/findings/` tree. |
+| `D11` Finding Finalize | Finalize confirmed and theoretical finding reports in their canonical buckets. |
 | `D12` Report Compose | Assemble the final audit report. |
+
+### Deterministic completion
+
+Core audit state is owned by the trusted CLI, not by agent prose. Each phase
+declares executable artifact checks (required files, sections, JSON, globs, or
+complete per-finding reports); the engine validates them, performs bounded
+artifact-only repair, and only then records completion. Finding IDs and routing
+are produced by the bundled consolidator, with confirmed results in `findings/`
+and unconfirmed or intentional results retained in `findings-theoretical/`.
+Fresh runs reject untouched artifacts that predate the active audit; resumes
+reuse artifacts written during the original run. When prior audit state exists,
+fresh core runs first move phase-owned outputs to a reversible
+`vigolium-results/.archive/pre-run/` snapshot.
 
 ### Output cleanup
 
@@ -192,8 +226,8 @@ vigolium-audit/
 │   ├── engine/             # orchestrator, phase parser, state, harness, modes
 │   ├── adapters/           # claude/codex CLI + SDK adapters, platform detect
 │   ├── content/            # vendored audit methodology
-│   │   ├── agent-defs/         # 31 specialist agent prompts (.md)
-│   │   ├── command-defs/       # 9 mode workflows (lite/balanced/deep/…)
+│   │   ├── agent-defs/         # 35 specialist agent prompts (.md)
+│   │   ├── command-defs/       # 10 mode workflows (lite/balanced/deep/…)
 │   │   ├── skills/             # 20 standalone workflow skills
 │   │   ├── harnesses/          # platform-specific frontmatter (claude, codex)
 │   │   ├── sdk-variants/       # generated SDK-safe variants (gitignored)

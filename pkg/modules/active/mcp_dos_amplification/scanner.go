@@ -66,7 +66,11 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 	host := ctx.Service().Host()
-	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil && ds.IsSeen(host) {
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
+	if ds := diskSet; ds != nil && ds.IsSeen(host) {
 		return nil, nil
 	}
 
@@ -144,21 +148,26 @@ func (m *Module) ScanPerHost(
 
 	return []*output.ResultEvent{
 		{
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindCandidate,
+			EvidenceGrade: output.EvidenceGradeDifferential,
 			URL:           urlx.String(),
 			Matched:       urlx.String(),
+			Request:       string(ctx.Request().Raw()),
 			MatcherStatus: true,
 			ExtractedResults: []string{
 				fmt.Sprintf("oversized batch sent: %d ping requests", oversizedBatchSize),
 				fmt.Sprintf("batch responses processed: %d", processed),
 			},
 			Info: output.Info{
-				Name:        "MCP Unbounded JSON-RPC Batch (Request Amplification / DoS)",
-				Description: "Server fully processed an oversized JSON-RPC batch array of harmless ping calls with no batch-size cap or rate limiting, answering essentially every element. One small request forces the server to perform a large, attacker-controlled amount of work, enabling request amplification and resource-exhaustion denial of service.",
+				Name:        "MCP Large JSON-RPC Batch Processing Candidate",
+				Description: "The server processed nearly every element of a 200-ping JSON-RPC batch after a two-element control. This shows a high batch limit at the tested size; it does not prove an unbounded limit, missing long-window rate controls, resource exhaustion, or service degradation.",
 				Severity:    severity.Medium,
 				Confidence:  severity.Firm,
 				Tags:        []string{"mcp", "dos", "rate-limit"},
 				Reference:   []string{"https://www.jsonrpc.org/specification"},
 			},
+			Metadata: map[string]any{"batch_size": oversizedBatchSize, "processed": processed, "service_degradation_observed": false, "resource_exhaustion_measured": false, "rate_limit_window_tested": false},
 		},
 	}, nil
 }

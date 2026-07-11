@@ -38,6 +38,10 @@ class ScriptedFakeAdapter implements Adapter {
         join(this.findingsDir, "..", "attack-surface", "lite-recon.md"),
         "## Lite Recon\n\n- Languages: Python\n- Excluded: tests/\n",
       );
+      writeFileSync(
+        join(this.findingsDir, "..", "attack-surface", "unauthenticated-surface.md"),
+        "# Unauthenticated Attack Surface\n\nNo network-facing fixture surface.\n",
+      );
       yield {
         kind: "toolCall",
         id: "tu-1",
@@ -50,14 +54,23 @@ class ScriptedFakeAdapter implements Adapter {
       writeFileSync(
         join(this.findingsDir, "l2-001-hardcoded-password.md"),
         [
-          "## L2-001: Hardcoded Password",
+          "# Hardcoded Password",
           "",
-          "- Severity: High",
-          "- File: login.py",
-          "- Line: 1",
-          "- Verdict: VALID",
+          "Phase: l2",
+          "Sequence: 001",
+          "Slug: hardcoded-password",
+          "Verdict: VALID",
+          "Severity-Original: HIGH",
+          "Location: login.py:1",
+          "",
+          "## Summary",
+          "A hardcoded password is present in the fixture.",
           "",
         ].join("\n"),
+      );
+      writeFileSync(
+        join(this.findingsDir, "..", "attack-surface", "lite-secrets-scan.md"),
+        "## Lite Secrets Scan\n\nRetained one verified candidate.\n",
       );
       yield {
         kind: "toolCall",
@@ -69,7 +82,37 @@ class ScriptedFakeAdapter implements Adapter {
       mkdirSync(this.findingsDir, { recursive: true });
       writeFileSync(
         join(this.findingsDir, "l3-001-no-input-validation.md"),
-        "## L3-001: No input validation\n\n- Severity: Medium\n- Verdict: VALID\n",
+        "# No input validation\n\nPhase: l3\nSequence: 001\nSlug: no-input-validation\nVerdict: VALID\nSeverity-Original: MEDIUM\nLocation: login.py:1\n\n## Summary\nFixture validation gap.\n",
+      );
+      writeFileSync(
+        join(this.findingsDir, "..", "attack-surface", "lite-sast-summary.md"),
+        "## Lite SAST Summary\n\nRetained one security candidate.\n",
+      );
+      const resultsDir = join(this.findingsDir, "..");
+      const theoretical = join(resultsDir, "findings-theoretical");
+      mkdirSync(join(resultsDir, "findings"), { recursive: true });
+      for (const [folder, draftName, severity] of [
+        ["H1-hardcoded-password", "l2-001-hardcoded-password.md", "HIGH"],
+        ["M1-no-input-validation", "l3-001-no-input-validation.md", "MEDIUM"],
+      ] as const) {
+        const findingDir = join(theoretical, folder);
+        mkdirSync(findingDir, { recursive: true });
+        writeFileSync(join(findingDir, "draft.md"), readFileSync(join(this.findingsDir, draftName), "utf8"));
+        writeFileSync(
+          join(findingDir, "report.md"),
+          `# ${folder}\n\nSeverity: ${severity}\n\n` + "Fixture disclosure report evidence and remediation. ".repeat(14),
+        );
+      }
+      writeFileSync(
+        join(this.findingsDir, "consolidation-manifest.json"),
+        JSON.stringify({
+          findings: [],
+          theoretical: [
+            { id: "H1", slug: "hardcoded-password" },
+            { id: "M1", slug: "no-input-validation" },
+          ],
+          dropped: [],
+        }),
       );
       yield {
         kind: "toolCall",
@@ -140,6 +183,7 @@ describe("e2e: lite mode against tiny-vuln fixture", () => {
     // Default: raw artifacts preserved (stripping is opt-in via --strip-raw).
     const drafts = readdirSync(join(target, "vigolium-results", "findings-draft")).sort();
     expect(drafts).toEqual([
+      "consolidation-manifest.json",
       "l2-001-hardcoded-password.md",
       "l3-001-no-input-validation.md",
     ]);

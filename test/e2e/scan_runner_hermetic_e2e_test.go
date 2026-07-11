@@ -212,16 +212,22 @@ func TestScanRunnerHermetic_DiscoveryIngestsRecords(t *testing.T) {
 // TestScanRunnerHermetic_PassiveOnlyFinding drives a passive-only dynamic
 // assessment. The endpoint sets an insecure session cookie (no HttpOnly /
 // SameSite), which the cookie-security-detect passive module reliably flags
-// without sending any extra traffic. No active modules run. Exercises: seed
-// ingestion → dynamic-assessment passive-module dispatch on a stored record.
+// without sending any extra traffic. Because a likely session cookie missing a
+// material transport/script protection is classified as a *candidate* (the
+// module never emits a full record_kind='finding' row — see the module's
+// metadata), the assertion checks for a persisted candidate record. No active
+// modules run. Exercises: seed ingestion → dynamic-assessment passive-module
+// dispatch → finding-table persistence on a stored record.
 func TestScanRunnerHermetic_PassiveOnlyFinding(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping hermetic e2e test in short mode")
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		// Insecure cookie: missing HttpOnly and SameSite — flagged regardless of
-		// scheme (Secure is only required on HTTPS, see cookie_security_detect).
+		// Insecure session cookie: missing HttpOnly and SameSite. The missing
+		// HttpOnly flag on a likely session cookie is a material protection gap,
+		// so cookie-security-detect emits a candidate record regardless of scheme
+		// (Secure is only required on HTTPS, see cookie_security_detect).
 		w.Header().Set("Set-Cookie", "sessionid=abc123; Path=/")
 		w.Header().Set("Content-Type", "text/html")
 		fmt.Fprint(w, `<html><body>login</body></html>`)
@@ -249,13 +255,31 @@ func TestScanRunnerHermetic_PassiveOnlyFinding(t *testing.T) {
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(hosts), 1, "expected the CLI target to be ingested")
 
-	assert.GreaterOrEqual(t, findingsCount(t, db), 1,
-		"expected at least 1 passive cookie-security finding")
+	// The module classifies a session cookie missing HttpOnly as a candidate,
+	// not a record_kind='finding' row, so the default finding-only query returns
+	// nothing.
+	assert.Equal(t, 0, findingsCount(t, db),
+		"cookie-security-detect emits candidates, not findings, for this cookie")
 
-	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{Limit: 100}).Execute(ctx)
+	// Query the candidate tier: the passive dispatch must have persisted the
+	// cookie-security-detect record to the findings table.
+	candidates, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{
+		Limit:       100,
+		RecordKinds: []string{database.RecordKindCandidate},
+	}).Execute(ctx)
 	require.NoError(t, err)
-	t.Logf("passive-only run produced %d finding(s)", len(findings))
-	for _, f := range findings {
+	t.Logf("passive-only run produced %d candidate record(s)", len(candidates))
+	for _, f := range candidates {
 		t.Logf("  [%s] %s — %s", f.Severity, f.ModuleID, f.ModuleName)
 	}
+	assert.GreaterOrEqual(t, len(candidates), 1,
+		"expected at least 1 passive cookie-security candidate record")
+	found := false
+	for _, f := range candidates {
+		if f.ModuleID == "cookie-security-detect" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected a cookie-security-detect candidate record")
 }

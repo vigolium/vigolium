@@ -14,12 +14,12 @@ metadata and manages embedded assets that a bare `go build` would skip.
 | Tool | Why |
 |------|-----|
 | Go 1.26+ | Language toolchain (`go-version` is pinned in `go.mod`) |
-| [Bun](https://bun.sh) | Compiles the JS analysis engine embedded via `//go:embed` (`make ensure-jsscan`) |
+| [Bun](https://bun.sh) | Compiles the JS analysis engine embedded via `//go:embed` (`make ensure-jstangle`) |
 | Docker | Only for e2e/canary tests against vulnerable apps |
 | `golangci-lint` v2 | Linting (`make lint`); installed automatically by some targets |
 
-The **jsscan** binary is generated, not committed. A fresh checkout will not
-compile until it exists, so run `make ensure-jsscan` once (or just `make build`,
+The **jstangle** binary is generated, not committed. A fresh checkout will not
+compile until it exists, so run `make ensure-jstangle` once (or just `make build`,
 which depends on it transitively). The **vigolium-audit** harness binary is
 managed the same way via `make ensure-audit`.
 
@@ -29,7 +29,7 @@ managed the same way via `make ensure-audit`.
 make build              # → bin/vigolium (+ installs to $GOPATH/bin); injects version
 make build-all          # main binary, linux/darwin/windows cross-builds
 make install            # install vigolium to $GOPATH/bin
-make ensure-jsscan      # build & embed the bun-compiled jsscan binaries
+make ensure-jstangle      # build & embed the bun-compiled jstangle binaries
 make ensure-audit       # fetch/build the embedded vigolium-audit harness
 ```
 
@@ -91,7 +91,7 @@ vet/test (see `GOLIST_EXCLUDE` in the Makefile and the `grep -Ev` filter in CI).
 
 ## Common gotchas
 
-- **"package jsscan: no embedded binary"** → run `make ensure-jsscan`.
+- **"package jstangle: no embedded binary"** → run `make ensure-jstangle`.
 - **Stale `./vigolium` in the repo root** → it's gitignored; delete it and use
   `make build` (→ `bin/vigolium`).
 - **`platform/` is external tooling** — don't build or modify it (except the

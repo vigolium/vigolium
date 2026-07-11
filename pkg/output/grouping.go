@@ -31,7 +31,7 @@ func GroupingKey(moduleID, severity, value, host string, perHost bool) string {
 }
 
 // RuleGroupKey folds a module's per-finding rule identity (e.g. secret-detect's
-// Kingfisher rule name, carried in Info.Name / module_name) into the module
+// secret-scan rule name, carried in Info.Name / module_name) into the module
 // component of a grouping key. ByRule grouping then collapses repeats of the
 // SAME rule on a host while keeping DISTINCT rules — a "Looker Client ID" vs an
 // "AWS Access Key", both emitted by secret-detect — as separate findings. Uses
@@ -42,21 +42,47 @@ func RuleGroupKey(moduleID, rule string) string {
 	return moduleID + groupKeySeparator + rule
 }
 
+// SuspectBundleTag marks a finding as eligible for its module's Suspect-tier
+// bundle (see IsSuspectBundle): a low-signal, family-less secret-shaped match —
+// a generic API-key / password / token pattern that names no specific provider —
+// which folds into the per-host "Low-confidence secret-shaped matches" rollup
+// instead of standing on its own. A NAMED provider family (a Google / Slack /
+// Storyblok rule) is deliberately left untagged, so it stays a per-rule finding
+// even at Suspect severity and is never collapsed into the generic rollup with
+// unrelated families. secret-detect sets it on its generic-namespace rules.
+const SuspectBundleTag = "secret-generic"
+
+// suspectBundleTagSet is the singleton set form of SuspectBundleTag, built once so
+// IsSuspectBundle can reuse TagsIntersect (the shared trim/case-fold tag matcher)
+// rather than a parallel one-off scan.
+var suspectBundleTagSet = NormalizeTagSet([]string{SuspectBundleTag})
+
 // GroupingBranch decides how one finding folds into a group, shared by the DB
-// grouping pass and the live console grouper so the by-module / by-rule / value
-// branches can't drift between the two. value is the finding's already-normalized
-// extracted-value key (see NormalizedValueKey); tags is its tag list; byModule,
-// byRule and tagSet are the resolved option sets.
+// grouping pass and the live console grouper so the by-module / suspect-bundle /
+// by-rule / value branches can't drift between the two. value is the finding's
+// already-normalized extracted-value key (see NormalizedValueKey); severity is
+// its severity name; tags is its tag list; byModule, byRule, bundleSuspect and
+// tagSet are the resolved option sets.
 //
 // It returns the module component of the grouping key (moduleID, or the
 // rule-folded key for a by-rule module), the value component (emptied for
-// by-module and by-rule so every value collapses into one group), and ok=false
-// when the finding is ungroupable — no stable extracted value, or the tag gate
-// rejects it. A returned empty valueKey with ok=true therefore marks a
-// collapse-all (by-module/by-rule) group, where distinct values get unioned onto
+// by-module, suspect-bundle, and by-rule so every value collapses into one
+// group), and ok=false when the finding is ungroupable — no stable extracted
+// value, or the tag gate rejects it. A returned empty valueKey with ok=true
+// therefore marks a collapse-all group, where distinct values get unioned onto
 // the survivor.
-func GroupingBranch(moduleID, rule, value string, tags []string, byModule, byRule, tagSet map[string]struct{}) (moduleKey, valueKey string, ok bool) {
+//
+// The suspect-bundle branch (see IsSuspectBundle) sits between by-module and
+// by-rule: a module can be BOTH by-rule and bundle-suspect (secret-detect is),
+// so its Suspect-severity findings collapse by module (every low-confidence rule
+// on a host folds into one bundle) while its higher-severity findings stay
+// per-rule. Severity is also a component of the outer GroupingKey, so the two
+// tiers never share a group regardless.
+func GroupingBranch(moduleID, rule, value, severity string, tags []string, byModule, byRule, bundleSuspect, tagSet map[string]struct{}) (moduleKey, valueKey string, ok bool) {
 	if _, isByModule := byModule[moduleID]; isByModule {
+		return moduleID, "", true
+	}
+	if IsSuspectBundle(moduleID, severity, tags, bundleSuspect) {
 		return moduleID, "", true
 	}
 	if _, isByRule := byRule[moduleID]; isByRule {
@@ -69,6 +95,32 @@ func GroupingBranch(moduleID, rule, value string, tags []string, byModule, byRul
 		return "", "", false
 	}
 	return moduleID, value, true
+}
+
+// IsSuspectBundle reports whether a finding folds into a module's Suspect-tier
+// bundle: the module is listed in bundleSuspect, the finding's severity is
+// "suspect", AND the finding carries SuspectBundleTag — the marker a module sets
+// only on its generic, family-less matches. Such findings group by module (the
+// rule/value is dropped from the key), collapsing the low-signal noise on a host
+// into a single bundle, while a NAMED provider family (which the module leaves
+// untagged) stays per-rule so distinct families are never merged into one
+// rollup. The same module's higher-severity findings group by rule regardless.
+//
+// Currently only secret-detect uses this — its generic-namespace rules (the
+// "Generic Password" / "Generic API Key" matchers) are the noisy, family-less
+// tier that warrants one per-host rollup; a recognisable provider key (Google,
+// Storyblok, …) keeps its own triage row even when severity-downgraded to Suspect.
+func IsSuspectBundle(moduleID, severity string, tags []string, bundleSuspect map[string]struct{}) bool {
+	if len(bundleSuspect) == 0 {
+		return false
+	}
+	if _, ok := bundleSuspect[moduleID]; !ok {
+		return false
+	}
+	if !strings.EqualFold(severity, "suspect") {
+		return false
+	}
+	return TagsIntersect(tags, suspectBundleTagSet)
 }
 
 // NormalizedValueKey builds a stable grouping key from a finding's extracted

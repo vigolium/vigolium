@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestScanPerRequest_DetectsBrowsableAPI drives the real scan method against a
@@ -38,7 +40,32 @@ func TestScanPerRequest_DetectsBrowsableAPI(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a browsable-API finding when DRF serves its HTML explorer")
+	require.Len(t, res, 1, "one DRF surface should produce one observation")
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, res[0].EvidenceGrade)
+	assert.False(t, res[0].IsFinding())
+}
+
+func TestScanPerRequest_AuthenticatedBrowsableAPIIsNotCalledPublic(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/users/" && r.Header.Get("Cookie") == "session=developer" {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<body class="django-rest-framework"><div id="content-main">browsable-api</div></body>`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	rr := modtest.Request(t, srv.URL+"/api/users/")
+	raw, err := httpmsg.AddOrReplaceHeader(rr.Request().Raw(), "Cookie", "session=developer")
+	require.NoError(t, err)
+	rr = httpmsg.NewHttpRequestResponse(httpmsg.NewHttpRequestWithService(rr.Service(), raw), modtest.Response(rr, "text/html", "ok").Response())
+
+	res, err := New().ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a browsable interface visible only with the captured session is not public exposure")
 }
 
 // TestScanPerRequest_GenericLayoutTokenNoFinding pins the generic-token false

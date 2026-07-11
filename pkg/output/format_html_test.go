@@ -137,6 +137,43 @@ func TestTrimReportItemNonHTTPRecordUnchanged(t *testing.T) {
 	assert.JSONEq(t, string(raw), string(out))
 }
 
+// TestTrimReportItemFindingBudgeted is the Claim-D regression: a finding's inline
+// response and additional-evidence text are capped against the shared body budget
+// (previously they bypassed it entirely), while a small inline request is kept.
+func TestTrimReportItemFindingBudgeted(t *testing.T) {
+	budget := int64(htmlReportBodyBudgetBytes)
+	big := strings.Repeat("A", 100*1024)
+	raw, err := json.Marshal(map[string]any{
+		"type": "finding",
+		"data": map[string]any{
+			"id":                  1,
+			"severity":            "high",
+			"request":             "GET /a HTTP/1.1\r\nHost: x\r\n\r\n",
+			"response":            "HTTP/1.1 200 OK\r\n\r\n" + big,
+			"additional_evidence": []string{"# [baseline]\n" + big},
+		},
+	})
+	require.NoError(t, err)
+
+	before := budget
+	data := decodeEnvelopeData(t, trimReportItemJSON(raw, &budget, &reportTrimStats{}))
+
+	var resp string
+	require.NoError(t, json.Unmarshal(data["response"], &resp))
+	assert.True(t, strings.HasPrefix(resp, "HTTP/1.1 200 OK"), "kept the head of the response")
+	assert.Contains(t, resp, "truncated", "oversized finding response must be truncated with a marker")
+	assert.Less(t, budget, before, "finding response must consume the shared body budget")
+
+	// Small inline request fits and is preserved verbatim.
+	var req string
+	require.NoError(t, json.Unmarshal(data["request"], &req))
+	assert.Equal(t, "GET /a HTTP/1.1\r\nHost: x\r\n\r\n", req)
+
+	var ev []string
+	require.NoError(t, json.Unmarshal(data["additional_evidence"], &ev))
+	assert.Contains(t, ev[0], "truncated", "oversized evidence entry must be truncated")
+}
+
 func TestTrimReportItemStatsAccounting(t *testing.T) {
 	budget := int64(htmlReportBodyBudgetBytes)
 	stats := &reportTrimStats{}

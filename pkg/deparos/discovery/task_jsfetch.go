@@ -8,7 +8,7 @@ import (
 	"io"
 
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/payload"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan/linkfinder"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle/linkfinder"
 )
 
 // JSFetchTask fetches and parses JavaScript files to extract API paths.
@@ -141,7 +141,7 @@ func (t *JSFetchTask) Expand(ctx context.Context, callback func(url string, dept
 }
 
 // ExtractPathsFromContent extracts paths from content using linkfinder.
-// Content can be raw JS body or transformed code from jsscan's CodeRecord.
+// Content can be raw JS body or transformed code from jstangle's CodeRecord.
 func (t *JSFetchTask) ExtractPathsFromContent(content []byte) []string {
 	return linkfinder.ExtractPaths(content)
 }

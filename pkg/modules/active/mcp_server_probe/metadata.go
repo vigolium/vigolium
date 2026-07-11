@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An MCP (Model Context Protocol) server, which connects AI agents to backend tools, files, and data, is exposed over HTTP without authentication. Severity escalates: Info if only the JSON-RPC initialize handshake completes, Medium if tools enumerate, High if a tool was invoked unauthenticated.
+	ModuleDesc = `**What it means:** Credential-free probing found an MCP endpoint, catalog, or callable non-state-changing tool. Discovery and enumeration are observations; successful benign invocation is a candidate. A private credential returned by a tool is a confirmed data leak.
 
 **How it's exploited:** An attacker completes initialize, calls tools/list to map every tool, resource, and prompt, then calls tools/call to run them - reading internal files, querying databases, or triggering gated actions without logging in.
 
 **Fix:** Require authentication and authorization on the MCP endpoint and do not expose it to untrusted networks.`
 
-	ModuleConfirmation = "Confirmed when target responds with valid JSON-RPC 2.0 to MCP initialize request, tools are enumerable, or tools are callable without authentication"
+	ModuleConfirmation = "Observation for credential-free discovery/enumeration, candidate for successful benign invocation, and confirmed finding only when a private credential is returned; public identifiers are excluded"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"mcp", "api-security", "misconfiguration", "moderate"}

@@ -1,6 +1,7 @@
 package firebase_auth_misconfig
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -86,7 +88,14 @@ func (m *Module) ScanPerRequest(
 		}
 	}
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
+	probeClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
 
 	urlx, _ := ctx.URL()
 	sourceURL := ""
@@ -101,17 +110,17 @@ func (m *Module) ScanPerRequest(
 		}
 
 		// Test 1: Anonymous signup
-		if result := m.testAnonymousAuth(httpClient, apiKey, sourceURL); result != nil {
+		if result := m.testAnonymousAuth(probeClient, apiKey, sourceURL); result != nil {
 			results = append(results, result)
 		}
 
 		// Test 2: Email enumeration
-		if result := m.testEmailEnumeration(httpClient, apiKey, sourceURL); result != nil {
+		if result := m.testEmailEnumeration(probeClient, apiKey, sourceURL); result != nil {
 			results = append(results, result)
 		}
 
 		// Test 3: Provider discovery
-		if result := m.testProviderDiscovery(httpClient, apiKey, sourceURL); result != nil {
+		if result := m.testProviderDiscovery(probeClient, apiKey, sourceURL); result != nil {
 			results = append(results, result)
 		}
 	}
@@ -135,38 +144,46 @@ func (m *Module) testAnonymousAuth(
 		return nil
 	}
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
 		return nil
 	}
 
 	respBody := resp.Body().String()
 
 	// Successful anonymous signup returns idToken
-	if resp.Response().StatusCode == 200 && strings.Contains(respBody, "idToken") {
+	idToken, anonymousCreated := anonymousAccountToken(respBody)
+	if resp.Response().StatusCode == 200 && anonymousCreated {
 		// Clean up: delete the test account
-		m.deleteTestAccount(httpClient, apiKey, respBody)
+		deleted := m.deleteTestAccount(httpClient, apiKey, idToken)
 
 		return &output.ResultEvent{
-			URL:     sourceURL,
-			Matched: fmt.Sprintf("Anonymous auth enabled (apiKey: %s...)", apiKey[:10]),
-			Request: rawReq,
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindObservation,
+			EvidenceGrade: output.EvidenceGradeObservation,
+			URL:           sourceURL,
+			Matched:       fmt.Sprintf("Anonymous auth enabled (apiKey: %s...)", apiKey[:10]),
+			Request:       rawReq,
+			Response:      resp.FullResponseString(),
 			Info: output.Info{
-				Name:        "Firebase Anonymous Authentication Enabled",
-				Description: fmt.Sprintf("Firebase project allows anonymous sign-in via API key %s... — attackers can obtain authenticated access without a real identity, potentially bypassing auth != null rules", apiKey[:10]),
-				Severity:    severity.Medium,
+				Name:        "Firebase Anonymous Authentication Feature Observed",
+				Description: fmt.Sprintf("Firebase accepted an anonymous signup using the publishable API key %s...; cleanup was attempted. Anonymous auth is a supported feature, and no protected resource was shown to trust the token.", apiKey[:10]),
+				Severity:    severity.Info,
 				Confidence:  severity.Certain,
 				Tags:        []string{"firebase", "authentication", "misconfiguration"},
 			},
 			Metadata: map[string]any{
-				"apiKey":   apiKey,
-				"endpoint": "accounts:signUp",
-				"type":     "anonymous",
+				"apiKey":                       apiKey,
+				"endpoint":                     "accounts:signUp",
+				"type":                         "anonymous",
+				"api_key_intentionally_public": true,
+				"protected_access_confirmed":   false,
+				"test_account_deleted":         deleted,
 			},
 		}
 	}
@@ -190,35 +207,41 @@ func (m *Module) testEmailEnumeration(
 		return nil
 	}
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
 		return nil
 	}
 
 	respBody := resp.Body().String()
 
-	// If we get EMAIL_NOT_FOUND, it means the endpoint differentiates
-	// between existing and non-existing emails (email enumeration)
-	if strings.Contains(respBody, "EMAIL_NOT_FOUND") {
+	// A structured EMAIL_NOT_FOUND response proves only that this random address
+	// is absent. Without a known-existing control, it does not prove a usable
+	// existing-vs-nonexisting enumeration differential.
+	if identityErrorMessage(respBody) == "EMAIL_NOT_FOUND" {
 		return &output.ResultEvent{
-			URL:     sourceURL,
-			Matched: fmt.Sprintf("Email enumeration possible (apiKey: %s...)", apiKey[:10]),
-			Request: rawReq,
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindObservation,
+			EvidenceGrade: output.EvidenceGradeObservation,
+			URL:           sourceURL,
+			Matched:       fmt.Sprintf("Email-existence error observed (apiKey: %s...)", apiKey[:10]),
+			Request:       rawReq,
+			Response:      resp.FullResponseString(),
 			Info: output.Info{
-				Name:        "Firebase Email Enumeration",
-				Description: "Firebase Identity Toolkit endpoint returns distinguishable errors for existing vs non-existing emails (EMAIL_NOT_FOUND vs INVALID_PASSWORD), enabling user enumeration",
-				Severity:    severity.Low,
+				Name:        "Firebase Email-Existence Error Observed",
+				Description: "Identity Toolkit returned structured EMAIL_NOT_FOUND for a fresh nonexistent address. This reveals error semantics, but no known-existing address was tested, so an account-enumeration differential was not confirmed.",
+				Severity:    severity.Info,
 				Confidence:  severity.Certain,
 				Tags:        []string{"firebase", "authentication", "enumeration"},
 			},
 			Metadata: map[string]any{
-				"apiKey":   apiKey,
-				"endpoint": "accounts:signInWithPassword",
+				"apiKey":                   apiKey,
+				"endpoint":                 "accounts:signInWithPassword",
+				"existing_account_control": false,
 			},
 		}
 	}
@@ -242,68 +265,104 @@ func (m *Module) testProviderDiscovery(
 		return nil
 	}
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
 		return nil
 	}
 
 	respBody := resp.Body().String()
 
-	// If endpoint returns registered status and providers, it leaks user info
-	if resp.Response().StatusCode == 200 && strings.Contains(respBody, "registered") {
-		// Only flag if the endpoint reveals provider info (allProviders or signinMethods)
-		if strings.Contains(respBody, "allProviders") || strings.Contains(respBody, "signinMethods") {
-			return &output.ResultEvent{
-				URL:     sourceURL,
-				Matched: fmt.Sprintf("Provider discovery enabled (apiKey: %s...)", apiKey[:10]),
-				Request: rawReq,
-				Info: output.Info{
-					Name:        "Firebase Provider Discovery Enabled",
-					Description: "Firebase Identity Toolkit createAuthUri endpoint reveals whether accounts exist and their linked authentication providers, enabling identity correlation",
-					Severity:    severity.Low,
-					Confidence:  severity.Firm,
-					Tags:        []string{"firebase", "authentication", "enumeration"},
-				},
-				Metadata: map[string]any{
-					"apiKey":   apiKey,
-					"endpoint": "accounts:createAuthUri",
-				},
-			}
+	// Empty provider arrays and registered:false are normal discovery responses,
+	// not identity correlation. Require a parsed registered account plus at least
+	// one concrete provider/method.
+	providers, leaked := providerDiscoveryDetails(respBody)
+	if resp.Response().StatusCode == 200 && leaked {
+		return &output.ResultEvent{
+			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindCandidate,
+			EvidenceGrade:    output.EvidenceGradeDifferential,
+			URL:              sourceURL,
+			Matched:          fmt.Sprintf("Provider discovery returned %s (apiKey: %s...)", strings.Join(providers, ", "), apiKey[:10]),
+			Request:          rawReq,
+			Response:         resp.FullResponseString(),
+			ExtractedResults: providers,
+			Info: output.Info{
+				Name:        "Firebase Provider Discovery Candidate",
+				Description: "Identity Toolkit reported the tested identifier as registered and returned non-empty authentication providers. This demonstrates identity metadata disclosure for that identifier, but broader account enumeration was not tested.",
+				Severity:    severity.Low,
+				Confidence:  severity.Firm,
+				Tags:        []string{"firebase", "authentication", "enumeration"},
+			},
+			Metadata: map[string]any{
+				"apiKey":     apiKey,
+				"endpoint":   "accounts:createAuthUri",
+				"registered": true,
+				"providers":  providers,
+			},
 		}
 	}
 
 	return nil
 }
 
+func anonymousAccountToken(body string) (string, bool) {
+	var response struct {
+		IDToken string `json:"idToken"`
+		LocalID string `json:"localId"`
+	}
+	if json.Unmarshal([]byte(body), &response) != nil {
+		return "", false
+	}
+	return response.IDToken, response.IDToken != "" && response.LocalID != ""
+}
+
+func identityErrorMessage(body string) string {
+	var response struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal([]byte(body), &response) != nil {
+		return ""
+	}
+	return response.Error.Message
+}
+
+func providerDiscoveryDetails(body string) ([]string, bool) {
+	var response struct {
+		Registered    bool     `json:"registered"`
+		AllProviders  []string `json:"allProviders"`
+		SigninMethods []string `json:"signinMethods"`
+	}
+	if json.Unmarshal([]byte(body), &response) != nil || !response.Registered {
+		return nil, false
+	}
+	seen := map[string]bool{}
+	providers := make([]string, 0, len(response.AllProviders)+len(response.SigninMethods))
+	for _, provider := range append(response.AllProviders, response.SigninMethods...) {
+		provider = strings.TrimSpace(provider)
+		if provider == "" || seen[provider] {
+			continue
+		}
+		seen[provider] = true
+		providers = append(providers, provider)
+	}
+	return providers, len(providers) > 0
+}
+
 func (m *Module) deleteTestAccount(
 	httpClient *http.Requester,
 	apiKey string,
-	signUpResponse string,
-) {
-	// Extract idToken from signup response
-	idTokenIdx := strings.Index(signUpResponse, `"idToken"`)
-	if idTokenIdx == -1 {
-		return
+	idToken string,
+) bool {
+	if idToken == "" {
+		return false
 	}
-
-	// Simple extraction: find the value after "idToken":"
-	rest := signUpResponse[idTokenIdx:]
-	start := strings.Index(rest, `":"`)
-	if start == -1 {
-		return
-	}
-	rest = rest[start+3:]
-	end := strings.Index(rest, `"`)
-	if end == -1 {
-		return
-	}
-	idToken := rest[:end]
-
 	targetURL := fmt.Sprintf("%s/accounts:delete?key=%s", identityToolkitBase, apiKey)
 	reqBody := fmt.Sprintf(`{"idToken":"%s"}`, idToken)
 
@@ -312,12 +371,16 @@ func (m *Module) deleteTestAccount(
 
 	fuzzedReq, err := httpmsg.ParseRawRequest(rawReq)
 	if err != nil {
-		return
+		return false
 	}
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
-		return
+		return false
 	}
-	resp.Close()
+	defer resp.Close()
+	if resp.Response() == nil {
+		return false
+	}
+	return resp.Response().StatusCode >= 200 && resp.Response().StatusCode < 300
 }

@@ -242,6 +242,40 @@ func TestChecker_NilURL(t *testing.T) {
 	assert.False(t, result)
 }
 
+// TestChecker_IPAndLocalhostScope guards the subdomain-mode fix for hosts with
+// no meaningful eTLD+1. publicsuffix maps every IPv4 to "0.1", so without an
+// explicit IP/localhost path two unrelated addresses would share scope.
+func TestChecker_IPAndLocalhostScope(t *testing.T) {
+	cases := []struct {
+		name       string
+		targetHost string
+		urlStr     string
+		want       bool
+	}{
+		{"same IPv4 in scope", "127.0.0.1", "http://127.0.0.1/api", true},
+		{"different IPv4 out of scope", "127.0.0.1", "http://192.168.0.1/api", false},
+		{"IPv4 vs domain out of scope", "example.com", "http://127.0.0.1/api", false},
+		{"domain vs IPv4 out of scope", "127.0.0.1", "http://example.com/api", false},
+		{"same localhost in scope", "localhost", "http://localhost/api", true},
+		{"localhost vs IPv4 out of scope", "localhost", "http://127.0.0.1/api", false},
+		{"same IPv4 with differing ports in scope", "127.0.0.1:8080", "http://127.0.0.1:3000/api", true},
+		{"same IPv6 in scope", "[::1]", "http://[::1]:9000/api", true},
+		{"different IPv6 out of scope", "[::1]", "http://[2001:db8::1]/api", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			checker := NewChecker(Config{TargetHost: tc.targetHost, Mode: ModeSubdomain})
+			u, err := url.Parse(tc.urlStr)
+			if err != nil {
+				t.Fatalf("parse %q: %v", tc.urlStr, err)
+			}
+			if got := checker.IsInScope(u); got != tc.want {
+				t.Errorf("IsInScope(target=%q, url=%q) = %v, want %v", tc.targetHost, tc.urlStr, got, tc.want)
+			}
+		})
+	}
+}
+
 func BenchmarkChecker_IsInScope(b *testing.B) {
 	checker := NewChecker(Config{
 		TargetHost: "example.com",

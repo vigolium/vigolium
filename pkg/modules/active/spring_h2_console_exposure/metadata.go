@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application exposes the H2 database web console (at paths like /h2-console or /console) to unauthenticated users. The console is for local development only; reaching it in a deployed app lets anyone on the network open a database administration interface.
+	ModuleDesc = `**What it means:** An isolated credential-free request reached an H2-specific connection interface and passed soft-404, sibling, and marker-group controls. This is a dangerous development surface, not proof of database access.
 
-**How it's exploited:** An attacker connects to the backing database and runs arbitrary SQL to read, modify, or delete data. Because H2 can load Java classes through SQL, console access is often escalated to remote code execution and host compromise.
+**How it's exploited:** If separate credentials or permissive console settings allow a connection, an attacker may execute SQL and potentially abuse H2 capabilities. Login-page reachability alone proves neither authentication bypass nor code execution.
 
 **Fix:** Disable the H2 console in production (spring.h2.console.enabled to false) or restrict it to localhost with authentication.`
 
-	ModuleConfirmation = "Confirmed when H2 console login page or interface is accessible without authentication"
-	ModuleSeverity     = severity.Critical
+	ModuleConfirmation = "Candidate requires credential-free 200 response with H2-specific marker groups and negative path controls; database or code execution is not tested"
+	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"spring", "java", "misconfiguration", "rce", "light"}
 )

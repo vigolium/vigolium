@@ -10,54 +10,131 @@ phases:
     requires_git: false
     parallel_with: []
     depends_on: []
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: attack-surface/knowledge-base-report.md
+          min_bytes: 80
+          contains: ["## Advisory Intelligence"]
   - id: "B2"
     title: Threat Model
     agent: threat-modeler
     requires_git: false
     parallel_with: []
     depends_on: ["B1"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: attack-surface/knowledge-base-report.md
+          min_bytes: 160
+          contains: ["## Architecture Model", "## Attack Surface"]
+        - kind: file
+          path: attack-surface/unauthenticated-surface.md
+          min_bytes: 40
+          contains: ["# Unauthenticated Attack Surface"]
   - id: "B3"
     title: Code Scan
     agent: code-scanner
     requires_git: false
     parallel_with: ["B4"]
     depends_on: ["B2"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: attack-surface/knowledge-base-report.md
+          min_bytes: 200
+          contains: ["## Static Analysis Summary"]
   - id: "B4"
     title: Targeted Probe
     agent: probe-lead
     requires_git: false
     parallel_with: ["B3"]
     depends_on: ["B2"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: probe-workspace/balanced-probe/probe-summary.md
+          min_bytes: 40
   - id: "B5"
     title: Review Panel
     agent: review-adjudicator
     requires_git: false
     parallel_with: []
     depends_on: ["B3", "B4"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: chamber-workspace/balanced-chamber/debate.md
+          min_bytes: 40
+        - kind: glob
+          pattern: findings-draft/*.md
+          min_matches: 0
+          each_min_bytes: 1
+          select_contains: ["Verdict: VALID"]
+          each_contains: ["Triage-Priority:"]
   - id: "B6"
     title: Intent Reconciliation
     agent: context-reviewer
     requires_git: false
     parallel_with: []
     depends_on: ["B5"]
+    completion:
+      enforcement: advisory
+      repair_attempts: 0
+      artifacts:
+        - kind: file
+          path: attack-surface/intent-corpus.json
+          min_bytes: 2
+          json: true
+        - kind: file
+          path: attack-surface/intent-reconciliation.md
+          min_bytes: 40
   - id: "B7"
     title: PoC Authoring
     agent: poc-author
     requires_git: false
     parallel_with: []
     depends_on: ["B6"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: findings-draft/consolidation-manifest.json
+          min_bytes: 20
+          json: true
   - id: "B8"
     title: Finding Finalize
     agent: finding-writer
     requires_git: false
     parallel_with: []
     depends_on: ["B7"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: finding_reports
+          roots: [findings, findings-theoretical]
+          filename: report.md
+          min_bytes: 501
+          allow_empty: true
+          manifest_path: findings-draft/consolidation-manifest.json
+          manifest_lists: [findings, theoretical]
   - id: "B9"
     title: Report Compose
     agent: report-composer
     requires_git: false
     parallel_with: []
     depends_on: ["B8"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: final-audit-report.md
+          min_bytes: 200
 ---
 
 ## Context
@@ -98,22 +175,26 @@ Balanced still runs an inline FP tail in its Review Chamber phase: fp-check, a C
 
 ### Pre-Flight Check
 
+If `vigolium-results/audit-context.md` contains `## Engine-Owned Audit State`, the CLI has already selected the current run. Do not ask a resume/fresh question and do not create, delete, or edit `audit-state.json`; proceed from the first non-complete phase shown there.
+
+Only in a native interactive session without that directive, apply the legacy choice below.
+
 If `vigolium-results/audit-state.json` exists, use `AskUserQuestion` to gate the next action:
 
 - **Incomplete phases**: ask "An audit is already in progress. What would you like to do?" with options:
   - "Resume from last checkpoint"
-  - "Start fresh (clears existing state)"
+  - "Start fresh (append a new run)"
   - "Cancel"
 
 - **All phases complete**: ask "A completed audit exists for this repository. What would you like to do?" with options:
-  - "Run a fresh balanced audit (clears existing state)"
+  - "Run a fresh balanced audit (append a new run)"
   - "Run an incremental diff audit (/vigolium-audit:diff)"
   - "Upgrade to deep audit (/vigolium-audit:deep)"
   - "Cancel"
 
 If the user chooses **Resume**: find the first phase not marked `complete` in the state file and continue from there (see [Resume Logic](#resume-logic)).
 
-If the user chooses **Start fresh**: delete `vigolium-results/audit-state.json` and proceed with Pre-Audit Setup.
+If the user chooses **Start fresh**: preserve prior entries, append a new audit entry, and proceed with Pre-Audit Setup.
 
 Do not proceed past the pre-flight check without an explicit user choice.
 
@@ -129,7 +210,7 @@ Do not proceed past the pre-flight check without an explicit user choice.
    ```
 2. **Do NOT switch branches.** Stay on the current branch for the entire audit. Do NOT run `git checkout`, `git switch`, `git branch`, `git commit`, `git add`, or `git push` against the target repo at any point. The audit writes all artifacts under `vigolium-results/` (untracked) — the user controls staging and commits. If `VIGOLIUM_AUDIT_GIT_AVAILABLE=false`, continue auditing the directory in place; do NOT initialize a new repo just for the audit.
 3. Create output directory: `mkdir -p vigolium-results/`
-4. Initialize `vigolium-results/audit-state.json` by appending a new entry (or creating the file):
+4. If the audit context does **not** declare engine-owned state, initialize `vigolium-results/audit-state.json` by appending a new entry (or creating the file):
    ```json
    {
      "audits": [
@@ -211,7 +292,7 @@ Spawn `vigolium-audit:cve-scout` with `run_in_background: true`.
 
 Wait for completion. Read the KB section it produces.
 
-Update `vigolium-results/audit-state.json`: set `B1` status to `complete` with timestamp. Mark T1 complete.
+After the B1 artifact is sufficient, mark the in-session task T1 complete. When state is engine-owned, do not edit `audit-state.json`.
 
 ### Phase B2: Threat Model (T2)
 
@@ -310,17 +391,17 @@ Mark T6 (phase `B6`) complete (or `failed` with `policy: skip-and-continue` reco
 **Finding consolidation**: Run the consolidation helper — it reads every draft in `vigolium-results/findings-draft/`, keeps the `Verdict: VALID` drafts with `Severity-Original` in {CRITICAL, HIGH, MEDIUM}, assigns deterministic severity-prefixed IDs (`C1`, `H1`, `M1`, …) from one global namespace, and materialises each as a directory (`evidence/`, `draft.md`, `debate.md`, variant `metadata.json`). Drafts the triager — or Phase B6 Intent Reconciliation — marked `Triage-Priority: skip` go to `vigolium-results/findings-theoretical/<ID>-<slug>/`; the rest go to `vigolium-results/findings/<ID>-<slug>/`.
 
 ```bash
-python3 ~/.config/vigolium-audit/skills/audit/scripts/consolidate_drafts.py vigolium-results
+python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/consolidate_drafts.py vigolium-results
 ```
 
-The manifest at `vigolium-results/findings-draft/consolidation-manifest.json` has `findings` (actionable → poc-author), `theoretical` (triage-skipped / intent-skipped → reporter only), and `dropped`. Exit non-zero means nothing was promoted at all — STOP. Exit zero with an empty `findings` array but non-empty `theoretical` is normal: skip PoC building + partition and go straight to finalization over the theoretical bucket.
+The manifest at `vigolium-results/findings-draft/consolidation-manifest.json` has `findings` (actionable → poc-author), `theoretical` (triage-skipped / intent-skipped → reporter only), and `dropped`. Exit 1 with empty `findings` and `theoretical` arrays is a clean no-findings result: skip PoC/partition/finding-writer work and continue to B9 so the report records zero findings. Other helper errors are fatal. An empty `findings` array with non-empty `theoretical` is also normal: skip PoC building + partition and finalize the theoretical bucket.
 
 **PoC Building**: Read the manifest. For each entry in its `findings` array, spawn `vigolium-audit:poc-author` with `run_in_background: true`, passing the entry's `draft_path` and `id`. poc-author writes `PoC-Status` back into the finding's `draft.md` and is explicitly NOT responsible for `report.md` — that is Phase B8.
 
 Wait for all PoC builders. **Confirmed/theoretical partition**: then run
 
 ```bash
-python3 ~/.config/vigolium-audit/skills/audit/scripts/partition_findings.py vigolium-results
+python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/partition_findings.py vigolium-results
 ```
 
 which demotes any `vigolium-results/findings/<ID>-<slug>/` that did not reach `PoC-Status: executed` into `vigolium-results/findings-theoretical/` (IDs unchanged; idempotent). Mark T7 (phase `B7`) complete.
@@ -345,24 +426,14 @@ Spawn `vigolium-audit:report-composer` (foreground) with the following additiona
 **File-state stamp (incremental basis)**: Before cleanup, stamp `vigolium-results/file-state.json` so the next audit can compute an incremental scope (changed/new/deleted files) against this run. This adds nothing to the user-facing report — it just persists per-file hashes and the audit IDs that touched each file.
 
 ```bash
-python3 ~/.config/vigolium-audit/skills/audit/scripts/stamp_file_state.py --target . 2>&1
+python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/stamp_file_state.py --target . 2>&1
 ```
 
 The script reads `vigolium-results/audit-state.json` to detect the current audit_id and phase set, walks the target tree (excluding `vigolium-results/`, `node_modules/`, `vendor/`, etc.), sha-256 hashes every text-readable source file under ~512 KB, and merges the result into `vigolium-results/file-state.json`. If it errors, log the failure but DO NOT fail the audit — the report is the deliverable.
 
-**Post-audit cleanup**: After report-composer completes and reports consistency checks passed, delete intermediate working artifacts:
-```bash
-rm -rf vigolium-results/findings-draft/
-rm -rf vigolium-results/probe-workspace/
-rm -rf vigolium-results/chamber-workspace/
-rm -rf vigolium-results/codeql-artifacts/
-rm -rf vigolium-results/codeql-queries/
-rm -rf vigolium-results/semgrep-rules/
-rm -rf vigolium-results/semgrep-res/
-```
-Retained: `vigolium-results/audit-state.json`, `vigolium-results/file-state.json`, `vigolium-results/INFO.md` (if present), `vigolium-results/attack-surface/knowledge-base-report.md`, `vigolium-results/attack-surface/unauthenticated-surface.md`, `vigolium-results/attack-surface/intent-corpus.json`, `vigolium-results/attack-surface/intent-reconciliation.md`, `vigolium-results/findings/`, `vigolium-results/findings-theoretical/` (if present), `vigolium-results/final-audit-report.md`. If consistency checks failed, skip cleanup and report the failures to the user first.
+**Retention handoff**: Do not delete findings drafts, probe/chamber workspaces, or scanner artifacts inside the agent run; they are inputs to engine completion gates and resume recovery. The trusted CLI applies the requested retention/strip policy only after artifact validation. If report consistency checks fail, report them and leave all evidence intact.
 
-Mark T9 (phase `B9`) complete. Update `audits[-1].completed_at` and `audits[-1].status` to `complete`. Print post-audit summary.
+Mark the in-session task T9 complete and print the post-audit summary. The engine validates artifacts and finalizes audit state when it owns the record.
 
 ---
 

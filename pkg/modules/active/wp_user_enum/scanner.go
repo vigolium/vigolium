@@ -90,12 +90,26 @@ func (m *Module) ScanPerRequest(
 	}
 
 	host := service.Host()
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	if scanCtx != nil {
+		diskSet := m.ds.Get(scanCtx.DedupMgr())
+		if diskSet != nil && diskSet.IsSeen(host) {
+			return nil, nil
+		}
+	}
+	cleanRaw, err := modkit.StripCredentialHeaders(ctx.Request().Raw())
+	if err != nil {
 		return nil, nil
 	}
+	anonymousClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
+	anonymousCtx := httpmsg.NewHttpRequestResponse(
+		httpmsg.NewHttpRequestWithService(service, cleanRaw),
+		ctx.Response(),
+	)
 
-	urlx, err := ctx.URL()
+	urlx, err := anonymousCtx.URL()
 	if err != nil {
 		return nil, nil
 	}
@@ -109,13 +123,13 @@ func (m *Module) ScanPerRequest(
 	// to a real author slug. Whatever it yields is the site's generic redirect for
 	// an unknown author; any real probe matching it is reading that same catch-all,
 	// not a leak.
-	baseline := m.probeAuthor(ctx, httpClient, baselineAuthorID)
+	baseline := m.probeAuthor(anonymousCtx, anonymousClient, baselineAuthorID)
 
 	var rawSlugs []string
 	seen := map[string]bool{}
 	var authorUsers []string
 	for i := 1; i <= 5; i++ {
-		username := m.probeAuthor(ctx, httpClient, i)
+		username := m.probeAuthor(anonymousCtx, anonymousClient, i)
 		if username == "" || username == baseline {
 			continue
 		}
@@ -136,40 +150,50 @@ func (m *Module) ScanPerRequest(
 
 	if len(authorUsers) > 0 {
 		results = append(results, &output.ResultEvent{
+			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindObservation,
+			EvidenceGrade:    output.EvidenceGradeObservation,
 			URL:              baseURL + "/?author=1",
 			Matched:          baseURL + "/?author=1",
 			ExtractedResults: authorUsers,
 			Info: output.Info{
-				Name:        "WordPress User Enumeration via Author Archives",
-				Description: fmt.Sprintf("Discovered %d WordPress username(s) via /?author=N redirect enumeration: %s", len(authorUsers), strings.Join(authorUsers, ", ")),
-				Severity:    severity.Medium,
+				Name:        "WordPress Public Author Slugs Observed",
+				Description: fmt.Sprintf("Observed %d distinct WordPress author slug(s) through public /?author=N canonical redirects: %s. Public author archives are normal CMS behavior; no login weakness was tested.", len(authorUsers), strings.Join(authorUsers, ", ")),
+				Severity:    severity.Info,
 				Confidence:  severity.Certain,
 				Tags:        []string{"wordpress", "user-enumeration"},
 			},
 			Metadata: map[string]any{
-				"users":  authorUsers,
-				"method": "author-archive",
+				"users":                   authorUsers,
+				"method":                  "author-archive",
+				"credential_free":         true,
+				"authentication_weakness": false,
 			},
 		})
 	}
 
 	// 2. REST API user enumeration: /wp-json/wp/v2/users
-	restUsers := m.probeRESTUsers(ctx, httpClient)
+	restUsers := m.probeRESTUsers(anonymousCtx, anonymousClient)
 	if len(restUsers) > 0 {
 		results = append(results, &output.ResultEvent{
+			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindObservation,
+			EvidenceGrade:    output.EvidenceGradeObservation,
 			URL:              baseURL + "/wp-json/wp/v2/users",
 			Matched:          baseURL + "/wp-json/wp/v2/users",
 			ExtractedResults: restUsers,
 			Info: output.Info{
-				Name:        "WordPress User Enumeration via REST API",
-				Description: fmt.Sprintf("Discovered %d WordPress username(s) via unauthenticated REST API access: %s", len(restUsers), strings.Join(restUsers, ", ")),
-				Severity:    severity.Medium,
+				Name:        "WordPress Public REST Authors Observed",
+				Description: fmt.Sprintf("Observed %d public WordPress author slug(s) in the REST users collection: %s. WordPress exposes authors for published content by design; no private account or authentication weakness was proven.", len(restUsers), strings.Join(restUsers, ", ")),
+				Severity:    severity.Info,
 				Confidence:  severity.Certain,
 				Tags:        []string{"wordpress", "user-enumeration", "rest-api"},
 			},
 			Metadata: map[string]any{
-				"users":  restUsers,
-				"method": "rest-api",
+				"users":                   restUsers,
+				"method":                  "rest-api",
+				"credential_free":         true,
+				"private_accounts_proven": false,
 			},
 		})
 	}
@@ -192,7 +216,7 @@ func (m *Module) probeAuthor(ctx *httpmsg.HttpRequestResponse, httpClient *http.
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return ""
 	}
@@ -292,7 +316,7 @@ func (m *Module) probeRESTUsers(ctx *httpmsg.HttpRequestResponse, httpClient *ht
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}

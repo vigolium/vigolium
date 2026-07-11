@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/textproto"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -534,6 +535,75 @@ func GetRawRequestFromURL(url string) (*HttpRequestResponse, error) {
 	}
 
 	return rr, nil
+}
+
+// GetRawRequestFromURLWithMethod creates a request from a URL while preserving
+// the discovered HTTP method, request headers, and body. This is the
+// method/body-aware counterpart to GetRawRequestFromURL: it lets non-GET
+// discoveries (form POSTs, JS-derived API calls) be imported without being
+// flattened to a bodyless GET, which would silently lose API and form coverage.
+//
+// When method is empty/GET and body is empty it delegates to
+// GetRawRequestFromURL for identical behavior. Header values containing CR/LF
+// are dropped to avoid request smuggling from malformed stored headers; Host and
+// Content-Length are always managed here (never taken from the stored map).
+func GetRawRequestFromURLWithMethod(rawURL, method string, headers map[string]string, body []byte) (*HttpRequestResponse, error) {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if (method == "" || method == "GET") && len(body) == 0 {
+		return GetRawRequestFromURL(rawURL)
+	}
+	if method == "" {
+		method = "GET"
+	}
+
+	urlx, err := urlutil.ParseAbsoluteURL(rawURL, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s HTTP/1.1\r\n", method, escapedRequestTarget(urlx))
+	fmt.Fprintf(&b, "Host: %s\r\n", urlx.Host)
+
+	// Emit stored headers deterministically, skipping ones we manage (Host is set
+	// above; Content-Length is derived from body) and any with control chars.
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		switch http.CanonicalHeaderKey(k) {
+		case "Host", "Content-Length":
+			continue
+		}
+		if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(headers[k], "\r\n") {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Fprintf(&b, "%s: %s\r\n", k, headers[k])
+	}
+
+	if len(body) > 0 {
+		fmt.Fprintf(&b, "Content-Length: %d\r\n", len(body))
+	}
+	b.WriteString("\r\n")
+	if len(body) > 0 {
+		b.Write(body)
+	}
+
+	// The raw is internally built and trusted, so skip the ParseRawRequest
+	// re-parse + throwaway Service and wrap it directly with the correct service.
+	port := 80
+	protocol := "http"
+	if urlx.Scheme == "https" {
+		protocol = "https"
+		port = 443
+	}
+	if urlPort := urlx.Port(); urlPort != "" {
+		port = parsePort(urlPort)
+	}
+	service, _ := NewService(urlx.Host, port, protocol)
+	return NewRequestResponseRaw([]byte(b.String()), service), nil
 }
 
 // FromStdRequest creates HttpRequestResponse from a standard http.Request.

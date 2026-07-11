@@ -2,11 +2,13 @@ package client_prototype_pollution
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -105,14 +107,23 @@ func (m *Module) ScanPerRequest(
 	}
 
 	// Host-level deduplication
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	if diskSet != nil && diskSet.IsSeen(urlx.Host) {
 		return nil, nil
 	}
 
 	// Get baseline response
-	entry, err := scanCtx.GetOrFetchBaseline(ctx, httpClient)
-	if err != nil {
+	entry := &modkit.BaselineEntry{Response: ctx.Response()}
+	if scanCtx != nil {
+		entry, err = scanCtx.GetOrFetchBaseline(ctx, httpClient)
+		if err != nil {
+			return nil, nil
+		}
+	}
+	if entry == nil || entry.Response == nil {
 		return nil, nil
 	}
 
@@ -144,7 +155,7 @@ func (m *Module) ScanPerRequest(
 			break
 		}
 		resolved := resolveScriptURL(pageURLStr, scriptSrc)
-		if isCDNURL(resolved) {
+		if isCDNURL(resolved) || !sameOriginScript(pageURLStr, resolved) {
 			continue
 		}
 		jsContent := fetchScript(resolved, httpClient, ctx)
@@ -215,14 +226,11 @@ func (m *Module) ScanPerRequest(
 	}
 
 	description := fmt.Sprintf(
-		"The page at %s contains JavaScript that parses URL parameters into objects "+
-			"using a pattern vulnerable to prototype pollution: **%s**.\n\n"+
+		"The page at %s contains a URL-source and object-write pattern associated with client-side prototype pollution: **%s**.\n\n"+
 			"Matching code: `%s`\n"+
 			"Source file: %s\n\n"+
-			"An attacker can craft a URL like:\n```\n%s?__proto__[polluted]=true\n```\n"+
-			"When a victim visits this URL, the browser's `Object.prototype` is polluted, "+
-			"which can lead to XSS, authentication bypass, or denial of service depending "+
-			"on the gadgets available on the page.%s",
+			"Candidate URL:\n```\n%s?__proto__[polluted]=true\n```\n"+
+			"The request probe only establishes that the page remains reachable with this query. Static proximity does not prove the key reaches the write, Object.prototype changes at runtime, or any detected gadget consumes the polluted property.%s",
 		urlx.String(),
 		f.Source.Name,
 		f.SourceLine,
@@ -231,26 +239,18 @@ func (m *Module) ScanPerRequest(
 		gadgetDesc,
 	)
 
-	// Calibrate severity to the strength of the evidence. This module is a static
-	// heuristic — the probe only verifies the URL is reachable, not that the prototype
-	// was actually polluted at runtime — so confidence stays Tentative. A bare source
-	// pattern with no reachable sink is Medium; finding an actual high-impact gadget
-	// (innerHTML/eval/document.write reading attacker-controllable keys) raises the
-	// realistic impact to High, but it still warrants manual confirmation.
-	sev := severity.Medium
-	if len(f.Gadgets) > 0 {
-		sev = severity.High
-	}
-
 	result := &output.ResultEvent{
+		ModuleID:         ModuleID,
+		RecordKind:       output.RecordKindCandidate,
+		EvidenceGrade:    output.EvidenceGradeCandidate,
 		URL:              urlx.String(),
 		Request:          probeRaw,
 		Response:         probeResp,
 		ExtractedResults: []string{f.Source.Name, f.SourceLine},
 		Info: output.Info{
-			Name:        "Client-Side Prototype Pollution",
+			Name:        "Client-Side Prototype Pollution Flow Candidate",
 			Description: description,
-			Severity:    sev,
+			Severity:    severity.Medium,
 			Confidence:  severity.Tentative,
 			Reference: []string{
 				"https://portswigger.net/web-security/prototype-pollution",
@@ -258,9 +258,29 @@ func (m *Module) ScanPerRequest(
 				"https://portswigger.net/research/widespread-prototype-pollution-gadgets",
 			},
 		},
+		Metadata: map[string]any{
+			"source_pattern":            f.Source.Name,
+			"source_file":               f.SourceFile,
+			"page_reachable_with_probe": probeRaw != "",
+			"runtime_pollution_proven":  false,
+			"source_to_gadget_proven":   false,
+			"gadget_count":              len(f.Gadgets),
+		},
 	}
 
 	return []*output.ResultEvent{result}, nil
+}
+
+func sameOriginScript(pageURL, scriptURL string) bool {
+	page, err := url.Parse(pageURL)
+	if err != nil {
+		return false
+	}
+	script, err := url.Parse(scriptURL)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(page.Scheme, script.Scheme) && strings.EqualFold(page.Host, script.Host)
 }
 
 // fetchScript fetches a JavaScript file and returns its content.
@@ -272,13 +292,17 @@ func fetchScript(scriptURL string, httpClient *http.Requester, ctx *httpmsg.Http
 	}
 	req = req.WithService(ctx.Service())
 
-	resp, _, err := httpClient.Execute(req, http.Options{})
+	resp, _, err := httpClient.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return ""
 	}
 	defer resp.Close()
 
-	if resp.Response() != nil && resp.Response().StatusCode != 200 {
+	if resp.Response() == nil || resp.Response().StatusCode != 200 || infra.IsBlockedResponse(resp) {
+		return ""
+	}
+	if !modkit.IsJSOrTSContentType(resp.Response().Header.Get("Content-Type")) &&
+		modkit.ClassifyContentType(resp.Response().Header.Get("Content-Type")) == modkit.ContentClassHTML {
 		return ""
 	}
 	return resp.Body().String()
@@ -301,13 +325,13 @@ func sendProbe(probeURL string, httpClient *http.Requester, ctx *httpmsg.HttpReq
 	}
 	req = req.WithService(ctx.Service())
 
-	resp, _, err := httpClient.Execute(req, http.Options{})
+	resp, _, err := httpClient.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return "", "", false
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
 		return "", "", false
 	}
 	sc := resp.Response().StatusCode

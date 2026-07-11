@@ -106,25 +106,49 @@ func parseIntrospectionResponse(body string) []introspectionField {
 	return fields
 }
 
-// containsSQLError checks if the body contains any SQL error pattern.
+// containsSQLError only considers messages in a structured GraphQL errors
+// envelope. A proxy, HTML error page, response header, or arbitrary JSON string
+// containing a database token is not backend injection evidence.
 func containsSQLError(body string) bool {
-	for _, pattern := range sqlErrorPatterns {
-		if pattern.MatchString(body) {
-			return true
+	var response struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(body)), &response) != nil || len(response.Errors) == 0 {
+		return false
+	}
+	for _, graphQLError := range response.Errors {
+		for _, pattern := range sqlErrorPatterns {
+			if pattern.MatchString(graphQLError.Message) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// isGraphQLEndpoint checks if the response indicates a valid GraphQL endpoint.
+// isGraphQLEndpoint validates the exact result of the { __typename } probe. A
+// generic JSON endpoint carrying a "data" key is not GraphQL evidence.
 func isGraphQLEndpoint(body string) bool {
-	return strings.Contains(body, "__typename") ||
-		strings.Contains(body, `"data"`)
+	var response struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(body)), &response) != nil {
+		return false
+	}
+	raw, ok := response.Data["__typename"]
+	if !ok {
+		return false
+	}
+	var typename string
+	return json.Unmarshal(raw, &typename) == nil && strings.TrimSpace(typename) != ""
 }
 
-// hasIntrospection checks if the response contains a full introspection result.
+// hasIntrospection requires a parseable schema with a usable query or mutation
+// root. Merely reflecting the words "__schema", "types", or "fields" is not
+// enough.
 func hasIntrospection(body string) bool {
-	return strings.Contains(body, "__schema") &&
-		strings.Contains(body, "types") &&
-		strings.Contains(body, "fields")
+	_, ok := graphqlx.ParseSchema([]byte(strings.TrimSpace(body)))
+	return ok
 }

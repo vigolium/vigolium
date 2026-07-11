@@ -47,14 +47,18 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := urlx.Host + urlx.Path
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
 	}
 
 	flags := mcpinfra.Detect(ctx)
-	if !flags.Any() {
+	// A conventional path such as /mcp is not protocol evidence by itself.
+	if !flags.Strong() {
 		return nil, nil
 	}
 
@@ -63,7 +67,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		indicators = append(indicators, fmt.Sprintf("MCP endpoint path: %s", urlx.Path))
 	}
 	if flags.HasSessionHeader {
-		indicators = append(indicators, fmt.Sprintf("Mcp-Session-Id header: %s", flags.SessionID))
+		indicators = append(indicators, fmt.Sprintf("Mcp-Session-Id header present (%d characters; value redacted)", len(flags.SessionID)))
 	}
 	if flags.HasJSONRPC {
 		indicators = append(indicators, "JSON-RPC 2.0 envelope")
@@ -93,26 +97,27 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	sev := severity.Info
-	if flags.Strong() {
-		sev = severity.Medium
-	}
-
 	return []*output.ResultEvent{
 		{
+			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindObservation,
+			EvidenceGrade:    output.EvidenceGradeObservation,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: indicators,
 			MatcherStatus:    true,
 			Info: output.Info{
 				Name:        "MCP Server Detected",
-				Description: fmt.Sprintf("MCP (Model Context Protocol) server detected at %s. Indicators: %s", urlx.Host, strings.Join(indicators, "; ")),
-				Severity:    sev,
+				Description: fmt.Sprintf("MCP protocol behavior was identified at %s. This inventories an endpoint; it does not imply missing authentication, dangerous tool access, or a vulnerability.", urlx.Host),
+				Severity:    severity.Info,
 				Confidence:  severity.Firm,
 				Tags:        []string{"mcp", "api-security"},
 				Reference:   []string{"https://modelcontextprotocol.io/specification/2025-11-25"},
 			},
+			Metadata: map[string]any{"protocol_confirmed": true, "authentication_tested": false, "tool_invocation_tested": false},
 		},
 	}, nil
 }

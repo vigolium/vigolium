@@ -1,7 +1,15 @@
 package graphql_scan
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestParseIntrospectionResponse(t *testing.T) {
@@ -125,7 +133,7 @@ func TestContainsSQLError(t *testing.T) {
 		{
 			name: "SQLite error",
 			body: `near "x": syntax error`,
-			want: true,
+			want: false,
 		},
 		{
 			name: "MSSQL unclosed quotation",
@@ -156,7 +164,9 @@ func TestIsGraphQLEndpoint(t *testing.T) {
 		want bool
 	}{
 		{"typename response", `{"data":{"__typename":"Query"}}`, true},
-		{"data null", `{"data":null}`, true},
+		{"data null", `{"data":null}`, false},
+		{"generic data object", `{"data":{"status":"ok"}}`, false},
+		{"typename outside data", `{"message":"__typename"}`, false},
 		{"html not found", `<html>Not Found</html>`, false},
 		{"error not found", `{"error":"not found"}`, false},
 	}
@@ -172,7 +182,7 @@ func TestIsGraphQLEndpoint(t *testing.T) {
 }
 
 func TestHasIntrospection(t *testing.T) {
-	good := `{"data":{"__schema":{"types":[{"name":"Query","fields":[]}]}}}`
+	good := `{"data":{"__schema":{"queryType":{"name":"Query"},"types":[{"kind":"OBJECT","name":"Query","fields":[]}]}}}`
 	if !hasIntrospection(good) {
 		t.Error("expected true for valid introspection response")
 	}
@@ -180,6 +190,48 @@ func TestHasIntrospection(t *testing.T) {
 	bad := `{"data":{"user":null}}`
 	if hasIntrospection(bad) {
 		t.Error("expected false for non-introspection response")
+	}
+}
+
+func TestContainsSQLErrorRequiresGraphQLErrorEnvelope(t *testing.T) {
+	if containsSQLError(`{"message":"You have an error in your SQL syntax"}`) {
+		t.Fatal("a generic JSON message must not be treated as a GraphQL resolver error")
+	}
+	if containsSQLError(`<html>You have an error in your SQL syntax</html>`) {
+		t.Fatal("an HTML/proxy error must not be treated as GraphQL SQL injection")
+	}
+	if !containsSQLError(`{"errors":[{"message":"You have an error in your SQL syntax near quote"}]}`) {
+		t.Fatal("a structured GraphQL database error should remain visible")
+	}
+}
+
+func TestIntrospectionIsObservationNotFinding(t *testing.T) {
+	t.Parallel()
+	const schema = `{"data":{"__schema":{"queryType":{"name":"Query"},"mutationType":null,"subscriptionType":null,"types":[{"kind":"OBJECT","name":"Query","fields":[{"name":"health","args":[],"type":{"kind":"SCALAR","name":"String","ofType":null}}]},{"kind":"SCALAR","name":"String","fields":[]}]}}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case string(body) == typenameQuery:
+			_, _ = w.Write([]byte(`{"data":{"__typename":"Query"}}`))
+		case strings.Contains(string(body), "IntrospectionQuery"):
+			_, _ = w.Write([]byte(schema))
+		default:
+			_, _ = w.Write([]byte(`{"errors":[{"message":"unknown field"}]}`))
+		}
+	}))
+	defer srv.Close()
+
+	ctx := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", "home")
+	results, err := New().ScanPerRequest(ctx, modtest.Requester(t), &modkit.ScanContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected only the introspection observation, got %d results", len(results))
+	}
+	if results[0].RecordKind != output.RecordKindObservation || results[0].EvidenceGrade != output.EvidenceGradeObservation {
+		t.Fatalf("introspection must be an observation, got kind=%q grade=%q", results[0].RecordKind, results[0].EvidenceGrade)
 	}
 }
 

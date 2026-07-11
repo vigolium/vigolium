@@ -212,9 +212,10 @@ discovery:
     observed_max_items: 4000
     disable_kingfisher: false
 
-  jsscan:
+  jstangle:
     enabled: true
-    replay_mode: exact           # exact | conservative | off
+    replay_mode: exact           # exact | conservative | off (confidence gate)
+    replay_safety: read-only     # metadata-only | read-only | safe-baseline | state-changing
     source_maps: true
     asset_graph: true
     protocol_handshake: false    # bounded WebSocket/SSE GET handshake

@@ -1,7 +1,5 @@
 package secret_detect
 
-import "bytes"
-
 // IsJSEscapeArtifactMatch reports whether the matched snippet is a JavaScript
 // source identifier that a fixed-length / high-entropy token rule clipped out of
 // a `\uXXXX` (or `\xXX`) escape sequence, rather than a real delimited
@@ -21,12 +19,13 @@ import "bytes"
 // fires when the snippet can be positively located glued to a `\u`/`\x` escape
 // in the body, so a genuine secret served in the same bundle is still reported,
 // and a snippet that cannot be found verbatim keeps the finding.
-func IsJSEscapeArtifactMatch(body []byte, snippet string) bool {
-	if snippet == "" || len(body) == 0 {
-		return false
-	}
-	idx := bytes.Index(body, []byte(snippet))
-	if idx <= 0 {
+// The guard is pinned to the detector's exact match offsets (see resolveMatchSpan)
+// so the `\u`/`\x` escape test inspects the bytes immediately before the
+// occurrence that fired, not the first textual occurrence of snippet. Passing
+// start<0 (no offsets) locates by substring instead.
+func IsJSEscapeArtifactMatch(body []byte, snippet string, start, end int) bool {
+	idx, _, ok := resolveMatchSpan(body, snippet, start, end)
+	if !ok || idx <= 0 {
 		return false
 	}
 	// Case A: the rule swallowed the escape's hex tail — the snippet itself

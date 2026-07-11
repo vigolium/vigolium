@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // insertGroupFinding inserts one finding row, defaulting empty JSON columns to
@@ -43,9 +44,17 @@ func insertValueFinding(t *testing.T, db *DB, ctx context.Context, projectUUID, 
 
 // insertRuleFinding inserts a finding whose module_name (the rule) is set
 // independently of module_id — the shape secret-detect produces, where one
-// module_id ("secret-detect") fronts many Kingfisher rule names. Used by the
-// ByRule grouping tests.
+// module_id ("secret-detect") fronts many secret-scan rule names. Used by the
+// ByRule grouping tests. Tags default to ["secret"].
 func insertRuleFinding(t *testing.T, db *DB, ctx context.Context, projectUUID, moduleID, ruleName, sev, host, matchedURL, extracted string) int64 {
+	t.Helper()
+	return insertRuleFindingTags(t, db, ctx, projectUUID, moduleID, ruleName, sev, host, matchedURL, extracted, `["secret"]`)
+}
+
+// insertRuleFindingTags is insertRuleFinding with an explicit tags JSON array —
+// the Suspect bundle only folds findings carrying output.SuspectBundleTag
+// ("secret-generic"), so bundle tests set it on the generic-rule rows.
+func insertRuleFindingTags(t *testing.T, db *DB, ctx context.Context, projectUUID, moduleID, ruleName, sev, host, matchedURL, extracted, tagsJSON string) int64 {
 	t.Helper()
 	matchedAt := "[]"
 	if matchedURL != "" {
@@ -54,12 +63,15 @@ func insertRuleFinding(t *testing.T, db *DB, ctx context.Context, projectUUID, m
 	if extracted == "" {
 		extracted = "[]"
 	}
+	if tagsJSON == "" {
+		tagsJSON = `["secret"]`
+	}
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO findings (project_uuid, scan_uuid, module_id, module_name,
 			finding_hash, severity, confidence, http_record_uuids, hostname, matched_at,
 			extracted_results, tags, description)
-		VALUES (?, 'scan1', ?, ?, ?, ?, 'firm', '[]', ?, ?, ?, '["secret"]', ?)`,
-		projectUUID, moduleID, ruleName, uuid.NewString(), sev, host, matchedAt, extracted, ruleName)
+		VALUES (?, 'scan1', ?, ?, ?, ?, 'firm', '[]', ?, ?, ?, ?, ?)`,
+		projectUUID, moduleID, ruleName, uuid.NewString(), sev, host, matchedAt, extracted, tagsJSON, ruleName)
 	if err != nil {
 		t.Fatalf("insert rule finding: %v", err)
 	}
@@ -144,6 +156,107 @@ func TestGroupFindingsByValue_ByRule(t *testing.T) {
 		if !seen {
 			t.Errorf("survivor missing value: %q", v)
 		}
+	}
+}
+
+// TestGroupFindingsByValue_SuspectBundle verifies the Suspect-tier bundle: for a
+// BundleSuspect module (secret-detect), the DISTINCT generic-namespace rules at
+// Suspect severity on one host (tagged output.SuspectBundleTag) collapse into a
+// single relabeled bundle with a generic description, while:
+//   - a NAMED provider family at Suspect severity (no bundle tag) stays its own
+//     per-rule finding — the reported Google-key-mixed-with-Storyblok case,
+//   - the module's High-severity findings stay per-rule, and
+//   - a bundle-tagged Suspect finding on another host stays separate under PerHost.
+func TestGroupFindingsByValue_SuspectBundle(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	projectUUID := DefaultProjectUUID
+
+	const mod = "secret-detect"
+	const genericTags = `["secret", "` + output.SuspectBundleTag + `"]`
+
+	// Three DISTINCT generic Suspect rules on one host → collapse to one bundle.
+	bundle := insertRuleFindingTags(t, db, ctx, projectUUID, mod, "Generic Password", "suspect", "app.x.net",
+		"https://app.x.net/a", `["hunter2abcdef012345"]`, genericTags)
+	_ = insertRuleFindingTags(t, db, ctx, projectUUID, mod, "Generic API Key", "suspect", "app.x.net",
+		"https://app.x.net/b", `["k3yZZabcdef012345678"]`, genericTags)
+	_ = insertRuleFindingTags(t, db, ctx, projectUUID, mod, "Generic Username and Password", "suspect", "app.x.net",
+		"https://app.x.net/c", `["u53rNameabcdef012345"]`, genericTags)
+
+	// A NAMED provider family at Suspect severity (untagged) must NOT bundle — it
+	// is a distinct family and keeps its own finding (the Google/Storyblok case).
+	named := insertRuleFinding(t, db, ctx, projectUUID, mod, "Google Gemini API Key", "suspect", "app.x.net",
+		"https://app.x.net/config.js", `["AIzaSyA9ww` + `U3OfBHTOWZ` + `s_jrPLr6la` + `HG6YQwvnc"]`)
+
+	// A High-tier secret on the same host stays its own per-rule finding.
+	high := insertRuleFinding(t, db, ctx, projectUUID, mod, "Stripe Secret Key", "high", "app.x.net",
+		"https://app.x.net/app.js", `["sk_live_re` + `alkey01234` + `567890abcd"]`)
+
+	// A generic Suspect secret on another host stays separate under PerHost.
+	otherHost := insertRuleFindingTags(t, db, ctx, projectUUID, mod, "Generic Password", "suspect", "other.x.net",
+		"https://other.x.net/a", `["p4ssw0rdabcdef012345"]`, genericTags)
+
+	deleted, grouped, err := repo.GroupFindingsByValue(ctx, projectUUID, GroupFindingOptions{
+		PerHost:       true,
+		ByRule:        []string{mod},
+		BundleSuspect: []string{mod},
+		MaxURLs:       50,
+	})
+	if err != nil {
+		t.Fatalf("GroupFindingsByValue: %v", err)
+	}
+	if deleted != 2 || grouped != 1 {
+		t.Fatalf("expected 2 deleted / 1 grouped, got %d / %d", deleted, grouped)
+	}
+
+	var remaining []*Finding
+	if err := db.NewSelect().Model(&remaining).Scan(ctx); err != nil {
+		t.Fatalf("select remaining: %v", err)
+	}
+	survivors := map[int64]bool{bundle: true, named: true, high: true, otherHost: true}
+	if len(remaining) != len(survivors) {
+		t.Errorf("expected %d remaining findings, got %d", len(survivors), len(remaining))
+	}
+	for _, f := range remaining {
+		if !survivors[f.ID] {
+			t.Errorf("unexpected survivor: id=%d module=%s rule=%s sev=%s host=%s", f.ID, f.ModuleID, f.ModuleName, f.Severity, f.Hostname)
+		}
+	}
+
+	// The bundle survivor is relabeled, carries all three generic values, and gets
+	// the generic bundle description (not the first generic rule's own text).
+	s := &Finding{}
+	if err := db.NewSelect().Model(s).Where("id = ?", bundle).Scan(ctx); err != nil {
+		t.Fatalf("select bundle survivor: %v", err)
+	}
+	if s.ModuleName != suspectBundleFindingName {
+		t.Errorf("bundle survivor module_name = %q, want the relabeled bundle name", s.ModuleName)
+	}
+	if len(s.ExtractedResults) != 3 {
+		t.Errorf("expected bundle survivor to carry 3 values, got %d: %v", len(s.ExtractedResults), s.ExtractedResults)
+	}
+	if !strings.HasPrefix(s.Description, suspectBundleDescription) {
+		t.Errorf("bundle survivor description = %q, want the generic bundle description", s.Description)
+	}
+
+	// The NAMED provider family at Suspect severity keeps its own rule identity —
+	// it is neither relabeled nor merged into the generic bundle.
+	n := &Finding{}
+	if err := db.NewSelect().Model(n).Where("id = ?", named).Scan(ctx); err != nil {
+		t.Fatalf("select named suspect finding: %v", err)
+	}
+	if n.ModuleName != "Google Gemini API Key" {
+		t.Errorf("named suspect finding module_name = %q, want it kept per-rule", n.ModuleName)
+	}
+
+	// The High-tier finding must NOT be relabeled or merged.
+	h := &Finding{}
+	if err := db.NewSelect().Model(h).Where("id = ?", high).Scan(ctx); err != nil {
+		t.Fatalf("select high finding: %v", err)
+	}
+	if h.ModuleName != "Stripe Secret Key" {
+		t.Errorf("high finding module_name = %q, want it kept per-rule", h.ModuleName)
 	}
 }
 

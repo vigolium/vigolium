@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan/linkfinder"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle/linkfinder"
 	"github.com/vigolium/vigolium/pkg/deparos/responsechain"
 	"go.uber.org/zap"
 )

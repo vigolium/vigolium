@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // makeHTTPCtx builds an HTTPS request/response pair from the given path,
@@ -43,8 +44,57 @@ func TestScanPerRequest_MixedContent(t *testing.T) {
 
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, results)
+	require.Len(t, results, 1)
 	assert.NotEmpty(t, results[0].ExtractedResults)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Contains(t, results[0].Info.Name, "Blockable")
+}
+
+func TestScanPerRequest_OrdinaryHTTPNavigationIsNotMixedContent(t *testing.T) {
+	t.Parallel()
+	body := `<html><body>` +
+		`<a href="http://example.net/page">navigate</a>` +
+		`<link rel="canonical" href="http://example.com/canonical">` +
+		`</body></html>`
+	results, err := New().ScanPerRequest(makeHTTPCtx("/", "Content-Type: text/html\r\n", body), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestScanPerRequest_UpgradeableMediaIsObservation(t *testing.T) {
+	t.Parallel()
+	body := `<img src="http://cdn.example.net/image.png"><video poster="http://cdn.example.net/poster.jpg"></video>`
+	results, err := New().ScanPerRequest(makeHTTPCtx("/", "Content-Type: text/html\r\n", body), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Contains(t, results[0].Info.Name, "Upgradeable")
+}
+
+func TestScanPerRequest_HTTPFormIsSeparateDowngrade(t *testing.T) {
+	t.Parallel()
+	body := `<form action="http://accounts.example.net/login" method="post"><input type="password" name="password"></form>`
+	results, err := New().ScanPerRequest(makeHTTPCtx("/login", "Content-Type: text/html\r\n", body), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, "HTTPS Form Submits to HTTP", results[0].Info.Name)
+}
+
+func TestScanPerRequest_LoopbackHTTPIsPotentiallyTrustworthy(t *testing.T) {
+	t.Parallel()
+	body := `<script src="http://localhost:3000/dev.js"></script><img src="http://127.0.0.1/pixel.png">`
+	results, err := New().ScanPerRequest(makeHTTPCtx("/", "Content-Type: text/html\r\n", body), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestScanPerRequest_MarkupInsideScriptIsIgnored(t *testing.T) {
+	t.Parallel()
+	body := `<script>const example = '<a href="http://x.example/">x</a>';</script>`
+	results, err := New().ScanPerRequest(makeHTTPCtx("/", "Content-Type: text/html\r\n", body), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
 // TestScanPerRequest_AllHTTPS verifies a page referencing only https:// assets

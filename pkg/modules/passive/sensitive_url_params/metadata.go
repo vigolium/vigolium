@@ -15,7 +15,7 @@ var (
 
 **Fix:** Move sensitive values out of the URL into the request body or an Authorization header, and rotate any exposed credential.`
 
-	ModuleConfirmation = "Indicated when URL query parameters contain names or values matching sensitive data patterns (password, token, key, secret)"
+	ModuleConfirmation = "Candidate when a boundary-matched credential parameter carries a substantive value; pagination tokens, public identifiers, and example or masked values remain observations"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"info-disclosure", "light"}

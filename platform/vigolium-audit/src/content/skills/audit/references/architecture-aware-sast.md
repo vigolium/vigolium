@@ -1,6 +1,6 @@
 # Architecture-Aware SAST
 
-Use this reference when Phase 3 identifies high-risk flows that built-in tooling may model incompletely.
+Use this reference when the threat model identifies high-risk flows that built-in tooling may model incompletely.
 
 ## Table of Contents
 
@@ -58,7 +58,7 @@ Document the split in the `## Static Analysis Summary` section of `vigolium-resu
 
 ## How DFD and CFD Drive Modeling
 
-Use Phase 3 outputs directly:
+Use threat-model outputs directly:
 
 - **DFD slices** identify sources, summaries, sinks, trust-boundary crossings, and serialization boundaries.
 - **CFD slices** identify policy gates, alternate paths, fallbacks, retries, orchestration logic, and bypass edges.
@@ -106,17 +106,17 @@ Workflow:
    - parsing or schema mismatch between adjacent layers
 8. Store artifacts under `vigolium-results/codeql-queries/`. Store slice reachability queries as
    `vigolium-results/codeql-queries/slice-<name>.ql` — distinct from security-finding queries; their
-   purpose is structural validation of Phase 3 DFD slices, not vulnerability detection.
+   purpose is structural validation of the DFD slices, not vulnerability detection.
 9. In the report, cite the DFD/CFD slice that motivated each custom model or query.
 
 Prefer one narrow query per invariant over a broad speculative query pack.
 
 ## Structural Extraction Workflow
 
-Run at the start of Phase 4, before any security scan, using the freshly built database stored at
+Run at the start of the structural code-scan work, before security queries, using the freshly built database stored at
 `vigolium-results/codeql-artifacts/db/`. The purpose is structural intelligence — not security findings.
-The outputs feed Phase 3 KB validation, Phase 4 inline enrichment, Phase 10 deep bug hunting, and
-Phase 12 variant analysis.
+The outputs feed KB validation, inline SAST enrichment, deep bug hunting, and
+later variant analysis.
 
 ### Why informational results matter
 
@@ -133,16 +133,16 @@ All outputs go to `vigolium-results/codeql-artifacts/`:
 
 | File | Content | Used by |
 |------|---------|---------|
-| `entry-points.json` | All recognized source nodes, by type and file:line | Phase 3 KB validation, Phase 5 |
-| `sinks.json` | All recognized sink nodes, by kind and file:line | Phase 5, Phase 10 |
-| `call-graph-slices.json` | Per-DFD-slice reachability: reachable bool, hop count, shortest paths | Phase 5, Phase 10 |
-| `flow-paths-raw.sarif` | Full unfiltered SARIF including note/none severity (git-ignored) | Phase 10 on-demand |
-| `flow-paths-all-severities.md` | Human-readable summary of informational/low results by rule | Phase 5, 7 |
+| `entry-points.json` | All recognized source nodes, by type and file:line | KB validation and probing |
+| `sinks.json` | All recognized sink nodes, by kind and file:line | Probing and chambers |
+| `call-graph-slices.json` | Per-DFD-slice reachability: reachable bool, hop count, shortest paths | Probing and chambers |
+| `flow-paths-raw.sarif` | Full unfiltered SARIF including note/none severity (git-ignored) | On-demand chamber analysis |
+| `flow-paths-all-severities.md` | Human-readable summary of informational/low results by rule | Enrichment and chamber review |
 
 ### Step 1: Source enumeration
 
 For each language in the repo, run the source enumeration query (RemoteFlowSource template, adjusted
-per language). Expand threat model scope if Phase 3 KB identified CLI args or env vars as
+per language). Expand threat model scope if the KB identified CLI args or env vars as
 attacker-controlled.
 
 ```bash
@@ -184,7 +184,7 @@ Run with `--threat-model all`. Decode to JSON records in `call-graph-slices.json
 }
 ```
 
-If `reachable: false`, record as a meaningful signal for Phase 5: either the DFD slice is a
+If `reachable: false`, record as a meaningful probe signal: either the DFD slice is a
 false concern, or the source/sink models are incomplete and custom modeling is needed.
 
 ### Step 4: Full raw SARIF with all severities
@@ -205,7 +205,7 @@ Expect 1.5-3x the file size of the security-only SARIF. This file is git-ignored
 
 Extract all `note`-level or unleveled results from the raw SARIF. Group by rule ID and write to
 `vigolium-results/codeql-artifacts/flow-paths-all-severities.md` with sections per rule category. This
-is the file Phase 10 reviewers read to understand where CodeQL tracked data and where it terminated.
+is the file chamber reviewers read to understand where CodeQL tracked data and where it terminated.
 
 ### Step 6: Generate Mermaid DFD and CFD diagrams
 
@@ -228,7 +228,7 @@ subsection of the KB.
 - Extract security-relevant conditional branch points from informational CodeQL results
   (guards, validators, sanitizer calls) that appear on call-graph paths
 - Model each as a decision node with `passes` and `fails` edges
-- Include any known fallback/alternate paths from CFD slices in the Phase 3 KB
+- Include any known fallback/alternate paths from CFD slices in the KB
 - Write the resulting `flowchart TD` Mermaid block to the `### Machine-Generated CFD Diagram`
   subsection of the KB
 
@@ -244,14 +244,14 @@ After all extraction steps complete, populate the `## CodeQL Structural Analysis
 - Fill entry point and sink tables from `entry-points.json` and `sinks.json`
 - Fill the call graph reachability table from `call-graph-slices.json`
 - Fill the informational flow node summary from `flow-paths-all-severities.md`
-- Cross-reference with the Phase 3 KB attack surface: flag any CodeQL-discovered source
+- Cross-reference with the KB attack surface: flag any CodeQL-discovered source
   missing from `## Attack Surface Summary`
 - Embed the Mermaid DFD and CFD diagrams from Step 6
 
 ### When to skip
 
 Skip only if the CodeQL database build fails entirely (zero extracted files). Document the skip in
-`vigolium-results/attack-surface/knowledge-base-report.md`. The Phase 4 enrichment substep, Phase 10, and Phase 12 fall back to pure manual analysis.
+`vigolium-results/attack-surface/knowledge-base-report.md`. Scanner enrichment, chamber review, and variant analysis fall back to pure manual analysis.
 Do not skip for small repos — call graph reachability data is most valuable where DFD construction
 is complete but unvalidated.
 

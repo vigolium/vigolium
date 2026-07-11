@@ -116,16 +116,34 @@ class FilesystemContentLoader implements ContentLoader {
 
   async loadCommand(mode: string, opts: { variant?: ContentVariant } = {}): Promise<CommandDef> {
     const variant = opts.variant ?? "default";
+    const overridePath = await this.resolveOverride("commands", `${mode}.md`);
+    if (overridePath) {
+      const src = await readFile(overridePath, "utf8");
+      return parseCommandDef(src, overridePath);
+    }
+
+    const canonicalPath = join(this.roots.contentRoot, "command-defs", `${mode}.md`);
     const variantPath =
       variant === "sdk"
         ? join(this.roots.contentRoot, "sdk-variants", "command-defs", `${mode}.md`)
         : null;
-    const path = (await this.resolveOverride("commands", `${mode}.md`))
-      ?? (variantPath && existsSync(variantPath) ? variantPath : null)
-      ?? join(this.roots.contentRoot, "command-defs", `${mode}.md`);
-    if (!existsSync(path)) throw new Error(`command-def not found: ${mode} (looked in ${path})`);
-    const src = await readFile(path, "utf8");
-    return parseCommandDef(src, path);
+    if (!existsSync(canonicalPath)) {
+      throw new Error(`command-def not found: ${mode} (looked in ${canonicalPath})`);
+    }
+
+    const canonical = parseCommandDef(await readFile(canonicalPath, "utf8"), canonicalPath);
+    if (!variantPath || !existsSync(variantPath)) return canonical;
+
+    // SDK variants transform prose and tool names only. Keep orchestration
+    // metadata (phase graph, agents, completion contracts) canonical so a
+    // stale generated variant can never silently weaken engine enforcement.
+    const sdk = parseCommandDef(await readFile(variantPath, "utf8"), variantPath);
+    return {
+      ...canonical,
+      body: sdk.body,
+      ...(sdk.allowed_tools_raw !== undefined ? { allowed_tools_raw: sdk.allowed_tools_raw } : {}),
+      source_path: variantPath,
+    };
   }
 
   async resolveSkillDir(name: string): Promise<string> {

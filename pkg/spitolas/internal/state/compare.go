@@ -319,9 +319,11 @@ func (c *Comparator) FindEquivalentOrNearDuplicate(g *Graph, target *State) (*St
 	return bestMatch, bestResult
 }
 
-// PrepareForComparison strips and normalizes raw HTML for comparison.
+// PrepareForComparison strips and normalizes raw HTML for comparison. It also
+// neutralizes volatile content (tokens/timestamps/counters) so a page carrying a
+// live clock, CSRF nonce, or cache-buster does not mint a fresh state each visit.
 func (c *Comparator) PrepareForComparison(rawHTML string) string {
-	return StripDOM(rawHTML, c.stripTags, c.stripAttrs)
+	return NormalizeVolatile(StripDOM(rawHTML, c.stripTags, c.stripAttrs))
 }
 
 // CreateState creates a state from raw HTML, stripping as configured.

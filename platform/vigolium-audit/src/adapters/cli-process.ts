@@ -18,7 +18,7 @@ export type CliStreamItem<T> =
   | { kind: "extra"; value: T }
   | { kind: "exit"; exitCode: number | null; crashed: Error | null; stderr: string };
 
-export interface SpawnAndStreamOptions<T> {
+export interface SpawnAndStreamOptions {
   command: string;
   args: string[];
   cwd: string;
@@ -49,7 +49,7 @@ export interface CliStream<T> {
 const HIGH_WATER_MARK = 5000;
 const LOW_WATER_MARK = HIGH_WATER_MARK / 2;
 
-export function spawnAndStream<T = never>(opts: SpawnAndStreamOptions<T>): CliStream<T> {
+export function spawnAndStream<T = never>(opts: SpawnAndStreamOptions): CliStream<T> {
   const child = spawn(opts.command, opts.args, {
     cwd: opts.cwd,
     stdio: ["pipe", "pipe", "pipe"],

@@ -1,4 +1,5 @@
 import type { CommandDef, PhaseDef } from "./types.js";
+import { describeArtifactRule } from "./artifact-gates.js";
 
 export function parseToolsField(raw: string | undefined): string[] {
   if (!raw) return [];
@@ -34,7 +35,16 @@ export function composeUserPrompt(
   lines.push(
     ``,
     `Execute this phase as defined in the command-def's prose body.`,
-    `When finished, mark phase ${phase.id} complete in vigolium-results/audit-state.json.`,
+    `The engine exclusively owns vigolium-results/audit-state.json. Do not edit it or mark phase state yourself.`,
+  );
+  if (phase.completion) {
+    const gateKind = phase.completion.enforcement === "required" ? "required" : "best-effort advisory";
+    lines.push(
+      `The engine will evaluate these ${gateKind} artifact checks after the phase:`,
+      ...phase.completion.artifacts.map((rule) => `- ${describeArtifactRule(rule)}`),
+    );
+  }
+  lines.push(
     ``,
     `--- COMMAND-DEF BODY (for reference) ---`,
     bodyWithArgs,

@@ -130,6 +130,42 @@ func TestSaveFinding_ReSaveDoesNotDuplicateOwnEvidence(t *testing.T) {
 	}
 }
 
+// TestSaveFinding_ReDetectionBumpsScanUUID is the Claim-6 regression: a finding
+// re-detected in a later scan is re-attributed to that scan (project-wide
+// uniqueness keeps the earliest row), so it isn't silently excluded from the new
+// scan's fail-on gate or scan-scoped report.
+func TestSaveFinding_ReDetectionBumpsScanUUID(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	rec := insertRecordP(t, repo, DefaultProjectUUID, "GET", "t.example.com", "/app.js", 200)
+	ev := makeFindingEvent("secret-detect", "/app.js", severity.High)
+
+	if err := repo.SaveFinding(ctx, ev, []string{rec}, "scan-1", DefaultProjectUUID); err != nil {
+		t.Fatalf("SaveFinding (scan-1): %v", err)
+	}
+	if err := repo.SaveFinding(ctx, ev, []string{rec}, "scan-2", DefaultProjectUUID); err != nil {
+		t.Fatalf("SaveFinding (scan-2 re-detect): %v", err)
+	}
+
+	f := &Finding{}
+	if err := db.NewSelect().Model(f).
+		Where("project_uuid = ?", DefaultProjectUUID).
+		Where("module_id = ?", "secret-detect").Scan(ctx); err != nil {
+		t.Fatalf("select finding: %v", err)
+	}
+	if f.ScanUUID != "scan-2" {
+		t.Fatalf("finding scan_uuid = %q, want %q (re-attributed to re-detecting scan)", f.ScanUUID, "scan-2")
+	}
+
+	if _, total, err := repo.ListFindings(ctx, QueryFilters{ProjectUUID: DefaultProjectUUID}); err != nil {
+		t.Fatalf("ListFindings: %v", err)
+	} else if total != 1 {
+		t.Fatalf("total findings = %d, want 1 (re-detect merges)", total)
+	}
+}
+
 // TestSaveFindingsBatch_MatchesSequentialSaves checks that a batched save and a
 // sequence of individual SaveFinding calls produce the same finding rows.
 func TestSaveFindingsBatch_MatchesSequentialSaves(t *testing.T) {

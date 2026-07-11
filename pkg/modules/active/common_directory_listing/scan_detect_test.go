@@ -64,6 +64,62 @@ func TestScanPerRequest_CatchAllListingNoFinding(t *testing.T) {
 	assert.Empty(t, res, "a host that 'lists' every random directory is a catch-all, not an exposure")
 }
 
+// TestScanPerRequest_ContentPageTitledDirectoryOfNoFinding guards the generic
+// title-only false positive: a host whose probed directories return a real
+// content page merely titled "Directory of X" (no file-index structure) must not
+// yield a finding.
+func TestScanPerRequest_ContentPageTitledDirectoryOfNoFinding(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/vigolium-nonexistent-path-404-check" ||
+			strings.HasPrefix(r.URL.Path, "/vigolium-catchall-dir-") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("plain not found body"))
+			return
+		}
+		// Every probed directory returns a legitimate "Directory of Services"
+		// landing page: a listing-shaped <title>, but a content <h1> and no
+		// parent-dir link / <hr>-bracketed file list.
+		_, _ = w.Write([]byte(`<html><head><title>Directory of Services</title></head>` +
+			`<body><h1>Our Services</h1><ul><li><a href="/service/a">A</a></li>` +
+			`<li><a href="/service/b">B</a></li></ul></body></html>`))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, `a content page titled "Directory of X" without listing structure is not an autoindex`)
+}
+
+// TestScanPerRequest_AppPageNoFinding guards the CMS/SPA false positive: probed
+// directories that return a rendered application page (framework/OpenGraph
+// markers) must not be flagged even if the title looks listing-shaped.
+func TestScanPerRequest_AppPageNoFinding(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/vigolium-nonexistent-path-404-check" ||
+			strings.HasPrefix(r.URL.Path, "/vigolium-catchall-dir-") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("plain not found body"))
+			return
+		}
+		_, _ = w.Write([]byte(`<html><head><meta name="generator" content="Gatsby 5.13.3">` +
+			`<meta property="og:title" content="Index of Media"><title>Index of Media</title></head>` +
+			`<body><h1>Index of Media</h1><hr><ul><li><a href="/m/1">One</a></li></ul></body></html>`))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a rendered app/CMS page is not an autoindex even with a listing-shaped title")
+}
+
 // TestScanPerRequest_NoFalsePositive ensures a host serving ordinary HTML
 // (no listing markers) yields no finding.
 func TestScanPerRequest_NoFalsePositive(t *testing.T) {

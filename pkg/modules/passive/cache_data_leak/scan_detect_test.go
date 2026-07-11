@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -43,7 +44,9 @@ func TestScanPerRequest_StaticPropsAuth(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	assert.Equal(t, ModuleID, results[0].ModuleID)
-	assert.Contains(t, results[0].Info.Name, "Cache Data Leak")
+	assert.Contains(t, results[0].Info.Name, "Cache Data-Flow Candidate")
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.False(t, results[0].IsFinding())
 }
 
 // TestScanPerRequest_NextStaticBundleSkipped is the regression for the reported

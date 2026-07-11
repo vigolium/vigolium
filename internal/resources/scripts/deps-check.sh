@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# deps-check.sh — Ensure jsscan binaries and Chromium archives are present
+# deps-check.sh — Ensure jstangle binaries and Chromium archives are present
 #
 # Usage: deps-check.sh
 #
-# Copies jsscan binaries from the sibling jsscan project when missing,
+# Copies jstangle binaries from the sibling jstangle project when missing,
 # and verifies Chromium browser archives are downloaded.
 
 set -euo pipefail
@@ -16,41 +16,41 @@ FAIL='\033[31m[✗]\033[0m'
 # Locate repo root
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "$0")/../../.." && pwd))"
 
-JSSCAN_DST_DIR="${REPO_ROOT}/internal/resources/deparos/jsscan"
-JSSCAN_SRC_DIR="${REPO_ROOT}/platform/jsscan/bin"
+JSTANGLE_DST_DIR="${REPO_ROOT}/internal/resources/deparos/jstangle"
+JSTANGLE_SRC_DIR="${REPO_ROOT}/platform/jstangle/bin"
 CHROME_DIR="${REPO_ROOT}/internal/resources/spitolas/chromium"
 VERSIONS_FILE="${REPO_ROOT}/internal/resources/spitolas/versions.go"
 
-JSSCAN_BINS="jsscan-darwin-amd64 jsscan-darwin-arm64 jsscan-linux-amd64 jsscan-linux-arm64 jsscan-windows-amd64.exe"
+JSTANGLE_BINS="jstangle-darwin-amd64 jstangle-darwin-arm64 jstangle-linux-amd64 jstangle-linux-arm64 jstangle-windows-amd64.exe"
 
 errors=0
 
 # ---------------------------------------------------------------------------
-# 1. Ensure jsscan binaries
+# 1. Ensure jstangle binaries
 # ---------------------------------------------------------------------------
-echo -e "${PREFIX} Checking jsscan binaries in ${JSSCAN_DST_DIR}..."
-mkdir -p "$JSSCAN_DST_DIR"
+echo -e "${PREFIX} Checking jstangle binaries in ${JSTANGLE_DST_DIR}..."
+mkdir -p "$JSTANGLE_DST_DIR"
 
-jsscan_missing=0
-for bin in $JSSCAN_BINS; do
-    if [ ! -f "${JSSCAN_DST_DIR}/${bin}" ]; then
-        jsscan_missing=1
+jstangle_missing=0
+for bin in $JSTANGLE_BINS; do
+    if [ ! -f "${JSTANGLE_DST_DIR}/${bin}" ]; then
+        jstangle_missing=1
         break
     fi
 done
 
-if [ $jsscan_missing -eq 0 ]; then
-    echo -e "  ${OK} All jsscan binaries present"
+if [ $jstangle_missing -eq 0 ]; then
+    echo -e "  ${OK} All jstangle binaries present"
 else
-    if [ ! -d "$JSSCAN_SRC_DIR" ]; then
-        echo -e "  ${FAIL} Missing jsscan binaries. Build with: cd platform/jsscan && bun install --linker isolated && bun run build:bin"
+    if [ ! -d "$JSTANGLE_SRC_DIR" ]; then
+        echo -e "  ${FAIL} Missing jstangle binaries. Build with: cd platform/jstangle && bun install --linker isolated && bun run build:bin"
         errors=1
     else
-        echo -e "${PREFIX} Copying jsscan binaries from ${JSSCAN_SRC_DIR}..."
-        for bin in $JSSCAN_BINS; do
-            cp -R "${JSSCAN_SRC_DIR}/${bin}" "${JSSCAN_DST_DIR}/"
+        echo -e "${PREFIX} Copying jstangle binaries from ${JSTANGLE_SRC_DIR}..."
+        for bin in $JSTANGLE_BINS; do
+            cp -R "${JSTANGLE_SRC_DIR}/${bin}" "${JSTANGLE_DST_DIR}/"
         done
-        echo -e "  ${OK} jsscan binaries copied successfully"
+        echo -e "  ${OK} jstangle binaries copied successfully"
     fi
 fi
 

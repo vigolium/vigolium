@@ -10,6 +10,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // PARTIAL: CanProcess gates on isCloudStorageHost, which a loopback httptest
@@ -62,10 +63,15 @@ func TestScanPerHost_DetectsNoSuchBucket(t *testing.T) {
 	client := modtest.Requester(t)
 	rr := modtest.Request(t, srv.URL+"/")
 
-	res, err := New().ScanPerHost(rr, client, &modkit.ScanContext{})
+	m := New()
+	m.providerClassifier = func(string) string { return providerAWS }
+	res, err := m.ScanPerHost(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a bucket-takeover finding for a NoSuchBucket body")
-	assert.Contains(t, res[0].Info.Name, "Cloud Bucket Takeover")
+	require.NotEmpty(t, res, "expected a dangling-name candidate for a structured NoSuchBucket body")
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
+	assert.False(t, res[0].IsFinding())
+	assert.Contains(t, res[0].Info.Name, "Dangling Cloud Storage Name Candidate")
 }
 
 // TestScanPerHost_NoFalsePositive ensures a live bucket (no takeover signature)
@@ -81,7 +87,9 @@ func TestScanPerHost_NoFalsePositive(t *testing.T) {
 	client := modtest.Requester(t)
 	rr := modtest.Request(t, srv.URL+"/")
 
-	res, err := New().ScanPerHost(rr, client, &modkit.ScanContext{})
+	m := New()
+	m.providerClassifier = func(string) string { return providerAWS }
+	res, err := m.ScanPerHost(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "a live bucket must not yield a takeover finding")
 }
@@ -92,7 +100,7 @@ func TestIsCloudStorageHost(t *testing.T) {
 	cases := map[string]bool{
 		"my-bucket.s3.amazonaws.com":         true,
 		"my-bucket.s3-website.amazonaws.com": true,
-		"storage.googleapis.com":             true,
+		"storage.googleapis.com":             false,
 		"mybucket.storage.googleapis.com":    true,
 		"acct.blob.core.windows.net":         true,
 		"acct.web.core.windows.net":          true,
@@ -104,18 +112,16 @@ func TestIsCloudStorageHost(t *testing.T) {
 	}
 }
 
-// TestBodyMatchesSignature requires all markers of a signature to be present.
-func TestBodyMatchesSignature(t *testing.T) {
+// TestStructuredProviderErrors rejects generic strings/status codes and
+// resource types that do not establish a missing bucket/container.
+func TestStructuredProviderErrors(t *testing.T) {
 	t.Parallel()
-	sig := takeoverSignature{name: "S3 Website NoSuchBucket", markers: []string{"NoSuchBucket", "The specified bucket does not exist"}}
-	assert.True(t, bodyMatchesSignature("...NoSuchBucket... The specified bucket does not exist", sig))
-	assert.False(t, bodyMatchesSignature("only NoSuchBucket here", sig), "missing second marker → no match")
-	assert.False(t, bodyMatchesSignature("unrelated body", sig))
-}
-
-// TestTruncate caps over-long bodies and leaves short ones intact.
-func TestTruncate(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, "abc", truncate("abc", 5))
-	assert.Equal(t, "abcde...", truncate("abcdefghij", 5))
+	_, ok := matchCloudNotFound(providerAWS, 404, `<?xml version="1.0"?><Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message></Error>`)
+	assert.True(t, ok)
+	_, ok = matchCloudNotFound(providerAWS, 200, `<Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message></Error>`)
+	assert.False(t, ok, "status must be provider-consistent")
+	_, ok = matchCloudNotFound(providerGCS, 404, `{"error":{"code":404,"message":"not found"}}`)
+	assert.False(t, ok, "generic GCS 404 JSON is not a missing-bucket proof")
+	_, ok = matchCloudNotFound(providerAzure, 404, `<Error><Code>BlobNotFound</Code><Message>The specified blob does not exist</Message></Error>`)
+	assert.False(t, ok, "a missing blob does not mean the container/account is claimable")
 }

@@ -1,6 +1,6 @@
 # Scanner Modules Reference
 
-Vigolium ships with **249 scanner modules** — 154 active and 95 passive — covering the OWASP Top 10 and beyond. The full list below is curated; consult `vigolium module ls` for the live registry, since modules are added regularly.
+Vigolium ships with **317 scanner modules** — 201 active and 116 passive — covering the OWASP Top 10 and beyond. The full list below is curated; consult `vigolium module ls` for the live registry, since modules are added regularly.
 
 ## Severity Scale
 
@@ -11,6 +11,18 @@ Vigolium ships with **249 scanner modules** — 154 active and 95 passive — co
 - **certain** — Definitively confirmed (payload executed, error matched)
 - **firm** — Likely confirmed by behavioral analysis
 - **tentative** — Possible but unconfirmed (heuristic-based)
+
+## Result Kinds and Evidence Grades
+
+Security-relevant patterns are retained even when they do not yet prove a vulnerability. Each result has a kind and an evidence grade:
+
+| Kind | Grade | Meaning |
+|---|---|---|
+| `observation` | `E0` | A feature, primitive, public identifier, or hardening gap exists. |
+| `candidate` | `E1`–`E3` | Controls or a behavioral differential support an exploit hypothesis, but impact is not proven. |
+| `finding` | usually `E4` | Unauthorized access, execution, durable state change, cross-user replay, or equivalent impact is demonstrated. |
+
+Legacy modules that do not set a kind remain findings for compatibility. Candidate and observation records are stored and queryable with `vigolium finding --record-kind candidate,observation`, but they do not increase confirmed-finding totals or suppress another module from performing confirmation.
 
 ---
 
@@ -150,7 +162,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `active-proxy` | Proxy | Replay all requests through configured proxy | Info | Firm | `utility`, `light` |
 | `active-proxy-header-trust` | Proxy Header Trust | Cross-framework proxy header trust issues via X-Forwarded-* manipulation | High | Firm | `misconfiguration`, `moderate` |
 | `active-api-rate-limit-bypass` | API Rate Limit Bypass | Rate limiting bypass via IP spoofing headers | Medium | Firm | `auth-bypass`, `moderate` |
-| `active-websocket-security` | WebSocket Security | Insecure WebSocket upgrade policies and missing origin validation | High | Firm | `misconfiguration`, `light` |
+| `ws-cswsh` | WebSocket CSWSH | Origin-policy observations and credential-controlled cross-site WebSocket hijacking checks | Medium | Firm | `csrf`, `session`, `moderate` |
 | `active-swagger-disclose` | Swagger Disclosure | Exposed Swagger/OpenAPI documentation | Medium | Firm | `api`, `info-disclosure`, `light` |
 | `active-backup-file-discovery` | Backup File Discovery | Exposed backup archives derived from hostname and year variants | Medium | Tentative | `sensitive-file`, `moderate` |
 | `active-angular-template-injection` | Angular Template Injection | Angular template injection via expression evaluation | High | Firm | `angular`, `injection`, `ssti` |

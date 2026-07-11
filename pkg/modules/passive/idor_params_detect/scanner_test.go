@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -70,6 +71,8 @@ func TestScanPerRequest_HighSignalParamPlusInt(t *testing.T) {
 	assert.Contains(t, r.ExtractedResults, "user_id=12345")
 	assert.Contains(t, r.Info.Tags, "idor")
 	assert.Contains(t, r.Info.Tags, "bola")
+	assert.Equal(t, output.RecordKindObservation, r.RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, r.EvidenceGrade)
 
 	meta := r.Metadata
 	assert.Equal(t, "sequential-int", meta["id_type"])
@@ -204,7 +207,7 @@ func TestScanPerRequest_MediaSkipped(t *testing.T) {
 
 func TestScanPerRequest_ExcessiveDataExposure(t *testing.T) {
 	m := New()
-	jsonBody := `{"user": "john", "email": "john@test.com", "password_hash": "abc123", "is_admin": true}`
+	jsonBody := `{"user": "john", "email": "john@test.com", "password_hash": "$2b$12$0123456789abcdefghijklmnopqrstuv", "is_admin": true}`
 	ctx := makeHTTPCtx("/api/user", "", "application/json", jsonBody)
 	scanCtx := &modkit.ScanContext{}
 
@@ -214,9 +217,11 @@ func TestScanPerRequest_ExcessiveDataExposure(t *testing.T) {
 	// Find the excessive data exposure result
 	var foundExcessive bool
 	for _, r := range results {
-		if r.Info.Name == "Excessive Data Exposure" {
+		if r.Info.Name == "Potential Excessive Data Exposure" {
 			foundExcessive = true
 			assert.Equal(t, severity.Low, r.Info.Severity)
+			assert.Equal(t, output.RecordKindCandidate, r.RecordKind)
+			assert.Equal(t, output.EvidenceGradeCandidate, r.EvidenceGrade)
 			assert.Contains(t, r.Info.Tags, "bopla")
 			assert.Contains(t, r.Info.Tags, "excessive-data")
 			// Should detect password_hash and is_admin
@@ -224,6 +229,29 @@ func TestScanPerRequest_ExcessiveDataExposure(t *testing.T) {
 		}
 	}
 	assert.True(t, foundExcessive, "expected an Excessive Data Exposure finding")
+}
+
+func TestScanPerRequest_NameOnlyExcessiveDataIsObservation(t *testing.T) {
+	m := New()
+	jsonBody := `{"password_hash":null,"is_admin":false,"secret_key":"REDACTED"}`
+	ctx := makeHTTPCtx("/api/user", "", "application/json", jsonBody)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "Security-Relevant API Field Names", results[0].Info.Name)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
+}
+
+func TestScanPerRequest_SensitiveKeyTextInsideStringIgnored(t *testing.T) {
+	m := New()
+	jsonBody := `{"message":"Documentation uses the key \"password_hash\" for examples"}`
+	ctx := makeHTTPCtx("/api/docs", "", "application/json", jsonBody)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
 func TestScanPerRequest_ExcessiveDataExposure_NoSensitiveFields(t *testing.T) {
@@ -236,7 +264,7 @@ func TestScanPerRequest_ExcessiveDataExposure_NoSensitiveFields(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, r := range results {
-		assert.NotEqual(t, "Excessive Data Exposure", r.Info.Name)
+		assert.NotEqual(t, "Potential Excessive Data Exposure", r.Info.Name)
 	}
 }
 

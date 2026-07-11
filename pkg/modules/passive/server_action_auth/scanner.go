@@ -89,7 +89,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -128,21 +131,26 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	return []*output.ResultEvent{
 		{
 			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindCandidate,
+			EvidenceGrade:    output.EvidenceGradeCandidate,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
 			ExtractedResults: extracted,
 			Info: output.Info{
-				Name:        "Server Action Missing Authorization",
-				Description: fmt.Sprintf("Next.js Server Action at %s performs %d mutation(s) without authorization checks", urlx.Path, len(mutations)),
+				Name:        "Server Action Authorization Candidate",
+				Description: fmt.Sprintf("Source-like code at %s contains a server directive and %d mutation pattern(s), with no recognized auth token in the file. Middleware, imported helpers, and call-graph authorization were not resolved.", urlx.Path, len(mutations)),
 				Severity:    severity.Medium,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"auth", "server-action", "nextjs", "source-analysis"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/862.html"},
 			},
 			Metadata: map[string]any{
-				"cwe":           "CWE-862",
-				"mutationCount": len(mutations),
+				"cwe":                        "CWE-862",
+				"mutationCount":              len(mutations),
+				"connected_action_proven":    false,
+				"middleware_checked":         false,
+				"unauthorized_call_replayed": false,
 			},
 		},
 	}, nil

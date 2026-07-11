@@ -186,7 +186,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -201,8 +204,8 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	var results []*output.ResultEvent
 
 	for _, sp := range sinkPatterns {
-		// Skip eval() detection for test/spec/mock files
-		if sp.category == "code-injection" && sp.name == "eval() call" && isTestFile {
+		// Test/spec/mock code intentionally exercises both eval and Function.
+		if sp.category == "code-injection" && isTestFile {
 			continue
 		}
 
@@ -240,22 +243,29 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 		results = append(results, &output.ResultEvent{
 			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindObservation,
+			EvidenceGrade:    output.EvidenceGradeObservation,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: extracted,
 			Info: output.Info{
 				Name:        fmt.Sprintf("Unsafe HTML Sink: %s", sp.name),
-				Description: fmt.Sprintf("Found %d occurrence(s) of %s in %s (%s)", len(extracted), sp.name, urlx.Path, sp.cwe),
+				Description: fmt.Sprintf("Found %d occurrence(s) of %s in %s (%s). Sink presence is retained as an observation; no attacker-controlled source-to-sink flow or sanitizer analysis was established.", len(extracted), sp.name, urlx.Path, sp.cwe),
 				Severity:    sp.severity,
 				Confidence:  ModuleConfidence,
 				Tags:        []string{"xss", "injection", "source-analysis"},
 			},
 			Metadata: map[string]any{
-				"sink":       sp.name,
-				"cwe":        sp.cwe,
-				"category":   sp.category,
-				"matchCount": len(extracted),
+				"sink":                   sp.name,
+				"cwe":                    sp.cwe,
+				"category":               sp.category,
+				"matchCount":             len(extracted),
+				"connected_source":       false,
+				"sanitizer_assessed":     false,
+				"taint_module_available": true,
 			},
 		})
 	}

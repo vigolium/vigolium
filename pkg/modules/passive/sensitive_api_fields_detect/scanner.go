@@ -1,6 +1,9 @@
 package sensitive_api_fields_detect
 
 import (
+	"encoding/json"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -11,81 +14,20 @@ import (
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
-// sensitiveFields are JSON field name patterns to detect.
-// Each entry is checked as a quoted key in the response body.
-var sensitiveFields = []struct {
-	patterns []string // patterns to match (with quotes)
-	label    string   // human-readable label
-}{
-	{
-		patterns: []string{`"password":`, `"password" :`},
-		label:    "password",
-	},
-	{
-		patterns: []string{`"passwd":`, `"passwd" :`},
-		label:    "passwd",
-	},
-	{
-		patterns: []string{`"secret":`, `"secret" :`},
-		label:    "secret",
-	},
-	{
-		patterns: []string{`"api_key":`, `"api_key" :`, `"apiKey":`, `"apiKey" :`, `"api-key":`, `"api-key" :`},
-		label:    "api_key/apiKey",
-	},
-	{
-		patterns: []string{`"access_token":`, `"access_token" :`, `"accessToken":`, `"accessToken" :`},
-		label:    "access_token/accessToken",
-	},
-	{
-		patterns: []string{`"private_key":`, `"private_key" :`, `"privateKey":`, `"privateKey" :`},
-		label:    "private_key/privateKey",
-	},
-	{
-		patterns: []string{`"ssn":`, `"ssn" :`},
-		label:    "ssn",
-	},
-	{
-		patterns: []string{`"credit_card":`, `"credit_card" :`, `"creditCard":`, `"creditCard" :`, `"card_number":`, `"card_number" :`, `"cardNumber":`, `"cardNumber" :`},
-		label:    "credit_card/cardNumber",
-	},
+var sensitiveFieldLabels = map[string]string{
+	"password": "password", "passwd": "passwd",
+	"secret": "secret", "apikey": "api_key/apiKey",
+	"accesstoken": "access_token/accessToken",
+	"privatekey":  "private_key/privateKey",
+	"ssn":         "ssn",
+	"creditcard":  "credit_card/cardNumber",
+	"cardnumber":  "credit_card/cardNumber",
 }
 
-// antiPatterns indicate the response is a schema or documentation page.
-var antiPatterns = []string{
-	`"$ref"`,
-	`"swagger"`,
-	`"openapi"`,
-}
-
-// exclusionSuffixes for "password" field to skip non-sensitive contexts
-var passwordExclusions = []string{
-	`"password_reset"`,
-	`"password_policy"`,
-}
-
-// secretExclusions for "secret" field to skip non-sensitive contexts
-var secretExclusions = []string{
-	`"secret_question"`,
-}
-
-// Pre-lowercase the static match catalogs once at init so the per-response scan
-// (which compares against the memoized lowercased body) doesn't re-lowercase
-// these constants on every JSON response. Several patterns carry camelCase
-// (apiKey, accessToken, …), so the lowercase form is required for matching.
-func init() {
-	for i := range sensitiveFields {
-		for j := range sensitiveFields[i].patterns {
-			sensitiveFields[i].patterns[j] = strings.ToLower(sensitiveFields[i].patterns[j])
-		}
-	}
-	for i := range passwordExclusions {
-		passwordExclusions[i] = strings.ToLower(passwordExclusions[i])
-	}
-	for i := range secretExclusions {
-		secretExclusions[i] = strings.ToLower(secretExclusions[i])
-	}
-}
+var (
+	publicAPIIdentifier = regexp.MustCompile(`^(?:AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|pk_(?:live|test)_[0-9A-Za-z]{16,})$`)
+	nonDigit            = regexp.MustCompile(`\D`)
+)
 
 // Module implements the Sensitive API Fields Detect passive scanner.
 type Module struct {
@@ -125,7 +67,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	// Only operate on JSON responses
 	ct := strings.ToLower(ctx.Response().Header("Content-Type"))
-	if !strings.Contains(ct, "application/json") {
+	if !strings.Contains(ct, "application/json") && !strings.Contains(ct, "+json") {
 		return nil, nil
 	}
 
@@ -136,7 +78,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	host := urlx.Host
 	dedupKey := host + urlx.Path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
 	}
@@ -146,140 +91,146 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	// Shared, memoized lowercased body (computed once per response across modules).
-	bodyLower := ctx.Response().BodyLowerString()
-
-	// Check anti-patterns: skip if this is a schema/doc response
-	for _, ap := range antiPatterns {
-		if strings.Contains(bodyLower, ap) {
-			return nil, nil
-		}
+	var document any
+	if err := json.Unmarshal([]byte(body), &document); err != nil {
+		return nil, nil
+	}
+	if isSchemaDocument(document) {
+		return nil, nil
 	}
 
-	// Check for sensitive fields
-	var found []string
-	for _, sf := range sensitiveFields {
-		matched := false
-		for _, pat := range sf.patterns {
-			// The key must be present AND carry a populated value. A field whose
-			// only occurrences are null / true / false / "" is a redacted or
-			// feature-flag field ({"password":null}, {"secret":false}) that leaks
-			// nothing — matching the bare key name there is the systematic false
-			// positive this gate removes.
-			if fieldHasPopulatedValue(bodyLower, pat) { // pat pre-lowercased at init
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-
-		// Apply exclusions for specific fields
-		if sf.label == "password" {
-			excluded := false
-			for _, ex := range passwordExclusions {
-				if strings.Contains(bodyLower, ex) { // ex pre-lowercased at init
-					excluded = true
-					break
-				}
-			}
-			if excluded {
-				continue
-			}
-		}
-		if sf.label == "secret" {
-			excluded := false
-			for _, ex := range secretExclusions {
-				if strings.Contains(bodyLower, ex) { // ex pre-lowercased at init
-					excluded = true
-					break
-				}
-			}
-			if excluded {
-				continue
-			}
-		}
-
-		found = append(found, sf.label)
-	}
+	foundSet := make(map[string]bool)
+	substantiveSet := make(map[string]bool)
+	collectSensitiveFields(document, foundSet, substantiveSet)
+	found := sortedLabels(foundSet)
+	substantive := sortedLabels(substantiveSet)
 
 	if len(found) == 0 {
 		return nil, nil
 	}
 
-	desc := "JSON API response contains sensitive field names: " + strings.Join(found, ", ")
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	sev := severity.Info
+	name := "Security-Relevant API Field Names"
+	desc := "JSON response contains security-relevant field names, but only null, empty, boolean, public-identifier, redacted, or example-like values were observed: " + strings.Join(found, ", ")
+	if len(substantive) > 0 {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeCandidate
+		sev = severity.Low
+		name = "Sensitive API Fields Detected"
+		desc = "JSON response contains substantive values under sensitive-looking fields: " + strings.Join(substantive, ", ") + ". Sensitivity and cross-role authorization were not validated."
+	}
 
 	return []*output.ResultEvent{
 		{
 			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
 			Host:             host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: found,
-			RecordKind:       output.RecordKindCandidate,
-			EvidenceGrade:    output.EvidenceGradeCandidate,
 			DedupKey:         "sensitive-api-fields|" + host + "|" + urlx.Path + "|" + ctx.Request().IdentityFingerprint(),
 			Info: output.Info{
-				Name:        "Sensitive API Fields Detected",
+				Name:        name,
 				Description: desc,
 				// A passive NAME match (the value is never inspected for actual
 				// sensitivity) is a review lead, not a confirmed leak — the module
 				// text says "each hit needs review" — so it belongs at Low, not
 				// Medium. The value gate below drops null/empty/boolean fields.
-				Severity:   severity.Low,
+				Severity:   sev,
 				Confidence: severity.Tentative,
 				Tags:       []string{"api", "sensitive-data", "information-disclosure", "pii"},
 				Reference:  []string{"https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/"},
 			},
 			Metadata: map[string]any{
-				"sensitiveFields": found,
+				"sensitiveFields":        found,
+				"substantiveFields":      substantive,
+				"authorization_compared": false,
 			},
 		},
 	}, nil
 }
 
-// fieldHasPopulatedValue reports whether the given quoted-key pattern (e.g.
-// `"password":`, pre-lowercased) appears in body followed by a populated value.
-// A value is "populated" when it is a non-empty string, a number, or a nested
-// object/array. It is NOT populated when it is the JSON literal null/true/false
-// or an empty string "" — those are redacted or feature-flag fields that leak
-// nothing, so matching the bare key there was the systematic false positive.
-// Every occurrence is scanned; one populated value is enough.
-func fieldHasPopulatedValue(body, keyPat string) bool {
-	from := 0
-	for {
-		i := strings.Index(body[from:], keyPat)
-		if i < 0 {
-			return false
-		}
-		pos := from + i + len(keyPat)
-		// Skip whitespace between the colon and the value.
-		for pos < len(body) {
-			c := body[pos]
-			if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
-				pos++
-				continue
+func collectSensitiveFields(node any, found, substantive map[string]bool) {
+	switch typed := node.(type) {
+	case map[string]any:
+		for key, value := range typed {
+			normalized := normalizeFieldName(key)
+			if label, ok := sensitiveFieldLabels[normalized]; ok {
+				found[label] = true
+				if isSubstantiveFieldValue(normalized, value) {
+					substantive[label] = true
+				}
 			}
-			break
+			collectSensitiveFields(value, found, substantive)
 		}
-		from = pos // advance so the next iteration cannot re-match this key
-		if pos >= len(body) {
-			return false
-		}
-		rest := body[pos:]
-		switch {
-		case strings.HasPrefix(rest, `""`),
-			strings.HasPrefix(rest, "null"),
-			strings.HasPrefix(rest, "true"),
-			strings.HasPrefix(rest, "false"):
-			// Benign literal — keep scanning for another occurrence.
-		case strings.HasPrefix(rest, `"`),
-			strings.HasPrefix(rest, "{"),
-			strings.HasPrefix(rest, "["):
-			return true // non-empty string / object / array value
-		case rest[0] == '-' || (rest[0] >= '0' && rest[0] <= '9'):
-			return true // numeric value
+	case []any:
+		for _, value := range typed {
+			collectSensitiveFields(value, found, substantive)
 		}
 	}
+}
+
+func normalizeFieldName(name string) string {
+	lower := strings.ToLower(name)
+	return strings.NewReplacer("_", "", "-", "", " ", "").Replace(lower)
+}
+
+func isSubstantiveFieldValue(field string, value any) bool {
+	text, ok := value.(string)
+	if !ok {
+		return false
+	}
+	text = strings.TrimSpace(text)
+	if modkit.IsPlaceholderValue(text) || looksRedactedExampleOrMasked(text) || publicAPIIdentifier.MatchString(text) {
+		return false
+	}
+	switch field {
+	case "password", "passwd":
+		return len(text) >= 4
+	case "ssn":
+		digits := nonDigit.ReplaceAllString(text, "")
+		return len(digits) == 9
+	case "creditcard", "cardnumber":
+		digits := nonDigit.ReplaceAllString(text, "")
+		return len(digits) >= 12 && len(digits) <= 19
+	default:
+		return len(text) >= 8
+	}
+}
+
+func looksRedactedExampleOrMasked(value string) bool {
+	lower := strings.ToLower(value)
+	for _, marker := range []string{"example", "placeholder", "changeme", "dummy", "sample", "redacted", "masked", "your_", "your-"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return strings.Trim(value, "*xX._- ") == ""
+}
+
+func isSchemaDocument(document any) bool {
+	root, ok := document.(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, key := range []string{"openapi", "swagger", "$schema"} {
+		if _, ok := root[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedLabels(values map[string]bool) []string {
+	labels := make([]string, 0, len(values))
+	for label := range values {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	return labels
 }

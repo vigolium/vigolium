@@ -15,7 +15,7 @@ var (
 
 **Fix:** Least privilege — gate high-impact tools behind authentication and human approval, allowlist their targets, and never expose raw command, SQL, or file-write to unauthenticated callers.`
 
-	ModuleConfirmation = "Reported when a tools/list response advertises one or more tools whose name matches a high-impact capability class; this is an over-scope advisory, not a confirmed exploit"
+	ModuleConfirmation = "Observation when a parsed JSON-RPC tools/list advertises high-impact capability names; invocation, authorization, approval gates, and impact remain untested"
 	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"mcp", "excessive-permissions", "api-security", "light"}

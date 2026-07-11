@@ -2,24 +2,20 @@ package crypto_weakness_detect
 
 import "regexp"
 
-// magicHashPattern matches PHP magic hash values (e.g., 0e462097431906509019562988736854)
-// which can cause type juggling vulnerabilities in loose comparisons.
-var magicHashPattern = regexp.MustCompile(`\b0[eE]\d{30,}\b`)
+// cbcTechTag is the technology tag this passive module publishes when it detects
+// a CBC-shaped ciphertext (an opaque block-aligned session cookie) or a disclosed
+// padding/decryption error. The active padding-oracle module is hard-gated on it.
+const cbcTechTag = "crypto-cbc"
 
-// weakHashPatterns detect MD5 (32 hex) and SHA1 (40 hex) hashes near sensitive keywords.
-var weakHashPatterns = struct {
-	md5  *regexp.Regexp
-	sha1 *regexp.Regexp
-}{
-	md5:  regexp.MustCompile(`\b[a-fA-F0-9]{32}\b`),
-	sha1: regexp.MustCompile(`\b[a-fA-F0-9]{40}\b`),
-}
+// magicHashFieldPattern matches PHP magic hash values (e.g.,
+// 0e462097431906509019562988736854) that appear in a structured
+// password/credential/digest field, where they can cause type juggling
+// vulnerabilities in loose comparisons.
+var magicHashFieldPattern = regexp.MustCompile(`(?i)["']?([a-z0-9_]*(?:password|passwd|credential|digest|hash)[a-z0-9_]*)["']?\s*[:=]\s*["']?(0[eE]\d{30,})\b`)
 
-// sensitiveHashKeywords are terms that indicate a hash is used for security purposes.
-var sensitiveHashKeywords = []string{
-	"password", "passwd", "pass", "hash", "token", "secret",
-	"auth", "session", "digest", "checksum", "signature",
-}
+// weakHashFieldPattern matches MD5 (32 hex) and SHA1 (40 hex) digests exposed in
+// a structured password/credential field.
+var weakHashFieldPattern = regexp.MustCompile(`(?i)["']?([a-z0-9_]*(?:password|passwd|credential)[a-z0-9_]*(?:hash|digest)?)["']?\s*[:=]\s*["']?([a-f0-9]{32}|[a-f0-9]{40})\b`)
 
 // paddingOraclePatterns match error messages indicative of padding oracle vulnerabilities.
 var paddingOraclePatterns = []*regexp.Regexp{

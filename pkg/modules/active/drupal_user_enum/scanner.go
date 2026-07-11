@@ -1,6 +1,7 @@
 package drupal_user_enum
 
 import (
+	"encoding/json"
 	"fmt"
 	nethttp "net/http"
 	"regexp"
@@ -115,10 +116,24 @@ func (m *Module) ScanPerRequest(
 	}
 	host := service.Host()
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	if scanCtx != nil {
+		diskSet := m.ds.Get(scanCtx.DedupMgr())
+		if diskSet != nil && diskSet.IsSeen(host) {
+			return nil, nil
+		}
+	}
+	cleanRaw, err := modkit.StripCredentialHeaders(ctx.Request().Raw())
+	if err != nil {
 		return nil, nil
 	}
+	anonymousClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
+	anonymousCtx := httpmsg.NewHttpRequestResponse(
+		httpmsg.NewHttpRequestWithService(service, cleanRaw),
+		ctx.Response(),
+	)
 
 	var results []*output.ResultEvent
 
@@ -128,14 +143,14 @@ func (m *Module) ScanPerRequest(
 	// profile. Whatever candidate it produces is the site's generic page for an
 	// unknown user; any real probe matching it is reading that same page, not a
 	// leak.
-	baseline := m.probeUserPath(ctx, httpClient, fmt.Sprintf("/user/%d", baselineProbeUID), strconv.Itoa(baselineProbeUID))
+	baseline := m.probeUserPath(anonymousCtx, anonymousClient, fmt.Sprintf("/user/%d", baselineProbeUID), strconv.Itoa(baselineProbeUID))
 
 	var rawMatches []string
 	seen := map[string]bool{}
 	var usernames []string
 	for i := 1; i <= 5; i++ {
 		path := fmt.Sprintf("/user/%d", i)
-		username := m.probeUserPath(ctx, httpClient, path, strconv.Itoa(i))
+		username := m.probeUserPath(anonymousCtx, anonymousClient, path, strconv.Itoa(i))
 		if username == "" || username == baseline {
 			continue
 		}
@@ -155,28 +170,33 @@ func (m *Module) ScanPerRequest(
 	}
 
 	if len(usernames) > 0 {
-		urlx, _ := ctx.URL()
+		urlx, _ := anonymousCtx.URL()
 		results = append(results, &output.ResultEvent{
+			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindObservation,
+			EvidenceGrade:    output.EvidenceGradeObservation,
 			URL:              urlx.Scheme + "://" + urlx.Host + "/user/1",
 			Matched:          urlx.Scheme + "://" + urlx.Host + "/user/1",
 			ExtractedResults: usernames,
 			Info: output.Info{
-				Name:        "Drupal User Enumeration via Profile Paths",
-				Description: fmt.Sprintf("Drupal user profile paths expose %d username(s): %s", len(usernames), strings.Join(usernames, ", ")),
-				Severity:    severity.Medium,
+				Name:        "Drupal Public Profile Names Observed",
+				Description: fmt.Sprintf("Observed %d distinct Drupal profile name(s) through public numeric profile routes: %s. Public profiles are normal site behavior; no login-name mapping or authentication weakness was proven.", len(usernames), strings.Join(usernames, ", ")),
+				Severity:    severity.Info,
 				Confidence:  severity.Certain,
 				Tags:        []string{"cms", "drupal", "user-enumeration"},
 				Reference:   []string{"https://www.drupal.org/docs/security-in-drupal"},
 			},
 			Metadata: map[string]any{
-				"usernames": usernames,
-				"vector":    "user-profile-path",
+				"usernames":                usernames,
+				"vector":                   "user-profile-path",
+				"credential_free":          true,
+				"login_identity_confirmed": false,
 			},
 		})
 	}
 
 	// Vector 2: JSON:API user listing
-	if result := m.probeJsonAPI(ctx, httpClient); result != nil {
+	if result := m.probeJsonAPI(anonymousCtx, anonymousClient); result != nil {
 		results = append(results, result)
 	}
 
@@ -203,7 +223,7 @@ func (m *Module) probeUserPath(ctx *httpmsg.HttpRequestResponse, httpClient *htt
 	// modifiedRaw is well-formed raw, so wrap directly instead of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return ""
 	}
@@ -266,7 +286,7 @@ func (m *Module) probeJsonAPI(ctx *httpmsg.HttpRequestResponse, httpClient *http
 	// modifiedRaw is well-formed raw, so wrap directly instead of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
@@ -287,28 +307,68 @@ func (m *Module) probeJsonAPI(ctx *httpmsg.HttpRequestResponse, httpClient *http
 	}
 
 	body := resp.Body().String()
-	// Check for JSON:API user data markers
-	if !strings.Contains(body, `"type":"user--user"`) && !strings.Contains(body, `"type": "user--user"`) {
+	userCount, userLabels, ok := parseDrupalJSONAPIUsers(body)
+	if !ok {
 		return nil
 	}
 
 	urlx, _ := ctx.URL()
 	return &output.ResultEvent{
-		URL:      urlx.Scheme + "://" + urlx.Host + "/jsonapi/user/user",
-		Matched:  urlx.Scheme + "://" + urlx.Host + "/jsonapi/user/user",
-		Response: body,
+		ModuleID:         ModuleID,
+		RecordKind:       output.RecordKindObservation,
+		EvidenceGrade:    output.EvidenceGradeObservation,
+		URL:              urlx.Scheme + "://" + urlx.Host + "/jsonapi/user/user",
+		Matched:          urlx.Scheme + "://" + urlx.Host + "/jsonapi/user/user",
+		Request:          string(modifiedRaw),
+		Response:         resp.FullResponseString(),
+		ExtractedResults: userLabels,
 		Info: output.Info{
-			Name:        "Drupal User Enumeration via JSON:API",
-			Description: "Drupal JSON:API exposes user objects anonymously at /jsonapi/user/user",
-			Severity:    severity.Medium,
+			Name:        "Drupal Public JSON:API User Objects Observed",
+			Description: fmt.Sprintf("Drupal JSON:API returned %d structurally valid user object(s) without credentials. Public profile data may be intentional; no private account or login weakness was proven.", userCount),
+			Severity:    severity.Info,
 			Confidence:  severity.Certain,
 			Tags:        []string{"cms", "drupal", "user-enumeration", "api"},
 			Reference:   []string{"https://www.drupal.org/docs/core-modules-and-themes/core-modules/jsonapi-module"},
 		},
 		Metadata: map[string]any{
-			"vector": "jsonapi",
+			"vector":                  "jsonapi",
+			"count":                   userCount,
+			"credential_free":         true,
+			"private_accounts_proven": false,
 		},
 	}
+}
+
+func parseDrupalJSONAPIUsers(body string) (int, []string, bool) {
+	var document struct {
+		Data []struct {
+			Type       string         `json:"type"`
+			ID         string         `json:"id"`
+			Attributes map[string]any `json:"attributes"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(body), &document) != nil || len(document.Data) == 0 {
+		return 0, nil, false
+	}
+	labels := make([]string, 0, len(document.Data))
+	count := 0
+	for _, resource := range document.Data {
+		if resource.Type != "user--user" {
+			continue
+		}
+		count++
+		label := resource.ID
+		for _, key := range []string{"name", "display_name", "label"} {
+			if value, ok := resource.Attributes[key].(string); ok && strings.TrimSpace(value) != "" {
+				label = value
+				break
+			}
+		}
+		if label != "" {
+			labels = append(labels, label)
+		}
+	}
+	return count, labels, count > 0
 }
 
 // extractTitleUsername returns the leading segment of the page <title>, which on

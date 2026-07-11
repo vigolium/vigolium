@@ -1,8 +1,10 @@
 package mcp_tool_definition_drift
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
@@ -61,7 +63,11 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 	host := ctx.Service().Host()
-	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil && ds.IsSeen(host) {
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
+	if ds := diskSet; ds != nil && ds.IsSeen(host) {
 		return nil, nil
 	}
 
@@ -116,6 +122,8 @@ func (m *Module) ScanPerHost(
 	sort.Strings(names)
 
 	var evidence []string
+	definitionChanges := 0
+	availabilityChanges := 0
 	for _, name := range names {
 		// Collect the distinct fingerprints for this tool across snapshots and
 		// track whether it was absent from any snapshot.
@@ -143,12 +151,14 @@ func (m *Module) ScanPerHost(
 		}
 
 		if missingSomewhere {
+			availabilityChanges++
 			evidence = append(evidence, fmt.Sprintf(
 				"tool %q present in only %d/%d tools/list fetches (definition appears/disappears)",
 				name, presentCount, len(fetches),
 			))
 		}
 		if len(variants) > 1 {
+			definitionChanges++
 			a, b := variants[0], variants[1]
 			evidence = append(evidence, fmt.Sprintf(
 				"tool %q changed between fetches: description %q -> %q; inputSchema %s -> %s",
@@ -164,29 +174,51 @@ func (m *Module) ScanPerHost(
 	if len(evidence) == 0 {
 		return nil, nil
 	}
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	sev := severity.Info
+	name := "MCP Tool Availability Drift Observed"
+	description := fmt.Sprintf("MCP server at %s returned a changing tool set across repeated tools/list calls. Dynamic catalogs, routing, or authorization context may explain this; no approved definition was replaced.", urlx.Host)
+	if definitionChanges > 0 {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeDifferential
+		sev = severity.Medium
+		name = "MCP Tool Definition Drift Candidate"
+		description = fmt.Sprintf("MCP server at %s returned different descriptions or input schemas for the same tool across repeated calls. This is a rug-pull candidate; client approval state and post-approval replacement were not observed.", urlx.Host)
+	}
 
 	return []*output.ResultEvent{{
+		ModuleID:         ModuleID,
+		RecordKind:       kind,
+		EvidenceGrade:    grade,
 		Host:             urlx.Host,
 		URL:              urlx.String(),
 		Matched:          urlx.String(),
+		Request:          string(ctx.Request().Raw()),
 		MatcherStatus:    true,
 		ExtractedResults: evidence,
 		Info: output.Info{
-			Name: "MCP Non-Deterministic Tool Definitions (Rug-Pull Risk)",
-			Description: fmt.Sprintf(
-				"MCP server at %s served differing tool definitions across repeated tools/list calls within a single scan. A server able to silently mutate an already-approved tool's description or input schema can perform an OWASP MCP \"rug pull\".",
-				urlx.Host,
-			),
-			Severity:   severity.Medium,
-			Confidence: severity.Tentative,
-			Tags:       []string{"mcp", "rug-pull", "integrity"},
-			Reference:  []string{"https://modelcontextprotocol.io/specification/2025-11-25/server/tools"},
+			Name:        name,
+			Description: description,
+			Severity:    sev,
+			Confidence:  severity.Tentative,
+			Tags:        []string{"mcp", "rug-pull", "integrity"},
+			Reference:   []string{"https://modelcontextprotocol.io/specification/2025-11-25/server/tools"},
 		},
+		Metadata: map[string]any{"snapshot_count": len(fetches), "definition_changes": definitionChanges, "availability_changes": availabilityChanges, "client_approval_observed": false, "rug_pull_confirmed": false},
 	}}, nil
 }
 
 // fingerprint canonicalises a tool's mutable surface: its description and raw
 // input schema. A NUL separator avoids collisions between the two fields.
 func fingerprint(t mcpinfra.Tool) string {
-	return t.Description + "\x00" + string(t.InputSchema)
+	description := strings.Join(strings.Fields(t.Description), " ")
+	schema := string(t.InputSchema)
+	var parsed any
+	if json.Unmarshal(t.InputSchema, &parsed) == nil {
+		if canonical, err := json.Marshal(parsed); err == nil {
+			schema = string(canonical)
+		}
+	}
+	return description + "\x00" + schema
 }

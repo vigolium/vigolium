@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -47,9 +48,20 @@ func TestScanPerRequest_DangerouslySetInnerHTML(t *testing.T) {
 		assert.Equal(t, ModuleID, r.ModuleID)
 		if r.Info.Name == "Unsafe HTML Sink: dangerouslySetInnerHTML (React)" {
 			found = true
+			assert.Equal(t, output.RecordKindObservation, r.RecordKind)
+			assert.Equal(t, output.EvidenceGradeObservation, r.EvidenceGrade)
 		}
 	}
 	assert.True(t, found, "expected dangerouslySetInnerHTML finding")
+}
+
+func TestScanPerRequest_NewFunctionSuppressedInTestFile(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("/app/compiler.spec.js", "application/javascript", `new Function("return 1")();`)
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
 // TestScanPerRequest_InnerHTMLAndEval drives both an innerHTML assignment and an

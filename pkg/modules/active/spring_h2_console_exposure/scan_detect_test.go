@@ -11,6 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestScanPerRequest_DetectsH2Console drives the real scan method against a host
@@ -36,7 +37,10 @@ func TestScanPerRequest_DetectsH2Console(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected an H2 console finding when /h2-console serves the console page")
+	require.NotEmpty(t, res, "expected an H2 console candidate when /h2-console serves the console page")
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, res[0].EvidenceGrade)
+	assert.False(t, res[0].IsFinding(), "a connection page alone does not prove database or code execution")
 }
 
 // TestScanPerRequest_DetectsContextPathConsole verifies the context-path walk:
@@ -65,6 +69,27 @@ func TestScanPerRequest_DetectsContextPathConsole(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a finding for an H2 console mounted under the /api context path")
 	assert.Contains(t, res[0].URL, "/api/h2-console", "the finding URL must point at the context-path mount")
+}
+
+func TestScanPerRequest_AuthenticatedConsoleIsNotCalledPublic(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/h2-console" && r.Header.Get("Authorization") == "Bearer operator" {
+			_, _ = w.Write([]byte(`<title>H2 Console</title> JDBC URL org.h2.Driver`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	rr := modtest.Request(t, srv.URL+"/")
+	raw, err := httpmsg.AddOrReplaceHeader(rr.Request().Raw(), "Authorization", "Bearer operator")
+	require.NoError(t, err)
+	rr = httpmsg.NewHttpRequestResponse(httpmsg.NewHttpRequestWithService(rr.Service(), raw), modtest.Response(rr, "text/html", "ok").Response())
+
+	res, err := New().ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a console visible only with the captured credential is not public exposure")
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a host that 404s every H2 probe

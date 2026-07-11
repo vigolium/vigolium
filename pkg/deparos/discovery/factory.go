@@ -6,7 +6,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/config"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/module"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/payload"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"go.uber.org/zap"
 )
 
@@ -695,7 +695,7 @@ func (f *Factory) getProviderForSource(
 // for a specific directory.
 func (f *Factory) CreateJSExtractedRequestTask(
 	dirURL *url.URL,
-	getExtractedRequests func() []jsscan.ExtractedRequest,
+	getExtractedRequests func() []jstangle.ExtractedRequest,
 	depth uint16,
 	getRequestTemplates ...func() []ExtractedRequestTemplate,
 ) Task {

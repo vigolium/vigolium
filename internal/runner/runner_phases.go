@@ -27,14 +27,15 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/modules/active/authz_compare"
 	"github.com/vigolium/vigolium/pkg/modules/active/nextjs_chunk_audit"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/passive/secret_detect"
 	"github.com/vigolium/vigolium/pkg/notify"
 	"github.com/vigolium/vigolium/pkg/notify/discord"
 	"github.com/vigolium/vigolium/pkg/notify/telegram"
 	"github.com/vigolium/vigolium/pkg/oast"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/secretscan"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"github.com/vigolium/vigolium/pkg/toolexec/kingfisher"
 	"go.uber.org/zap"
 )
 
@@ -45,7 +46,7 @@ import (
 //	Spidering         — browser-based crawling (opt-in)
 //	Discovery         — ingest all input + deparos content discovery into DB (no modules)
 //	Seed              — ingest CLI targets when discovery is skipped but DB-backed phases still need records
-//	KnownIssueScan    — nuclei + kingfisher batch (opt-in via --known-issue-scan)
+//	KnownIssueScan    — nuclei + secret scan (opt-in via --known-issue-scan)
 //	DynamicAssessment — modules + extensions scan DB records
 func (r *Runner) RunNativeScan() error {
 	defer close(r.done)
@@ -428,7 +429,12 @@ func (r *Runner) cleanupDeparosRecords(ctx context.Context) {
 	if r.settings != nil && r.settings.Discovery.DeparosDedup.IsEnabled() {
 		dedupCfg := &r.settings.Discovery.DeparosDedup
 		if dedupCfg.DropClientErrorsEnabled() {
-			dropped, codes, err := r.repository.ApplyDeparosStatusPolicy(ctx, r.options.ProjectUUID, dedupCfg.KeepOneStatuses())
+			statusPolicy := database.DeparosStatusPolicy{
+				KeepOnePerHost: dedupCfg.KeepOneStatuses(),
+				KeepPerPath:    dedupCfg.KeepPerPathStatuses(),
+				PerPathCap:     dedupCfg.PerPathCapValue(),
+			}
+			dropped, codes, err := r.repository.ApplyDeparosStatusPolicy(ctx, r.options.ProjectUUID, statusPolicy)
 			if err != nil {
 				zap.L().Warn("Deparos status-policy cleanup failed", zap.Error(err))
 			} else {
@@ -626,7 +632,7 @@ func (r *Runner) buildInfrastructure() (*phaseInfra, error) {
 // cannot run past its configured scanning_pace max_duration. It is the single
 // chokepoint for the "wrap the WHOLE phase, not just one leg" invariant that
 // known-issue-scan once regressed on (the Nuclei leg was bounded but the
-// Kingfisher leg ran on the raw ctx). When maxDuration <= 0 the phase is
+// secret-scan leg ran on the raw ctx). When maxDuration <= 0 the phase is
 // unbounded: the parent ctx is returned unchanged with a no-op cancel so callers
 // can always `defer cancel()`. When the parent already has an earlier deadline
 // (e.g. the overall scan budget), context.WithTimeout keeps that earlier
@@ -676,7 +682,7 @@ func formatKnownIssueScanTemplateScope(cfg *config.KnownIssueScanConfig) string 
 	return strings.Join(parts, " ")
 }
 
-// runKnownIssueScanPhase orchestrates nuclei + kingfisher batch scanning.
+// runKnownIssueScanPhase orchestrates nuclei + secret scan scanning.
 func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) error {
 	phaseStart := time.Now()
 
@@ -710,7 +716,7 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 	// bookkeepingCtx is the un-bounded parent context (still cancelled if the whole
 	// scan is cancelled). End-of-phase DB writes use it so progress counters still
 	// land when only a leg's deadline — not the scan — has fired. The Nuclei and
-	// Kingfisher legs below each derive their OWN max_duration budget from it (see
+	// secret-scan legs below each derive their OWN max_duration budget from it (see
 	// the per-leg comments), so they are bounded independently but never exceed the
 	// overall scan budget.
 	bookkeepingCtx := ctx
@@ -776,7 +782,7 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 	}
 
 	// Nuclei scan on distinct hosts. It gets its OWN max_duration budget so that a
-	// long Nuclei run no longer starves the Kingfisher secret scan below — the two
+	// long Nuclei run no longer starves the secret scan below — the two
 	// legs are bounded independently rather than sharing one budget. A ctx error
 	// means this leg's max_duration (or the overall scan) elapsed — that is a
 	// curtailment, not a failure.
@@ -790,20 +796,20 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 		}
 	}
 
-	// Kingfisher batch scan on all response bodies. It gets a FRESH max_duration
+	// secret scan on all response bodies. It gets a FRESH max_duration
 	// budget that starts now (derived from the parent ctx, so still bounded by the
 	// overall scan budget), so it always runs even when the Nuclei leg above was
-	// curtailed at its deadline. Kingfisher scans DB response bodies locally (no
+	// curtailed at its deadline. secret scan reads DB response bodies locally (no
 	// network) and normally finishes well within this budget. Worst-case phase
 	// wall-clock is ~2× max_duration, capped by the overall scan budget. A ctx error
 	// is a curtailment, distinct from a genuine scanner failure.
-	kingfisherCtx, kingfisherCancel := phaseDeadline(ctx, kisMaxDuration)
-	defer kingfisherCancel()
-	if err := r.runKingfisherBatch(kingfisherCtx, infra, onResult, inScopeHosts); err != nil {
-		if kingfisherCtx.Err() != nil {
-			zap.L().Warn("KnownIssueScan: Kingfisher secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(kingfisherCtx.Err()))
+	secretScanCtx, secretScanCancel := phaseDeadline(ctx, kisMaxDuration)
+	defer secretScanCancel()
+	if err := r.runSecretScanBatch(secretScanCtx, infra, onResult, inScopeHosts); err != nil {
+		if secretScanCtx.Err() != nil {
+			zap.L().Warn("KnownIssueScan: secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(secretScanCtx.Err()))
 		} else {
-			zap.L().Error("KnownIssueScan: Kingfisher batch failed", zap.Error(err))
+			zap.L().Error("KnownIssueScan: secret scan failed", zap.Error(err))
 		}
 	}
 
@@ -836,33 +842,20 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 	return nil
 }
 
-// kfRecordMeta carries the per-record context a Kingfisher batch needs to grade
-// and persist a finding once the single ScanDir invocation returns, keyed by the
-// temp filename the record's body was written to.
-type kfRecordMeta struct {
-	record       *database.HTTPRecord
-	filename     string // basename the body was written to (== how findings map back)
-	body         []byte
-	respHead     string
-	redirect     bool
-	headerValues string
-}
-
-// runKingfisherBatch scans all response bodies in the database for secrets using Kingfisher.
-func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onResult func(*output.ResultEvent), inScopeHosts []database.HostTarget) error {
+// runSecretScanBatch scans all response bodies in the database for secrets using
+// the native in-process detector (pkg/secretscan). Detection runs inline per
+// record — no external binary, no temp files.
+func (r *Runner) runSecretScanBatch(ctx context.Context, infra *phaseInfra, onResult func(*output.ResultEvent), inScopeHosts []database.HostTarget) error {
 	if r.repository == nil {
-		return fmt.Errorf("kingfisher batch: database repository required")
+		return fmt.Errorf("secret scan: database repository required")
 	}
 
-	scanner, err := kingfisher.NewScanner(nil)
+	det, err := secretscan.Default()
 	if err != nil {
-		return fmt.Errorf("kingfisher batch: failed to create scanner: %w", err)
-	}
-	if err := scanner.EnsureBinary(ctx); err != nil {
-		return fmt.Errorf("kingfisher batch: binary unavailable: %w", err)
+		return fmt.Errorf("secret scan: detector unavailable: %w", err)
 	}
 
-	zap.L().Info("KnownIssueScan: Kingfisher batch — scanning response bodies for secrets")
+	zap.L().Info("KnownIssueScan: native secret scan — scanning response bodies for secrets")
 
 	var cursor string
 	var totalFindings int
@@ -873,184 +866,119 @@ func (r *Runner) runKingfisherBatch(ctx context.Context, infra *phaseInfra, onRe
 	// batches; bounded by the number of distinct secrets, which is small.
 	seenSecret := make(map[string]struct{})
 	for {
-		// Break promptly when the phase/scan budget elapses. A single batch holds up
-		// to kingfisherBatchSize records, so without an inner-loop check below the
-		// per-record loop would scan every body before the next-batch fetch could
-		// observe cancellation. Returning ctx.Err() lets the caller log the
-		// secret-scan curtailment notice rather than treating it as a failure.
+		// Break promptly when the phase/scan budget elapses. Returning ctx.Err()
+		// lets the caller log the secret-scan curtailment notice rather than
+		// treating it as a failure.
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		records, err := r.repository.GetRecordsWithResponseBody(ctx, r.options.ProjectUUID, cursor, kingfisherBatchSize, inScopeHosts...)
+		records, err := r.repository.GetRecordsWithResponseBody(ctx, r.options.ProjectUUID, cursor, secretScanBatchSize, inScopeHosts...)
 		if err != nil {
-			return fmt.Errorf("kingfisher batch: failed to fetch records: %w", err)
+			return fmt.Errorf("secret scan: failed to fetch records: %w", err)
 		}
 		if len(records) == 0 {
 			break
 		}
 
-		// Buffer this batch's eligible response bodies to a temp dir and scan them
-		// all in ONE kingfisher invocation (ScanDir) instead of forking a process
-		// + writing a temp file per record (which also reloaded the full ruleset
-		// each time). Findings carry the file path, which maps back to the record.
-		// This mirrors the proven deparos discovery batch path.
-		batchDir, err := os.MkdirTemp("", "kingfisher-kis-*")
-		if err != nil {
-			return fmt.Errorf("kingfisher batch: failed to create temp dir: %w", err)
-		}
-
-		metas := make([]*kfRecordMeta, 0, len(records)) // in record (fetch) order
 		for _, record := range records {
 			cursor = record.UUID
 
 			if err := ctx.Err(); err != nil {
-				_ = os.RemoveAll(batchDir)
 				return err
 			}
 
-			// Filter by content type (reuse IsTextBasedMIME from secret_detect)
-			if !secret_detect.IsTextBasedMIME(record.ResponseContentType) {
-				continue
-			}
-
-			// Parse the raw response once so we can both scan the body and
-			// inspect the status/headers for the severity decision below.
+			// Parse the raw response once so we can both scan the body and inspect
+			// the status/headers for the severity decision below.
 			resp := record.ParsedResponse()
 			if resp == nil {
 				continue
 			}
+			// A WAF/CDN edge block is the edge talking, not the application, so its
+			// challenge/error page's random tokens must never be scanned as app
+			// secrets — same guard the passive path applies.
+			if modkit.IsEdgeBlockedResponse(resp) {
+				continue
+			}
 			body := resp.Body()
-			if len(body) == 0 {
+			// Shared eligibility policy (size cap + media + text MIME) — the batch
+			// previously filtered on MIME alone, letting oversized or mislabeled
+			// binary bodies reach the detector.
+			if !secret_detect.ShouldScanBody(record.ResponseContentType, record.URL, len(body)) {
 				continue
 			}
 
-			// Name the file by the record UUID so findings map back unambiguously.
-			filename := record.UUID + ".txt"
-			if err := os.WriteFile(filepath.Join(batchDir, filename), body, 0o600); err != nil {
-				zap.L().Debug("kingfisher batch: failed to buffer body", zap.String("uuid", record.UUID), zap.Error(err))
+			matches := det.Detect(body)
+			if len(matches) == 0 {
 				continue
 			}
-			metas = append(metas, &kfRecordMeta{
-				record:       record,
-				filename:     filename,
-				body:         body,
-				respHead:     string(resp.Head()),
-				redirect:     secret_detect.IsRedirectStatus(resp.StatusCode()),
-				headerValues: secret_detect.JoinHeaderValues(resp.Headers()),
-			})
+
+			ev := secret_detect.EvidenceContext{
+				Body:         body,
+				Host:         record.Hostname,
+				URL:          record.URL,
+				Request:      string(record.RawRequest),
+				RespHead:     string(resp.Head()),
+				StatusCode:   resp.StatusCode(),
+				ContentType:  record.ResponseContentType,
+				HeaderValues: secret_detect.JoinHeaderValues(resp.Headers()),
+			}
+
+			for _, mt := range matches {
+				// Skip the same secret already reported on this URL by an earlier
+				// record. Marked seen only after GradeMatch's body-dependent guards
+				// pass, so a blob/JS-escape drop never suppresses a genuine match of
+				// the same value elsewhere.
+				dedupKey := secret_detect.SecretDedupKey(record.Hostname, record.URL, mt.RuleID, mt.Secret)
+				if _, dup := seenSecret[dedupKey]; dup {
+					continue
+				}
+
+				// Grade the match — structural false-positive guard, severity
+				// downgrades (redirect/header/request reflections, docs-demo samples,
+				// public reCAPTCHA/OAuth identifiers, low-value JWTs, Google API keys),
+				// and evidence reconstruction — via the same helper the passive module
+				// uses, so the two paths can't drift.
+				event, ok := secret_detect.GradeMatch(mt, ev)
+				if !ok {
+					continue
+				}
+				seenSecret[dedupKey] = struct{}{}
+
+				// Tag with the secret-detect module ID (same as the passive path) so
+				// the URL-keyed finding dedup excludes these too — distinct secrets on
+				// one URL are not duplicates. Without it KIS findings carry an empty
+				// module_id and would merge with each other (and other empty-id
+				// findings) by URL+severity.
+				event.ModuleID = secret_detect.ModuleID
+				event.Info.Tags = append(event.Info.Tags, "known-issue-scan")
+				// secret-detect is a passive module; label it "passive" like its
+				// dynamic-assessment path does (where the executor sets that
+				// automatically). FindingSource below still records that this
+				// particular finding was produced during the known-issue-scan phase.
+				event.ModuleType = database.ModuleTypePassive
+				event.FindingSource = database.FindingSourceKnownIssueScan
+				event.ModuleShort = "Leaked secret detected in HTTP response body"
+
+				// Save to DB
+				if saveErr := r.repository.SaveFinding(ctx, event, []string{record.UUID}, infra.scanUUID, r.options.ProjectUUID); saveErr != nil {
+					zap.L().Debug("Failed to save secret finding", zap.Error(saveErr))
+				}
+
+				// Write to output via callback
+				if onResult != nil {
+					onResult(event)
+				}
+				totalFindings++
+			}
 		}
 
-		if len(metas) > 0 {
-			result, scanErr := scanner.ScanDir(ctx, batchDir)
-			if scanErr != nil {
-				_ = os.RemoveAll(batchDir)
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				// Non-fatal: skip this batch's findings and keep scanning, mirroring
-				// the old per-record "continue on scan error" behavior.
-				zap.L().Warn("kingfisher batch: scan failed, skipping batch", zap.Error(scanErr))
-				if len(records) < kingfisherBatchSize {
-					break
-				}
-				continue
-			}
-
-			// Group findings by the file (record) they came from, preserving
-			// kingfisher's per-file finding order.
-			findingsByFile := make(map[string][]kingfisher.Finding, len(metas))
-			for i := range result.Findings {
-				f := result.Findings[i]
-				base := filepath.Base(f.Finding.Path)
-				findingsByFile[base] = append(findingsByFile[base], f)
-			}
-
-			// Process records in deterministic (fetch) order so seenSecret's
-			// first-wins dedup is stable across the batch.
-			for _, meta := range metas {
-				record := meta.record
-				body := meta.body
-				for i := range findingsByFile[meta.filename] {
-					f := &findingsByFile[meta.filename][i]
-
-					// Drop matches that are structural false positives — an
-					// encoded-binary blob, a JS unicode-escape source artifact, or a
-					// build-tool content-hash manifest entry — rather than real
-					// credentials (see secret_detect.IsNonSecretMatch).
-					if secret_detect.IsNonSecretMatch(body, f.Snippet()) {
-						continue
-					}
-
-					// Skip the same secret already reported on this URL by an earlier
-					// record (marked seen only after a match survives the guards, so a
-					// body-dependent blob/JS-escape drop never suppresses a genuine
-					// match of the same value elsewhere).
-					dedupKey := secret_detect.SecretDedupKey(record.Hostname, record.URL, f.RuleID(), f.Snippet())
-					if _, dup := seenSecret[dedupKey]; dup {
-						continue
-					}
-
-					// Downgrade matches that ride on a redirect, are only reflected
-					// into a response header (e.g. an OAuth identifier in a Location
-					// URL bouncing to an SSO login), or are echoed straight back out
-					// of the request URL/bytes (e.g. a Cloudflare Access app id in a
-					// /cdn-cgi/access/verify-code SSO URL) — usually low-value
-					// reflections rather than secrets leaked in page content. A match
-					// served as rendered page content from a docs/reference/manual/CLI
-					// route is a copy-paste demo credential and drops to Low. JWTs
-					// that don't decode into a usable credential (SSO pre-auth "meta"
-					// tokens) drop to Medium/Tentative. reCAPTCHA site keys and OAuth
-					// client IDs (public by design) drop to Info; Google AIza… API
-					// keys drop to Medium.
-					sev, conf := secret_detect.SecretFindingSeverity(
-						f.IsValidated(),
-						meta.redirect,
-						secret_detect.SnippetInHeaderValues(f.Snippet(), meta.headerValues),
-						secret_detect.SnippetReflectedFromRequest(f.Snippet(), record.URL, string(record.RawRequest)),
-						secret_detect.IsDocDemoSecretContext(record.URL, record.ResponseContentType),
-						secret_detect.LowValueJWT(f.Snippet()),
-						secret_detect.IsReCaptchaSiteKey(f.RuleName()),
-						secret_detect.IsGoogleAPIKey(f.RuleName(), f.Snippet()),
-						secret_detect.IsGoogleOAuthClientID(f.Snippet()),
-					)
-
-					seenSecret[dedupKey] = struct{}{}
-
-					response := secret_detect.BuildEvidenceResponse(meta.respHead, body, f.Snippet(), f.Finding.Line)
-					event := secret_detect.NewSecretFinding(f, sev, conf, record.Hostname, record.URL, string(record.RawRequest), response)
-					// Tag with the secret-detect module ID (same as the passive path) so
-					// the URL-keyed finding dedup excludes these too — distinct secrets on
-					// one URL are not duplicates. Without it KIS findings carry an empty
-					// module_id and would merge with each other (and other empty-id
-					// findings) by URL+severity.
-					event.ModuleID = secret_detect.ModuleID
-					event.Info.Tags = append(event.Info.Tags, "known-issue-scan")
-					event.ModuleType = database.ModuleTypeSecretScan
-					event.FindingSource = database.FindingSourceKnownIssueScan
-					event.ModuleShort = "Leaked secret detected in HTTP response body"
-
-					// Save to DB
-					if saveErr := r.repository.SaveFinding(ctx, event, []string{record.UUID}, infra.scanUUID, r.options.ProjectUUID); saveErr != nil {
-						zap.L().Debug("Failed to save kingfisher finding", zap.Error(saveErr))
-					}
-
-					// Write to output via callback
-					if onResult != nil {
-						onResult(event)
-					}
-					totalFindings++
-				}
-			}
-		}
-		_ = os.RemoveAll(batchDir)
-
-		if len(records) < kingfisherBatchSize {
+		if len(records) < secretScanBatchSize {
 			break
 		}
 	}
 
-	zap.L().Info("KnownIssueScan: Kingfisher batch completed", zap.Int("findings", totalFindings))
+	zap.L().Info("KnownIssueScan: native secret scan completed", zap.Int("findings", totalFindings))
 	return nil
 }
 
@@ -1137,7 +1065,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		}
 	}
 
-	// If KnownIssueScan was enabled, filter out secret-detect to avoid duplicate kingfisher findings
+	// If KnownIssueScan was enabled, filter out secret-detect to avoid duplicate secret findings
 	if r.options.KnownIssueScanEnabled {
 		passiveModules = filterOutPassiveModule(passiveModules, secret_detect.ModuleID)
 	}

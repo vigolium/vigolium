@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** Served JavaScript registers a window message handler (addEventListener message or window.onmessage), or calls postMessage with a wildcard target origin. Cross-document messaging bypasses the Same-Origin Policy, so these channels need explicit origin handling.
+	ModuleDesc = `**What it means:** Served JavaScript registers a window message handler or sends to a wildcard target origin. Validated/named handlers and same-window sends are observations; unchecked inline handlers and cross-document wildcard sends are candidates.
 
-**How it's exploited:** A handler that ignores event.origin trusts messages from any window, including attacker frames, turning message data into DOM XSS or token theft. A wildcard origin lets a page controlling the receiver read the data.
+**How it's exploited:** Exploitation additionally requires attacker window reachability plus a sensitive payload or a message-data flow into a dangerous sink. Regex proximity cannot prove those conditions, so it never confirms XSS or token theft.
 
 **Fix:** Validate event.origin against an allowlist before using message data, and pass an exact target origin to postMessage, never the wildcard.`
 
-	ModuleConfirmation = "Confirmed when response JavaScript registers a window message handler or calls postMessage with a wildcard target origin"
+	ModuleConfirmation = "Observation for messaging primitives; candidate for unchecked inline handlers or cross-document wildcard sends, pending connected payload/sink analysis"
 	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"postmessage", "dom", "javascript", "light"}

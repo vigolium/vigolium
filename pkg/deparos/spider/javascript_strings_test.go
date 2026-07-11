@@ -338,7 +338,11 @@ func TestJavaScriptStringExtractor_ScanStringForURLs(t *testing.T) {
 			extractor := NewJavaScriptStringExtractor(inlineScanner, nil)
 
 			ctx := context.Background()
-			result := extractor.ScanStringForURLs(ctx, baseURL, tt.input, 0)
+			// ScanStringForURLs reports whether ANY URL is present (absolute or
+			// relative); it only EMITS relative routes (absolute URLs are surfaced by
+			// the companion inlineScanner.Extract pass). Emission is covered by
+			// TestJavaScriptStringExtractor_EmitsInlineURLs; here we assert the bool.
+			result := extractor.ScanStringForURLs(ctx, baseURL, tt.input, 0, nil)
 
 			if tt.expectFound {
 				assert.True(t, result, "Expected URL to be found")
@@ -357,13 +361,6 @@ func TestJavaScriptStringExtractor_Extract(t *testing.T) {
 		jsCode        string
 		expectedLinks []expectedLink
 	}{
-		{
-			name:   "JavaScript with URL string",
-			jsCode: `var apiUrl = "https://api.example.com/data";`,
-			// Note: ScanStringForURLs returns true but doesn't invoke callbacks,
-			// so no links are actually discovered. This is the current behavior.
-			expectedLinks: []expectedLink{},
-		},
 		{
 			name:          "JavaScript with HTML string",
 			jsCode:        `var html = "<div>test</div>";`,
@@ -412,6 +409,54 @@ func TestJavaScriptStringExtractor_Extract(t *testing.T) {
 				assert.Equal(t, expected.resourceType, actual.ResourceType, "Link %d ResourceType mismatch", i)
 				assert.Equal(t, expected.position, actual.StartPos, "Link %d Position mismatch", i)
 			}
+		})
+	}
+}
+
+// TestJavaScriptStringExtractor_EmitsInlineURLs proves the fallback now SURFACES
+// URLs found in JS string literals (previously detected but dropped) — both
+// absolute endpoints and, importantly, relative routes like /api/users that
+// JSTangle may miss when disabled or unsuccessful.
+func TestJavaScriptStringExtractor_EmitsInlineURLs(t *testing.T) {
+	baseURL, _ := url.Parse("https://example.com")
+
+	// Relative routes are the coverage gap this fills. (Absolute scheme URLs in JS
+	// strings are surfaced by the inlineScanner.Extract pass, tested elsewhere.)
+	cases := []struct {
+		name    string
+		jsCode  string
+		wantURL string
+	}{
+		{
+			name:    "relative route in string",
+			jsCode:  `fetch("/api/users/list");`,
+			wantURL: "https://example.com/api/users/list",
+		},
+		{
+			name:    "relative admin path in string",
+			jsCode:  `const p = "/admin/settings";`,
+			wantURL: "https://example.com/admin/settings",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := NewURLResolver()
+			inlineScanner := NewInlineURLScanner(resolver)
+			htmlExtractor := NewHTMLAttributeExtractor(resolver)
+			extractor := NewJavaScriptStringExtractor(inlineScanner, htmlExtractor)
+
+			var links []*DiscoveredLink
+			err := extractor.Extract(context.Background(), baseURL, &HTTPResponse{
+				URL: baseURL, Body: []byte(tc.jsCode), BodyStart: 0,
+			}, func(l *DiscoveredLink) { links = append(links, l) })
+			require.NoError(t, err)
+
+			var got []string
+			for _, l := range links {
+				got = append(got, l.URL.String())
+			}
+			assert.Contains(t, got, tc.wantURL, "inline URL must be surfaced as a discovered link")
 		})
 	}
 }

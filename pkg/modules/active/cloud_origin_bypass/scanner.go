@@ -230,9 +230,14 @@ func (m *Module) checkOrigin(
 	}
 
 	return &output.ResultEvent{
-		URL:              target,
-		Matched:          target,
-		Request:          string(modifiedRaw),
+		URL:     target,
+		Matched: target,
+		Request: string(modifiedRaw),
+		// The full raw origin response is the proof (it's the request that reached
+		// the origin directly and is missing the CDN's security headers). resp is
+		// still open here (deferred Close), so capture it as the finding's response
+		// rather than letting the executor backfill an unrelated baseline.
+		Response:         resp.FullResponseString(),
 		ExtractedResults: evidence,
 		Info: output.Info{
 			Name:        "Cloud Origin Bypass: Missing Security Headers",

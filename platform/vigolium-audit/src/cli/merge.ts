@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import { premergeResults, type PremergeResult } from "../engine/premerge.js";
-import type { AgentPlatform } from "../engine/types.js";
+import type { AgentPlatform, AgentTransport } from "../engine/types.js";
 import { compact } from "../engine/util.js";
 import { emitJsonEvent } from "./run-render.js";
 
@@ -20,6 +20,8 @@ export interface MergeOptions {
   // --- forwarded to the `run --mode merge` normalization pass ---------------
   /** Agent platform for the normalization pass (claude|codex). */
   agent?: AgentPlatform;
+  /** Headless adapter transport for the normalization pass. */
+  transport?: AgentTransport;
   /** Model name forwarded to the normalization pass. */
   model?: string;
   /** Hard cost cap (USD) for the normalization pass. cac delivers a string. */
@@ -110,6 +112,7 @@ export async function mergeCommand(opts: MergeOptions): Promise<void> {
     target: result.destProjectDir,
     ...compact({
       agent: opts.agent,
+      transport: opts.transport,
       model: opts.model,
       maxCost: opts.maxCost,
       strict: opts.strict || undefined,

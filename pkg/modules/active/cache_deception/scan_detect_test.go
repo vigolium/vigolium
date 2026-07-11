@@ -4,13 +4,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // authedBody is the (large enough) authenticated content the cache deception
@@ -25,6 +28,8 @@ var authedBody = "<html><body>" + strings.Repeat("private account data ", 30) + 
 // deception condition.
 func TestScanPerRequest_DetectsCacheDeception(t *testing.T) {
 	t.Parallel()
+	var mu sync.Mutex
+	cache := make(map[string]string)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.Contains(r.URL.Path, "-vigolium-wp/"):
@@ -33,23 +38,68 @@ func TestScanPerRequest_DetectsCacheDeception(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte("not found"))
 		case strings.Contains(r.URL.Path, ".css"):
-			// Cache-deception sink: the static-extension URL is served from the
-			// cache with the full authenticated body.
-			w.Header().Set("X-Cache", "HIT")
+			key := r.URL.RequestURI()
+			mu.Lock()
+			defer mu.Unlock()
+			if cached := cache[key]; cached != "" {
+				w.Header().Set("X-Cache", "HIT")
+				_, _ = w.Write([]byte(cached))
+				return
+			}
+			if r.Header.Get("Cookie") != "session=valid" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte("login required"))
+				return
+			}
+			cache[key] = authedBody
+			w.Header().Set("X-Cache", "MISS")
 			_, _ = w.Write([]byte(authedBody))
 		default:
-			// Authenticated baseline content.
+			if r.Header.Get("Cookie") != "session=valid" {
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte("login required"))
+				return
+			}
 			_, _ = w.Write([]byte(authedBody))
 		}
 	}))
 	defer srv.Close()
 
 	client := modtest.Requester(t)
-	rr := modtest.Request(t, srv.URL+"/account")
+	rr := requestWithCookie(t, srv.URL+"/account")
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a cache-deception finding when the authenticated body is cached on a .css path")
+	assert.Equal(t, output.RecordKindFinding, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeImpact, res[0].EvidenceGrade)
+	assert.True(t, res[0].Metadata["cross_client_replay"].(bool))
+}
+
+func TestScanPerRequest_SameSessionCacheHitIsCandidateOnly(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "-vigolium-wp/") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("Cookie") != "session=valid" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("login required"))
+			return
+		}
+		if strings.Contains(r.URL.Path, ".css") {
+			w.Header().Set("X-Cache", "HIT")
+		}
+		_, _ = w.Write([]byte(authedBody))
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(requestWithCookie(t, srv.URL+"/account"), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.False(t, res[0].Metadata["cross_client_replay"].(bool))
 }
 
 // cdnErrorBody mimics CloudFront's generic 502 error page — large enough to clear
@@ -92,6 +142,16 @@ func TestScanPerRequest_NoFalsePositiveOnCachedCdnError(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "a cached CDN 5xx error page is not cache deception")
+}
+
+func requestWithCookie(t *testing.T, target string) *httpmsg.HttpRequestResponse {
+	t.Helper()
+	base := modtest.Request(t, target)
+	raw, err := httpmsg.AddOrReplaceHeader(base.Request().Raw(), "Cookie", "session=valid")
+	require.NoError(t, err)
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	require.NoError(t, err)
+	return httpmsg.NewHttpRequestResponse(req.Request().WithService(base.Service()), nil)
 }
 
 // publicShellBody is a DIFFERENT public page (login/marketing shell) of similar

@@ -6,43 +6,76 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 )
 
-func newTestJSExtractedTask(reqs []jsscan.ExtractedRequest) *JSExtractedRequestTask {
+func newTestJSExtractedTask(reqs []jstangle.ExtractedRequest) *JSExtractedRequestTask {
 	dir, _ := url.Parse("https://example.com/app/")
 	return NewJSExtractedRequestTask(&JSExtractedRequestTaskConfig{
 		DirURL:               dir,
 		Depth:                1,
-		GetExtractedRequests: func() []jsscan.ExtractedRequest { return reqs },
+		GetExtractedRequests: func() []jstangle.ExtractedRequest { return reqs },
 	})
 }
 
-func typedFact(id, rawURL, method, confidence string) jsscan.HTTPRequestFact {
-	return jsscan.HTTPRequestFact{
+func typedFact(id, rawURL, method, confidence string) jstangle.HTTPRequestFact {
+	return jstangle.HTTPRequestFact{
 		Kind: "httpRequest", ID: id,
-		URL:    jsscan.ValueTemplate{Rendered: rawURL, Static: !ContainsTemplateVar(rawURL)},
-		Method: jsscan.ValueTemplate{Rendered: method, Static: true},
-		Client: "fetch", Provenance: jsscan.Provenance{Extractor: "fetch", Confidence: confidence},
+		URL:    jstangle.ValueTemplate{Rendered: rawURL, Static: !ContainsTemplateVar(rawURL)},
+		Method: jstangle.ValueTemplate{Rendered: method, Static: true},
+		Client: "fetch", Provenance: jstangle.Provenance{Extractor: "fetch", Confidence: confidence},
+	}
+}
+
+func TestResolveReplayURL(t *testing.T) {
+	dir, _ := url.Parse("https://crawl.example/some/dir/")
+	const bundle = "https://app.example/assets/js/app.js"
+	cases := []struct {
+		name      string
+		rawURL    string
+		sourceURL string
+		want      string
+	}{
+		// Root-relative always resolves against the origin (base path is irrelevant).
+		{"root-relative", "/api/users", bundle, "https://app.example/api/users"},
+		// Path-relative resolves against the origin ROOT (document base), NOT the
+		// bundle's /assets/js/ directory — this is the core bug fix.
+		{"path-relative", "api/users", bundle, "https://app.example/api/users"},
+		{"dot-relative", "./api", bundle, "https://app.example/api"},
+		{"parent-relative clamps at root", "../api/users/1", bundle, "https://app.example/api/users/1"},
+		// Absolute references pass through untouched.
+		{"absolute", "https://api.other/v1/x", bundle, "https://api.other/v1/x"},
+		// With no bundle URL (legacy path), the origin comes from the crawl dir.
+		{"origin from fallback", "api/x", "", "https://crawl.example/api/x"},
+		// Unresolved placeholders and empties are dropped, never replayed.
+		{"placeholder", "${apiBase}/users", bundle, ""},
+		{"empty", "", bundle, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveReplayURL(tc.rawURL, tc.sourceURL, dir); got != tc.want {
+				t.Fatalf("resolveReplayURL(%q, %q) = %q, want %q", tc.rawURL, tc.sourceURL, got, tc.want)
+			}
+		})
 	}
 }
 
 func TestTypedReplayUsesSourceURLAndExactObservedSemantics(t *testing.T) {
 	registry := NewRequestTemplateRegistry()
 	fact := typedFact("fact-1", "../api/users/${id}", "POST", "high")
-	fact.Query = []jsscan.FieldTemplate{{
-		Name:  jsscan.ValueTemplate{Rendered: "expand", Static: true},
-		Value: jsscan.ValueTemplate{Rendered: "${expand}", Static: false},
+	fact.Query = []jstangle.FieldTemplate{{
+		Name:  jstangle.ValueTemplate{Rendered: "expand", Static: true},
+		Value: jstangle.ValueTemplate{Rendered: "${expand}", Static: false},
 	}}
-	fact.Body = &jsscan.BodyTemplate{
+	fact.Body = &jstangle.BodyTemplate{
 		Kind: "json", ContentType: "application/json",
-		Value: jsscan.ValueTemplate{Rendered: `{"name":"${name}"}`, Static: false},
+		Value: jstangle.ValueTemplate{Rendered: `{"name":"${name}"}`, Static: false},
 	}
-	fact.Headers = []jsscan.HeaderTemplate{
-		{Name: jsscan.ValueTemplate{Rendered: "Accept", Static: true}, Value: jsscan.ValueTemplate{Rendered: "application/json", Static: true}},
-		{Name: jsscan.ValueTemplate{Rendered: "X-App-Version", Static: true}, Value: jsscan.ValueTemplate{Rendered: "7", Static: true}},
-		{Name: jsscan.ValueTemplate{Rendered: "Authorization", Static: true}, Value: jsscan.ValueTemplate{Rendered: "Bearer public-literal", Static: true}, Sensitive: true},
-		{Name: jsscan.ValueTemplate{Rendered: "Host", Static: true}, Value: jsscan.ValueTemplate{Rendered: "attacker.test", Static: true}},
+	fact.Headers = []jstangle.HeaderTemplate{
+		{Name: jstangle.ValueTemplate{Rendered: "Accept", Static: true}, Value: jstangle.ValueTemplate{Rendered: "application/json", Static: true}},
+		{Name: jstangle.ValueTemplate{Rendered: "X-App-Version", Static: true}, Value: jstangle.ValueTemplate{Rendered: "7", Static: true}},
+		{Name: jstangle.ValueTemplate{Rendered: "Authorization", Static: true}, Value: jstangle.ValueTemplate{Rendered: "Bearer public-literal", Static: true}, Sensitive: true},
+		{Name: jstangle.ValueTemplate{Rendered: "Host", Static: true}, Value: jstangle.ValueTemplate{Rendered: "attacker.test", Static: true}},
 	}
 	registry.Add("https://example.com/assets/js/app.js", fact)
 	dir, _ := url.Parse("https://example.com/unrelated/directory/")
@@ -55,8 +88,11 @@ func TestTypedReplayUsesSourceURLAndExactObservedSemantics(t *testing.T) {
 		t.Fatalf("exact fact generated %d variants, want 1: %+v", len(variants), variants)
 	}
 	variant := variants[0]
-	if variant.URL != "https://example.com/assets/api/users/1?expand=1" {
-		t.Fatalf("source-relative URL = %q", variant.URL)
+	// The reference "../api/users/1" resolves against the app origin root
+	// (document base), NOT the bundle's /assets/js/ directory and NOT the
+	// unrelated crawl directory.
+	if variant.URL != "https://example.com/api/users/1?expand=1" {
+		t.Fatalf("document-relative URL = %q", variant.URL)
 	}
 	if variant.Method != "POST" || variant.Body != `{"name":"1"}` || variant.ReplayTier != "exact" {
 		t.Fatalf("observed semantics not preserved: %+v", variant)
@@ -113,7 +149,10 @@ func TestRequestTemplateRegistryKeepsSameRelativeFactPerSource(t *testing.T) {
 	variants := task.GenerateAllVariants()
 	urls := []string{variants[0].URL, variants[1].URL}
 	slices.Sort(urls)
-	want := []string{"https://one.example/a/api", "https://two.example/b/api"}
+	// The same relative fact "./api" stays source-scoped — distinct per origin —
+	// but resolves against each app's origin root (document base), not the bundle's
+	// /a/ or /b/ asset directory.
+	want := []string{"https://one.example/api", "https://two.example/api"}
 	if !slices.Equal(urls, want) {
 		t.Fatalf("source-scoped URLs = %#v, want %#v", urls, want)
 	}
@@ -123,7 +162,7 @@ func TestReplayDedupPrefersOriginalSourceMapProvenance(t *testing.T) {
 	bundle := typedFact("bundle", "/api/users", "GET", "high")
 	source := typedFact("source", "/api/users", "GET", "high")
 	source.Provenance.ModulePath = "src/api.ts"
-	source.Provenance.ResolutionSteps = []jsscan.ResolutionStep{{Kind: "source-map", Value: "sha256"}}
+	source.Provenance.ResolutionSteps = []jstangle.ResolutionStep{{Kind: "source-map", Value: "sha256"}}
 	registry := NewRequestTemplateRegistry()
 	registry.Add("https://example.test/assets/app.js", bundle)
 	registry.Add("https://example.test/assets/app.js#source=src%2Fapi.ts", source)
@@ -136,13 +175,13 @@ func TestReplayDedupPrefersOriginalSourceMapProvenance(t *testing.T) {
 }
 
 func TestGraphQLOperationRequestPreservesOperationAndVariables(t *testing.T) {
-	endpoint := jsscan.ValueTemplate{Rendered: "/graphql", Static: true}
-	request, ok := graphQLOperationRequest(&jsscan.GraphQLOperationFact{
+	endpoint := jstangle.ValueTemplate{Rendered: "/graphql", Static: true}
+	request, ok := graphQLOperationRequest(&jstangle.GraphQLOperationFact{
 		Kind: "graphqlOperation", ID: "g1", Endpoint: &endpoint,
 		OperationType: "mutation", OperationName: "UpdateUser",
 		Document:  "mutation UpdateUser($id:ID!){updateUser(id:$id){id}}",
-		Variables: []jsscan.GraphQLVariableTemplate{{Name: "id", Type: "ID!", Required: true}},
-		Transport: "http", Provenance: jsscan.Provenance{Extractor: "graphql-document", Confidence: "high"},
+		Variables: []jstangle.GraphQLVariableTemplate{{Name: "id", Type: "ID!", Required: true}},
+		Transport: "http", Provenance: jstangle.Provenance{Extractor: "graphql-document", Confidence: "high"},
 	})
 	if !ok || request.Method.Rendered != "POST" || request.Client != "graphql" || request.Body == nil {
 		t.Fatalf("GraphQL operation was not converted: ok=%v request=%+v", ok, request)
@@ -156,11 +195,11 @@ func TestGraphQLOperationRequestPreservesOperationAndVariables(t *testing.T) {
 }
 
 func TestProtocolHandshakeFactsAreExplicitAndReplaySafe(t *testing.T) {
-	ws, ok := webSocketHandshakeRequest(&jsscan.WebSocketFact{
+	ws, ok := webSocketHandshakeRequest(&jstangle.WebSocketFact{
 		ID:           "ws-1",
-		URL:          jsscan.ValueTemplate{Rendered: "wss://example.com/socket", Static: true},
+		URL:          jstangle.ValueTemplate{Rendered: "wss://example.com/socket", Static: true},
 		Subprotocols: []string{"graphql-transport-ws", "chat"},
-		Provenance:   jsscan.Provenance{Start: &jsscan.SourceLocation{Line: 7}, Evidence: "new WebSocket(...)"},
+		Provenance:   jstangle.Provenance{Start: &jstangle.SourceLocation{Line: 7}, Evidence: "new WebSocket(...)"},
 	})
 	if !ok || ws.URL.Rendered != "https://example.com/socket" || ws.Provenance.Extractor != "websocket-handshake" {
 		t.Fatalf("WebSocket handshake conversion failed: ok=%v fact=%+v", ok, ws)
@@ -179,9 +218,9 @@ func TestProtocolHandshakeFactsAreExplicitAndReplaySafe(t *testing.T) {
 	// A normal request cannot smuggle browser-controlled headers through the
 	// replay boundary, even when their values are static.
 	normal := typedFact("normal", "/api", "GET", "high")
-	normal.Headers = append(ws.Headers, jsscan.HeaderTemplate{
-		Name:  jsscan.ValueTemplate{Rendered: "Origin", Static: true},
-		Value: jsscan.ValueTemplate{Rendered: "https://attacker.invalid", Static: true},
+	normal.Headers = append(ws.Headers, jstangle.HeaderTemplate{
+		Name:  jstangle.ValueTemplate{Rendered: "Origin", Static: true},
+		Value: jstangle.ValueTemplate{Rendered: "https://attacker.invalid", Static: true},
 	})
 	if got := safeReplayHeaders(&normal); len(got) != 0 {
 		t.Fatalf("ordinary request replayed controlled protocol headers: %#v", got)
@@ -189,9 +228,9 @@ func TestProtocolHandshakeFactsAreExplicitAndReplaySafe(t *testing.T) {
 }
 
 func TestEventSourceHandshakePreservesOnlyStaticCursor(t *testing.T) {
-	staticCursor := jsscan.ValueTemplate{Rendered: "evt-42", Static: true}
-	sse, ok := eventSourceHandshakeRequest(&jsscan.EventSourceFact{
-		ID: "sse-1", URL: jsscan.ValueTemplate{Rendered: "/events", Static: true}, LastEventID: &staticCursor,
+	staticCursor := jstangle.ValueTemplate{Rendered: "evt-42", Static: true}
+	sse, ok := eventSourceHandshakeRequest(&jstangle.EventSourceFact{
+		ID: "sse-1", URL: jstangle.ValueTemplate{Rendered: "/events", Static: true}, LastEventID: &staticCursor,
 	})
 	if !ok || sse.Provenance.Extractor != "eventsource-handshake" {
 		t.Fatalf("EventSource handshake conversion failed: ok=%v fact=%+v", ok, sse)
@@ -201,9 +240,9 @@ func TestEventSourceHandshakePreservesOnlyStaticCursor(t *testing.T) {
 		t.Fatalf("EventSource headers lost: %#v", headers)
 	}
 
-	dynamicCursor := jsscan.ValueTemplate{Rendered: "${cursor}", Static: false}
-	sse, _ = eventSourceHandshakeRequest(&jsscan.EventSourceFact{
-		ID: "sse-2", URL: jsscan.ValueTemplate{Rendered: "/events", Static: true}, LastEventID: &dynamicCursor,
+	dynamicCursor := jstangle.ValueTemplate{Rendered: "${cursor}", Static: false}
+	sse, _ = eventSourceHandshakeRequest(&jstangle.EventSourceFact{
+		ID: "sse-2", URL: jstangle.ValueTemplate{Rendered: "/events", Static: true}, LastEventID: &dynamicCursor,
 	})
 	if got := safeReplayHeaders(&sse); slices.Contains(got, "Last-Event-ID: ${cursor}") {
 		t.Fatalf("dynamic SSE cursor was replayed: %#v", got)
@@ -247,7 +286,7 @@ func TestIsReplayableMethod(t *testing.T) {
 }
 
 func TestGenerateAllVariantsSkipsNonReplayableMethods(t *testing.T) {
-	reqs := []jsscan.ExtractedRequest{
+	reqs := []jstangle.ExtractedRequest{
 		{URL: "wss://example.com/ws/notifications", Method: "WS"},
 		{URL: "/events/stream", Method: "SSE"},
 		// Absolute different-host URL is returned as-is by resolveRequestURL,

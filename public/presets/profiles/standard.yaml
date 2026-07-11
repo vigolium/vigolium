@@ -46,11 +46,14 @@ discovery:
     max_consecutive_errors: 20
     max_consecutive_waf_blocks: 10
     observed_max_items: 4000
-    disable_kingfisher: true
+    disable_secret_scan: true
 
 spidering:
   max_depth: 0
-  max_states: 0
+  # Safety cap on distinct crawl states. Volatile content (clocks, nonces,
+  # cache-busters) is normalized out of state identity, so a real app rarely
+  # approaches this; it only bounds pathological state explosion. 0 = unlimited.
+  max_states: 2000
   max_duration: 30m
   max_consecutive_fails: 100
   headless: true

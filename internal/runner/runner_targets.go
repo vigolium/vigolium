@@ -437,25 +437,28 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string) source.DeparosDi
 		if dc.Engine.ObservedMaxItems > 0 {
 			cfg.ObservedMaxItems = dc.Engine.ObservedMaxItems
 		}
-		cfg.DisableKingfisher = dc.Engine.DisableKingfisher
+		// Note: the crawl's inline secret scan is unconditionally disabled by the
+		// deparos source adapter (its matches are never promoted; the main pipeline
+		// re-scans), so dc.Engine.DisableSecretScan is not plumbed here.
 
 		jobTimeout := 60 * time.Second
-		if dc.JSScan.JobTimeout != "" {
-			if parsed, err := time.ParseDuration(dc.JSScan.JobTimeout); err == nil {
+		if dc.JSTangle.JobTimeout != "" {
+			if parsed, err := time.ParseDuration(dc.JSTangle.JobTimeout); err == nil {
 				jobTimeout = parsed
 			}
 		}
-		cfg.JSScan = &deparosconfig.JSScanConfig{
-			Enabled: boolPtrOr(dc.JSScan.Enabled, true), ReplayMode: dc.JSScan.ReplayMode,
-			SourceMaps: boolPtrOr(dc.JSScan.SourceMaps, true), AssetGraph: boolPtrOr(dc.JSScan.AssetGraph, true),
-			ProtocolHandshake: dc.JSScan.ProtocolHandshake,
-			WorkerCount:       dc.JSScan.WorkerCount, MemoryBudgetMB: dc.JSScan.MemoryBudgetMB, CacheMB: dc.JSScan.CacheMB,
-			WorkerMaxJobs: dc.JSScan.WorkerMaxJobs, WorkerMaxRSSMB: dc.JSScan.WorkerMaxRSSMB, JobTimeout: jobTimeout,
-			NormalInputMB: dc.JSScan.NormalInputMB, MaxASTInputMB: dc.JSScan.MaxASTInputMB, HardInputMB: dc.JSScan.HardInputMB,
-			MaxRequestsPerFile: dc.JSScan.MaxRequestsPerFile,
-			MaxASTNodes:        dc.JSScan.MaxASTNodes,
-			MaxAssetDepth:      dc.JSScan.MaxAssetDepth, MaxAssetsPerParent: dc.JSScan.MaxAssetsPerParent,
-			MaxAssetsPerHost: dc.JSScan.MaxAssetsPerHost, MaxAssetsTotal: dc.JSScan.MaxAssetsTotal,
+		cfg.JSTangle = &deparosconfig.JSTangleConfig{
+			Enabled: boolPtrOr(dc.JSTangle.Enabled, true), ReplayMode: dc.JSTangle.ReplayMode,
+			ReplaySafety: dc.JSTangle.ReplaySafety,
+			SourceMaps: boolPtrOr(dc.JSTangle.SourceMaps, true), AssetGraph: boolPtrOr(dc.JSTangle.AssetGraph, true),
+			ProtocolHandshake: dc.JSTangle.ProtocolHandshake,
+			WorkerCount:       dc.JSTangle.WorkerCount, MemoryBudgetMB: dc.JSTangle.MemoryBudgetMB, CacheMB: dc.JSTangle.CacheMB,
+			WorkerMaxJobs: dc.JSTangle.WorkerMaxJobs, WorkerMaxRSSMB: dc.JSTangle.WorkerMaxRSSMB, JobTimeout: jobTimeout,
+			NormalInputMB: dc.JSTangle.NormalInputMB, MaxASTInputMB: dc.JSTangle.MaxASTInputMB, HardInputMB: dc.JSTangle.HardInputMB,
+			MaxRequestsPerFile: dc.JSTangle.MaxRequestsPerFile,
+			MaxASTNodes:        dc.JSTangle.MaxASTNodes,
+			MaxAssetDepth:      dc.JSTangle.MaxAssetDepth, MaxAssetsPerParent: dc.JSTangle.MaxAssetsPerParent,
+			MaxAssetsPerHost: dc.JSTangle.MaxAssetsPerHost, MaxAssetsTotal: dc.JSTangle.MaxAssetsTotal,
 		}
 
 		// Prefix breaker

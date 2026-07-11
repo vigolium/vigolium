@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -20,12 +21,16 @@ func TestNew(t *testing.T) {
 
 // makeHTTPCtx builds a request/response pair with the given content type and body.
 func makeHTTPCtx(contentType, body string) *httpmsg.HttpRequestResponse {
+	return makeHTTPCtxStatus("500 Internal Server Error", contentType, body)
+}
+
+func makeHTTPCtxStatus(status, contentType, body string) *httpmsg.HttpRequestResponse {
 	rawReq := []byte("GET /api/run HTTP/1.1\r\nHost: example.com\r\n\r\n")
 	req := httpmsg.NewHttpRequestWithService(
 		httpmsg.NewServiceSecure("example.com", 443, true),
 		rawReq,
 	)
-	rawResp := fmt.Sprintf("HTTP/1.1 500 Internal Server Error\r\nContent-Type: %s\r\n\r\n%s", contentType, body)
+	rawResp := fmt.Sprintf("HTTP/1.1 %s\r\nContent-Type: %s\r\n\r\n%s", status, contentType, body)
 	resp := httpmsg.NewHttpResponse([]byte(rawResp))
 	return httpmsg.NewHttpRequestResponse(req, resp)
 }
@@ -44,6 +49,21 @@ func TestScanPerRequest_PythonTraceback(t *testing.T) {
 
 	assert.Equal(t, ModuleID, results[0].ModuleID)
 	assert.Equal(t, "Python Stack Trace Exposed", results[0].Info.Name)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, results[0].EvidenceGrade)
+}
+
+func TestScanPerRequest_SuccessfulDocumentationIsObservation(t *testing.T) {
+	t.Parallel()
+	m := New()
+	body := "Traceback (most recent call last):\n  File \"/app/views.py\", line 42, in handler\n    raise ValueError('boom')"
+	ctx := makeHTTPCtxStatus("200 OK", "text/html", body)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
 }
 
 // TestScanPerRequest_JavaStackTrace drives a multi-frame Java stack trace.

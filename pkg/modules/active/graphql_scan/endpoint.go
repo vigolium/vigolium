@@ -74,7 +74,7 @@ func (m *Module) send(
 	}
 
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modified, ctx.Service())
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoClustering: true})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoClustering: true, NoRedirects: true})
 	if err != nil {
 		return nil, err
 	}

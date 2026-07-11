@@ -6,7 +6,10 @@ import chalk from "chalk";
 import { probeClaudeBinary, probeCodexBinary } from "../adapters/detect.js";
 import { probeGit } from "../engine/git.js";
 import { writeAuditContext } from "../engine/audit-context.js";
+import { archivePriorCoreArtifacts, isCoreAuditMode } from "../engine/artifact-lifecycle.js";
+import { buildCodexTriggerPrompt, isCodexHandoffMode } from "../engine/codex-handoff.js";
 import { claudePluginDir, codexAgentsDir, registerEphemeralHarness } from "../engine/harness.js";
+import { StateStore, buildAuditId } from "../engine/state.js";
 import type { AgentPlatform, AuditMode } from "../engine/types.js";
 import { resolveModel } from "./run-models.js";
 import { statusArrow, tildify } from "./util.js";
@@ -67,13 +70,21 @@ export async function runInteractive(args: {
     join(tmpdir(), `vigolium-audit-${new Date().toISOString().replace(/[:.]/g, "").slice(0, 15)}-`),
   );
 
+  const resultsDir = join(targetDir, "vigolium-results");
+  if (isCoreAuditMode(mode)) {
+    const priorState = await new StateStore(resultsDir).load().catch(() => null);
+    if ((priorState?.audits.length ?? 0) > 0) {
+      await archivePriorCoreArtifacts(resultsDir, buildAuditId());
+    }
+  }
+
   // Write `vigolium-results/audit-context.md` before the agent starts so the auto-confirm
   // directive (plus user-supplied focus / expected behaviors) lands in the
   // file the command-def Context block inlines via `!cat`. Matches the
   // headless ClaudeHandoff / CodexHandoff path. Without this, the agent never
   // sees the directive in interactive mode and is free to freelance text
   // confirmation prompts ("Two options: 1. Proceed / 2. Downshift…").
-  await writeAuditContext(join(targetDir, "vigolium-results"), {
+  await writeAuditContext(resultsDir, {
     ...(args.focus !== undefined ? { focus: args.focus } : {}),
     ...(args.expectedBehaviors !== undefined ? { expectedBehaviors: args.expectedBehaviors } : {}),
   });
@@ -117,13 +128,20 @@ export async function runInteractive(args: {
     return;
   }
 
-  // Codex: agents installed under ~/.codex/agents/vigolium-audit-*.toml. Codex has
-  // no plugin-dir nor /slash-command system, so we just exec interactively
-  // and instruct the user how to invoke the audit. (--disallowedTools has no
-  // codex equivalent, so it's ignored here.)
+  // Codex: agents are installed under ~/.codex/agents/vigolium-audit-*.toml and
+  // the orchestration contract is spliced into ~/.codex/AGENTS.md. Codex has no
+  // slash commands, so pass the same canonical dispatch prompt used by the
+  // headless handoff as its positional startup prompt. The native TUI remains
+  // attached after the prompt is submitted. (--disallowedTools has no Codex
+  // equivalent, so it is ignored here.)
   const codexAgents = codexAgentsDir();
-  const cmdArgs: string[] = [];
-  if (effectiveModel) cmdArgs.push("--model", effectiveModel);
+  const invocation = buildCodexInteractiveInvocation({
+    mode,
+    targetDir,
+    ...(liveTarget !== undefined ? { liveTarget } : {}),
+    ...(effectiveModel !== undefined ? { model: effectiveModel } : {}),
+  });
+  const cmdArgs = invocation.args;
 
   printBanner({
     platform,
@@ -132,10 +150,10 @@ export async function runInteractive(args: {
     gitAvailable: git.available,
     noGit,
     tempDir,
-    command: `${tildify(binPath)}    # then invoke @vigolium-audit:* agents in the session`,
+    command: `${tildify(binPath)} ${cmdArgs.map((a) => shquote(tildify(a))).join(" ")}`,
     extraNotes: [
       `Codex agents available at ${tildify(codexAgents)} (prefix: vigolium-audit:*)`,
-      `For "${mode}" mode, ask the agent: "Run an vigolium-audit ${mode} audit on this codebase."`,
+      `The ${mode} audit starts automatically from the canonical AGENTS.md dispatch prompt; the session remains interactive.`,
     ],
   });
 
@@ -149,6 +167,28 @@ export async function runInteractive(args: {
     cwd: targetDir,
     stdinPayload: null,
   });
+}
+
+export function buildCodexInteractiveInvocation(args: {
+  mode: AuditMode;
+  targetDir: string;
+  liveTarget?: string;
+  model?: string;
+}): { args: string[]; prompt: string } {
+  if (!isCodexHandoffMode(args.mode)) {
+    throw new Error(
+      `Codex interactive mode has no AGENTS.md dispatch for "${args.mode}"; run without -i to use the phase orchestrator`,
+    );
+  }
+  const prompt = buildCodexTriggerPrompt({
+    mode: args.mode,
+    targetDir: args.targetDir,
+    ...(args.liveTarget !== undefined ? { liveTarget: args.liveTarget } : {}),
+  });
+  const commandArgs: string[] = [];
+  if (args.model !== undefined) commandArgs.push("--model", args.model);
+  commandArgs.push(prompt);
+  return { args: commandArgs, prompt };
 }
 
 /**

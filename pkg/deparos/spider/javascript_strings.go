@@ -148,16 +148,28 @@ func (e *JavaScriptStringExtractor) extractStringsFromRange(jsCode string, start
 }
 
 // ScanStringForURLs scans a JavaScript string for URLs using the inline scanner.
-// Returns true if a URL was found.
+// When callback is non-nil it emits any RELATIVE route it finds — absolute
+// (scheme) URLs are deliberately left to the companion whole-value
+// inlineScanner.Extract pass that every caller of this helper also runs, so we
+// don't emit the same absolute URL twice. Returns true if the string contains
+// ANY URL (absolute or relative), so the caller can skip redundant HTML parsing.
 //
-// This is a helper used by extractors to check if a string contains URLs
-// before attempting HTML parsing.
-func (e *JavaScriptStringExtractor) ScanStringForURLs(ctx context.Context, baseURL *url.URL, str string, position int) bool {
+// This closes the fallback gap: relative routes in JS string literals (e.g.
+// /admin, /api/users) were previously detected but never surfaced as links.
+func (e *JavaScriptStringExtractor) ScanStringForURLs(ctx context.Context, baseURL *url.URL, str string, position int, callback LinkCallback) bool {
 	if len(str) < 10 {
 		return false
 	}
 
-	return e.inlineScanner.ScanBytes(ctx, baseURL, []byte(str), position)
+	data := []byte(str)
+	// Emit relative routes (the actual coverage gap). If one was found we already
+	// know the string contains a URL, so skip the second (absolute-inclusive) scan.
+	if e.inlineScanner.ScanBytesRelativeEmit(ctx, baseURL, data, position, callback) {
+		return true
+	}
+	// No relative route — report whether the string contains an absolute URL for
+	// the caller's skip-HTML-parse decision.
+	return e.inlineScanner.ScanBytes(ctx, baseURL, data, position)
 }
 
 // LooksLikeHTML performs a simple heuristic check to see if a string looks like HTML.
@@ -182,10 +194,10 @@ func (e *JavaScriptStringExtractor) Extract(ctx context.Context, baseURL *url.UR
 			continue
 		}
 
-		// First, scan for inline URLs
-		foundURL := e.ScanStringForURLs(ctx, baseURL, str.Value, str.Position)
+		// First, scan for inline URLs (emit any discovered link via the callback).
+		foundURL := e.ScanStringForURLs(ctx, baseURL, str.Value, str.Position, callback)
 		if foundURL {
-			// URL found and processed by inline scanner
+			// URL found, resolved, and emitted by the inline scanner.
 			continue
 		}
 

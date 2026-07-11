@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application trusts client-supplied proxy headers (X-Forwarded-Host, X-Forwarded-Proto, X-Forwarded-For) as if from a trusted reverse proxy. The scanner spoofs each and confirms a reproducible change: the injected host reflected into Location or body, an attributable redirect for X-Forwarded-Proto, or a blocked-to-allowed transition for a spoofed IP.
+	ModuleDesc = `**What it means:** Credential-preserving controls show that a client-supplied X-Forwarded-* value reproducibly changes URL generation, protocol behavior, or IP-gated access. Generic reflection and status-only changes remain candidates.
 
-**How it's exploited:** Spoofing X-Forwarded-Host poisons generated URLs, enabling password-reset link and cache poisoning. X-Forwarded-Proto can downgrade HTTPS enforcement. X-Forwarded-For with 127.0.0.1 can bypass IP allowlists.
+**How it's exploited:** Attackers may poison security-sensitive URLs, confuse HTTPS handling, or impersonate a trusted source IP. An IP bypass becomes a finding only when an unrelated-IP control stays denied and stable, distinct content is returned.
 
 **Fix:** Have the edge proxy strip and re-set X-Forwarded-* and honor them only from known proxy IPs.`
 
-	ModuleConfirmation = "Confirmed when X-Forwarded-* header manipulation causes observable behavioral changes such as host reflection, redirect differences, or access control bypass"
+	ModuleConfirmation = "Candidates require replay and value-specific controls; a finding requires reproducible IP-denial bypass plus stable content distinct from denial responses"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"misconfiguration", "header-security", "moderate"}

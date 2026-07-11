@@ -68,7 +68,7 @@ func applyModuleSelectionOverrides(active, passive *[]string, noPassive bool) {
 // autoSkipKnownIssueScanForModuleSelection auto-appends the known-issue-scan
 // phase to opts.SkipPhases when the operator has narrowed the scan to specific
 // modules (via --module-id or -m/--modules). Hand-picking a handful of modules is
-// a targeted, "polite" scan, so the broad Nuclei/Kingfisher known-issue-scan pass
+// a targeted, "polite" scan, so the broad Nuclei/secret-scan known-issue-scan pass
 // is auto-skipped — matching an explicit `--skip known-issue-scan` — with a
 // console note. It is a no-op when --only is set (which is mutually exclusive with
 // --skip), when no module narrowing is active, when known-issue-scan is already

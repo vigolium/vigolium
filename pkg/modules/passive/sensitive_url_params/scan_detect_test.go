@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // makeReqCtx builds a request/response pair from the given GET request line path
@@ -40,6 +41,8 @@ func TestScanPerRequest_SensitiveParam(t *testing.T) {
 	require.NotEmpty(t, results)
 	assert.Equal(t, "api_key", results[0].FuzzingParameter)
 	assert.Contains(t, results[0].Info.Description, "api_key")
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, results[0].EvidenceGrade)
 }
 
 // TestScanPerRequest_PasswordParam drives a URL with a password parameter and
@@ -52,6 +55,7 @@ func TestScanPerRequest_PasswordParam(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	assert.Equal(t, "password", results[0].FuzzingParameter)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
 }
 
 // TestScanPerRequest_Benign drives a URL with only benign parameters and expects
@@ -63,6 +67,39 @@ func TestScanPerRequest_Benign(t *testing.T) {
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, results)
+}
+
+func TestScanPerRequest_SubstringNameDoesNotTrigger(t *testing.T) {
+	t.Parallel()
+	for _, q := range []string{
+		"/shipping?shipping=express",
+		"/tokenizer?tokenizer=wordpiece",
+		"/search?pinpoint=location",
+	} {
+		m := New()
+		results, err := m.ScanPerRequest(makeReqCtx(q), &modkit.ScanContext{})
+		require.NoError(t, err)
+		assert.Emptyf(t, results, "query %q should not match a substring-only parameter name", q)
+	}
+}
+
+func TestScanPerRequest_PaginationTokenIsObservation(t *testing.T) {
+	t.Parallel()
+	m := New()
+	results, err := m.ScanPerRequest(makeReqCtx("/items?page_token=eyJwYWdlIjoyfQ"), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
+}
+
+func TestScanPerRequest_PublicIdentifierIsObservation(t *testing.T) {
+	t.Parallel()
+	m := New()
+	results, err := m.ScanPerRequest(makeReqCtx("/maps?api_key=AIzaSyDUMMY000000000000000000000000000"), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
 }
 
 // TestScanPerRequest_PlaceholderValueSkipped verifies a sensitive parameter whose

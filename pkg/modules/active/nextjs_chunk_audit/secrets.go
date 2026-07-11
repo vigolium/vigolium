@@ -3,6 +3,10 @@ package nextjs_chunk_audit
 import (
 	"bytes"
 	"regexp"
+	"strings"
+
+	"github.com/vigolium/vigolium/pkg/modules/infra"
+	"github.com/vigolium/vigolium/pkg/modules/modkit"
 )
 
 type SecretMatch struct {
@@ -63,7 +67,10 @@ func FindSecrets(body []byte, limit int) []SecretMatch {
 			if len(out) >= limit {
 				return out
 			}
-			value := string(body[loc[0]:loc[1]])
+			value := normalizedSecretValue(rule.name, string(body[loc[0]:loc[1]]))
+			if !credentialValueIsSubstantive(rule.name, value) {
+				continue
+			}
 			key := rule.name + "|" + value
 			if _, dup := seen[key]; dup {
 				continue
@@ -77,6 +84,35 @@ func FindSecrets(body []byte, limit int) []SecretMatch {
 		}
 	}
 	return out
+}
+
+func normalizedSecretValue(pattern, value string) string {
+	if strings.HasSuffix(pattern, "-assignment") {
+		if i := strings.LastIndexAny(value, ":="); i >= 0 {
+			value = value[i+1:]
+		}
+	}
+	return strings.TrimSpace(strings.Trim(value, `"'`))
+}
+
+func credentialValueIsSubstantive(pattern, value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) < 8 || modkit.IsPlaceholderValue(value) {
+		return false
+	}
+	lower := strings.ToLower(value)
+	for _, placeholder := range []string{
+		"example", "sample", "dummy", "placeholder", "changeme", "change-me",
+		"your_", "your-", "redacted", "xxxx", "****", "<", "${",
+	} {
+		if strings.Contains(lower, placeholder) {
+			return false
+		}
+	}
+	if strings.HasSuffix(pattern, "-assignment") && infra.ShannonEntropyBits(value) < 3.2 {
+		return false
+	}
+	return true
 }
 
 func hasAnyPrefilter(body []byte) bool {

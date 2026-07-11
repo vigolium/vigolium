@@ -2,7 +2,6 @@ package directory_listing_detect
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -12,14 +11,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
-
-// iisPattern matches IIS default directory listing HTML structure.
-var iisPattern = regexp.MustCompile(`</title></head><body><H1>.*?-.*?</H1><hr>`)
-
-// genericListingPattern matches generic directory listing titles like:
-// <title>listing directory /ftp/</title>, <title>Directory listing for /</title>,
-// <title>Index of /uploads</title>, <title>Directory: /path</title>
-var genericListingPattern = regexp.MustCompile(`(?i)<title>\s*(?:(?:listing|index)\s+(?:of|directory)|directory\s+(?:listing|index|of))\b`)
 
 // Module implements the Directory Listing Detect passive scanner.
 type Module struct {
@@ -80,7 +71,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	serverType := detectDirectoryListing(body)
+	serverType := modkit.DetectDirectoryListingServer(body)
 	if serverType == "" {
 		return nil, nil
 	}
@@ -105,39 +96,4 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			},
 		},
 	}, nil
-}
-
-// detectDirectoryListing checks the response body for server-specific directory listing indicators.
-// Returns the server type string if detected, empty string otherwise.
-func detectDirectoryListing(body string) string {
-	lower := strings.ToLower(body)
-
-	// Jetty: <title>Directory: AND jetty-dir.css
-	if strings.Contains(lower, "<title>directory:") && strings.Contains(lower, "jetty-dir.css") {
-		return "Jetty"
-	}
-
-	// IIS: </title></head><body><H1>...-...</H1><hr>
-	if iisPattern.MatchString(body) {
-		return "IIS"
-	}
-
-	// Apache: <title>Index of AND <h1>Index of
-	if strings.Contains(lower, "<title>index of") && strings.Contains(lower, "<h1>index of") {
-		return "Apache"
-	}
-
-	// Nginx: <title>Index of AND <pre>
-	if strings.Contains(lower, "<title>index of") && strings.Contains(lower, "<pre>") {
-		return "Nginx"
-	}
-
-	// Generic catch-all: matches title patterns like "listing directory", "directory listing",
-	// "index of", "directory of", etc. Covers Express serve-index, Python SimpleHTTPServer,
-	// and other servers with directory listing titles.
-	if genericListingPattern.MatchString(body) {
-		return "Generic"
-	}
-
-	return ""
 }

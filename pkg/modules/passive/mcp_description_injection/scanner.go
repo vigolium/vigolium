@@ -85,7 +85,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	flags := mcpinfra.Detect(ctx)
-	if !flags.HasJSONRPC && !flags.HasMCPPath {
+	if !flags.HasJSONRPC {
 		return nil, nil
 	}
 
@@ -94,7 +94,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil {
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
+	if ds := diskSet; ds != nil {
 		dk := urlx.Host + urlx.Path
 		if ds.IsSeen(dk) {
 			return nil, nil
@@ -107,30 +111,52 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	var hits []string
+	directInjectionCount := 0
 	for _, d := range descriptions {
-		if reason := classifyDescription(d.text); reason != "" {
+		if reason, direct := assessDescription(d.text); reason != "" {
 			hits = append(hits, fmt.Sprintf("%s [%s]: %s -> %s", d.kind, d.name, reason, snippet(d.text, 160)))
+			if direct {
+				directInjectionCount++
+			}
 		}
 	}
 	if len(hits) == 0 {
 		return nil, nil
 	}
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	sev := severity.Low
+	conf := severity.Tentative
+	description := fmt.Sprintf("MCP server at %s exposes %d description(s) containing obfuscation characters. No imperative payload or downstream model behavior was demonstrated.", urlx.Host, len(hits))
+	if directInjectionCount > 0 {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeCandidate
+		sev = severity.High
+		conf = severity.Firm
+		description = fmt.Sprintf("MCP server at %s exposes %d description(s) with direct prompt-injection or decoded imperative content. This is a tool-poisoning candidate; no downstream agent execution, data disclosure, or tool side effect was observed.", urlx.Host, directInjectionCount)
+	}
 
 	return []*output.ResultEvent{
 		{
+			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: hits,
 			MatcherStatus:    true,
 			Info: output.Info{
 				Name:        "MCP Description Contains Prompt-Injection Content",
-				Description: fmt.Sprintf("MCP server at %s exposes %d tool/prompt/resource description(s) that contain prompt-injection imperatives, bidi/zero-width unicode, or base64-encoded instructions. These descriptions are normally rendered into the downstream LLM context as trusted text.", urlx.Host, len(hits)),
-				Severity:    severity.High,
-				Confidence:  severity.Firm,
+				Description: description,
+				Severity:    sev,
+				Confidence:  conf,
 				Tags:        []string{"mcp", "prompt-injection", "supply-chain"},
 				Reference:   []string{"https://owasp.org/www-project-top-10-for-large-language-model-applications/"},
 			},
+			Metadata: map[string]any{"hit_count": len(hits), "direct_injection_count": directInjectionCount, "downstream_execution_tested": false, "impact_confirmed": false},
 		},
 	}, nil
 }
@@ -138,24 +164,32 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 // classifyDescription returns a non-empty reason string if `s` looks
 // suspicious, "" otherwise.
 func classifyDescription(s string) string {
+	reason, _ := assessDescription(s)
+	return reason
+}
+
+// assessDescription separates direct imperative payloads from obfuscation-only
+// signals. Hidden characters are useful review context but do not alone prove a
+// malicious instruction.
+func assessDescription(s string) (reason string, direct bool) {
 	for _, re := range imperativePatterns {
 		if re.MatchString(s) {
-			return "imperative prompt-injection phrasing"
+			return "imperative prompt-injection phrasing", true
 		}
 	}
 	if hasZeroWidth(s) {
-		return "zero-width unicode characters"
+		return "zero-width unicode characters", false
 	}
 	if hasBidiControls(s) {
-		return "bidi-control unicode characters"
+		return "bidi-control unicode characters", false
 	}
 	if hasConfusableHomoglyphs(s) {
-		return "confusable homoglyph unicode (Cyrillic look-alikes in Latin text)"
+		return "confusable homoglyph unicode (Cyrillic look-alikes in Latin text)", false
 	}
 	if reason := suspiciousBase64(s); reason != "" {
-		return reason
+		return reason, true
 	}
-	return ""
+	return "", false
 }
 
 // cyrillicHomoglyphs are Cyrillic letters that render identically to common

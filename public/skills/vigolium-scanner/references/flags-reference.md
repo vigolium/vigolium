@@ -491,7 +491,7 @@ Flags specific to `vigolium finding` (aliases: `findings`).
 | `--offset` | `-o` | int | `0` | Number of findings to skip |
 | `--severity` | — | string | — | Filter by severity (comma-separated: critical,high,medium,low,info) |
 | `--scan-uuid` | — | string | — | Filter by scan session ID |
-| `--module-type` | — | string | — | Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
+| `--module-type` | — | string | — | Filter by module type (active, passive, nuclei, agent, source-tools, oast, extension) |
 | `--finding-source` | — | string | — | Filter by finding source (audit, spa, agent, oast, source-tools, extension) |
 | `--id` | — | int | `0` | Filter by finding ID |
 | `--min-severity` | — | string | — | Show findings at/above this severity (`info`,`suspect`,`low`,`medium`,`high`,`critical`); ignored when `--severity` is set |

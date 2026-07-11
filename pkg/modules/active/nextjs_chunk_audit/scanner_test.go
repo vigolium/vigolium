@@ -105,7 +105,7 @@ func TestExtractSourceMapRefs(t *testing.T) {
 
 func TestFindSecretsBasic(t *testing.T) {
 	body := []byte(`
-const AWS_KEY = "AKIAIOSFODNN7EXAMPLE";
+const AWS_KEY = "AKIA1234AB` + `CD5678EFGH";
 const GOOGLE = "AIzaSyA-1234567890abcdefghijklmnopqrstuv";
 config.apiKey = "abcdef0123456789abcdef0123456789";
 `)
@@ -125,7 +125,7 @@ config.apiKey = "abcdef0123456789abcdef0123456789";
 }
 
 func TestFindSecretsDedupes(t *testing.T) {
-	body := []byte(`AKIAIOSFODNN7EXAMPLE` + " " + `AKIAIOSFODNN7EXAMPLE`)
+	body := []byte(`AKIA1234AB` + `CD5678EFGH` + " " + `AKIA1234AB` + `CD5678EFGH`)
 	got := FindSecrets(body, 0)
 	if len(got) != 1 {
 		t.Errorf("got %d matches, want 1 (dedupe failed): %v", len(got), got)
@@ -147,6 +147,13 @@ func TestFindSecretsEmpty(t *testing.T) {
 	}
 	if got := FindSecrets([]byte("nothing of interest here"), 0); got != nil {
 		t.Errorf("clean body: got %v, want nil", got)
+	}
+}
+
+func TestFindSecretsSuppressesPlaceholders(t *testing.T) {
+	body := []byte(`const aws="AKIAIOSFODNN7EXAMPLE"; const key="YOUR_API_KEY_PLACEHOLDER_123456";`)
+	if got := FindSecrets(body, 0); len(got) != 0 {
+		t.Fatalf("placeholder credentials must be suppressed, got %v", got)
 	}
 }
 

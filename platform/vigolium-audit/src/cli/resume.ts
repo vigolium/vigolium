@@ -3,7 +3,13 @@ import { resolve, join } from "path";
 import chalk from "chalk";
 import { StateStore } from "../engine/state.js";
 import { failCli, parsePositiveUsd } from "./util.js";
-import type { AgentPlatform, AuditRecord, AuditMode, RunOptions } from "../engine/types.js";
+import type {
+  AgentPlatform,
+  AgentTransport,
+  AuditRecord,
+  AuditMode,
+  RunOptions,
+} from "../engine/types.js";
 
 /**
  * Subset of run flags that `vigolium-audit resume` accepts and forwards to
@@ -16,6 +22,7 @@ import type { AgentPlatform, AuditRecord, AuditMode, RunOptions } from "../engin
 export interface ResumeOptions {
   target?: string;
   agent?: string;
+  transport?: AgentTransport;
   strict?: boolean;
   maxCost?: number | string;
   output?: string;
@@ -110,6 +117,7 @@ function buildRunOptions(args: {
     resume: true,
   };
   if (opts.agent !== undefined) runOpts.agent = opts.agent as AgentPlatform;
+  if (opts.transport !== undefined) runOpts.transport = opts.transport;
   if (opts.strict !== undefined) runOpts.strict = opts.strict;
   if (opts.maxCost !== undefined) {
     const n = parsePositiveUsd(opts.maxCost);

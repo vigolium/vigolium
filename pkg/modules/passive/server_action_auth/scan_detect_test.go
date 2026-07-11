@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // makeJSCtx builds a request/response pair serving the given JS body from a .js
@@ -63,7 +64,9 @@ func TestScanPerRequest_MutationNoAuth(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	assert.Equal(t, ModuleID, results[0].ModuleID)
-	assert.Equal(t, "Server Action Missing Authorization", results[0].Info.Name)
+	assert.Equal(t, "Server Action Authorization Candidate", results[0].Info.Name)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.False(t, results[0].IsFinding())
 }
 
 // TestScanPerRequest_MutationWithAuth verifies that a Server Action performing a

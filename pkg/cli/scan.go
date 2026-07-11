@@ -1115,8 +1115,10 @@ func (e *emptySource) Close() error                                   { return n
 // the specified output path using the given generator function. projectUUID
 // scopes the query: "" exports the whole DB (stateless temp DB), a non-empty
 // value scopes to one project so a persisted report matches the sibling jsonl
-// export and never leaks other projects' findings.
-func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, projectUUID string, rf reportFormatEntry) error {
+// export and never leaks other projects' findings. scanUUID further restricts the
+// findings to a single scan (empty = all of the project's), so a persisted scan's
+// report reflects that run rather than the project's whole history.
+func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, projectUUID, scanUUID string, rf reportFormatEntry) error {
 	autoTarget, autoDuration := computeReportMeta(ctx, db)
 	meta := output.HTMLReportMeta{
 		Title:           "Vigolium Scan Report",
@@ -1133,7 +1135,7 @@ func generateReportFromDB(ctx context.Context, db *database.DB, outputPath strin
 	// honor only an explicit --omit-response, never force it on here.
 	if rf.streamGenerate != nil {
 		produce := func(emit func(any) error) error {
-			return streamExportData(ctx, db, omitResponse, projectUUID, emit)
+			return streamExportData(ctx, db, omitResponse, projectUUID, scanUUID, emit)
 		}
 		return rf.streamGenerate(produce, outputPath, meta)
 	}
@@ -1229,6 +1231,13 @@ func maybeGenerateReports(db *database.DB, opts *types.Options) {
 		return
 	}
 	ctx := context.Background()
+	// Scope the report's findings to this scan on a persisted (shared) DB, so a
+	// re-run's report reflects that run rather than the project's whole history. A
+	// stateless run's temp DB already holds only this scan, so it needs no filter.
+	scanScope := ""
+	if !opts.Stateless {
+		scanScope = opts.ScanUUID
+	}
 	for _, rf := range reportFormats {
 		if !opts.HasFormat(rf.format) {
 			continue
@@ -1237,7 +1246,7 @@ func maybeGenerateReports(db *database.DB, opts *types.Options) {
 		if rf.beforeMsg != "" {
 			fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
 		}
-		if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, exportProjectScope(opts), rf); err != nil {
+		if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, exportProjectScope(opts), scanScope, rf); err != nil {
 			fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
 		} else {
 			fmt.Fprintf(os.Stderr, "%s %s: %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
@@ -1320,7 +1329,7 @@ func finishStatelessExport(db *database.DB, opts *types.Options, outputPath stri
 					fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), rf.beforeMsg)
 				}
 				// Stateless temp DB holds only this run → whole-DB report ("").
-				if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, "", rf); err != nil {
+				if err := generateReportFromDB(ctx, db, outPath, opts.OmitResponse, "", "", rf); err != nil {
 					fmt.Fprintf(os.Stderr, "%s Failed to generate %s: %v\n", terminal.ErrorPrefix(), rf.label, err)
 				} else {
 					fmt.Fprintf(os.Stderr, "%s %s exported to %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(outPath))
@@ -1516,7 +1525,7 @@ func streamJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitRe
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	n := 0
-	err := streamExportData(ctx, db, omitResponse, projectUUID, func(item any) error {
+	err := streamExportData(ctx, db, omitResponse, projectUUID, "", func(item any) error {
 		if err := enc.Encode(item); err != nil {
 			return err
 		}
@@ -1640,7 +1649,7 @@ func finishScanJSONLExport(db *database.DB, opts *types.Options) {
 func exportStatelessConsole(ctx context.Context, db *database.DB, outputPath string, omitResponse bool) {
 	var lines int
 	err := atomicfile.Write(outputPath, func(w *bufio.Writer) error {
-		return streamExportData(ctx, db, omitResponse, "", func(item any) error {
+		return streamExportData(ctx, db, omitResponse, "", "", func(item any) error {
 			env, ok := item.(exportEnvelope)
 			if !ok {
 				return nil

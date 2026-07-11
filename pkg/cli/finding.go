@@ -140,7 +140,7 @@ func init() {
 	pf.StringVar(&findingConfidence, "confidence", "", "Filter by confidence: certain,firm,tentative (comma-separated)")
 	pf.StringVar(&findingScanUUID, "scan-uuid", "", "Filter by scan UUID")
 	pf.StringVar(&findingAgenticScan, "agentic-scan", "", "Filter by agentic-scan UUID (findings produced by an agent autopilot/swarm/audit run)")
-	pf.StringVar(&findingModuleType, "module-type", "", "Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension)")
+	pf.StringVar(&findingModuleType, "module-type", "", "Filter by module type (active, passive, nuclei, agent, source-tools, oast, extension)")
 	pf.StringVar(&findingFindingSource, "finding-source", "", "Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension)")
 	pf.StringVar(&findingRecordKind, "record-kind", "", "Filter by record kind (finding, candidate, observation; comma-separated). Default: finding")
 	pf.IntVar(&findingID, "id", 0, "Filter by finding ID")
@@ -353,11 +353,11 @@ func parsePositionSpec(spec string) ([]int, error) {
 		if lo, hi, isRange := strings.Cut(tok, "-"); isRange {
 			a, err := parsePos(lo)
 			if err != nil {
-				return nil, fmt.Errorf("invalid --pick range %q: %v", tok, err)
+				return nil, fmt.Errorf("invalid --pick range %q: %w", tok, err)
 			}
 			b, err := parsePos(hi)
 			if err != nil {
-				return nil, fmt.Errorf("invalid --pick range %q: %v", tok, err)
+				return nil, fmt.Errorf("invalid --pick range %q: %w", tok, err)
 			}
 			if a > b {
 				return nil, fmt.Errorf("invalid --pick range %q: start must be <= end", tok)
@@ -371,7 +371,7 @@ func parsePositionSpec(spec string) ([]int, error) {
 		} else {
 			v, err := parsePos(tok)
 			if err != nil {
-				return nil, fmt.Errorf("invalid --pick position %q: %v", tok, err)
+				return nil, fmt.Errorf("invalid --pick position %q: %w", tok, err)
 			}
 			positions = append(positions, v)
 		}

@@ -9,17 +9,17 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A GraphQL endpoint returned an introspection response, so its full API schema is queryable by anyone. The body contains introspection fields (__schema or __type) with markers like queryType or types, exposing every type, field, query, and mutation.
+	ModuleDesc = `**What it means:** A captured JSON response structurally contains GraphQL data.__schema or data.__type with usable type information. This observes schema discovery, which many public GraphQL APIs intentionally support.
 
-**How it's exploited:** Introspection hands an attacker a complete map of the API. They enumerate hidden operations, discover sensitive fields and admin-only mutations, and craft precise queries to probe for authorization gaps and injection far faster than blind fuzzing.
+**How it's exploited:** Schema knowledge helps reconnaissance, but it does not show that a resolver is unauthorized, data is sensitive, or mutations are callable. Those require separate active authorization tests.
 
 **Fix:** Disable GraphQL introspection in production (set introspection to false) and restrict schema access to trusted internal or development environments only.`
 
-	ModuleConfirmation = "Confirmed when response contains GraphQL introspection fields (__schema/__type) with schema definition markers"
+	ModuleConfirmation = "Observed only when parsed JSON contains a usable data.__schema or data.__type object; resolver access and sensitivity are not inferred"
 	// Introspection being enabled is schema disclosure / a hardening gap, not a
 	// vulnerability on its own — many public GraphQL APIs enable it by design — so
 	// it is a Low-severity lead rather than Medium.
-	ModuleSeverity   = severity.Low
+	ModuleSeverity   = severity.Info
 	ModuleConfidence = severity.Firm
 	ModuleTags       = []string{"graphql", "api", "info-disclosure", "light"}
 )

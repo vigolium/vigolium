@@ -93,11 +93,11 @@ func TestComputeOverallStatus(t *testing.T) {
 			t.Errorf("got %q, want degraded", got)
 		}
 	})
-	t.Run("failing embedded jsscan degrades", func(t *testing.T) {
+	t.Run("failing embedded jstangle degrades", func(t *testing.T) {
 		r := &Report{
 			Database: &CheckResult{Status: StatusOK},
 			EmbeddedBinaries: map[string]*CheckResult{
-				"jsscan": {Status: StatusError},
+				"jstangle": {Status: StatusError},
 			},
 		}
 		if got := computeOverallStatus(r); got != "degraded" {

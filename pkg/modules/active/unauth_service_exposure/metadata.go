@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An infrastructure service is reachable over HTTP without authentication and serves its native API: a Docker Engine/Registry, Kubernetes apiserver/kubelet, or a datastore (Elasticsearch, CouchDB, Solr). Each is confirmed by a unique structural signature, so a normal web host never matches.
+	ModuleDesc = `**What it means:** A credential-free client reached a native Docker, Kubernetes, or datastore API. Banners are observations, administrative metadata is a candidate, and anonymously returned workload or document data is a finding.
 
-**How it's exploited:** An unauthenticated Docker API is root-on-host; a kubelet lists and execs workloads; an open Elasticsearch/CouchDB/Solr lets an attacker dump or modify all stored data.
+**How it's exploited:** An attacker queries exposed management endpoints for configuration or private data. Write access, command execution, and host compromise are not inferred without direct evidence.
 
-**Fix:** Require authentication/mTLS, bind to localhost or a private network, and firewall management ports.`
+**Fix:** Require authentication or mTLS, bind management services to private interfaces, and firewall their ports.`
 
-	ModuleConfirmation = "Confirmed when the target returns an unauthenticated 200 whose body/header carries the service's unique structural signature, re-verified with a second request"
+	ModuleConfirmation = "Classified by reproduced credential-free evidence: native service identity (observation), administrative/resource metadata (candidate), or actual workload/document content (finding)"
 	ModuleSeverity     = severity.Critical
 	ModuleConfidence   = severity.Certain
 	ModuleTags         = []string{"exposure", "infrastructure", "misconfiguration", "moderate"}

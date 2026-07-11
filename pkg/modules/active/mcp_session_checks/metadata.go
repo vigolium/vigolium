@@ -15,7 +15,7 @@ var (
 
 **Fix:** Issue long, high-entropy session IDs server-side only (reject client-supplied values), and require a valid authenticated session before answering tools/list or any tool call.`
 
-	ModuleConfirmation = "Confirmed when sampled session IDs are short / low entropy, or the server accepts an attacker-supplied session ID, or tools/list succeeds without a session"
+	ModuleConfirmation = "Observation for ID quality and sessionless tools/list; candidate for repeated IDs or an explicitly echoed attacker ID, with confirmation requiring second-client/victim reuse or unauthorized tool impact"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"mcp", "session", "auth-bypass", "moderate"}

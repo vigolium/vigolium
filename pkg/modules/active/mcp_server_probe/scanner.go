@@ -83,21 +83,36 @@ func (m *Module) ScanPerHost(
 
 	host := service.Host()
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	if diskSet != nil && diskSet.IsSeen(host) {
+		return nil, nil
+	}
+
+	// All exposure claims must come from a credential-free client and request.
+	// Reusing the captured authenticated seed was the source of false
+	// "unauthenticated" enumeration/invocation findings.
+	probeCtx, err := anonymousProbeContext(ctx)
+	if err != nil {
+		return nil, nil
+	}
+	probeHTTP, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
 		return nil, nil
 	}
 
 	var endpoints []mcpEndpoint
 
 	for _, path := range mcpinfra.CommonPaths {
-		if ep := m.tryStreamableHTTP(ctx, httpClient, path); ep != nil {
-			m.enumerateAndInvoke(ctx, httpClient, ep)
+		if ep := m.tryStreamableHTTP(probeCtx, probeHTTP, path); ep != nil {
+			m.enumerateAndInvoke(probeCtx, probeHTTP, ep)
 			endpoints = append(endpoints, *ep)
 			continue
 		}
-		if ep := m.trySSETransport(ctx, httpClient, path); ep != nil {
-			m.enumerateAndInvoke(ctx, httpClient, ep)
+		if ep := m.trySSETransport(probeCtx, probeHTTP, path); ep != nil {
+			m.enumerateAndInvoke(probeCtx, probeHTTP, ep)
 			endpoints = append(endpoints, *ep)
 		}
 	}
@@ -106,7 +121,22 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 
-	return m.buildResults(ctx, endpoints), nil
+	return m.buildResults(ctx, endpoints, true), nil
+}
+
+func anonymousProbeContext(ctx *httpmsg.HttpRequestResponse) (*httpmsg.HttpRequestResponse, error) {
+	if ctx == nil || ctx.Request() == nil || ctx.Service() == nil {
+		return nil, fmt.Errorf("missing seed request or service")
+	}
+	raw, err := modkit.StripCredentialHeaders(ctx.Request().Raw())
+	if err != nil {
+		return nil, err
+	}
+	req, err := httpmsg.ParseRawRequest(string(raw))
+	if err != nil {
+		return nil, err
+	}
+	return req.WithService(ctx.Service()), nil
 }
 
 func (m *Module) tryStreamableHTTP(
@@ -237,15 +267,16 @@ func (m *Module) enumerateAndInvoke(
 				break
 			}
 		}
-		ep.callables = append(ep.callables, toolCallEvidence{
-			toolName: tool.Name,
-			response: truncate(respText, 200),
-		})
 		// A tool that returns a live credential in its output is a direct data
 		// leak — scan the (unauthenticated) response for high-confidence secrets.
-		for _, kind := range scanSecrets(respText) {
+		secretKinds := scanSecrets(respText)
+		for _, kind := range secretKinds {
 			ep.secretLeaks = append(ep.secretLeaks, fmt.Sprintf("%s -> %s", tool.Name, kind))
 		}
+		ep.callables = append(ep.callables, toolCallEvidence{
+			toolName: tool.Name,
+			response: truncate(redactSecrets(respText), 200),
+		})
 	}
 }
 
@@ -255,14 +286,12 @@ var secretPatterns = []struct {
 	kind string
 	re   *regexp.Regexp
 }{
-	{"AWS access key id", regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)},
+	{"AWS secret access key", regexp.MustCompile(`(?i)aws[_ -]?secret[_ -]?access[_ -]?key\s*[:=]\s*[A-Za-z0-9/+=]{40}`)},
 	{"private key", regexp.MustCompile(`-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----`)},
 	{"GitHub token", regexp.MustCompile(`\bghp_[0-9A-Za-z]{36}\b`)},
 	{"GitHub fine-grained PAT", regexp.MustCompile(`\bgithub_pat_[0-9A-Za-z_]{60,}`)},
 	{"Slack token", regexp.MustCompile(`\bxox[baprs]-[0-9A-Za-z-]{10,}`)},
-	{"Google API key", regexp.MustCompile(`\bAIza[0-9A-Za-z_\-]{35}\b`)},
 	{"Stripe secret key", regexp.MustCompile(`\bsk_live_[0-9A-Za-z]{24,}`)},
-	{"JWT", regexp.MustCompile(`\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}`)},
 }
 
 // scanSecrets returns the distinct kinds of high-confidence secret found in s.
@@ -273,12 +302,26 @@ func scanSecrets(s string) []string {
 	var kinds []string
 	seen := map[string]bool{}
 	for _, p := range secretPatterns {
-		if !seen[p.kind] && p.re.MatchString(s) {
-			seen[p.kind] = true
-			kinds = append(kinds, p.kind)
+		for _, match := range p.re.FindAllString(s, -1) {
+			lower := strings.ToLower(match)
+			if strings.Contains(lower, "example") || strings.Contains(lower, "dummy") || strings.Contains(lower, "redacted") || strings.Contains(lower, "placeholder") {
+				continue
+			}
+			if !seen[p.kind] {
+				seen[p.kind] = true
+				kinds = append(kinds, p.kind)
+			}
 		}
 	}
 	return kinds
+}
+
+func redactSecrets(s string) string {
+	redacted := s
+	for _, pattern := range secretPatterns {
+		redacted = pattern.re.ReplaceAllString(redacted, "<"+pattern.kind+" redacted>")
+	}
+	return redacted
 }
 
 // stateChangingVerbs are substrings in a tool name that indicate a
@@ -304,11 +347,10 @@ func looksStateChanging(name string) bool {
 }
 
 // buildResults creates ResultEvent findings from discovered endpoints.
-func (m *Module) buildResults(ctx *httpmsg.HttpRequestResponse, endpoints []mcpEndpoint) []*output.ResultEvent {
+func (m *Module) buildResults(ctx *httpmsg.HttpRequestResponse, endpoints []mcpEndpoint, anonymousTested bool) []*output.ResultEvent {
 	urlx, _ := ctx.URL()
 	baseURL := urlx.Scheme + "://" + urlx.Host
 
-	highestSev := severity.Info
 	var evidence []string
 	var toolNames []string
 	var callableNames []string
@@ -321,12 +363,9 @@ func (m *Module) buildResults(ctx *httpmsg.HttpRequestResponse, endpoints []mcpE
 			evidence = append(evidence, fmt.Sprintf("Server: %s %s", ep.serverInfo.Name, ep.serverInfo.Version))
 		}
 		if ep.sessionID != "" {
-			evidence = append(evidence, fmt.Sprintf("Session ID: %s", ep.sessionID))
+			evidence = append(evidence, fmt.Sprintf("Session ID issued (%d characters; value redacted)", len(ep.sessionID)))
 		}
 
-		if (len(ep.tools) > 0 || len(ep.resources) > 0 || len(ep.prompts) > 0) && highestSev < severity.Medium {
-			highestSev = severity.Medium
-		}
 		for _, t := range ep.tools {
 			desc := t.Description
 			if len(desc) > 80 {
@@ -345,9 +384,6 @@ func (m *Module) buildResults(ctx *httpmsg.HttpRequestResponse, endpoints []mcpE
 			toolNames = append(toolNames, fmt.Sprintf("Prompt: %s", p.Name))
 		}
 
-		if len(ep.callables) > 0 && highestSev < severity.High {
-			highestSev = severity.High
-		}
 		for _, c := range ep.callables {
 			callableNames = append(callableNames, fmt.Sprintf("Callable: %s -> %s", c.toolName, c.response))
 		}
@@ -356,37 +392,39 @@ func (m *Module) buildResults(ctx *httpmsg.HttpRequestResponse, endpoints []mcpE
 		}
 	}
 
-	confidence := severity.Firm
-	if highestSev >= severity.High {
-		confidence = severity.Certain
-	}
-
 	extracted := append(evidence, toolNames...)
 	extracted = append(extracted, callableNames...)
 
-	name := "MCP Server Exposed"
-	if highestSev >= severity.High {
-		name = "MCP Server Exposed - Unauthenticated Tool Invocation"
-	} else if highestSev >= severity.Medium {
-		name = "MCP Server Exposed - Unauthenticated Tool Enumeration"
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	sev := severity.Info
+	confidence := severity.Firm
+	name := "MCP Server Discovered"
+	desc := fmt.Sprintf("Credential-free probing confirmed %d MCP endpoint(s) at %s and enumerated %d capability item(s). Endpoint and catalog visibility are protocol observations, not vulnerabilities.", len(endpoints), urlx.Host, len(toolNames))
+	if len(callableNames) > 0 {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeDifferential
+		sev = severity.Medium
+		confidence = severity.Certain
+		name = "MCP Credential-Free Tool Invocation Candidate"
+		desc = fmt.Sprintf("Credential-free probing invoked %d non-state-changing MCP tool(s) successfully at %s. Public tools may be intentional; privileged data access or harmful side effects were not established.", len(callableNames), urlx.Host)
 	}
-
-	desc := fmt.Sprintf(
-		"MCP (Model Context Protocol) server detected at %s. %d endpoint(s) found, %d capability item(s) enumerated, %d tool(s) callable without authentication.",
-		urlx.Host, len(endpoints), len(toolNames), len(callableNames),
-	)
 
 	results := []*output.ResultEvent{
 		{
+			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
 			Host:             urlx.Host,
 			URL:              baseURL,
 			Matched:          baseURL,
+			Request:          string(ctx.Request().Raw()),
 			MatcherStatus:    true,
 			ExtractedResults: extracted,
 			Info: output.Info{
 				Name:        name,
 				Description: desc,
-				Severity:    highestSev,
+				Severity:    sev,
 				Confidence:  confidence,
 				Tags:        []string{"mcp", "api-security", "misconfiguration"},
 				Reference: []string{
@@ -394,6 +432,7 @@ func (m *Module) buildResults(ctx *httpmsg.HttpRequestResponse, endpoints []mcpE
 					"https://modelcontextprotocol.io/specification/2025-11-25/server/tools",
 				},
 			},
+			Metadata: map[string]any{"anonymous_tested": anonymousTested, "endpoint_count": len(endpoints), "capability_count": len(toolNames), "callable_count": len(callableNames), "privileged_impact_confirmed": false},
 		},
 	}
 
@@ -401,19 +440,24 @@ func (m *Module) buildResults(ctx *httpmsg.HttpRequestResponse, endpoints []mcpE
 	// a distinct, higher-signal data-leak finding.
 	if len(secretLeaks) > 0 {
 		results = append(results, &output.ResultEvent{
+			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindFinding,
+			EvidenceGrade:    output.EvidenceGradeImpact,
 			Host:             urlx.Host,
 			URL:              baseURL,
 			Matched:          baseURL,
+			Request:          string(ctx.Request().Raw()),
 			MatcherStatus:    true,
 			ExtractedResults: secretLeaks,
 			Info: output.Info{
 				Name:        "MCP Tool Output Leaks Secret",
-				Description: fmt.Sprintf("MCP server at %s returned high-confidence credential(s) in tool output when called without authentication: %s.", urlx.Host, strings.Join(secretLeaks, "; ")),
+				Description: fmt.Sprintf("Credential-free MCP tool invocation at %s returned private credential material (%s). Public credential identifiers are excluded from this oracle and secret values are redacted.", urlx.Host, strings.Join(secretLeaks, "; ")),
 				Severity:    severity.High,
 				Confidence:  severity.Firm,
 				Tags:        []string{"mcp", "secret-leak", "info-disclosure"},
 				Reference:   []string{"https://modelcontextprotocol.io/specification/2025-11-25/server/tools"},
 			},
+			Metadata: map[string]any{"anonymous_tested": anonymousTested, "secret_values_redacted": true, "private_secret_format_confirmed": true},
 		})
 	}
 

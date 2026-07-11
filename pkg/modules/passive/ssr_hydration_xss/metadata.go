@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A server-rendered page embeds JSON hydration state in an inline script block (Next.js __NEXT_DATA__, __APOLLO_STATE__, or Remix __remixContext) without safe encoding. The scanner flags an unescaped </script> in the block (High) or a raw < in a JSON string (Medium). A likely XSS flaw on page load.
+	ModuleDesc = `**What it means:** Recognized hydration data is structurally truncated at a script end-tag while still inside a value, followed by executable markup. Raw less-than characters inside JSON are ignored. Passive evidence remains a candidate pending controlled browser replay.
 
-**How it's exploited:** An attacker supplies input reaching the serialized state with a closing </script> tag that ends the script early, injecting JavaScript that runs in the victim's session.
+**How it's exploited:** Attacker input forms a closing script tag, escapes serialized state, and injects JavaScript into the victim's page.
 
-**Fix:** Serialize hydration data with an HTML-safe encoder that escapes < so user content cannot break out of the script.`
+**Fix:** Use an HTML-safe serializer that escapes less-than characters, preventing user content from forming a script end-tag.`
 
-	ModuleConfirmation = "Confirmed when user-controlled data appears unescaped in a JSON hydration script block"
+	ModuleConfirmation = "Candidate when a hydration serialization is structurally truncated at a script boundary and executable markup follows; confirmed only by controlled reflection and browser execution"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"xss", "javascript", "light"}

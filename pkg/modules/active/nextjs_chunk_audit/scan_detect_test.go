@@ -3,7 +3,6 @@ package nextjs_chunk_audit
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // nextShellReferencing returns a Next.js HTML shell that references chunkPath, so
@@ -48,17 +48,15 @@ func TestScanPerRequest_CatchAllHTMLChunk_NoFalsePositive(t *testing.T) {
 	assert.Empty(t, res, "a catch-all HTML shell returned for a chunk path must not forge a secret/intel finding")
 }
 
-// TestScanPerRequest_RealJSChunk_DetectsSecret confirms the Content-Type guard does
-// not suppress a genuine hit: a real JavaScript chunk (application/javascript) at
-// its own path carrying an embedded AWS key is still parsed and reported, while
-// other paths 404.
-func TestScanPerRequest_RealJSChunk_DetectsSecret(t *testing.T) {
+// An AWS access-key ID identifies a principal but is not the secret access key.
+// Keep it visible as an observation without calling it a leaked credential.
+func TestScanPerRequest_AWSAccessKeyIDIsPublicIdentifier(t *testing.T) {
 	t.Parallel()
 	const chunkPath = "/_next/static/chunks/main-abc123.js"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == chunkPath {
 			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-			_, _ = w.Write([]byte(`(()=>{const cfg={awsKey:"AKIAIOSFODNN7EXAMPLE"};return cfg})();`))
+			_, _ = w.Write([]byte(`(()=>{const cfg={awsKey:"AKIA1234AB` + `CD5678EFGH"};return cfg})();`))
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -71,13 +69,47 @@ func TestScanPerRequest_RealJSChunk_DetectsSecret(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "a real application/javascript chunk with an embedded key must still be reported")
+	require.NotEmpty(t, res, "a client identifier should remain visible")
 
-	var sawSecret bool
+	var identifier *output.ResultEvent
 	for _, ev := range res {
-		if strings.Contains(ev.Info.Name, "Embedded Secret") {
-			sawSecret = true
+		if ev.Info.Name == "Public Client Identifier in Next.js Bundle" {
+			identifier = ev
 		}
 	}
-	assert.True(t, sawSecret, "expected an embedded-secret finding for the real JS chunk")
+	require.NotNil(t, identifier)
+	assert.Equal(t, output.RecordKindObservation, identifier.RecordKind)
+	assert.False(t, identifier.IsFinding())
+}
+
+func TestScanPerRequest_PrivateTokenIsCandidateUntilValidated(t *testing.T) {
+	t.Parallel()
+	const chunkPath = "/_next/static/chunks/main-private.js"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == chunkPath {
+			w.Header().Set("Content-Type", "application/javascript")
+			_, _ = w.Write([]byte(`const token="ghp_123456` + `7890abcdef` + `ghijklmnop` + `qrstuvwxyz";`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(
+		modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", nextShellReferencing(chunkPath)),
+		modtest.Requester(t),
+		&modkit.ScanContext{},
+	)
+	require.NoError(t, err)
+
+	var candidate *output.ResultEvent
+	for _, event := range res {
+		if event.Info.Name == "Potential Private Credential in Next.js Bundle" {
+			candidate = event
+		}
+	}
+	require.NotNil(t, candidate)
+	assert.Equal(t, output.RecordKindCandidate, candidate.RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, candidate.EvidenceGrade)
+	assert.False(t, candidate.IsFinding(), "provider validity was not tested")
 }

@@ -71,9 +71,31 @@ phases:
     requires_git: true             # skip phase if .git is unavailable
     parallel_with: []              # phase IDs to run concurrently
     depends_on: []                 # phase IDs that must complete first
+    completion:
+      enforcement: required        # or advisory for best-effort phases
+      repair_attempts: 1           # bounded artifact-only repair
+      artifacts:
+        - kind: file
+          path: attack-surface/knowledge-base-report.md
+          min_bytes: 80
+          contains: ["## Advisory Intelligence"]
   …
 ---
 ```
+
+Completion contracts are evaluated by the trusted engine after an agent exits;
+an agent's success message alone cannot complete a phase. Artifact paths are
+relative to `vigolium-results/` and may use these rule kinds:
+
+- `file` — regular file, minimum size, optional required literals and JSON parsing.
+- `glob` — minimum match count and per-file minimum size; optional
+  `select_contains` filters matches and `each_contains` validates every selected file.
+- `any` — at least one nested rule must pass.
+- `finding_reports` — validates reports in one or more finding buckets and can
+  require every ID named by a consolidation manifest.
+
+Required contracts receive only the configured number of narrow repair attempts.
+Advisory contracts report missing output without blocking the pipeline.
 
 Common override scenarios:
 
@@ -93,6 +115,11 @@ $EDITOR ~/.config/vigolium-audit/skills/audit/SKILL.md
 ```
 
 Override is wholesale — if you copy `audit/` you're now responsible for everything inside it, including `assets/`, `references/`, `scripts/`. The original is shadowed completely until you delete the override.
+
+`~/.config/vigolium-audit/runtime-skills/` is a separate, tool-managed mount
+used by installed harnesses to invoke bundled helper scripts. Do not customize
+that directory; ephemeral cleanup and `uninstall` may remove its managed link.
+User overrides belong only under the `skills/` directory shown above.
 
 `src/content/skills/skills-lock.json` records the upstream provenance + version of each skill (carried over verbatim from vigolium-audit). It's informational; the loader doesn't enforce it.
 

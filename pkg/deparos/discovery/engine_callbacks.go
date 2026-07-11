@@ -464,7 +464,7 @@ func (e *Engine) createDirectoryTasks(parsedURL *url.URL, cleanedPath string, de
 
 	// Create JS extracted request task for this directory.
 	// Use pathOnlyURL (no query params) - JSExtractedRequestTask only needs directory path.
-	if e.jsscanService != nil {
+	if e.jstangleService != nil {
 		jsExtTask := e.factory.CreateJSExtractedRequestTask(
 			pathOnlyURL,
 			e.GetExtractedRequests,
@@ -849,9 +849,9 @@ func (e *Engine) onResult(result *Result) {
 		storageResult.Tags = e.tagAnalyzer.AnalyzeResult(storageResult)
 	}
 
-	// Buffer response body for batch kingfisher scanning (runs after crawl completes)
-	if e.kingfisherScanner != nil && storageResult.Response != nil {
-		e.bufferForKingfisher(
+	// Scan the response body for secrets inline; matches persist after the crawl.
+	if e.secretDetector != nil && storageResult.Response != nil {
+		e.scanBodyForSecrets(
 			result.BodyBytes(),
 			storageResult.Response.MIMEType,
 			result.URL.Path,
@@ -864,10 +864,10 @@ func (e *Engine) onResult(result *Result) {
 			logger.Warn("storage error",
 				zap.String("url", urlStr),
 				zap.Error(err))
-		} else if len(storageResult.KingfisherFindings) > 0 {
-			logger.Debug("Kingfisher findings stored to DB",
+		} else if len(storageResult.SecretFindings) > 0 {
+			logger.Debug("Secret findings stored to DB",
 				zap.String("url", urlStr),
-				zap.Int("count", len(storageResult.KingfisherFindings)))
+				zap.Int("count", len(storageResult.SecretFindings)))
 		}
 	}
 
@@ -1066,32 +1066,6 @@ func extractTitleRegex(body []byte) string {
 		return strings.TrimSpace(string(match[1]))
 	}
 	return ""
-}
-
-// isTextBasedMIME checks if the MIME type indicates text-based content.
-// Returns true for text/*, JSON, JavaScript, XML, and related formats.
-func isTextBasedMIME(mimeType string) bool {
-	if mimeType == "" {
-		return true // Unknown MIME, attempt scan
-	}
-	mt := strings.ToLower(mimeType)
-	if strings.HasPrefix(mt, "text/") {
-		return true
-	}
-	textTypes := []string{
-		"/json",
-		"/javascript",
-		"/x-javascript",
-		"/xml",
-		"/x-yaml",
-		"/yaml",
-	}
-	for _, t := range textTypes {
-		if strings.Contains(mt, t) {
-			return true
-		}
-	}
-	return strings.HasSuffix(mt, "+json") || strings.HasSuffix(mt, "+xml")
 }
 
 // containsUselessPathSegment checks if URL path contains any useless segment.

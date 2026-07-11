@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Firebase apiKey exposed in the page or JavaScript links to a misconfigured Identity Toolkit project: anonymous sign-in is enabled, login errors confirm registered emails, or createAuthUri reveals whether an account exists and its providers.
+	ModuleDesc = `**What it means:** A publishable Firebase apiKey allowed selected Identity Toolkit behavior. Anonymous sign-in and a nonexistent-email error are observations; provider discovery is a candidate only when parsed data says registered:true and names providers.
 
-**How it's exploited:** An attacker reuses the public key against identitytoolkit.googleapis.com to mint anonymous tokens that may satisfy auth != null rules and reach protected data, and to enumerate accounts for phishing or account takeover.
+**How it's exploited:** Anonymous tokens matter only if separate resource rules trust them. Email enumeration requires an existing-account differential. Firebase client API keys identify projects and are intentionally public, so key presence is never treated as a secret leak.
 
 **Fix:** Disable unused anonymous sign-in, enable email-enumeration protection, restrict the API key by referrer or app, and enforce rules that distrust anonymous accounts.`
 
-	ModuleConfirmation = "Confirmed when Identity Toolkit endpoints respond with auth tokens or distinguishable error codes indicating misconfiguration"
+	ModuleConfirmation = "Observes supported auth behavior with structured responses; provider-discovery candidate requires registered:true plus non-empty methods, and protected access is never inferred from an anonymous token"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"firebase", "misconfiguration", "auth-bypass", "moderate"}

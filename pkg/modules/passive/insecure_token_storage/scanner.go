@@ -18,30 +18,65 @@ type tokenPattern struct {
 	name     string
 	pattern  *regexp.Regexp
 	severity severity.Severity
+	kind     output.RecordKind
+	grade    output.EvidenceGrade
 	cwe      string
 }
 
-// tokenKeyNames is the alternation group for common auth-related key names.
-const tokenKeyNames = `(?:token|jwt|auth|session|access_token|refresh_token|id_token|bearer|api_key|apiKey|accessToken|refreshToken|idToken)`
+const (
+	strongTokenKeyNames    = `(?:jwt|access_token|refresh_token|id_token|bearer|accessToken|refreshToken|idToken)`
+	ambiguousTokenKeyNames = `(?:token|auth|session|api_key|apiKey)`
+	allTokenKeyNames       = `(?:token|jwt|auth|session|access_token|refresh_token|id_token|bearer|api_key|apiKey|accessToken|refreshToken|idToken)`
+)
 
 // Compiled patterns at package level.
 var tokenPatterns = []tokenPattern{
 	{
-		name:     "localStorage.setItem with auth token",
-		pattern:  regexp.MustCompile(`localStorage\.setItem\s*\(\s*['"]` + tokenKeyNames + `['"]`),
+		name:     "localStorage.setItem with strong auth-token key",
+		pattern:  regexp.MustCompile(`localStorage\.setItem\s*\(\s*['"]` + strongTokenKeyNames + `['"]\s*,`),
 		severity: severity.Medium,
+		kind:     output.RecordKindCandidate,
+		grade:    output.EvidenceGradeCandidate,
 		cwe:      "CWE-922",
 	},
 	{
-		name:     "sessionStorage.setItem with auth token",
-		pattern:  regexp.MustCompile(`sessionStorage\.setItem\s*\(\s*['"]` + tokenKeyNames + `['"]`),
-		severity: severity.Medium,
+		name:     "localStorage.setItem with ambiguous security key",
+		pattern:  regexp.MustCompile(`localStorage\.setItem\s*\(\s*['"]` + ambiguousTokenKeyNames + `['"]\s*,`),
+		severity: severity.Info,
+		kind:     output.RecordKindObservation,
+		grade:    output.EvidenceGradeObservation,
 		cwe:      "CWE-922",
 	},
 	{
-		name:     "localStorage bracket assignment with auth token",
-		pattern:  regexp.MustCompile(`localStorage\[['"]` + `(?:token|jwt|auth|session|access_token|refresh_token|id_token|bearer)` + `['"]`),
+		name:     "sessionStorage.setItem with strong auth-token key",
+		pattern:  regexp.MustCompile(`sessionStorage\.setItem\s*\(\s*['"]` + strongTokenKeyNames + `['"]\s*,`),
+		severity: severity.Low,
+		kind:     output.RecordKindCandidate,
+		grade:    output.EvidenceGradeCandidate,
+		cwe:      "CWE-922",
+	},
+	{
+		name:     "sessionStorage.setItem with ambiguous security key",
+		pattern:  regexp.MustCompile(`sessionStorage\.setItem\s*\(\s*['"]` + ambiguousTokenKeyNames + `['"]\s*,`),
+		severity: severity.Info,
+		kind:     output.RecordKindObservation,
+		grade:    output.EvidenceGradeObservation,
+		cwe:      "CWE-922",
+	},
+	{
+		name:     "localStorage bracket assignment with strong auth-token key",
+		pattern:  regexp.MustCompile(`localStorage\[['"]` + strongTokenKeyNames + `['"]\]\s*=`),
 		severity: severity.Medium,
+		kind:     output.RecordKindCandidate,
+		grade:    output.EvidenceGradeCandidate,
+		cwe:      "CWE-922",
+	},
+	{
+		name:     "localStorage bracket assignment with ambiguous security key",
+		pattern:  regexp.MustCompile(`localStorage\[['"]` + ambiguousTokenKeyNames + `['"]\]\s*=`),
+		severity: severity.Info,
+		kind:     output.RecordKindObservation,
+		grade:    output.EvidenceGradeObservation,
 		cwe:      "CWE-922",
 	},
 	{
@@ -52,8 +87,10 @@ var tokenPatterns = []tokenPattern{
 		// literal hundreds of chars away and emit a false positive; the bound
 		// keeps the two within one expression/statement.
 		name:     "localStorage token used in Authorization header",
-		pattern:  regexp.MustCompile(`(?:Authorization|Bearer)[^;\n]{0,40}localStorage\.getItem|localStorage\.getItem[^;\n]{0,40}(?:Authorization|Bearer)`),
+		pattern:  regexp.MustCompile(`(?:Authorization|Bearer)[^;\n]{0,80}localStorage\.getItem\s*\(\s*['"]` + allTokenKeyNames + `['"]|localStorage\.getItem\s*\(\s*['"]` + allTokenKeyNames + `['"][^;\n]{0,80}(?:Authorization|Bearer)`),
 		severity: severity.Medium,
+		kind:     output.RecordKindCandidate,
+		grade:    output.EvidenceGradeCandidate,
 		cwe:      "CWE-922",
 	},
 }
@@ -124,13 +161,20 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
 	}
 
 	body := ctx.Response().BodyToString()
+	pathLower := strings.ToLower(urlx.Path)
+	if strings.Contains(pathLower, ".test.") || strings.Contains(pathLower, ".spec.") || strings.Contains(pathLower, "/test/") || strings.Contains(pathLower, "/tests/") || strings.Contains(pathLower, "/mocks/") {
+		return nil, nil
+	}
 
 	var results []*output.ResultEvent
 
@@ -159,24 +203,38 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 		results = append(results, &output.ResultEvent{
 			ModuleID:         ModuleID,
+			RecordKind:       tp.kind,
+			EvidenceGrade:    tp.grade,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: extracted,
 			Info: output.Info{
 				Name:        fmt.Sprintf("Insecure Token Storage: %s", tp.name),
-				Description: fmt.Sprintf("Found %d occurrence(s) of %s in %s (%s)", len(matches), tp.name, urlx.Path, tp.cwe),
+				Description: fmt.Sprintf("Found %d occurrence(s) of %s in %s (%s). This establishes a storage/code pattern, not an XSS exploit, token validity, or account takeover.", len(matches), tp.name, urlx.Path, tp.cwe),
 				Severity:    tp.severity,
-				Confidence:  ModuleConfidence,
+				Confidence:  confidenceForKind(tp.kind),
 				Tags:        []string{"auth", "token-storage", "xss-amplifier", "source-analysis"},
 			},
 			Metadata: map[string]any{
-				"pattern":    tp.name,
-				"cwe":        tp.cwe,
-				"matchCount": len(matches),
+				"pattern":            tp.name,
+				"cwe":                tp.cwe,
+				"matchCount":         len(matches),
+				"xss_confirmed":      false,
+				"token_validated":    false,
+				"takeover_confirmed": false,
 			},
 		})
 	}
 
 	return results, nil
+}
+
+func confidenceForKind(kind output.RecordKind) severity.Confidence {
+	if kind == output.RecordKindObservation {
+		return severity.Tentative
+	}
+	return ModuleConfidence
 }

@@ -47,7 +47,7 @@ Vigolium is a CLI-first vulnerability scanner that operates in multiple modes:
   - `agent autopilot` — autonomous AI-driven scanning that drives the vigolium CLI
   - `agent swarm` — AI-guided targeted or full-scope scanning (add `--discover` for full-scope)
   - `agent olium` (alias `vigolium olium` / `ol`) — interactive TUI / one-shot olium agent
-  - `agent audit` — unified driver dispatcher driving the embedded vigolium-audit harness and/or piolium (`--driver=auto|both|audit|piolium`; replaces the former `agent archon`)
+  - `agent audit` — unified driver dispatcher driving the embedded vigolium-audit harness and/or piolium (`--driver=auto|both|audit|piolium`)
   - `agent session` — list / inspect agent run sessions
 - **Extension runner**: `run extension --ext custom-check.js` for custom JS scanning logic
 - **JavaScript executor**: `js` for ad-hoc scripting with full `vigolium.*` API access
@@ -600,7 +600,7 @@ vigolium agent swarm -t https://example.com/api/users --show-prompt
 
 ### 13b. AI Agent Audit — vigolium-audit harness (Foreground Whitebox Audit)
 
-The former `agent archon` command is gone. Drive the embedded **vigolium-audit** harness directly with `vigolium agent audit --driver=audit` (`--driver=audit` pins the single harness; the dispatcher in §13d covers `auto`/`both`).
+Drive the embedded **vigolium-audit** harness directly with `vigolium agent audit --driver=audit` (`--driver=audit` pins the single harness; the dispatcher in §13d covers `auto`/`both`).
 
 ```bash
 # Deep audit of a local repo

@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** On a confirmed live GraphQL endpoint, this scanner multi-round-checks introspection (and auto-exercises the schema), error- and boolean-based SQL injection, an exposed IDE (GraphiQL/Playground/Altair), uncapped batching, IDOR/BOLA on predictable ids, reflected error XSS, and a missing depth/complexity limit.
+	ModuleDesc = `**What it means:** A confirmed GraphQL endpoint exposes security-relevant behavior. Introspection and consoles are observations; batching, depth, predictable same-principal lookup, SQL-error differences, and reflection are candidates. A finding requires altered query logic or other demonstrated impact.
 
-**How it's exploited:** Introspection and consoles map and query the API; injectable arguments read data; batching bypasses rate limits to brute-force credentials; predictable ids expose other records; reflected errors run in the browser.
+**How it's exploited:** Attackers enumerate the schema, stress query execution, probe object access, inject resolver inputs, or turn reflected errors into executable markup.
 
-**Fix:** Disable introspection and consoles in production, parameterize resolvers, cap batching, enforce depth/complexity limits, scope objects to the caller, and return generic HTML-encoded errors.`
+**Fix:** Restrict introspection and consoles, parameterize resolvers, limit batching and complexity, authorize every object, and encode errors.`
 
-	ModuleConfirmation = "Confirmed across multiple independent rounds on a live GraphQL endpoint: introspection/operations execute, SQL payloads produce database errors or boolean-differential responses, a console renders, an uncapped batch executes, sequential ids return distinct objects, or error input reflects unescaped"
+	ModuleConfirmation = "A live endpoint requires an exact, reproduced data.__typename response; each check is then classified as observation, candidate, or finding according to whether exploit impact is directly demonstrated"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Certain
 	ModuleTags         = []string{"graphql", "injection", "info-disclosure", "idor", "bola", "xss", "dos", "batching", "console", "moderate"}

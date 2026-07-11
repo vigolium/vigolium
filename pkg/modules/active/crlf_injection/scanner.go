@@ -110,6 +110,14 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 
 		matches := m.patternCookieTamper.FindStringSubmatch(resp.Headers().String())
+		// Capture the actual response that carries the injected Set-Cookie header
+		// so the finding proves itself. The executor no longer backfills a
+		// baseline response for a mutated request, so a module that has the real
+		// proving response must set it (otherwise the finding carries none).
+		provingResp := ""
+		if matches != nil {
+			provingResp = resp.FullResponseString()
+		}
 		resp.Close()
 		if matches == nil {
 			continue
@@ -135,7 +143,7 @@ func (m *Module) ScanPerInsertionPoint(
 		results = append(results, &output.ResultEvent{
 			URL:              urlx.String(),
 			Request:          string(fuzzedRaw),
-			Response:         "", // backfilled by the executor from the live response
+			Response:         provingResp,
 			FuzzingParameter: ip.Name(),
 			ExtractedResults: []string{payload},
 			Info: output.Info{

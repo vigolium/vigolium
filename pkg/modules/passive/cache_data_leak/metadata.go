@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** Served Next.js bundles mix per-user authenticated data with a shared cache - getStaticProps reading session/cookies, a force-static page importing auth, unstable_cache without a userId key, or a server fetch with Authorization but no no-store. Built once and reused, one user's data can reach others (CWE-524).
+	ModuleDesc = `**What it means:** A served source-like JS/TS file contains cache/static-generation syntax and authentication-related syntax. Client build artifacts are excluded, but the detector still establishes only file-level proximity, not connected dataflow.
 
-**How it's exploited:** Any visitor requests the cached page and receives another user's content (profile, tokens, account details) - cross-user disclosure with no crafted attack. Confirm by observing leaked data between sessions.
+**How it's exploited:** A real issue requires authenticated data to enter a shared cache key and another principal to receive it. This module performs neither call-graph tracing nor cross-user replay, so results remain candidates.
 
 **Fix:** Mark session-dependent routes dynamic and uncacheable (force-dynamic, no-store, revalidate 0) and scope cache keys to the user.`
 
-	ModuleConfirmation = "Confirmed when static generation or caching patterns are used alongside authentication-scoped data fetching"
+	ModuleConfirmation = "Candidate when source-like code contains cache and auth patterns after artifact filtering; confirmation requires connected flow and cross-user replay"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"info-disclosure", "cache-poisoning", "light"}

@@ -11,6 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestToString(t *testing.T) {
@@ -47,16 +48,16 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestKeyNewlyReflected(t *testing.T) {
+func TestValueNewlyReflected(t *testing.T) {
 	base := `{"username":"bob"}`
-	if !keyNewlyReflected("role", `{"username":"bob","role":"admin"}`, base) {
-		t.Error("role injected into response but not baseline should be newly reflected")
+	if !valueNewlyReflected("role", "admin", `{"username":"bob","role":"admin"}`, base) {
+		t.Error("the exact injected role value should be newly reflected")
 	}
-	if keyNewlyReflected("username", `{"username":"bob","role":"admin"}`, base) {
-		t.Error("username present in baseline must not count as newly reflected")
+	if valueNewlyReflected("role", "admin", `{"username":"bob","role":"user"}`, base) {
+		t.Error("a normalized/rejected role value must not count as acceptance")
 	}
-	if keyNewlyReflected("role", base, base) {
-		t.Error("role absent from injected response is not reflected")
+	if valueNewlyReflected("username", "bob", `{"username":"bob","role":"admin"}`, base) {
+		t.Error("a value already present in baseline is not newly reflected")
 	}
 }
 
@@ -121,23 +122,45 @@ func TestScanPerRequest_Differential(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, `{"error":"unknown field"}`)
 	})
+	mux.HandleFunc("/normalize", func(w http.ResponseWriter, r *http.Request) {
+		in := decodeBody(r)
+		out := map[string]any{"username": in["username"]}
+		if _, supplied := in["role"]; supplied {
+			out["role"] = "user"
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	client := modtest.Requester(t)
 	mod := New()
 
-	t.Run("selective accept is reported", func(t *testing.T) {
+	t.Run("selective immediate accept is a candidate", func(t *testing.T) {
 		rr := jsonPost(t, srv.URL+"/selective", `{"username":"bob"}`, `{"username":"bob"}`)
 		res, err := mod.ScanPerRequest(rr, client, &modkit.ScanContext{})
 		if err != nil {
 			t.Fatalf("scan: %v", err)
 		}
 		if len(res) == 0 {
-			t.Fatal("expected a finding when the server accepts and reflects a privilege key")
+			t.Fatal("expected a candidate when the server accepts the exact privilege value")
+		}
+		if res[0].RecordKind != output.RecordKindCandidate {
+			t.Fatalf("immediate response without readback must be a candidate, got %q", res[0].RecordKind)
 		}
 		if !strings.Contains(res[0].FuzzingParameter, "role") && res[0].FuzzingParameter == "" {
 			t.Errorf("unexpected fuzzing parameter: %q", res[0].FuzzingParameter)
+		}
+	})
+
+	t.Run("normalized privilege value is NOT reported", func(t *testing.T) {
+		rr := jsonPost(t, srv.URL+"/normalize", `{"username":"bob"}`, `{"username":"bob"}`)
+		res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+		if err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if len(res) != 0 {
+			t.Fatalf("a key returned with a different value does not prove privilege assignment: %+v", res)
 		}
 	})
 
@@ -173,6 +196,40 @@ func TestScanPerRequest_Differential(t *testing.T) {
 			t.Fatalf("expected no finding when server rejects unknown fields, got %d", len(res))
 		}
 	})
+}
+
+func TestScanPerRequest_PersistentReadbackIsFinding(t *testing.T) {
+	state := map[string]any{"username": "bob"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPatch {
+			for key, value := range decodeBody(r) {
+				if key == "username" || key == "role" || key == "admin" || key == "is_admin" || key == "isAdmin" || key == "permissions" || key == "verified" {
+					state[key] = value
+				}
+			}
+		}
+		_ = json.NewEncoder(w).Encode(state)
+	}))
+	defer srv.Close()
+
+	base := modtest.RequestJSON(t, srv.URL+"/profile", `{"username":"bob"}`)
+	raw, err := httpmsg.SetMethod(base.Request().Raw(), http.MethodPatch)
+	if err != nil {
+		t.Fatalf("set method: %v", err)
+	}
+	rr := httpmsg.NewRequestResponseRaw(raw, base.Service())
+	rr = modtest.Response(rr, "application/json", `{"username":"bob"}`)
+	res, err := New().ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected one persistent mass-assignment finding, got %+v", res)
+	}
+	if res[0].RecordKind != output.RecordKindFinding || res[0].EvidenceGrade != output.EvidenceGradeImpact {
+		t.Fatalf("persistent readback must be an impact finding, got kind=%q grade=%q", res[0].RecordKind, res[0].EvidenceGrade)
+	}
 }
 
 // TestScanPerRequest_NaturalKeyVariance reproduces the reported false positive: an

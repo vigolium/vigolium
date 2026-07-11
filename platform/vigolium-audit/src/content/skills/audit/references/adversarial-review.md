@@ -1,8 +1,9 @@
-# Adversarial Review Methodology (P11-LITE Cold Verification)
+# Adversarial Review Methodology (Cold Verification)
 
-Protocol for the Phase 11 Stage 2 cold verification agent. Under the Review Chamber model,
-the Devil's Advocate already challenged every finding during the Phase 10 debate. Stage 2 is
-therefore **scoped to CRITICAL and HIGH findings only** — Medium findings skip Stage 2 entirely.
+Protocol for a cold verification agent. Under the Review Chamber model,
+the Devil's Advocate already challenged every finding during the chamber debate. The active
+command defines the cold-pass severity scope: Deep and Balanced reserve it for CRITICAL claims;
+Revisit may also request HIGH claims. Findings outside that scope skip this pass.
 
 ## Purpose
 
@@ -18,7 +19,7 @@ The adversarial reviewer agent receives **only**:
 - The finding draft file path (`vigolium-results/findings-draft/<phase>-<NNN>-<slug>.md`)
 
 The adversarial reviewer MUST NOT:
-- Read Phase 10 working notes or intermediate analysis files
+- Read chamber working notes or intermediate analysis files
 - Read the original agent's conversation history or reasoning chain
 - Read any file in `vigolium-results/` other than the single finding draft it was given
 - Be told what the finding agent concluded — only what the finding draft states

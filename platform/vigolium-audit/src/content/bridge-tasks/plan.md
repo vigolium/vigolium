@@ -1,6 +1,7 @@
 ---
 name: plan
 description: Produce a prioritized attack plan for a target from its code and/or attack surface.
+permission: read-only
 skills:
   - security-threat-model
 output: json

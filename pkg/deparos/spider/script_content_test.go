@@ -38,9 +38,18 @@ func TestScriptContentExtractor(t *testing.T) {
 			},
 		},
 		{
-			name:          "script with relative path",
-			html:          `<html><body><script>var url = '/api/users';</script></body></html>`,
-			expectedLinks: []expectedLink{},
+			name: "script with relative path",
+			html: `<html><body><script>var url = '/api/users';</script></body></html>`,
+			// Relative routes in JS string literals are now surfaced (previously
+			// detected but dropped), resolved against the page's base URL.
+			expectedLinks: []expectedLink{
+				{
+					url:          "https://example.com/api/users",
+					rawURL:       "/api/users",
+					sourceType:   SourceInlineURL,
+					resourceType: ResourceUnknown,
+				},
+			},
 		},
 		{
 			name: "script with multiple urls",

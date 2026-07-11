@@ -109,3 +109,23 @@ func TestURLSourceNearby(t *testing.T) {
 		t.Error("URL source within the window must count as nearby")
 	}
 }
+
+func TestObjectAssignGenericParamsRequiresRealURLSource(t *testing.T) {
+	t.Parallel()
+	if fired(`const params={theme:"dark"}; Object.assign(config, params);`, "Object.assign from params") {
+		t.Fatal("an internal params object is not an attacker-controlled URL source")
+	}
+	if !fired(`const params=new URLSearchParams(location.search); Object.assign(config, params);`, "Object.assign from params") {
+		t.Fatal("Object.assign fed by URLSearchParams should remain a candidate")
+	}
+}
+
+func TestSameOriginScript(t *testing.T) {
+	t.Parallel()
+	if !sameOriginScript("https://app.example/page", "https://app.example/assets/app.js") {
+		t.Fatal("same-origin script should be analyzed")
+	}
+	if sameOriginScript("https://app.example/page", "https://cdn.example/app.js") {
+		t.Fatal("cross-origin script must not be attributed to the application")
+	}
+}

@@ -36,9 +36,7 @@ func New() *Module {
 			ModuleConfidence,
 			modkit.ScanScopeInsertionPoint,
 			modkit.InsertionPointTypeSet(httpmsg.INS_PARAM_URL)|
-				modkit.InsertionPointTypeSet(httpmsg.INS_PARAM_BODY)|
-				modkit.InsertionPointTypeSet(httpmsg.INS_PARAM_COOKIE)|
-				modkit.InsertionPointTypeSet(httpmsg.INS_PARAM_JSON),
+				modkit.InsertionPointTypeSet(httpmsg.INS_PARAM_COOKIE),
 		),
 		rhm:     dedup.LazyDefaultRHM("race_interference"),
 		options: DefaultOptions(),
@@ -71,6 +69,12 @@ func (m *Module) ScanPerInsertionPoint(
 	urlx, err := ctx.URL()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get URL")
+	}
+	// A race probe issues dozens of requests. Repeating a POST/PUT/PATCH can
+	// create duplicate orders, charges, or destructive state, so the generic
+	// module is intentionally limited to idempotent GET requests.
+	if ctx.Request() == nil || !strings.EqualFold(ctx.Request().Method(), "GET") {
+		return nil, nil
 	}
 
 	// Check deduplication
@@ -173,22 +177,25 @@ func (m *Module) ScanPerInsertionPoint(
 		len(sequentialWrongIdResults) > 0 &&
 		ip.Type() == httpmsg.INS_PARAM_URL {
 
-		result := sequentialWrongIdResults[0]
-		finding := &Finding{
-			Type:        FindingInputStorage,
-			Parameter:   ip.Name(),
-			Anchor:      anchor,
-			WrongIdSeen: result.WrongIdVal,
-			Request:     result.Request,
-			Response:    result.Response,
+		if confirmation, confirmed := m.reconfirmWrongID(ctx, ip, httpClient, FindingInputStorage); confirmed {
+			result := sequentialWrongIdResults[0]
+			finding := &Finding{
+				Type:        FindingInputStorage,
+				Parameter:   ip.Name(),
+				Anchor:      anchor,
+				WrongIdSeen: result.WrongIdVal,
+				Request:     result.Request,
+				Response:    result.Response,
+			}
+			ev := modkit.NewEvidenceCollector()
+			ev.Add("baseline", baselineReq, baselineResp)
+			ev.Add("sequential-probe", result.Request, result.Response)
+			if clean := firstCleanProbe(sequentialResults, baseline, result); clean != nil {
+				ev.Add("sequential-control (clean sibling)", clean.Request, clean.Response)
+			}
+			ev.Add("fresh-canary reproduction", confirmation.Request, confirmation.Response)
+			results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 		}
-		ev := modkit.NewEvidenceCollector()
-		ev.Add("baseline", baselineReq, baselineResp)
-		ev.Add("sequential-probe", result.Request, result.Response)
-		if clean := firstCleanProbe(sequentialResults, baseline, result); clean != nil {
-			ev.Add("sequential-control (clean sibling)", clean.Request, clean.Response)
-		}
-		results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 	}
 
 	// Cross-contamination: wrongId only in parallel, not in sequential
@@ -196,22 +203,25 @@ func (m *Module) ScanPerInsertionPoint(
 		len(parallelWrongIdResults) > 0 &&
 		len(sequentialWrongIdResults) == 0 {
 
-		result := parallelWrongIdResults[0]
-		finding := &Finding{
-			Type:        FindingCrossContamination,
-			Parameter:   ip.Name(),
-			Anchor:      anchor,
-			WrongIdSeen: result.WrongIdVal,
-			Request:     result.Request,
-			Response:    result.Response,
+		if confirmation, confirmed := m.reconfirmWrongID(ctx, ip, httpClient, FindingCrossContamination); confirmed {
+			result := parallelWrongIdResults[0]
+			finding := &Finding{
+				Type:        FindingCrossContamination,
+				Parameter:   ip.Name(),
+				Anchor:      anchor,
+				WrongIdSeen: result.WrongIdVal,
+				Request:     result.Request,
+				Response:    result.Response,
+			}
+			ev := modkit.NewEvidenceCollector()
+			ev.Add("baseline", baselineReq, baselineResp)
+			ev.Add("parallel-probe", result.Request, result.Response)
+			if clean := firstCleanProbe(parallelResults, baseline, result); clean != nil {
+				ev.Add("parallel-control (clean concurrent sibling)", clean.Request, clean.Response)
+			}
+			ev.Add("fresh-canary reproduction", confirmation.Request, confirmation.Response)
+			results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 		}
-		ev := modkit.NewEvidenceCollector()
-		ev.Add("baseline", baselineReq, baselineResp)
-		ev.Add("parallel-probe", result.Request, result.Response)
-		if clean := firstCleanProbe(parallelResults, baseline, result); clean != nil {
-			ev.Add("parallel-control (clean concurrent sibling)", clean.Request, clean.Response)
-		}
-		results = append(results, m.buildResult(finding, urlx.String(), ip.Name(), ev.Entries()))
 	}
 
 	// Request Interference: no wrongId but divergent responses in parallel.
@@ -243,6 +253,50 @@ func (m *Module) ScanPerInsertionPoint(
 	}
 
 	return results, nil
+}
+
+// reconfirmWrongID repeats a storage/cross-contamination classification with a
+// completely fresh anchor. A one-burst wrong-id observation can result from a
+// stale response, retry, or intermediary; the same class must recur independently.
+func (m *Module) reconfirmWrongID(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	client *http.Requester,
+	findingType FindingType,
+) (*ProbeResult, bool) {
+	anchor := utils.GenerateCanary()
+	baseline, reflected, _, _ := m.buildBaseline(ctx, ip, client, anchor)
+	if baseline == nil || !reflected {
+		return nil, false
+	}
+
+	switch findingType {
+	case FindingInputStorage:
+		for _, result := range m.sendSequentialProbes(ctx, ip, client, anchor) {
+			if result != nil && result.Err == nil && result.HasWrongId {
+				return result, true
+			}
+		}
+	case FindingCrossContamination:
+		parallel := m.sendParallelProbes(ctx, ip, client, anchor)
+		var wrong *ProbeResult
+		for _, result := range parallel {
+			if result != nil && result.Err == nil && result.HasWrongId {
+				wrong = result
+				break
+			}
+		}
+		if wrong == nil {
+			return nil, false
+		}
+		for _, result := range m.sendSequentialProbes(ctx, ip, client, anchor) {
+			if result != nil && result.Err == nil && result.HasWrongId {
+				return nil, false
+			}
+		}
+		return wrong, true
+	}
+	return nil, false
 }
 
 // firstCleanProbe returns the first probe in results that succeeded, carries no
@@ -417,8 +471,16 @@ func (m *Module) sendProbe(
 // buildResult creates a ResultEvent from a finding. evidence carries the
 // baseline and probe context pairs collected while proving the finding.
 func (m *Module) buildResult(finding *Finding, url, param string, evidence []string) *output.ResultEvent {
+	kind := output.RecordKindCandidate
+	grade := output.EvidenceGradeDifferential
+	if finding.Type == FindingRequestInterference {
+		kind = output.RecordKindObservation
+		grade = output.EvidenceGradeObservation
+	}
 	return &output.ResultEvent{
 		ModuleID:           m.ID(),
+		RecordKind:         kind,
+		EvidenceGrade:      grade,
 		URL:                url,
 		Matched:            url,
 		FuzzingParameter:   param,
@@ -436,6 +498,12 @@ func (m *Module) buildResult(finding *Finding, url, param string, evidence []str
 				"https://portswigger.net/research/web-cache-poisoning",
 				"https://owasp.org/www-community/attacks/Race_condition_attack",
 			},
+		},
+		Metadata: map[string]any{
+			"same_session_only":   finding.Type != FindingRequestInterference,
+			"cross_user_proven":   false,
+			"fresh_reproduction":  finding.Type != FindingRequestInterference,
+			"state_impact_proven": false,
 		},
 	}
 }

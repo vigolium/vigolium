@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This URL is vulnerable to web cache deception. Appending a static-looking suffix (a fake .css/.js extension or encoded path-separator like %2f.css) still returns authenticated 2xx content, but the proxy or CDN caches it as a static asset. Confirmed by a cache HIT matching the authenticated baseline.
+	ModuleDesc = `**What it means:** A static-looking path mutation returned protected content with cache-hit evidence. A same-session hit is a candidate; two separate credential-free replays receiving the protected content form a finding. Unique query keys protect the normal URL.
 
-**How it's exploited:** An attacker lures a logged-in victim into loading the crafted URL; the victim's authenticated page is cached, then the attacker fetches that cached URL with no credentials.
+**How it's exploited:** An attacker primes a cache with a victim's personalized response, then retrieves it without the victim's credentials.
 
-**Fix:** Configure the cache and origin to key on real content type and never cache authenticated non-static paths.`
-	ModuleConfirmation = "Confirmed when a path-confused request returns the same successful (2xx) authenticated content as the original and cache indicators (Age, X-Cache, CF-Cache-Status) suggest the response was cached. Cached CDN error pages (e.g. a 5xx with 'X-Cache: Error') are not deception and are excluded."
-	ModuleSeverity     = severity.Info
+**Fix:** Never cache authenticated dynamic paths, and key caching on the origin's real route and content type.`
+	ModuleConfirmation = "Candidate on protected same-session cache hit; confirmed only when two credential-free attacker replays receive the protected cached content"
+	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"cache-poisoning", "auth-bypass", "moderate"}
 )

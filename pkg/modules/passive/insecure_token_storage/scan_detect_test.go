@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -50,6 +51,8 @@ func TestScanPerRequest_LocalStorageSetItem(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	assert.Equal(t, ModuleID, results[0].ModuleID)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, results[0].EvidenceGrade)
 }
 
 // TestScanPerRequest_AuthHeaderFromStorage drives a JS body reading a token from
@@ -63,6 +66,39 @@ func TestScanPerRequest_AuthHeaderFromStorage(t *testing.T) {
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+}
+
+func TestScanPerRequest_AmbiguousSessionKeyIsObservation(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("/app.js", "application/javascript", `localStorage.setItem("session", serializedUIState);`)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
+}
+
+func TestScanPerRequest_BracketReadAloneIsIgnored(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("/app.js", "application/javascript", `const token = localStorage["access_token"]; render(token);`)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results, "a bracket read is not proof this code stores the token")
+}
+
+func TestScanPerRequest_SetItemWithoutValueIsIgnored(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("/app.js", "application/javascript", `localStorage.setItem("access_token");`)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
 // TestScanPerRequest_NoStrayBearerStitch is a regression for the Authorization

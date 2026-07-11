@@ -1,6 +1,7 @@
 package api_pagination_leak
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"regexp"
@@ -119,7 +120,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -127,6 +131,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	body := ctx.Response().BodyToString()
 	if body == "" {
+		return nil, nil
+	}
+	var parsed any
+	if json.Unmarshal([]byte(body), &parsed) != nil {
 		return nil, nil
 	}
 
@@ -183,14 +191,26 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	return []*output.ResultEvent{
 		{
 			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindObservation,
+			EvidenceGrade:    output.EvidenceGradeObservation,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
 			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: extracted,
 			Info: output.Info{
-				Name:        "API Pagination Metadata Exposed",
-				Description: fmt.Sprintf("API response at %s exposes pagination metadata revealing total record counts", urlx.String()),
+				Name:        "Large API Pagination Count Observed",
+				Description: fmt.Sprintf("A parsed JSON pagination envelope at %s reports a maximum count of %d. Total counts are standard API behavior; collection sensitivity and unauthorized record access were not established.", urlx.String(), maxVal),
+				Severity:    ModuleSeverity,
+				Confidence:  ModuleConfidence,
+				Tags:        ModuleTags,
+			},
+			Metadata: map[string]any{
+				"maximum_count":               maxVal,
+				"pagination_context_markers":  contextHits,
+				"collection_sensitive":        false,
+				"unauthorized_records_proven": false,
 			},
 		},
 	}, nil

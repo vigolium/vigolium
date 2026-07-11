@@ -12,6 +12,9 @@ export type AuditMode =
 
 export type AgentPlatform = "claude" | "codex";
 
+/** Adapter transport used for headless agent execution. */
+export type AgentTransport = "auto" | "sdk" | "cli";
+
 export interface RunOptions {
   mode?: AuditMode;
   /**
@@ -22,6 +25,13 @@ export interface RunOptions {
    */
   modes?: string;
   agent?: AgentPlatform;
+  /**
+   * Headless adapter transport. `auto` prefers the Codex Agent SDK (which can
+   * reuse Codex CLI/ChatGPT login) while preserving Claude's existing
+   * API-key-to-SDK / subscription-to-CLI selection. Interactive (`-i`) runs
+   * always use the native CLI and reject an explicit `sdk` transport.
+   */
+  transport?: AgentTransport;
   /**
    * Model name forwarded to the agent runtime. When unset (and
    * `VIGOLIUM_AUDIT_MODEL` is also unset), no `--model` is passed and the
@@ -206,6 +216,8 @@ export interface AuditRecord {
   commit: string | null;
   branch: string | null;
   repository: string | null;
+  /** Whether local Git history was available to history-dependent phases. */
+  history_available?: boolean;
   mode: AuditMode;
   model: string | null;
   agent_sdk: string;
@@ -233,6 +245,73 @@ export interface AuditState {
   audits: AuditRecord[];
 }
 
+/** A concrete file that must exist under `vigolium-results/`. */
+export interface FileArtifactRule {
+  kind: "file";
+  /** Path relative to the active results directory. */
+  path: string;
+  /** Minimum byte size. Defaults to 1. */
+  min_bytes: number;
+  /** Literal strings that must all occur in the file. */
+  contains: string[];
+  /** Parse the file as JSON after the size/content checks. */
+  json: boolean;
+}
+
+/** A set of files matched below `vigolium-results/`. */
+export interface GlobArtifactRule {
+  kind: "glob";
+  /** Bun glob pattern relative to the active results directory. */
+  pattern: string;
+  /** Minimum number of matching regular files. Defaults to 1. */
+  min_matches: number;
+  /** Minimum size for every matched file. Defaults to 1. */
+  each_min_bytes: number;
+  /** Optional literals used to select a subset of glob matches for validation. */
+  select_contains?: string[] | undefined;
+  /** Literals required in every selected match. */
+  each_contains?: string[] | undefined;
+}
+
+/** At least one nested rule must pass. */
+export interface AnyArtifactRule {
+  kind: "any";
+  rules: ArtifactRule[];
+}
+
+/** Require a report file in every immediate finding directory across buckets. */
+export interface FindingReportsArtifactRule {
+  kind: "finding_reports";
+  /** Bucket paths relative to the results directory. */
+  roots: string[];
+  filename: string;
+  min_bytes: number;
+  /** A clean audit with no finding directories satisfies the rule. */
+  allow_empty: boolean;
+  /** Optional consolidation manifest whose finding IDs must all resolve to reports. */
+  manifest_path?: string | undefined;
+  /** Array fields read from the manifest. */
+  manifest_lists: string[];
+}
+
+export type ArtifactRule =
+  | FileArtifactRule
+  | GlobArtifactRule
+  | FindingReportsArtifactRule
+  | AnyArtifactRule;
+
+/**
+ * Deterministic completion contract evaluated by the engine after an agent
+ * returns. Agents do not decide whether a phase is complete.
+ */
+export interface PhaseCompletionContract {
+  artifacts: ArtifactRule[];
+  /** Narrow repair calls allowed after a successful agent return. */
+  repair_attempts: number;
+  /** Required gates fail the phase; advisory gates provide best-effort observability only. */
+  enforcement: "required" | "advisory";
+}
+
 export interface PhaseDef {
   id: string;
   title: string;
@@ -240,6 +319,7 @@ export interface PhaseDef {
   requires_git: boolean;
   parallel_with: string[];
   depends_on: string[];
+  completion?: PhaseCompletionContract;
 }
 
 export interface CommandDef {

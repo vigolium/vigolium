@@ -12,7 +12,7 @@ Read the chamber's `debate.md` to understand:
 
 ## Method 2.6: CodeQL Structural Artifacts
 
-Before manual code tracing for any hypothesis, apply Method 2.6 from `~/.config/vigolium-audit/skills/audit/references/deep-analysis.md`:
+Before manual code tracing for any hypothesis, apply Method 2.6 from `~/.config/vigolium-audit/runtime-skills/audit/references/deep-analysis.md`:
 
 ### A. Load the call graph slice
 Open `vigolium-results/codeql-artifacts/call-graph-slices.json`. Find entries relevant to the hypothesis.

@@ -15,7 +15,7 @@ var (
 
 **Fix:** Do not deploy sourcemaps to production, or restrict access to .map files; strip sourceMappingURL comments and disable sourcemap generation in production builds.`
 
-	ModuleConfirmation = "Confirmed when response contains a sourceMappingURL reference or a valid sourcemap JSON structure is detected"
+	ModuleConfirmation = "Observation for a sourceMappingURL reference; candidate only when a valid source map is actually delivered or decoded inline, without inferring sensitive content or unauthorized access"
 	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"javascript", "info-disclosure", "light"}

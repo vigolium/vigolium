@@ -129,7 +129,23 @@ async function locateFinding(resultsDir: string, id: string): Promise<LocatedFin
   // Walk .archive/<audit>/<phase>/ for quarantined drafts.
   const archiveRoot = join(resultsDir, ".archive");
   if (existsSync(archiveRoot)) {
+    // Fresh core runs preserve the prior finalized buckets under
+    // .archive/pre-run/<new-audit-id>/{findings,findings-theoretical}/.
+    const preRun = join(archiveRoot, "pre-run");
+    if (existsSync(preRun)) {
+      for (const snapshot of await readdir(preRun)) {
+        for (const bucket of ["findings", "findings-theoretical"]) {
+          const bucketDir = join(preRun, snapshot, bucket);
+          if (!existsSync(bucketDir) || !(await stat(bucketDir)).isDirectory()) continue;
+          const entries = await readdir(bucketDir);
+          const exact = entries.find((entry) => entry.toLowerCase() === needle);
+          const partial = exact ?? entries.find((entry) => entry.toLowerCase().includes(needle));
+          if (partial) return { path: join(bucketDir, partial), stage: "archived" };
+        }
+      }
+    }
     for (const audit of await readdir(archiveRoot)) {
+      if (audit === "pre-run") continue;
       const auditDir = join(archiveRoot, audit);
       if (!(await stat(auditDir)).isDirectory()) continue;
       for (const phase of await readdir(auditDir)) {

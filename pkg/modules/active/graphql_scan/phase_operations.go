@@ -28,6 +28,9 @@ func (m *Module) phaseOperations(
 	schema *graphqlx.Schema,
 	target string,
 ) *output.ResultEvent {
+	if scanCtx == nil {
+		return nil
+	}
 	feeder := scanCtx.Feeder()
 	if feeder == nil || schema == nil {
 		return nil // nothing to feed into, or introspection unavailable
@@ -72,6 +75,9 @@ func (m *Module) phaseOperations(
 		fmt.Sprintf("Operations exercised: %d (%d queries, %d mutations)", fed, queries, mutations),
 	}
 	return &output.ResultEvent{
+		ModuleID:         ModuleID,
+		RecordKind:       output.RecordKindObservation,
+		EvidenceGrade:    output.EvidenceGradeObservation,
 		URL:              target,
 		Matched:          endpointURL,
 		ExtractedResults: extracted,
@@ -84,6 +90,13 @@ func (m *Module) phaseOperations(
 				endpointPath, fed),
 			Severity:   severity.Info,
 			Confidence: severity.Certain,
+			Tags:       ModuleTags,
+		},
+		Metadata: map[string]any{
+			"operations_queued": fed,
+			"queries_queued":    queries,
+			"mutations_queued":  mutations,
+			"impact_proven":     false,
 		},
 	}
 }

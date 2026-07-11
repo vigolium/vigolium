@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The server accepts an authentication credential (normally an Authorization, X-API-Key, or X-Auth-Token header) when supplied instead as a URL query parameter like ?access_token= or ?api_key=. URLs get recorded where headers never are.
+	ModuleDesc = `**What it means:** A valid header credential still worked when moved into a URL parameter, while credential-free and bit-flipped controls failed. This is a transport candidate, not proof the key was logged or disclosed.
 
-**How it's exploited:** Since the request still succeeds, the key lands in access logs, browser history, referrer headers, proxy logs, and shared links. Anyone reading those recovers a working credential and replays it as the victim.
+**How it's exploited:** URLs can leak credentials through access logs, browser history, referrers, proxies, and shared links.
 
-**Fix:** Accept credentials only from the Authorization header or request body, reject keys passed as query parameters, and rotate any key that may have been logged.`
+**Fix:** Accept credentials only in headers or bodies, reject query-string keys, and rotate keys that may have been logged.`
 
-	ModuleConfirmation = "Confirmed when the server returns a successful response with the API key passed as a URL query parameter instead of in the authorization header"
+	ModuleConfirmation = "Candidate after isolated no-credential and bit-flipped controls plus two stable valid URL replays matching the authenticated baseline"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"info-disclosure", "api-security", "light"}

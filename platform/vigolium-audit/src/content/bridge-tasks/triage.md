@@ -1,6 +1,8 @@
 ---
 name: triage
 description: Decide whether a reported finding is genuinely exploitable or a false positive, with a confidence-scored verdict.
+permission: read-only
+network: true
 skills:
   - fp-check
 output: json

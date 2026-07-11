@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,13 +12,20 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // javaDeserErrorHandler simulates a backend that deserializes attacker input and
 // leaks a Java ObjectInputStream stack trace — the error signature the module's
 // error-based detection keys on.
 func javaDeserErrorHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if !strings.HasPrefix(r.FormValue("data"), "\xac\xed\x00\x05") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("invalid value"))
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("Exception in thread: java.io.ObjectInputStream.readObject failed: " +
 			"java.io.InvalidClassException local class incompatible"))
@@ -40,6 +48,53 @@ func TestScanPerInsertionPoint_DetectsDeserError(t *testing.T) {
 	require.NotEmpty(t, res, "expected a deserialization finding when a Java ObjectInputStream error is leaked")
 	assert.Equal(t, "data", res[0].FuzzingParameter)
 	assert.Contains(t, res[0].Info.Description, "Java")
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
+	assert.False(t, res[0].IsFinding(), "an exception does not prove gadget execution")
+}
+
+func TestGenericDeserializationErrorForEveryInputIsSuppressed(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("java.io.ObjectInputStream.readObject failed: java.io.InvalidClassException"))
+	}))
+	defer srv.Close()
+
+	rr := modtest.RequestMethod(t, "POST", srv.URL+"/api/load", "data=x")
+	res, err := New().ScanPerInsertionPoint(rr, modtest.InsertionPoint(t, rr, "data"), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "an endpoint returning the same deserialization error for a plain control has no payload-specific differential")
+}
+
+func TestTransientDeserializationErrorDoesNotConfirm(t *testing.T) {
+	t.Parallel()
+	var javaAttempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if strings.HasPrefix(r.FormValue("data"), "\xac\xed\x00\x05") && javaAttempts.Add(1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte("java.io.ObjectInputStream.readObject failed: java.io.InvalidClassException"))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("invalid value"))
+	}))
+	defer srv.Close()
+
+	rr := modtest.RequestMethod(t, "POST", srv.URL+"/api/load", "data=x")
+	res, err := New().ScanPerInsertionPoint(rr, modtest.InsertionPoint(t, rr, "data"), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a one-off exception must fail the replay gate")
+}
+
+func TestPayloadsAreInertTypeProbes(t *testing.T) {
+	for _, payload := range payloads {
+		assert.NotContains(t, payload.payload, "os.system")
+		assert.NotContains(t, payload.payload, "ObjectDataProvider")
+		assert.NotContains(t, payload.payload, "AxHost+State")
+		assert.NotContains(t, payload.payload, "DeprecatedInstanceVariableProxy")
+	}
 }
 
 // TestScanPerInsertionPoint_NoFalsePositive ensures a server that never emits a

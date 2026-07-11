@@ -15,9 +15,10 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
-// flexTime wraps time.Time with lenient JSON unmarshaling that accepts both
-// RFC3339 ("2006-01-02T15:04:05Z07:00") and date-only ("2006-01-02") formats.
-// LLM-generated audit-state.json files frequently emit date-only strings.
+// flexTime wraps time.Time with lenient JSON unmarshaling that accepts
+// RFC3339 ("2006-01-02T15:04:05Z07:00"), timezone-less datetime
+// ("2006-01-02T15:04:05"), and date-only ("2006-01-02") formats.
+// LLM-generated audit-state.json files frequently omit timezone information.
 type flexTime struct {
 	time.Time
 }
@@ -30,6 +31,12 @@ func (ft *flexTime) UnmarshalJSON(data []byte) error {
 	}
 	// Try RFC3339 first.
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		ft.Time = t
+		return nil
+	}
+	// Fall back to a timezone-less datetime. With no offset to preserve, use
+	// UTC so imports remain deterministic across machines.
+	if t, err := time.Parse("2006-01-02T15:04:05", s); err == nil {
 		ft.Time = t
 		return nil
 	}

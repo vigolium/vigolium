@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The site has ASP.NET ViewState weaknesses. The most serious is ViewState MAC disabled: a tampered __VIEWSTATE was accepted without an integrity error, so EnableViewStateMac is off and server state is no longer tamper-protected. It may also flag disabled event validation or cookieless session tokens in URLs.
+	ModuleDesc = `**What it means:** Valid and bit-flipped ViewState received equivalent WebForms processing while a malformed control failed, indicating a MAC candidate. Missing EventValidation is configuration evidence; cookieless session tokens are URL leakage.
 
-**How it's exploited:** With MAC off, an attacker forges ViewState; because it is deserialized server-side, a crafted payload can lead to .NET deserialization and remote code execution. Disabled event validation enables parameter tampering.
+**How it's exploited:** A missing MAC may permit forged serialized state, while disabled event validation can enable parameter tampering. Execution requires separate proof.
 
-**Fix:** Enable EnableViewStateMac and EnableEventValidation, use cookie-based sessions, and disable verbose error pages in production.`
+**Fix:** Enable ViewState MAC and event validation, use cookie-based sessions, and disable production error detail.`
 
-	ModuleConfirmation = "Confirmed when ViewState MAC is disabled (tampered ViewState accepted) or event validation can be bypassed"
+	ModuleConfirmation = "ViewState integrity remains a candidate after valid/tampered/malformed differential controls; confirmation requires a semantic state effect. EventValidation absence is configuration evidence only"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"aspnet", "misconfiguration", "moderate"}

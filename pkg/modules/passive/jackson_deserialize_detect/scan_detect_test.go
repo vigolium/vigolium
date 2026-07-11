@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -19,12 +20,16 @@ func TestNew(t *testing.T) {
 }
 
 func makeHTTPCtx(contentType, body string) *httpmsg.HttpRequestResponse {
+	return makeHTTPCtxStatus("200 OK", contentType, body)
+}
+
+func makeHTTPCtxStatus(status, contentType, body string) *httpmsg.HttpRequestResponse {
 	rawReq := []byte("GET /api/obj HTTP/1.1\r\nHost: example.com\r\n\r\n")
 	req := httpmsg.NewHttpRequestWithService(
 		httpmsg.NewServiceSecure("example.com", 443, true),
 		rawReq,
 	)
-	rawResp := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: %s\r\n\r\n%s", contentType, body)
+	rawResp := fmt.Sprintf("HTTP/1.1 %s\r\nContent-Type: %s\r\n\r\n%s", status, contentType, body)
 	resp := httpmsg.NewHttpResponse([]byte(rawResp))
 	return httpmsg.NewHttpRequestResponse(req, resp)
 }
@@ -42,6 +47,8 @@ func TestScanPerRequest_TypeField(t *testing.T) {
 	require.NotEmpty(t, results)
 	assert.Equal(t, ModuleID, results[0].ModuleID)
 	assert.Equal(t, "Jackson/Java Deserialization Indicators", results[0].Info.Name)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
 }
 
 // TestScanPerRequest_JacksonError drives a body with a Jackson mapping exception
@@ -55,6 +62,7 @@ func TestScanPerRequest_JacksonError(t *testing.T) {
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
 }
 
 // TestScanPerRequest_DeserError drives a Java ObjectInputStream deserialization
@@ -68,6 +76,32 @@ func TestScanPerRequest_DeserError(t *testing.T) {
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+}
+
+func TestScanPerRequest_CorroboratedErrorResponseIsCandidate(t *testing.T) {
+	t.Parallel()
+	m := New()
+	body := `com.fasterxml.jackson.databind.JsonMappingException: cannot deserialize value at [Source: input; line: 1, column: 8]`
+	ctx := makeHTTPCtxStatus("500 Internal Server Error", "text/plain", body)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, results[0].EvidenceGrade)
+	assert.Equal(t, false, results[0].Metadata["code_execution_tested"])
+}
+
+func TestScanPerRequest_TypeFieldInsideStringIgnored(t *testing.T) {
+	t.Parallel()
+	m := New()
+	body := `{"message":"Example payload: {\"@class\":\"com.example.User\"}"}`
+	ctx := makeHTTPCtx("application/json", body)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
 // TestScanPerRequest_JSAssetReverseDNS is a regression for the FP class where a

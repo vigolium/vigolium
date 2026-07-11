@@ -69,7 +69,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	// Only look at MCP-shaped responses that carry a tools list.
 	flags := mcpinfra.Detect(ctx)
-	if !flags.HasJSONRPC && !flags.HasMCPPath {
+	if !flags.HasJSONRPC {
 		return nil, nil
 	}
 	body := mcpinfra.ExtractJSONFromSSE(ctx.Response().BodyToString())
@@ -81,7 +81,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := urlx.Host + urlx.Path
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -115,19 +118,25 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	return []*output.ResultEvent{
 		{
+			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindObservation,
+			EvidenceGrade:    output.EvidenceGradeObservation,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			MatcherStatus:    true,
 			ExtractedResults: evidence,
 			Info: output.Info{
 				Name:        "MCP Dangerous Tool Exposure",
-				Description: fmt.Sprintf("MCP server at %s advertises %d tool(s) with high-impact capabilities: %s. Review each for authentication and least-privilege scoping.", urlx.Host, total, strings.Join(evidence, "; ")),
+				Description: fmt.Sprintf("MCP server at %s advertises %d tool name(s) associated with high-impact capabilities. This is capability inventory only; authorization, arguments, human approval, and invocation success were not tested.", urlx.Host, total),
 				Severity:    severity.Low,
 				Confidence:  severity.Firm,
 				Tags:        []string{"mcp", "excessive-permissions", "api-security"},
 				Reference:   []string{"https://modelcontextprotocol.io/specification/2025-11-25/server/tools"},
 			},
+			Metadata: map[string]any{"tool_count": total, "authorization_tested": false, "tools_invoked": false, "impact_confirmed": false},
 		},
 	}, nil
 }

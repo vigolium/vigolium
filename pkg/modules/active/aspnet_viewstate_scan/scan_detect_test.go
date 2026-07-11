@@ -13,6 +13,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // validViewState returns a base64-encoded ViewState long enough (>=20 chars and
@@ -38,17 +39,22 @@ func seedWithHTMLResponse(t *testing.T, srvURL, body string) *httpmsg.HttpReques
 	return modtest.Response(rr, "text/html; charset=utf-8", body)
 }
 
-// TestScanPerRequest_DetectsMACDisabled drives the real scan method against a
-// WebForms page exposing a __VIEWSTATE. The backend accepts the POSTed (tampered)
-// ViewState with a 200 and no MAC-validation error, indicating EnableViewStateMac
-// is off.
-func TestScanPerRequest_DetectsMACDisabled(t *testing.T) {
+// TestScanPerRequest_ViewStateDifferentialCandidate drives the valid/tampered/
+// malformed controls. Syntactically valid base64 state is processed, while a
+// malformed control is rejected; without a semantic effect this remains a
+// candidate rather than a confirmed finding.
+func TestScanPerRequest_ViewStateDifferentialCandidate(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		// Accepts any ViewState without MAC validation; returns a normal page.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if _, err := base64.StdEncoding.DecodeString(r.FormValue("__VIEWSTATE")); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte("invalid viewstate encoding"))
+			return
+		}
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("<html><body>" + strings.Repeat("welcome back ", 20) + "</body></html>"))
+		_, _ = w.Write([]byte(htmlWithViewState()))
 	}))
 	defer srv.Close()
 
@@ -57,7 +63,23 @@ func TestScanPerRequest_DetectsMACDisabled(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a ViewState finding when a tampered ViewState is accepted without MAC error")
+	require.Len(t, res, 1)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
+}
+
+func TestScanPerRequest_Generic200DoesNotProveMACDisabled(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<html><body>" + strings.Repeat("generic landing page ", 20) + "</body></html>"))
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(seedWithHTMLResponse(t, srv.URL, htmlWithViewState()), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a generic 200 response that does not process ViewState is not evidence of disabled MAC")
 }
 
 // TestScanPerRequest_DetectsCookielessSession exercises the cookieless-session
@@ -106,4 +128,14 @@ func TestCanProcess_RequiresResponse(t *testing.T) {
 	bare := modtest.Request(t, "http://example.com/page.aspx")
 	assert.False(t, m.CanProcess(bare))
 	assert.True(t, m.CanProcess(modtest.Response(bare, "text/html", "<html></html>")))
+}
+
+func TestEventValidationMissingIsCandidateOnlyWithRealPostback(t *testing.T) {
+	t.Parallel()
+	body := htmlWithViewState() + `<script>__doPostBack('ctl00$Main$Save','')</script>`
+	rr := modtest.Response(modtest.Request(t, "http://example.com/page.aspx"), "text/html", body)
+	result := eventValidationCandidate(rr, body)
+	require.NotNil(t, result)
+	assert.Equal(t, output.RecordKindCandidate, result.RecordKind)
+	assert.Contains(t, result.ExtractedResults[0], "ctl00$Main$Save")
 }

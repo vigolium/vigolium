@@ -11,6 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // seedWithAuthHeader returns a modtest request targeting srvURL carrying the given
@@ -25,7 +26,7 @@ func seedWithAuthHeader(t *testing.T, srvURL, header, value string) *httpmsg.Htt
 	require.NoError(t, err)
 	withSvc := httpmsg.NewHttpRequestResponse(parsed.Request().WithService(base.Service()), nil)
 	// Attach a synthetic 200 baseline response.
-	return modtest.Response(withSvc, "application/json", `{"ok":true}`)
+	return modtest.Response(withSvc, "application/json", `{"data":"secret"}`)
 }
 
 // TestScanPerRequest_DetectsAPIKeyInURL drives the real scan method against an
@@ -35,10 +36,12 @@ func seedWithAuthHeader(t *testing.T, srvURL, header, value string) *httpmsg.Htt
 func TestScanPerRequest_DetectsAPIKeyInURL(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Accept the credential from either the header or the URL parameter.
-		if r.Header.Get("Authorization") != "" ||
-			r.URL.Query().Get("access_token") != "" ||
-			r.URL.Query().Get("authorization") != "" {
+		// Accept only the exact credential from either location. A server that
+		// accepts every non-empty token is covered by the negative-control test.
+		const credential = "Bearer sk-test-12345"
+		if r.Header.Get("Authorization") == credential ||
+			r.URL.Query().Get("access_token") == credential ||
+			r.URL.Query().Get("authorization") == credential {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"data":"secret"}`))
 			return
@@ -53,6 +56,47 @@ func TestScanPerRequest_DetectsAPIKeyInURL(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a finding when the API key still authenticates via URL parameter")
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
+}
+
+// A parameter that merely changes the response for every value is not proof
+// that the valid credential was authenticated. The bit-flipped control catches
+// this generic parameter-presence behavior.
+func TestScanPerRequest_RejectsAnyValueAcceptance(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("access_token") {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":"parameter-present"}`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(seedWithAuthHeader(t, srv.URL, "Authorization", "Bearer sk-test-12345"), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res)
+}
+
+func TestScanPerRequest_RequiresURLResponseToMatchAuthenticatedBaseline(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Header.Get("Authorization") != "":
+			_, _ = w.Write([]byte(`{"data":"private-account-record"}`))
+		case r.URL.Query().Get("access_token") == "Bearer sk-test-12345":
+			_, _ = w.Write([]byte(`{"data":"public-token-help-page"}`))
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(seedWithAuthHeader(t, srv.URL, "Authorization", "Bearer sk-test-12345"), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res)
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a server that rejects the credential

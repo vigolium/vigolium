@@ -102,7 +102,7 @@ func (r *Repository) saveFindingIDB(ctx context.Context, idb bun.IDB, finding *F
 	// If ON CONFLICT fired, no row was inserted — append records and evidence to existing finding
 	if finding.FindingHash != "" {
 		if n, _ := res.RowsAffected(); n == 0 {
-			return false, r.appendRecordsToFinding(ctx, idb, finding.ProjectUUID, finding.FindingHash, httpRecordUUIDs, buildEvidence(finding.Request, finding.Response))
+			return false, r.appendRecordsToFinding(ctx, idb, finding.ProjectUUID, finding.FindingHash, httpRecordUUIDs, buildEvidence(finding.Request, finding.Response), finding.ScanUUID)
 		}
 	}
 
@@ -255,7 +255,7 @@ func (r *Repository) insertFindingRecords(ctx context.Context, idb bun.IDB, find
 // record UUIDs and additional evidence (request/response pair) to it. The lookup is
 // project-scoped so evidence from one project is never merged into another project's
 // finding, even when both share a finding_hash.
-func (r *Repository) appendRecordsToFinding(ctx context.Context, idb bun.IDB, projectUUID, findingHash string, newUUIDs []string, evidence string) error {
+func (r *Repository) appendRecordsToFinding(ctx context.Context, idb bun.IDB, projectUUID, findingHash string, newUUIDs []string, evidence string, scanUUID string) error {
 	// Only fetch the (potentially large) request/response bodies when there's
 	// evidence to append — they're needed solely to dedup against the survivor's
 	// own primary pair below.
@@ -277,6 +277,17 @@ func (r *Repository) appendRecordsToFinding(ctx context.Context, idb bun.IDB, pr
 	q := idb.NewUpdate().Model((*Finding)(nil)).
 		Set("http_record_uuids = ?", merged).
 		Where("id = ?", existing.ID)
+
+	// Attribute the finding to the scan that most recently observed it. Finding
+	// uniqueness is project-wide, so the earliest row is kept — but leaving its
+	// scan_uuid pinned to the FIRST scan means a re-detected finding silently
+	// escapes the current scan's fail-on gate, printed summary, and scan-scoped
+	// report. Bumping scan_uuid to the re-detecting scan keeps the finding
+	// attributed to the run that actually saw it. Skipped when the re-detection
+	// carries no scan id (e.g. an out-of-band import).
+	if scanUUID != "" {
+		q = q.Set("scan_uuid = ?", scanUUID)
+	}
 
 	// Skip evidence that just duplicates the survivor's own primary
 	// request/response (or an entry it already has) — otherwise re-emitting the

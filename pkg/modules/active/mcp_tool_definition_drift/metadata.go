@@ -15,7 +15,7 @@ var (
 
 **Fix:** Pin and verify tool definitions after approval, and re-prompt the user whenever a description or schema changes between fetches.`
 
-	ModuleConfirmation = "Confirmed when repeated tools/list fetches within one scan return differing descriptions or input schemas for the same tool"
+	ModuleConfirmation = "Observation for tool availability drift; differential candidate for canonicalized same-tool description/schema changes, with confirmation requiring an approved definition to be replaced without review"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"mcp", "rug-pull", "integrity", "moderate"}

@@ -391,7 +391,23 @@ def consolidate(results_dir: Path, continue_ids: bool = False) -> int:
 
     drafts = load_drafts(draft_dir)
     if not drafts:
-        print(f"error: no draft files found in {draft_dir}", file=sys.stderr)
+        manifest = {
+            "results_dir": str(results_dir),
+            "findings": [],
+            "theoretical": [],
+            "dropped": [],
+            "counts": {
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "total": 0,
+                "dropped": 0,
+                "theoretical": 0,
+            },
+        }
+        _write_manifest(draft_dir, manifest)
+        print(json.dumps(manifest, indent=2))
+        print(f"warning: no draft files found in {draft_dir}", file=sys.stderr)
         return 1
 
     seed_counters: Optional[dict[str, int]] = None

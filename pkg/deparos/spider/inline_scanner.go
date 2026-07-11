@@ -98,28 +98,50 @@ func (s *InlineURLScanner) Extract(ctx context.Context, baseURL *url.URL, respon
 	return nil
 }
 
-// ScanBytes scans a byte slice for inline URLs and reports them.
-// This is used by other extractors to scan string literals.
+// ScanBytes scans a byte slice for an inline URL (absolute first, then relative)
+// and reports whether one was found, WITHOUT emitting it. Used as a bool-only
+// "does this string contain a URL?" check; ScanBytesRelativeEmit is the emitting
+// variant.
 func (s *InlineURLScanner) ScanBytes(ctx context.Context, baseURL *url.URL, data []byte, offset int) bool {
 	if len(data) < 6 {
 		return false
 	}
-
-	// Try to find an absolute URL first
 	urlStr, startPos, endPos := s.findAbsoluteURL(data, offset)
-
 	if urlStr == "" {
-		// Try to find a relative URL
 		urlStr, startPos, endPos = s.findRelativeURL(baseURL, data, offset)
 	}
+	return s.resolveAndEmit(baseURL, urlStr, startPos, endPos, nil)
+}
 
+// ScanBytesRelativeEmit scans a byte slice for a RELATIVE inline URL only,
+// resolves it against baseURL, and — when callback is non-nil — emits the
+// discovered link. Returns true when a relative URL was found and resolved.
+//
+// This closes a real coverage gap: the bool-only ScanBytes detected URL-like
+// data but DROPPED it, so relative routes such as /admin or /api/users found
+// inside JavaScript string literals were never surfaced as discovered links.
+// It is deliberately relative-only: every caller also runs a whole-content pass
+// that emits absolute (scheme) URLs, so per-string scanning contributes just the
+// relative routes that pass would miss — without duplicating the absolute ones.
+func (s *InlineURLScanner) ScanBytesRelativeEmit(ctx context.Context, baseURL *url.URL, data []byte, offset int, callback LinkCallback) bool {
+	if len(data) < 6 {
+		return false
+	}
+	urlStr, startPos, endPos := s.findRelativeURL(baseURL, data, offset)
+	return s.resolveAndEmit(baseURL, urlStr, startPos, endPos, callback)
+}
+
+// resolveAndEmit resolves a raw URL string against baseURL and, when callback is
+// non-nil and resolution succeeds, emits the discovered link. Returns true when
+// the URL was found and resolved.
+func (s *InlineURLScanner) resolveAndEmit(baseURL *url.URL, urlStr string, startPos, endPos int, callback LinkCallback) bool {
 	if urlStr == "" {
 		return false
 	}
 
-	// Parse and resolve
-	u, err := url.Parse(urlStr)
-	if err != nil {
+	// Reject malformed raw before resolving (urlResolver.Resolve may be more
+	// lenient than url.Parse).
+	if _, err := url.Parse(urlStr); err != nil {
 		return false
 	}
 
@@ -128,7 +150,22 @@ func (s *InlineURLScanner) ScanBytes(ctx context.Context, baseURL *url.URL, data
 		return false
 	}
 
-	return resolved != nil && u != nil && endPos > startPos
+	if resolved == nil || endPos <= startPos {
+		return false
+	}
+
+	if callback != nil {
+		callback(&DiscoveredLink{
+			SourceType:   SourceInlineURL,
+			URL:          resolved,
+			RawURL:       urlStr,
+			ResourceType: s.inferResourceType(resolved.Path),
+			StartPos:     startPos,
+			EndPos:       endPos,
+		})
+	}
+
+	return true
 }
 
 // findProtocolPositions finds all positions where :// appears in the data.

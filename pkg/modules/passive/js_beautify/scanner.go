@@ -1,6 +1,6 @@
 // Package js_beautify implements a passive module that unminifies and unpacks
 // first-party JavaScript (React/Next/Vue SPA bundles) into readable source using
-// the embedded jsscan tool (webcrack, no eval-based deobfuscation).
+// the embedded jstangle tool (webcrack, no eval-based deobfuscation).
 //
 // For JavaScript responses the raw stored response remains immutable. The
 // beautified, module-annotated document is persisted as a content-addressed
@@ -13,6 +13,7 @@ package js_beautify
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -20,7 +21,7 @@ import (
 	"sync"
 
 	"github.com/vigolium/vigolium/pkg/dedup"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/deparos/jsvendor"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
@@ -29,9 +30,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// beautifyErrWarnOnce ensures a persistent jsscan failure (e.g. an embedded
-// binary that predates the --beautify interface) is surfaced once per process
-// rather than silently swallowed into a no-op on every JS response.
+// beautifyErrWarnOnce ensures a persistent jstangle failure (e.g. a stale
+// embedded binary whose capability handshake does not advertise the "beautify"
+// analysis profile) is surfaced once per process rather than silently swallowed
+// into a no-op on every JS response.
 var beautifyErrWarnOnce sync.Once
 
 // Module implements the passive JavaScript beautifier.
@@ -60,19 +62,19 @@ func New() *Module {
 	return m
 }
 
-// ---- shared jsscan service ----
+// ---- shared jstangle service ----
 
 var (
 	scannerOnce   sync.Once
-	sharedScanner *jsscan.Service
+	sharedScanner *jstangle.Service
 )
 
-// getScanner lazily builds the shared jsscan scanner. Returns nil if the
+// getScanner lazily builds the shared jstangle scanner. Returns nil if the
 // embedded binary is unavailable (unsupported platform / LFS pointer), in which
 // case the module cleanly no-ops.
-func getScanner() *jsscan.Service {
+func getScanner() *jstangle.Service {
 	scannerOnce.Do(func() {
-		if service, err := jsscan.DefaultService(); err == nil {
+		if service, err := jstangle.DefaultService(); err == nil {
 			sharedScanner = service
 		}
 	})
@@ -90,7 +92,7 @@ const (
 	maxEvidenceSnippet = 4000
 )
 
-// worthBeautifying is a cheap Go-side pre-gate mirroring the jsscan tool's own
+// worthBeautifying is a cheap Go-side pre-gate mirroring the jstangle tool's own
 // heuristic, so we avoid spawning a subprocess for tiny or already-readable
 // scripts. The tool re-checks and returns no beautified record if it disagrees.
 func worthBeautifying(code string) bool {
@@ -264,18 +266,25 @@ func (m *Module) ScanPerRequestContext(ctx context.Context, item *httpmsg.HttpRe
 		return nil, nil // binary unavailable — no-op
 	}
 
-	res, scanErr := scanner.ScanWithOptions(ctx, scanBytes, jsscan.ScanOptions{
-		Profile: jsscan.ProfileBeautify, SourceURL: urlx.String(),
+	res, scanErr := scanner.ScanWithOptions(ctx, scanBytes, jstangle.ScanOptions{
+		Profile: jstangle.ProfileBeautify, SourceURL: urlx.String(),
 		Filename: filepath.Base(urlx.Path), MediaType: ct,
 	})
 	if scanErr != nil {
-		// Don't fail the scan on a beautify error, but surface it once: a stale
-		// jsscan binary (unknown option '--beautify') otherwise disappears as a
-		// silent no-op across every JS response.
+		// Don't fail the scan on a beautify error, but surface it once with an
+		// accurate diagnostic. Beautification is requested via the "beautify"
+		// analysis profile (a field in the framed worker request), not a CLI flag;
+		// a stale embedded binary that lacks it reports so in its capability
+		// handshake and Analyze returns ErrUnsupportedProfile.
 		if ctx.Err() == nil {
 			beautifyErrWarnOnce.Do(func() {
-				zap.L().Warn("js_beautify: jsscan beautify failed; JS beautification disabled for this run — verify the embedded jsscan binary supports --beautify",
-					zap.Error(scanErr))
+				if errors.Is(scanErr, jstangle.ErrUnsupportedProfile) {
+					zap.L().Warn("js_beautify: embedded jstangle binary does not advertise the \"beautify\" profile; JS beautification disabled for this run — update the embedded jstangle binary",
+						zap.Error(scanErr))
+				} else {
+					zap.L().Warn("js_beautify: jstangle beautify failed; JS beautification disabled for this run",
+						zap.Error(scanErr))
+				}
 			})
 		}
 		return nil, nil
@@ -339,7 +348,7 @@ func (m *Module) tag(scanCtx *modkit.ScanContext, uuid string, tags ...string) {
 }
 
 // buildFinding constructs the info-severity finding describing the beautification.
-func (m *Module) buildFinding(url, host string, b *jsscan.BeautifiedCode, inline, artifactStored bool) *output.ResultEvent {
+func (m *Module) buildFinding(url, host string, b *jstangle.BeautifiedCode, inline, artifactStored bool) *output.ResultEvent {
 	// Copy so the truncation below never mutates b.ModulePaths.
 	extracted := append([]string(nil), b.ModulePaths...)
 	if len(extracted) > maxEvidencePaths {

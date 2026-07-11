@@ -6,11 +6,16 @@ import (
 )
 
 // MaxEvidencePairs caps how many request/response pairs a single finding carries
-// in AdditionalEvidence at emit time. It matches the dedup-merge cap in
-// pkg/database so a high-round differential module (boolean-blind SQLi, race
-// interference) can't emit an unbounded finding. The first MaxEvidencePairs pairs
-// win — modules record the most informative context first (baseline, then
-// confirmation rounds), so the tail that gets dropped is the least interesting.
+// in AdditionalEvidence at emit time, so a high-round differential module
+// (boolean-blind SQLi, race interference) can't emit an unbounded finding. The
+// first MaxEvidencePairs pairs win — modules record the most informative context
+// first (baseline, then confirmation rounds), so the tail that gets dropped is the
+// least interesting.
+//
+// This is the single source of truth for the evidence-pair cap: the storage layer
+// pins its own cap (database.maxAdditionalEvidence) to this value, so a finding's
+// emitted evidence is retained in full through conversion and dedup-merge instead
+// of being silently truncated to a smaller storage limit.
 const MaxEvidencePairs = 10
 
 // EvidenceCollector accumulates the supporting request/response pairs a

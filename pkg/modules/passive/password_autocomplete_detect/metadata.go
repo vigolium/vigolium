@@ -5,17 +5,17 @@ import "github.com/vigolium/vigolium/pkg/types/severity"
 const (
 	ModuleID    = "password-autocomplete-detect"
 	ModuleName  = "Password Autocomplete Detect"
-	ModuleShort = "Detects password fields without autocomplete disabled"
+	ModuleShort = "Observes likely password fields without current-password or new-password semantics"
 )
 
 var (
-	ModuleDesc = `**What it means:** An HTML password input does not disable browser autocomplete (it lacks autocomplete="off" or autocomplete="new-password", and its form is not set to autocomplete="off"). A low-severity hardening gap: browsers and password managers may cache the typed credential.
+	ModuleDesc = `**What it means:** A likely account-password field lacks autocomplete="current-password" or "new-password". This is a markup observation, not a confirmed vulnerability; browsers often infer the purpose, and autocomplete="off" is not a security control.
 
-**How it's exploited:** Anyone with later access to the same browser (shared, kiosk, or stolen device) can retrieve cached credentials from the autofill store or have the browser re-populate the form. No remote exploit; impact depends on local access.
+**How it's exploited:** Ambiguous semantics can make password-manager behavior less reliable, indirectly encouraging weaker credential handling rather than enabling a direct attack.
 
-**Fix:** Add autocomplete="off" (or autocomplete="new-password" for change fields) to password inputs and their containing form so browsers do not store the credential.`
+**Fix:** Use current-password for login fields and new-password for password creation or changes.`
 
-	ModuleConfirmation = "Confirmed when password input fields lack autocomplete='off' or autocomplete='new-password'"
+	ModuleConfirmation = "Observed when a likely account-password input lacks current-password or new-password; this does not establish a security vulnerability"
 	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Certain
 	ModuleTags         = []string{"authentication", "misconfiguration", "light"}

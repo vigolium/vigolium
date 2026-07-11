@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	nethttp "net/http"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -75,7 +76,10 @@ func (m *Module) ScanPerRequest(
 	}
 
 	// Dedup by host
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(urlx.Host)
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -97,12 +101,16 @@ func (m *Module) ScanPerRequest(
 	var results []*output.ResultEvent
 
 	for _, cookie := range setCookies {
-		cookieLower := strings.ToLower(cookie)
+		parsedCookie, parseErr := nethttp.ParseSetCookie(cookie)
+		if parseErr != nil || parsedCookie == nil {
+			continue
+		}
+		cookieLower := strings.ToLower(parsedCookie.Name)
 
 		// Check if this is a NextAuth cookie
 		var matchedName string
 		for _, name := range nextAuthCookieNames {
-			if strings.HasPrefix(cookieLower, name+"=") {
+			if cookieLower == name {
 				matchedName = name
 				break
 			}
@@ -110,6 +118,11 @@ func (m *Module) ScanPerRequest(
 		if matchedName == "" {
 			continue
 		}
+
+		// Only the session token is an authentication cookie. NextAuth callback and
+		// CSRF helper cookies have different browser-access semantics and must not be
+		// called session-theft flaws merely because HttpOnly is absent.
+		isSessionCookie := strings.Contains(matchedName, "session-token")
 
 		// Check cookie security flags. Severity tracks the WORST issue rather than a
 		// flat Medium: a missing Secure/HttpOnly flag on a session cookie is a real
@@ -120,28 +133,38 @@ func (m *Module) ScanPerRequest(
 		var issues []string
 		sev := severity.Low
 
-		if isHTTPS && !strings.Contains(cookieLower, "secure") {
+		if isSessionCookie && isHTTPS && !parsedCookie.Secure {
 			issues = append(issues, "Missing Secure flag on HTTPS")
 			sev = severity.Medium
 		}
 
-		if !strings.Contains(cookieLower, "httponly") {
+		if isSessionCookie && !parsedCookie.HttpOnly {
 			issues = append(issues, "Missing HttpOnly flag")
 			sev = severity.Medium
 		}
 
-		if !strings.Contains(cookieLower, "samesite") {
+		if isSessionCookie && (parsedCookie.SameSite == 0 || parsedCookie.SameSite == nethttp.SameSiteDefaultMode) {
 			issues = append(issues, "Missing SameSite attribute")
-		} else if strings.Contains(cookieLower, "samesite=none") && !strings.Contains(cookieLower, "secure") {
+		} else if isSessionCookie && parsedCookie.SameSite == nethttp.SameSiteNoneMode && !parsedCookie.Secure {
 			issues = append(issues, "SameSite=None without Secure flag")
 		}
 
 		if len(issues) > 0 {
+			kind := output.RecordKindObservation
+			grade := output.EvidenceGradeObservation
+			if sev >= severity.Medium {
+				kind = output.RecordKindFinding
+				grade = output.EvidenceGradeImpact
+			}
 			results = append(results, &output.ResultEvent{
-				ModuleID: ModuleID,
-				Host:     urlx.Host,
-				URL:      urlx.String(),
-				Matched:  urlx.String(),
+				ModuleID:      ModuleID,
+				RecordKind:    kind,
+				EvidenceGrade: grade,
+				Host:          urlx.Host,
+				URL:           urlx.String(),
+				Matched:       urlx.String(),
+				Request:       string(ctx.Request().Raw()),
+				Response:      string(ctx.Response().Raw()),
 				ExtractedResults: []string{
 					fmt.Sprintf("Cookie: %s", matchedName),
 					fmt.Sprintf("Issues: %s", strings.Join(issues, "; ")),
@@ -155,15 +178,24 @@ func (m *Module) ScanPerRequest(
 					Reference:   []string{"https://next-auth.js.org/configuration/options#cookies"},
 				},
 				Metadata: map[string]any{
-					"cookie_name": matchedName,
-					"issues":      issues,
+					"cookie_name":    matchedName,
+					"issues":         issues,
+					"session_cookie": isSessionCookie,
 				},
 			})
 		}
 
-		// For session tokens, attempt JWT decode to check for sensitive claims
-		if strings.Contains(matchedName, "session-token") {
-			if sensitiveResults := m.checkJWTClaims(cookie, matchedName, urlx.Host, urlx.String()); len(sensitiveResults) > 0 {
+		// For session tokens, attempt JWT decode to check for sensitive claims.
+		// Pass the parsed value so cookie attributes cannot be mistaken for token data.
+		if isSessionCookie {
+			if sensitiveResults := m.checkJWTClaims(
+				parsedCookie.Value,
+				matchedName,
+				urlx.Host,
+				urlx.String(),
+				string(ctx.Request().Raw()),
+				string(ctx.Response().Raw()),
+			); len(sensitiveResults) > 0 {
 				results = append(results, sensitiveResults...)
 			}
 		}
@@ -172,19 +204,11 @@ func (m *Module) ScanPerRequest(
 	return results, nil
 }
 
-// checkJWTClaims decodes a JWT session token and checks for sensitive claims.
-func (m *Module) checkJWTClaims(cookie, cookieName, host, url string) []*output.ResultEvent {
-	// Extract token value from cookie
-	parts := strings.SplitN(cookie, "=", 2)
-	if len(parts) < 2 {
-		return nil
-	}
-	tokenValue := parts[1]
-	if idx := strings.Index(tokenValue, ";"); idx > 0 {
-		tokenValue = tokenValue[:idx]
-	}
-	tokenValue = strings.TrimSpace(tokenValue)
-
+// checkJWTClaims decodes a JWS-shaped session token and distinguishes a claim
+// name observation from a substantive-value candidate. A key called "secret"
+// with a null, redacted, or example value is useful hunting context, but is not
+// evidence that secret material was exposed.
+func (m *Module) checkJWTClaims(tokenValue, cookieName, host, url, request, response string) []*output.ResultEvent {
 	// JWT format: header.payload.signature
 	jwtParts := strings.Split(tokenValue, ".")
 	if len(jwtParts) != 3 {
@@ -202,13 +226,16 @@ func (m *Module) checkJWTClaims(cookie, cookieName, host, url string) []*output.
 		return nil
 	}
 
-	// Check for sensitive claim names
 	var foundSensitive []string
-	for key := range claims {
+	var substantiveClaims []string
+	for key, value := range claims {
 		keyLower := strings.ToLower(key)
 		for _, sensitive := range sensitiveClaims {
 			if strings.Contains(keyLower, sensitive) {
 				foundSensitive = append(foundSensitive, key)
+				if isSubstantiveClaimValue(value, 0) {
+					substantiveClaims = append(substantiveClaims, key)
+				}
 				break
 			}
 		}
@@ -218,28 +245,96 @@ func (m *Module) checkJWTClaims(cookie, cookieName, host, url string) []*output.
 		return nil
 	}
 
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	sev := severity.Low
+	name := "NextAuth.js JWT Sensitive Claim Names"
+	description := fmt.Sprintf(
+		"Decoded a JWS-shaped NextAuth session token containing security-relevant claim names (%s), but their values were empty, redacted, placeholders, or otherwise non-substantive. This is retained as an observation only.",
+		strings.Join(foundSensitive, ", "),
+	)
+	if len(substantiveClaims) > 0 {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeCandidate
+		sev = severity.High
+		name = "NextAuth.js JWT Potential Sensitive Data Exposure"
+		description = fmt.Sprintf(
+			"A decoded JWS-shaped NextAuth session token contains substantive values under security-relevant claims (%s). The values were not emitted. Credential validity, ownership, and downstream privilege were not tested, so this is a candidate rather than confirmed misuse.",
+			strings.Join(substantiveClaims, ", "),
+		)
+	}
+
 	return []*output.ResultEvent{
 		{
-			ModuleID: ModuleID,
-			Host:     host,
-			URL:      url,
-			Matched:  url,
+			ModuleID:      ModuleID,
+			RecordKind:    kind,
+			EvidenceGrade: grade,
+			Host:          host,
+			URL:           url,
+			Matched:       url,
+			Request:       request,
+			Response:      response,
 			ExtractedResults: []string{
 				fmt.Sprintf("Cookie: %s", cookieName),
-				fmt.Sprintf("Sensitive JWT claims: %s", strings.Join(foundSensitive, ", ")),
+				fmt.Sprintf("Security-relevant JWT claim names: %s", strings.Join(foundSensitive, ", ")),
+				fmt.Sprintf("Claims with substantive values: %s", strings.Join(substantiveClaims, ", ")),
 			},
 			Info: output.Info{
-				Name:        "NextAuth.js JWT Sensitive Data Exposure",
-				Description: fmt.Sprintf("NextAuth JWT session token contains sensitive claims: %s. JWTs are only signed, not encrypted — these values are visible to anyone with the token.", strings.Join(foundSensitive, ", ")),
-				Severity:    severity.High,
+				Name:        name,
+				Description: description,
+				Severity:    sev,
 				Confidence:  severity.Firm,
 				Tags:        []string{"nextauth", "jwt", "information-disclosure"},
 				Reference:   []string{"https://next-auth.js.org/configuration/options#session"},
 			},
 			Metadata: map[string]any{
-				"cookie_name":      cookieName,
-				"sensitive_claims": foundSensitive,
+				"cookie_name":          cookieName,
+				"sensitive_claims":     foundSensitive,
+				"substantive_claims":   substantiveClaims,
+				"substantive_values":   len(substantiveClaims) > 0,
+				"credential_validated": false,
 			},
 		},
 	}
+}
+
+func isSubstantiveClaimValue(value any, depth int) bool {
+	if depth > 3 || value == nil {
+		return false
+	}
+
+	switch typed := value.(type) {
+	case string:
+		value := strings.TrimSpace(typed)
+		if len(value) < 8 || modkit.IsPlaceholderValue(value) {
+			return false
+		}
+		lower := strings.ToLower(value)
+		for _, marker := range []string{
+			"example", "placeholder", "changeme", "change-me", "dummy", "sample",
+			"redacted", "masked", "your_", "your-", "<secret", "${", "{{",
+		} {
+			if strings.Contains(lower, marker) {
+				return false
+			}
+		}
+		trimmedMask := strings.Trim(value, "*xX.-_ ")
+		return trimmedMask != ""
+	case []any:
+		for _, item := range typed {
+			if isSubstantiveClaimValue(item, depth+1) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, item := range typed {
+			if isSubstantiveClaimValue(item, depth+1) {
+				return true
+			}
+		}
+	}
+
+	// Booleans and numbers under a security-looking key commonly represent
+	// feature flags or identifiers; the key alone remains an observation.
+	return false
 }

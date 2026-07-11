@@ -388,7 +388,7 @@ Flags specific to `vigolium agent audit --driver=piolium`.
 
 ## Agent Audit Flags
 
-Flags specific to `vigolium agent audit` — the unified driver dispatcher that drives the embedded **vigolium-audit** harness and/or **piolium** under one parent AgenticScan. (There is no separate `agent archon` command; the vigolium-audit leg is reached with `--driver=audit`.)
+Flags specific to `vigolium agent audit` — the unified driver dispatcher that drives the embedded **vigolium-audit** harness and/or **piolium** under one parent AgenticScan. Select the vigolium-audit leg with `--driver=audit`.
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|

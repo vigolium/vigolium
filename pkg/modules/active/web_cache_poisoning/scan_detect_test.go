@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestScanPerRequest_DetectsCachePoisoning drives the real scan method against a
@@ -34,6 +36,42 @@ func TestScanPerRequest_DetectsCachePoisoning(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a cache-poisoning finding when X-Forwarded-Host is reflected")
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.False(t, res[0].Metadata["cross_client_replay"].(bool))
+}
+
+func TestScanPerRequest_RequiresCleanCrossClientReplayForFinding(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	cache := make(map[string]string)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.RequestURI()
+		mu.Lock()
+		defer mu.Unlock()
+		if host := r.Header.Get("X-Forwarded-Host"); host != "" {
+			body := fmt.Sprintf(`<link href="https://%s/app.js">`, host)
+			cache[key] = body
+			w.Header().Set("Cache-Control", "public, max-age=60")
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		w.Header().Set("Cache-Control", "public, max-age=60")
+		if body := cache[key]; body != "" {
+			w.Header().Set("Age", "1")
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		_, _ = w.Write([]byte(`<link href="https://static.example/app.js">`))
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(modtest.Request(t, srv.URL+"/home"), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	assert.Equal(t, output.RecordKindFinding, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeImpact, res[0].EvidenceGrade)
+	assert.True(t, res[0].Metadata["cross_client_replay"].(bool))
+	assert.False(t, res[0].Metadata["normal_url_poisoned"].(bool))
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a backend that ignores the injected

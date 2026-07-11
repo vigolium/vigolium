@@ -7,7 +7,7 @@
 > - [data-and-storage.md](data-and-storage.md) — multi-tenancy, the database model, and cloud storage
 > - [server-and-api.md](server-and-api.md) — the REST server, traffic ingestion, and the API surface
 
-Vigolium is a high-fidelity web vulnerability scanner written in Go. It combines deterministic, module-based scanning with AI-driven agentic analysis to provide broad and deep coverage of web application security issues. The scanner ships 251 modules (154 active, 97 passive) covering injection flaws, misconfigurations, information disclosure, authentication issues, and more.
+Vigolium is a high-fidelity web vulnerability scanner written in Go. It combines deterministic, module-based scanning with AI-driven agentic analysis to provide broad and deep coverage of web application security issues. The scanner ships 317 modules (201 active, 116 passive) covering injection flaws, misconfigurations, information disclosure, authentication issues, and more.
 
 Vigolium can operate as a CLI tool for one-off scans, as a persistent REST API server that ingests live traffic, or as a traffic-forwarding ingestor client (`vigolium ingest`) that pushes traffic to a running server. All scan data is project-scoped for multi-tenancy support. Module: `github.com/vigolium/vigolium`, requires Go 1.26+.
 
@@ -94,8 +94,8 @@ All agent modes support `--source` for source-aware analysis and store session a
                     |                 +---------+---------+
          +----------+----------+                |
          |  Module Registry    |      +---------+---------+
-         | 152 Active Modules  |      | Olium Providers   |
-         |  93 Passive Modules |      | openai-codex-oauth /     |
+         | 201 Active Modules  |      | Olium Providers   |
+         | 116 Passive Modules |      | openai-codex-oauth /     |
          +----------+----------+      | anthropic-api-key |
                     |                 | anthropic-oauth /    |
                     |                 | openai-api-key /  |

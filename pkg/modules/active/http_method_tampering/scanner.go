@@ -107,59 +107,157 @@ func (m *Module) ScanPerRequest(
 	if !infra.IsValidForInjectionVulns(urlx, ctx) {
 		return nil, nil
 	}
+	// Generic method discovery must not mutate a real resource. PUT, PATCH,
+	// DELETE, MOVE, COPY, and POST-with-DELETE-override can all have irreversible
+	// effects, and a 2xx response still would not prove what state changed. Limit
+	// this module to an idempotent GET seed plus safe OPTIONS semantics.
+	if ctx.Request() == nil || !strings.EqualFold(ctx.Request().Method(), "GET") ||
+		ctx.Response() == nil || ctx.Response().StatusCode() < 200 || ctx.Response().StatusCode() >= 300 {
+		return nil, nil
+	}
 
 	if !m.markAndShouldContinue(urlx, scanCtx) {
 		return nil, nil
 	}
 
-	// Only test on endpoints that originally return 2xx (GET endpoints)
-	origStatus := 0
-	if ctx.Response() != nil {
-		origStatus = ctx.Response().StatusCode()
+	options, ok := m.fetchSafeMethodResponse(ctx, httpClient, "OPTIONS", "", "")
+	if !ok {
+		return nil, nil
+	}
+	var results []*output.ResultEvent
+	if declared := declaredDangerousMethods(options.allow, options.corsAllow); len(declared) > 0 {
+		results = append(results, safeMethodObservation(
+			urlx,
+			"Server Declares Write-Oriented HTTP Methods",
+			"The OPTIONS response advertises write-oriented methods. This is capability metadata only; it does not show that an unauthenticated write succeeds or that any state changes.",
+			"OPTIONS",
+			options,
+			[]string{"declared_methods=" + strings.Join(declared, ",")},
+		))
 	}
 
-	// Fetch a wildcard probe and a same-method baseline so we can reject
-	// findings whose response is just the host's SPA / wildcard shell. If
-	// the probe itself errors out we fall back to running without it.
-	wildcard, _ := scanCtx.WildcardProbe(ctx, httpClient)
-	baseline, _ := scanCtx.GetOrFetchBaseline(ctx, httpClient)
+	getResponse, getOK := m.fetchSafeMethodResponse(ctx, httpClient, "GET", "", "")
+	getReplay, replayOK := m.fetchSafeMethodResponse(ctx, httpClient, "GET", "", "")
+	if !getOK || !replayOK || !safeResponsesSimilar(getResponse, getReplay) {
+		return results, nil
+	}
+	for _, header := range methodOverrideHeaders {
+		first, firstOK := m.fetchSafeMethodResponse(ctx, httpClient, "GET", header, "OPTIONS")
+		second, secondOK := m.fetchSafeMethodResponse(ctx, httpClient, "GET", header, "OPTIONS")
+		if !firstOK || !secondOK ||
+			!safeResponsesSimilar(first, second) ||
+			!safeResponsesSimilar(first, options) ||
+			safeResponsesSimilar(first, getResponse) {
+			continue
+		}
+		results = append(results, safeMethodObservation(
+			urlx,
+			"HTTP Method Override Mechanism Observed",
+			"A GET carrying "+header+": OPTIONS reproduced the direct OPTIONS response twice and differed from the normal GET. This proves override capability only; no privileged or state-changing method was invoked.",
+			header,
+			first,
+			[]string{"visible_method=GET", "override_header=" + header, "override_value=OPTIONS", "replay_count=2"},
+		))
+		break
+	}
+	return results, nil
+}
 
-	// Catch-all guard, evaluated lazily and memoized: only when a phase finds a
-	// candidate do we probe with an unsupported sentinel method. If THAT also
-	// looks "successful" and non-shell, the endpoint accepts ANY method
-	// (analytics beacon / permissive edge handler) and a 2xx for a dangerous
-	// method or honored override proves nothing — so the candidate is dropped.
-	catchAll := -1 // -1 unknown, 0 no, 1 yes
-	isCatchAll := func() bool {
-		if catchAll == -1 {
-			if m.endpointAcceptsAnyMethod(ctx, httpClient, wildcard, baseline) {
-				catchAll = 1
-			} else {
-				catchAll = 0
+type safeMethodResponse struct {
+	status      int
+	body        string
+	contentType string
+	allow       string
+	corsAllow   string
+	request     string
+	response    string
+}
+
+func (m *Module) fetchSafeMethodResponse(ctx *httpmsg.HttpRequestResponse, client *http.Requester, method, header, value string) (safeMethodResponse, bool) {
+	raw, err := httpmsg.SetMethod(ctx.Request().Raw(), method)
+	if err != nil {
+		return safeMethodResponse{}, false
+	}
+	if header != "" {
+		raw, err = httpmsg.AddOrReplaceHeader(raw, header, value)
+		if err != nil {
+			return safeMethodResponse{}, false
+		}
+	}
+	req := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
+	resp, _, err := client.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
+	if err != nil || resp == nil || resp.Response() == nil {
+		if resp != nil {
+			resp.Close()
+		}
+		return safeMethodResponse{}, false
+	}
+	defer resp.Close()
+	if infra.IsBlockedResponse(resp) || resp.Response().StatusCode >= 500 {
+		return safeMethodResponse{}, false
+	}
+	return safeMethodResponse{
+		status:      resp.Response().StatusCode,
+		body:        resp.BodyString(),
+		contentType: resp.Response().Header.Get("Content-Type"),
+		allow:       resp.Response().Header.Get("Allow"),
+		corsAllow:   resp.Response().Header.Get("Access-Control-Allow-Methods"),
+		request:     string(raw),
+		response:    resp.FullResponseString(),
+	}, true
+}
+
+func declaredDangerousMethods(values ...string) []string {
+	wanted := make(map[string]bool, len(dangerousMethods))
+	for _, method := range dangerousMethods {
+		wanted[method] = true
+	}
+	seen := make(map[string]bool)
+	var declared []string
+	for _, value := range values {
+		for _, token := range strings.FieldsFunc(strings.ToUpper(value), func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+			if wanted[token] && !seen[token] {
+				seen[token] = true
+				declared = append(declared, token)
 			}
 		}
-		return catchAll == 1
 	}
+	return declared
+}
 
-	var results []*output.ResultEvent
-
-	// Phase 1: Test dangerous methods on 2xx endpoints
-	if origStatus >= 200 && origStatus < 300 {
-		r, err := m.testDangerousMethods(urlx, ctx, httpClient, wildcard, baseline, isCatchAll)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, r...)
+func safeResponsesSimilar(left, right safeMethodResponse) bool {
+	if left.status != right.status || !strings.EqualFold(strings.TrimSpace(strings.Split(left.contentType, ";")[0]), strings.TrimSpace(strings.Split(right.contentType, ";")[0])) {
+		return false
 	}
-
-	// Phase 2: Test method override headers
-	r, err := m.testMethodOverrideHeaders(urlx, ctx, httpClient, wildcard, baseline, isCatchAll)
-	if err != nil {
-		return nil, err
+	if left.body == "" || right.body == "" {
+		return left.body == right.body
 	}
-	results = append(results, r...)
+	leftSig := modkit.NewResponseSignature(left.status, left.body, "OPTIONS")
+	rightSig := modkit.NewResponseSignature(right.status, right.body, "OPTIONS")
+	return modkit.RatioSimilar(leftSig, rightSig)
+}
 
-	return results, nil
+func safeMethodObservation(urlx *urlutil.URL, name, description, fuzzingParameter string, response safeMethodResponse, extracted []string) *output.ResultEvent {
+	return &output.ResultEvent{
+		ModuleID:         ModuleID,
+		RecordKind:       output.RecordKindObservation,
+		EvidenceGrade:    output.EvidenceGradeObservation,
+		Host:             urlx.Host,
+		URL:              urlx.String(),
+		Matched:          urlx.String(),
+		Request:          response.request,
+		Response:         response.response,
+		FuzzingParameter: fuzzingParameter,
+		ExtractedResults: extracted,
+		Info: output.Info{
+			Name:        name,
+			Description: description,
+			Severity:    ModuleSeverity,
+			Confidence:  ModuleConfidence,
+			Tags:        ModuleTags,
+		},
+		Metadata: map[string]any{"state_change_observed": false, "authorization_bypass_observed": false, "safe_probe_only": true},
+	}
 }
 
 // endpointAcceptsAnyMethod sends a syntactically valid but unsupported sentinel

@@ -1,10 +1,8 @@
-import { open, readdir, stat } from "fs/promises";
-import { homedir } from "os";
-import { join } from "path";
 import type { Adapter, AdapterEvent, AdapterRunInput } from "./adapter.js";
 import { isTransientError } from "./claude-events.js";
 import { spawnAndStream } from "./cli-process.js";
-import { createCodexNormalizeState, normalizeCodexEvent, normalizeCodexSessionRecord } from "./codex-events.js";
+import { createCodexNormalizeState, normalizeCodexEvent } from "./codex-events.js";
+import { startCodexSessionTail } from "./codex-session-tail.js";
 import type { ThreadEvent } from "@openai/codex-sdk";
 
 export interface CodexCliAdapterOptions {
@@ -142,112 +140,4 @@ export class CodexCliAdapter implements Adapter {
       sessionTail?.stop();
     }
   }
-}
-
-function startCodexSessionTail(
-  threadId: string,
-  state: ReturnType<typeof createCodexNormalizeState>,
-  push: (evt: AdapterEvent) => void,
-): { stop: () => void; flush: () => Promise<void> } {
-  let stopped = false;
-  let tickPromise: Promise<void> | null = null;
-  let sessionFile: string | null = null;
-  let offset = 0;
-  let pending = "";
-
-  const runTick = async (): Promise<void> => {
-    if (stopped) return;
-    if (sessionFile === null) {
-      sessionFile = await findCodexSessionFile(threadId);
-      if (sessionFile === null) return;
-    }
-    const st = await stat(sessionFile).catch(() => null);
-    if (!st) {
-      sessionFile = null;
-      offset = 0;
-      pending = "";
-      return;
-    }
-    if (st.size < offset) {
-      offset = 0;
-      pending = "";
-    }
-    if (st.size === offset) return;
-    const length = st.size - offset;
-    if (length <= 0) return;
-    const buf = Buffer.allocUnsafe(length);
-    const fh = await open(sessionFile, "r");
-    let bytesRead = 0;
-    try {
-      const res = await fh.read(buf, 0, length, offset);
-      bytesRead = res.bytesRead;
-    } finally {
-      await fh.close().catch(() => {});
-    }
-    if (bytesRead <= 0) return;
-    const chunk = buf.subarray(0, bytesRead);
-    offset += bytesRead;
-    pending += chunk.toString("utf8");
-    const lines = pending.split(/\r?\n/);
-    pending = lines.pop() ?? "";
-    for (const line of lines) {
-      if (line.trim().length === 0) continue;
-      let record: unknown;
-      try {
-        record = JSON.parse(line) as unknown;
-      } catch {
-        continue;
-      }
-      for (const evt of normalizeCodexSessionRecord(record, state)) push(evt);
-    }
-  };
-
-  const tick = (): Promise<void> => {
-    if (tickPromise) return tickPromise;
-    tickPromise = runTick().finally(() => {
-      tickPromise = null;
-    });
-    return tickPromise;
-  };
-
-  const timer = setInterval(() => void tick().catch(() => {}), 500);
-  void tick().catch(() => {});
-  return {
-    flush: async () => {
-      // If a polling tick is already reading while the Codex child exits, wait
-      // for it and then run one more pass. The in-flight tick may have used a
-      // file size captured just before Codex appended final session records.
-      await tick();
-      await tick();
-    },
-    stop: () => {
-      stopped = true;
-      clearInterval(timer);
-    },
-  };
-}
-
-async function findCodexSessionFile(threadId: string): Promise<string | null> {
-  const sessionsRoot = join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "sessions");
-  return findFileByNameFragment(sessionsRoot, threadId, 5);
-}
-
-async function findFileByNameFragment(dir: string, fragment: string, depth: number): Promise<string | null> {
-  if (depth < 0) return null;
-  let entries: import("fs").Dirent[];
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isFile() && entry.name.includes(fragment) && entry.name.endsWith(".jsonl")) return full;
-  }
-  // Search newest-looking directories first; Codex stores sessions as yyyy/mm/dd.
-  for (const entry of [...entries].filter((e) => e.isDirectory()).sort((a, b) => b.name.localeCompare(a.name))) {
-    const found = await findFileByNameFragment(join(dir, entry.name), fragment, depth - 1);
-    if (found) return found;
-  }
-  return null;
 }

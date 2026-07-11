@@ -441,6 +441,51 @@ func parseHeaders(headers []string) map[string]string {
 	return result
 }
 
+// CloneWithoutCredentials builds an isolated requester that preserves transport,
+// proxy, timeout, and rate-limit settings but starts with a fresh cookie jar and
+// omits configured credential-bearing headers. Authorization differential
+// modules must not reuse the primary requester's cookie jar/custom auth headers:
+// deleting Authorization from one raw request is otherwise undone by doRequest,
+// which reapplies r.customHeaders immediately before sending.
+func (r *Requester) CloneWithoutCredentials() (*Requester, error) {
+	if r == nil || r.services == nil || r.services.Options == nil {
+		return nil, errors.New("cannot clone requester without runtime options")
+	}
+	opts := *r.services.Options
+	opts.Headers = filterCredentialHeaders(opts.Headers)
+	clone, err := NewRequester(&opts, r.services)
+	if err != nil {
+		return nil, err
+	}
+	clone.defaultCtx = r.defaultCtx
+	return clone, nil
+}
+
+func filterCredentialHeaders(headers []string) []string {
+	filtered := make([]string, 0, len(headers))
+	for _, header := range headers {
+		parts := strings.SplitN(header, ":", 2)
+		if len(parts) != 2 || credentialHeaderName(parts[0]) {
+			continue
+		}
+		filtered = append(filtered, header)
+	}
+	return filtered
+}
+
+func credentialHeaderName(name string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch normalized {
+	case "authorization", "proxy-authorization", "cookie", "x-api-key", "api-key",
+		"x-api-token", "x-auth-token", "x-access-token", "x-session-token":
+		return true
+	}
+	return strings.Contains(normalized, "credential") ||
+		strings.HasSuffix(normalized, "-token") ||
+		strings.HasSuffix(normalized, "-api-key") ||
+		strings.HasSuffix(normalized, "-session-id")
+}
+
 func makeRedirectFunc(sameHostOnly bool, maxRedirects int) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= maxRedirects {

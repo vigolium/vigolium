@@ -220,22 +220,31 @@ func (m *Module) probeEndpoint(
 		return nil
 	}
 
+	// Wildcard-shell / path-reflecting-SPA guard (memoized, cheapest-first). A
+	// brand/CMS shell (e.g. Frontify) serves one application shell for every unknown
+	// path and reflects the requested slug into it ({"view":"healthchecks-ui"}), so a
+	// weak slug marker self-matches with no endpoint behind it — and the reflected
+	// slug + per-request CSRF token defeat the random-path 404 fingerprint above.
+	// ResemblesCatchAllShell confirms the shell POSITIVELY from independent samples
+	// (site root + a random directory) via body similarity; a genuinely exposed
+	// dashboard is never ~equal to the homepage, so it costs no true positives.
+	if modkit.ResemblesCatchAllShell(scanCtx, ctx, httpClient, body) {
+		return nil
+	}
+
 	// Sub-directory catch-all guard: now that we probe under context-path prefixes,
 	// drop the finding if a nonexistent sibling under the same parent returns the
-	// same markers (a handler that 200s every child path). Root-level probes are
-	// already covered by the random-path 404 fingerprint above.
+	// same markers (a handler that 200s every child path).
 	if modkit.SiblingServesAnyMarker(scanCtx, ctx, httpClient, probePath, p.markers) {
 		return nil
 	}
 
-	// Slug-reflection guard: some probes carry a marker that IS their own last path
-	// segment ("healthchecks-ui" for /healthchecks-ui, "browserLink" for
-	// /_vs/browserLink). A content route that echoes the requested slug into the
-	// page (a topic/SEO route rendering the slug in a title/JSON-LD/canonical link)
-	// self-matches that marker without the endpoint existing. StripReflectedProbePath
-	// removes the full path, not the standalone slug word, and the sibling check
-	// above cannot see it (a random sibling reflects a DIFFERENT slug). Only when
-	// the whole match is the reflected segment do we pay for a control probe.
+	// Slug-reflection guard: several markers ARE their own last path segment
+	// ("healthchecks-ui" for /healthchecks-ui, "browserLink" for /_vs/browserLink), so
+	// a route that echoes the requested slug self-matches them. SlugReflectionFP probes
+	// a canary at the probe's base directory (the web root for these single-segment
+	// paths) and drops only when the whole match is the reflected slug — the residual
+	// reflecting host that the shell guard above misses (e.g. a 302 root). See its doc.
 	if modkit.SlugReflectionFP(ctx, httpClient, probePath, matchedMarkers) {
 		return nil
 	}

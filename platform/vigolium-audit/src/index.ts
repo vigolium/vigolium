@@ -3,7 +3,7 @@ import { cac } from "cac";
 import chalk from "chalk";
 import pkg from "../package.json" with { type: "json" };
 import { AUTHOR, BUILD_DATE, COMMIT_HASH, DOCS, WEBSITE } from "./build-info.js";
-import type { AgentPlatform } from "./engine/types.js";
+import type { AgentPlatform, AgentTransport } from "./engine/types.js";
 
 const TAGLINE =
   "vigolium-audit is an autonomous source-code security audit agent. It drives Claude or Codex through a multi-agent pipeline — gathering advisories, surfacing candidates, proposing attack paths, debating exploitability, and killing false positives — to surface high-confidence, exploitable findings in your repository.";
@@ -34,6 +34,10 @@ cli.option(
   "--agent <agent>",
   "Agent platform (claude|codex). Defaults to claude where it applies; ignored by deterministic commands (strip/status/list/...) and by `merge --premerge-only`.",
 );
+cli.option(
+  "--transport <transport>",
+  "Headless adapter transport (auto|sdk|cli). Codex auto prefers the Agent SDK; interactive (-i) always uses the native CLI. `verify` also accepts both.",
+);
 
 // --- examples (shown under `vigolium-audit --help`) -----------------------------------
 // Each entry: cyan section header, then per-command pairs of (gray comment, command).
@@ -47,8 +51,10 @@ const blank = () => cli.example("");
 
 section("# Quickstart");
 cmd("preflight: binary + auth + ping", "vigolium-audit verify claude");
+cmd("preflight both Codex transports", "vigolium-audit verify codex --transport both");
 cmd("3-phase headless surface scan", "vigolium-audit run --mode lite --target ./repo");
 cmd("full 15-phase audit, interactive (auto-installs harness, cleans up on exit)", "vigolium-audit run --mode deep --agent claude -i");
+cmd("Codex Agent SDK deep audit", "vigolium-audit run --mode deep --agent codex --transport sdk");
 blank();
 
 section("# Harness install (persistent; run -i also auto-installs ephemerally)");
@@ -195,6 +201,8 @@ runSection("# Quickstart");
 runCmdEx("fast 3-phase headless surface scan", "vigolium-audit run --mode lite --target ./repo");
 runCmdEx("full multi-phase audit (recon, candidates, attack paths, debate)", "vigolium-audit run --mode deep --target ./repo");
 runCmdEx("interactive — drops you into the CLI with the vigolium-audit harness installed", "vigolium-audit run --mode deep -i");
+runCmdEx("Codex Agent SDK (also selected by Codex auto)", "vigolium-audit run --mode deep --agent codex --transport sdk");
+runCmdEx("Codex interactive — canonical mode prompt starts automatically", "vigolium-audit run --mode deep --agent codex -i");
 runCmdEx("remote target as a git URL (clones into ./<owner-repo>/ under cwd)", "vigolium-audit run --mode deep --target https://github.com/Yoast/wordpress-seo");
 runCmdEx("GitLab URL works the same way", "vigolium-audit run --mode deep --target https://gitlab.com/owner/repo");
 runCmdEx("SSH form also accepted", "vigolium-audit run --mode deep --target git@github.com:owner/repo.git");
@@ -288,6 +296,9 @@ const bridgeCmd = cli
   .option("--max-turns <n>", "Hard cap on conversation turns.")
   .option("--resume <sessionId>", "Resume a prior session (from an earlier run's `session` event) so a follow-up continues the same conversation, e.g. triage → exploit.")
   .option("--output <mode>", "json|text — override the task's output mode. json extracts the final fenced JSON block into result.output.")
+  .option("--permission <profile>", "Least-privilege profile: read-only|workspace-write|full-access. Overrides the task default (plan/triage=read-only, exploit=workspace-write, run=full-access).")
+  .option("--network", "Allow the agent network egress (Codex enforces; profile default otherwise).")
+  .option("--no-network", "Deny the agent network egress (Codex enforces).")
   .option("--no-bypass-permissions", "Do NOT bypass tool-permission prompts (default: bypass, required for autonomous tool use).")
   .option("--oauth-token <token>", "Set CLAUDE_CODE_OAUTH_TOKEN for the run/daemon")
   .option("--oauth-cred-file <path>", "Override platform creds for the run/daemon; original backed up + restored on exit")
@@ -312,9 +323,12 @@ bridgeEx("list available task presets", "vigolium-audit bridge list");
 
 cli
   .command("verify <platform>", "Verify install + adapter probe")
-  .action(async (platform: string, opts: { json?: boolean }) => {
+  .action(async (platform: string, opts: { json?: boolean; transport?: string }) => {
     const { verifyCommand } = await import("./cli/verify.js");
-    await verifyCommand(platform, { json: !!opts.json });
+    await verifyCommand(platform, {
+      json: !!opts.json,
+      ...(opts.transport !== undefined ? { transport: opts.transport } : {}),
+    });
   });
 
 cli
@@ -373,6 +387,7 @@ cli
       force?: boolean;
       premergeOnly?: boolean;
       agent?: AgentPlatform;
+      transport?: AgentTransport;
       model?: string;
       maxCost?: number;
       strict?: boolean;
@@ -428,6 +443,7 @@ cli
       path: string | undefined,
       opts: {
         agent?: string;
+        transport?: AgentTransport;
         strict?: boolean;
         maxCost?: string;
         output?: string;
@@ -480,6 +496,7 @@ const confirmCmd = cli
       path: string | undefined,
       opts: {
         agent?: string;
+        transport?: AgentTransport;
         model?: string;
         interactive?: boolean;
         fromAudit?: string;

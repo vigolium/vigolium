@@ -46,9 +46,10 @@ var ppSourcePatterns = []ppSourcePattern{
 		RequiresURLSource: true,
 	},
 	{
-		Name:    "Object.assign from params",
-		Pattern: regexp.MustCompile(`Object\.assign\s*\([^)]*(?:location|search|hash|params)`),
-		Desc:    "Object.assign with URL-sourced input",
+		Name:              "Object.assign from params",
+		Pattern:           regexp.MustCompile(`Object\.assign\s*\([^)]*(?:location|search|hash|params)`),
+		Desc:              "Object.assign with potentially URL-sourced input",
+		RequiresURLSource: true,
 	},
 	{
 		Name:              "Custom recursive assign",

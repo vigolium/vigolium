@@ -6,9 +6,12 @@ import {
   applyBridgeAuth,
   buildBridgeAdapter,
   describeInvocation,
+  PERMISSION_PROFILES,
+  plannedSkills,
   resolveBridgeInvocation,
   runBridge,
   type BridgeOptions,
+  type PermissionProfile,
 } from "../engine/bridge.js";
 import { listBridgeTasks } from "../engine/bridge-tasks.js";
 import { parseToolsField } from "../engine/prompts.js";
@@ -39,6 +42,8 @@ export interface BridgeCliOptions {
   maxTurns?: number | string;
   resume?: string;
   output?: string;
+  permission?: string;
+  network?: boolean; // --network / --no-network
   bypassPermissions?: boolean; // --no-bypass-permissions sets false
   apiKey?: string;
   oauthToken?: string;
@@ -109,13 +114,16 @@ export async function bridgeCommand(action: string, opts: BridgeCliOptions): Pro
   // `--model` → VIGOLIUM_AUDIT_MODEL → runtime default (shared with `run`).
   const model = resolveModel(opts.model);
 
+  const permission = (PERMISSION_PROFILES as readonly string[]).includes(opts.permission ?? "")
+    ? (opts.permission as PermissionProfile)
+    : undefined;
+
   const bridgeOpts: BridgeOptions = {
     action,
     platform,
     cwd,
     skills: toArray(opts.skill),
     disallowedTools: parseToolsField(opts.denyTools),
-    bypassPermissions: opts.bypassPermissions ?? true,
     ...(promptText !== undefined ? { prompt: promptText } : {}),
     ...(inputText !== undefined ? { input: inputText } : {}),
     ...(systemPromptOverride !== undefined ? { systemPrompt: systemPromptOverride } : {}),
@@ -126,6 +134,11 @@ export async function bridgeCommand(action: string, opts: BridgeCliOptions): Pro
       : {}),
     ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
     ...(opts.output === "json" || opts.output === "text" ? { output: opts.output } : {}),
+    ...(permission !== undefined ? { permission } : {}),
+    ...(opts.network !== undefined ? { network: opts.network } : {}),
+    // Only forward an explicit --no-bypass-permissions; otherwise the resolved
+    // profile decides (always bypass headless — the sandbox/deny-list is the boundary).
+    ...(opts.bypassPermissions === false ? { bypassPermissions: false } : {}),
   };
 
   // Auth overrides live for the whole run and restore on exit / signal.
@@ -157,12 +170,15 @@ export async function bridgeCommand(action: string, opts: BridgeCliOptions): Pro
         ...(inv.resume ? { resume: inv.resume } : {}),
       });
     } else {
+      const loaded = plannedSkills(inv.platform, inv.skills);
       console.log(`${statusArrow("Bridge")} Bridge:   ${chalk.cyan(inv.action)} ${chalk.dim(`(${platform}, sdk)`)}`);
       console.log(`${statusArrow("Target")} Target:   ${chalk.cyan(cwd)}`);
-      console.log(`${statusArrow("Skills")} Skills:   ${chalk.cyan(inv.skills.join(", "))}`);
+      console.log(
+        `${statusArrow("Skills")} Skills:   ${loaded.length > 0 ? chalk.cyan(loaded.join(", ")) : chalk.dim("(none loaded)")}`,
+      );
       console.log(
         `${statusArrow("Model")} Model:    ${inv.model ? chalk.cyan(inv.model) : chalk.dim("runtime default")} ` +
-          chalk.dim(`· output=${inv.output} · auth=${choice.authSource}`),
+          chalk.dim(`· output=${inv.output} · perm=${inv.permission} · auth=${choice.authSource}`),
       );
       if (inv.resume) console.log(`${statusArrow("Resume")} Resume:   ${chalk.green(inv.resume)}`);
     }

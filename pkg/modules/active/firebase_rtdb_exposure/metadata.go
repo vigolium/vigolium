@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Firebase Realtime Database referenced by the app is publicly readable over its REST API, so anyone can fetch stored data without authentication. The check extracts the URL and confirms by retrieving genuine JSON.
+	ModuleDesc = `**What it means:** An isolated credential-free client reproducibly read a non-empty JSON object or array from a referenced Firebase Realtime Database. Public read alone is a candidate because some datasets are intentionally public.
 
-**How it's exploited:** An attacker requests the JSON endpoint directly (for example database.firebaseio.com/.json) and downloads the data tree, harvesting user records, credentials, and config. Embedded secrets like JWTs or API keys can be reused to escalate. Permissive rules often also allow writes.
+**How it's exploited:** The result becomes a finding only when returned values include sensitive fields or private credential formats. A shallow list of keys is not full-data exposure, Google client API keys are not secrets, and write access is never inferred.
 
 **Fix:** Set security rules so reads and writes require authentication and authorization instead of public access, and rotate any exposed secrets.`
 
-	ModuleConfirmation = "Confirmed when Firebase RTDB REST endpoint returns HTTP 200 with JSON data instead of permission denied"
-	ModuleSeverity     = severity.Critical
+	ModuleConfirmation = "Candidate requires two credential-free non-empty structured JSON reads; finding additionally requires substantive sensitive fields or private-credential evidence"
+	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Certain
 	ModuleTags         = []string{"firebase", "info-disclosure", "moderate"}
 )

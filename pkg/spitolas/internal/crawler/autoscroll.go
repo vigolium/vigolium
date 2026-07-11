@@ -81,3 +81,38 @@ func (c *Crawler) scrollToLoadContent(ctx context.Context, page *browser.Page) {
 	// Let the fetches and images the scroll triggered land in the network capture.
 	page.WaitNetworkIdle(c.config.DOMStableTime, c.config.SPASettleTimeout)
 }
+
+// pageBelowFoldScript reports whether the page has content below the initial
+// viewport (taller than the fold) OR carries lazy-load markers — either means a
+// scroll sweep can still reveal content/assets. A page that fits on screen with
+// no lazy markers has nothing to reveal, so the caller can skip the scroll.
+const pageBelowFoldScript = `(function(){
+  var d = document.documentElement, b = document.body;
+  var h = Math.max(d ? d.scrollHeight : 0, b ? b.scrollHeight : 0);
+  if (h > window.innerHeight + 64) return true;
+  return !!document.querySelector('[loading=lazy],[data-src],[data-lazy],[data-bg],[data-background]');
+})()`
+
+// settleNewState gives a newly discovered SPA state the same lazy-content
+// treatment the index page gets, but proportional to the work there is to do: it
+// lets the route change's bootstrap XHRs quiesce (an activity-driven network-idle
+// settle that returns immediately when the state is already quiet) and only pays
+// the scroll sweep when the state actually has content below the fold or lazy
+// markers. Without this, states reached mid-crawl captured only their above-the-
+// fold shell, missing lazy routes and infinite-scroll data deeper in the app.
+func (c *Crawler) settleNewState(ctx context.Context, page *browser.Page) {
+	if page == nil || c.config == nil || ctx.Err() != nil {
+		return
+	}
+	c.settleSPA(ctx, page)
+	if !c.config.AutoScroll || ctx.Err() != nil {
+		return
+	}
+	val, err := page.Eval(pageBelowFoldScript)
+	if err != nil {
+		return
+	}
+	if below, _ := val.(bool); below {
+		c.scrollToLoadContent(ctx, page)
+	}
+}

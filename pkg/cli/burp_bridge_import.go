@@ -40,29 +40,29 @@ func writeBurpImportResult(
 		_ = json.NewEncoder(w).Encode(output)
 		return
 	}
-	fmt.Fprintf(w, "%s Imported Burp traffic: %d selected, %d inserted, %d updated, %d unchanged",
+	_, _ = fmt.Fprintf(w, "%s Imported Burp traffic: %d selected, %d inserted, %d updated, %d unchanged",
 		terminal.SuccessSymbol(), result.Selected, result.Inserted, result.Updated, result.Unchanged)
 	if result.Skipped > 0 {
-		fmt.Fprintf(w, ", %d skipped", result.Skipped)
+		_, _ = fmt.Fprintf(w, ", %d skipped", result.Skipped)
 	}
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 	if result.Oversized > 0 {
-		fmt.Fprintf(w, "  %s %d record(s) exceeded the %d MiB per-message safety limit and were not imported\n",
+		_, _ = fmt.Fprintf(w, "  %s %d record(s) exceeded the %d MiB per-message safety limit and were not imported\n",
 			terminal.WarningSymbol(), result.Oversized, burpbridge.MaxImportBytes/(1024*1024))
 	}
 	for _, message := range result.Errors {
-		fmt.Fprintf(w, "  %s %s\n", terminal.WarningSymbol(), message)
+		_, _ = fmt.Fprintf(w, "  %s %s\n", terminal.WarningSymbol(), message)
 	}
 }
 
 func writeBurpSiteMapSaveResult(w io.Writer, result burpbridge.SiteMapSaveResult) {
-	fmt.Fprintf(w, "%s Saved Vigolium traffic to Burp Site map: %d selected, %d added",
+	_, _ = fmt.Fprintf(w, "%s Saved Vigolium traffic to Burp Site map: %d selected, %d added",
 		terminal.SuccessSymbol(), result.Selected, result.Added)
 	if result.Skipped > 0 {
-		fmt.Fprintf(w, ", %d skipped", result.Skipped)
+		_, _ = fmt.Fprintf(w, ", %d skipped", result.Skipped)
 	}
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 	for _, message := range result.Errors {
-		fmt.Fprintf(w, "  %s %s\n", terminal.WarningSymbol(), message)
+		_, _ = fmt.Fprintf(w, "  %s %s\n", terminal.WarningSymbol(), message)
 	}
 }

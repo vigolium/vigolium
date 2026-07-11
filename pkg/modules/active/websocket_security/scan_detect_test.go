@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestNew_Metadata verifies module identity and tags.
@@ -27,10 +29,10 @@ func TestNew_Metadata(t *testing.T) {
 
 // writeWSHandshake emits a complete RFC 6455 upgrade response (the accept value
 // is the canonical hash for the module's fixed Sec-WebSocket-Key).
-func writeWSHandshake(w http.ResponseWriter) {
+func writeWSHandshake(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Upgrade", "websocket")
 	w.Header().Set("Connection", "Upgrade")
-	w.Header().Set("Sec-WebSocket-Accept", "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+	w.Header().Set("Sec-WebSocket-Accept", infra.WebSocketAccept(r.Header.Get("Sec-WebSocket-Key")))
 	w.WriteHeader(http.StatusSwitchingProtocols)
 }
 
@@ -43,7 +45,7 @@ func TestScanPerRequest_DetectsPermissiveOrigin(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Accept any upgrade regardless of Origin.
 		if r.Header.Get("Upgrade") == "websocket" {
-			writeWSHandshake(w)
+			writeWSHandshake(w, r)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -55,8 +57,9 @@ func TestScanPerRequest_DetectsPermissiveOrigin(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a finding when the server upgrades from any origin")
-	assert.Equal(t, "WebSocket Origin Not Validated", res[0].Info.Name)
+	require.Len(t, res, 1)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, "ws-cswsh", res[0].Metadata["canonical_module"])
 }
 
 // TestScanPerRequest_DetectsMissingOriginCheck drives the no-Origin branch: the
@@ -70,12 +73,13 @@ func TestScanPerRequest_DetectsMissingOriginCheck(t *testing.T) {
 			return
 		}
 		origin := r.Header.Get("Origin")
-		// Reject the cross-origin attacker but accept matching origin and absent origin.
-		if origin == evilOrigin {
+		// Reject every non-matching origin; accept the legitimate origin and an
+		// absent Origin so this exercises only the hardening observation.
+		if origin != "" && origin != "http://"+r.Host {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		writeWSHandshake(w)
+		writeWSHandshake(w, r)
 	}))
 	defer srv.Close()
 
@@ -84,8 +88,9 @@ func TestScanPerRequest_DetectsMissingOriginCheck(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a missing-origin-check finding")
-	assert.Equal(t, "WebSocket Missing Origin Check", res[0].Info.Name)
+	require.Len(t, res, 1)
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+	assert.Equal(t, "WebSocket Origin Policy Observation", res[0].Info.Name)
 }
 
 // TestScanPerRequest_NoFalsePositive_Bare101 covers a reverse proxy / catch-all

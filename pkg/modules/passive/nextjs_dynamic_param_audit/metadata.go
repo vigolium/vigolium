@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** Next.js source in a JS/TS response uses dynamic route params or searchParams directly in a query, authorization decision, or redirect target, with no validation first. A static source-pattern lead for review, not a confirmed exploit.
+	ModuleDesc = `**What it means:** A source-like JS/TS file contains route/search parameter syntax near a database, authorization, SQL, or redirect pattern, with no recognized validation token elsewhere in the file.
 
-**How it's exploited:** The unguarded sink points to a likely flaw: params in a query enable SQL or NoSQL injection, searchParams in auth checks (isAdmin, role, token) allow privilege escalation, and searchParams as a redirect target enable open redirect.
+**How it's exploited:** A real flaw requires the same attacker-controlled value to reach the sink without imported/manual validation. Regex proximity cannot establish that flow or impact, so every result remains a candidate.
 
 **Fix:** Validate and coerce every param and searchParam (Zod, parseInt, or UUID parser) before using it in queries, auth logic, or redirects.`
 
-	ModuleConfirmation = "Confirmed when dynamic params or searchParams are used directly in sensitive operations without validation"
+	ModuleConfirmation = "Candidate when source-like code co-locates param and sensitive-sink patterns without recognized validation; taint tracing or dynamic impact is required"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "injection", "light"}

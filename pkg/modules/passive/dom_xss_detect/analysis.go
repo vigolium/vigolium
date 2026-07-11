@@ -6,110 +6,112 @@ import (
 	"strings"
 )
 
-// analyseOpenRedirect checks if controllable sources flow into redirect sinks.
+var (
+	assignmentRe = regexp.MustCompile(`(?s)^\s*(?:(?:var|let|const)\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(.+)$`)
+	sanitizerRe  = regexp.MustCompile(`(?i)\b(?:DOMPurify\.sanitize|sanitizeHTML|escapeHTML|encodeURIComponent|htmlEncode)\s*\(`)
+)
+
+// analyseOpenRedirect reports only a traced source-to-navigation flow. Merely
+// having location.search and location.href somewhere in the same script is not
+// evidence that attacker-controlled data reaches the redirect.
 func analyseOpenRedirect(response string) string {
-	scripts := scriptExtract.FindAllStringSubmatch(response, -1)
-	for _, script := range scripts {
-		body := script[1]
-		if !sources.MatchString(body) {
-			continue
-		}
-		if openRedirectSinks.MatchString(body) {
-			// Found a script block with both a user-controllable source and a redirect sink
-			matches := openRedirectSinks.FindAllString(body, 3)
-			return fmt.Sprintf("Redirect sinks found: %s", strings.Join(matches, ", "))
-		}
+	flow := analyseFlows(response, openRedirectSinks)
+	if flow == "" {
+		return ""
 	}
-	return ""
+	return "Traced controllable data into redirect sink:\n" + flow
 }
 
+// analyse reports a DOM-XSS candidate only when the lightweight tracer can
+// connect a browser-controlled source to an executable DOM sink. The previous
+// implementation returned a finding when either a source or a sink appeared,
+// which turned ordinary source reads and ordinary DOM rendering into findings.
 func analyse(response string) string {
-	var highlighted []string
+	return analyseFlows(response, sinks)
+}
 
+// analyseFlows performs deliberately conservative, statement-local taint
+// propagation for inline scripts. It understands direct source-to-sink calls
+// and simple identifier assignments/aliases. Complex JavaScript is left to the
+// dedicated dom_xss_taint analyzer rather than guessed here.
+func analyseFlows(response string, sinkRe *regexp.Regexp) string {
 	scripts := scriptExtract.FindAllStringSubmatch(response, -1)
-	sinkFound, sourceFound := false, false
-	// Cache the per-variable `\bNAME\b` regexes for the whole call: the same
-	// controlled variable is otherwise recompiled on every line (and twice per
-	// line — once for match, once for replace).
-	varWordRegex := make(map[string]*regexp.Regexp)
-	wordRegex := func(name string) *regexp.Regexp {
-		if re, ok := varWordRegex[name]; ok {
-			return re
-		}
-		re := regexp.MustCompile(`\b` + name + `\b`)
-		varWordRegex[name] = re
-		return re
-	}
+	var flows []string
 	for _, script := range scripts {
-		lines := strings.Split(script[1], "\n")
-		num := 1
-		allControlledVariables := make(map[string]bool)
-		for _, newLine := range lines {
-			line := newLine
-			parts := strings.Split(line, "var ")
+		if len(script) < 2 {
+			continue
+		}
+		tainted := make(map[string]struct{})
+		for lineIndex, line := range strings.Split(script[1], "\n") {
+			for _, statement := range splitStatements(line) {
+				statement = strings.TrimSpace(statement)
+				if statement == "" {
+					continue
+				}
 
-			controlledVariables := make(map[string]bool)
-			if len(parts) > 1 {
-				for _, part := range parts {
-					for controlledVariable := range allControlledVariables {
-						if strings.Contains(part, controlledVariable) {
-							controlledVariables[identifierPattern.FindString(part)] = true
-						}
-					}
+				flowValue := assignmentValue(statement)
+				directSource := sources.MatchString(flowValue)
+				usesTainted := statementUsesTainted(flowValue, tainted)
+				if sinkRe.MatchString(statement) && (directSource || usesTainted) && !sanitizerRe.MatchString(statement) {
+					flows = append(flows, fmt.Sprintf("%-3d %s", lineIndex+1, statement))
+				}
+
+				match := assignmentRe.FindStringSubmatch(statement)
+				if len(match) != 3 {
+					continue
+				}
+				name, rhs := match[1], match[2]
+				if sanitizerRe.MatchString(rhs) {
+					delete(tainted, name)
+					continue
+				}
+				if sources.MatchString(rhs) || statementUsesTainted(rhs, tainted) {
+					tainted[name] = struct{}{}
+				} else {
+					delete(tainted, name)
 				}
 			}
-			pattern := sources.FindAllStringIndex(newLine, -1)
-
-			// 寻找 source
-			for _, grp := range pattern {
-				if grp != nil {
-					source := strings.ReplaceAll(newLine[grp[0]:grp[1]], " ", "")
-					if len(source) > 0 {
-						if len(parts) > 1 {
-							for _, part := range parts {
-								if strings.Contains(part, source) {
-									controlledVariables[identifierPattern.FindString(part)] = true
-								}
-							}
-						}
-						line = strings.ReplaceAll(line, source, "*"+source+"*")
-					}
-				}
-			}
-
-			for controlledVariable := range controlledVariables {
-				allControlledVariables[controlledVariable] = true
-			}
-
-			for controlledVariable := range allControlledVariables {
-				re := wordRegex(controlledVariable)
-				matches := re.FindAllStringIndex(line, -1)
-				if len(matches) > 0 {
-					sourceFound = true
-					line = re.ReplaceAllString(line, "**"+controlledVariable+"**")
-				}
-			}
-
-			// 寻找 sink
-			pattern = sinks.FindAllStringIndex(newLine, -1)
-
-			for _, grp := range pattern {
-				if grp != nil {
-					sink := strings.ReplaceAll(newLine[grp[0]:grp[1]], " ", "")
-					if len(sink) > 0 {
-						line = strings.ReplaceAll(line, sink, "*"+sink+"*")
-						sinkFound = true
-					}
-				}
-			}
-			if line != newLine {
-				highlighted = append(highlighted, fmt.Sprintf("%-3d %s", num, strings.TrimLeft(line, " ")))
-			}
-			num += 1
 		}
 	}
-	if sinkFound || sourceFound {
-		return strings.Join(highlighted, "\t")
+	return strings.Join(flows, "\n")
+}
+
+// assignmentValue returns the value side of a simple JavaScript assignment.
+// This is important for navigation: in `location.href = "/home"`, location.href
+// is a sink being written, not an attacker-controlled source being read.
+func assignmentValue(statement string) string {
+	for i := 0; i < len(statement); i++ {
+		if statement[i] != '=' {
+			continue
+		}
+		var prev, next byte
+		if i > 0 {
+			prev = statement[i-1]
+		}
+		if i+1 < len(statement) {
+			next = statement[i+1]
+		}
+		if prev == '=' || prev == '!' || prev == '<' || prev == '>' || next == '=' || next == '>' {
+			continue
+		}
+		return statement[i+1:]
 	}
-	return ""
+	return statement
+}
+
+func splitStatements(line string) []string {
+	// This light detector intentionally handles only straight-line statements.
+	// Keeping braces with their statement preserves enough context for sink/source
+	// regexes while avoiding the old whole-script co-occurrence oracle.
+	return strings.FieldsFunc(line, func(r rune) bool { return r == ';' })
+}
+
+func statementUsesTainted(statement string, tainted map[string]struct{}) bool {
+	for name := range tainted {
+		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
+		if re.MatchString(statement) {
+			return true
+		}
+	}
+	return false
 }

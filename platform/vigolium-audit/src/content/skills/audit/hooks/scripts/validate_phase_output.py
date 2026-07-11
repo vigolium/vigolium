@@ -1,550 +1,228 @@
 #!/usr/bin/env python3
-"""
-Validate phase output before marking complete in audit-state.json.
+"""Validate durable vigolium-results output without editing audit state.
 
-Usage: validate_phase_output.py <phase_number> <security_dir>
+The TypeScript engine owns per-phase artifact gates. This helper is the final
+cross-artifact consistency pass used by report-composer after both finding
+buckets have been materialized.
+
+Usage:
+    validate_phase_output.py all <results_dir>
+
 Exit 0: validation passed
-Exit 1: validation failed (prints reasons)
+Exit 1: validation failed (one reason per line on stderr)
 Exit 2: usage error
 """
 
-import os
+from __future__ import annotations
+
+import json
+import re
 import sys
+from pathlib import Path
+from typing import Any, Optional
 
-# All phase outputs write into vigolium-results/attack-surface/knowledge-base-report.md (phases 1-9)
-# or vigolium-results/final-audit-report.md (phase 15). Checks verify KB sections and CodeQL artifacts.
-#
-# "kb_sections" entries are literal strings that must appear in knowledge-base-report.md.
-# "files" entries are non-KB artifact files that must exist (relative to security_dir).
-ATTACK_SURFACE_DIR = "attack-surface"
-KB_FILE = f"{ATTACK_SURFACE_DIR}/knowledge-base-report.md"
-
-# Files that may legitimately appear inside vigolium-results/attack-surface/ — anything else there is an orphan.
-KNOWN_ATTACK_SURFACE_FILES: set[str] = {
-    "knowledge-base-report.md",
-    "unauthenticated-surface.md",
-    "authz-matrix.md",
-    "authz-coverage-gaps.md",
-    "cross-service-edges.json",
-    "cross-service-edges.md",
-    "commit-recon-report.md",
-    "lite-recon.md",
-    # Legacy / merge-mode passthrough names:
-    "advisory-report.md",
-    "spec-gap-report.md",
-    "sast-results.md",
-    "sast-summary.md",
-    "enrichment-report.md",
-    "enrichment-summary.md",
-}
-
-PHASE_REQUIREMENTS = {
-    1: {
-        "files": [KB_FILE],
-        "kb_sections": ["Advisory Intelligence"],
-    },
-    2: {
-        "files": [KB_FILE],
-        "kb_sections": ["Bypass Analysis"],
-    },
-    3: {
-        "files": [KB_FILE],
-        "kb_sections": [
-            "Project Classification",
-            "Trust Boundaries",
-            "DFD",
-            "Threat Model",
-            "Attack Surface",
-            "Domain Attack Research",
-        ],
-    },
-    4: {
-        "files": [
-            KB_FILE,
-            "codeql-artifacts/entry-points.json",
-            "codeql-artifacts/sinks.json",
-            "codeql-artifacts/call-graph-slices.json",
-            "codeql-artifacts/flow-paths-all-severities.md",
-        ],
-        "kb_sections": ["Static Analysis Summary", "CodeQL Structural Analysis", "SAST Enrichment"],
-    },
-    9: {
-        # Spec Gap Analysis section must exist (may be "None identified" if no specs found)
-        "files": [KB_FILE],
-        "kb_sections": ["Spec Gap Analysis"],
-    },
-    10: {
-        "files": [],
-        "kb_sections": [],
-        "findings_draft_required": True,
-        "kb_addendum_required": True,
-        "chamber_workspace_required": True,
-        "attack_pattern_registry_required": True,
-    },
-    11: {
-        "files": [],
-        "kb_sections": [],
-        "verdict_in_drafts_required": True,
-        "adversarial_review_required": True,  # P11-LITE: only for CRITICAL/HIGH
-    },
-    12: {
-        "files": [],
-        "kb_sections": [],
-        "findings_draft_required": True,
-    },
-    15: {
-        "files": ["final-audit-report.md"],
-        "kb_sections": [],
-        "sections": {
-            "final-audit-report.md": [
-                "Executive Summary",
-                "Methodology",
-                "Summary of Findings",
-                "Conclusion",
-            ],
-        },
-    },
-}
-
-# Files that must NOT exist in vigolium-results/ (consolidated into knowledge-base-report.md)
-STALE_FILES = [
-    "cve-scout-report.md",
-    "bypass-analysis-report.md",
-    "threat-model-report.md",
-    "attack-surface-report.md",
-    "static-analysis-report.md",
-    "actions-audit-report.md",
-    "spec-gaps-report.md",
-    "final-findings-report.md",
-]
-
-VERDICT_MARKERS = ("VALID", "FALSE POSITIVE", "BY DESIGN", "OUT OF SCOPE", "FALSE POSITIVE (adversarial)")
+FINDING_DIR_RE = re.compile(r"^([CHML][1-9][0-9]*)(?:-.+)?$")
+FIELD_RE = re.compile(r"^([A-Za-z][A-Za-z0-9 _-]*):\s*(.*)$")
+REPORT_MIN_BYTES = 501
+FINAL_REPORT_MIN_BYTES = 200
+FINAL_REPORT_MODES = {"balanced", "deep", "merge", "revisit"}
 
 
-def check_findings_draft(security_dir: str) -> tuple[bool, str]:
-    draft_dir = os.path.join(security_dir, "findings-draft")
-    if not os.path.isdir(draft_dir):
-        return False, "findings-draft/ directory does not exist"
-    entries = [f for f in os.listdir(draft_dir) if f.endswith(".md")]
-    if not entries:
-        return False, "findings-draft/ is empty — no findings were persisted to disk"
-    return True, ""
-
-
-def check_kb_addendum(security_dir: str) -> tuple[bool, str]:
-    kb_path = os.path.join(security_dir, KB_FILE)
-    if not os.path.isfile(kb_path):
-        return False, f"{KB_FILE} not found for addendum check"
+def safe_file(path: Path, min_bytes: int = 1) -> bool:
     try:
-        content = open(kb_path).read()
-    except OSError as e:
-        return False, f"Could not read {KB_FILE}: {e}"
-    if "Phase 10 Addendum" not in content:
-        return False, f"{KB_FILE} missing '## Phase 10 Addendum' section"
-    return True, ""
+        return not path.is_symlink() and path.is_file() and path.stat().st_size >= min_bytes
+    except OSError:
+        return False
 
 
-def check_chamber_workspace(security_dir: str) -> tuple[bool, str]:
-    """Verify chamber-workspace/ exists with at least one chamber containing a CLOSED debate."""
-    workspace = os.path.join(security_dir, "chamber-workspace")
-    if not os.path.isdir(workspace):
-        return False, "chamber-workspace/ directory does not exist — Phase 10 Review Chambers required"
-    chambers = [d for d in os.listdir(workspace) if os.path.isdir(os.path.join(workspace, d))]
-    if not chambers:
-        return False, "chamber-workspace/ is empty — no Review Chambers were created"
-    for chamber in chambers:
-        debate_path = os.path.join(workspace, chamber, "debate.md")
-        if not os.path.isfile(debate_path):
-            return False, f"chamber-workspace/{chamber}/debate.md does not exist"
-        try:
-            content = open(debate_path).read()
-        except OSError as e:
-            return False, f"Could not read debate.md for {chamber}: {e}"
-        if "CLOSED" not in content:
-            return False, f"chamber-workspace/{chamber}/debate.md Status is not CLOSED"
-    return True, ""
-
-
-def check_attack_pattern_registry(security_dir: str) -> tuple[bool, str]:
-    """Verify attack-pattern-registry.json exists and is valid JSON."""
-    import json
-    registry_path = os.path.join(security_dir, "attack-pattern-registry.json")
-    if not os.path.isfile(registry_path):
-        return False, "attack-pattern-registry.json does not exist"
+def load_json(path: Path) -> tuple[Optional[Any], Optional[str]]:
+    if not safe_file(path):
+        return None, f"{path}: missing or not a safe regular file"
     try:
-        data = json.loads(open(registry_path).read())
-    except (OSError, json.JSONDecodeError) as e:
-        return False, f"attack-pattern-registry.json is invalid: {e}"
-    if "patterns" not in data:
-        return False, "attack-pattern-registry.json missing 'patterns' key"
-    return True, ""
+        return json.loads(path.read_text(encoding="utf-8")), None
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return None, f"{path}: invalid JSON ({exc})"
 
 
-def check_adversarial_reviews(security_dir: str) -> tuple[bool, str]:
-    """P11-LITE: adversarial reviews required only for CRITICAL and HIGH VALID findings.
-    Medium findings skip Stage 2 (already challenged by Devil's Advocate in chamber debate)."""
-    draft_dir = os.path.join(security_dir, "findings-draft")
-    reviews_dir = os.path.join(security_dir, "adversarial-reviews")
-
-    if not os.path.isdir(draft_dir):
-        return True, ""  # No drafts to check
-
-    # Find VALID findings that are CRITICAL or HIGH (these need cold verification)
-    critical_high_valid = []
-    for fname in os.listdir(draft_dir):
-        if not fname.endswith(".md"):
-            continue
-        fpath = os.path.join(draft_dir, fname)
-        try:
-            content = open(fpath).read()
-        except OSError:
-            continue
-        if "Verdict: VALID" in content:
-            # Check if CRITICAL or HIGH severity
-            content_upper = content.upper()
-            if "SEVERITY-ORIGINAL: CRITICAL" in content_upper or "SEVERITY-ORIGINAL: HIGH" in content_upper:
-                critical_high_valid.append(fname)
-
-    if not critical_high_valid:
-        return True, ""  # No CRITICAL/HIGH VALID findings, Stage 2 not required
-
-    # Check that adversarial-reviews/ directory exists and has review files
-    if not os.path.isdir(reviews_dir):
-        return False, (
-            "CRITICAL/HIGH VALID findings exist but vigolium-results/adversarial-reviews/ is missing. "
-            "P11-LITE Stage 2 cold verification is required for CRITICAL and HIGH findings."
-        )
-    review_files = [f for f in os.listdir(reviews_dir) if f.endswith(".md")]
-    if not review_files:
-        return False, (
-            "CRITICAL/HIGH VALID findings exist but vigolium-results/adversarial-reviews/ is empty. "
-            "P11-LITE Stage 2 cold verification is required for CRITICAL and HIGH findings."
-        )
-
-    # Check each CRITICAL/HIGH VALID draft has an Adversarial-Verdict: line
-    missing_verdict = []
-    for fname in critical_high_valid:
-        fpath = os.path.join(draft_dir, fname)
-        try:
-            content = open(fpath).read()
-        except OSError:
-            continue
-        if "Adversarial-Verdict:" not in content:
-            missing_verdict.append(fname)
-
-    if missing_verdict:
-        return False, (
-            f"CRITICAL/HIGH VALID findings missing Adversarial-Verdict: {', '.join(missing_verdict)}. "
-            "P11-LITE Stage 2 cold verification must write verdicts back into CRITICAL/HIGH drafts."
-        )
-
-    return True, ""
+def read_last_field(path: Path, name: str) -> str:
+    if not safe_file(path):
+        return ""
+    value = ""
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = FIELD_RE.match(line)
+            if match and match.group(1).strip().lower() == name.lower():
+                value = match.group(2).strip()
+    except (OSError, UnicodeError):
+        return ""
+    return value
 
 
-def check_verdict_in_drafts(security_dir: str) -> tuple[bool, str]:
-    draft_dir = os.path.join(security_dir, "findings-draft")
-    if not os.path.isdir(draft_dir):
-        return False, "findings-draft/ directory does not exist"
-    for fname in os.listdir(draft_dir):
-        if not fname.endswith(".md"):
-            continue
-        try:
-            content = open(os.path.join(draft_dir, fname)).read()
-        except OSError:
-            continue
-        if any(marker in content for marker in VERDICT_MARKERS):
-            return True, ""
-    return False, (
-        "No verdict found in any findings-draft/ file. "
-        "FP elimination verdicts (VALID / FALSE POSITIVE / BY DESIGN / OUT OF SCOPE) "
-        "must be written back into draft files during Phase 11."
-    )
-
-
-def validate_phase(phase: int, security_dir: str) -> tuple[bool, list[str]]:
+def finding_dirs(results_dir: Path) -> tuple[dict[str, tuple[str, Path]], list[str]]:
+    findings: dict[str, tuple[str, Path]] = {}
     errors: list[str] = []
-    req = PHASE_REQUIREMENTS.get(phase)
-    if req is None:
-        return True, []
-
-    # Required files must exist and be non-empty
-    for fname in req.get("files", []):
-        fpath = os.path.join(security_dir, fname)
-        if not os.path.isfile(fpath):
-            errors.append(f"Missing required output file: {fname}")
+    for bucket in ("findings", "findings-theoretical"):
+        root = results_dir / bucket
+        if not root.exists():
             continue
-        if os.path.getsize(fpath) == 0:
-            errors.append(f"Output file is empty: {fname}")
-
-    # KB section checks — verify knowledge-base-report.md contains expected section headers
-    kb_sections = req.get("kb_sections", [])
-    if kb_sections:
-        kb_path = os.path.join(security_dir, KB_FILE)
-        try:
-            kb_content = open(kb_path).read()
-        except OSError as e:
-            errors.append(f"Could not read {KB_FILE}: {e}")
-            kb_content = ""
-        for section in kb_sections:
-            if section not in kb_content:
-                errors.append(f"{KB_FILE}: missing required section '{section}'")
-
-    # Structural content checks for non-KB files (Phase 15 final-audit-report)
-    for fname, markers in req.get("sections", {}).items():
-        fpath = os.path.join(security_dir, fname)
-        if not os.path.isfile(fpath):
-            continue  # already reported above
-        try:
-            content = open(fpath).read()
-        except OSError as e:
-            errors.append(f"Could not read {fname}: {e}")
+        if root.is_symlink() or not root.is_dir():
+            errors.append(f"{bucket}/ is not a safe directory")
             continue
-        for marker in markers:
-            if marker not in content:
-                errors.append(f"{fname}: missing required content '{marker}'")
-
-    # findings-draft presence check
-    if req.get("findings_draft_required"):
-        ok, msg = check_findings_draft(security_dir)
-        if not ok:
-            errors.append(msg)
-
-    # KB addendum check (Phase 10 only)
-    if req.get("kb_addendum_required"):
-        ok, msg = check_kb_addendum(security_dir)
-        if not ok:
-            errors.append(msg)
-
-    # Verdict-in-drafts check (Phase 11)
-    if req.get("verdict_in_drafts_required"):
-        ok, msg = check_verdict_in_drafts(security_dir)
-        if not ok:
-            errors.append(msg)
-
-    # Adversarial review check (Phase 11 Stage 2 — P11-LITE: CRITICAL/HIGH only)
-    if req.get("adversarial_review_required"):
-        ok, msg = check_adversarial_reviews(security_dir)
-        if not ok:
-            errors.append(msg)
-
-    # Chamber workspace check (Phase 10 Review Chambers)
-    if req.get("chamber_workspace_required"):
-        ok, msg = check_chamber_workspace(security_dir)
-        if not ok:
-            errors.append(msg)
-
-    # Attack pattern registry check (Phase 10)
-    if req.get("attack_pattern_registry_required"):
-        ok, msg = check_attack_pattern_registry(security_dir)
-        if not ok:
-            errors.append(msg)
-
-    return len(errors) == 0, errors
+        for entry in sorted(root.iterdir()):
+            match = FINDING_DIR_RE.match(entry.name)
+            if not match or entry.is_symlink() or not entry.is_dir():
+                continue
+            finding_id = match.group(1)
+            if finding_id in findings:
+                prior_bucket = findings[finding_id][0]
+                errors.append(
+                    f"duplicate finding ID {finding_id} across {prior_bucket}/ and {bucket}/"
+                )
+                continue
+            findings[finding_id] = (bucket, entry)
+    return findings, errors
 
 
-def lint_all(security_dir: str) -> tuple[bool, list[str]]:
-    """Full-audit consistency checks across the vigolium-results/ directory."""
-    import json
-
+def validate_finding(
+    finding_id: str,
+    bucket: str,
+    directory: Path,
+) -> list[str]:
     errors: list[str] = []
+    if finding_id.startswith("L"):
+        errors.append(f"{bucket}/{directory.name}: Low-severity finding leaked into final output")
 
-    # 1. Load audit-state.json — history format: {"audits": [...]}
-    state_path = os.path.join(security_dir, "audit-state.json")
-    current_audit: dict = {}
-    if os.path.isfile(state_path):
-        try:
-            data = json.loads(open(state_path).read())
-            audits = data.get("audits", [])
-            if audits:
-                current_audit = audits[-1]  # most recent entry is the current audit
-            else:
-                errors.append("audit-state.json has an empty 'audits' array")
-        except (OSError, json.JSONDecodeError) as e:
-            errors.append(f"audit-state.json unreadable: {e}")
+    draft = directory / "draft.md"
+    report = directory / "report.md"
+    if not safe_file(draft):
+        errors.append(f"{bucket}/{directory.name}/draft.md is missing or unsafe")
+    if not safe_file(report, REPORT_MIN_BYTES):
+        size = report.stat().st_size if report.exists() and report.is_file() else 0
+        errors.append(
+            f"{bucket}/{directory.name}/report.md is incomplete "
+            f"({size} bytes; requires at least {REPORT_MIN_BYTES})"
+        )
 
-    # 2. State vs artifact alignment: completed phases must have their KB sections and files
-    phases_state = current_audit.get("phases", {})
-    kb_path = os.path.join(security_dir, KB_FILE)
-    kb_content = ""
-    if os.path.isfile(kb_path):
-        try:
-            kb_content = open(kb_path).read()
-        except OSError:
-            pass
-
-    for phase_str, info in phases_state.items():
-        if info.get("status") != "complete":
-            continue
-        try:
-            phase_num = int(phase_str)
-        except ValueError:
-            continue
-        req = PHASE_REQUIREMENTS.get(phase_num, {})
-        for fname in req.get("files", []):
-            fpath = os.path.join(security_dir, fname)
-            if not os.path.isfile(fpath):
-                errors.append(
-                    f"Phase {phase_num} marked complete but output missing: {fname}"
-                )
-        for section in req.get("kb_sections", []):
-            if kb_content and section not in kb_content:
-                errors.append(
-                    f"Phase {phase_num} marked complete but KB missing section '{section}'"
-                )
-
-    # 3. KB addendum: if Phase 10 (Review Chambers) is complete, addendum must be present
-    chamber_info = phases_state.get("10", {})
-    if chamber_info.get("status") == "complete":
-        ok, msg = check_kb_addendum(security_dir)
-        if not ok:
-            errors.append(f"Phase 10 complete but KB addendum missing: {msg}")
-
-    # 4. Finding ID cross-reference: IDs in final-audit-report.md must have findings/ dirs
-    final_report = os.path.join(security_dir, "final-audit-report.md")
-    if os.path.isfile(final_report):
-        import re
-        content = open(final_report).read()
-        ids_in_report = re.findall(r"\b([CH ML][0-9]+)-[\w-]+", content)
-        findings_dir = os.path.join(security_dir, "findings")
-        if os.path.isdir(findings_dir):
-            existing = set(os.listdir(findings_dir))
-            for fid in set(ids_in_report):
-                matches = [d for d in existing if d.startswith(fid + "-") or d.startswith(fid.replace(" ", ""))]
-                if not matches:
-                    errors.append(
-                        f"final-audit-report.md references {fid} but no matching directory in vigolium-results/findings/"
-                    )
-
-    # 5. Findings-draft cleanup: VALID drafts must have corresponding findings/ dirs
-    draft_dir = os.path.join(security_dir, "findings-draft")
-    findings_dir = os.path.join(security_dir, "findings")
-    if os.path.isdir(draft_dir):
-        for fname in os.listdir(draft_dir):
-            if not fname.endswith(".md"):
-                continue
-            fpath = os.path.join(draft_dir, fname)
-            try:
-                content = open(fpath).read()
-            except OSError:
-                continue
-            if "Verdict: VALID" in content:
-                slug = fname.replace(".md", "")
-                if os.path.isdir(findings_dir):
-                    matches = [d for d in os.listdir(findings_dir) if slug in d]
-                    if not matches:
-                        errors.append(
-                            f"findings-draft/{fname} has Verdict: VALID but was not promoted to vigolium-results/findings/"
-                        )
-
-    # 5b. Finding completeness: every finding directory MUST have a non-empty report.md.
-    # This is the programmatic gate for Phase 14 (deep mode) and Phase 7 (balanced mode) —
-    # finding-writer is responsible for authoring report.md, and it must run before
-    # report-composer. A missing or stub report.md here is a real regression.
-    REPORT_MIN_BYTES = 500
-    if os.path.isdir(findings_dir):
-        for entry in sorted(os.listdir(findings_dir)):
-            fdir = os.path.join(findings_dir, entry)
-            if not os.path.isdir(fdir):
-                continue
-            # Only enforce for severity-prefixed finding directories (C*, H*, M*).
-            if not (entry[:1] in ("C", "H", "M") and len(entry) > 1 and entry[1:2].isdigit()):
-                continue
-            report_path = os.path.join(fdir, "report.md")
-            if not os.path.isfile(report_path):
-                errors.append(
-                    f"findings/{entry}/report.md is missing — finding-writer "
-                    f"must author it before report-composer runs."
-                )
-                continue
-            try:
-                size = os.path.getsize(report_path)
-            except OSError as e:
-                errors.append(f"findings/{entry}/report.md unreadable: {e}")
-                continue
-            if size < REPORT_MIN_BYTES:
-                errors.append(
-                    f"findings/{entry}/report.md is too small ({size} bytes, min "
-                    f"{REPORT_MIN_BYTES}) — likely a stub. Re-run finding-writer."
-                )
-            # Also require draft.md — every promoted finding should have it.
-            if not os.path.isfile(os.path.join(fdir, "draft.md")):
-                errors.append(
-                    f"findings/{entry}/draft.md is missing — consolidation should have "
-                    f"copied it from findings-draft/."
-                )
-
-    # 6. Stale separate report files must not exist (consolidated into knowledge-base-report.md)
-    for stale in STALE_FILES:
-        if os.path.isfile(os.path.join(security_dir, stale)):
+    poc_status = read_last_field(draft, "PoC-Status").lower()
+    if bucket == "findings":
+        if poc_status != "executed":
             errors.append(
-                f"Stale report file exists: {stale} — this has been consolidated into "
-                f"{KB_FILE} and should be removed."
+                f"{bucket}/{directory.name}: confirmed bucket requires PoC-Status: executed"
             )
+        poc_files = [
+            path
+            for path in directory.glob("poc.*")
+            if path.name != "poc.theoretical.md" and safe_file(path)
+        ]
+        if not poc_files:
+            errors.append(f"{bucket}/{directory.name}: confirmed finding has no executable PoC artifact")
+    elif poc_status == "executed":
+        errors.append(
+            f"{bucket}/{directory.name}: executed PoC belongs in findings/, not findings-theoretical/"
+        )
+    return errors
 
-    # 7. Orphan detection: files in vigolium-results/ root not in the known output set.
-    # Recon artifacts live under attack-surface/; verify both layers.
-    known_outputs: set[str] = {"final-audit-report.md", "audit-state.json", "bounty-scope.md",
-                               "attack-pattern-registry.json"}
-    known_dirs = {
-        ATTACK_SURFACE_DIR, "findings", "findings-draft", "codeql-artifacts", "codeql-queries",
-        "semgrep-rules", "adversarial-reviews", "real-env-evidence", "chamber-workspace",
-    }
-    for entry in os.listdir(security_dir):
-        entry_path = os.path.join(security_dir, entry)
-        if os.path.isdir(entry_path):
-            if entry not in known_dirs:
-                errors.append(f"Unexpected directory in vigolium-results/: {entry}/")
-        elif entry.endswith(".md") or entry.endswith(".json"):
-            if entry not in known_outputs:
-                errors.append(f"Orphaned file in vigolium-results/ (not in any phase output map): {entry}")
 
-    attack_surface_path = os.path.join(security_dir, ATTACK_SURFACE_DIR)
-    if os.path.isdir(attack_surface_path):
-        for entry in os.listdir(attack_surface_path):
-            sub = os.path.join(attack_surface_path, entry)
-            if os.path.isdir(sub):
-                errors.append(f"Unexpected directory in vigolium-results/{ATTACK_SURFACE_DIR}/: {entry}/")
-            elif entry not in KNOWN_ATTACK_SURFACE_FILES:
-                errors.append(f"Orphaned file in vigolium-results/{ATTACK_SURFACE_DIR}/: {entry}")
+def manifest_ids(results_dir: Path) -> tuple[set[str], list[str]]:
+    path = results_dir / "findings-draft" / "consolidation-manifest.json"
+    if not path.exists():
+        return set(), []
+    manifest, error = load_json(path)
+    if error:
+        return set(), [error]
+    if not isinstance(manifest, dict):
+        return set(), [f"{path}: root must be an object"]
 
-    return len(errors) == 0, errors
+    ids: set[str] = set()
+    errors: list[str] = []
+    for list_name in ("findings", "theoretical"):
+        entries = manifest.get(list_name)
+        if not isinstance(entries, list):
+            errors.append(f"{path}: {list_name} must be an array")
+            continue
+        for index, entry in enumerate(entries):
+            finding_id = entry.get("id") if isinstance(entry, dict) else None
+            if not isinstance(finding_id, str) or not re.fullmatch(r"[CHM][1-9][0-9]*", finding_id):
+                errors.append(f"{path}: {list_name}[{index}] has no safe Medium+ finding ID")
+                continue
+            ids.add(finding_id)
+    return ids, errors
+
+
+def latest_mode(results_dir: Path) -> tuple[Optional[str], list[str]]:
+    path = results_dir / "audit-state.json"
+    if not path.exists():
+        return None, []
+    state, error = load_json(path)
+    if error:
+        return None, [error]
+    if not isinstance(state, dict) or state.get("schema_version", 1) != 1:
+        return None, [f"{path}: expected schema_version 1 object"]
+    audits = state.get("audits")
+    if not isinstance(audits, list) or not audits:
+        return None, [f"{path}: audits must be a non-empty array"]
+    latest = audits[-1]
+    mode = latest.get("mode") if isinstance(latest, dict) else None
+    return mode if isinstance(mode, str) else None, []
+
+
+def validate_final_report(
+    results_dir: Path,
+    mode: Optional[str],
+    finding_ids: set[str],
+) -> list[str]:
+    report = results_dir / "final-audit-report.md"
+    if not report.exists() and mode not in FINAL_REPORT_MODES:
+        return []
+    if not safe_file(report, FINAL_REPORT_MIN_BYTES):
+        return [
+            f"final-audit-report.md is missing or below {FINAL_REPORT_MIN_BYTES} bytes"
+        ]
+    try:
+        content = report.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return [f"final-audit-report.md is unreadable: {exc}"]
+    return [
+        f"final-audit-report.md does not reference finalized finding {finding_id}"
+        for finding_id in sorted(finding_ids)
+        if re.search(rf"(?<![A-Za-z0-9]){re.escape(finding_id)}(?![0-9])", content) is None
+    ]
+
+
+def lint_all(results_dir: Path) -> list[str]:
+    if results_dir.is_symlink() or not results_dir.is_dir():
+        return [f"results directory is missing or unsafe: {results_dir}"]
+
+    errors: list[str] = []
+    mode, state_errors = latest_mode(results_dir)
+    errors.extend(state_errors)
+
+    findings, discovery_errors = finding_dirs(results_dir)
+    errors.extend(discovery_errors)
+    for finding_id, (bucket, directory) in findings.items():
+        errors.extend(validate_finding(finding_id, bucket, directory))
+
+    expected_ids, manifest_errors = manifest_ids(results_dir)
+    errors.extend(manifest_errors)
+    for finding_id in sorted(expected_ids - set(findings)):
+        errors.append(f"consolidation manifest finding {finding_id} has no finalized directory")
+
+    errors.extend(validate_final_report(results_dir, mode, set(findings)))
+    return errors
 
 
 def main() -> None:
-    if len(sys.argv) < 3:
-        print(
-            "Usage: validate_phase_output.py <phase_number|all> <security_dir>",
-            file=sys.stderr,
-        )
+    if len(sys.argv) != 3 or sys.argv[1] != "all":
+        print("usage: validate_phase_output.py all <results_dir>", file=sys.stderr)
         sys.exit(2)
 
-    phase_arg = sys.argv[1]
-    security_dir = sys.argv[2]
-
-    if not os.path.isdir(security_dir):
-        print(f"Security directory not found: {security_dir}", file=sys.stderr)
-        sys.exit(2)
-
-    if phase_arg == "all":
-        passed, errors = lint_all(security_dir)
-        label = "Full audit lint"
-    else:
-        try:
-            phase = int(phase_arg)
-        except ValueError:
-            print(f"Invalid phase number: {phase_arg}", file=sys.stderr)
-            sys.exit(2)
-        passed, errors = validate_phase(phase, security_dir)
-        label = f"Phase {phase} validation"
-
-    if passed:
-        print(f"{label} passed.")
-        sys.exit(0)
-    else:
-        print(f"{label} FAILED:")
-        for err in errors:
-            print(f"  - {err}")
+    results_dir = Path(sys.argv[2]).absolute()
+    errors = lint_all(results_dir)
+    if errors:
+        for error in errors:
+            print(f"FAIL: {error}", file=sys.stderr)
         sys.exit(1)
+    print("PASS: durable audit output is internally consistent")
 
 
 if __name__ == "__main__":

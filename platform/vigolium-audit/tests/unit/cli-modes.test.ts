@@ -87,6 +87,35 @@ async function runCli(args: string[]): Promise<{ exitCode: number; stderr: strin
 }
 
 describe("--modes CLI validation", () => {
+  test("rejects SDK transport with native interactive mode", async () => {
+    const { exitCode, stderr } = await runCli([
+      "run",
+      "--mode",
+      "deep",
+      "--agent",
+      "codex",
+      "--transport",
+      "sdk",
+      "-i",
+    ]);
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain("interactive mode uses the native agent CLI");
+  });
+
+  test("rejects Codex interactive modes that have no AGENTS.md dispatch", async () => {
+    const { exitCode, stderr } = await runCli([
+      "run",
+      "--mode",
+      "merge",
+      "--agent",
+      "codex",
+      "-i",
+    ]);
+    expect(exitCode).toBe(2);
+    expect(stderr).toContain("has no Codex interactive dispatch");
+    expect(stderr).toContain("Run without -i");
+  });
+
   test("rejects -i with --modes (chain is headless-only)", async () => {
     const { exitCode, stderr } = await runCli(["run", "-i", "--modes", "deep,refresh,confirm"]);
     expect(exitCode).toBe(2);

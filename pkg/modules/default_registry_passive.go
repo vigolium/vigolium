@@ -16,6 +16,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/cache_data_leak"
 	"github.com/vigolium/vigolium/pkg/modules/passive/clickjacking_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/client_auth_guard"
+	"github.com/vigolium/vigolium/pkg/modules/passive/client_path_taint"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cloud_signed_url_leak"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cloud_storage_error_info"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cloud_storage_fingerprint"
@@ -23,8 +24,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/passive/content_type_mismatch"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cookie_security_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cors_headers_detect"
-	"github.com/vigolium/vigolium/pkg/modules/passive/cross_origin_isolation_audit"
 	"github.com/vigolium/vigolium/pkg/modules/passive/cors_vary_origin_missing"
+	"github.com/vigolium/vigolium/pkg/modules/passive/cross_origin_isolation_audit"
 	"github.com/vigolium/vigolium/pkg/modules/passive/crypto_weakness_detect"
 	"github.com/vigolium/vigolium/pkg/modules/passive/csp_weakness_audit"
 	"github.com/vigolium/vigolium/pkg/modules/passive/csrf_detect"
@@ -125,6 +126,7 @@ func registerPassiveModules(r *Registry) {
 	r.RegisterPassive(dom_xss_detect.New())
 	r.RegisterPassive(dom_clobbering.New())
 	r.RegisterPassive(dom_xss_taint.New())
+	r.RegisterPassive(client_path_taint.New())
 	r.RegisterPassive(auth_headers_detect.New())
 	r.RegisterPassive(openredirect_params.New())
 	r.RegisterPassive(oauth_facebook_detect.New())

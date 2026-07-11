@@ -11,14 +11,15 @@ import (
 	"github.com/pkg/errors"
 	urlutil "github.com/projectdiscovery/utils/url"
 	"github.com/vigolium/vigolium/pkg/dedup"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
-// scanTimeout bounds a single jsscan subprocess invocation from this passive
+// scanTimeout bounds a single jstangle subprocess invocation from this passive
 // module (the scanner's own MaxScanTimeout is far longer and meant for large
 // bundle deobfuscation, not passive per-response analysis).
 const scanTimeout = 20 * time.Second
@@ -38,7 +39,7 @@ type Module struct {
 	ds dedup.Lazy[dedup.DiskSet]
 
 	scannerOnce sync.Once
-	service     *jsscan.Service
+	service     *jstangle.Service
 }
 
 func New() *Module {
@@ -60,11 +61,11 @@ func New() *Module {
 	return m
 }
 
-// getScanner lazily resolves the process-wide jsscan service. A construction
+// getScanner lazily resolves the process-wide jstangle service. A construction
 // failure is non-fatal — the module simply produces no findings.
-func (m *Module) getScanner() *jsscan.Service {
+func (m *Module) getScanner() *jstangle.Service {
 	m.scannerOnce.Do(func() {
-		if service, err := jsscan.DefaultService(); err == nil {
+		if service, err := jstangle.DefaultService(); err == nil {
 			m.service = service
 		}
 	})
@@ -94,7 +95,10 @@ func (m *Module) ScanPerRequestContext(runCtx context.Context, ctx *httpmsg.Http
 		return nil, nil
 	}
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	hash := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(hash) {
 		return nil, nil
@@ -113,8 +117,8 @@ func (m *Module) ScanPerRequestContext(runCtx context.Context, ctx *httpmsg.Http
 	cctx, cancel := context.WithTimeout(runCtx, scanTimeout)
 	defer cancel()
 
-	res, err := scanner.ScanWithOptions(cctx, []byte(js), jsscan.ScanOptions{
-		Profile: jsscan.ProfileDOMSecurity, SourceURL: urlx.String(),
+	res, err := scanner.ScanWithOptions(cctx, []byte(js), jstangle.ScanOptions{
+		Profile: jstangle.ProfileDOMSecurity, SourceURL: urlx.String(),
 	})
 	if err != nil || res == nil || !res.HasDomFlows() {
 		return nil, nil
@@ -142,10 +146,23 @@ func (m *Module) ScanPerRequestContext(runCtx context.Context, ctx *httpmsg.Http
 			f.Source, f.Sink, f.Line, f.Snippet,
 		)
 		results = append(results, &output.ResultEvent{
-			URL:     urlx.String(),
-			Host:    urlx.Host,
-			Request: string(ctx.Request().Raw()),
-			Info:    output.Info{Description: desc},
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindCandidate,
+			EvidenceGrade: output.EvidenceGradeCandidate,
+			DedupKey:      fmt.Sprintf("dom-xss-flow|%s|%s", urlx.Host, urlx.Path),
+			URL:           urlx.String(),
+			Host:          urlx.Host,
+			Matched:       urlx.String(),
+			Request:       string(ctx.Request().Raw()),
+			Response:      string(ctx.Response().Raw()),
+			Info: output.Info{
+				Name:        "DOM XSS Taint-Flow Candidate",
+				Description: desc + "\nThe taint engine connected source to sink; browser execution and payload viability were not tested.",
+				Severity:    ModuleSeverity,
+				Confidence:  severity.Firm,
+				Tags:        ModuleTags,
+			},
+			Metadata: map[string]any{"flow_engine": "jstangle", "connected_flow": true, "browser_execution_tested": false},
 		})
 	}
 

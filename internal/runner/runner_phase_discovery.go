@@ -541,6 +541,53 @@ func runSpiderWatchdog(ctx context.Context, cfg spitolas.SpiderConfig, rw *datab
 	return oc.res, oc.err
 }
 
+// runReSpiderSessionCrawl runs one seed on a shared SpiderSession under the same
+// hang-proofing as runSpiderWatchdog: if Crawl does not return within budget+grace
+// the run is abandoned (the shared browser/goroutines leak until exit) and an
+// error is returned so the caller abandons the whole host session.
+func runReSpiderSessionCrawl(ctx context.Context, sess *spitolas.SpiderSession, seedURL string, budget time.Duration) (*spitolas.SpiderResult, error) {
+	type outcome struct {
+		res *spitolas.SpiderResult
+		err error
+	}
+	oc := runWithWatchdog(
+		budget+spideringTeardownGrace,
+		func() outcome {
+			res, err := sess.Crawl(ctx, seedURL)
+			return outcome{res, err}
+		},
+		func() outcome {
+			buf := make([]byte, 1<<20)
+			n := runtime.Stack(buf, true)
+			zap.L().Error("Re-spider session-crawl watchdog fired — abandoning the host session (browser/goroutines leak until exit)",
+				zap.String("seed", seedURL),
+				zap.Duration("budget", budget),
+				zap.Duration("grace", spideringTeardownGrace))
+			zap.L().Warn("Re-spider watchdog goroutine dump follows:\n" + string(buf[:n]))
+			return outcome{nil, fmt.Errorf("re-spider session crawl watchdog timeout for %s (exceeded %s)", seedURL, budget+spideringTeardownGrace)}
+		},
+	)
+	return oc.res, oc.err
+}
+
+// closeReSpiderSession flushes and tears down a shared SpiderSession (and its
+// backing RecordWriter) under a teardown watchdog, so a wedged browser close
+// can't hang the phase.
+func closeReSpiderSession(sess *spitolas.SpiderSession, rw *database.RecordWriter) {
+	_ = runWithWatchdog(
+		spideringTeardownGrace,
+		func() struct{} {
+			_ = sess.Close()
+			rw.Close()
+			return struct{}{}
+		},
+		func() struct{} {
+			zap.L().Error("Re-spider session-close watchdog fired — browser teardown wedged; leaking until exit")
+			return struct{}{}
+		},
+	)
+}
+
 // runSpideringPhase runs browser-based crawling using spitolas.
 // Captured traffic is stored in vigolium's HTTPRecord table via RepositoryWriter.
 // Targets are merged from CLI targets and in-scope hosts discovered by prior phases.
@@ -668,6 +715,9 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 		zap.L().Info("Spidering target", zap.String("target", target))
 
 		loginCredsAttempts, loginCredsFull := loginCredsPolicy(r.options.Intensity)
+		// Bridge the operator's session/custom headers into the browser so the
+		// crawl explores authenticated content, not just the login shell.
+		browserCookies, browserHeaders := browserAuthFromHeaders(r.options.Headers)
 		cfg := spitolas.SpiderConfig{
 			TargetURL:           target,
 			MaxDepth:            settingsCfg.MaxDepth,
@@ -691,6 +741,8 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			// quick/lite (lockout/authorization risk).
 			LoginCredentialAttempts: loginCredsAttempts,
 			LoginCredentialFullList: loginCredsFull,
+			InitialCookies:          browserCookies,
+			ExtraHeaders:            browserHeaders,
 		}
 
 		if infra.scopeMatcher != nil && !infra.scopeMatcher.IsPassAll() {

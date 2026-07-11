@@ -691,7 +691,7 @@ func saveReplayResultToBurp(
 	result *replay.Result,
 ) error {
 	if client == nil {
-		return fmt.Errorf("Burp bridge client is not configured")
+		return fmt.Errorf("burp bridge client is not configured")
 	}
 	if result == nil || len(result.RawMutatedRequest) == 0 {
 		return fmt.Errorf("replay did not return the complete sent request")

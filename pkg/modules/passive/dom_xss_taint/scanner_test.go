@@ -4,18 +4,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
 
-// requireBinary skips when the embedded jsscan binary isn't available (e.g. a
-// fresh checkout before `make ensure-jsscan`).
+// requireBinary skips when the embedded jstangle binary isn't available (e.g. a
+// fresh checkout before `make ensure-jstangle`).
 func requireBinary(t *testing.T) {
 	t.Helper()
-	sc, err := jsscan.NewScanner(jsscan.DefaultConfig())
+	sc, err := jstangle.NewScanner(jstangle.DefaultConfig())
 	if err != nil || sc.EnsureBinary() != nil {
-		t.Skip("skipping: no valid jsscan binary available")
+		t.Skip("skipping: no valid jstangle binary available")
 	}
 }
 

@@ -186,10 +186,10 @@ function findSourceBinary(goos, goarch) {
 // --- embedded audit blob verification -------------------------------------
 
 // Loader strings that uniquely fingerprint an embedded executable's OS. The
-// vigolium-audit blob and the jsscan blob are dynamically-linked native
-// binaries that carry their platform's loader path. jsscan is embedded with
-// per-platform go:build tags (internal/resources/deparos/embed_jsscan_*.go),
-// so for any cross-compile only the matching-OS jsscan is present — the audit
+// vigolium-audit blob and the jstangle blob are dynamically-linked native
+// binaries that carry their platform's loader path. jstangle is embedded with
+// per-platform go:build tags (internal/resources/deparos/embed_jstangle_*.go),
+// so for any cross-compile only the matching-OS jstangle is present — the audit
 // blob is the only other native binary. Verified empirically: a correct-OS
 // vigolium build carries ZERO foreign-OS loader markers, so a foreign marker
 // can only come from a mis-staged audit blob.

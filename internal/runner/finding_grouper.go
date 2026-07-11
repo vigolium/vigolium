@@ -27,15 +27,16 @@ type liveFindingGroup struct {
 // per unique value instead of one per URL. It also owns the grouped severity
 // tallies used for the phase summary. Safe for concurrent OnResult callbacks.
 type findingGrouper struct {
-	mu        sync.Mutex
-	cfg       config.FindingGroupingConfig
-	tagSet    map[string]struct{}
-	moduleSet map[string]struct{} // module IDs grouped by (module, severity[, host]) regardless of value
-	ruleSet   map[string]struct{} // module IDs grouped by (module, rule_name, severity[, host])
-	groups    map[string]*liveFindingGroup
-	order     []string
-	grouped   map[severity.Severity]int // unique groups + each ungroupable finding
-	raw       map[severity.Severity]int // every occurrence (for processed-count bookkeeping)
+	mu            sync.Mutex
+	cfg           config.FindingGroupingConfig
+	tagSet        map[string]struct{}
+	moduleSet     map[string]struct{} // module IDs grouped by (module, severity[, host]) regardless of value
+	ruleSet       map[string]struct{} // module IDs grouped by (module, rule_name, severity[, host])
+	bundleSuspect map[string]struct{} // module IDs whose Suspect findings collapse by module
+	groups        map[string]*liveFindingGroup
+	order         []string
+	grouped       map[severity.Severity]int // unique groups + each ungroupable finding
+	raw           map[severity.Severity]int // every occurrence (for processed-count bookkeeping)
 }
 
 // maxLiveGroupSample bounds how many URLs a live group remembers for its rollup.
@@ -43,13 +44,14 @@ const maxLiveGroupSample = 3
 
 func newFindingGrouper(cfg config.FindingGroupingConfig) *findingGrouper {
 	return &findingGrouper{
-		cfg:       cfg,
-		tagSet:    output.NormalizeTagSet(cfg.Tags),
-		moduleSet: output.NormalizeStringSet(cfg.ByModule),
-		ruleSet:   output.NormalizeStringSet(cfg.ByRule),
-		groups:    make(map[string]*liveFindingGroup),
-		grouped:   make(map[severity.Severity]int),
-		raw:       make(map[severity.Severity]int),
+		cfg:           cfg,
+		tagSet:        output.NormalizeTagSet(cfg.Tags),
+		moduleSet:     output.NormalizeStringSet(cfg.ByModule),
+		ruleSet:       output.NormalizeStringSet(cfg.ByRule),
+		bundleSuspect: output.NormalizeStringSet(cfg.BundleSuspect),
+		groups:        make(map[string]*liveFindingGroup),
+		grouped:       make(map[severity.Severity]int),
+		raw:           make(map[severity.Severity]int),
 	}
 }
 
@@ -93,7 +95,8 @@ func (g *findingGrouper) groupKey(result *output.ResultEvent) (key, value string
 	}
 	value = output.NormalizedValueKey(result.ExtractedResults)
 	moduleKey, keyValue, groupable := output.GroupingBranch(
-		result.ModuleID, result.Info.Name, value, result.Info.Tags, g.moduleSet, g.ruleSet, g.tagSet)
+		result.ModuleID, result.Info.Name, value, result.Info.Severity.String(), result.Info.Tags,
+		g.moduleSet, g.ruleSet, g.bundleSuspect, g.tagSet)
 	if !groupable {
 		return "", "", false
 	}

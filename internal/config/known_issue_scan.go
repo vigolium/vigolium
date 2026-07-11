@@ -59,11 +59,21 @@ type FindingGroupingConfig struct {
 	// severity[, host]) — like ByModule but with the rule (module_name) kept in the
 	// key, so a module whose one ID fronts many rules folds repeats of a single
 	// rule while keeping different rules apart. The shipped default is
-	// secret-detect: one Kingfisher rule (e.g. "Looker Client ID") matching every
+	// secret-detect: one secret-scan rule (e.g. "Looker Client ID") matching every
 	// content hash in a minified bundle's chunk-hash map collapses to one finding
 	// (all values unioned on), while a genuinely different secret keeps its row.
 	// See perRuleGroupModules for the shipped default.
 	ByRule []string `yaml:"by_rule"`
+	// BundleSuspect lists module IDs whose Suspect-severity findings collapse by
+	// (module, severity[, host]) — dropping the rule from the key so every
+	// low-confidence rule on a host folds into ONE bundle — while the module's
+	// higher-severity findings still group per-rule (via ByModule/ByRule). The
+	// shipped default is secret-detect: its Suspect tier is the medium/low-
+	// confidence secret rules (generic "Password"/"API Key" matchers, unvalidated
+	// provider hits), which are noisy enough that one per-host rollup beats a row
+	// per rule; its High tier (curated high-confidence rules) stays per-rule so a
+	// real leak keeps its own triage row. See suspectBundleModules for the default.
+	BundleSuspect []string `yaml:"bundle_suspect"`
 	// MaxURLs caps how many distinct matched URLs are retained on the survivor
 	// finding (0 = unlimited), bounding MatchedAt on very noisy sites.
 	MaxURLs int `yaml:"max_urls"`
@@ -100,7 +110,7 @@ type FindingGroupingConfig struct {
 // audit already fires once per host via ScanPerHost, so it needs no entry.)
 //
 // secret-detect is NOT here either, but it is not plain value-grouped: it lands
-// in perRuleGroupModules (by-rule grouping), which folds repeats of one Kingfisher
+// in perRuleGroupModules (by-rule grouping), which folds repeats of one secret-scan
 // rule on a host while keeping different rules apart — the right middle ground for
 // a module whose single id fronts many rules.
 var perAssetGroupModules = []string{
@@ -277,7 +287,7 @@ var perAssetGroupModules = []string{
 // payload/token can't be keyed by rule; those live in perAssetGroupModules under
 // "Confirmed per-URL/param … unstable module_name". Each entry below is tagged (a)/(b):
 //
-//   - secret-detect (a): id fronts every Kingfisher rule; folds a noisy rule (e.g.
+//   - secret-detect (a): id fronts every secret-scan rule; folds a noisy rule (e.g.
 //     "Looker Client ID" matching every chunk hash) while keeping distinct secrets apart.
 //   - host-header-injection (b): module_name carries the spoofed header (X-Forwarded-Host / X-Real-IP / …).
 //   - ldap-injection (b): module_name carries the technique (boolean-based / error-based).
@@ -303,6 +313,21 @@ var perRuleGroupModules = []string{
 	"aspnet-viewstate-scan",
 }
 
+// suspectBundleModules are the modules whose GENERIC, family-less Suspect-severity
+// findings collapse into a single per-host bundle (by module, rule dropped)
+// instead of one row per rule — see FindingGroupingConfig.BundleSuspect and
+// output.SuspectBundleTag. secret-detect is the sole member: only its
+// generic-namespace rules (the "Generic Password"/"Generic API Key" matchers,
+// which carry the bundle tag) fold into one "Low-confidence secret-shaped matches"
+// bundle per host. A recognisable provider family (a Google/Storyblok/Slack rule)
+// stays its own per-rule finding even when severity-downgraded to Suspect, so
+// distinct families are never merged into one rollup. The High tier (the curated
+// high-confidence rules — a real Stripe/Slack/AWS key) likewise stays per-rule via
+// perRuleGroupModules so each genuine leak keeps its own triage row.
+var suspectBundleModules = []string{
+	"secret-detect",
+}
+
 // defaultFindingGrouping is the effective grouping config when none is set in
 // YAML. Grouping is on by default with per-host scoping so a leaked secret seen
 // across a site collapses to one finding without merging across hostnames, and
@@ -314,9 +339,10 @@ func defaultFindingGrouping() FindingGroupingConfig {
 		PerHost: true,
 		// Copy rather than share the package vars: this config is subject to YAML
 		// profile overlays, and a slice-appending merge must not mutate the globals.
-		ByModule: append([]string(nil), perAssetGroupModules...),
-		ByRule:   append([]string(nil), perRuleGroupModules...),
-		MaxURLs:  50,
+		ByModule:      append([]string(nil), perAssetGroupModules...),
+		ByRule:        append([]string(nil), perRuleGroupModules...),
+		BundleSuspect: append([]string(nil), suspectBundleModules...),
+		MaxURLs:       50,
 	}
 }
 

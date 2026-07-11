@@ -9,12 +9,12 @@ import (
 
 // These tests guard the per-phase max_duration enforcement. The original bug:
 // the known-issue-scan phase computed the right budget but only applied it to
-// one leg (Nuclei) while the Kingfisher leg ran unbounded, so the phase could
+// one leg (Nuclei) while the secret-scan leg ran unbounded, so the phase could
 // overrun max_duration. The fix routes every phase deadline through phaseDeadline.
 //
 // known-issue-scan later moved its two legs from ONE shared budget to INDEPENDENT
 // per-leg budgets, so a Nuclei run that consumes its whole budget no longer starves
-// the Kingfisher secret scan (TestPhaseDeadline_IndependentLegsEachGetOwnBudget).
+// the secret scan (TestPhaseDeadline_IndependentLegsEachGetOwnBudget).
 // The shared-budget property still holds for phases that bound all their work under
 // a single deadline (TestPhaseDeadline_BoundsSequentialLegs).
 //
@@ -116,7 +116,7 @@ func TestPhaseDeadline_BoundsSequentialLegs(t *testing.T) {
 		t.Fatalf("leg 1 ended with %v, want DeadlineExceeded", leg1)
 	}
 
-	// Leg 2 (e.g. the Kingfisher batch) shares the same ctx. A ctx-respecting
+	// Leg 2 (e.g. the secret-scan batch) shares the same ctx. A ctx-respecting
 	// leg must return effectively instantly rather than starting fresh work.
 	start := time.Now()
 	leg2 := runUntilCtxDone(ctx)
@@ -173,7 +173,7 @@ func TestTotalScanBudget_BoundsSequentialPhases(t *testing.T) {
 }
 
 // TestPhaseDeadline_IndependentLegsEachGetOwnBudget encodes the known-issue-scan
-// design after the Kingfisher-starvation fix: the Nuclei and Kingfisher legs each
+// design after the secret-scan-starvation fix: the Nuclei and secret-scan legs each
 // derive their OWN budget from the parent ctx instead of sharing one, so a first
 // leg that exhausts its entire budget does NOT starve the second leg — the second
 // leg starts fresh and runs for its own budget. (Each leg is still capped by the
@@ -191,7 +191,7 @@ func TestPhaseDeadline_IndependentLegsEachGetOwnBudget(t *testing.T) {
 		t.Fatalf("leg 1 ended with %v, want DeadlineExceeded", leg1)
 	}
 
-	// Leg 2 (Kingfisher) gets a FRESH budget from the same parent. It must NOT be
+	// Leg 2 (secret scan) gets a FRESH budget from the same parent. It must NOT be
 	// curtailed by leg 1's exhausted deadline — it should run for ~its own budget.
 	leg2Ctx, cancel2 := phaseDeadline(parent, budget)
 	defer cancel2()

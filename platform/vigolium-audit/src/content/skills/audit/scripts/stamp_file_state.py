@@ -10,20 +10,19 @@ The state file is additive across runs: a re-run merges the new audit_id
 into each file's `last_audits[]` rather than overwriting.
 
 Usage:
-    stamp_file_state.py [--target <path>] [--results-dir <path>] [--audit-id <id>] [--phases <n,n,...>]
+    stamp_file_state.py [--target <path>] [--results-dir <path>] [--audit-id <id>] [--phases <id,id,...>]
 
 Defaults:
     --target       cwd
     --results-dir   <target>/vigolium-results
     --audit-id     read from <results-dir>/audit-state.json's last entry
-    --phases       all integer keys from the last audit's `phases` map
+    --phases       all string keys from the last audit's `phases` map
 
 Excludes:
     Standard noise (.git/, node_modules/, vendor/, __pycache__/, dist/,
     build/, .venv/, target/, .vigolium-audit-merge-staging-*/) and the vigolium-results/
-    directory itself. Only files smaller than DEFAULT_MAX_BYTES (~512KB)
-    are hashed; larger files get a `large_file: true` marker without a
-    hash so the next audit still sees that they exist.
+    directory itself. Only text-readable files smaller than
+    DEFAULT_MAX_BYTES (~512KB) are stored in the incremental hash index.
 
 Exit codes:
     0  success
@@ -39,7 +38,6 @@ import hashlib
 import json
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -152,9 +150,9 @@ def load_prior(state_path: Path) -> dict:
         return {"audits": [], "files": {}}
 
 
-def detect_audit_id(results_dir: Path) -> Optional[tuple[str, list[int]]]:
+def detect_audit_id(results_dir: Path) -> Optional[tuple[str, list[str]]]:
     """Pull the most recent audit's id + phase keys from audit-state.json.
-    Returns (audit_id, phase_numbers) or None if the file is unreadable.
+    Returns (audit_id, phase_ids) or None if the file is unreadable.
     """
     audit_state = results_dir / "audit-state.json"
     if not audit_state.is_file():
@@ -171,13 +169,7 @@ def detect_audit_id(results_dir: Path) -> Optional[tuple[str, list[int]]]:
     if not audit_id:
         return None
     phase_map = last.get("phases") or {}
-    phases: list[int] = []
-    for key in phase_map.keys():
-        try:
-            phases.append(int(key))
-        except (TypeError, ValueError):
-            continue
-    phases.sort()
+    phases = sorted(str(key) for key in phase_map.keys())
     return audit_id, phases
 
 
@@ -185,112 +177,80 @@ def stamp(
     target: Path,
     results_dir: Path,
     audit_id: str,
-    phases: list[int],
+    phases: list[str],
     max_bytes: int = DEFAULT_MAX_BYTES,
 ) -> dict:
     state_path = results_dir / "file-state.json"
     state = load_prior(state_path)
-    files: dict = state.get("files") or {}
-    audits_seen: list = state.get("audits") or []
+    prior_files: dict = state.get("files") or {}
+    files: dict = {}
+    large_skipped = 0
+    binary_skipped = 0
 
     target = target.resolve()
     paths = walk_target(target)
-    seen_rel: set[str] = set()
-
     for full in paths:
         try:
             rel = str(full.relative_to(target))
         except ValueError:
             continue
-        seen_rel.add(rel)
-
         try:
             stat = full.stat()
         except OSError:
             continue
 
-        prior = files.get(rel) or {}
         large = stat.st_size > max_bytes
         text = looks_like_text(full) if not large else False
+        if large:
+            large_skipped += 1
+            continue
+        if not text:
+            binary_skipped += 1
+            continue
 
-        record: dict = {
-            "size": stat.st_size,
-            "last_audit_id": audit_id,
-        }
+        try:
+            sha256 = hash_file(full)
+        except OSError:
+            continue
+
+        prior = prior_files.get(rel) or {}
         prior_audits = list(prior.get("last_audits") or [])
         if audit_id not in prior_audits:
             prior_audits.append(audit_id)
-        record["last_audits"] = prior_audits[-10:]  # cap history per file
+        last_audits = [str(value) for value in prior_audits][-5:]
 
-        prior_phases = list(prior.get("last_phases") or [])
-        merged_phases = sorted(set(prior_phases) | set(phases))
-        record["last_phases"] = merged_phases
-
-        if large:
-            record["large_file"] = True
-            # Preserve any prior hash so a follow-up tool can still detect
-            # truncation back below the cap.
-            if "hash" in prior:
-                record["hash"] = prior["hash"]
-        elif not text:
-            record["binary"] = True
-            if "hash" in prior:
-                record["hash"] = prior["hash"]
-        else:
-            try:
-                record["hash"] = hash_file(full)
-            except OSError as exc:
-                record["hash_error"] = str(exc)
-
-        files[rel] = record
-
-    # Mark deleted files (present in prior state, missing from this walk).
-    for rel, prior in list(files.items()):
-        if rel in seen_rel:
-            continue
-        prior["deleted_in_audit"] = audit_id
-        files[rel] = prior
-
-    if audit_id not in audits_seen:
-        audits_seen.append(audit_id)
-
-    state.update(
-        {
-            "schema_version": 1,
-            "audit_id": audit_id,
-            "audits": audits_seen[-25:],
-            "stamped_at": datetime.now(timezone.utc).isoformat(),
-            "target": str(target),
-            "files": files,
+        prior_phases = [str(value) for value in list(prior.get("last_phases") or [])]
+        merged_phases = list(dict.fromkeys(prior_phases + phases))[-5:]
+        files[rel] = {
+            "sha256": sha256,
+            "last_audits": last_audits,
+            "last_phases": merged_phases,
         }
-    )
+
+    state = {"schema_version": 1, "files": files}
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
 
     counts = {
         "tracked": len(files),
-        "with_hash": sum(1 for r in files.values() if r.get("hash")),
-        "large_skipped": sum(1 for r in files.values() if r.get("large_file")),
-        "binary_skipped": sum(1 for r in files.values() if r.get("binary")),
-        "deleted": sum(1 for r in files.values() if r.get("deleted_in_audit")),
+        "with_hash": len(files),
+        "large_skipped": large_skipped,
+        "binary_skipped": binary_skipped,
     }
     return counts
 
 
-def parse_phases_arg(raw: str) -> list[int]:
+def parse_phases_arg(raw: str) -> list[str]:
     if not raw:
         return []
-    out: list[int] = []
+    out: list[str] = []
     for piece in raw.split(","):
         piece = piece.strip()
         if not piece:
             continue
-        try:
-            out.append(int(piece))
-        except ValueError:
-            print(f"warning: ignoring non-integer phase {piece!r}", file=sys.stderr)
-    return sorted(set(out))
+        out.append(piece)
+    return list(dict.fromkeys(out))
 
 
 def main() -> None:
@@ -298,7 +258,7 @@ def main() -> None:
     parser.add_argument("--target", default=".", help="Target repository path (default: cwd)")
     parser.add_argument("--results-dir", default=None, help="Vigolium-Audit data dir (default: <target>/vigolium-results)")
     parser.add_argument("--audit-id", default=None, help="Override the audit id to stamp (default: read from audit-state.json)")
-    parser.add_argument("--phases", default=None, help="Comma-separated phase numbers to mark on each file (default: all phases from current audit)")
+    parser.add_argument("--phases", default=None, help="Comma-separated phase IDs to mark on each file (default: all phases from current audit)")
     parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES, help="Skip hashing for files larger than this many bytes")
     args = parser.parse_args()
 
@@ -311,7 +271,7 @@ def main() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
 
     audit_id = args.audit_id
-    phases: list[int] = parse_phases_arg(args.phases or "")
+    phases: list[str] = parse_phases_arg(args.phases or "")
 
     if not audit_id or not phases:
         detected = detect_audit_id(results_dir)
@@ -340,8 +300,7 @@ def main() -> None:
         f"{counts['tracked']} tracked "
         f"({counts['with_hash']} hashed, "
         f"{counts['large_skipped']} large-skipped, "
-        f"{counts['binary_skipped']} binary-skipped, "
-        f"{counts['deleted']} marked deleted)"
+        f"{counts['binary_skipped']} binary-skipped)"
     )
 
 

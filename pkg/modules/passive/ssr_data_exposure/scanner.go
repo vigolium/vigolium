@@ -8,7 +8,9 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/stateexposure"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
@@ -56,7 +58,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -66,20 +71,19 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	// Extract SSR state blobs
 	var findings []string
+	var signals []stateexposure.Hit
+	candidateCount := 0
 	for _, blob := range stateBlobs {
 		stateData := extractState(body, blob)
 		if stateData == "" {
 			continue
 		}
 
-		// Scan for sensitive patterns
-		for _, sp := range sensitivePatterns {
-			matches := sp.pattern.FindAllString(stateData, 3)
-			for _, match := range matches {
-				if isPlaceholder(match) {
-					continue
-				}
-				findings = append(findings, fmt.Sprintf("[%s] %s: %s", blob.name, sp.name, modkit.Truncate(match, 120)))
+		for _, signal := range stateexposure.Analyze(stateData) {
+			findings = append(findings, fmt.Sprintf("[%s] %s: %s", blob.name, signal.Category, signal.Evidence))
+			signals = append(signals, signal)
+			if signal.Candidate {
+				candidateCount++
 			}
 		}
 	}
@@ -88,23 +92,46 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	sev := severity.Info
+	conf := severity.Tentative
+	name := "SSR State Security Signals"
+	description := fmt.Sprintf("Found %d security-relevant client-state signal(s). Identity data, role flags, public identifiers, and internal addresses are observations rather than vulnerability proof.", len(findings))
+	if candidateCount > 0 {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeCandidate
+		sev = ModuleSeverity
+		conf = ModuleConfidence
+		name = "Potential SSR Sensitive Data Exposure"
+		description = fmt.Sprintf("Found %d substantive private credential or password-bearing service URL candidate(s) in serialized state. Credential validity, anonymous reachability, and cross-user authorization were not tested.", candidateCount)
+	}
+
 	return []*output.ResultEvent{
 		{
 			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: findings,
 			Info: output.Info{
-				Name:        "SSR Data Exposure",
-				Description: fmt.Sprintf("Found %d sensitive data pattern(s) in server-side rendered state at %s", len(findings), urlx.Path),
-				Severity:    ModuleSeverity,
-				Confidence:  ModuleConfidence,
+				Name:        name,
+				Description: description,
+				Severity:    sev,
+				Confidence:  conf,
 				Tags:        []string{"ssr", "data-exposure", "information-disclosure"},
 				Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/"},
 			},
 			Metadata: map[string]any{
-				"findingCount": len(findings),
+				"signalCount":           len(findings),
+				"candidateCount":        candidateCount,
+				"signals":               signals,
+				"credentialValidated":   false,
+				"authorizationCompared": false,
 			},
 		},
 	}, nil
@@ -129,15 +156,4 @@ func extractState(body string, blob ssrStateBlob) string {
 	}
 
 	return remaining[:endIdx]
-}
-
-// isPlaceholder checks if a matched value is a known placeholder.
-func isPlaceholder(match string) bool {
-	matchLower := strings.ToLower(match)
-	for _, ph := range knownPlaceholders {
-		if strings.Contains(matchLower, ph) {
-			return true
-		}
-	}
-	return false
 }

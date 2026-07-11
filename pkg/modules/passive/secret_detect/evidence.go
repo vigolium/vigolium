@@ -24,11 +24,13 @@ const (
 
 // BuildEvidenceResponse renders the raw HTTP response head (status line plus
 // headers, no body) followed by a body view. Small bodies are shown in full;
-// large bodies are reduced to a window around the matched secret. matchLine is
-// Kingfisher's 1-indexed line number, used as a fallback anchor when the snippet
-// can't be located verbatim in the body.
-func BuildEvidenceResponse(head string, body []byte, snippet string, matchLine int) string {
-	return head + modkit.WindowBody(body, []string{snippet}, matchLine, modkit.ResponseWindowOpts{
+// large bodies are reduced to a window anchored on the detector's [start, end)
+// byte offsets, so the window centers on the exact occurrence that fired rather
+// than the first textual occurrence of snippet. The snippet (as a locator) and
+// matchLine are fallback anchors for when the offsets are unavailable (start<0)
+// or out of range.
+func BuildEvidenceResponse(head string, body []byte, snippet string, start, end, matchLine int) string {
+	return head + modkit.WindowBodyAt(body, start, end, []string{snippet}, matchLine, modkit.ResponseWindowOpts{
 		FullThreshold: evidenceFullThreshold,
 		ContextLines:  evidenceContextLines,
 		ContextChars:  evidenceContextChars,

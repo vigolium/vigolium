@@ -56,6 +56,11 @@ type CandidateElementExtractor struct {
 	clickOnce      bool
 	clickOnceSeen  map[string]bool
 	clickOnceMutex sync.RWMutex
+	// currentStateID namespaces clickOnce dedup by the state being extracted, so
+	// the SAME element location in a DIFFERENT state (a multi-step form / wizard
+	// reusing one "Next" button position across steps) is treated as new rather
+	// than globally suppressed. Set via SetCurrentState before each Extract.
+	currentStateID string
 }
 
 // NewCandidateElementExtractor creates a new CandidateElementExtractor.
@@ -112,12 +117,21 @@ func (e *CandidateElementExtractor) SetFollowExternalLinks(follow bool) {
 	e.followExternalLinks = follow
 }
 
-// SetClickOnce enables or disables global element deduplication.
-// across all states during the entire crawl.
+// SetClickOnce enables or disables element deduplication.
 func (e *CandidateElementExtractor) SetClickOnce(enabled bool) {
 	e.clickOnceMutex.Lock()
 	defer e.clickOnceMutex.Unlock()
 	e.clickOnce = enabled
+}
+
+// SetCurrentState sets the state ID that subsequent extractions belong to, so
+// clickOnce dedup is scoped per-state. Passing "" restores un-namespaced dedup.
+// The single-threaded crawler sets this before each Extract from its own
+// goroutine; the lock keeps it race-clean.
+func (e *CandidateElementExtractor) SetCurrentState(stateID string) {
+	e.clickOnceMutex.Lock()
+	defer e.clickOnceMutex.Unlock()
+	e.currentStateID = stateID
 }
 
 // markChecked checks if an element was already extracted and marks it as checked.
@@ -130,12 +144,17 @@ func (e *CandidateElementExtractor) markChecked(candidate *CandidateElement) boo
 	e.clickOnceMutex.Lock()
 	defer e.clickOnceMutex.Unlock()
 
-	// Use GetUniqueString for state-independent element identification
-	uniqueString := candidate.GetUniqueString()
-	if e.clickOnceSeen[uniqueString] {
-		return false // Already extracted
+	// Namespace the element key by the current state so the same element location
+	// in a different state (a wizard/multi-step form reusing one "Next" button
+	// position) is NOT globally suppressed — the old key was state-independent,
+	// which silently dropped later steps of such flows. EventType is included so a
+	// hover-menu action and a click action on the SAME element coexist (a nav
+	// trigger that both clicks through and opens a submenu on hover).
+	key := e.currentStateID + "\x00" + string(candidate.EventType) + "\x00" + candidate.GetUniqueString()
+	if e.clickOnceSeen[key] {
+		return false // Already extracted in this state
 	}
-	e.clickOnceSeen[uniqueString] = true
+	e.clickOnceSeen[key] = true
 	return true // New element
 }
 
@@ -217,6 +236,25 @@ func (e *CandidateElementExtractor) extractFromPage(page *browser.Page, seen map
 		cdpCandidates, err := e.extractByCDP(page, seen, framePath)
 		if err == nil {
 			candidates = append(candidates, cdpCandidates...)
+		}
+
+		// Method 3: Semantic / delegated-event detection. React/Vue attach one
+		// click listener to the document/root, so per-element getEventListeners
+		// (Method 2) sees nothing and a clickable <div>/<span> is missed by the CSS
+		// selectors too. This shares `seen`, so it only adds what the earlier
+		// passes didn't already surface.
+		semCandidates, err := e.extractBySemantic(page, seen, framePath)
+		if err == nil {
+			candidates = append(candidates, semCandidates...)
+		}
+
+		// Method 4: Hover-menu triggers whose submenu opens on CSS :hover — the
+		// click passes can't reach them (clicking a hover-only trigger does
+		// nothing), so their whole submenu of links would be missed. Narrowly
+		// targeted and capped in JS so it adds only a handful of hover actions.
+		hoverCandidates, err := e.extractHoverMenus(page, seen, framePath)
+		if err == nil {
+			candidates = append(candidates, hoverCandidates...)
 		}
 	}
 
@@ -363,7 +401,7 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, seen 
 				href = h
 			}
 
-			candidate := e.createCandidateElement(elem, xpath, framePath, href)
+			candidate := e.createCandidateElement(elem, xpath, framePath, href, EventTypeClick)
 
 			if e.markChecked(candidate) {
 				candidates = append(candidates, candidate)
@@ -409,7 +447,7 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, seen 
 			href = h
 		}
 
-		candidate := e.createCandidateElement(elem, idSelector, framePath, href)
+		candidate := e.createCandidateElement(elem, idSelector, framePath, href, EventTypeClick)
 		candidate.Identification = NewIdentification(HowID, idSelector)
 
 		if e.markChecked(candidate) {
@@ -429,7 +467,61 @@ func (e *CandidateElementExtractor) extractByCDP(page *browser.Page, seen map[st
 	if err != nil {
 		return nil, err
 	}
+	return e.buildCandidatesFromResults(page, results, seen, framePath, EventTypeClick), nil
+}
 
+// delegatedClickableReasons are the semantic-detector reasons worth adding on top
+// of the CSS-selector + CDP passes: framework-delegated affordances that a single
+// document/root listener (React/Vue) hides from per-element getEventListeners.
+// Native a/button/input reasons are intentionally excluded — the CSS-selector pass
+// already covers those, so re-adding them would only duplicate work and add noise.
+var delegatedClickableReasons = map[string]bool{
+	"cursor":      true, // cursor:pointer on a non-native element (clickable card/div)
+	"tabindex":    true, // focusable custom control
+	"handler":     true, // ng-click / @click / data-click attribute
+	"role-button": true, // ARIA button role
+}
+
+// extractBySemantic catches delegated-event clickables — elements a framework
+// (React/Vue) wires through one listener on the document/root, so per-element CDP
+// getEventListeners sees nothing and the CSS-selector pass misses them because
+// they are plain <div>/<span>. It uses semantic affordances as the proxy and
+// shares the `seen` map, so it only contributes elements the earlier passes did
+// not already surface.
+func (e *CandidateElementExtractor) extractBySemantic(page *browser.Page, seen map[string]bool, framePath string) ([]*CandidateElement, error) {
+	results, err := DetectClickablesSimple(page)
+	if err != nil {
+		return nil, err
+	}
+	filtered := results[:0]
+	for _, r := range results {
+		if delegatedClickableReasons[r.Reason] {
+			filtered = append(filtered, r)
+		}
+	}
+	return e.buildCandidatesFromResults(page, filtered, seen, framePath, EventTypeClick), nil
+}
+
+// extractHoverMenus generates HOVER actions for high-precision menu-hover
+// affordances — nav triggers whose submenu opens on CSS :hover (aria-haspopup,
+// role=menu, Bootstrap dropdown toggles, or an element directly wrapping a hidden
+// nested menu). Clicking these often does nothing (the menu is hover-only), so the
+// click passes miss the whole submenu and every link inside it. Kept deliberately
+// narrow (explicit affordances + a hidden-nested-menu heuristic, capped in JS) so
+// it adds a handful of actions per page, not a hover for every element.
+func (e *CandidateElementExtractor) extractHoverMenus(page *browser.Page, seen map[string]bool, framePath string) ([]*CandidateElement, error) {
+	results, err := DetectHoverMenus(page)
+	if err != nil {
+		return nil, err
+	}
+	return e.buildCandidatesFromResults(page, results, seen, framePath, EventTypeHover), nil
+}
+
+// buildCandidatesFromResults resolves each detected ClickableResult to a live
+// element, applies per-extraction dedup / exclusion / href filtering, and builds
+// CandidateElements with the given event type. Shared by the CDP-listener,
+// semantic/delegated, and hover-menu passes.
+func (e *CandidateElementExtractor) buildCandidatesFromResults(page *browser.Page, results []ClickableResult, seen map[string]bool, framePath string, eventType EventType) []*CandidateElement {
 	candidates := make([]*CandidateElement, 0)
 
 	for _, result := range results {
@@ -460,8 +552,14 @@ func (e *CandidateElementExtractor) extractByCDP(page *browser.Page, seen map[st
 			xpath = selector
 		}
 
-		// Deduplicate using shared seen map (per-extraction dedup)
+		// Deduplicate using shared seen map (per-extraction dedup). Click keeps the
+		// bare "frame:xpath" key so it stays consistent with the CSS-selector pass
+		// (cross-method dedup); a non-click pass (hover) is namespaced so a hover
+		// action and a click action on the same element are not collapsed into one.
 		seenKey := framePath + ":" + xpath
+		if eventType != EventTypeClick {
+			seenKey = string(eventType) + ":" + seenKey
+		}
 		if seen[seenKey] {
 			continue
 		}
@@ -483,7 +581,7 @@ func (e *CandidateElementExtractor) extractByCDP(page *browser.Page, seen map[st
 		seen[seenKey] = true
 
 		// Create CandidateElement
-		candidate := e.createCandidateElement(elem, xpath, framePath, href)
+		candidate := e.createCandidateElement(elem, xpath, framePath, href, eventType)
 
 		if e.markChecked(candidate) {
 			candidates = append(candidates, candidate)
@@ -493,16 +591,18 @@ func (e *CandidateElementExtractor) extractByCDP(page *browser.Page, seen map[st
 		}
 	}
 
-	return candidates, nil
+	return candidates
 }
 
-// createCandidateElement creates a CandidateElement from a browser element.
-func (e *CandidateElementExtractor) createCandidateElement(elem *browser.Element, xpath string, framePath string, href string) *CandidateElement {
+// createCandidateElement creates a CandidateElement from a browser element with
+// the given event type (click for the selector/CDP/semantic passes, hover for the
+// hover-menu pass).
+func (e *CandidateElementExtractor) createCandidateElement(elem *browser.Element, xpath string, framePath string, href string, eventType EventType) *CandidateElement {
 	candidate := &CandidateElement{
 		Identification: NewIdentification(HowXPath, xpath),
 		RelatedFrame:   framePath,
 		FormInputs:     make([]*FormInput, 0),
-		EventType:      EventTypeClick, // Default event type
+		EventType:      eventType,
 	}
 
 	// Get tag name
@@ -530,6 +630,14 @@ func (e *CandidateElementExtractor) createCandidateElement(elem *browser.Element
 // isExcluded checks if an element or any of its parents matches exclusion selectors.
 // CRITICAL FIX: Implements recursive parent exclusion checking.
 func (e *CandidateElementExtractor) isExcluded(elem *browser.Element) bool {
+	// Nothing to match against — skip entirely. Without this guard the ancestor
+	// walk below still paid an elem.Parent() CDP round-trip per ancestor, all the
+	// way to the root, for every extracted element even though the default crawl
+	// configures no exclusion selectors at all.
+	if len(e.excludeSelectors) == 0 {
+		return false
+	}
+
 	// Check current element
 	for _, excludeSelector := range e.excludeSelectors {
 		if elem.Matches(excludeSelector) {

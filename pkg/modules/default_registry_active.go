@@ -31,6 +31,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/bfla_detection"
 	"github.com/vigolium/vigolium/pkg/modules/active/cache_deception"
 	"github.com/vigolium/vigolium/pkg/modules/active/cdn_object_traversal_listing"
+	"github.com/vigolium/vigolium/pkg/modules/active/client_path_traversal_confirm"
 	"github.com/vigolium/vigolium/pkg/modules/active/client_prototype_pollution"
 	"github.com/vigolium/vigolium/pkg/modules/active/cloud_bucket_takeover"
 	"github.com/vigolium/vigolium/pkg/modules/active/cloud_origin_bypass"
@@ -71,6 +72,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/forbidden_bypass"
 	"github.com/vigolium/vigolium/pkg/modules/active/go_debug_endpoint_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/graphql_scan"
+	"github.com/vigolium/vigolium/pkg/modules/active/grpc_surface_audit"
 	"github.com/vigolium/vigolium/pkg/modules/active/host_header_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/http_method_tampering"
 	"github.com/vigolium/vigolium/pkg/modules/active/http_request_smuggling"
@@ -97,6 +99,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/ldap_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/lfi_generic"
 	"github.com/vigolium/vigolium/pkg/modules/active/lfi_path_traversal"
+	"github.com/vigolium/vigolium/pkg/modules/active/llm_boundary_probe"
 	"github.com/vigolium/vigolium/pkg/modules/active/log4shell_probe"
 	"github.com/vigolium/vigolium/pkg/modules/active/magento_misconfig"
 	"github.com/vigolium/vigolium/pkg/modules/active/mass_assignment"
@@ -126,6 +129,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/oauth_misconfiguration"
 	"github.com/vigolium/vigolium/pkg/modules/active/open_redirect"
 	"github.com/vigolium/vigolium/pkg/modules/active/open_redirect_confusion"
+	"github.com/vigolium/vigolium/pkg/modules/active/padding_oracle"
 	"github.com/vigolium/vigolium/pkg/modules/active/path_normalization"
 	"github.com/vigolium/vigolium/pkg/modules/active/pdf_generation_injection"
 	"github.com/vigolium/vigolium/pkg/modules/active/php_composer_exposure"
@@ -185,7 +189,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/unauth_service_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/upgrade_routing_ssrf"
 	"github.com/vigolium/vigolium/pkg/modules/active/web_cache_poisoning"
-	"github.com/vigolium/vigolium/pkg/modules/active/websocket_security"
 	"github.com/vigolium/vigolium/pkg/modules/active/wp_ajax_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/wp_misconfig"
 	"github.com/vigolium/vigolium/pkg/modules/active/wp_user_enum"
@@ -218,6 +221,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(angular_template_injection.New())
 	r.RegisterActive(lfi_generic.New())
 	r.RegisterActive(lfi_path_traversal.New())
+	r.RegisterActive(llm_boundary_probe.New())
 	r.RegisterActive(sqli_error_based.New())
 	r.RegisterActive(sqli_boolean_blind.New())
 	r.RegisterActive(sqli_time_blind.New())
@@ -255,6 +259,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(host_header_injection.New())
 	r.RegisterActive(web_cache_poisoning.New())
 	r.RegisterActive(prototype_pollution.New())
+	r.RegisterActive(client_path_traversal_confirm.New())
 	r.RegisterActive(client_prototype_pollution.New())
 	// Active modules - Diff-based
 	r.RegisterActive(path_normalization.New())
@@ -276,6 +281,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(http_request_smuggling.New())
 	// Active modules - GraphQL
 	r.RegisterActive(graphql_scan.New())
+	r.RegisterActive(grpc_surface_audit.New())
 	// Active modules - File Upload
 	r.RegisterActive(file_upload_scan.New())
 	// Active modules - Default Credentials
@@ -298,8 +304,8 @@ func registerActiveModules(r *Registry) {
 	// Active modules - Open Redirect
 	r.RegisterActive(open_redirect.New())
 	r.RegisterActive(open_redirect_confusion.New())
+	r.RegisterActive(padding_oracle.New())
 	// Active modules - WebSocket
-	r.RegisterActive(websocket_security.New())
 	r.RegisterActive(ws_injection.New())
 	r.RegisterActive(ws_cswsh.New())
 	// Active modules - Rate Limiting

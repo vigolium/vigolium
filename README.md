@@ -221,7 +221,7 @@ The native scan pipeline is composed of modular layers, each documented separate
 | **Content Discovery (Deparos)** | Adaptive directory/file enumeration with fingerprint-based soft-404 detection | [docs.vigolium.com/native-scan/phases/discovery](https://docs.vigolium.com/native-scan/phases/discovery) |
 | **Browser Spider (Spitolas)** | Chromium-driven state-machine crawler with CDP traffic capture | [docs.vigolium.com/native-scan/phases/spidering](https://docs.vigolium.com/native-scan/phases/spidering) |
 | **Audit** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs.vigolium.com/native-scan/phases/audit](https://docs.vigolium.com/native-scan/phases/audit) |
-| **Scanner Modules** | 154 active and 97 passive modules covering OWASP Top 10 and beyond | [docs.vigolium.com/native-scan/modules-reference](https://docs.vigolium.com/native-scan/modules-reference) |
+| **Scanner Modules** | 201 active and 116 passive modules covering OWASP Top 10 and beyond | [docs.vigolium.com/native-scan/modules-reference](https://docs.vigolium.com/native-scan/modules-reference) |
 
 ## Documentation
 

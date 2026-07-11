@@ -3,11 +3,13 @@ package crypto_weakness_detect
 import (
 	"encoding/base64"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -65,11 +67,11 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if body != "" && !modkit.IsStaticAssetContentType(ctx.Response().Header("Content-Type")) {
 		findings = append(findings, checkMagicHash(body)...)
 		findings = append(findings, checkWeakHashes(body)...)
-		findings = append(findings, checkPaddingOracle(body)...)
+		findings = append(findings, checkPaddingOracle(body, scanCtx, urlx.Host)...)
 	}
 
 	// Check cookies for encrypted values without MAC
-	findings = append(findings, checkEncryptedCookies(ctx)...)
+	findings = append(findings, checkEncryptedCookies(ctx, scanCtx, urlx.Host)...)
 
 	if len(findings) == 0 {
 		return nil, nil
@@ -78,15 +80,18 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	var results []*output.ResultEvent
 	for _, f := range findings {
 		results = append(results, &output.ResultEvent{
+			ModuleID:         ModuleID,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Request:          string(ctx.Request().Raw()),
 			ExtractedResults: []string{f.detail},
+			RecordKind:       f.kind,
+			EvidenceGrade:    f.grade,
 			Info: output.Info{
 				Name:        f.name,
 				Description: f.description,
 				Severity:    f.severity,
-				Confidence:  severity.Tentative,
+				Confidence:  f.confidence,
 			},
 		})
 	}
@@ -99,11 +104,17 @@ type finding struct {
 	detail      string
 	description string
 	severity    severity.Severity
+	confidence  severity.Confidence
+	kind        output.RecordKind
+	grade       output.EvidenceGrade
 }
 
-// checkMagicHash detects PHP magic hash values (0eXXXXX...) in response body.
+// checkMagicHash retains only structured key/value occurrences. A random 0e...
+// token in prose, telemetry, or a build artifact says nothing about PHP loose
+// comparison. Even a named value is an observation until server comparison
+// behavior is tested actively.
 func checkMagicHash(body string) []finding {
-	matches := magicHashPattern.FindAllString(body, 5)
+	matches := magicHashFieldPattern.FindAllStringSubmatch(body, 5)
 	if len(matches) == 0 {
 		return nil
 	}
@@ -111,98 +122,71 @@ func checkMagicHash(body string) []finding {
 	var findings []finding
 	seen := make(map[string]bool)
 	for _, match := range matches {
-		if seen[match] {
+		if len(match) < 3 || seen[match[2]] {
 			continue
 		}
-		seen[match] = true
+		seen[match[2]] = true
 		findings = append(findings, finding{
-			name:        "PHP Magic Hash",
-			detail:      fmt.Sprintf("Magic hash value: %s", match),
-			description: "Response contains a PHP magic hash (0eXXX...) that evaluates to 0 in loose comparison, enabling type juggling attacks",
-			severity:    severity.Medium,
+			name:        "PHP Magic-Hash Value Observation",
+			detail:      fmt.Sprintf("Structured field %q contains magic-hash-shaped value %s", match[1], match[2]),
+			description: "A named response field contains a 0e-prefixed numeric hash value. This is not a type-juggling vulnerability by itself; confirmation requires proving that the server compares attacker-controlled values with PHP loose equality.",
+			severity:    severity.Info,
+			confidence:  severity.Tentative,
+			kind:        output.RecordKindObservation,
+			grade:       output.EvidenceGradeObservation,
 		})
 	}
 	return findings
 }
 
-// checkWeakHashes detects MD5/SHA1 hashes near sensitive keywords.
+// checkWeakHashes requires a structured password/credential digest field. Mere
+// proximity to words such as token, checksum, auth, or hash is too generic and
+// routinely matches content hashes and identifiers.
 func checkWeakHashes(body string) []finding {
-	bodyLower := strings.ToLower(body)
 	var findings []finding
-
-	// Check for MD5 hashes near sensitive keywords
-	md5Matches := weakHashPatterns.md5.FindAllStringIndex(body, 20)
-	for _, loc := range md5Matches {
-		hashValue := body[loc[0]:loc[1]]
-		if isLikelyFalsePositiveHash(hashValue) {
+	for _, match := range weakHashFieldPattern.FindAllStringSubmatch(body, 20) {
+		if len(match) < 3 || isLikelyFalsePositiveHash(match[2]) {
 			continue
 		}
-		// Check if any sensitive keyword is within 100 chars
-		start := loc[0] - 100
-		if start < 0 {
-			start = 0
+		algorithm := "MD5"
+		if len(match[2]) == 40 {
+			algorithm = "SHA-1"
 		}
-		end := loc[1] + 100
-		if end > len(bodyLower) {
-			end = len(bodyLower)
-		}
-		context := bodyLower[start:end]
-		for _, keyword := range sensitiveHashKeywords {
-			if strings.Contains(context, keyword) {
-				findings = append(findings, finding{
-					name:        "Weak Hash Algorithm (MD5)",
-					detail:      fmt.Sprintf("MD5 hash near '%s': %s", keyword, truncate(hashValue, 40)),
-					description: "MD5 hash detected near security-sensitive context. MD5 is cryptographically broken and should not be used for password hashing or integrity checks",
-					severity:    severity.Low,
-				})
-				break
-			}
-		}
-	}
-
-	// Check for SHA1 hashes near sensitive keywords
-	sha1Matches := weakHashPatterns.sha1.FindAllStringIndex(body, 20)
-	for _, loc := range sha1Matches {
-		hashValue := body[loc[0]:loc[1]]
-		if isLikelyFalsePositiveHash(hashValue) {
-			continue
-		}
-		start := loc[0] - 100
-		if start < 0 {
-			start = 0
-		}
-		end := loc[1] + 100
-		if end > len(bodyLower) {
-			end = len(bodyLower)
-		}
-		context := bodyLower[start:end]
-		for _, keyword := range sensitiveHashKeywords {
-			if strings.Contains(context, keyword) {
-				findings = append(findings, finding{
-					name:        "Weak Hash Algorithm (SHA1)",
-					detail:      fmt.Sprintf("SHA1 hash near '%s': %s", keyword, truncate(hashValue, 48)),
-					description: "SHA1 hash detected near security-sensitive context. SHA1 is considered weak and should be replaced with SHA-256 or better",
-					severity:    severity.Low,
-				})
-				break
-			}
-		}
+		findings = append(findings, finding{
+			name:        "Weak Credential Digest Observation (" + algorithm + ")",
+			detail:      fmt.Sprintf("Field %q contains a %s-shaped digest: %s", match[1], algorithm, truncate(match[2], 48)),
+			description: "A structured credential/password digest field exposes a legacy hash-shaped value. Passive output cannot prove how it is generated or used; verify the storage/verification algorithm before treating this as a cryptographic vulnerability.",
+			severity:    severity.Info,
+			confidence:  severity.Tentative,
+			kind:        output.RecordKindObservation,
+			grade:       output.EvidenceGradeObservation,
+		})
 	}
 
 	return findings
 }
 
-// checkPaddingOracle detects padding oracle error messages.
-func checkPaddingOracle(body string) []finding {
+// checkPaddingOracle detects padding oracle error messages. A match publishes the
+// "crypto-cbc" tech tag for host so the active padding-oracle confirmer (which is
+// hard-gated on it) is unlocked for this host.
+func checkPaddingOracle(body string, scanCtx *modkit.ScanContext, host string) []finding {
 	var findings []finding
 
 	for _, pattern := range paddingOraclePatterns {
 		if match := pattern.FindString(body); match != "" {
+			// Publish the CBC/crypto tech tag: a disclosed padding/decryption error
+			// is exactly the surface the active padding-oracle module needs.
+			if scanCtx != nil {
+				scanCtx.MarkTech(host, cbcTechTag)
+			}
 			findings = append(findings, finding{
-				name:        "Padding Oracle Indicator",
+				name:        "Padding Error Disclosure Candidate",
 				detail:      fmt.Sprintf("Padding error message: %s", truncate(match, 80)),
-				description: "Response contains a padding-related error message that may indicate a padding oracle vulnerability, allowing decryption of encrypted data",
-				severity:    severity.Medium,
+				description: "The response discloses a padding/decryption error. A padding oracle requires a repeatable ciphertext mutation differential; this single passive response is only a candidate.",
+				severity:    severity.Low,
+				confidence:  severity.Tentative,
+				kind:        output.RecordKindCandidate,
+				grade:       output.EvidenceGradeCandidate,
 			})
 			return findings // One finding is enough
 		}
@@ -211,13 +195,16 @@ func checkPaddingOracle(body string) []finding {
 	return findings
 }
 
-// checkEncryptedCookies detects encrypted cookie values that lack MAC protection.
-func checkEncryptedCookies(ctx *httpmsg.HttpRequestResponse) []finding {
+// checkEncryptedCookies identifies opaque, block-aligned session cookies as an
+// observation only. Ciphertext length and a missing companion cookie cannot
+// reveal whether integrity is embedded via AEAD or an appended tag.
+func checkEncryptedCookies(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext, host string) []finding {
 	if ctx.Response() == nil {
 		return nil
 	}
 
-	var findings []finding
+	type cookieEntry struct{ name, value string }
+	var entries []cookieEntry
 	cookieNames := make(map[string]bool)
 
 	// Iterate all headers to find Set-Cookie entries
@@ -229,7 +216,16 @@ func checkEncryptedCookies(ctx *httpmsg.HttpRequestResponse) []finding {
 		if name == "" || value == "" {
 			continue
 		}
+		entries = append(entries, cookieEntry{name: name, value: value})
 		cookieNames[strings.ToLower(name)] = true
+	}
+
+	var findings []finding
+	for _, entry := range entries {
+		name, value := entry.name, entry.value
+		if !infra.IsSessionCookieName(name) {
+			continue
+		}
 
 		// Skip JWTs (contain dots)
 		if strings.Count(value, ".") >= 2 {
@@ -241,13 +237,16 @@ func checkEncryptedCookies(ctx *httpmsg.HttpRequestResponse) []finding {
 		if err != nil {
 			decoded, err = base64.RawStdEncoding.DecodeString(value)
 			if err != nil {
-				continue
+				decoded, err = base64.RawURLEncoding.DecodeString(value)
+				if err != nil {
+					continue
+				}
 			}
 		}
 
 		// Check if it looks like a block cipher output:
 		// length is multiple of 16 (AES block size) and >= 32 bytes
-		if len(decoded) < 32 || len(decoded)%16 != 0 {
+		if len(decoded) < 32 || len(decoded)%16 != 0 || byteEntropy(decoded) < 4.0 {
 			continue
 		}
 
@@ -260,16 +259,41 @@ func checkEncryptedCookies(ctx *httpmsg.HttpRequestResponse) []finding {
 			cookieNames[nameLower+"-sig"]
 
 		if !hasMac {
+			// A block-aligned, high-entropy, opaque session cookie with no companion
+			// MAC is a CBC-shaped ciphertext. Publish the tech tag so the active
+			// padding-oracle confirmer (hard-gated on it) is unlocked for this host.
+			if scanCtx != nil {
+				scanCtx.MarkTech(host, cbcTechTag)
+			}
 			findings = append(findings, finding{
-				name:        "Encrypted Cookie Without MAC",
-				detail:      fmt.Sprintf("Cookie '%s' appears encrypted (base64, %d bytes, block-aligned) without MAC", name, len(decoded)),
-				description: "Cookie value appears to be encrypted without integrity protection (HMAC). This may allow bit-flipping attacks to manipulate encrypted cookie data",
-				severity:    severity.Low,
+				name:        "Opaque Block-Aligned Session Cookie Observation",
+				detail:      fmt.Sprintf("Cookie %q decodes to %d high-entropy, block-aligned bytes", name, len(decoded)),
+				description: "The session cookie looks like opaque ciphertext, but its wire shape cannot distinguish unauthenticated CBC from AEAD or an embedded authentication tag. Active mutation or implementation evidence is required.",
+				severity:    severity.Info,
+				confidence:  severity.Tentative,
+				kind:        output.RecordKindObservation,
+				grade:       output.EvidenceGradeObservation,
 			})
 		}
 	}
 
 	return findings
+}
+
+func byteEntropy(data []byte) float64 {
+	if len(data) == 0 {
+		return 0
+	}
+	counts := make(map[byte]int)
+	for _, b := range data {
+		counts[b]++
+	}
+	var entropy float64
+	for _, count := range counts {
+		p := float64(count) / float64(len(data))
+		entropy -= p * math.Log2(p)
+	}
+	return entropy
 }
 
 // parseCookieNameValue extracts the name and value from a Set-Cookie header.

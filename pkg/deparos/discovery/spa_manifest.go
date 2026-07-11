@@ -173,7 +173,7 @@ func nuxtMarkers(ls string) bool {
 func extraSPAMarkers(ls string) bool {
 	for _, m := range []string{
 		"__next_data__", "/_next/static/", // Next.js
-		"__vue__",                        // Vue
+		"__vue__",                         // Vue
 		"__sveltekit", "/_app/immutable/", // SvelteKit
 		"serviceworker.register", // any PWA
 	} {

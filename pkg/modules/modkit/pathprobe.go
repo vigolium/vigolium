@@ -679,7 +679,9 @@ func MatchAndConfirmSibling(
 	// Slug-reflection guard: when the framework anchor (the first group's hit) is
 	// merely the probe's own last path segment echoed back — a content route where
 	// /topic/<slug> renders "<slug> …" in the title/JSON-LD/breadcrumb/canonical
-	// link — the marker proves nothing about the endpoint. The sibling catch-all
+	// link, OR a path-reflecting SPA/CMS shell embedding a {"view":"<slug>"} router
+	// context (root-level too — SlugReflectionFP probes the web root for single-segment
+	// paths) — the marker proves nothing about the endpoint. The sibling catch-all
 	// check above cannot catch this because a random sibling reflects a DIFFERENT
 	// slug (so it never carries the anchor word). Pass only the anchor
 	// (matched[:1]): the grouped confirmation already required real corroboration
@@ -710,22 +712,29 @@ func splitProbePath(probePath string) (parent, segment string) {
 	return "", p
 }
 
-// PathSegmentReflected reports whether the application is a slug-reflecting content
-// route — one that echoes an arbitrary last path segment under probePath's parent
-// directory back into a 200 response body (the /topic/<slug> -> "<slug> …" SEO
-// pattern). It probes a guaranteed-nonexistent sibling carrying a distinctive
-// canary slug and reports whether the app served 200 AND reflected that exact
-// canary. Requiring a 200 sibling is what separates a real endpoint (whose random
-// siblings 404) from a content route (whose every child slug renders): if the
-// canary sibling 404s or errors, this is NOT a reflecting route and the finding
-// stands.
+// PathSegmentReflected reports whether the application echoes an arbitrary
+// requested path segment back into a 200 response body — a slug-reflecting content
+// route (the /topic/<slug> -> "<slug> …" SEO pattern) OR a path-reflecting SPA/CMS
+// shell (a Frontify/brand app whose router renders one 200 shell for every route and
+// embeds the requested slug as a {"view":"<slug>"} router context, a canonical link,
+// a title). It probes a guaranteed-nonexistent canary path under probePath's BASE
+// directory — the parent directory for a multi-segment path, the web root "/" for a
+// single-segment (root-level) path — and reports whether the app served 200 AND
+// reflected that exact canary. Requiring a 200 canary reflection is what separates a
+// real endpoint (whose random siblings 404) from a reflecting route/shell (whose
+// every path renders): if the canary 404s, redirects, or errors, this is NOT a
+// reflecting host and the finding stands.
 //
-// Root-level probe paths (no parent directory) return false: their slug IS the
-// whole path, already covered by the caller's root soft-404 fingerprint, and the
-// sibling of a root path is a random root path (a 404), not a same-parent content
-// route — so a bare /redoc or /h2-console whose anchor equals its segment is never
-// dropped by this guard. Fails open (returns false) on any build/transport error
-// so a flaky control probe never suppresses a real finding.
+// Root-level paths are probed at the web root rather than skipped: a path-reflecting
+// shell defeats the root soft-404 fingerprint (the reflected slug + a per-request
+// token vary the body per path), so a root-level slug-equal marker self-matches the
+// reflected request path with no endpoint behind it (the branding.roche.com
+// /healthchecks-ui, /redoc false positives). Requiring an EXACT 200 canary reflection
+// keeps this false-negative-safe: a genuine root-level endpoint (/redoc, /h2-console)
+// whose random web-root siblings 404 is never dropped. Runs with NoRedirects (a 30x
+// is not a reflected body) and NoClustering (the control must be a distinct fetch,
+// never aliased to the candidate's cached entry). Fails open (false) on any
+// build/transport error so a flaky control probe never suppresses a real finding.
 func PathSegmentReflected(
 	ctx *httpmsg.HttpRequestResponse,
 	client *http.Requester,
@@ -735,16 +744,13 @@ func PathSegmentReflected(
 		return false
 	}
 
-	parent, _ := splitProbePath(probePath)
-	if parent == "" {
-		return false // root-level path: covered by the caller's root soft-404 fingerprint
+	base := "/"
+	if parent, _ := splitProbePath(probePath); parent != "" {
+		base = parent + "/"
 	}
 
 	canary := FreshCanary()
-	// NoRedirects: a slug that 30x-redirects is not a reflected content body.
-	// NoClustering: the control must be a genuinely distinct fetch, never aliased
-	// to the candidate's cached entry.
-	status, body, ok := fetchGET(ctx, client, parent+"/"+canary, http.Options{NoRedirects: true, NoClustering: true})
+	status, body, ok := fetchGET(ctx, client, base+canary, http.Options{NoRedirects: true, NoClustering: true})
 	if !ok || status != 200 {
 		return false
 	}
@@ -752,19 +758,21 @@ func PathSegmentReflected(
 }
 
 // SlugReflectionFP reports whether a flat-marker path-probe match is merely the
-// probe's own last path segment reflected into a content route — the false
-// positive PathSegmentReflected guards. It is the flat-[]string companion to the
-// grouped slug-reflection guard inside MatchAndConfirmSibling, for modules that
-// confirm with a plain "any marker in the list matched" loop (the
+// probe's own last path segment reflected into a content route or a path-reflecting
+// shell — the false positive PathSegmentReflected guards. It is the flat-[]string
+// companion to the grouped slug-reflection guard inside MatchAndConfirmSibling, for
+// modules that confirm with a plain "any marker in the list matched" loop (the
 // SiblingServesAnyMarker callers): pass the markers that ACTUALLY matched the body.
 //
 // It fires (returns true → drop the finding) ONLY when EVERY passed marker is a
 // case-insensitive substring of probePath's last segment — so no structural marker
 // (a hyphenated tag, an asset URL, a quoted JSON key) is holding the finding up —
-// AND PathSegmentReflected confirms the route echoes an arbitrary slug. Returning
+// AND PathSegmentReflected confirms the host echoes an arbitrary slug. Returning
 // early on the first non-segment marker keeps the network control probe off the
-// common path and preserves any finding backed by real endpoint content. Returns
-// false for empty markers or a segmentless / root-level path.
+// common path and preserves any finding backed by real endpoint content. The
+// reflection control covers root-level probe paths too (it probes the web root), so a
+// single-segment slug like /redoc reflected by a wildcard shell is caught. Returns
+// false for empty markers or a segmentless path.
 //
 // Flat-marker callers pass every marker that matched (pure-OR: a single reflected
 // slug is the whole finding, so all must be segment-explained to drop). The

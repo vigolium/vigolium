@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** Shipped JS code creates a Next.js Server Action with .bind(null, identifier) where the bound argument looks like a resource reference (id, userId, postId), with no nearby authorization check. Bound arguments reach the browser unencrypted and are tamperable, so without an ownership re-check this is a likely IDOR (CWE-639).
+	ModuleDesc = `**What it means:** Source-like JS/TS contains a server directive and .bind(null, identifier) using an ID-shaped name, with no recognized authorization token elsewhere in the file. Identifier names alone do not establish ownership semantics.
 
-**How it's exploited:** An attacker who can call the action swaps in another user's identifier and, if the action trusts that ID, reads or deletes others' resources.
+**How it's exploited:** A real IDOR requires the bound value to be attacker-tamperable, reach a resource lookup, and succeed for another principal without an ownership check. This module does not trace or replay that flow.
 
 **Fix:** Re-authorize every resource inside the action body by checking the session against the bound identifier, never client IDs.`
 
-	ModuleConfirmation = "Confirmed when .bind() passes identifiers to a Server Action without re-authorization in the action body"
+	ModuleConfirmation = "Candidate when a server-action file binds an ID-shaped argument without recognized auth; confirmation requires ownership-flow tracing or cross-user replay"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "idor", "light"}

@@ -162,16 +162,16 @@ func TestSaveAndEmit_EmitsWithoutUUIDsOnSaveFailure(t *testing.T) {
 	}
 }
 
-func TestPersistJSScanSourceArtifactsPromotesEphemeralContent(t *testing.T) {
+func TestPersistJSTangleSourceArtifactsPromotesEphemeralContent(t *testing.T) {
 	saver := newCaptureSaver()
 	d := newTestDiscoverySource(saver)
 	siteMap, err := deparosstorage.NewSiteMap(deparosstorage.DefaultConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer siteMap.Close()
+	defer func() { _ = siteMap.Close() }()
 	generatedURL := "https://example.test/assets/app.js"
-	if err := siteMap.Extractions().StoreJSScanSourceArtifact(&deparosstorage.JSScanSourceArtifactModel{
+	if err := siteMap.Extractions().StoreJSTangleSourceArtifact(&deparosstorage.JSTangleSourceArtifactModel{
 		SourceNodeID: 1, SessionID: siteMap.SessionDBID(), GeneratedURL: generatedURL,
 		VirtualURL: generatedURL + "#source=src%2Fapi.ts", SourcePath: "src/api.ts",
 		Language: "ts", ContentSHA256: "abc123", Content: `fetch('/api/from-map')`,
@@ -182,8 +182,8 @@ func TestPersistJSScanSourceArtifactsPromotesEphemeralContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.persistJSScanSourceArtifacts(context.Background(), siteMap,
-		[]*httpmsg.HttpRequestResponse{record}, []string{"record-uuid"})
+	d.persistJSTangleSourceArtifacts(context.Background(), siteMap,
+		map[string]string{record.Target(): "record-uuid"})
 	if len(saver.artifacts) != 1 {
 		t.Fatalf("promoted %d artifacts, want 1", len(saver.artifacts))
 	}

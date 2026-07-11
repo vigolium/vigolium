@@ -148,7 +148,7 @@ func ruleSecretEvent(host, url, rule, value string, sev severity.Severity) *outp
 	return &output.ResultEvent{
 		ModuleID: "secret-detect",
 		Info: output.Info{
-			Name:     rule, // the Kingfisher rule name — the per-rule key component
+			Name:     rule, // the secret-scan rule name — the per-rule key component
 			Severity: sev,
 			Tags:     []string{"secret"},
 		},

@@ -73,3 +73,34 @@ func TestBuildEvidence(t *testing.T) {
 		})
 	}
 }
+
+// TestParseEvidenceRoundTrip verifies ParseEvidence is the exact inverse of
+// BuildEvidence (Claim B: one shared parser for the evidence format), and that a
+// free-form entry with no separator is reported as Prose rather than a bogus pair.
+func TestParseEvidenceRoundTrip(t *testing.T) {
+	cases := []struct{ label, request, response string }{
+		{"", "GET / HTTP/1.1", "HTTP/1.1 200 OK"},
+		{"baseline", "GET / HTTP/1.1", "HTTP/1.1 403 Forbidden"},
+		{"attack", "GET /admin HTTP/1.1", ""},
+		{"confirm round 2", "", "HTTP/1.1 500"},
+	}
+	for _, tc := range cases {
+		built := BuildEvidence(tc.label, tc.request, tc.response)
+		p := ParseEvidence(built)
+		if !p.IsPair() {
+			t.Fatalf("ParseEvidence(%q) reported prose %q, want a pair", built, p.Prose)
+		}
+		if p.Label != tc.label || p.Request != tc.request || p.Response != tc.response {
+			t.Fatalf("round-trip mismatch for (%q,%q,%q): got label=%q request=%q response=%q",
+				tc.label, tc.request, tc.response, p.Label, p.Request, p.Response)
+		}
+	}
+
+	prose := ParseEvidence("just a free-form note, no separator")
+	if prose.IsPair() {
+		t.Fatalf("expected prose entry, got pair: %+v", prose)
+	}
+	if prose.Prose != "just a free-form note, no separator" {
+		t.Fatalf("prose = %q", prose.Prose)
+	}
+}

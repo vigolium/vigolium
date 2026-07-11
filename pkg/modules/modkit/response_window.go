@@ -67,6 +67,31 @@ func WindowBody(body []byte, locators []string, matchLine int, opts ResponseWind
 		return renderWindow(body, 0, e)
 	}
 
+	return windowAround(body, start, end, opts)
+}
+
+// WindowBodyAt is WindowBody anchored on an explicit [anchorStart, anchorEnd)
+// byte span — the offsets the secret detector reports for a match — instead of
+// re-locating the match text in body. Anchoring pins the evidence window to the
+// exact occurrence that fired (a value that also appears elsewhere in the body no
+// longer drags the window to the wrong spot) and skips a full-body substring
+// search. Bodies at or below opts.FullThreshold are still returned whole. When
+// the anchor is out of range it falls back to WindowBody's locator/line/head
+// resolution, so callers can always pass the match text as a safety-net locator.
+func WindowBodyAt(body []byte, anchorStart, anchorEnd int, locators []string, matchLine int, opts ResponseWindowOpts) string {
+	if len(body) <= opts.FullThreshold {
+		return string(body)
+	}
+	if anchorStart >= 0 && anchorEnd >= anchorStart && anchorEnd <= len(body) {
+		return windowAround(body, anchorStart, anchorEnd, opts)
+	}
+	return WindowBody(body, locators, matchLine, opts)
+}
+
+// windowAround renders the line/char window around the located [start, end) span:
+// opts.ContextLines full lines on each side, clamped to opts.ContextChars bytes,
+// with truncated edges marked. Shared by WindowBody and WindowBodyAt.
+func windowAround(body []byte, start, end int, opts ResponseWindowOpts) string {
 	// Line window: ContextLines full lines on each side of the match.
 	lineStart := lineWindowStart(body, start, opts.ContextLines)
 	lineEnd := lineWindowEnd(body, end, opts.ContextLines)

@@ -270,8 +270,8 @@ func printDoctorReport(r *diagnostics.Report) {
 		printDetails(true, r.NucleiTemplates.Details)
 		printTip(r.NucleiTemplates.Tip)
 	}
-	if c := embeddedBinaryCheck(r, "jsscan"); c != nil {
-		printCheck("Embedded jsscan", c.Status, c.Message)
+	if c := embeddedBinaryCheck(r, "jstangle"); c != nil {
+		printCheck("Embedded jstangle", c.Status, c.Message)
 		printDetails(true, c.Details)
 		printTip(c.Tip)
 	}

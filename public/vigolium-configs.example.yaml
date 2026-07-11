@@ -960,17 +960,26 @@ discovery:
     # Default: 4000
     observed_max_items: 4000
 
-    # Disable kingfisher secret scanning during discovery.
+    # Disable native secret scanning during discovery.
     # Default: true
-    disable_kingfisher: true
+    disable_secret_scan: true
 
   # Embedded JavaScript intelligence and source-aware replay.
-  jsscan:
+  jstangle:
     # Store typed facts and analyze scripts. Default: true.
     enabled: true
 
     # exact: high-confidence facts only; conservative: also medium; off: metadata only.
     replay_mode: exact
+
+    # Which recovered requests are SAFE to actually send during discovery
+    # (orthogonal to replay_mode's confidence gate). Withheld templates are still
+    # recorded, just not auto-replayed.
+    #   metadata-only  — send nothing
+    #   read-only      — GET/HEAD/OPTIONS + GraphQL queries (default)
+    #   safe-baseline  — read-only + idempotent writes (PUT/DELETE)
+    #   state-changing — all methods + GraphQL mutations (opt-in)
+    replay_safety: read-only
 
     # Follow bounded source maps and chunk/worker/manifest references.
     source_maps: true

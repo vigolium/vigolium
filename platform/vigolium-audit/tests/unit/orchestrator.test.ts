@@ -20,6 +20,7 @@ class FakeAdapter implements Adapter {
   quotaFailuresLeft: Map<string, number> = new Map();
   /** Emit textDelta before transient error to test "saw progress" gating. */
   emitProgressBeforeTransient = false;
+  artifactWrites: "always" | "repair-only" | "never" = "always";
   async probe(): Promise<void> {}
   async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
     this.calls.push(input);
@@ -33,8 +34,8 @@ class FakeAdapter implements Adapter {
         kind: "finish",
         ok: false,
         reason: "usage limit reached",
-        usd: 0,
-        tokens: { input: 0, output: 0 },
+        usd: 0.02,
+        tokens: { input: 20, output: 10 },
         durationMs: 1,
       };
       return;
@@ -50,8 +51,8 @@ class FakeAdapter implements Adapter {
         kind: "finish",
         ok: false,
         reason: "simulated 429",
-        usd: 0,
-        tokens: { input: 0, output: 0 },
+        usd: 0.01,
+        tokens: { input: 10, output: 5 },
         durationMs: 1,
       };
       return;
@@ -68,6 +69,13 @@ class FakeAdapter implements Adapter {
         durationMs: 10,
       };
     } else {
+      const isRepair = label.includes(":repair-");
+      if (
+        input.cwd !== undefined &&
+        (this.artifactWrites === "always" || (this.artifactWrites === "repair-only" && isRepair))
+      ) {
+        this.writeArtifacts(input.cwd, label);
+      }
       yield {
         kind: "finish",
         ok: true,
@@ -76,6 +84,92 @@ class FakeAdapter implements Adapter {
         tokens: { input: 200, output: 80 },
         durationMs: 12,
       };
+    }
+  }
+
+  private writeArtifacts(cwd: string, label: string): void {
+    const results = join(cwd, "vigolium-results");
+    const base = join(results, "attack-surface");
+    mkdirSync(base, { recursive: true });
+    if (label.startsWith("lite:L1")) {
+      writeFileSync(join(base, "lite-recon.md"), "## Lite Recon\n\nLanguages and entry points were enumerated.\n");
+      writeFileSync(
+        join(base, "unauthenticated-surface.md"),
+        "# Unauthenticated Attack Surface\n\nNo network-facing surface in test fixture.\n",
+      );
+    } else if (label.startsWith("lite:L2")) {
+      writeFileSync(
+        join(base, "lite-secrets-scan.md"),
+        "## Lite Secrets Scan\n\nNo retained secrets in test fixture.\n",
+      );
+    } else if (label.startsWith("lite:L3")) {
+      writeFileSync(
+        join(base, "lite-sast-summary.md"),
+        "## Lite SAST Summary\n\nNo retained findings in test fixture.\n",
+      );
+      const dir = join(results, "findings-draft");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "consolidation-manifest.json"), '{"findings":[],"theoretical":[],"dropped":[]}\n');
+    } else if (
+      label.startsWith("balanced:B1") ||
+      label.startsWith("balanced:B2") ||
+      label.startsWith("deep:D1") ||
+      label.startsWith("deep:D4")
+    ) {
+      writeFileSync(
+        join(base, "knowledge-base-report.md"),
+        [
+          "## Advisory Intelligence",
+          "Fixture advisory inventory and dependency evidence.",
+          "## Bypass Analysis",
+          "No applicable patches in this fixture.",
+          "## Architecture Model",
+          "Multi-service: false. Fixture components and trust boundaries.",
+          "## Attack Surface",
+          "Fixture entry points and attacker-controlled inputs.",
+          "## Static Analysis Summary",
+          "Fixture built-in analysis completed.",
+          "## CodeQL Structural Analysis",
+          "Fixture sources, sinks, and call paths.",
+          "## SAST Enrichment",
+          "No retained scanner candidates.",
+          "## Authorization Audit",
+          "No network endpoints in fixture.",
+          "## Phase 10 Addendum",
+          "Chamber closed with no valid findings.",
+        ].join("\n\n") + "\n",
+      );
+      if (label.startsWith("balanced:B2") || label.startsWith("deep:D4")) {
+        writeFileSync(
+          join(base, "unauthenticated-surface.md"),
+          "# Unauthenticated Attack Surface\n\nNo network-facing fixture surface.\n",
+        );
+      }
+    } else if (label.startsWith("deep:D2")) {
+      writeFileSync(join(base, "commit-recon-report.md"), "## Commit Archaeology\n\nFixture history reviewed.\n");
+    } else if (label.startsWith("balanced:B4")) {
+      const dir = join(results, "probe-workspace", "balanced-probe");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "probe-summary.md"), "## Probe Summary\n\nNo validated fixture hypotheses.\n");
+    } else if (label.startsWith("deep:D6")) {
+      const dir = join(results, "probe-workspace", "fixture");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "probe-summary.md"), "## Probe Summary\n\nNo validated fixture hypotheses.\n");
+    } else if (label.startsWith("deep:D7")) {
+      writeFileSync(join(base, "authz-matrix.md"), "## Authorization Matrix\n\nNo fixture routes.\n");
+    } else if (label.startsWith("balanced:B5")) {
+      const dir = join(results, "chamber-workspace", "balanced-chamber");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "debate.md"), "## Chamber Debate\n\nClosed with no valid fixture findings.\n");
+    } else if (label.startsWith("balanced:B7") || label.startsWith("deep:D10")) {
+      const dir = join(results, "findings-draft");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "consolidation-manifest.json"), '{"findings":[],"theoretical":[],"dropped":[]}\n');
+    } else if (label.startsWith("balanced:B9") || label.startsWith("deep:D12")) {
+      writeFileSync(
+        join(results, "final-audit-report.md"),
+        "# Final Audit Report\n\n" + "Fixture report content. ".repeat(12) + "\n",
+      );
     }
   }
 }
@@ -104,6 +198,8 @@ describe("Orchestrator", () => {
     expect(result.failedPhases).toEqual([]);
     expect(adapter.calls.length).toBe(3);
     expect(adapter.calls.map((c) => c.label)).toEqual(["lite:L1", "lite:L2", "lite:L3"]);
+    expect(adapter.calls[0]!.userPrompt).toContain("engine exclusively owns vigolium-results/audit-state.json");
+    expect(adapter.calls[0]!.userPrompt).not.toContain("When finished, mark phase");
 
     const state = await new StateStore(join(target, "vigolium-results")).load();
     expect(state.audits.length).toBe(1);
@@ -222,6 +318,8 @@ describe("Orchestrator", () => {
     // L1 was attempted 3x (2 transient + 1 success); plus L2, L3 once each.
     const q0Calls = adapter.calls.filter((c) => c.label === "lite:L1").length;
     expect(q0Calls).toBe(3);
+    expect(result.totalUsd).toBeCloseTo(0.32, 2);
+    expect(result.totalTokens).toEqual({ input: 620, output: 250 });
   });
 
   test("quota-limit errors retry past sawProgress with the configured backoff", async () => {
@@ -242,6 +340,8 @@ describe("Orchestrator", () => {
     // L1: 2 quota failures (with textDelta progress) + 1 success.
     const q0Calls = adapter.calls.filter((c) => c.label === "lite:L1").length;
     expect(q0Calls).toBe(3);
+    expect(result.totalUsd).toBeCloseTo(0.34, 2);
+    expect(result.totalTokens).toEqual({ input: 640, output: 260 });
   });
 
   test("quota-limit errors give up after quotaMaxRetries", async () => {
@@ -351,6 +451,15 @@ describe("Orchestrator", () => {
     const target = makeTarget();
     const resultsDir = join(target, "vigolium-results");
     mkdirSync(resultsDir, { recursive: true });
+    mkdirSync(join(resultsDir, "attack-surface"), { recursive: true });
+    writeFileSync(
+      join(resultsDir, "attack-surface", "lite-recon.md"),
+      "## Lite Recon\n\nExisting valid recon artifact for resume.\n",
+    );
+    writeFileSync(
+      join(resultsDir, "attack-surface", "unauthenticated-surface.md"),
+      "# Unauthenticated Attack Surface\n\nExisting valid surface artifact.\n",
+    );
     // Pre-seed audit-state with one in-progress audit, L1 already complete.
     writeFileSync(
       join(resultsDir, "audit-state.json"),
@@ -393,5 +502,86 @@ describe("Orchestrator", () => {
     const result = await orch.run();
     expect(result.status).toBe("complete");
     expect(adapter.calls.map((c) => c.label)).toEqual(["lite:L2", "lite:L3"]);
+  });
+
+  test("successful adapter output cannot complete a phase when its artifact gate fails", async () => {
+    const target = makeTarget();
+    const adapter = new FakeAdapter();
+    adapter.artifactWrites = "never";
+    const orch = new Orchestrator({
+      adapter,
+      loader: makeContentLoader(resolveRoots()),
+      targetDir: target,
+      mode: "lite",
+      failurePolicy: "strict",
+    });
+
+    const result = await orch.run();
+    expect(result.status).toBe("aborted");
+    expect(result.failedPhases).toEqual(["L1"]);
+    expect(adapter.calls.map((call) => call.label)).toEqual(["lite:L1", "lite:L1:repair-1"]);
+    const state = await new StateStore(join(target, "vigolium-results")).load();
+    expect(state.audits[0]?.phases.L1?.status).toBe("failed");
+    expect(state.audits[0]?.phases.L1?.error).toContain("artifact contract failed");
+  });
+
+  test("artifact repair receives only missing requirements and can complete the phase", async () => {
+    const target = makeTarget();
+    const adapter = new FakeAdapter();
+    adapter.artifactWrites = "repair-only";
+    const orch = new Orchestrator({
+      adapter,
+      loader: makeContentLoader(resolveRoots()),
+      targetDir: target,
+      mode: "lite",
+    });
+
+    const result = await orch.run();
+    expect(result.status).toBe("complete");
+    const repairCalls = adapter.calls.filter((call) => call.label?.includes(":repair-"));
+    expect(repairCalls).toHaveLength(3);
+    expect(repairCalls[0]?.userPrompt).toContain("Write only the missing or invalid phase-owned artifacts");
+    expect(repairCalls[0]?.userPrompt).not.toContain("COMMAND-DEF BODY");
+  });
+
+  test("resume reruns a phase recorded complete when its artifacts are missing", async () => {
+    const target = makeTarget();
+    const resultsDir = join(target, "vigolium-results");
+    mkdirSync(resultsDir, { recursive: true });
+    writeFileSync(
+      join(resultsDir, "audit-state.json"),
+      JSON.stringify({
+        schema_version: 1,
+        audits: [{
+          audit_id: "2026-05-09T00:00:00.000Z",
+          commit: null,
+          branch: null,
+          repository: null,
+          mode: "lite",
+          model: null,
+          agent_sdk: "fake",
+          started_at: "2026-05-09T00:00:00.000Z",
+          completed_at: null,
+          status: "in_progress",
+          phases: {
+            L1: { status: "complete" },
+            L2: { status: "pending" },
+            L3: { status: "pending" },
+          },
+        }],
+      }),
+    );
+
+    const adapter = new FakeAdapter();
+    const orch = new Orchestrator({
+      adapter,
+      loader: makeContentLoader(resolveRoots()),
+      targetDir: target,
+      mode: "lite",
+      resume: true,
+    });
+    const result = await orch.run();
+    expect(result.status).toBe("complete");
+    expect(adapter.calls[0]?.label).toBe("lite:L1");
   });
 });

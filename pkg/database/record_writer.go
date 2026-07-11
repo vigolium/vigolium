@@ -310,9 +310,11 @@ func (w *RecordWriter) cacheDedup(key, uuid string) {
 }
 
 // recordDedupKey builds the in-memory dedup key. It MUST mirror the columns
-// findDuplicateRecord filters on: (project_uuid, method, hostname, path, url),
-// plus request_hash when the request carries a body — otherwise the cache would
-// collapse distinct payloads to the same endpoint into one entry.
+// findDuplicateRecordUUIDs matches on: (project_uuid, method, hostname, path, url),
+// plus request_hash when the request carries a body OR its source requires exact
+// identity (finding-evidence records) — otherwise the cache/batch grouping would
+// collapse distinct payloads (or a header-only finding probe) to the same endpoint
+// into one entry, diverging from the DB dedup and mislinking evidence.
 func recordDedupKey(r *HTTPRecord) string {
 	var b strings.Builder
 	b.Grow(len(r.ProjectUUID) + len(r.Method) + len(r.Hostname) + len(r.Path) + len(r.URL) + len(r.RequestHash) + 6)
@@ -325,7 +327,7 @@ func recordDedupKey(r *HTTPRecord) string {
 	b.WriteString(r.Path)
 	b.WriteByte('\x00')
 	b.WriteString(r.URL)
-	if r.RequestContentLength > 0 {
+	if r.RequestContentLength > 0 || recordSourceRequiresExactIdentity(r.Source) {
 		b.WriteByte('\x00')
 		b.WriteString(r.RequestHash)
 	}

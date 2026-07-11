@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The Django admin interface is reachable from the internet. The default paths (/admin/ and /admin/login/) returned 200 with admin markers, confirming the built-in panel and login form are publicly exposed. This interface normally grants full read/write access to data models.
+	ModuleDesc = `**What it means:** An isolated credential-free request reached a Django-specific administration login interface. This records security-relevant attack surface, not administrative access or an authentication flaw.
 
-**How it's exploited:** An attacker runs credential-stuffing or brute-force against admin accounts; any weak, default, or leaked credentials yield a session with full control over the data. The panel also confirms the Django stack.
+**How it's exploited:** Attackers can identify the framework and target the login with known credentials or separate authentication weaknesses. Mere login-page reachability does not prove credential weakness, brute-force viability, or authorization bypass.
 
-**Fix:** Restrict the admin path to trusted networks or VPN, move it off the default URL, and enforce strong credentials with multi-factor authentication.`
+**Fix:** If policy requires it, restrict the interface to trusted networks or VPN. Independently enforce strong credentials, rate limiting, and multi-factor authentication.`
 
-	ModuleConfirmation = "Confirmed when admin endpoints return 200 with expected Django admin-specific markers"
-	ModuleSeverity     = severity.Medium
+	ModuleConfirmation = "Observed when credential-free requests return 200 with a Django-specific anchor plus an admin-form marker and pass catch-all controls"
+	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"django", "python", "info-disclosure", "probe", "light"}
 )

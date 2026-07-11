@@ -208,6 +208,11 @@ func AnnotatePathBypassFinding(res *output.ResultEvent, bypassPath string) {
 	if res.Info.Name != "" {
 		res.Info.Name += " (path-normalization bypass)"
 	}
+	// Reaching a marker-confirmed endpoint through a path that bypasses a direct
+	// 401/403/405 is stronger than mere interface presence: the scanner has
+	// demonstrated a reproducible access-control boundary bypass.
+	res.RecordKind = output.RecordKindFinding
+	res.EvidenceGrade = output.EvidenceGradeBypass
 	res.Info.Description = fmt.Sprintf(
 		"Reached via the %q reverse-proxy path-normalization bypass: a fronting proxy blocks the direct path, but the Java/Servlet backend strips the ';' path parameter and/or decodes the slash, then collapses the '..' so the request re-reaches the endpoint through the proxy's allow-list. %s",
 		bypassPath, res.Info.Description,
@@ -216,6 +221,11 @@ func AnnotatePathBypassFinding(res *output.ResultEvent, bypassPath string) {
 	res.Info.Reference = append(res.Info.Reference,
 		"https://i.blackhat.com/us-18/Wed-August-8/us-18-Orange-Tsai-Breaking-Parser-Logic-Take-Your-Path-Normalization-Off-And-Pop-0days-Out-2.pdf")
 	res.ExtractedResults = append([]string{"bypass path: " + bypassPath}, res.ExtractedResults...)
+	if res.Metadata == nil {
+		res.Metadata = map[string]any{}
+	}
+	res.Metadata["path_normalization_bypass"] = true
+	res.Metadata["bypass_path"] = bypassPath
 }
 
 // pathSegmentCount returns the number of non-empty path segments, ignoring any

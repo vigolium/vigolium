@@ -12,6 +12,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func rpcMethod(body []byte) string {
@@ -82,8 +83,20 @@ func TestScanPerHost_DetectsCompletionDisclosure(t *testing.T) {
 	res, err := New().ScanPerHost(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "completion values disclosed for a prompt argument must be flagged")
-	assert.Equal(t, "MCP Prompt Argument Values Disclosed via completion/complete", res[0].Info.Name)
+	assert.Equal(t, "MCP Prompt Argument Completion Values Returned", res[0].Info.Name)
 	assert.Contains(t, res[0].ExtractedResults, "alice")
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, res[0].EvidenceGrade)
+}
+
+func TestClassifyCompletionValues(t *testing.T) {
+	kind, grade, _, _ := classifyCompletionValues([]string{"alice", "bob"})
+	assert.Equal(t, output.RecordKindObservation, kind)
+	assert.Equal(t, output.EvidenceGradeObservation, grade)
+
+	kind, grade, _, _ = classifyCompletionValues([]string{"user@example.test"})
+	assert.Equal(t, output.RecordKindCandidate, kind)
+	assert.Equal(t, output.EvidenceGradeCandidate, grade)
 }
 
 // TestScanPerHost_NoValuesNoFinding ensures a server returning empty completion

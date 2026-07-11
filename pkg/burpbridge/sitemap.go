@@ -3,6 +3,7 @@ package burpbridge
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -35,14 +36,14 @@ func (c *Client) AddToSiteMap(
 	source string,
 ) error {
 	if rawURL == "" {
-		return fmt.Errorf("Burp Site map save requires a URL")
+		return errors.New("burp Site map save requires a URL")
 	}
 	target, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || target.Hostname() == "" || (target.Scheme != "http" && target.Scheme != "https") {
-		return fmt.Errorf("Burp Site map save requires an absolute http or https URL")
+		return errors.New("burp Site map save requires an absolute http or https URL")
 	}
 	if len(rawRequest) == 0 {
-		return fmt.Errorf("Burp Site map save requires a raw request")
+		return errors.New("burp Site map save requires a raw request")
 	}
 	if len(rawRequest) > MaxSiteMapMessageBytes || len(rawResponse) > MaxSiteMapMessageBytes {
 		return fmt.Errorf("request or response exceeds the %d MiB Burp Site map safety limit", MaxSiteMapMessageBytes/(1024*1024))
@@ -64,7 +65,7 @@ func (c *Client) AddToSiteMap(
 		return err
 	}
 	if response.Added != 1 {
-		return fmt.Errorf("Burp bridge did not add the Site map item")
+		return errors.New("burp bridge did not add the Site map item")
 	}
 	return nil
 }

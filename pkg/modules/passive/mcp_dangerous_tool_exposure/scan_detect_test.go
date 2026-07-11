@@ -9,6 +9,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // makeHTTPCtx builds a request/response pair from the given request path,
@@ -50,6 +51,8 @@ func TestScanPerRequest_FlagsDangerousTools(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, res)
 	assert.Equal(t, "MCP Dangerous Tool Exposure", res[0].Info.Name)
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, res[0].EvidenceGrade)
 
 	joined := strings.Join(res[0].ExtractedResults, "\n")
 	assert.Contains(t, joined, "code execution")

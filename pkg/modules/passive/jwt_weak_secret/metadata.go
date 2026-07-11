@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A JWT used by this app is signed with a weak or guessable secret, so anyone who recovers the key can mint tokens the server trusts. The check verifies signatures offline against ~104K known weak secrets.
+	ModuleDesc = `**What it means:** A JWT signature matches a known weak HMAC secret or is printable non-cryptographic text. Server-issued tokens form findings; client tokens and arbitrary body text remain candidates.
 
-**How it's exploited:** With the secret known, an attacker forges a token with an elevated role for account takeover. The check also flags signatures decoding to plain ASCII and asymmetric tokens vulnerable to HMAC algorithm-confusion (CVE-2015-9235).
+**How it's exploited:** An attacker who knows the signing secret forges claims such as an elevated role. Asymmetric algorithm-confusion patterns remain candidates until verifier acceptance is proven.
 
-**Fix:** Sign JWTs with a long, high-entropy random secret or managed asymmetric key, and pin the algorithm server-side so alg cannot downgrade verification.`
+**Fix:** Use a high-entropy secret or managed asymmetric key and pin the accepted algorithm server-side.`
 
-	ModuleConfirmation = "Confirmed when a JWT HMAC signature matches a known weak secret"
+	ModuleConfirmation = "Confirmed only when an offline signature match or non-cryptographic signature is tied to response Authorization or Set-Cookie issuance; other locations remain candidates"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"authentication", "cryptography", "session", "moderate"}

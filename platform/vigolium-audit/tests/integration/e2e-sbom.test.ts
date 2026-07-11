@@ -165,6 +165,42 @@ class SbomFakeAdapter implements Adapter {
         tool: "Write",
         input: { path: "vigolium-results/attack-surface/sbom.json" },
       };
+    } else if (label === "balanced:B2") {
+      const kbPath = join(this.attackSurfaceDir, "knowledge-base-report.md");
+      writeFileSync(
+        kbPath,
+        readFileSync(kbPath, "utf8") +
+          "\n## Architecture Model\n\nSingle-service fixture with one HTTP boundary.\n" +
+          "\n## Attack Surface\n\nFixture entry point inventory completed.\n",
+      );
+      writeFileSync(
+        join(this.attackSurfaceDir, "unauthenticated-surface.md"),
+        "# Unauthenticated Attack Surface\n\nNo anonymous fixture routes.\n",
+      );
+    } else if (label === "balanced:B3") {
+      const kbPath = join(this.attackSurfaceDir, "knowledge-base-report.md");
+      writeFileSync(
+        kbPath,
+        readFileSync(kbPath, "utf8") +
+          "\n## Static Analysis Summary\n\nBuilt-in fixture analysis completed with no retained alerts.\n",
+      );
+    } else if (label === "balanced:B4") {
+      const probeDir = join(this.attackSurfaceDir, "..", "probe-workspace", "balanced-probe");
+      mkdirSync(probeDir, { recursive: true });
+      writeFileSync(join(probeDir, "probe-summary.md"), "## Probe Summary\n\nNo validated fixture hypotheses.\n");
+    } else if (label === "balanced:B5") {
+      const chamberDir = join(this.attackSurfaceDir, "..", "chamber-workspace", "balanced-chamber");
+      mkdirSync(chamberDir, { recursive: true });
+      writeFileSync(join(chamberDir, "debate.md"), "## Chamber Debate\n\nClosed with no valid fixture findings.\n");
+    } else if (label === "balanced:B7") {
+      const draftDir = join(this.attackSurfaceDir, "..", "findings-draft");
+      mkdirSync(draftDir, { recursive: true });
+      writeFileSync(join(draftDir, "consolidation-manifest.json"), '{"findings":[],"theoretical":[],"dropped":[]}\n');
+    } else if (label === "balanced:B9") {
+      writeFileSync(
+        join(this.attackSurfaceDir, "..", "final-audit-report.md"),
+        "# Final Audit Report\n\n" + "Balanced fixture report content. ".repeat(10) + "\n",
+      );
     }
 
     yield {

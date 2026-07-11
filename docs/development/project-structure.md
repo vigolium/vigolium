@@ -28,7 +28,7 @@ Makefile             Build & test workflows (always build via make — see build
 | `internal/runner/` | High-level scan orchestration — sequences the phases of a native scan |
 | `internal/config/` | Configuration model, loader, scope matcher, agent config |
 | `internal/logger/` | Zap-based structured logging |
-| `internal/resources/` | Generated/embedded assets (e.g. the bun-compiled jsscan binary) |
+| `internal/resources/` | Generated/embedded assets (e.g. the bun-compiled jstangle binary) |
 | `internal/ingestor/` | `vigolium ingest` traffic-forwarding client internals |
 
 ## Native-scan core
@@ -51,7 +51,7 @@ Makefile             Build & test workflows (always build via make — see build
 
 | Path | Responsibility |
 |------|----------------|
-| `pkg/deparos/` | Spider & discovery engine: crawling, JS analysis (`jsscan/`), fingerprinting, Wayback, scope, WAF detection, storage |
+| `pkg/deparos/` | Spider & discovery engine: crawling, JS analysis (`jstangle/`), fingerprinting, Wayback, scope, WAF detection, storage |
 | `pkg/spitolas/` | Chromium/CDP browser-driven crawler (vendored `rod` lives under `pkg/spitolas/rod`, excluded from lint/test) |
 | `pkg/harvester/` | Endpoint/secret harvesting helpers |
 | `pkg/jsext/` | JavaScript extension engine (Sobek) exposing the `vigolium.*` API; TS defs in `vigolium.d.ts` |

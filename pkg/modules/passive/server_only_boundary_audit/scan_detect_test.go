@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -47,8 +48,10 @@ func TestScanPerRequest_CorroboratedLeak(t *testing.T) {
 	found := false
 	for _, r := range results {
 		assert.Equal(t, ModuleID, r.ModuleID)
-		if r.Info.Name == "Server Code Leak: Database Client (Prisma)" {
+		if r.Info.Name == "Server-Boundary Candidate: Database Client (Prisma)" {
 			found = true
+			assert.Equal(t, output.RecordKindCandidate, r.RecordKind)
+			assert.False(t, r.IsFinding())
 		}
 	}
 	assert.True(t, found, "expected Prisma leak when corroborated by a second server-only signal")
@@ -73,7 +76,7 @@ func TestScanPerRequest_LoneWeakMatchDropped(t *testing.T) {
 func TestScanPerRequest_ConnectionString(t *testing.T) {
 	t.Parallel()
 	m := New()
-	body := `const url = "postgres://admin:secret@db.internal/app";`
+	body := `const url = "postgres://admin:8Pz7vR3mQ2xL@db.internal/app";`
 	ctx := makeHTTPCtx("/_next/static/chunks/app.js", "application/javascript", body)
 
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
@@ -82,11 +85,20 @@ func TestScanPerRequest_ConnectionString(t *testing.T) {
 
 	found := false
 	for _, r := range results {
-		if r.Info.Name == "Server Code Leak: Database Connection String" {
+		if r.Info.Name == "Server-Boundary Candidate: Database Connection String" {
 			found = true
+			assert.Equal(t, output.RecordKindCandidate, r.RecordKind)
 		}
 	}
 	assert.True(t, found, "expected database connection string leak finding")
+}
+
+func TestConnectionStringPlaceholderDropped(t *testing.T) {
+	t.Parallel()
+	ctx := makeHTTPCtx("/_next/static/chunks/app.js", "application/javascript", `const url="postgres://user:changeme123@example.internal/app";`)
+	results, err := New().ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
 // TestScanPerRequest_CleanBundle verifies that a benign client bundle produces no

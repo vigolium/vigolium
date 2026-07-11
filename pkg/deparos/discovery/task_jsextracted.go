@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/payload"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 )
 
 // JSExtractedRequestTask replays source-scoped request templates. The registry
@@ -18,14 +18,14 @@ type JSExtractedRequestTask struct {
 	dirURL               *url.URL
 	depth                uint16
 	cachedHash           uint64
-	getExtractedRequests func() []jsscan.ExtractedRequest // v1 compatibility
+	getExtractedRequests func() []jstangle.ExtractedRequest // v1 compatibility
 	getRequestTemplates  func() []ExtractedRequestTemplate
 }
 
 type JSExtractedRequestTaskConfig struct {
 	DirURL               *url.URL
 	Depth                uint16
-	GetExtractedRequests func() []jsscan.ExtractedRequest
+	GetExtractedRequests func() []jstangle.ExtractedRequest
 	GetRequestTemplates  func() []ExtractedRequestTemplate
 }
 
@@ -92,7 +92,7 @@ func (t *JSExtractedRequestTask) Extension() string                 { return "" 
 func (t *JSExtractedRequestTask) Depth() uint16                     { return t.depth }
 func (t *JSExtractedRequestTask) IsFromSpider() bool                { return false }
 func (t *JSExtractedRequestTask) DirURL() *url.URL                  { return t.dirURL }
-func (t *JSExtractedRequestTask) GetExtractedRequestsFunc() func() []jsscan.ExtractedRequest {
+func (t *JSExtractedRequestTask) GetExtractedRequestsFunc() func() []jstangle.ExtractedRequest {
 	return t.getExtractedRequests
 }
 
@@ -167,7 +167,7 @@ func (t *JSExtractedRequestTask) generateTemplateVariants(template *ExtractedReq
 		if len(variants) >= maxURLs {
 			break
 		}
-		resolved := resolveSourceAwareURL(candidate, template.SourceURL, t.dirURL)
+		resolved := resolveReplayURL(candidate, template.SourceURL, t.dirURL)
 		if resolved == "" {
 			continue
 		}
@@ -183,7 +183,7 @@ func (t *JSExtractedRequestTask) generateTemplateVariants(template *ExtractedReq
 	return variants
 }
 
-func (t *JSExtractedRequestTask) generateVariants(req *jsscan.ExtractedRequest) []RequestVariant {
+func (t *JSExtractedRequestTask) generateVariants(req *jstangle.ExtractedRequest) []RequestVariant {
 	method := strings.ToUpper(req.Method)
 	if method == "" {
 		method = "GET"
@@ -191,7 +191,7 @@ func (t *JSExtractedRequestTask) generateVariants(req *jsscan.ExtractedRequest) 
 	if !isReplayableMethod(method) {
 		return nil
 	}
-	resolved := resolveSourceAwareURL(req.URL, "", t.dirURL)
+	resolved := resolveReplayURL(req.URL, "", t.dirURL)
 	if resolved == "" {
 		return nil
 	}
@@ -204,9 +204,27 @@ func (t *JSExtractedRequestTask) generateVariants(req *jsscan.ExtractedRequest) 
 	}}
 }
 
-func resolveSourceAwareURL(rawURL, sourceURL string, fallback *url.URL) string {
+// resolveReplayURL resolves a JS-extracted endpoint reference to the absolute URL
+// to replay. Every fact that reaches this HTTP-request replay path comes from a
+// browser network client (fetch / XHR / axios / generic / graphql / protocol),
+// all of which resolve a relative endpoint against the DOCUMENT that loaded the
+// script (document.baseURI) — NOT against the script's own URL. Module-URL
+// resolution (dynamic import(), import.meta.url, new URL(x, import.meta.url))
+// applies to asset references, a separate fact type handled by the asset graph,
+// not replayed here — so the module/script URL is deliberately never used as the
+// base for a replay.
+//
+// We do not observe the exact document, so relative references resolve against
+// the application origin root (scheme://host/): always correct for root-relative
+// refs ("/api"), and correct for the common SPA-served-at-root case for
+// path-relative refs ("api", "./api", "../api"). The previous behavior resolved
+// against the bundle's asset directory, which turned fetch('api/users') on
+// https://h/assets/app.js into the non-existent https://h/assets/api/users.
+// sourceURL (the bundle) and fallback (the crawl directory) are consulted only to
+// recover the origin, never its path.
+func resolveReplayURL(rawURL, sourceURL string, fallback *url.URL) string {
 	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" || strings.HasPrefix(rawURL, "${") || rawURL == "${X}" || rawURL == "${unknown}" {
+	if rawURL == "" || strings.HasPrefix(rawURL, "${") {
 		return ""
 	}
 	rawURL = ReplaceTemplateVars(rawURL)
@@ -218,18 +236,32 @@ func resolveSourceAwareURL(rawURL, sourceURL string, fallback *url.URL) string {
 		reference.Fragment = ""
 		return reference.String()
 	}
-	base := fallback
-	if sourceURL != "" {
-		if parsed, parseErr := url.Parse(sourceURL); parseErr == nil && parsed.Scheme != "" && parsed.Host != "" {
-			base = parsed
-		}
+	origin := originRoot(sourceURL)
+	if origin == nil && fallback != nil && fallback.Scheme != "" && fallback.Host != "" {
+		// fallback is already parsed — read its origin directly rather than
+		// re-stringifying and re-parsing it.
+		origin = &url.URL{Scheme: fallback.Scheme, Host: fallback.Host, Path: "/"}
 	}
-	if base == nil || base.Scheme == "" || base.Host == "" {
+	if origin == nil {
 		return ""
 	}
-	resolved := base.ResolveReference(reference)
+	resolved := origin.ResolveReference(reference)
 	resolved.Fragment = ""
 	return resolved.String()
+}
+
+// originRoot returns scheme://host/ for a URL string that carries both a scheme
+// and a host, else nil. It intentionally discards the path so a relative endpoint
+// resolves against the application root rather than an asset subdirectory.
+func originRoot(rawURL string) *url.URL {
+	if rawURL == "" {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return nil
+	}
+	return &url.URL{Scheme: u.Scheme, Host: u.Host, Path: "/"}
 }
 
 func mergeRenderedQuery(rawURL, renderedQuery string) string {
@@ -249,7 +281,7 @@ func mergeRenderedQuery(rawURL, renderedQuery string) string {
 	return u.String()
 }
 
-func renderFactFields(fields []jsscan.FieldTemplate) string {
+func renderFactFields(fields []jstangle.FieldTemplate) string {
 	parts := make([]string, 0, len(fields))
 	for _, field := range fields {
 		parts = append(parts,
@@ -287,7 +319,7 @@ func isBrowserControlledHeader(name string) bool {
 		lower == "origin" || lower == "referer" || strings.HasPrefix(lower, "sec-")
 }
 
-func safeReplayHeaders(fact *jsscan.HTTPRequestFact) []string {
+func safeReplayHeaders(fact *jstangle.HTTPRequestFact) []string {
 	if fact == nil {
 		return nil
 	}
@@ -375,7 +407,7 @@ func deduplicateReplayVariants(variants []RequestVariant) []RequestVariant {
 	return result
 }
 
-func sourceMappedFact(fact *jsscan.HTTPRequestFact) bool {
+func sourceMappedFact(fact *jstangle.HTTPRequestFact) bool {
 	if fact == nil {
 		return false
 	}

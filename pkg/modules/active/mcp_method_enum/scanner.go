@@ -28,14 +28,10 @@ var methodWordlist = []string{
 	"_internal/echo",
 	"system/info",
 	"system/exec",
-	"sampling/createMessage",
-	"logging/setLevel",
 	"logging/getLevel",
-	"roots/list",
 	"experimental/echo",
 	"experimental/run",
 	"server/restart",
-	"ping",
 }
 
 // JSON-RPC standard "method not found" error code.
@@ -83,7 +79,11 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 	host := ctx.Service().Host()
-	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil && ds.IsSeen(host) {
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
+	if ds := diskSet; ds != nil && ds.IsSeen(host) {
 		return nil, nil
 	}
 
@@ -108,18 +108,22 @@ func (m *Module) ScanPerHost(
 	{
 		controlMethod := "vig-nonexistent-" + utils.RandomString(12)
 		body, _, err := client.PostRaw(mcpinfra.MarshalRequest(4999, controlMethod, map[string]any{}))
-		if err == nil && body != "" {
-			if resp, perr := mcpinfra.ParseResponse(body); perr == nil && resp != nil {
-				if resp.Error == nil && len(resp.Result) > 0 {
-					// Catch-all: unknown methods return a result. Every wordlist
-					// probe would look "exposed" — bail rather than emit noise.
-					return nil, nil
-				}
-				if resp.Error != nil {
-					unknownCode = resp.Error.Code
-				}
-			}
+		if err != nil || body == "" {
+			return nil, nil
 		}
+		resp, perr := mcpinfra.ParseResponse(body)
+		if perr != nil || resp == nil {
+			return nil, nil
+		}
+		if resp.Error == nil && len(resp.Result) > 0 {
+			// Catch-all: unknown methods return a result. Every wordlist
+			// probe would look "exposed" — bail rather than emit noise.
+			return nil, nil
+		}
+		if resp.Error == nil {
+			return nil, nil
+		}
+		unknownCode = resp.Error.Code
 	}
 
 	var findings []*output.ResultEvent
@@ -141,26 +145,35 @@ func (m *Module) ScanPerHost(
 		}
 
 		evidence := "JSON-RPC result returned"
-		sev := severity.Medium
+		sev := severity.Low
+		kind := output.RecordKindCandidate
+		grade := output.EvidenceGradeCandidate
 		if !isError && len(resp.Result) > 0 {
-			evidence = "JSON-RPC result returned (method exposed)"
+			evidence = "JSON-RPC result returned (method implemented)"
 		} else if isError {
 			evidence = fmt.Sprintf("JSON-RPC error code %d (method recognised but rejected)", resp.Error.Code)
-			sev = severity.Low
+			sev = severity.Info
+			kind = output.RecordKindObservation
+			grade = output.EvidenceGradeObservation
 		}
 
 		findings = append(findings, &output.ResultEvent{
+			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
 			ExtractedResults: []string{method, evidence, truncate(body, 200)},
 			Info: output.Info{
-				Name:        fmt.Sprintf("MCP Undocumented Method Reachable: %s", method),
-				Description: fmt.Sprintf("MCP server at %s exposes JSON-RPC method %q. %s.", urlx.Host, method, evidence),
+				Name:        fmt.Sprintf("MCP Non-Standard Method Observed: %s", method),
+				Description: fmt.Sprintf("MCP server at %s distinguishes non-standard JSON-RPC method %q from a randomized unknown-method control. This inventories implementation behavior; sensitive data access or privileged side effects were not demonstrated.", urlx.Host, method),
 				Severity:    sev,
 				Confidence:  severity.Firm,
 				Tags:        []string{"mcp", "enumeration", "info-disclosure"},
 				Reference:   []string{"https://modelcontextprotocol.io/specification/2025-11-25"},
 			},
+			Metadata: map[string]any{"method": method, "negative_control_code": unknownCode, "method_invoked": !isError, "impact_confirmed": false},
 		})
 	}
 	return findings, nil

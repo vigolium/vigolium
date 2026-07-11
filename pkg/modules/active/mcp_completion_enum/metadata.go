@@ -15,7 +15,7 @@ var (
 
 **Fix:** Require authentication for completion/complete and avoid returning sensitive value sets; restrict completions to non-sensitive hints or disable the capability where it leaks private data.`
 
-	ModuleConfirmation = "Confirmed when completion/complete returns at least one value (the server is willing to disclose its valid value set without authentication)"
+	ModuleConfirmation = "Observation when completion/complete returns ordinary values; candidate only for identity, credential, or sensitive-path shapes, without inferring anonymous access or downstream authorization impact"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"mcp", "info-disclosure", "enumeration", "light"}

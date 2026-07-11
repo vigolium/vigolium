@@ -6,6 +6,7 @@ import (
 	"hash"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -146,6 +147,49 @@ func BuildEvidence(label, request, response string) string {
 		return body
 	}
 	return "# [" + label + "]\n" + body
+}
+
+// EvidencePair is one AdditionalEvidence entry parsed back into structured parts:
+// an optional Label plus the Request/Response halves. Prose is set instead (with
+// Request/Response empty) when the entry carries no separator — some modules and
+// JS extensions push free-form strings into AdditionalEvidence despite the
+// documented pair format, so renderers can present real pairs structurally and
+// prose as-is rather than guessing.
+type EvidencePair struct {
+	Label    string
+	Request  string
+	Response string
+	Prose    string
+}
+
+// IsPair reports whether the entry parsed as a request/response pair (as opposed
+// to a free-form prose entry).
+func (e EvidencePair) IsPair() bool { return e.Prose == "" }
+
+// ParseEvidence is the inverse of BuildEvidence: it parses one AdditionalEvidence
+// entry back into its structured parts, recognizing the optional "# [label]"
+// marker line and the EvidenceSeparator between the request and response halves.
+// An entry with no separator is returned as Prose, so a renderer can tell a
+// genuine pair from arbitrary text. This is the single parser for the evidence
+// format that BuildEvidence produces, so every consumer splits it identically.
+func ParseEvidence(entry string) EvidencePair {
+	var p EvidencePair
+	body := entry
+	if strings.HasPrefix(body, "# [") {
+		if nl := strings.IndexByte(body, '\n'); nl >= 0 {
+			if marker := body[:nl]; strings.HasSuffix(marker, "]") {
+				p.Label = marker[len("# [") : len(marker)-1]
+				body = body[nl+1:]
+			}
+		}
+	}
+	if idx := strings.Index(body, EvidenceSeparator); idx >= 0 {
+		p.Request = body[:idx]
+		p.Response = body[idx+len(EvidenceSeparator):]
+		return p
+	}
+	p.Prose = body
+	return p
 }
 
 // sha1Pool recycles SHA-1 hashers to avoid allocating one per ResultEvent.ID() call.

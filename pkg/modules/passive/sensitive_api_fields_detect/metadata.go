@@ -15,7 +15,7 @@ var (
 
 **Fix:** Restrict responses to only the fields each caller is authorized to see, removing credentials and PII unless required.`
 
-	ModuleConfirmation = "Candidate when populated sensitive-looking JSON fields are present; confirmation requires role/schema or cross-identity authorization context"
+	ModuleConfirmation = "Candidate only for parsed sensitive fields carrying substantive non-public values; name-only, redacted, boolean, placeholder, and public-identifier values remain observations"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"api", "info-disclosure", "light"}

@@ -1,10 +1,16 @@
 package graphql_scan
 
 import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/vigolium/vigolium/pkg/graphqlx"
+	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestConfirmRounds(t *testing.T) {
@@ -173,5 +179,39 @@ func TestCollectXSSCandidates_PrefersNonString(t *testing.T) {
 	// Non-string (Int) arg must be probed first.
 	if cands[0].field.Name != "byId" || cands[0].arg != "id" {
 		t.Errorf("expected Int-arg candidate first, got %s(%s)", cands[0].field.Name, cands[0].arg)
+	}
+}
+
+func TestBatchExecutionRemainsCandidate(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(strings.TrimSpace(string(body)), "[") {
+			parts := make([]string, batchProbeSize)
+			for i := range parts {
+				parts[i] = `{"data":{"__typename":"Query"}}`
+			}
+			_, _ = w.Write([]byte("[" + strings.Join(parts, ",") + "]"))
+			return
+		}
+		aliases := make([]string, batchProbeSize)
+		for i := range aliases {
+			aliases[i] = fmt.Sprintf(`"a%d":"Query"`, i)
+		}
+		_, _ = w.Write([]byte(`{"data":{` + strings.Join(aliases, ",") + `}}`))
+	}))
+	defer srv.Close()
+
+	ctx := modtest.Request(t, srv.URL+"/")
+	result := New().phaseBatching(ctx, modtest.Requester(t), "/graphql", srv.URL)
+	if result == nil {
+		t.Fatal("expected batch capability result")
+	}
+	if result.RecordKind != output.RecordKindCandidate || result.EvidenceGrade != output.EvidenceGradeCandidate {
+		t.Fatalf("batch capability must not default to finding: kind=%q grade=%q", result.RecordKind, result.EvidenceGrade)
+	}
+	if result.Metadata["rate_limit_bypassed"] != false {
+		t.Fatal("executing harmless aliases must not claim a rate-limit bypass")
 	}
 }

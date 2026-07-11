@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Next.js Draft/Preview Mode endpoint enables draft mode without a valid secret, exposing embargoed, internal, or unpublished CMS content to anonymous visitors.
+	ModuleDesc = `**What it means:** A Next.js endpoint issued a live preview cookie without a valid secret. The cookie is a candidate; repeated stable content that differs from cookie-free controls confirms exposure.
 
-**How it's exploited:** An attacker visits a draft route (for example /api/draft, /api/preview, /api/enable-preview) with no secret to obtain the __prerender_bypass or __next_preview_data bypass cookie, then browses the site to read draft and preview-only content meant to stay hidden.
+**How it's exploited:** An attacker calls the draft route without its secret, receives a preview cookie, and browses unpublished content.
 
-**Fix:** Require a strong, unguessable secret on every draft/preview enabling endpoint and reject requests whose secret does not match, per the Next.js Draft Mode documentation.`
+**Fix:** Require a strong secret on every draft-enabling endpoint, reject mismatches, and ensure exit routes only delete preview cookies.`
 
-	ModuleConfirmation = "Confirmed when a draft/preview endpoint sets bypass cookies without a valid secret"
+	ModuleConfirmation = "Candidate on a live non-deletion preview cookie; confirmed only by a stable cookie-versus-no-cookie content differential on a follow-up route"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"nextjs", "javascript", "misconfiguration", "light"}

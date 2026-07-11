@@ -45,13 +45,13 @@ type NodeModel struct {
 	RespLines         sql.NullInt64  `bun:"resp_lines"`
 
 	// Metadata fields
-	FoundBy            sql.NullString `bun:"found_by"`
-	DiscoveredAt       sql.NullInt64  `bun:"discovered_at"`
-	FingerprintAttrs   sql.NullString `bun:"fingerprint_attrs,type:text"`
-	Tags               sql.NullString `bun:"tags,type:text"`
-	KingfisherFindings sql.NullString `bun:"kingfisher_findings,type:text"`
-	FirstSeenSession   sql.NullInt64  `bun:"first_seen_session"`
-	LastSeenSession    sql.NullInt64  `bun:"last_seen_session"`
+	FoundBy          sql.NullString `bun:"found_by"`
+	DiscoveredAt     sql.NullInt64  `bun:"discovered_at"`
+	FingerprintAttrs sql.NullString `bun:"fingerprint_attrs,type:text"`
+	Tags             sql.NullString `bun:"tags,type:text"`
+	SecretFindings   sql.NullString `bun:"secret_findings,type:text"`
+	FirstSeenSession sql.NullInt64  `bun:"first_seen_session"`
+	LastSeenSession  sql.NullInt64  `bun:"last_seen_session"`
 
 	// Hash for deduplication (FNV-1a 64-bit)
 	Hash sql.NullString `bun:"hash"`
@@ -72,8 +72,8 @@ type ExtractionSource uint8
 const (
 	// SourceSpider - URL extracted by spider from HTML/JS/comments/headers/etc.
 	SourceSpider ExtractionSource = iota
-	// SourceJSScan - HTTP request extracted by jsscan from JavaScript analysis.
-	SourceJSScan
+	// SourceJSTangle - HTTP request extracted by jstangle from JavaScript analysis.
+	SourceJSTangle
 	// SourceForm - HTML form request (params in URL for GET, body for POST).
 	SourceForm
 )
@@ -83,8 +83,8 @@ func (s ExtractionSource) String() string {
 	switch s {
 	case SourceSpider:
 		return "spider"
-	case SourceJSScan:
-		return "jsscan"
+	case SourceJSTangle:
+		return "jstangle"
 	case SourceForm:
 		return "form"
 	default:
@@ -135,7 +135,7 @@ type ObservedModel struct {
 }
 
 // ExtractionModel maps to the 'extractions' table.
-// Unified storage for all extracted data: spider links, jsscan requests, forms.
+// Unified storage for all extracted data: spider links, jstangle requests, forms.
 type ExtractionModel struct {
 	bun.BaseModel `bun:"table:extractions"`
 	ID            int64 `bun:"id,pk,autoincrement"`
@@ -158,7 +158,7 @@ type ExtractionModel struct {
 	Headers     sql.NullString `bun:"headers,type:text"`    // JSON array
 	Cookies     sql.NullString `bun:"cookies,type:text"`    // JSON array
 
-	// Typed JSSCAN v2 metadata. Legacy rows leave these columns NULL/zero.
+	// Typed JSTANGLE v2 metadata. Legacy rows leave these columns NULL/zero.
 	SourceURL     sql.NullString `bun:"source_url,type:text"`
 	RecordKind    sql.NullString `bun:"record_kind"`
 	Confidence    sql.NullString `bun:"confidence"`
@@ -171,11 +171,11 @@ type ExtractionModel struct {
 	CreatedAt int64 `bun:"created_at,notnull"`
 }
 
-// JSScanSourceArtifactModel stores an immutable original source recovered from
+// JSTangleSourceArtifactModel stores an immutable original source recovered from
 // a source map. Source paths are display metadata only; content is kept in the
 // database so an untrusted ../../ path can never select a filesystem target.
-type JSScanSourceArtifactModel struct {
-	bun.BaseModel `bun:"table:jsscan_source_artifacts"`
+type JSTangleSourceArtifactModel struct {
+	bun.BaseModel `bun:"table:jstangle_source_artifacts"`
 	ID            int64  `bun:"id,pk,autoincrement" json:"id"`
 	SourceNodeID  int64  `bun:"source_node_id,notnull" json:"source_node_id"`
 	SessionID     int64  `bun:"session_id,notnull" json:"session_id"`

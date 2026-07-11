@@ -23,10 +23,7 @@ func TestTryStartNativeScan_BoundsConcurrency(t *testing.T) {
 	close(block) // let the first scan finish and release its slot
 
 	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if h.tryStartNativeScan(func() {}) {
-			break
-		}
+	for !h.tryStartNativeScan(func() {}) {
 		if time.Now().After(deadline) {
 			t.Fatal("slot was never released after the first scan finished")
 		}

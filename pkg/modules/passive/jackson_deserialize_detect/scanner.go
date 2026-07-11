@@ -1,7 +1,9 @@
 package jackson_deserialize_detect
 
 import (
+	"encoding/json"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -13,13 +15,13 @@ import (
 )
 
 var (
-	// Type discriminator fields in JSON
-	typeFieldPattern = regexp.MustCompile(`"@(?:class|type)"\s*:\s*"[a-zA-Z][\w.]*(?:\$[\w]+)*"`)
 	// Java class references in JSON values
 	javaClassPattern = regexp.MustCompile(`"(?:com|org|net|io|java|javax|jakarta)\.[a-z][\w.]*(?:\$[\w]+)*"`)
 	// Jackson/Java deserialization error patterns
-	jacksonErrorPattern = regexp.MustCompile(`(?i)(?:com\.fasterxml\.jackson|JsonMappingException|UnrecognizedPropertyException|InvalidTypeIdException|MismatchedInputException|JsonParseException.*type)`)
-	deserErrorPattern   = regexp.MustCompile(`(?i)(?:java\.io\.ObjectInputStream|InvalidClassException|StreamCorruptedException|ClassNotFoundException.*deserializ|NotSerializableException)`)
+	jacksonErrorPattern   = regexp.MustCompile(`(?i)(?:com\.fasterxml\.jackson|JsonMappingException|UnrecognizedPropertyException|InvalidTypeIdException|MismatchedInputException|JsonParseException.*type)`)
+	deserErrorPattern     = regexp.MustCompile(`(?i)(?:java\.io\.ObjectInputStream|InvalidClassException|StreamCorruptedException|ClassNotFoundException.*deserializ|NotSerializableException)`)
+	jacksonContextPattern = regexp.MustCompile(`(?i)(?:cannot deserialize|through reference chain|at \[Source:|line:\s*\d+|column:\s*\d+|com\.fasterxml\.jackson\.databind)`)
+	deserContextPattern   = regexp.MustCompile(`(?i)(?:readObject|serialVersionUID|stream header|local class incompatible|object input stream|deserializ)`)
 )
 
 type Module struct {
@@ -57,7 +59,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	host := urlx.Host
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	if diskSet != nil && diskSet.IsSeen(host) {
 		return nil, nil
 	}
@@ -67,71 +72,75 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	// identifiers like "io.foo"/"com.app.title" and stray Java-sounding strings.
 	// A deserialization indicator inside such an asset is not a live signal, so
 	// skip them outright rather than substring-matching them.
-	if modkit.IsStaticAssetContentType(ct) {
+	if modkit.IsStaticAssetContentType(ct) || modkit.IsEdgeBlockedResponse(ctx.Response()) {
 		return nil, nil
 	}
 
 	body := ctx.Response().BodyToString()
-
 	var extracted []string
-	detected := false
+	var typeFields []string
 
-	// Type-discriminator / class-ref matching only makes sense on JSON bodies.
-	// A bare Java class reference ("com.app.x") on its own is NOT evidence of
-	// polymorphic deserialization — configs and payloads are full of reverse-DNS
-	// identifiers — so it is only reported alongside an @class/@type discriminator,
-	// which is the actual signal.
+	// Parse actual JSON keys rather than matching source text or quoted examples.
 	if strings.Contains(ct, "json") {
-		if matches := typeFieldPattern.FindAllString(body, 3); len(matches) > 0 {
-			detected = true
-			for _, match := range matches {
-				extracted = append(extracted, "Type field: "+match)
-			}
-			if classMatches := javaClassPattern.FindAllString(body, 3); len(classMatches) > 0 {
-				for _, match := range classMatches {
-					extracted = append(extracted, "Java class ref: "+match)
-				}
-			}
+		typeFields = findTypeDiscriminators(body)
+		for _, match := range typeFields {
+			extracted = append(extracted, "Type discriminator: "+match)
 		}
 	}
 
-	// Check for deserialization error patterns (any content type)
-	if jacksonErrorPattern.MatchString(body) {
-		detected = true
+	status := ctx.Response().StatusCode()
+	isErrorStatus := status >= 400 && status <= 599
+	jacksonError := jacksonErrorPattern.MatchString(body)
+	javaDeserError := deserErrorPattern.MatchString(body)
+	corroboratedError := false
+	if jacksonError {
 		if match := jacksonErrorPattern.FindString(body); match != "" {
-			extracted = append(extracted, "Jackson error: "+match)
+			extracted = append(extracted, "Jackson error marker: "+match)
+		}
+		if context := jacksonContextPattern.FindString(body); context != "" {
+			extracted = append(extracted, "Jackson error context: "+context)
+			corroboratedError = isErrorStatus
 		}
 	}
-	if deserErrorPattern.MatchString(body) {
-		detected = true
+	if javaDeserError {
 		if match := deserErrorPattern.FindString(body); match != "" {
-			extracted = append(extracted, "Deserialization error: "+match)
+			extracted = append(extracted, "Deserialization error marker: "+match)
+		}
+		if context := deserContextPattern.FindString(body); context != "" {
+			extracted = append(extracted, "Deserialization error context: "+context)
+			corroboratedError = isErrorStatus
 		}
 	}
 
-	if !detected {
+	if len(typeFields) == 0 && !jacksonError && !javaDeserError {
 		return nil, nil
 	}
 
-	// This is a passive PRECONDITION signal ("Tentative; not confirmed
-	// exploitable"), not a confirmed deserialization vuln, so it stays below
-	// Medium. A leaked deserialization error is an info-disclosure lead (Info); an
-	// actual @class/@type polymorphic-typing discriminator is the stronger
-	// gadget-attack precondition (Low). The previous code assigned Medium in both
-	// branches (a dead if), over-severing every hit.
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
 	sev := severity.Info
-	desc := "Jackson polymorphic typing or Java deserialization indicators detected in response"
-	if len(extracted) > 0 && strings.Contains(extracted[0], "Type field") {
+	desc := "The response contains Jackson/Java serialization metadata or a single error marker. This is implementation context; attacker-controlled input deserialization was not established."
+	if len(typeFields) > 0 {
 		sev = severity.Low
-		desc = "JSON response contains Jackson type discriminator fields (@class/@type), suggesting polymorphic deserialization is enabled which may allow gadget-based attacks"
+		desc = "Parsed JSON contains @class/@type values naming Java classes. This proves response-side type metadata, not that arbitrary attacker-selected classes are accepted on input."
+	}
+	if corroboratedError {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeCandidate
+		sev = severity.Low
+		desc = "An HTTP error response contains independent Jackson/Java deserialization anchors. This supports an input-processing candidate, but no attacker-selected type, gadget reachability, side effect, or code execution was demonstrated."
 	}
 
 	return []*output.ResultEvent{
 		{
 			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
 			Host:             host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: extracted,
 			Info: output.Info{
 				Name:        "Jackson/Java Deserialization Indicators",
@@ -141,6 +150,47 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 				Tags:        []string{"java", "jackson", "deserialization", "rce-risk"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/502.html"},
 			},
+			Metadata: map[string]any{
+				"status_code":                status,
+				"type_discriminator_count":   len(typeFields),
+				"corroborated_error":         corroboratedError,
+				"attacker_type_tested":       false,
+				"gadget_reachability_tested": false,
+				"code_execution_tested":      false,
+			},
 		},
 	}, nil
+}
+
+func findTypeDiscriminators(body string) []string {
+	var document any
+	if json.Unmarshal([]byte(body), &document) != nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var walk func(any)
+	walk = func(node any) {
+		switch typed := node.(type) {
+		case map[string]any:
+			for key, value := range typed {
+				if key == "@class" || key == "@type" {
+					if className, ok := value.(string); ok && javaClassPattern.MatchString(`"`+className+`"`) {
+						seen[key+"="+className] = true
+					}
+				}
+				walk(value)
+			}
+		case []any:
+			for _, value := range typed {
+				walk(value)
+			}
+		}
+	}
+	walk(document)
+	results := make([]string, 0, len(seen))
+	for value := range seen {
+		results = append(results, value)
+	}
+	sort.Strings(results)
+	return results
 }

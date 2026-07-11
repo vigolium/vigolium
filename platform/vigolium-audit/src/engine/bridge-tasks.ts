@@ -30,6 +30,13 @@ export interface BridgeTask {
   output: "json" | "text";
   /** Human-readable JSON schema hint appended to the system prompt. */
   outputSchema?: string;
+  /**
+   * Least-privilege profile the task runs under (read-only / workspace-write /
+   * full-access). Omitted → full-access for backward compatibility.
+   */
+  permission?: "read-only" | "workspace-write" | "full-access";
+  /** Whether network egress is permitted; omitted → the profile's default. */
+  network?: boolean;
   /** System prompt body (markdown after the frontmatter). */
   systemPrompt: string;
 }
@@ -42,6 +49,8 @@ const FrontmatterSchema = z.object({
   model: z.string().optional(),
   output: z.enum(["json", "text"]).optional(),
   output_schema: z.string().optional(),
+  permission: z.enum(["read-only", "workspace-write", "full-access"]).optional(),
+  network: z.boolean().optional(),
 });
 
 function bridgeTasksDirs(): { override: string; content: string } {
@@ -100,6 +109,8 @@ export async function loadBridgeTask(name: string): Promise<BridgeTask> {
     ...(fm.model !== undefined ? { model: fm.model } : {}),
     output: fm.output ?? "text",
     ...(fm.output_schema !== undefined ? { outputSchema: fm.output_schema } : {}),
+    ...(fm.permission !== undefined ? { permission: fm.permission } : {}),
+    ...(fm.network !== undefined ? { network: fm.network } : {}),
     systemPrompt: body.trim(),
   };
 }

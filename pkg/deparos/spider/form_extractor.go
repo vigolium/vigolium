@@ -2,6 +2,7 @@ package spider
 
 import (
 	"context"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -226,10 +227,34 @@ type optionCombination struct {
 	selectSelections   map[string]string // name -> selected option value
 }
 
+// maxFormOptionCombinations bounds the number of radio/select value combinations
+// materialized per form. The full Cartesian product is EXPONENTIAL in the number
+// of radio+select GROUPS (e.g. 6 selects × 10 options = 10^6 variants, each an
+// allocated struct + FormRequest), so a crafted page could OOM the crawler. The
+// cap truncates that product while staying high enough to preserve a single large
+// group's LINEAR expansion (e.g. a 250-option country dropdown → one request per
+// option), which is legitimate coverage, not a blowup.
+const maxFormOptionCombinations = 256
+
+// cloneOptionCombination copies an optionCombination's selection maps. The maps
+// hold primitive values, so a shallow clone is a full copy.
+func cloneOptionCombination(src optionCombination) optionCombination {
+	return optionCombination{
+		radioSelections:    maps.Clone(src.radioSelections),
+		checkboxSelections: maps.Clone(src.checkboxSelections),
+		selectSelections:   maps.Clone(src.selectSelections),
+	}
+}
+
 // generateOptionCombinations generates combinations of radio, select, and checkbox options.
 // Radio buttons: Creates cartesian product - one variant per option in each group.
 // Select: Creates cartesian product - one variant per option (like radio).
 // Checkboxes: All checkboxes are always checked (no variants).
+//
+// The product is bounded to maxFormOptionCombinations: expansion stops once the
+// cap is hit so allocation stays O(cap) per group rather than exponential in the
+// number of groups. Truncation is acceptable because the downstream per-structure
+// submission cap keeps only a few variants regardless.
 func (e *FormExtractor) generateOptionCombinations(
 	radioGroups []radioGroup,
 	selectGroups []selectGroup,
@@ -246,56 +271,39 @@ func (e *FormExtractor) generateOptionCombinations(
 		selectSelections:   make(map[string]string),
 	}}
 
-	// Expand for each radio group (cartesian product)
-	for _, group := range radioGroups {
-		var newCombos []optionCombination
+	// expand multiplies the running combinations by one group's values, applying
+	// assign() to set that group's selection, and stops at the cap.
+	expand := func(name string, values []string, assign func(c *optionCombination, name, value string)) {
+		if len(values) == 0 {
+			return // an empty group must not wipe the running combinations
+		}
+		newCombos := make([]optionCombination, 0, min(len(combinations)*len(values), maxFormOptionCombinations))
 		for _, combo := range combinations {
-			for _, value := range group.values {
-				newCombo := optionCombination{
-					radioSelections:    make(map[string]string),
-					checkboxSelections: make(map[string]bool),
-					selectSelections:   make(map[string]string),
+			for _, value := range values {
+				if len(newCombos) >= maxFormOptionCombinations {
+					combinations = newCombos
+					return
 				}
-				for k, v := range combo.radioSelections {
-					newCombo.radioSelections[k] = v
-				}
-				for k, v := range combo.checkboxSelections {
-					newCombo.checkboxSelections[k] = v
-				}
-				for k, v := range combo.selectSelections {
-					newCombo.selectSelections[k] = v
-				}
-				newCombo.radioSelections[group.name] = value
+				newCombo := cloneOptionCombination(combo)
+				assign(&newCombo, name, value)
 				newCombos = append(newCombos, newCombo)
 			}
 		}
 		combinations = newCombos
 	}
 
-	// Expand for each select group (cartesian product, like radio)
+	// Expand for each radio group (bounded cartesian product)
+	for _, group := range radioGroups {
+		expand(group.name, group.values, func(c *optionCombination, name, value string) {
+			c.radioSelections[name] = value
+		})
+	}
+
+	// Expand for each select group (bounded cartesian product, like radio)
 	for _, group := range selectGroups {
-		var newCombos []optionCombination
-		for _, combo := range combinations {
-			for _, value := range group.values {
-				newCombo := optionCombination{
-					radioSelections:    make(map[string]string),
-					checkboxSelections: make(map[string]bool),
-					selectSelections:   make(map[string]string),
-				}
-				for k, v := range combo.radioSelections {
-					newCombo.radioSelections[k] = v
-				}
-				for k, v := range combo.checkboxSelections {
-					newCombo.checkboxSelections[k] = v
-				}
-				for k, v := range combo.selectSelections {
-					newCombo.selectSelections[k] = v
-				}
-				newCombo.selectSelections[group.name] = value
-				newCombos = append(newCombos, newCombo)
-			}
-		}
-		combinations = newCombos
+		expand(group.name, group.values, func(c *optionCombination, name, value string) {
+			c.selectSelections[name] = value
+		})
 	}
 
 	// Checkboxes: Always check ALL checkboxes (no variants)

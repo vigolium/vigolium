@@ -1,12 +1,14 @@
 package mcp_endpoint_detect
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // makeHTTPCtx builds a request/response pair from the given request path,
@@ -42,6 +44,8 @@ func TestScanPerRequest_JSONRPCToolsList(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	assert.Equal(t, "MCP Server Detected", results[0].Info.Name)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
 }
 
 // TestScanPerRequest_SessionHeader drives the Mcp-Session-Id response header,
@@ -54,6 +58,18 @@ func TestScanPerRequest_SessionHeader(t *testing.T) {
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.NotContains(t, strings.Join(results[0].ExtractedResults, " "), "sess-xyz")
+}
+
+func TestScanPerRequest_PathAloneIsNotProtocolEvidence(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("/mcp", "Content-Type: application/json\r\n", `{"message":"not found"}`)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
 // TestScanPerRequest_Benign verifies a plain JSON API response yields nothing.

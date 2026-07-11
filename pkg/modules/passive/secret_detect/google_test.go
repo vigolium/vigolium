@@ -27,7 +27,7 @@ func TestIsReCaptchaSiteKey(t *testing.T) {
 
 func TestIsGoogleAPIKey(t *testing.T) {
 	// The AIza prefix is the strongest signal — it identifies the family even
-	// when Kingfisher mislabels a Maps key as "Google Gemini API Key".
+	// when the rule mislabels a Maps key as "Google Gemini API Key".
 	const mapsKey = "AIzaSyCgRrs0DnYlw1GOmr5iuZu5CCnM69hqZCQ"
 
 	cases := []struct {
@@ -77,31 +77,35 @@ func TestIsGoogleOAuthClientID(t *testing.T) {
 func TestSecretFindingDescription(t *testing.T) {
 	// Every description keeps its base text and ends with the matched value so
 	// the leaked credential is visible in the finding body itself.
-	if got := secretFindingDescription("reCAPTCHA API Key", "6Le3..."); !strings.HasPrefix(got, recaptchaSiteKeyDescription) || !strings.Contains(got, "**Matched value:** `6Le3...`") {
+	if got := secretFindingDescription("reCAPTCHA API Key", "6Le3...", ""); !strings.HasPrefix(got, recaptchaSiteKeyDescription) || !strings.Contains(got, "**Matched value:** `6Le3...`") {
 		t.Errorf("reCAPTCHA description = %q, want reCAPTCHA site-key text + matched value", got)
 	}
 	const aizaKey = "AIzaSyCgRrs0DnYlw1GOmr5iuZu5CCnM69hqZCQ"
-	if got := secretFindingDescription("Google Gemini API Key", aizaKey); !strings.HasPrefix(got, googleAPIKeyDescription) || !strings.Contains(got, "**Matched value:** `"+aizaKey+"`") {
+	if got := secretFindingDescription("Google Gemini API Key", aizaKey, ""); !strings.HasPrefix(got, googleAPIKeyDescription) || !strings.Contains(got, "**Matched value:** `"+aizaKey+"`") {
 		t.Errorf("Google AIza description = %q, want Google API-key text + matched value", got)
 	}
 	// The "Google OAuth Credentials" rule matches the public client ID: it gets
 	// the client-ID explainer plus the matched value, not the generic line.
 	const clientID = "384916164796-8rgnoe66fd9992r0oi4pvuq7c086brk8.apps.googleusercontent.com"
-	if got := secretFindingDescription("Google OAuth Credentials", clientID); !strings.HasPrefix(got, googleOAuthClientIDDescription) || !strings.Contains(got, "**Matched value:** `"+clientID+"`") {
+	if got := secretFindingDescription("Google OAuth Credentials", clientID, ""); !strings.HasPrefix(got, googleOAuthClientIDDescription) || !strings.Contains(got, "**Matched value:** `"+clientID+"`") {
 		t.Errorf("OAuth client ID description = %q, want client-ID text + matched value", got)
 	}
 	// The paired client secret keeps the generic leaked-secret line (it is the
 	// sensitive half and must not be reclassified as the public client ID).
-	if got := secretFindingDescription("Google OAuth Client Secret", "VfJASjhImoB6IErdcHR0DLt9"); !strings.HasPrefix(got, "Leaked secret detected: Google OAuth Client Secret") || !strings.Contains(got, "**Matched value:** `VfJASjhImoB6IErdcHR0DLt9`") {
+	if got := secretFindingDescription("Google OAuth Client Secret", "VfJASjhImoB6IErdcHR0DLt9", ""); !strings.HasPrefix(got, "Leaked secret detected: Google OAuth Client Secret") || !strings.Contains(got, "**Matched value:** `VfJASjhImoB6IErdcHR0DLt9`") {
 		t.Errorf("OAuth client secret description = %q, want generic line + matched value", got)
 	}
-	if got, want := secretFindingDescription("AWS Access Key", "AKIAIOSFODNN7EXAMPLE"),
+	if got, want := secretFindingDescription("AWS Access Key", "AKIAIOSFODNN7EXAMPLE", ""),
 		"Leaked secret detected: AWS Access Key\n\n**Matched value:** `AKIAIOSFODNN7EXAMPLE`"; got != want {
 		t.Errorf("default description = %q, want %q", got, want)
 	}
 	// A blank snippet leaves the description unchanged (no trailing line).
-	if got, want := secretFindingDescription("AWS Access Key", ""), "Leaked secret detected: AWS Access Key"; got != want {
+	if got, want := secretFindingDescription("AWS Access Key", "", ""), "Leaked secret detected: AWS Access Key"; got != want {
 		t.Errorf("blank-snippet description = %q, want %q", got, want)
+	}
+	// The detection pattern is appended after the matched value when present.
+	if got := secretFindingDescription("AWS Access Key", "AKIAIOSFODNN7EXAMPLE", `AKIA[0-9A-Z]{16}`); !strings.HasSuffix(got, "\n\n**Detection pattern:** `AKIA[0-9A-Z]{16}`") {
+		t.Errorf("description should end with the detection pattern; got %q", got)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func rpcMethod(body []byte) string {
@@ -74,6 +75,15 @@ func TestScanPerHost_DetectsUndocumentedMethod(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "a reachable debug/* method must be flagged")
 	assert.Contains(t, res[0].Info.Name, "debug/info")
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, res[0].EvidenceGrade)
+	assert.Equal(t, false, res[0].Metadata["impact_confirmed"])
+}
+
+func TestMethodWordlistExcludesStandardMCPMethods(t *testing.T) {
+	for _, standard := range []string{"ping", "logging/setLevel", "roots/list", "sampling/createMessage"} {
+		assert.NotContains(t, methodWordlist, standard)
+	}
 }
 
 // TestScanPerHost_StrictServerNoFinding ensures a server that returns -32601 for

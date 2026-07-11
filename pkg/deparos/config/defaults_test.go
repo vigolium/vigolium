@@ -76,15 +76,15 @@ func TestDefaultConfig(t *testing.T) {
 		assert.Equal(t, 10*time.Second, cfg.Engine.Timeout, "timeout should be 10 seconds")
 	})
 
-	t.Run("jsscan safety defaults", func(t *testing.T) {
-		assert.True(t, cfg.JSScan.Enabled)
-		assert.Equal(t, "exact", cfg.JSScan.ReplayMode)
-		assert.True(t, cfg.JSScan.SourceMaps)
-		assert.True(t, cfg.JSScan.AssetGraph)
-		assert.False(t, cfg.JSScan.ProtocolHandshake)
-		assert.Equal(t, 500_000, cfg.JSScan.MaxASTNodes)
-		assert.LessOrEqual(t, cfg.JSScan.NormalInputMB, cfg.JSScan.MaxASTInputMB)
-		assert.LessOrEqual(t, cfg.JSScan.MaxASTInputMB, cfg.JSScan.HardInputMB)
+	t.Run("jstangle safety defaults", func(t *testing.T) {
+		assert.True(t, cfg.JSTangle.Enabled)
+		assert.Equal(t, "exact", cfg.JSTangle.ReplayMode)
+		assert.True(t, cfg.JSTangle.SourceMaps)
+		assert.True(t, cfg.JSTangle.AssetGraph)
+		assert.False(t, cfg.JSTangle.ProtocolHandshake)
+		assert.Equal(t, 500_000, cfg.JSTangle.MaxASTNodes)
+		assert.LessOrEqual(t, cfg.JSTangle.NormalInputMB, cfg.JSTangle.MaxASTInputMB)
+		assert.LessOrEqual(t, cfg.JSTangle.MaxASTInputMB, cfg.JSTangle.HardInputMB)
 	})
 }
 

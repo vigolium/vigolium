@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -30,8 +31,9 @@ func makeHTTPCtx(path, rawRespHeaders, body string) *httpmsg.HttpRequestResponse
 }
 
 // TestScanPerRequest_StackTrace drives a response body containing a Python
-// traceback and expects an information disclosure finding.
-func TestScanPerRequest_StackTrace(t *testing.T) {
+// traceback and expects this broad module not to duplicate the dedicated
+// verbose-error-stacktrace detector.
+func TestScanPerRequest_StackTraceOwnedByDedicatedModule(t *testing.T) {
 	t.Parallel()
 	m := New()
 	body := `<html>Traceback (most recent call last): File "app.py", line 10</html>`
@@ -39,7 +41,7 @@ func TestScanPerRequest_StackTrace(t *testing.T) {
 
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, results)
+	assert.Empty(t, results)
 }
 
 // TestScanPerRequest_JSBundleInternalIP is a regression: a private RFC1918 IP
@@ -67,6 +69,8 @@ func TestScanPerRequest_InternalIP(t *testing.T) {
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
 }
 
 // TestScanPerRequest_XPoweredBy drives a response with an X-Powered-By header
@@ -79,6 +83,30 @@ func TestScanPerRequest_XPoweredBy(t *testing.T) {
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, "Framework Version Disclosed", results[0].Info.Name)
+}
+
+func TestScanPerRequest_DirectoryListingRequiresStructure(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("/files/", "Content-Type: text/html", `<html><title>Index of /files/</title><a href="../">Parent Directory</a></html>`)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, results[0].EvidenceGrade)
+}
+
+func TestScanPerRequest_InvalidPrivateIPIgnored(t *testing.T) {
+	t.Parallel()
+	m := New()
+	ctx := makeHTTPCtx("/docs", "Content-Type: text/html", `<p>Example pattern: 192.168.999.999</p>`)
+
+	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
 // TestScanPerRequest_NoDisclosure drives a benign response with no disclosure

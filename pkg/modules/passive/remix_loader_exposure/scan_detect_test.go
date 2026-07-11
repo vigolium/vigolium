@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // makeHTTPCtx builds an HTML request/response pair with the given body.
@@ -39,7 +40,23 @@ func TestScanPerRequest_SensitiveLoaderData(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	assert.Equal(t, ModuleID, results[0].ModuleID)
-	assert.Equal(t, "Remix Loader Data Exposure", results[0].Info.Name)
+	assert.Equal(t, "Potential Remix Loader Data Exposure", results[0].Info.Name)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, results[0].EvidenceGrade)
+	for _, evidence := range results[0].ExtractedResults {
+		assert.NotContains(t, evidence, "sk_live_01" + "23456789ab" + "cdef")
+	}
+}
+
+func TestScanPerRequest_RoleAndEmailAreObservations(t *testing.T) {
+	t.Parallel()
+	m := New()
+	body := `<script>window.__remixContext={"state":{"role":"admin","email":"user@example.test"}};</script>`
+	results, err := m.ScanPerRequest(makeHTTPCtx(body), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
 }
 
 // TestScanPerRequest_StateBlobOnly is the regression for the presence-only false

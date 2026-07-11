@@ -20,7 +20,7 @@ import (
 // linked from the HTML. This sweep guesses those names — each tried as both
 // .js and .json — across root, the start directory and the app's observed JS
 // directories, confirms the real ones against the soft-404 baseline, and feeds
-// them to the JS-fetch pipeline (jsscan + linkfinder path extraction, recorded
+// them to the JS-fetch pipeline (jstangle + linkfinder path extraction, recorded
 // as http_records so secret-scanning and later phases see their bodies).
 //
 // It is skipped on JS-shell SPAs (Next.js/React/Angular/Vue/Svelte): their
@@ -118,7 +118,7 @@ func jsDirBase(u *url.URL) string {
 }
 
 // sweepJSBundles runs the SPA-gated JS-bundle name sweep at start of scan and
-// feeds confirmed bundles to jsscan. It returns the number of bundles queued
+// feeds confirmed bundles to jstangle. It returns the number of bundles queued
 // (0 when disabled, gated off by the SPA/HTML checks, or nothing confirmed).
 func (e *Engine) sweepJSBundles() int {
 	if !e.config.Extensions.JSBundleSweep {
@@ -148,7 +148,7 @@ func (e *Engine) sweepJSBundles() int {
 	if len(hits) == 0 {
 		return 0
 	}
-	logger.Info("JS-bundle sweep found candidate bundles — queuing for jsscan",
+	logger.Info("JS-bundle sweep found candidate bundles — queuing for jstangle",
 		zap.Int("count", len(hits)))
 	e.queueJSFetch(hits, 0)
 	return len(hits)

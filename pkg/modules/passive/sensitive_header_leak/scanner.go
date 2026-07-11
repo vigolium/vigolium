@@ -17,14 +17,15 @@ import (
 
 // known token patterns -- name-anchored + value-anchored
 type tokenPattern struct {
-	name string
-	re   *regexp.Regexp
+	name             string
+	re               *regexp.Regexp
+	publicIdentifier bool
 }
 
 var tokenPatterns = []tokenPattern{
-	{name: "AWS Access Key ID", re: regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)},
-	{name: "AWS Session Token", re: regexp.MustCompile(`\bASIA[0-9A-Z]{16}\b`)},
-	{name: "Google API Key", re: regexp.MustCompile(`\bAIza[0-9A-Za-z_\-]{35}\b`)},
+	{name: "AWS Access Key ID", re: regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`), publicIdentifier: true},
+	{name: "AWS Temporary Access Key ID", re: regexp.MustCompile(`\bASIA[0-9A-Z]{16}\b`), publicIdentifier: true},
+	{name: "Google API Key", re: regexp.MustCompile(`\bAIza[0-9A-Za-z_\-]{35}\b`), publicIdentifier: true},
 	{name: "GitHub Personal Token", re: regexp.MustCompile(`\bghp_[0-9A-Za-z]{36}\b`)},
 	{name: "GitHub Server-Server Token", re: regexp.MustCompile(`\bghs_[0-9A-Za-z]{36}\b`)},
 	{name: "Slack Bot Token", re: regexp.MustCompile(`\bxox[abp]-[0-9A-Za-z\-]{10,}\b`)},
@@ -60,6 +61,7 @@ var safeHeaderNames = map[string]struct{}{
 	"content-encoding": {}, "transfer-encoding": {}, "connection": {},
 	"vary": {}, "cache-control": {}, "etag": {}, "last-modified": {},
 	"expires": {}, "accept-ranges": {}, "x-request-id": {}, "x-trace-id": {},
+	"set-cookie":                {},
 	"strict-transport-security": {}, "content-security-policy": {},
 	"x-content-type-options": {}, "x-frame-options": {}, "x-xss-protection": {},
 	"referrer-policy": {}, "permissions-policy": {}, "alt-svc": {},
@@ -71,6 +73,21 @@ var safeHeaderNames = map[string]struct{}{
 // chars uniformly).
 const minEntropy = 4.0
 const minEntropyValueLen = 24
+
+var tokenLikeHeaderValue = regexp.MustCompile(`^[A-Za-z0-9_+/=.,:-]{24,}$`)
+var embeddedTokenLikeHeaderValue = regexp.MustCompile(`(?:^|[=\"' ])([A-Za-z0-9_+/.-]{24,})(?:$|[\"' ,])`)
+
+type headerAnalysis struct {
+	reason          string
+	observationOnly bool
+}
+
+type headerHit struct {
+	header    string
+	evidence  string
+	reason    string
+	candidate bool
+}
 
 type Module struct {
 	modkit.BasePassiveModule
@@ -110,18 +127,18 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil {
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
+	if ds := diskSet; ds != nil {
 		dk := urlx.Host + urlx.Path
 		if ds.IsSeen(dk) {
 			return nil, nil
 		}
 	}
 
-	var hits []string
-	// allLowSignal stays true only while every hit comes from a redirect /
-	// auth-challenge header — a single hit in a genuine custom header (e.g.
-	// X-Api-Key) flips it false and keeps the finding at full severity.
-	allLowSignal := true
+	var hits []headerHit
 	for _, h := range ctx.Response().Headers() {
 		nameLower := strings.ToLower(h.Name)
 		if _, ok := safeHeaderNames[nameLower]; ok {
@@ -131,11 +148,14 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		if value == "" {
 			continue
 		}
-		if reason := analyseHeader(nameLower, value); reason != "" {
-			hits = append(hits, fmt.Sprintf("%s: %s -> %s", h.Name, truncate(value, 80), reason))
-			if _, low := lowSignalHeaderNames[nameLower]; !low {
-				allLowSignal = false
-			}
+		if analysis := analyseHeader(nameLower, value); analysis.reason != "" {
+			_, lowContext := lowSignalHeaderNames[nameLower]
+			hits = append(hits, headerHit{
+				header:    h.Name,
+				evidence:  fmt.Sprintf("%s: %s", h.Name, maskHeaderValue(value)),
+				reason:    analysis.reason,
+				candidate: !analysis.observationOnly && !lowContext && !isRedirectStatus(ctx.Response().StatusCode()),
+			})
 		}
 	}
 	if len(hits) == 0 {
@@ -147,19 +167,38 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	// redirect/auth-challenge headers on any status. In either case the value is
 	// very likely not an application secret, so downgrade to informational /
 	// tentative rather than reporting a Medium/Firm leak.
-	sev, conf := severity.Medium, severity.Firm
-	desc := fmt.Sprintf("Response from %s discloses %d sensitive value(s) in custom response headers.", urlx.String(), len(hits))
-	if isRedirectStatus(ctx.Response().StatusCode()) || allLowSignal {
-		sev, conf = severity.Info, severity.Tentative
-		desc = fmt.Sprintf("Response from %s exposes %d token-shaped value(s) in redirect/auth-challenge response headers; these are most likely login-flow navigation artifacts rather than application secrets.", urlx.String(), len(hits))
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	sev, conf := severity.Info, severity.Tentative
+	desc := fmt.Sprintf("Response from %s contains %d public-identifier, example, redirect, or authentication-flow header pattern(s). These are retained as observations without claiming secret exposure.", urlx.String(), len(hits))
+	var extracted []string
+	var reasons []string
+	candidateCount := 0
+	for _, hit := range hits {
+		extracted = append(extracted, hit.evidence+" -> "+hit.reason)
+		reasons = append(reasons, hit.header+": "+hit.reason)
+		if hit.candidate {
+			candidateCount++
+		}
+	}
+	if candidateCount > 0 {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeCandidate
+		sev, conf = severity.Medium, severity.Firm
+		desc = fmt.Sprintf("Response from %s contains %d private-token-format or constrained high-entropy custom-header candidate(s). Values are masked; validity, ownership, and replay impact were not tested.", urlx.String(), candidateCount)
 	}
 
 	return []*output.ResultEvent{
 		{
+			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
-			ExtractedResults: hits,
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
+			ExtractedResults: extracted,
 			MatcherStatus:    true,
 			Info: output.Info{
 				Name:        "Sensitive Data in Response Headers",
@@ -168,6 +207,12 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 				Confidence:  conf,
 				Tags:        []string{"info-disclosure", "secrets", "headers"},
 				Reference:   []string{"https://github.com/0xJacky/nginx-ui/security/advisories/GHSA-g9w5-qffc-6762"},
+			},
+			Metadata: map[string]any{
+				"candidate_count":                    candidateCount,
+				"hit_reasons":                        reasons,
+				"credential_validated":               false,
+				"set_cookie_owned_by_cookie_modules": true,
 			},
 		},
 	}, nil
@@ -180,39 +225,82 @@ func isRedirectStatus(code int) bool {
 
 // analyseHeader returns a non-empty reason string if the header looks
 // like it leaks sensitive data; "" otherwise.
-func analyseHeader(name, value string) string {
+func analyseHeader(name, value string) headerAnalysis {
+	trimmed := strings.TrimSpace(value)
 	for _, p := range tokenPatterns {
-		if p.re.MatchString(value) {
-			return p.name
+		if p.re.MatchString(trimmed) {
+			return headerAnalysis{
+				reason:          p.name,
+				observationOnly: p.publicIdentifier || looksExampleOrMasked(trimmed),
+			}
 		}
 	}
-	if keyIVRe.MatchString(strings.TrimSpace(value)) {
+	if _, lowSignal := lowSignalHeaderNames[name]; lowSignal {
+		if match := embeddedTokenLikeHeaderValue.FindStringSubmatch(trimmed); len(match) == 2 && shannonEntropy(match[1]) >= minEntropy {
+			return headerAnalysis{reason: "high-entropy authentication-flow value", observationOnly: true}
+		}
+	}
+	if keyIVRe.MatchString(trimmed) {
 		// Check both halves are decodable as base64
-		parts := strings.SplitN(strings.TrimSpace(value), ":", 2)
+		parts := strings.SplitN(trimmed, ":", 2)
 		if len(parts) == 2 {
 			if _, err1 := base64.StdEncoding.DecodeString(parts[0]); err1 == nil {
 				if _, err2 := base64.StdEncoding.DecodeString(parts[1]); err2 == nil {
-					return "base64 key:iv pair"
+					return headerAnalysis{reason: "base64 key:iv pair", observationOnly: looksExampleOrMasked(trimmed)}
 				}
 			}
 		}
 	}
-	if isSuspiciousName(name) && len(value) >= minEntropyValueLen {
-		ent := shannonEntropy(value)
+	if isSuspiciousName(name) && len(trimmed) >= minEntropyValueLen && tokenLikeHeaderValue.MatchString(trimmed) {
+		ent := shannonEntropy(trimmed)
 		if ent >= minEntropy {
-			return fmt.Sprintf("high-entropy value in suspicious header (entropy=%.2f)", ent)
+			return headerAnalysis{
+				reason:          fmt.Sprintf("high-entropy value in suspicious header (entropy=%.2f)", ent),
+				observationOnly: looksExampleOrMasked(trimmed),
+			}
 		}
 	}
-	return ""
+	return headerAnalysis{}
 }
 
 func isSuspiciousName(n string) bool {
-	for _, s := range suspiciousHeaderNames {
-		if strings.Contains(n, s) {
+	parts := strings.FieldsFunc(strings.ToLower(n), func(r rune) bool {
+		return r < 'a' || r > 'z'
+	})
+	for _, part := range parts {
+		for _, s := range suspiciousHeaderNames {
+			if part == s {
+				return true
+			}
+		}
+	}
+	for _, compound := range []string{"api-key", "private-key", "access-token", "session-token", "client-secret", "auth-token"} {
+		if strings.Contains(strings.ToLower(n), compound) {
 			return true
 		}
 	}
 	return false
+}
+
+func looksExampleOrMasked(value string) bool {
+	if modkit.IsPlaceholderValue(value) {
+		return true
+	}
+	lower := strings.ToLower(value)
+	for _, marker := range []string{"example", "placeholder", "changeme", "dummy", "sample", "redacted", "your_", "your-"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return strings.Trim(value, "*xX._- ") == ""
+}
+
+func maskHeaderValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 8 {
+		return "********"
+	}
+	return value[:4] + "…" + value[len(value)-4:]
 }
 
 func shannonEntropy(s string) float64 {

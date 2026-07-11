@@ -26,8 +26,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/fingerprint"
 	pkghttp "github.com/vigolium/vigolium/pkg/deparos/http"
 	"github.com/vigolium/vigolium/pkg/deparos/internal/dedup"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan/linkfinder"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle/linkfinder"
 	"github.com/vigolium/vigolium/pkg/deparos/reqcache"
 	"github.com/vigolium/vigolium/pkg/deparos/responsechain"
 	"github.com/vigolium/vigolium/pkg/deparos/scope"
@@ -36,7 +36,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/tag"
 	"github.com/vigolium/vigolium/pkg/deparos/waf"
 	"github.com/vigolium/vigolium/pkg/deparos/wordlist"
-	"github.com/vigolium/vigolium/pkg/toolexec/kingfisher"
+	"github.com/vigolium/vigolium/pkg/secretscan"
 	"go.uber.org/zap"
 )
 
@@ -124,7 +124,7 @@ type Engine struct {
 	seenDiscoveredURLs   *dedup.DiskSet // Global dedup for all discovered URLs
 	formStructureCounter *dedup.Counter // Dedup form submissions by structure (max N per endpoint+structure)
 	seenJSURLs           *dedup.DiskSet // Dedup JS URLs across batches
-	seenBodyHashes       *dedup.DiskSet // Dedup response body content for jsscan on script tags
+	seenBodyHashes       *dedup.DiskSet // Dedup response body content for jstangle on script tags
 
 	// Tested directories/files tracking (centralized for deduplication)
 	testedDirectories *tracker.URLTracker
@@ -219,24 +219,33 @@ type Engine struct {
 	// Tag analysis
 	tagAnalyzer *tag.Analyzer
 
-	// Secret scanning (batch mode: buffer during crawl, scan after completion)
-	kingfisherScanner  *kingfisher.Scanner
-	kingfisherBatchDir string
-	kingfisherBatchMu  sync.Mutex
-	kingfisherBatchSeq atomic.Int64
-	kingfisherBatchMap map[string]string // filename → URL for mapping findings back
+	// Secret scanning (native in-process detector; matches accumulated per URL
+	// during the crawl, persisted by FlushSecretFindings afterwards)
+	secretDetector *secretscan.Detector
+	secretMu       sync.Mutex
+	secretFindings map[string][]storage.SecretFinding // URL → secret findings
 
-	// JSScan infrastructure for endpoint extraction from JS files. Admission,
+	// JSTangle infrastructure for endpoint extraction from JS files. Admission,
 	// caching, and worker concurrency are owned by the shared service.
-	jsscanService          *jsscan.Service
-	jsscanStatsBaseline    jsscan.ServiceStats
+	jstangleService        *jstangle.Service
+	jstangleStatsBaseline  jstangle.ServiceStats
 	requestTemplatesOnce   sync.Once
 	requestTemplates       RequestTemplateRegistry
 	jsAssetGraphOnce       sync.Once
 	jsAssetGraph           *JSAssetGraph
-	extractedRequests      []jsscan.ExtractedRequest // Collected requests for future task generation
-	extractedRequestsMu    sync.Mutex                // Protects extractedRequests slice
-	extractedRequestsDedup *dedup.DiskSet            // Deduplication using hash
+	extractedRequests      []jstangle.ExtractedRequest // Collected requests for future task generation
+	extractedRequestsMu    sync.Mutex                  // Protects extractedRequests slice
+	extractedRequestsDedup *dedup.DiskSet              // Deduplication using hash
+
+	// End-of-scan JS replay flush accounting (see tryFlushPendingJSReplay).
+	// Touched only from the single WaitForQueues goroutine.
+	jsReplayFlushCount     int
+	jsReplayFlushCapLogged bool
+
+	// vendorJSFetched counts vendor/CDN/library JS bundles admitted for jstangle
+	// endpoint extraction, bounding them under a per-scan asset budget (see
+	// admitVendorJSFetch).
+	vendorJSFetched atomic.Int32
 }
 
 // EngineMetrics tracks discovery statistics.
@@ -485,71 +494,61 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 			zap.Int("threshold", cfg.Engine.MaxConsecutiveWAFBlocks))
 	}
 
-	// Initialize kingfisher scanner for batch secret detection
-	if !cfg.Engine.DisableKingfisher {
-		kfScanner, err := kingfisher.NewScanner(kingfisher.DefaultConfig())
+	// Initialize the native in-process secret detector.
+	if !cfg.Engine.DisableSecretScan {
+		det, err := secretscan.Default()
 		if err != nil {
-			logger.Warn("Failed to initialize kingfisher scanner", zap.Error(err))
+			logger.Warn("Failed to initialize native secret detector", zap.Error(err))
 		} else {
-			if err := kfScanner.EnsureBinary(context.Background()); err != nil {
-				logger.Error("Kingfisher EnsureBinary error", zap.Error(err))
-			} else {
-				batchDir, err := os.MkdirTemp("", "kingfisher-deparos-batch-*")
-				if err != nil {
-					logger.Error("Failed to create kingfisher batch dir", zap.Error(err))
-				} else {
-					engine.kingfisherScanner = kfScanner
-					engine.kingfisherBatchDir = batchDir
-					engine.kingfisherBatchMap = make(map[string]string)
-					logger.Info("Using kingfisher (batch mode)",
-						zap.String("version", kfScanner.Version()))
-				}
-			}
+			engine.secretDetector = det
+			engine.secretFindings = make(map[string][]storage.SecretFinding)
+			logger.Info("Using native secret detector",
+				zap.Int("rules", det.RuleCount()))
 		}
 	} else {
-		logger.Info("Kingfisher secret scanning disabled by user")
+		logger.Info("Secret scanning disabled by user")
 	}
 
-	// Initialize the process-wide jsscan service before coordinator callbacks.
+	// Initialize the process-wide jstangle service before coordinator callbacks.
 	// Discovery and passive modules deliberately share one admission/cache path.
-	if cfg.JSScan.Enabled {
-		serviceConfig := jsscan.DefaultServiceConfig()
-		if cfg.JSScan.MemoryBudgetMB > 0 {
-			serviceConfig.MemoryBudgetBytes = int64(cfg.JSScan.MemoryBudgetMB) * 1024 * 1024
+	if cfg.JSTangle.Enabled {
+		serviceConfig := jstangle.DefaultServiceConfig()
+		if cfg.JSTangle.MemoryBudgetMB > 0 {
+			serviceConfig.MemoryBudgetBytes = int64(cfg.JSTangle.MemoryBudgetMB) * 1024 * 1024
 		}
-		if cfg.JSScan.CacheMB > 0 {
-			serviceConfig.CacheBytes = int64(cfg.JSScan.CacheMB) * 1024 * 1024
+		if cfg.JSTangle.CacheMB > 0 {
+			serviceConfig.CacheBytes = int64(cfg.JSTangle.CacheMB) * 1024 * 1024
 		}
-		serviceConfig.WorkerCount = cfg.JSScan.WorkerCount
-		if serviceConfig.WorkerCount <= 0 && cfg.Engine.JSScanConcurrency > 0 {
-			serviceConfig.WorkerCount = cfg.Engine.JSScanConcurrency
+		serviceConfig.WorkerCount = cfg.JSTangle.WorkerCount
+		if serviceConfig.WorkerCount <= 0 && cfg.Engine.JSTangleConcurrency > 0 {
+			serviceConfig.WorkerCount = cfg.Engine.JSTangleConcurrency
 		}
-		serviceConfig.WorkerMaxJobs = cfg.JSScan.WorkerMaxJobs
-		if cfg.JSScan.WorkerMaxRSSMB > 0 {
-			serviceConfig.WorkerMaxRSSBytes = int64(cfg.JSScan.WorkerMaxRSSMB) * 1024 * 1024
+		serviceConfig.WorkerMaxJobs = cfg.JSTangle.WorkerMaxJobs
+		if cfg.JSTangle.WorkerMaxRSSMB > 0 {
+			serviceConfig.WorkerMaxRSSBytes = int64(cfg.JSTangle.WorkerMaxRSSMB) * 1024 * 1024
 		}
-		if cfg.JSScan.NormalInputMB > 0 {
-			serviceConfig.NormalInputBytes = int64(cfg.JSScan.NormalInputMB) * 1024 * 1024
+		if cfg.JSTangle.NormalInputMB > 0 {
+			serviceConfig.NormalInputBytes = int64(cfg.JSTangle.NormalInputMB) * 1024 * 1024
 		}
-		if cfg.JSScan.MaxASTInputMB > 0 {
-			serviceConfig.MaxASTInputBytes = int64(cfg.JSScan.MaxASTInputMB) * 1024 * 1024
+		if cfg.JSTangle.MaxASTInputMB > 0 {
+			serviceConfig.MaxASTInputBytes = int64(cfg.JSTangle.MaxASTInputMB) * 1024 * 1024
 		}
-		if cfg.JSScan.HardInputMB > 0 {
-			serviceConfig.HardInputBytes = int64(cfg.JSScan.HardInputMB) * 1024 * 1024
+		if cfg.JSTangle.HardInputMB > 0 {
+			serviceConfig.HardInputBytes = int64(cfg.JSTangle.HardInputMB) * 1024 * 1024
 		}
-		if configureErr := jsscan.ConfigureDefaultService(serviceConfig); configureErr != nil {
-			logger.Debug("Shared jsscan service already configured", zap.Error(configureErr))
+		if configureErr := jstangle.ConfigureDefaultService(serviceConfig); configureErr != nil {
+			logger.Debug("Shared jstangle service already configured", zap.Error(configureErr))
 		}
-		jsScanService, serviceErr := jsscan.DefaultService()
+		jsTangleService, serviceErr := jstangle.DefaultService()
 		if serviceErr != nil {
-			logger.Warn("Failed to initialize jsscan service", zap.Error(serviceErr))
+			logger.Warn("Failed to initialize jstangle service", zap.Error(serviceErr))
 		} else {
-			engine.jsscanService = jsScanService
-			engine.jsscanStatsBaseline = jsScanService.Stats()
-			if readyErr := jsScanService.EnsureReady(); readyErr != nil {
-				logger.Error("jsscan EnsureBinary error", zap.Error(readyErr))
+			engine.jstangleService = jsTangleService
+			engine.jstangleStatsBaseline = jsTangleService.Stats()
+			if readyErr := jsTangleService.EnsureReady(); readyErr != nil {
+				logger.Error("jstangle EnsureBinary error", zap.Error(readyErr))
 			}
-			logger.Info("Using shared jsscan service", zap.String("checksum", jsScanService.Checksum()))
+			logger.Info("Using shared jstangle service", zap.String("checksum", jsTangleService.Checksum()))
 		}
 	} else {
 		logger.Info("JavaScript intelligence disabled by configuration")
@@ -725,7 +724,7 @@ func (e *Engine) Stop() {
 		e.wg.Wait()
 	}()
 
-	e.logJSScanSummary()
+	e.logJSTangleSummary()
 
 	logger.Debug("Cleaning up engine resources")
 	e.cleanup()
@@ -733,12 +732,12 @@ func (e *Engine) Stop() {
 	logger.Info("Discovery engine stopped")
 }
 
-func (e *Engine) logJSScanSummary() {
-	if e.jsscanService == nil {
+func (e *Engine) logJSTangleSummary() {
+	if e.jstangleService == nil {
 		return
 	}
-	current := e.jsscanService.Stats()
-	baseline := e.jsscanStatsBaseline
+	current := e.jstangleService.Stats()
+	baseline := e.jstangleStatsBaseline
 	delta := func(now, before int64) int64 {
 		if now < before {
 			return now
@@ -810,32 +809,33 @@ func (e *Engine) setState(newState State) {
 // newCallbacks creates a Callbacks struct with engine's handlers.
 func (e *Engine) newCallbacks() *Callbacks {
 	return &Callbacks{
-		OnDirectoryDiscovered:     e.OnDirectoryDiscovered,
-		OnFileDiscovered:          e.OnFileDiscovered,
-		OnResult:                  e.onResult,
-		AddObservedName:           e.AddObservedNameTrusted,
-		AddObservedPath:           e.AddObservedPathTrusted,
-		QueueJSFetch:              func(urls []*url.URL) { e.queueJSFetch(urls, 0) },
-		HTTPClient:                e.httpClient,
-		Analyzer:                  e.analyzer,
-		RedirectDetector:          NewRedirectDetector(),
-		MaxDepth:                  uint16(e.config.Target.Recursion.MaxDepth),
-		RequestCache:              e.requestCache,
-		ErrorTracker:              e.errorTracker,
-		WAFBlockTracker:           e.wafBlockTracker,
-		WAFDetector:               e.wafDetector,
-		CustomHeaders:             e.config.Engine.CustomHeaders,
-		JSScanService:             e.jsscanService,
-		JSScanOptions:             e.jsScanOptions,
-		AddExtractedRequest:       e.AddExtractedRequest,
-		AddRequestFact:            e.AddRequestFact,
-		StoreJSScanRequests:       e.storeJSScanRequests,
-		StoreJSScanFacts:          e.storeJSScanFacts,
-		ProcessJSScanCapabilities: e.processJSScanCapabilityFacts,
-		ProcessAssetFacts:         e.processAssetFacts,
-		ProcessSourceMap:          e.processSourceMapResponse,
-		ScopeChecker:              e.spiderScope,
-		PrefixBreaker:             e.prefixBreaker,
+		OnDirectoryDiscovered:       e.OnDirectoryDiscovered,
+		OnFileDiscovered:            e.OnFileDiscovered,
+		OnResult:                    e.onResult,
+		AddObservedName:             e.AddObservedNameTrusted,
+		AddObservedPath:             e.AddObservedPathTrusted,
+		QueueJSFetch:                func(urls []*url.URL) { e.queueJSFetch(urls, 0) },
+		HTTPClient:                  e.httpClient,
+		Analyzer:                    e.analyzer,
+		RedirectDetector:            NewRedirectDetector(),
+		MaxDepth:                    uint16(e.config.Target.Recursion.MaxDepth),
+		RequestCache:                e.requestCache,
+		ErrorTracker:                e.errorTracker,
+		WAFBlockTracker:             e.wafBlockTracker,
+		WAFDetector:                 e.wafDetector,
+		CustomHeaders:               e.config.Engine.CustomHeaders,
+		JSTangleService:             e.jstangleService,
+		JSTangleOptions:             e.jsTangleOptions,
+		AddExtractedRequest:         e.AddExtractedRequest,
+		AddRequestFact:              e.AddRequestFact,
+		RequeueReplayTemplate:       e.RequeueReplayTemplate,
+		StoreJSTangleRequests:       e.storeJSTangleRequests,
+		StoreJSTangleFacts:          e.storeJSTangleFacts,
+		ProcessJSTangleCapabilities: e.processJSTangleCapabilityFacts,
+		ProcessAssetFacts:           e.processAssetFacts,
+		ProcessSourceMap:            e.processSourceMapResponse,
+		ScopeChecker:                e.spiderScope,
+		PrefixBreaker:               e.prefixBreaker,
 	}
 }
 
@@ -1094,7 +1094,7 @@ func (e *Engine) AddObservedPath(path string) {
 // duplicates are coalesced by the extracted-request dedup set.
 func (e *Engine) preserveQueryParamAsRequest(path string) {
 	if linkfinder.PathHasQuery(path) {
-		e.AddExtractedRequest(&jsscan.ExtractedRequest{URL: path, Method: "GET"})
+		e.AddExtractedRequest(&jstangle.ExtractedRequest{URL: path, Method: "GET"})
 	}
 }
 
@@ -1148,11 +1148,11 @@ func (e *Engine) GetObservedFiles() *payload.ObservedProvider {
 
 // AddExtractedRequest adds an extracted request to the collection with deduplication.
 // Returns true if the request was new (not a duplicate).
-func (e *Engine) AddExtractedRequest(req *jsscan.ExtractedRequest) bool {
+func (e *Engine) AddExtractedRequest(req *jstangle.ExtractedRequest) bool {
 	return e.addExtractedRequest(req, true)
 }
 
-func (e *Engine) addExtractedRequest(req *jsscan.ExtractedRequest, registerTemplate bool) bool {
+func (e *Engine) addExtractedRequest(req *jstangle.ExtractedRequest, registerTemplate bool) bool {
 	if e.extractedRequestsDedup == nil || req == nil {
 		return false
 	}
@@ -1178,7 +1178,7 @@ func (e *Engine) addExtractedRequest(req *jsscan.ExtractedRequest, registerTempl
 
 // AddRequestFact retains typed provenance and source URL while maintaining the
 // legacy request view used by existing reporting consumers.
-func (e *Engine) AddRequestFact(sourceURL string, fact jsscan.HTTPRequestFact) bool {
+func (e *Engine) AddRequestFact(sourceURL string, fact jstangle.HTTPRequestFact) bool {
 	if !e.templateRegistry().Add(sourceURL, fact) {
 		return false
 	}
@@ -1187,7 +1187,7 @@ func (e *Engine) AddRequestFact(sourceURL string, fact jsscan.HTTPRequestFact) b
 			e.observedPaths.Add([]byte(hint))
 		}
 	}
-	legacy := jsscan.LegacyRequestFromFact(fact)
+	legacy := jstangle.LegacyRequestFromFact(fact)
 	e.addExtractedRequest(&legacy, false)
 	logger.Debug("Added typed JS request template",
 		zap.String("source_url", sourceURL), zap.String("fact_id", fact.ID),
@@ -1200,21 +1200,53 @@ func (e *Engine) GetRequestTemplates() []ExtractedRequestTemplate {
 }
 
 func (e *Engine) PendingRequestTemplates() []ExtractedRequestTemplate {
-	mode := strings.ToLower(strings.TrimSpace(e.config.JSScan.ReplayMode))
+	mode := strings.ToLower(strings.TrimSpace(e.config.JSTangle.ReplayMode))
 	if mode == "off" {
 		return nil
 	}
 	templates := e.templateRegistry().PendingReplay()
-	if mode == "conservative" {
-		return templates
-	}
-	filtered := templates[:0]
+
+	// Single filter pass applying two orthogonal gates in place (PendingReplay
+	// already drained the pending set, so a fully-filtered result still lets
+	// end-of-scan quiescence proceed):
+	//   - confidence: exact (default) replays only high-confidence facts;
+	//     conservative also replays medium;
+	//   - safety: withhold templates whose method/GraphQL operation the replay
+	//     safety policy forbids from being sent during discovery. Withheld
+	//     templates remain in the registry (items) for controlled consumers via
+	//     All(); they are simply not auto-replayed here.
+	requireHigh := mode != "conservative"
+	policy := ParseReplaySafety(e.config.JSTangle.ReplaySafety)
+	safe := templates[:0]
+	withheld := 0
 	for _, template := range templates {
-		if template.Confidence == "high" {
-			filtered = append(filtered, template)
+		if requireHigh && template.Confidence != "high" {
+			continue
 		}
+		if !policy.AllowsFact(&template.Request) {
+			withheld++
+			continue
+		}
+		safe = append(safe, template)
 	}
-	return filtered
+	if withheld > 0 {
+		logger.Debug("Replay safety policy withheld JS-extracted templates",
+			zap.String("policy", strings.TrimSpace(e.config.JSTangle.ReplaySafety)),
+			zap.Int("withheld", withheld), zap.Int("allowed", len(safe)))
+	}
+	return safe
+}
+
+// RequeueReplayTemplate returns a claimed JS-replay template to the pending set
+// so a later end-of-scan flush round retries it. Wired into Callbacks so the
+// coordinator can recover a template whose replay failed to send or was cut off
+// by cancellation, rather than losing it to PendingReplay's destructive claim.
+func (e *Engine) RequeueReplayTemplate(sourceURL, id string) bool {
+	reg := e.templateRegistry()
+	if reg == nil {
+		return false
+	}
+	return reg.Requeue(sourceURL, id)
 }
 
 func (e *Engine) templateRegistry() RequestTemplateRegistry {
@@ -1230,10 +1262,10 @@ func (e *Engine) assetGraph() *JSAssetGraph {
 	e.jsAssetGraphOnce.Do(func() {
 		if e.jsAssetGraph == nil {
 			e.jsAssetGraph = NewJSAssetGraph(JSAssetGraphConfig{
-				MaxDepth:           e.config.JSScan.MaxAssetDepth,
-				MaxAssetsPerParent: e.config.JSScan.MaxAssetsPerParent,
-				MaxAssetsPerHost:   e.config.JSScan.MaxAssetsPerHost,
-				MaxAssetsTotal:     e.config.JSScan.MaxAssetsTotal,
+				MaxDepth:           e.config.JSTangle.MaxAssetDepth,
+				MaxAssetsPerParent: e.config.JSTangle.MaxAssetsPerParent,
+				MaxAssetsPerHost:   e.config.JSTangle.MaxAssetsPerHost,
+				MaxAssetsTotal:     e.config.JSTangle.MaxAssetsTotal,
 			})
 		}
 	})
@@ -1258,11 +1290,11 @@ func staticTemplatePath(raw string) string {
 
 // GetExtractedRequests returns collected requests (for future task generation).
 // Returns a copy to avoid race conditions.
-func (e *Engine) GetExtractedRequests() []jsscan.ExtractedRequest {
+func (e *Engine) GetExtractedRequests() []jstangle.ExtractedRequest {
 	e.extractedRequestsMu.Lock()
 	defer e.extractedRequestsMu.Unlock()
 
-	result := make([]jsscan.ExtractedRequest, len(e.extractedRequests))
+	result := make([]jstangle.ExtractedRequest, len(e.extractedRequests))
 	copy(result, e.extractedRequests)
 	return result
 }
@@ -1342,6 +1374,14 @@ func (e *Engine) WaitForQueues(ctx context.Context) error {
 						zap.Duration("timeout", idleTimeout))
 				} else {
 					if time.Since(idleStart) >= idleTimeout {
+						// Before declaring completion, drain any JS request facts
+						// that slow tail bundles registered after the last replay
+						// task already ran (the directory-scoped replay task is
+						// deduped, so no further replay would otherwise fire).
+						if e.tryFlushPendingJSReplay() {
+							idleDetected = false
+							continue
+						}
 						logger.Info("Discovery complete - queue idle",
 							zap.Duration("idle_duration", time.Since(idleStart)))
 						e.taskQueue.Stop()
@@ -1358,6 +1398,63 @@ func (e *Engine) WaitForQueues(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// jsReplayFlushCap bounds how many end-of-scan JS replay rounds we schedule.
+// Each round can register fresh facts (recursive discovery), so we loop — but
+// cap it so a pathological bundle that keeps emitting new facts can't wedge
+// quiescence indefinitely.
+const jsReplayFlushCap = 8
+
+// tryFlushPendingJSReplay enqueues one final JS-extracted replay task when the
+// queue has otherwise gone idle but the template registry still holds pending
+// facts. This closes the race where a slow tail JS bundle finishes analysis and
+// registers request facts AFTER the last directory-scheduled replay task has
+// already drained the pending set — the replay task identity is directory-based
+// and deduped, so without this no further replay would be scheduled and those
+// late-discovered routes would never reach dynamic assessment.
+//
+// It enqueues directly on the task queue (bypassing AddTask's hash dedup, which
+// would suppress a second root replay) and returns true when a replay was
+// scheduled, signalling the caller to keep waiting. Called only from the single
+// WaitForQueues goroutine, so jsReplayFlushCount needs no synchronization.
+func (e *Engine) tryFlushPendingJSReplay() bool {
+	if e.jstangleService == nil {
+		return false
+	}
+	reg := e.templateRegistry()
+	if reg == nil {
+		return false
+	}
+	pending := reg.PendingLen()
+	if pending == 0 {
+		return false
+	}
+	if e.jsReplayFlushCount >= jsReplayFlushCap {
+		if !e.jsReplayFlushCapLogged {
+			logger.Warn("JS replay flush cap reached; leftover pending templates will not be replayed",
+				zap.Int("pending", pending),
+				zap.Int("cap", jsReplayFlushCap))
+			e.jsReplayFlushCapLogged = true
+		}
+		return false
+	}
+	targetURL, err := url.Parse(e.config.Target.StartURL)
+	if err != nil {
+		return false
+	}
+	task := e.factory.CreateJSExtractedRequestTask(
+		targetURL, e.GetExtractedRequests, 0, e.PendingRequestTemplates,
+	)
+	if task == nil {
+		return false
+	}
+	e.jsReplayFlushCount++
+	e.taskQueue.Enqueue(task)
+	logger.Info("Scheduled end-of-scan JS replay flush",
+		zap.Int("pending", pending),
+		zap.Int("round", e.jsReplayFlushCount))
+	return true
 }
 
 // TaskQueue returns the task queue (for UI integration).
@@ -1491,91 +1588,61 @@ func (e *Engine) cleanup() {
 	if e.dedupBasePath != "" {
 		_ = os.RemoveAll(e.dedupBasePath)
 	}
-	if e.kingfisherBatchDir != "" {
-		_ = os.RemoveAll(e.kingfisherBatchDir)
-	}
 }
 
-// bufferForKingfisher writes an eligible response body to the batch directory
-// for deferred scanning. Thread-safe for concurrent use from callbacks.
-func (e *Engine) bufferForKingfisher(body []byte, mimeType, urlPath, urlStr string) {
-	if e.kingfisherScanner == nil || len(body) == 0 {
+// scanBodyForSecrets scans an eligible response body for secrets inline and
+// accumulates the matches under its URL. Thread-safe for concurrent use from
+// callbacks (the crawler runs many worker goroutines).
+func (e *Engine) scanBodyForSecrets(body []byte, mimeType, urlPath, urlStr string) {
+	if e.secretDetector == nil {
 		return
 	}
-	if pkghttp.IsMediaContent(mimeType, urlPath) {
-		return
-	}
-	if !isTextBasedMIME(mimeType) {
-		return
-	}
-
-	seq := e.kingfisherBatchSeq.Add(1)
-	filename := fmt.Sprintf("%d.txt", seq)
-	filePath := filepath.Join(e.kingfisherBatchDir, filename)
-
-	if err := os.WriteFile(filePath, body, 0600); err != nil {
-		logger.Debug("Kingfisher: failed to buffer body",
-			zap.String("path", urlPath),
-			zap.Error(err))
+	// Shared secret-scan eligibility (size cap + media + text MIME) so the crawl
+	// agrees with the passive module and the known-issue batch on what reaches the
+	// detector — the crawl previously had no upper size cap.
+	if !pkghttp.ShouldScanBodyForSecrets(mimeType, urlPath, len(body)) {
 		return
 	}
 
-	e.kingfisherBatchMu.Lock()
-	e.kingfisherBatchMap[filename] = urlStr
-	e.kingfisherBatchMu.Unlock()
-}
-
-// FlushKingfisher batch-scans all buffered response bodies using a single
-// kingfisher invocation and updates the corresponding DB records.
-// Must be called after crawling completes (WaitForQueues) but before Stop.
-func (e *Engine) FlushKingfisher() {
-	if e.kingfisherScanner == nil || e.kingfisherBatchDir == "" {
+	matches := e.secretDetector.Detect(body)
+	if len(matches) == 0 {
 		return
 	}
-
-	e.kingfisherBatchMu.Lock()
-	batchMap := e.kingfisherBatchMap
-	e.kingfisherBatchMu.Unlock()
-
-	if len(batchMap) == 0 {
-		logger.Debug("Kingfisher batch: no bodies buffered")
-		return
-	}
-
-	logger.Info("Kingfisher batch scan starting",
-		zap.Int("buffered_responses", len(batchMap)))
-
-	result, err := e.kingfisherScanner.ScanDir(context.Background(), e.kingfisherBatchDir)
-	if err != nil {
-		logger.Warn("Kingfisher batch scan failed", zap.Error(err))
-		return
-	}
-
-	if !result.HasFindings() {
-		logger.Info("Kingfisher batch scan: no findings",
-			zap.Duration("duration", result.ScanDuration))
-		return
-	}
-
-	// Group findings by URL
-	type kfFinding = storage.KingfisherFinding
-	urlFindings := make(map[string][]kfFinding)
-	for _, f := range result.Findings {
-		basename := filepath.Base(f.Finding.Path)
-		urlStr, ok := batchMap[basename]
-		if !ok {
-			continue
-		}
-		urlFindings[urlStr] = append(urlFindings[urlStr], kfFinding{
-			RuleID:     f.RuleID(),
-			RuleName:   f.RuleName(),
-			Snippet:    f.Snippet(),
-			Confidence: f.Finding.Confidence,
-			Validated:  f.IsValidated(),
+	findings := make([]storage.SecretFinding, 0, len(matches))
+	for _, mt := range matches {
+		findings = append(findings, storage.SecretFinding{
+			RuleID:     mt.RuleID,
+			RuleName:   mt.RuleName,
+			Snippet:    mt.Secret,
+			Confidence: mt.Confidence,
+			Validated:  false, // native detector performs no live verification
 		})
 	}
 
-	// Batch update DB records
+	e.secretMu.Lock()
+	e.secretFindings[urlStr] = append(e.secretFindings[urlStr], findings...)
+	e.secretMu.Unlock()
+}
+
+// FlushSecretFindings persists the secret matches accumulated during the crawl to
+// the corresponding DB records. Must be called after crawling completes
+// (WaitForQueues) but before Stop.
+func (e *Engine) FlushSecretFindings() {
+	if e.secretDetector == nil {
+		return
+	}
+
+	e.secretMu.Lock()
+	urlFindings := e.secretFindings
+	e.secretFindings = make(map[string][]storage.SecretFinding)
+	e.secretMu.Unlock()
+
+	if len(urlFindings) == 0 {
+		logger.Debug("Secret scan: no findings")
+		return
+	}
+
+	// Batch update DB records.
 	if e.storage != nil {
 		jsonMap := make(map[string]string, len(urlFindings))
 		for url, findings := range urlFindings {
@@ -1585,8 +1652,8 @@ func (e *Engine) FlushKingfisher() {
 			}
 			jsonMap[url] = string(data)
 		}
-		if err := e.storage.BatchUpdateKingfisherFindings(jsonMap); err != nil {
-			logger.Warn("Kingfisher batch: DB update failed", zap.Error(err))
+		if err := e.storage.BatchUpdateSecretFindings(jsonMap); err != nil {
+			logger.Warn("Secret scan: DB update failed", zap.Error(err))
 		}
 	}
 
@@ -1594,8 +1661,7 @@ func (e *Engine) FlushKingfisher() {
 	for _, fs := range urlFindings {
 		totalFindings += len(fs)
 	}
-	logger.Info("Kingfisher batch scan completed",
+	logger.Info("Secret scan completed",
 		zap.Int("findings", totalFindings),
-		zap.Int("urls_with_findings", len(urlFindings)),
-		zap.Duration("duration", result.ScanDuration))
+		zap.Int("urls_with_findings", len(urlFindings)))
 }

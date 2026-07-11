@@ -479,11 +479,60 @@ func TestMatchAndConfirmSibling(t *testing.T) {
 		require.True(t, ok, "a real endpoint whose siblings 404 must confirm even when its anchor equals its path segment")
 		assert.Equal(t, []string{"graphql", "__schema"}, matched)
 	})
+
+	// Root-level slug reflection: the anchor is a SINGLE-segment probe path (/redoc)
+	// echoed back by a path-reflecting wildcard shell that answers every route with a
+	// 200 reflecting the requested slug. SlugReflectionFP probes a canary at the web
+	// root for such single-segment paths and must suppress it (the root soft-404
+	// fingerprint the shell defeats can't).
+	t.Run("root-level slug-reflecting shell suppressed", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<div data-view="` + strings.Trim(r.URL.Path, "/") + `"></div>`))
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		reflMarkers := [][]string{{"redoc"}}
+		body := `<div data-view="redoc"></div>`
+
+		matched, ok := modkit.MatchAndConfirmSibling(rr, client, "/redoc", body, reflMarkers)
+		assert.False(t, ok, "a root-level anchor reflected by a wildcard shell must be suppressed")
+		assert.Nil(t, matched)
+	})
+
+	// A real root-level endpoint whose anchor equals its path segment (siblings 404,
+	// no reflection) must still confirm — the web-root canary probe 404s, so the
+	// root-aware reflection guard is a no-op and the finding stands.
+	t.Run("real root-level endpoint with segment-equal anchor confirms", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/redoc" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`<redoc spec-url="/openapi.json"></redoc>`))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		redocMarkers := [][]string{{"redoc"}, {"spec-url"}}
+		body := `<redoc spec-url="/openapi.json"></redoc>`
+
+		matched, ok := modkit.MatchAndConfirmSibling(rr, client, "/redoc", body, redocMarkers)
+		require.True(t, ok, "a real root-level endpoint whose web-root siblings 404 must confirm")
+		assert.Equal(t, []string{"redoc", "spec-url"}, matched)
+	})
 }
 
 // TestPathSegmentReflected exercises the slug-reflection control directly: it
-// returns true only when a sibling carrying a distinctive canary slug is echoed
-// into a 200 body, and is a no-op (false) for root-level paths.
+// returns true only when a canary slug probed under the path's base directory is
+// echoed into a 200 body — including a root-level path, which is probed at the web
+// root rather than skipped.
 func TestPathSegmentReflected(t *testing.T) {
 	t.Parallel()
 
@@ -523,20 +572,38 @@ func TestPathSegmentReflected(t *testing.T) {
 			"an endpoint whose random siblings 404 is not a reflecting route")
 	})
 
-	t.Run("root-level path is a no-op", func(t *testing.T) {
+	t.Run("root-level reflecting shell detected", func(t *testing.T) {
+		t.Parallel()
+		// A path-reflecting shell echoes the requested web-root slug into a 200 body;
+		// the control probes /<canary> at the web root and must detect the reflection.
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<div data-view="` + strings.Trim(r.URL.Path, "/") + `"></div>`))
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		assert.True(t, modkit.PathSegmentReflected(rr, client, "/redoc"),
+			"a root-level path reflected by a web-root wildcard shell must be detected")
+	})
+
+	t.Run("root-level non-reflecting host (siblings 404)", func(t *testing.T) {
 		t.Parallel()
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Even a root catch-all that echoes the path must not count: root probes
-			// are covered by the caller's root soft-404 fingerprint.
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte("<h1>" + r.URL.Path + "</h1>"))
+			if r.URL.Path == "/redoc" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("<redoc></redoc>"))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
 		}))
 		defer srv.Close()
 
 		client := modtest.Requester(t)
 		rr := modtest.Request(t, srv.URL+"/")
 		assert.False(t, modkit.PathSegmentReflected(rr, client, "/redoc"),
-			"a root-level probe path must be a no-op (no control probe, never dropped)")
+			"a genuine root-level endpoint whose random web-root siblings 404 is not reflecting")
 	})
 }
 
@@ -602,5 +669,63 @@ func TestSlugReflectionFP(t *testing.T) {
 		client := modtest.Requester(t)
 		rr := modtest.Request(t, "http://example.invalid/")
 		assert.False(t, modkit.SlugReflectionFP(rr, client, "/topic/x", nil))
+	})
+}
+
+// TestSlugReflectionFP_RootLevel covers the root-level reach of SlugReflectionFP: a
+// single-segment probe path (/healthchecks-ui) whose slug-equal marker is reflected
+// by a path-reflecting shell must be dropped via a web-root canary probe, while a
+// non-reflecting host (random web-root paths 404) or a structurally-backed match is
+// kept.
+func TestSlugReflectionFP_RootLevel(t *testing.T) {
+	t.Parallel()
+
+	t.Run("root-level reflected slug -> drop", func(t *testing.T) {
+		t.Parallel()
+		// The app echoes any requested web-root slug into a 200 body (a Frontify-style
+		// {"view":"<slug>"} shell); the web-root canary probe catches it.
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<div data-view="` + strings.Trim(r.URL.Path, "/") + `"></div>`))
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		assert.True(t, modkit.SlugReflectionFP(rr, client, "/healthchecks-ui", []string{"healthchecks-ui"}),
+			"a root-level slug reflected by an arbitrary-path shell must be dropped")
+	})
+
+	t.Run("root-level, host 404s random paths -> keep", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/healthchecks-ui" {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte("real dashboard"))
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		assert.False(t, modkit.SlugReflectionFP(rr, client, "/healthchecks-ui", []string{"healthchecks-ui"}),
+			"a genuine root-level endpoint whose random web-root siblings 404 must be kept")
+	})
+
+	t.Run("root-level, structural marker also matched -> keep", func(t *testing.T) {
+		t.Parallel()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`<div data-view="` + strings.Trim(r.URL.Path, "/") + `"></div>`))
+		}))
+		defer srv.Close()
+
+		client := modtest.Requester(t)
+		rr := modtest.Request(t, srv.URL+"/")
+		assert.False(t, modkit.SlugReflectionFP(rr, client, "/healthchecks-ui",
+			[]string{"healthchecks-ui", "AspNetCore.HealthChecks.UI"}),
+			"a non-segment structural marker gives the finding independent support -> no control probe, keep")
 	})
 }

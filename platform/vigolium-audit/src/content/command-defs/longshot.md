@@ -10,18 +10,39 @@ phases:
     requires_git: false
     parallel_with: []
     depends_on: []
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: longshot/targets.json
+          min_bytes: 20
+          json: true
   - id: "2"
     title: Hunt (file-by-file fan-out)
     agent: longshot-prober
     requires_git: false
     parallel_with: []
     depends_on: ["1"]
+    completion:
+      enforcement: advisory
+      repair_attempts: 0
+      artifacts:
+        - kind: glob
+          pattern: longshot/findings-draft/longshot-*.md
+          min_matches: 1
+          each_min_bytes: 20
   - id: "3"
     title: Aggregate & Deduplicate
     agent: longshot-collector
     requires_git: false
     parallel_with: []
     depends_on: ["2"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: longshot/longshot-summary.md
+          min_bytes: 80
 ---
 
 ## Context

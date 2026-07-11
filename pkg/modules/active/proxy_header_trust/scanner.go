@@ -2,10 +2,12 @@ package proxy_header_trust
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -14,7 +16,15 @@ import (
 const (
 	injectedHost = "vigolium-probe.example"
 	injectedIP   = "127.0.0.1"
+	controlIP    = "198.51.100.42"
 )
+
+type headerCapture struct {
+	rawRequest   string
+	fullResponse string
+	body         string
+	status       int
+}
 
 // isAccessDenied returns true for status codes that indicate the request was
 // rejected by an auth/WAF/rate-limit layer rather than served by the app.
@@ -70,18 +80,16 @@ func (m *Module) ScanPerRequest(
 
 	host := service.Host()
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
-		return nil, nil
+	if scanCtx != nil {
+		diskSet := m.ds.Get(scanCtx.DedupMgr())
+		if diskSet != nil && diskSet.IsSeen(host) {
+			return nil, nil
+		}
 	}
 
 	// Send baseline request.
-	baselineRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
-	if err != nil {
-		return nil, nil
-	}
-	baselineRaw, err = httpmsg.SetPath(baselineRaw, "/")
-	if err != nil {
+	baselineRaw, ok := rootGetRaw(ctx, "", "")
+	if !ok {
 		return nil, nil
 	}
 
@@ -89,8 +97,12 @@ func (m *Module) ScanPerRequest(
 	// of re-parsing on this hot path.
 	baselineReq := httpmsg.NewRequestResponseRaw(baselineRaw, ctx.Service())
 
-	baselineResp, _, err := httpClient.Execute(baselineReq, http.Options{})
+	baselineResp, _, err := httpClient.Execute(baselineReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
+		return nil, nil
+	}
+	defer baselineResp.Close()
+	if baselineResp.Response() == nil || infra.GetBlockDetectionValidator().Validate(baselineResp) != nil {
 		return nil, nil
 	}
 
@@ -110,9 +122,10 @@ func (m *Module) ScanPerRequest(
 	baselineEv.Add("baseline", string(baselineRaw), baselineResp.FullResponseString())
 	baselineEvidence := baselineEv.Entries()
 
-	baselineResp.Close()
-
-	urlx, _ := ctx.URL()
+	urlx, err := ctx.URL()
+	if err != nil || urlx == nil {
+		return nil, nil
+	}
 	var results []*output.ResultEvent
 
 	// Test 1: X-Forwarded-Host reflection.
@@ -139,16 +152,8 @@ func (m *Module) testForwardedHost(
 	targetURL string,
 	baselineEvidence []string,
 ) *output.ResultEvent {
-	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
-	if err != nil {
-		return nil
-	}
-	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, "/")
-	if err != nil {
-		return nil
-	}
-	modifiedRaw, err = httpmsg.AddOrReplaceHeader(modifiedRaw, "X-Forwarded-Host", injectedHost)
-	if err != nil {
+	modifiedRaw, ok := rootGetRaw(ctx, "X-Forwarded-Host", injectedHost)
+	if !ok {
 		return nil
 	}
 
@@ -161,13 +166,13 @@ func (m *Module) testForwardedHost(
 	// (losing the evidence) and, worse, chase an attacker-influenced host — a
 	// self-inflicted SSRF. Inspect the immediate hop instead, deterministically and
 	// regardless of the requester's follow-redirect configuration.
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.GetBlockDetectionValidator().Validate(resp) != nil {
 		return nil
 	}
 
@@ -210,13 +215,16 @@ func (m *Module) testForwardedHost(
 	// Strict drop-on-fail: confirm the X-Forwarded-Host value genuinely flows into
 	// the output in authority position (a real input→output reflection), not a
 	// one-shot echo, a coincidental static string, or a query-parameter echo. A
-	// fresh random host must reflect as a URL authority every round. Fails OPEN
-	// only on an inconclusive probe error.
-	if confirmed, err := m.confirmForwardedHostReflection(ctx, httpClient); err == nil && !confirmed {
+	// fresh random host must reflect as a URL authority every round. An incomplete
+	// confirmation cannot establish attacker control, so it is dropped.
+	if confirmed, err := m.confirmForwardedHostReflection(ctx, httpClient); err != nil || !confirmed {
 		return nil
 	}
 
 	return &output.ResultEvent{
+		ModuleID:           ModuleID,
+		RecordKind:         output.RecordKindCandidate,
+		EvidenceGrade:      output.EvidenceGradeDifferential,
 		URL:                targetURL,
 		Request:            string(modifiedRaw),
 		Response:           resp.FullResponseString(),
@@ -226,12 +234,18 @@ func (m *Module) testForwardedHost(
 			"Finding: " + finding,
 		},
 		Info: output.Info{
-			Name:        "Proxy Header Trust: X-Forwarded-Host Injection",
-			Description: "X-Forwarded-Host header is trusted for URL generation, allowing host-based attacks such as password reset poisoning and cache poisoning",
+			Name:        "Proxy Header Trust Candidate: X-Forwarded-Host URL Generation",
+			Description: "Fresh X-Forwarded-Host values reproducibly control a generated URL authority. This proves exposed header trust, but password-reset poisoning, cache poisoning, or another security-sensitive consumer was not demonstrated.",
 			Severity:    severity.High,
 			Confidence:  confidence,
 			Tags:        []string{"proxy", "forwarded-headers", "ip-spoofing", "host-injection"},
 			Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/"},
+		},
+		Metadata: map[string]any{
+			"header":                   "X-Forwarded-Host",
+			"authority_sink":           map[bool]string{true: "location", false: "body"}[locAuthority],
+			"confirmation_rounds":      2,
+			"sensitive_flow_confirmed": false,
 		},
 	}
 }
@@ -243,16 +257,8 @@ func (m *Module) testForwardedProto(
 	targetURL string,
 	baselineEvidence []string,
 ) *output.ResultEvent {
-	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
-	if err != nil {
-		return nil
-	}
-	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, "/")
-	if err != nil {
-		return nil
-	}
-	modifiedRaw, err = httpmsg.AddOrReplaceHeader(modifiedRaw, "X-Forwarded-Proto", "https")
-	if err != nil {
+	modifiedRaw, ok := rootGetRaw(ctx, "X-Forwarded-Proto", "https")
+	if !ok {
 		return nil
 	}
 
@@ -260,13 +266,13 @@ func (m *Module) testForwardedProto(
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.GetBlockDetectionValidator().Validate(resp) != nil {
 		return nil
 	}
 
@@ -311,6 +317,9 @@ func (m *Module) testForwardedProto(
 	evidence := append(append([]string{}, baselineEvidence...), negControlEv.Entries()...)
 
 	return &output.ResultEvent{
+		ModuleID:           ModuleID,
+		RecordKind:         output.RecordKindCandidate,
+		EvidenceGrade:      output.EvidenceGradeDifferential,
 		URL:                targetURL,
 		Request:            string(modifiedRaw),
 		Response:           resp.FullResponseString(),
@@ -320,12 +329,17 @@ func (m *Module) testForwardedProto(
 			"Finding: " + finding,
 		},
 		Info: output.Info{
-			Name:        "Proxy Header Trust: X-Forwarded-Proto Confusion",
-			Description: "X-Forwarded-Proto header is trusted, causing protocol confusion that may affect redirect behavior, cookie security flags, or HTTPS enforcement",
+			Name:        "Proxy Header Trust Candidate: X-Forwarded-Proto Behavior",
+			Description: "X-Forwarded-Proto: https reproducibly causes a value-specific response change. This proves exposed protocol-header trust, but no HTTPS downgrade, insecure cookie issuance, or protected-route bypass was demonstrated.",
 			Severity:    severity.Medium,
 			Confidence:  ModuleConfidence,
 			Tags:        []string{"proxy", "forwarded-headers", "ip-spoofing", "host-injection"},
 			Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/"},
+		},
+		Metadata: map[string]any{
+			"header":                    "X-Forwarded-Proto",
+			"confirmation_rounds":       2,
+			"security_impact_confirmed": false,
 		},
 	}
 }
@@ -338,16 +352,8 @@ func (m *Module) testForwardedFor(
 	targetURL string,
 	baselineEvidence []string,
 ) *output.ResultEvent {
-	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
-	if err != nil {
-		return nil
-	}
-	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, "/")
-	if err != nil {
-		return nil
-	}
-	modifiedRaw, err = httpmsg.AddOrReplaceHeader(modifiedRaw, "X-Forwarded-For", injectedIP)
-	if err != nil {
+	modifiedRaw, ok := rootGetRaw(ctx, "X-Forwarded-For", injectedIP)
+	if !ok {
 		return nil
 	}
 
@@ -355,13 +361,13 @@ func (m *Module) testForwardedFor(
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.GetBlockDetectionValidator().Validate(resp) != nil {
 		return nil
 	}
 
@@ -374,24 +380,46 @@ func (m *Module) testForwardedFor(
 	// baseline status is unreliable, though (a transient 429/503 that simply
 	// cleared by the probe reads as a bypass), so confirm the split is reproducible
 	// and header-attributable before asserting an access-control bypass.
-	if isAccessDenied(baselineStatus) && probeStatus >= 200 && probeStatus < 300 &&
-		m.confirmForwardedForBypass(ctx, httpClient) {
+	if isAccessDenied(baselineStatus) && probeStatus >= 200 && probeStatus < 300 {
+		confirmationEvidence, semanticAccess, confirmed := m.confirmForwardedForBypass(ctx, httpClient)
+		if !confirmed {
+			return nil
+		}
+		kind := output.RecordKindCandidate
+		name := "Proxy Header Trust Candidate: X-Forwarded-For Access Change"
+		description := "X-Forwarded-For: 127.0.0.1 reproducibly changes a denied response to 2xx while an unrelated IP remains denied. The status bypass is value-specific, but protected content was not independently established."
+		if semanticAccess {
+			kind = output.RecordKindFinding
+			name = "Proxy Header Trust: X-Forwarded-For IP Bypass"
+			description = "X-Forwarded-For: 127.0.0.1 reproducibly bypasses an IP-based denial, while an unrelated IP remains denied, and returns stable content semantically distinct from both denial responses."
+		}
+		evidence := append(append([]string{}, baselineEvidence...), confirmationEvidence...)
 		return &output.ResultEvent{
+			ModuleID:           ModuleID,
+			RecordKind:         kind,
+			EvidenceGrade:      output.EvidenceGradeBypass,
 			URL:                targetURL,
 			Request:            string(modifiedRaw),
 			Response:           resp.FullResponseString(),
-			AdditionalEvidence: baselineEvidence,
+			AdditionalEvidence: evidence,
 			ExtractedResults: []string{
 				"Header: X-Forwarded-For: " + injectedIP,
 				"Finding: " + fmt.Sprintf("X-Forwarded-For IP spoofing bypassed access control (status %d → %d)", baselineStatus, probeStatus),
 			},
 			Info: output.Info{
-				Name:        "Proxy Header Trust: X-Forwarded-For IP Bypass",
-				Description: "X-Forwarded-For header is trusted for IP-based access controls, allowing attackers to bypass rate limiting or IP restrictions by spoofing their source address",
+				Name:        name,
+				Description: description,
 				Severity:    severity.High,
 				Confidence:  ModuleConfidence,
 				Tags:        []string{"proxy", "forwarded-headers", "ip-spoofing", "host-injection"},
 				Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/"},
+			},
+			Metadata: map[string]any{
+				"header":                    "X-Forwarded-For",
+				"trusted_value":             injectedIP,
+				"negative_control_value":    controlIP,
+				"confirmation_rounds":       2,
+				"semantic_access_confirmed": semanticAccess,
 			},
 		}
 	}
@@ -405,23 +433,32 @@ func (m *Module) testForwardedFor(
 	// Skip entirely when either side is a WAF/denied page — that size is noise, and
 	// a WAF reacting to the spoofed header is the opposite of trusting it.
 	if !isAccessDenied(baselineStatus) && !isAccessDenied(probeStatus) && len(baselineBody) > 0 {
-		if shift, ok := m.confirmForwardedForSizeShift(ctx, httpClient, len(baselineBody), len(probeBody)); ok {
+		if shift, confirmationEvidence, ok := m.confirmForwardedForSizeShift(ctx, httpClient, len(baselineBody), len(probeBody)); ok {
+			evidence := append(append([]string{}, baselineEvidence...), confirmationEvidence...)
 			return &output.ResultEvent{
+				ModuleID:           ModuleID,
+				RecordKind:         output.RecordKindCandidate,
+				EvidenceGrade:      output.EvidenceGradeDifferential,
 				URL:                targetURL,
 				Request:            string(modifiedRaw),
 				Response:           resp.FullResponseString(),
-				AdditionalEvidence: baselineEvidence,
+				AdditionalEvidence: evidence,
 				ExtractedResults: []string{
 					"Header: X-Forwarded-For: " + injectedIP,
 					"Finding: " + shift,
 				},
 				Info: output.Info{
-					Name:        "Proxy Header Trust: X-Forwarded-For Content Variation",
+					Name:        "Proxy Header Trust Candidate: X-Forwarded-For Content Variation",
 					Description: "Response content reproducibly varies with the spoofed X-Forwarded-For source IP, beyond the page's natural per-request variance. The application appears to gate content on the client-supplied source address, which may expose IP-restricted content or behavior to a spoofed caller. Verify what differs before treating it as an access-control bypass.",
 					Severity:    severity.Medium,
 					Confidence:  severity.Tentative,
 					Tags:        []string{"proxy", "forwarded-headers", "ip-spoofing", "host-injection"},
 					Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/"},
+				},
+				Metadata: map[string]any{
+					"header":                    "X-Forwarded-For",
+					"trusted_value":             injectedIP,
+					"semantic_access_confirmed": false,
 				},
 			}
 		}
@@ -437,22 +474,13 @@ func (m *Module) testForwardedFor(
 // contains a fixed string, echoes the header only once, or echoes it inside
 // another URL's query parameter (the OAuth redirect_uri= case) will not satisfy
 // the authority check across the changing canary. Returns ConfirmReflection's
-// (confirmed, err); callers treat a non-nil err as inconclusive and keep the
-// finding.
+// (confirmed, err); callers require a complete confirmation.
 func (m *Module) confirmForwardedHostReflection(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) (bool, error) {
 	return modkit.ConfirmReflection(2, func(canary string) (bool, error) {
 		host := "vgo" + canary + ".example"
-		raw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
-		if err != nil {
-			return false, err
-		}
-		raw, err = httpmsg.SetPath(raw, "/")
-		if err != nil {
-			return false, err
-		}
-		raw, err = httpmsg.AddOrReplaceHeader(raw, "X-Forwarded-Host", host)
-		if err != nil {
-			return false, err
+		raw, ok := rootGetRaw(ctx, "X-Forwarded-Host", host)
+		if !ok {
+			return false, fmt.Errorf("build X-Forwarded-Host confirmation request")
 		}
 		// BuildRequest/SetMethod/... produce well-formed raw, so wrap directly instead
 		// of re-parsing on this hot path.
@@ -465,7 +493,7 @@ func (m *Module) confirmForwardedHostReflection(ctx *httpmsg.HttpRequestResponse
 			return false, err
 		}
 		defer resp.Close()
-		if resp.Response() == nil {
+		if resp.Response() == nil || infra.GetBlockDetectionValidator().Validate(resp) != nil {
 			return false, nil
 		}
 		loc := resp.Response().Header.Get("Location")
@@ -478,7 +506,7 @@ func (m *Module) confirmForwardedHostReflection(ctx *httpmsg.HttpRequestResponse
 // presence or transient flapping. Across two rounds the no-header baseline must
 // keep returning baselineStatus and the "https" probe must keep returning
 // probeStatus; then a benign value ("http") must NOT reproduce the changed
-// status. Fails OPEN on an inconclusive fetch error. The benign-value round is
+// status. Incomplete controls fail closed. The benign-value round is
 // captured into negControl (nil-safe) so the finding can show that the change is
 // specific to "https", not just any X-Forwarded-Proto value.
 func (m *Module) confirmForwardedProtoChange(
@@ -490,56 +518,59 @@ func (m *Module) confirmForwardedProtoChange(
 	for range 2 {
 		_, bs, ok := m.headerFetch(ctx, httpClient, "X-Forwarded-Proto", "")
 		if !ok {
-			return true // inconclusive
+			return false
 		}
 		if bs != baselineStatus {
 			return false // baseline not stable → change not attributable
 		}
 		_, ps, ok := m.headerFetch(ctx, httpClient, "X-Forwarded-Proto", "https")
 		if !ok {
-			return true
+			return false
 		}
 		if ps != probeStatus {
 			return false // probe not reproducible
 		}
 	}
 	// Negative control: a benign proto value must behave like the no-header
-	// baseline. If "http" also yields the changed status, the effect is from
+	// baseline. If "http" differs from the baseline, the effect may be from
 	// header presence/instability, not the "https" value. Capture the pair as
 	// evidence regardless of the outcome — it documents the attribution check.
-	rawReq, fullResp, cs, ok := m.captureFetch(ctx, httpClient, "X-Forwarded-Proto", "http")
+	control, ok := m.captureFetch(ctx, httpClient, "X-Forwarded-Proto", "http")
 	if !ok {
-		return true
+		return false
 	}
-	negControl.Add("negative control: X-Forwarded-Proto: http (benign value)", rawReq, fullResp)
-	if cs == probeStatus && probeStatus != baselineStatus {
+	negControl.Add("negative control: X-Forwarded-Proto: http (benign value)", control.rawRequest, control.fullResponse)
+	if control.status != baselineStatus {
 		return false
 	}
 	return true
 }
 
-// captureFetch issues a GET / optionally carrying one header (cache-bypassed so
-// it truly hits the wire) and returns the raw request, full raw response, and
-// status. ok is false on any build/parse/transport error or a nil response. It
-// is the evidence-capturing counterpart to headerFetch, used where a confirmation
-// round's request/response pair must be preserved for the finding.
-func (m *Module) captureFetch(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, name, value string) (rawReq, fullResp string, status int, ok bool) {
+// captureFetch issues a GET / optionally carrying one header, bypasses cached
+// clustering and redirects, and retains the request/response/body needed by
+// confirmation controls. Known edge challenge responses fail closed.
+func (m *Module) captureFetch(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, name, value string) (headerCapture, bool) {
 	raw, ok := rootGetRaw(ctx, name, value)
 	if !ok {
-		return "", "", 0, false
+		return headerCapture{}, false
 	}
 	// BuildRequest/SetMethod/... produce well-formed raw, so wrap directly instead
 	// of re-parsing on this hot path.
 	req := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
-	resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true})
+	resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true, NoRedirects: true})
 	if err != nil {
-		return "", "", 0, false
+		return headerCapture{}, false
 	}
 	defer resp.Close()
-	if resp.Response() == nil {
-		return "", "", 0, false
+	if resp.Response() == nil || infra.GetBlockDetectionValidator().Validate(resp) != nil {
+		return headerCapture{}, false
 	}
-	return string(raw), resp.FullResponseString(), resp.Response().StatusCode, true
+	return headerCapture{
+		rawRequest:   string(raw),
+		fullResponse: resp.FullResponseString(),
+		body:         resp.BodyString(),
+		status:       resp.Response().StatusCode,
+	}, true
 }
 
 // rootGetRaw builds a GET / request from ctx, optionally carrying one header
@@ -554,6 +585,15 @@ func rootGetRaw(ctx *httpmsg.HttpRequestResponse, name, value string) ([]byte, b
 	raw, err = httpmsg.SetPath(raw, "/")
 	if err != nil {
 		return nil, false
+	}
+	// Captured traffic may already contain forwarding headers added by a proxy.
+	// Remove the entire family first so each probe differs from its control by
+	// exactly one attacker-supplied value.
+	for _, header := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-IP"} {
+		raw, err = httpmsg.RemoveHeader(raw, header)
+		if err != nil {
+			return nil, false
+		}
 	}
 	if name != "" && value != "" {
 		raw, err = httpmsg.AddOrReplaceHeader(raw, name, value)
@@ -570,34 +610,40 @@ func rootGetRaw(ctx *httpmsg.HttpRequestResponse, name, value string) ([]byte, b
 // variance) and re-sends the spoofed-IP probe (to require reproducibility), then
 // reports a hit only when BOTH probe responses land on the same side of, and
 // clearly outside, the no-header size band by more than a meaningful margin.
-// Returns the human description and true on a confirmed shift; false whenever a
-// sample can't be taken cleanly, so an unverifiable change is never reported.
+// Returns the human description, the fresh control/replay evidence, and true on
+// a confirmed shift; an unverifiable change is never reported.
 func (m *Module) confirmForwardedForSizeShift(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	baselineLen, probeLen int,
-) (string, bool) {
-	controlLen, ok := m.fetchBodyLen(ctx, httpClient, false)
-	if !ok {
-		return "", false // can't establish natural variance → don't attribute
+) (string, []string, bool) {
+	control, ok := m.captureFetch(ctx, httpClient, "", "")
+	if !ok || isAccessDenied(control.status) {
+		return "", nil, false
 	}
-	probe2Len, ok := m.fetchBodyLen(ctx, httpClient, true)
-	if !ok {
-		return "", false // can't confirm reproducibility → don't attribute
+	probe2, ok := m.captureFetch(ctx, httpClient, "X-Forwarded-For", injectedIP)
+	if !ok || isAccessDenied(probe2.status) {
+		return "", nil, false
 	}
+	controlLen, probe2Len := len(control.body), len(probe2.body)
 
 	// Attribute the shift to the header only when both spoofed-IP samples land on
 	// the same side of, and clear of, the no-header band by more than its variance.
 	if _, ok := modkit.SizeShiftGap(baselineLen, controlLen, probeLen, probe2Len); !ok {
-		return "", false
+		return "", nil, false
 	}
 
 	noHdrMin, noHdrMax := min(baselineLen, controlLen), max(baselineLen, controlLen)
 	probeMin, probeMax := min(probeLen, probe2Len), max(probeLen, probe2Len)
-	return fmt.Sprintf(
+	shift := fmt.Sprintf(
 		"X-Forwarded-For reproducibly shifted response size outside natural variance (no-header %d–%d bytes, spoofed-IP %d–%d bytes)",
 		noHdrMin, noHdrMax, probeMin, probeMax,
-	), true
+	)
+	evidence := []string{
+		output.BuildEvidence("fresh no-header variance control", control.rawRequest, control.fullResponse),
+		output.BuildEvidence("spoofed-IP size replay", probe2.rawRequest, probe2.fullResponse),
+	}
+	return shift, evidence, true
 }
 
 // confirmForwardedForBypass verifies an apparent blocked→allowed transition is
@@ -607,39 +653,55 @@ func (m *Module) confirmForwardedForSizeShift(
 // scan hammered the host into a 429 that recovered a moment later — which then
 // reads as "spoofing bypassed access control" though the header did nothing.
 //
-// It re-runs the pair interleaved, with the spoofed header as the ONLY variable:
-// each round the no-header control must STILL be denied and the spoofed-IP probe
-// must STILL be allowed. A real IP-trust bypass holds every round; flapping
-// breaks it (the no-header control comes back allowed, or the probe comes back
-// denied). Drops on any miss or fetch error so an unverifiable transition is
-// never reported.
-func (m *Module) confirmForwardedForBypass(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) bool {
+// It re-runs the pair interleaved, with the spoofed header as the ONLY variable,
+// then sends an unrelated documentation-range IP as a value-specific negative
+// control. semanticAccess is true only when the allowed responses are stable,
+// non-empty, and distinct from both denial bodies; status-only evidence remains
+// a candidate instead of a confirmed vulnerability.
+func (m *Module) confirmForwardedForBypass(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+) (evidence []string, semanticAccess, confirmed bool) {
 	const rounds = 2
+	var allowedBody string
+	hasAllowedBody := false
+	var denialBodies []string
 	for range rounds {
-		if _, controlStatus, ok := m.headerFetch(ctx, httpClient, "", ""); !ok || !isAccessDenied(controlStatus) {
-			return false // not denied WITHOUT the header → the block isn't header-attributable
+		control, ok := m.captureFetch(ctx, httpClient, "", "")
+		if !ok || !isAccessDenied(control.status) {
+			return nil, false, false
 		}
-		if _, probeStatus, ok := m.headerFetch(ctx, httpClient, "X-Forwarded-For", injectedIP); !ok || probeStatus < 200 || probeStatus >= 300 {
-			return false // not allowed WITH the header → not a reproducible bypass
+		probe, ok := m.captureFetch(ctx, httpClient, "X-Forwarded-For", injectedIP)
+		if !ok || probe.status < 200 || probe.status >= 300 {
+			return nil, false, false
+		}
+		evidence = append(evidence,
+			output.BuildEvidence("no-header denial control", control.rawRequest, control.fullResponse),
+			output.BuildEvidence("trusted-IP replay", probe.rawRequest, probe.fullResponse),
+		)
+		denialBodies = append(denialBodies, control.body)
+		if !hasAllowedBody {
+			allowedBody = probe.body
+			hasAllowedBody = true
+		} else if !modkit.BodiesSimilar(allowedBody, probe.body) {
+			return nil, false, false
 		}
 	}
-	return true
-}
 
-// fetchBodyLen issues a GET / (optionally carrying the spoofed X-Forwarded-For
-// header) and returns the response body length. ok is false on any build/parse/
-// transport error, a nil response, or a WAF/denied status — none of which can
-// serve as a clean size sample.
-func (m *Module) fetchBodyLen(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, withSpoofedIP bool) (int, bool) {
-	value := ""
-	if withSpoofedIP {
-		value = injectedIP
+	negative, ok := m.captureFetch(ctx, httpClient, "X-Forwarded-For", controlIP)
+	if !ok || !isAccessDenied(negative.status) {
+		return nil, false, false
 	}
-	bodyLen, status, ok := m.headerFetch(ctx, httpClient, "X-Forwarded-For", value)
-	if !ok || isAccessDenied(status) {
-		return 0, false
+	evidence = append(evidence, output.BuildEvidence("untrusted-IP negative control", negative.rawRequest, negative.fullResponse))
+
+	semanticAccess = strings.TrimSpace(allowedBody) != "" && !modkit.BodiesSimilar(allowedBody, negative.body)
+	for _, deniedBody := range denialBodies {
+		if modkit.BodiesSimilar(allowedBody, deniedBody) {
+			semanticAccess = false
+			break
+		}
 	}
-	return bodyLen, true
+	return evidence, semanticAccess, true
 }
 
 // headerFetch issues a GET / optionally carrying a single request header
@@ -653,13 +715,9 @@ func (m *Module) fetchBodyLen(ctx *httpmsg.HttpRequestResponse, httpClient *http
 // variance to zero and make a transient block look reproducible — defeating the
 // confirmation gates. These fetches must really hit the wire.
 func (m *Module) headerFetch(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, name, value string) (bodyLen, status int, ok bool) {
-	raw, ok := rootGetRaw(ctx, name, value)
+	capture, ok := m.captureFetch(ctx, httpClient, name, value)
 	if !ok {
 		return 0, 0, false
 	}
-	st, body, ok := modkit.ExecuteRaw(httpClient, ctx.Service(), raw, http.Options{NoClustering: true})
-	if !ok {
-		return 0, 0, false
-	}
-	return len(body), st, true
+	return len(capture.body), capture.status, true
 }

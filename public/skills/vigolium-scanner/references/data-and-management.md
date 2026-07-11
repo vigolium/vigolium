@@ -208,7 +208,7 @@ List database records with filtering, sorting, and display options.
 | `--severity` | string | — | Filter findings by severity |
 | `--min-risk` | int | `0` | Show only records with risk score at or above this value |
 | `--remark` | string | — | Filter records containing this text in remarks |
-| `--module-type` | string | — | Filter findings by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
+| `--module-type` | string | — | Filter findings by module type (active, passive, nuclei, agent, source-tools, oast, extension) |
 | `--finding-source` | string | — | Filter findings by source (audit, spa, agent, oast, source-tools, extension) |
 | `--from` | string | — | Records after date (YYYY-MM-DD or RFC3339) |
 | `--to` | string | — | Records before date (YYYY-MM-DD or RFC3339) |
@@ -369,7 +369,7 @@ Browse vulnerability findings with fuzzy search, filtering, raw display, and col
 |------|-------|------|---------|-------------|
 | `--severity` | — | string | — | Filter by severity (comma-separated: critical,high,medium,low,info) |
 | `--scan-uuid` | — | string | — | Filter by scan session ID |
-| `--module-type` | — | string | — | Filter by module type (active, passive, nuclei, secret-scan, agent, source-tools, oast, extension) |
+| `--module-type` | — | string | — | Filter by module type (active, passive, nuclei, agent, source-tools, oast, extension) |
 | `--finding-source` | — | string | — | Filter by finding source (audit, spa, agent, oast, source-tools, extension) |
 | `--id` | — | int | `0` | Filter by finding ID |
 | `--min-severity` | — | string | — | Show findings at/above this severity (`info`,`suspect`,`low`,`medium`,`high`,`critical`); ignored when `--severity` is set |

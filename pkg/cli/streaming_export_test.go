@@ -109,7 +109,7 @@ func TestGenerateHTMLReportStreamingParity(t *testing.T) {
 
 			streamPath := filepath.Join(dir, "stream.html")
 			produce := func(emit func(any) error) error {
-				return streamExportData(ctx, db, omit, "", emit)
+				return streamExportData(ctx, db, omit, "", "", emit)
 			}
 			require.NoError(t, output.GenerateHTMLReportStreaming(produce, streamPath, meta))
 
@@ -159,7 +159,7 @@ func TestGenerateReportFromDBHTMLKeepsResponseBody(t *testing.T) {
 
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "report.html")
-	require.NoError(t, generateReportFromDB(ctx, db, outPath, false, "", htmlRF))
+	require.NoError(t, generateReportFromDB(ctx, db, outPath, false, "", "", htmlRF))
 
 	data, err := os.ReadFile(outPath)
 	require.NoError(t, err)
@@ -180,7 +180,7 @@ func TestGenerateHTMLReportStreamingAtomic(t *testing.T) {
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "report.html")
 	produce := func(emit func(any) error) error {
-		return streamExportData(ctx, db, true, "", emit)
+		return streamExportData(ctx, db, true, "", "", emit)
 	}
 	require.NoError(t, output.GenerateHTMLReportStreaming(produce, outPath, output.HTMLReportMeta{
 		GeneratedAt: "2026-06-15T00:00:00.000Z",

@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A NextAuth.js (Auth.js) session cookie is set without Secure, HttpOnly, or SameSite, or its JWT payload carries sensitive claim names like password, secret, or access_token. JWTs are signed but not encrypted, so any holder can read these values.
+	ModuleDesc = `**What it means:** A NextAuth.js (Auth.js) session cookie lacks a browser security attribute, or a readable JWS-shaped session token contains a substantive value under a security-relevant claim. Name-only, empty, and redacted claims remain observations.
 
-**How it's exploited:** Missing HttpOnly lets XSS steal the cookie; missing Secure exposes it over HTTP; weak SameSite enables CSRF. If the JWT embeds credentials, anyone who captures the cookie can decode it and impersonate the user.
+**How it's exploited:** Missing HttpOnly lets script read the session cookie; missing Secure permits cleartext transport; SameSite affects cross-site requests. Embedded credentials may expose an additional secret, but the scanner does not claim that credential is valid without provider or authorization proof.
 
 **Fix:** Set Secure, HttpOnly, and SameSite=Lax/Strict on NextAuth cookies, and keep secrets out of the JWT payload.`
 
-	ModuleConfirmation = "Confirmed when NextAuth session cookies have insecure flags or JWT tokens contain sensitive data"
+	ModuleConfirmation = "Confirmed for parsed session-cookie attribute defects; decoded substantive claim values are candidates until their sensitivity or impact is validated"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"nextjs", "javascript", "authentication", "session", "light"}

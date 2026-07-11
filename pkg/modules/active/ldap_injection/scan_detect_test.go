@@ -169,10 +169,10 @@ func TestScanPerInsertionPoint_BooleanNonDeterministicNotLDAP(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		v := r.URL.Query().Get("username")
-		switch {
-		case v == "*":
+		switch v {
+		case "*":
 			_, _ = io.WriteString(w, big)
-		case v == controlPayload:
+		case controlPayload:
 			_, _ = io.WriteString(w, small)
 		default:
 			// The original value flaps between small and large per request.

@@ -45,7 +45,6 @@ const (
 	ModuleTypeActive         = "active"
 	ModuleTypePassive        = "passive"
 	ModuleTypeNuclei         = "nuclei"
-	ModuleTypeSecretScan     = "secret-scan"
 	ModuleTypeAgent          = "agent"
 	ModuleTypeOAST           = "oast"
 	ModuleTypeExtension      = "extension"

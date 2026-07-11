@@ -76,3 +76,22 @@ func TestExtractHost(t *testing.T) {
 		extractHost("https://us-central1-demo-app.cloudfunctions.net/listUsers"))
 	assert.Equal(t, "host.example", extractHost("http://host.example"))
 }
+
+func TestMeaningfulFunctionResponse(t *testing.T) {
+	t.Parallel()
+	assert.True(t, meaningfulFunctionResponse(`{"items":[{"id":1}]}`, "application/json"))
+	assert.False(t, meaningfulFunctionResponse(`{}`, "application/json"))
+	assert.False(t, meaningfulFunctionResponse(`not-json`, "application/json"))
+	assert.False(t, meaningfulFunctionResponse(`ok`, "text/plain"))
+}
+
+func TestStackLeakEvidenceRequiresIndependentCategories(t *testing.T) {
+	t.Parallel()
+	markers, categories := stackLeakEvidence("TypeError: bad input")
+	assert.GreaterOrEqual(t, len(markers), 1)
+	assert.Equal(t, 1, categories, "generic exception text alone is not a stack trace")
+
+	markers, categories = stackLeakEvidence("TypeError: bad input\n at Object.handler (/workspace/index.js:12)\nnode_modules/pkg/index.js")
+	assert.GreaterOrEqual(t, len(markers), 3)
+	assert.GreaterOrEqual(t, categories, 2)
+}

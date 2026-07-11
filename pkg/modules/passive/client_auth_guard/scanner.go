@@ -117,24 +117,27 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	return []*output.ResultEvent{
 		{
-			ModuleID: ModuleID,
-			Host:     urlx.Host,
-			URL:      urlx.String(),
-			Matched:  urlx.String(),
+			ModuleID:      ModuleID,
+			Host:          urlx.Host,
+			URL:           urlx.String(),
+			Matched:       urlx.String(),
+			RecordKind:    output.RecordKindObservation,
+			EvidenceGrade: output.EvidenceGradeObservation,
 			ExtractedResults: []string{
-				"Client component uses useEffect-based auth redirect without server-side auth",
+				"Client component uses a useEffect-based authentication redirect",
 				fmt.Sprintf("Redirect pattern: %s", modkit.Truncate(match, 150)),
 			},
 			Info: output.Info{
-				Name:        "Client-Only Auth Guard",
-				Description: fmt.Sprintf("Next.js client component at %s implements authentication via useEffect redirect without server-side session validation, which can be bypassed", urlx.Path),
-				Severity:    severity.High,
+				Name:        "Client-Side Auth Redirect Observation",
+				Description: fmt.Sprintf("Next.js client component at %s performs an authentication redirect in useEffect. A client bundle cannot reveal middleware, server-component, route-handler, or backend authorization, so this is not evidence of an auth bypass; verify the underlying page/data request anonymously.", urlx.Path),
+				Severity:    severity.Info,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"auth", "client-side", "nextjs", "source-analysis"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/862.html"},
 			},
 			Metadata: map[string]any{
-				"cwe": "CWE-862",
+				"cwe":                    "CWE-862",
+				"requires_runtime_check": true,
 			},
 		},
 	}, nil

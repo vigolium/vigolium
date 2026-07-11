@@ -16,15 +16,15 @@ qualify as a finding alone, but the combination crosses a trust boundary.
   then SSRF + cloud metadata = credential theft"
 - "This CVE was patched, but the patch only covers the HTTP path. The WebSocket path uses the same
   parser without the fix"
-- "Phase 1 advisory + Phase 9 spec gap: can a known CVE's patch be bypassed through a protocol
+- "Advisory intelligence + a spec gap: can a known CVE's patch be bypassed through a protocol
   compliance gap?"
 - "Low-severity information disclosure + low-severity injection = high-severity authenticated RCE"
 
 **Cross-reference inputs:**
-- Phase 1 advisory intelligence (known CVEs, patch commits)
-- Phase 9 spec gap analysis (protocol compliance gaps)
-- Phase 4 SAST enrichment notes (individually-dropped low-severity findings)
-- Phase 3 domain attack research (known attack chains per domain)
+- Advisory intelligence (known CVEs, patch commits)
+- Spec-compliance analysis (protocol gaps)
+- SAST enrichment notes (individually-dropped low-severity findings)
+- Domain attack research (known attack chains per domain)
 
 ## Mode 2: Business Logic Abuse
 
@@ -102,7 +102,7 @@ Identify where identity, authorization, or trust assumptions change across compo
 - "The CLI tool runs with user privileges but shells out to a helper that runs as root"
 
 **Detection strategy:**
-- Map all trust boundaries from the Phase 3 threat model
+- Map all trust boundaries from the current threat model
 - For each boundary, check: does crossing it require re-authentication? Re-authorization?
 - Identify implicit trust assumptions (IP-based trust, shared-origin trust, process-level trust)
 - Check middleware ordering: are security checks applied before or after route registration?
@@ -124,8 +124,8 @@ are high-severity because they bypass controls that appear correct in isolation.
 - "Path normalization: security check uses one library, router uses another"
 
 **Cross-reference inputs:**
-- Phase 9 spec gap analysis (RFC compliance gaps in parsers)
-- Phase 3 domain attack research Mode C (protocol-specific attack patterns)
+- Spec-compliance analysis (RFC gaps in parsers)
+- Domain attack research Mode C (protocol-specific attack patterns)
 - `deep-analysis.md` Section 6 (parsing/normalization/sanitization discrepancies)
 
 **Detection strategy:**
@@ -158,7 +158,7 @@ attacks.
 
 ## Mode 8: Supply Chain and Dependency Interaction
 
-Use Phase 1 dependency intelligence to generate hypotheses about how dependencies interact
+Use dependency intelligence to generate hypotheses about how dependencies interact
 with application code.
 
 **Thinking prompts:**
@@ -174,8 +174,8 @@ with application code.
 - "The library's error handling returns sensitive information. Does the application expose these errors?"
 
 **Cross-reference inputs:**
-- Phase 1 advisory intelligence (CVEs, GHSAs, patch commits)
-- Phase 3 domain attack research Mode A (library-as-target) and Mode B (library-as-consumer)
+- Advisory intelligence (CVEs, GHSAs, patch commits)
+- Domain attack research Mode A (library-as-target) and Mode B (library-as-consumer)
 - `supply-chain-risk-auditor` skill output
 - `sharp-edges` and `insecure-defaults` skill outputs
 

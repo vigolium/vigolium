@@ -126,8 +126,11 @@ func (m *Module) phaseBooleanSQLi(
 		}
 
 		return &output.ResultEvent{
-			URL:     target,
-			Matched: target + endpointPath,
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindFinding,
+			EvidenceGrade: output.EvidenceGradeBypass,
+			URL:           target,
+			Matched:       target + endpointPath,
 			ExtractedResults: []string{
 				fmt.Sprintf("GraphQL endpoint: %s", endpointPath),
 				fmt.Sprintf("Vulnerable field: %s(%s:)", c.field.Name, c.arg),
@@ -143,6 +146,13 @@ func (m *Module) phaseBooleanSQLi(
 					c.field.Name, c.arg),
 				Severity:   severity.High,
 				Confidence: severity.Firm,
+				Tags:       ModuleTags,
+			},
+			Metadata: map[string]any{
+				"benign_control":      true,
+				"false_control":       true,
+				"or_false_control":    true,
+				"query_logic_changed": true,
 			},
 		}
 	}

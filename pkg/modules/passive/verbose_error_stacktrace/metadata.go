@@ -15,7 +15,7 @@ var (
 
 **Fix:** Disable debug and verbose errors in production, catch exceptions to return generic error pages, and log full stack traces server-side only.`
 
-	ModuleConfirmation = "Confirmed when response body contains a structured stack trace with file paths and line numbers from a known technology stack"
+	ModuleConfirmation = "Candidate when a structured stack trace occurs in an HTTP error response; successful-response matches remain observations to account for documentation and examples"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"info-disclosure", "light"}

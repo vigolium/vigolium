@@ -154,24 +154,34 @@ func (m *Module) phaseAuthz(
 		}
 
 		results = append(results, &output.ResultEvent{
-			URL:     target,
-			Matched: target + endpointPath,
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindCandidate,
+			EvidenceGrade: output.EvidenceGradeDifferential,
+			URL:           target,
+			Matched:       target + endpointPath,
 			ExtractedResults: []string{
 				fmt.Sprintf("GraphQL endpoint: %s", endpointPath),
 				fmt.Sprintf("Field: %s(%s:)", field, lookup.IDArg),
 				"Sequential ids return distinct objects; absent id returns none",
 			},
 			Info: output.Info{
-				Name: "GraphQL Object Access via Predictable ID (IDOR/BOLA)",
+				Name: "GraphQL Predictable Object Access Candidate",
 				Description: fmt.Sprintf(
 					"The GraphQL field '%s' returns distinct objects for sequential '%s' values while a "+
-						"non-existent id returns nothing, so arbitrary records can be enumerated by walking "+
-						"ids. If '%s' is not scoped to the caller's authorization, this is a broken "+
-						"object-level authorization (IDOR/BOLA) exposure. Verify that object access is "+
-						"restricted to authorized principals.",
+						"non-existent id returns nothing. This confirms predictable object lookup in the "+
+						"current principal's session, not cross-user access: the objects may be public or "+
+						"authorized to that principal. Verify '%s' with an identifier owned by another user "+
+						"before classifying it as IDOR/BOLA.",
 					field, lookup.IDArg, field),
 				Severity:   severity.Medium,
 				Confidence: severity.Tentative,
+				Tags:       ModuleTags,
+			},
+			Metadata: map[string]any{
+				"same_principal_only": true,
+				"cross_user_proven":   false,
+				"negative_id_control": true,
+				"confirmation_rounds": defaultConfirmRounds,
 			},
 		})
 		// One representative finding per host is enough to flag the surface.

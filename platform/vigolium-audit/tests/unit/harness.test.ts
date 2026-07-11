@@ -1,12 +1,25 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { spawnSync } from "child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readlinkSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
+import { homedir, tmpdir } from "os";
+import { join, resolve } from "path";
 import { parse as parseYaml } from "yaml";
 import {
   harnessInstalled,
   installHarness,
   registerEphemeralHarness,
+  runtimeSkillsDir as resolveRuntimeSkillsDir,
   uninstallHarness,
 } from "../../src/engine/harness.js";
 
@@ -22,6 +35,8 @@ let codexDir: string;
 let codexSkillsDir: string;
 let codexAgentsMdPath: string;
 let codexEnvDir: string;
+let runtimeEnvDir: string;
+let runtimeSkillsDir: string;
 
 beforeEach(() => {
   claudeDir = mkdtempSync(join(tmpdir(), "vigolium-audit-harness-claude-"));
@@ -31,10 +46,13 @@ beforeEach(() => {
   // tests can assert on parent-dir contents without leaking into HOME.
   codexEnvDir = mkdtempSync(join(tmpdir(), "vigolium-audit-harness-codex-env-"));
   codexAgentsMdPath = join(codexEnvDir, "AGENTS.md");
+  runtimeEnvDir = mkdtempSync(join(tmpdir(), "vigolium-audit-runtime-"));
+  runtimeSkillsDir = join(runtimeEnvDir, "skills");
   process.env.VIGOLIUM_AUDIT_HARNESS_CLAUDE_DIR = claudeDir;
   process.env.VIGOLIUM_AUDIT_HARNESS_CODEX_DIR = codexDir;
   process.env.VIGOLIUM_AUDIT_HARNESS_CODEX_SKILLS_DIR = codexSkillsDir;
   process.env.VIGOLIUM_AUDIT_HARNESS_CODEX_AGENTS_MD = codexAgentsMdPath;
+  process.env.VIGOLIUM_AUDIT_RUNTIME_SKILLS_DIR = runtimeSkillsDir;
 });
 
 afterEach(() => {
@@ -42,11 +60,87 @@ afterEach(() => {
   if (existsSync(codexDir)) rmSync(codexDir, { recursive: true, force: true });
   if (existsSync(codexSkillsDir)) rmSync(codexSkillsDir, { recursive: true, force: true });
   if (existsSync(codexEnvDir)) rmSync(codexEnvDir, { recursive: true, force: true });
+  if (existsSync(runtimeEnvDir)) rmSync(runtimeEnvDir, { recursive: true, force: true });
   delete process.env.VIGOLIUM_AUDIT_HARNESS_CLAUDE_DIR;
   delete process.env.VIGOLIUM_AUDIT_HARNESS_CODEX_DIR;
   delete process.env.VIGOLIUM_AUDIT_HARNESS_CODEX_SKILLS_DIR;
   delete process.env.VIGOLIUM_AUDIT_HARNESS_CODEX_AGENTS_MD;
+  delete process.env.VIGOLIUM_AUDIT_RUNTIME_SKILLS_DIR;
 });
+
+test("managed runtime skills do not occupy the documented user-override directory", () => {
+  const configured = process.env.VIGOLIUM_AUDIT_RUNTIME_SKILLS_DIR;
+  delete process.env.VIGOLIUM_AUDIT_RUNTIME_SKILLS_DIR;
+  try {
+    expect(resolveRuntimeSkillsDir()).toBe(
+      join(homedir(), ".config", "vigolium-audit", "runtime-skills"),
+    );
+    expect(resolveRuntimeSkillsDir()).not.toBe(
+      join(homedir(), ".config", "vigolium-audit", "skills"),
+    );
+  } finally {
+    if (configured !== undefined) process.env.VIGOLIUM_AUDIT_RUNTIME_SKILLS_DIR = configured;
+  }
+});
+
+test("migrates the old managed link and preserves a later user override across refresh and uninstall", () => {
+  const home = mkdtempSync(join(tmpdir(), "vigolium-audit-override-lifecycle-"));
+  const cliEntry = resolve(import.meta.dir, "../../src/index.ts");
+  const bundledSkills = resolve(import.meta.dir, "../../src/content/skills");
+  const overrideSkills = join(home, ".config", "vigolium-audit", "skills");
+  const managedRuntime = join(home, ".config", "vigolium-audit", "runtime-skills");
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, HOME: home };
+  for (const name of [
+    "VIGOLIUM_AUDIT_CONFIG_DIR",
+    "VIGOLIUM_AUDIT_HARNESS_CLAUDE_DIR",
+    "VIGOLIUM_AUDIT_HARNESS_CODEX_DIR",
+    "VIGOLIUM_AUDIT_HARNESS_CODEX_SKILLS_DIR",
+    "VIGOLIUM_AUDIT_HARNESS_CODEX_AGENTS_MD",
+    "VIGOLIUM_AUDIT_RUNTIME_SKILLS_DIR",
+  ]) {
+    delete childEnv[name];
+  }
+  const runCli = (command: "setup" | "uninstall"): void => {
+    const result = spawnSync("bun", ["run", cliEntry, command, "claude", "--json"], {
+      env: childEnv,
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      throw new Error(`${command} failed: ${result.stderr || result.stdout}`);
+    }
+  };
+
+  try {
+    // Reproduce the retired layout: the user-override root itself was a
+    // managed link into bundled content. A current setup must remove only this
+    // provably managed link and create the separate runtime mount.
+    mkdirSync(join(overrideSkills, ".."), { recursive: true });
+    symlinkSync(bundledSkills, overrideSkills, "dir");
+    runCli("setup");
+    expect(existsSync(overrideSkills)).toBe(false);
+    expect(readlinkSync(managedRuntime)).toBe(bundledSkills);
+
+    // A user can now follow CUSTOMIZATION.md safely. Simulate a later bundle
+    // refresh and verify both refresh and uninstall leave the override intact.
+    const customSkill = join(overrideSkills, "audit", "SKILL.md");
+    mkdirSync(join(customSkill, ".."), { recursive: true });
+    writeFileSync(customSkill, "custom-user-skill\n");
+    unlinkSync(managedRuntime);
+    const staleBundle = join(home, ".cache", "vigolium-audit", "content-stale", "skills");
+    mkdirSync(staleBundle, { recursive: true });
+    symlinkSync(staleBundle, managedRuntime, "dir");
+
+    runCli("setup");
+    expect(readFileSync(customSkill, "utf8")).toBe("custom-user-skill\n");
+    expect(readlinkSync(managedRuntime)).toBe(bundledSkills);
+
+    runCli("uninstall");
+    expect(readFileSync(customSkill, "utf8")).toBe("custom-user-skill\n");
+    expect(existsSync(managedRuntime)).toBe(false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}, INSTALL_TIMEOUT_MS);
 
 describe("installHarness(claude)", () => {
   test("produces .claude-plugin/plugin.json + agents/ + commands/vigolium-audit/ + skills/", async () => {
@@ -62,6 +156,16 @@ describe("installHarness(claude)", () => {
     expect(existsSync(join(claudeDir, "agents"))).toBe(true);
     expect(existsSync(join(claudeDir, "commands", "vigolium-audit"))).toBe(true);
     expect(existsSync(join(claudeDir, "skills"))).toBe(true);
+    expect(readlinkSync(runtimeSkillsDir)).toContain("src/content/skills");
+    const consolidator = readFileSync(join(runtimeSkillsDir, "audit", "scripts", "consolidate_drafts.py"), "utf8");
+    expect(consolidator).toContain('Path("vigolium-results")');
+    expect(consolidator).not.toContain('Path("archon")');
+    const deepCommand = readFileSync(
+      join(claudeDir, "commands", "vigolium-audit", "deep.md"),
+      "utf8",
+    );
+    expect(deepCommand).toContain("~/.config/vigolium-audit/runtime-skills/");
+    expect(deepCommand).not.toContain("~/.config/vigolium-audit/skills/");
 
     // Plugin manifest name drives the slash-command namespace: commands under
     // commands/vigolium-audit/ resolve to `/vigolium-audit:vigolium-audit:<cmd>`.
@@ -111,12 +215,27 @@ describe("installHarness(claude)", () => {
     expect(after).toBe(before);
   }, INSTALL_TIMEOUT_MS);
 
+  test("replaces a retired runtime-skills symlink with current bundled content", async () => {
+    const retiredSkills = join(runtimeEnvDir, "archon-audit", "skills");
+    mkdirSync(join(retiredSkills, "audit", "scripts"), { recursive: true });
+    writeFileSync(join(retiredSkills, "audit", "scripts", "consolidate_drafts.py"), 'Path("archon")\n');
+    symlinkSync(retiredSkills, runtimeSkillsDir, "dir");
+
+    await installHarness("claude");
+
+    expect(readlinkSync(runtimeSkillsDir)).not.toBe(retiredSkills);
+    const consolidator = readFileSync(join(runtimeSkillsDir, "audit", "scripts", "consolidate_drafts.py"), "utf8");
+    expect(consolidator).toContain('Path("vigolium-results")');
+    expect(consolidator).not.toContain('Path("archon")');
+  }, INSTALL_TIMEOUT_MS);
+
   test("uninstall removes the entire plugin dir", async () => {
     await installHarness("claude");
     expect(existsSync(claudeDir)).toBe(true);
     const { removed } = await uninstallHarness("claude");
-    expect(removed).toEqual([claudeDir]);
+    expect(removed).toContain(claudeDir);
     expect(existsSync(claudeDir)).toBe(false);
+    expect(existsSync(runtimeSkillsDir)).toBe(false);
   }, INSTALL_TIMEOUT_MS);
 });
 
@@ -125,8 +244,13 @@ describe("installHarness(codex)", () => {
     const result = await installHarness("codex");
     expect(result.platform).toBe("codex");
     expect(result.agentsInstalled).toBeGreaterThan(20);
-    expect(result.excluded).toContain("independent-verifier");
-    expect(result.excluded).toContain("history-miner");
+    expect(result.excluded).not.toContain("history-miner");
+    expect(result.excluded).not.toContain("independent-verifier");
+    expect(result.excluded).not.toContain("assumption-breaker");
+
+    expect(existsSync(join(codexDir, "vigolium-audit-independent-verifier.toml"))).toBe(true);
+    expect(existsSync(join(codexDir, "vigolium-audit-assumption-breaker.toml"))).toBe(true);
+    expect(existsSync(join(codexDir, "vigolium-audit-history-miner.toml"))).toBe(true);
 
     const advisory = readFileSync(join(codexDir, "vigolium-audit-cve-scout.toml"), "utf8");
     expect(advisory).toContain(`name = 'vigolium-audit:cve-scout'`);
@@ -170,13 +294,14 @@ describe("installHarness(codex)", () => {
     expect(existsSync(join(codexSkillsDir, "vigolium-audit-audit", "SKILL.md"))).toBe(true);
   }, INSTALL_TIMEOUT_MS);
 
-  test("rewrites legacy ~/.config/vigolium-audit/skills/ paths to ~/.codex/skills/vigolium-audit- in agent bodies", async () => {
+  test("rewrites runtime and legacy skill paths to ~/.codex/skills/vigolium-audit- in agent bodies", async () => {
     await installHarness("codex");
-    // code-scanner's body references the audit skill via the legacy path.
+    // code-scanner's body references the audit skill via the stable runtime path.
     // The rewrite must redirect that path so the agent's Read tool calls
     // hit the codex install rather than the (possibly missing) prior-binary dir.
     const sa = readFileSync(join(codexDir, "vigolium-audit-code-scanner.toml"), "utf8");
     expect(sa).not.toContain("~/.config/vigolium-audit/skills/");
+    expect(sa).not.toContain("~/.config/vigolium-audit/runtime-skills/");
     expect(sa).toContain("~/.codex/skills/vigolium-audit-audit/");
   }, INSTALL_TIMEOUT_MS);
 
@@ -212,8 +337,27 @@ describe("installHarness(codex)", () => {
     expect(second).toBe(first);
   }, INSTALL_TIMEOUT_MS);
 
+  test("removes the retired dispatch block while preserving user content", async () => {
+    const before = "user-a\n\n\n\nuser-b\n\n# BEGIN archon-audit\nold audit instructions\n# END archon-audit\n\nuser suffix\n";
+    const outsideLegacyBlock = "user-a\n\n\n\nuser-b\n\n\n\nuser suffix\n";
+    writeFileSync(
+      codexAgentsMdPath,
+      before,
+    );
+
+    await installHarness("codex");
+
+    const md = readFileSync(codexAgentsMdPath, "utf8");
+    expect(md).not.toContain("# BEGIN archon-audit");
+    expect(md).not.toContain("old audit instructions");
+    expect(md).toContain("# BEGIN vigolium-audit");
+    expect(md.slice(0, md.indexOf("# BEGIN vigolium-audit"))).toBe(
+      outsideLegacyBlock + "\n",
+    );
+  }, INSTALL_TIMEOUT_MS);
+
   test("uninstall removes the AGENTS.md block and the vigolium-audit-*/ skills", async () => {
-    writeFileSync(codexAgentsMdPath, "user prefix\n");
+    writeFileSync(codexAgentsMdPath, "user-a\n\n\n\nuser-b\n");
     await installHarness("codex");
     expect(existsSync(join(codexSkillsDir, "vigolium-audit-audit"))).toBe(true);
 
@@ -221,9 +365,10 @@ describe("installHarness(codex)", () => {
     expect(removed.some((p) => p.endsWith("(dispatch block)"))).toBe(true);
 
     expect(existsSync(join(codexSkillsDir, "vigolium-audit-audit"))).toBe(false);
+    expect(existsSync(runtimeSkillsDir)).toBe(false);
     const md = readFileSync(codexAgentsMdPath, "utf8");
     expect(md).not.toContain("# BEGIN vigolium-audit");
-    expect(md).toContain("user prefix");
+    expect(md).toBe("user-a\n\n\n\nuser-b\n");
   }, INSTALL_TIMEOUT_MS);
 });
 
@@ -237,6 +382,7 @@ describe("registerEphemeralHarness", () => {
 
     handle.cleanup();
     expect(existsSync(claudeDir)).toBe(false);
+    expect(existsSync(runtimeSkillsDir)).toBe(false);
     // Listener should be removed after cleanup so the `exit` event won't re-trigger it.
     expect(process.listenerCount("exit")).toBe(before);
   }, INSTALL_TIMEOUT_MS);
@@ -257,6 +403,7 @@ describe("registerEphemeralHarness", () => {
     const handle = await registerEphemeralHarness("claude");
     handle.cleanup();
     expect(existsSync(join(claudeDir, ".claude-plugin", "plugin.json"))).toBe(true);
+    expect(existsSync(runtimeSkillsDir)).toBe(true);
   }, INSTALL_TIMEOUT_MS);
 
   test("preserves a pre-existing persistent install on cleanup (codex)", async () => {
@@ -266,6 +413,7 @@ describe("registerEphemeralHarness", () => {
     const handle = await registerEphemeralHarness("codex");
     handle.cleanup();
     expect(existsSync(join(codexDir, "vigolium-audit-cve-scout.toml"))).toBe(true);
+    expect(existsSync(runtimeSkillsDir)).toBe(true);
   }, INSTALL_TIMEOUT_MS);
 });
 
@@ -280,9 +428,11 @@ describe("harnessInstalled", () => {
     expect(harnessInstalled("codex")).toBe(true);
 
     await uninstallHarness("claude");
+    expect(existsSync(runtimeSkillsDir)).toBe(true);
     await uninstallHarness("codex");
     expect(harnessInstalled("claude")).toBe(false);
     expect(harnessInstalled("codex")).toBe(false);
+    expect(existsSync(runtimeSkillsDir)).toBe(false);
   }, INSTALL_TIMEOUT_MS);
 
   test("codex cleanup synchronously removes agents, skills, and AGENTS.md block", async () => {
@@ -296,6 +446,7 @@ describe("harnessInstalled", () => {
 
     expect(existsSync(join(codexDir, "vigolium-audit-cve-scout.toml"))).toBe(false);
     expect(existsSync(join(codexSkillsDir, "vigolium-audit-audit"))).toBe(false);
+    expect(existsSync(runtimeSkillsDir)).toBe(false);
     expect(readFileSync(codexAgentsMdPath, "utf8")).not.toContain("# BEGIN vigolium-audit");
     expect(readFileSync(codexAgentsMdPath, "utf8")).toContain("user prefix");
   }, INSTALL_TIMEOUT_MS);

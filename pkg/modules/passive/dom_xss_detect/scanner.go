@@ -9,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
@@ -52,7 +53,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return results, nil
 	}
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	hash := m.getHash(urlx)
 	if diskSet != nil && diskSet.IsSeen(hash) {
 		return results, nil
@@ -63,24 +67,46 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	highlighted := analyse(body)
 	if highlighted != "" {
 		results = append(results, &output.ResultEvent{
-			URL:     urlx.String(),
-			Host:    urlx.Host,
-			Request: string(ctx.Request().Raw()),
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindCandidate,
+			EvidenceGrade: output.EvidenceGradeCandidate,
+			DedupKey:      fmt.Sprintf("dom-xss-flow|%s|%s", urlx.Host, urlx.Path),
+			URL:           urlx.String(),
+			Host:          urlx.Host,
+			Matched:       urlx.String(),
+			Request:       string(ctx.Request().Raw()),
+			Response:      string(ctx.Response().Raw()),
 			Info: output.Info{
-				Description: "Found DOM XSS vulnerabilities\n```" + highlighted + "```",
+				Name:        "DOM XSS Source-to-Sink Candidate",
+				Description: "DOM XSS candidate: a lightweight statement-local tracer connected browser-controlled data to an executable DOM sink. Browser execution and payload viability were not tested.\n```" + highlighted + "```",
+				Severity:    ModuleSeverity,
+				Confidence:  severity.Firm,
+				Tags:        ModuleTags,
 			},
+			Metadata: map[string]any{"flow_engine": "lightweight", "connected_flow": true, "browser_execution_tested": false},
 		})
 	}
 
 	redirectInfo := analyseOpenRedirect(body)
 	if redirectInfo != "" {
 		results = append(results, &output.ResultEvent{
-			URL:     urlx.String(),
-			Host:    urlx.Host,
-			Request: string(ctx.Request().Raw()),
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindCandidate,
+			EvidenceGrade: output.EvidenceGradeCandidate,
+			DedupKey:      fmt.Sprintf("dom-open-redirect-flow|%s|%s", urlx.Host, urlx.Path),
+			URL:           urlx.String(),
+			Host:          urlx.Host,
+			Matched:       urlx.String(),
+			Request:       string(ctx.Request().Raw()),
+			Response:      string(ctx.Response().Raw()),
 			Info: output.Info{
-				Description: "Found DOM-based Open Redirect patterns: " + redirectInfo,
+				Name:        "DOM Open Redirect Source-to-Sink Candidate",
+				Description: "A lightweight statement-local tracer connected browser-controlled data to a navigation sink. Cross-origin navigation was not executed. " + redirectInfo,
+				Severity:    ModuleSeverity,
+				Confidence:  severity.Firm,
+				Tags:        []string{"open-redirect", "javascript", "client-side"},
 			},
+			Metadata: map[string]any{"flow_engine": "lightweight", "connected_flow": true, "navigation_tested": false},
 		})
 	}
 

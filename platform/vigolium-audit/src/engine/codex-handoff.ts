@@ -38,11 +38,48 @@ const MODE_TRIGGER_PHRASE: Partial<Record<AuditMode, string>> = {
   confirm: "Confirm mode",
 };
 
+export interface CodexTriggerPromptOptions {
+  mode: AuditMode;
+  targetDir: string;
+  liveTarget?: string;
+}
+
+/**
+ * Build the canonical Codex dispatch prompt used by both headless SDK/CLI
+ * handoff and native interactive mode. Keeping one prompt prevents `-i` from
+ * drifting into a manual, Claude-style subagent invocation flow.
+ */
+export function buildCodexTriggerPrompt(options: CodexTriggerPromptOptions): string {
+  const trigger = MODE_TRIGGER_PHRASE[options.mode];
+  if (trigger === undefined) {
+    throw new Error(
+      `Codex AGENTS.md dispatch does not support mode "${options.mode}"; run it through the phase orchestrator instead`,
+    );
+  }
+  const lines = [
+    `${trigger}.`,
+    ``,
+    `Dispatch authority: \`~/.codex/AGENTS.md\` between \`# BEGIN vigolium-audit\` and \`# END vigolium-audit\`. Follow that contract exactly — do not import orchestration from any other prompt.`,
+    `Audit context: read \`vigolium-results/audit-context.md\` first if it exists; it carries focus, expected behaviors, and orchestrator directives.`,
+    `Target directory: ${options.targetDir}`,
+    `Mode: ${options.mode}`,
+  ];
+  if (options.liveTarget !== undefined) {
+    lines.push(`Live target: ${options.liveTarget}`);
+  }
+  return lines.join("\n");
+}
+
 export function isCodexHandoffMode(mode: AuditMode): boolean {
   return mode in MODE_TRIGGER_PHRASE;
 }
 
-export type CodexHandoffOptions = BaseHandoffOptions;
+export interface CodexHandoffOptions extends BaseHandoffOptions {
+  quotaMaxRetries?: number;
+  quotaBackoffMs?: number;
+  transientMaxRetries?: number;
+  transientBackoffMs?: number;
+}
 
 export class CodexHandoff extends BaseHandoff<CodexHandoffOptions> {
   protected override phaseTitleSuffix(): string {
@@ -51,7 +88,11 @@ export class CodexHandoff extends BaseHandoff<CodexHandoffOptions> {
 
   protected override async driveAdapter(ctx: HandoffRunContext): Promise<HandoffDriveResult> {
     const { provisionalAuditId, phase } = ctx;
-    const userPrompt = this.buildTriggerPrompt();
+    const userPrompt = buildCodexTriggerPrompt({
+      mode: this.opts.mode,
+      targetDir: this.opts.targetDir,
+      ...(this.opts.liveTarget !== undefined ? { liveTarget: this.opts.liveTarget } : {}),
+    });
 
     let usd = 0;
     let tokens = { input: 0, output: 0 };
@@ -59,6 +100,10 @@ export class CodexHandoff extends BaseHandoff<CodexHandoffOptions> {
     let errorMsg: string | undefined;
 
     const retryConfig = resolveRetryConfig({
+      ...(this.opts.quotaMaxRetries !== undefined ? { quotaMaxRetries: this.opts.quotaMaxRetries } : {}),
+      ...(this.opts.quotaBackoffMs !== undefined ? { quotaBackoffMs: this.opts.quotaBackoffMs } : {}),
+      ...(this.opts.transientMaxRetries !== undefined ? { transientMaxRetries: this.opts.transientMaxRetries } : {}),
+      ...(this.opts.transientBackoffMs !== undefined ? { transientBackoffMs: this.opts.transientBackoffMs } : {}),
       // Whole-mode call writing findings to disk; a transient retry after
       // progress is acceptable here, same as the claude handoff.
       skipTransientAfterProgress: false,
@@ -100,8 +145,11 @@ export class CodexHandoff extends BaseHandoff<CodexHandoffOptions> {
           if (adapterEventHasRetryableError(event)) retryableFailure = true;
           if (event.kind === "error") attemptErr = event.cause.message;
           if (event.kind === "finish") {
-            usd = event.usd;
-            tokens = event.tokens;
+            usd += event.usd;
+            tokens = {
+              input: tokens.input + event.tokens.input,
+              output: tokens.output + event.tokens.output,
+            };
             attemptOk = event.ok;
             if (!event.ok) attemptErr = event.reason;
           }
@@ -123,25 +171,4 @@ export class CodexHandoff extends BaseHandoff<CodexHandoffOptions> {
     return { usd, tokens, ok, errorMsg };
   }
 
-  /**
-   * Build the user prompt that tells codex to follow the AGENTS.md dispatch.
-   * Includes the mode-specific trigger phrase verbatim from the dispatch doc so
-   * codex's mode-selection rule resolves to the right pipeline rather than
-   * falling back to balanced.
-   */
-  private buildTriggerPrompt(): string {
-    const trigger = MODE_TRIGGER_PHRASE[this.opts.mode] ?? this.opts.mode;
-    const lines = [
-      `${trigger}.`,
-      ``,
-      `Dispatch authority: \`~/.codex/AGENTS.md\` between \`# BEGIN vigolium-audit\` and \`# END vigolium-audit\`. Follow that contract exactly — do not import orchestration from any other prompt.`,
-      `Audit context: read \`vigolium-results/audit-context.md\` first if it exists; it carries focus, expected behaviors, and orchestrator directives.`,
-      `Target directory: ${this.opts.targetDir}`,
-      `Mode: ${this.opts.mode}`,
-    ];
-    if (this.opts.liveTarget !== undefined) {
-      lines.push(`Live target: ${this.opts.liveTarget}`);
-    }
-    return lines.join("\n");
-  }
 }

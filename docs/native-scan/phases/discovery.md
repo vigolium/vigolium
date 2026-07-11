@@ -79,7 +79,7 @@ Every newly discovered directory is probed with ALL observed values as high-prio
 
 Two layers of JS analysis feed the discovery graph:
 
-- **JSScan** uses a shared, memory-bounded worker pool. It emits typed HTTP
+- **JSTangle** uses a shared, memory-bounded worker pool. It emits typed HTTP
   templates plus JavaScript chunks/workers/source maps, GraphQL operations,
   WebSocket/SSE metadata, client routes, and browser-side flow evidence.
 - **Spider/LinkFinder extractors** retain a cheap URL-string fallback for code
@@ -132,7 +132,7 @@ Multiple layers prevent redundant work:
 - **Task-level**: FNV-1a hash prevents duplicate task enqueueing
 - **Request-level**: Cache prevents sending the same HTTP request twice
 - **URL-level**: DiskSet tracks processed URLs
-- **Body-level**: Hash prevents re-analyzing identical responses with JSScan
+- **Body-level**: Hash prevents re-analyzing identical responses with JSTangle
 - **Directory/file trackers**: Prevent re-processing the same discovery
 
 ## Built-In Modules

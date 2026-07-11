@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A WebSocket endpoint completed a genuine upgrade handshake (101 Switching Protocols, Sec-WebSocket-Accept) with an attacker-controlled, null, or missing Origin. The server does not validate connection origin, exposing it to Cross-Site WebSocket Hijacking (CSWSH) - effectively CSRF for the WebSocket channel.
+	ModuleDesc = `**What it means:** A WebSocket accepted a missing, null, subdomain, or foreign Origin in fresh RFC-valid handshakes. Missing-Origin acceptance is an observation; foreign-Origin acceptance is a candidate. A finding also requires browser-sendable session credentials and a credential-free negative control.
 
-**How it's exploited:** A malicious page, visited by a logged-in victim, silently opens a WebSocket to the endpoint. The browser attaches the victim's cookies, so the connection is authenticated as the victim and the script acts as them.
+**How it's exploited:** A malicious site opens the victim's authenticated socket and reads or sends messages with the victim's session.
 
-**Fix:** Validate the Origin header against an allowlist, reject mismatched/null/absent origins, and bind handshakes to a CSRF token.`
+**Fix:** Allowlist Origins, reject mismatched or null origins, and require a handshake CSRF token.`
 
-	ModuleConfirmation = "Confirmed when a WebSocket upgrade succeeds with a malicious, null, subdomain, or missing Origin header"
+	ModuleConfirmation = "Two fresh RFC-key-bound handshakes per origin; credentialed findings additionally require a browser-sendable session cookie and a repeated credential-free negative control"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"csrf", "session", "moderate"}

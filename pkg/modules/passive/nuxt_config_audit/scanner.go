@@ -10,6 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/shared/jsframework"
+	"github.com/vigolium/vigolium/pkg/modules/shared/stateexposure"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
@@ -80,51 +81,9 @@ var nuxtStateBlobs = []nuxtStateBlob{
 	},
 }
 
-// sensitivePattern defines a pattern to detect in Nuxt state data.
-type sensitivePattern struct {
-	name    string
-	pattern *regexp.Regexp
-	desc    string
-}
-
-var sensitivePatterns = []sensitivePattern{
-	{
-		name:    "API Key/Token",
-		pattern: regexp.MustCompile(`"(?:api_?key|api_?token|access_?token|secret_?key|auth_?token)"\s*:\s*"([^"]{16,})"`),
-		desc:    "API key or token found in Nuxt state",
-	},
-	{
-		name:    "Admin Flag",
-		pattern: regexp.MustCompile(`"(?:is_?[Aa]dmin|is_?[Ss]uperuser|is_?[Ss]taff|admin|role)"\s*:\s*(?:true|"admin"|"superuser")`),
-		desc:    "Admin/privilege flag found in Nuxt state",
-	},
-	{
-		name:    "Internal URL",
-		pattern: regexp.MustCompile(`"[^"]*"\s*:\s*"(?:https?://)?(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})(?::\d+)?(?:/[^"]*)?"`),
-		desc:    "Internal/private IP address found in Nuxt state",
-	},
-	{
-		name:    "Database URL",
-		pattern: regexp.MustCompile(`"[^"]*"\s*:\s*"(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^"]+"`),
-		desc:    "Database connection string found in Nuxt state",
-	},
-	{
-		name:    "AWS Key",
-		pattern: regexp.MustCompile(`"[^"]*"\s*:\s*"AKIA[0-9A-Z]{16}"`),
-		desc:    "AWS access key found in Nuxt state",
-	},
-}
-
 var (
 	nuxtSourceMapRe = regexp.MustCompile(`/_nuxt/[^"'\s]+\.js\.map`)
 )
-
-// knownPlaceholders are values to skip as likely non-sensitive (pre-lowercased).
-var knownPlaceholders = []string{
-	"undefined", "null", "true", "false",
-	"change_me", "your_api_key", "xxx",
-	"placeholder", "example",
-}
 
 // Module implements the Nuxt config audit passive scanner.
 type Module struct {
@@ -190,7 +149,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(urlx.Host)
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -207,37 +169,60 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			continue
 		}
 
-		for _, sp := range sensitivePatterns {
-			matches := sp.pattern.FindAllString(stateData, 3)
-			for _, match := range matches {
-				if isPlaceholder(match) {
-					continue
-				}
-				results = append(results, &output.ResultEvent{
-					ModuleID: ModuleID,
-					Host:     urlx.Host,
-					URL:      urlx.String(),
-					Matched:  urlx.String(),
-					ExtractedResults: []string{
-						fmt.Sprintf("State blob: %s", blob.name),
-						fmt.Sprintf("Pattern: %s", sp.name),
-						fmt.Sprintf("Matched: %s", modkit.Truncate(match, 120)),
-					},
-					Info: output.Info{
-						Name:        fmt.Sprintf("Nuxt State Data Exposure: %s", sp.name),
-						Description: sp.desc,
-						Severity:    ModuleSeverity,
-						Confidence:  ModuleConfidence,
-						Tags:        []string{"nuxt", "data-exposure", "information-disclosure"},
-						Reference:   []string{"https://nuxt.com/docs/api/nuxt-config#runtimeconfig"},
-					},
-					Metadata: map[string]any{
-						"stateBlob": blob.name,
-						"pattern":   sp.name,
-					},
-				})
+		signals := stateexposure.Analyze(stateData)
+		if len(signals) == 0 {
+			continue
+		}
+		candidateCount := 0
+		evidence := []string{fmt.Sprintf("State blob: %s", blob.name)}
+		for _, signal := range signals {
+			evidence = append(evidence, fmt.Sprintf("%s: %s", signal.Category, signal.Evidence))
+			if signal.Candidate {
+				candidateCount++
 			}
 		}
+
+		kind := output.RecordKindObservation
+		grade := output.EvidenceGradeObservation
+		sev := severity.Info
+		conf := severity.Tentative
+		name := "Nuxt State Security Signals"
+		description := "Nuxt state contains identity, role, public-identifier, service, or internal-network context. These patterns are observations without secret validity or authorization proof."
+		if candidateCount > 0 {
+			kind = output.RecordKindCandidate
+			grade = output.EvidenceGradeCandidate
+			sev = ModuleSeverity
+			conf = ModuleConfidence
+			name = "Potential Nuxt State Data Exposure"
+			description = fmt.Sprintf("Nuxt state contains %d substantive private credential or password-bearing service URL candidate(s). Credential validity, anonymous reachability, and cross-user authorization were not tested.", candidateCount)
+		}
+
+		results = append(results, &output.ResultEvent{
+			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
+			Host:             urlx.Host,
+			URL:              urlx.String(),
+			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
+			ExtractedResults: evidence,
+			Info: output.Info{
+				Name:        name,
+				Description: description,
+				Severity:    sev,
+				Confidence:  conf,
+				Tags:        []string{"nuxt", "data-exposure", "information-disclosure"},
+				Reference:   []string{"https://nuxt.com/docs/api/nuxt-config#runtimeconfig"},
+			},
+			Metadata: map[string]any{
+				"stateBlob":             blob.name,
+				"signals":               signals,
+				"candidateCount":        candidateCount,
+				"credentialValidated":   false,
+				"authorizationCompared": false,
+			},
+		})
 	}
 
 	// Check each regex-based config pattern. A nuxt.config option is never served
@@ -257,25 +242,31 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		}
 
 		results = append(results, &output.ResultEvent{
-			ModuleID: ModuleID,
-			Host:     urlx.Host,
-			URL:      urlx.String(),
-			Matched:  urlx.String(),
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindObservation,
+			EvidenceGrade: output.EvidenceGradeObservation,
+			Host:          urlx.Host,
+			URL:           urlx.String(),
+			Matched:       urlx.String(),
+			Request:       string(ctx.Request().Raw()),
+			Response:      string(ctx.Response().Raw()),
 			ExtractedResults: []string{
 				fmt.Sprintf("Pattern: %s", pat.name),
 				fmt.Sprintf("Matched: %s", modkit.Truncate(match, 120)),
 			},
 			Info: output.Info{
 				Name:        fmt.Sprintf("Nuxt Config: %s", pat.name),
-				Description: pat.desc,
-				Severity:    pat.severity,
-				Confidence:  pat.confidence,
+				Description: pat.desc + ". This is a source/configuration observation; runtime exposure or exploit impact was not tested.",
+				Severity:    severity.Info,
+				Confidence:  severity.Tentative,
 				Tags:        []string{"nuxt", "misconfiguration", "source-analysis"},
 				Reference:   []string{fmt.Sprintf("https://cwe.mitre.org/data/definitions/%s.html", strings.TrimPrefix(pat.cwe, "CWE-"))},
 			},
 			Metadata: map[string]any{
-				"cwe":     pat.cwe,
-				"pattern": pat.name,
+				"cwe":                   pat.cwe,
+				"pattern":               pat.name,
+				"configured_severity":   pat.severity.String(),
+				"runtime_impact_tested": false,
 			},
 		})
 	}
@@ -283,24 +274,30 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	// Check for /_nuxt/ source map exposure
 	if match := nuxtSourceMapRe.FindString(body); match != "" {
 		results = append(results, &output.ResultEvent{
-			ModuleID: ModuleID,
-			Host:     urlx.Host,
-			URL:      urlx.String(),
-			Matched:  urlx.String(),
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindObservation,
+			EvidenceGrade: output.EvidenceGradeObservation,
+			Host:          urlx.Host,
+			URL:           urlx.String(),
+			Matched:       urlx.String(),
+			Request:       string(ctx.Request().Raw()),
+			Response:      string(ctx.Response().Raw()),
 			ExtractedResults: []string{
 				fmt.Sprintf("Source map reference: %s", modkit.Truncate(match, 120)),
 			},
 			Info: output.Info{
 				Name:        "Nuxt Source Map Exposure",
-				Description: "A /_nuxt/ source map file reference was found, potentially exposing application source code",
-				Severity:    severity.Medium,
-				Confidence:  severity.Firm,
+				Description: "A /_nuxt/ source-map reference is present. The map was not fetched or parsed here, so source availability and sensitive content are unconfirmed.",
+				Severity:    severity.Info,
+				Confidence:  severity.Tentative,
 				Tags:        []string{"nuxt", "sourcemap", "information-disclosure"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/540.html"},
 			},
 			Metadata: map[string]any{
-				"cwe":     "CWE-540",
-				"pattern": "nuxt-source-map",
+				"cwe":             "CWE-540",
+				"pattern":         "nuxt-source-map",
+				"map_retrieved":   false,
+				"content_checked": false,
 			},
 		})
 	}
@@ -327,15 +324,4 @@ func extractState(body string, blob nuxtStateBlob) string {
 	}
 
 	return remaining[:endIdx]
-}
-
-// isPlaceholder checks if a matched value is a known placeholder.
-func isPlaceholder(match string) bool {
-	matchLower := strings.ToLower(match)
-	for _, ph := range knownPlaceholders {
-		if strings.Contains(matchLower, ph) {
-			return true
-		}
-	}
-	return false
 }

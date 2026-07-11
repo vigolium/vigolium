@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** An OAuth/OpenID Connect authorization endpoint accepts requests it should reject. The check probes three weaknesses: a redirect_uri pointable at an attacker host, a request missing the CSRF state parameter, and a response_type downgrade to the implicit (token) flow.
+	ModuleDesc = `**What it means:** The scanner tests an OAuth/OIDC authorization surface for attacker-controlled redirect_uri handling, a missing state parameter, and acceptance of response_type=token.
 
-**How it's exploited:** An attacker abuses an accepted redirect_uri to deliver the victim's code or token to a server they control, enabling account takeover. Missing state allows a CSRF login-binding attack, and a token downgrade exposes tokens in the URL fragment.
+**How it's exploited:** An attacker-host redirect can support phishing or credential delivery. Missing state is only a flow observation until login CSRF is reproduced. Implicit-flow acceptance is a candidate until the server actually issues an access token; invalid response types must be rejected in repeated controls.
 
 **Fix:** Exact-match allowlist redirect_uri, require an unguessable state value, and reject any unregistered response_type.`
 
-	ModuleConfirmation = "Confirmed when an OAuth endpoint accepts a manipulated redirect_uri, is missing CSRF state protection, or accepts implicit flow downgrade"
+	ModuleConfirmation = "Fresh attacker-authority reflection confirms open redirect; state absence is observational; response-type acceptance requires two token/invalid differentials and becomes a finding only when a token is issued"
 	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"authentication", "session", "moderate"}

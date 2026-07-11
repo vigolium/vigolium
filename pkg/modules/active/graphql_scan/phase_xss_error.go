@@ -123,9 +123,19 @@ func (m *Module) phaseXSSError(
 			context = "HTML response (directly browser-executable)"
 		}
 
+		kind := output.RecordKindObservation
+		grade := output.EvidenceGradeObservation
+		if anyHTML {
+			kind = output.RecordKindCandidate
+			grade = output.EvidenceGradeDifferential
+		}
+
 		return &output.ResultEvent{
-			URL:     target,
-			Matched: target + endpointPath,
+			ModuleID:      ModuleID,
+			RecordKind:    kind,
+			EvidenceGrade: grade,
+			URL:           target,
+			Matched:       target + endpointPath,
 			ExtractedResults: []string{
 				fmt.Sprintf("GraphQL endpoint: %s", endpointPath),
 				fmt.Sprintf("Reflected field/arg: %s(%s:)", c.field.Name, c.arg),
@@ -133,15 +143,22 @@ func (m *Module) phaseXSSError(
 				fmt.Sprintf("Context: %s", context),
 			},
 			Info: output.Info{
-				Name: "GraphQL Error Message Reflects Input Unescaped (XSS)",
+				Name: "GraphQL Error Reflection" + map[bool]string{true: " XSS Candidate", false: " Observation"}[anyHTML],
 				Description: fmt.Sprintf(
 					"The GraphQL endpoint reflected injected HTML markers verbatim (raw angle brackets) "+
-						"in the error message for field '%s' argument '%s', served as a %s. Reflected "+
-						"attacker input in error responses can lead to cross-site scripting. HTML-encode "+
-						"error output and return generic error messages.",
+						"in the error message for field '%s' argument '%s', served as a %s. This proves "+
+						"reflection, not JavaScript execution; JSON requires a separate unsafe renderer, and "+
+						"the HTML probe used a non-executable marker. Confirm execution in a browser before "+
+						"classifying it as XSS.",
 					c.field.Name, c.arg, context),
 				Severity:   sev,
 				Confidence: conf,
+				Tags:       ModuleTags,
+			},
+			Metadata: map[string]any{
+				"html_context":     anyHTML,
+				"execution_proven": false,
+				"markers":          append([]string(nil), xssMarkers...),
 			},
 		}
 	}

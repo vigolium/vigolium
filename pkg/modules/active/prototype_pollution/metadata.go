@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A server-side JavaScript application (typically Node.js/Express) merges attacker-controlled JSON into objects without protecting special keys, letting a request alter Object.prototype. This changes properties shared by every object, corrupting logic and, depending on gadgets, escalating to privilege bypass, denial of service, or code execution.
+	ModuleDesc = `**What it means:** The server handles __proto__ or constructor.prototype keys in a way that may mutate shared prototype state. Same-request behavior is a candidate; repeated effects in benign follow-ups, absent for a normal-property control, form a finding.
 
-**How it's exploited:** An attacker sends a JSON body with __proto__ or constructor.prototype keys to a write endpoint. The scanner confirms by forcing a polluted status or surfacing a canary via the prototype.
+**How it's exploited:** An attacker pollutes inherited properties so later requests inherit attacker-controlled security or application values.
 
-**Fix:** Reject or strip __proto__ and constructor keys; never recursively merge untrusted input.`
+**Fix:** Reject __proto__ and constructor keys, and never recursively merge untrusted objects.`
 
-	ModuleConfirmation = "Confirmed when __proto__ or constructor.prototype injection causes observable changes in response status, headers, or body"
+	ModuleConfirmation = "Candidate for same-request special-key behavior; confirmed only when two benign follow-up requests retain an effect that a normal-property control did not"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"prototype-pollution", "injection", "javascript", "moderate"}

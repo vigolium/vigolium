@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Next.js client component ("use client") enforces auth only in the browser, redirecting unauthenticated users from a useEffect hook with no server-side session check. Running in client JavaScript, the guard does not protect the server data or page, so the access control is cosmetic.
+	ModuleDesc = `**What it means:** A Next.js client component ("use client") performs an authentication redirect from a useEffect hook. This is an observation only: middleware, server components, route handlers, or backend APIs normally enforce authorization outside the client bundle and cannot be ruled out from this response.
 
 **How it's exploited:** An attacker disables JavaScript, drops the redirect, or reads the response before useEffect fires to view the protected component and its data, reaching restricted content.
 
 **Fix:** Enforce auth on the server (middleware, a server component, or route handler); treat the client redirect only as a UX hint.`
 
-	ModuleConfirmation = "Confirmed when a client component implements auth redirect via useEffect without server-side auth"
-	ModuleSeverity     = severity.High
+	ModuleConfirmation = "Observation only; confirmation requires an anonymous runtime request or repository-wide server authorization trace"
+	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"authentication", "javascript", "light"}
 )

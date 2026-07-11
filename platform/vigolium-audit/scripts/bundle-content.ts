@@ -31,32 +31,44 @@ interface Bundle {
   files: Record<string, string>;
 }
 
-function walk(dir: string, out: Record<string, string>): void {
+function walk(sourceRoot: string, dir: string, out: Record<string, string>): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       // Skip generated sdk-variants from the bundle iff we want to regenerate
       // them at install time — but since transform is build-time we include them.
-      walk(path, out);
+      walk(sourceRoot, path, out);
       continue;
     }
     if (!entry.isFile()) continue;
-    // Only bundle text content the loader will read.
-    const rel = relative(SRC, path);
-    const ext = path.split(".").pop() ?? "";
-    if (!["md", "yaml", "yml", "json", "sh", "py"].includes(ext)) continue;
+    const rel = relative(sourceRoot, path);
     const stat = statSync(path);
     if (stat.size > 1024 * 1024) {
       console.warn(`[bundle] skipping large file: ${rel} (${stat.size} bytes)`);
       continue;
     }
-    out[rel] = readFileSync(path, "utf8");
+    const bytes = readFileSync(path);
+    if (bytes.includes(0)) {
+      console.warn(`[bundle] skipping binary file: ${rel}`);
+      continue;
+    }
+    try {
+      out[rel] = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      console.warn(`[bundle] skipping non-UTF-8 file: ${rel}`);
+    }
   }
 }
 
-function main(): void {
+/** Collect the complete UTF-8 resource closure below a content root. */
+export function collectBundleFiles(sourceRoot: string = SRC): Record<string, string> {
   const files: Record<string, string> = {};
-  walk(SRC, files);
+  walk(sourceRoot, sourceRoot, files);
+  return files;
+}
+
+function main(): void {
+  const files = collectBundleFiles();
   const bundle: Bundle = {
     generated_at: new Date().toISOString(),
     content_hash: bundleContentHash(files),

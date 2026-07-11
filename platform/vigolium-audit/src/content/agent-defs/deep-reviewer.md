@@ -59,7 +59,7 @@ Every finding must include:
 
 ## Output
 
-Write each candidate finding **immediately** to `vigolium-results/findings-draft/p7-<NNN>-<slug>.md` using the finding draft template in `~/.config/vigolium-audit/skills/audit/references/report-templates.md`. Do not hold findings only in memory -- disk state survives session interruption; agent memory does not.
+Write each candidate finding **immediately** to `vigolium-results/findings-draft/p7-<NNN>-<slug>.md` using the finding draft template in `~/.config/vigolium-audit/runtime-skills/audit/references/report-templates.md`. Do not hold findings only in memory -- disk state survives session interruption; agent memory does not.
 
 **Only write drafts for candidates rated Medium severity or higher.** Low severity candidates are discarded immediately -- do not create a draft file.
 

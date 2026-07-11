@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The application reflects an unkeyed request header (such as X-Forwarded-Host or X-Original-URL) into a cached response, even though the header is not part of the cache key. One attacker request can poison the copy served to every visitor.
+	ModuleDesc = `**What it means:** A fresh unkeyed-header value appeared in a shared-cacheable response but not the clean baseline. Tests use a unique query key. Reflection is a candidate; repeated header-free replay to a separate client is a finding.
 
-**How it's exploited:** A malicious header (e.g. X-Forwarded-Host pointing at the attacker's domain) is reflected into the cached body or Location header and replayed to all users, enabling redirects, script loading, or defacement. Confirmed only on shared-cacheable responses.
+**How it's exploited:** An attacker injects a value that the shared cache stores and serves to later visitors.
 
-**Fix:** Add reflected unkeyed headers to the cache key (Vary), strip untrusted forwarding headers at the edge, or mark responses uncacheable.`
+**Fix:** Include influential headers in the cache key, strip untrusted forwarding headers, or mark the response uncacheable.`
 
-	ModuleConfirmation = "Confirmed when unkeyed header values are reflected in a genuinely shared-cacheable response, indicating cache-poisoning potential"
+	ModuleConfirmation = "Candidate on fresh reflection plus explicit cacheability; confirmed only by repeated clean cross-client replay of the injected value"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"cache-poisoning", "header-security", "moderate"}

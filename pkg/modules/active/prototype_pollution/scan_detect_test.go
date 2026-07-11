@@ -15,6 +15,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // pollutionServer simulates a stateful server-side prototype-pollution sink: keys
@@ -66,6 +67,9 @@ func TestScanPerRequest_DetectsPollutionReflection(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a finding for a genuine prototype-pollution sink")
+	assert.Equal(t, output.RecordKindFinding, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeImpact, res[0].EvidenceGrade)
+	assert.True(t, res[0].Metadata["persistent_state"].(bool))
 }
 
 // TestScanPerRequest_EchoServerNoFalsePositive ensures an endpoint that simply
@@ -95,9 +99,13 @@ func TestScanPerRequest_EchoServerNoFalsePositive(t *testing.T) {
 // 200.
 func TestScanPerRequest_DetectsStatusPollution(t *testing.T) {
 	t.Parallel()
+	var polluted atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		if strings.Contains(string(b), `"status":510`) {
+		if strings.Contains(string(b), `"__proto__":{"status":510}`) {
+			polluted.Store(true)
+		}
+		if polluted.Load() {
 			w.WriteHeader(510)
 			return
 		}
@@ -113,6 +121,29 @@ func TestScanPerRequest_DetectsStatusPollution(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a finding when status-code pollution flips the response to 510")
+	assert.Equal(t, output.RecordKindFinding, res[0].RecordKind)
+	assert.True(t, res[0].Metadata["persistent_state"].(bool))
+}
+
+func TestScanPerRequest_NonPersistentSpecialKeyIsCandidate(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var parsed map[string]json.RawMessage
+		_ = json.Unmarshal(body, &parsed)
+		if proto, ok := parsed["__proto__"]; ok {
+			_, _ = w.Write(proto)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(modtest.RequestJSON(t, srv.URL+"/api/user", benignJSONBody), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.False(t, res[0].Metadata["persistent_state"].(bool))
 }
 
 // TestScanPerRequest_TransientStatusNoFalsePositive ensures a one-shot 510 (only

@@ -56,18 +56,12 @@ var (
 	compareBody = "{\"owner\":\"bobxx\",\"email\":\"bobxx@example.com\",\"pad\":\"" + strings.Repeat("y", 300) + "\"}"
 )
 
-// TestScanPerRequest_DetectsCrossSessionIDOR drives the real scan method with a
-// configured compare session against a backend that serves a different user's
-// (structurally similar) object to the compare session — i.e. it never enforces
-// per-session object ownership. The primary baseline is alice's record; the
-// replay returns bob's record with a 200, so the module flags missing
-// authorization.
-func TestScanPerRequest_DetectsCrossSessionIDOR(t *testing.T) {
+// TestScanPerRequest_AllowsSessionSpecificObjects is the regression for the
+// inverted oracle: Alice receiving Alice's account while Bob receives Bob's is
+// correct isolation, not IDOR, even when both responses have the same schema.
+func TestScanPerRequest_AllowsSessionSpecificObjects(t *testing.T) {
 	t.Parallel()
-	// Session-aware backend: the compare session sees a different user's
-	// (structurally similar) object, while the primary session — including the
-	// determinism gate's self-refetch — consistently sees its own. A real
-	// cross-session IDOR looks exactly like this.
+	// Session-aware backend: each session consistently receives its own account.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Header.Get(sessionMarkerHeader) == "session-b" {
@@ -94,7 +88,50 @@ func TestScanPerRequest_DetectsCrossSessionIDOR(t *testing.T) {
 
 	res, err := mod.ScanPerRequest(rr, primaryClient, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a cross-session IDOR finding when the compare session sees a different object")
+	assert.Empty(t, res, "different owner/email values prove correct per-session personalization")
+}
+
+// TestScanPerRequest_DetectsCrossSessionObjectLeak verifies the real BOLA
+// condition: Bob replays Alice's self-scoped request and receives Alice's owner
+// and email values unchanged.
+func TestScanPerRequest_DetectsCrossSessionObjectLeak(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(primaryBody))
+	}))
+	defer srv.Close()
+
+	compareClient := requesterWithMarker(t, "session-b")
+	mod := New()
+	mod.SetCompareClients([]*httpRequester.Requester{compareClient}, []string{"session-b"})
+
+	rr := modtest.Response(
+		modtest.Request(t, srv.URL+"/api/account"),
+		"application/json",
+		primaryBody,
+	)
+	res, err := mod.ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, res, 1, "the compare session received the primary principal's identity-bearing object")
+	assert.Equal(t, []string{"email", "owner"}, res[0].Metadata["shared_identity_fields"])
+}
+
+func TestScanPerRequest_IdenticalPublicResponseNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	publicBody := `{"status":"ok","message":"public service information","pad":"` + strings.Repeat("p", 300) + `"}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(publicBody))
+	}))
+	defer srv.Close()
+
+	mod := New()
+	mod.SetCompareClients([]*httpRequester.Requester{requesterWithMarker(t, "session-b")}, []string{"session-b"})
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/api/account"), "application/json", publicBody)
+	res, err := mod.ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "identical public content without identity-bearing data is not an authorization bypass")
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a backend that enforces

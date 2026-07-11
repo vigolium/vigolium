@@ -167,6 +167,22 @@ Key conventions visible in the example:
 - **Treat `hosterrors.ErrUnresponsiveHost` as "stop probing this host"**, not a
   scan error.
 
+## Preserve signals without overstating vulnerabilities
+
+Modules should keep useful security patterns visible while assigning the result kind that the evidence supports:
+
+| Evidence | `RecordKind` | `EvidenceGrade` | Typical proof |
+|---|---|---|---|
+| Primitive exists | `observation` | `E0` | Header, sink, console, schema, public identifier, or configuration marker |
+| Hypothesis supported | `candidate` | `E1` | Corroborated static context or a credential-shaped value |
+| Controlled differential | `candidate` | `E2` | Baseline and negative controls isolate attacker influence |
+| Bypass behavior | `candidate` unless impact is direct | `E3` | Authorization or validation behavior changes under a controlled probe |
+| Demonstrated impact | `finding` | `E4` | Unauthorized read/write, execution, durable state, OAST, or cross-user replay |
+
+The zero value remains a finding for backward compatibility. New heuristic modules should set `RecordKind` and `EvidenceGrade` explicitly. Status codes, generic strings, feature presence, or client-side code alone should not become findings. Active confirmation should use fresh canaries, clean and malformed controls, cache bypass, isolated credential-free clients, and repeated replay as appropriate.
+
+Candidates and observations are persisted and queryable, but the executor excludes them from confirmed-finding totals, notifications, finding caps, and cross-module confirmed-result suppression. This lets a stronger module continue toward impact proof without discarding reconnaissance.
+
 ## Register the module
 
 Add one line to the relevant registry wiring file:
@@ -243,6 +259,8 @@ go test -run TestCacheDeception ./pkg/modules/active/cache_deception/...
 - [ ] Close every HTTP response; bail out early on irrelevant inputs.
 - [ ] Register in `default_registry_active.go` / `default_registry_passive.go`.
 - [ ] Paired positive/negative `modtest` unit tests.
+- [ ] Heuristic results explicitly declare observation/candidate/finding kind and evidence grade.
+- [ ] Negative tests cover generic strings, status-only responses, reflection, wildcards, and normal public behavior relevant to the oracle.
 - [ ] `make fmt && make lint && make test-unit` is green.
 
 See also: [project-structure.md](project-structure.md) for where things live and

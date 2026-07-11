@@ -85,6 +85,36 @@ func TestRenderFindingMarkdownWindowsResponse(t *testing.T) {
 	}
 }
 
+// TestFindingRequestResponseSameExchange is the Claim-4 regression: the rendered
+// request and response must always come from the SAME HTTP exchange, never a
+// request from one record paired with an unrelated record's response.
+func TestFindingRequestResponseSameExchange(t *testing.T) {
+	f := &database.Finding{
+		Request:  "GET /inline HTTP/1.1\r\nHost: x",
+		Response: "HTTP/1.1 500 inline\r\n\r\n",
+	}
+	reqOnly := &database.HTTPRecord{RawRequest: []byte("GET /a HTTP/1.1\r\nHost: x")}
+	respOnly := &database.HTTPRecord{HasResponse: true, RawResponse: []byte("HTTP/1.1 200 OK\r\n\r\nunrelated")}
+
+	// No linked record carries a complete exchange → fall back to the finding's own
+	// inline pair (captured together), NOT reqOnly's request + respOnly's response.
+	req, resp := findingRequestResponse(f, []*database.HTTPRecord{reqOnly, respOnly})
+	if req != f.Request || resp != f.Response {
+		t.Fatalf("expected inline matched pair, got req=%q resp=%q", req, resp)
+	}
+
+	// A linked record carrying a COMPLETE exchange wins as a single transaction.
+	complete := &database.HTTPRecord{
+		RawRequest:  []byte("POST /login HTTP/1.1\r\nHost: x"),
+		HasResponse: true,
+		RawResponse: []byte("HTTP/1.1 302 Found\r\n\r\n"),
+	}
+	req, resp = findingRequestResponse(f, []*database.HTTPRecord{reqOnly, complete, respOnly})
+	if req != "POST /login HTTP/1.1\r\nHost: x" || resp != "HTTP/1.1 302 Found\r\n\r\n" {
+		t.Fatalf("expected the complete-exchange record, got req=%q resp=%q", req, resp)
+	}
+}
+
 func TestRenderRecordMarkdownRequestOnly(t *testing.T) {
 	rec := &database.HTTPRecord{
 		Method:      "GET",

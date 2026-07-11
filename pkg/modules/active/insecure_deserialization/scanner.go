@@ -41,36 +41,52 @@ var errorPatterns = []deserError{
 
 // deserPayload defines a deserialization probe.
 type deserPayload struct {
-	payload string
-	desc    string
+	framework string
+	payload   string
+	desc      string
 }
 
 var payloads = []deserPayload{
 	{
+		framework: "Java",
 		// Java serialized object magic bytes (base64 of 0xACED0005)
 		payload: "\xac\xed\x00\x05sr\x00\x01A",
 		desc:    "Java serialization magic bytes",
 	},
 	{
-		payload: `O:8:"stdClass":0:{}`,
-		desc:    "PHP serialize format",
+		framework: "PHP",
+		payload:   `O:8:"stdClass":0:{}`,
+		desc:      "PHP serialize format",
 	},
 	{
-		payload: `{"$type":"System.Windows.Data.ObjectDataProvider, PresentationFramework"}`,
-		desc:    ".NET TypeNameHandling probe",
+		framework: ".NET",
+		payload:   `{"$type":"Vigolium.Probe.DoesNotExist, VigoliumProbe"}`,
+		desc:      ".NET nonexistent-type probe",
 	},
 	{
-		payload: "!!python/object/apply:os.system ['id']",
-		desc:    "Python YAML deserialization",
+		framework: "Python",
+		payload:   "!!python/object:vigolium.Probe {}",
+		desc:      "Python YAML nonexistent-object probe",
 	},
 	{
-		payload: "\x04\x08o:\x30ActiveSupport::Deprecation::DeprecatedInstanceVariableProxy",
-		desc:    "Ruby Marshal.load probe",
+		framework: "Ruby",
+		payload:   "\x04\x08o:\x13Vigolium::Probe\x00",
+		desc:      "Ruby Marshal nonexistent-class probe",
 	},
 	{
-		payload: `{"$type":"System.Windows.Forms.AxHost+State, System.Windows.Forms"}`,
-		desc:    ".NET AxHost State deserialization",
+		framework: ".NET",
+		payload:   `{"$type":"Vigolium.SecondProbe.DoesNotExist, VigoliumProbe"}`,
+		desc:      ".NET secondary nonexistent-type probe",
 	},
+}
+
+type probeCapture struct {
+	body         string
+	request      string
+	response     string
+	status       int
+	blocked      bool
+	errorSurface bool
 }
 
 // Module implements the Insecure Deserialization active scanner.
@@ -111,12 +127,14 @@ func (m *Module) ScanPerInsertionPoint(
 		return nil, errors.Wrap(err, "failed to get URL")
 	}
 
-	rhm := m.rhm.Get(scanCtx.DedupMgr())
-	if rhm != nil {
-		paramName := ip.Name()
-		paramType := fmt.Sprintf("%d", ip.Type())
-		if !rhm.ShouldCheckInsertionPoint(urlx, ctx.Request(), paramName, ip.BaseValue(), paramType) {
-			return nil, nil
+	if scanCtx != nil {
+		rhm := m.rhm.Get(scanCtx.DedupMgr())
+		if rhm != nil {
+			paramName := ip.Name()
+			paramType := fmt.Sprintf("%d", ip.Type())
+			if !rhm.ShouldCheckInsertionPoint(urlx, ctx.Request(), paramName, ip.BaseValue(), paramType) {
+				return nil, nil
+			}
 		}
 	}
 
@@ -126,60 +144,99 @@ func (m *Module) ScanPerInsertionPoint(
 		origBody = ctx.Response().BodyToString()
 	}
 
-	var results []*output.ResultEvent
+	controlValue := "vigolium_plain_" + modkit.FreshCanary()
+	controlRaw := ip.BuildRequest([]byte(controlValue))
+	control, err := m.executeProbe(ctx, httpClient, controlRaw)
+	if err != nil || control.status == 0 || control.blocked {
+		return nil, nil
+	}
+	if _, noisy := checkDeserError(control.body, origBody, controlValue); noisy {
+		return nil, nil
+	}
 
 	for _, p := range payloads {
 		fuzzedRaw := ip.BuildRequest([]byte(p.payload))
-
-		// BuildRequest produces well-formed raw, so wrap directly instead
-		// of re-parsing on this hot path.
-		fuzzedReq := httpmsg.NewRequestResponseRaw(fuzzedRaw, ctx.Service())
-
-		resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+		first, err := m.executeProbe(ctx, httpClient, fuzzedRaw)
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
-				return results, nil
+				return nil, nil
 			}
 			continue
 		}
-
-		// A WAF/CDN challenge, auth gate, or rate-limit page is not the app
-		// surfacing a deserialization error — skip it so its body can't trip the
-		// signature (the SSO/Cloudflare-challenge false-positive class).
-		if infra.IsBlockedResponse(resp) {
-			resp.Close()
+		if first.blocked || !first.errorSurface {
+			continue
+		}
+		framework, matched := checkDeserError(first.body, origBody, p.payload)
+		if !matched || framework != p.framework {
 			continue
 		}
 
-		// A 404 / redirect means the route never resolved, so no deserialization
-		// ran: a framework class-name or error substring in such a body is page
-		// noise (a JS bundle, a SPA shell), not a leaked deserialization error.
-		// Mirrors the sqli/nosqli error-based modules — only a genuine application
-		// error surface can carry the leak.
-		if !infra.IsErrorSurfaceStatus(resp) {
-			resp.Close()
+		second, replayErr := m.executeProbe(ctx, httpClient, fuzzedRaw)
+		if replayErr != nil || second.blocked || !second.errorSurface {
+			continue
+		}
+		replayedFramework, replayed := checkDeserError(second.body, origBody, p.payload)
+		if !replayed || replayedFramework != p.framework {
 			continue
 		}
 
-		body := resp.Body().String()
-		if framework, matched := checkDeserError(body, origBody, p.payload); matched {
-			results = append(results, &output.ResultEvent{
-				URL:              urlx.String(),
-				Request:          string(fuzzedRaw),
-				Response:         resp.FullResponseString(),
-				FuzzingParameter: ip.Name(),
-				ExtractedResults: []string{p.payload, p.desc},
-				Info: output.Info{
-					Description: fmt.Sprintf("Framework: %s — %s", framework, p.desc),
-				},
-			})
-			resp.Close()
-			return results, nil
-		}
-		resp.Close()
+		return []*output.ResultEvent{{
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindCandidate,
+			EvidenceGrade: output.EvidenceGradeDifferential,
+			URL:           urlx.String(),
+			Matched:       urlx.String(),
+			Request:       first.request,
+			Response:      first.response,
+			AdditionalEvidence: []string{
+				output.BuildEvidence("benign malformed-value control", control.request, control.response),
+				output.BuildEvidence("serialized probe replay", second.request, second.response),
+			},
+			FuzzingParameter: ip.Name(),
+			ExtractedResults: []string{
+				"Framework: " + framework,
+				"Probe: " + p.desc,
+				"Payload-specific error reproduced twice; plain control stayed clean",
+			},
+			Info: output.Info{
+				Name:        "Server-Side Deserialization Reachability Candidate",
+				Description: fmt.Sprintf("The %s probe reproducibly introduced a %s deserialization exception while a plain malformed-value control stayed clean. This strongly indicates attacker input reaches a deserializer, but no gadget execution, side effect, or code execution was demonstrated.", p.desc, framework),
+				Severity:    ModuleSeverity,
+				Confidence:  ModuleConfidence,
+				Tags:        ModuleTags,
+			},
+			Metadata: map[string]any{
+				"framework":             framework,
+				"payload_specific":      true,
+				"confirmation_rounds":   2,
+				"benign_control_clean":  true,
+				"gadget_execution":      false,
+				"side_effect_confirmed": false,
+			},
+		}}, nil
 	}
 
-	return results, nil
+	return nil, nil
+}
+
+func (m *Module) executeProbe(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, raw []byte) (probeCapture, error) {
+	req := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
+	resp, _, err := httpClient.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
+	if err != nil {
+		return probeCapture{}, err
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return probeCapture{}, nil
+	}
+	return probeCapture{
+		body:         resp.BodyString(),
+		request:      string(raw),
+		response:     resp.FullResponseString(),
+		status:       resp.Response().StatusCode,
+		blocked:      infra.IsBlockedResponse(resp),
+		errorSurface: infra.IsErrorSurfaceStatus(resp),
+	}, nil
 }
 
 // checkDeserError reports whether the response surfaced a framework

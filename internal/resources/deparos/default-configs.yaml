@@ -294,10 +294,10 @@ enable-cookies: false
 # SECRET SCANNING
 # ==============================================================================
 
-# Disable kingfisher secret scanning (default: false = enabled).
-# Kingfisher scans HTTP responses to detect exposed secrets like API keys,
+# Disable native secret scanning (default: false = enabled).
+# The scanner inspects HTTP responses to detect exposed secrets like API keys,
 # MongoDB URIs, tokens, SSH keys, etc. Disable if not needed or to speed up.
-disable-kingfisher: true
+disable-secret-scan: true
 
 # ==============================================================================
 # OUTPUT

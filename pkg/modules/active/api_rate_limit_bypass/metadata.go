@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The endpoint enforces rate limiting (HTTP 429 after a burst) but keys the limit on a client-supplied IP header, not the true connection source. A spoofed X-Forwarded-For or X-Real-IP makes the server treat each request as new.
+	ModuleDesc = `**What it means:** A throttled GET became successful for two distinct test identities supplied through a forwarding header. This differential is a candidate; a finding requires exhausting identity A, immediate success for identity B, and continued throttling for A and the plain request.
 
-**How it's exploited:** An attacker rotates a forged IP header to reset the counter and send unlimited traffic, defeating throttling meant to stop credential stuffing and brute force. Confirmed differentially: a plain request stays 429 while the spoofed one succeeds.
+**How it's exploited:** An attacker rotates spoofed client-IP headers to obtain fresh rate-limit buckets.
 
-**Fix:** Derive the rate-limit identity from the trusted connection source, and only honor forwarding headers from known proxies.`
+**Fix:** Key limits from the trusted connection source and honor forwarding headers only from known proxies.`
 
-	ModuleConfirmation = "Confirmed when the server enforces rate limiting (429 response) but accepts requests with IP spoofing headers, indicating bypassable rate limiting"
+	ModuleConfirmation = "Candidate after a body-matched 429/header/429 differential with two identities; confirmed when per-identity bucket exhaustion and rotation are demonstrated"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"auth-bypass", "probe", "moderate"}

@@ -59,7 +59,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 
 	var results []*output.ResultEvent
 
@@ -72,34 +75,65 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 				continue
 			}
 
-			sev := severity.Medium
+			kind := output.RecordKindObservation
+			grade := output.EvidenceGradeObservation
+			sev := severity.Info
+			conf := severity.Tentative
 			var evidence []string
+			var riskFactors []string
 			evidence = append(evidence, fmt.Sprintf("Type: %s", sp.urlType))
-			evidence = append(evidence, fmt.Sprintf("URL: %s", truncateURL(match, 200)))
+			evidence = append(evidence, fmt.Sprintf("URL (signature redacted): %s", truncateURL(redactSignedURL(match), 200)))
 
 			// Parse risk factors
 			if isWriteCapable(match, sp.urlType) {
-				sev = severity.High
-				evidence = append(evidence, "Risk: Write-capable token")
+				riskFactors = append(riskFactors, "provider-declared write permission")
 			}
 
 			if isLongLived(match, sp.urlType) {
-				sev = severity.High
-				evidence = append(evidence, "Risk: Long-lived token (>24h)")
+				riskFactors = append(riskFactors, "declared lifetime exceeds 24 hours")
+			}
+
+			if isExplicitlySharedCacheable(ctx.Response()) {
+				riskFactors = append(riskFactors, "response is explicitly shared-cacheable")
+			}
+
+			name := fmt.Sprintf("Signed URL Observed: %s", sp.urlType)
+			description := fmt.Sprintf("The response contains a %s. Signed URLs are commonly an intentional download/upload capability; recipient authorization and replay impact were not tested.", sp.urlType)
+			if len(riskFactors) > 0 {
+				kind = output.RecordKindCandidate
+				grade = output.EvidenceGradeCandidate
+				sev = severity.Medium
+				conf = severity.Firm
+				name = fmt.Sprintf("Risky Signed URL Exposure Candidate: %s", sp.urlType)
+				description = fmt.Sprintf("The response contains a %s with risk-enhancing context (%s). The capability was not replayed and unauthorized access was not established.", sp.urlType, strings.Join(riskFactors, "; "))
+				for _, risk := range riskFactors {
+					evidence = append(evidence, "Risk context: "+risk)
+				}
 			}
 
 			results = append(results, &output.ResultEvent{
 				ModuleID:         ModuleID,
+				RecordKind:       kind,
+				EvidenceGrade:    grade,
 				Host:             urlx.Host,
 				URL:              urlx.String(),
 				Matched:          urlx.String(),
+				Request:          string(ctx.Request().Raw()),
+				Response:         string(ctx.Response().Raw()),
 				ExtractedResults: evidence,
 				Info: output.Info{
-					Name:        fmt.Sprintf("Signed URL Leak: %s", sp.urlType),
-					Description: fmt.Sprintf("Response body contains a leaked %s with potential unauthorized access", sp.urlType),
+					Name:        name,
+					Description: description,
 					Severity:    sev,
-					Confidence:  severity.Firm,
+					Confidence:  conf,
 					Tags:        []string{"cloud-storage", "signed-url", "token-leak"},
+				},
+				Metadata: map[string]any{
+					"url_type":                   sp.urlType,
+					"risk_factors":               riskFactors,
+					"capability_replayed":        false,
+					"authorization_compared":     false,
+					"signature_extracted_safely": true,
 				},
 			})
 		}
@@ -120,14 +154,39 @@ func isWriteCapable(signedURL string, urlType signedURLType) bool {
 			}
 		}
 	case typeAWSPresigned, typeGCSSigned:
-		// AWS/GCS presigned URLs are typically scoped to a single method
-		// Check if the URL path suggests a write operation
-		upper := strings.ToUpper(signedURL)
-		if strings.Contains(upper, "METHOD=PUT") || strings.Contains(upper, "METHOD=DELETE") {
-			return true
-		}
+		// The HTTP method is part of the provider's canonical request, not a
+		// trustworthy URL query attribute. Passive URL inspection cannot infer it.
+		return false
 	}
 	return false
+}
+
+func isExplicitlySharedCacheable(response *httpmsg.HttpResponse) bool {
+	if response == nil {
+		return false
+	}
+	cacheControl := strings.ToLower(response.Header("Cache-Control"))
+	if strings.Contains(cacheControl, "public") || strings.Contains(cacheControl, "s-maxage=") {
+		return true
+	}
+	surrogateControl := strings.ToLower(response.Header("Surrogate-Control"))
+	return strings.Contains(surrogateControl, "max-age=")
+}
+
+func redactSignedURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "<signed URL redacted>"
+	}
+	query := parsed.Query()
+	for key := range query {
+		lower := strings.ToLower(key)
+		if strings.Contains(lower, "signature") || lower == "sig" || strings.Contains(lower, "token") {
+			query.Set(key, "REDACTED")
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func isLongLived(signedURL string, urlType signedURLType) bool {

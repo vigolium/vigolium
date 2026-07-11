@@ -420,7 +420,7 @@ func runExportFS() error {
 // (the `vigolium export` and stateless temp-DB behavior).
 func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, projectUUID string) ([]any, error) {
 	var items []any
-	err := streamExportData(ctx, db, omitResponse, projectUUID, func(item any) error {
+	err := streamExportData(ctx, db, omitResponse, projectUUID, "", func(item any) error {
 		items = append(items, item)
 		return nil
 	})
@@ -460,7 +460,7 @@ func exportExcludeSet() map[string]bool {
 // renderers must NOT force this on: they derive the displayed request/response
 // bodies from the raw bytes via HTTPRecord.MarshalJSON before trimming the
 // redundant raw copies, so excluding the columns blanks the report body.
-func streamExportData(ctx context.Context, db *database.DB, omitResponse bool, projectUUID string, emit func(any) error) error {
+func streamExportData(ctx context.Context, db *database.DB, omitResponse bool, projectUUID, scanUUID string, emit func(any) error) error {
 	excluded := exportExcludeSet()
 	emitItem := func(typ string, data any) error {
 		if excluded[typ] {
@@ -500,7 +500,7 @@ func streamExportData(ctx context.Context, db *database.DB, omitResponse bool, p
 
 	// --- Findings (cursor-streamed) ---
 	if shouldExport("findings") && db != nil && !excluded["finding"] {
-		if err := streamFindings(ctx, db, projectUUID, emitItem); err != nil {
+		if err := streamFindings(ctx, db, projectUUID, scanUUID, emitItem); err != nil {
 			return err
 		}
 	}
@@ -592,11 +592,44 @@ func streamExportData(ctx context.Context, db *database.DB, omitResponse bool, p
 	return nil
 }
 
+// findingReferencedRecordUUIDs returns the set of http_record UUIDs that at least
+// one finding links to (via finding_records), scoped to projectUUID (empty =
+// whole DB). These records are a finding's exact proof exchange, so streamHTTPRecords
+// must never drop them in its per-URL dedup. Best-effort: on error it returns an
+// empty set (the caller falls back to plain URL-dedup, the prior behavior). The
+// subquery form is dialect-agnostic (SQLite and PostgreSQL).
+func findingReferencedRecordUUIDs(ctx context.Context, db *database.DB, projectUUID string) map[string]struct{} {
+	referenced := make(map[string]struct{})
+	if db == nil {
+		return referenced
+	}
+	sqlText := "SELECT DISTINCT record_uuid FROM finding_records WHERE finding_id IN (SELECT id FROM findings"
+	var args []any
+	if projectUUID != "" {
+		sqlText += " WHERE project_uuid = ?"
+		args = append(args, projectUUID)
+	}
+	sqlText += ")"
+	var uuids []string
+	if err := db.NewRaw(sqlText, args...).Scan(ctx, &uuids); err != nil {
+		fmt.Fprintf(os.Stderr, "%s Failed to load finding-referenced records: %v\n", terminal.WarningSymbol(), err)
+		return referenced
+	}
+	for _, u := range uuids {
+		referenced[u] = struct{}{}
+	}
+	return referenced
+}
+
 // streamHTTPRecords reads http_records with a row cursor and emits one envelope
 // per unique URL (first occurrence wins, matching the legacy in-memory dedup),
-// holding only a single record in memory at a time. omitResponse drops the
-// raw_request/raw_response columns from the SELECT entirely. A query/scan error
-// is logged and ends this table (best-effort); only emit errors are returned.
+// holding only a single record in memory at a time. The one exception: a record
+// that a finding links to is ALWAYS emitted, even when another record already
+// claimed its URL — otherwise the per-URL dedup could drop the exact attack
+// exchange a finding proves, leaving replay/Burp/report evidence pointing at a
+// different same-URL record. omitResponse drops the raw_request/raw_response
+// columns from the SELECT entirely. A query/scan error is logged and ends this
+// table (best-effort); only emit errors are returned.
 func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, projectUUID string, emitItem func(string, any) error) error {
 	qb := database.NewQueryBuilder(db, database.QueryFilters{
 		ProjectUUID: projectUUID,
@@ -614,6 +647,8 @@ func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, 
 	}
 	defer func() { _ = rows.Close() }()
 
+	referenced := findingReferencedRecordUUIDs(ctx, db, projectUUID)
+
 	seen := make(map[string]struct{})
 	for rows.Next() {
 		r := new(database.HTTPRecord)
@@ -621,7 +656,10 @@ func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, 
 			fmt.Fprintf(os.Stderr, "%s Failed to scan HTTP record: %v\n", terminal.WarningSymbol(), err)
 			return nil
 		}
-		if _, dup := seen[r.URL]; dup {
+		// A finding-referenced record is that finding's proof — emit it even when
+		// its URL was already claimed by an earlier (non-attack) record.
+		_, isReferenced := referenced[r.UUID]
+		if _, dup := seen[r.URL]; dup && !isReferenced {
 			continue
 		}
 		seen[r.URL] = struct{}{}
@@ -639,8 +677,20 @@ func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, 
 // row, holding only a single finding in memory at a time. Filters mirror the
 // legacy findings query exactly (search, severity, limit, found_at DESC). A
 // query/scan error is logged and ends this table; only emit errors are returned.
-func streamFindings(ctx context.Context, db *database.DB, projectUUID string, emitItem func(string, any) error) error {
+func streamFindings(ctx context.Context, db *database.DB, projectUUID, scanUUID string, emitItem func(string, any) error) error {
 	q := scopeProjectBun(db.NewSelect().Model((*database.Finding)(nil)).OrderExpr("found_at DESC"), projectUUID)
+	// Confirmed findings only. E0 observations / E1 candidates are persisted in
+	// the same table but must not surface in a report's "Findings" section as if
+	// they were confirmed vulnerabilities — mirror the default record_kind guard
+	// the FindingsQueryBuilder applies everywhere else (query.go applyFindingFilters).
+	q = q.Where("(f.record_kind IS NULL OR f.record_kind = '' OR f.record_kind = ?)", database.RecordKindFinding)
+	// Post-scan report scope: restrict to the current scan's findings so a re-run's
+	// report reflects that run, not the project's whole history. maybeGenerateReports
+	// passes the scan uuid; every other export path passes "" (project-wide),
+	// parallel to how projectUUID is threaded.
+	if scanUUID != "" {
+		q = q.Where("f.scan_uuid = ?", scanUUID)
+	}
 	if topExportSearch != "" {
 		p := "%" + topExportSearch + "%"
 		q = q.Where("(module_id LIKE ? OR module_name LIKE ? OR description LIKE ? OR matched_at LIKE ? OR severity LIKE ? OR url LIKE ? OR hostname LIKE ? OR extracted_results LIKE ?)", p, p, p, p, p, p, p, p)

@@ -13,7 +13,7 @@ const testHead = "HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\n\r\
 
 func TestBuildEvidenceResponse_SmallBodyShownInFull(t *testing.T) {
 	body := []byte("var apiKey = \"AIzaSyAFi5" + "SqFWHuSSGO" + "5cyrhrLKdg" + "LpMsa1Jmk\";\n")
-	got := BuildEvidenceResponse(testHead, body, "AIzaSyAFi5" + "SqFWHuSSGO" + "5cyrhrLKdg" + "LpMsa1Jmk", 1)
+	got := BuildEvidenceResponse(testHead, body, "AIzaSyAFi5" + "SqFWHuSSGO" + "5cyrhrLKdg" + "LpMsa1Jmk", -1, -1, 1)
 
 	assert.Equal(t, testHead+string(body), got)
 	assert.NotContains(t, got, "truncated", "small body must not be truncated")
@@ -33,7 +33,7 @@ func TestBuildEvidenceResponse_LargeMultilineWindowsAroundMatch(t *testing.T) {
 	body := []byte(sb.String())
 	require.Greater(t, len(body), evidenceFullThreshold)
 
-	got := BuildEvidenceResponse(testHead, body, secret, 0)
+	got := BuildEvidenceResponse(testHead, body, secret, -1, -1, 0)
 
 	assert.True(t, strings.HasPrefix(got, testHead), "must keep response head")
 	assert.Contains(t, got, secret, "window must include the matched secret")
@@ -53,7 +53,7 @@ func TestBuildEvidenceResponse_MinifiedSingleLineCharClamped(t *testing.T) {
 	body := []byte(left + secret + right)
 	require.Greater(t, len(body), evidenceFullThreshold)
 
-	got := BuildEvidenceResponse(testHead, body, secret, 1)
+	got := BuildEvidenceResponse(testHead, body, secret, -1, -1, 1)
 
 	assert.Contains(t, got, secret)
 	assert.Contains(t, got, "bytes truncated")

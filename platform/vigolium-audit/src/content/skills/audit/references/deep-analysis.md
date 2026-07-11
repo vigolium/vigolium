@@ -80,7 +80,7 @@ in the KB as manual corrections.
 
 ### D. Use the live database for on-demand queries
 
-The database at `vigolium-results/codeql-artifacts/db/` is live until Phase 12 completes. When a manual
+The database at `vigolium-results/codeql-artifacts/db/` is live until the active command's variant-analysis/cleanup boundary. When a manual
 trace raises a structural question answerable faster by machine — "are there other callers?",
 "what paths reach this sink?", "which functions read this field?" — write and run a narrow QL query:
 
@@ -94,23 +94,23 @@ codeql bqrs decode --format=json /tmp/on-demand.bqrs
 ```
 
 Store reusable on-demand queries at `vigolium-results/codeql-queries/on-demand-<slug>.ql`. These become
-Phase 12 variant analysis inputs.
+later variant-analysis inputs.
 
 ### E. Cross-reference entry-points with the KB attack surface
 
 Compare `entry-points.json` against `## Attack Surface Summary` in `knowledge-base-report.md`.
 Discrepancies where CodeQL found a recognized source absent from the manual KB indicate:
-- An entry point missed by Phase 3 manual review
+- An entry point missed by threat-model review
 - A dynamically registered route, plugin hook, or generated endpoint invisible to static inspection
 
-These discrepancies are high-priority Phase 10 targets.
+These discrepancies are high-priority manual-review targets.
 
 ### F. Scope and limitations
 
 This method requires a working database with meaningful extraction coverage. If
 the `## Static Analysis Summary` section of `vigolium-results/attack-surface/knowledge-base-report.md` documents `--build-mode=none` or low extraction quality,
 do not treat `reachable: false` as meaningful — false negatives from poor extraction are likely.
-Document the extraction quality limitation in the Phase 10 Addendum.
+Document the extraction quality limitation in the chamber/static-analysis addendum required by the active command.
 
 ## 3) Analyze Control Internals
 
@@ -156,10 +156,10 @@ Use this when code appears to implement an RFC-based protocol or format.
 ### C. Map Historical Attack Patterns
 
 - First, read the `## Domain Attack Research` section of `vigolium-results/attack-surface/knowledge-base-report.md`.
-  Phase 3 Mode C already catalogued known attacks for the identified technology domains. Use the
+  Domain Attack Research Mode C already catalogued known attacks for the identified technology domains. Use the
   domain attack taxonomy and manual review checklist as the starting list — avoid re-researching
   what was already discovered.
-- For any identified domain not covered by Phase 3 Mode C, research known attacks/CVEs against the
+- For any identified domain not covered by Domain Attack Research, research known attacks/CVEs against the
   protocol family using web search or MCP tools. See `references/domain-attack-playbooks.md` for
   per-domain templates.
 - Translate patterns into test hypotheses for this implementation.
@@ -255,19 +255,19 @@ High-quality deep-analysis evidence includes:
 - Demonstrated or strongly justified control failure
 - Concrete attacker gain tied to protected assets
 
-## 9) How Later Phases Reuse the Model
+## 9) How Later Work Reuses the Model
 
-Phase 3 DFD/CFD slices are not optional notes. Use them directly in later phases:
+Threat-model DFD/CFD slices are not optional notes. Use them directly in later work:
 
-- **Phase 4**: generate custom CodeQL models, custom QL queries, and custom Semgrep rules for blind
+- **Static analysis**: generate custom CodeQL models, custom QL queries, and custom Semgrep rules for blind
   spots; also run structural extraction (method 2.6 inputs: entry-points.json, sinks.json,
   call-graph-slices.json, flow-paths-all-severities.md, machine-generated DFD/CFD diagrams)
-- **Phase 5**: decide whether a SAST finding crosses a real trust boundary or reaches a real policy
+- **Enrichment**: decide whether a SAST finding crosses a real trust boundary or reaches a real policy
   gate; use call-graph-slices.json for machine-assisted reachability before manual assessment
-- **Phase 9**: map specs, IDLs, and contracts to the exact implementation points in the flow
-- **Phase 10**: apply method 2.6 to front-load machine-computed path information before manual
+- **Spec review**: map specs, IDLs, and contracts to the exact implementation points in the flow
+- **Review chambers**: apply method 2.6 to front-load machine-computed path information before manual
   tracing; use informational nodes from flow-paths-all-severities.md to locate sanitizer/validation
   sites that warrant close scrutiny
-- **Phase 11**: judge exploitability from actual flow reachability, not isolated code smell
-- **Phase 12**: search for the same flow shape in sibling components using on-demand QL queries
+- **FP checking**: judge exploitability from actual flow reachability, not isolated code smell
+- **Variant analysis**: search for the same flow shape in sibling components using on-demand QL queries
   and AST-level structural matches against the live database

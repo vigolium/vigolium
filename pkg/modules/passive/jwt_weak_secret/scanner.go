@@ -71,14 +71,17 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup on host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	hash := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(hash) {
 		return nil, nil
 	}
 
 	// Find JWTs in request and response
-	tokens := findJWTs(ctx)
+	tokens := findLocatedJWTs(ctx)
 	if len(tokens) == 0 {
 		return nil, nil
 	}
@@ -92,23 +95,44 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	// Try brute-force on each token (findJWTs already deduplicates)
 	var results []*output.ResultEvent
 	var asymmetricAlgSeen string
-	for _, token := range tokens {
+	for _, located := range tokens {
+		token := located.token
 		weakSecret, alg := tryBruteForce(token, secrets)
 		if weakSecret != "" {
+			kind := output.RecordKindCandidate
+			grade := output.EvidenceGradeCandidate
+			description := fmt.Sprintf("JWT signature matches a known weak secret under %s, but the token was not observed in a strong server-issuance location; server trust and authorization impact remain unconfirmed.", alg)
+			if located.strongServerIssue {
+				kind = output.RecordKindFinding
+				grade = output.EvidenceGradeImpact
+				description = fmt.Sprintf("A JWT issued in a server-controlled response location has a signature that cryptographically matches a known weak secret under %s.", alg)
+			}
 			results = append(results, &output.ResultEvent{
-				ModuleID: ModuleID,
-				Host:     urlx.Host,
-				URL:      urlx.String(),
-				Matched:  urlx.String(),
-				Request:  string(ctx.Request().Raw()),
+				ModuleID:      ModuleID,
+				RecordKind:    kind,
+				EvidenceGrade: grade,
+				Host:          urlx.Host,
+				URL:           urlx.String(),
+				Matched:       urlx.String(),
+				Request:       rawRequest(ctx),
+				Response:      rawResponse(ctx),
 				ExtractedResults: []string{
 					fmt.Sprintf("Algorithm: %s", alg),
-					fmt.Sprintf("Weak secret: %s", weakSecret),
-					fmt.Sprintf("JWT: %s", token),
+					weakSecretEvidence(weakSecret),
+					fmt.Sprintf("Observed locations: %s", strings.Join(located.sources, ", ")),
 				},
 				Info: output.Info{
 					Name:        "JWT Signed with Weak Secret",
-					Description: fmt.Sprintf("JWT uses %s with a weak/known secret", alg),
+					Description: description,
+					Severity:    severity.High,
+					Confidence:  severity.Firm,
+				},
+				Metadata: map[string]any{
+					"sources":                  located.sources,
+					"strong_server_issuance":   located.strongServerIssue,
+					"signature_verified":       true,
+					"server_acceptance_tested": located.strongServerIssue,
+					"authorization_tested":     false,
 				},
 			})
 			continue
@@ -117,22 +141,38 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		// Check for non-cryptographic (plaintext) signature
 		declaredAlg := getJWTAlgorithm(token)
 		if plaintext := getPlaintextSignature(token); plaintext != "" {
+			kind := output.RecordKindCandidate
+			grade := output.EvidenceGradeCandidate
+			description := fmt.Sprintf("JWT declares %s but its signature decodes entirely to printable text. This is a strong candidate, but server trust was not established for the observed location.", declaredAlg)
+			if located.strongServerIssue {
+				kind = output.RecordKindFinding
+				grade = output.EvidenceGradeImpact
+				description = fmt.Sprintf("A JWT issued in a server-controlled response location declares %s but carries a printable, non-cryptographic signature.", declaredAlg)
+			}
 			results = append(results, &output.ResultEvent{
-				ModuleID: ModuleID,
-				Host:     urlx.Host,
-				URL:      urlx.String(),
-				Matched:  urlx.String(),
-				Request:  string(ctx.Request().Raw()),
+				ModuleID:      ModuleID,
+				RecordKind:    kind,
+				EvidenceGrade: grade,
+				Host:          urlx.Host,
+				URL:           urlx.String(),
+				Matched:       urlx.String(),
+				Request:       rawRequest(ctx),
+				Response:      rawResponse(ctx),
 				ExtractedResults: []string{
 					fmt.Sprintf("Algorithm: %s", declaredAlg),
-					fmt.Sprintf("Plaintext signature: %s", plaintext),
-					fmt.Sprintf("JWT: %s", token),
+					fmt.Sprintf("Printable signature length: %d bytes (value redacted)", len(plaintext)),
+					fmt.Sprintf("Observed locations: %s", strings.Join(located.sources, ", ")),
 				},
 				Info: output.Info{
 					Name:        "JWT Has Non-Cryptographic Signature",
-					Description: fmt.Sprintf("JWT declares %s but the signature is plaintext ASCII, not a valid cryptographic output. The token can be trivially forged.", declaredAlg),
+					Description: description,
 					Severity:    severity.High,
 					Confidence:  severity.Firm,
+				},
+				Metadata: map[string]any{
+					"sources":                  located.sources,
+					"strong_server_issuance":   located.strongServerIssue,
+					"server_acceptance_tested": located.strongServerIssue,
 				},
 			})
 			continue
@@ -147,21 +187,25 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	// Emit informational finding for uncracked asymmetric JWTs
 	if asymmetricAlgSeen != "" && len(results) == 0 {
 		results = append(results, &output.ResultEvent{
-			ModuleID: ModuleID,
-			Host:     urlx.Host,
-			URL:      urlx.String(),
-			Matched:  urlx.String(),
-			Request:  string(ctx.Request().Raw()),
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindObservation,
+			EvidenceGrade: output.EvidenceGradeObservation,
+			Host:          urlx.Host,
+			URL:           urlx.String(),
+			Matched:       urlx.String(),
+			Request:       rawRequest(ctx),
+			Response:      rawResponse(ctx),
 			ExtractedResults: []string{
 				fmt.Sprintf("Algorithm: %s", asymmetricAlgSeen),
 				"No weak HMAC secret found — algorithm confusion requires active verification",
 			},
 			Info: output.Info{
 				Name:        "JWT Uses Asymmetric Algorithm — Potential Algorithm Confusion",
-				Description: fmt.Sprintf("JWT declares %s. If the server also accepts HMAC-signed tokens, it may be vulnerable to algorithm confusion (CVE-2015-9235). Active testing is recommended.", asymmetricAlgSeen),
+				Description: fmt.Sprintf("JWT declares %s. This is normal secure configuration; algorithm confusion is only possible if the server separately accepts an HMAC-forged variant, which was not tested.", asymmetricAlgSeen),
 				Severity:    severity.Low,
 				Confidence:  severity.Tentative,
 			},
+			Metadata: map[string]any{"algorithm_confusion_tested": false},
 		})
 	}
 
@@ -316,78 +360,99 @@ func isAsymmetricAlg(alg string) bool {
 // to avoid false positives on dotted identifiers like package names.
 var jwtBodyPattern = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
 
-// findJWTs searches for JWT tokens in request headers, cookies, response headers,
-// response Set-Cookie, and response body.
-func findJWTs(ctx *httpmsg.HttpRequestResponse) []string {
-	var tokens []string
-	seen := make(map[string]struct{})
-	add := func(token string) {
-		// Skip Cloudflare-Access-style pre-auth / metadata tokens (type=meta,
-		// auth_status=NONE). These RS256 SSO login-flow tokens are reflected into
-		// login pages and would otherwise emit a spurious "potential algorithm
-		// confusion" finding — they are not the application's own JWTs.
-		if jwtutil.IsPreAuthMetaTokenString(token) {
+type locatedJWT struct {
+	token             string
+	sources           []string
+	strongServerIssue bool
+}
+
+// findLocatedJWTs preserves where each token came from. A response
+// Authorization or Set-Cookie value is strong evidence of server issuance;
+// arbitrary response text and client-supplied request tokens are not.
+func findLocatedJWTs(ctx *httpmsg.HttpRequestResponse) []locatedJWT {
+	var tokens []locatedJWT
+	index := make(map[string]int)
+	add := func(token, source string, strongServerIssue bool) {
+		token = strings.TrimSpace(token)
+		if !isJWT(token) || jwtutil.IsPreAuthMetaTokenString(token) {
 			return
 		}
-		if _, ok := seen[token]; !ok {
-			seen[token] = struct{}{}
-			tokens = append(tokens, token)
+		if existing, ok := index[token]; ok {
+			tokens[existing].sources = append(tokens[existing].sources, source)
+			tokens[existing].strongServerIssue = tokens[existing].strongServerIssue || strongServerIssue
+			return
 		}
+		index[token] = len(tokens)
+		tokens = append(tokens, locatedJWT{token: token, sources: []string{source}, strongServerIssue: strongServerIssue})
 	}
 
-	// --- Request ---
 	if ctx.Request() != nil {
-		// Check Authorization header
-		auth := ctx.Request().Header("Authorization")
-		if token, ok := strings.CutPrefix(auth, "Bearer "); ok {
-			if isJWT(token) {
-				add(token)
-			}
+		if token := bearerToken(ctx.Request().Header("Authorization")); token != "" {
+			add(token, "request Authorization", false)
 		}
-
-		// Check request cookies for JWT-like values
-		cookies := ctx.Request().Header("Cookie")
-		if cookies != "" {
+		if cookies := ctx.Request().Header("Cookie"); cookies != "" {
 			for cookie := range strings.SplitSeq(cookies, ";") {
 				parts := strings.SplitN(strings.TrimSpace(cookie), "=", 2)
-				if len(parts) == 2 && isJWT(parts[1]) {
-					add(parts[1])
+				if len(parts) == 2 {
+					add(parts[1], "request Cookie", false)
 				}
 			}
 		}
 	}
 
-	// --- Response ---
-	// Skip WAF/CDN edge blocks: a JWT-shaped string on a challenge/error page is
-	// the edge's, not the application's. Request-side tokens above are kept.
 	if ctx.Response() != nil && !modkit.IsEdgeBlockedResponse(ctx.Response()) {
-		// Check response Authorization header (some APIs echo tokens back)
-		auth := ctx.Response().Header("Authorization")
-		if token, ok := strings.CutPrefix(auth, "Bearer "); ok {
-			if isJWT(token) {
-				add(token)
-			}
+		if token := bearerToken(ctx.Response().Header("Authorization")); token != "" {
+			add(token, "response Authorization", true)
 		}
-
-		// Check response Set-Cookie headers for JWT-like values
 		for _, cookie := range ctx.Response().Cookies() {
-			if isJWT(cookie.Value) {
-				add(cookie.Value)
-			}
+			add(cookie.Value, "response Set-Cookie", true)
 		}
-
-		// Scan response body for JWT-like strings
 		body := ctx.Response().BodyToString()
-		if len(body) > 0 && len(body) < 512*1024 { // skip very large bodies
+		if len(body) > 0 && len(body) < 512*1024 {
 			for _, match := range jwtBodyPattern.FindAllString(body, 10) {
-				if isJWT(match) {
-					add(match)
-				}
+				add(match, "response body", false)
 			}
 		}
 	}
 
 	return tokens
+}
+
+// findJWTs retains the original token-only helper used by callers and tests.
+func findJWTs(ctx *httpmsg.HttpRequestResponse) []string {
+	located := findLocatedJWTs(ctx)
+	tokens := make([]string, 0, len(located))
+	for _, item := range located {
+		tokens = append(tokens, item.token)
+	}
+	return tokens
+}
+
+func bearerToken(value string) string {
+	fields := strings.Fields(strings.TrimSpace(value))
+	if len(fields) == 2 && strings.EqualFold(fields[0], "Bearer") {
+		return fields[1]
+	}
+	return ""
+}
+
+func weakSecretEvidence(secret string) string {
+	digest := sha256.Sum256([]byte(secret))
+	return fmt.Sprintf("Weak secret matched: length=%d, SHA-256 prefix=%x (value redacted)", len(secret), digest[:6])
+}
+
+func rawRequest(ctx *httpmsg.HttpRequestResponse) string {
+	if ctx != nil && ctx.Request() != nil {
+		return string(ctx.Request().Raw())
+	}
+	return ""
+}
+
+func rawResponse(ctx *httpmsg.HttpRequestResponse) string {
+	if ctx != nil && ctx.Response() != nil {
+		return string(ctx.Response().Raw())
+	}
+	return ""
 }
 
 // isJWT checks if a string looks like a JWT (3 base64url segments separated by dots).

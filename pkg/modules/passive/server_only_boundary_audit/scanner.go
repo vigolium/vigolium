@@ -2,6 +2,7 @@ package server_only_boundary_audit
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -67,9 +68,9 @@ var leakPatterns = []leakPattern{
 	},
 	{
 		name:     "Database Connection String",
-		re:       regexp.MustCompile(`(?:(?:postgres|mysql|mongodb|redis)://[^\s'"]+@)`),
-		severity: severity.Critical,
-		desc:     "Database connection string with credentials found in client bundle",
+		re:       regexp.MustCompile(`(?:(?:postgres|mysql|mongodb|redis)://[^:\s/'"]+:[^@\s/'"]+@[^\s'"]+)`),
+		severity: severity.High,
+		desc:     "Credential-shaped database connection URI found in a client bundle; provider validity was not tested",
 	},
 }
 
@@ -140,7 +141,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -156,6 +160,9 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	var hits []hit
 	for _, pat := range leakPatterns {
 		if match := pat.re.FindString(body); match != "" {
+			if pat.name == "Database Connection String" && !connectionStringSubstantive(match) {
+				continue
+			}
 			hits = append(hits, hit{pat: pat, match: match})
 		}
 	}
@@ -178,25 +185,29 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			continue
 		}
 		results = append(results, &output.ResultEvent{
-			ModuleID: ModuleID,
-			Host:     urlx.Host,
-			URL:      urlx.String(),
-			Matched:  urlx.String(),
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindCandidate,
+			EvidenceGrade: output.EvidenceGradeCandidate,
+			Host:          urlx.Host,
+			URL:           urlx.String(),
+			Matched:       urlx.String(),
 			ExtractedResults: []string{
 				fmt.Sprintf("Leak: %s", h.pat.name),
 				fmt.Sprintf("Matched: %s", modkit.Truncate(h.match, 120)),
 			},
 			Info: output.Info{
-				Name:        fmt.Sprintf("Server Code Leak: %s", h.pat.name),
-				Description: h.pat.desc,
+				Name:        fmt.Sprintf("Server-Boundary Candidate: %s", h.pat.name),
+				Description: h.pat.desc + ". Module/import strings do not prove executable server code or secret use in the client runtime.",
 				Severity:    h.pat.severity,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"server-only", "boundary-violation", "nextjs", "information-disclosure"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/200.html"},
 			},
 			Metadata: map[string]any{
-				"cwe":     "CWE-200",
-				"pattern": h.pat.name,
+				"cwe":                  "CWE-200",
+				"pattern":              h.pat.name,
+				"runtime_reachability": false,
+				"credential_validated": false,
 			},
 		})
 	}
@@ -208,4 +219,27 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 // its own (without a second corroborating server-only signal in the bundle).
 func isSelfConfident(name string) bool {
 	return name == "Database Connection String"
+}
+
+func connectionStringSubstantive(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.User == nil || parsed.Host == "" {
+		return false
+	}
+	username := strings.TrimSpace(parsed.User.Username())
+	password, hasPassword := parsed.User.Password()
+	password = strings.TrimSpace(password)
+	if username == "" || !hasPassword || len(password) < 8 {
+		return false
+	}
+	if modkit.IsPlaceholderValue(username) || modkit.IsPlaceholderValue(password) {
+		return false
+	}
+	lower := strings.ToLower(username + ":" + password + "@" + parsed.Host)
+	for _, placeholder := range []string{"example", "placeholder", "changeme", "your_", "your-", "dummy", "sample", "redacted"} {
+		if strings.Contains(lower, placeholder) {
+			return false
+		}
+	}
+	return true
 }

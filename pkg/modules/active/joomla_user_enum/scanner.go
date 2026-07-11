@@ -1,12 +1,15 @@
 package joomla_user_enum
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	httpUtils "github.com/projectdiscovery/utils/http"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
@@ -50,25 +53,39 @@ func (m *Module) ScanPerRequest(
 	}
 	host := service.Host()
 
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	if scanCtx != nil {
+		diskSet := m.ds.Get(scanCtx.DedupMgr())
+		if diskSet != nil && diskSet.IsSeen(host) {
+			return nil, nil
+		}
+	}
+	cleanRaw, err := modkit.StripCredentialHeaders(ctx.Request().Raw())
+	if err != nil {
 		return nil, nil
 	}
+	anonymousClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
+	anonymousCtx := httpmsg.NewHttpRequestResponse(
+		httpmsg.NewHttpRequestWithService(service, cleanRaw),
+		ctx.Response(),
+	)
 
 	var results []*output.ResultEvent
 
 	// Vector 1: Registration form
-	if result := m.probeRegistration(ctx, httpClient); result != nil {
+	if result := m.probeRegistration(anonymousCtx, anonymousClient); result != nil {
 		results = append(results, result)
 	}
 
 	// Vector 2: API user listing (Joomla 4+)
-	if result := m.probeAPIUsers(ctx, httpClient); result != nil {
+	if result := m.probeAPIUsers(anonymousCtx, anonymousClient); result != nil {
 		results = append(results, result)
 	}
 
 	// Vector 3: Administrator login exposure
-	if result := m.probeAdminLogin(ctx, httpClient); result != nil {
+	if result := m.probeAdminLogin(anonymousCtx, anonymousClient); result != nil {
 		results = append(results, result)
 	}
 
@@ -88,7 +105,7 @@ func (m *Module) sendGET(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requ
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil, modifiedRaw, err
 	}
@@ -96,50 +113,62 @@ func (m *Module) sendGET(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requ
 }
 
 func (m *Module) probeRegistration(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) *output.ResultEvent {
-	resp, _, err := m.sendGET(ctx, httpClient, "/index.php?option=com_users&view=registration")
+	resp, raw, err := m.sendGET(ctx, httpClient, "/index.php?option=com_users&view=registration")
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil || resp.Response().StatusCode != 200 {
+	if resp.Response() == nil || resp.Response().StatusCode != 200 || infra.IsBlockedResponse(resp) {
 		return nil
 	}
 
 	body := resp.Body().String()
 
-	// Check for registration form markers
-	hasForm := strings.Contains(body, "jform[name]") || strings.Contains(body, "jform[username]") || strings.Contains(body, "jform[email")
-	if !hasForm {
+	markers, ok := modkit.MatchAllGroups(body, [][]string{
+		{"member-registration", "com_users", "view=registration"},
+		{"jform[name]", "jform[username]"},
+		{"jform[email", "jform[password"},
+	})
+	if !ok {
 		return nil
 	}
 
 	urlx, _ := ctx.URL()
 	return &output.ResultEvent{
-		URL:     urlx.Scheme + "://" + urlx.Host + "/index.php?option=com_users&view=registration",
-		Matched: urlx.Scheme + "://" + urlx.Host + "/index.php?option=com_users&view=registration",
+		ModuleID:         ModuleID,
+		RecordKind:       output.RecordKindObservation,
+		EvidenceGrade:    output.EvidenceGradeObservation,
+		URL:              urlx.Scheme + "://" + urlx.Host + "/index.php?option=com_users&view=registration",
+		Matched:          urlx.Scheme + "://" + urlx.Host + "/index.php?option=com_users&view=registration",
+		Request:          string(raw),
+		Response:         resp.FullResponseString(),
+		ExtractedResults: markers,
 		Info: output.Info{
-			Name:        "Joomla User Registration Form Exposed",
-			Description: "Joomla user registration form is publicly accessible, enabling account creation and potentially username enumeration via error messages",
-			Severity:    severity.Low,
+			Name:        "Joomla Public Registration Feature Observed",
+			Description: "A credential-free request reached a marker-confirmed Joomla registration form. Public registration is a supported feature; account creation and username-error differentials were not tested.",
+			Severity:    severity.Info,
 			Confidence:  severity.Certain,
 			Tags:        []string{"cms", "joomla", "user-enumeration"},
 			Reference:   []string{"https://docs.joomla.org/Security_Checklist"},
 		},
 		Metadata: map[string]any{
-			"vector": "registration-form",
+			"vector":                "registration-form",
+			"credential_free":       true,
+			"account_created":       false,
+			"enumeration_confirmed": false,
 		},
 	}
 }
 
 func (m *Module) probeAPIUsers(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) *output.ResultEvent {
-	resp, _, err := m.sendGET(ctx, httpClient, "/api/index.php/v1/users")
+	resp, raw, err := m.sendGET(ctx, httpClient, "/api/index.php/v1/users")
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil || resp.Response().StatusCode != 200 {
+	if resp.Response() == nil || resp.Response().StatusCode != 200 || infra.IsBlockedResponse(resp) {
 		return nil
 	}
 
@@ -149,37 +178,78 @@ func (m *Module) probeAPIUsers(ctx *httpmsg.HttpRequestResponse, httpClient *htt
 	}
 
 	body := resp.Body().String()
-	if !strings.Contains(body, `"type":"users"`) && !strings.Contains(body, `"type": "users"`) {
+	count, labels, ok := parseJoomlaAPIUsers(body)
+	if !ok {
 		return nil
 	}
 
 	urlx, _ := ctx.URL()
 	return &output.ResultEvent{
-		URL:      urlx.Scheme + "://" + urlx.Host + "/api/index.php/v1/users",
-		Matched:  urlx.Scheme + "://" + urlx.Host + "/api/index.php/v1/users",
-		Response: body,
+		ModuleID:         ModuleID,
+		RecordKind:       output.RecordKindObservation,
+		EvidenceGrade:    output.EvidenceGradeObservation,
+		URL:              urlx.Scheme + "://" + urlx.Host + "/api/index.php/v1/users",
+		Matched:          urlx.Scheme + "://" + urlx.Host + "/api/index.php/v1/users",
+		Request:          string(raw),
+		Response:         resp.FullResponseString(),
+		ExtractedResults: labels,
 		Info: output.Info{
-			Name:        "Joomla API User Enumeration",
-			Description: "Joomla Web Services API exposes user data anonymously at /api/index.php/v1/users",
-			Severity:    severity.Medium,
+			Name:        "Joomla Public API User Objects Observed",
+			Description: fmt.Sprintf("Joomla Web Services returned %d structurally valid user object(s) without credentials. Public profile data may be intentional; private login identities were not established.", count),
+			Severity:    severity.Info,
 			Confidence:  severity.Certain,
 			Tags:        []string{"cms", "joomla", "user-enumeration", "api"},
 			Reference:   []string{"https://developer.joomla.org/security-centre.html"},
 		},
 		Metadata: map[string]any{
-			"vector": "web-services-api",
+			"vector":                  "web-services-api",
+			"count":                   count,
+			"credential_free":         true,
+			"private_accounts_proven": false,
 		},
 	}
 }
 
+func parseJoomlaAPIUsers(body string) (int, []string, bool) {
+	var document struct {
+		Data []struct {
+			Type       string         `json:"type"`
+			ID         string         `json:"id"`
+			Attributes map[string]any `json:"attributes"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(body), &document) != nil || len(document.Data) == 0 {
+		return 0, nil, false
+	}
+	var labels []string
+	count := 0
+	for _, resource := range document.Data {
+		if resource.Type != "users" {
+			continue
+		}
+		count++
+		label := resource.ID
+		for _, key := range []string{"name", "username"} {
+			if value, ok := resource.Attributes[key].(string); ok && strings.TrimSpace(value) != "" {
+				label = value
+				break
+			}
+		}
+		if label != "" {
+			labels = append(labels, label)
+		}
+	}
+	return count, labels, count > 0
+}
+
 func (m *Module) probeAdminLogin(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) *output.ResultEvent {
-	resp, _, err := m.sendGET(ctx, httpClient, "/administrator/")
+	resp, raw, err := m.sendGET(ctx, httpClient, "/administrator/")
 	if err != nil {
 		return nil
 	}
 	defer resp.Close()
 
-	if resp.Response() == nil {
+	if resp.Response() == nil || infra.IsBlockedResponse(resp) {
 		return nil
 	}
 
@@ -190,25 +260,37 @@ func (m *Module) probeAdminLogin(ctx *httpmsg.HttpRequestResponse, httpClient *h
 	}
 
 	body := resp.Body().String()
-	// Check for Joomla admin login form markers
-	if !strings.Contains(body, "com_login") && !strings.Contains(body, "mod-login") && !strings.Contains(body, "task=login") {
+	markers, ok := modkit.MatchAllGroups(body, [][]string{
+		{"com_login", "mod-login"},
+		{"task=login", `name="username"`, `name="passwd"`, "form-login"},
+	})
+	if !ok {
 		return nil
 	}
 
 	urlx, _ := ctx.URL()
 	return &output.ResultEvent{
-		URL:     urlx.Scheme + "://" + urlx.Host + "/administrator/",
-		Matched: urlx.Scheme + "://" + urlx.Host + "/administrator/",
+		ModuleID:         ModuleID,
+		RecordKind:       output.RecordKindObservation,
+		EvidenceGrade:    output.EvidenceGradeObservation,
+		URL:              urlx.Scheme + "://" + urlx.Host + "/administrator/",
+		Matched:          urlx.Scheme + "://" + urlx.Host + "/administrator/",
+		Request:          string(raw),
+		Response:         resp.FullResponseString(),
+		ExtractedResults: markers,
 		Info: output.Info{
-			Name:        "Joomla Administrator Login Exposed",
-			Description: "Joomla administrator login is publicly accessible without WAF protection, IP restriction, or other access controls",
-			Severity:    severity.Low,
+			Name:        "Joomla Administrator Login Observed",
+			Description: "A credential-free request reached a marker-confirmed Joomla administrator login. Login-page reachability does not prove absent WAF controls, weak credentials, or administrative access.",
+			Severity:    severity.Info,
 			Confidence:  severity.Firm,
 			Tags:        []string{"cms", "joomla", "admin-exposure"},
 			Reference:   []string{"https://docs.joomla.org/Security_Checklist"},
 		},
 		Metadata: map[string]any{
-			"vector": "admin-login",
+			"vector":                "admin-login",
+			"credential_free":       true,
+			"administrative_access": false,
+			"credential_weakness":   false,
 		},
 	}
 }

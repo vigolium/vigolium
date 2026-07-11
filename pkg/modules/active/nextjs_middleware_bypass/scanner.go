@@ -290,8 +290,8 @@ func (m *Module) bypassDistinctFromCatchAll(
 
 	// Controls 2 & 3: independent web-root directory and site-root shell samples.
 	// Distinct (keep) only when the bypass body matches neither.
-	return !(modkit.RandomDirCatchAll(scanCtx, ctx, httpClient, shellMatch) ||
-		modkit.RootPageCatchAll(scanCtx, ctx, httpClient, shellMatch))
+	return !modkit.RandomDirCatchAll(scanCtx, ctx, httpClient, shellMatch) &&
+		!modkit.RootPageCatchAll(scanCtx, ctx, httpClient, shellMatch)
 }
 
 // freshProbe issues raw with redirects disabled and the response cache bypassed,

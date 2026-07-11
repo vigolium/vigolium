@@ -68,3 +68,27 @@ func TestAPIKeyRegex(t *testing.T) {
 
 	assert.Nil(t, apiKeyRe.FindStringSubmatch(`"apiKey":"short"`))
 }
+
+func TestIdentityToolkitResponseParsing(t *testing.T) {
+	t.Parallel()
+	token, ok := anonymousAccountToken(`{"idToken":"token","localId":"local"}`)
+	assert.True(t, ok)
+	assert.Equal(t, "token", token)
+	_, ok = anonymousAccountToken(`{"idToken":"token"}`)
+	assert.False(t, ok, "a generic idToken substring is not enough without a created account id")
+
+	assert.Equal(t, "EMAIL_NOT_FOUND", identityErrorMessage(`{"error":{"message":"EMAIL_NOT_FOUND"}}`))
+	assert.Empty(t, identityErrorMessage(`{"message":"EMAIL_NOT_FOUND"}`), "the marker must be in the structured Identity Toolkit error envelope")
+}
+
+func TestProviderDiscoveryRequiresRegisteredNonEmptyProviders(t *testing.T) {
+	t.Parallel()
+	providers, ok := providerDiscoveryDetails(`{"registered":true,"allProviders":["password"],"signinMethods":["password"]}`)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"password"}, providers)
+
+	_, ok = providerDiscoveryDetails(`{"registered":false,"allProviders":["password"]}`)
+	assert.False(t, ok)
+	_, ok = providerDiscoveryDetails(`{"registered":true,"allProviders":[],"signinMethods":[]}`)
+	assert.False(t, ok, "empty provider fields do not disclose identity metadata")
+}

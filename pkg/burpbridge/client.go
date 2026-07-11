@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -124,15 +125,15 @@ func ValidateURL(rawURL string) (string, error) {
 	value := strings.TrimRight(strings.TrimSpace(rawURL), "/")
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme != "http" || parsed.Hostname() == "" || parsed.Port() == "" {
-		return "", fmt.Errorf("Burp bridge URL must be an http:// loopback URL with a port")
+		return "", errors.New("burp bridge URL must be an http:// loopback URL with a port")
 	}
 	host := strings.ToLower(parsed.Hostname())
 	ip := net.ParseIP(host)
 	if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
-		return "", fmt.Errorf("Burp bridge URL must use a loopback host")
+		return "", errors.New("burp bridge URL must use a loopback host")
 	}
 	if parsed.Path != "" && parsed.Path != "/" {
-		return "", fmt.Errorf("Burp bridge URL must not include a path")
+		return "", errors.New("burp bridge URL must not include a path")
 	}
 	return value, nil
 }
@@ -236,7 +237,7 @@ func (c *Client) InspectWithLimit(ctx context.Context, uuid, projectUUID string,
 		}
 	}
 	if len(rawRequest) == 0 {
-		return Inspection{}, fmt.Errorf("Burp bridge inspect response did not include a request")
+		return Inspection{}, errors.New("burp bridge inspect response did not include a request")
 	}
 	rr, err := httpmsg.ParseRawRequestWithURL(string(rawRequest), response.URL)
 	if err != nil {
@@ -279,18 +280,18 @@ func (c *Client) post(ctx context.Context, path string, input, output any) error
 	request.Header.Set("Content-Type", "application/json")
 	response, err := c.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("Burp bridge at %s is unavailable: %w", c.baseURL, err)
+		return fmt.Errorf("burp bridge at %s is unavailable: %w", c.baseURL, err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
 		return err
 	}
 	if len(body) > maxResponseBytes {
-		return fmt.Errorf("Burp bridge response exceeds 2 MiB")
+		return errors.New("burp bridge response exceeds 2 MiB")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("Burp bridge HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("burp bridge HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if err := json.Unmarshal(body, output); err != nil {
 		return fmt.Errorf("decode Burp bridge response: %w", err)

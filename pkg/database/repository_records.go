@@ -128,6 +128,29 @@ func recordDedupTuple(method, host, path, url string) string {
 	return method + "\x00" + host + "\x00" + path + "\x00" + url
 }
 
+// recordSourceRequiresExactIdentity reports whether records saved under this
+// source must dedup on the EXACT raw request (its request_hash) even when the
+// request carries no body. Finding-evidence records — saved with the record kind
+// as their source (finding / candidate / observation) — carry the precise
+// exchange a module used to prove a vulnerability. A header-only probe (Origin,
+// Authorization, Cookie, X-Forwarded-*, a method-override or cache/conditional
+// header) leaves method/host/path/url unchanged and carries no body, so the coarse
+// no-body dedup would collapse it onto an unrelated baseline record and mislink the
+// finding to traffic that never carried the attacker header (and to the baseline
+// response). Requiring the request_hash keeps each proving exchange distinct.
+//
+// Crawler/ingest sources (scanner, spidering, discovery, ingest-*) intentionally
+// keep the coarse no-body key so repeated identical fetches still collapse and the
+// record store isn't inflated by every header-varied crawl request.
+func recordSourceRequiresExactIdentity(source string) bool {
+	switch source {
+	case RecordKindFinding, RecordKindCandidate, RecordKindObservation:
+		return true
+	default:
+		return false
+	}
+}
+
 // dedupCandidate is the narrow projection findDuplicateRecordUUIDs scans — only
 // the columns the duplicate rule needs, so candidate rows don't allocate full
 // HTTPRecord structs.
@@ -202,7 +225,10 @@ func (r *Repository) findDuplicateRecordUUIDs(ctx context.Context, records []*HT
 
 		// A body record matches the candidate with the same request_hash; a
 		// no-body record matches any candidate (mirroring findDuplicateRecord,
-		// which omits the request_hash filter when there is no body).
+		// which omits the request_hash filter when there is no body) — UNLESS its
+		// source requires exact identity (finding-evidence records), in which case
+		// it too must match on request_hash so a header-only probe never collapses
+		// onto an unrelated baseline record.
 		byTuple := make(map[string][]dedupCandidate, len(rows))
 		for _, row := range rows {
 			k := recordDedupTuple(row.Method, row.Hostname, row.Path, row.URL)
@@ -215,7 +241,7 @@ func (r *Repository) findDuplicateRecordUUIDs(ctx context.Context, records []*HT
 				continue
 			}
 			rec := records[i]
-			if rec.RequestContentLength == 0 {
+			if rec.RequestContentLength == 0 && !recordSourceRequiresExactIdentity(rec.Source) {
 				out[i] = cands[0].UUID
 				continue
 			}
@@ -582,6 +608,60 @@ func (r *Repository) GetRecordsWithResponseBody(ctx context.Context, projectUUID
 		return nil, fmt.Errorf("failed to query records with response body: %w", err)
 	}
 	return records, nil
+}
+
+// WalkJavaScriptRecords streams JavaScript responses already stored for a host by
+// earlier phases (spidering, proxy/Burp ingestion) so the discovery engine can
+// feed browser-collected bundles through JSTangle even though they live in the
+// main DB rather than the ephemeral discovery sitemap. Each callback receives the
+// record URL, its response content-type, and the decoded (gzip-inflated) response
+// body. JavaScript is matched by content-type or a .js/.mjs URL suffix; the walk
+// is bounded by limit and ordered by uuid for determinism. A callback error stops
+// the walk and is returned. This satisfies the source.spideredJSProvider optional
+// interface structurally (primitive-typed) so neither package imports the other.
+func (r *Repository) WalkJavaScriptRecords(ctx context.Context, projectUUID, hostname string, limit int, fn func(recordURL, contentType string, body []byte) error) error {
+	if hostname == "" || fn == nil {
+		return nil
+	}
+	var rows []struct {
+		URL                 string `bun:"url"`
+		ResponseContentType string `bun:"response_content_type"`
+		RawResponse         []byte `bun:"raw_response"`
+	}
+	q := r.db.NewSelect().
+		TableExpr("http_records").
+		ColumnExpr("url, response_content_type, raw_response").
+		Where("has_response = ?", true).
+		Where("raw_response IS NOT NULL").
+		Where("length(raw_response) > 0").
+		Where("hostname = ?", hostname).
+		Where("(response_content_type LIKE '%javascript%' OR response_content_type LIKE '%ecmascript%' OR url LIKE '%.js' OR url LIKE '%.mjs')")
+	if projectUUID != "" {
+		q = q.Where("project_uuid = ?", projectUUID)
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if err := q.OrderExpr("uuid ASC").Scan(ctx, &rows); err != nil {
+		return fmt.Errorf("failed to query stored JavaScript records: %w", err)
+	}
+	for i := range rows {
+		body := httpmsg.NewHttpResponse(rows[i].RawResponse).Body()
+		// Stored bodies may still carry their on-wire gzip encoding; inflate when
+		// the gzip magic is present so JSTangle/linkfinder see readable source.
+		if len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b {
+			if dec := httpmsg.DecompressBytes(body); len(dec) > 0 {
+				body = dec
+			}
+		}
+		if len(body) == 0 {
+			continue
+		}
+		if err := fn(rows[i].URL, rows[i].ResponseContentType, body); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ReSpiderCandidate is a lightweight projection of an HTTP record used by the

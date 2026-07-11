@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/uptrace/bun"
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan/linkfinder"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle/linkfinder"
 )
 
 // Repository provides bun-based database operations
@@ -280,16 +280,16 @@ func (r *Repository) UpdateNodeTags(ctx context.Context, nodeID int64, tags stri
 	return err
 }
 
-// BatchUpdateKingfisherFindings updates kingfisher findings for multiple nodes
+// BatchUpdateSecretFindings updates secret findings for multiple nodes
 // identified by URL. Each map entry is a URL → JSON-encoded findings string.
-func (r *Repository) BatchUpdateKingfisherFindings(ctx context.Context, urlFindings map[string]string) error {
+func (r *Repository) BatchUpdateSecretFindings(ctx context.Context, urlFindings map[string]string) error {
 	if len(urlFindings) == 0 {
 		return nil
 	}
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		for url, findings := range urlFindings {
 			_, err := tx.NewUpdate().Model((*NodeModel)(nil)).
-				Set("kingfisher_findings = ?", findings).
+				Set("secret_findings = ?", findings).
 				Where("url = ?", url).
 				Exec(ctx)
 			if err != nil {
@@ -593,11 +593,11 @@ func NodeModelToDiscoveredNode(m *NodeModel) *DiscoveredNode {
 		}
 	}
 
-	// Load kingfisher findings
-	if m.KingfisherFindings.Valid {
-		var findings []KingfisherFinding
-		if err := json.Unmarshal([]byte(m.KingfisherFindings.String), &findings); err == nil {
-			node.SetKingfisherFindings(findings)
+	// Load secret findings
+	if m.SecretFindings.Valid {
+		var findings []SecretFinding
+		if err := json.Unmarshal([]byte(m.SecretFindings.String), &findings); err == nil {
+			node.SetSecretFindings(findings)
 		}
 	}
 
@@ -668,11 +668,11 @@ func NodeModelToDiscoveredNodeLight(m *NodeModel) *DiscoveredNode {
 		}
 	}
 
-	// Load kingfisher findings
-	if m.KingfisherFindings.Valid {
-		var findings []KingfisherFinding
-		if err := json.Unmarshal([]byte(m.KingfisherFindings.String), &findings); err == nil {
-			node.SetKingfisherFindings(findings)
+	// Load secret findings
+	if m.SecretFindings.Valid {
+		var findings []SecretFinding
+		if err := json.Unmarshal([]byte(m.SecretFindings.String), &findings); err == nil {
+			node.SetSecretFindings(findings)
 		}
 	}
 
@@ -774,10 +774,10 @@ func BuildNodeModelFromResult(resultURL *url.URL, depth int, nodeType NodeType, 
 			node.Tags = sql.NullString{String: string(tagsBytes), Valid: true}
 		}
 
-		// Store kingfisher findings
-		if len(result.KingfisherFindings) > 0 {
-			findingsBytes, _ := json.Marshal(result.KingfisherFindings)
-			node.KingfisherFindings = sql.NullString{String: string(findingsBytes), Valid: true}
+		// Store secret findings
+		if len(result.SecretFindings) > 0 {
+			findingsBytes, _ := json.Marshal(result.SecretFindings)
+			node.SecretFindings = sql.NullString{String: string(findingsBytes), Valid: true}
 		}
 	}
 

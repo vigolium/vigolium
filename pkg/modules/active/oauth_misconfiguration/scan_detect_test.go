@@ -11,6 +11,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestScanPerRequest_DetectsRedirectURIManipulation drives the real scan method
@@ -45,10 +46,88 @@ func TestScanPerRequest_DetectsRedirectURIManipulation(t *testing.T) {
 	for _, r := range res {
 		if r.FuzzingParameter == "redirect_uri" {
 			sawRedirectFinding = true
+			assert.Equal(t, output.RecordKindFinding, r.RecordKind)
+			assert.Equal(t, output.EvidenceGradeBypass, r.EvidenceGrade)
+			assert.NotContains(t, r.Info.Description, "enabling authorization code/token theft")
 			break
 		}
 	}
 	assert.True(t, sawRedirectFinding, "expected a redirect_uri manipulation finding among results")
+}
+
+func TestMissingStateIsObservation(t *testing.T) {
+	t.Parallel()
+	rr := modtest.Request(t, "https://login.example.test/oauth/authorize?client_id=app&response_type=code")
+	urlx, err := rr.URL()
+	require.NoError(t, err)
+	result, err := New().testMissingState(rr, urlx)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, output.RecordKindObservation, result.RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, result.EvidenceGrade)
+	assert.False(t, result.Metadata["csrf_impact_proven"].(bool))
+}
+
+func TestResponseTypeAcceptanceWithoutTokenIsCandidate(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("response_type") {
+		case "vigolium_invalid_rt":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"unsupported_response_type"}`))
+		default:
+			w.Header().Set("Location", "https://app.example.com/callback")
+			w.WriteHeader(http.StatusFound)
+		}
+	}))
+	defer srv.Close()
+
+	rr := modtest.Request(t, srv.URL+"/oauth/authorize?client_id=app&response_type=code&state=s&redirect_uri=https://app.example.com/callback")
+	results, err := New().ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	var candidate *output.ResultEvent
+	for _, result := range results {
+		if result.FuzzingParameter == "response_type" {
+			candidate = result
+		}
+	}
+	require.NotNil(t, candidate)
+	assert.Equal(t, output.RecordKindCandidate, candidate.RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, candidate.EvidenceGrade)
+	assert.Equal(t, false, candidate.Metadata["access_token_issued"])
+}
+
+func TestResponseTypeTokenIssuanceIsFinding(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("response_type") {
+		case "token":
+			w.Header().Set("Location", "https://app.example.com/callback#access_token=issued-token&token_type=bearer")
+			w.WriteHeader(http.StatusFound)
+		case "vigolium_invalid_rt":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"unsupported_response_type"}`))
+		default:
+			w.Header().Set("Location", "https://app.example.com/callback?code=abc")
+			w.WriteHeader(http.StatusFound)
+		}
+	}))
+	defer srv.Close()
+
+	rr := modtest.Request(t, srv.URL+"/oauth/authorize?client_id=app&response_type=code&state=s&redirect_uri=https://app.example.com/callback")
+	results, err := New().ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	for _, result := range results {
+		if result.FuzzingParameter == "response_type" {
+			assert.Equal(t, output.RecordKindFinding, result.RecordKind)
+			assert.Equal(t, output.EvidenceGradeImpact, result.EvidenceGrade)
+			assert.Equal(t, true, result.Metadata["access_token_issued"])
+			return
+		}
+	}
+	t.Fatal("expected response_type token issuance finding")
 }
 
 // TestScanPerRequest_RedirectURIEchoedToIdPNoFalsePositive reproduces the

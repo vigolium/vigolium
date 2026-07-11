@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"net/url"
+	"strings"
 	"sync"
 
 	"golang.org/x/net/html"
@@ -15,6 +16,51 @@ const MaxBodySize = 50 * 1024 * 1024 // 50MB
 
 // ErrBodyTooLarge is returned when the response body exceeds MaxBodySize.
 var ErrBodyTooLarge = errors.New("response body too large for HTML parsing")
+
+// ErrNotHTMLContentType marks a response whose Content-Type is definitively not
+// HTML/XML, so the HTML parser is skipped for it (the raw-bytes URL scanners
+// still run). See isHTMLParseableContentType.
+var ErrNotHTMLContentType = errors.New("content type is not HTML; skipping HTML parse")
+
+// isHTMLParseableContentType reports whether a body with this Content-Type is
+// worth running through the HTML parser. HTML/XHTML/XML are parsed; JSON,
+// JavaScript, CSS, and binary/media types are NOT (running html.Parse over a
+// large JSON or binary body is wasted work — the inline URL scanner still runs
+// on their raw bytes). An empty/unknown Content-Type is treated as parseable:
+// servers sometimes serve HTML without one, and being lenient avoids missing
+// links.
+func isHTMLParseableContentType(contentType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if i := strings.IndexByte(ct, ';'); i >= 0 { // strip charset/boundary params
+		ct = strings.TrimSpace(ct[:i])
+	}
+	if ct == "" {
+		return true
+	}
+	if strings.Contains(ct, "html") || strings.Contains(ct, "xml") {
+		return true
+	}
+	switch {
+	case strings.Contains(ct, "json"),
+		strings.Contains(ct, "javascript"),
+		strings.Contains(ct, "ecmascript"),
+		strings.Contains(ct, "css"),
+		strings.HasPrefix(ct, "image/"),
+		strings.HasPrefix(ct, "audio/"),
+		strings.HasPrefix(ct, "video/"),
+		strings.Contains(ct, "font"), // covers font/* and application/font-*
+		strings.Contains(ct, "octet-stream"),
+		strings.Contains(ct, "pdf"),
+		strings.Contains(ct, "protobuf"),
+		strings.Contains(ct, "grpc"),
+		strings.Contains(ct, "wasm"),
+		strings.Contains(ct, "zip"): // covers zip and gzip
+		return false
+	default:
+		// Other text/* (e.g. text/plain) and unknown types: lenient — parse.
+		return true
+	}
+}
 
 // HTTPResponse wraps HTTP response data for link extraction.
 // HTML parsing is cached using sync.Once for efficiency.

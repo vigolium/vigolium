@@ -7,7 +7,7 @@ DEST_BASE="$HOME/Desktop/external"
 GIT_ORG="git@github.com:vigolium"
 
 PLATFORMS=(
-  jsscan
+  jstangle
   vigolium-workbench
   static-reports
   skills

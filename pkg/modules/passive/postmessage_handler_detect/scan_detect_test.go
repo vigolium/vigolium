@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -42,7 +43,7 @@ func scan(t *testing.T, path, body string) []*severityFinding {
 	out := make([]*severityFinding, 0, len(results))
 	for _, r := range results {
 		assert.Equal(t, ModuleID, r.ModuleID)
-		out = append(out, &severityFinding{name: r.Info.Name, sev: r.Info.Severity})
+		out = append(out, &severityFinding{name: r.Info.Name, sev: r.Info.Severity, kind: r.RecordKind})
 	}
 	return out
 }
@@ -50,6 +51,7 @@ func scan(t *testing.T, path, body string) []*severityFinding {
 type severityFinding struct {
 	name string
 	sev  severity.Severity
+	kind output.RecordKind
 }
 
 func find(findings []*severityFinding, name string) *severityFinding {
@@ -68,6 +70,7 @@ func TestWildcardSend_Medium(t *testing.T) {
 	f := find(scan(t, "/app/main.js", body), "postMessage Sent to Wildcard Origin (*)")
 	require.NotNil(t, f, "expected wildcard-send finding")
 	assert.Equal(t, severity.Medium, f.sev)
+	assert.Equal(t, output.RecordKindCandidate, f.kind)
 }
 
 // TestWildcardSend_ObjectArg covers an object message argument plus a transfer list.
@@ -103,6 +106,7 @@ func TestInlineHandler_NoOriginCheck_Medium(t *testing.T) {
 	f := find(findings, "postMessage Handler Without Origin Validation")
 	require.NotNil(t, f, "expected unchecked-handler finding")
 	assert.Equal(t, severity.Medium, f.sev)
+	assert.Equal(t, output.RecordKindCandidate, f.kind)
 	assert.Nil(t, find(findings, "postMessage Handler Detected"), "should not also be reported as Info")
 }
 
@@ -123,6 +127,7 @@ func TestInlineHandler_WithOriginGuard_Info(t *testing.T) {
 	f := find(findings, "postMessage Handler Detected")
 	require.NotNil(t, f, "expected Info handler-detected finding")
 	assert.Equal(t, severity.Info, f.sev)
+	assert.Equal(t, output.RecordKindObservation, f.kind)
 	assert.Nil(t, find(findings, "postMessage Handler Without Origin Validation"), "validated handler must not be Medium")
 }
 

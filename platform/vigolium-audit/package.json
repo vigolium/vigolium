@@ -1,6 +1,6 @@
 {
   "name": "@vigolium/vigolium-audit",
-  "version": "0.1.15-alpha",
+  "version": "0.1.16-alpha",
   "private": true,
   "description": "vigolium-audit — autonomous agent that performs thorough security audits on your codebase, part of Vigolium",
   "keywords": [
@@ -47,7 +47,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.199",
-    "@openai/codex-sdk": "^0.142.5",
+    "@openai/codex-sdk": "^0.144.1",
     "cac": "^6.7.14",
     "chalk": "^5.6.2",
     "yaml": "^2.9.0",

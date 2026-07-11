@@ -9,7 +9,7 @@ func TestIsChunkHashManifestMatch(t *testing.T) {
 	// A slice of the real webpack chunk-hash manifest that produced the "Looker
 	// Client ID" false positive: every value is a 20-char lowercase-hex content
 	// hash sitting in a `name:"<hash>"` map entry, and the word "looker" rides in
-	// the surrounding module names so Kingfisher's word-proximity rule fires.
+	// the surrounding module names so the ruleset's word-proximity rule fires.
 	const lookerManifest = `{scene_unused_content:"674ef423da0f4f902e35",` +
 		`main_navigation_controller:"ad0442c282c5f443103f",` +
 		`looker_module:"a60c99f0cbc1120c2023",` +
@@ -111,7 +111,7 @@ func TestIsChunkHashManifestMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsChunkHashManifestMatch([]byte(tt.body), tt.snippet)
+			got := IsChunkHashManifestMatch([]byte(tt.body), tt.snippet, -1, -1)
 			if got != tt.want {
 				t.Errorf("IsChunkHashManifestMatch() = %v, want %v", got, tt.want)
 			}

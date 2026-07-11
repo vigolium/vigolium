@@ -14,6 +14,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func rpcMethod(body []byte) string {
@@ -132,13 +133,22 @@ func TestScanPerHost_DetectsSessionWeaknesses(t *testing.T) {
 	for _, e := range res {
 		names[e.Info.Name] = true
 	}
-	assert.True(t, names["MCP Anonymous Tool Enumeration (No Session Required)"], "anonymous tools/list should be flagged")
+	assert.True(t, names["MCP Tool List Available Without Session"], "sessionless tools/list should be inventoried")
 	assert.True(t, names["MCP Session ID Weakness"], "short low-entropy session id should be flagged")
 	// On a wide-open server (tools/list works with no session at all), "fixation"
 	// is not a distinct vulnerability — the anonymous-access finding already
 	// captures it. It must NOT be reported here (regression guard for the former
 	// false positive where our injected id merely persisted client-side).
-	assert.False(t, names["MCP Session Fixation (Attacker-Supplied Mcp-Session-Id)"], "fixation must not be flagged on a sessionless/open server")
+	assert.False(t, names["MCP Session Fixation Candidate (Attacker-Supplied Mcp-Session-Id)"], "fixation must not be flagged on a sessionless/open server")
+	for _, event := range res {
+		if event.Info.Name == "MCP Tool List Available Without Session" {
+			assert.Equal(t, output.RecordKindObservation, event.RecordKind)
+		}
+		if event.Info.Name == "MCP Session ID Weakness" {
+			assert.Equal(t, output.RecordKindCandidate, event.RecordKind, "repeated session IDs are a candidate")
+			assert.NotContains(t, event.ExtractedResults, "aaaa")
+		}
+	}
 }
 
 // TestScanPerHost_DetectsFixation flags fixation only on a server that enforces
@@ -157,9 +167,15 @@ func TestScanPerHost_DetectsFixation(t *testing.T) {
 	for _, e := range res {
 		names[e.Info.Name] = true
 	}
-	assert.True(t, names["MCP Session Fixation (Attacker-Supplied Mcp-Session-Id)"], "genuine fixation should be flagged")
-	assert.False(t, names["MCP Anonymous Tool Enumeration (No Session Required)"], "session-enforcing server must not be flagged for anonymous access")
+	assert.True(t, names["MCP Session Fixation Candidate (Attacker-Supplied Mcp-Session-Id)"], "fixation candidate should be flagged")
+	assert.False(t, names["MCP Tool List Available Without Session"], "session-enforcing server must not be flagged for sessionless access")
 	assert.False(t, names["MCP Session ID Weakness"], "strong random session ids must not be flagged weak")
+	for _, event := range res {
+		if event.Info.Name == "MCP Session Fixation Candidate (Attacker-Supplied Mcp-Session-Id)" {
+			assert.Equal(t, output.RecordKindCandidate, event.RecordKind)
+			assert.Equal(t, output.EvidenceGradeDifferential, event.EvidenceGrade)
+		}
+	}
 }
 
 // TestScanPerHost_StrictServerNoFinding ensures a server with strong session

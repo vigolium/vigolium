@@ -9,8 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestScanPerRequest_DetectsManager drives the real scan method against a host
@@ -39,7 +41,10 @@ func TestScanPerRequest_DetectsManager(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a finding when the Tomcat manager is exposed")
+	require.NotEmpty(t, res, "expected a candidate when the Tomcat manager controls are anonymously reachable")
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
+	assert.False(t, res[0].IsFinding(), "manager HTML alone does not prove a deploy action succeeds")
 }
 
 // TestScanPerRequest_DetectsAuthChallenge covers the 401 + WWW-Authenticate
@@ -62,7 +67,31 @@ func TestScanPerRequest_DetectsAuthChallenge(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a finding when a Tomcat auth challenge is returned")
+	require.NotEmpty(t, res, "expected an observation when a Tomcat auth challenge is returned")
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, res[0].EvidenceGrade)
+	assert.False(t, res[0].IsFinding())
+}
+
+func TestScanPerRequest_AuthenticatedManagerIsNotCalledAnonymous(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/manager/html" && r.Header.Get("Authorization") == "Basic operator" {
+			_, _ = w.Write([]byte(`<h1>Tomcat Web Application Manager</h1><input value="Deploy">`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", "ok")
+	raw, err := httpmsg.AddOrReplaceHeader(rr.Request().Raw(), "Authorization", "Basic operator")
+	require.NoError(t, err)
+	rr = httpmsg.NewHttpRequestResponse(httpmsg.NewHttpRequestWithService(rr.Service(), raw), rr.Response())
+
+	res, err := New().ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a manager page visible only with the captured credential is not anonymous exposure")
 }
 
 // TestScanPerRequest_NoFalsePositive ensures a host that 404s every probe path
@@ -122,6 +151,9 @@ func TestScanPerRequest_DetectsManagerViaPathBypass(t *testing.T) {
 			assert.Contains(t, r.Info.Tags, "acl-bypass", "bypass finding must carry the acl-bypass tag")
 			assert.Contains(t, strings.Join(r.ExtractedResults, ","), "/..;/manager/html",
 				"bypass finding must record the bypass path used")
+			assert.Equal(t, output.RecordKindFinding, r.RecordKind)
+			assert.Equal(t, output.EvidenceGradeBypass, r.EvidenceGrade)
+			assert.True(t, r.IsFinding())
 		}
 	}
 	require.NotNil(t, bypass, "expected a path-normalization-bypass finding")

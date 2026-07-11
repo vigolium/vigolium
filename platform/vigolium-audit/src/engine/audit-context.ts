@@ -36,14 +36,14 @@ export const AUTO_CONFIRM_SECTION =
   `The mode spec is explicit: stay on the current branch and write everything under \`vigolium-results/\`.\n\n` +
   `**Required defaults when the spec's Pre-Flight Check would normally ask via \`AskUserQuestion\`:**\n` +
   `- Existing \`vigolium-results/audit-state.json\` (in-progress or complete): pick **"Start fresh"** — ` +
-  `delete the existing \`vigolium-results/audit-state.json\` and proceed with Pre-Audit Setup. ` +
-  `Re-invocation of the same mode signals the user wants a fresh run, not a resume. ` +
+  `append a new run while preserving prior audit history, then proceed with Pre-Audit Setup. ` +
+  `Never delete the state file. Re-invocation of the same mode signals the user wants a fresh run, not a resume. ` +
   `(Resume is only entered via the explicit \`--resume\` flag, which the CLI handles before ` +
   `this prompt ever runs.)\n` +
   `- Any other resume-vs-fresh / scope-confirmation / model-attribution choice: pick the option ` +
   `marked "(Recommended)" if any, else pick the option that **continues the audit**.\n\n` +
-  `- Clean up stale working state per the mode spec (e.g. \`findings-draft/\`, ` +
-  `\`probe-workspace/\`, \`chamber-workspace/\` from prior rounds) and continue.\n` +
+  `- The trusted CLI handles stale core artifacts before a fresh run. Work only in the live ` +
+  `phase paths; do not delete retained state or anything under \`vigolium-results/.archive/\`.\n` +
   `- Only stop if a hard precondition genuinely cannot be satisfied (e.g. target directory ` +
   `unreadable) — in that case fail loudly with an explicit error rather than waiting for input.`;
 
@@ -74,6 +74,8 @@ export interface AuditContextPayload {
   focus?: string;
   /** Free-form user-supplied prose flagging intentional behaviors. */
   expectedBehaviors?: string;
+  /** The trusted driver has already created/resumed the audit record. */
+  engineOwnsState?: boolean;
 }
 
 /**
@@ -88,6 +90,14 @@ export async function writeAuditContext(
 ): Promise<void> {
   await mkdir(resultsDir, { recursive: true });
   const sections: string[] = [payload.resume ? RESUME_CONFIRM_SECTION : AUTO_CONFIRM_SECTION];
+  if (payload.engineOwnsState) {
+    sections.push(
+      `## Engine-Owned Audit State\n\n` +
+        `The trusted CLI has already created or selected the current audit record. ` +
+        `Do not create, delete, replace, or edit \`vigolium-results/audit-state.json\`; do not mark phases complete. ` +
+        `Use it only to read resume/skip context. Write phase artifacts and let the engine validate gates and persist state.`,
+    );
+  }
   if (payload.resume) {
     sections.push(`## Resume Requested\n\nContinue the latest non-complete audit for this mode. Preserve the existing audit ID and completed phase state.`);
   }
@@ -98,8 +108,11 @@ export async function writeAuditContext(
     const list = payload.excludePhases.map((p) => `- ${p}`).join("\n");
     sections.push(
       `## Skip Phases (orchestrator directive)\n\n` +
-        `Skip these phase IDs without spawning their agents. Record them as ` +
-        `\`skipped\` in \`vigolium-results/audit-state.json\`.\n\n${list}`,
+        `Skip these phase IDs without spawning their agents. ` +
+        (payload.engineOwnsState
+          ? `The engine records their state; do not edit the state file.`
+          : `Record them as \`skipped\` in \`vigolium-results/audit-state.json\`.`) +
+        `\n\n${list}`,
     );
   }
   if (payload.focus) {

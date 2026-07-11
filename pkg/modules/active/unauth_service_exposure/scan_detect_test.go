@@ -10,9 +10,10 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
-func run(t *testing.T, srv *httptest.Server) []string {
+func run(t *testing.T, srv *httptest.Server) *output.ResultEvent {
 	t.Helper()
 	client := modtest.Requester(t)
 	rr := modtest.Request(t, srv.URL)
@@ -22,7 +23,7 @@ func run(t *testing.T, srv *httptest.Server) []string {
 		return nil
 	}
 	require.Len(t, res, 1)
-	return res[0].ExtractedResults
+	return res[0]
 }
 
 func TestDetectsDockerEngine(t *testing.T) {
@@ -38,8 +39,11 @@ func TestDetectsDockerEngine(t *testing.T) {
 	defer srv.Close()
 
 	got := run(t, srv)
-	require.NotEmpty(t, got, "expected a Docker Engine finding")
-	assert.Contains(t, got[0], "Docker Engine API")
+	require.NotNil(t, got, "expected a Docker Engine observation")
+	assert.Equal(t, output.RecordKindObservation, got.RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, got.EvidenceGrade)
+	assert.Contains(t, got.ExtractedResults[0], "Docker Engine API")
+	assert.NotContains(t, got.Info.Description, "equivalent to root")
 }
 
 func TestDetectsKubelet(t *testing.T) {
@@ -55,8 +59,11 @@ func TestDetectsKubelet(t *testing.T) {
 	defer srv.Close()
 
 	got := run(t, srv)
-	require.NotEmpty(t, got, "expected a Kubelet finding")
-	assert.Contains(t, got[0], "Kubelet API")
+	require.NotNil(t, got, "expected a Kubelet finding")
+	assert.Equal(t, output.RecordKindFinding, got.RecordKind)
+	assert.Equal(t, output.EvidenceGradeImpact, got.EvidenceGrade)
+	assert.Contains(t, got.ExtractedResults[0], "Kubelet API")
+	assert.NotContains(t, got.Info.Description, "command execution")
 }
 
 func TestDetectsElasticsearch(t *testing.T) {
@@ -72,8 +79,60 @@ func TestDetectsElasticsearch(t *testing.T) {
 	defer srv.Close()
 
 	got := run(t, srv)
-	require.NotEmpty(t, got, "expected an Elasticsearch finding")
-	assert.Contains(t, got[0], "Elasticsearch")
+	require.NotNil(t, got, "expected an Elasticsearch observation")
+	assert.Equal(t, output.RecordKindObservation, got.RecordKind)
+	assert.Contains(t, got.ExtractedResults[0], "Elasticsearch")
+}
+
+func TestElasticsearchDocumentReadIsFinding(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/_search" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"took":1,"_shards":{"total":1,"successful":1,"failed":0},"hits":{"hits":[{"_index":"customers","_id":"1","_source":{"email":"alice@example.test"}}]}}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	got := run(t, srv)
+	require.NotNil(t, got)
+	assert.Equal(t, output.RecordKindFinding, got.RecordKind)
+	assert.Equal(t, output.EvidenceGradeImpact, got.EvidenceGrade)
+	assert.Contains(t, got.Info.Description, "stored document content")
+}
+
+func TestRegistryCatalogNamesRemainCandidate(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v2/_catalog" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Docker-Distribution-Api-Version", "registry/2.0")
+			_, _ = w.Write([]byte(`{"repositories":["public/app"]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	got := run(t, srv)
+	require.NotNil(t, got)
+	assert.Equal(t, output.RecordKindCandidate, got.RecordKind)
+	assert.NotEqual(t, output.EvidenceGradeImpact, got.EvidenceGrade)
+	assert.Contains(t, got.Info.Description, "Public registries may intentionally")
+}
+
+func TestStatusCodeWithoutNativeStructureIsIgnored(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok","message":"service available"}`))
+	}))
+	defer srv.Close()
+
+	assert.Nil(t, run(t, srv), "a reproduced 200 alone must not identify an infrastructure service")
 }
 
 // TestNoFalsePositiveHTMLCatchAll reproduces the universal catch-all / echo FP

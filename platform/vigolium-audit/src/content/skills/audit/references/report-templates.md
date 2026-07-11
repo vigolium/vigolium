@@ -46,7 +46,7 @@ Field notes:
 - `status` (audit-level): overall status of the audit run
 - `findings_count`: number of candidate findings at phase completion (0 for phases that do not generate findings)
 - `reports_generated`: list of KB sections or artifact files written during this phase
-- `validation_passed`: result of running `validate_phase_output.py` for this phase
+- `validation_passed`: result of the trusted engine's artifact contract for this phase
 - `error`: validation error message if `validation_passed` is false; null otherwise
 
 **Appending a new audit**: before starting a new audit run, read the existing file, append a new
@@ -78,19 +78,19 @@ Phase 4 `metrics` must include a `codeql_structural` sub-object:
 
 ## Finding Draft Template
 
-Used for `vigolium-results/findings-draft/<phase>-<NNN>-<slug>.md` files written incrementally during Phases 7-9.
+Used for `vigolium-results/findings-draft/<phase>-<NNN>-<slug>.md` files written incrementally during analysis.
 
 ```markdown
 # [Finding Title]
 
-Phase: 7 | 8 | 9
+Phase: <mode-assigned phase namespace>
 Sequence: NNN
 Slug: <slug>
 Verdict: PENDING | VALID | FALSE POSITIVE | BY DESIGN | OUT OF SCOPE | FALSE POSITIVE (adversarial)
-Rationale: <one-sentence explanation tied to the threat model — fill in during Phase 11>
+Rationale: <one-sentence explanation tied to the threat model — fill in during FP checking>
 Adversarial-Verdict: PENDING | CONFIRMED | DISPROVED
-Adversarial-Rationale: <one sentence citing the decisive evidence — fill in during Phase 11 Stage 2>
-Severity-Original: <severity assigned during Phase 10/8 Stage 1>
+Adversarial-Rationale: <one sentence citing the decisive evidence — fill in during cold verification>
+Severity-Original: <severity assigned by the originating analysis phase>
 Severity-Final: <severity after adversarial challenge — lower severity wins>
 PoC-Status: executed | theoretical | blocked
 Pre-FP-Flag: <none | check-N-ambiguous — set by chamber Synthesizer if quality gate was ambiguous>
@@ -129,7 +129,7 @@ Line: <number>
 
 ## PoC Quality Requirements
 
-Apply these requirements to every PoC produced in Phase 15 and Phase 11 Stage 2:
+Apply these requirements to every PoC produced during validation or finding finalization:
 
 - **Prove the vulnerability, do not manufacture it.** The PoC must demonstrate the actual exploit path through the real application stack — not a stripped-down harness that bypasses the security controls under test. Bug bounty triagers reject PoCs that call the vulnerable function directly while skipping the auth layer, middleware, or sandbox that would normally gate access.
 - **Minimize the PoC to its essential steps.** Remove all scaffolding, retry loops, verbose logging, and diagnostic output that are not necessary to trigger the vulnerability. The finished script should read like a CTF exploit: tight, purposeful, and self-contained.
@@ -139,13 +139,13 @@ Apply these requirements to every PoC produced in Phase 15 and Phase 11 Stage 2:
 
 ## Adversarial Review Template
 
-Used for `vigolium-results/adversarial-reviews/<slug>-review.md` files written during Phase 11 Stage 2.
+Used for `vigolium-results/adversarial-reviews/<slug>-review.md` files written during cold verification.
 
 ```markdown
 # Adversarial Review: [Finding Title]
 
 Finding-Ref: vigolium-results/findings-draft/<phase>-<NNN>-<slug>.md
-Reviewer-Agent: fresh (isolated — did not see Phase 10 reasoning)
+Reviewer-Agent: fresh (isolated — did not see prior chamber reasoning)
 Date: <ISO date>
 
 ## Independent Restatement
@@ -224,14 +224,13 @@ Adversarial-Rationale: <one sentence citing the decisive evidence>
 
 ## Methodology Summary
 -----------------------
-[Briefly describe the audit process (Phases 1-9) to establish technical depth.]
+[Briefly describe the active mode's audit process to establish technical depth.]
 - **Intelligence Gathering:** Identified published advisories, architecture, and dependency risks.
 - **Threat Modeling:** Documented trust boundaries, attacker entry points, and high-risk flows.
 - **Static Analysis:** Executed CodeQL, Semgrep Pro, and custom architecture-driven rules.
 - **Structural Extraction:** CodeQL structural artifacts (entry points, sinks, call graph slices,
   informational flow nodes, machine-generated DFD/CFD diagrams) were extracted and used to validate
-  Phase 3 DFD/CFD slices, guide manual review in Phase 10, and drive AST-level variant hunting in
-  Phase 12.
+  threat-model DFD/CFD slices, guide manual review, and drive AST-level variant hunting.
 - **Deep Manual Review:** Targeted bug hunting focusing on logic, bypasses, and spec compliance.
 - **Verification:** All findings were validated for exploitability within the project's threat model.
 
@@ -379,8 +378,8 @@ Per-Gap Detail
 
 File: `vigolium-results/attack-pattern-registry.json`
 
-Created during Phase 10 Review Chamber debates. Each confirmed vulnerability pattern is added
-with detection signatures for automated variant hunting in Phase 12.
+Created during Review Chamber debates. Each confirmed vulnerability pattern is added
+with detection signatures for automated variant hunting.
 
 ```json
 {

@@ -9,8 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // TestScanPerRequest_DetectsSwaggerUI serves a Swagger UI page at /docs (with
@@ -38,7 +40,10 @@ func TestScanPerRequest_DetectsSwaggerUI(t *testing.T) {
 
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected an exposed-docs finding when Swagger UI is served at /docs")
+	require.Len(t, res, 1, "one docs surface should produce one observation")
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, res[0].EvidenceGrade)
+	assert.False(t, res[0].IsFinding())
 }
 
 // TestScanPerRequest_DetectsContextPathDocs verifies the context-path walk: a
@@ -68,6 +73,27 @@ func TestScanPerRequest_DetectsContextPathDocs(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "expected a finding for FastAPI docs mounted under the /api context path")
 	assert.Contains(t, res[0].URL, "/api/docs", "the finding URL must point at the context-path mount")
+}
+
+func TestScanPerRequest_AuthenticatedDocsAreNotCalledPublic(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/docs" && r.Header.Get("Cookie") == "session=developer" {
+			_, _ = w.Write([]byte(`<div id="swagger-ui"></div><script>SwaggerUIBundle({})</script>`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	rr := modtest.Response(modtest.Request(t, srv.URL+"/"), "text/html", "app")
+	raw, err := httpmsg.AddOrReplaceHeader(rr.Request().Raw(), "Cookie", "session=developer")
+	require.NoError(t, err)
+	rr = httpmsg.NewHttpRequestResponse(httpmsg.NewHttpRequestWithService(rr.Service(), raw), rr.Response())
+
+	res, err := New().ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "docs visible only with the captured session are not public exposure")
 }
 
 // TestScanPerRequest_NoFP_GenericJSONShell reproduces the generic-JSON-catch-all

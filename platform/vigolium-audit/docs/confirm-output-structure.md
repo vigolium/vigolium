@@ -173,7 +173,7 @@ the confirmation-rate denominator. Verified theoretical findings are not moved t
 | `intent-verdicts.json` | V1.5 | Per-finding `{ id, match: "yes"\|"partial"\|"no"\|"contested", corpus_refs[], confidence, quote }`. Annotate-only — never overrides `Confirm-Status`. Optional. |
 | `env-strategies.json` | V2 | Ranked startup strategies, build steps, ports + fallback ports, env vars, datastores, migrations/seeds, test framework, multi-tenancy hints. |
 | `auth-spec.json` | V2 | Auth scaffolding and identities to seed; `{"supported": false}` when no auth wiring detected. |
-| `env-connection.json` | V3 / `--target` | `{ status: "running"\|"failed"\|"remote", session, base_url, method_used, healthcheck_passed, actual_port, container_ids[], app_pid, cleanup_cmd, test_identities[], snapshot_spec, provisioning_attempts[] }` |
+| `env-connection.json` | V3 / `--target` | `{ status: "running"\|"failed"\|"remote", session, base_url, method_used, healthcheck_passed, actual_port, container_ids[], app_pid, test_identities[], snapshot_spec, provisioning_attempts[] }`. Cleanup uses only the structured session label and a session-stamped `app.pid`; command strings are never executed. |
 | `snapshot-spec.json` | V3 | Datastore restore commands keyed to `db-snapshot.*` for resetting state between PoC variants. |
 
 ### `vigolium-results/confirm-workspace/{report-ready,needs-review}/` staging

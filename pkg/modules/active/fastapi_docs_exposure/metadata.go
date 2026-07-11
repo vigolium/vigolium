@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** FastAPI's interactive API docs are publicly reachable at the default Swagger UI (/docs), ReDoc (/redoc), or raw OpenAPI spec (/openapi.json), publishing a complete map of every route, method, schema, and parameter. Informational recon meant for internal developers.
+	ModuleDesc = `**What it means:** An isolated credential-free request reached a Swagger UI, ReDoc loader, or structurally valid OpenAPI document at a FastAPI-default path. The path does not by itself prove the framework.
 
-**How it's exploited:** An attacker reads the docs to enumerate hidden, internal, or admin endpoints they would otherwise guess at, learning the exact parameters each expects, then targets authorization gaps, mass-assignment fields, and injectable parameters more efficiently.
+**How it's exploited:** Attackers can use documented routes and schemas for reconnaissance. Documentation reachability alone does not prove that any route is sensitive, undocumented, or missing authorization, so this remains an observation.
 
 **Fix:** Disable docs in production by setting docs_url, redoc_url, and openapi_url to None, or restrict these paths to authenticated internal users.`
 
-	ModuleConfirmation = "Confirmed when documentation endpoints return 200 with expected FastAPI-specific markers"
-	ModuleSeverity     = severity.Low
+	ModuleConfirmation = "Observed when credential-free 200 responses pass grouped UI markers or structural spec parsing plus soft-404 and catch-all controls"
+	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"fastapi", "python", "info-disclosure", "probe", "light"}
 )

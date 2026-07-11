@@ -15,7 +15,7 @@ var (
 
 **Fix:** Remove and immediately rotate the secret, and keep secrets server-side or in a secrets manager, never in client-facing content.`
 
-	ModuleConfirmation = "Confirmed when Kingfisher detects a known secret pattern in the HTTP response body"
+	ModuleConfirmation = "Confirmed when the native secret detector matches a known secret pattern in the HTTP response body"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"info-disclosure", "file-exposure", "light"}

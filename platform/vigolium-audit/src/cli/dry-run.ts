@@ -1,12 +1,24 @@
 import { existsSync } from "fs";
+import { readFile } from "fs/promises";
 import { join, resolve } from "path";
 import chalk from "chalk";
+import { resolveAgentTransport } from "../adapters/detect.js";
 import { getContentLoader, resolveRoots, type ContentVariant } from "../content-loader.js";
+import {
+  buildCodexTriggerPrompt,
+  isCodexHandoffMode,
+} from "../engine/codex-handoff.js";
 import { composeUserPrompt, parseToolsField } from "../engine/prompts.js";
 import { topologicalOrder } from "../engine/phase.js";
 import { probeGit } from "../engine/git.js";
 import { compact } from "../engine/util.js";
-import type { AgentPlatform, AuditMode, PhaseDef, RunOptions } from "../engine/types.js";
+import type {
+  AgentPlatform,
+  AgentTransport,
+  AuditMode,
+  PhaseDef,
+  RunOptions,
+} from "../engine/types.js";
 import { resolveRequestedModes, resolveAuditContext } from "./run.js";
 import { detectRefreshRoute } from "./refresh-detect.js";
 import { failCli, statusArrow } from "./util.js";
@@ -30,6 +42,12 @@ export async function dryRunCommand(opts: RunOptions): Promise<void> {
   const platform = (opts.agent ?? "claude") as AgentPlatform;
   if (platform !== "claude" && platform !== "codex") {
     return fail(json, `--agent must be "claude" or "codex"`);
+  }
+  let transport: AgentTransport;
+  try {
+    transport = resolveAgentTransport(opts.transport);
+  } catch (err) {
+    return fail(json, (err as Error).message);
   }
   const targetDir = resolve(opts.target ?? ".");
   const loader = getContentLoader();
@@ -90,6 +108,7 @@ export async function dryRunCommand(opts: RunOptions): Promise<void> {
       JSON.stringify({
         kind: "dryRun",
         platform,
+        transport,
         targetDir,
         gitAvailable: git.available,
         noGit,
@@ -102,7 +121,7 @@ export async function dryRunCommand(opts: RunOptions): Promise<void> {
     return;
   }
 
-  renderPlans({ platform, targetDir, gitAvailable: git.available, noGit, plans, opts });
+  renderPlans({ platform, transport, targetDir, gitAvailable: git.available, noGit, plans, opts });
 }
 
 interface ResolvedPhase {
@@ -117,6 +136,7 @@ interface ResolvedPhase {
 }
 
 interface ModePlan {
+  execution: "codex-handoff" | "phase-graph";
   requestedMode: AuditMode;
   resolvedMode: AuditMode;
   routingNote?: string;
@@ -142,6 +162,41 @@ async function buildModePlan(args: {
   expectedBehaviors?: string;
   liveTarget?: string;
 }): Promise<ModePlan> {
+  if (args.platform === "codex" && isCodexHandoffMode(args.resolvedMode)) {
+    const dispatchPath = join(args.roots.contentRoot, "harnesses", "codex", "agents-dispatch.md");
+    const dispatchBody = await readFile(dispatchPath, "utf8");
+    const userPrompt = buildCodexTriggerPrompt({
+      mode: args.resolvedMode,
+      targetDir: args.targetDir,
+      ...(args.liveTarget !== undefined ? { liveTarget: args.liveTarget } : {}),
+    });
+    return {
+      execution: "codex-handoff",
+      requestedMode: args.requestedMode,
+      resolvedMode: args.resolvedMode,
+      ...(args.routingNote !== undefined ? { routingNote: args.routingNote } : {}),
+      commandSourcePath: dispatchPath,
+      commandOrigin: "embedded",
+      bodyChars: dispatchBody.length,
+      phases: [{
+        phase: {
+          id: "handoff",
+          title: `${args.resolvedMode} codex dispatch`,
+          agent: null,
+          requires_git: false,
+          parallel_with: [],
+          depends_on: [],
+        },
+        skipped: false,
+        contentOrigin: "embedded",
+        agentSource: "(AGENTS.md dispatch)",
+        systemPromptChars: 0,
+        userPromptChars: userPrompt.length,
+        tools: [],
+      }],
+    };
+  }
+
   const command = await args.loader.loadCommand(args.resolvedMode, { variant: args.variant });
   const ordered = topologicalOrder(command.phases);
   const excludeSet = new Set(args.excludePhases ?? []);
@@ -195,6 +250,7 @@ async function buildModePlan(args: {
   );
 
   return {
+    execution: "phase-graph",
     requestedMode: args.requestedMode,
     resolvedMode: args.resolvedMode,
     ...(args.routingNote !== undefined ? { routingNote: args.routingNote } : {}),
@@ -232,6 +288,7 @@ function detectOriginFromPath(
 
 function serializePlan(p: ModePlan): unknown {
   return {
+    execution: p.execution,
     requestedMode: p.requestedMode,
     resolvedMode: p.resolvedMode,
     routingNote: p.routingNote ?? null,
@@ -248,6 +305,7 @@ function serializePlan(p: ModePlan): unknown {
       skipped: ph.skipped,
       skipReason: ph.skipReason ?? null,
       contentOrigin: ph.contentOrigin,
+      agentSource: ph.agentSource,
       systemPromptChars: ph.systemPromptChars,
       userPromptChars: ph.userPromptChars,
       tools: ph.tools,
@@ -257,6 +315,7 @@ function serializePlan(p: ModePlan): unknown {
 
 function renderPlans(args: {
   platform: AgentPlatform;
+  transport: AgentTransport;
   targetDir: string;
   gitAvailable: boolean;
   noGit?: boolean;
@@ -265,6 +324,10 @@ function renderPlans(args: {
 }): void {
   console.log(chalk.bold(`\nvigolium-audit — dry run (no adapter calls)`));
   console.log(`${statusArrow("Platform")} Platform:  ${chalk.cyan(args.platform)}`);
+  const transportLabel = args.platform === "codex" && args.transport === "auto"
+    ? "auto (sdk)"
+    : args.transport;
+  console.log(`${statusArrow("Adapter")} Transport: ${chalk.cyan(transportLabel)}`);
   console.log(`${statusArrow("Target")} Target:    ${chalk.cyan(args.targetDir)}`);
   const gitLine = args.noGit
     ? chalk.yellow("skipped (--no-git)")
@@ -282,11 +345,12 @@ function renderPlans(args: {
       ? plan.resolvedMode
       : `${plan.requestedMode} → ${plan.resolvedMode}`;
     console.log(chalk.green(`\n[mode ${header}]`) + (plan.routingNote ? chalk.dim(` ${plan.routingNote}`) : ""));
+    console.log(`  execution: ${chalk.cyan(plan.execution)}`);
     console.log(`  source: ${chalk.dim(plan.commandSourcePath)} ${chalk.dim(`(${plan.commandOrigin}, ${plan.bodyChars} body chars)`)}`);
 
     for (const ph of plan.phases) {
       const status = ph.skipped ? chalk.dim("[skip]") : chalk.green("[run] ");
-      const agent = ph.phase.agent ? chalk.cyan(ph.phase.agent) : chalk.dim("(inline)");
+      const agent = ph.phase.agent ? chalk.cyan(ph.phase.agent) : chalk.dim(ph.agentSource);
       const tools = ph.tools.length > 0 ? chalk.dim(` tools=${ph.tools.length}`) : chalk.dim(" tools=∅");
       const promptInfo = chalk.dim(` sys=${ph.systemPromptChars}c usr=${ph.userPromptChars}c`);
       const origin = chalk.dim(` (${ph.contentOrigin})`);

@@ -11,6 +11,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // fakeCNAME is an injectable CNAME resolver for deterministic DNS-gate tests.
@@ -45,10 +46,10 @@ func TestCanProcess(t *testing.T) {
 	assert.True(t, m.CanProcess(withResp))
 }
 
-// TestScanPerHost_DetectsHerokuTakeover drives the real scan method against a
-// server returning Heroku's "No such app" page with a 404 — the fingerprint of
-// a deprovisioned, claimable Heroku app.
-func TestScanPerHost_DetectsHerokuTakeover(t *testing.T) {
+// TestScanPerHost_DetectsHerokuCandidate drives the real scan method against a
+// server returning Heroku's "No such app" page with a 404. The provider-bound
+// CNAME and replayed fingerprint establish a candidate, not actual claimability.
+func TestScanPerHost_DetectsHerokuCandidate(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -64,8 +65,11 @@ func TestScanPerHost_DetectsHerokuTakeover(t *testing.T) {
 
 	res, err := m.ScanPerHost(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a subdomain-takeover finding when the CNAME points at the deprovisioned Heroku app")
-	assert.Equal(t, "Subdomain Takeover: Heroku", res[0].Info.Name)
+	require.NotEmpty(t, res, "expected a dangling-subdomain candidate when the CNAME points at the deprovisioned Heroku app")
+	assert.Equal(t, "Dangling Subdomain Candidate: Heroku", res[0].Info.Name)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeDifferential, res[0].EvidenceGrade)
+	assert.False(t, res[0].IsFinding(), "provider fingerprinting alone must not claim takeover")
 }
 
 // TestScanPerHost_CNAMEMismatchNoFinding ensures the Heroku "No such app"
@@ -90,9 +94,9 @@ func TestScanPerHost_CNAMEMismatchNoFinding(t *testing.T) {
 	assert.Empty(t, res, "a Heroku fingerprint without a Heroku CNAME must not be reported")
 }
 
-// TestScanPerHost_DNSInconclusiveKeepsFinding documents the fail-open behavior:
-// a transient DNS lookup error must not suppress an otherwise-matching finding.
-func TestScanPerHost_DNSInconclusiveKeepsFinding(t *testing.T) {
+// TestScanPerHost_DNSInconclusiveIsObservation preserves the useful HTTP
+// fingerprint while preventing a transient DNS failure from becoming a finding.
+func TestScanPerHost_DNSInconclusiveIsObservation(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -108,7 +112,20 @@ func TestScanPerHost_DNSInconclusiveKeepsFinding(t *testing.T) {
 
 	res, err := m.ScanPerHost(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "an inconclusive DNS error must fail open and keep the finding")
+	require.NotEmpty(t, res, "an inconclusive DNS error should retain the security observation")
+	assert.Equal(t, output.RecordKindObservation, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, res[0].EvidenceGrade)
+	assert.False(t, res[0].IsFinding())
+	assert.Equal(t, false, res[0].Metadata["dns_conclusive"])
+}
+
+func TestCNAMEPatternRequiresDomainBoundary(t *testing.T) {
+	t.Parallel()
+	assert.True(t, cnameMatchesPattern("vigolium-test.herokuapp.com", "herokuapp.com"))
+	assert.False(t, cnameMatchesPattern("vigolium-test.herokuapp.com.evil.example", "herokuapp.com"))
+	assert.False(t, cnameMatchesPattern("evilherokuapp.com", "herokuapp.com"))
+	assert.True(t, cnameMatchesPattern("bucket.s3-website-us-east-1.amazonaws.com", ".s3-website"))
+	assert.False(t, cnameMatchesPattern("bucket.s3-website.evil.example", ".s3-website"))
 }
 
 // TestScanPerHost_StatusMismatchNoFinding ensures a body marker that requires a

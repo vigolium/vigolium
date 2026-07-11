@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/deparos/storage"
 	"go.uber.org/zap"
 )
@@ -196,7 +196,7 @@ func sourceLanguage(name string) string {
 	}
 }
 
-func annotateSourceMapProvenance(provenance *jsscan.Provenance, source OriginalSource) {
+func annotateSourceMapProvenance(provenance *jstangle.Provenance, source OriginalSource) {
 	if provenance == nil {
 		return
 	}
@@ -206,7 +206,7 @@ func annotateSourceMapProvenance(provenance *jsscan.Provenance, source OriginalS
 			return
 		}
 	}
-	provenance.ResolutionSteps = append(provenance.ResolutionSteps, jsscan.ResolutionStep{
+	provenance.ResolutionSteps = append(provenance.ResolutionSteps, jstangle.ResolutionStep{
 		Kind: "source-map", Name: source.Path, Value: source.GeneratedSourceURL,
 	})
 }
@@ -215,7 +215,7 @@ func annotateSourceMapProvenance(provenance *jsscan.Provenance, source OriginalS
 // uniformly to every typed record family before any fact is queued or persisted.
 // Source locations already refer to the recovered original source; the bounded
 // resolution step links those locations back to the generated bundle.
-func annotateSourceMappedResult(result *jsscan.ScanResult, source OriginalSource) {
+func annotateSourceMappedResult(result *jstangle.ScanResult, source OriginalSource) {
 	if result == nil {
 		return
 	}
@@ -245,7 +245,7 @@ func annotateSourceMappedResult(result *jsscan.ScanResult, source OriginalSource
 	}
 }
 
-func (e *Engine) processAssetFacts(ctx context.Context, parentURL string, source []byte, facts []jsscan.AssetReferenceFact) {
+func (e *Engine) processAssetFacts(ctx context.Context, parentURL string, source []byte, facts []jstangle.AssetReferenceFact) {
 	if len(facts) == 0 {
 		return
 	}
@@ -253,10 +253,10 @@ func (e *Engine) processAssetFacts(ctx context.Context, parentURL string, source
 	graph.AddRoot(parentURL, AssetScript)
 	queued := make([]*url.URL, 0, len(facts))
 	for _, fact := range facts {
-		if fact.AssetType == string(AssetSourceMap) && !e.config.JSScan.SourceMaps {
+		if fact.AssetType == string(AssetSourceMap) && !e.config.JSTangle.SourceMaps {
 			continue
 		}
-		if fact.AssetType != string(AssetSourceMap) && !e.config.JSScan.AssetGraph {
+		if fact.AssetType != string(AssetSourceMap) && !e.config.JSTangle.AssetGraph {
 			continue
 		}
 		if fact.AssetType == string(AssetSourceMap) && fact.Inline {
@@ -286,7 +286,7 @@ func (e *Engine) processAssetFacts(ctx context.Context, parentURL string, source
 }
 
 func (e *Engine) processSourceMapResponse(ctx context.Context, mapURL *url.URL, content []byte) {
-	if !e.config.JSScan.SourceMaps || mapURL == nil || len(content) == 0 {
+	if !e.config.JSTangle.SourceMaps || mapURL == nil || len(content) == 0 {
 		return
 	}
 	parents := e.assetGraph().Parents(mapURL.String())
@@ -299,7 +299,7 @@ func (e *Engine) processSourceMapResponse(ctx context.Context, mapURL *url.URL, 
 }
 
 func (e *Engine) processSourceMapContent(ctx context.Context, generatedURL string, content []byte) {
-	if !e.config.JSScan.SourceMaps {
+	if !e.config.JSTangle.SourceMaps {
 		return
 	}
 	sources, err := ParseSourceMap(content, generatedURL)
@@ -318,7 +318,7 @@ func (e *Engine) processSourceMapContent(ctx context.Context, generatedURL strin
 				if generated, parseErr := url.Parse(generatedURL); parseErr == nil {
 					sourceNodeID = e.getNodeIDForURL(generated)
 				}
-				if storeErr := repo.StoreJSScanSourceArtifact(&storage.JSScanSourceArtifactModel{
+				if storeErr := repo.StoreJSTangleSourceArtifact(&storage.JSTangleSourceArtifactModel{
 					SourceNodeID: sourceNodeID, SessionID: e.storage.SessionDBID(),
 					GeneratedURL: generatedURL, VirtualURL: virtualURL, SourcePath: source.Path,
 					Language: source.Language, ContentSHA256: source.ContentSHA256, Content: string(source.Content),
@@ -327,13 +327,13 @@ func (e *Engine) processSourceMapContent(ctx context.Context, generatedURL strin
 				}
 			}
 		}
-		if e.jsscanService == nil {
+		if e.jstangleService == nil {
 			continue
 		}
-		options := e.jsScanOptions(jsscan.ProfileDiscovery, virtualURL)
+		options := e.jsTangleOptions(jstangle.ProfileDiscovery, virtualURL)
 		options.Filename = source.Path
 		options.MediaType = "application/javascript"
-		result, scanErr := e.jsscanService.ScanWithOptions(ctx, source.Content, options)
+		result, scanErr := e.jstangleService.ScanWithOptions(ctx, source.Content, options)
 		if scanErr != nil || result == nil {
 			continue
 		}
@@ -342,9 +342,9 @@ func (e *Engine) processSourceMapContent(ctx context.Context, generatedURL strin
 			e.AddRequestFact(virtualURL, result.RequestFacts[i])
 		}
 		e.processAssetFacts(ctx, virtualURL, source.Content, result.AssetFacts)
-		e.processJSScanCapabilityFacts(virtualURL, result)
+		e.processJSTangleCapabilityFacts(virtualURL, result)
 		if generated, parseErr := url.Parse(generatedURL); parseErr == nil {
-			e.storeJSScanFactsAtSource(generated, virtualURL, result.RequestFacts)
+			e.storeJSTangleFactsAtSource(generated, virtualURL, result.RequestFacts)
 		}
 	}
 }

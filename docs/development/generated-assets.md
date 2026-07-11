@@ -24,12 +24,12 @@ external toolchains (Bun, GoReleaser, the UI build) and are **not** verified by
 
 | Artifact | Path | Regenerate with |
 |---|---|---|
-| jsscan binaries (embedded per-platform) | `internal/resources/deparos/jsscan/`, `public/presets/deparos/jsscan/` | `make ensure-jsscan` / `make update-jsscan` |
+| jstangle binaries (embedded per-platform) | `internal/resources/deparos/jstangle/`, `public/presets/deparos/jstangle/` | `make ensure-jstangle` / `make update-jstangle` |
 | vigolium-audit harness binary | `pkg/audit/bin/_bin/` | `make update-audit` |
 | Workbench UI bundle & report template | `public/ui/`, `public/static-reports/template.html` | `make update-ui` |
 | Release metadata | `build/dist/metadata.json` | `make generate-metadata` |
 
-`make deps` builds the jsscan binaries needed to compile the tree (they are
+`make deps` builds the jstangle binaries needed to compile the tree (they are
 embedded via `//go:embed`), which is why CI runs it before any `go build`.
 
 ## Linting

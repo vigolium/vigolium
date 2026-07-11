@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -47,7 +48,9 @@ async function createUser(formData) {
 	require.NotEmpty(t, results)
 
 	assert.Equal(t, ModuleID, results[0].ModuleID)
-	assert.Equal(t, "Server Action Missing Input Validation", results[0].Info.Name)
+	assert.Equal(t, "Server Action Input-Validation Candidate", results[0].Info.Name)
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.False(t, results[0].IsFinding())
 }
 
 // TestScanPerRequest_WithValidation verifies that a Server Action using a zod schema

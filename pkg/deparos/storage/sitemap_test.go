@@ -577,10 +577,10 @@ func TestSiteMap_SeparateNodesForTrailingSlash(t *testing.T) {
 	assert.Equal(t, 200, adminSlashNode.Response().StatusCode)
 }
 
-// TestSiteMap_KingfisherFindingsPersistence verifies kingfisher findings are stored and retrieved correctly
-func TestSiteMap_KingfisherFindingsPersistence(t *testing.T) {
+// TestSiteMap_SecretFindingsPersistence verifies secret findings are stored and retrieved correctly
+func TestSiteMap_SecretFindingsPersistence(t *testing.T) {
 	// Use persistent storage to test full save/load cycle
-	tmpFile := t.TempDir() + "/kingfisher_test.db"
+	tmpFile := t.TempDir() + "/secret_test.db"
 
 	cfg := SQLiteConfig(tmpFile)
 	cfg.TargetURL = "https://example.com"
@@ -588,7 +588,7 @@ func TestSiteMap_KingfisherFindingsPersistence(t *testing.T) {
 	sm, err := NewSiteMap(cfg)
 	require.NoError(t, err)
 
-	// Create result with kingfisher findings
+	// Create result with secret findings
 	u, _ := url.Parse("https://example.com/api/config.js")
 	result := NewResultBuilder().
 		WithURL(u).
@@ -597,8 +597,8 @@ func TestSiteMap_KingfisherFindingsPersistence(t *testing.T) {
 		WithMetadata("spider", 2, time.Now()).
 		Build()
 
-	// Add kingfisher findings
-	result.KingfisherFindings = []KingfisherFinding{
+	// Add secret findings
+	result.SecretFindings = []SecretFinding{
 		{
 			RuleID:     "aws-access-key",
 			RuleName:   "AWS Access Key ID",
@@ -630,8 +630,8 @@ func TestSiteMap_KingfisherFindingsPersistence(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, node)
 
-	findings := node.KingfisherFindings()
-	require.Len(t, findings, 2, "Should have 2 kingfisher findings")
+	findings := node.SecretFindings()
+	require.Len(t, findings, 2, "Should have 2 secret findings")
 
 	// Verify first finding
 	assert.Equal(t, "aws-access-key", findings[0].RuleID)
@@ -648,11 +648,11 @@ func TestSiteMap_KingfisherFindingsPersistence(t *testing.T) {
 	assert.False(t, findings[1].Validated)
 }
 
-// TestSiteMap_KingfisherFindingsStreamQuery verifies kingfisher findings are included in streaming queries
-func TestSiteMap_KingfisherFindingsStreamQuery(t *testing.T) {
+// TestSiteMap_SecretFindingsStreamQuery verifies secret findings are included in streaming queries
+func TestSiteMap_SecretFindingsStreamQuery(t *testing.T) {
 	sm := newTestSiteMap(t)
 
-	// Create result with kingfisher findings
+	// Create result with secret findings
 	u, _ := url.Parse("https://example.com/secrets.json")
 	result := NewResultBuilder().
 		WithURL(u).
@@ -661,7 +661,7 @@ func TestSiteMap_KingfisherFindingsStreamQuery(t *testing.T) {
 		WithMetadata("wordlist", 1, time.Now()).
 		Build()
 
-	result.KingfisherFindings = []KingfisherFinding{
+	result.SecretFindings = []SecretFinding{
 		{
 			RuleID:     "generic-secret",
 			RuleName:   "Generic Secret",
@@ -683,8 +683,8 @@ func TestSiteMap_KingfisherFindingsStreamQuery(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, nodes, 1)
 
-	findings := nodes[0].KingfisherFindings()
-	require.Len(t, findings, 1, "Streaming query should include kingfisher findings")
+	findings := nodes[0].SecretFindings()
+	require.Len(t, findings, 1, "Streaming query should include secret findings")
 	assert.Equal(t, "generic-secret", findings[0].RuleID)
 }
 

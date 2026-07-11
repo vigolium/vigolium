@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 )
 
 // HashExtractedRequest computes FNV-1a 64-bit hash for deduplication.
 // Dedup key = URL + Method + normalized Params + normalized Body
-func HashExtractedRequest(req *jsscan.ExtractedRequest) string {
+func HashExtractedRequest(req *jstangle.ExtractedRequest) string {
 	h := fnv.New64a()
 
 	// URL (normalized - lowercase, strip fragment)

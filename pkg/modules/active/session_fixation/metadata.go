@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The server uses a permissive session mechanism: it accepts a session identifier chosen by the client instead of issuing its own. An attacker can fix a victim's session ID, then hijack the session once the victim authenticates.
+	ModuleDesc = `**What it means:** The server explicitly adopted a client-chosen session identifier. Adoption is a candidate; preservation through a successful authentication transition is a confirmed session-fixation finding.
 
-**How it's exploited:** The attacker plants a known session ID in the victim's browser (via a link/XSS/header). Because the server never regenerates it at login, the victim authenticates under the attacker-known ID and the attacker rides that session.
+**How it's exploited:** An attacker plants a known session ID in the victim's browser. If login does not regenerate it, the attacker can reuse the authenticated session.
 
-**Fix:** Reject client-supplied session IDs, generate them server-side, and always regenerate the session ID on login and privilege change.`
+**Fix:** Reject client-supplied session IDs, generate them server-side, and regenerate the session on login and privilege changes.`
 
-	ModuleConfirmation = "Confirmed when the server issues its own session cookie for a cookie-stripped request but then adopts (does not reissue) an attacker-supplied value for that same cookie — verified across two independent values"
+	ModuleConfirmation = "Candidate when the server explicitly Set-Cookie's two attacker-chosen identifiers unchanged; confirmed only when that behavior occurs across a successful authentication transition"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"session", "auth", "session-fixation", "moderate"}

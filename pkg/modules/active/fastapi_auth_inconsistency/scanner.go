@@ -9,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/authzutil"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
@@ -21,7 +22,22 @@ type openAPISpec struct {
 type operation struct {
 	Security    *[]map[string][]string `json:"security"`
 	Summary     string                 `json:"summary"`
+	Description string                 `json:"description"`
 	OperationID string                 `json:"operationId"`
+	Tags        []string               `json:"tags"`
+}
+
+type apiOperation struct {
+	path        string
+	method      string
+	operationID string
+	summary     string
+	reason      string
+}
+
+type runtimeBypass struct {
+	detail   string
+	evidence []string
 }
 
 // Module implements the FastAPI Auth Inconsistency active scanner.
@@ -53,13 +69,14 @@ func New() *Module {
 func (m *Module) IncludesBaseCanProcess() bool { return false }
 
 func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
-	if ctx == nil || ctx.Request() == nil {
-		return false
-	}
-	return ctx.Response() != nil
+	return ctx != nil && ctx.Request() != nil && ctx.Response() != nil
 }
 
-// ScanPerRequest fetches the OpenAPI schema and identifies unprotected operations.
+// ScanPerRequest separates documentation observations from behavioral auth
+// bypasses. Missing OpenAPI security metadata does not prove a route lacks
+// middleware or in-function authorization, and a 422 only proves validation ran.
+// A finding is emitted only when an operation declared protected returns stable,
+// substantive data to a requester with a fresh cookie jar and no credentials.
 func (m *Module) ScanPerRequest(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
@@ -69,15 +86,11 @@ func (m *Module) ScanPerRequest(
 	if service == nil {
 		return nil, nil
 	}
-
 	host := service.Host()
-
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	if diskSet := m.ds.Get(scanCtx.DedupMgr()); diskSet != nil && diskSet.IsSeen(host) {
 		return nil, nil
 	}
 
-	// Fetch /openapi.json.
 	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")
 	if err != nil {
 		return nil, nil
@@ -90,205 +103,292 @@ func (m *Module) ScanPerRequest(
 	if err != nil {
 		return nil, nil
 	}
-
-	// modifiedRaw is well-formed raw, so wrap directly instead of re-parsing on this hot path.
-	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
-
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+	schemaReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
+	resp, _, err := httpClient.Execute(schemaReq, http.Options{NoClustering: true})
 	if err != nil {
 		return nil, nil
 	}
 	defer resp.Close()
-
-	if resp.Response() == nil {
+	if resp.Response() == nil || resp.Response().StatusCode != 200 {
 		return nil, nil
 	}
-
-	if resp.Response().StatusCode != 200 {
-		return nil, nil
-	}
-
-	body := resp.Body().String()
 
 	var spec openAPISpec
-	if err := json.Unmarshal([]byte(body), &spec); err != nil {
+	if err := json.Unmarshal(resp.Body().Bytes(), &spec); err != nil || len(spec.Paths) == 0 {
 		return nil, nil
 	}
+	unprotected, protected := classifyOperations(spec)
 
-	if len(spec.Paths) == 0 {
-		return nil, nil
-	}
-
-	hasGlobalSecurity := len(spec.Security) > 0
-
-	type unprotectedOp struct {
-		path        string
-		method      string
-		operationID string
-		summary     string
-		reason      string
-	}
-
-	var unprotected []unprotectedOp
-
-	for path, methods := range spec.Paths {
-		for method, op := range methods {
-			if !strings.HasPrefix(path, "/api") {
-				continue
-			}
-
-			if op.Security != nil {
-				// Operation explicitly defines security.
-				if len(*op.Security) == 0 {
-					// security: [] explicitly opts out of global security.
-					unprotected = append(unprotected, unprotectedOp{
-						path:        path,
-						method:      strings.ToUpper(method),
-						operationID: op.OperationID,
-						summary:     op.Summary,
-						reason:      "explicitly opts out of security (security: [])",
-					})
+	var bypasses []runtimeBypass
+	if len(protected) > 0 {
+		anonymousClient, cloneErr := httpClient.CloneWithoutCredentials()
+		if cloneErr == nil {
+			const maxRuntimeChecks = 8
+			attempts := 0
+			for _, op := range protected {
+				if len(bypasses) >= 3 || attempts >= maxRuntimeChecks {
+					break
 				}
-				// If security is non-empty, the operation is protected.
-				continue
-			}
-
-			// Operation has no security field.
-			if !hasGlobalSecurity {
-				unprotected = append(unprotected, unprotectedOp{
-					path:        path,
-					method:      strings.ToUpper(method),
-					operationID: op.OperationID,
-					summary:     op.Summary,
-					reason:      "no security defined at operation or global level",
-				})
+				attempts++
+				if bypass := verifyDeclaredProtection(ctx, anonymousClient, op); bypass != nil {
+					bypasses = append(bypasses, *bypass)
+				}
 			}
 		}
+	}
+
+	urlx, _ := ctx.URL()
+	targetURL := urlx.Scheme + "://" + urlx.Host + "/openapi.json"
+	if len(bypasses) > 0 {
+		var extracted, evidence []string
+		for _, bypass := range bypasses {
+			extracted = append(extracted, bypass.detail)
+			evidence = append(evidence, bypass.evidence...)
+		}
+		return []*output.ResultEvent{{
+			ModuleID:           ModuleID,
+			URL:                targetURL,
+			Matched:            targetURL,
+			Request:            string(modifiedRaw),
+			Response:           resp.FullResponseString(),
+			AdditionalEvidence: evidence,
+			ExtractedResults:   extracted,
+			RecordKind:         output.RecordKindFinding,
+			EvidenceGrade:      output.EvidenceGradeBypass,
+			Info: output.Info{
+				Name:        fmt.Sprintf("FastAPI Runtime Auth Inconsistency: %d protected operation(s)", len(bypasses)),
+				Description: "OpenAPI declares these operations protected, but repeated requests from an isolated credential-free client returned stable, substantive application data. This is a behavioral mismatch with the documented security requirement.",
+				Severity:    ModuleSeverity,
+				Confidence:  ModuleConfidence,
+				Tags:        []string{"python", "fastapi", "openapi", "auth", "misconfiguration"},
+				Reference:   []string{"https://fastapi.tiangolo.com/tutorial/security/"},
+			},
+		}}, nil
 	}
 
 	if len(unprotected) == 0 {
 		return nil, nil
 	}
-
-	// Verify the unprotected operations by calling them without auth. Only a 2xx or
-	// a FastAPI 422 validation error proves the endpoint is actually REACHED
-	// unauthenticated (see verifyUnprotected); templated paths (/api/x/{id}) can't be
-	// called literally, so they are skipped. Attempts are bounded so a large spec
-	// can't fan out into a request flood.
-	const (
-		maxVerifyAttempts = 8
-		maxVerified       = 3
-	)
-	var verified []string
-	attempts := 0
-	for _, op := range unprotected {
-		if len(verified) >= maxVerified || attempts >= maxVerifyAttempts {
-			break
-		}
-		if strings.ContainsAny(op.path, "{}") {
-			continue // templated path — a literal call says nothing about auth
-		}
-		attempts++
-		if r := m.verifyUnprotected(ctx, httpClient, op.path, op.method); r != "" {
-			verified = append(verified, r)
-		}
-	}
-
-	var extracted []string
+	extracted := make([]string, 0, len(unprotected))
 	for _, op := range unprotected {
 		detail := fmt.Sprintf("%s %s", op.method, op.path)
 		if op.operationID != "" {
 			detail += fmt.Sprintf(" (operationId: %s)", op.operationID)
 		}
-		detail += fmt.Sprintf(" - %s", op.reason)
-		extracted = append(extracted, detail)
+		extracted = append(extracted, detail+" - "+op.reason)
 	}
-	extracted = append(extracted, verified...)
-
-	urlx, _ := ctx.URL()
-	targetURL := urlx.Scheme + "://" + urlx.Host + "/openapi.json"
-
-	// Confidence tracks runtime evidence: Firm only when at least one operation was
-	// confirmed reachable without auth; otherwise the schema is the sole signal (the
-	// runtime may still enforce auth via an undeclared global dependency/middleware),
-	// so the finding is Tentative — a schema/middleware inconsistency, not a proven
-	// bypass.
-	confidence := severity.Tentative
-	description := "FastAPI OpenAPI schema declares API operations without security requirements; runtime enforcement was not confirmed, so this may be a schema/middleware inconsistency rather than an exploitable bypass"
-	if len(verified) > 0 {
-		confidence = ModuleConfidence
-		description = "FastAPI OpenAPI schema reveals API operations without security requirements, and at least one was confirmed reachable without authentication"
-	}
-
-	return []*output.ResultEvent{
-		{
-			URL:              targetURL,
-			Matched:          targetURL,
-			Request:          string(modifiedRaw),
-			Response:         resp.FullResponseString(),
-			ExtractedResults: extracted,
-			Info: output.Info{
-				Name:        fmt.Sprintf("FastAPI Auth Inconsistency: %d unprotected operations", len(unprotected)),
-				Description: description,
-				Severity:    ModuleSeverity,
-				Confidence:  confidence,
-				Tags:        []string{"python", "fastapi", "openapi", "auth", "misconfiguration"},
-				Reference:   []string{"https://fastapi.tiangolo.com/tutorial/security/"},
-			},
+	return []*output.ResultEvent{{
+		ModuleID:         ModuleID,
+		URL:              targetURL,
+		Matched:          targetURL,
+		Request:          string(modifiedRaw),
+		Response:         resp.FullResponseString(),
+		ExtractedResults: extracted,
+		RecordKind:       output.RecordKindObservation,
+		EvidenceGrade:    output.EvidenceGradeObservation,
+		Info: output.Info{
+			Name:        fmt.Sprintf("FastAPI Security-Metadata Observation: %d sensitive operation(s)", len(unprotected)),
+			Description: "The OpenAPI document does not declare security for these potentially sensitive operations. This is documentation/configuration evidence only: global middleware, dependencies, or in-function checks may still enforce authorization, and public operations may be intentional.",
+			Severity:    severity.Info,
+			Confidence:  severity.Tentative,
+			Tags:        []string{"python", "fastapi", "openapi", "auth", "observation"},
+			Reference:   []string{"https://fastapi.tiangolo.com/tutorial/security/"},
 		},
-	}, nil
+	}}, nil
 }
 
-// verifyUnprotected calls an operation without auth and returns a human-readable
-// confirmation ONLY when the response proves the endpoint was actually reached
-// unauthenticated — a 2xx, or a FastAPI 422 (which is emitted only after auth has
-// been cleared and request-body validation runs). A 401/403 (protected) or a
-// 404/405/3xx/5xx (the endpoint was not reached as intended — often because the
-// path is templated or needs a body) returns "" and is not treated as evidence.
-func (m *Module) verifyUnprotected(
-	ctx *httpmsg.HttpRequestResponse,
-	httpClient *http.Requester,
-	path string,
-	method string,
-) string {
-	// A templated path (e.g. /api/users/{user_id}) cannot be verified by calling it
-	// literally — the placeholder yields a 404/422 that says nothing about auth.
-	if strings.ContainsAny(path, "{}") {
-		return ""
+func classifyOperations(spec openAPISpec) (unprotected, protected []apiOperation) {
+	hasGlobalSecurity := len(spec.Security) > 0
+	for path, methods := range spec.Paths {
+		if !strings.HasPrefix(strings.ToLower(path), "/api") {
+			continue
+		}
+		for method, op := range methods {
+			method = strings.ToUpper(method)
+			if !isHTTPMethod(method) || !operationLooksSensitive(path, method, op) {
+				continue
+			}
+			candidate := apiOperation{path: path, method: method, operationID: op.OperationID, summary: op.Summary}
+			switch {
+			case op.Security != nil && len(*op.Security) == 0:
+				candidate.reason = "explicitly declares public access (security: [])"
+				unprotected = append(unprotected, candidate)
+			case op.Security != nil && len(*op.Security) > 0:
+				candidate.reason = "operation declares a security requirement"
+				protected = append(protected, candidate)
+			case hasGlobalSecurity:
+				candidate.reason = "inherits the global security requirement"
+				protected = append(protected, candidate)
+			default:
+				candidate.reason = "no operation-level or global security metadata"
+				unprotected = append(unprotected, candidate)
+			}
+		}
 	}
+	return unprotected, protected
+}
 
-	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), method)
-	if err != nil {
-		return ""
+func isHTTPMethod(method string) bool {
+	switch method {
+	case "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE":
+		return true
+	default:
+		return false
 	}
-	modifiedRaw, err = httpmsg.SetPath(modifiedRaw, path)
-	if err != nil {
-		return ""
+}
+
+func operationLooksSensitive(path, method string, op operation) bool {
+	if method == "POST" || method == "PUT" || method == "PATCH" || method == "DELETE" {
+		return true
 	}
+	haystack := strings.ToLower(strings.Join(append([]string{path, op.OperationID, op.Summary, op.Description}, op.Tags...), " "))
+	for _, safe := range []string{"/health", "/status", "/ping", "/version", "/metrics"} {
+		if strings.Contains(strings.ToLower(path), safe) {
+			return false
+		}
+	}
+	for _, marker := range []string{
+		"admin", "user", "account", "profile", "customer", "tenant", "member",
+		"token", "secret", "password", "credential", "session", "permission", "role",
+		"payment", "billing", "invoice", "order", "internal", "private", "audit",
+	} {
+		if strings.Contains(haystack, marker) {
+			return true
+		}
+	}
+	return false
+}
 
-	// modifiedRaw is well-formed raw, so wrap directly instead of re-parsing on this hot path.
-	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
+func verifyDeclaredProtection(ctx *httpmsg.HttpRequestResponse, client *http.Requester, op apiOperation) *runtimeBypass {
+	if op.method != "GET" && op.method != "HEAD" {
+		return nil // never replay state-changing operations for confirmation
+	}
+	if strings.ContainsAny(op.path, "{}") {
+		return nil
+	}
+	raw, ok := anonymousOperationRequest(ctx, op)
+	if !ok {
+		return nil
+	}
+	first := fetchRuntimeProbe(ctx, client, raw)
+	second := fetchRuntimeProbe(ctx, client, raw)
+	if first == nil || second == nil || !first.substantive || !second.substantive {
+		return nil
+	}
+	if first.status != second.status || !modkit.BodiesSimilar(first.body, second.body) {
+		return nil
+	}
+	return &runtimeBypass{
+		detail:   fmt.Sprintf("Confirmed anonymous data response: %s %s returned stable %d JSON despite %s", op.method, op.path, first.status, op.reason),
+		evidence: []string{first.request, first.response, second.request, second.response},
+	}
+}
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{})
+func anonymousOperationRequest(ctx *httpmsg.HttpRequestResponse, op apiOperation) ([]byte, bool) {
+	raw, err := httpmsg.SetMethod(ctx.Request().Raw(), op.method)
 	if err != nil {
-		return ""
+		return nil, false
+	}
+	raw, err = httpmsg.SetPath(raw, op.path)
+	if err != nil {
+		return nil, false
+	}
+	for _, header := range []string{
+		"Authorization", "Proxy-Authorization", "Cookie", "X-Api-Key", "Api-Key",
+		"X-Api-Token", "X-Auth-Token", "X-Access-Token", "X-Session-Token",
+	} {
+		raw, err = httpmsg.RemoveHeader(raw, header)
+		if err != nil {
+			return nil, false
+		}
+	}
+	if op.method == "GET" || op.method == "HEAD" {
+		raw, err = httpmsg.SetBody(raw, nil)
+		if err != nil {
+			return nil, false
+		}
+	}
+	return raw, true
+}
+
+type runtimeProbe struct {
+	status      int
+	body        string
+	request     string
+	response    string
+	substantive bool
+}
+
+func fetchRuntimeProbe(ctx *httpmsg.HttpRequestResponse, client *http.Requester, raw []byte) *runtimeProbe {
+	request := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
+	resp, _, err := client.Execute(request, http.Options{NoRedirects: true, NoClustering: true})
+	if err != nil {
+		return nil
 	}
 	defer resp.Close()
-
 	if resp.Response() == nil {
-		return ""
+		return nil
 	}
-
 	status := resp.Response().StatusCode
-	switch {
-	case status >= 200 && status < 300:
-		return fmt.Sprintf("Verified: %s %s returned %d without authentication", method, path, status)
-	case status == 422:
-		// 422 is FastAPI's request-validation error, emitted only AFTER the request
-		// clears any auth dependency — so it proves the endpoint is reachable
-		// unauthenticated even though our empty probe failed validation.
-		return fmt.Sprintf("Verified: %s %s reached request validation (422) without authentication", method, path)
+	body := resp.Body().String()
+	contentType := resp.Response().Header.Get("Content-Type")
+	return &runtimeProbe{
+		status:      status,
+		body:        body,
+		request:     string(raw),
+		response:    resp.FullResponseString(),
+		substantive: status >= 200 && status < 300 && substantiveJSONResponse(contentType, body),
+	}
+}
+
+func substantiveJSONResponse(contentType, body string) bool {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" || authzutil.ContainsEnforcementString(trimmed) {
+		return false
+	}
+	if !strings.Contains(strings.ToLower(contentType), "json") && !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+		return false
+	}
+	var value any
+	if err := json.Unmarshal([]byte(trimmed), &value); err != nil {
+		return false
+	}
+	return jsonValueContainsApplicationData(value)
+}
+
+func jsonValueContainsApplicationData(value any) bool {
+	switch typed := value.(type) {
+	case []any:
+		return len(typed) > 0
+	case map[string]any:
+		for key, child := range typed {
+			switch strings.ToLower(key) {
+			case "detail", "error", "errors", "message", "status", "code":
+				continue
+			}
+			if jsonValueSubstantive(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func jsonValueSubstantive(value any) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case bool:
+		return typed
+	case float64:
+		return true
+	case []any:
+		return len(typed) > 0
+	case map[string]any:
+		return len(typed) > 0
 	default:
-		return ""
+		return false
 	}
 }

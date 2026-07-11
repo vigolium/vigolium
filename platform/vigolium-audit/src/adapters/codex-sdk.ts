@@ -1,11 +1,29 @@
-import { Codex, type ModelReasoningEffort } from "@openai/codex-sdk";
+import {
+  Codex,
+  type CodexOptions,
+  type ModelReasoningEffort,
+  type ThreadOptions,
+} from "@openai/codex-sdk";
 import type { Adapter, AdapterEvent, AdapterRunInput } from "./adapter.js";
 import { isTransientError } from "./claude-events.js";
 import { createCodexNormalizeState, normalizeCodexEvent } from "./codex-events.js";
+import { startCodexSessionTail } from "./codex-session-tail.js";
+
+export type CodexSdkClient = Pick<Codex, "startThread" | "resumeThread">;
+
+export function resolveCodexClientOptions(options: CodexSdkAdapterOptions): CodexOptions {
+  const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
+  return {
+    ...(options.codexPathOverride && { codexPathOverride: options.codexPathOverride }),
+    ...(apiKey && { apiKey }),
+  };
+}
 
 export interface CodexSdkAdapterOptions {
   /** Absolute path to the `codex` binary. Falls back to SDK auto-resolve. */
   codexPathOverride?: string;
+  /** API key passed to the SDK; defaults to OPENAI_API_KEY when present. */
+  apiKey?: string;
   /** Default model (e.g. "gpt-5", "gpt-4.1"). */
   defaultModel?: string;
   /**
@@ -34,15 +52,16 @@ export class CodexSdkAdapter implements Adapter {
   readonly id = "codex-sdk";
   readonly platform = "codex" as const;
   readonly description: string;
-  private readonly codex: Codex;
+  private readonly codex: CodexSdkClient;
 
-  constructor(private readonly options: CodexSdkAdapterOptions = {}) {
+  constructor(
+    private readonly options: CodexSdkAdapterOptions = {},
+    client?: CodexSdkClient,
+  ) {
     this.description = options.codexPathOverride
       ? `Codex (SDK; binary: ${options.codexPathOverride})`
       : "Codex (SDK; bundled binary auto-resolved)";
-    this.codex = new Codex({
-      ...(options.codexPathOverride && { codexPathOverride: options.codexPathOverride }),
-    });
+    this.codex = client ?? new Codex(resolveCodexClientOptions(options));
   }
 
   async probe(): Promise<void> {
@@ -78,11 +97,17 @@ export class CodexSdkAdapter implements Adapter {
     // Codex bypass = approvalPolicy:'never' + sandboxMode:'danger-full-access'.
     // The CLI exposes this combo as `--dangerously-bypass-approvals-and-sandbox`;
     // the SDK has no single flag, so we set both explicitly when requested.
-    const sandboxMode = input.bypassPermissions
-      ? "danger-full-access"
-      : (this.options.sandboxMode ?? "workspace-write");
+    // An explicit per-run `sandbox` wins over the bypass-derived default, so a
+    // caller can bypass approval prompts yet still confine writes (read-only
+    // triage). Falls back to the bypass default, then the constructor default.
+    const sandboxMode =
+      input.sandbox ??
+      (input.bypassPermissions ? "danger-full-access" : (this.options.sandboxMode ?? "workspace-write"));
 
-    const thread = this.codex.startThread({
+    // Per-run network scope wins over the constructor default.
+    const networkAccessEnabled = input.networkAccessEnabled ?? this.options.networkAccessEnabled;
+
+    const threadOptions: ThreadOptions = {
       ...(input.model || this.options.defaultModel
         ? { model: input.model ?? this.options.defaultModel! }
         : {}),
@@ -92,29 +117,69 @@ export class CodexSdkAdapter implements Adapter {
       sandboxMode,
       workingDirectory: cwd,
       skipGitRepoCheck: true,
-      ...(this.options.networkAccessEnabled !== undefined && {
-        networkAccessEnabled: this.options.networkAccessEnabled,
+      ...(networkAccessEnabled !== undefined && {
+        networkAccessEnabled,
       }),
       // Codex defaults to interactive approval on tool calls; in non-interactive
       // we want it to run autonomously inside the sandbox.
       approvalPolicy: "never",
-    });
+    };
+    const thread = input.resume
+      ? this.codex.resumeThread(input.resume, threadOptions)
+      : this.codex.startThread(threadOptions);
 
     const composedInput = composeCodexInput(input);
+    const tailEvents: AdapterEvent[] = [];
+    let sessionTail: ReturnType<typeof startCodexSessionTail> | null = null;
+
+    // A resumed thread may not emit a fresh thread.started event. Prime its
+    // existing session log at EOF before starting the new turn so historical
+    // subagent records are not replayed as current events.
+    if (input.resume) {
+      sessionTail = startCodexSessionTail(
+        input.resume,
+        normalizeState,
+        (event) => tailEvents.push(event),
+        { startAtEnd: true },
+      );
+      await sessionTail.ready;
+    }
 
     try {
-      const turn = await thread.runStreamed(composedInput, {
-        ...(input.abortSignal && { signal: input.abortSignal }),
-      });
-      for await (const event of turn.events) {
-        for (const evt of normalizeCodexEvent(event, startedAt, normalizeState)) yield evt;
+      try {
+        const turn = await thread.runStreamed(composedInput, {
+          ...(input.abortSignal && { signal: input.abortSignal }),
+        });
+        for await (const event of turn.events) {
+          for (const evt of normalizeCodexEvent(event, startedAt, normalizeState)) {
+            if (evt.kind === "session" && sessionTail === null) {
+              sessionTail = startCodexSessionTail(
+                evt.sessionId,
+                normalizeState,
+                (tailEvent) => tailEvents.push(tailEvent),
+              );
+            }
+            if (evt.kind === "finish" && sessionTail) {
+              await sessionTail.flush();
+              for (const tailEvent of tailEvents.splice(0)) yield tailEvent;
+            }
+            yield evt;
+            if (evt.kind !== "finish") {
+              for (const tailEvent of tailEvents.splice(0)) yield tailEvent;
+            }
+          }
+        }
+      } catch (err) {
+        yield {
+          kind: "error",
+          cause: err instanceof Error ? err : new Error(String(err)),
+          transient: isTransientError(err),
+        };
       }
-    } catch (err) {
-      yield {
-        kind: "error",
-        cause: err instanceof Error ? err : new Error(String(err)),
-        transient: isTransientError(err),
-      };
+      if (sessionTail) await sessionTail.flush();
+      for (const tailEvent of tailEvents.splice(0)) yield tailEvent;
+    } finally {
+      sessionTail?.stop();
     }
   }
 }

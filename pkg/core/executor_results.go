@@ -41,12 +41,27 @@ func (e *Executor) processResults(ctx context.Context, results []*output.ResultE
 		// leaves baselineReq nil and takes the unchanged parse/save path.
 		var baselineReq *httpmsg.HttpRequest
 		if item != nil {
+			// Whether the module supplied its own request. Captured BEFORE the
+			// request backfill below so we can tell a module-mutated request
+			// apart from the baseline one when deciding on the response.
+			moduleSuppliedRequest := result.Request != ""
 			if result.Request == "" && item.Request() != nil {
 				result.Request = string(item.Request().Raw())
 				baselineReq = item.Request()
 			}
+			// Backfill the baseline response ONLY when it actually corresponds to
+			// result.Request. That holds when the module supplied no request (the
+			// finding adopts the whole baseline exchange) or its own request is
+			// byte-identical to the baseline. If the module supplied a *mutated*
+			// request, the baseline response never came from it — pairing them
+			// would fabricate a (request, response) exchange that never happened
+			// on the wire. In that case leave Response empty; a module with a real
+			// proving response is expected to set it itself.
 			if result.Response == "" && item.HasResponse() {
-				result.Response = string(item.Response().Raw())
+				if !moduleSuppliedRequest ||
+					(item.Request() != nil && result.Request == string(item.Request().Raw())) {
+					result.Response = string(item.Response().Raw())
+				}
 			}
 		}
 

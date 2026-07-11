@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The response leaks internal technical details - software versions in Server / X-Powered-By headers, private IP addresses, stack traces, debug banners, or directory listings. None is a vulnerability alone, but each gives an attacker reconnaissance.
+	ModuleDesc = `**What it means:** A response exposes a software version, valid private address, corroborated debug marker, or directory listing. Versions and addresses are observations; debug and listing patterns require independent anchors. Stack traces use a dedicated detector.
 
-**How it's exploited:** An attacker uses disclosed version strings to look up version-specific CVEs, maps the internal network from leaked IPs, and reads stack traces or debug pages to learn file paths and other endpoints - sharpening follow-up attacks.
+**How it's exploited:** Attackers map internal systems, identify version-specific exploits, or use debug context to sharpen later attacks.
 
-**Fix:** Suppress version banners and framework headers, disable debug mode and directory indexing in production, and return generic errors instead of stack traces.`
+**Fix:** Suppress unnecessary banners, disable debug mode and directory indexing, and return generic production errors.`
 
-	ModuleConfirmation = "Confirmed when response contains identifiable server versions, internal IPs, stack traces, or debug information"
+	ModuleConfirmation = "Observation for version/private-address markers; candidate only when independent debug or directory-listing anchors corroborate the pattern"
 	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"info-disclosure", "light"}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -25,9 +26,9 @@ func reflectingHandler(param string) http.HandlerFunc {
 	}
 }
 
-// TestScanPerInsertionPoint_DetectsReflection drives the real scan method against
-// a content-bearing parameter whose injected HTML probe is reflected verbatim.
-func TestScanPerInsertionPoint_DetectsReflection(t *testing.T) {
+// TestScanPerInsertionPoint_RawReflectionIsNotPDFEvidence verifies that ordinary
+// HTML echoing is not mislabeled as server-side PDF generation or execution.
+func TestScanPerInsertionPoint_RawReflectionIsNotPDFEvidence(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(reflectingHandler("content"))
 	defer srv.Close()
@@ -38,13 +39,44 @@ func TestScanPerInsertionPoint_DetectsReflection(t *testing.T) {
 
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.NotEmpty(t, res, "expected a PDF-injection finding when the HTML probe marker is reflected")
-	assert.Equal(t, "content", res[0].FuzzingParameter)
-	assert.Contains(t, res[0].Info.Name, "PDF Generation Injection")
-	// A non-PDF reflection of raw HTML is not proof of server-side PDF
-	// generation, so it must be capped at Medium/Tentative.
-	assert.Equal(t, severity.Medium, res[0].Info.Severity)
-	assert.Equal(t, severity.Tentative, res[0].Info.Confidence)
+	assert.Empty(t, res, "raw HTML reflection does not prove PDF rendering or code execution")
+}
+
+func TestClassifyReflection_RuntimeHTMLMarkerIsCandidate(t *testing.T) {
+	t.Parallel()
+	rp := reflectionPayload{
+		payload: `<h1>VIGOLIUM_&#80;DF_RENDER_test</h1>`, marker: "VIGOLIUM_PDF_RENDER_test",
+		name: "html-rendering", sev: severity.Medium, conf: severity.Firm,
+		kind: output.RecordKindCandidate, grade: output.EvidenceGradeCandidate,
+	}
+	verdict := classifyReflection(rp, "%PDF baseline", "%PDF VIGOLIUM_PDF_RENDER_test", "Content-Type: application/pdf")
+	assert.True(t, verdict.hit)
+}
+
+func TestClassifyReflection_RawPayloadInPDFIsNotExecution(t *testing.T) {
+	t.Parallel()
+	rp := reflectionPayload{
+		payload: `<script>document.write('VIGOLIUM_PDF_'+'EXEC_test')</script>`, marker: "VIGOLIUM_PDF_EXEC_test",
+		name: "js-execution", sev: severity.High, conf: severity.Firm,
+	}
+	verdict := classifyReflection(rp, "%PDF baseline", "%PDF "+rp.payload, "Content-Type: application/pdf")
+	assert.False(t, verdict.hit, "echoing split JavaScript source does not create the runtime-only marker")
+}
+
+func TestClassifyReflection_AnyPDFDoesNotProveFileRead(t *testing.T) {
+	t.Parallel()
+	rp := reflectionPayload{
+		payload: `<iframe src="file:///etc/passwd"></iframe>`, marker: "root:x:0:0:",
+		name: "local-file-read", sev: severity.High, conf: severity.Certain,
+	}
+	assert.False(t, classifyReflection(rp, "%PDF baseline", "%PDF ordinary invoice", "Content-Type: application/pdf").hit)
+	assert.True(t, classifyReflection(rp, "%PDF baseline", "%PDF root:x:0:0:root:/root:/bin/bash", "Content-Type: application/pdf").hit)
+}
+
+func TestClassifyReflection_BaselineMarkerSuppressesFinding(t *testing.T) {
+	t.Parallel()
+	rp := reflectionPayload{payload: "probe", marker: "root:x:0:0:", name: "local-file-read"}
+	assert.False(t, classifyReflection(rp, "%PDF root:x:0:0:", "%PDF root:x:0:0:", "Content-Type: application/pdf").hit)
 }
 
 // jsonEchoHandler echoes the injected parameter back verbatim inside a JSON
@@ -169,6 +201,21 @@ func TestScanPerInsertionPoint_NoReflection(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "a server that never reflects the probe must not yield a PDF-injection finding")
+}
+
+func TestScanPerInsertionPoint_OrdinaryPDFDoesNotProveFileRead(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = w.Write([]byte("%PDF-1.7\nordinary static invoice content"))
+	}))
+	defer srv.Close()
+
+	rr := modtest.Request(t, srv.URL+"/render?content=hello")
+	ip := modtest.InsertionPoint(t, rr, "content")
+	res, err := New().ScanPerInsertionPoint(rr, ip, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a normal PDF response without runtime/file markers is not an injection finding")
 }
 
 // TestIsPDFRelatedParam exercises the pure parameter-name classifier.

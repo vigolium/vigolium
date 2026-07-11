@@ -159,6 +159,26 @@ ipScan:
 				continue ipScan
 			}
 		}
+
+		// Additive fallback: the plain single-parameter differential was
+		// inconclusive for this point. If a front-end filter blocked the plain
+		// payloads, retry the SAME differential + confirmation battery through HTTP
+		// Parameter Pollution channels — a WAF/proxy may inspect one occurrence of
+		// the parameter while the backend evaluates another. This only ever changes
+		// HOW the payload is delivered; the confirmation bar is unchanged, so it
+		// introduces no new false positives.
+		hpp, err := m.tryHPPFallback(ctx, httpClient, ip, baseValue, baselineSig, baselineFull)
+		if err != nil {
+			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+				return results, nil
+			}
+			continue
+		}
+		if hpp != nil {
+			hpp.URL = urlx.String()
+			results = append(results, hpp)
+			continue ipScan
+		}
 	}
 
 	return results, nil

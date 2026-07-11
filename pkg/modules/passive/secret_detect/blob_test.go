@@ -107,7 +107,7 @@ func TestIsBinaryBlobMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsBinaryBlobMatch([]byte(tt.body), tt.snippet)
+			got := IsBinaryBlobMatch([]byte(tt.body), tt.snippet, -1, -1)
 			if got != tt.want {
 				t.Errorf("IsBinaryBlobMatch() = %v, want %v", got, tt.want)
 			}

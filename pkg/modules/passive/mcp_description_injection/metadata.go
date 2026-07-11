@@ -15,7 +15,7 @@ var (
 
 **Fix:** Avoid untrusted MCP servers, and sanitize imperatives, control/zero-width unicode, and encoded blobs before descriptions reach the LLM context.`
 
-	ModuleConfirmation = "Confirmed when an MCP description contains direct LLM imperatives, bidi-control or zero-width unicode, or a base64 blob that decodes to ASCII instructions"
+	ModuleConfirmation = "Candidate for direct or decoded imperative payloads; obfuscation-only unicode remains an observation, and confirmation requires downstream model behavior or tool/data impact"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"mcp", "prompt-injection", "supply-chain", "light"}

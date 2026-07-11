@@ -2,14 +2,15 @@ package remix_loader_exposure
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/stateexposure"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
@@ -36,58 +37,6 @@ var remixStateBlobs = []remixStateBlob{
 		start: `"loaderData":`,
 		end:   `,"actionData"`,
 	},
-}
-
-// sensitivePattern defines a pattern to detect in Remix state data.
-type sensitivePattern struct {
-	name    string
-	pattern *regexp.Regexp
-	desc    string
-}
-
-var sensitivePatterns = []sensitivePattern{
-	{
-		name:    "API Key/Token",
-		pattern: regexp.MustCompile(`"(?:api_?key|api_?token|access_?token|secret_?key|auth_?token)"\s*:\s*"([^"]{16,})"`),
-		desc:    "API key or token found in Remix loader data",
-	},
-	{
-		name:    "Admin Flag",
-		pattern: regexp.MustCompile(`"(?:is_?[Aa]dmin|is_?[Ss]uperuser|is_?[Ss]taff|admin|role)"\s*:\s*(?:true|"admin"|"superuser")`),
-		desc:    "Admin/privilege flag found in Remix loader data",
-	},
-	{
-		name:    "Email Address",
-		pattern: regexp.MustCompile(`"(?:email|mail|user_?email)"\s*:\s*"([^"]+@[^"]+\.[^"]+)"`),
-		desc:    "Email address found in Remix loader data",
-	},
-	{
-		name:    "Password Hash",
-		pattern: regexp.MustCompile(`"(?:password|passwd|password_?hash|hashed_?password)"\s*:\s*"(\$2[aby]\$|pbkdf2|scrypt|argon2|sha256|sha512)[^"]*"`),
-		desc:    "Password hash found in Remix loader data",
-	},
-	{
-		name:    "Private IP",
-		pattern: regexp.MustCompile(`"[^"]*"\s*:\s*"(?:https?://)?(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})(?::\d+)?(?:/[^"]*)?"`),
-		desc:    "Private/internal IP address found in Remix loader data",
-	},
-	{
-		name:    "Database URL",
-		pattern: regexp.MustCompile(`"[^"]*"\s*:\s*"(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^"]+"`),
-		desc:    "Database connection string found in Remix loader data",
-	},
-	{
-		name:    "AWS Key",
-		pattern: regexp.MustCompile(`"[^"]*"\s*:\s*"AKIA[0-9A-Z]{16}"`),
-		desc:    "AWS access key found in Remix loader data",
-	},
-}
-
-// knownPlaceholders are values to skip as likely non-sensitive (pre-lowercased).
-var knownPlaceholders = []string{
-	"undefined", "null", "true", "false",
-	"change_me", "your_api_key", "xxx",
-	"placeholder", "example",
 }
 
 // remixHeaderNames are response headers that indicate a Remix application.
@@ -140,7 +89,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -149,13 +101,13 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	body := ctx.Response().BodyToString()
 
 	var findings []string
-	// sensitiveHits counts ACTUAL sensitive-data matches — the only thing that
-	// makes this a finding. The mere presence of a Remix header or a state blob is
+	// The mere presence of a Remix header or a state blob is
 	// NOT a leak: every Remix page ships window.__remixContext / "loaderData",
 	// so triggering on their presence reported Medium/Firm on every Remix site with
 	// zero sensitive data. Those presence lines are kept only as supporting
-	// evidence, surfaced once a real sensitive match exists.
-	sensitiveHits := 0
+	// evidence, surfaced once a security-relevant state signal exists.
+	var signals []stateexposure.Hit
+	candidateCount := 0
 
 	// Remix response headers — context evidence only, never a trigger.
 	for _, headerName := range remixHeaderNames {
@@ -175,41 +127,61 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		// Blob presence — context evidence only, never a trigger.
 		findings = append(findings, fmt.Sprintf("Remix state blob detected: %s", blob.name))
 
-		for _, sp := range sensitivePatterns {
-			matches := sp.pattern.FindAllString(stateData, 3)
-			for _, match := range matches {
-				if isPlaceholder(match) {
-					continue
-				}
-				findings = append(findings, fmt.Sprintf("[%s] %s: %s", blob.name, sp.name, modkit.Truncate(match, 120)))
-				sensitiveHits++
+		for _, signal := range stateexposure.Analyze(stateData) {
+			findings = append(findings, fmt.Sprintf("[%s] %s: %s", blob.name, signal.Category, signal.Evidence))
+			signals = append(signals, signal)
+			if signal.Candidate {
+				candidateCount++
 			}
 		}
 	}
 
-	// A finding requires at least one real sensitive-data match; presence alone
+	// A result requires at least one security-relevant state signal; presence alone
 	// (header or state blob) is normal for any Remix app and not reportable.
-	if sensitiveHits == 0 {
+	if len(signals) == 0 {
 		return nil, nil
+	}
+
+	kind := output.RecordKindObservation
+	grade := output.EvidenceGradeObservation
+	sev := severity.Info
+	conf := severity.Tentative
+	name := "Remix Loader Security Signals"
+	description := "Remix loader state contains identity, role, public-identifier, or infrastructure context. These are observations unless authorization or secret validity is established."
+	if candidateCount > 0 {
+		kind = output.RecordKindCandidate
+		grade = output.EvidenceGradeCandidate
+		sev = ModuleSeverity
+		conf = ModuleConfidence
+		name = "Potential Remix Loader Data Exposure"
+		description = fmt.Sprintf("Remix loader state contains %d substantive private credential or password-bearing service URL candidate(s). Credential validity, anonymous reachability, and cross-user authorization were not tested.", candidateCount)
 	}
 
 	return []*output.ResultEvent{
 		{
 			ModuleID:         ModuleID,
+			RecordKind:       kind,
+			EvidenceGrade:    grade,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
+			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: findings,
 			Info: output.Info{
-				Name:        "Remix Loader Data Exposure",
-				Description: fmt.Sprintf("Found %d Remix-related finding(s) at %s", len(findings), urlx.Path),
-				Severity:    ModuleSeverity,
-				Confidence:  ModuleConfidence,
+				Name:        name,
+				Description: description,
+				Severity:    sev,
+				Confidence:  conf,
 				Tags:        []string{"remix", "data-exposure", "information-disclosure"},
 				Reference:   []string{"https://remix.run/docs/en/main/route/loader"},
 			},
 			Metadata: map[string]any{
-				"findingCount": len(findings),
+				"signalCount":           len(signals),
+				"candidateCount":        candidateCount,
+				"signals":               signals,
+				"credentialValidated":   false,
+				"authorizationCompared": false,
 			},
 		},
 	}, nil
@@ -234,15 +206,4 @@ func extractState(body string, blob remixStateBlob) string {
 	}
 
 	return remaining[:endIdx]
-}
-
-// isPlaceholder checks if a matched value is a known placeholder.
-func isPlaceholder(match string) bool {
-	matchLower := strings.ToLower(match)
-	for _, ph := range knownPlaceholders {
-		if strings.Contains(matchLower, ph) {
-			return true
-		}
-	}
-	return false
 }

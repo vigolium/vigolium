@@ -178,13 +178,18 @@ func (m *Module) testPayload(
 		resp.Close()
 		return nil, nil
 	}
+	// Keep resp open until we know whether this probe becomes a finding: its full
+	// raw response is only needed on the (rare) detection branch, so capturing it
+	// eagerly for every probe would allocate a headers+body copy most probes drop.
+	// (The executor no longer backfills a baseline response for a mutated request,
+	// so a real finding must supply its own — captured lazily at the return below.)
+	defer resp.Close()
 
 	body := resp.Body().String()
 	probeStatus := 0
 	if resp.Response() != nil {
 		probeStatus = resp.Response().StatusCode
 	}
-	resp.Close()
 
 	// Skip if response contains NoSQL error patterns (delegate to nosqli_error_based)
 	if containsNoSQLError(body) {
@@ -242,6 +247,7 @@ func (m *Module) testPayload(
 		URL:                urlx.String(),
 		Matched:            urlx.String(),
 		Request:            string(fuzzedRaw),
+		Response:           resp.FullResponseString(),
 		FuzzingParameter:   ip.Name(),
 		ExtractedResults:   []string{payload.value},
 		AdditionalEvidence: ev.Entries(),

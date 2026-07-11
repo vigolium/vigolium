@@ -1,7 +1,5 @@
 package secret_detect
 
-import "bytes"
-
 // binaryBlobSurroundThreshold is how many contiguous base64-family characters
 // must surround a match (before + after, with no delimiter between them and the
 // match) for it to be treated as a chunk of encoded binary — an inline data:
@@ -41,15 +39,18 @@ func isBase64FamilyByte(b byte) bool {
 // by its surrounding bytes — rather than by status code or content type — means a
 // genuine secret served in the same response is still reported.
 //
+// The guard is pinned to the detector's exact match offsets (see resolveMatchSpan)
+// so it inspects the base64-family run surrounding the occurrence that fired,
+// not the first textual occurrence of snippet — the same value seen both in an
+// encoded blob and in a delimited assignment is judged by the position that
+// actually matched. Passing start<0 (no offsets) locates by substring instead.
+//
 // The check is conservative: if the snippet cannot be located verbatim in body
 // it returns false (keep the finding), so it never drops a match it cannot
 // positively explain.
-func IsBinaryBlobMatch(body []byte, snippet string) bool {
-	if snippet == "" || len(body) == 0 {
-		return false
-	}
-	idx := bytes.Index(body, []byte(snippet))
-	if idx < 0 {
+func IsBinaryBlobMatch(body []byte, snippet string, start, end int) bool {
+	idx, matchEnd, ok := resolveMatchSpan(body, snippet, start, end)
+	if !ok {
 		return false
 	}
 
@@ -62,7 +63,7 @@ func IsBinaryBlobMatch(body []byte, snippet string) bool {
 	}
 	// …and immediately after.
 	after := 0
-	for i := idx + len(snippet); i < len(body) && isBase64FamilyByte(body[i]); i++ {
+	for i := matchEnd; i < len(body) && isBase64FamilyByte(body[i]); i++ {
 		after++
 	}
 

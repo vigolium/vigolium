@@ -10,18 +10,54 @@ phases:
     requires_git: false
     parallel_with: []
     depends_on: []
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: attack-surface/lite-recon.md
+          min_bytes: 40
+          contains: ["## Lite Recon"]
+        - kind: file
+          path: attack-surface/unauthenticated-surface.md
+          min_bytes: 40
+          contains: ["# Unauthenticated Attack Surface"]
   - id: L2
     title: Secrets Scan
     agent: null
     requires_git: false
-    parallel_with: [L3]
+    parallel_with: []
     depends_on: [L1]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: attack-surface/lite-secrets-scan.md
+          min_bytes: 40
+          contains: ["## Lite Secrets Scan"]
   - id: L3
     title: Fast Code Scan
     agent: null
     requires_git: false
-    parallel_with: [L2]
-    depends_on: [L1]
+    parallel_with: []
+    depends_on: [L1, L2]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: attack-surface/lite-sast-summary.md
+          min_bytes: 40
+          contains: ["## Lite SAST Summary"]
+        - kind: file
+          path: findings-draft/consolidation-manifest.json
+          min_bytes: 20
+          json: true
+        - kind: finding_reports
+          roots: [findings, findings-theoretical]
+          filename: report.md
+          min_bytes: 501
+          allow_empty: true
+          manifest_path: findings-draft/consolidation-manifest.json
+          manifest_lists: [findings, theoretical]
 ---
 
 ## Context
@@ -54,22 +90,26 @@ Everything else: intelligence gathering, knowledge base, deep probe, spec gap an
 
 ### Pre-Flight Check
 
+If `vigolium-results/audit-context.md` contains `## Engine-Owned Audit State`, the CLI has already selected the current run. Do not ask a resume/fresh question and do not create, delete, or edit `audit-state.json`; proceed from the first non-complete phase shown there.
+
+Only in a native interactive session without that directive, apply the legacy choice below.
+
 If `vigolium-results/audit-state.json` exists, use `AskUserQuestion` to gate the next action:
 
 - **Incomplete phases**: ask "An audit is already in progress. What would you like to do?" with options:
   - "Resume from last checkpoint"
-  - "Start fresh (clears existing state)"
+  - "Start fresh (append a new run)"
   - "Cancel"
 
 - **All phases complete**: ask "A completed audit exists for this repository. What would you like to do?" with options:
-  - "Run a fresh lite audit (clears existing state)"
+  - "Run a fresh lite audit (append a new run)"
   - "Upgrade to balanced mode (/vigolium-audit:balanced)"
   - "Upgrade to deep mode (/vigolium-audit:deep)"
   - "Cancel"
 
 If the user chooses **Resume**: find the first phase not marked `complete` in the state file and continue from there.
 
-If the user chooses **Start fresh**: delete `vigolium-results/audit-state.json` and proceed with Pre-Audit Setup.
+If the user chooses **Start fresh**: preserve prior entries, append a new audit entry, and proceed with Pre-Audit Setup.
 
 Do not proceed past the pre-flight check without an explicit user choice.
 
@@ -85,7 +125,7 @@ Do not proceed past the pre-flight check without an explicit user choice.
    ```
 2. **Do NOT switch branches.** Stay on the current branch for the entire audit. Do NOT run `git checkout`, `git switch`, `git branch`, `git commit`, `git add`, or `git push` against the target repo at any point. The audit writes all artifacts under `vigolium-results/` (untracked) — the user controls staging and commits. If `VIGOLIUM_AUDIT_GIT_AVAILABLE=false`, continue auditing the directory in place; do NOT initialize a new repo just for the audit.
 3. Create output directory: `mkdir -p vigolium-results/`
-4. Initialize `vigolium-results/audit-state.json` by appending a new entry (or creating the file):
+4. If the audit context does **not** declare engine-owned state, initialize `vigolium-results/audit-state.json` by appending a new entry (or creating the file):
    ```json
    {
      "audits": [
@@ -184,42 +224,53 @@ Build a lightweight project context block by reading file structure and package 
    |------|-------------------------|--------------|-------|
    ```
 
-Update `vigolium-results/audit-state.json`: set `L1` status to `complete` with timestamp.
+Finish L1 after both declared artifacts are written. When state is engine-owned, do not edit it; the engine validates the artifacts and records completion.
 
-### Phase L2 + L3 (parallel)
+### Phase L2 + L3 (ordered)
 
-After L1 completes, run L2 and L3 **in parallel**. Both phases use `vigolium-results/attack-surface/lite-recon.md` to scope their work — skip directories listed in the recon exclusions.
+After L1 completes, run L2 and then L3. Both phases use `vigolium-results/attack-surface/lite-recon.md` for context. L3 performs final consolidation only after L2's secret drafts are durable; this prevents a fast SAST pass from finalizing before the secret scan finishes. L3 uses the recon exclusions, while L2 uses the narrower secret-scan exclusions below so credentials in documentation, examples, fixtures, and tests are not silently missed.
 
 ### Phase L2: Secrets Scan
 
-Scan the target scope (minus recon exclusions) for hardcoded secrets, credentials, and sensitive tokens.
+Scan the target scope for hardcoded secrets, credentials, and sensitive tokens. Exclude dependency caches, generated/build output, `vigolium-results/`, VCS internals, and binary/media files. Do **not** exclude documentation, examples, fixtures, or tests solely because L1 excluded them from SAST.
 
 1. Run secret detection tools available in the environment. Prefer tools in this order:
    - `trufflehog filesystem $TARGET --no-update --json` (if available)
    - `gitleaks detect --source $TARGET --no-git --report-format json` (if available)
-   - Fall back to manual grep-based scanning if no tools are installed:
+   - Fall back to an `rg` pattern scan if no tools are installed:
      ```bash
      # Scan for common secret patterns
-     grep -rn --include='*.{js,ts,py,rb,go,java,rs,php,yml,yaml,json,toml,env,cfg,conf,ini,xml,sh}' \
-       -E '(AKIA[0-9A-Z]{16}|sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9\-]{20}|xox[bporsca]-[a-zA-Z0-9\-]+|-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----|password\s*[:=]\s*["\x27][^"\x27]{8,}|secret\s*[:=]\s*["\x27][^"\x27]{8,}|api[_-]?key\s*[:=]\s*["\x27][^"\x27]{8,}|token\s*[:=]\s*["\x27][^"\x27]{8,})' \
-       ${TARGET:-.} 2>/dev/null || true
+     rg -n --hidden --no-ignore-vcs \
+       -g '!node_modules/**' -g '!vendor/**' -g '!dist/**' -g '!build/**' \
+       -g '!vigolium-results/**' -g '!.git/**' \
+       -g '*.{js,jsx,ts,tsx,py,rb,go,java,kt,rs,php,yml,yaml,json,toml,env,cfg,conf,ini,xml,sh,md,txt}' \
+       '(AKIA[0-9A-Z]{16}|sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9-]{20}|xox[bporsca]-[a-zA-Z0-9-]+|-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----|password\s*[:=]\s*["\x27][^"\x27]{8,}|secret\s*[:=]\s*["\x27][^"\x27]{8,}|api[_-]?key\s*[:=]\s*["\x27][^"\x27]{8,}|token\s*[:=]\s*["\x27][^"\x27]{8,})' \
+       "${TARGET:-.}" 2>/dev/null || true
      ```
 
 2. For each finding, write a minimal finding file to `vigolium-results/findings-draft/`:
    ```
    Filename: l2-NNN.md (NNN = 001, 002, ...)
    ```
-   Each file:
+   Each file uses the canonical draft frontmatter so deterministic consolidation can consume it:
    ```markdown
-   ## L2-NNN: <Secret Type>
+   # <Secret Type>
 
-   - **Severity**: Critical | High | Medium
-   - **File**: <path>
-   - **Line**: <line number>
-   - **Type**: <e.g. AWS Access Key, GitHub PAT, Private Key, Hardcoded Password>
-   - **Verdict**: VALID
+   Phase: l2
+   Sequence: NNN
+   Slug: <stable-slug>
+   Verdict: VALID
+   Severity-Original: CRITICAL | HIGH | MEDIUM
+   Confidence: HIGH | MEDIUM
+   Class: hardcoded-secret
+   Location: <path>:<line>
+   Auth-Required: no
 
-   ### Evidence
+   ## Summary
+
+   <What credential is exposed and what realistic access it enables.>
+
+   ## Evidence
    <masked snippet — show enough context to locate but redact the actual secret value>
    ```
 
@@ -228,7 +279,11 @@ Scan the target scope (minus recon exclusions) for hardcoded secrets, credential
    - **High**: API keys, personal access tokens, OAuth secrets, JWT signing keys
    - **Medium**: Generic passwords, internal tokens, webhook secrets
 
-Update `vigolium-results/audit-state.json`: set `L2` status to `complete` with timestamp.
+4. **Bounded verification**: reject obvious placeholders, documentation-only dummy values, and test vectors when context proves they are non-live. Mask every retained secret in drafts and logs. Do not contact a provider to validate a credential during lite mode.
+
+5. **Write the phase summary** to `vigolium-results/attack-surface/lite-secrets-scan.md` on every run, including the tool or fallback used, scanned/excluded paths, retained/filtered counts, and either retained draft paths or an explicit no-secrets conclusion. Start the file with `## Lite Secrets Scan`.
+
+Finish L2 after its summary artifact is written. When state is engine-owned, do not edit it.
 
 ### Phase L3: Fast Code Scan
 
@@ -261,21 +316,29 @@ Run a single pass of built-in static analysis security suites, scoped by L1 reco
    ```
    Filename: l3-NNN.md (NNN = 001, 002, ...)
    ```
-   Each file:
+   Each file uses the canonical draft frontmatter:
    ```markdown
-   ## L3-NNN: <Vulnerability Title>
+   # <Vulnerability Title>
 
-   - **Severity**: Critical | High | Medium
-   - **File**: <path>
-   - **Line**: <line number>
-   - **Rule**: <rule ID from tool, or manual pattern name>
-   - **Category**: <e.g. SQL Injection, Command Injection, XSS, Path Traversal>
-   - **Verdict**: VALID
+   Phase: l3
+   Sequence: NNN
+   Slug: <stable-slug>
+   Verdict: VALID
+   Severity-Original: CRITICAL | HIGH | MEDIUM
+   Confidence: HIGH | MEDIUM
+   Class: <e.g. sql-injection, command-injection, xss, path-traversal>
+   Location: <path>:<line>
+   Rule: <tool rule ID or manual pattern>
+   Auth-Required: yes | no | unknown
 
-   ### Evidence
+   ## Evidence
    <code snippet showing the vulnerable pattern>
 
-   ### One-Liner
+   ## Source to Sink
+
+   <attacker source -> transformations/guards -> sink -> impact>
+
+   ## One-Liner
    <single sentence explaining the risk>
    ```
 
@@ -287,9 +350,11 @@ Run a single pass of built-in static analysis security suites, scoped by L1 reco
 5. **Quick dedup and filter**:
    - If a L3 finding overlaps with a L2 finding (same file + line), keep the L2 finding and drop the L3 duplicate.
    - Using `vigolium-results/attack-surface/lite-recon.md` entry points and framework context, drop findings in files that are clearly not reachable from user input (e.g., build scripts, migration utilities, dev-only tooling). Mark dropped findings with `Verdict: FILTERED` rather than deleting them.
-   - Using `vigolium-results/attack-surface/unauthenticated-surface.md`, when a finding sits on (or is reachable from) a pre-auth entry point, elevate its severity one band (e.g. High → Critical) — a bug an anonymous attacker can reach is strictly more severe than the same bug behind auth. Note `pre-auth` in the finding's Category.
+   - Use `vigolium-results/attack-surface/unauthenticated-surface.md` as an exploitability input. Record `Auth-Required: no` for a pre-auth path, but do not mechanically raise severity: combine attacker privileges, impact, scope, and exploit reliability.
 
-Update `vigolium-results/audit-state.json`: set `L3` status to `complete` with timestamp.
+6. **Write the phase summary** to `vigolium-results/attack-surface/lite-sast-summary.md` on every run, including tools/rulesets used, scan failures or fallbacks, retained/filtered counts, and either retained draft paths or an explicit no-findings conclusion. Start the file with `## Lite SAST Summary`.
+
+Finish L3 after its summary and finalization artifacts are written. When state is engine-owned, do not edit it.
 
 ---
 
@@ -297,21 +362,19 @@ Update `vigolium-results/audit-state.json`: set `L3` status to `complete` with t
 
 After all phases complete:
 
-1. **Assign final IDs**: Collect all `vigolium-results/findings-draft/l2-*.md` and `vigolium-results/findings-draft/l3-*.md` with `Verdict: VALID`. Assign severity-prefixed IDs: `C1`, `C2`, ..., `H1`, `H2`, ..., `M1`, `M2`, ... Drop all Low severity findings.
+1. **Deterministic consolidation**: Run:
 
-2. **Finding consolidation**: For each confirmed finding with assigned ID:
-   1. `mkdir -p vigolium-results/findings/<ID>-<slug>/evidence/`
-   2. Copy the finding draft: `cp vigolium-results/findings-draft/<l2|l3>-<NNN>.md vigolium-results/findings/<ID>-<slug>/draft.md`
-
-3. **PoC Building**: For each confirmed finding, spawn `vigolium-audit:poc-author` with `run_in_background: true`. Each receives: finding draft path, assigned ID, and `vigolium-results/attack-surface/lite-recon.md` path for project context. Wait for all PoC builders to complete.
-
-4. **Post-audit cleanup**: Delete intermediate working artifacts:
    ```bash
-   rm -rf vigolium-results/findings-draft/
-   rm -rf vigolium-results/codeql-artifacts/
-   rm -rf vigolium-results/semgrep-res/
+   python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/consolidate_drafts.py vigolium-results
    ```
-   Retained: `vigolium-results/audit-state.json`, `vigolium-results/attack-surface/lite-recon.md`, `vigolium-results/attack-surface/unauthenticated-surface.md`, `vigolium-results/findings/`.
+
+   Read `vigolium-results/findings-draft/consolidation-manifest.json`. Exit code 1 with an empty `findings` and `theoretical` set is a clean no-findings Lite result; other helper errors are fatal. Do not assign IDs or copy drafts manually.
+
+2. **PoC Building**: For each entry in the manifest's `findings` array, spawn `vigolium-audit:poc-author` with `run_in_background: true`. Each receives the manifest draft path, assigned ID, and `vigolium-results/attack-surface/lite-recon.md` for project context. Wait for all PoC builders.
+
+3. **Partition and finalize**: Run `python3 ~/.config/vigolium-audit/runtime-skills/audit/scripts/partition_findings.py vigolium-results` so findings without `PoC-Status: executed` move to `findings-theoretical/` without changing IDs. Then spawn `vigolium-audit:finding-writer` once per directory under both `findings/` and `findings-theoretical/`. Verify every `report.md` exists and is larger than 500 bytes; retry once, then fail finalization if any remain incomplete.
+
+4. **Retention handoff**: Do not delete `findings-draft/consolidation-manifest.json` or other gate inputs. The trusted CLI applies the requested retention/strip policy only after artifact validation. Durable output includes state, recon/summaries, and both finalized finding buckets.
 
 5. **Print summary table** to the user:
    ```
@@ -324,16 +387,16 @@ After all phases complete:
    | ...| ...      | ...      | ...       | ... |
 
    Findings: vigolium-results/findings/
-   For deeper analysis, run /vigolium-audit:balanced (6-phase) or /vigolium-audit:deep (full 11-phase).
+   For deeper analysis, run /vigolium-audit:balanced (9-phase) or /vigolium-audit:deep (full 12-phase).
    ```
 
-6. Update `audits[-1].completed_at` and `audits[-1].status` to `complete`.
+6. Return the completion summary. The engine validates artifacts and finalizes the audit record when state is engine-owned.
 
 ---
 
 ## Notes
 
-- **No narrative report**: lite mode does not produce `vigolium-results/final-audit-report.md`. The findings + PoCs are the deliverable.
+- **No consolidated narrative report**: lite mode does not produce `vigolium-results/final-audit-report.md`. Finalized per-finding reports and available PoCs are the deliverable.
 - **No knowledge base**: lite mode does not produce `vigolium-results/attack-surface/knowledge-base-report.md`.
 - **Compatible output**: finding directories use the same `vigolium-results/findings/<ID>-<slug>/` structure as `/vigolium-audit:balanced` and `/vigolium-audit:deep` (with `draft.md`, `report.md`, `poc.*`, `evidence/`), so upgrading to a deeper audit preserves lite findings. The `/vigolium-audit:confirm` command works directly against lite output.
-- **Minimal agent use**: lite mode runs the balanced pipeline phases inline — only `vigolium-audit:poc-author` agents are dispatched for PoC generation.
+- **Minimal agent use**: lite mode runs scanning inline, then dispatches only `vigolium-audit:poc-author` and `vigolium-audit:finding-writer` for retained findings.

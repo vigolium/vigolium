@@ -15,7 +15,7 @@ var (
 
 **Fix:** Remove or properly authenticate undocumented debug, admin, and internal methods, and return -32601 for any method not meant to be publicly callable.`
 
-	ModuleConfirmation = "Confirmed when the server returns a JSON-RPC result for an undocumented method, or an error other than -32601"
+	ModuleConfirmation = "Candidate when a non-standard method returns a result distinct from a randomized unknown-method control; recognized-but-rejected methods are observations and no privileged impact is inferred"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"mcp", "enumeration", "info-disclosure", "moderate"}

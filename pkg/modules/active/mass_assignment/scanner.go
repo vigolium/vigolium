@@ -3,6 +3,8 @@ package mass_assignment
 import (
 	"encoding/json"
 	"maps"
+	stdurl "net/url"
+	"reflect"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -105,10 +107,11 @@ func (m *Module) IncludesBaseCanProcess() bool { return false }
 
 // injResult holds the outcome of a single injected request.
 type injResult struct {
-	status int
-	body   string // response body only (for comparison/echo checks)
-	full   string // full response incl. headers (evidence)
-	raw    []byte // the modified request, raw
+	status   int
+	body     string // response body only (for comparison/echo checks)
+	full     string // full response incl. headers (evidence)
+	raw      []byte // the modified request, raw
+	location string
 }
 
 // ScanPerRequest tests mass assignment on the given JSON request.
@@ -161,7 +164,7 @@ func (m *Module) ScanPerRequest(
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return nil, nil
 			}
-		} else if keyNewlyReflected(canaryKey, ctl.body, baselineBody) {
+		} else if valueNewlyReflected(canaryKey, canaryValue, ctl.body, baselineBody) {
 			// Endpoint blindly reflects unknown fields — unreliable, report nothing.
 			return nil, nil
 		}
@@ -179,6 +182,16 @@ func (m *Module) ScanPerRequest(
 		injected := make(map[string]any, len(originalObj)+1)
 		maps.Copy(injected, originalObj)
 		injected[probe.key] = probe.value
+
+		// Capture a fresh no-key control BEFORE mutation. A post-mutation control
+		// is invalid for stateful endpoints: if the injection really persisted,
+		// the subsequent no-key response should still contain the value and would
+		// incorrectly suppress the true positive.
+		preControl, err := m.sendInjected(ctx, httpClient, originalObj)
+		if err != nil || preControl.status < 200 || preControl.status >= 300 ||
+			jsonContainsKeyValue(preControl.body, probe.key, probe.value) {
+			continue
+		}
 
 		res, err := m.sendInjected(ctx, httpClient, injected)
 		if err != nil {
@@ -199,14 +212,13 @@ func (m *Module) ScanPerRequest(
 
 		// Require evidence the injection actually took effect:
 		//   1. the response genuinely differs from the un-injected baseline, AND
-		//   2. the injected key surfaces in the response because of us (it was not
-		//      already present in the baseline).
+		//   2. the exact typed key/value surfaces in the response because of us.
 		// Without this, an endpoint that silently ignores the field returns the same
 		// 2xx response as before and must NOT be flagged.
 		if normalizeBody(res.body) == normalizeBody(baselineBody) {
 			continue
 		}
-		if !keyNewlyReflected(probe.key, res.body, baselineBody) {
+		if !valueNewlyReflected(probe.key, probe.value, res.body, baselineBody) {
 			continue
 		}
 		// Reconfirm the key's reflection TRACKS our injection rather than being the
@@ -215,19 +227,45 @@ func (m *Module) ScanPerRequest(
 		// of an SSR page's embedded state (feature flags, personalization) can look
 		// "newly reflected" by coincidence. Require it to reflect again on re-injection
 		// AND be absent from a fresh no-key control before trusting it.
-		if !m.reflectionTracksInjection(ctx, httpClient, injected, originalObj, probe.key) {
+		if !m.reflectionTracksInjection(ctx, httpClient, injected, probe.key, probe.value) {
 			continue
 		}
 
+		readback, persisted := m.verifyPersistence(ctx, httpClient, res, probe.key, probe.value)
+		kind := output.RecordKindCandidate
+		grade := output.EvidenceGradeDifferential
+		name := "Mass Assignment Acceptance Candidate"
+		description := "The endpoint repeatedly returned the exact injected privilege value while a benign unknown field was not accepted. This proves selective binding/acceptance, but no durable state readback was available."
+		var additionalEvidence []string
+		if persisted {
+			kind = output.RecordKindFinding
+			grade = output.EvidenceGradeImpact
+			name = "Mass Assignment with Persistent Privilege Field"
+			description = "The endpoint accepted the exact injected privilege value and two independent GET readbacks returned that same typed value, confirming durable unauthorized state assignment."
+			additionalEvidence = []string{readback.rawString(), readback.full}
+		}
+
 		results = append(results, &output.ResultEvent{
-			URL:              urlx.String(),
-			Request:          string(res.raw),
-			Response:         res.full,
-			FuzzingParameter: probe.key,
-			ExtractedResults: []string{probe.key + "=" + toString(probe.value)},
+			ModuleID:           ModuleID,
+			URL:                urlx.String(),
+			Request:            string(res.raw),
+			Response:           res.full,
+			AdditionalEvidence: additionalEvidence,
+			FuzzingParameter:   probe.key,
+			ExtractedResults:   []string{probe.key + "=" + toString(probe.value)},
+			RecordKind:         kind,
+			EvidenceGrade:      grade,
 			Info: output.Info{
-				Description: "Mass assignment: injecting privilege key '" + probe.key +
-					"' changed the response and the key was reflected back, indicating the server accepted an unauthorized field.",
+				Name:        name,
+				Description: description,
+				Severity:    ModuleSeverity,
+				Confidence:  ModuleConfidence,
+				Tags:        ModuleTags,
+			},
+			Metadata: map[string]any{
+				"injected_key":   probe.key,
+				"injected_value": probe.value,
+				"persisted":      persisted,
 			},
 		})
 		return results, nil
@@ -257,7 +295,7 @@ func (m *Module) sendInjected(
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(modifiedRaw, ctx.Service())
 
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true})
+	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
 	if err != nil {
 		return nil, err
 	}
@@ -268,6 +306,7 @@ func (m *Module) sendInjected(
 		res.status = resp.Response().StatusCode
 		res.body = resp.BodyString()
 		res.full = resp.FullResponseString()
+		res.location = resp.Response().Header.Get("Location")
 	}
 	return res, nil
 }
@@ -283,45 +322,185 @@ func isRejected(status int, body string) bool {
 		strings.Contains(b, "not allowed")
 }
 
-// keyNewlyReflected reports whether the JSON key surfaces in the injected response
-// but was absent from the baseline response — i.e. it appears because we injected it,
-// not because the endpoint naturally returns that field.
-func keyNewlyReflected(key, injectedBody, baselineBody string) bool {
-	needle := `"` + key + `"`
-	return strings.Contains(injectedBody, needle) && !strings.Contains(baselineBody, needle)
+// valueNewlyReflected requires the exact typed value, not just the key name. A
+// server that accepts a known field but normalizes role=admin back to role=user
+// has not granted the requested privilege and must not be reported.
+func valueNewlyReflected(key string, value any, injectedBody, baselineBody string) bool {
+	return jsonContainsKeyValue(injectedBody, key, value) && !jsonContainsKeyValue(baselineBody, key, value)
 }
 
 // reflectionTracksInjection reconfirms that a privilege key surfaces in the
 // response BECAUSE we injected it, not because the endpoint's output naturally
-// varies request to request. It re-sends the injected body (the key must reflect
-// again) and sends a fresh no-key control (the key must be ABSENT). It returns
-// false only on positive disproof — a 2xx re-injection that no longer reflects the
-// key, or a 2xx no-key control that already contains it — so a transient transport
-// error never drops a genuine finding (stays false-negative safe).
+// varies request to request. The caller captured a fresh pre-mutation no-key
+// control; this helper re-sends the injected body and requires the exact typed
+// value again. Transport ambiguity fails closed.
 func (m *Module) reflectionTracksInjection(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
-	injected, original map[string]any,
+	injected map[string]any,
 	key string,
+	value any,
 ) bool {
-	needle := `"` + key + `"`
-
 	// (a) Re-inject: a genuinely accepted/echoed field reflects on every send. A 2xx
 	// re-injection that no longer carries the key means the first reflection was
 	// per-request noise, not our field.
-	if re, err := m.sendInjected(ctx, httpClient, injected); err == nil &&
-		re.status >= 200 && re.status < 300 && !strings.Contains(re.body, needle) {
-		return false
-	}
-
-	// (b) Fresh no-key control: if the key name already appears WITHOUT our injection,
-	// its presence is the page's own per-request variance, not mass assignment.
-	if ctl, err := m.sendInjected(ctx, httpClient, original); err == nil &&
-		ctl.status >= 200 && ctl.status < 300 && strings.Contains(ctl.body, needle) {
+	re, err := m.sendInjected(ctx, httpClient, injected)
+	if err != nil || re.status < 200 || re.status >= 300 || !jsonContainsKeyValue(re.body, key, value) {
 		return false
 	}
 
 	return true
+}
+
+func jsonContainsKeyValue(body, key string, expected any) bool {
+	var document any
+	if err := json.Unmarshal([]byte(body), &document); err != nil {
+		return false
+	}
+	canonicalExpected := canonicalJSONValue(expected)
+	return findJSONKeyValue(document, key, canonicalExpected)
+}
+
+func canonicalJSONValue(value any) any {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var canonical any
+	if err := json.Unmarshal(encoded, &canonical); err != nil {
+		return value
+	}
+	return canonical
+}
+
+func findJSONKeyValue(value any, key string, expected any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for candidate, child := range typed {
+			if candidate == key && jsonValueContains(child, expected) {
+				return true
+			}
+			if findJSONKeyValue(child, key, expected) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if findJSONKeyValue(child, key, expected) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// jsonValueContains permits response objects to enrich an injected nested map
+// with server fields while still requiring every requested nested value.
+func jsonValueContains(actual, expected any) bool {
+	expectedMap, expectedIsMap := expected.(map[string]any)
+	actualMap, actualIsMap := actual.(map[string]any)
+	if expectedIsMap {
+		if !actualIsMap {
+			return false
+		}
+		for key, expectedChild := range expectedMap {
+			actualChild, ok := actualMap[key]
+			if !ok || !jsonValueContains(actualChild, expectedChild) {
+				return false
+			}
+		}
+		return true
+	}
+	return reflect.DeepEqual(actual, expected)
+}
+
+func (m *Module) verifyPersistence(
+	ctx *httpmsg.HttpRequestResponse,
+	client *http.Requester,
+	injected *injResult,
+	key string,
+	value any,
+) (*injResult, bool) {
+	readRaw, ok := readbackRequest(ctx, injected.location)
+	if !ok {
+		return nil, false
+	}
+	first, err := m.sendRaw(ctx, client, readRaw)
+	if err != nil || first.status < 200 || first.status >= 300 || !jsonContainsKeyValue(first.body, key, value) {
+		return nil, false
+	}
+	second, err := m.sendRaw(ctx, client, readRaw)
+	if err != nil || second.status != first.status || !jsonContainsKeyValue(second.body, key, value) || !modkit.BodiesSimilar(first.body, second.body) {
+		return nil, false
+	}
+	return first, true
+}
+
+func readbackRequest(ctx *httpmsg.HttpRequestResponse, location string) ([]byte, bool) {
+	method := strings.ToUpper(ctx.Request().Method())
+	raw := append([]byte(nil), ctx.Request().Raw()...)
+	if method == "POST" {
+		if strings.TrimSpace(location) == "" {
+			return nil, false
+		}
+		parsed, err := stdurl.Parse(location)
+		if err != nil {
+			return nil, false
+		}
+		if parsed.IsAbs() {
+			urlx, err := ctx.URL()
+			if err != nil || !strings.EqualFold(parsed.Host, urlx.Host) {
+				return nil, false
+			}
+		}
+		path := parsed.EscapedPath()
+		if path == "" {
+			path = "/"
+		}
+		if parsed.RawQuery != "" {
+			path += "?" + parsed.RawQuery
+		}
+		raw, err = httpmsg.SetPath(raw, path)
+		if err != nil {
+			return nil, false
+		}
+	} else if method != "PUT" && method != "PATCH" {
+		return nil, false
+	}
+	var err error
+	raw, err = httpmsg.SetMethod(raw, "GET")
+	if err != nil {
+		return nil, false
+	}
+	raw, err = httpmsg.SetBody(raw, nil)
+	if err != nil {
+		return nil, false
+	}
+	return raw, true
+}
+
+func (m *Module) sendRaw(ctx *httpmsg.HttpRequestResponse, client *http.Requester, raw []byte) (*injResult, error) {
+	request := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
+	resp, _, err := client.Execute(request, http.Options{NoRedirects: true, NoClustering: true})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Close()
+	result := &injResult{raw: raw}
+	if resp.Response() != nil {
+		result.status = resp.Response().StatusCode
+		result.body = resp.BodyString()
+		result.full = resp.FullResponseString()
+		result.location = resp.Response().Header.Get("Location")
+	}
+	return result, nil
+}
+
+func (r *injResult) rawString() string {
+	if r == nil {
+		return ""
+	}
+	return string(r.raw)
 }
 
 // normalizeBody strips all whitespace so two responses can be compared for material

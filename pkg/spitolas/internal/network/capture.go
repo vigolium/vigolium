@@ -417,9 +417,17 @@ func (c *Capture) onLoadingFinished(e *proto.NetworkLoadingFinished, sessionID p
 	c.mu.Unlock()
 
 	if pending.entry.Response != nil {
-		// ALWAYS fetch body to compute httpx fields (content_length, words, lines)
-		// Validate session BEFORE attempting to fetch response body
-		if !c.isSessionValid(pending.sessionID) {
+		// Fetch the body only when it's worth it: HTML/JS/JSON/XML/API responses
+		// (always) or a retained, reasonably-sized static asset. Skipping a static
+		// body we'd discard also skips this response's page enumeration + CDP body
+		// transfer — the dominant per-response cost — instead of fetching every
+		// image/font/media body just to throw it away.
+		if !shouldFetchResponseBody(pending.entry, includeBody, e.EncodedDataLength) {
+			zap.L().Debug("Skipping body fetch for static/discarded response",
+				zap.String("url", pending.entry.Request.URL),
+				zap.String("content_type", pending.entry.ContentType))
+		} else if !c.isSessionValid(pending.sessionID) {
+			// Validate session BEFORE attempting to fetch response body.
 			zap.L().Debug("Skipping body fetch for invalid session",
 				zap.String("sessionID", string(pending.sessionID)),
 				zap.String("requestID", string(e.RequestID)),
@@ -527,6 +535,59 @@ func (c *Capture) fetchResponseBody(sessionID proto.TargetSessionID, requestID p
 
 // staticContentTypes lists MIME type substrings that identify static resources.
 var staticContentTypes = []string{"font", "image", "video", "audio"}
+
+// maxStaticBodyFetchBytes caps the size of a static/binary response body we're
+// willing to pull over CDP even when bodies are being retained. Beyond this a
+// static asset (an image, font, media file) is not worth the transfer.
+const maxStaticBodyFetchBytes = 5 * 1024 * 1024
+
+// isBinaryStaticContentType reports whether a content type is binary static
+// media (font/image/video/audio) whose body carries no useful text metrics.
+func isBinaryStaticContentType(contentType string) bool {
+	ct := strings.ToLower(contentType)
+	for _, s := range staticContentTypes {
+		if strings.Contains(ct, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasStaticExtension reports whether a URL path ends in a known static-asset
+// extension (css/map/fonts/images/media). It scans the raw string (no url.Parse
+// allocation — this is on the per-response capture path): strip the query/
+// fragment, then take the last dot only if it falls after the last path slash
+// (so a host dot like "example.com" with no path doesn't match).
+func hasStaticExtension(rawURL string) bool {
+	if i := strings.IndexAny(rawURL, "?#"); i != -1 {
+		rawURL = rawURL[:i]
+	}
+	dot := strings.LastIndexByte(rawURL, '.')
+	if dot == -1 || dot < strings.LastIndexByte(rawURL, '/') {
+		return false
+	}
+	return staticExtensions[strings.ToLower(rawURL[dot:])]
+}
+
+// shouldFetchResponseBody decides whether to pull a response body over CDP.
+// Fetching a body we won't retain AND can't derive useful text metrics from
+// (binary media/fonts/static assets) is pure overhead — and it's the dominant
+// per-response cost because the fetch also enumerates browser pages. HTML/JS/
+// JSON/XML/API responses are always fetched (they drive discovery); static
+// bodies are fetched only when retained (includeBody) and under a size cap.
+func shouldFetchResponseBody(entry *TrafficEntry, includeBody bool, encodedLen float64) bool {
+	if entry == nil || entry.Response == nil {
+		return false
+	}
+	if !isBinaryStaticContentType(entry.ContentType) && !hasStaticExtension(entry.Request.URL) {
+		return true // prioritize HTML/JS/JSON/XML/API — always fetch
+	}
+	// Static/binary asset.
+	if !includeBody {
+		return false // body would be discarded; skip the fetch (and its page scan)
+	}
+	return encodedLen <= 0 || encodedLen <= maxStaticBodyFetchBytes
+}
 
 // staticExtensions lists URL path extensions for static resources suppressed from stderr.
 var staticExtensions = map[string]bool{

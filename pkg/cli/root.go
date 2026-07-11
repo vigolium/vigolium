@@ -131,8 +131,8 @@ Common workflows:
   • vigolium agent       — run an agentic scan (autopilot, swarm, query, olium)
   • vigolium server      — start the REST API + ingest proxy
   • vigolium ingest      — push HTTP traffic into the database
-  • vigolium db          — inspect, export, or prune stored data
-  • vigolium project     — manage multi-tenant projects
+  • vigolium finding     — inspect and export scan findings
+  • vigolium traffic     — inspect and export captured HTTP traffic
 
 Run 'vigolium <command> --help' for command-specific flags and examples, or 'vigolium --full-example' for a curated tour.`,
 	SilenceUsage: true,

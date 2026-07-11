@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A Next.js client bundle under /_next/static/ contains server-only code such as a database client (Prisma), a crypto/JWT library (jose), Node modules (fs, child_process), an internal service URL, or a credentialed connection string. The server/client boundary was not enforced and internal detail shipped to the browser.
+	ModuleDesc = `**What it means:** A Next.js client bundle contains two server-oriented import/URL patterns, or one substantive credential-shaped database URI. Import strings can survive dead code and do not prove executable server logic.
 
-**How it's exploited:** Anyone loading the page reads the bundle, mapping internal endpoints and auth logic; a leaked connection string or key reaches the database or forges tokens. Tentative, so two signals are required.
+**How it's exploited:** Real impact requires useful internal detail, runtime reachability, or a live credential. The module performs no call-graph or provider validation, so results remain candidates; obvious placeholder URIs are suppressed.
 
 **Fix:** Wrap server-only modules with the server-only package and keep secrets and internal URLs out of client code.`
 
-	ModuleConfirmation = "Confirmed when client-side JavaScript bundles contain server-only module identifiers or internal service references"
+	ModuleConfirmation = "Candidate after two server-oriented signals or one non-placeholder credentialed database URI; runtime reachability and credential validity remain unconfirmed"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "info-disclosure", "light"}

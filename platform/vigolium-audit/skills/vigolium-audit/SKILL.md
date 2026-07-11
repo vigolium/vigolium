@@ -31,7 +31,13 @@ Verify the install end-to-end (binary, auth, content, real message round-trip):
 ```bash
 vigolium-audit verify claude
 vigolium-audit verify codex
+vigolium-audit verify codex --transport both
 ```
+
+For headless runs, `--transport auto|sdk|cli` selects the adapter. Codex
+`auto` prefers the Codex Agent SDK and can reuse ambient `codex login` auth;
+use `--transport cli` for the native `codex exec` fallback. Interactive `-i`
+always uses the native CLI.
 
 ## Audit modes
 
@@ -46,7 +52,7 @@ Each mode is a different phase graph — trading thoroughness against runtime/co
 | `reinvest` | Cross-agent re-verification of CRIT/HIGH findings | Run with the *other* agent (claude ↔ codex) |
 | `confirm` | Exercise findings against a live or booted target | Boots app, runs PoCs, falls back to generated tests |
 | `diff` | Re-audit only what a small change touched | Requires git history |
-| `merge` | Normalize multiple `vigolium-audit/` outputs into one tree | Post-process step |
+| `merge` | Normalize multiple `vigolium-results/` outputs into one tree | Post-process step |
 | `longshot` | Bottom-up, file-by-file hail-mary | Use when architecture-anchored audits feel exhausted |
 | `refresh` | "Just do the right thing" router | Resolves to `revisit` or fresh `deep` |
 
@@ -66,6 +72,12 @@ vigolium-audit run --mode deep --agent claude -i
 
 # Cap cost — abort if the run exceeds $20
 vigolium-audit run --mode deep --agent codex --max-cost 20
+
+# Explicit Codex Agent SDK run (this is also Codex's auto default)
+vigolium-audit run --mode deep --agent codex --transport sdk
+
+# Codex interactive mode auto-submits the canonical deep dispatch prompt
+vigolium-audit run --mode deep --agent codex -i
 
 # Cross-agent re-verification of an existing deep run's CRIT/HIGH findings
 vigolium-audit run --mode reinvest --agent codex --target /path/to/repo
@@ -109,11 +121,11 @@ vigolium-audit run --mode lite --agent claude --json | jq -c 'select(.kind == "p
 3. **Code changed since the last audit?** → `diff`.
 4. **Need to prove a finding is real against a running target?** → `confirm`.
 5. **Architecture-anchored audits feel exhausted, suspect bugs hiding in unusual files?** → `longshot`.
-6. **Have multiple `vigolium-audit/` directories to combine?** → `merge`.
+6. **Have multiple `vigolium-results/` directories to combine?** → `merge`.
 
 ## Output
 
-Audit artifacts land in `<targetDir>/vigolium-audit/`:
+Audit artifacts land in `<targetDir>/vigolium-results/`:
 
 - `audit-state.json` — phase graph state (resume baseline)
 - `findings/<Severity><N>-<slug>/` — finalized findings

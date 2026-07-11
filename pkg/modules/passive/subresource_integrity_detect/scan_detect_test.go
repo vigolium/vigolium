@@ -1,13 +1,16 @@
 package subresource_integrity_detect
 
 import (
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 func TestNew(t *testing.T) {
@@ -42,6 +45,7 @@ func TestScanPerRequest_ExternalScriptNoSRI(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	assert.Contains(t, results[0].ExtractedResults[0], "https://cdn.example.org/lib.js")
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
 }
 
 // TestScanPerRequest_ExternalStylesheetNoSRI drives an external stylesheet link
@@ -62,7 +66,8 @@ func TestScanPerRequest_ExternalStylesheetNoSRI(t *testing.T) {
 func TestScanPerRequest_WithSRI(t *testing.T) {
 	t.Parallel()
 	m := New()
-	body := `<html><head><script src="https://cdn.example.org/lib.js" integrity="sha384-abc"></script></head></html>`
+	digest := base64.StdEncoding.EncodeToString(make([]byte, 48))
+	body := `<html><head><script src="https://cdn.example.org/lib.js" integrity="sha384-` + digest + `"></script></head></html>`
 	ctx := makeHTTPCtx(body)
 
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
@@ -75,10 +80,40 @@ func TestScanPerRequest_WithSRI(t *testing.T) {
 func TestScanPerRequest_SameOrigin(t *testing.T) {
 	t.Parallel()
 	m := New()
-	body := `<html><head><script src="/static/app.js"></script></head></html>`
+	body := `<html><head>` +
+		`<script src="/static/app.js"></script>` +
+		`<script src="https://example.com/static/absolute.js"></script>` +
+		`<link rel="stylesheet alternate" href="//example.com/static/app.css">` +
+		`</head></html>`
 	ctx := makeHTTPCtx(body)
 
 	results, err := m.ScanPerRequest(ctx, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, results)
+}
+
+func TestScanPerRequest_InvalidIntegrityDoesNotCountAsProtection(t *testing.T) {
+	t.Parallel()
+	body := `<script src="https://cdn.example.org/lib.js" integrity="sha384-abc"></script>`
+	results, err := New().ScanPerRequest(makeHTTPCtx(body), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Contains(t, strings.Join(results[0].ExtractedResults, "\n"), "invalid integrity")
+}
+
+func TestScanPerRequest_NonExecutableScriptTypeIsIgnored(t *testing.T) {
+	t.Parallel()
+	body := `<script type="application/ld+json" src="https://cdn.example.org/schema.json"></script>`
+	results, err := New().ScanPerRequest(makeHTTPCtx(body), &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestScanPerRequest_BaseURLAffectsRelativeOrigin(t *testing.T) {
+	t.Parallel()
+	body := `<base href="https://cdn.example.org/assets/"><script src="app.js"></script>`
+	results, err := New().ScanPerRequest(makeHTTPCtx(body), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].ExtractedResults[0], "app.js")
 }

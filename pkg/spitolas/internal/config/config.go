@@ -111,6 +111,13 @@ type Config struct {
 	ProxyAllowLoopback bool
 	InitialCookies     []*http.Cookie // Cookies to set before crawling (from auth bootstrap)
 
+	// ExtraHeaders are non-cookie authentication/custom headers (Authorization,
+	// X-Api-Key, operator -H headers, …) applied to every request the browser
+	// makes via CDP. Populated from the same session/header set the HTTP scan
+	// phases use, so the browser explores authenticated instead of only the
+	// unauthenticated shell. Cookie headers are split out into InitialCookies.
+	ExtraHeaders map[string]string
+
 	// Wait times
 	WaitAfterReload time.Duration
 	WaitAfterEvent  time.Duration

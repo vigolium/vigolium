@@ -15,7 +15,7 @@ var (
 
 **Fix:** Cap batch array length, enforce per-client rate limits, and reject oversized batches before dispatching them.`
 
-	ModuleConfirmation = "Confirmed when an oversized JSON-RPC batch array of harmless ping calls is fully processed (nearly all elements answered) with no batch-size cap, rate limit, or invalid-request rejection"
+	ModuleConfirmation = "Differential candidate when a large harmless batch is processed after a small control; confirmation requires measured resource exhaustion or service degradation, and one request cannot prove absence of all limits"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"mcp", "dos", "rate-limit", "moderate"}

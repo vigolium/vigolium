@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** The page's JavaScript parses URL parameters with a pattern vulnerable to client-side prototype pollution (jQuery deep extend, lodash merge/set/defaultsDeep, or a recursive location.search/hash parser), letting attacker keys like __proto__ write onto Object.prototype. Found via static analysis of inline and same-origin scripts.
+	ModuleDesc = `**What it means:** Inline or same-origin JavaScript contains a nearby URL-source and recursive merge/property-write pattern associated with client-side prototype pollution. Generic params and cross-origin scripts are excluded.
 
-**How it's exploited:** An attacker sends a crafted link like ?__proto__[polluted]=true; the polluted property flows into a gadget (innerHTML, eval, document.write), typically yielding DOM-based XSS or auth-logic bypass. Identified statically, so verify manually.
+**How it's exploited:** A real exploit requires the crafted key to reach the write, alter Object.prototype at runtime, and flow into a useful gadget. Gadgets found elsewhere in the page are enrichment, not connected-flow proof.
 
 **Fix:** Avoid recursive merge of untrusted URL input, strip __proto__ and constructor keys, and use Object.create(null) or Map for parameter stores.`
 
-	ModuleConfirmation = "Reported when static analysis finds a prototype pollution source pattern AND, for generic deep-merge/recursive-assign shapes, an attacker-controllable URL source (location.search/hash/href, URLSearchParams, …) within proximity of the sink. Runtime pollution is not confirmed, so findings are Tentative and warrant manual verification."
+	ModuleConfirmation = "Candidate after same-origin source-pattern proximity and optional reachability probe; runtime prototype mutation and source-to-gadget flow remain unconfirmed"
 	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"prototype-pollution", "xss", "light"}

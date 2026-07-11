@@ -10,16 +10,17 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
-// TestPermissiveSession_Detected: the server issues a SESSIONID for a fresh
-// request but keeps whatever SESSIONID the client sends (never regenerates) — a
-// permissive mechanism that must be reported.
-func TestPermissiveSession_Detected(t *testing.T) {
+// TestIgnoredUnknownSession_NotDetected is the central false-positive
+// regression: silence does not prove that the server adopted the supplied ID.
+func TestIgnoredUnknownSession_NotDetected(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if c, err := r.Cookie("SESSIONID"); err == nil && c.Value != "" {
-			// Client supplied a session — accept it as-is (permissive).
+		if _, err := r.Cookie("SESSIONID"); err == nil {
+			// Ignore unknown client values and serve an anonymous response without
+			// issuing a replacement.
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -33,8 +34,49 @@ func TestPermissiveSession_Detected(t *testing.T) {
 	rr := modtest.Request(t, srv.URL+"/app")
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
-	require.Len(t, res, 1, "expected a permissive-session finding")
-	assert.Contains(t, res[0].Info.Name, "Permissive Session Management")
+	assert.Empty(t, res, "a 200 response with no Set-Cookie does not prove adoption")
+}
+
+func TestExplicitSessionAdoption_IsCandidate(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if c, err := r.Cookie("SESSIONID"); err == nil && c.Value != "" {
+			http.SetCookie(w, &http.Cookie{Name: "SESSIONID", Value: c.Value})
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: "SESSIONID", Value: "server-generated-123"})
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(modtest.Request(t, srv.URL+"/app"), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	assert.Equal(t, output.RecordKindCandidate, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeCandidate, res[0].EvidenceGrade)
+}
+
+func TestSessionAdoptionAcrossLogin_IsFinding(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if c, err := r.Cookie("SESSIONID"); err == nil && c.Value != "" {
+			http.SetCookie(w, &http.Cookie{Name: "SESSIONID", Value: c.Value})
+		} else {
+			http.SetCookie(w, &http.Cookie{Name: "SESSIONID", Value: "server-generated-123"})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"authenticated":true,"welcome":"alice"}`))
+	}))
+	defer srv.Close()
+
+	rr := modtest.RequestMethod(t, http.MethodPost, srv.URL+"/login", "username=alice&password=secret")
+	rr = modtest.Response(rr, "application/json", `{"authenticated":true,"welcome":"alice"}`)
+	res, err := New().ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	assert.Equal(t, output.RecordKindFinding, res[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeBypass, res[0].EvidenceGrade)
 }
 
 // TestStrictSession_NotDetected: a server that always regenerates its own

@@ -5,17 +5,17 @@ import "github.com/vigolium/vigolium/pkg/types/severity"
 const (
 	ModuleID    = "error-message-detect"
 	ModuleName  = "Error Message Detect"
-	ModuleShort = "Detects interesting error messages in HTTP responses"
+	ModuleShort = "Observes corroborated framework or database errors in error responses"
 )
 
 var (
-	ModuleDesc = `**What it means:** The response body contains a verbose error, stack trace, or debug page that should not reach clients. This passively matches known patterns from frameworks and databases (Apache, ASP.NET, Java, PHP, Node.js, SQL engines). An information-disclosure signal, not a confirmed vulnerability.
+	ModuleDesc = `**What it means:** An error response contains a technology-specific signature plus an independent error anchor; successful responses require three anchors. Generic tokens never trigger alone. Structured multi-frame traces are left to the dedicated detector.
 
-**How it's exploited:** Leaked errors give an attacker free reconnaissance such as framework versions, internal file paths, and SQL fragments. A SQL error here is often the visible side effect of an underlying SQL injection worth probing.
+**How it's exploited:** Leaked errors reveal frameworks, paths, or SQL fragments that guide targeted attacks and may expose an injection side effect.
 
-**Fix:** Disable debug mode in production and return generic error pages, logging stack traces and database errors server-side only.`
+**Fix:** Disable production debug output, return generic errors, and log detailed traces and database errors only server-side.`
 
-	ModuleConfirmation = "Confirmed when response body contains recognizable error messages or stack traces from known frameworks"
+	ModuleConfirmation = "Observed only when a semantic error context contains a category-specific signature and independent corroborating error evidence"
 	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"info-disclosure", "light"}

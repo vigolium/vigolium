@@ -1,6 +1,6 @@
 # Agent Commands Reference
 
-Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent swarm`, `agent olium`, `agent audit`, and `agent session` commands. (The former `agent archon` command has been folded into `agent audit` — drive the vigolium-audit harness with `vigolium agent audit --driver=audit`.)
+Complete flag reference for `agent`, `agent query`, `agent autopilot`, `agent swarm`, `agent olium`, `agent audit`, and `agent session` commands. Drive the vigolium-audit harness with `vigolium agent audit --driver=audit`.
 
 All agent dispatch is routed through the in-process **olium** engine — there are no subprocess SDK backends. Provider selection happens via `agent.olium.provider` in `vigolium-configs.yaml` or per-run flags (`--provider`, `--model`, `--oauth-cred`, `--oauth-token`, `--llm-api-key`, `--gcp-project`, `--gcp-location`).
 
@@ -672,7 +672,7 @@ To run piolium and the vigolium-audit harness back-to-back on the same source, u
 
 **Usage:** `vigolium agent audit [flags]`
 
-Unified driver dispatcher: drives the embedded **vigolium-audit** harness (driver name `audit`) and/or **piolium** against the same source tree under a **single parent AgenticScan UUID**. There is no separate `agent archon` command — the vigolium-audit leg is reached here via `--driver=audit`.
+Unified driver dispatcher: drives the embedded **vigolium-audit** harness (driver name `audit`) and/or **piolium** against the same source tree under a **single parent AgenticScan UUID**. The vigolium-audit leg is selected with `--driver=audit`.
 
 Default `--driver=auto` preflights the resolved coding-agent CLI (claude or codex) on PATH: if present it runs the vigolium-audit harness and **only falls back to piolium when that CLI is missing** (a clean audit run never consults piolium; a mid-run audit failure surfaces directly rather than silently retrying). `--driver=both` runs audit then piolium unconditionally. After the participating drivers finish, a project-wide post-pass findings dedup collapses duplicates. Per-driver child rows + session subdirs (`{session}/audit/`, `{session}/piolium/`) keep them separated on disk and in the DB while still scoring as one logical audit.
 

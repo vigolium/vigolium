@@ -16,12 +16,25 @@ phases:
     requires_git: false
     parallel_with: []
     depends_on: ["1"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: glob
+          pattern: findings/*/wave-*-verdict.md
+          min_matches: 1
+          each_min_bytes: 40
   - id: "3"
     title: Consensus Summary
     agent: null
     requires_git: false
     parallel_with: []
     depends_on: ["2"]
+    completion:
+      repair_attempts: 1
+      artifacts:
+        - kind: file
+          path: reinvest-report.md
+          min_bytes: 120
 ---
 
 ## Context

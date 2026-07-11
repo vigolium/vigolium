@@ -16,6 +16,8 @@ import { CostManager } from "./cost.js";
 import { detectDraftOwner, startFindingsWatcher, summarizeFindings } from "./findings.js";
 import { finalizeOutput } from "./redact-artifacts.js";
 import { composeUserPrompt, parseToolsField } from "./prompts.js";
+import { evaluatePhaseArtifacts, formatArtifactFailures } from "./artifact-gates.js";
+import { archivePriorCoreArtifacts, isCoreAuditMode } from "./artifact-lifecycle.js";
 
 export interface OrchestratorOptions {
   adapter: Adapter;
@@ -158,6 +160,8 @@ export class Orchestrator {
    * quarantine doesn't re-parse the command YAML on every failed phase.
    */
   private allPhaseIds: string[] | null = null;
+  /** Start of the active audit, used to reject untouched artifacts from older fresh runs. */
+  private activeAuditStartedAtMs: number | undefined;
 
   constructor(private readonly opts: OrchestratorOptions) {
     const resultsDir = opts.resultsDir ?? join(opts.targetDir, "vigolium-results");
@@ -290,7 +294,25 @@ export class Orchestrator {
       const toRun: PhaseDef[] = [];
       for (const phase of batch) {
         const phaseStatus = auditBefore?.phases[phase.id]?.status;
-        if (phaseStatus === "complete" || phaseStatus === "skipped") continue;
+        if (phaseStatus === "skipped") continue;
+        if (phaseStatus === "complete") {
+          const gate = await evaluatePhaseArtifacts(phase, resultsDir, this.artifactGateOptions());
+          if (gate.ok || phase.completion?.enforcement === "advisory") continue;
+          const missing = formatArtifactFailures(gate).join("; ");
+          await this.bus.emit({
+            kind: "phaseAdapterEvent",
+            auditId,
+            phase,
+            event: {
+              kind: "textDelta",
+              text: `[artifact-gate] completed phase no longer satisfies its contract; rerunning: ${missing}\n`,
+            },
+          });
+          await this.state.updatePhase(auditId, phase.id, {
+            status: "pending",
+            error: `artifact contract failed during resume: ${missing}`,
+          });
+        }
         if (phaseStatus === "in_progress") {
           const checkpoint = await this.checkpoints.load(auditId, phase.id);
           if (checkpoint) {
@@ -437,6 +459,8 @@ export class Orchestrator {
     if (this.opts.resume) {
       const existing = findResumableAudit(state.audits, command.mode as AuditMode);
       if (existing) {
+        const startedAtMs = Date.parse(existing.started_at);
+        this.activeAuditStartedAtMs = Number.isFinite(startedAtMs) ? startedAtMs : undefined;
         if (existing.status !== "in_progress") {
           await this.state.updateAudit(existing.audit_id, {
             status: "in_progress",
@@ -447,6 +471,10 @@ export class Orchestrator {
       }
     }
     const auditId = buildAuditId();
+    if (state.audits.length > 0 && isCoreAuditMode(command.mode as AuditMode)) {
+      const resultsDir = this.opts.resultsDir ?? join(this.opts.targetDir, "vigolium-results");
+      await archivePriorCoreArtifacts(resultsDir, auditId);
+    }
     const phaseIds = runnable.map((p) => p.id);
     const git = this.opts.noGit
       ? { available: false, branch: null, commit: null, repository: null }
@@ -460,9 +488,11 @@ export class Orchestrator {
       commit: git.commit,
       branch: git.branch,
       repository: git.repository,
+      historyAvailable: git.available,
       phaseIds,
       ...compact({ context, triggeredVia: this.opts.triggeredVia }),
     });
+    this.activeAuditStartedAtMs = Date.parse(record.started_at);
     await this.state.appendAudit(record);
     return auditId;
   }
@@ -483,6 +513,7 @@ export class Orchestrator {
     phase: PhaseDef,
     command: CommandDef,
   ): Promise<{ ok: boolean; usd: number; tokens: { input: number; output: number }; durationMs: number; error?: string }> {
+    const resultsDir = this.opts.resultsDir ?? join(this.opts.targetDir, "vigolium-results");
     const startedAt = new Date().toISOString();
     await this.state.updatePhase(auditId, phase.id, { status: "in_progress", started_at: startedAt });
 
@@ -507,9 +538,15 @@ export class Orchestrator {
       abortSignal: this.combinedAbortSignal(),
       attempt: async () => {
         const result = await this.driveAdapterOnce({ systemPrompt, userPrompt, tools, auditId, phase, command });
-        usd = result.usd;
-        tokens = result.tokens;
-        durationMs = result.durationMs;
+        usd += result.usd;
+        tokens = {
+          input: tokens.input + result.tokens.input,
+          output: tokens.output + result.tokens.output,
+        };
+        durationMs += result.durationMs;
+        // Record every attempt immediately so failed retries count toward the
+        // budget and can prevent another costly attempt from starting.
+        this.cost.record(auditId, result.usd, result.tokens);
         ok = result.ok;
         error = result.error;
         return {
@@ -527,14 +564,89 @@ export class Orchestrator {
       probe: () => this.opts.adapter.probe(),
     });
 
-    this.cost.record(auditId, usd, tokens);
+    let adapterFailed = !ok;
+
+    if (ok && phase.completion) {
+      let gate = await evaluatePhaseArtifacts(phase, resultsDir, this.artifactGateOptions());
+      const repairAttempts = phase.completion.repair_attempts;
+      for (
+        let attempt = 1;
+        !gate.ok && attempt <= repairAttempts && !this.cost.signal.aborted;
+        attempt++
+      ) {
+        const failures = formatArtifactFailures(gate);
+        await this.bus.emit({
+          kind: "phaseAdapterEvent",
+          auditId,
+          phase,
+          event: {
+            kind: "textDelta",
+            text:
+              `[artifact-gate] repair ${attempt}/${repairAttempts}: ` +
+              `${failures.join("; ")}\n`,
+          },
+        });
+
+        const repair = await this.driveAdapterOnce({
+          systemPrompt,
+          userPrompt: this.buildArtifactRepairPrompt(phase, failures),
+          tools,
+          auditId,
+          phase,
+          command,
+          labelSuffix: `repair-${attempt}`,
+        });
+        usd += repair.usd;
+        tokens = {
+          input: tokens.input + repair.tokens.input,
+          output: tokens.output + repair.tokens.output,
+        };
+        durationMs += repair.durationMs;
+        this.cost.record(auditId, repair.usd, repair.tokens);
+
+        if (!repair.ok) {
+          if (phase.completion.enforcement === "required") {
+            ok = false;
+            adapterFailed = true;
+            error = repair.error ?? `artifact repair ${attempt} failed`;
+          } else {
+            await this.bus.emit({
+              kind: "phaseAdapterEvent",
+              auditId,
+              phase,
+              event: {
+                kind: "textDelta",
+                text: `[artifact-gate] advisory repair failed; continuing: ${repair.error ?? "unknown adapter error"}\n`,
+              },
+            });
+          }
+          break;
+        }
+        gate = await evaluatePhaseArtifacts(phase, resultsDir, this.artifactGateOptions());
+      }
+
+      if (ok && !gate.ok) {
+        const detail = formatArtifactFailures(gate).join("; ");
+        if (phase.completion.enforcement === "required") {
+          ok = false;
+          error = `artifact contract failed: ${detail}`;
+        } else {
+          await this.bus.emit({
+            kind: "phaseAdapterEvent",
+            auditId,
+            phase,
+            event: { kind: "textDelta", text: `[artifact-gate] advisory artifacts missing: ${detail}\n` },
+          });
+        }
+      }
+    }
 
     if (!ok && !error) {
       ok = false;
       error = "phase finished without a success event";
     }
 
-    if (!ok) {
+    if (!ok && adapterFailed) {
       await this.quarantinePartialOutput(auditId, phase);
     }
 
@@ -561,6 +673,12 @@ export class Orchestrator {
     return { ok, usd, tokens, durationMs, ...(error !== undefined ? { error } : {}) };
   }
 
+  private artifactGateOptions(): { notBeforeMs?: number } {
+    return !isCoreAuditMode(this.opts.mode) || this.activeAuditStartedAtMs === undefined
+      ? {}
+      : { notBeforeMs: this.activeAuditStartedAtMs };
+  }
+
   private async buildPrompts(
     phase: PhaseDef,
     command: CommandDef,
@@ -576,7 +694,8 @@ export class Orchestrator {
       // Inline phase: derive tools from the command-def's allowed-tools field.
       systemPrompt =
         `You are an inline executor for the "${command.mode}" audit pipeline. ` +
-        `Run phase "${phase.id}: ${phase.title}" exactly as specified in the command-def below.\n\n` +
+        `Run phase "${phase.id}: ${phase.title}" exactly as specified in the command-def below. ` +
+        `The engine exclusively owns vigolium-results/audit-state.json; never edit phase state yourself.\n\n` +
         command.body;
       tools = parseToolsField(command.allowed_tools_raw);
     }
@@ -603,6 +722,7 @@ export class Orchestrator {
     auditId: string;
     phase: PhaseDef;
     command: CommandDef;
+    labelSuffix?: string;
   }): Promise<{
     ok: boolean;
     usd: number;
@@ -648,7 +768,7 @@ export class Orchestrator {
         ...(this.opts.defaultModel ? { model: this.opts.defaultModel } : {}),
         abortSignal: this.combinedAbortSignal(),
         ...(this.opts.debug ? { debug: true } : {}),
-        label: `${args.command.mode}:${args.phase.id}`,
+        label: `${args.command.mode}:${args.phase.id}${args.labelSuffix ? `:${args.labelSuffix}` : ""}`,
       })) {
         await this.bus.emit({ kind: "phaseAdapterEvent", auditId: args.auditId, phase: args.phase, event });
         if (event.kind === "rateLimits") {
@@ -719,6 +839,16 @@ export class Orchestrator {
       sawProgress,
       parsedQuotaDelayMs,
     };
+  }
+
+  private buildArtifactRepairPrompt(phase: PhaseDef, failures: string[]): string {
+    return [
+      `Artifact repair for phase ${phase.id} — ${phase.title}.`,
+      `Write only the missing or invalid phase-owned artifacts listed below.`,
+      `Do not rerun completed analysis, modify unrelated artifacts, or edit vigolium-results/audit-state.json.`,
+      ...failures.map((failure) => `- ${failure}`),
+      `Finish after the artifacts are repaired; the engine will validate them deterministically.`,
+    ].join("\n");
   }
 
   private async quarantinePartialOutput(auditId: string, phase: PhaseDef): Promise<void> {

@@ -115,8 +115,8 @@ func (m *DBMerger) MergeFrom(srcPath string) (*MergeStats, error) {
 		return stats, fmt.Errorf("merge extractions: %w", err)
 	}
 
-	if err := m.mergeJSScanSourceArtifacts(ctx, stats); err != nil {
-		return stats, fmt.Errorf("merge jsscan source artifacts: %w", err)
+	if err := m.mergeJSTangleSourceArtifacts(ctx, stats); err != nil {
+		return stats, fmt.Errorf("merge jstangle source artifacts: %w", err)
 	}
 
 	if err := m.mergeObserved(ctx, stats); err != nil {
@@ -222,7 +222,7 @@ func (m *DBMerger) mergeNodes(ctx context.Context, stats *MergeStats) error {
 				req_method, req_headers, req_body,
 				resp_status, resp_headers, resp_body, resp_mime, resp_location, resp_title,
 				found_by, discovered_at,
-				fingerprint_attrs, tags, kingfisher_findings, hash, first_seen_session, last_seen_session
+				fingerprint_attrs, tags, secret_findings, hash, first_seen_session, last_seen_session
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(hash) DO NOTHING
 			RETURNING id
@@ -231,7 +231,7 @@ func (m *DBMerger) mergeNodes(ctx context.Context, stats *MergeStats) error {
 			src.ReqMethod, src.ReqHeaders, src.ReqBody,
 			src.RespStatus, src.RespHeaders, src.RespBody, src.RespMime, src.RespLocation, src.RespTitle,
 			src.FoundBy, src.DiscoveredAt,
-			src.FingerprintAttrs, src.Tags, src.KingfisherFindings, src.Hash, dstFirstSeenSession, dstLastSeenSession,
+			src.FingerprintAttrs, src.Tags, src.SecretFindings, src.Hash, dstFirstSeenSession, dstLastSeenSession,
 		).Scan(ctx, &dstID)
 
 		if err != nil {
@@ -293,7 +293,7 @@ func (m *DBMerger) mergeSessionNodes(ctx context.Context, stats *MergeStats) err
 	return nil
 }
 
-// mergeExtractions merges extractions (spider links, jsscan, forms)
+// mergeExtractions merges extractions (spider links, jstangle, forms)
 func (m *DBMerger) mergeExtractions(ctx context.Context, stats *MergeStats) error {
 	var srcExtractions []ExtractionModel
 
@@ -335,20 +335,20 @@ func (m *DBMerger) mergeExtractions(ctx context.Context, stats *MergeStats) erro
 	return nil
 }
 
-// mergeJSScanSourceArtifacts retains recovered source-map content when worker
+// mergeJSTangleSourceArtifacts retains recovered source-map content when worker
 // databases are combined. Older source databases legitimately lack the
 // additive table and are treated as having no artifacts.
-func (m *DBMerger) mergeJSScanSourceArtifacts(ctx context.Context, stats *MergeStats) error {
+func (m *DBMerger) mergeJSTangleSourceArtifacts(ctx context.Context, stats *MergeStats) error {
 	var tableCount int
-	if err := m.dst.NewRaw(`SELECT COUNT(*) FROM src.sqlite_master WHERE type = 'table' AND name = 'jsscan_source_artifacts'`).Scan(ctx, &tableCount); err != nil {
+	if err := m.dst.NewRaw(`SELECT COUNT(*) FROM src.sqlite_master WHERE type = 'table' AND name = 'jstangle_source_artifacts'`).Scan(ctx, &tableCount); err != nil {
 		return err
 	}
 	if tableCount == 0 {
 		return nil
 	}
 
-	var artifacts []JSScanSourceArtifactModel
-	if err := m.dst.NewRaw(`SELECT * FROM src.jsscan_source_artifacts`).Scan(ctx, &artifacts); err != nil {
+	var artifacts []JSTangleSourceArtifactModel
+	if err := m.dst.NewRaw(`SELECT * FROM src.jstangle_source_artifacts`).Scan(ctx, &artifacts); err != nil {
 		return err
 	}
 	for _, artifact := range artifacts {
@@ -359,7 +359,7 @@ func (m *DBMerger) mergeJSScanSourceArtifacts(ctx context.Context, stats *MergeS
 		}
 		hash := sourceArtifactHash(dstSessionID, artifact.GeneratedURL, artifact.SourcePath, artifact.ContentSHA256)
 		res, err := m.dst.ExecContext(ctx, `
-			INSERT OR IGNORE INTO jsscan_source_artifacts (
+			INSERT OR IGNORE INTO jstangle_source_artifacts (
 				source_node_id, session_id, hash, generated_url, virtual_url,
 				source_path, language, content_sha256, content, created_at
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

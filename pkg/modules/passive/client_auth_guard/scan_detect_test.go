@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
 func TestNew(t *testing.T) {
@@ -31,8 +33,8 @@ func makeJSCtx(path, body string) *httpmsg.HttpRequestResponse {
 }
 
 // TestScanPerRequest_ClientOnlyGuard drives a client component that performs a
-// useEffect-based redirect to /login with no server-side auth, which should be
-// flagged as a bypassable client-only auth guard.
+// useEffect-based redirect to /login. A passive bundle scan can only retain it
+// as an observation, not call it a bypass.
 func TestScanPerRequest_ClientOnlyGuard(t *testing.T) {
 	t.Parallel()
 	m := New()
@@ -50,7 +52,10 @@ export default function Page() {
 	require.NoError(t, err)
 	require.NotEmpty(t, results)
 	assert.Equal(t, ModuleID, results[0].ModuleID)
-	assert.Equal(t, "Client-Only Auth Guard", results[0].Info.Name)
+	assert.Equal(t, "Client-Side Auth Redirect Observation", results[0].Info.Name)
+	assert.Equal(t, output.RecordKindObservation, results[0].RecordKind)
+	assert.Equal(t, output.EvidenceGradeObservation, results[0].EvidenceGrade)
+	assert.Equal(t, severity.Info, results[0].Info.Severity)
 }
 
 // TestScanPerRequest_WithServerAuth verifies that a client redirect alongside a

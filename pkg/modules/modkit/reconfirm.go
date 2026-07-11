@@ -547,6 +547,31 @@ func ExecuteRaw(client *http.Requester, service *httpmsg.Service, rawReq []byte,
 	return resp.Response().StatusCode, resp.Body().String(), true
 }
 
+// ExecuteRawWithResponse is ExecuteRaw that ALSO returns the full raw response
+// (status line + headers + body) alongside the body, from a single request. A
+// module uses the body for its content/similarity checks and the full response as
+// the finding's proving evidence, so it no longer has to issue the request twice
+// (and no longer depends on the executor backfilling a — possibly mismatched —
+// baseline response).
+func ExecuteRawWithResponse(client *http.Requester, service *httpmsg.Service, rawReq []byte, opts http.Options) (status int, body, fullResponse string, ok bool) {
+	req, err := httpmsg.ParseRawRequest(string(rawReq))
+	if err != nil {
+		return 0, "", "", false
+	}
+	if service != nil {
+		req = req.WithService(service)
+	}
+	resp, _, err := client.Execute(req, opts)
+	if err != nil {
+		return 0, "", "", false
+	}
+	defer resp.Close()
+	if resp.Response() == nil {
+		return 0, "", "", false
+	}
+	return resp.Response().StatusCode, resp.Body().String(), resp.FullResponseString(), true
+}
+
 // fetchResponse re-issues a raw request and returns its status code and full raw
 // response string (status line + headers + body, so header/Location injections
 // are visible). The bool is false on any parse/HTTP/empty-response error.

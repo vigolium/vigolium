@@ -1,8 +1,8 @@
 package unauth_service_exposure
 
 import (
+	"encoding/json"
 	"net"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -15,113 +15,97 @@ import (
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
-// Structural signatures. Each is unique to its service — a JSON key/value shape or
-// a fixed banner string a generic web host, SPA shell, or catch-all 404 never
-// carries — so the signature match is itself the false-positive guard.
-var (
-	reK8sAPIVersions = regexp.MustCompile(`"kind"\s*:\s*"APIVersions"`)
-	rePodList        = regexp.MustCompile(`"kind"\s*:\s*"PodList"`)
-	reCouchWelcome   = regexp.MustCompile(`"couchdb"\s*:\s*"Welcome"`)
-)
-
-// serviceProbe describes one unauthenticated-service check: the paths to try
-// (first structural hit wins), the confirmation predicate, and how to report it.
-type serviceProbe struct {
-	name     string
-	paths    []string
-	severity severity.Severity
-	summary  string
-	confirm  func(status int, header func(string) string, body string) bool
+// A service fingerprint proves reachability, not compromise. Each endpoint
+// assessor therefore assigns the narrowest supported confidence tier:
+//
+//   - observation: a native service/version response was reproduced;
+//   - candidate: an administrative collection or operational metadata was read;
+//   - finding: real workload/container/document data was returned anonymously.
+//
+// No mutating request is sent by this module.
+type probeAssessment struct {
+	kind          output.RecordKind
+	grade         output.EvidenceGrade
+	severity      severity.Severity
+	claim         string
+	proof         string
+	resourceCount int
 }
 
-// probes is the catalog. Signatures are intentionally strict (multiple JSON keys
-// or a unique banner) so only the genuine service matches.
+type endpointProbe struct {
+	path   string
+	assess func(status int, header func(string) string, body string) (probeAssessment, bool)
+}
+
+type serviceProbe struct {
+	name      string
+	endpoints []endpointProbe
+}
+
 var probes = []serviceProbe{
 	{
-		name:     "Docker Engine API",
-		paths:    []string{"/version", "/v1.41/version", "/info"},
-		severity: severity.Critical,
-		summary:  "The Docker Engine remote API is reachable without authentication — equivalent to root on the host (an attacker can start a privileged container mounting the host filesystem).",
-		confirm: func(status int, _ func(string) string, body string) bool {
-			return status == 200 && strings.Contains(body, "ApiVersion") &&
-				(strings.Contains(body, "KernelVersion") || strings.Contains(body, "GoVersion") || strings.Contains(body, "Containers"))
+		name: "Docker Engine API",
+		endpoints: []endpointProbe{
+			{path: "/containers/json?all=1", assess: assessDockerContainers},
+			{path: "/info", assess: assessDockerInfo},
+			{path: "/version", assess: assessDockerVersion},
+			{path: "/v1.41/version", assess: assessDockerVersion},
 		},
 	},
 	{
-		name:     "Docker Registry v2",
-		paths:    []string{"/v2/", "/v2/_catalog"},
-		severity: severity.High,
-		summary:  "A Docker Registry v2 API is reachable without authentication, exposing (and potentially allowing modification of) hosted images and their layers.",
-		confirm: func(status int, header func(string) string, body string) bool {
-			if status != 200 {
-				return false
-			}
-			return strings.Contains(strings.ToLower(header("Docker-Distribution-Api-Version")), "registry") ||
-				strings.Contains(body, "repositories")
+		name: "Docker Registry v2",
+		endpoints: []endpointProbe{
+			{path: "/v2/_catalog", assess: assessRegistryCatalog},
+			{path: "/v2/", assess: assessRegistryRoot},
 		},
 	},
 	{
-		name:     "Kubernetes API server",
-		paths:    []string{"/version", "/api"},
-		severity: severity.High,
-		summary:  "The Kubernetes API server answers anonymously, disclosing version/API surface and — if anonymous-auth is enabled — cluster resources.",
-		confirm: func(status int, _ func(string) string, body string) bool {
-			if status != 200 {
-				return false
-			}
-			if reK8sAPIVersions.MatchString(body) {
-				return true
-			}
-			return strings.Contains(body, "gitVersion") && strings.Contains(body, "goVersion") && strings.Contains(body, "compiler")
+		name: "Kubernetes API server",
+		endpoints: []endpointProbe{
+			{path: "/api/v1/pods?limit=1", assess: assessKubernetesList("PodList", "pod")},
+			{path: "/api/v1/namespaces?limit=1", assess: assessKubernetesList("NamespaceList", "namespace")},
+			{path: "/api", assess: assessKubernetesAPIVersions},
+			{path: "/version", assess: assessKubernetesVersion},
 		},
 	},
 	{
-		name:     "Kubelet API",
-		paths:    []string{"/pods", "/runningpods/"},
-		severity: severity.Critical,
-		summary:  "The kubelet read/exec API is reachable anonymously, listing running pods and enabling command execution inside workloads.",
-		confirm: func(status int, _ func(string) string, body string) bool {
-			return status == 200 && rePodList.MatchString(body)
+		name: "Kubelet API",
+		endpoints: []endpointProbe{
+			{path: "/pods", assess: assessKubernetesList("PodList", "pod")},
+			{path: "/runningpods/", assess: assessKubernetesList("PodList", "pod")},
 		},
 	},
 	{
-		name:     "Elasticsearch",
-		paths:    []string{"/", "/_cat/indices?format=json", "/_cluster/health"},
-		severity: severity.High,
-		summary:  "An Elasticsearch node answers unauthenticated, exposing (and allowing dump/modify of) all indexed data.",
-		confirm: func(status int, _ func(string) string, body string) bool {
-			if status != 200 {
-				return false
-			}
-			// The root banner tagline is unique to Elasticsearch.
-			if strings.Contains(body, "You Know, for Search") && strings.Contains(body, "cluster_name") {
-				return true
-			}
-			// _cat/indices JSON rows carry a health/status/index shape.
-			return strings.Contains(body, "\"health\"") && strings.Contains(body, "\"index\"") && strings.Contains(body, "\"docs.count\"")
+		name: "Elasticsearch",
+		endpoints: []endpointProbe{
+			{path: "/_search?size=1&track_total_hits=false", assess: assessElasticsearchSearch},
+			{path: "/_cat/indices?format=json&h=health,status,index,docs.count", assess: assessElasticsearchIndices},
+			{path: "/_cluster/health", assess: assessElasticsearchHealth},
+			{path: "/", assess: assessElasticsearchRoot},
 		},
 	},
 	{
-		name:     "Apache CouchDB",
-		paths:    []string{"/", "/_all_dbs"},
-		severity: severity.High,
-		summary:  "A CouchDB instance answers unauthenticated, exposing databases and allowing read/write of all documents.",
-		confirm: func(status int, _ func(string) string, body string) bool {
-			return status == 200 && reCouchWelcome.MatchString(body)
+		name: "Apache CouchDB",
+		endpoints: []endpointProbe{
+			{path: "/_all_dbs", assess: assessCouchDBs},
+			{path: "/", assess: assessCouchRoot},
 		},
 	},
 	{
-		name:     "Apache Solr",
-		paths:    []string{"/solr/admin/info/system?wt=json", "/solr/admin/cores?wt=json"},
-		severity: severity.Medium,
-		summary:  "A Solr admin API answers unauthenticated, exposing cores/config and (with known CVEs) enabling data access or RCE.",
-		confirm: func(status int, _ func(string) string, body string) bool {
-			if status != 200 {
-				return false
-			}
-			return strings.Contains(body, "responseHeader") && (strings.Contains(body, "lucene") || strings.Contains(body, "solr_home"))
+		name: "Apache Solr",
+		endpoints: []endpointProbe{
+			{path: "/solr/admin/cores?wt=json", assess: assessSolrCores},
+			{path: "/solr/admin/info/system?wt=json", assess: assessSolrSystem},
 		},
 	},
+}
+
+type probeResponse struct {
+	body     string
+	header   func(string) string
+	status   int
+	request  string
+	response string
 }
 
 // Module implements the Unauthenticated Infrastructure Service Exposure scanner.
@@ -158,20 +142,18 @@ func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
 	return ctx != nil && ctx.Request() != nil && ctx.Service() != nil
 }
 
-// ScanPerHost probes the target host:port for each unauthenticated infrastructure
-// service and reports the first one whose unique structural signature confirms
-// (re-verified with a second request). Only the scanned host:port is probed — no
-// speculative port scanning.
+// ScanPerHost probes only the already-scanned host:port. Every request is a safe
+// GET made with an isolated credential-free client. A match must reproduce in a
+// second network request at the same evidence tier.
 func (m *Module) ScanPerHost(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	scanCtx *modkit.ScanContext,
 ) ([]*output.ResultEvent, error) {
-	svc := ctx.Service()
-	if svc == nil {
+	if ctx == nil || ctx.Service() == nil || httpClient == nil {
 		return nil, nil
 	}
-	base := baseURL(svc)
+	base := baseURL(ctx.Service())
 	if base == "" {
 		return nil, nil
 	}
@@ -181,31 +163,37 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 
-	for _, p := range probes {
-		for _, path := range p.paths {
-			body, header, status, ok := m.fetch(httpClient, base+path)
-			if !ok || !p.confirm(status, header, body) || servedAsHTML(header) {
+	anonymousClient, err := httpClient.CloneWithoutCredentials()
+	if err != nil {
+		return nil, nil
+	}
+
+	for _, service := range probes {
+		for _, endpoint := range service.endpoints {
+			first, ok := m.fetch(anonymousClient, base+endpoint.path)
+			if !ok || servedAsHTML(first.header) {
 				continue
 			}
-			// Multi-round confirmation: a second independent request must reproduce
-			// the signature, so a one-off/proxied artifact can't create a finding.
-			body2, header2, status2, ok2 := m.fetch(httpClient, base+path)
-			if !ok2 || !p.confirm(status2, header2, body2) || servedAsHTML(header2) {
+			firstAssessment, matched := endpoint.assess(first.status, first.header, first.body)
+			if !matched {
 				continue
 			}
-			return []*output.ResultEvent{m.result(base, path, p, body)}, nil
+
+			second, ok := m.fetch(anonymousClient, base+endpoint.path)
+			if !ok || servedAsHTML(second.header) {
+				continue
+			}
+			secondAssessment, reproduced := endpoint.assess(second.status, second.header, second.body)
+			if !reproduced || firstAssessment.kind != secondAssessment.kind || firstAssessment.grade != secondAssessment.grade {
+				continue
+			}
+
+			return []*output.ResultEvent{m.result(ctx.Service().Host(), base, service, endpoint, firstAssessment, first, second)}, nil
 		}
 	}
 	return nil, nil
 }
 
-// servedAsHTML reports whether the response was served as an HTML document. Every
-// service this module fingerprints answers with JSON (or a service-specific
-// header/banner), never an HTML page, so an HTML content-type marks a universal
-// catch-all / echo host — including the gzip/Content-Length:0 transport quirk that
-// captures only a reflecting tail fragment in which a weak signature (notably the
-// Docker Registry probe's bare "repositories") survives and forges a finding.
-// Reject it. Fails open on a missing header (fail toward keeping the finding).
 func servedAsHTML(header func(string) string) bool {
 	if header == nil {
 		return false
@@ -213,57 +201,393 @@ func servedAsHTML(header func(string) string) bool {
 	return modkit.ClassifyContentType(header("Content-Type")) == modkit.ContentClassHTML
 }
 
-// fetch issues a GET and returns the body, a header accessor, the status, and
-// whether the request succeeded and was not a WAF/CDN block.
-func (m *Module) fetch(httpClient *http.Requester, url string) (body string, header func(string) string, status int, ok bool) {
+// fetch disables clustering so the confirmation request cannot be satisfied by
+// the request cache, and redirects so a login or generic landing page cannot be
+// mistaken for the management API.
+func (m *Module) fetch(httpClient *http.Requester, url string) (probeResponse, bool) {
 	rr, err := httpmsg.GetRawRequestFromURL(url)
-	if err != nil {
-		return "", nil, 0, false
+	if err != nil || rr == nil || rr.Request() == nil {
+		return probeResponse{}, false
 	}
-	// NoClustering: the scanner fetches the same path a second time to prove the
-	// signature reproduces (so a one-off/proxied artifact can't create a finding). The
-	// 500ms request-cluster cache keys on raw request bytes, so a clustered second
-	// fetch returns the first response's cached copy and "reproduces" trivially — even
-	// for a transient artifact (a false positive). Both fetches must be genuine.
-	resp, _, err := httpClient.Execute(rr, http.Options{NoClustering: true})
+	resp, _, err := httpClient.Execute(rr, http.Options{NoClustering: true, NoRedirects: true})
 	if err != nil {
-		return "", nil, 0, false
+		return probeResponse{}, false
 	}
 	defer resp.Close()
-	if infra.IsBlockedResponse(resp) {
-		return "", nil, 0, false
+	if infra.IsBlockedResponse(resp) || resp.Response() == nil {
+		return probeResponse{}, false
 	}
 	r := resp.Response()
-	if r == nil {
-		return "", nil, 0, false
-	}
-	return resp.Body().String(), r.Header.Get, r.StatusCode, true
+	return probeResponse{
+		body:     resp.Body().String(),
+		header:   r.Header.Get,
+		status:   r.StatusCode,
+		request:  string(rr.Request().Raw()),
+		response: resp.FullResponseString(),
+	}, true
 }
 
-// result builds the finding for a confirmed service exposure.
-func (m *Module) result(base, path string, p serviceProbe, body string) *output.ResultEvent {
-	target := base + path
-	evidence := body
+func (m *Module) result(host, base string, service serviceProbe, endpoint endpointProbe, assessment probeAssessment, first, second probeResponse) *output.ResultEvent {
+	target := base + endpoint.path
+	evidence := strings.TrimSpace(first.body)
 	if len(evidence) > 600 {
 		evidence = evidence[:600]
 	}
+
+	namePrefix := "Observed"
+	switch assessment.kind {
+	case output.RecordKindCandidate:
+		namePrefix = "Candidate"
+	case output.RecordKindFinding:
+		namePrefix = "Confirmed"
+	}
+
 	return &output.ResultEvent{
-		ModuleID: ModuleID,
-		URL:      target,
-		Matched:  target,
+		ModuleID:      ModuleID,
+		RecordKind:    assessment.kind,
+		EvidenceGrade: assessment.grade,
+		Host:          host,
+		URL:           target,
+		Matched:       target,
+		Request:       first.request,
+		Response:      first.response,
+		AdditionalEvidence: []string{
+			output.BuildEvidence("credential-free confirmation", second.request, second.response),
+		},
 		ExtractedResults: []string{
-			"service=" + p.name,
+			"service=" + service.name,
 			"endpoint=" + target,
-			"evidence=" + strings.TrimSpace(evidence),
+			"proof=" + assessment.proof,
+			"evidence=" + evidence,
 		},
 		Info: output.Info{
-			Name:        "Unauthenticated " + p.name + " Exposed",
-			Description: p.summary + " Confirmed by the service's unique unauthenticated API response at " + path + " (re-verified with a second request).",
-			Severity:    p.severity,
+			Name:        namePrefix + " Unauthenticated " + service.name + " Exposure",
+			Description: assessment.claim + " The native response was reproduced by a second request from an isolated credential-free client. No write, command-execution, or privilege-escalation capability is inferred unless it was directly demonstrated.",
+			Severity:    assessment.severity,
 			Confidence:  ModuleConfidence,
-			Tags:        append(append([]string{}, ModuleTags...), strings.ToLower(strings.ReplaceAll(p.name, " ", "-"))),
+			Tags:        append(append([]string{}, ModuleTags...), strings.ToLower(strings.ReplaceAll(service.name, " ", "-"))),
+		},
+		Metadata: map[string]any{
+			"anonymous_client":    true,
+			"confirmation_rounds": 2,
+			"safe_read_only":      true,
+			"resource_count":      assessment.resourceCount,
+			"proof":               assessment.proof,
 		},
 	}
+}
+
+func observation(claim, proof string) probeAssessment {
+	return probeAssessment{
+		kind:     output.RecordKindObservation,
+		grade:    output.EvidenceGradeObservation,
+		severity: severity.Info,
+		claim:    claim,
+		proof:    proof,
+	}
+}
+
+func candidate(sev severity.Severity, count int, claim, proof string) probeAssessment {
+	return probeAssessment{
+		kind:          output.RecordKindCandidate,
+		grade:         output.EvidenceGradeDifferential,
+		severity:      sev,
+		claim:         claim,
+		proof:         proof,
+		resourceCount: count,
+	}
+}
+
+func finding(sev severity.Severity, count int, claim, proof string) probeAssessment {
+	return probeAssessment{
+		kind:          output.RecordKindFinding,
+		grade:         output.EvidenceGradeImpact,
+		severity:      sev,
+		claim:         claim,
+		proof:         proof,
+		resourceCount: count,
+	}
+}
+
+func assessDockerContainers(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var rows []struct {
+		ID    string   `json:"Id"`
+		Image string   `json:"Image"`
+		Names []string `json:"Names"`
+	}
+	if json.Unmarshal([]byte(body), &rows) != nil || len(rows) == 0 {
+		return probeAssessment{}, false
+	}
+	valid := 0
+	for _, row := range rows {
+		if row.ID != "" && (row.Image != "" || len(row.Names) > 0) {
+			valid++
+		}
+	}
+	if valid == 0 {
+		return probeAssessment{}, false
+	}
+	return finding(severity.High, valid, "The Docker API returned real container inventory without credentials, confirming anonymous read access to workload metadata.", "container-inventory"), true
+}
+
+func assessDockerInfo(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value map[string]json.RawMessage
+	if json.Unmarshal([]byte(body), &value) != nil {
+		return probeAssessment{}, false
+	}
+	_, hasContainers := value["Containers"]
+	_, hasImages := value["Images"]
+	_, hasDriver := value["Driver"]
+	_, hasServerVersion := value["ServerVersion"]
+	if !hasContainers || !hasImages || (!hasDriver && !hasServerVersion) {
+		return probeAssessment{}, false
+	}
+	return candidate(severity.Medium, 0, "The Docker API returned daemon operational metadata without credentials. This does not by itself prove container creation, host-root access, or another mutating capability.", "daemon-info"), true
+}
+
+func assessDockerVersion(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value map[string]json.RawMessage
+	if json.Unmarshal([]byte(body), &value) != nil {
+		return probeAssessment{}, false
+	}
+	if !jsonStringPresent(value, "ApiVersion") || (!jsonStringPresent(value, "KernelVersion") && !jsonStringPresent(value, "GoVersion")) {
+		return probeAssessment{}, false
+	}
+	return observation("A Docker Engine version endpoint is reachable without credentials. Version reachability alone does not prove access to privileged daemon operations.", "native-version-response"), true
+}
+
+func assessRegistryCatalog(status int, header func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value map[string]json.RawMessage
+	if json.Unmarshal([]byte(body), &value) != nil {
+		return probeAssessment{}, false
+	}
+	raw, exists := value["repositories"]
+	if !exists {
+		return probeAssessment{}, false
+	}
+	var repositories []string
+	if json.Unmarshal(raw, &repositories) != nil {
+		return probeAssessment{}, false
+	}
+	if len(repositories) == 0 {
+		return observation("A Docker Registry catalog endpoint answered without credentials, but it returned no repository names.", "empty-registry-catalog"), true
+	}
+	return candidate(severity.Medium, len(repositories), "The Docker Registry returned repository names without credentials. Public registries may intentionally expose this metadata; image contents or write access were not demonstrated.", "repository-catalog"), true
+}
+
+func assessRegistryRoot(status int, header func(string) string, _ string) (probeAssessment, bool) {
+	if status != 200 || header == nil || !strings.Contains(strings.ToLower(header("Docker-Distribution-Api-Version")), "registry") {
+		return probeAssessment{}, false
+	}
+	return observation("A Docker Registry v2 service header is reachable without credentials. The header alone establishes service presence, not repository read or write access.", "native-service-header"), true
+}
+
+func assessKubernetesList(kind, resource string) func(int, func(string) string, string) (probeAssessment, bool) {
+	return func(status int, _ func(string) string, body string) (probeAssessment, bool) {
+		if status != 200 {
+			return probeAssessment{}, false
+		}
+		var value struct {
+			Kind       string            `json:"kind"`
+			APIVersion string            `json:"apiVersion"`
+			Items      []json.RawMessage `json:"items"`
+		}
+		if json.Unmarshal([]byte(body), &value) != nil || value.Kind != kind || value.APIVersion == "" || value.Items == nil {
+			return probeAssessment{}, false
+		}
+		if len(value.Items) == 0 {
+			return candidate(severity.Medium, 0, "The Kubernetes endpoint accepted an anonymous "+resource+" listing request but returned an empty collection. Dangerous permissions were not demonstrated.", "empty-"+resource+"-list"), true
+		}
+		return finding(severity.High, len(value.Items), "The Kubernetes endpoint returned real "+resource+" objects without credentials, confirming anonymous read access to cluster/workload metadata.", resource+"-objects"), true
+	}
+}
+
+func assessKubernetesAPIVersions(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value struct {
+		Kind     string   `json:"kind"`
+		Versions []string `json:"versions"`
+	}
+	if json.Unmarshal([]byte(body), &value) != nil || value.Kind != "APIVersions" || len(value.Versions) == 0 {
+		return probeAssessment{}, false
+	}
+	return observation("The Kubernetes API discovery endpoint is anonymously reachable. API discovery alone does not prove access to cluster resources.", "api-discovery"), true
+}
+
+func assessKubernetesVersion(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value map[string]json.RawMessage
+	if json.Unmarshal([]byte(body), &value) != nil || !jsonStringPresent(value, "gitVersion") || !jsonStringPresent(value, "goVersion") || !jsonStringPresent(value, "compiler") {
+		return probeAssessment{}, false
+	}
+	return observation("A Kubernetes version endpoint is anonymously reachable. Version disclosure alone does not establish access to cluster resources.", "native-version-response"), true
+}
+
+func assessElasticsearchSearch(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value struct {
+		Took   json.RawMessage `json:"took"`
+		Shards json.RawMessage `json:"_shards"`
+		Hits   struct {
+			Hits []map[string]json.RawMessage `json:"hits"`
+		} `json:"hits"`
+	}
+	if json.Unmarshal([]byte(body), &value) != nil || len(value.Took) == 0 || len(value.Shards) == 0 || len(value.Hits.Hits) == 0 {
+		return probeAssessment{}, false
+	}
+	withSource := 0
+	for _, hit := range value.Hits.Hits {
+		if source, ok := hit["_source"]; ok && len(source) > 0 && string(source) != "null" && string(source) != "{}" {
+			withSource++
+		}
+	}
+	if withSource == 0 {
+		return probeAssessment{}, false
+	}
+	return finding(severity.High, withSource, "Elasticsearch returned stored document content without credentials, confirming anonymous data read access.", "document-content"), true
+}
+
+func assessElasticsearchIndices(status int, header func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var rows []map[string]json.RawMessage
+	if json.Unmarshal([]byte(body), &rows) != nil {
+		return probeAssessment{}, false
+	}
+	valid := 0
+	for _, row := range rows {
+		if jsonStringPresent(row, "index") && (jsonStringPresent(row, "health") || jsonStringPresent(row, "status") || jsonStringPresent(row, "docs.count")) {
+			valid++
+		}
+	}
+	if valid == 0 {
+		if len(rows) == 0 && header != nil && strings.EqualFold(strings.TrimSpace(header("X-Elastic-Product")), "Elasticsearch") {
+			return observation("The Elasticsearch indices API answered anonymously but returned no index metadata.", "empty-index-list"), true
+		}
+		return probeAssessment{}, false
+	}
+	return candidate(severity.Medium, valid, "Elasticsearch returned index names and statistics without credentials. This is meaningful metadata exposure, but document content and write access were not demonstrated.", "index-metadata"), true
+}
+
+func assessElasticsearchHealth(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value map[string]json.RawMessage
+	if json.Unmarshal([]byte(body), &value) != nil || !jsonStringPresent(value, "cluster_name") {
+		return probeAssessment{}, false
+	}
+	var state string
+	if json.Unmarshal(value["status"], &state) != nil || (state != "green" && state != "yellow" && state != "red") {
+		return probeAssessment{}, false
+	}
+	return candidate(severity.Low, 0, "Elasticsearch returned live cluster-health metadata without credentials. Index contents and write access were not demonstrated.", "cluster-health"), true
+}
+
+func assessElasticsearchRoot(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value struct {
+		ClusterName string `json:"cluster_name"`
+		Tagline     string `json:"tagline"`
+	}
+	if json.Unmarshal([]byte(body), &value) != nil || value.ClusterName == "" || value.Tagline != "You Know, for Search" {
+		return probeAssessment{}, false
+	}
+	return observation("An Elasticsearch root banner is anonymously reachable. A banner does not establish index, document, or write access.", "native-root-banner"), true
+}
+
+func assessCouchDBs(status int, header func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 || header == nil || !strings.Contains(strings.ToLower(header("Server")), "couchdb") {
+		return probeAssessment{}, false
+	}
+	var databases []string
+	if json.Unmarshal([]byte(body), &databases) != nil {
+		return probeAssessment{}, false
+	}
+	if len(databases) == 0 {
+		return observation("The CouchDB database-list endpoint answered without credentials but returned no database names.", "empty-database-list"), true
+	}
+	return candidate(severity.Medium, len(databases), "CouchDB returned database names without credentials. Database names are useful exposure evidence, but document contents and write access were not demonstrated.", "database-names"), true
+}
+
+func assessCouchRoot(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value struct {
+		CouchDB string `json:"couchdb"`
+		UUID    string `json:"uuid"`
+		Vendor  any    `json:"vendor"`
+	}
+	if json.Unmarshal([]byte(body), &value) != nil || value.CouchDB != "Welcome" || (value.UUID == "" && value.Vendor == nil) {
+		return probeAssessment{}, false
+	}
+	return observation("A native CouchDB welcome response is anonymously reachable. The banner does not prove database read or write access.", "native-root-banner"), true
+}
+
+func assessSolrCores(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value struct {
+		ResponseHeader map[string]json.RawMessage            `json:"responseHeader"`
+		Status         map[string]map[string]json.RawMessage `json:"status"`
+		InitFailures   map[string]json.RawMessage            `json:"initFailures"`
+	}
+	if json.Unmarshal([]byte(body), &value) != nil || value.ResponseHeader == nil || value.Status == nil {
+		return probeAssessment{}, false
+	}
+	if len(value.Status) == 0 {
+		return observation("The Solr core-admin endpoint answered without credentials but returned no core metadata.", "empty-core-list"), true
+	}
+	return candidate(severity.Medium, len(value.Status), "Solr returned core names and administrative metadata without credentials. Stored documents, configuration changes, and code execution were not demonstrated.", "core-metadata"), true
+}
+
+func assessSolrSystem(status int, _ func(string) string, body string) (probeAssessment, bool) {
+	if status != 200 {
+		return probeAssessment{}, false
+	}
+	var value map[string]json.RawMessage
+	if json.Unmarshal([]byte(body), &value) != nil {
+		return probeAssessment{}, false
+	}
+	_, responseHeader := value["responseHeader"]
+	_, lucene := value["lucene"]
+	_, solrHome := value["solr_home"]
+	if !responseHeader || (!lucene && !solrHome) {
+		return probeAssessment{}, false
+	}
+	return observation("A Solr system-information endpoint is anonymously reachable. System metadata alone does not prove document access, configuration changes, or code execution.", "system-information"), true
+}
+
+func jsonStringPresent(value map[string]json.RawMessage, key string) bool {
+	raw, ok := value[key]
+	if !ok {
+		return false
+	}
+	var text string
+	return json.Unmarshal(raw, &text) == nil && strings.TrimSpace(text) != ""
 }
 
 // baseURL renders scheme://host[:port] for the service, omitting the port when it

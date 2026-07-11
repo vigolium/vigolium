@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This Next.js app ships static JavaScript chunks (and sometimes source maps) that, when parsed, reveal internal API routes, third-party domains, and sometimes hard-coded secrets. Route and domain findings are informational intel; an embedded secret is a High-severity disclosure.
+	ModuleDesc = `**What it means:** Anonymous Next.js chunks and source maps contain routes, third-party domains, client identifiers, or private-credential-shaped values. Routes, domains, and intentionally publishable identifiers are observations; unvalidated private formats are candidates.
 
-**How it's exploited:** An attacker downloads the same public chunks and harvests disclosed API endpoints and domains to map hidden functionality. Any leaked key or token (AWS, GitHub, Stripe) authenticates to that service or pivots deeper.
+**How it's exploited:** Attackers download the same chunks for reconnaissance. GitHub, Slack, or secret-key-shaped values may enable access if live, but AWS access-key IDs, Google API keys, and Stripe publishable keys are not secrets by themselves.
 
-**Fix:** Keep credentials out of client-side bundles by injecting them only server-side, rotate exposed keys, and disable production source maps.`
+**Fix:** Keep private credentials server-side, validate and rotate candidate secrets, restrict publishable keys at the provider, and disable unnecessary production source maps.`
 
-	ModuleConfirmation = "Confirmed when /_next/static/chunks/<chunk>.js returns 200 with JavaScript content and is successfully parsed"
+	ModuleConfirmation = "Anonymous chunk must return non-HTML 200 content; private token formats remain candidates until provider validation, while public client identifiers remain observations"
 	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Certain
 	ModuleTags         = []string{"nextjs", "javascript", "intel", "info-disclosure", "medium", "light"}

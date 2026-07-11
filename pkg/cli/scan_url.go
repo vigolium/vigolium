@@ -59,7 +59,7 @@ func registerPhaseFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&scanPhaseDiscover, "discover", false, "Run content discovery before scanning")
 	flags.BoolVar(&scanPhaseSpider, "spider", false, "Run browser-based spidering before scanning")
 	flags.BoolVar(&scanPhaseExternalHarvest, "external-harvest", false, "Run external intelligence harvesting before scanning")
-	flags.BoolVar(&scanPhaseKnownIssueScan, "known-issue-scan", false, "Run known issue scan (Nuclei/Kingfisher)")
+	flags.BoolVar(&scanPhaseKnownIssueScan, "known-issue-scan", false, "Run known issue scan (Nuclei + native secret scanning)")
 }
 
 // hasPhaseFlags returns true if any phase flag is set.

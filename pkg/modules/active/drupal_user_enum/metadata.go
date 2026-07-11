@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This Drupal site lets an unauthenticated visitor enumerate valid usernames, via numeric profile paths (/user/1 redirecting to /users/<username>) or the /jsonapi/user/user endpoint returning user objects to anonymous requests.
+	ModuleDesc = `**What it means:** Credential-free controls found distinct Drupal public profile names through numeric routes or structurally parsed JSON:API user resources. Public profiles and author directories may be intentional.
 
-**How it's exploited:** An attacker harvests the usernames for credential-stuffing, password-spraying, and targeted brute-force against the login form, and uses leaked profile metadata for phishing.
+**How it's exploited:** Profile names may aid password spraying only if they equal private login identities. This module does not prove that mapping, private-account disclosure, or weak login controls, so results remain observations.
 
 **Fix:** Restrict anonymous access to user profiles and the JSON:API user resource (require auth or disable the module if unused), and avoid exposing usernames in profile URLs and titles.`
 
-	ModuleConfirmation = "Confirmed when /user/N profile paths leak distinct usernames (via /users/<name> redirect or a Drupal-corroborated 200 profile title that differs from the unknown-user baseline) or JSON:API returns user objects"
-	ModuleSeverity     = severity.Medium
+	ModuleConfirmation = "Observed when profile controls yield distinct non-catch-all names or parsed JSON:API contains user--user resources; login identity is not inferred"
+	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Certain
 	ModuleTags         = []string{"drupal", "php", "info-disclosure", "probe", "moderate"}
 )

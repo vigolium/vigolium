@@ -1,10 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { ClaudeHandoff } from "../../src/engine/claude-handoff.js";
+import { CodexHandoff } from "../../src/engine/codex-handoff.js";
 import type { Adapter, AdapterEvent, AdapterRunInput } from "../../src/adapters/adapter.js";
 import type { OrchestratorEvent } from "../../src/engine/events.js";
+
+function writeLiteArtifacts(cwd: string | undefined): void {
+  if (!cwd) return;
+  const dir = join(cwd, "vigolium-results", "attack-surface");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "lite-recon.md"), "## Lite Recon\n\nHandoff fixture recon artifact.\n");
+  writeFileSync(
+    join(dir, "unauthenticated-surface.md"),
+    "# Unauthenticated Attack Surface\n\nHandoff fixture surface.\n",
+  );
+  writeFileSync(join(dir, "lite-secrets-scan.md"), "## Lite Secrets Scan\n\nNo retained fixture secrets.\n");
+  writeFileSync(join(dir, "lite-sast-summary.md"), "## Lite SAST Summary\n\nNo retained fixture findings.\n");
+  const drafts = join(cwd, "vigolium-results", "findings-draft");
+  mkdirSync(drafts, { recursive: true });
+  writeFileSync(join(drafts, "consolidation-manifest.json"), '{"findings":[],"theoretical":[],"dropped":[]}\n');
+}
 
 /**
  * Scripted adapter that simulates Claude hitting its usage limit on the first
@@ -23,7 +40,7 @@ class QuotaThenOkAdapter implements Adapter {
     this.probeCalls++;
   }
 
-  async *run(_input: AdapterRunInput): AsyncIterable<AdapterEvent> {
+  async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
     const attempt = this.runCalls++;
     if (attempt === 0) {
       yield { kind: "textDelta", text: "working on the audit…\n" };
@@ -41,6 +58,7 @@ class QuotaThenOkAdapter implements Adapter {
       };
       return;
     }
+    writeLiteArtifacts(input.cwd);
     yield { kind: "textDelta", text: "resuming the audit…\n" };
     yield {
       kind: "finish",
@@ -92,6 +110,20 @@ describe("e2e: claude handoff quota-limit retry", () => {
     expect(result.totalUsd).toBeGreaterThanOrEqual(16); // 12.5 + 4.25, round2
     expect(result.totalTokens.input).toBe(180);
     expect(result.totalTokens.output).toBe(90);
+
+    const state = JSON.parse(readFileSync(join(target, "vigolium-results", "audit-state.json"), "utf8"));
+    const audit = state.audits.at(-1);
+    expect(audit.status).toBe("complete");
+    expect(audit.history_available).toBe(false);
+    expect(audit.usage).toEqual({ input_tokens: 180, output_tokens: 90, cost_usd: 16.75 });
+    expect(
+      Object.values(audit.phases as Record<string, { status: string }>).every(
+        (phase) => phase.status === "complete",
+      ),
+    ).toBe(true);
+    expect(readFileSync(join(target, "vigolium-results", "audit-context.md"), "utf8")).toContain(
+      "## Engine-Owned Audit State",
+    );
   });
 
   test("gives up after quotaMaxRetries when the limit never clears", async () => {
@@ -153,7 +185,7 @@ describe("e2e: claude handoff retry edge cases", () => {
       async probe(): Promise<void> {
         this.probeCalls++;
       }
-      async *run(_input: AdapterRunInput): AsyncIterable<AdapterEvent> {
+      async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
         const attempt = this.runCalls++;
         if (attempt === 0) {
           yield {
@@ -168,6 +200,7 @@ describe("e2e: claude handoff retry edge cases", () => {
           yield { kind: "error", cause: new Error("claude CLI exited 1") };
           return;
         }
+        writeLiteArtifacts(input.cwd);
         yield { kind: "finish", ok: true, result: "done", usd: 0, tokens: { input: 0, output: 0 }, durationMs: 1 };
       }
     }
@@ -195,6 +228,246 @@ describe("e2e: claude handoff retry edge cases", () => {
     expect(texts.join("")).toContain("quota limit hit — sleeping 0m before retry 1/2");
   });
 
+  test("successful handoff cannot complete when declared artifacts are absent", async () => {
+    const target = mkdtempSync(join(tmpdir(), "vigolium-audit-handoff-gate-"));
+
+    class EmptySuccessAdapter implements Adapter {
+      readonly id = "empty-success";
+      readonly platform = "claude" as const;
+      readonly description = "EmptySuccessAdapter";
+      async probe(): Promise<void> {}
+      async *run(_input: AdapterRunInput): AsyncIterable<AdapterEvent> {
+        yield { kind: "finish", ok: true, result: "done", usd: 0, tokens: { input: 0, output: 0 }, durationMs: 1 };
+      }
+    }
+
+    const handoff = new ClaudeHandoff({
+      adapter: new EmptySuccessAdapter(),
+      targetDir: target,
+      mode: "lite",
+      pluginDir: "/tmp/does-not-matter",
+    });
+    const result = await handoff.run();
+    expect(result.status).toBe("failed");
+    expect(result.failedPhases).toEqual(["L1", "L2", "L3"]);
+    const state = JSON.parse(readFileSync(join(target, "vigolium-results", "audit-state.json"), "utf8"));
+    expect(state.audits.at(-1).status).toBe("failed");
+    expect(state.audits.at(-1).phases.L1.status).toBe("failed");
+  });
+
+  test("fresh handoff cannot complete from untouched prior-run artifacts", async () => {
+    const target = mkdtempSync(join(tmpdir(), "vigolium-audit-handoff-stale-"));
+    writeLiteArtifacts(target);
+    const old = new Date(Date.now() - 60_000);
+    for (const relative of [
+      "attack-surface/lite-recon.md",
+      "attack-surface/unauthenticated-surface.md",
+      "attack-surface/lite-secrets-scan.md",
+      "attack-surface/lite-sast-summary.md",
+      "findings-draft/consolidation-manifest.json",
+    ]) {
+      utimesSync(join(target, "vigolium-results", relative), old, old);
+    }
+
+    class StaleSuccessAdapter implements Adapter {
+      readonly id = "stale-success";
+      readonly platform = "claude" as const;
+      readonly description = "StaleSuccessAdapter";
+      async probe(): Promise<void> {}
+      async *run(_input: AdapterRunInput): AsyncIterable<AdapterEvent> {
+        yield {
+          kind: "finish",
+          ok: true,
+          result: "done",
+          usd: 0,
+          tokens: { input: 0, output: 0 },
+          durationMs: 1,
+        };
+      }
+    }
+
+    const handoff = new ClaudeHandoff({
+      adapter: new StaleSuccessAdapter(),
+      targetDir: target,
+      mode: "lite",
+      pluginDir: "/tmp/does-not-matter",
+    });
+    const result = await handoff.run();
+    expect(result.status).toBe("failed");
+    expect(result.failedPhases).toEqual(["L1", "L2", "L3"]);
+  });
+
+  test("fresh handoff archives prior core outputs before writing the new run", async () => {
+    const target = mkdtempSync(join(tmpdir(), "vigolium-audit-handoff-fresh-archive-"));
+    writeLiteArtifacts(target);
+    writeFileSync(
+      join(target, "vigolium-results", "attack-surface", "lite-recon.md"),
+      "## Lite Recon\n\nOLD prior-run recon artifact that must be archived.\n",
+    );
+    writeFileSync(
+      join(target, "vigolium-results", "audit-state.json"),
+      JSON.stringify({
+        schema_version: 1,
+        audits: [{
+          audit_id: "2026-01-01T00:00:00.000Z",
+          commit: null,
+          branch: null,
+          repository: null,
+          mode: "lite",
+          model: null,
+          agent_sdk: "old",
+          started_at: "2026-01-01T00:00:00.000Z",
+          completed_at: "2026-01-01T00:01:00.000Z",
+          status: "complete",
+          phases: {
+            L1: { status: "complete" },
+            L2: { status: "complete" },
+            L3: { status: "complete" },
+          },
+        }],
+      }),
+    );
+
+    class FreshAdapter implements Adapter {
+      readonly id = "fresh";
+      readonly platform = "claude" as const;
+      readonly description = "FreshAdapter";
+      async probe(): Promise<void> {}
+      async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
+        writeLiteArtifacts(input.cwd);
+        yield {
+          kind: "finish",
+          ok: true,
+          result: "done",
+          usd: 0,
+          tokens: { input: 0, output: 0 },
+          durationMs: 1,
+        };
+      }
+    }
+
+    const handoff = new ClaudeHandoff({
+      adapter: new FreshAdapter(),
+      targetDir: target,
+      mode: "lite",
+      pluginDir: "/tmp/does-not-matter",
+    });
+    const result = await handoff.run();
+    expect(result.status).toBe("complete");
+
+    const archiveRoot = join(target, "vigolium-results", ".archive", "pre-run");
+    const archive = join(archiveRoot, readdirSync(archiveRoot)[0]!);
+    expect(readFileSync(join(archive, "attack-surface", "lite-recon.md"), "utf8")).toContain("OLD prior-run");
+    expect(readFileSync(join(target, "vigolium-results", "attack-surface", "lite-recon.md"), "utf8")).toContain("Handoff fixture");
+    const state = JSON.parse(readFileSync(join(target, "vigolium-results", "audit-state.json"), "utf8"));
+    expect(state.audits).toHaveLength(2);
+  });
+
+  test("successful handoff receives bounded phase-local artifact repair", async () => {
+    const target = mkdtempSync(join(tmpdir(), "vigolium-audit-handoff-repair-"));
+
+    class RepairingAdapter implements Adapter {
+      readonly id = "repairing";
+      readonly platform = "claude" as const;
+      readonly description = "RepairingAdapter";
+      inputs: AdapterRunInput[] = [];
+      async probe(): Promise<void> {}
+      async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
+        this.inputs.push(input);
+        const attackSurface = join(target, "vigolium-results", "attack-surface");
+        if (input.userPrompt.startsWith("Artifact-only repair") && input.userPrompt.includes("L1")) {
+          mkdirSync(attackSurface, { recursive: true });
+          writeFileSync(
+            join(attackSurface, "lite-recon.md"),
+            "## Lite Recon\n\nRepaired recon output with sufficient detail.\n",
+          );
+          writeFileSync(
+            join(attackSurface, "unauthenticated-surface.md"),
+            "# Unauthenticated Attack Surface\n\nRepaired surface output.\n",
+          );
+        } else if (input.userPrompt.startsWith("Artifact-only repair") && input.userPrompt.includes("L2")) {
+          writeFileSync(
+            join(attackSurface, "lite-secrets-scan.md"),
+            "## Lite Secrets Scan\n\nNo retained secrets after repair.\n",
+          );
+        } else if (input.userPrompt.startsWith("Artifact-only repair") && input.userPrompt.includes("L3")) {
+          writeFileSync(
+            join(attackSurface, "lite-sast-summary.md"),
+            "## Lite SAST Summary\n\nNo retained findings after repair.\n",
+          );
+          const drafts = join(target, "vigolium-results", "findings-draft");
+          mkdirSync(drafts, { recursive: true });
+          writeFileSync(
+            join(drafts, "consolidation-manifest.json"),
+            '{"findings":[],"theoretical":[],"dropped":[]}\n',
+          );
+        }
+        yield {
+          kind: "finish",
+          ok: true,
+          result: "done",
+          usd: 0.1,
+          tokens: { input: 2, output: 1 },
+          durationMs: 1,
+        };
+      }
+    }
+
+    const adapter = new RepairingAdapter();
+    const handoff = new ClaudeHandoff({
+      adapter,
+      targetDir: target,
+      mode: "lite",
+      pluginDir: "/tmp/repair-plugin",
+    });
+    const result = await handoff.run();
+
+    expect(result.status).toBe("complete");
+    expect(adapter.inputs).toHaveLength(4); // whole mode + one repair for L1/L2/L3
+    for (const input of adapter.inputs.slice(1)) {
+      expect(input.userPrompt).toStartWith("Artifact-only repair");
+      expect(input.userPrompt).not.toContain("COMMAND-DEF BODY");
+      expect(input.pluginDir).toBe("/tmp/repair-plugin");
+    }
+    expect(result.totalTokens).toEqual({ input: 8, output: 4 });
+  });
+
+  test("artifact sufficiency recovers a messy terminal adapter failure", async () => {
+    const target = mkdtempSync(join(tmpdir(), "vigolium-audit-handoff-artifact-recovery-"));
+
+    class ArtifactsThenFailureAdapter implements Adapter {
+      readonly id = "artifacts-then-failure";
+      readonly platform = "claude" as const;
+      readonly description = "ArtifactsThenFailureAdapter";
+      async probe(): Promise<void> {}
+      async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
+        writeLiteArtifacts(input.cwd);
+        yield {
+          kind: "finish",
+          ok: false,
+          reason: "worker stream closed after writing outputs",
+          usd: 0.5,
+          tokens: { input: 10, output: 5 },
+          durationMs: 1,
+        };
+      }
+    }
+
+    const handoff = new ClaudeHandoff({
+      adapter: new ArtifactsThenFailureAdapter(),
+      targetDir: target,
+      mode: "lite",
+      pluginDir: "/tmp/does-not-matter",
+      transientMaxRetries: 0,
+      quotaMaxRetries: 0,
+    });
+    const result = await handoff.run();
+    expect(result.status).toBe("complete");
+    expect(result.failedPhases).toEqual([]);
+    const state = JSON.parse(readFileSync(join(target, "vigolium-results", "audit-state.json"), "utf8"));
+    expect(state.audits.at(-1).status).toBe("complete");
+  });
+
   test("stream idle timeout gets transient backoff retry in handoff mode", async () => {
     const target = mkdtempSync(join(tmpdir(), "vigolium-audit-handoff-stream-idle-"));
 
@@ -204,7 +477,7 @@ describe("e2e: claude handoff retry edge cases", () => {
       readonly description = "StreamIdleThenOkAdapter";
       runCalls = 0;
       async probe(): Promise<void> {}
-      async *run(_input: AdapterRunInput): AsyncIterable<AdapterEvent> {
+      async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
         const attempt = this.runCalls++;
         if (attempt === 0) {
           yield { kind: "textDelta", text: "Ideator wrote nothing before stalling. Retrying with tighter scope." };
@@ -214,6 +487,7 @@ describe("e2e: claude handoff retry edge cases", () => {
           };
           return;
         }
+        writeLiteArtifacts(input.cwd);
         yield { kind: "finish", ok: true, result: "done", usd: 0, tokens: { input: 0, output: 0 }, durationMs: 1 };
       }
     }
@@ -238,5 +512,57 @@ describe("e2e: claude handoff retry edge cases", () => {
     expect(result.status).toBe("complete");
     expect(adapter.runCalls).toBe(2);
     expect(texts.join("")).toContain("transient adapter error — sleeping 1ms before retry 1/2");
+  });
+});
+
+describe("e2e: codex handoff retry accounting", () => {
+  test("accumulates cost and tokens across a failed attempt and its retry", async () => {
+    const target = mkdtempSync(join(tmpdir(), "vigolium-audit-codex-retry-"));
+
+    class CodexTransientThenOkAdapter implements Adapter {
+      readonly id = "codex-transient";
+      readonly platform = "codex" as const;
+      readonly description = "CodexTransientThenOkAdapter";
+      runCalls = 0;
+      async probe(): Promise<void> {}
+      async *run(input: AdapterRunInput): AsyncIterable<AdapterEvent> {
+        if (this.runCalls++ === 0) {
+          yield { kind: "error", cause: new Error("HTTP 429 from Codex") };
+          yield {
+            kind: "finish",
+            ok: false,
+            reason: "HTTP 429",
+            usd: 1.25,
+            tokens: { input: 100, output: 20 },
+            durationMs: 1,
+          };
+          return;
+        }
+        writeLiteArtifacts(input.cwd);
+        yield {
+          kind: "finish",
+          ok: true,
+          result: "done",
+          usd: 2.5,
+          tokens: { input: 80, output: 30 },
+          durationMs: 1,
+        };
+      }
+    }
+
+    const adapter = new CodexTransientThenOkAdapter();
+    const handoff = new CodexHandoff({
+      adapter,
+      targetDir: target,
+      mode: "lite",
+      transientMaxRetries: 1,
+      transientBackoffMs: 1,
+    });
+    const result = await handoff.run();
+
+    expect(result.status).toBe("complete");
+    expect(adapter.runCalls).toBe(2);
+    expect(result.totalUsd).toBe(3.75);
+    expect(result.totalTokens).toEqual({ input: 180, output: 50 });
   });
 });

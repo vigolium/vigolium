@@ -45,9 +45,8 @@ Phase count: 3 (`L1`-`L3`)
 
 Lite is a super-quick surface scan answering one question: "what would blow
 up if this shipped right now?" It supports plain source folders with no `.git`
-directory. L2 and L3 declare `parallel_with` against each other; the v1
-engine still walks them sequentially but the dependency graph permits future
-parallelization.
+directory. L3 waits for L2 because deterministic consolidation runs at the end
+of L3 and must include every secret draft.
 
 PoC building and severity-prefixed promotion happen inside the inline command
 body during/after L3 — they're not separate orchestrator phases. Output paths
@@ -57,8 +56,8 @@ mode.
 | Phase | Name | Agent | What it does | Main outputs |
 | --- | --- | --- | --- | --- |
 | `L1` | Recon Pass | (inline) | Detects languages, frameworks, manifests, likely entry points, deployment model, git state, and scan exclusions; best-effort enumeration of the unauthenticated (pre-auth) surface. | `vigolium-results/attack-surface/lite-recon.md`; `vigolium-results/attack-surface/unauthenticated-surface.md` |
-| `L2` | Secrets Scan | (inline) | Hardcoded keys, tokens, passwords, credentials via trufflehog/gitleaks (filesystem mode) or pattern fallback. Runs parallel-eligible with L3. | `vigolium-results/findings-draft/l2-<NNN>-<slug>.md` |
-| `L3` | Fast Code Scan | (inline) | Single high-signal pass scoped by L1 (prefer `semgrep scan --config auto`, fall back to CodeQL or manual patterns). Promotes survivors to severity-prefixed `findings/<C\|H\|M><N>-<slug>/` and dispatches `poc-author` per finding. Runs parallel-eligible with L2. | `vigolium-results/findings-draft/l3-<NNN>-<slug>.md`; `vigolium-results/findings-draft/consolidation-manifest.json`; `vigolium-results/findings/<id>-<slug>/draft.md`; `vigolium-results/findings/<id>-<slug>/poc.<ext>` (or `poc.theoretical.md`); `vigolium-results/findings/<id>-<slug>/evidence/` |
+| `L2` | Secrets Scan | (inline) | Hardcoded keys, tokens, passwords, credentials via trufflehog/gitleaks (filesystem mode) or `rg` fallback. Uses secret-specific exclusions, masks values, and filters obvious placeholders. | `vigolium-results/attack-surface/lite-secrets-scan.md`; `vigolium-results/findings-draft/l2-<NNN>-<slug>.md` |
+| `L3` | Fast Code Scan + Finalize | (inline) | Single high-signal pass scoped by L1, then consolidates all L2/L3 survivors, dispatches `poc-author`, partitions non-executed PoCs to the theoretical bucket, and dispatches `finding-writer` for both buckets. | `vigolium-results/attack-surface/lite-sast-summary.md`; `vigolium-results/findings-draft/l3-<NNN>-<slug>.md`; `vigolium-results/findings/<id>-<slug>/`; `vigolium-results/findings-theoretical/<id>-<slug>/`; per-finding `report.md` |
 
 ## `vigolium-audit run --mode balanced`
 
@@ -77,10 +76,10 @@ are compatible with `diff` and `status`. Phases B3 and B4 declare
 | `B2` | Threat Model | `threat-modeler` | Project type, trust boundaries, DFD/CFD slices, attack surface, threat model, coverage gaps, known false-positive sources, unauthenticated (pre-auth) surface. | `vigolium-results/attack-surface/knowledge-base-report.md` (creates the file with all phase-B2 sections); `vigolium-results/attack-surface/unauthenticated-surface.md` |
 | `B3` | Code Scan | `code-scanner` | Built-in CodeQL suites + Semgrep Pro with inline SAST enrichment. Skips custom queries and structural extraction (deep-only). Parallel-eligible with `B4`. | `vigolium-results/codeql-artifacts/`; `vigolium-results/findings-draft/p4-<NNN>-<slug>.md` |
 | `B4` | Targeted Probe | `probe-lead` | 3-agent single-round probe (Strategist, Backward Reasoner, Evidence Harvester). Parallel-eligible with `B3`. | `vigolium-results/probe-workspace/<component>/`; `vigolium-results/findings-draft/p8-<NNN>-<slug>.md` |
-| `B5` | Review Panel + FP Check | `review-adjudicator` | 3-agent chamber (Synthesizer, Attack Ideator, Devil's Advocate), max 2 debate rounds. Promotes valid drafts into severity-prefixed `findings/<id>-<slug>/`. | `vigolium-results/chamber-workspace/balanced-chamber/debate.md`; `vigolium-results/findings-draft/p10-<NNN>-<slug>.md`; `vigolium-results/findings/<id>-<slug>/draft.md` |
+| `B5` | Review Panel + FP Check | `review-adjudicator` | 3-agent chamber (Synthesizer, Attack Ideator, Devil's Advocate), max 2 debate rounds. Validates and triages canonical drafts for later consolidation. | `vigolium-results/chamber-workspace/balanced-chamber/debate.md`; `vigolium-results/findings-draft/p10-<NNN>-<slug>.md` |
 | `B6` | Intent Reconciliation | `context-reviewer` | Reconciles every VALID draft against documented intent (SECURITY.md/README/docs/ADRs/inline pragmas + KB Architecture Model + each finding's cited code). Soft-routes strongly-documented-intentional findings to the theoretical bucket via `Triage-Priority: skip`. Skip-and-continue. | `vigolium-results/attack-surface/intent-corpus.json`; `vigolium-results/attack-surface/intent-verdicts.json`; `vigolium-results/attack-surface/intent-reconciliation.md`; `Intent-Verdict` annotations on drafts |
-| `B7` | PoC Authoring | `poc-author` | Builds executable PoC + evidence per promoted finding; drops Low severity. | `vigolium-results/findings/<id>-<slug>/poc.<ext>` (or `poc.theoretical.md`); `vigolium-results/findings/<id>-<slug>/evidence/` |
-| `B8` | Finding Finalize | `finding-writer` | Authors `report.md` per finding from cold context. Mandatory non-empty gate before phase B9. | `vigolium-results/findings/<id>-<slug>/report.md` |
+| `B7` | PoC Authoring | `poc-author` | Deterministically consolidates Medium+ VALID drafts, builds PoCs for actionable entries, and partitions non-executed results into the theoretical bucket. | `vigolium-results/findings-draft/consolidation-manifest.json`; `vigolium-results/findings/<id>-<slug>/poc.<ext>`; `vigolium-results/findings-theoretical/<id>-<slug>/` |
+| `B8` | Finding Finalize | `finding-writer` | Authors `report.md` per finding from cold context across confirmed and theoretical buckets. Mandatory non-empty gate before phase B9. | `vigolium-results/findings/<id>-<slug>/report.md`; `vigolium-results/findings-theoretical/<id>-<slug>/report.md` |
 | `B9` | Report Compose | `report-composer` | Compiles consolidated report with the balanced-audit disclaimer. | `vigolium-results/final-audit-report.md` |
 
 ## `vigolium-audit run --mode deep`
@@ -108,10 +107,10 @@ Review Chamber (Ideator + Code Tracer). FP elimination runs as the inline tail o
 | `D5` | Code Scan | `code-scanner` | CodeQL build + custom queries + Semgrep Pro + structural extraction + inline SAST enrichment. When `Multi-service: true`, also enumerates the inter-service edge graph (folded former Cross-Service Taint Step 1–2). | `vigolium-results/codeql-artifacts/db/`, `entry-points.json`, `sinks.json`, `call-graph-slices.json`, `flow-paths-raw.sarif`; `vigolium-results/attack-surface/cross-service-edges.{json,md}` (multi-service only); `vigolium-results/findings-draft/p4-<NNN>-<slug>.md` |
 | `D6` | Deep Probe | `probe-lead` | Multi-team probe in staged rounds (Strategist authors code anatomy inline, Backward + Contradiction reasoners, Evidence Harvester owns causal challenge). | `vigolium-results/probe-workspace/<component>/attack-surface-map.md`, `code-anatomy.md`, `probe-summary.md` |
 | `D7` | Access Audit | `access-auditor` | Enumerates public routes/operations and records expected vs. actual auth checks per endpoint; supersedes the `D4` seed with the exhaustive matrix-derived unauthenticated (pre-auth) surface. | `vigolium-results/attack-surface/authz-matrix.md`; `vigolium-results/attack-surface/authz-coverage-gaps.md`; `vigolium-results/attack-surface/unauthenticated-surface.md` (final); `vigolium-results/findings-draft/p6-<NNN>-<slug>.md`; `## Authorization Audit` section in KB |
-| `D8` | Review Panel | `review-adjudicator` | Clusters drafts, runs chambers (Synthesizer/Attack Ideator/Code Tracer/Devil's Advocate). The Ideator also reasons cross-service taint over `cross-service-edges.json` (folded Cross-Service Taint Step 3–4); the Code Tracer runs an inline same-pattern variant search on every VALID finding (folded Variant Search). Covers state/concurrency + spec-compliance classes. Then the inline FP-elimination tail (fp-check, CRITICAL-only cold-verify via `independent-verifier`, triage pass). | `vigolium-results/chamber-workspace/<chamber-id>/debate.md`; `vigolium-results/findings-draft/p10-<NNN>-<slug>.md` (incl. cross-service + variant drafts with `Origin-Finding:`/`Origin-Pattern:`); `vigolium-results/adversarial-reviews/<slug>-review.md`; `vigolium-results/findings/<id>-<slug>/draft.md`; `## Phase 10 Addendum` section in KB |
+| `D8` | Review Panel | `review-adjudicator` | Clusters drafts, runs chambers (Synthesizer/Attack Ideator/Code Tracer/Devil's Advocate). The Ideator also reasons cross-service taint over `cross-service-edges.json` (folded Cross-Service Taint Step 3–4); the Code Tracer runs an inline same-pattern variant search on every VALID finding (folded Variant Search). Covers state/concurrency + spec-compliance classes. Then the inline FP-elimination tail (fp-check, CRITICAL-only cold-verify via `independent-verifier`, triage pass). | `vigolium-results/chamber-workspace/<chamber-id>/debate.md`; `vigolium-results/findings-draft/p10-<NNN>-<slug>.md` (incl. cross-service + variant drafts with `Origin-Finding:`/`Origin-Pattern:`); `vigolium-results/adversarial-reviews/<slug>-review.md`; `## Phase 10 Addendum` section in KB |
 | `D9` | Intent Reconciliation | `context-reviewer` | Reconciles every VALID draft against documented intent (SECURITY.md/README/docs/ADRs/inline pragmas + KB Architecture Model + each finding's cited code). Soft-routes strongly-documented-intentional findings to the theoretical bucket via `Triage-Priority: skip`; flags `acknowledged_risks` as `contested` so in-scope classes are not deprioritized. Skip-and-continue. | `vigolium-results/attack-surface/intent-corpus.json`; `vigolium-results/attack-surface/intent-verdicts.json`; `vigolium-results/attack-surface/intent-reconciliation.md`; `Intent-Verdict` annotations on drafts |
-| `D10` | PoC Authoring | `poc-author` | Builds executable PoC + evidence for each finalized finding. | `vigolium-results/findings/<id>-<slug>/poc.<ext>` (or `poc.theoretical.md`); `vigolium-results/findings/<id>-<slug>/evidence/` |
-| `D11` | Finding Finalize | `finding-writer` | Per-finding disclosure-style report from cold context. | `vigolium-results/findings/<id>-<slug>/report.md` |
+| `D10` | PoC Authoring | `poc-author` | Deterministically consolidates Medium+ VALID drafts, builds PoCs for actionable entries, and partitions non-executed results into the theoretical bucket. | `vigolium-results/findings-draft/consolidation-manifest.json`; `vigolium-results/findings/<id>-<slug>/poc.<ext>`; `vigolium-results/findings-theoretical/<id>-<slug>/` |
+| `D11` | Finding Finalize | `finding-writer` | Per-finding disclosure-style report from cold context across confirmed and theoretical buckets. | `vigolium-results/findings/<id>-<slug>/report.md`; `vigolium-results/findings-theoretical/<id>-<slug>/report.md` |
 | `D12` | Report Compose | `report-composer` | Verifies every finding has a report and writes the consolidated audit report with the deep-mode methodology block. | `vigolium-results/final-audit-report.md` |
 
 ## `vigolium-audit run --mode confirm`
@@ -171,7 +170,7 @@ The mapping the inline command applies:
 
 Usage: `vigolium-audit run --mode revisit [--target <path>]`
 
-Phase count: 9 (`1`-`9`)
+Phase count: 10 (`0`-`9`)
 
 Revisit is an anti-anchored second/Nth pass on top of an existing
 `vigolium-results/` directory. It reuses the round-1 KB, SAST output, and matrices but
@@ -181,14 +180,15 @@ lives in `vigolium-results/revisit-audit-state.json`; round-1 artifacts are pres
 
 | Phase | Name | Agent | What it does | Main outputs |
 | --- | --- | --- | --- | --- |
+| `0` | Intent Cartography | `intent-mapper` | Refreshes repository-local documented security intent for soft anti-anchoring prioritization; advisory and skip-and-continue. | `vigolium-results/attack-surface/intent-corpus.json` |
 | `1` | Deep Probe (fresh teams, anti-anchored) | `probe-lead` | Re-derives hypotheses from durable attack-surface context using prior findings as a negative list. | `vigolium-results/probe-workspace/<component>/` (revisit-tagged); `vigolium-results/findings-draft/r5-<NNN>-<slug>.md` |
 | `2` | Enrichment Re-classify | (inline) | Anti-anchored review pass over prior SAST and durable context. | Updated draft verdicts |
 | `3` | Review Chambers (fresh, anti-anchored) | `review-adjudicator` | Fresh chamber pass over current attack-surface slices with round-1 finding negatives. | `vigolium-results/chamber-workspace/r<N>-<cluster>/debate.md`; `vigolium-results/findings-draft/p10-<NNN>-<slug>.md` |
 | `4` | FP Check | `independent-verifier` | Rechecks revisit-stage drafts and rejects weak findings. | Updated revisit drafts and finding directories; `vigolium-results/adversarial-reviews/<slug>-review.md` |
 | `5` | Variant Analysis (new round findings) | `variant-scanner` | Searches for variants of the new revisit findings. | `vigolium-results/findings-draft/p12-<NNN>-<slug>.md` |
 | `6` | Variant Analysis on Round-1 CRIT/HIGH | `variant-scanner` | Looks for adjacent variants of round-1 critical/high findings missed by prior passes. | `vigolium-results/findings-draft/p10k-<NNN>-<slug>.md` |
-| `7` | PoC Construction (new findings only) | `poc-author` | Builds PoCs and evidence for revisit-stage findings only. | `vigolium-results/findings/<id>-<slug>/poc.<ext>` (or `poc.theoretical.md`); `vigolium-results/findings/<id>-<slug>/evidence/` |
-| `8` | Finding Finalization | `finding-writer` | Authors `report.md` for revisit findings. | `vigolium-results/findings/<id>-<slug>/report.md` |
+| `7` | PoC Construction (new findings only) | `poc-author` | Consolidates revisit-stage drafts with continued IDs, builds PoCs, and partitions non-executed results. | `vigolium-results/findings-draft/consolidation-manifest.json`; new directories under `findings/` or `findings-theoretical/` |
+| `8` | Finding Finalization | `finding-writer` | Authors `report.md` for new revisit findings in either finalized bucket. | `vigolium-results/findings/<id>-<slug>/report.md`; `vigolium-results/findings-theoretical/<id>-<slug>/report.md` |
 | `9` | Final Report Regeneration | `report-composer` | Regenerates the consolidated report with a "Discoveries by Round" section. | `vigolium-results/final-audit-report.md` (now with `## Discoveries by Round`) |
 
 ## `vigolium-audit run --mode reinvest`

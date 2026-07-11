@@ -9,66 +9,83 @@ import (
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
-// SecretFindingSeverity computes the severity and confidence for a Kingfisher
-// secret finding based on where and how it was observed.
+// SecretFindingSeverity computes the severity and confidence for a native
+// secret-scan finding from its rule identity and where/how it was observed.
 //
-// A secret that Kingfisher validated as live stays Critical/Certain no matter
-// where it appears — a confirmed live credential is serious anywhere. For
-// unvalidated matches the baseline is High/Firm, with several downgrades:
+// Rule identity sets the baseline. A recognisable secret family grades High: the
+// curated high-confidence kingfisher rules (trusted — the ~86 provider-specific
+// patterns: Stripe / Checkout secret keys, Azure connection strings, CircleCI
+// PATs, …) at Firm, and every other NAMED provider family (a medium/low-confidence
+// rule like Storyblok / Bitfinex / Google Gemini) at Tentative — a named leak is
+// surfaced for triage at full weight, its Tentative confidence flagging that it is
+// unverified. Only the GENERIC, family-less matchers (generic — the "Generic
+// Password" / "Generic API Key" style rules, see IsGenericSecretRule) grade
+// Suspect/Tentative: secret-shaped but nameless and historically the dominant
+// false-positive source, so they stay at the low-signal tier. Downstream grouping
+// then folds those generic matches (tagged output.SuspectBundleTag) into a single
+// per-host "Low-confidence secret-shaped matches" bundle, while each named family
+// keeps its own finding.
 //
-//   - A reCAPTCHA site key (recaptchaSiteKey — see IsReCaptchaSiteKey) or a
-//     Google OAuth client ID (oauthClientID — see IsGoogleOAuthClientID) drops to
-//     Info/Tentative. Both are public by design — a reCAPTCHA site key is embedded
-//     in page HTML/JS so the widget can render, and an OAuth client ID rides in
-//     every Google sign-in button — so they outrank every other branch, including
-//     a (spurious) validation: a public identifier is never a leaked secret. The
-//     paired client *secret* is a separate match and keeps full severity.
+// From that baseline, several signals can only LOWER severity, applied as a
+// ceiling — the returned severity is the LESS severe of the baseline and the
+// ceiling, so a downgrade signal never promotes a match above its evidence:
 //
-//   - Matches that ride on a redirect (3xx) response, appear verbatim inside a
-//     response header value, or are reflected straight back out of the request
-//     (its URL or raw bytes — see SnippetReflectedFromRequest) drop to
-//     Low/Tentative. Those are almost always low-value reflections — e.g. an
-//     OAuth client_id / state / nonce embedded in a Location URL that merely
-//     bounces the browser to an SSO login page, or a Cloudflare Access
-//     application id in a /cdn-cgi/access/verify-code/<app-id> SSO URL echoed
-//     into the login page — rather than a genuinely leaked secret served in
-//     page content.
+//   - A reCAPTCHA site key (recaptchaSiteKey) or Google OAuth client ID
+//     (oauthClientID) is Info/Tentative outright, ahead of everything including a
+//     (spurious) validation — a public identifier is never a leaked secret.
+//   - A live-validated secret is Critical/Certain. The native detector never
+//     validates, so this is currently unreachable; kept for completeness.
+//   - A match on a redirect (3xx) response, inside a response header value,
+//     reflected straight out of the request (SnippetReflectedFromRequest), or
+//     served as documentation/demo page content (IsDocDemoSecretContext) caps at
+//     Low/Tentative — almost always a low-value reflection or sample.
+//   - A Google AIza… API key (googleAPIKey) caps at Medium/Firm (embedded
+//     client-side by design; the risk is billing/quota abuse, not takeover).
+//   - An undecodable "meta" JWT (lowValueJWT) caps at Medium/Tentative.
 //
-//   - A Google API key (googleAPIKey — see IsGoogleAPIKey) drops to Medium/Firm.
-//     The AIza… key family is routinely embedded in client-side code by design,
-//     so leakage is billing/quota abuse against the enabled Google APIs rather
-//     than account takeover. A live-validated Google key still escalates ahead of
-//     this to Critical.
-//
-//   - A match served from a documentation / reference / manual / CLI-guide route
-//     as rendered page content (docDemoContext — see IsDocDemoSecretContext) drops
-//     to Low/Tentative. Docs pages are full of copy-paste sample credentials —
-//     Supabase's `supabase-demo` anon/service_role JWTs, the local-dev
-//     `postgresql://postgres:postgres@127.0.0.1:54322` URL, placeholder
-//     `user:pass@host` connection strings — that a secret rule matches verbatim,
-//     but they are illustrative demo values, not a live leak. A validated live
-//     secret still outranks this to Critical.
-//
-//   - A JWT we cannot decode into a usable credential (lowValueJWT — see
-//     LowValueJWT) drops to Medium/Tentative. This catches Cloudflare Access and
-//     similar SSO pre-auth "meta" tokens that are embedded in login-page URLs and
-//     reflected into the page body: they decode to an unauthenticated metadata
-//     token (auth_status=NONE, no identity), not a leaked secret.
-func SecretFindingSeverity(validated, redirect, inHeader, reflectedFromRequest, docDemoContext, lowValueJWT, recaptchaSiteKey, googleAPIKey, oauthClientID bool) (severity.Severity, severity.Confidence) {
-	switch {
-	case recaptchaSiteKey, oauthClientID:
+// Named families now baseline at High, so these Medium/Low ceilings do their job:
+// a Google AIza key (a named, non-generic rule) caps at Medium, a named family
+// reflected out of the request caps at Low, etc. A generic match baselines at
+// Suspect, which already sits below every Low/Medium ceiling, so only the Info
+// floor (public identifier) can lower it further.
+func SecretFindingSeverity(trusted, generic, validated, redirect, inHeader, reflectedFromRequest, docDemoContext, lowValueJWT, recaptchaSiteKey, googleAPIKey, oauthClientID bool) (severity.Severity, severity.Confidence) {
+	// Public identifiers outrank everything — never a leaked secret.
+	if recaptchaSiteKey || oauthClientID {
 		return severity.Info, severity.Tentative
-	case validated:
-		return severity.Critical, severity.Certain
-	case redirect || inHeader || reflectedFromRequest || docDemoContext:
-		return severity.Low, severity.Tentative
-	case googleAPIKey:
-		return severity.Medium, severity.Firm
-	case lowValueJWT:
-		return severity.Medium, severity.Tentative
-	default:
-		return severity.High, severity.Firm
 	}
+	// A live-validated credential is serious anywhere (unreachable today).
+	if validated {
+		return severity.Critical, severity.Certain
+	}
+
+	// Baseline by rule identity: a recognisable family (trusted or any named
+	// provider rule) grades High; only the generic, family-less matchers stay at
+	// the low-signal Suspect tier. Trusted (curated high-confidence) keeps Firm;
+	// an unverified named family is High but Tentative.
+	baseSev, baseConf := severity.High, severity.Tentative
+	switch {
+	case trusted:
+		baseConf = severity.Firm
+	case generic:
+		baseSev, baseConf = severity.Suspect, severity.Tentative
+	}
+
+	// Ceiling from "probably not a live leak" signals (High = no downgrade).
+	ceilSev, ceilConf := severity.High, severity.Firm
+	switch {
+	case redirect || inHeader || reflectedFromRequest || docDemoContext:
+		ceilSev, ceilConf = severity.Low, severity.Tentative
+	case googleAPIKey:
+		ceilSev, ceilConf = severity.Medium, severity.Firm
+	case lowValueJWT:
+		ceilSev, ceilConf = severity.Medium, severity.Tentative
+	}
+
+	// Final = the less-severe of baseline and ceiling.
+	if ceilSev < baseSev {
+		return ceilSev, ceilConf
+	}
+	return baseSev, baseConf
 }
 
 // docRouteSegments are URL path segments that mark a page as documentation,
@@ -162,7 +179,7 @@ func JoinHeaderValues(headers []httpmsg.HttpHeader) string {
 
 // SnippetInHeaderValues reports whether the matched secret snippet appears
 // verbatim within the response header values blob (see JoinHeaderValues), most
-// commonly a Location redirect URL. Kingfisher only scans response bodies, but
+// commonly a Location redirect URL. the detector only scans response bodies, but
 // a server's default redirect body echoes the Location URL, so a header-borne
 // value surfaces in the body too; matching it back to a header marks it as a
 // low-value reflection rather than leaked page content. A blank snippet never

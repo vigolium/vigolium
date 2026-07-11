@@ -1,6 +1,7 @@
 package scope
 
 import (
+	"net"
 	"net/url"
 	"strings"
 	"sync"
@@ -108,7 +109,19 @@ func (s *Checker) computeHostInScope(hostLower string) bool {
 	case ModeSubdomain:
 		// Same main domain (eTLD+1)
 		// e.g., target=www.example.com → allows api.example.com, example.com
-		hostMainDomain, _ := publicsuffix.EffectiveTLDPlusOne(hostLower)
+		//
+		// IPs and single-label hosts (localhost) have no meaningful eTLD+1 —
+		// publicsuffix maps BOTH 127.0.0.1 and 192.168.0.1 to "0.1" (last label
+		// treated as an unmanaged TLD), which would wrongly place unrelated
+		// addresses in the same scope, and an unparseable host yields "" that
+		// matches any other "" host. Compare such hosts EXACTLY instead.
+		if isIPOrLocalhost(hostLower) || isIPOrLocalhost(s.config.TargetHost) {
+			return hostLower == s.config.TargetHost
+		}
+		hostMainDomain, err := publicsuffix.EffectiveTLDPlusOne(hostLower)
+		if err != nil || hostMainDomain == "" || s.targetMainDomain == "" {
+			return hostLower == s.config.TargetHost
+		}
 		return hostMainDomain == s.targetMainDomain
 
 	case ModeExact:
@@ -129,6 +142,22 @@ func (s *Checker) matchesExcludePattern(urlStr string) bool {
 		}
 	}
 	return false
+}
+
+// isIPOrLocalhost reports whether host is an IP literal (v4 or v6) or
+// "localhost" — hosts with no meaningful public-suffix/eTLD+1 that must be
+// scope-compared exactly rather than by main domain. host is expected already
+// lowercased and port-stripped.
+func isIPOrLocalhost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	// stripPort leaves IPv6 literals bracketed (e.g. "[::1]"); net.ParseIP wants
+	// the bare address.
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+	return net.ParseIP(host) != nil
 }
 
 // stripPort removes the port from a host string.

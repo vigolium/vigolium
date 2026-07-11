@@ -356,34 +356,46 @@ func logReportTrim(stats reportTrimStats) {
 		stats.bodiesTruncated, stats.bodiesDropped, humanizeReportBytes(stats.bytesOmitted))
 }
 
-// trimReportItemJSON trims bulky/binary HTTP bodies out of an http_record
-// envelope so the embedded report payload stays small enough for a browser to
-// parse. Non-http_record items (and anything it can't parse) pass through
-// unchanged. It drops the redundant raw_request/raw_response copies and
-// caps/labels request_body/response_body. budget tracks total kept body bytes.
+// trimReportItemJSON trims bulky/binary bodies out of an embedded report envelope
+// so the payload stays small enough for a browser to parse. http_record envelopes
+// have their base64 request/response bodies capped; finding envelopes have their
+// inline request/response and additional-evidence text capped against the SAME
+// shared budget — otherwise a finding carrying a multi-MB inline response would
+// bypass the budget entirely and bloat the report. Anything else (or anything it
+// can't parse) passes through unchanged.
 func trimReportItemJSON(raw []byte, budget *int64, stats *reportTrimStats) []byte {
 	var env map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return raw
 	}
 	var typ string
-	if err := json.Unmarshal(env["type"], &typ); err != nil || typ != "http_record" {
+	if err := json.Unmarshal(env["type"], &typ); err != nil {
 		return raw
 	}
+	switch typ {
+	case "http_record":
+		return trimReportRecordJSON(raw, env, budget, stats)
+	case "finding":
+		return trimReportFindingJSON(raw, env, budget, stats)
+	default:
+		return raw
+	}
+}
+
+// rewriteReportEnvData decodes an envelope's "data" object, hands it to mutate,
+// and re-marshals the envelope. mutate reports whether it changed anything; when
+// it didn't (a finding whose fields all fit the budget), the original bytes are
+// returned without a wasted marshal round-trip. Any decode/encode error falls back
+// to the original bytes. Shared by the record and finding trimmers so the envelope
+// round-trip lives in one place.
+func rewriteReportEnvData(raw []byte, env map[string]json.RawMessage, mutate func(data map[string]json.RawMessage) bool) []byte {
 	var data map[string]json.RawMessage
 	if err := json.Unmarshal(env["data"], &data); err != nil {
 		return raw
 	}
-
-	// Drop the redundant full raw request/response copies — the parsed headers
-	// plus the (trimmed) body carry everything the report viewer needs, and
-	// raw_response duplicates the body a second time.
-	delete(data, "raw_request")
-	delete(data, "raw_response")
-
-	trimReportBodyField(data, "response_body", "response_content_type", "response_body_trimmed", "response_body_note", budget, stats)
-	trimReportBodyField(data, "request_body", "request_content_type", "request_body_trimmed", "request_body_note", budget, stats)
-
+	if !mutate(data) {
+		return raw
+	}
 	newData, err := json.Marshal(data)
 	if err != nil {
 		return raw
@@ -394,6 +406,106 @@ func trimReportItemJSON(raw []byte, budget *int64, stats *reportTrimStats) []byt
 		return raw
 	}
 	return out
+}
+
+// trimReportRecordJSON drops the redundant raw_request/raw_response copies and
+// caps/labels the request_body/response_body of an http_record envelope.
+func trimReportRecordJSON(raw []byte, env map[string]json.RawMessage, budget *int64, stats *reportTrimStats) []byte {
+	return rewriteReportEnvData(raw, env, func(data map[string]json.RawMessage) bool {
+		// Drop the redundant full raw request/response copies — the parsed headers
+		// plus the (trimmed) body carry everything the report viewer needs, and
+		// raw_response duplicates the body a second time.
+		delete(data, "raw_request")
+		delete(data, "raw_response")
+		trimReportBodyField(data, "response_body", "response_content_type", "response_body_trimmed", "response_body_note", budget, stats)
+		trimReportBodyField(data, "request_body", "request_content_type", "request_body_trimmed", "request_body_note", budget, stats)
+		return true // always rewrites — the raw_* copies are always dropped
+	})
+}
+
+// trimReportFindingJSON caps a finding envelope's inline request/response and
+// additional-evidence text against the shared body budget, so finding evidence
+// can no longer blow the report size the way trimmed http_record bodies used to
+// leak around. Response first (usually the largest), then request, then evidence.
+func trimReportFindingJSON(raw []byte, env map[string]json.RawMessage, budget *int64, stats *reportTrimStats) []byte {
+	return rewriteReportEnvData(raw, env, func(data map[string]json.RawMessage) bool {
+		// Each trimmer runs (left operand of ||), and reports whether it shortened
+		// anything; a finding that all fits the budget rewrites nothing.
+		changed := trimReportTextField(data, "response", budget, stats)
+		changed = trimReportTextField(data, "request", budget, stats) || changed
+		changed = trimReportEvidenceField(data, budget, stats) || changed
+		return changed
+	})
+}
+
+// trimReportString caps one raw-text string against the body budget, appending an
+// explicit truncation/omission marker in place of a separate note field. Returns
+// the (possibly shortened) text and whether it changed. Shared by a finding's
+// single-string fields and its additional-evidence entries.
+func trimReportString(s string, budget *int64, stats *reportTrimStats) (string, bool) {
+	newBody, trimmed, note := trimReportBody([]byte(s), "", budget, stats)
+	if !trimmed {
+		return s, false
+	}
+	return appendTrimNote(string(newBody), note), true
+}
+
+// trimReportTextField caps a single string field (a finding's inline raw
+// request/response) in place, reporting whether it changed.
+func trimReportTextField(data map[string]json.RawMessage, key string, budget *int64, stats *reportTrimStats) bool {
+	raw, ok := data[key]
+	if !ok {
+		return false
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil || s == "" {
+		return false
+	}
+	trimmed, changed := trimReportString(s, budget, stats)
+	if !changed {
+		return false
+	}
+	data[key], _ = json.Marshal(trimmed)
+	return true
+}
+
+// trimReportEvidenceField caps each additional_evidence entry (a labeled
+// request/response blob) against the same budget, reporting whether any changed.
+func trimReportEvidenceField(data map[string]json.RawMessage, budget *int64, stats *reportTrimStats) bool {
+	raw, ok := data["additional_evidence"]
+	if !ok {
+		return false
+	}
+	var entries []string
+	if err := json.Unmarshal(raw, &entries); err != nil || len(entries) == 0 {
+		return false
+	}
+	changed := false
+	for i, e := range entries {
+		if e == "" {
+			continue
+		}
+		if trimmed, c := trimReportString(e, budget, stats); c {
+			entries[i] = trimmed
+			changed = true
+		}
+	}
+	if changed {
+		data["additional_evidence"], _ = json.Marshal(entries)
+	}
+	return changed
+}
+
+// appendTrimNote appends an explicit truncation/omission marker to trimmed text
+// so a shortened finding body never reads as if it were complete.
+func appendTrimNote(body, note string) string {
+	if note == "" {
+		return body
+	}
+	if body == "" {
+		return "…[" + note + "]"
+	}
+	return body + "\n…[" + note + "]"
 }
 
 // trimReportBodyField caps the named base64 body field in data (in place),

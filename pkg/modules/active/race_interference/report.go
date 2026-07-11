@@ -40,15 +40,15 @@ type Finding struct {
 	Response    string
 }
 
-// Severity returns the per-finding severity. Request Interference is demoted
-// to Suspect because divergence-only signals are noisy and frequently benign
-// (load-dependent latency, non-deterministic timestamps, cache warm-up).
+// Severity returns the per-result severity. Wrong-id signals are confined to
+// one scanner identity, so they remain Medium candidates. Divergence alone is
+// informational until a state or authorization impact is shown.
 func (f *Finding) Severity() severity.Severity {
 	switch f.Type {
 	case FindingRequestInterference:
-		return severity.Suspect
+		return severity.Info
 	default:
-		return ModuleSeverity
+		return severity.Medium
 	}
 }
 
@@ -69,33 +69,22 @@ func (f *Finding) buildDescription() string {
 
 	switch f.Type {
 	case FindingInputStorage:
-		sb.WriteString("**Input Storage Detected**\n\n")
+		sb.WriteString("**Input Storage Candidate (Same Session)**\n\n")
 		sb.WriteString("The application stores user input from URL parameters and includes it in subsequent responses. ")
-		sb.WriteString("This may indicate cache poisoning vulnerabilities where attacker-controlled data ")
-		sb.WriteString("is served to other users.\n\n")
-		sb.WriteString("### Impact\n")
-		sb.WriteString("- Cache poisoning: Malicious content served to other users\n")
-		sb.WriteString("- Stored XSS: If input is reflected without sanitization\n")
-		sb.WriteString("- Session confusion: User data leaked to other sessions\n")
+		sb.WriteString("The effect reproduced with a fresh canary, but every request used the same scanner identity. ")
+		sb.WriteString("Cross-user cache poisoning, stored XSS, and session leakage are not established.\n")
 
 	case FindingCrossContamination:
-		sb.WriteString("**Cross-contamination Race Condition Detected**\n\n")
+		sb.WriteString("**Cross-contamination Candidate (Same Session)**\n\n")
 		sb.WriteString("When parallel requests are sent, data from one request appears in the response ")
-		sb.WriteString("of another request. This indicates unsafe shared state between concurrent requests.\n\n")
-		sb.WriteString("### Impact\n")
-		sb.WriteString("- Information disclosure: Data leaks between user sessions\n")
-		sb.WriteString("- Authentication bypass: Session tokens may leak\n")
-		sb.WriteString("- Data integrity: User data may be corrupted\n")
+		sb.WriteString("of another request. The effect reproduced with a fresh canary, but does not prove ")
+		sb.WriteString("data crosses user or authentication boundaries.\n")
 
 	case FindingRequestInterference:
-		sb.WriteString("**Request Interference Race Condition Detected**\n\n")
+		sb.WriteString("**Concurrent Response Divergence Observed**\n\n")
 		sb.WriteString("Parallel requests cause divergent responses compared to sequential baseline. ")
-		sb.WriteString("This indicates the application has race condition vulnerabilities ")
-		sb.WriteString("where concurrent access to shared resources causes unpredictable behavior.\n\n")
-		sb.WriteString("### Impact\n")
-		sb.WriteString("- TOCTOU vulnerabilities: Check-then-act operations may be exploited\n")
-		sb.WriteString("- Business logic bypass: Race conditions in payment/inventory systems\n")
-		sb.WriteString("- Privilege escalation: Role changes may not be atomic\n")
+		sb.WriteString("Sequential controls stayed stable, but divergence alone does not establish a TOCTOU, ")
+		sb.WriteString("business-logic bypass, privilege escalation, or durable state change.\n")
 	}
 
 	// Add technical details

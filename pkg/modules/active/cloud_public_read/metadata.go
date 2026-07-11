@@ -9,13 +9,13 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A cloud storage endpoint (AWS S3, GCS, or Azure Blob) serves a sensitive directory such as /uploads/, /backups/, /config/, or /admin/ to anyone with no authentication. A real 200/206 carrying actual content confirms private data is publicly readable.
+	ModuleDesc = `**What it means:** A credential-free client reached a non-wildcard cloud-storage path. Listings are observations, sensitive-looking names are candidates, and actual secret, private-key, or database-dump content is a finding.
 
-**How it's exploited:** An attacker who guesses the storage hostname requests these paths over HTTPS and downloads what they expose - database dumps, backups, config, or user data - leaking credentials and personal data that enable follow-on compromise.
+**How it's exploited:** An attacker anonymously lists or downloads private objects. Public media buckets and successful status codes alone do not prove exposure.
 
-**Fix:** Make the bucket private, remove public-read ACLs and anonymous access policies, and require authenticated or signed-URL access for non-public objects.`
+**Fix:** Remove public-read policies and require authentication or signed URLs for non-public objects.`
 
-	ModuleConfirmation = "Confirmed when cloud storage endpoint returns real content for sensitive paths without authentication"
+	ModuleConfirmation = "Observation for anonymous listing, candidate for sensitive-looking names, finding only for credential/private-key/database-dump content"
 	ModuleSeverity     = severity.High
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"cloud", "info-disclosure", "sensitive-file", "moderate"}

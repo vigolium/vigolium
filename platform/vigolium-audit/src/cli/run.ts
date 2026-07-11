@@ -1,5 +1,5 @@
 import { readFile, rm } from "fs/promises";
-import { resolve, join, dirname } from "path";
+import { resolve, join } from "path";
 import { OutputSyncer, assertOutputNotNested } from "../engine/output-sync.js";
 import { writeCache as writeRateLimitsCache, readCache as readRateLimitsCache, ageMs, formatResetsIn } from "../engine/rate-limits-cache.js";
 import chalk from "chalk";
@@ -8,7 +8,11 @@ import { ClaudeCliAdapter } from "../adapters/claude-cli.js";
 import { ClaudeSdkAdapter } from "../adapters/claude-sdk.js";
 import { CodexCliAdapter } from "../adapters/codex-cli.js";
 import { CodexSdkAdapter } from "../adapters/codex-sdk.js";
-import { chooseAdapter, type ResolvedAdapterChoice } from "../adapters/detect.js";
+import {
+  chooseAdapter,
+  resolveAgentTransport,
+  type ResolvedAdapterChoice,
+} from "../adapters/detect.js";
 import {
   detectClaudeVersionDrift,
   probeClaudeBinaryVersion,
@@ -36,6 +40,7 @@ import { normalizeDirInputs } from "./merge.js";
 import { cloneRemoteTarget, isRemoteTargetUrl } from "./clone-target.js";
 import type { ResumeOptions } from "./resume.js";
 import { compact } from "../engine/util.js";
+import { cleanupConfirmationResources } from "../engine/confirmation-cleanup.js";
 import { parsePositiveUsd, statusArrow } from "./util.js";
 import { resolveModel } from "./run-models.js";
 import { runInteractive } from "./run-interactive.js";
@@ -136,6 +141,11 @@ export async function runCommand(opts: RunOptions): Promise<void> {
   if (platform !== "claude" && platform !== "codex") {
     fail(`--agent must be "claude" or "codex"`);
   }
+  try {
+    opts.transport = resolveAgentTransport(opts.transport);
+  } catch (err) {
+    fail((err as Error).message);
+  }
 
   // Tell Claude Code it's running in a sandboxed context so it doesn't refuse
   // to start as root. Inherited by every claude child (CLI adapter spawn,
@@ -163,10 +173,23 @@ export async function runCommand(opts: RunOptions): Promise<void> {
         `Run without -i, or invoke modes one at a time.`,
     );
   }
+  if (opts.interactive && opts.transport === "sdk") {
+    fail(`--transport sdk is incompatible with -i/--interactive; interactive mode uses the native agent CLI`);
+  }
   if (opts.interactive && requestedModes[0] === "refresh") {
     fail(
       `--mode refresh is headless-only (it dispatches to revisit or deep at startup). ` +
         `Run without -i, or invoke the resolved mode directly.`,
+    );
+  }
+  if (
+    opts.interactive
+    && platform === "codex"
+    && !isCodexHandoffMode(requestedModes[0]!)
+  ) {
+    fail(
+      `--mode ${requestedModes[0]} has no Codex interactive dispatch. ` +
+        `Run without -i to use the phase orchestrator.`,
     );
   }
   const noGit = opts.git === false;
@@ -399,6 +422,7 @@ export function isResumeAlias(opts: RunOptions): boolean {
 function toResumeOptions(opts: RunOptions): ResumeOptions {
   return compact({
     agent: opts.agent,
+    transport: opts.transport,
     strict: opts.strict,
     maxCost: opts.maxCost,
     output: opts.output,
@@ -535,7 +559,7 @@ async function runHeadless(args: {
   const { platform, modes, targetDir, opts, noGit } = args;
   const json = !!opts.json;
   const isChain = modes.length > 1;
-  const choice = chooseAdapter(platform);
+  const choice = chooseAdapter(platform, opts.transport);
 
   if (!json) {
     const git = noGit
@@ -799,6 +823,8 @@ async function runHeadless(args: {
             focus: auditContext.focus,
             expectedBehaviors: auditContext.expectedBehaviors,
             liveTarget: opts.liveTarget,
+            model: effectiveModel,
+            noGit: noGit || undefined,
           });
           const driver: { on: typeof Orchestrator.prototype.on; run: () => Promise<OrchestratorResult> } =
             platform === "claude"
@@ -856,6 +882,13 @@ async function runHeadless(args: {
           } catch (err) {
             if (lineLogger) await lineLogger.drain();
             throw err;
+          } finally {
+            if (m === "confirm") {
+              const cleanupDir = platform === "claude" || useCodexHandoffM
+                ? join(targetDir, "vigolium-results")
+                : resultsDir;
+              await cleanupConfirmationResources(cleanupDir).catch(() => {});
+            }
           }
         }),
       ).catch((err: Error) => {
@@ -948,6 +981,8 @@ async function runHeadless(args: {
         focus: auditContext.focus,
         expectedBehaviors: auditContext.expectedBehaviors,
         liveTarget: opts.liveTarget,
+        model: effectiveModel,
+        noGit: noGit || undefined,
         excludePhases: refreshRouting?.excludePhases,
         triggeredVia: refreshRouting?.triggeredVia,
         resume: opts.resume === true || refreshRouting?.resume === true ? true : undefined,
@@ -1008,6 +1043,10 @@ async function runHeadless(args: {
         stoppedReason = "fatal";
         if (lineLogger) await lineLogger.drain();
         break;
+      } finally {
+        if (mode === "confirm") {
+          await cleanupConfirmationResources(resultsDir).catch(() => {});
+        }
       }
       if (lineLogger) await lineLogger.drain();
       if (result === null) {

@@ -1,6 +1,7 @@
 package graphql_introspection_detect
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -11,12 +12,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/utils"
 )
-
-// Primary introspection markers — at least one must be present.
-var primaryMarkers = []string{"\"__schema\"", "\"__type\""}
-
-// Confirmation markers — at least one must accompany a primary marker.
-var confirmationMarkers = []string{"\"queryType\"", "\"mutationType\"", "\"subscriptionType\"", "\"types\""}
 
 // Module implements the GraphQL Introspection Leak Detect passive scanner.
 type Module struct {
@@ -66,7 +61,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup on host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	hash := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(hash) {
 		return nil, nil
@@ -77,48 +75,70 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	// Check for primary markers
-	var foundPrimary []string
-	for _, marker := range primaryMarkers {
-		if strings.Contains(body, marker) {
-			foundPrimary = append(foundPrimary, marker)
-		}
-	}
-	if len(foundPrimary) == 0 {
+	kind, extracted, ok := parseIntrospectionResponse(body)
+	if !ok {
 		return nil, nil
-	}
-
-	// Require at least one confirmation marker to avoid FPs
-	var foundConfirmation []string
-	for _, marker := range confirmationMarkers {
-		if strings.Contains(body, marker) {
-			foundConfirmation = append(foundConfirmation, marker)
-		}
-	}
-	if len(foundConfirmation) == 0 {
-		return nil, nil
-	}
-
-	extracted := make([]string, 0, len(foundPrimary)+len(foundConfirmation))
-	for _, p := range foundPrimary {
-		extracted = append(extracted, fmt.Sprintf("Primary: %s", p))
-	}
-	for _, c := range foundConfirmation {
-		extracted = append(extracted, fmt.Sprintf("Confirmation: %s", c))
 	}
 
 	return []*output.ResultEvent{
 		{
 			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindObservation,
+			EvidenceGrade:    output.EvidenceGradeObservation,
+			DedupKey:         fmt.Sprintf("graphql-introspection|%s|%s", urlx.Host, urlx.Path),
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
 			Request:          string(ctx.Request().Raw()),
+			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: extracted,
 			Info: output.Info{
-				Name:        "GraphQL Introspection Enabled",
-				Description: fmt.Sprintf("GraphQL introspection response detected with %d schema markers", len(foundPrimary)+len(foundConfirmation)),
+				Name:        "GraphQL Introspection Schema Observed",
+				Description: fmt.Sprintf("A structurally valid GraphQL %s introspection response is present. Public schema discovery is supported behavior and does not prove unauthorized resolver access.", kind),
+				Severity:    ModuleSeverity,
+				Confidence:  ModuleConfidence,
+				Tags:        ModuleTags,
+			},
+			Metadata: map[string]any{
+				"introspection_kind":       kind,
+				"authorization_bypassed":   false,
+				"sensitive_data_confirmed": false,
 			},
 		},
 	}, nil
+}
+
+func parseIntrospectionResponse(body string) (string, []string, bool) {
+	var envelope struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal([]byte(body), &envelope) != nil || len(envelope.Data) == 0 {
+		return "", nil, false
+	}
+	if raw := envelope.Data["__schema"]; len(raw) > 0 {
+		var schema struct {
+			QueryType        map[string]any   `json:"queryType"`
+			MutationType     map[string]any   `json:"mutationType"`
+			SubscriptionType map[string]any   `json:"subscriptionType"`
+			Types            []map[string]any `json:"types"`
+		}
+		if json.Unmarshal(raw, &schema) == nil && (len(schema.QueryType) > 0 || len(schema.Types) > 0) {
+			extracted := []string{fmt.Sprintf("types=%d", len(schema.Types))}
+			if name, _ := schema.QueryType["name"].(string); name != "" {
+				extracted = append(extracted, "queryType="+name)
+			}
+			return "schema", extracted, true
+		}
+	}
+	if raw := envelope.Data["__type"]; len(raw) > 0 {
+		var typeInfo struct {
+			Name        string           `json:"name"`
+			Fields      []map[string]any `json:"fields"`
+			InputFields []map[string]any `json:"inputFields"`
+		}
+		if json.Unmarshal(raw, &typeInfo) == nil && typeInfo.Name != "" && (typeInfo.Fields != nil || typeInfo.InputFields != nil) {
+			return "type", []string{"type=" + typeInfo.Name, fmt.Sprintf("fields=%d", len(typeInfo.Fields)+len(typeInfo.InputFields))}, true
+		}
+	}
+	return "", nil, false
 }

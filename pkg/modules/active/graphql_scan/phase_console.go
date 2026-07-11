@@ -125,22 +125,29 @@ func (m *Module) phaseConsole(
 		reportedType[name] = true
 		consoleURL := target + path
 		results = append(results, &output.ResultEvent{
-			URL:     target,
-			Matched: consoleURL,
+			ModuleID:      ModuleID,
+			RecordKind:    output.RecordKindObservation,
+			EvidenceGrade: output.EvidenceGradeObservation,
+			URL:           target,
+			Matched:       consoleURL,
 			ExtractedResults: []string{
 				fmt.Sprintf("Exposed GraphQL IDE: %s", name),
 				fmt.Sprintf("Location: %s", path),
 			},
 			Info: output.Info{
-				Name: "GraphQL Development Console Exposed",
+				Name: "GraphQL Development Console Observed",
 				Description: fmt.Sprintf(
-					"An interactive %s GraphQL IDE is reachable in production at %s. Development "+
-						"consoles let anyone browse the schema and craft queries against the live API, "+
-						"expanding the attack surface. Restrict these interfaces to non-production or "+
-						"authenticated environments.",
+					"An interactive %s GraphQL IDE is reachable at %s. This is useful attack-surface "+
+						"information, but the scanner cannot infer that the target is production or that "+
+						"the IDE grants access beyond the underlying API's authorization policy.",
 					name, path),
-				Severity:   severity.Low,
+				Severity:   severity.Info,
 				Confidence: severity.Certain,
+				Tags:       ModuleTags,
+			},
+			Metadata: map[string]any{
+				"console":       name,
+				"impact_proven": false,
 			},
 		})
 	}

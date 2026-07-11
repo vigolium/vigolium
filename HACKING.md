@@ -96,11 +96,11 @@ internal/
   runner/               Multi-phase scan orchestrator (route probing, batch ingestion)
   ingestor/             `vigolium ingest` traffic-forwarding client internals
   logger/               Zap logger setup
-  resources/            Embedded binaries (jsscan, Chromium), wordlists, templates
+  resources/            Embedded binaries (jstangle, Chromium), wordlists, templates
 pkg/
   cli/                  All Cobra commands (scan, server, ingest, db, agent_*, project, ...)
   core/                 Executor, worker pool, rate limiter, services DI container
-  modules/              Module interfaces, registry, 154 active + 97 passive scanners (251 total)
+  modules/              Module interfaces, registry, 201 active + 116 passive scanners (317 total)
     modkit/             Base types, default implementations (BaseActiveModule, etc.)
     active/             Active scanner implementations (XSS, SQLi, SSTI, LFI, framework, CMS, cloud, ...)
     passive/            Passive analyzers (DOM XSS, secrets, headers, cookies, ...)
@@ -223,7 +223,7 @@ No system-level C libraries required. See [docs/development/building.md](docs/de
 ```bash
 git clone https://github.com/vigolium/vigolium.git
 cd vigolium
-make deps           # download Go modules + jsscan binaries
+make deps           # download Go modules + jstangle binaries
 make deps-chrome    # download Chromium archives (needed for spider)
 make build          # build and install to $GOPATH/bin
 vigolium version    # verify
@@ -245,22 +245,22 @@ Run a single test:
 go test -v -run TestFunctionName ./pkg/path/to/package/...
 ```
 
-**`make test-unit` is the canonical unit-test command.** It runs `ensure-jsscan`
-first, which builds the embedded jsscan binaries that several packages pull in
+**`make test-unit` is the canonical unit-test command.** It runs `ensure-jstangle`
+first, which builds the embedded jstangle binaries that several packages pull in
 via `//go:embed`. A plain `go test ./...` on a fresh checkout fails with
-`pattern jsscan/jsscan-<os>-<arch>: no matching files found` because those
+`pattern jstangle/jstangle-<os>-<arch>: no matching files found` because those
 binaries are generated (and git-ignored), not committed.
 
-If you want to run Go tooling directly without building the ~100 MB jsscan
-binaries (e.g. quick `go test`/`go vet` in an editor), use the `jsscan_stub`
+If you want to run Go tooling directly without building the ~100 MB jstangle
+binaries (e.g. quick `go test`/`go vet` in an editor), use the `jstangle_stub`
 build tag, which swaps the embed for an empty stub:
 
 ```bash
-go test -tags=jsscan_stub -short ./...
-go vet  -tags=jsscan_stub ./...
+go test -tags=jstangle_stub -short ./...
+go vet  -tags=jstangle_stub ./...
 ```
 
-Code paths that launch jsscan treat the stub as "jsscan unavailable" — the same
+Code paths that launch jstangle treat the stub as "jstangle unavailable" — the same
 fallback used on platforms without a prebuilt binary — so unit tests that don't
 exercise the spider's JS analysis run unchanged.
 

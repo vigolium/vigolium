@@ -50,8 +50,11 @@ func TestScanPerRequest_DetectsForwardedHostReflection(t *testing.T) {
 
 	var found bool
 	for _, r := range res {
-		if r.Info.Name == "Proxy Header Trust: X-Forwarded-Host Injection" {
+		if r.Info.Name == "Proxy Header Trust Candidate: X-Forwarded-Host URL Generation" {
 			found = true
+			assert.Equal(t, output.RecordKindCandidate, r.RecordKind)
+			assert.Equal(t, output.EvidenceGradeDifferential, r.EvidenceGrade)
+			assert.False(t, r.IsFinding())
 		}
 	}
 	assert.True(t, found, "expected the X-Forwarded-Host injection finding")
@@ -90,7 +93,7 @@ func TestScanPerRequest_ForwardedHostRedirectURIEchoNoFalsePositive(t *testing.T
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	for _, r := range res {
-		assert.NotEqual(t, "Proxy Header Trust: X-Forwarded-Host Injection", r.Info.Name,
+		assert.NotEqual(t, "Proxy Header Trust Candidate: X-Forwarded-Host URL Generation", r.Info.Name,
 			"a host echoed only into a redirect_uri= query param (redirect authority unchanged) must not be reported as host injection")
 	}
 }
@@ -122,9 +125,11 @@ func TestScanPerRequest_ForwardedHostLocationAuthorityPoisoning(t *testing.T) {
 
 	var got *string
 	for _, r := range res {
-		if r.Info.Name == "Proxy Header Trust: X-Forwarded-Host Injection" {
+		if r.Info.Name == "Proxy Header Trust Candidate: X-Forwarded-Host URL Generation" {
 			name := r.Info.Severity.String() + "/" + r.Info.Confidence.String()
 			got = &name
+			assert.Equal(t, output.RecordKindCandidate, r.RecordKind)
+			assert.False(t, r.IsFinding(), "URL generation alone does not prove a reset or cache poisoning flow")
 		}
 	}
 	require.NotNil(t, got, "a Location authority built from X-Forwarded-Host is genuine host poisoning")
@@ -151,9 +156,10 @@ func TestScanPerRequest_DetectsForwardedHostBodyAuthorityIsTentative(t *testing.
 
 	var got *string
 	for _, r := range res {
-		if r.Info.Name == "Proxy Header Trust: X-Forwarded-Host Injection" {
+		if r.Info.Name == "Proxy Header Trust Candidate: X-Forwarded-Host URL Generation" {
 			name := r.Info.Severity.String() + "/" + r.Info.Confidence.String()
 			got = &name
+			assert.Equal(t, output.RecordKindCandidate, r.RecordKind)
 		}
 	}
 	require.NotNil(t, got, "a generated absolute link whose authority is the injected host must surface")
@@ -182,8 +188,10 @@ func TestScanPerRequest_DetectsForwardedProtoChange(t *testing.T) {
 	require.NoError(t, err)
 	var found bool
 	for _, r := range res {
-		if r.Info.Name == "Proxy Header Trust: X-Forwarded-Proto Confusion" {
+		if r.Info.Name == "Proxy Header Trust Candidate: X-Forwarded-Proto Behavior" {
 			found = true
+			assert.Equal(t, output.RecordKindCandidate, r.RecordKind)
+			assert.False(t, r.IsFinding())
 		}
 	}
 	assert.True(t, found, "expected an X-Forwarded-Proto confusion finding")
@@ -289,10 +297,43 @@ func TestScanPerRequest_ForwardedForReproducibleBypass(t *testing.T) {
 		if r.Info.Name == "Proxy Header Trust: X-Forwarded-For IP Bypass" {
 			name := r.Info.Severity.String() + "/" + r.Info.Confidence.String()
 			got = &name
+			assert.Equal(t, output.RecordKindFinding, r.RecordKind)
+			assert.Equal(t, output.EvidenceGradeBypass, r.EvidenceGrade)
+			assert.True(t, r.IsFinding())
+			assert.Equal(t, true, r.Metadata["semantic_access_confirmed"])
 		}
 	}
 	require.NotNil(t, got, "expected an IP Bypass finding when a spoofed X-Forwarded-For reproducibly flips 403→200")
 	assert.Equal(t, "high/firm", *got, "a reproducible access-control bypass must be High/Firm")
+}
+
+// A reproducible 403→204 transition is still a useful security signal, but it
+// remains a candidate when neither side returns content proving access.
+func TestScanPerRequest_ForwardedForStatusOnlyIsCandidate(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Forwarded-For") == injectedIP {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	res, err := New().ScanPerRequest(modtest.Request(t, srv.URL+"/"), modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+
+	var candidate *output.ResultEvent
+	for _, result := range res {
+		if result.Info.Name == "Proxy Header Trust Candidate: X-Forwarded-For Access Change" {
+			candidate = result
+		}
+	}
+	require.NotNil(t, candidate)
+	assert.Equal(t, output.RecordKindCandidate, candidate.RecordKind)
+	assert.Equal(t, output.EvidenceGradeBypass, candidate.EvidenceGrade)
+	assert.False(t, candidate.IsFinding())
+	assert.Equal(t, false, candidate.Metadata["semantic_access_confirmed"])
 }
 
 // TestScanPerRequest_ForwardedForContentVariation is the positive counterpart: a
@@ -319,9 +360,11 @@ func TestScanPerRequest_ForwardedForContentVariation(t *testing.T) {
 
 	var got *string
 	for _, r := range res {
-		if r.Info.Name == "Proxy Header Trust: X-Forwarded-For Content Variation" {
+		if r.Info.Name == "Proxy Header Trust Candidate: X-Forwarded-For Content Variation" {
 			name := r.Info.Severity.String() + "/" + r.Info.Confidence.String()
 			got = &name
+			assert.Equal(t, output.RecordKindCandidate, r.RecordKind)
+			assert.False(t, r.IsFinding())
 		}
 	}
 	require.NotNil(t, got, "expected a Content Variation finding when content reproducibly tracks the spoofed IP")
@@ -346,7 +389,7 @@ func TestScanPerRequest_ForwardedHostStaticSentinelNoFalsePositive(t *testing.T)
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	for _, r := range res {
-		assert.NotEqual(t, "Proxy Header Trust: X-Forwarded-Host Injection", r.Info.Name,
+		assert.NotEqual(t, "Proxy Header Trust Candidate: X-Forwarded-Host URL Generation", r.Info.Name,
 			"a fixed sentinel string that does not track the fresh canary must not be reported")
 	}
 }
@@ -374,7 +417,7 @@ func TestScanPerRequest_ForwardedProtoTransientNoFalsePositive(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	for _, r := range res {
-		assert.NotEqual(t, "Proxy Header Trust: X-Forwarded-Proto Confusion", r.Info.Name,
+		assert.NotEqual(t, "Proxy Header Trust Candidate: X-Forwarded-Proto Behavior", r.Info.Name,
 			"a one-shot X-Forwarded-Proto status flip must not be reported")
 	}
 }
@@ -399,7 +442,7 @@ func TestScanPerRequest_AttachesBaselineEvidence(t *testing.T) {
 
 	var finding *output.ResultEvent
 	for _, r := range res {
-		if r.Info.Name == "Proxy Header Trust: X-Forwarded-Host Injection" {
+		if r.Info.Name == "Proxy Header Trust Candidate: X-Forwarded-Host URL Generation" {
 			finding = r
 		}
 	}
@@ -443,7 +486,7 @@ func TestScanPerRequest_ForwardedProtoAttachesNegativeControl(t *testing.T) {
 
 	var finding *output.ResultEvent
 	for _, r := range res {
-		if r.Info.Name == "Proxy Header Trust: X-Forwarded-Proto Confusion" {
+		if r.Info.Name == "Proxy Header Trust Candidate: X-Forwarded-Proto Behavior" {
 			finding = r
 		}
 	}

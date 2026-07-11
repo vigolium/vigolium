@@ -69,10 +69,8 @@ func TestRTDBURLRegex(t *testing.T) {
 func TestSecretPatterns(t *testing.T) {
 	t.Parallel()
 	samples := map[string]string{
-		// Google API Key pattern needs exactly "AIza" + 35 chars.
-		"Google API Key": "AIza" + "01234567890123456789012345678901234",
-		"Private Key":    "-----BEGIN PRIVATE KEY-----",
-		"Slack Token":    "xoxb-1234-" + "abcd",
+		"Private Key": "-----BEGIN PRIVATE KEY-----",
+		"Slack Token": "xoxb-1234-" + "abcd",
 	}
 	// Drive from the known samples (not the pattern list) so a renamed or removed
 	// pattern fails the test instead of silently asserting nothing.
@@ -87,6 +85,21 @@ func TestSecretPatterns(t *testing.T) {
 		}
 		assert.Truef(t, found, "no secret pattern named %q (renamed or removed?)", name)
 	}
+	for _, pattern := range secretPatterns {
+		assert.NotEqual(t, "Google API Key", pattern.name, "Firebase/Google client API keys are publishable identifiers, not private secrets")
+	}
+}
+
+func TestAssessRTDBDataSeparatesShallowKeysFromSensitiveValues(t *testing.T) {
+	t.Parallel()
+	assert.Empty(t, assessRTDBData(`{"users":true,"tokens":true}`), "shallow=true key markers are not sensitive values")
+
+	labels := assessRTDBData(`{"users":{"u1":{"email":"alice@example.test","password":"correct horse battery staple"}}}`)
+	assert.Contains(t, labels, "sensitive field: email")
+	assert.Contains(t, labels, "sensitive field: password")
+
+	googleKey := "AIza" + "01234567890123456789012345678901234"
+	assert.Empty(t, assessRTDBData(`{"apiKey":"`+googleKey+`"}`), "a publishable Google client key alone is not a secret finding")
 }
 
 // TestLooksLikeRTDBData covers the strict structural gate that decides whether a

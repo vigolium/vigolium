@@ -10,6 +10,8 @@ import (
 func TestSecretFindingSeverity(t *testing.T) {
 	tests := []struct {
 		name                 string
+		trusted              bool
+		generic              bool
 		validated            bool
 		redirect             bool
 		inHeader             bool
@@ -22,28 +24,178 @@ func TestSecretFindingSeverity(t *testing.T) {
 		wantSev              severity.Severity
 		wantConf             severity.Confidence
 	}{
+		// --- trusted tier (high-confidence kingfisher rule): High baseline, full
+		// downgrade nuance preserved. ---
 		{
-			name:     "plain body match is High/Firm",
+			name:     "trusted plain body match is High/Firm",
+			trusted:  true,
 			wantSev:  severity.High,
 			wantConf: severity.Firm,
 		},
 		{
-			name:     "redirect downgrades to Low/Tentative",
+			name:     "trusted redirect downgrades to Low/Tentative",
+			trusted:  true,
 			redirect: true,
 			wantSev:  severity.Low,
 			wantConf: severity.Tentative,
 		},
 		{
-			name:     "header reflection downgrades to Low/Tentative",
+			name:     "trusted header reflection downgrades to Low/Tentative",
+			trusted:  true,
 			inHeader: true,
 			wantSev:  severity.Low,
 			wantConf: severity.Tentative,
 		},
 		{
-			name:                 "request-URL reflection downgrades to Low/Tentative",
+			name:                 "trusted request-URL reflection downgrades to Low/Tentative",
+			trusted:              true,
 			reflectedFromRequest: true,
 			wantSev:              severity.Low,
 			wantConf:             severity.Tentative,
+		},
+		{
+			name:           "trusted docs-page demo secret downgrades to Low/Tentative",
+			trusted:        true,
+			docDemoContext: true,
+			wantSev:        severity.Low,
+			wantConf:       severity.Tentative,
+		},
+		{
+			name:           "trusted docs demo context outranks Google API key (stays Low)",
+			trusted:        true,
+			docDemoContext: true,
+			googleAPIKey:   true,
+			wantSev:        severity.Low,
+			wantConf:       severity.Tentative,
+		},
+		{
+			name:           "trusted docs demo context outranks low-value JWT (stays Low)",
+			trusted:        true,
+			docDemoContext: true,
+			lowValueJWT:    true,
+			wantSev:        severity.Low,
+			wantConf:       severity.Tentative,
+		},
+		{
+			name:        "trusted low-value JWT caps at Medium/Tentative",
+			trusted:     true,
+			lowValueJWT: true,
+			wantSev:     severity.Medium,
+			wantConf:    severity.Tentative,
+		},
+		{
+			name:         "trusted Google API key caps at Medium/Firm",
+			trusted:      true,
+			googleAPIKey: true,
+			wantSev:      severity.Medium,
+			wantConf:     severity.Firm,
+		},
+		{
+			name:         "trusted redirect outranks Google API key (stays Low)",
+			trusted:      true,
+			googleAPIKey: true,
+			redirect:     true,
+			wantSev:      severity.Low,
+			wantConf:     severity.Tentative,
+		},
+
+		// --- named-family tier (non-trusted, non-generic provider rule, e.g.
+		// Storyblok / Bitfinex / Google Gemini): High baseline at Tentative, with
+		// the Low/Medium downgrade ceilings now ACTIVE (they sit below High). ---
+		{
+			name:     "named family plain body match is High/Tentative",
+			wantSev:  severity.High,
+			wantConf: severity.Tentative,
+		},
+		{
+			name:     "named family redirect downgrades to Low/Tentative",
+			redirect: true,
+			wantSev:  severity.Low,
+			wantConf: severity.Tentative,
+		},
+		{
+			name:                 "named family request reflection downgrades to Low/Tentative",
+			reflectedFromRequest: true,
+			wantSev:              severity.Low,
+			wantConf:             severity.Tentative,
+		},
+		{
+			name:           "named family docs demo context downgrades to Low/Tentative",
+			docDemoContext: true,
+			wantSev:        severity.Low,
+			wantConf:       severity.Tentative,
+		},
+		{
+			name:         "named family Google API key caps at Medium/Firm",
+			googleAPIKey: true,
+			wantSev:      severity.Medium,
+			wantConf:     severity.Firm,
+		},
+		{
+			name:         "named family Google API key on a redirect drops to Low",
+			googleAPIKey: true,
+			redirect:     true,
+			wantSev:      severity.Low,
+			wantConf:     severity.Tentative,
+		},
+		{
+			name:        "named family low-value JWT caps at Medium/Tentative",
+			lowValueJWT: true,
+			wantSev:     severity.Medium,
+			wantConf:    severity.Tentative,
+		},
+
+		// --- generic tier (family-less "Generic Password"/"Generic API Key"
+		// matcher): Suspect baseline; the Low/Medium downgrade signals never PROMOTE
+		// it above Suspect. ---
+		{
+			name:     "generic plain body match is Suspect/Tentative",
+			generic:  true,
+			wantSev:  severity.Suspect,
+			wantConf: severity.Tentative,
+		},
+		{
+			name:     "generic redirect stays Suspect (never promoted to Low)",
+			generic:  true,
+			redirect: true,
+			wantSev:  severity.Suspect,
+			wantConf: severity.Tentative,
+		},
+		{
+			name:                 "generic request reflection stays Suspect",
+			generic:              true,
+			reflectedFromRequest: true,
+			wantSev:              severity.Suspect,
+			wantConf:             severity.Tentative,
+		},
+		{
+			name:           "generic docs demo context stays Suspect",
+			generic:        true,
+			docDemoContext: true,
+			wantSev:        severity.Suspect,
+			wantConf:       severity.Tentative,
+		},
+		{
+			name:         "generic Google API key stays Suspect",
+			generic:      true,
+			googleAPIKey: true,
+			wantSev:      severity.Suspect,
+			wantConf:     severity.Tentative,
+		},
+		{
+			name:        "generic low-value JWT stays Suspect",
+			generic:     true,
+			lowValueJWT: true,
+			wantSev:     severity.Suspect,
+			wantConf:    severity.Tentative,
+		},
+
+		// --- validation: Critical anywhere (unreachable today, but tier-independent). ---
+		{
+			name:      "validated live secret in body is Critical",
+			validated: true,
+			wantSev:   severity.Critical,
+			wantConf:  severity.Certain,
 		},
 		{
 			name:                 "validation outranks request reflection (stays Critical)",
@@ -53,46 +205,31 @@ func TestSecretFindingSeverity(t *testing.T) {
 			wantConf:             severity.Certain,
 		},
 		{
-			name:           "docs-page demo secret downgrades to Low/Tentative",
-			docDemoContext: true,
-			wantSev:        severity.Low,
-			wantConf:       severity.Tentative,
+			name:      "validated live secret stays Critical even on a redirect",
+			validated: true,
+			redirect:  true,
+			inHeader:  true,
+			wantSev:   severity.Critical,
+			wantConf:  severity.Certain,
 		},
 		{
-			name:           "validation outranks docs-page demo context (stays Critical)",
-			docDemoContext: true,
-			validated:      true,
-			wantSev:        severity.Critical,
-			wantConf:       severity.Certain,
-		},
-		{
-			name:           "docs-page demo context outranks Google API key (stays Low)",
-			docDemoContext: true,
-			googleAPIKey:   true,
-			wantSev:        severity.Low,
-			wantConf:       severity.Tentative,
-		},
-		{
-			name:           "docs-page demo context outranks low-value JWT (stays Low)",
-			docDemoContext: true,
-			lowValueJWT:    true,
-			wantSev:        severity.Low,
-			wantConf:       severity.Tentative,
-		},
-		{
-			name:        "low-value JWT downgrades to Medium/Tentative",
-			lowValueJWT: true,
-			wantSev:     severity.Medium,
-			wantConf:    severity.Tentative,
-		},
-		{
-			name:         "Google API key downgrades to Medium/Firm",
+			name:         "validation outranks Google API key (stays Critical)",
 			googleAPIKey: true,
-			wantSev:      severity.Medium,
-			wantConf:     severity.Firm,
+			validated:    true,
+			wantSev:      severity.Critical,
+			wantConf:     severity.Certain,
+		},
+
+		// --- public identifiers: Info regardless of tier or validation. ---
+		{
+			name:             "reCAPTCHA site key is Info/Tentative (untrusted)",
+			recaptchaSiteKey: true,
+			wantSev:          severity.Info,
+			wantConf:         severity.Tentative,
 		},
 		{
-			name:             "reCAPTCHA site key downgrades to Info/Tentative",
+			name:             "reCAPTCHA site key is Info even on a trusted rule",
+			trusted:          true,
 			recaptchaSiteKey: true,
 			wantSev:          severity.Info,
 			wantConf:         severity.Tentative,
@@ -105,7 +242,7 @@ func TestSecretFindingSeverity(t *testing.T) {
 			wantConf:         severity.Tentative,
 		},
 		{
-			name:          "OAuth client ID downgrades to Info/Tentative",
+			name:          "OAuth client ID is Info/Tentative",
 			oauthClientID: true,
 			wantSev:       severity.Info,
 			wantConf:      severity.Tentative,
@@ -117,46 +254,11 @@ func TestSecretFindingSeverity(t *testing.T) {
 			wantSev:       severity.Info,
 			wantConf:      severity.Tentative,
 		},
-		{
-			name:         "validation outranks Google API key (stays Critical)",
-			googleAPIKey: true,
-			validated:    true,
-			wantSev:      severity.Critical,
-			wantConf:     severity.Certain,
-		},
-		{
-			name:         "redirect outranks Google API key (stays Low)",
-			googleAPIKey: true,
-			redirect:     true,
-			wantSev:      severity.Low,
-			wantConf:     severity.Tentative,
-		},
-		{
-			name:        "redirect outranks low-value JWT (stays Low/Tentative)",
-			redirect:    true,
-			lowValueJWT: true,
-			wantSev:     severity.Low,
-			wantConf:    severity.Tentative,
-		},
-		{
-			name:      "validated live secret stays Critical even on a redirect",
-			validated: true,
-			redirect:  true,
-			inHeader:  true,
-			wantSev:   severity.Critical,
-			wantConf:  severity.Certain,
-		},
-		{
-			name:      "validated live secret in body is Critical",
-			validated: true,
-			wantSev:   severity.Critical,
-			wantConf:  severity.Certain,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotSev, gotConf := SecretFindingSeverity(tt.validated, tt.redirect, tt.inHeader, tt.reflectedFromRequest, tt.docDemoContext, tt.lowValueJWT, tt.recaptchaSiteKey, tt.googleAPIKey, tt.oauthClientID)
+			gotSev, gotConf := SecretFindingSeverity(tt.trusted, tt.generic, tt.validated, tt.redirect, tt.inHeader, tt.reflectedFromRequest, tt.docDemoContext, tt.lowValueJWT, tt.recaptchaSiteKey, tt.googleAPIKey, tt.oauthClientID)
 			if gotSev != tt.wantSev {
 				t.Errorf("severity = %v, want %v", gotSev, tt.wantSev)
 			}

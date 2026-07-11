@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** Firebase Cloud Functions (cloudfunctions.net) whose URLs appear in page or JavaScript responses either return real data to anonymous requests or leak verbose errors, disclosing business data and internals.
+	ModuleDesc = `**What it means:** A referenced Firebase Cloud Function returns a stable, function-specific nontrivial response without credentials, or reproducibly exposes multiple payload-introduced stack-trace anchors for malformed JSON.
 
-**How it's exploited:** An attacker harvests the URLs from front-end code and calls them directly without any login. Malformed JSON can surface stack traces, internal /workspace and node_modules paths, and runtime versions that map the backend.
+**How it's exploited:** Public HTTP functions are supported, so response reachability is only a candidate until sensitive data or unauthorized state is proven. Replayed stack traces with clean controls are direct low-severity information disclosure.
 
 **Fix:** Require authentication or App Check on every callable and HTTP function, restrict access with IAM, and disable verbose error output.`
 
-	ModuleConfirmation = "Confirmed when Cloud Function endpoints respond with business data without authentication or leak stack traces"
-	ModuleSeverity     = severity.High
+	ModuleConfirmation = "Candidate requires anonymous stable response plus replay and nonexistent-function control; finding requires error status, two introduced stack categories, clean control, and replay"
+	ModuleSeverity     = severity.Medium
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"firebase", "info-disclosure", "probe", "moderate"}
 )

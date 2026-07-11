@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vigolium/vigolium/pkg/deparos/jsscan"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 )
 
 func TestJSAssetGraphResolvesAndTerminatesCycles(t *testing.T) {
@@ -89,23 +89,23 @@ func TestParseSourceMapRejectsMalformedAndOversizedContent(t *testing.T) {
 }
 
 func TestAnnotateSourceMappedResultCoversEveryTypedFactFamily(t *testing.T) {
-	provenance := jsscan.Provenance{Extractor: "fixture", Confidence: "high"}
-	result := &jsscan.ScanResult{
-		RequestFacts:      []jsscan.HTTPRequestFact{{Provenance: provenance}},
-		DomFlowFacts:      []jsscan.DomFlowFact{{Provenance: provenance}},
-		AssetFacts:        []jsscan.AssetReferenceFact{{Provenance: provenance}},
-		GraphQLOperations: []jsscan.GraphQLOperationFact{{Provenance: provenance}},
-		WebSockets:        []jsscan.WebSocketFact{{Provenance: provenance}},
-		EventSources:      []jsscan.EventSourceFact{{Provenance: provenance}},
-		ClientRoutes:      []jsscan.ClientRouteFact{{Provenance: provenance}},
-		BrowserFlows:      []jsscan.BrowserSecurityFlowFact{{Provenance: provenance}},
+	provenance := jstangle.Provenance{Extractor: "fixture", Confidence: "high"}
+	result := &jstangle.ScanResult{
+		RequestFacts:      []jstangle.HTTPRequestFact{{Provenance: provenance}},
+		DomFlowFacts:      []jstangle.DomFlowFact{{Provenance: provenance}},
+		AssetFacts:        []jstangle.AssetReferenceFact{{Provenance: provenance}},
+		GraphQLOperations: []jstangle.GraphQLOperationFact{{Provenance: provenance}},
+		WebSockets:        []jstangle.WebSocketFact{{Provenance: provenance}},
+		EventSources:      []jstangle.EventSourceFact{{Provenance: provenance}},
+		ClientRoutes:      []jstangle.ClientRouteFact{{Provenance: provenance}},
+		BrowserFlows:      []jstangle.BrowserSecurityFlowFact{{Provenance: provenance}},
 	}
 	source := OriginalSource{
 		Path: "src/api.ts", GeneratedSourceURL: "https://example.test/assets/app.js",
 	}
 
 	annotateSourceMappedResult(result, source)
-	assertMapped := func(name string, got jsscan.Provenance) {
+	assertMapped := func(name string, got jstangle.Provenance) {
 		t.Helper()
 		if got.ModulePath != source.Path || len(got.ResolutionSteps) != 1 {
 			t.Fatalf("%s provenance not mapped: %#v", name, got)

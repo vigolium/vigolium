@@ -213,7 +213,7 @@ function sameBytes(a: string, b: string): boolean {
 /**
  * Short, human-readable label for a source, used to disambiguate same-named
  * attack-surface files whose contents differ. Prefers the project-dir name
- * (e.g. `next.js-archon`), falls back to the results-dir name, then `srcN`.
+ * (e.g. `next.js-run-b`), falls back to the results-dir name, then `srcN`.
  */
 function sourceLabel(resultsDir: string, index: number): string {
   const name = basename(resultsDir) === "vigolium-results" ? basename(dirname(resultsDir)) : basename(resultsDir);

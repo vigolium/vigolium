@@ -15,7 +15,7 @@ var (
 
 **Fix:** Sanitize untrusted input before any HTML sink (for example DOMPurify) and avoid eval and new Function on dynamic data.`
 
-	ModuleConfirmation = "Confirmed when response JavaScript or template code contains known unsafe HTML injection sinks"
+	ModuleConfirmation = "Observation when a sink exists; confirmation requires connected attacker-controlled dataflow and sanitizer analysis, handled by the taint-aware detector"
 	ModuleSeverity     = severity.Low
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"xss", "javascript", "light"}

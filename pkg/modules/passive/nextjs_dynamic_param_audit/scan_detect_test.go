@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/output"
 )
 
 // makeHTTPCtx builds a request/response pair from the given path, response
@@ -43,6 +44,8 @@ func TestScanPerRequest_SearchParamsAuth(t *testing.T) {
 	require.NotEmpty(t, results)
 	assert.Equal(t, ModuleID, results[0].ModuleID)
 	assert.Contains(t, results[0].Info.Name, "SearchParams in Auth Decision")
+	assert.Equal(t, output.RecordKindCandidate, results[0].RecordKind)
+	assert.False(t, results[0].IsFinding())
 }
 
 // TestScanPerRequest_ValidatedSkipped verifies that a body with validation

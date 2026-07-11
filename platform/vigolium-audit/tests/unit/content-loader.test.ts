@@ -63,4 +63,47 @@ describe("FilesystemContentLoader (override resolution)", () => {
     expect(agent.description).toBe("overridden");
     expect(agent.body).toContain("LOCAL OVERRIDE BODY");
   });
+
+  test("SDK prose variants cannot override canonical phase contracts", async () => {
+    const contentRoot = mkdtempSync(join(tmpdir(), "vigolium-audit-content-"));
+    const overrideRoot = mkdtempSync(join(tmpdir(), "vigolium-audit-overrides-"));
+    mkdirSync(join(contentRoot, "command-defs"), { recursive: true });
+    mkdirSync(join(contentRoot, "sdk-variants", "command-defs"), { recursive: true });
+    const canonical = `---
+description: canonical
+mode: lite
+allowed-tools: Bash, Read
+phases:
+  - id: L1
+    title: Recon
+    agent: null
+    completion:
+      artifacts:
+        - kind: file
+          path: attack-surface/recon.md
+---
+
+CANONICAL BODY`;
+    const staleSdk = `---
+description: stale
+mode: lite
+allowed-tools: Bash
+phases:
+  - id: L1
+    title: Old Recon
+    agent: null
+---
+
+SDK-SAFE BODY`;
+    writeFileSync(join(contentRoot, "command-defs", "lite.md"), canonical);
+    writeFileSync(join(contentRoot, "sdk-variants", "command-defs", "lite.md"), staleSdk);
+
+    const loader = makeContentLoader({ contentRoot, overrideRoot });
+    const loaded = await loader.loadCommand("lite", { variant: "sdk" });
+    expect(loaded.description).toBe("canonical");
+    expect(loaded.phases[0]?.title).toBe("Recon");
+    expect(loaded.phases[0]?.completion?.enforcement).toBe("required");
+    expect(loaded.body).toContain("SDK-SAFE BODY");
+    expect(loaded.allowed_tools_raw).toBe("Bash");
+  });
 });

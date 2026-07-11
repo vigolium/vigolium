@@ -16,13 +16,18 @@ import (
 )
 
 var (
-	// versionPatterns extracts Next.js version from JS bundles.
-	versionInBundleRe = regexp.MustCompile(`Next\.js\s+v?(\d+\.\d+\.\d+)`)
-	versionAssignRe   = regexp.MustCompile(`NEXT_VERSION\s*(?:=|:)\s*["'](\d+\.\d+\.\d+)["']`)
-	versionCommentRe  = regexp.MustCompile(`/\*\!?\s*next\s+v?(\d+\.\d+\.\d+)`)
-	// Matches version in _buildManifest or _ssgManifest patterns
-	versionInManifestRe = regexp.MustCompile(`"version"\s*:\s*"(\d+\.\d+\.\d+)"`)
+	// Every accepted pattern is explicitly Next.js-qualified. A generic
+	// {"version":"x.y.z"} in an application response is usually the product/API
+	// version and must never be attributed to the framework.
+	versionAssignRe   = regexp.MustCompile(`\bNEXT_VERSION\s*(?:=|:)\s*["'](\d+\.\d+\.\d+)["']`)
+	versionCommentRe  = regexp.MustCompile(`/\*\!?\s*(?:next|Next\.js)\s+v?(\d+\.\d+\.\d+)`)
+	nextVersionJSONRe = regexp.MustCompile(`"(?:nextVersion|next_version)"\s*:\s*"(\d+\.\d+\.\d+)"`)
 )
+
+type versionEvidence struct {
+	version string
+	source  string
+}
 
 // Module implements the Next.js version audit active scanner.
 type Module struct {
@@ -30,7 +35,6 @@ type Module struct {
 	ds dedup.Lazy[dedup.DiskSet]
 }
 
-// New creates a new Next.js Version Audit module.
 func New() *Module {
 	m := &Module{
 		BaseActiveModule: modkit.NewBaseActiveModule(
@@ -50,15 +54,12 @@ func New() *Module {
 	return m
 }
 
-// IncludesBaseCanProcess returns false because this module uses a custom CanProcess.
 func (m *Module) IncludesBaseCanProcess() bool { return false }
 
-// CanProcess returns true if the request has a response.
 func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
 	return ctx != nil && ctx.Request() != nil && ctx.Response() != nil
 }
 
-// ScanPerHost fingerprints Next.js version once per host and checks advisories.
 func (m *Module) ScanPerHost(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
@@ -68,79 +69,84 @@ func (m *Module) ScanPerHost(
 	if service == nil {
 		return nil, nil
 	}
-
 	host := service.Host()
-
-	// Check if this is a Next.js host
 	if !jsframework.LooksLikeNextJS(host, ctx.Response().BodyToString()) {
 		return nil, nil
 	}
-
-	// Dedup by host
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	if diskSet := m.ds.Get(scanCtx.DedupMgr()); diskSet != nil && diskSet.IsSeen(host) {
 		return nil, nil
 	}
 
-	// Try to extract version from the current response body first
-	version := extractVersion(ctx.Response().BodyToString())
-
-	// If not found, try fetching known JS bundle paths
-	if version == "" {
-		version = m.probeForVersion(ctx, httpClient)
+	evidence := extractVersionEvidence(ctx.Response().BodyToString(), "observed response")
+	if evidence.version == "" {
+		evidence = m.probeForVersion(ctx, httpClient)
 	}
-
-	if version == "" {
+	if evidence.version == "" {
 		return nil, nil
 	}
 
-	// Check version against known advisories
 	var results []*output.ResultEvent
 	target := ctx.Target()
-
 	for _, adv := range knownAdvisories {
-		if isVersionAffected(version, adv.affectedAbove, adv.affectedBelow) {
-			results = append(results, &output.ResultEvent{
-				ModuleID: ModuleID,
-				Host:     host,
-				URL:      target,
-				Matched:  target,
-				ExtractedResults: []string{
-					fmt.Sprintf("Detected version: Next.js %s", version),
-					fmt.Sprintf("Advisory: %s - %s", adv.cve, adv.title),
-					fmt.Sprintf("Affected: >= %s, < %s", adv.affectedAbove, adv.affectedBelow),
-					fmt.Sprintf("Fix: Upgrade to Next.js %s or later", adv.affectedBelow),
-				},
-				Info: output.Info{
-					Name:        fmt.Sprintf("Next.js %s (%s)", adv.cve, adv.title),
-					Description: fmt.Sprintf("Next.js %s is affected by %s: %s. Upgrade to %s or later.", version, adv.cve, adv.description, adv.affectedBelow),
-					Severity:    adv.severity,
-					Confidence:  severity.Firm,
-					Tags:        []string{"nextjs", "outdated", "cve", "version-audit"},
-					Reference:   []string{adv.reference},
-				},
-				Metadata: map[string]any{
-					"cve":              adv.cve,
-					"detected_version": version,
-					"fixed_version":    adv.affectedBelow,
-				},
-			})
+		matchedRange, affected := advisoryAffectsVersion(evidence.version, adv)
+		if !affected {
+			continue
 		}
-	}
 
+		kind := output.RecordKindFinding
+		grade := output.EvidenceGradeCandidate
+		confidence := severity.Firm
+		description := fmt.Sprintf(
+			"Next.js %s falls in the reviewed affected interval %s for %s: %s.",
+			evidence.version, formatVersionRange(matchedRange), adv.cve, adv.description,
+		)
+		if len(adv.prerequisites) > 0 {
+			kind = output.RecordKindCandidate
+			confidence = severity.Tentative
+			description += " Exploitability additionally requires: " + strings.Join(adv.prerequisites, "; ") + "."
+		}
+
+		results = append(results, &output.ResultEvent{
+			ModuleID:      ModuleID,
+			Host:          host,
+			URL:           target,
+			Matched:       target,
+			RecordKind:    kind,
+			EvidenceGrade: grade,
+			ExtractedResults: []string{
+				fmt.Sprintf("Detected version: Next.js %s", evidence.version),
+				fmt.Sprintf("Version evidence: %s", evidence.source),
+				fmt.Sprintf("Advisory: %s - %s", adv.cve, adv.title),
+				fmt.Sprintf("Matched affected interval: %s", formatVersionRange(matchedRange)),
+				fmt.Sprintf("Patched boundary for this branch: %s", matchedRange.fixed),
+			},
+			Info: output.Info{
+				Name:        fmt.Sprintf("Next.js %s (%s)", adv.cve, adv.title),
+				Description: description,
+				Severity:    adv.severity,
+				Confidence:  confidence,
+				Tags:        []string{"nextjs", "outdated", "cve", "version-audit"},
+				Reference:   []string{adv.reference},
+			},
+			Metadata: map[string]any{
+				"cve":              adv.cve,
+				"detected_version": evidence.version,
+				"version_source":   evidence.source,
+				"fixed_version":    matchedRange.fixed,
+				"prerequisites":    adv.prerequisites,
+			},
+		})
+	}
 	return results, nil
 }
 
-// probeForVersion fetches common Next.js bundle paths to extract version info.
-func (m *Module) probeForVersion(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) string {
+func (m *Module) probeForVersion(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) versionEvidence {
 	buildID := jsframework.GetBuildID(ctx.Service().Host())
-
 	probePaths := []string{
 		"/_next/static/chunks/main.js",
 		"/_next/static/chunks/framework.js",
 		"/_next/static/chunks/webpack.js",
 	}
-
 	if buildID != "" {
 		probePaths = append(probePaths,
 			fmt.Sprintf("/_next/static/%s/_buildManifest.js", buildID),
@@ -153,60 +159,81 @@ func (m *Module) probeForVersion(ctx *httpmsg.HttpRequestResponse, httpClient *h
 		if err != nil {
 			continue
 		}
-		probeRaw, _ = httpmsg.SetMethod(probeRaw, "GET")
-
-		// probeRaw is internally built (well-formed), so wrap directly
-		// instead of re-parsing on this hot path.
-		probeReq := httpmsg.NewRequestResponseRaw(probeRaw, ctx.Service())
-
-		resp, _, err := httpClient.Execute(probeReq, http.Options{NoRedirects: true})
+		probeRaw, err = httpmsg.SetMethod(probeRaw, "GET")
 		if err != nil {
 			continue
 		}
-
+		probeReq := httpmsg.NewRequestResponseRaw(probeRaw, ctx.Service())
+		resp, _, err := httpClient.Execute(probeReq, http.Options{NoRedirects: true, NoClustering: true})
+		if err != nil {
+			continue
+		}
 		if resp.Response() != nil && resp.Response().StatusCode == 200 {
 			body := resp.Body().String()
-			if v := extractVersion(body); v != "" {
-				resp.Close()
-				return v
+			contentType := resp.Response().Header.Get("Content-Type")
+			if looksLikeJavaScriptResponse(contentType, body) {
+				if v := extractVersion(body); v != "" {
+					resp.Close()
+					return versionEvidence{version: v, source: path}
+				}
 			}
 		}
 		resp.Close()
 	}
-
-	return ""
+	return versionEvidence{}
 }
 
-// extractVersion tries multiple patterns to extract Next.js version from content.
 func extractVersion(body string) string {
-	for _, re := range []*regexp.Regexp{versionInBundleRe, versionAssignRe, versionCommentRe, versionInManifestRe} {
-		if m := re.FindStringSubmatch(body); len(m) > 1 {
-			return m[1]
+	return extractVersionEvidence(body, "content").version
+}
+
+func extractVersionEvidence(body, source string) versionEvidence {
+	for _, re := range []*regexp.Regexp{versionAssignRe, versionCommentRe, nextVersionJSONRe} {
+		if match := re.FindStringSubmatch(body); len(match) > 1 {
+			return versionEvidence{version: match[1], source: source}
 		}
 	}
-	return ""
+	return versionEvidence{}
 }
 
-// isVersionAffected checks if a version falls within the affected range.
-// Returns true if version >= affectedAbove AND version < affectedBelow.
-func isVersionAffected(version, above, below string) bool {
-	v := parseVersion(version)
-	a := parseVersion(above)
-	b := parseVersion(below)
+func advisoryAffectsVersion(version string, adv advisory) (versionRange, bool) {
+	for _, affected := range adv.affectedRanges {
+		if isVersionAffected(version, affected.introduced, affected.fixed) {
+			return affected, true
+		}
+	}
+	return versionRange{}, false
+}
 
+func isVersionAffected(version, introduced, fixed string) bool {
+	v := parseVersion(version)
+	a := parseVersion(introduced)
+	b := parseVersion(fixed)
 	if v == nil || a == nil || b == nil {
 		return false
 	}
-
 	return compareVersions(v, a) >= 0 && compareVersions(v, b) < 0
 }
 
-// semver holds parsed version components.
+func formatVersionRange(r versionRange) string {
+	return fmt.Sprintf(">= %s, < %s", r.introduced, r.fixed)
+}
+
+func looksLikeJavaScriptResponse(contentType, body string) bool {
+	lowerCT := strings.ToLower(contentType)
+	if strings.Contains(lowerCT, "javascript") || strings.Contains(lowerCT, "ecmascript") {
+		return true
+	}
+	lowerBody := strings.ToLower(strings.TrimSpace(body))
+	return !strings.HasPrefix(lowerBody, "<!doctype html") &&
+		!strings.HasPrefix(lowerBody, "<html") &&
+		(versionAssignRe.MatchString(body) || versionCommentRe.MatchString(body) || nextVersionJSONRe.MatchString(body))
+}
+
 type semver struct {
 	major, minor, patch int
 }
 
-// parseVersion parses a "major.minor.patch" version string.
 func parseVersion(s string) *semver {
 	parts := strings.SplitN(s, ".", 3)
 	if len(parts) != 3 {
@@ -218,10 +245,9 @@ func parseVersion(s string) *semver {
 	if err1 != nil || err2 != nil || err3 != nil {
 		return nil
 	}
-	return &semver{major, minor, patch}
+	return &semver{major: major, minor: minor, patch: patch}
 }
 
-// compareVersions returns -1, 0, or 1.
 func compareVersions(a, b *semver) int {
 	if a.major != b.major {
 		if a.major < b.major {

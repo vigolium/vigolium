@@ -9,13 +9,13 @@ const (
 	ModuleName  = "Exposed API Documentation"
 	ModuleShort = "Detects publicly exposed Swagger/OpenAPI/Redoc documentation routes"
 
-	ModuleDesc = `**What it means:** A Swagger/OpenAPI or Redoc documentation page, or a machine-readable OpenAPI/Swagger spec, is reachable at a common path without authentication. This publishes the full API attack surface - endpoints, parameters, request/response shapes, and the documented auth scheme.
+	ModuleDesc = `**What it means:** An isolated credential-free request reached a structurally valid OpenAPI/Swagger document or a documentation loader confirmed by multiple product-specific markers and negative path controls.
 
-**How it's exploited:** An attacker reads the docs to enumerate every route and its parameters, then targets privileged or accidentally-unauthenticated endpoints (admin, internal operations) with precise requests for authorization, injection, or business-logic testing - no guesswork needed.
+**How it's exploited:** Attackers can use documented routes and schemas for reconnaissance. Documentation reachability alone does not prove that a route is sensitive, unintentionally public, or missing authorization, so the result remains an observation.
 
 **Fix:** Restrict the Swagger/OpenAPI UI and spec routes to authenticated or internal users, or disable them in production builds.`
 
-	ModuleConfirmation = "A Swagger/OpenAPI documentation UI or specification document was reachable without authentication."
+	ModuleConfirmation = "Observed when credential-free 200 responses pass structural spec parsing or complete UI-loader marker groups plus catch-all/reflection controls"
 )
 
 var (

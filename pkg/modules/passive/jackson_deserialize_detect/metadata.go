@@ -15,7 +15,7 @@ var (
 
 **Fix:** Disable Jackson default typing (use a strict allowlist via PolymorphicTypeValidator), avoid deserializing untrusted data, and suppress stack traces.`
 
-	ModuleConfirmation = "Confirmed when response contains Jackson type discriminator fields or Java deserialization error patterns"
+	ModuleConfirmation = "Observation for parsed response-side type metadata or a single marker; candidate only for an error response with independent deserialization anchors; exploit confirmation requires an accepted attacker type and gadget side effect"
 	// Precondition/lead only ("not confirmed exploitable"); the scanner tiers each
 	// finding (Info for a leaked deser error, Low for @class/@type polymorphic
 	// typing). Low is the ceiling — never Medium.

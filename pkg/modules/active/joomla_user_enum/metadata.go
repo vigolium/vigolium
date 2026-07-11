@@ -9,14 +9,14 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** This Joomla site exposes surfaces that aid account enumeration. GET probes confirm up to three issues: a public registration form, the Joomla 4+ Web Services API returning user records anonymously at /api/index.php/v1/users, and an administrator login panel (/administrator/) with no access control.
+	ModuleDesc = `**What it means:** Credential-free probes observed a Joomla registration form, structurally parsed public API user objects, or a marker-confirmed administrator login. These are distinct attack-surface features, not automatic enumeration flaws.
 
-**How it's exploited:** An attacker harvests valid usernames from the API listing or registration-form errors, then targets the exposed administrator login with credential-stuffing or brute-force. Anonymous API data also maps the account structure.
+**How it's exploited:** Public user objects may aid reconnaissance, but a form or login page alone does not prove account creation, username-error differentials, private login identities, weak credentials, or administrative access.
 
 **Fix:** Disable public registration if unneeded, tighten Web Services API permissions, and protect /administrator/ with IP allowlisting, a WAF, or HTTP auth.`
 
-	ModuleConfirmation = "Confirmed when user registration form is accessible, API exposes user data, or admin login is unprotected"
-	ModuleSeverity     = severity.Medium
+	ModuleConfirmation = "Observed only after grouped Joomla form/login markers or parsed users resources; no account creation, login weakness, or private identity is inferred"
+	ModuleSeverity     = severity.Info
 	ModuleConfidence   = severity.Firm
 	ModuleTags         = []string{"joomla", "php", "info-disclosure", "probe", "moderate"}
 )

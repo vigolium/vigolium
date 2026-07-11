@@ -96,7 +96,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	// Dedup by host+path
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	var diskSet *dedup.DiskSet
+	if scanCtx != nil {
+		diskSet = m.ds.Get(scanCtx.DedupMgr())
+	}
 	dedupKey := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 	if diskSet != nil && diskSet.IsSeen(dedupKey) {
 		return nil, nil
@@ -154,21 +157,25 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	return []*output.ResultEvent{
 		{
 			ModuleID:         ModuleID,
+			RecordKind:       output.RecordKindCandidate,
+			EvidenceGrade:    output.EvidenceGradeCandidate,
 			Host:             urlx.Host,
 			URL:              urlx.String(),
 			Matched:          urlx.String(),
 			ExtractedResults: extracted,
 			Info: output.Info{
-				Name:        "Server Action .bind() IDOR Risk",
-				Description: fmt.Sprintf("Next.js Server Action at %s uses .bind() to pass %d sensitive identifier(s) without authorization checks, risking IDOR", urlx.Path, len(sensitiveBinds)),
+				Name:        "Server Action Bound-Identifier Candidate",
+				Description: fmt.Sprintf("Source-like code at %s binds %d identifier-shaped argument(s) and lacks a recognized authorization token in the file. The action body, ownership check, and cross-user reachability were not traced.", urlx.Path, len(sensitiveBinds)),
 				Severity:    severity.Medium,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"idor", "server-action", "nextjs", "source-analysis"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/639.html"},
 			},
 			Metadata: map[string]any{
-				"cwe":              "CWE-639",
-				"boundIdentifiers": sensitiveBinds,
+				"cwe":                    "CWE-639",
+				"boundIdentifiers":       sensitiveBinds,
+				"ownership_check_traced": false,
+				"cross_user_replay":      false,
 			},
 		},
 	}, nil
