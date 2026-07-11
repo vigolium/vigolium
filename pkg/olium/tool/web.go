@@ -67,7 +67,15 @@ func NewWebFetchWithCapture(sink spitolas.CaptureSink, projectUUID string) Tool 
 func (*webFetchTool) Name() string     { return "web_fetch" }
 func (*webFetchTool) Label() string    { return "Fetch URL" }
 func (*webFetchTool) Category() string { return CategoryBuiltin }
-func (*webFetchTool) IsReadOnly() bool { return true }
+
+// IsReadOnly gates whether the engine may fan this tool out concurrently with
+// other read-only calls. The capture-enabled variant persists an http_record
+// to the project DB on every successful fetch — regardless of HTTP method, and
+// browser mode writes many records per call — so it is NOT parallel-safe:
+// concurrent capturing fetches race on the shared record store. It can also
+// issue arbitrary (state-changing) methods. Only the no-capture variant
+// (TUI/query, no DB wired) is genuinely read-only.
+func (w *webFetchTool) IsReadOnly() bool { return w.captureSink == nil }
 func (*webFetchTool) Description() string {
 	return "Fetch a URL. Default mode is plain HTTP (fast, returns raw response, one record persisted). Set mode='browser' to render via headless Chromium (handles JS SPAs, client-side routing) — every XHR/fetch the page issues during render is also captured, so a single browser fetch typically produces many http_records. Use browser mode when the initial HTTP response is empty or missing content that clearly depends on JavaScript. HTTP-mode returns Details.record_uuid; browser-mode persists multiple records — call query_records with the target hostname to enumerate them."
 }
@@ -158,13 +166,19 @@ func (w *webFetchTool) executeHTTP(ctx context.Context, url string, args map[str
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	limited := io.LimitReader(resp.Body, maxBytes)
+	// Read one byte past the cap so a response landing exactly on maxBytes
+	// isn't misreported as truncated. Trim the sentinel byte back off when the
+	// body actually overflowed.
+	limited := io.LimitReader(resp.Body, maxBytes+1)
 	raw, err := io.ReadAll(limited)
 	if err != nil {
 		return Result{Content: fmt.Sprintf("read body: %v", err), IsError: true}, nil
 	}
 
-	truncated := int64(len(raw)) == maxBytes
+	truncated := int64(len(raw)) > maxBytes
+	if truncated {
+		raw = raw[:maxBytes]
+	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "HTTP/%d %s\n", resp.StatusCode, resp.Status)
 	for k, vs := range resp.Header {

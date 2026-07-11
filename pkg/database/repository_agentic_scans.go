@@ -29,6 +29,31 @@ func (r *Repository) CreateAgenticScan(ctx context.Context, run *AgenticScan) er
 	return nil
 }
 
+// AttributeScanToAgenticScan links a native scan (and every finding it
+// produced) to the agentic scan that launched it. The run_scan tool calls this
+// after a blocking LaunchScan returns, so the child scan's findings show up
+// under `finding --agentic-scan <parent>` — which filters on
+// finding.agentic_scan_uuid directly rather than joining through scans. Both
+// the scan row and its findings are stamped; a no-op when either UUID is empty.
+func (r *Repository) AttributeScanToAgenticScan(ctx context.Context, scanUUID, agenticScanUUID string) error {
+	if scanUUID == "" || agenticScanUUID == "" {
+		return nil
+	}
+	if _, err := r.db.NewUpdate().Model((*Scan)(nil)).
+		Set("agentic_scan_uuid = ?", agenticScanUUID).
+		Where("uuid = ?", scanUUID).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("attribute scan %s to agentic scan %s: %w", scanUUID, agenticScanUUID, err)
+	}
+	if _, err := r.db.NewUpdate().Model((*Finding)(nil)).
+		Set("agentic_scan_uuid = ?", agenticScanUUID).
+		Where("scan_uuid = ?", scanUUID).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("attribute findings of scan %s to agentic scan %s: %w", scanUUID, agenticScanUUID, err)
+	}
+	return nil
+}
+
 // GetAgenticScan retrieves an agent run by UUID.
 func (r *Repository) GetAgenticScan(ctx context.Context, uuid string) (*AgenticScan, error) {
 	run := &AgenticScan{}

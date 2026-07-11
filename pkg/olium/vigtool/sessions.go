@@ -151,6 +151,15 @@ func (g *getSessionTool) Execute(ctx context.Context, args map[string]any, _ too
 			IsError: true,
 		}, nil
 	}
+	// Tenant isolation: GetAgenticScan looks up by UUID alone, so a cross-project
+	// UUID would otherwise leak another project's session record. Match the guard
+	// used by replay_request / list_sessions and refuse out-of-project reads.
+	if g.ctx.ProjectUUID != "" && run.ProjectUUID != g.ctx.ProjectUUID {
+		return tool.Result{
+			Content: fmt.Sprintf("get_session: session %q does not belong to the current project", uuid),
+			IsError: true,
+		}, nil
+	}
 
 	out := struct {
 		sessionRecord

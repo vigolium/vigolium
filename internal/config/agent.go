@@ -12,16 +12,15 @@ import (
 // AgentConfig holds AI agent integration settings. Dispatch goes through the
 // in-process olium runtime; there are no external subprocess backends.
 type AgentConfig struct {
-	DefaultAgent  string              `yaml:"default_agent"`
-	TemplatesDir  string              `yaml:"templates_dir"`
-	SessionsDir   string              `yaml:"sessions_dir"` // directory for agent run session artifacts (default: ~/.vigolium/agent-sessions/)
-	Stream        *bool               `yaml:"stream,omitempty"`
-	LLM           LLMConfig           `yaml:"llm"`
-	ContextLimits ContextLimits       `yaml:"context_limits,omitempty"` // limits for DB context enrichment
-	Guardrails    AutopilotGuardrails `yaml:"guardrails,omitempty"`     // guardrails for SDK autonomous mode
-	Browser       BrowserConfig       `yaml:"browser,omitempty"`        // optional agent-browser integration for browser-based auth flows
-	Audit         AuditAgentConfig    `yaml:"audit,omitempty"`          // optional vigolium-audit integration for background security audits
-	Olium         OliumConfig         `yaml:"olium"`                    // native in-process olium agent engine settings
+	DefaultAgent  string           `yaml:"default_agent"`
+	TemplatesDir  string           `yaml:"templates_dir"`
+	SessionsDir   string           `yaml:"sessions_dir"` // directory for agent run session artifacts (default: ~/.vigolium/agent-sessions/)
+	Stream        *bool            `yaml:"stream,omitempty"`
+	LLM           LLMConfig        `yaml:"llm"`
+	ContextLimits ContextLimits    `yaml:"context_limits,omitempty"` // limits for DB context enrichment
+	Browser       BrowserConfig    `yaml:"browser,omitempty"`        // optional agent-browser integration for browser-based auth flows
+	Audit         AuditAgentConfig `yaml:"audit,omitempty"`          // optional vigolium-audit integration for background security audits
+	Olium         OliumConfig      `yaml:"olium"`                    // native in-process olium agent engine settings
 }
 
 // OliumConfig holds settings for the native in-process olium agent engine.
@@ -397,13 +396,6 @@ func (c *ContextLimits) EffectiveMinRiskScore() int {
 		return c.MinRiskScore
 	}
 	return 50
-}
-
-// AutopilotGuardrails controls safety and observability for SDK autonomous mode.
-type AutopilotGuardrails struct {
-	LogCommands     bool     `yaml:"log_commands,omitempty"`     // log agent tool use at INFO level (default: false)
-	MaxTurns        int      `yaml:"max_turns,omitempty"`        // hard ceiling for max turns (0 = no override, use MaxCommands*3)
-	DisallowedTools []string `yaml:"disallowed_tools,omitempty"` // extra tools to block in SDK mode
 }
 
 // BrowserConfig controls optional agent-browser integration for browser-based auth flows.

@@ -153,6 +153,9 @@ func (r *runExtensionTool) Execute(ctx context.Context, args map[string]any, onU
 		}, nil
 	}
 
+	// Attribute this child scan (and its findings) to the parent agentic scan.
+	r.ctx.attributeChildScan(ctx, res.ScanUUID)
+
 	body, _ := json.Marshal(res)
 	return tool.Result{
 		Content: string(body),

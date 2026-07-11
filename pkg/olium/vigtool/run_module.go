@@ -143,6 +143,9 @@ func (r *runModuleTool) Execute(ctx context.Context, args map[string]any, onUpda
 		return tool.Result{Content: fmt.Sprintf("run_module failed (uuid=%s): %v", uuid, err), IsError: true}, nil
 	}
 
+	// Attribute this child scan (and its findings) to the parent agentic scan.
+	r.ctx.attributeChildScan(ctx, res.ScanUUID)
+
 	body, _ := json.Marshal(res)
 	return tool.Result{
 		Content: string(body),

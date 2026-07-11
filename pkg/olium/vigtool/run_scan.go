@@ -191,6 +191,10 @@ func (r *runScanTool) Execute(ctx context.Context, args map[string]any, onUpdate
 		}, nil
 	}
 
+	// Attribute this child scan (and its findings) to the parent agentic scan.
+	// The scan blocked to completion above, so every finding exists by now.
+	r.ctx.attributeChildScan(ctx, res.ScanUUID)
+
 	body, _ := json.Marshal(res)
 	return tool.Result{
 		Content: string(body),
