@@ -45,6 +45,16 @@ func New() *Module {
 	return m
 }
 
+// CanProcess prevents an unsuitable JSON/error/static response from claiming
+// the host before a representative HTML document with a CSP header arrives.
+func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
+	if ctx == nil || ctx.Request() == nil || ctx.Response() == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(ctx.Response().Header("Content-Type")), "text/html") &&
+		strings.TrimSpace(ctx.Response().Header("Content-Security-Policy")) != ""
+}
+
 // ScanPerHost checks CSP header for weaknesses once per host.
 func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	service := ctx.Service()

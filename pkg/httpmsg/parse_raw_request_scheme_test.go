@@ -88,6 +88,21 @@ func TestParseRawRequestSchemeInference(t *testing.T) {
 			wantURL:  "https://localhost:3000/x",
 			wantPort: 3000,
 		},
+		{
+			// Same host but a DIFFERENT port (a :3000 frontend Origin on a request to
+			// an :8443 API): the cross-port Origin must be ignored so an HTTPS service
+			// on 8443 is not downgraded to http.
+			name:     "cross-port origin ignored keeps https default",
+			raw:      "GET /x HTTP/1.1\r\nHost: api.example:8443\r\nOrigin: http://api.example:3000\r\n\r\n",
+			wantURL:  "https://api.example:8443/x",
+			wantPort: 8443,
+		},
+		{
+			name:     "cross-port referer ignored keeps https default",
+			raw:      "GET /x HTTP/1.1\r\nHost: api.example:8443\r\nReferer: http://api.example:3000/\r\n\r\n",
+			wantURL:  "https://api.example:8443/x",
+			wantPort: 8443,
+		},
 	}
 
 	for _, tt := range tests {

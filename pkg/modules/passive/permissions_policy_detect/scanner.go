@@ -45,6 +45,13 @@ func New() *Module {
 	return m
 }
 
+// CanProcess prevents an unsuitable JSON/error/static response from claiming
+// the host before a representative HTML document arrives.
+func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
+	return ctx != nil && ctx.Request() != nil && ctx.Response() != nil &&
+		strings.Contains(strings.ToLower(ctx.Response().Header("Content-Type")), "text/html")
+}
+
 // ScanPerHost checks Permissions-Policy and Feature-Policy headers once per host.
 func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	service := ctx.Service()

@@ -14,8 +14,13 @@ import (
 	"github.com/vigolium/vigolium/pkg/utils"
 )
 
-// csrfParamPattern matches common CSRF token parameter names.
-var csrfParamPattern = regexp.MustCompile(`(?i)(csrf|xsrf|token|authenticity.token|__RequestVerificationToken|antiforgery|_token|nonce|csrfmiddlewaretoken)`)
+// csrfParamPattern matches common CSRF token parameter names. The bare token
+// alternative is anchored with word boundaries (\btoken\b) so it matches a field
+// literally named "token" but NOT camelCase application fields whose name merely
+// ends in "Token" (accessToken, siteToken, tokenCount, …) — those must not
+// suppress a genuine missing-token finding. Literal separators in dotted names
+// are escaped (authenticity[._-]?token) rather than left as wildcard dots.
+var csrfParamPattern = regexp.MustCompile(`(?i)(csrf|xsrf|\btoken\b|authenticity[._-]?token|__RequestVerificationToken|antiforgery|_token|nonce|csrfmiddlewaretoken)`)
 
 // csrfHeaderPattern matches custom headers used for CSRF protection.
 var csrfHeaderPattern = regexp.MustCompile(`(?i)^(x-csrf-token|x-xsrf-token|x-requested-with|x-csrftoken|anti-csrf-token)$`)
@@ -100,15 +105,23 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	//     cross-site HTML form and forces a CORS preflight — not classic CSRF.
 	//  2. Header-based auth (Authorization: Bearer/Basic …) is never attached
 	//     automatically cross-site, so the endpoint is not CSRF-able.
-	//  3. No Cookie header means there is no ambient session for an attacker to
-	//     ride, so a missing anti-CSRF token is moot.
+	//  3. No ambient SESSION cookie means there is no session for an attacker to
+	//     ride, so a missing anti-CSRF token is moot. A request carrying only a
+	//     preference cookie (e.g. theme=dark) does not count.
 	if !isCSRFReachableContentType(ctx.Request().Header("Content-Type")) {
 		return nil, nil
 	}
 	if ctx.Request().Header("Authorization") != "" {
 		return nil, nil
 	}
-	if ctx.Request().Header("Cookie") == "" {
+	hasSessionCookie := false
+	for _, name := range modkit.RequestCookieNames(ctx.Request().Header("Cookie")) {
+		if modkit.LikelySessionCookie(name) {
+			hasSessionCookie = true
+			break
+		}
+	}
+	if !hasSessionCookie {
 		return nil, nil
 	}
 
@@ -140,14 +153,19 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		}
 	}
 
-	// Check 3: SameSite cookie in response
-	if ctx.HasResponse() {
-		for _, hdr := range ctx.Response().Headers() {
-			if strings.EqualFold(hdr.Name, "Set-Cookie") {
-				if sameSitePattern.MatchString(hdr.Value) {
-					return nil, nil // has SameSite protection
-				}
-			}
+	// Check 3: SameSite protection on the SESSION cookie the request actually
+	// carries. The protective SameSite attribute is set on the login response and
+	// is normally NOT echoed on this state-changing response, so consult the
+	// recorded policy for the request's own session cookie rather than this
+	// response's Set-Cookie headers (which may carry only an unrelated preference
+	// cookie, producing both false positives and false negatives).
+	scanCtx.ObserveResponseCookies(ctx)
+	for _, policy := range scanCtx.RequestCookiePolicies(ctx) {
+		if !modkit.LikelySessionCookie(policy.Name) {
+			continue
+		}
+		if policy.SameSite == "strict" || policy.SameSite == "lax" {
+			return nil, nil // session cookie is SameSite-protected
 		}
 	}
 

@@ -1523,12 +1523,14 @@ func (e *Executor) activeModuleTimeout() time.Duration {
 // maxModuleTimeout returns the longest a single module call can legitimately
 // run: the larger of the base active/passive timeouts and the largest
 // TimeoutHint any registered module advertises (both scan wrappers raise their
-// per-call timeout to the hint via modules.TimeoutHinter). The drain stall cap
-// is derived from this so a legitimately slow module — e.g. diffscan timing
-// analysis that raises its bound past the base timeout — running during the
-// post-EOF drain is not mistaken for a wedged worker.
+// per-call timeout to the hint via modules.TimeoutHinter). The active
+// contribution is the scaled ceiling (activeModuleTimeout x maxModuleTimeoutScale)
+// because whole-request modules stretch their per-call timeout up to that scale
+// via scaleModuleTimeout — so a legitimately long, high-insertion-point scan
+// still running during the post-EOF drain is not mistaken for a wedged worker.
+// The drain stall cap is derived from this.
 func (e *Executor) maxModuleTimeout() time.Duration {
-	maxT := e.activeModuleTimeout()
+	maxT := e.activeModuleTimeout() * maxModuleTimeoutScale
 	if pt := e.passiveModuleTimeout(); pt > maxT {
 		maxT = pt
 	}

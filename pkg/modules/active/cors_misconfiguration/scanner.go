@@ -136,7 +136,7 @@ func New() *Module {
 			ModuleConfirmation,
 			ModuleSeverity,
 			ModuleConfidence,
-			modkit.ScanScopeHost,
+			modkit.ScanScopeRequest,
 			modkit.AllInsertionPointTypes,
 		),
 		ds: dedup.LazyDiskSet("cors_misconfiguration"),
@@ -161,8 +161,9 @@ func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
 	return true
 }
 
-// ScanPerHost runs CORS misconfiguration probes once per unique host.
-func (m *Module) ScanPerHost(
+// ScanPerRequest runs CORS probes once per route and method because CORS policy
+// commonly differs across API endpoints on the same origin.
+func (m *Module) ScanPerRequest(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
 	scanCtx *modkit.ScanContext,
@@ -173,10 +174,16 @@ func (m *Module) ScanPerHost(
 	}
 
 	host := service.Host()
+	urlx, err := ctx.URL()
+	if err != nil {
+		return nil, nil
+	}
 
-	// Dedup by host
+	// Dedup by route + method + identity, not host. Personalized endpoints may
+	// expose a different CORS policy after authentication.
 	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	semanticKey := strings.ToUpper(ctx.Request().Method()) + "|" + host + "|" + urlx.Path + "|" + ctx.Request().IdentityFingerprint()
+	if diskSet != nil && diskSet.IsSeen(semanticKey) {
 		return nil, nil
 	}
 
@@ -199,6 +206,16 @@ func (m *Module) ScanPerHost(
 	}
 
 	return results, nil
+}
+
+// ScanPerHost retains direct-call compatibility for existing integrations and
+// tests; registry dispatch uses ScanPerRequest via the declared scope.
+func (m *Module) ScanPerHost(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	scanCtx *modkit.ScanContext,
+) ([]*output.ResultEvent, error) {
+	return m.ScanPerRequest(ctx, httpClient, scanCtx)
 }
 
 // corsHeaders sends a request carrying the given Origin and returns the response

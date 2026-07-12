@@ -157,7 +157,11 @@ func GetURLFromService(request []byte, httpService *Service) (*urlutil.URL, erro
 	// "http://host:8899http://host:8899/path" → "invalid port"), which silently
 	// dropped the whole request from the scan.
 	if isAbsoluteFormTarget(path) {
-		return urlutil.ParseAbsoluteURL(path, false)
+		// isAbsoluteFormTarget accepts the scheme case-insensitively, but the
+		// downstream parser's scheme allow-list is case-sensitive and rejects an
+		// uppercase scheme ("HTTP://host/path" → "invalid scheme"), which would
+		// silently drop the whole request. Normalize the scheme first.
+		return urlutil.ParseAbsoluteURL(lowercaseScheme(path), false)
 	}
 
 	// If path is empty, default to "/"
@@ -193,6 +197,17 @@ func GetURLFromService(request []byte, httpService *Service) (*urlutil.URL, erro
 func isAbsoluteFormTarget(target string) bool {
 	return len(target) >= 7 && strings.EqualFold(target[:7], "http://") ||
 		len(target) >= 8 && strings.EqualFold(target[:8], "https://")
+}
+
+// lowercaseScheme lowercases only the scheme prefix (up to and including "://")
+// of an absolute-form URL, leaving host, path, and query untouched. It returns
+// the input unchanged when there is no "://" separator.
+func lowercaseScheme(target string) string {
+	idx := strings.Index(target, "://")
+	if idx <= 0 {
+		return target
+	}
+	return strings.ToLower(target[:idx]) + target[idx:]
 }
 
 // GetHTTPVersion extracts the HTTP version from a request.

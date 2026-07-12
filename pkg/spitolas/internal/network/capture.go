@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -51,6 +52,11 @@ type Capture struct {
 	pending    map[proto.NetworkRequestID]*pendingEntry
 	logged     map[string]struct{} // Track logged entries by hash to prevent stderr duplicates
 	seenHashes map[string]bool     // Track written hashes to prevent file duplicates
+	// workerSessions holds the CDP sessionIDs of attached service-worker targets.
+	// Worker sessions are not page targets, so they never appear in Browser.Pages();
+	// tracking them lets isSessionValid accept them and fetchResponseBody pull their
+	// bodies over the worker's own session instead of resolving a *Page.
+	workerSessions map[proto.TargetSessionID]struct{}
 	// shapeVariants counts how many DISTINCT query-value variants of each endpoint
 	// shape (the value-blind computeHash key) have been written, so up to
 	// maxParamVariants of them survive instead of collapsing to one. Keyed by shape
@@ -94,6 +100,7 @@ func New(writer Writer, noColor, silent, verbose, includeResponseBody, includeRe
 		logged:                 make(map[string]struct{}),
 		seenHashes:             make(map[string]bool),
 		shapeVariants:          make(map[string]int),
+		workerSessions:         make(map[proto.TargetSessionID]struct{}),
 		noColor:                noColor,
 		silent:                 silent,
 		verbose:                verbose,
@@ -248,6 +255,9 @@ func (c *Capture) onWorkerAttached(browser *rod.Browser, e *proto.TargetAttached
 	url := e.TargetInfo.URL
 	wtype := string(e.TargetInfo.Type)
 	waiting := e.WaitingForDebugger
+	// Record the worker session so its later responses are treated as valid and
+	// their bodies are fetched over this session rather than looked up in Pages().
+	c.registerWorkerSession(sid)
 	go func() {
 		browser.EnableDomain(sid, proto.NetworkEnable{})
 		if waiting {
@@ -269,11 +279,34 @@ func (c *Capture) isStopped() bool {
 	return c.stopped
 }
 
+// registerWorkerSession records an attached service-worker CDP session.
+func (c *Capture) registerWorkerSession(sessionID proto.TargetSessionID) {
+	c.mu.Lock()
+	if c.workerSessions == nil {
+		c.workerSessions = make(map[proto.TargetSessionID]struct{})
+	}
+	c.workerSessions[sessionID] = struct{}{}
+	c.mu.Unlock()
+}
+
+// isWorkerSession reports whether sessionID belongs to an attached service worker.
+func (c *Capture) isWorkerSession(sessionID proto.TargetSessionID) bool {
+	c.mu.Lock()
+	_, ok := c.workerSessions[sessionID]
+	c.mu.Unlock()
+	return ok
+}
+
 // isSessionValid checks if a sessionID still has an active page in the browser.
 // This prevents expensive CDP calls for stale/invalid sessions after navigation.
 func (c *Capture) isSessionValid(sessionID proto.TargetSessionID) bool {
 	if c.browser == nil {
 		return false
+	}
+	// Service-worker sessions are not page targets, so they never appear in
+	// Pages(); accept them explicitly so their response bodies are still fetched.
+	if c.isWorkerSession(sessionID) {
+		return true
 	}
 	// Bound the CDP call: c.browser runs on the deadline-less background context,
 	// so a wedged/unresponsive browser would hang this capture-goroutine call
@@ -512,6 +545,12 @@ func (c *Capture) fetchResponseBody(sessionID proto.TargetSessionID, requestID p
 		return nil, fmt.Errorf("browser not set")
 	}
 
+	// A service-worker session has no *Page in Pages(); fetch its body directly
+	// over the worker's own CDP session instead.
+	if c.isWorkerSession(sessionID) {
+		return c.fetchResponseBodyBySession(sessionID, requestID)
+	}
+
 	// Bound the CDP call (background-context browser) so a wedged browser can't
 	// hang the capture goroutine forever before we even reach the body fetch.
 	pages, err := c.browser.Timeout(browserPagesTimeout).Pages()
@@ -550,6 +589,33 @@ func (c *Capture) fetchResponseBody(sessionID proto.TargetSessionID, requestID p
 	}
 
 	return nil, fmt.Errorf("page not found for sessionID: %s", sessionID)
+}
+
+// fetchResponseBodyBySession fetches a response body over an attached
+// service-worker CDP session directly (workers have no *Page in Pages()). Bounded
+// with a 5s timeout like the page path so a wedged worker can't hang the goroutine.
+func (c *Capture) fetchResponseBodyBySession(sessionID proto.TargetSessionID, requestID proto.NetworkRequestID) ([]byte, error) {
+	if c.browser == nil {
+		return nil, fmt.Errorf("browser not set")
+	}
+	ctx, cancel := context.WithTimeout(c.browser.GetContext(), 5*time.Second)
+	defer cancel()
+	req := proto.NetworkGetResponseBody{RequestID: requestID}
+	raw, err := c.browser.Call(ctx, string(sessionID), req.ProtoReq(), req)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("timeout fetching worker body after 5s: %w", err)
+		}
+		return nil, err
+	}
+	var result proto.NetworkGetResponseBodyResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	if result.Base64Encoded {
+		return base64.StdEncoding.DecodeString(result.Body)
+	}
+	return []byte(result.Body), nil
 }
 
 // staticContentTypes lists MIME type substrings that identify static resources.

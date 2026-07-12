@@ -24,7 +24,7 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "CORS Misconfiguration", m.Name())
 	assert.Equal(t, severity.Low, m.Severity())
 	assert.Equal(t, severity.Firm, m.Confidence())
-	assert.Equal(t, modkit.ScanScopeHost, m.ScanScopes())
+	assert.Equal(t, modkit.ScanScopeRequest, m.ScanScopes())
 }
 
 func TestCanProcess(t *testing.T) {

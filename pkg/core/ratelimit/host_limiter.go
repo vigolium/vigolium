@@ -73,6 +73,13 @@ type hostEntry struct {
 	// limiter — until a confirmed WAF block on this host flips it true (in Feedback),
 	// at which point AIMD back-off/recovery engages.
 	armed atomic.Bool
+
+	// preArmed records that PreArm has proactively paced this entry, exactly once per
+	// entry lifetime. It is distinct from armed so that (a) a birth-armed adaptive
+	// host (armed from the first request) still receives the one-time proactive drop,
+	// and (b) a fresh entry created after idle eviction re-arms rather than staying
+	// pinned at full rate.
+	preArmed atomic.Bool
 }
 
 func (e *hostEntry) touch() {
@@ -152,6 +159,14 @@ type HostRateLimiter struct {
 	// goroutine that arms the host.
 	preArmSink func(PreArmNotice)
 
+	// evictSink, when set, is invoked with the hostname each time an idle host entry
+	// is evicted. It lets a requester keep its once-per-host edge-pacing dedup in sync
+	// with the limiter's entry lifetime: after an evicted host's entry is recreated
+	// (fresh, at full rate), the requester re-fingerprints and re-arms it instead of
+	// treating it as permanently paced. Must be cheap and must NOT re-enter the limiter
+	// (it is invoked while a shard lock is held). Set once during setup.
+	evictSink func(host string)
+
 	stopEvict chan struct{}
 	evictWg   conc.WaitGroup
 }
@@ -175,6 +190,22 @@ type PreArmNotice struct {
 // scanning concurrency starts; a nil sink is a no-op.
 func (h *HostRateLimiter) SetPreArmNotifier(sink func(PreArmNotice)) {
 	h.preArmSink = sink
+}
+
+// SetEvictNotifier installs a sink invoked with the hostname whenever an idle host
+// entry is evicted, so a requester can drop the host from its once-per-host
+// edge-pacing dedup and re-fingerprint/re-arm the fresh entry created later. The
+// sink is invoked while a shard lock is held, so it must be cheap and must NOT call
+// back into the limiter. Call once during setup; a nil sink is a no-op.
+func (h *HostRateLimiter) SetEvictNotifier(sink func(string)) {
+	h.evictSink = sink
+}
+
+// notifyEvict fires the evict sink for host, if one is installed.
+func (h *HostRateLimiter) notifyEvict(host string) {
+	if h.evictSink != nil {
+		h.evictSink(host)
+	}
 }
 
 // HostRateLimiterConfig configures the HostRateLimiter.
@@ -519,6 +550,7 @@ func (h *HostRateLimiter) evictOldestFromShard(shard *hostShard) {
 	heap.Remove(&shard.evictionHeap, victim.index)
 	delete(shard.heapIndex, victim.host)
 	delete(shard.hosts, victim.host)
+	h.notifyEvict(victim.host)
 	zap.L().Debug("HostRateLimiter: Evicted oldest idle entry", zap.String("host", victim.host))
 }
 
@@ -575,6 +607,7 @@ func (h *HostRateLimiter) evictIdle() {
 			heap.Pop(&shard.evictionHeap)
 			delete(shard.heapIndex, he.host)
 			delete(shard.hosts, he.host)
+			h.notifyEvict(he.host)
 			totalEvicted++
 		}
 		totalRemaining += len(shard.hosts)

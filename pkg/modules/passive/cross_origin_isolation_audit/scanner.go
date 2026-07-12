@@ -35,6 +35,17 @@ func New() *Module {
 	return m
 }
 
+// CanProcess prevents an unsuitable static/unauthenticated response from
+// claiming the host before a representative authenticated document-like
+// (HTML/JSON) response arrives.
+func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
+	if ctx == nil || ctx.Request() == nil || ctx.Response() == nil || !isAuthenticated(ctx) {
+		return false
+	}
+	ct := strings.ToLower(ctx.Response().Header("Content-Type"))
+	return strings.Contains(ct, "text/html") || strings.Contains(ct, "application/json")
+}
+
 // ScanPerHost flags authenticated responses missing COOP/CORP. It runs once per
 // host and only on an authenticated, document-like response so it doesn't fire on
 // static assets or unauthenticated pages.

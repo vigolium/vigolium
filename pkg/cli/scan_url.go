@@ -314,6 +314,12 @@ func setupScanHTTPStack() (*http.Requester, *services.Services, func(), error) {
 		MaxEntries:    1000,
 		EvictAfter:    30 * time.Second,
 		EvictInterval: 10 * time.Second,
+		// Match the main scan/run path: throttle a host only once it returns
+		// WAF/CDN blocks (reactive), plus proactive edge pre-arm unless
+		// --no-waf-pacing disables it. Without this the default edge pacing AND its
+		// disabling flag are both inert on the direct scan-url/scan-request path.
+		WafAutoArm:    true,
+		DisablePreArm: opts.NoWafPacing,
 	})
 	svc.HostLimiter = hostLimiter
 

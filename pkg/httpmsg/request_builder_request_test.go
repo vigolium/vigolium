@@ -2307,6 +2307,15 @@ func TestGetURLFromService_AbsoluteForm(t *testing.T) {
 			wantHost: "localhost:8899",
 			wantPath: "/vulnerabilities/sqli/",
 		},
+		{
+			// Uppercase absolute-form scheme is accepted by isAbsoluteFormTarget but
+			// was rejected by the case-sensitive downstream parser, silently dropping
+			// the whole request. It must now parse.
+			name:     "absolute-form uppercase scheme parses (not dropped)",
+			raw:      "GET HTTP://localhost:8899/vulnerabilities/sqli/?id=1&Submit=Submit HTTP/1.1\r\nHost: localhost:8899\r\n\r\n",
+			wantHost: "localhost:8899",
+			wantPath: "/vulnerabilities/sqli/",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2324,6 +2333,22 @@ func TestGetURLFromService_AbsoluteForm(t *testing.T) {
 				t.Errorf("query id = %q, want 1", got)
 			}
 		})
+	}
+}
+
+func TestLowercaseScheme(t *testing.T) {
+	cases := map[string]string{
+		"HTTP://host/path":   "http://host/path",
+		"HttPS://host:8443/": "https://host:8443/",
+		"http://host/p":      "http://host/p",    // already lowercase, unchanged
+		"/no/scheme?q=1":     "/no/scheme?q=1",   // no "://" → unchanged
+		"HTTP://Host/PaTh":   "http://Host/PaTh", // only scheme lowercased, host/path preserved
+		"":                   "",
+	}
+	for in, want := range cases {
+		if got := lowercaseScheme(in); got != want {
+			t.Errorf("lowercaseScheme(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

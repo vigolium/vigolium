@@ -21,6 +21,7 @@ import (
 const anchorLinkDiscoverScript = `(() => {
   const out = [];
   const seen = new Set();
+  const DESTRUCTIVE = /log\s*out|sign\s*out|logout|signout|delete|destroy|(?:^|[^a-z])remove|deactivate|unsubscribe|close[-_]?account|cancel[-_]?account/i;
   let anchors;
   try { anchors = document.querySelectorAll('a[href]'); } catch (e) { anchors = []; }
   for (const a of anchors) {
@@ -31,6 +32,9 @@ const anchorLinkDiscoverScript = `(() => {
     let u;
     try { u = new URL(raw, location.href); } catch (e) { continue; }
     if (u.origin !== location.origin) continue;
+    // Never prime a destructive endpoint with the browser's live credentials: a GET
+    // to /logout, /account/delete, /unsubscribe can mutate state or end the session.
+    if (DESTRUCTIVE.test(u.pathname)) continue;
     if (!u.search || u.search === '?') continue;   // only parameterized links
     const href = u.href;
     if (seen.has(href)) continue;

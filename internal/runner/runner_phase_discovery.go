@@ -829,9 +829,11 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			// adopted/landing host when the start URL relocated off-host, else the
 			// target host.
 			sessionHost := httpmsg.HostnameFromURL(target)
+			sessionURL := target
 			if result.HostAdopted && result.LandingURL != "" {
 				if adopted := httpmsg.HostnameFromURL(result.LandingURL); adopted != "" {
 					sessionHost = adopted
+					sessionURL = result.LandingURL
 				}
 			}
 			cookieHeader := httpmsg.FlattenCookiesForHost(sessionHost, result.HarvestedCookies)
@@ -845,6 +847,10 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 				}
 				if result.HarvestedAuthorization != "" {
 					sess.AuthorizationHeader = "Bearer " + result.HarvestedAuthorization
+					// Scope the bearer token to the exact origin (scheme+host+port) the
+					// crawl harvested it from, so it isn't attached to a different
+					// service sharing the hostname on another port/scheme.
+					sess.Origin = httpmsg.OriginFromURL(sessionURL)
 				}
 				harvested[sessionHost] = sess
 			}

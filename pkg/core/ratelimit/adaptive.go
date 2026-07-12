@@ -55,11 +55,12 @@ func (h *HostRateLimiter) preArmStart() int {
 // CDN/WAF edge (which commonly arms a rate-based WAF once a scan bursts it), so the
 // next phase paces that host from its first request instead of bursting into the edge
 // and tripping it. vendor is the fingerprinted edge (for the operator notice; may be
-// ""). It arms exactly once (CompareAndSwap): a host already armed — by a real block
-// or an earlier pre-arm — is left at whatever limit its AIMD control has reached, so a
-// later fingerprint never bumps a host that has since backed off further, and the
-// once-per-host notice fires only on the arming call. No-op in static mode and for an
-// empty host.
+// ""). It pre-arms exactly once per entry (CompareAndSwap on the dedicated preArmed
+// flag — NOT armed, so a birth-armed adaptive host still gets the proactive drop and a
+// fresh entry created after eviction re-arms). A host already backed off at or below
+// the proactive start (by a real block) keeps its lower limit, so a later fingerprint
+// never bumps a host that has since backed off further. No-op in static mode and for
+// an empty host.
 func (h *HostRateLimiter) PreArm(host, vendor string) {
 	if !h.PreArmable() || host == "" {
 		return
@@ -69,12 +70,18 @@ func (h *HostRateLimiter) PreArm(host, vendor string) {
 	if entry.tokens == nil {
 		return
 	}
-	from := int(entry.limit.Load())
-	if !entry.armed.CompareAndSwap(false, true) {
-		return // already armed (block or prior pre-arm) — leave its current limit
+	if !entry.preArmed.CompareAndSwap(false, true) {
+		return // already pre-armed for this entry lifetime
 	}
+	from := int(entry.limit.Load())
+	// Engage AIMD for this host (idempotent if a block already armed it) and mark the
+	// run as having at least one armed host so Feedback stops short-circuiting.
+	entry.armed.Store(true)
 	h.anyArmed.Store(true)
 	start := h.preArmStart()
+	if from <= start {
+		return // already at/below the proactive start — don't raise it, and no notice
+	}
 	h.setLimit(entry, start)
 	zap.L().Debug("HostRateLimiter: CDN/WAF edge fingerprinted — pre-arming pacing",
 		zap.String("host", host), zap.String("vendor", vendor),

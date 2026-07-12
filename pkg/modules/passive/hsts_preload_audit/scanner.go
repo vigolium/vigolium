@@ -39,6 +39,16 @@ func New() *Module {
 	return m
 }
 
+// CanProcess prevents an unsuitable JSON/error/HTTP/static response from
+// claiming the host before a representative HTTPS HTML document arrives.
+func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
+	if ctx == nil || ctx.Request() == nil || ctx.Response() == nil {
+		return false
+	}
+	u, err := ctx.URL()
+	return err == nil && strings.EqualFold(u.Scheme, "https") && strings.Contains(strings.ToLower(ctx.Response().Header("Content-Type")), "text/html")
+}
+
 // ScanPerHost checks HSTS header for preload readiness once per host.
 func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	service := ctx.Service()

@@ -27,10 +27,6 @@ var requiredHeaders = []securityHeader{
 		desc: "Prevents clickjacking attacks by controlling iframe embedding. Should be 'DENY' or 'SAMEORIGIN'.",
 	},
 	{
-		name: "Strict-Transport-Security",
-		desc: "Enforces HTTPS connections. Prevents SSL stripping attacks.",
-	},
-	{
 		name: "Content-Security-Policy",
 		desc: "Prevents XSS, data injection, and other code injection attacks by controlling resource loading.",
 	},
@@ -81,6 +77,15 @@ func New() *Module {
 	return m
 }
 
+// CanProcess prevents an unsuitable JSON/error/static response from claiming
+// the host before a representative HTML document arrives.
+func (m *Module) CanProcess(ctx *httpmsg.HttpRequestResponse) bool {
+	if ctx == nil || ctx.Response() == nil || ctx.Request() == nil || ctx.Response().StatusCode() < 200 || ctx.Response().StatusCode() >= 300 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(ctx.Response().Header("Content-Type")), "text/html")
+}
+
 // ScanPerHost checks response headers for missing/weak security headers and
 // cacheable sensitive content once per host.
 func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
@@ -114,6 +119,12 @@ func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.S
 		if val == "" {
 			issues = append(issues, fmt.Sprintf("%s: %s", h.name, h.desc))
 		}
+	}
+
+	// HSTS is only meaningful over HTTPS — browsers ignore the header on an HTTP
+	// response — so flag it only on an HTTPS response that omits it.
+	if urlx, err := ctx.URL(); err == nil && strings.EqualFold(urlx.Scheme, "https") && resp.Header("Strict-Transport-Security") == "" {
+		issues = append(issues, "Strict-Transport-Security: header is missing on HTTPS response.")
 	}
 
 	// If CSP contains frame-ancestors, X-Frame-Options is redundant — remove it

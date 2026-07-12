@@ -230,7 +230,13 @@ type ObservedResponse struct {
 // malformed probe, so gating on it keeps the per-response cost a single status
 // comparison until an error actually occurs.
 type responseObserver struct {
-	sink func(ObservedResponse)
+	// sink is accessed concurrently: installed/cleared from scan setup/teardown
+	// (SetResponseObserver) while request goroutines — including scan goroutines
+	// that outlive a per-module timeout — read it in report. Hold it in an
+	// atomic.Pointer so those accesses are race-free. responseObserver is only ever
+	// held via *responseObserver (shared across WithContext clones), so the atomic
+	// is never copied.
+	sink atomic.Pointer[func(ObservedResponse)]
 }
 
 // report hands a server-error response to the sink. Gated on status >= 500 so the
@@ -238,7 +244,11 @@ type responseObserver struct {
 // already-buffered response body (no extra I/O); the sink runs synchronously on the
 // request goroutine, so it must be cheap and must copy anything it retains.
 func (o *responseObserver) report(host, urlStr string, reqRaw []byte, resp *httpUtils.ResponseChain, status int) {
-	if o == nil || o.sink == nil || status < 500 || resp == nil {
+	if o == nil || status < 500 || resp == nil {
+		return
+	}
+	sink := o.sink.Load()
+	if sink == nil {
 		return
 	}
 	httpResp := resp.Response()
@@ -252,7 +262,7 @@ func (o *responseObserver) report(host, urlStr string, reqRaw []byte, resp *http
 	if len(body) == 0 {
 		return
 	}
-	o.sink(ObservedResponse{
+	(*sink)(ObservedResponse{
 		Host:        host,
 		URL:         urlStr,
 		ContentType: httpResp.Header.Get("Content-Type"),
@@ -273,7 +283,11 @@ func (r *Requester) SetResponseObserver(sink func(ObservedResponse)) {
 	if r == nil || r.respObserver == nil {
 		return
 	}
-	r.respObserver.sink = sink
+	if sink == nil {
+		r.respObserver.sink.Store(nil)
+		return
+	}
+	r.respObserver.sink.Store(&sink)
 }
 
 // SetBlockNotifier installs a sink invoked once per host the first time a
@@ -478,6 +492,16 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 		edgePacer:        &edgePacer{},
 	}
 
+	// Keep the edge-pacer's once-per-host dedup in sync with the limiter's entry
+	// lifetime: when an idle host is evicted, drop it from the dedup so a fresh,
+	// full-rate entry created later is re-fingerprinted and re-armed rather than
+	// pinned at full rate by the stale (monotonic) claim.
+	if services != nil && services.HostLimiter != nil {
+		services.HostLimiter.SetEvictNotifier(func(host string) {
+			r.edgePacer.seen.Delete(strings.ToLower(host))
+		})
+	}
+
 	if options.ClusterRequests {
 		// Size the dedup LRU to scan concurrency so a wide active-module fan-out
 		// doesn't evict still-fresh entries before their TTL elapses.
@@ -516,7 +540,13 @@ func (r *Requester) applyCarriedSession(req *retryablehttp.Request) {
 	// Fill a harvested token-session credential only when the request carries no
 	// Authorization of its own — so a replayed authenticated request keeps its own
 	// token, and (since this runs before -H) an explicit -H Authorization still wins.
-	if sess.AuthorizationHeader != "" && req.Header.Get("Authorization") == "" {
+	// Bearer tokens are origin-scoped (scheme+host+port), unlike cookies, so attach
+	// the token only when the request's origin matches the one it was harvested from —
+	// a token minted for https://host:3000 must never leak to http://host:8080 on the
+	// same hostname. An empty Origin (older harvest) falls back to the hostname-only
+	// scoping already applied by the map lookup above.
+	if sess.AuthorizationHeader != "" && req.Header.Get("Authorization") == "" &&
+		(sess.Origin == "" || httpmsg.OriginMatchesURL(sess.Origin, req.URL.URL)) {
 		req.Header.Set("Authorization", sess.AuthorizationHeader)
 	}
 }
@@ -691,7 +721,7 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 	// Forward server errors to the corroboration observer. Gate on 5xx here (not
 	// just inside report) so the URL string is materialized only for server errors,
 	// never on the 2xx/3xx/4xx hot path. No-op without an installed sink.
-	if r.respObserver.sink != nil && status >= 500 {
+	if status >= 500 && r.respObserver.sink.Load() != nil {
 		urlStr := ""
 		if u, err := input.URL(); err == nil && u != nil {
 			urlStr = u.String()

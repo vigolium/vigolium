@@ -52,6 +52,12 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if ctx.Response() == nil {
 		return nil, nil
 	}
+	// Record every observed cookie's policy in the shared scan-local registry so
+	// later modules (ws_cswsh, jsonp_callback) can resolve whether a request's
+	// session cookie set on an earlier (e.g. login) response is browser-sendable.
+	if scanCtx != nil {
+		scanCtx.ObserveResponseCookies(ctx)
+	}
 
 	// Collect Set-Cookie header values from response headers
 	var setCookies []string
@@ -70,46 +76,51 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	var results []*output.ResultEvent
 
 	for _, cookie := range setCookies {
-		cookieLower := strings.ToLower(cookie)
-
-		// Extract cookie name
-		cookieName := cookie
-		if idx := strings.Index(cookie, "="); idx > 0 {
-			cookieName = cookie[:idx]
+		// Parse attributes by token name rather than substring-matching the raw
+		// Set-Cookie string: a cookie named __Secure-id or a value containing
+		// "httponly"/"samesite" must not mask a genuinely missing attribute.
+		policy, ok := modkit.ParseSetCookiePolicy(cookie)
+		if !ok {
+			continue
 		}
+		cookieName := policy.Name
 
 		var issues []string
 
-		if isHTTPS && !strings.Contains(cookieLower, "secure") {
+		if isHTTPS && !policy.Secure {
 			issues = append(issues, "Missing Secure flag")
 		}
 
-		if !strings.Contains(cookieLower, "httponly") {
+		if !policy.HTTPOnly {
 			issues = append(issues, "Missing HttpOnly flag")
 		}
 
-		if !strings.Contains(cookieLower, "samesite") {
+		if policy.SameSite == "" {
 			issues = append(issues, "Missing SameSite attribute")
 		}
 
 		// SameSite=None requires Secure: modern browsers reject a None cookie without
 		// Secure, and it marks an intentionally cross-site cookie shipped insecurely.
-		if strings.Contains(cookieLower, "samesite=none") && !strings.Contains(cookieLower, "secure") {
+		if policy.SameSite == "none" && !policy.Secure {
 			issues = append(issues, "SameSite=None without Secure")
 		}
 
 		// Cookie name prefixes carry browser-enforced guarantees: __Secure- and
-		// __Host- both require Secure, and __Host- forbids a Domain attribute.
+		// __Host- both require Secure, __Host- forbids a Domain attribute and
+		// requires Path=/.
 		nameLower := strings.ToLower(cookieName)
-		if strings.HasPrefix(nameLower, "__secure-") && !strings.Contains(cookieLower, "secure") {
+		if strings.HasPrefix(nameLower, "__secure-") && !policy.Secure {
 			issues = append(issues, "__Secure- prefix without Secure flag")
 		}
 		if strings.HasPrefix(nameLower, "__host-") {
-			if !strings.Contains(cookieLower, "secure") {
+			if !policy.Secure {
 				issues = append(issues, "__Host- prefix without Secure flag")
 			}
-			if strings.Contains(cookieLower, "domain=") {
+			if policy.Domain != "" {
 				issues = append(issues, "__Host- prefix with a Domain attribute (violates the __Host- rule)")
+			}
+			if policy.Path != "/" {
+				issues = append(issues, "__Host- prefix without Path=/ (violates the __Host- rule)")
 			}
 		}
 

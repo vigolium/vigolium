@@ -30,6 +30,13 @@ type CarriedSession struct {
 	// Authorization of its own, and before the operator's -H headers so an explicit
 	// -H Authorization still wins. Empty means "carry no token".
 	AuthorizationHeader string
+	// Origin is the normalized origin (scheme://host[:port]) the token was harvested
+	// from. Bearer tokens are origin-scoped (scheme+host+port), unlike cookies, so the
+	// AuthorizationHeader is attached only to requests whose origin matches this — a
+	// token minted for https://host:3000 must not leak to http://host:8080 on the same
+	// hostname. Empty means "no origin recorded": fall back to hostname-only scoping
+	// (the pre-origin behavior) so older harvests keep working.
+	Origin string
 }
 
 // NormalizeHost lowercases a host and strips any port, returning the bare
@@ -48,6 +55,53 @@ func HostnameFromURL(raw string) string {
 		return ""
 	}
 	return NormalizeHost(u.Hostname())
+}
+
+// OriginFromURL returns the normalized origin (scheme://host[:port]) of raw, or ""
+// when it has no scheme+host. A default port for the scheme is dropped so origins
+// compare equal regardless of an explicit vs implicit default port.
+func OriginFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Hostname() == "" {
+		return ""
+	}
+	return normalizedOrigin(u.Scheme, u.Hostname(), u.Port())
+}
+
+// OriginMatchesURL reports whether u has the same origin (scheme, host, port) as the
+// normalized origin string produced by OriginFromURL. An empty origin or nil URL
+// never matches.
+func OriginMatchesURL(origin string, u *url.URL) bool {
+	if origin == "" || u == nil {
+		return false
+	}
+	return origin == normalizedOrigin(u.Scheme, u.Hostname(), u.Port())
+}
+
+// normalizedOrigin builds "scheme://host[:port]" with scheme and host lowercased and
+// the port dropped when it is the scheme default, so an explicit default port
+// compares equal to an implicit one.
+func normalizedOrigin(scheme, host, port string) string {
+	scheme = strings.ToLower(scheme)
+	host = strings.ToLower(host)
+	if port != "" && isDefaultPort(scheme, port) {
+		port = ""
+	}
+	if port == "" {
+		return scheme + "://" + host
+	}
+	return scheme + "://" + host + ":" + port
+}
+
+// isDefaultPort reports whether port is the well-known default for scheme.
+func isDefaultPort(scheme, port string) bool {
+	switch scheme {
+	case "http", "ws":
+		return port == "80"
+	case "https", "wss":
+		return port == "443"
+	}
+	return false
 }
 
 // cookieDomainMatches reports whether a cookie with the given Domain attribute

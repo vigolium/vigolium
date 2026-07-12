@@ -57,7 +57,7 @@ func New() *Module {
 			ModuleConfirmation,
 			ModuleSeverity,
 			ModuleConfidence,
-			modkit.ScanScopeHost,
+			modkit.ScanScopeRequest,
 			modkit.PassiveScanScopeResponse,
 		),
 		ds: dedup.LazyDiskSet("passive_clickjacking_detect"),
@@ -66,9 +66,10 @@ func New() *Module {
 	return m
 }
 
-// ScanPerHost evaluates a response once per host for an exploitable clickjacking
-// exposure: framable headers plus sensitive/interactive content.
-func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
+// ScanPerRequest evaluates each sensitive route because framing policy and page
+// content vary per route; internal per-host dedup caps output to one finding
+// per host.
+func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	service := ctx.Service()
 	if service == nil {
 		return nil, nil
@@ -178,6 +179,12 @@ func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.S
 			},
 		},
 	}, nil
+}
+
+// ScanPerHost retains direct-call compatibility for existing integrations and
+// tests; registry dispatch uses ScanPerRequest via the declared scope.
+func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
+	return m.ScanPerRequest(ctx, scanCtx)
 }
 
 // framingVerdict reports whether resp can be framed cross-origin, applying

@@ -24,6 +24,11 @@ import (
 // (csrfToken, xsrfToken) or the explicit _token / authenticity.token alternatives.
 var csrfParamPattern = regexp.MustCompile(`(?i)(csrf|xsrf|\btoken\b|authenticity.token|__RequestVerificationToken|antiforgery|_token|nonce|csrfmiddlewaretoken)`)
 
+// csrfForeignOrigin is the attacker origin used to model a cross-site forgery on
+// the verification probe. It is a non-resolvable .invalid host so it can never be
+// mistaken for a real same-site origin.
+const csrfForeignOrigin = "https://csrf-probe.invalid"
+
 // stateChangingMethods are HTTP methods that modify server state.
 var stateChangingMethods = map[string]bool{
 	"POST":   true,
@@ -176,13 +181,6 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
-	// Dedup by method:host:path
-	dedupKey := utils.Sha1(fmt.Sprintf("%s:%s:%s", method, urlx.Host, urlx.Path))
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(dedupKey) {
-		return nil, nil
-	}
-
 	// Find CSRF token parameter
 	params, err := ctx.Request().Parameters()
 	if err != nil {
@@ -207,6 +205,17 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
+	// Dedup only after confirming this request actually carries a forgeable CSRF
+	// token. Claiming the route earlier would let a tokenless (or differently
+	// shaped) request suppress a later token-bearing one that IS suitable for
+	// active verification. Include the request identity so distinct authenticated
+	// shapes on the same route are each verified.
+	dedupKey := utils.Sha1(fmt.Sprintf("%s:%s:%s:%s", method, urlx.Host, urlx.Path, ctx.Request().IdentityFingerprint()))
+	diskSet := m.ds.Get(scanCtx.DedupMgr())
+	if diskSet != nil && diskSet.IsSeen(dedupKey) {
+		return nil, nil
+	}
+
 	// Get baseline status code + body (the original request carried a VALID token
 	// and succeeded). The body is used to confirm a mutated-token request was
 	// processed the SAME way, not merely returned some 2xx.
@@ -223,6 +232,17 @@ func (m *Module) ScanPerRequest(
 		mutatedRaw, err := probe.mutate(ctx.Request().Raw(), csrfParamName, csrfParamType)
 		if err != nil {
 			continue
+		}
+
+		// Model an actual cross-site forgery: a genuine CSRF attack originates from
+		// a foreign origin. Rewrite Origin/Referer to a foreign origin so an endpoint
+		// that ignores the token but correctly rejects foreign origins is not
+		// misreported as vulnerable.
+		if withOrigin, oerr := httpmsg.AddOrReplaceHeader(mutatedRaw, "Origin", csrfForeignOrigin); oerr == nil {
+			mutatedRaw = withOrigin
+		}
+		if withReferer, rerr := httpmsg.AddOrReplaceHeader(mutatedRaw, "Referer", csrfForeignOrigin+"/"); rerr == nil {
+			mutatedRaw = withReferer
 		}
 
 		// probe.mutate produces well-formed raw, so wrap directly instead of

@@ -23,6 +23,7 @@ import (
 const getFormSubmitURLsScript = `(() => {
   const out = [];
   const seen = new Set();
+  const DESTRUCTIVE = /log\s*out|sign\s*out|logout|signout|delete|destroy|(?:^|[^a-z])remove|deactivate|unsubscribe|close[-_]?account|cancel[-_]?account/i;
   let forms;
   try { forms = document.querySelectorAll('form'); } catch (e) { forms = []; }
   for (const form of forms) {
@@ -31,6 +32,9 @@ const getFormSubmitURLsScript = `(() => {
     let action;
     try { action = new URL(form.action || location.href, location.href); } catch (e) { continue; }
     if (action.origin !== location.origin) continue;
+    // Never synthesize a credentialed GET to a destructive endpoint (logout,
+    // delete, unsubscribe): some frameworks mutate state on GET.
+    if (DESTRUCTIVE.test(action.pathname)) continue;
     const params = new URLSearchParams();
     let named = 0;
     let els; try { els = form.elements; } catch (e) { els = []; }
@@ -142,6 +146,8 @@ const enumeratePostFormsScript = `(() => {
   let forms;
   try { forms = document.querySelectorAll('form'); } catch (e) { forms = []; }
   const DESTRUCTIVE = /log\s*out|sign\s*out|logout|signout|delete|destroy|(?:^|[^a-z])remove|deactivate|unsubscribe|close[-_]?account|cancel[-_]?account/i;
+  const METHOD_OVERRIDE = /^(_method|_HttpMethod|X-HTTP-Method-Override)$/i;
+  const DESTRUCTIVE_VERB = /^(delete|put|patch)$/i;
   let i = 0;
   for (const form of forms) {
     try { form.removeAttribute('data-vig-pf'); } catch (e) {}
@@ -152,16 +158,30 @@ const enumeratePostFormsScript = `(() => {
     if (action.origin !== location.origin) continue;
     let els; try { els = form.elements; } catch (e) { els = []; }
     let hasPassword = false;
+    let destructiveControl = false;
     const names = [];
     for (const el of els) {
       const type = (el.type || '').toLowerCase();
       if (type === 'password') { hasPassword = true; break; }
+      // A framework method-override control (Rails/Laravel _method=DELETE, …)
+      // encodes the real verb in a hidden field the form's method attribute hides,
+      // so submitting the form would fire a destructive DELETE/PUT/PATCH the crawl
+      // never saw. Skip such forms.
+      if (el.name && METHOD_OVERRIDE.test(el.name) && DESTRUCTIVE_VERB.test((el.value || '').trim())) {
+        destructiveControl = true; break;
+      }
+      // A submit control whose label/value reads destructive (a "Delete" button)
+      // even when the form's action/id/class do not.
+      if ((type === 'submit' || type === 'image' || type === 'button') &&
+          DESTRUCTIVE.test((el.value || '') + ' ' + (el.textContent || ''))) {
+        destructiveControl = true; break;
+      }
       if (el.name && el.name.length && !el.disabled &&
           type !== 'submit' && type !== 'button' && type !== 'reset' && type !== 'image') {
         names.push(el.name);
       }
     }
-    if (hasPassword) continue;
+    if (hasPassword || destructiveControl) continue;
     const hay = (form.getAttribute('action') || '') + ' ' + (form.id || '') + ' ' +
                 (form.className || '') + ' ' + (form.getAttribute('name') || '');
     if (DESTRUCTIVE.test(hay)) continue;
@@ -177,53 +197,89 @@ const enumeratePostFormsScript = `(() => {
 // submitPostFormsScript triggers the forms whose data-vig-pf index is in the
 // Go-supplied approved set (%s is replaced with the JSON array of indices). For each
 // it installs a capture-phase submit guard that preventDefaults native navigation —
-// so a POST submit never unloads the crawl page — then dispatches the page's own
-// submit-event and submit-button-click handlers so a JS-driven form fires its real,
-// correctly-typed request (e.g. a stock check posting application/xml). As a fallback
-// for forms with no JS handler it synthesizes a plain urlencoded (or multipart) POST.
-// The browser's network capture records whichever requests result. Returns the count
-// of fallback fetches issued. No backticks: embedded as a Go raw string.
+// so a POST submit never unloads the crawl page — then dispatches a SINGLE trigger
+// (the submit button's click, or a synthetic submit event when the form has no
+// button) so a JS-driven form fires its real, correctly-typed request (e.g. a stock
+// check posting application/xml). fetch and XMLHttpRequest are instrumented so that,
+// only when the page's own handler issued NO request for a form (a genuinely
+// handler-less form), a plain urlencoded (or multipart) POST fallback is synthesized.
+// This avoids firing the same state-changing request two or three times. The
+// browser's network capture records whichever requests result. Returns the count of
+// fallback fetches issued. No backticks: embedded as a Go raw string.
 const submitPostFormsScript = `(async () => {
   const approved = new Set(%s);
   let forms;
   try { forms = document.querySelectorAll('form[data-vig-pf]'); } catch (e) { forms = []; }
   let ok = 0;
   const jobs = [];
-  for (const form of forms) {
-    const idx = parseInt(form.getAttribute('data-vig-pf') || '-1', 10);
-    try { form.removeAttribute('data-vig-pf'); } catch (e) {}
-    if (!approved.has(idx)) continue;
-    let action;
-    try { action = new URL(form.getAttribute('action') || form.action || location.href, location.href); } catch (e) { continue; }
-    const btn = form.querySelector('button[type=submit],input[type=submit],button:not([type]):not([type=button]):not([type=reset])');
-    const guard = (e) => { try { e.preventDefault(); } catch (x) {} };
-    form.addEventListener('submit', guard, true);
-    try {
-      const SE = window.SubmitEvent || Event;
-      form.dispatchEvent(new SE('submit', { bubbles: true, cancelable: true }));
-    } catch (e) {}
-    try {
-      if (btn) btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    } catch (e) {}
-    try { form.removeEventListener('submit', guard, true); } catch (e) {}
-    jobs.push((async () => {
+
+  // Instrument fetch + XHR so we can tell whether the page's own submit/click
+  // handler already issued the request. If it did, firing the fallback POST too
+  // would run the same state-changing operation 2-3 times.
+  let sawRequest = 0;
+  const realFetch = window.fetch;
+  const realOpen = XMLHttpRequest.prototype.open;
+  const realSend = XMLHttpRequest.prototype.send;
+  try {
+    window.fetch = function () { sawRequest++; return realFetch.apply(this, arguments); };
+    XMLHttpRequest.prototype.open = function () { this.__vigTracked = true; return realOpen.apply(this, arguments); };
+    XMLHttpRequest.prototype.send = function () { if (this.__vigTracked) sawRequest++; return realSend.apply(this, arguments); };
+  } catch (e) {}
+
+  try {
+    for (const form of forms) {
+      const idx = parseInt(form.getAttribute('data-vig-pf') || '-1', 10);
+      try { form.removeAttribute('data-vig-pf'); } catch (e) {}
+      if (!approved.has(idx)) continue;
+      let action;
+      try { action = new URL(form.getAttribute('action') || form.action || location.href, location.href); } catch (e) { continue; }
+      const btn = form.querySelector('button[type=submit],input[type=submit],button:not([type]):not([type=button]):not([type=reset])');
+      const guard = (e) => { try { e.preventDefault(); } catch (x) {} };
+      form.addEventListener('submit', guard, true);
+      const before = sawRequest;
+      // Dispatch EITHER the button click OR a synthetic submit — not both. A button
+      // click natively produces a submit event, so doing both would double-fire the
+      // page's handler on its own.
       try {
-        const fd = new FormData(form, btn || undefined);
-        const enctype = (form.getAttribute('enctype') || '').toLowerCase();
-        let body, headers = {};
-        if (enctype.indexOf('multipart') >= 0) {
-          body = fd;
+        if (btn) {
+          btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         } else {
-          body = new URLSearchParams(fd).toString();
-          headers['Content-Type'] = 'application/x-www-form-urlencoded';
+          const SE = window.SubmitEvent || Event;
+          form.dispatchEvent(new SE('submit', { bubbles: true, cancelable: true }));
         }
-        const r = await fetch(action.href, { method: 'POST', body, headers, credentials: 'include', redirect: 'follow' });
-        try { await r.arrayBuffer(); } catch (e) {}
-        ok++;
       } catch (e) {}
-    })());
+      try { form.removeEventListener('submit', guard, true); } catch (e) {}
+      // Give a synchronous-ish handler a tick to issue its request before deciding.
+      await new Promise((r) => setTimeout(r, 0));
+      // Only synthesize a fallback POST when the page handler fired nothing for this
+      // form. Use realFetch so the fallback doesn't inflate sawRequest for later forms.
+      if (sawRequest > before) continue;
+      jobs.push((async () => {
+        try {
+          const fd = new FormData(form, btn || undefined);
+          const enctype = (form.getAttribute('enctype') || '').toLowerCase();
+          let body, headers = {};
+          if (enctype.indexOf('multipart') >= 0) {
+            body = fd;
+          } else {
+            body = new URLSearchParams(fd).toString();
+            headers['Content-Type'] = 'application/x-www-form-urlencoded';
+          }
+          const r = await realFetch.call(window, action.href, { method: 'POST', body, headers, credentials: 'include', redirect: 'follow' });
+          try { await r.arrayBuffer(); } catch (e) {}
+          ok++;
+        } catch (e) {}
+      })());
+    }
+    await Promise.all(jobs);
+  } finally {
+    // Restore originals so the instrumentation never leaks into later page use.
+    try {
+      window.fetch = realFetch;
+      XMLHttpRequest.prototype.open = realOpen;
+      XMLHttpRequest.prototype.send = realSend;
+    } catch (e) {}
   }
-  await Promise.all(jobs);
   return ok;
 })()`
 
