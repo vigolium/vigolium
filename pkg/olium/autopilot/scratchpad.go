@@ -260,6 +260,55 @@ func (c *ScratchpadContext) render() string {
 	return b.String()
 }
 
+// Render returns the full markdown working-memory snapshot, acquiring the
+// lock. The internal render() assumes the caller already holds c.mu (it's
+// called from the update_plan / remember executors, which lock first); this
+// exported wrapper lets the section controller build a reconstructed brief
+// safely from outside those executors.
+func (c *ScratchpadContext) Render() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.render()
+}
+
+// Remember upserts a keyed note programmatically and persists — the same
+// keyed-slot semantics the remember tool applies, exposed for the section
+// controller to pin each section's closing summary under section-<N>-closing.
+// A blank key appends (never used by the controller, which always keys).
+// Best-effort persist: an on-disk write failure is non-fatal (the in-memory
+// copy remains authoritative for the run).
+func (c *ScratchpadContext) Remember(key, text string, tags []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := Note{Key: key, Text: text, Tags: tags, At: time.Now().UTC().Format(time.RFC3339)}
+	if key != "" {
+		for i := range c.notes {
+			if c.notes[i].Key == key {
+				c.notes[i] = n
+				_ = c.persist()
+				return
+			}
+		}
+	}
+	c.notes = append(c.notes, n)
+	c.evictIfNeeded()
+	_ = c.persist()
+}
+
+// NoteByKey returns the text of the keyed note, or "" when no note carries
+// that key. Used by the section controller to surface the most recent closing
+// summary prominently in the reconstructed brief.
+func (c *ScratchpadContext) NoteByKey(key string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i := range c.notes {
+		if c.notes[i].Key == key {
+			return c.notes[i].Text
+		}
+	}
+	return ""
+}
+
 // Digest returns a compact plan-state snapshot the engine pins to every tool
 // result tail. The full render() (~1 KiB markdown) is echoed only when
 // update_plan or remember are called; on every other tool call this short
@@ -478,6 +527,26 @@ func (t *rememberTool) Execute(_ context.Context, args map[string]any, _ tool.Up
 		Content: out,
 		Details: map[string]any{"notes_total": len(t.sp.notes)},
 	}, nil
+}
+
+// NextOpenTask returns the task text of the first in_progress plan item, or
+// failing that the first pending item, or "" when the plan has neither. The
+// section controller uses it to seed each new section's task from the durable
+// plan so a rotated operator resumes on the right step.
+func (c *ScratchpadContext) NextOpenTask() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, p := range c.plan {
+		if p.Status == planInProgress {
+			return p.Task
+		}
+	}
+	for _, p := range c.plan {
+		if p.Status == planPending {
+			return p.Task
+		}
+	}
+	return ""
 }
 
 // recall returns notes, optionally filtered to those carrying every tag in

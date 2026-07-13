@@ -280,6 +280,30 @@ type PersistResult struct {
 	IsError bool
 }
 
+// Exported thin wrappers so the verify-before-promote pipeline (pkg/agent) can
+// build a promoted Finding from a candidate with exactly the same composition
+// and hashing the report_finding tool uses — keeping dedup consistent between a
+// directly-reported finding and a verified-then-promoted one.
+
+// HashFinding is the exported form of hashFinding.
+func HashFinding(title, severity, sourceFile, url, description string) string {
+	return hashFinding(title, severity, sourceFile, url, description)
+}
+
+// HashDedupKey is the exported form of hashDedupKey.
+func HashDedupKey(key string) string { return hashDedupKey(key) }
+
+// ComposeDescription is the exported form of composeDescription.
+func ComposeDescription(title, description, remediation string) string {
+	return composeDescription(title, description, remediation)
+}
+
+// ExtractHostname is the exported form of extractHostname.
+func ExtractHostname(rawURL string) string { return extractHostname(rawURL) }
+
+// Truncate is the exported form of truncate.
+func Truncate(s string, max int) string { return truncate(s, max) }
+
 // hashFinding builds a deterministic fingerprint so duplicate calls are
 // squashed by SaveFindingDirect's ON CONFLICT handling. Includes a
 // normalized description fingerprint so two genuinely different bugs that

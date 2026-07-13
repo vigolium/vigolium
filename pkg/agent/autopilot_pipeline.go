@@ -435,6 +435,9 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 		SkillTags:            cfg.SkillTags,
 		NoSkillFilter:        cfg.NoSkillFilter,
 		AlwaysOnSkills:       cfg.AlwaysOnSkills,
+		// Durable-autopilot mode (legacy default), sourced from config so the
+		// server/pipeline path honors the same opt-in as the CLI path.
+		Mode: oliumCfg.EffectiveAutopilotMode(),
 	}
 	if postHaltProbe != nil {
 		autopilotOpts.CoverageProbe = postHaltProbe
@@ -460,6 +463,34 @@ func (r *AutopilotPipelineRunner) RunAutonomous(ctx context.Context, cfg Autopil
 	result.Warnings = append(result.Warnings, verification.Warnings...)
 	if len(result.Warnings) > 0 {
 		result.Degraded = true
+	}
+
+	// Durable-autopilot verify-before-promote: in shadow/enforced mode, re-check
+	// each proposed candidate with a fresh-context skeptic verifier and promote
+	// only the confirmed ones into findings. No-op in legacy (the default), so
+	// existing runs are unaffected. Non-fatal — a verify failure leaves the
+	// candidates proposed and warns.
+	if apMode := oliumCfg.EffectiveAutopilotMode(); apMode != config.AutopilotModeLegacy && r.repo != nil {
+		emitProgress(&cfg, "verify", "verifying proposed candidates")
+		verifyRes, verr := VerifyCandidates(ctx, VerifyCandidatesConfig{
+			Repo:            r.repo,
+			Provider:        prov,
+			Model:           model,
+			ProjectUUID:     cfg.ProjectUUID,
+			ScanUUID:        cfg.ScanUUID,
+			AgenticScanUUID: cfg.ParentAgenticScanUUID,
+			Target:          cfg.TargetURL,
+			SessionDir:      cfg.SessionDir,
+			Mode:            apMode,
+			StreamWriter:    streamWriter,
+		})
+		if verr != nil {
+			zap.L().Warn("verify-before-promote pass failed (candidates left proposed)", zap.Error(verr))
+			result.Warnings = append(result.Warnings, "verify pass failed: "+verr.Error())
+			result.Degraded = true
+		} else if verifyRes != nil {
+			result.VerifiedFindingCount += verifyRes.Promoted
+		}
 	}
 
 	// Optional post-scan triage: classify findings as confirmed vs false

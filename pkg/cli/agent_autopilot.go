@@ -67,6 +67,7 @@ var (
 	autopilotOliumLLMAPIKey   string
 	autopilotDisableGuardrail bool
 	autopilotHeaded           bool
+	autopilotResume           string
 
 	// autopilotInstructionPrefix holds the verbatim natural-language prompt
 	// when autopilot was invoked with a positional `<prompt>` argument. It is
@@ -164,6 +165,7 @@ func init() {
 	f.BoolVar(&autopilotUploadResults, "upload-results", false, "Upload scan results to cloud storage after completion (requires storage config)")
 	f.BoolVar(&autopilotDisableGuardrail, "disable-guardrail", false, "Skip the prompt-safety classifier on the natural-language prompt (use only when refusing a known-good prompt)")
 	f.BoolVarP(&autopilotVerbose, "verbose", "v", false, "Show a per-tool head/tail preview of each tool result alongside the standard one-liner")
+	f.StringVar(&autopilotResume, "resume", "", "Resume a previous durable-autopilot run by its agentic-scan UUID: reuses its session dir, project, target, and durable scratchpad/candidates; skips pre-scan and audit re-prep (requires agent.olium.autopilot_mode != legacy)")
 }
 
 func runAgentAutopilot(cmd *cobra.Command, args []string) (err error) {
@@ -298,6 +300,20 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) (err error) {
 			zap.L().Warn("Failed to create schema", zap.Error(schemaErr))
 		}
 		repo = database.NewRepository(db)
+	}
+
+	// --resume: continue an existing durable-autopilot run. Rewires target /
+	// source / project / session identity from the stored AgenticScan so the
+	// operator re-enters seeded from the durable scratchpad + candidate ledger.
+	// Mutually exclusive with the seed-input flags (resume reuses the original
+	// target, not a fresh seed).
+	if autopilotResume != "" {
+		if autopilotInput != "" || autopilotRecordUUID != "" || autopilotPlanFile != "" {
+			return fmt.Errorf("--resume cannot be combined with --input/--record-uuid/--plan-file")
+		}
+		if err := prepareAutopilotResume(context.Background(), repo, autopilotResume, settings.Agent.EffectiveSessionsDir()); err != nil {
+			return err
+		}
 	}
 
 	// Resolve --plan-file into --instruction/--input before the generic

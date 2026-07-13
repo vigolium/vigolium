@@ -73,6 +73,54 @@ type OliumConfig struct {
 	MaxConcurrent       int                  `yaml:"max_concurrent"`        // global cap on simultaneous in-flight provider calls; default 4, 0 disables (unbounded)
 	CallTimeoutSec      int                  `yaml:"call_timeout_sec"`      // per-call deadline in seconds (default 600 = 10m). Negative = inherit only the parent ctx (no enforced timeout).
 	AlwaysOnSkills      []string             `yaml:"always_on_skills"`      // skills always loaded regardless of planner selection (autopilot/swarm); empty = built-in default [triage-finding, write-jsext]
+
+	// AutopilotMode selects the durable-autopilot behavior:
+	//   - legacy  (default) — current behavior, byte-for-byte unchanged: no
+	//     section rotation, report_finding writes findings directly, the new
+	//     agent_sections / agent_finding_candidates tables are never touched.
+	//   - shadow  — enable bounded operator sections with context rotation AND
+	//     mirror every report_finding call to a candidate row, so the fresh-
+	//     context verifier can grade them without changing the direct-finding
+	//     behavior (findings still land immediately; promoted candidates are
+	//     tagged distinctly for FP-rate comparison).
+	//   - enforced — enable rotation and route findings through the
+	//     candidate → verify → promote pipeline (report_finding is replaced by
+	//     propose_candidate; only verified candidates become findings).
+	// Empty or any unrecognized value resolves to "legacy" via EffectiveAutopilotMode.
+	AutopilotMode string `yaml:"autopilot_mode"`
+}
+
+// Autopilot mode constants for OliumConfig.AutopilotMode. Exported so callers
+// (CLI/pipeline/autopilot) branch on the same canonical strings.
+const (
+	AutopilotModeLegacy   = "legacy"
+	AutopilotModeShadow   = "shadow"
+	AutopilotModeEnforced = "enforced"
+)
+
+// NormalizeAutopilotMode resolves an arbitrary autopilot-mode string to one of
+// the canonical values, defaulting to "legacy" for empty/unknown input. The
+// single source of truth consulted by both EffectiveAutopilotMode and the
+// autopilot runtime, so an invalid value can never silently enable rotation /
+// verification.
+func NormalizeAutopilotMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case AutopilotModeShadow:
+		return AutopilotModeShadow
+	case AutopilotModeEnforced:
+		return AutopilotModeEnforced
+	default:
+		return AutopilotModeLegacy
+	}
+}
+
+// EffectiveAutopilotMode returns the resolved durable-autopilot mode, defaulting
+// to "legacy" when unset or set to an unrecognized value.
+func (c *OliumConfig) EffectiveAutopilotMode() string {
+	if c == nil {
+		return AutopilotModeLegacy
+	}
+	return NormalizeAutopilotMode(c.AutopilotMode)
 }
 
 // DefaultAlwaysOnSkills are the general-purpose skills kept available in

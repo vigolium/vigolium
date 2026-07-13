@@ -214,7 +214,33 @@ func runAutopilotOlium(settings *config.Settings, repo *database.Repository, ins
 		SkillTags:        autopilotSkillTags,
 		NoSkillFilter:    autopilotNoSkillFilter,
 		AlwaysOnSkills:   settings.Agent.Olium.EffectiveAlwaysOnSkills(),
+		// Durable-autopilot mode (legacy default). Enables bounded operator
+		// sections with context rotation + verify-before-promote when the
+		// operator opts in via agent.olium.autopilot_mode.
+		Mode: settings.Agent.Olium.EffectiveAutopilotMode(),
 	})
+
+	// Durable-autopilot verify-before-promote (direct CLI path). Runs before
+	// finalize/summary so their DB-backed finding counts include the promoted
+	// findings. No-op in legacy mode (the default). Non-fatal.
+	if runErr == nil {
+		if apMode := settings.Agent.Olium.EffectiveAutopilotMode(); apMode != config.AutopilotModeLegacy && repo != nil {
+			if _, verr := agent.VerifyCandidates(ctx, agent.VerifyCandidatesConfig{
+				Repo:            repo,
+				Provider:        prov,
+				Model:           model,
+				ProjectUUID:     projectUUID,
+				ScanUUID:        globalScanUUID,
+				AgenticScanUUID: parentAgenticScanUUID,
+				Target:          autopilotTarget,
+				SessionDir:      sessionDir,
+				Mode:            apMode,
+				StreamWriter:    streamWriter,
+			}); verr != nil {
+				_, _ = fmt.Fprintf(streamWriter, "[verify] pass failed (findings unaffected): %v\n", verr)
+			}
+		}
+	}
 
 	finalizeOliumAutopilotRun(repo, parentAgenticScanUUID, model, startedAt, result, runErr)
 

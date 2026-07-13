@@ -558,7 +558,9 @@ var AllowedCleanTables = map[string]cleanableTable{
 	"findings":                 {SQLName: "findings", CascadeFirst: []string{"finding_records"}},
 	"finding_records":          {SQLName: "finding_records"},
 	"scans":                    {SQLName: "scans"},
-	"agentic_scans":            {SQLName: "agentic_scans"},
+	"agentic_scans":            {SQLName: "agentic_scans", CascadeFirst: []string{"agent_sections", "agent_finding_candidates"}},
+	"agent_sections":           {SQLName: "agent_sections"},
+	"agent_finding_candidates": {SQLName: "agent_finding_candidates"},
 	"oast_interactions":        {SQLName: "oast_interactions"},
 	"scan_logs":                {SQLName: "scan_logs"},
 	"authentication_hostnames": {SQLName: "authentication_hostnames"},
@@ -602,6 +604,10 @@ var allTablesDeleteOrder = []string{
 	"oast_interactions",
 	"scan_logs",
 	"authentication_hostnames",
+	// Durable-autopilot child tables are cleared before the parent agentic_scans
+	// so a full wipe leaves no orphan sections/candidates behind.
+	"agent_sections",
+	"agent_finding_candidates",
 	"agentic_scans",
 	"scopes",
 	"scans",

@@ -480,6 +480,78 @@ type AgenticScan struct {
 	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 }
 
+// AgentSection represents one bounded operator section within a durable
+// autopilot run (an engine Reset() + reconstructed-brief cycle). Rows are only
+// written when agent.olium.autopilot_mode != legacy; legacy runs never touch
+// this table. Cascade-deleted with the parent agentic scan.
+type AgentSection struct {
+	bun.BaseModel `bun:"table:agent_sections,alias:asec" json:"-"`
+
+	ID              int64  `bun:"id,pk,autoincrement" json:"id"`
+	UUID            string `bun:"uuid,notnull,unique" json:"uuid"`
+	AgenticScanUUID string `bun:"agentic_scan_uuid,nullzero" json:"agentic_scan_uuid,omitempty"`
+	ProjectUUID     string `bun:"project_uuid,nullzero" json:"project_uuid,omitempty"`
+
+	Seq            int    `bun:"seq,notnull,default:0" json:"seq"`
+	Kind           string `bun:"kind,nullzero" json:"kind,omitempty"`
+	Status         string `bun:"status,notnull,default:'running'" json:"status"` // running | completed | interrupted
+	Task           string `bun:"task,nullzero" json:"task,omitempty"`
+	ClosingSummary string `bun:"closing_summary,nullzero" json:"closing_summary,omitempty"`
+	RotationReason string `bun:"rotation_reason,nullzero" json:"rotation_reason,omitempty"`
+	TurnCount      int    `bun:"turn_count,notnull,default:0" json:"turn_count"`
+	InputTokens    int64  `bun:"input_tokens,notnull,default:0" json:"input_tokens"`
+	OutputTokens   int64  `bun:"output_tokens,notnull,default:0" json:"output_tokens"`
+	ErrorMessage   string `bun:"error_message,nullzero" json:"error_message,omitempty"`
+
+	StartedAt time.Time `bun:"started_at,nullzero" json:"started_at,omitempty"`
+	EndedAt   time.Time `bun:"ended_at,nullzero" json:"ended_at,omitempty"`
+	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+}
+
+// AgentFindingCandidate is a proposed finding awaiting fresh-context
+// verification in the durable-autopilot verify-before-promote pipeline. The
+// operator's propose_candidate tool writes rows here (status=proposed); a
+// skeptic verifier grades them, and confirmed ones are promoted into a real
+// Finding (promoted_finding_id set, status=confirmed). Rows are only written
+// when agent.olium.autopilot_mode != legacy. Cascade-deleted with the parent
+// agentic scan.
+type AgentFindingCandidate struct {
+	bun.BaseModel `bun:"table:agent_finding_candidates,alias:acand" json:"-"`
+
+	ID              int64  `bun:"id,pk,autoincrement" json:"id"`
+	UUID            string `bun:"uuid,notnull,unique" json:"uuid"`
+	AgenticScanUUID string `bun:"agentic_scan_uuid,nullzero" json:"agentic_scan_uuid,omitempty"`
+	ProjectUUID     string `bun:"project_uuid,nullzero" json:"project_uuid,omitempty"`
+	SectionUUID     string `bun:"section_uuid,nullzero" json:"section_uuid,omitempty"`
+
+	Title       string `bun:"title,nullzero" json:"title,omitempty"`
+	Severity    string `bun:"severity,nullzero" json:"severity,omitempty"`
+	Description string `bun:"description,nullzero" json:"description,omitempty"`
+	Remediation string `bun:"remediation,nullzero" json:"remediation,omitempty"`
+	CWEID       string `bun:"cwe_id,nullzero" json:"cwe_id,omitempty"`
+	SourceFile  string `bun:"source_file,nullzero" json:"source_file,omitempty"`
+	URL         string `bun:"url,nullzero" json:"url,omitempty"`
+	Hostname    string `bun:"hostname,nullzero" json:"hostname,omitempty"`
+	Confidence  string `bun:"confidence,nullzero" json:"confidence,omitempty"`
+	Class       string `bun:"class,nullzero" json:"class,omitempty"` // idor | xss | sqli | ssrf | rce | auth | other
+
+	Status        string `bun:"status,notnull,default:'proposed'" json:"status"` // proposed | verifying | confirmed | rejected | needs_evidence
+	VerdictReason string `bun:"verdict_reason,nullzero" json:"verdict_reason,omitempty"`
+	EvidenceGrade string `bun:"evidence_grade,nullzero" json:"evidence_grade,omitempty"`
+
+	RecordUUIDs []string `bun:"record_uuids,type:jsonb,nullzero" json:"record_uuids,omitempty"`
+	OASTIDs     []string `bun:"oast_ids,type:jsonb,nullzero" json:"oast_ids,omitempty"`
+	Request     string   `bun:"request,nullzero" json:"request,omitempty"`
+	Response    string   `bun:"response,nullzero" json:"response,omitempty"`
+
+	DedupHash         string   `bun:"dedup_hash,notnull,default:''" json:"dedup_hash"`
+	PromotedFindingID int64    `bun:"promoted_finding_id,notnull,default:0" json:"promoted_finding_id"`
+	Tags              []string `bun:"tags,type:jsonb,nullzero" json:"tags,omitempty"`
+
+	CreatedAt  time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	VerifiedAt time.Time `bun:"verified_at,nullzero" json:"verified_at,omitempty"`
+}
+
 // Scope defines URL/request scope rules (firewall-style: first match wins)
 type Scope struct {
 	bun.BaseModel `bun:"table:scopes,alias:s" json:"-"`

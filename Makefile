@@ -2,7 +2,9 @@
 # Phony targets defined in their own sections below (declared here so a stray
 # same-named file can never shadow them).
 .PHONY: all build-linux build-darwin build-windows deps-chrome-cft sync-platform \
-	test-canary-postgres test-pg-full test-e2e-autonomous test-e2e-scorecard
+	test-canary-postgres test-pg-full test-e2e-autonomous test-e2e-scorecard \
+	access-lab-up access-lab-down access-lab-logs access-lab-status \
+	setup-agent-codex test-smoke-autopilot-access
 
 # Go parameters
 GOCMD=go
@@ -502,6 +504,7 @@ JUICESHOP_DIR=$(VULN_APPS_DIR)/juice-shop
 VAMPI_DIR=$(VULN_APPS_DIR)/vampi
 VULN_JAVA_DIR=$(VULN_APPS_DIR)/vulnerable-java
 VULN_NGINX_DIR=$(VULN_APPS_DIR)/vulnerable-nginx
+ACCESS_LAB_DIR=$(VULN_APPS_DIR)/access-lab
 
 # Start all vulnerable apps
 apps-up: juiceshop-up vampi-up crapi-up vulnerable-java-up vulnerable-nginx-up
@@ -623,6 +626,51 @@ vulnerable-nginx-logs:
 
 vulnerable-nginx-status:
 	docker compose -f $(VULN_NGINX_DIR)/docker-compose.yaml ps
+
+# --- access-lab (durable-autopilot auth/IDOR/BAC demo) ---
+
+access-lab-up:
+	@echo "$(PREFIX) Starting access-lab (deliberately vulnerable)..."
+	docker compose -f $(ACCESS_LAB_DIR)/docker-compose.yml up -d --build
+	@echo "$(PREFIX) access-lab: http://127.0.0.1:9899  (wiener/peter, carlos/hunter2, admin/admin123)"
+
+access-lab-down:
+	@echo "$(PREFIX) Stopping access-lab..."
+	docker compose -f $(ACCESS_LAB_DIR)/docker-compose.yml down -v
+
+access-lab-logs:
+	docker compose -f $(ACCESS_LAB_DIR)/docker-compose.yml logs -f
+
+access-lab-status:
+	docker compose -f $(ACCESS_LAB_DIR)/docker-compose.yml ps
+
+# Point vigolium at the codex (OpenAI) OAuth agent backend. Assumes you have
+# already run `codex login` (or `codex exec -m gpt-5.4 'hola'`
+# works). Defaults to the cheaper gpt-5.4 model to keep smoke-test
+# cost down. This only writes config — it does not make a paid call.
+setup-agent-codex:
+	@echo "$(PREFIX) Configuring the codex (openai-codex-oauth) agent backend..."
+	@echo "$(PREFIX) Prereq: 'codex exec -m gpt-5.4 hola' must already work (run 'codex login' first)."
+	vigolium config set agent.olium.provider openai-codex-oauth
+	vigolium config set agent.olium.oauth_cred_path ~/.codex/auth.json
+	vigolium config set agent.olium.model gpt-5.4
+	@echo "$(PREFIX) done. Verify with: vigolium ol -p 'what model are you running'"
+
+# Durable-autopilot access-control + XSS SMOKE test (not a deterministic e2e
+# test): runs the REAL agent (a live, PAID LLM run under your configured
+# agent.olium credentials) against access-lab, feeding credentials in the
+# prompt, then scores IDOR / BAC / DOM-XSS / stored-XSS / mass-assignment.
+#
+#   !!! COSTS MONEY. Requires `make setup-agent-codex` (or another configured
+#   !!! agent.olium provider) first. Bounded by MAX_DURATION (default 12m).
+#
+# Uses the freshly built branch binary (bin/vigolium) so enforced mode is
+# available. Prints the exact agent command + setup before running. Override
+# via env, e.g.:
+#   MODEL=gpt-5.5 MODE=shadow MAX_DURATION=8m make test-smoke-autopilot-access
+test-smoke-autopilot-access: build
+	@echo "$(PREFIX) Durable-autopilot access-control + XSS SMOKE test (REAL, PAID agent run)..."
+	VIGOLIUM_BIN=$(CURDIR)/bin/vigolium bash scripts/smoke-autopilot-access.sh
 
 # jstangle binary management
 # update-jstangle and ensure-jstangle are already declared .PHONY at the top.

@@ -201,6 +201,17 @@ type Options struct {
 	// terse default framing.
 	InitialPrompt string
 
+	// Mode selects the durable-autopilot behavior: "legacy" (default; empty
+	// resolves here), "shadow", or "enforced". Legacy is byte-for-byte the
+	// current path — no section rotation, report_finding writes findings
+	// directly, and the agent_sections / agent_finding_candidates tables are
+	// never touched. shadow/enforced enable bounded operator sections with
+	// context rotation; enforced additionally routes findings through the
+	// candidate → verify → promote pipeline (propose_candidate replaces
+	// report_finding), and shadow mirrors each report to a candidate row for
+	// FP-rate comparison. Rotation additionally requires SessionDir != "".
+	Mode string
+
 	// PostHaltVerify enables the post-halt coverage verification loop. When
 	// true AND CoverageProbe is set, after the model calls halt_scan the
 	// loop runs CoverageProbe.Run(ctx), diffs the discovered route set
@@ -519,6 +530,13 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		Target:          opts.Target,
 	}
 
+	// Durable-autopilot mode gate. legacy (the default) is byte-for-byte the
+	// current behavior; rotation additionally requires a session dir (it must
+	// persist section state + write a transcript). All rotation/candidate code
+	// below is guarded on these two values so a legacy run is untouched.
+	mode := config.NormalizeAutopilotMode(opts.Mode)
+	rotationEnabled := mode != config.AutopilotModeLegacy && opts.SessionDir != ""
+
 	// Working memory: a plan + note scratchpad that survives context
 	// eviction (the engine never summarises — history grows until it hits
 	// the provider ceiling). Seeds from the pipeline's frozen plan.json
@@ -545,8 +563,35 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		tools.Register(tool.NewBrowserProbeWithCapture(opts.Repo, opts.ProjectUUID))
 		tools.Register(tool.NewWebFetchWithCapture(opts.Repo, opts.ProjectUUID))
 	}
+	// proposeCtx is the candidate sink for shadow/enforced mode; nil in legacy.
+	// Its SectionUUID is repointed at each rotation by the section controller.
+	var proposeCtx *ProposeCandidateContext
 	if opts.Repo != nil {
-		tools.Register(NewReportFindingTool(reportCtx))
+		switch mode {
+		case config.AutopilotModeEnforced:
+			// Enforced: the operator only ever proposes candidates; a fresh-
+			// context verifier promotes the confirmed ones into findings.
+			// report_finding is deliberately NOT registered.
+			proposeCtx = &ProposeCandidateContext{
+				Repo:            RepoCandidateSink(opts.Repo),
+				ProjectUUID:     opts.ProjectUUID,
+				AgenticScanUUID: opts.AgenticScanUUID,
+				Target:          opts.Target,
+			}
+			tools.Register(NewProposeCandidateTool(proposeCtx))
+		case config.AutopilotModeShadow:
+			// Shadow: findings still land directly (unchanged behavior) but
+			// each is mirrored into a candidate so the verifier can grade it.
+			proposeCtx = &ProposeCandidateContext{
+				Repo:            RepoCandidateSink(opts.Repo),
+				ProjectUUID:     opts.ProjectUUID,
+				AgenticScanUUID: opts.AgenticScanUUID,
+				Target:          opts.Target,
+			}
+			tools.Register(NewShadowReportFindingTool(reportCtx, proposeCtx))
+		default:
+			tools.Register(NewReportFindingTool(reportCtx))
+		}
 
 		// Vigolium-aware tools: scan launching, extension execution, and
 		// session/finding queries. All require a real *database.Repository
@@ -651,7 +696,10 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	// Persist a Pi-style JSONL transcript beside the other session artifacts
 	// (runtime.log, scratchpad, tool-results/) for post-hoc debugging. Only
 	// attach when we have a session dir; a recorder construction failure is
-	// non-fatal — the scan proceeds without a transcript.
+	// non-fatal — the scan proceeds without a transcript. sectionRec captures
+	// the same recorder so the section controller can emit section boundary
+	// events (nil-safe when no recorder was attached).
+	var sectionRec SectionRecorder
 	if opts.SessionDir != "" {
 		provName := ""
 		if opts.Provider != nil {
@@ -665,6 +713,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			Cwd:       cwd,
 		}); rerr == nil {
 			ecfg.Recorder = rec
+			sectionRec = rec
 		}
 	}
 
@@ -750,6 +799,36 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	reentries := 0
 	nextPrompt := initial
 
+	// --- Durable-autopilot section-rotation state (non-legacy modes only) ---
+	// Every variable here is inert in legacy: rotationEnabled is false, so
+	// runIteration never touches them and the outer loop's handoff branch is
+	// dead. controller is nil in legacy.
+	var controller *SectionController
+	missionBrief := ""
+	// Per-section counters + recent-actions ring, reset at each rotation.
+	var sectionTurns int
+	var sectionIn, sectionOut int64
+	var recentActions []string
+	var progressedThisWindow bool
+	// pendingRotation is set by runIteration when ShouldRotate fires; the outer
+	// loop performs the section handoff. rotationReason carries why.
+	var pendingRotation bool
+	var rotationReason string
+	if rotationEnabled {
+		controller = NewSectionController(opts.SessionDir, opts.Repo, opts.ProjectUUID, opts.AgenticScanUUID,
+			scratch, sectionRec, DefaultMaxTurnsPerSection, DefaultStallTurns, 0)
+		missionBrief = buildRotationMission(opts)
+		firstTask := scratch.NextOpenTask()
+		if firstTask == "" {
+			firstTask = "reconnaissance and attack-surface mapping"
+		}
+		sec := controller.BeginSection(ctx, firstTask, "operator")
+		if proposeCtx != nil {
+			u := sec.UUID
+			proposeCtx.SectionUUID = &u
+		}
+	}
+
 	// runIteration drains one full engine.Run cycle and returns (fatalErr,
 	// fatalResult). Each call owns its own cancellable context via defer
 	// iterCancel, so go vet's lostcancel check is satisfied even when the
@@ -784,12 +863,29 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			// before the assistant narration prints below. Gated on --verbose
 			// inside the logger; a no-op otherwise.
 			tlog.HandleThinking(ev)
+			// Section rotation bookkeeping (non-legacy only). A tool that
+			// creates surface / mutates durable state / records a result counts
+			// as progress (resets the stall counter); every tool result feeds
+			// the recent-actions ring carried into the next section's brief.
+			if rotationEnabled && ev.Type == engine.EventToolExecEnd {
+				if !ev.ToolIsErr && productiveTools[ev.ToolName] {
+					progressedThisWindow = true
+				}
+				recentActions = appendRecentAction(recentActions, ev.ToolName, ev.ToolResult)
+			}
 			if ev.Type == engine.EventTurnDone {
 				if ev.Usage != nil {
 					usage.in += int64(ev.Usage.Input)
 					usage.out += int64(ev.Usage.Output)
 					usage.cacheRead += int64(ev.Usage.CacheRead)
 					usage.cacheCreate += int64(ev.Usage.CacheWrite)
+					if rotationEnabled {
+						sectionIn += int64(ev.Usage.Input)
+						sectionOut += int64(ev.Usage.Output)
+					}
+				}
+				if rotationEnabled {
+					sectionTurns++
 				}
 				if hadTextThisTurn {
 					tlog.HandleTurn(ev)
@@ -855,6 +951,23 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 					iterCancel()
 				}
 
+				// Durable-autopilot rotation check. Runs after budget/halt
+				// enforcement (which cancel iterCtx) so a real stop always
+				// wins over a rotation. When it fires, cleanly end the
+				// iteration like the halt path; the outer loop rebuilds the
+				// section. iterCtx.Err()==nil guards against re-firing when a
+				// halt/budget already cancelled this turn.
+				if rotationEnabled && controller != nil && !pendingRotation && iterCtx.Err() == nil {
+					if rotate, reason := controller.ShouldRotate(sectionTurns, sectionIn+sectionOut, progressedThisWindow); rotate {
+						pendingRotation = true
+						rotationReason = reason
+						_, _ = fmt.Fprintf(opts.ToolLog, "[autopilot] section %d rotating (%s, turns=%d) — rebuilding context\n",
+							controller.CurrentSeq(), reason, sectionTurns)
+						iterCancel()
+					}
+					progressedThisWindow = false
+				}
+
 			case engine.EventInfo:
 				// Non-fatal engine notice (e.g. transient stream-error retry).
 				// Surface on the tool log so the operator sees what happened
@@ -877,10 +990,11 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 					}
 				}
 				// If we already tripped the halt signal (budget enforcement,
-				// halt_scan tool, caller cancellation observed earlier), the
-				// resulting "context canceled" engine event is expected — let
-				// the outer loop's post-halt logic decide what to do next.
-				if halted, _ := halt.Halted(); !halted {
+				// halt_scan tool, caller cancellation observed earlier) OR a
+				// section rotation is pending, the resulting "context canceled"
+				// engine event is expected — let the outer loop decide what to
+				// do next (post-halt logic, or the section handoff).
+				if halted, _ := halt.Halted(); !halted && !pendingRotation {
 					fatalResult = &Result{
 						FindingCount:      reportCtx.Count.Load(),
 						Elapsed:           time.Since(started),
@@ -903,6 +1017,42 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		fatalResult, runLoopErr := runIteration(nextPrompt)
 		if runLoopErr != nil {
 			return fatalResult, runLoopErr
+		}
+
+		// Durable-autopilot section handoff. When the rotation flag tripped
+		// (a bounded-section limit, not a halt), close the section with a
+		// cheap tool-less closing summary, reset the engine context, open a
+		// fresh section, and re-enter with a reconstructed brief. Legacy runs
+		// never set the flag, so this whole branch is dead for them.
+		if pendingRotation {
+			pendingRotation = false
+			recent := renderRecentActions(recentActions)
+			endingSeq := controller.CurrentSeq()
+			closing := summarizeSection(ctx, opts, scratch, recent)
+			controller.StoreClosingSummary(closing, endingSeq)
+			controller.EndSection(ctx, database.SectionStatusCompleted, rotationReason, closing,
+				sectionTurns, sectionIn, sectionOut)
+
+			eng.Reset()
+
+			nextTask := scratch.NextOpenTask()
+			if nextTask == "" {
+				nextTask = "continue the assessment: verify open candidates and probe uncovered surface"
+			}
+			controller.BeginSection(ctx, nextTask, "operator")
+			if proposeCtx != nil {
+				u := controller.CurrentSectionUUID()
+				proposeCtx.SectionUUID = &u
+			}
+			nextPrompt = controller.BuildReconstructedBrief(missionBrief, recent)
+
+			// Reset per-section accounting for the fresh section.
+			sectionTurns = 0
+			sectionIn = 0
+			sectionOut = 0
+			recentActions = nil
+			progressedThisWindow = false
+			continue
 		}
 
 		// Inner loop exited cleanly — decide whether to re-enter.
@@ -950,6 +1100,14 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		halt.Reset()
 		nextPrompt = formatCoverageGapPrompt(probeRes.NewSignatures)
 		reentries++
+	}
+
+	// Close the final open section (durable autopilot). The run has ended
+	// (halt / natural stop / coverage-verify done), so the last section is
+	// completed rather than rotated. No-op in legacy (controller is nil).
+	if controller != nil {
+		controller.EndSection(ctx, database.SectionStatusCompleted, "run-complete", "",
+			sectionTurns, sectionIn, sectionOut)
 	}
 
 	// Flush any reasoning buffered by a final turn that produced neither a

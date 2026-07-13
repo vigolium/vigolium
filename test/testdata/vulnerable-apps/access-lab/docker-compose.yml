@@ -1,0 +1,9 @@
+# Deliberately vulnerable app for the durable-autopilot access-control demo.
+# Brought up by `make access-lab-up` (see the Makefile). Web UI on :9899.
+services:
+  access-lab:
+    build: .
+    container_name: vigolium-access-lab
+    ports:
+      - "127.0.0.1:9899:9899"
+    restart: unless-stopped

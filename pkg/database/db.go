@@ -668,6 +668,61 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			metadata TEXT,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
+		// Durable autopilot: one row per bounded operator section (a Reset() +
+		// reconstructed-brief cycle). Only written when autopilot_mode != legacy.
+		`CREATE TABLE IF NOT EXISTS agent_sections (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			uuid TEXT NOT NULL UNIQUE,
+			agentic_scan_uuid TEXT,
+			project_uuid TEXT,
+			seq INTEGER NOT NULL DEFAULT 0,
+			kind TEXT,
+			status TEXT NOT NULL DEFAULT 'running',
+			task TEXT,
+			closing_summary TEXT,
+			rotation_reason TEXT,
+			turn_count INTEGER NOT NULL DEFAULT 0,
+			input_tokens INTEGER NOT NULL DEFAULT 0,
+			output_tokens INTEGER NOT NULL DEFAULT 0,
+			error_message TEXT,
+			started_at TIMESTAMP,
+			ended_at TIMESTAMP,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		// Durable autopilot: verify-before-promote candidates. Each proposed
+		// finding lands here first (status=proposed), a fresh-context verifier
+		// grades it, and confirmed ones are promoted into findings. Only
+		// written when autopilot_mode != legacy. UNIQUE(agentic_scan_uuid,
+		// dedup_hash) backs the ON CONFLICT dedup on SaveCandidate.
+		`CREATE TABLE IF NOT EXISTS agent_finding_candidates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			uuid TEXT NOT NULL UNIQUE,
+			agentic_scan_uuid TEXT,
+			project_uuid TEXT,
+			section_uuid TEXT,
+			title TEXT,
+			severity TEXT,
+			description TEXT,
+			remediation TEXT,
+			cwe_id TEXT,
+			source_file TEXT,
+			url TEXT,
+			hostname TEXT,
+			confidence TEXT,
+			class TEXT,
+			status TEXT NOT NULL DEFAULT 'proposed',
+			verdict_reason TEXT,
+			evidence_grade TEXT,
+			record_uuids TEXT,
+			oast_ids TEXT,
+			request TEXT,
+			response TEXT,
+			dedup_hash TEXT NOT NULL DEFAULT '',
+			promoted_finding_id INTEGER NOT NULL DEFAULT 0,
+			tags TEXT,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			verified_at TIMESTAMP
+		)`,
 	}
 
 	zap.L().Debug("Initializing database tables")
@@ -782,6 +837,16 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 
 		// -- projects --
 		"CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects(owner_uuid)",
+
+		// -- agent_sections (durable autopilot) --
+		"CREATE INDEX IF NOT EXISTS idx_agent_sections_agentic_scan ON agent_sections(agentic_scan_uuid, seq)",
+		"CREATE INDEX IF NOT EXISTS idx_agent_sections_project ON agent_sections(project_uuid)",
+
+		// -- agent_finding_candidates (durable autopilot) --
+		"CREATE INDEX IF NOT EXISTS idx_agent_candidates_agentic_scan ON agent_finding_candidates(agentic_scan_uuid, status)",
+		"CREATE INDEX IF NOT EXISTS idx_agent_candidates_project ON agent_finding_candidates(project_uuid)",
+		// Backs ON CONFLICT (agentic_scan_uuid, dedup_hash) DO NOTHING in SaveCandidate.
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_candidates_dedup ON agent_finding_candidates(agentic_scan_uuid, dedup_hash)",
 	}
 
 	// Drop old indexes before creating the correct ones (migration for existing

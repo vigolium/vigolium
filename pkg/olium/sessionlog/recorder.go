@@ -178,6 +178,66 @@ func (r *Recorder) Record(ev engine.Event) {
 	}
 }
 
+// SectionStart records the opening of a durable-autopilot bounded section.
+// Any unflushed assistant turn from the prior section is flushed first so the
+// boundary reads cleanly. Additive, non-Pi event (viewers ignore it). Safe for
+// the engine's single-writer discipline; operator sections are serial.
+func (r *Recorder) SectionStart(id string, seq int, kind, task string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.flushAssistantLocked(nil, "", nil)
+	evtID := newID()
+	r.writeLocked(sectionStartEvt{
+		Type:      "section_start",
+		ID:        evtID,
+		ParentID:  r.parentPtr(),
+		Timestamp: nowISO(),
+		SectionID: id,
+		Seq:       seq,
+		Kind:      kind,
+		Task:      task,
+	})
+	r.lastID = evtID
+}
+
+// SectionEnd records the close of a durable-autopilot bounded section along
+// with its rotation reason and closing summary.
+func (r *Recorder) SectionEnd(id, status, rotationReason, summary string, durationMs int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.flushAssistantLocked(nil, "", nil)
+	evtID := newID()
+	r.writeLocked(sectionEndEvt{
+		Type:           "section_end",
+		ID:             evtID,
+		ParentID:       r.parentPtr(),
+		Timestamp:      nowISO(),
+		SectionID:      id,
+		Status:         status,
+		RotationReason: rotationReason,
+		Summary:        summary,
+		DurationMs:     durationMs,
+	})
+	r.lastID = evtID
+}
+
+// SectionInterrupted records a section that was interrupted (e.g. a run
+// resumed after a crash marks any still-running section this way).
+func (r *Recorder) SectionInterrupted(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.flushAssistantLocked(nil, "", nil)
+	evtID := newID()
+	r.writeLocked(sectionInterruptedEvt{
+		Type:      "section_interrupted",
+		ID:        evtID,
+		ParentID:  r.parentPtr(),
+		Timestamp: nowISO(),
+		SectionID: id,
+	})
+	r.lastID = evtID
+}
+
 // Close flushes any assistant turn that never reached its turn_done (e.g. a
 // run cancelled mid-stream) and closes the file. Idempotent.
 func (r *Recorder) Close() error {

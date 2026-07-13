@@ -140,6 +140,10 @@ var projectOwnedTables = []string{
 	"agentic_scans",
 	"authentication_hostnames",
 	"scan_logs",
+	// Durable-autopilot child tables also carry project_uuid so they reassign /
+	// purge with the project instead of orphaning.
+	"agent_sections",
+	"agent_finding_candidates",
 }
 
 // ReassignProjectData moves all data owned by sourceUUID to targetUUID.

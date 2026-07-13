@@ -52,6 +52,44 @@ type errorEvt struct {
 	Error     string  `json:"error"`
 }
 
+// section_start / section_end / section_interrupted mark the durable-autopilot
+// bounded-section boundaries (an engine Reset() + reconstructed-brief cycle).
+// Not part of the Pi schema — like errorEvt, they follow the additive-event
+// pattern (Pi viewers ignore unknown types) so a durable-autopilot transcript
+// stays readable in a Pi viewer while carrying the extra rotation structure.
+// Operator sections are strictly serial (one goroutine), so no per-section
+// sequence tag or concurrency handling is needed.
+type sectionStartEvt struct {
+	Type      string  `json:"type"`
+	ID        string  `json:"id"`
+	ParentID  *string `json:"parentId"`
+	Timestamp string  `json:"timestamp"`
+	SectionID string  `json:"sectionId"`
+	Seq       int     `json:"seq"`
+	Kind      string  `json:"kind,omitempty"`
+	Task      string  `json:"task,omitempty"`
+}
+
+type sectionEndEvt struct {
+	Type           string  `json:"type"`
+	ID             string  `json:"id"`
+	ParentID       *string `json:"parentId"`
+	Timestamp      string  `json:"timestamp"`
+	SectionID      string  `json:"sectionId"`
+	Status         string  `json:"status"`
+	RotationReason string  `json:"rotationReason,omitempty"`
+	Summary        string  `json:"summary,omitempty"`
+	DurationMs     int64   `json:"durationMs"`
+}
+
+type sectionInterruptedEvt struct {
+	Type      string  `json:"type"`
+	ID        string  `json:"id"`
+	ParentID  *string `json:"parentId"`
+	Timestamp string  `json:"timestamp"`
+	SectionID string  `json:"sectionId"`
+}
+
 // --- message bodies ---
 
 type userMsg struct {
