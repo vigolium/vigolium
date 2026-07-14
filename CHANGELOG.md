@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.2] - 2026-07-14
+
+A focused **REST API scan-path hardening** release: a server database-init correctness fix plus a batch of tests that drive both native and agentic scans end-to-end through the REST API. The fix closes a gap where a half-initialized results database (connection opens but schema creation fails — a locked, read-only, disk-full, or schema-incompatible file) left the server running with a live DB handle paired with a nil repository, which repo-backed handlers dereferenced into nil-pointer panics (HTTP 500). No module changes (registry stays at 201 active + 116 passive).
+
+### Fixed
+
+- **Server no longer 500-panics on a half-initialized database** — schema-creation failure now collapses into the same no-persistence mode as an open failure, so the server is consistently DB-less and repo-backed endpoints (`/api/scans`, `/api/projects`, …) return a clean **503** instead of a nil-pointer panic. Enforced in two places: a new `initServerDatabase` helper in the CLI `server` path closes the connection and returns no repo on schema failure, and `NewHandlers` — the single constructor every server is built through — normalizes the invariant by dropping to no-DB mode if it ever sees a non-nil db with a nil repo. The reverse pairing (repo-backed agent endpoints with no traffic DB) is a legitimate, tested config and is left untouched.
+
+### Internal
+
+- **REST scan-trigger E2E tests** (`make test-e2e-rest-scan`, `TestAPI_REST_*`) — boot the API server in-process and drive a native scan **and** an agentic (autopilot/swarm) scan entirely through the REST API against a hermetic `127.0.0.1` target. No Docker or LLM provider required — the agentic legs assert the launch/track/cancel wiring. A regression guard against server mis-wiring that turns scan-triggering endpoints into 500s/panics.
+- **REST coverage scorecard canary** (`TestCoverageScorecard_RESTNativeScan_DVWA`) — the same DVWA ground-truth coverage scan, driven through the REST API instead of the CLI, folded into `make test-e2e-scorecard`.
+- **REST autopilot smoke test** (`make test-smoke-autopilot-rest`, `TRANSPORT=rest`) — the real, paid access-lab autopilot smoke run driven through the server (`POST /api/agent/run/autopilot` + poll `/api/agent/status/:id`) instead of the CLI, exercising the operator/workbench path end-to-end.
+- Added no-persistence handler tests (`handlers_norepo_test.go`) and DB-init tests (`server_db_init_test.go`) covering the degraded paths above.
+
 ## [v0.3.1] - 2026-07-13
 
 The headline is a **redesigned `agent autopilot`** — an opt-in (`agent.olium.autopilot_mode`) **durable, bounded-section operator** that rotates context instead of accumulating unbounded conversation history, paired with a **verify-before-promote** path where a fresh-context skeptic verifier grades each candidate against per-class evidence gates before it becomes a finding. Around it: **durable state + `--resume`**, an operator **`--knowledge-base`** (read-on-demand app docs), **`--prior-context`** (mine the traffic and findings already in the project DB), **`--plan-file`** seeding, and shared `--headed` / `--browser-auth` / `--session-dir` / `--transcript` debugging controls across autopilot and swarm. Underneath the features is a broad **reliability sweep** across the scan pipeline plus a batch of code-review fixes for regressions the v0.3.0 refactors introduced — scan lifecycle correctness (recovered panics/cancellations no longer report as successful scans, single-owner finalization, project-scoping enforced on every scan-control endpoint), several fixed data races and resource leaks, and restored CSRF / passive-module scoping and gating that had regressed. No module changes (registry stays at 201 active + 116 passive).

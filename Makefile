@@ -1,10 +1,10 @@
-.PHONY: build build-embedded build-all snapshot release public public-release github-release prepare-public-scripts clean test test-unit test-integration test-spitolas-browser test-e2e test-e2e-api test-e2e-agent test-e2e-postgres test-canary sanity-check test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jstangle ensure-jstangle sync-audit update-audit ensure-audit ensure-audit-dist restage-host-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
+.PHONY: build build-embedded build-all snapshot release public public-release github-release prepare-public-scripts clean test test-unit test-integration test-spitolas-browser test-e2e test-e2e-api test-e2e-agent test-e2e-rest-scan test-e2e-postgres test-canary sanity-check test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jstangle ensure-jstangle sync-audit update-audit ensure-audit ensure-audit-dist restage-host-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts cdn-sync bump-version npm-build npm-pack npm-publish
 # Phony targets defined in their own sections below (declared here so a stray
 # same-named file can never shadow them).
 .PHONY: all build-linux build-darwin build-windows deps-chrome-cft sync-platform \
 	test-canary-postgres test-pg-full test-e2e-autonomous test-e2e-scorecard \
 	access-lab-up access-lab-down access-lab-logs access-lab-status \
-	setup-agent-codex test-smoke-autopilot test-smoke-autopilot-prior test-smoke-autopilot-ginandjuice \
+	setup-agent-codex test-smoke-autopilot test-smoke-autopilot-rest test-smoke-autopilot-prior test-smoke-autopilot-ginandjuice \
 	test-smoke-autopilot-crapi test-smoke-autopilot-juiceshop
 
 # Go parameters
@@ -173,6 +173,16 @@ test-e2e-agent: install-gotestsum
 	@echo "$(PREFIX) Running Agent API E2E tests..."
 	$(TESTCMD) $(TESTFLAGS) -tags=e2e -run TestAgentAPI_ ./test/e2e/...
 
+# Run the REST scan-trigger E2E tests: boot the API server in-process and drive a
+# native scan AND an agentic (autopilot/swarm) scan entirely through the REST API
+# against a hermetic 127.0.0.1 target. No Docker, no LLM provider required — the
+# agentic legs assert the launch/track/cancel wiring (a real provider-backed run
+# lives in `make test-smoke-autopilot`). Regression guard for server mis-wiring
+# that turns scan-triggering endpoints into 500s/panics.
+test-e2e-rest-scan: install-gotestsum
+	@echo "$(PREFIX) Running REST scan-trigger E2E tests (native + agentic via API)..."
+	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 10m -run TestAPI_REST_ ./test/e2e/...
+
 # Run PostgreSQL E2E tests (requires 'make postgres-up' first)
 test-e2e-postgres: install-gotestsum
 	@echo "$(PREFIX) Running PostgreSQL E2E tests..."
@@ -253,6 +263,7 @@ test-e2e-autonomous: install-gotestsum
 test-e2e-scorecard: install-gotestsum
 	@echo "$(PREFIX) Running ground-truth coverage scorecard canary tests..."
 	@echo "$(PREFIX) (verbose: each scan logs its replicable 'vigolium scan ...' command + per-vuln CATCH/MISS)"
+	@echo "$(PREFIX) (includes TestCoverageScorecard_RESTNativeScan_DVWA — the same DVWA scan driven through the REST API)"
 	$(GOTEST) -v -tags=canary -timeout 40m -run TestCoverageScorecard ./test/e2e/
 
 # Run browser fallback E2E tests (Docker multi-arch, verifies system chromium fallback)
@@ -658,6 +669,14 @@ setup-agent-codex:
 test-smoke-autopilot: build
 	@echo "$(PREFIX) Durable-autopilot access-lab SMOKE test (REAL, PAID agent run)..."
 	VIGOLIUM_BIN=$(CURDIR)/bin/vigolium PROFILE=access-lab bash test/smoke-test/smoke-autopilot.sh
+
+# Same REAL, PAID autopilot run as test-smoke-autopilot, but driven through the
+# REST API instead of the CLI: the script boots `vigolium server`, POSTs
+# /api/agent/run/autopilot, and polls /api/agent/status/:id to completion — the
+# operator/workbench path end-to-end. Same cost profile; TRANSPORT overridable.
+test-smoke-autopilot-rest: build
+	@echo "$(PREFIX) Durable-autopilot access-lab SMOKE test via the REST API (REAL, PAID agent run)..."
+	VIGOLIUM_BIN=$(CURDIR)/bin/vigolium PROFILE=access-lab TRANSPORT=rest bash test/smoke-test/smoke-autopilot.sh
 
 # Prior-context / --burp-bridge-url simulation: seed the throwaway DB with a
 # native scan first, then run autopilot --no-prescan --prior-context full so it
@@ -1345,6 +1364,7 @@ help:
 	@echo "    make test-e2e         Run E2E tests (requires Docker)"
 	@echo "    make test-e2e-api     Run API E2E tests only (server endpoints)"
 	@echo "    make test-e2e-agent   Run Agent API E2E tests only (agent endpoints)"
+	@echo "    make test-e2e-rest-scan  Native + agentic scan driven through the REST API (hermetic, no Docker/LLM)"
 	@echo "    make test-e2e-postgres  Run PostgreSQL E2E tests (requires make postgres-up)"
 	@echo "    make test-pg-full     Full PG validation cycle: e2e + canary (auto up/down)"
 	@echo "    make test-canary      Run canary tests: DVWA, VAmPI, Juice Shop (Docker)"
@@ -1379,6 +1399,7 @@ help:
 	@echo "    make sanity-check     Real-target REST API + GCS storage smoke test (needs jq/tar/python3 + network)"
 	@echo "    make setup-agent-codex  Point agent.olium at the codex OAuth backend (prereq for autopilot smoke tests)"
 	@echo "    make test-smoke-autopilot  Durable-autopilot access-lab smoke test  \033[31m(REAL, PAID agent run)\033[0m"
+	@echo "    make test-smoke-autopilot-rest  Same run driven through the REST API (server + /api/agent/run/autopilot)  \033[31m(REAL, PAID)\033[0m"
 	@echo "    make test-smoke-autopilot-prior  Seed DB, then autopilot --prior-context (--burp-bridge-url sim)  \033[31m(REAL, PAID)\033[0m"
 	@echo "    make test-smoke-autopilot-ginandjuice  Autopilot vs ginandjuice.shop  \033[31m(REAL, PAID, EXTERNAL)\033[0m"
 	@echo "    make test-smoke-autopilot-crapi        Autopilot vs OWASP crAPI       \033[31m(REAL, PAID; brings crapi up)\033[0m"

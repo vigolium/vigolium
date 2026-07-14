@@ -220,6 +220,21 @@ func NewHandlers(q queue.Queue, db *database.DB, repo *database.Repository, rw *
 		lightMax = 10
 	}
 
+	// Invariant: a repository is always derived from a db (NewRepository(db)), so a
+	// non-nil db paired with a nil repo is a half-initialized state — e.g. the
+	// connection opened but schema creation failed. Repo-backed handlers guard only
+	// on h.db == nil before dereferencing h.repo, so admitting that state would turn
+	// each into a nil-pointer panic (HTTP 500). NewHandlers is the single path every
+	// server (CLI, tests, any future entry point) is constructed through, so this is
+	// the universal place to normalize the pairing: drop to a consistent no-DB mode
+	// by nil-ing db, and the h.db == nil guards then return a clean 503. The reverse
+	// pairing (db == nil, repo != nil) is a legitimate, tested config (repo-backed
+	// agent endpoints with no traffic DB) and is deliberately left untouched.
+	if db != nil && repo == nil {
+		zap.L().Warn("database handle present without a repository; disabling database-backed endpoints")
+		db = nil
+	}
+
 	runCtx, runCancel := context.WithCancel(context.Background())
 
 	h := &Handlers{

@@ -19,6 +19,12 @@
 #
 # Env knobs:
 #   VIGOLIUM_BIN   vigolium binary                    (default: vigolium on PATH)
+#   TRANSPORT      how the run is driven: cli|rest    (default: cli)
+#                  cli  = `vigolium agent autopilot` directly.
+#                  rest = boot `vigolium server` and POST /api/agent/run/autopilot,
+#                         then poll /api/agent/status/:id to completion — the same
+#                         run driven through the REST API an operator/UI would use.
+#                         (SEED_PRIOR is cli-only; the transcript check is best-effort.)
 #   MODE           autopilot_mode: enforced|shadow    (default: enforced)
 #   MODEL          olium model id                      (default: gpt-5.4)
 #   MAX_DURATION   wall-clock cost ceiling            (default: 15m)
@@ -38,10 +44,16 @@ set -euo pipefail
 
 VIGOLIUM_BIN="${VIGOLIUM_BIN:-vigolium}"
 PROFILE="${PROFILE:-access-lab}"
+TRANSPORT="${TRANSPORT:-cli}"
 MODE="${MODE:-enforced}"
 MODEL="${MODEL:-gpt-5.4}"
 MAX_DURATION="${MAX_DURATION:-15m}"
 STATELESS="${STATELESS:-1}"
+
+case "$TRANSPORT" in
+  cli|rest) ;;
+  *) echo "unknown TRANSPORT '$TRANSPORT' (cli|rest)"; exit 2;;
+esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"  # test/smoke-test/ -> repo root
 APP_DIR="$ROOT/test/testdata/vulnerable-apps/access-lab"
@@ -53,7 +65,11 @@ SEED_PRIOR="${SEED_PRIOR:-0}"
 if [ "$SEED_PRIOR" = "1" ] && [ -z "$SCAN_DB" ]; then
   echo "SEED_PRIOR=1 needs a throwaway DB — set STATELESS=1 (default)"; exit 2
 fi
+if [ "$SEED_PRIOR" = "1" ] && [ "$TRANSPORT" = "rest" ]; then
+  echo "SEED_PRIOR is cli-transport only (it uses --no-prescan --prior-context); not supported with TRANSPORT=rest"; exit 2
+fi
 APP_PID=""
+SERVER_PID=""   # set when TRANSPORT=rest boots a local API server
 MANAGE_APP=0   # 1 = this script starts/stops a local go-run app (access-lab only)
 SCORE=0        # 1 = run the access-lab ground-truth scorecard
 
@@ -118,12 +134,110 @@ INSTRUCTION="${INSTRUCTION:-$DEFAULT_INSTRUCTION}"
 
 cleanup() {
   [ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null || true
+  [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
   if [ "$MANAGE_APP" = "1" ] && [ "${SKIP_APP:-}" != "1" ]; then
     local lp; lp=$(lsof -ti tcp:9899 2>/dev/null || true)
     [ -n "$lp" ] && kill $lp 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
+
+# free_port asks the kernel for a free TCP port (python3), falling back to a
+# fixed high port. Used to bind the local API server under TRANSPORT=rest.
+free_port() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()'
+  else
+    echo 19902
+  fi
+}
+
+# dur_to_secs turns a Go-style duration ("15m", "1h30m", "45s") into seconds,
+# used to size the REST status-poll deadline. Falls back to 900s.
+dur_to_secs() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys,re
+s=sys.argv[1]; parts=re.findall(r"(\d+)([smh])",s); u={"s":1,"m":60,"h":3600}
+print(sum(int(n)*u[x] for n,x in parts) or 900)' "$1" 2>/dev/null || echo 900
+  else
+    echo 900
+  fi
+}
+
+# run_autopilot_rest boots a local `vigolium server`, launches the autopilot run
+# over POST /api/agent/run/autopilot, polls /api/agent/status/:id to a terminal
+# state, mirrors the final status JSON into $SUMMARY_JSON (so the shared UUID +
+# findings + scorecard logic below is transport-agnostic), and best-effort pulls
+# the run's transcript.jsonl artifact. Sets the global RUN_RC.
+run_autopilot_rest() {
+  local port url payload launch status sresp deadline prev
+  port="$(free_port)"
+  url="http://127.0.0.1:${port}"
+
+  local SRV_CMD=( "$VIGOLIUM_BIN" server --no-auth --host 127.0.0.1 --service-port "$port" --no-swagger )
+  [ -n "${SCAN_DB:-}" ] && SRV_CMD+=( --db "$SCAN_DB" )
+  echo "==> booting API server: ${SRV_CMD[*]}"
+  "${SRV_CMD[@]}" >"$OUT_DIR/server.log" 2>&1 &
+  SERVER_PID=$!
+
+  local ok=0
+  for _ in $(seq 1 60); do
+    curl -sf "$url/health" >/dev/null 2>&1 && { ok=1; break; }
+    sleep 0.5
+  done
+  if [ "$ok" != "1" ]; then
+    echo "  API server did not become healthy on $url"; sed 's/^/    /' "$OUT_DIR/server.log" | tail -20
+    RUN_RC=1; return 1
+  fi
+
+  # Body: target as --input, instruction as the prompt, browser on (autopilot's
+  # default), wall-clock cost ceiling as the timeout. Non-streaming: the launch
+  # returns 202 + the run uuid and the pipeline runs in the background.
+  payload="$(TARGET="$TARGET" INSTRUCTION="$INSTRUCTION" DUR="$MAX_DURATION" python3 - <<'PY'
+import json, os
+print(json.dumps({
+  "input":   os.environ["TARGET"],
+  "prompt":  os.environ["INSTRUCTION"],
+  "browser": True,
+  "timeout": os.environ["DUR"],
+  "stream":  False,
+}))
+PY
+)"
+  launch="$(curl -s -X POST "$url/api/agent/run/autopilot" -H 'Content-Type: application/json' -d "$payload")"
+  printf '%s' "$launch" >"$SUMMARY_JSON"
+  UUID="$(printf '%s' "$launch" | grep -oE '[0-9a-fA-F-]{36}' | head -1 || true)"
+  echo "==> launched autopilot over REST: uuid=${UUID:-<none>}"
+  if [ -z "$UUID" ]; then
+    echo "  no agentic_scan_uuid in launch response: $launch"; RUN_RC=1; return 1
+  fi
+
+  # Poll to a terminal state (deadline = timeout + 2min slack for pre-scan/unwind).
+  # The `case` below is the sole terminal-state gate, so the poll just extracts the
+  # raw status value; a non-terminal value (e.g. "queued") simply keeps looping.
+  # Log only on change so a long run doesn't spam one status line per tick.
+  status="running"; prev=""
+  deadline=$(( $(date +%s) + $(dur_to_secs "$MAX_DURATION") + 120 ))
+  while :; do
+    sresp="$(curl -s "$url/api/agent/status/$UUID")"
+    status="$(printf '%s' "$sresp" | grep -oE '"status"[[:space:]]*:[[:space:]]*"[a-z]+"' | head -1 | sed -E 's/.*"([a-z]+)"$/\1/')"
+    [ -n "$status" ] || status=running
+    if [ "$status" != "$prev" ]; then echo "  status: $status (uuid $UUID)"; fi
+    prev="$status"
+    case "$status" in
+      completed|failed|cancelled|stopped|error) printf '%s' "$sresp" >"$SUMMARY_JSON"; break;;
+    esac
+    if [ "$(date +%s)" -ge "$deadline" ]; then echo "  status-poll deadline reached (last=$status)"; break; fi
+    sleep 3
+  done
+
+  # Best-effort: fetch the run's transcript so the format check below can run.
+  curl -sf "$url/api/agent/sessions/$UUID/artifacts/transcript.jsonl" -o "$TRANSCRIPT" 2>/dev/null || true
+
+  RUN_RC=0
+  [ "$status" = "completed" ] || RUN_RC=1
+  return 0
+}
 
 # validate_transcript checks that the emitted transcript.jsonl matches the
 # Pi-compatible olium schema (see test/testdata/agent-transcripts/README.md):
@@ -218,6 +332,7 @@ CMD=( "$VIGOLIUM_BIN" agent autopilot
 printf "%s==================== SETUP ====================%s\n" "$C_HDR" "$C_RST"
 printf "  profile       : %s\n" "$PROFILE"
 printf "  binary        : %s\n" "$VIGOLIUM_BIN"
+printf "  transport     : %s\n" "$([ "$TRANSPORT" = "rest" ] && echo 'rest (boot vigolium server → POST /api/agent/run/autopilot → poll status)' || echo 'cli (vigolium agent autopilot)')"
 printf "  provider      : %s\n" "$PROVIDER"
 printf "  model         : %s   (override MODEL=...)\n" "$MODEL"
 printf "  autopilot_mode: %s\n" "$MODE"
@@ -229,7 +344,13 @@ printf "  seed prior    : %s\n" "$([ "$SEED_PRIOR" = "1" ] && echo 'on — seed 
 printf "  transcript    : %s\n" "$TRANSCRIPT"
 
 printf "%s==================== COMMAND (raw) ====================%s\n" "$C_HDR" "$C_RST"
-printf "%s" "$C_CMD"; printf '%q ' "${CMD[@]}"; printf "%s\n" "$C_RST"
+if [ "$TRANSPORT" = "rest" ]; then
+  printf "%s%s server --no-auth --service-port <free>%s%s\n" "$C_CMD" "$VIGOLIUM_BIN" "$([ -n "${SCAN_DB:-}" ] && echo " --db $SCAN_DB")" "$C_RST"
+  printf "%s  curl -X POST <server>/api/agent/run/autopilot -d '{input,prompt,browser,timeout}'%s\n" "$C_CMD" "$C_RST"
+  printf "%s  curl <server>/api/agent/status/<uuid>   # polled to a terminal state%s\n" "$C_CMD" "$C_RST"
+else
+  printf "%s" "$C_CMD"; printf '%q ' "${CMD[@]}"; printf "%s\n" "$C_RST"
+fi
 
 printf "%s==================== INPUT (what the agent receives) ====================%s\n" "$C_HDR" "$C_RST"
 printf "  --input       : %s%s%s\n" "$C_IN" "$TARGET" "$C_RST"
@@ -270,15 +391,29 @@ fi
 echo "==> running autopilot (see the COMMAND block above) ..."
 SUMMARY_JSON="$OUT_DIR/summary.json"
 STDERR_LOG="$OUT_DIR/autopilot-stderr.log"
-set +e
-# Tee stderr (the --json live stream + our progress lines) to a log so we can
-# assert on it after the run, while still showing it live.
-"${CMD[@]}" >"$SUMMARY_JSON" 2> >(tee "$STDERR_LOG" >&2)
-RUN_RC=$?
-set -e
+: >"$STDERR_LOG"
+RUN_RC=0
+if [ "$TRANSPORT" = "rest" ]; then
+  # Drive the run through the REST API (boots vigolium server, POSTs the run,
+  # polls to completion). run_autopilot_rest sets RUN_RC + $SUMMARY_JSON.
+  set +e
+  run_autopilot_rest
+  set -e
+else
+  set +e
+  # Tee stderr (the --json live stream + our progress lines) to a log so we can
+  # assert on it after the run, while still showing it live.
+  "${CMD[@]}" >"$SUMMARY_JSON" 2> >(tee "$STDERR_LOG" >&2)
+  RUN_RC=$?
+  set -e
+fi
 echo "==> autopilot exit: $RUN_RC"
 
-UUID="$(grep -oE '"agentic_scan_uuid"[: ]+"[^"]+"' "$SUMMARY_JSON" | head -1 | grep -oE '[0-9a-fA-F-]{36}' || true)"
+# The rest transport already parsed UUID from the launch response; only the cli
+# path needs to mine it out of the summary JSON here.
+if [ -z "${UUID:-}" ]; then
+  UUID="$(grep -oE '"agentic_scan_uuid"[: ]+"[^"]+"' "$SUMMARY_JSON" | head -1 | grep -oE '[0-9a-fA-F-]{36}' || true)"
+fi
 echo "==> agentic_scan_uuid: ${UUID:-<none>}"
 
 # Validate the raw transcript format (the whole point of --transcript here).
@@ -351,10 +486,16 @@ echo "Findings JSON: $FINDINGS_JSON"
 echo "Transcript:    $TRANSCRIPT   (rendered replay: $VIGOLIUM_BIN log ${UUID:-<uuid>})"
 
 # Surface a malformed transcript as a non-zero exit even when the run itself
-# succeeded — the format is a contract other tools parse against.
+# succeeded — the format is a contract other tools parse against. Under
+# TRANSPORT=rest the transcript is pulled best-effort from the session-artifact
+# API, so a missing one is a warning rather than a hard failure there.
 if [ "${TRANSCRIPT_OK:-1}" != "1" ]; then
-  echo "==> transcript FORMAT check FAILED"
-  exit 1
+  if [ "$TRANSPORT" = "rest" ]; then
+    echo "==> transcript not retrievable/valid over the REST artifact API (best-effort under TRANSPORT=rest) — continuing"
+  else
+    echo "==> transcript FORMAT check FAILED"
+    exit 1
+  fi
 fi
 
 # Under SEED_PRIOR, the prior-context brief firing is the whole point — fail if

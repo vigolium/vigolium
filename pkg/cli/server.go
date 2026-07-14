@@ -289,6 +289,38 @@ func printServerEndpoints(serviceAddr string, showAPIKeyHint bool) {
 	}
 }
 
+// initServerDatabase opens the results database and creates its schema, returning
+// the live handle and repository on success. It returns (nil, nil) in every
+// degraded case: the connection couldn't be opened, or — crucially — the
+// connection opened but schema creation failed (a locked, read-only, disk-full,
+// or schema-incompatible database). That second case previously returned a
+// non-nil db with a nil repo, which the repo-backed API handlers dereferenced
+// into nil-pointer panics (HTTP 500 on /api/scans, /api/projects, etc.). Folding
+// it into the same no-persistence path keeps the whole server consistently
+// DB-less so those handlers return a clean 503. The caller owns closing a
+// non-nil returned db.
+func initServerDatabase(cfg *config.DatabaseConfig, silent bool) (*database.DB, *database.Repository) {
+	db, err := database.NewDB(cfg)
+	if err != nil {
+		zap.L().Warn("Failed to create database, results won't be persisted", zap.Error(err))
+		return nil, nil
+	}
+	if err := db.CreateSchema(context.Background()); err != nil {
+		zap.L().Error("Failed to create database schema; running without persistence", zap.Error(err))
+		if !silent {
+			fmt.Printf("  %s Database schema init failed: %v (running without persistence)\n",
+				terminal.WarningSymbol(), err)
+		}
+		_ = db.Close()
+		return nil, nil
+	}
+	_ = db.SeedDefaults(context.Background())
+	if !silent {
+		fmt.Printf("  %s Database initialized %s\n", terminal.InfoSymbol(), terminal.Cyan(db.Driver()))
+	}
+	return db, database.NewRepository(db)
+}
+
 func runServerCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 	if serverOpts.BurpBridgeURL != "" {
@@ -350,22 +382,14 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		showAPIKeyHint = len(serverOpts.APIKeys) == 0
 	}
 
-	// Initialize database for storing scan results
-	var repo *database.Repository
-	db, err := database.NewDB(&settings.Database)
-	if err != nil {
-		zap.L().Warn("Failed to create database, results won't be persisted", zap.Error(err))
-	} else {
+	// Initialize database for storing scan results. initServerDatabase collapses a
+	// half-initialized DB (connection opened but schema creation failed) into the
+	// same no-persistence mode as an open failure, so the server never runs with a
+	// live db handle paired with a nil repository — a state every repo-backed API
+	// handler would nil-pointer panic on (HTTP 500 instead of a clean 503).
+	db, repo := initServerDatabase(&settings.Database, globalSilent)
+	if db != nil {
 		defer func() { _ = db.Close() }()
-		if err := db.CreateSchema(context.Background()); err != nil {
-			zap.L().Warn("Failed to create database schema", zap.Error(err))
-		} else {
-			_ = db.SeedDefaults(context.Background())
-			repo = database.NewRepository(db)
-			if !globalSilent {
-				fmt.Printf("  %s Database initialized %s\n", terminal.InfoSymbol(), terminal.Cyan(db.Driver()))
-			}
-		}
 	}
 
 	// Load file-based users for role-based access control.

@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -130,6 +131,46 @@ func getFreePort(t *testing.T) int {
 		t.Fatalf("getFreePort: %v", err)
 	}
 	return port
+}
+
+// terminalRunStatuses are the statuses at which a scan or agent run is finished.
+// Kept in one place so the REST-driven scan/agent tests (both e2e and canary)
+// share the same terminal set.
+var terminalRunStatuses = []string{"completed", "failed", "stopped", "cancelled", "error"}
+
+func isTerminalRunStatus(s string) bool {
+	for _, ts := range terminalRunStatuses {
+		if ts == s {
+			return true
+		}
+	}
+	return false
+}
+
+// waitForTerminalStatus polls get(t, path) every interval until the decoded JSON
+// {status} field is terminal, returning that status. It fails the test if any
+// poll returns HTTP 500 — the nil-repo/wiring regression these REST scan tests
+// guard against. On deadline it returns "" and lets the caller decide whether
+// not settling is fatal: a native scan must reach a terminal state, whereas an
+// agent run may legitimately still be running (slow/absent provider).
+func waitForTerminalStatus(t *testing.T, get func(*testing.T, string) (int, []byte), path string, interval, timeout time.Duration) string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		code, body := get(t, path)
+		if code == http.StatusInternalServerError {
+			t.Fatalf("%s returned HTTP 500 (nil-repo/wiring regression): %s", path, body)
+		}
+		var sv struct {
+			Status string `json:"status"`
+		}
+		_ = json.Unmarshal(body, &sv)
+		if isTerminalRunStatus(sv.Status) {
+			return sv.Status
+		}
+		time.Sleep(interval)
+	}
+	return ""
 }
 
 // ContainerConfig holds configuration for starting a vulnerable app container
