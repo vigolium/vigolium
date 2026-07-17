@@ -1,6 +1,6 @@
 # Scanner Modules Reference
 
-Vigolium ships with **317 scanner modules** — 201 active and 116 passive — covering the OWASP Top 10 and beyond. The full list below is curated; consult `vigolium module ls` for the live registry, since modules are added regularly.
+Vigolium ships with **317 scanner modules** — 201 active and 116 passive — covering the OWASP Top 10 and beyond. The categorized tables below are a curated selection synchronized with the current registry. Run `vigolium module ls` (or call `GET /api/modules`) for all modules and the authoritative live metadata.
 
 ## Severity Scale
 
@@ -26,7 +26,7 @@ Legacy modules that do not set a kind remain findings for compatibility. Candida
 
 ---
 
-## Active Modules (152)
+## Selected Active Modules
 
 Active modules send modified requests to detect vulnerabilities via fuzzing, injection, and behavioral analysis.
 
@@ -34,153 +34,150 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-xss-light-url-params` | XSS Light - URL Parameters | Reflected XSS in URL parameters with POST→GET conversion | High | Firm | `xss`, `injection` |
-| `active-xss-light-path` | XSS Light - Path Injection | Reflected XSS via path manipulation (recursive, cut, append) | High | Firm | `xss`, `injection` |
-| `active-xss-light-param-discovery` | XSS Light - Parameter Discovery | Reflected XSS via echo parameter discovery | High | Firm | `xss`, `injection` |
+| `xss-light-url-params` | XSS Light - URL Parameters | Detects XSS in URL parameters (POST→GET conversion when applicable) | High | Firm | `injection`, `xss`, `light` |
+| `xss-light-path` | XSS Light - Path Injection | Detects XSS via path manipulation (recursive, cut, append) | High | Firm | `injection`, `xss`, `light` |
+| `xss-light-param-discovery` | XSS Light - Parameter Discovery | Detects XSS via echo parameter discovery | High | Firm | `injection`, `xss`, `light` |
 
 ### SQL Injection
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-sqli-error-based` | SQLi Error Based | Error-based SQLi via database error messages (MySQL, PostgreSQL, MSSQL, Oracle, SQLite) | Critical | Certain | `sqli`, `injection` |
-| `active-sqli-boolean-blind` | Blind SQL Injection (Boolean-Based) | Boolean-based blind SQLi via TRUE/FALSE payload pairs with triple verification | High | Certain | `sqli`, `injection` |
+| `sqli-error-based` | SQLi Error Based | Detects SQLi via error messages | Critical | Certain | `injection`, `sqli`, `moderate` |
+| `sqli-boolean-blind` | Blind SQL Injection (Boolean-Based) | Detects boolean-based blind SQL injection vulnerabilities | High | Certain | `injection`, `sqli`, `heavy` |
 
 ### NoSQL Injection
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-nosqli-error-based` | NoSQLi Error Based | NoSQL injection via error messages (MongoDB, CouchDB, Cassandra) | Critical | Certain | `nosqli`, `injection` |
-| `active-nosqli-operator-injection` | NoSQL Operator Injection | MongoDB operator injection (`$ne`, `$gt`, `$regex`, `$where`) for auth bypass | High | Firm | `nosqli`, `injection` |
+| `nosqli-error-based` | NoSQLi Error Based | Detects NoSQL injection via error messages and operator injection | High | Tentative | `injection`, `sqli`, `moderate` |
+| `nosqli-operator-injection` | NoSQL Operator Injection | Detects MongoDB operator injection ($ne, $gt, $regex, $where) for auth bypass and data exfiltration | High | Tentative | `injection`, `sqli`, `moderate` |
 
 ### Template Injection
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-reflected-ssti` | Reflected SSTI | SSTI via math expression evaluation (e.g., `{{7*7}}=49`) | High | Certain | `ssti`, `injection` |
-| `active-ssti-detection` | SSTI Detection | Diff-based SSTI via Boolean Error-Based Blind technique | High | Certain | `ssti`, `injection` |
-| `active-csti-detection` | Client-Side Template Injection | CSTI in AngularJS/Vue.js applications via literal reflection | High | Firm | `ssti`, `injection` |
+| `reflected-ssti` | Reflected SSTI | Detects SSTI via math expression evaluation | High | Certain | `injection`, `ssti`, `moderate` |
+| `ssti-detection` | SSTI Detection | Diff-based SSTI detection via error responses | Info | Certain | `injection`, `ssti`, `moderate` |
+| `csti-detection` | Client-Side Template Injection (CSTI) | Detects client-side template injection in AngularJS/Vue.js applications | Medium | Firm | `angular`, `xss`, `injection`, `ssti`, `moderate` |
 
 ### File Inclusion
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-lfi-generic` | LFI Generic | LFI via path traversal payloads; matches known OS file signatures | Critical | Certain | `lfi`, `injection` |
-| `active-lfi-path-traversal` | LFI Path Traversal | Advanced LFI with null bytes, double encoding, Unicode bypass | High | Firm | `lfi`, `injection` |
+| `lfi-generic` | LFI Generic | Detects LFI via path traversal payloads | Critical | Certain | `lfi`, `injection`, `moderate` |
+| `lfi-path-traversal` | LFI Path Traversal | Detects LFI via advanced path traversal, null bytes, encoding bypass, and multi-marker confirmation | High | Firm | `lfi`, `injection`, `heavy` |
 
 ### Code Execution & Injection
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-code-exec` | Code Execution (RCE) | OS command injection via time-based blind (sleep/delay measurement) | Critical | Certain | `rce`, `injection` |
-| `active-command-injection-echo` | OS Command Injection (Results-Based) | In-band proof: shell evaluates a unique random arithmetic expression echoed back; two rounds + baseline comparison | Critical | Certain | `rce`, `command-injection`, `injection` |
-| `active-command-injection-oast` | OS Command Injection (Out-of-Band) | Blind command injection via nslookup/ping/curl callbacks to a unique OAST domain | Critical | Certain | `rce`, `command-injection`, `oast` |
-| `active-command-injection-timing` | OS Command Injection (Time-Based) | Delay-scaling blind detection: adaptive per-target threshold + sleep(N) vs sleep(2N) scaling over multiple independent rounds; timing-only so Tentative | Critical | Tentative | `rce`, `command-injection`, `injection` |
-| `active-crlf-injection` | CRLF Injection | CRLF injection in HTTP headers via CR/LF character sequences | Medium | Firm | `injection` |
-| `active-xxe-generic` | XXE Generic | XML external entity injection in generic XML endpoints | Critical | Certain | `xxe`, `injection` |
-| `active-insecure-deserialization` | Insecure Deserialization | Error-based detection for Java, PHP, Python, Ruby, and .NET deserialization | High | Firm | `injection` |
-| `active-input-behavior-probe` | Input Behavior Probe | Behavior change detection via header, path, debug param, and char probing | Info | Tentative | `injection` |
+| `code-exec` | Code Execution (RCE) | Detects OS command injection via time-based blind | Critical | Certain | `rce`, `injection`, `heavy` |
+| `command-injection-echo` | OS Command Injection (Results-Based) | Detects OS command injection by making the shell compute a unique arithmetic value echoed back in the response | Critical | Certain | `rce`, `command-injection`, `injection`, `moderate` |
+| `command-injection-oast` | OS Command Injection (Out-of-Band) | Detects blind OS command injection via out-of-band DNS/HTTP callbacks | Critical | Certain | `rce`, `command-injection`, `oast`, `moderate` |
+| `command-injection-timing` | OS Command Injection (Time-Based) | Detects blind OS command injection by confirming the response delay scales with the injected sleep duration | Critical | Tentative | `rce`, `command-injection`, `injection`, `heavy` |
+| `crlf-injection` | CRLF Injection | Detects CRLF injection | Medium | Firm | `crlf`, `injection`, `moderate` |
+| `xxe-generic` | XXE Generic | Detects XML external entity injection in generic XML endpoints | Critical | Certain | `injection`, `xxe`, `moderate` |
+| `insecure-deserialization` | Insecure Deserialization | Detects insecure deserialization via error-based detection | High | Firm | `deserialization`, `rce`, `moderate` |
+| `input-behavior-probe` | Input Behavior Probe | Detects behavior changes from header, path, debug param, and char probing | Info | Tentative | `injection`, `probe`, `moderate` |
 
 ### SSRF & Out-of-Band (OAST)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-ssrf-detection` | SSRF Detection | SSRF via in-band probes (internal IPs, cloud metadata) with response differential | High | Firm | `ssrf`, `injection` |
-| `active-oast-probe` | OAST Probe | Blind vulnerabilities (blind SSRF, blind XXE, blind RCE) via DNS/HTTP callbacks | High | Certain | `ssrf`, `injection` |
-| `active-proxy-pingback` | Proxy Pingback | Open proxy/callback endpoints via OAST URL injection | High | Certain | `ssrf`, `injection` |
+| `ssrf-detection` | SSRF Detection | Detects server-side request forgery via out-of-band and in-band techniques | High | Tentative | `ssrf`, `injection`, `moderate` |
+| `oast-probe` | OAST Probe | Detects blind vulnerabilities via out-of-band callbacks (DNS/HTTP) | High | Certain | `injection`, `ssrf`, `rce`, `heavy` |
+| `proxy-pingback` | Proxy Pingback | Detects open proxy/callback endpoints via OAST URL injection into proxy-related paths | High | Certain | `ssrf`, `misconfiguration`, `moderate` |
 
 ### Misconfiguration
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-cors-misconfiguration` | CORS Misconfiguration | Permissive CORS policies (reflected origins, null origin, wildcard+credentials) | Medium | Firm | `misconfiguration` |
-| `active-spring-actuator-misconfig` | Spring Actuator Misconfiguration | Exposed Spring Boot actuator endpoints leaking env vars, health, config | High | Firm | `misconfiguration` |
-| `active-host-header-injection` | Host Header Injection | Host header injection via value reflection (password reset/cache poisoning) | Medium | Firm | `misconfiguration` |
-| `active-web-cache-poisoning` | Web Cache Poisoning | Cache poisoning via unkeyed header injection (X-Forwarded-Host, X-Forwarded-Scheme) | High | Firm | `misconfiguration` |
+| `cors-misconfiguration` | CORS Misconfiguration | Detects permissive CORS policies allowing unauthorized cross-origin access | Low | Firm | `misconfiguration`, `auth-bypass`, `moderate` |
+| `spring-actuator-misconfig` | Spring Actuator Misconfiguration | Detects exposed Spring Boot actuator endpoints | High | Firm | `spring`, `java`, `misconfiguration`, `info-disclosure`, `light` |
+| `host-header-injection` | Host Header Injection | Detects host header injection and routing manipulation | Medium | Firm | `injection`, `misconfiguration`, `moderate` |
+| `web-cache-poisoning` | Web Cache Poisoning | Detects web cache poisoning via unkeyed header injection | High | Tentative | `cache-poisoning`, `header-security`, `moderate` |
 
 ### Access Control
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-forbidden-bypass` | 403/401 Forbidden Bypass | Bypass via path manipulation, header injection, method tampering | Medium | Firm | `auth-bypass` |
-| `active-http-method-tampering` | HTTP Method Tampering | Unexpectedly enabled HTTP methods (PUT, DELETE, PATCH) and overrides | Medium | Firm | `auth-bypass` |
-| `active-csrf-verify` | CSRF Token Verification | Verifies CSRF token enforcement by removing, emptying, or randomizing tokens | High | Firm | `auth-bypass` |
-| `active-idor-detection` | IDOR Detection | Missing authorization on object ID parameters via neighbor ID probing | High | Tentative | `auth-bypass` |
-| `active-mass-assignment` | Mass Assignment | Mass assignment via injecting privilege keys into JSON APIs | High | Firm | `auth-bypass` |
-| `active-open-redirect` | Open Redirect | Open redirect via injected external URL in Location/meta refresh | Medium | Firm | `auth-bypass` |
+| `forbidden-bypass` | 403/401 Forbidden Bypass | Detects bypass methods for 403/401 Forbidden responses | Medium | Firm | `auth-bypass`, `probe`, `moderate` |
+| `http-method-tampering` | HTTP Method Tampering | Observes declared write methods and safely confirms OPTIONS override capability | Info | Firm | `misconfiguration`, `auth-bypass`, `moderate` |
+| `csrf-verify` | CSRF Token Verification | Verifies CSRF token enforcement by removing, emptying, or randomizing tokens | High | Firm | `csrf`, `audit`, `moderate` |
+| `idor-detection` | IDOR Detection | Detects missing authorization on object ID parameters (IDOR/BOLA) | High | Tentative | `idor`, `auth-bypass`, `moderate` |
+| `mass-assignment` | Mass Assignment | Detects mass assignment / parameter pollution in JSON APIs | High | Firm | `injection`, `api`, `moderate` |
+| `open-redirect` | Open Redirect | Detects open redirect vulnerabilities | Medium | Firm | `open-redirect`, `moderate` |
 
 ### Path Analysis
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-path-normalization` | Path Normalization | Path normalization vulnerabilities via traversal payloads against middleware/reverse proxy | High | Firm | `misconfiguration` |
-| `active-nginx-off-by-slash` | Nginx Off-by-Slash | Nginx alias traversal via missing trailing slash | High | Tentative | `misconfiguration` |
-| `active-nginx-path-escape` | Nginx Path Escape Detection | Diff-based detection for alias traversal, URL encoding bypass, semicolon injection | Info | Tentative | `misconfiguration` |
+| `path-normalization` | Path Normalization | Detects path normalization vulnerabilities | High | Firm | `misconfiguration`, `lfi`, `traversal`, `moderate` |
+| `nginx-off-by-slash` | Nginx Off-by-Slash | Detects Nginx alias traversal via missing trailing slash | High | Tentative | `nginx`, `misconfiguration`, `lfi`, `moderate` |
+| `nginx-path-escape` | Nginx Path Escape Detection | Diff-based Nginx path escape detection (alias traversal, encoding bypass, semicolon injection) | Info | Tentative | `nginx`, `misconfiguration`, `moderate` |
 
 ### Differential & Behavior Detection
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-smart-behavior-detection` | Smart Behavior Detection | Diff-based injection detection via true/false behavioral payload pairs | Info | Tentative | `detection` |
-| `active-suspect-transform` | Suspect Transform Detection | Expression evaluation, quote consumption, and unicode normalizations | Suspect | Firm | `detection` |
-| `active-backslash-transformation` | Backslash Transformation | Escape sequence interpretation, backslash consumption, character handling | Suspect | Firm | `detection` |
+| `smart-behavior-detection` | Smart Behavior Detection | Diff-based injection detection via behavioral analysis | Info | Tentative | `behavior-analysis`, `injection`, `moderate` |
+| `suspect-transform` | Suspect Transform Detection | Detects expression evaluation, quote consumption, unicode transformations | Suspect | Firm | `behavior-analysis`, `injection`, `moderate` |
+| `backslash-transformation` | Backslash Transformation Detection | Detects escape sequence interpretation, backslash consumption, character handling | Suspect | Firm | `injection`, `probe`, `moderate` |
 
 ### Prototype Pollution
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-prototype-pollution` | Prototype Pollution | Server-side prototype pollution via `__proto__` and `constructor.prototype` JSON injection | High | Firm | `javascript`, `injection` |
-| `active-client-prototype-pollution` | Client-Side Prototype Pollution | Client-side prototype pollution via JavaScript static analysis (source + gadget patterns) | High | Firm | `javascript`, `injection` |
+| `prototype-pollution` | Prototype Pollution | Detects server-side prototype pollution via JSON injection | High | Firm | `prototype-pollution`, `injection`, `javascript`, `moderate` |
+| `client-prototype-pollution` | Client-Side Prototype Pollution | Detects client-side prototype pollution via JavaScript static analysis | Medium | Tentative | `prototype-pollution`, `xss`, `light` |
 
 ### Race Conditions
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-race-interference` | Race Interference Detection | Race conditions via parallel request analysis (input storage, cross-contamination, TOCTOU) | High | Firm | `injection` |
+| `race-interference` | Race Interference Detection | Detects input storage, cross-contamination, and request interference races | Medium | Firm | `race-condition`, `heavy` |
 
 ### XML, JWT & HTTP Protocol
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-xml-saml-security` | XML SAML Security | XXE and DTD injection in SAML XML processing | High | Firm | `injection` |
-| `active-jwt-vulnerability` | JWT Vulnerability | JWT algorithm confusion (`none` algorithm, empty signature, RS256→HS256) | Critical | Certain | `injection` |
-| `active-http-request-smuggling` | HTTP Request Smuggling | CL.TE and TE.CL desync via conflicting Content-Length and Transfer-Encoding | High | Firm | `injection` |
+| `xml-saml-security` | XML SAML Security | SAML XML security checks (XXE + signature verification) | High | Firm | `injection`, `xxe`, `authentication`, `auth-bypass`, `moderate` |
+| `jwt-vulnerability` | JWT Vulnerability | Detects JWT algorithm confusion and weak signing vulnerabilities | Critical | Certain | `jwt`, `auth-bypass`, `moderate` |
+| `http-request-smuggling` | HTTP Request Smuggling | Detects HTTP request smuggling via CL.TE and TE.CL desync | Suspect | Tentative | `request-smuggling`, `heavy` |
 
 ### API & Endpoint Security
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-graphql-scan` | GraphQL Security Scanner | GraphQL introspection, SQL injection, and query batching abuse | Medium | Certain | `api`, `injection` |
-| `active-file-upload-scan` | File Upload Scanner | File upload bypass (extension, null byte, magic bytes, SVG XXE, HTML XSS) | High | Certain | `injection` |
-| `active-default-credentials` | Default Credentials | Login endpoints tested with common credential pairs; CAPTCHA/lockout aware | High | Certain | `auth-bypass` |
-| `active-sensitive-file-discovery` | Sensitive File Discovery | ~25 marker-based sensitive files and ~1,350 generic paths (.env, .git, logs) | Medium | Tentative | `info-disclosure` |
-| `active-jsonp-callback` | JSONP Callback Injection | JSONP endpoints via callback injection enabling cross-origin data theft | Medium | Firm | `injection` |
+| `graphql-scan` | GraphQL Security Scanner | Tests GraphQL endpoints for introspection, injection, and batching vulnerabilities | Medium | Certain | `graphql`, `injection`, `info-disclosure`, `idor`, `bola`, `xss`, `dos`, `batching`, `console`, `moderate` |
+| `file-upload-scan` | File Upload Scanner | Tests for arbitrary file upload and execution vulnerabilities | High | Certain | `rce`, `injection`, `heavy` |
+| `default-credentials` | Default Credentials | Tests for default or common credential pairs on login endpoints | High | Certain | `auth-bypass`, `probe`, `moderate` |
+| `sensitive-file-discovery` | Sensitive File Discovery | Probes for exposed sensitive files (.env, .git/config, dot files, log files, and more) | Medium | Tentative | `file-exposure`, `info-disclosure`, `moderate` |
+| `jsonp-callback` | JSONP Callback Injection | Detects JSONP endpoints that allow cross-origin data theft via callback injection | Medium | Firm | `xss`, `info-disclosure`, `moderate` |
 
 ### Proxy & Utility
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-proxy` | Proxy | Replay all requests through configured proxy | Info | Firm | `utility`, `light` |
-| `active-proxy-header-trust` | Proxy Header Trust | Cross-framework proxy header trust issues via X-Forwarded-* manipulation | High | Firm | `misconfiguration`, `moderate` |
-| `active-api-rate-limit-bypass` | API Rate Limit Bypass | Rate limiting bypass via IP spoofing headers | Medium | Firm | `auth-bypass`, `moderate` |
-| `ws-cswsh` | WebSocket CSWSH | Origin-policy observations and credential-controlled cross-site WebSocket hijacking checks | Medium | Firm | `csrf`, `session`, `moderate` |
-| `active-swagger-disclose` | Swagger Disclosure | Exposed Swagger/OpenAPI documentation | Medium | Firm | `api`, `info-disclosure`, `light` |
-| `active-backup-file-discovery` | Backup File Discovery | Exposed backup archives derived from hostname and year variants | Medium | Tentative | `sensitive-file`, `moderate` |
-| `active-angular-template-injection` | Angular Template Injection | Angular template injection via expression evaluation | High | Firm | `angular`, `injection`, `ssti` |
+| `proxy-header-trust` | Proxy Header Trust | Cross-framework detection of proxy header trust issues via X-Forwarded-* header manipulation | High | Firm | `misconfiguration`, `header-security`, `moderate` |
+| `api-rate-limit-bypass` | API Rate Limit Bypass | Detects rate limiting bypass via IP spoofing headers | Medium | Firm | `auth-bypass`, `probe`, `moderate` |
+| `ws-cswsh` | WebSocket CSWSH | Tests for Cross-Site WebSocket Hijacking via insufficient origin validation | Medium | Firm | `csrf`, `session`, `moderate` |
+| `swagger-exposure` | Exposed API Documentation | Detects publicly exposed Swagger/OpenAPI/Redoc documentation routes | Low | Firm | `api`, `discovery`, `swagger`, `openapi`, `exposure`, `info-leak`, `light` |
+| `backup-file-discovery` | Backup File Discovery | Probes for exposed backup archives derived from hostname, common names, and year variants | Medium | Tentative | `sensitive-file`, `info-disclosure`, `moderate` |
+| `angular-template-injection` | Angular Template Injection | Detects Angular template injection via expression evaluation | High | Firm | `angular`, `injection`, `ssti`, `moderate` |
 
 ### SQL Injection (Time-Based)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-sqli-time-based-header` | SQLi Time Based - Header | Time-based SQL injection in HTTP headers | Critical | Certain | `injection`, `sqli`, `heavy` |
-| `active-sqli-time-based-params` | SQLi Time Based - Params | Time-based SQL injection in parameters | Critical | Certain | `injection`, `sqli`, `heavy` |
-| `active-sqli-time-blind` | Blind SQL Injection (Time-Based) | Time-based blind SQL injection | High | Firm | `injection`, `sqli`, `heavy` |
+| `sqli-time-blind` | Blind SQL Injection (Time-Based) | Detects time-based blind SQL injection vulnerabilities | Suspect | Tentative | `injection`, `sqli`, `heavy` |
 
 ### SSRF & SSTI (Blind)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-ssrf-blind` | Blind SSRF Detection | Blind SSRF via OAST callbacks | High | Firm | `ssrf`, `injection`, `heavy` |
-| `active-ssti-blind` | Blind SSTI | Blind SSTI via OAST callbacks and time-delay payloads | Critical | Firm | `injection`, `ssti`, `heavy` |
+| `ssrf-blind` | Blind SSRF Detection | Detects blind server-side request forgery via OAST callbacks | High | Firm | `ssrf`, `injection`, `heavy` |
+| `ssti-blind` | Blind Server-Side Template Injection (SSTI) | Detects blind SSTI via OAST callbacks and time-delay payloads | Critical | Firm | `injection`, `ssti`, `heavy` |
 
 ### Framework Security
 
@@ -188,125 +185,125 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-nextjs-data-leakage` | Next.js Data Route Leakage | Unauthorized access to `/_next/data/<buildId>/<path>.json` | High | Firm | `nextjs`, `javascript` |
-| `active-nextjs-middleware-bypass` | Next.js Middleware Bypass | CVE-2025-29927 and path normalization bypasses | Critical | Firm | `nextjs`, `javascript` |
-| `active-nextjs-image-ssrf` | Next.js Image Optimizer SSRF | SSRF via `/_next/image` with OAST and in-band probes | High | Firm | `nextjs`, `javascript` |
-| `active-nextjs-draft-mode-exposure` | Next.js Draft Mode Exposure | Insecure or unprotected Draft/Preview Mode endpoints | High | Firm | `nextjs`, `javascript` |
-| `nextjs-version-audit` | Next.js Version Audit | Fingerprints Next.js version and maps to known CVE advisories | High | Firm | `nextjs`, `javascript`, `fingerprint` |
-| `active-js-devserver-exposure` | JS Dev Server Exposure | Exposed webpack HMR, Vite, Nuxt, Remix dev server endpoints | Medium | Firm | `javascript` |
+| `nextjs-data-leakage` | Next.js Data Route Leakage | Detects unauthorized access to Next.js data routes on auth-protected pages | High | Firm | `nextjs`, `javascript`, `authentication`, `info-disclosure`, `light` |
+| `nextjs-middleware-bypass` | Next.js Middleware Bypass | Detects Next.js middleware authentication bypass via header injection and path manipulation | Critical | Firm | `nextjs`, `javascript`, `authentication`, `moderate` |
+| `nextjs-image-ssrf` | Next.js Image Optimizer SSRF | Detects SSRF via the Next.js image optimization endpoint | High | Firm | `nextjs`, `javascript`, `ssrf`, `moderate` |
+| `nextjs-draft-mode-exposure` | Next.js Draft Mode Exposure | Detects insecure or unprotected Next.js Draft/Preview Mode endpoints | High | Firm | `nextjs`, `javascript`, `misconfiguration`, `light` |
+| `nextjs-version-audit` | Next.js Version Audit | Fingerprints Next.js version and maps to known CVE advisories | High | Firm | `nextjs`, `javascript`, `fingerprint`, `light` |
+| `js-devserver-exposure` | JS Dev Server Exposure | Detects exposed JavaScript development server endpoints (webpack HMR, Vite, Nuxt) | Medium | Firm | `nextjs`, `nuxt`, `misconfiguration`, `info-disclosure`, `light` |
 
 #### Spring / Java
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-spring-actuator-misconfig` | Spring Actuator Misconfiguration | Exposed Spring Boot actuator endpoints | High | Firm | `spring`, `java` |
-| `active-spring-boot-admin-exposure` | Spring Boot Admin Exposure | Exposed Spring Boot Admin dashboards | High | Firm | `spring`, `java` |
-| `active-spring-cloud-config-exposure` | Spring Cloud Config Exposure | Exposed Config Server endpoints leaking secrets | Critical | Firm | `spring`, `java` |
-| `active-spring-data-rest-exposure` | Spring Data REST Exposure | Auto-exposed repository endpoints with HAL/HATEOAS | Medium | Firm | `spring`, `java` |
-| `active-spring-debug-exposure` | Spring Debug Exposure | Debug endpoints, Whitelabel errors, stack traces | Medium | Firm | `spring`, `java` |
-| `active-spring-gateway-exposure` | Spring Gateway Exposure | Exposed Cloud Gateway actuator revealing routes | High | Firm | `spring`, `java` |
-| `active-spring-h2-console-exposure` | Spring H2 Console Exposure | Exposed H2 database web consoles | Critical | Firm | `spring`, `java`, `rce` |
-| `active-spring-jolokia-exposure` | Spring Jolokia Exposure | Exposed Jolokia JMX endpoints | High | Firm | `spring`, `java` |
-| `active-java-appserver-console` | Java App Server Console | Exposed admin consoles (WildFly, WebLogic, GlassFish) | High | Firm | `java`, `tomcat` |
-| `active-java-sensitive-files` | Java Sensitive Files | Java config files, WEB-INF, META-INF, build artifacts | Medium | Tentative | `java`, `sensitive-file` |
-| `active-tomcat-manager-exposure` | Tomcat Manager Exposure | Exposed Tomcat Manager and Host Manager interfaces | High | Firm | `tomcat`, `java` |
+| `spring-actuator-misconfig` | Spring Actuator Misconfiguration | Detects exposed Spring Boot actuator endpoints | High | Firm | `spring`, `java`, `misconfiguration`, `info-disclosure`, `light` |
+| `spring-boot-admin-exposure` | Spring Boot Admin Exposure | Detects exposed Spring Boot Admin dashboards providing centralized access to actuator data | High | Firm | `spring`, `java`, `misconfiguration`, `info-disclosure`, `light` |
+| `spring-cloud-config-exposure` | Spring Cloud Config Exposure | Detects exposed Spring Cloud Config Server endpoints leaking application configuration and secrets | Critical | Firm | `spring`, `java`, `misconfiguration`, `info-disclosure`, `light` |
+| `spring-data-rest-exposure` | Spring Data REST Exposure | Detects auto-exposed Spring Data REST repository endpoints with HAL/HATEOAS discovery | Medium | Firm | `spring`, `java`, `api`, `info-disclosure`, `light` |
+| `spring-debug-exposure` | Spring Debug Exposure | Detects Spring Boot debug endpoints, Whitelabel error pages, and verbose stack trace disclosure | Medium | Firm | `spring`, `java`, `misconfiguration`, `info-disclosure`, `light` |
+| `spring-gateway-exposure` | Spring Gateway Exposure | Detects exposed Spring Cloud Gateway actuator endpoints revealing routes and filters | High | Firm | `spring`, `java`, `misconfiguration`, `info-disclosure`, `light` |
+| `spring-h2-console-exposure` | Spring H2 Console Exposure | Detects exposed H2 database web consoles commonly left enabled in Spring Boot applications | Medium | Firm | `spring`, `java`, `misconfiguration`, `rce`, `light` |
+| `spring-jolokia-exposure` | Spring Jolokia Exposure | Detects exposed Jolokia JMX endpoints providing HTTP access to Java Management Extensions | High | Firm | `spring`, `java`, `misconfiguration`, `info-disclosure`, `light` |
+| `java-appserver-console` | Java App Server Console | Detects exposed admin consoles for WildFly/JBoss, WebLogic, and GlassFish/Payara | High | Firm | `java`, `tomcat`, `info-disclosure`, `probe`, `light` |
+| `java-sensitive-files` | Java Sensitive Files | Detects Java-specific sensitive files: application configs, WEB-INF, META-INF, and build artifacts | Medium | Tentative | `java`, `sensitive-file`, `probe`, `light` |
+| `tomcat-manager-exposure` | Tomcat Manager Exposure | Detects exposed Apache Tomcat Manager and Host Manager interfaces | High | Firm | `tomcat`, `java`, `misconfiguration`, `authentication`, `light` |
 
 #### Django / Flask / FastAPI (Python)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `django-admin-exposure` | Django Admin Exposure | Exposed Django admin panel and login page | Medium | Firm | `django`, `python` |
-| `django-browsable-api-exposure` | Django Browsable API Exposure | DRF browsable API detected via Accept header | Low | Firm | `django`, `python` |
-| `django-debug-exposure` | Django Debug Exposure | Django DEBUG=True information disclosure | High | Firm | `django`, `python` |
-| `django-debug-toolbar-exposure` | Django Debug Toolbar Exposure | Exposed django-debug-toolbar panels | High | Firm | `django`, `python` |
-| `flask-werkzeug-debugger` | Flask Werkzeug Debugger | Exposed Werkzeug interactive debugger (RCE) | Critical | Certain | `flask`, `python`, `rce` |
-| `fastapi-docs-exposure` | FastAPI Docs Exposure | Exposed FastAPI interactive API documentation | Low | Firm | `fastapi`, `python` |
-| `fastapi-auth-inconsistency` | FastAPI Auth Inconsistency | Unprotected operations found via OpenAPI schema | Medium | Firm | `fastapi`, `python` |
+| `django-admin-exposure` | Django Admin Exposure | Probes for exposed Django admin panel and login page | Low | Firm | `django`, `python`, `info-disclosure`, `probe`, `light` |
+| `django-browsable-api-exposure` | Django Browsable API Exposure | Detects DRF browsable API by requesting endpoints with Accept: text/html | Info | Firm | `django`, `python`, `info-disclosure`, `probe`, `light` |
+| `django-debug-exposure` | Django Debug Exposure | Triggers errors to detect Django DEBUG=True information disclosure | High | Firm | `django`, `python`, `misconfiguration`, `info-disclosure`, `moderate` |
+| `django-debug-toolbar-exposure` | Django Debug Toolbar Exposure | Detects exposed django-debug-toolbar panels and render endpoints | High | Firm | `django`, `python`, `misconfiguration`, `info-disclosure`, `light` |
+| `flask-werkzeug-debugger` | Flask Werkzeug Debugger | Detects exposed Werkzeug interactive debugger enabling remote code execution | Critical | Certain | `flask`, `python`, `rce`, `misconfiguration`, `light` |
+| `fastapi-docs-exposure` | FastAPI Docs Exposure | Probes for exposed FastAPI interactive API documentation endpoints | Info | Firm | `fastapi`, `python`, `info-disclosure`, `probe`, `light` |
+| `fastapi-auth-inconsistency` | FastAPI Auth Inconsistency | Fetches OpenAPI schema and finds unprotected operations | Medium | Firm | `fastapi`, `python`, `auth-bypass`, `audit`, `moderate` |
 
 #### Laravel / Symfony / PHP
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-laravel-admin-exposure` | Laravel Admin Exposure | Exposed admin panels, API docs, GraphQL endpoints | High | Firm | `laravel`, `php` |
-| `active-laravel-devtool-exposure` | Laravel Developer Tool Exposure | Exposed Web Tinker, Clockwork, Pulse, Log Viewer | High | Firm | `laravel`, `php` |
-| `active-laravel-ignition-rce` | Laravel Ignition RCE | CVE-2021-3129 RCE via exposed Ignition endpoints | Critical | Firm | `laravel`, `php`, `rce` |
-| `active-laravel-misconfig` | Laravel Misconfiguration | Debug mode, exposed debugbar, application logs | High | Firm | `laravel`, `php` |
-| `active-laravel-sensitive-files` | Laravel Sensitive Files | PHPUnit config, SQLite DB, storage internals | Medium | Tentative | `laravel`, `php` |
-| `active-symfony-misconfig` | Symfony Misconfiguration | Exposed profiler, debug toolbar, dev front controller | High | Firm | `symfony`, `php` |
-| `active-php-composer-exposure` | PHP Composer Exposure | Exposed Composer manifests, vendor directory | High | Firm | `php` |
-| `active-php-debug-exposure` | PHP Debug Exposure | Exposed phpinfo, PHP-FPM status, phpMyAdmin | Medium | Firm | `php` |
-| `active-php-framework-debug` | PHP Framework Debug Exposure | Debug endpoints for Yii, CodeIgniter, CakePHP | Medium | Firm | `php` |
-| `active-php-path-info-misconfig` | PHP PATH_INFO Misconfiguration | cgi.fix_pathinfo routing ambiguity | Medium | Firm | `php` |
-| `active-php-source-disclosure` | PHP Source Disclosure | PHP source code via .phps handlers | High | Firm | `php` |
+| `laravel-admin-exposure` | Laravel Admin Exposure | Detects unauthenticated access to Laravel admin panels, API documentation, and GraphQL endpoints | High | Tentative | `laravel`, `php`, `info-disclosure`, `probe`, `light` |
+| `laravel-devtool-exposure` | Laravel Developer Tool Exposure | Detects exposed Laravel developer tools: Web Tinker, Clockwork, Pulse, and Log Viewer | High | Firm | `laravel`, `php`, `misconfiguration`, `info-disclosure`, `light` |
+| `laravel-ignition-rce` | Laravel Ignition RCE | Detects exposed Ignition endpoints and flags CVE-2021-3129 RCE candidates | Critical | Firm | `laravel`, `php`, `rce`, `light` |
+| `laravel-misconfig` | Laravel Misconfiguration | Detects Laravel debug mode, exposed debugbar, application logs, and configuration leaks | High | Firm | `laravel`, `php`, `misconfiguration`, `info-disclosure`, `moderate` |
+| `laravel-sensitive-files` | Laravel Sensitive Files | Detects Laravel-specific sensitive files: PHPUnit config, SQLite DB, storage internals, eval-stdin, and wrong document root | Medium | Tentative | `laravel`, `php`, `sensitive-file`, `probe`, `light` |
+| `symfony-misconfig` | Symfony Misconfiguration | Detects exposed Symfony profiler, debug toolbar, dev front controller, and configuration leaks | High | Firm | `symfony`, `php`, `misconfiguration`, `info-disclosure`, `light` |
+| `php-composer-exposure` | PHP Composer Exposure | Detects exposed Composer manifests, vendor directory, and PHPUnit dev endpoints | High | Firm | `php`, `file-exposure`, `info-disclosure`, `light` |
+| `php-debug-exposure` | PHP Debug Exposure | Detects exposed phpinfo pages, PHP-FPM status endpoints, and phpMyAdmin instances | Medium | Firm | `php`, `misconfiguration`, `info-disclosure`, `light` |
+| `php-framework-debug` | PHP Framework Debug Exposure | Detects exposed debug endpoints for Yii, CodeIgniter, CakePHP, and other PHP frameworks | Medium | Firm | `php`, `misconfiguration`, `info-disclosure`, `light` |
+| `php-path-info-misconfig` | PHP PATH_INFO Misconfiguration | Detects cgi.fix_pathinfo routing ambiguity allowing script path manipulation | Medium | Firm | `php`, `misconfiguration`, `light` |
+| `php-source-disclosure` | PHP Source Disclosure | Detects PHP source code disclosure via .phps handlers, misconfigured extensions, and static file serving | High | Firm | `php`, `info-disclosure`, `file-exposure`, `light` |
 
 #### Rails (Ruby)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-rails-info-exposure` | Rails Info Exposure | Exposed Rails dev/debug endpoints in production | High | Firm | `rails`, `ruby` |
-| `active-rails-admin-dashboard` | Rails Admin Dashboard | Exposed Rails ecosystem admin panels | High | Firm | `rails`, `ruby` |
-| `active-rails-sensitive-files` | Rails Sensitive Files | Exposed Rails config, credentials, artifacts | Medium | Tentative | `rails`, `ruby` |
-| `active-rails-action-mailbox-probe` | Rails Action Mailbox Probe | Exposed Action Mailbox ingress endpoints | Medium | Firm | `rails`, `ruby` |
-| `active-rails-active-storage-probe` | Rails Active Storage Probe | Exposed Active Storage direct upload endpoints | Medium | Firm | `rails`, `ruby` |
+| `rails-info-exposure` | Rails Info Exposure | Detects exposed Rails development and debug endpoints in production | High | Firm | `rails`, `ruby`, `info-disclosure`, `misconfiguration`, `light` |
+| `rails-admin-dashboard` | Rails Admin Dashboard | Detects exposed Rails ecosystem admin panels and dashboard UIs | High | Firm | `rails`, `ruby`, `misconfiguration`, `info-disclosure`, `light` |
+| `rails-sensitive-files` | Rails Sensitive Files | Detects exposed Rails configuration files, credentials, and artifacts | Medium | Tentative | `rails`, `ruby`, `file-exposure`, `info-disclosure`, `light` |
+| `rails-action-mailbox-probe` | Rails Action Mailbox Probe | Detects exposed Rails Action Mailbox ingress endpoints that may accept unauthorized submissions | Medium | Firm | `rails`, `ruby`, `misconfiguration`, `light` |
+| `rails-active-storage-probe` | Rails Active Storage Probe | Detects exposed Rails Active Storage direct upload and Action Mailbox ingress endpoints | Medium | Tentative | `rails`, `ruby`, `misconfiguration`, `file-exposure`, `light` |
 
 #### Express (Node.js)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-express-debug-probe` | Express Debug Probe | Stack trace and debug info leakage | Low | Firm | `express`, `javascript` |
-| `active-express-directory-listing` | Express Directory Listing | Directory listing via serve-index middleware | Low | Firm | `express`, `javascript` |
-| `active-express-trust-proxy-misconfig` | Express Trust Proxy Misconfiguration | Trust proxy misconfiguration via X-Forwarded-* | Medium | Firm | `express`, `javascript` |
+| `express-debug-probe` | Express Debug Probe | Triggers error responses in Express/NestJS apps to detect stack trace and debug info leakage | Low | Firm | `express`, `misconfiguration`, `info-disclosure`, `moderate` |
+| `express-directory-listing` | Express Directory Listing | Detects directory listing exposure via serve-index or similar middleware | Low | Firm | `express`, `info-disclosure`, `misconfiguration`, `light` |
+| `express-trust-proxy-misconfig` | Express Trust Proxy Misconfiguration | Detects Express trust proxy misconfiguration via X-Forwarded-* header manipulation | Medium | Firm | `express`, `misconfiguration`, `moderate` |
 
 #### ASP.NET / IIS
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-aspnet-blazor-exposure` | ASP.NET Blazor Exposure | Exposed Blazor WebAssembly assemblies and Server endpoints | Medium | Firm | `aspnet` |
-| `active-aspnet-health-exposure` | ASP.NET Health Endpoint Exposure | Exposed health checks, monitoring dashboards, metrics | Medium | Firm | `aspnet` |
-| `active-aspnet-identity-probe` | ASP.NET Identity Probe | Exposed Identity endpoints and IdentityServer | Medium | Firm | `aspnet` |
-| `active-aspnet-misconfig` | ASP.NET Misconfiguration | Exposed diagnostics, debug endpoints, verbose errors | High | Firm | `aspnet` |
-| `active-aspnet-sensitive-files` | ASP.NET Sensitive Files | Exposed config files, backups, sensitive directories | Medium | Tentative | `aspnet` |
-| `active-aspnet-service-exposure` | ASP.NET Service Exposure | Exposed ASMX, WCF, OData, legacy service paths | Medium | Firm | `aspnet` |
-| `active-aspnet-viewstate-scan` | ASP.NET ViewState Scan | ViewState MAC disabled, event validation bypass | High | Firm | `aspnet` |
-| `active-iis-shortname-discovery` | IIS Short Filename Discovery | IIS 8.3 short filename enumeration via tilde oracle | Medium | Certain | `aspnet` |
+| `aspnet-blazor-exposure` | ASP.NET Blazor Exposure | Detects exposed Blazor WebAssembly assemblies and Blazor Server endpoints | Medium | Firm | `aspnet`, `info-disclosure`, `probe`, `light` |
+| `aspnet-health-exposure` | ASP.NET Health Endpoint Exposure | Detects exposed ASP.NET health checks, monitoring dashboards, and metrics endpoints | Medium | Firm | `aspnet`, `info-disclosure`, `probe`, `light` |
+| `aspnet-identity-probe` | ASP.NET Identity Probe | Detects exposed ASP.NET Identity endpoints, IdentityServer discovery, and authentication misconfigurations | Medium | Firm | `aspnet`, `auth-bypass`, `probe`, `moderate` |
+| `aspnet-misconfig` | ASP.NET Misconfiguration | Detects ASP.NET/IIS misconfigurations including exposed diagnostics, debug endpoints, and verbose errors | High | Firm | `aspnet`, `misconfiguration`, `info-disclosure`, `light` |
+| `aspnet-sensitive-files` | ASP.NET Sensitive Files | Probes for exposed ASP.NET configuration files, backups, and sensitive directories | Medium | Tentative | `aspnet`, `sensitive-file`, `probe`, `light` |
+| `aspnet-service-exposure` | ASP.NET Service Exposure | Detects exposed ASP.NET service endpoints including ASMX, WCF, OData, and legacy service paths | Medium | Firm | `aspnet`, `info-disclosure`, `probe`, `light` |
+| `aspnet-viewstate-scan` | ASP.NET ViewState Scan | Tests for ASP.NET ViewState MAC disabled, event validation bypass, and cookieless sessions | High | Firm | `aspnet`, `misconfiguration`, `moderate` |
+| `iis-shortname-discovery` | IIS Short Filename Discovery | Enumerates IIS 8.3 short filenames via tilde-based oracle (per-host) | Medium | Certain | `iis`, `aspnet`, `info-disclosure`, `heavy` |
 
 #### Firebase
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-firebase-auth-misconfig` | Firebase Auth Misconfiguration | Firebase Authentication misconfigurations | Medium | Firm | `firebase` |
-| `active-firebase-functions-exposure` | Firebase Functions Exposure | Unauthenticated Cloud Functions | High | Firm | `firebase` |
-| `active-firebase-misconfig` | Firebase Misconfiguration | Exposed Firebase config, security rules, credentials | High | Firm | `firebase` |
-| `active-firebase-rtdb-exposure` | Firebase RTDB Exposure | Publicly readable Realtime Database | Critical | Certain | `firebase` |
-| `active-firebase-storage-exposure` | Firebase Storage Exposure | Publicly accessible Cloud Storage buckets | High | Certain | `firebase`, `cloud` |
+| `firebase-auth-misconfig` | Firebase Auth Misconfiguration | Detects Firebase Authentication misconfigurations via Identity Toolkit probing | Medium | Firm | `firebase`, `misconfiguration`, `auth-bypass`, `moderate` |
+| `firebase-functions-exposure` | Firebase Functions Exposure | Detects unauthenticated Firebase Cloud Functions and verbose error leakage | Medium | Firm | `firebase`, `info-disclosure`, `probe`, `moderate` |
+| `firebase-misconfig` | Firebase Misconfiguration | Detects exposed Firebase configuration, security rules, and credential files | High | Firm | `firebase`, `misconfiguration`, `sensitive-file`, `moderate` |
+| `firebase-rtdb-exposure` | Firebase RTDB Exposure | Detects publicly readable Firebase Realtime Database instances | Medium | Certain | `firebase`, `info-disclosure`, `moderate` |
+| `firebase-storage-exposure` | Firebase Storage Exposure | Detects publicly accessible Firebase Cloud Storage buckets | High | Certain | `firebase`, `cloud`, `info-disclosure`, `moderate` |
 
 #### Cloud Infrastructure
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-cloud-bucket-takeover` | Cloud Bucket Takeover | Dangling cloud storage buckets vulnerable to takeover | High | Firm | `cloud` |
-| `active-cloud-origin-bypass` | Cloud Origin Bypass | Direct access to origins bypassing CDN security | Medium | Firm | `cloud` |
-| `active-cloud-public-read` | Cloud Public Read | Publicly readable sensitive paths on cloud storage | High | Firm | `cloud` |
-| `active-cloud-storage-listing` | Cloud Storage Listing | Publicly listable S3 buckets and Azure containers | High | Certain | `cloud` |
+| `cloud-bucket-takeover` | Cloud Bucket Takeover | Detects dangling cloud storage buckets vulnerable to takeover | High | Firm | `cloud`, `misconfiguration`, `moderate` |
+| `cloud-origin-bypass` | Cloud Origin Bypass | Detects direct access to cloud storage origins bypassing CDN security controls | Medium | Firm | `cloud`, `auth-bypass`, `moderate` |
+| `cloud-public-read` | Cloud Public Read | Detects publicly readable sensitive paths on cloud storage endpoints | High | Firm | `cloud`, `info-disclosure`, `sensitive-file`, `moderate` |
+| `cloud-storage-listing` | Cloud Storage Listing | Detects publicly listable S3 buckets and Azure containers | High | Certain | `cloud`, `info-disclosure`, `light` |
 
 #### CMS (WordPress, Drupal, Joomla, Magento)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `active-wp-misconfig` | WordPress Misconfiguration | Exposed config files, debug logs, dangerous endpoints | High | Firm | `wordpress`, `php` |
-| `active-wp-user-enum` | WordPress User Enumeration | User enumeration via author archives and REST API | Medium | Certain | `wordpress`, `php` |
-| `active-wp-xmlrpc` | WordPress XML-RPC Abuse | XML-RPC multicall brute-force and pingback abuse | Medium | Firm | `wordpress`, `php` |
-| `active-wp-ajax-exposure` | WordPress AJAX Action Exposure | Publicly accessible AJAX actions from plugins | High | Firm | `wordpress`, `php` |
-| `active-drupal-misconfig` | Drupal Misconfiguration | Exposed config files, update scripts, installer | High | Firm | `drupal`, `php` |
-| `active-drupal-user-enum` | Drupal User Enumeration | User enumeration via user profiles and JSON:API | Medium | Certain | `drupal`, `php` |
-| `active-joomla-misconfig` | Joomla Misconfiguration | Exposed config backups, log/temp dirs, debug settings | High | Firm | `joomla`, `php` |
-| `active-joomla-user-enum` | Joomla User Enumeration | User enumeration via registration, API, admin login | Medium | Firm | `joomla`, `php` |
-| `active-magento-misconfig` | Magento Misconfiguration | Exposed setup wizard, downloader, version files | High | Firm | `magento`, `php` |
-| `active-cms-installer-exposure` | CMS Installer Exposure | Exposed WordPress, Drupal, and Joomla install wizards | Critical | Firm | `wordpress`, `drupal`, `joomla` |
+| `wp-misconfig` | WordPress Misconfiguration | Detects exposed WordPress configuration files, debug logs, and dangerous endpoints | High | Firm | `wordpress`, `cms`, `php`, `misconfiguration`, `light` |
+| `wp-user-enum` | WordPress User Enumeration | Detects WordPress user enumeration via author archives and REST API | Info | Certain | `wordpress`, `cms`, `php`, `authentication`, `light` |
+| `wp-xmlrpc` | WordPress XML-RPC Abuse | Detects enabled WordPress XML-RPC with multicall brute-force and pingback abuse potential | Medium | Firm | `wordpress`, `cms`, `php`, `misconfiguration`, `light` |
+| `wp-ajax-exposure` | WordPress AJAX Action Exposure | Detects publicly accessible WordPress AJAX actions from plugins with known vulnerabilities | High | Firm | `wordpress`, `cms`, `php`, `misconfiguration`, `light` |
+| `drupal-misconfig` | Drupal Misconfiguration | Detects exposed Drupal configuration files, update scripts, installer, debug settings, and directory listings | High | Firm | `drupal`, `php`, `misconfiguration`, `info-disclosure`, `moderate` |
+| `drupal-user-enum` | Drupal User Enumeration | Detects Drupal user enumeration via user profile paths and JSON:API | Info | Certain | `drupal`, `php`, `info-disclosure`, `probe`, `moderate` |
+| `joomla-misconfig` | Joomla Misconfiguration | Detects exposed Joomla configuration backups, log/temp directories, backup archives, and debug settings | High | Firm | `joomla`, `php`, `misconfiguration`, `info-disclosure`, `moderate` |
+| `joomla-user-enum` | Joomla User Enumeration | Detects Joomla user enumeration via registration form, API endpoints, and admin login exposure | Info | Firm | `joomla`, `php`, `info-disclosure`, `probe`, `moderate` |
+| `magento-misconfig` | Magento Misconfiguration | Detects exposed Magento setup wizard, downloader, version files, and admin panels | High | Firm | `magento`, `php`, `cms`, `misconfiguration`, `light` |
+| `cms-installer-exposure` | CMS Installer Exposure | Detects exposed CMS installation wizards for WordPress, Drupal, and Joomla | Critical | Firm | `wordpress`, `drupal`, `joomla`, `misconfiguration`, `probe`, `light` |
 
 ---
 
-## Passive Modules (91)
+## Selected Passive Modules
 
 Passive modules analyze existing request/response pairs without sending new traffic.
 
@@ -314,169 +311,169 @@ Passive modules analyze existing request/response pairs without sending new traf
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-dom-xss-detect` | DOM XSS Detect | DOM XSS source-to-sink data flows (location.hash, innerHTML, eval, document.write) | Medium | Firm | `xss` |
+| `dom-xss-detect` | DOM XSS Detect | Detects potential DOM-based XSS patterns in responses | Low | Firm | `xss`, `javascript`, `light` |
 
 ### Authentication & Session
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-auth-headers-detect` | Auth Headers Detect | Authorization headers (Bearer tokens, API keys) in requests | High | Firm | `session`, `auth` |
-| `passive-jwt-weak-secret` | JWT Weak Secret Detection | Offline brute-force of JWT HMAC secrets against ~104K wordlist | High | Firm | `session`, `auth` |
-| `passive-cookie-security-detect` | Cookie Security Detect | Insecure cookie attributes (missing Secure, HttpOnly, SameSite) | Low | Certain | `session`, `auth` |
-| `passive-password-autocomplete-detect` | Password Autocomplete | Password fields without `autocomplete="off"` | Info | Certain | `session`, `auth` |
+| `auth-headers-detect` | Auth Headers Detect | Detects authorization headers in requests | Info | Tentative | `authentication`, `info-disclosure`, `light` |
+| `jwt-weak-secret` | JWT Weak Secret Detection | Detects JWTs with weak HMAC secrets, non-cryptographic signatures, and algorithm confusion | High | Firm | `authentication`, `cryptography`, `session`, `moderate` |
+| `cookie-security-detect` | Cookie Security Detect | Detects insecure cookie attributes in HTTP responses | Low | Certain | `session`, `misconfiguration`, `header-security`, `light` |
+| `password-autocomplete-detect` | Password Autocomplete Detect | Observes likely password fields without current-password or new-password semantics | Info | Certain | `authentication`, `misconfiguration`, `light` |
 
 ### Injection Signals
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-sql-syntax-detect` | SQL Syntax in Request | SQL statements/keywords in HTTP request parameter values | Info | Firm | `injection` |
-| `passive-serialized-object-detect` | Serialized Object Detection | Serialized Java/PHP/.NET/Python objects in request parameters | Medium | Firm | `injection` |
-| `passive-input-reflection-detect` | Input Reflection Detect | Request parameter values reflected verbatim in response bodies | Info | Tentative | `injection` |
-| `passive-base64-data-detect` | Base64 Data Detect | Interesting base64 data (JSON, PHP objects, URLs, Java objects) in requests/responses | Info | Tentative | `injection` |
+| `sql-syntax-detect` | SQL Syntax in Request Detection | Detects SQL syntax in HTTP request parameter values | Info | Firm | `sqli`, `injection`, `light` |
+| `serialized-object-detect` | Serialized Object Detection | Detects serialized Java/PHP/.NET/Python/Ruby/Node.js objects in request parameters (incl. base64-wrapped) | Low | Firm | `deserialization`, `light` |
+| `input-reflection-detect` | Input Reflection Detect | Detects request parameter values reflected in responses | Info | Tentative | `xss`, `injection`, `light` |
+| `base64-data-detect` | Base64 Data Detect | Identifies interesting base64 encoded data like JSON, PHP Object in requests/responses | Info | Tentative | `info-disclosure`, `deserialization`, `light` |
 
 ### Information Disclosure
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-secret-detect` | Secret Detection | Leaked secrets, API keys, and credentials via Kingfisher engine | High | Firm | `info-disclosure` |
-| `passive-info-disclosure-detect` | Info Disclosure Detect | Server versions, internal IPs, stack traces, debug information | Low | Firm | `info-disclosure` |
-| `passive-error-message-detect` | Error Message Detect | Error messages from debug pages, Apache, ASP.NET, Java, PHP, Ruby, Node.js, SQL | Info | Firm | `info-disclosure` |
-| `passive-sourcemap-detect` | Sourcemap Exposure | Exposed JavaScript sourcemaps via SourceMappingURL references | Low | Firm | `info-disclosure` |
-| `passive-sensitive-url-params` | Sensitive URL Params | Passwords, tokens, API keys passed in URL query parameters | Medium | Firm | `info-disclosure` |
-| `passive-content-type-mismatch` | Content Type Mismatch | Content-Type/body mismatches enabling MIME confusion attacks | Low | Firm | `info-disclosure` |
+| `secret-detect` | Secret Detection | Detects leaked secrets and credentials in HTTP responses | High | Firm | `info-disclosure`, `file-exposure`, `light` |
+| `info-disclosure-detect` | Info Disclosure Detect | Detects information disclosure patterns in HTTP responses | Low | Firm | `info-disclosure`, `light` |
+| `error-message-detect` | Error Message Detect | Observes corroborated framework or database errors in error responses | Info | Firm | `info-disclosure`, `light` |
+| `sourcemap-detect` | Sourcemap Exposure Detect | Detects exposed JavaScript sourcemaps in production responses | Low | Firm | `javascript`, `info-disclosure`, `light` |
+| `sensitive-url-params` | Sensitive URL Params | Detects sensitive data in URL query parameters | Medium | Firm | `info-disclosure`, `light` |
+| `content-type-mismatch` | Content Type Mismatch | Detects mismatches between Content-Type header and response body | Low | Firm | `misconfiguration`, `header-security`, `light` |
 
 ### Security Headers & Configuration
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-security-headers-missing` | Security Headers Missing | Missing X-Content-Type-Options, X-Frame-Options, HSTS, CSP, Permissions-Policy; missing/weak Referrer-Policy; cacheable sensitive HTTPS responses | Info | Certain | `header-security` |
-| `passive-mixed-content-detect` | Mixed Content Detect | HTTP resources loaded on HTTPS pages (src, href, action attributes) | Low | Certain | `header-security` |
+| `security-headers-missing` | Security Headers Missing | Detects missing/weak HTTP security headers and cacheable sensitive responses | Info | Certain | `header-security`, `misconfiguration`, `light` |
+| `mixed-content-detect` | Mixed Content Detect | Classifies insecure subresources and HTTP form submissions on HTTPS pages | Low | Certain | `misconfiguration`, `cryptography`, `light` |
 
 ### CORS & Redirect
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-cors-headers-detect` | CORS Headers Detect | Permissive CORS headers (wildcard origin, credentials enabled) | Low | Firm | `cors` |
-| `passive-openredirect-params` | Open Redirect Params | URL parameter names associated with open redirects (redirect, url, next, goto) | Info | Tentative | `cors` |
-| `passive-oauth-facebook-detect` | Facebook OAuth Detect | Facebook OAuth redirect parameters for OAuth flow analysis | Medium | Firm | `cors` |
+| `cors-headers-detect` | CORS Headers Detect | Passively detects permissive CORS headers in responses | Low | Firm | `misconfiguration`, `header-security`, `light` |
+| `openredirect-params` | Open Redirect Params | Detects URL parameters commonly used for open redirects | Info | Tentative | `open-redirect`, `light` |
+| `oauth-facebook-detect` | Facebook OAuth Detect | Detects Facebook OAuth redirect parameters for security analysis | Info | Firm | `authentication`, `session`, `light` |
 
 ### Access Control
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-csrf-detect` | CSRF Detection | State-changing requests (POST/PUT/DELETE/PATCH) missing anti-CSRF protections | Medium | Tentative | `auth-bypass` |
-| `passive-idor-params-detect` | IDOR Parameter Detection | Parameters referencing object identifiers for IDOR/BOLA triage | Info | Tentative | `auth-bypass` |
+| `csrf-detect` | CSRF Detection | Flags state-changing requests missing anti-CSRF protections | Medium | Tentative | `csrf`, `session`, `light` |
+| `idor-params-detect` | IDOR Parameter Detection | Detects parameters that may reference object identifiers (IDOR/BOLA triage) | Info | Tentative | `idor`, `authentication`, `light` |
 
 ### Cryptography
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-crypto-weakness-detect` | Cryptographic Weakness | PHP magic hashes, weak MD5/SHA1, padding oracle errors, unprotected encrypted cookies | Medium | Tentative | `crypto` |
+| `crypto-weakness-detect` | Cryptographic Weakness Detection | Detects weak cryptographic patterns in HTTP traffic | Medium | Tentative | `cryptography`, `misconfiguration`, `light` |
 
 ### Anomaly Detection
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-anomaly-ranking` | Anomaly Ranking | Statistical anomaly detection across per-host response batches; updates risk_score | Suspect | Tentative | `detection` |
+| `anomaly-ranking` | Anomaly Ranking | Statistical anomaly detection across per-host response batches | Suspect | Tentative | `behavior-analysis`, `light` |
 
 ### JS Framework Security (Runtime Analysis)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-js-framework-fingerprint` | JS Framework Fingerprint | Identifies Next.js, Nuxt, Angular, React, Remix, SvelteKit, Gatsby; extracts buildId | Info | Certain | `javascript` |
-| `passive-ssr-data-exposure` | SSR Data Exposure | Sensitive data in SSR state blobs (`__NEXT_DATA__`, `__NUXT__`, `__INITIAL_STATE__`) | Medium | Firm | `javascript` |
-| `passive-cache-auth-misconfiguration` | Cache-Auth Misconfiguration | Cacheable responses with user-specific data missing Vary headers | Medium | Firm | `javascript` |
-| `passive-server-action-auth` | Server Action Auth Check | Next.js Server Actions with mutation operations but no authorization | High | Tentative | `javascript` |
-| `passive-nextjs-config-audit` | Next.js Config Audit | Insecure Next.js config (dangerouslyAllowSVG, wildcard image domains, prod sourcemaps) | Medium | Firm | `javascript` |
-| `passive-client-auth-guard` | Client Auth Guard Check | Client-only auth guards (useEffect redirects) without server-side enforcement | High | Tentative | `javascript` |
-| `passive-cache-data-leak` | Cache Data Leak | `getStaticProps`/force-static with auth, `unstable_cache` without user-scoped keys | Medium | Tentative | `javascript` |
+| `js-framework-fingerprint` | JS Framework Fingerprint | Identifies JavaScript frameworks (Next.js, Nuxt, Angular, React, Remix, SvelteKit, Gatsby) | Info | Certain | `javascript`, `fingerprint`, `nextjs`, `angular`, `react`, `light` |
+| `ssr-data-exposure` | SSR Data Exposure | Detects sensitive data leaked in server-side rendered state blobs | Medium | Firm | `javascript`, `info-disclosure`, `light` |
+| `cache-auth-misconfiguration` | Cache-Auth Misconfiguration | Detects cacheable responses with user-specific data missing Vary headers | Medium | Tentative | `misconfiguration`, `cache-poisoning`, `session`, `light` |
+| `server-action-auth` | Server Action Auth Check | Detects Next.js Server Actions missing authorization checks | Medium | Tentative | `nextjs`, `javascript`, `authentication`, `light` |
+| `nextjs-config-audit` | Next.js Config Audit | Detects insecure Next.js configuration patterns | Medium | Firm | `nextjs`, `javascript`, `misconfiguration`, `light` |
+| `client-auth-guard` | Client Auth Guard Check | Detects client-only auth guards without server-side enforcement | Info | Tentative | `authentication`, `javascript`, `light` |
+| `cache-data-leak` | Cache Data Leak | Detects cache and static generation patterns that may leak user data | Medium | Tentative | `info-disclosure`, `cache-poisoning`, `light` |
 
 ### JS Framework Security (Source Analysis)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-unsafe-html-sink` | Unsafe HTML Sink | Raw HTML injection sinks: `dangerouslySetInnerHTML`, `v-html`, `{@html}`, `innerHTML` | High | Firm | `javascript` |
-| `passive-insecure-token-storage` | Insecure Token Storage | Auth tokens stored in `localStorage`/`sessionStorage` | Medium | Firm | `javascript` |
-| `passive-env-secret-exposure` | Environment Secret Exposure | Secrets in `NEXT_PUBLIC_`, `VITE_`, `REACT_APP_` public env vars; served `.env` files | High | Firm | `javascript` |
-| `passive-build-misconfig-detect` | Build Misconfiguration | Prod sourcemaps, dev mode in production, SVG XSS risk, broad image `remotePatterns` | High | Firm | `javascript` |
+| `unsafe-html-sink` | Unsafe HTML Sink | Detects raw HTML injection sinks in JS/TS framework code | Low | Firm | `xss`, `javascript`, `light` |
+| `insecure-token-storage` | Insecure Token Storage | Detects auth tokens stored in localStorage/sessionStorage | Medium | Firm | `authentication`, `session`, `javascript`, `light` |
+| `env-secret-exposure` | Environment Secret Exposure | Detects credential-shaped values in public environment variables and served dotenv files | Medium | Tentative | `info-disclosure`, `file-exposure`, `light` |
+| `build-misconfig-detect` | Build Misconfiguration Detect | Detects build and deployment misconfigurations in framework config files | High | Firm | `misconfiguration`, `info-disclosure`, `javascript`, `light` |
 
 ### Framework Fingerprinting
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-aspnet-fingerprint` | ASP.NET Fingerprint | Fingerprints ASP.NET version and configuration | Info | Firm | `aspnet`, `fingerprint` |
-| `passive-aspnet-viewstate-detect` | ASP.NET ViewState Detect | Analyzes ViewState fields for security issues | Medium | Firm | `aspnet` |
-| `passive-django-fingerprint` | Django Fingerprint | Fingerprints Django framework indicators | Info | Firm | `django`, `python`, `fingerprint` |
-| `passive-express-fingerprint` | Express Fingerprint | Fingerprints Express.js indicators | Info | Firm | `express`, `fingerprint` |
-| `passive-fastapi-fingerprint` | FastAPI Fingerprint | Fingerprints FastAPI framework indicators | Info | Firm | `fastapi`, `python`, `fingerprint` |
-| `passive-firebase-fingerprint` | Firebase Fingerprint | Fingerprints Firebase SDK usage and config | Info | Firm | `firebase`, `fingerprint` |
-| `passive-flask-fingerprint` | Flask Fingerprint | Fingerprints Flask framework indicators | Info | Firm | `flask`, `python`, `fingerprint` |
-| `passive-laravel-fingerprint` | Laravel Fingerprint | Fingerprints Laravel framework indicators | Info | Firm | `laravel`, `php`, `fingerprint` |
-| `passive-rails-fingerprint` | Rails Fingerprint | Fingerprints Rails framework indicators | Info | Firm | `rails`, `ruby`, `fingerprint` |
-| `passive-spring-fingerprint` | Spring Fingerprint | Fingerprints Spring Boot indicators | Info | Firm | `spring`, `java`, `fingerprint` |
-| `passive-drupal-fingerprint` | Drupal Fingerprint | Fingerprints Drupal CMS indicators | Info | Firm | `drupal`, `php`, `fingerprint` |
-| `passive-joomla-fingerprint` | Joomla Fingerprint | Fingerprints Joomla CMS indicators | Info | Firm | `joomla`, `php`, `fingerprint` |
-| `passive-wp-fingerprint` | WordPress Fingerprint | Fingerprints WordPress CMS indicators | Info | Firm | `wordpress`, `php`, `fingerprint` |
+| `aspnet-fingerprint` | ASP.NET Fingerprint | Identifies ASP.NET and IIS installations from response headers, cookies, and body patterns | Info | Certain | `aspnet`, `fingerprint`, `light` |
+| `aspnet-viewstate-detect` | ASP.NET ViewState Detect | Detects ASP.NET ViewState issues including missing encryption, CSRF tokens, and large payloads | Low | Firm | `aspnet`, `misconfiguration`, `session`, `light` |
+| `django-fingerprint` | Django Fingerprint | Identifies Django installations from response headers, cookies, and body patterns | Info | Certain | `django`, `python`, `fingerprint`, `light` |
+| `express-fingerprint` | Express/NestJS Fingerprint | Identifies Express.js and NestJS applications via response headers and error body patterns | Info | Certain | `express`, `nodejs`, `fingerprint`, `light` |
+| `fastapi-fingerprint` | FastAPI Fingerprint | Identifies FastAPI/Starlette/Uvicorn installations from response headers, body patterns, and endpoints | Info | Certain | `fastapi`, `python`, `fingerprint`, `light` |
+| `firebase-fingerprint` | Firebase Fingerprint | Identifies Firebase usage and detects leaked Firebase secrets in responses | Info | Certain | `firebase`, `cloud`, `fingerprint`, `light` |
+| `flask-fingerprint` | Flask Fingerprint | Identifies Flask/Werkzeug installations from response headers, cookies, and body patterns | Info | Certain | `flask`, `python`, `fingerprint`, `light` |
+| `laravel-fingerprint` | Laravel Fingerprint | Identifies Laravel installations from response headers, cookies, and body patterns | Info | Certain | `laravel`, `php`, `fingerprint`, `light` |
+| `rails-fingerprint` | Rails Fingerprint | Identifies Ruby on Rails installations from response headers, cookies, and body patterns | Info | Certain | `rails`, `ruby`, `fingerprint`, `light` |
+| `spring-fingerprint` | Spring Fingerprint | Identifies Spring Boot/Spring MVC applications from response headers, cookies, error pages, and body patterns | Info | Certain | `spring`, `java`, `fingerprint`, `light` |
+| `drupal-fingerprint` | Drupal Fingerprint | Identifies Drupal installations and detects core version, major generation (7/8/9/10/11), and contributed modules | Info | Certain | `drupal`, `cms`, `fingerprint`, `light` |
+| `joomla-fingerprint` | Joomla Fingerprint | Identifies Joomla installations and enumerates components, modules, and plugins from asset paths | Info | Certain | `joomla`, `cms`, `fingerprint`, `light` |
+| `wp-fingerprint` | WordPress Fingerprint | Identifies WordPress installations and enumerates core version, plugins, and themes | Info | Certain | `wordpress`, `cms`, `php`, `fingerprint`, `light` |
 
 ### API & Protocol Analysis
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-api-version-detect` | API Version Detection | Detects API versioning patterns in URLs and headers | Info | Firm | `api` |
-| `passive-graphql-introspection-detect` | GraphQL Introspection Detect | Detects enabled GraphQL introspection | Medium | Certain | `api`, `graphql` |
-| `passive-grpc-web-detect` | gRPC-Web Detect | Detects gRPC-Web traffic patterns | Info | Firm | `api` |
-| `passive-endpoint-classifier` | Endpoint Classifier | Classifies endpoint types (API, auth, admin, static) | Info | Tentative | `api` |
+| `api-version-detect` | API Version Detect | Detects API versioning patterns in URLs, headers, and response bodies | Info | Certain | `api`, `fingerprint`, `light` |
+| `graphql-introspection-detect` | GraphQL Introspection Leak Detect | Detects GraphQL introspection responses that expose the full API schema | Info | Firm | `graphql`, `api`, `info-disclosure`, `light` |
+| `grpc-web-detect` | gRPC-Web Detect | Detects gRPC-Web protocol usage in HTTP traffic | Info | Firm | `api`, `fingerprint`, `light` |
+| `endpoint-classifier` | Endpoint Classifier | Tags HTTP records with semantic labels based on request/response characteristics | Info | Certain | `utility`, `light` |
 
 ### Security Headers & Policy
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-csp-weakness-audit` | CSP Weakness Audit | Content-Security-Policy weaknesses and bypasses | Medium | Firm | `header-security` |
-| `passive-permissions-policy-detect` | Permissions-Policy Detect | Missing or weak Permissions-Policy/Feature-Policy | Info | Certain | `header-security` |
-| `passive-hsts-preload-audit` | HSTS Preload Audit | HSTS header configuration and preload readiness | Info | Firm | `header-security` |
-| `passive-subresource-integrity-detect` | Subresource Integrity Detect | Scripts/styles loaded without SRI attributes | Low | Firm | `header-security` |
-| `passive-cors-vary-origin-missing` | CORS Vary: Origin Missing | CORS responses without Vary: Origin header | Low | Firm | `cors`, `header-security` |
+| `csp-weakness-audit` | CSP Weakness Audit | Detects weak or unsafe Content-Security-Policy directives | Low | Firm | `header-security`, `misconfiguration`, `xss`, `light` |
+| `permissions-policy-detect` | Permissions Policy Detect | Detects missing or overly permissive Permissions-Policy headers | Info | Certain | `header-security`, `misconfiguration`, `light` |
+| `hsts-preload-audit` | HSTS Preload Audit | Audits Strict-Transport-Security header for preload readiness | Low | Certain | `header-security`, `cryptography`, `light` |
+| `subresource-integrity-detect` | Subresource Integrity Detect | Observes truly cross-origin scripts and stylesheets without valid SRI | Info | Certain | `header-security`, `javascript`, `light` |
+| `cors-vary-origin-missing` | CORS Vary Origin Missing | Detects dynamic CORS responses missing Vary: Origin header enabling cache poisoning | Low | Firm | `misconfiguration`, `header-security`, `cache-poisoning`, `light` |
 
 ### Cloud & Firebase
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-cloud-storage-fingerprint` | Cloud Storage Fingerprint | Identifies cloud storage provider from URLs/headers | Info | Firm | `cloud`, `fingerprint` |
-| `passive-cloud-storage-error-info` | Cloud Storage Error Info | Cloud storage error messages revealing bucket names | Low | Firm | `cloud`, `info-disclosure` |
-| `passive-cloud-signed-url-leak` | Cloud Signed URL Leak | Cloud signed URLs with excessive permissions or long expiry | Medium | Firm | `cloud`, `info-disclosure` |
+| `cloud-storage-fingerprint` | Cloud Storage Fingerprint | Detects S3, GCS, and Azure Blob Storage endpoints in HTTP responses | Info | Certain | `cloud`, `fingerprint`, `light` |
+| `cloud-storage-error-info` | Cloud Storage Error Info | Extracts bucket names and regions from cloud storage error responses | Info | Certain | `cloud`, `info-disclosure`, `light` |
+| `cloud-signed-url-leak` | Cloud Signed URL Leak | Detects leaked cloud storage signed URLs and SAS tokens in responses | Medium | Firm | `cloud`, `info-disclosure`, `light` |
 
 ### CMS Detection
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-drupal-api-detect` | Drupal API Detect | Detects Drupal JSON:API and REST endpoints | Info | Firm | `drupal`, `api` |
-| `passive-joomla-api-detect` | Joomla API Detect | Detects Joomla API endpoints and versions | Info | Firm | `joomla`, `api` |
-| `passive-wp-rest-api-detect` | WordPress REST API Detect | Detects WordPress REST API endpoints | Info | Firm | `wordpress`, `api` |
+| `drupal-api-detect` | Drupal API Exposure | Detects exposed Drupal JSON:API and REST endpoints from response content | Low | Certain | `drupal`, `cms`, `api`, `light` |
+| `joomla-api-detect` | Joomla API Exposure | Detects exposed Joomla Web Services API endpoints and CORS misconfigurations | Low | Certain | `joomla`, `cms`, `api`, `light` |
+| `wp-rest-api-detect` | WordPress REST API Exposure | Detects exposed WordPress REST API namespaces and sensitive endpoints | Low | Certain | `wordpress`, `cms`, `php`, `api`, `light` |
 
 ### Advanced JS Framework Analysis
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-nextjs-dynamic-param-audit` | Next.js Dynamic Param Audit | Audits Next.js dynamic route parameters for injection | Medium | Tentative | `nextjs`, `javascript` |
-| `passive-nextauth-config-audit` | NextAuth.js Config Audit | Audits NextAuth.js configuration for security issues | Medium | Firm | `nextjs`, `javascript` |
-| `passive-nuxt-config-audit` | Nuxt Config Audit | Audits Nuxt.js configuration for security issues | Medium | Firm | `nuxt`, `javascript` |
-| `passive-remix-loader-exposure` | Remix Loader Exposure | Detects exposed Remix loader data | Medium | Firm | `remix`, `javascript` |
-| `passive-ssr-hydration-xss` | SSR Hydration XSS | Detects XSS via SSR hydration mismatches | High | Firm | `javascript`, `xss` |
-| `passive-server-action-bind-audit` | Server Action Bind Audit | Audits Next.js Server Action .bind() usage for security | Medium | Tentative | `nextjs`, `javascript` |
-| `passive-server-action-input-audit` | Server Action Input Audit | Audits Next.js Server Action input validation | Medium | Tentative | `nextjs`, `javascript` |
-| `passive-server-only-boundary-audit` | Server-Only Boundary Audit | Audits server-only module boundary enforcement | Medium | Tentative | `nextjs`, `javascript` |
-| `passive-javascript-uri-sink` | JavaScript URI Sink | Detects javascript: URI usage in links and event handlers | High | Firm | `javascript`, `xss` |
-| `passive-wasm-module-detect` | WebAssembly Module Detect | Detects WebAssembly module loading | Info | Firm | `javascript` |
+| `nextjs-dynamic-param-audit` | Next.js Dynamic Param Audit | Detects unsafe usage of dynamic route params without validation | Medium | Tentative | `nextjs`, `javascript`, `injection`, `light` |
+| `nextauth-config-audit` | NextAuth.js Configuration Audit | Detects insecure NextAuth.js session and cookie configurations | Medium | Firm | `nextjs`, `javascript`, `authentication`, `session`, `light` |
+| `nuxt-config-audit` | Nuxt Config Audit | Detects insecure Nuxt configuration patterns and sensitive data in Nuxt state | Medium | Firm | `nuxt`, `javascript`, `misconfiguration`, `light` |
+| `remix-loader-exposure` | Remix Loader Exposure | Detects sensitive data leaked through Remix loader data and context | Medium | Firm | `javascript`, `info-disclosure`, `light` |
+| `ssr-hydration-xss` | SSR Hydration XSS Detection | Detects potential XSS in server-side rendered JSON hydration scripts | High | Tentative | `xss`, `javascript`, `light` |
+| `server-action-bind-audit` | Server Action Bind Audit | Detects Server Action .bind() with sensitive identifiers risking IDOR | Medium | Tentative | `nextjs`, `javascript`, `idor`, `light` |
+| `server-action-input-audit` | Server Action Input Audit | Detects Next.js Server Actions missing runtime input validation | Medium | Tentative | `nextjs`, `javascript`, `injection`, `light` |
+| `server-only-boundary-audit` | Server-Only Boundary Audit | Detects server-side modules leaked into client component bundles | Medium | Tentative | `nextjs`, `javascript`, `info-disclosure`, `light` |
+| `javascript-uri-sink` | JavaScript URI Sink Detection | Detects javascript: URIs reflected in href/src attributes | Medium | Tentative | `xss`, `javascript`, `light` |
+| `wasm-module-detect` | WebAssembly Module Detect | Detects WebAssembly modules and WASM instantiation in HTTP responses | Info | Certain | `javascript`, `fingerprint`, `light` |
 
 ### Session & Authentication (Passive)
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `passive-express-session-audit` | Express Session Audit | Audits Express session cookie configuration | Medium | Firm | `express`, `session` |
-| `passive-jwt-claims-detect` | JWT Claims Detect | Analyzes JWT payload claims for security issues | Info | Firm | `auth`, `session` |
-| `passive-jackson-deserialize-detect` | Jackson Deserialization Detect | Detects Jackson default typing indicators | Medium | Firm | `java`, `injection` |
-| `passive-python-debug-detect` | Python Debug Detect | Detects Python debug/traceback indicators | Low | Firm | `python` |
-| `passive-rails-debug-detect` | Rails Debug Detect | Detects Rails debug page indicators | Medium | Firm | `rails`, `ruby` |
-| `passive-rails-action-cable-detect` | Rails Action Cable Detect | Detects Rails Action Cable WebSocket endpoints | Info | Firm | `rails`, `ruby` |
-| `passive-rails-active-storage-detect` | Rails Active Storage Detect | Detects Active Storage blob URLs and signed tokens | Info | Firm | `rails`, `ruby` |
-| `passive-sensitive-api-fields-detect` | Sensitive API Fields Detect | Detects sensitive field names in API responses | Medium | Tentative | `api`, `info-disclosure` |
+| `express-session-audit` | Express Session Audit | Audits Express.js session cookies for default naming, excessive expiry, and session proliferation | Low | Firm | `express`, `nodejs`, `session`, `misconfiguration`, `light` |
+| `jwt-claims-detect` | JWT Claim Analyzer | Analyzes JWT claims for security misconfigurations | Medium | Firm | `authentication`, `session`, `cryptography`, `light` |
+| `jackson-deserialize-detect` | Jackson Deserialization Detect | Detects Jackson polymorphic typing indicators and Java deserialization error patterns in responses | Low | Tentative | `java`, `deserialization`, `light` |
+| `python-debug-detect` | Python Debug Detect | Detects Python tracebacks, debug pages, and path disclosure in responses | High | Firm | `python`, `info-disclosure`, `misconfiguration`, `light` |
+| `rails-debug-detect` | Rails Debug Detect | Detects Rails debug exception pages, Better Errors, Web Console, and ActiveRecord errors in responses | High | Firm | `rails`, `ruby`, `info-disclosure`, `misconfiguration`, `light` |
+| `rails-action-cable-detect` | Rails Action Cable Detect | Passively detects Action Cable WebSocket endpoints and configuration in responses | Info | Firm | `rails`, `ruby`, `fingerprint`, `light` |
+| `rails-active-storage-detect` | Rails Active Storage Detect | Passively detects Active Storage URLs and direct upload references in responses | Info | Certain | `rails`, `ruby`, `fingerprint`, `file-exposure`, `light` |
+| `sensitive-api-fields-detect` | Sensitive API Fields Detect | Flags JSON API responses containing sensitive field names like passwords, API keys, and PII | Medium | Tentative | `api`, `info-disclosure`, `light` |

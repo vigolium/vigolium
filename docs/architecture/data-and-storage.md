@@ -8,7 +8,10 @@ Every scan path in Vigolium — native, agentic, ingestion — converges on the 
 
 ## 1. Multi-Tenancy: the `project_uuid` spine
 
-All scan data is partitioned by **project** — a named container with a UUID, optional config overlay, and optional access-control lists. There is no separate database per project; isolation is a `project_uuid` column on every major table, filtered on every read and stamped on every write.
+All scan data is partitioned by **project** — a named container with a UUID
+and optional config overlay. There is no separate database per project;
+isolation is a `project_uuid` column on major tables, filtered on reads and
+stamped on writes.
 
 ```
 Built-in defaults
@@ -18,10 +21,12 @@ Built-in defaults
         → CLI flags                            (highest precedence)
 ```
 
-- **Default project** — `00000000-0000-0000-0000-000000000001`, created during `vigolium init`. Used whenever no project is selected.
-- **Selection precedence** — `--project-uuid` > `--project-name` > `VIGOLIUM_PROJECT_UUID` > `VIGOLIUM_PROJECT` (legacy) > default. On the server, the `X-Project-UUID` request header plays the same role.
+- **Default project** — `00000000-0000-0000-defa-c01001000001`, used whenever no project is selected.
+- **Selection precedence** — `--project-uuid` > `--project-name` > `VIGOLIUM_PROJECT_UUID` > legacy `VIGOLIUM_PROJECT` > `~/.vigolium/active-project` > default. On the server, `X-Project-UUID` selects the project.
 - **Project config** is a partial YAML overlay (same shape as a scanning profile) at `~/.vigolium/projects/<uuid>/config.yaml`; only the keys it sets are overridden.
-- **Access control** — `allowed_emails` / `allowed_domains` on the project row gate server requests that carry `X-User-Email`: exact-email list wins, else domain list, else open; a missing email header skips the check; denial is `403`. `VIGOLIUM_PROJECT_READONLY=true` disables all mutating `project` CLI subcommands.
+- **Management safety** — `VIGOLIUM_PROJECT_READONLY=true` disables mutating
+  `project` CLI subcommands. Project selection scopes data; it is not an
+  email/domain authorization layer.
 
 ### Tables carrying `project_uuid`
 
@@ -76,7 +81,7 @@ The in-memory scan types never touch the DB directly. `HTTPRecord.FromHttpReques
 | `SaveFinding()` | `INSERT … ON CONFLICT (finding_hash) DO NOTHING` + evidence append + junction rows |
 | `DeduplicateFindings()` | Post-phase grouping: merge findings sharing `(module_id, severity, matched_at URL)` |
 | `CreateScanWithCursor()` / `CountRecordsAfterCursor()` | Cursor bookkeeping for incremental rescans |
-| `GetRecordsWithResponseBody()` | UUID-cursor pagination for batch scanners (e.g. Kingfisher) |
+| `GetRecordsWithResponseBody()` | UUID-cursor pagination for batch scanners such as the native secret detector |
 | `UpdateRiskScores()` | Batched `CASE/WHEN` UPDATE, 500 UUIDs per statement |
 
 ### Async batched ingestion — `RecordWriter`

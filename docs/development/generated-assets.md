@@ -24,7 +24,7 @@ external toolchains (Bun, GoReleaser, the UI build) and are **not** verified by
 
 | Artifact | Path | Regenerate with |
 |---|---|---|
-| jstangle binaries (embedded per-platform) | `internal/resources/deparos/jstangle/`, `public/presets/deparos/jstangle/` | `make ensure-jstangle` / `make update-jstangle` |
+| jstangle binaries (embedded per-platform) | `internal/resources/deparos/jstangle/` | `make ensure-jstangle` / `make update-jstangle` |
 | vigolium-audit harness binary | `pkg/audit/bin/_bin/` | `make update-audit` |
 | Workbench UI bundle & report template | `public/ui/`, `public/static-reports/template.html` | `make update-ui` |
 | Release metadata | `build/dist/metadata.json` | `make generate-metadata` |

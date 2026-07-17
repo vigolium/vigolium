@@ -1,117 +1,77 @@
-# KnownIssueScan — Known Vulnerability and Secret Detection
+# Known-Issue Scan
 
-KnownIssueScan checks targets for known CVEs, common misconfigurations, and exposed secrets using Nuclei templates and the Kingfisher secret detection engine. It runs after the Discovery phase, leveraging all paths and endpoints discovered in earlier phases to maximize coverage.
+The known-issue scan combines Nuclei templates with Vigolium's native,
+in-process secret detector. Nuclei checks known CVEs and common
+misconfigurations; the secret detector scans stored textual response bodies for
+tokens, credentials, and other leaked secrets without launching an external
+binary or writing temporary files.
 
-## Why KnownIssueScan Matters
-
-Many real-world breaches exploit publicly disclosed vulnerabilities (CVEs) that remain unpatched, or secrets accidentally committed to response bodies. KnownIssueScan systematically tests for these known issues across the entire discovered attack surface — catching low-hanging fruit that custom fuzzing-based modules are not designed to detect.
+In a full native run, this phase executes after dynamic assessment. It consumes
+the records and paths collected by harvesting, spidering, discovery, and active
+modules.
 
 ## How It Works
 
-```
-Stored HTTP Records (from phases 0-4)
-  │
-  ▼
-┌─────────────────────────────────────────────────┐
-│  Target Enrichment                               │
-│  • GetDistinctPaths() from database              │
-│  • Enrich targets with discovered paths          │
-│    (enrich_targets: true by default)             │
-│  • Or host-level only when disabled              │
-└────────────────────┬────────────────────────────┘
-                     ▼
-┌─────────────────────────────────────────────────┐
-│  Nuclei Template Engine                          │
-│  • CVE detection (known vulnerability checks)    │
-│  • Misconfiguration detection                    │
-│  • Technology fingerprinting                     │
-│  • Custom template support (templates_dir)       │
-│  • Tag-based filtering (include/exclude)         │
-│  • Severity filtering (critical → info)          │
-└────────────────────┬────────────────────────────┘
-                     ▼
-┌─────────────────────────────────────────────────┐
-│  Kingfisher Secret Detection                     │
-│  • Scans stored response bodies                  │
-│  • Detects API keys, tokens, credentials         │
-│  • Filters out secret_detect passive module      │
-│    to avoid duplicates in dynamic-assessment phase│
-└────────────────────┬────────────────────────────┘
-                     ▼
-┌─────────────────────────────────────────────────┐
-│  Post-Phase Processing                           │
-│  DeduplicateFindings() groups findings with      │
-│  identical (module_id, severity, matched_at URL) │
-└─────────────────────────────────────────────────┘
-```
+1. Resolve the in-scope hosts for the current scan.
+2. Read distinct paths from the project database.
+3. Build host-level or path-enriched Nuclei targets.
+4. Run the selected Nuclei templates under the shared rate limits.
+5. Independently scan stored response bodies with `pkg/secretscan`.
+6. Group repeated values in live output and deduplicate persisted findings.
+
+The Nuclei and secret-detector legs each receive a fresh phase-duration budget,
+but both remain bounded by `--scanning-max-duration` when a total scan cap is
+set.
 
 ## Configuration
 
-KnownIssueScan is configured in `vigolium-configs.yaml` under the `known_issue_scan` key:
-
 ```yaml
 known_issue_scan:
-  tags: []              # nuclei template tags to include (empty = all)
-  exclude_tags: [dos]   # tags to exclude (default: dos)
-  severities: []        # filter by severity: critical, high, medium, low, info (empty = all)
-  templates_dir: ""     # custom templates directory (empty = built-in)
-  enrich_targets: true  # enrich targets with paths from previous phases
-  severity_overrides:   # remap a finding's severity by template ID (case-insensitive)
+  tags: []
+  exclude_tags: [dos]
+  severities: [critical, high]
+  templates_dir: ""
+  enrich_targets: true
+  severity_overrides:
     config-json-exposure-fuzz: medium
 ```
 
-### Key Options
+| Option | Description |
+|---|---|
+| `tags` | Include only Nuclei templates with these tags |
+| `exclude_tags` | Exclude matching template tags |
+| `severities` | Nuclei severity filter; the balanced default is critical/high |
+| `templates_dir` | Custom Nuclei template directory |
+| `enrich_targets` | Run templates on discovered path prefixes, not only host roots |
+| `severity_overrides` | Remap recorded severity by template ID |
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `tags` | `[]` (all) | Include only templates matching these tags |
-| `exclude_tags` | `[dos]` | Exclude templates matching these tags |
-| `severities` | `[]` (all) | Filter results by severity level |
-| `templates_dir` | built-in | Path to custom Nuclei templates |
-| `enrich_targets` | `true` | Append discovered paths to target URLs for broader coverage |
-| `severity_overrides` | `{config-json-exposure-fuzz: medium}` | Remap a finding's recorded severity by nuclei template ID. Applied before output/persistence (output, counts, and the stored finding all agree). Lets you right-size noisy or context-dependent templates without forking the upstream template (which reverts on `nuclei -update-templates`). Set an entry back to the template's severity to undo a default remap. |
+When known-issue scan is the only requested phase, Vigolium widens the default
+severity selection to all levels. An explicit
+`--known-issue-scan-severities` value still wins.
 
-## Runtime Defaults
+Discovery's inline secret detector is controlled separately:
 
-| Parameter | Default |
-|-----------|---------|
-| Concurrency | 50 |
-| Rate limit | 100 req/s |
-| Timeout | 30 minutes |
-
-## Phase Execution Detail
-
-1. Queries distinct paths from the database via `GetDistinctPaths()`.
-2. Builds target URLs — either path-enriched (default, `enrich_targets: true`) or host-level only.
-3. Runs Nuclei templates against enriched targets with the configured concurrency and rate limits.
-4. Runs Kingfisher secret scanning on stored response bodies.
-5. Each finding is saved to the database with `ModuleType: "known-issue-scan"` and `FindingSource: "known-issue-scan"`.
-6. **Post-phase dedup**: calls `DeduplicateFindings()` to group findings with identical `(module_id, severity, matched_at URL)`.
+```yaml
+discovery:
+  engine:
+    disable_secret_scan: false
+```
 
 ## CLI Usage
 
-Run only the KnownIssueScan phase:
-
 ```bash
-vigolium scan --url https://example.com --only known-issue-scan
+# Isolate the phase
+vigolium scan https://example.com --only known-issue-scan
+vigolium run known-issue-scan -t https://example.com
+
+# Filter Nuclei templates
+vigolium run known-issue-scan -t https://example.com \
+  --known-issue-scan-severities critical,high \
+  --known-issue-scan-tags cve,rce
+
+# Skip it in a full scan
+vigolium scan https://example.com --skip known-issue-scan
 ```
 
-Skip the KnownIssueScan phase:
-
-```bash
-vigolium scan --url https://example.com --skip known-issue-scan
-```
-
-## Integration
-
-KnownIssueScan runs as Phase 6 in the native scan pipeline, after DynamicAssessment. It consumes the HTTP records and discovered paths stored by earlier phases. Running known-issue-scan last keeps its high-volume Nuclei/Kingfisher traffic from triggering host rate-limits (429) before the active/passive module scan completes.
-
-```
-Discovery (Phase 4)
-  → Paths and records stored in DB
-  → DynamicAssessment (Phase 5)
-    → Active + passive scanner modules
-  → KnownIssueScan (Phase 6)
-    → Nuclei templates + Kingfisher secrets
-    → DeduplicateFindings()
-```
+Aliases accepted by `run`, `--only`, and `--skip` include `cve`, `kis`, and
+`known-issues`.

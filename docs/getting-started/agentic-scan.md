@@ -16,11 +16,11 @@ Two agentic-scan modes ship under `vigolium agent`:
 
 | Mode | One-line | Best for |
 |---|---|---|
-| `autopilot` | One long LLM session with shell, file, and HTTP tools | Free-form pentest-style exploration |
+| `autopilot` | Autonomous tool loop, optionally durable and resumable | Free-form pentest-style exploration |
 | `swarm` | LLM plans → native scanner executes → optional triage | Structured, repeatable scans of a known target |
 
 Both write findings to the same database used by the native scan, so the
-usual `vigolium finding list` / `/api/findings` surfaces work unchanged.
+usual `vigolium finding` / `/api/findings` surfaces work unchanged.
 
 ## Prerequisites
 
@@ -42,9 +42,10 @@ Anything that returns a model name from `vigolium ol -p` is wired correctly
 
 ## 1. Autopilot — hand the agent a target
 
-`autopilot` is the simplest agentic mode: one LLM session with shell, file,
-and HTTP access. It picks its own strategy and stops when it has nothing
-productive left to do.
+`autopilot` is the simplest agentic mode: an autonomous tool loop with shell,
+file, HTTP, and browser access. It picks its own strategy and stops when it has
+nothing productive left to do. With durable mode enabled it also maintains a
+scratchpad and candidate ledger that can survive resume.
 
 ```bash
 # Plain URL target.
@@ -111,9 +112,9 @@ Findings stream to the console and persist to the same SQLite database the
 native scan uses:
 
 ```bash
-vigolium finding list                           # all findings
-vigolium finding list --agent-mode autopilot    # filter by agent mode
-vigolium agent session list                     # past runs
+vigolium finding                                # all findings
+vigolium finding --agentic-scan <uuid>           # one agent run
+vigolium agent session                           # past runs
 ```
 
 Each run also writes a session directory under

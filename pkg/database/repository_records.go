@@ -321,6 +321,25 @@ func (r *Repository) GetRecordByUUID(ctx context.Context, uuid string) (*HTTPRec
 	return record, nil
 }
 
+// RecordProjectUUID returns just the project a record belongs to, for the
+// existence-plus-scope check the mutating handlers perform before acting on it.
+// Returns sql.ErrNoRows when the record does not exist, like GetRecordByUUID.
+//
+// Projected on purpose: the callers read only this one field, and a record's
+// raw_response alone can be megabytes.
+func (r *Repository) RecordProjectUUID(ctx context.Context, uuid string) (string, error) {
+	record := &HTTPRecord{}
+	err := r.db.NewSelect().
+		Model(record).
+		Column("project_uuid").
+		Where("uuid = ?", uuid).
+		Scan(ctx)
+	if err != nil {
+		return "", err
+	}
+	return record.ProjectUUID, nil
+}
+
 // GetRecordByRequestHash retrieves the most recent HTTP record whose raw request
 // hashes to requestHash (the SHA-256 over the raw request bytes, matching
 // httpmsg.HttpRequest.ID). It recovers the originating request for an
@@ -374,7 +393,7 @@ func (r *Repository) GetRecordMetadataByHostname(ctx context.Context, projectUUI
 	var records []*HTTPRecord
 	q := r.db.NewSelect().
 		Model(&records).
-		ExcludeColumn("raw_request", "raw_response").
+		ExcludeColumn(recordBodyColumns...).
 		Where("hostname = ?", hostname).
 		Order("sent_at DESC").
 		Limit(limit)
@@ -435,6 +454,26 @@ func (r *Repository) getRecordsByUUIDs(ctx context.Context, uuids []string, colu
 // GetRecordsByUUIDs retrieves HTTP records matching the given UUIDs.
 func (r *Repository) GetRecordsByUUIDs(ctx context.Context, uuids []string) ([]*HTTPRecord, error) {
 	return r.getRecordsByUUIDs(ctx, uuids)
+}
+
+// ExistingRecordUUIDs returns the subset of uuids that exist. It selects the
+// uuid column straight into a []string, so validating a caller-supplied list
+// costs neither the raw_request/raw_response blobs nor an HTTPRecord struct per
+// row.
+func (r *Repository) ExistingRecordUUIDs(ctx context.Context, uuids []string) ([]string, error) {
+	if len(uuids) == 0 {
+		return nil, nil
+	}
+	var out []string
+	err := r.db.NewSelect().
+		Model((*HTTPRecord)(nil)).
+		Column("uuid").
+		Where("uuid IN (?)", bun.List(uuids)).
+		Scan(ctx, &out)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get record UUIDs: %w", err)
+	}
+	return out, nil
 }
 
 // GetScanRecordsByUUIDs retrieves HTTP records matching the given UUIDs,

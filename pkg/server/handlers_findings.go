@@ -148,15 +148,14 @@ func (h *findingsHandlers) HandleListFindings(c fiber.Ctx) error {
 	fqb := database.NewFindingsQueryBuilder(h.db, filters)
 	ctx := c.Context()
 
-	findings, err := fqb.Execute(ctx)
+	// One round-trip for the page and its total, rather than Execute + Count.
+	findings, total, err := fqb.ExecuteWithCount(ctx)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 			Error: "query failed: " + err.Error(),
 			Code:  fiber.StatusInternalServerError,
 		})
 	}
-
-	total, _ := fqb.Count(ctx)
 
 	return c.JSON(PaginatedResponse{
 		ProjectUUID: projectUUID,
@@ -186,8 +185,9 @@ func (h *findingsHandlers) HandleDeleteFinding(c fiber.Ctx) error {
 		})
 	}
 
-	// Verify the finding exists and belongs to the request's project
-	existing, err := h.repo.GetFindingByID(c.Context(), id)
+	// Verify the finding exists and belongs to the request's project. Only the
+	// project is needed, so don't load the finding's evidence to delete it.
+	existingProject, err := h.repo.FindingProjectUUID(c.Context(), id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
@@ -200,7 +200,7 @@ func (h *findingsHandlers) HandleDeleteFinding(c fiber.Ctx) error {
 			Code:  fiber.StatusInternalServerError,
 		})
 	}
-	if !inRequestProject(c, existing.ProjectUUID) {
+	if !inRequestProject(c, existingProject) {
 		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 			Error: ErrFindingNotFound.Error(),
 			Code:  fiber.StatusNotFound,
@@ -259,9 +259,11 @@ func (h *findingsHandlers) HandleUpdateFindingStatus(c fiber.Ctx) error {
 		})
 	}
 
-	// Scope the mutation to the request's project: load first so an operator
+	// Scope the mutation to the request's project: check first so an operator
 	// scoped to one engagement can't flip another project's finding via a raw id.
-	existing, err := h.repo.GetFindingByID(c.Context(), id)
+	// Only the project is read here; the updated finding is re-loaded in full
+	// below, after the write, for the response body.
+	existingProject, err := h.repo.FindingProjectUUID(c.Context(), id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
@@ -274,7 +276,7 @@ func (h *findingsHandlers) HandleUpdateFindingStatus(c fiber.Ctx) error {
 			Code:  fiber.StatusInternalServerError,
 		})
 	}
-	if !inRequestProject(c, existing.ProjectUUID) {
+	if !inRequestProject(c, existingProject) {
 		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 			Error: ErrFindingNotFound.Error(),
 			Code:  fiber.StatusNotFound,

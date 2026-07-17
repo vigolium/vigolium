@@ -118,6 +118,28 @@ func resolveFormat(name string) (formats.Format, error) {
 	return nil, fmt.Errorf("unknown input format %q; supported formats: %s (see 'vigolium scan --list-input-mode')", name, SupportedFormats())
 }
 
+// ParseFileRecords parses the file at filePath using the named input format and
+// returns the discovered HTTP records. It is the synchronous, pull-everything
+// convenience wrapper over the format registry for callers that just want the
+// records in a slice (e.g. the autopilot knowledge-base traffic loader) rather
+// than the streaming FileSource/Next() API. formatName accepts any canonical
+// name or alias resolveFormat understands ("har", "burpxml", "openapi", …); an
+// unknown name is a hard error. When max > 0 parsing stops after max records.
+// A non-nil parse error is returned alongside whatever records were gathered
+// before it (a partially-parseable file still yields its good records).
+func ParseFileRecords(filePath, formatName string, max int) ([]*httpmsg.HttpRequestResponse, error) {
+	format, err := resolveFormat(formatName)
+	if err != nil {
+		return nil, err
+	}
+	var records []*httpmsg.HttpRequestResponse
+	parseErr := format.Parse(filePath, func(rr *httpmsg.HttpRequestResponse) bool {
+		records = append(records, rr)
+		return max <= 0 || len(records) < max
+	})
+	return records, parseErr
+}
+
 // Format returns the underlying format parser.
 // This allows callers to configure format-specific options after creation.
 func (f *FileSource) Format() formats.Format {

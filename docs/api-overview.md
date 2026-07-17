@@ -12,8 +12,9 @@ Server startup, authentication, and general endpoints.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/` | App info |
+| GET | `/` | Dashboard UI |
 | GET | `/health` | Health check |
+| GET | `/ready` | Readiness check (database ping) |
 | GET | `/server-info` | Server info (uptime, DB driver, queue depth) |
 | GET | `/swagger/*` | Swagger UI |
 | GET | `/metrics` | Prometheus metrics |
@@ -147,8 +148,7 @@ Cloud-storage endpoints for source bundles and result archives. Require `storage
 | POST | `/api/agent/run/query` | Single-shot agent prompt execution |
 | POST | `/api/agent/run/autopilot` | Autonomous AI-driven scanning session |
 | POST | `/api/agent/run/swarm` | AI-guided targeted vulnerability swarm |
-| POST | `/api/agent/run/audit` | Foreground vigolium-audit code review (Claude / Codex) |
-| POST | `/api/agent/run/audit` | Foreground piolium audit code review (Pi runtime) |
+| POST | `/api/agent/run/audit` | Unified audit dispatcher (`auto`, `both`, `audit`, or `piolium`) |
 | POST | `/api/agent/chat/completions` | OpenAI-compatible chat completions |
 | GET | `/api/agent/status/list` | List agent runs |
 | GET | `/api/agent/status/:id` | Agent run status |

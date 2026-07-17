@@ -72,16 +72,23 @@ The Form Handler detects and fills forms with smart value generation:
 
 | Strategy | Description |
 |----------|-------------|
-| Default (BFS/DFS) | Deterministic traversal using fragment-based prioritization |
-| `adaptive` | **Exp3.1** multi-armed bandit — balances exploitation (known-good actions) with exploration (untried actions) via importance-weighted probability sampling. Rewards based on new state discovery. |
+| `adaptive` (default) | **Exp3.1** multi-armed bandit — balances exploitation (known-good actions) with exploration (untried actions) via importance-weighted probability sampling. Rewards are based on new-state discovery. |
+| `normal` | BFS state selection with FIFO action selection. |
+| `random` | Random state selection with FIFO action selection. |
+| `oldest_first` | DFS-like state selection with FIFO action selection. |
+| `shallow_first` | Prioritizes states with the lowest crawl depth. |
 
 ## Browser Management
 
-- **Embedded binaries**: ships Chromium (macOS/Windows/Linux) and ungoogled-Chromium (Linux). Extracted on first run, cached by version.
-- **Headless mode**: uses `headless=new` when extensions are loaded (supports Chrome extensions unlike legacy headless).
-- **Extensions**: loaded via `--load-extension` (e.g., uBlock Origin Lite for ad blocking during crawl).
+- **Browser engines**: select `chromium`, `ungoogled`, or `fingerprint` with
+  `--browser-engine`; availability of the latter two depends on the platform and
+  build. Embedded browser archives are extracted on first use and cached by
+  version. An explicit `spidering.browser_path` overrides automatic resolution.
+- **Display mode**: headless is the default. Use `--headed` to show browser
+  windows, or set `spidering.headless: false` in configuration.
 - **Security flags disabled** for crawling: `--disable-web-security`, `--ignore-certificate-errors`, `--allow-running-insecure-content`.
-- **Pool**: multiple browser instances with round-robin selection.
+- **Pool**: use `--browsers N` to run multiple browser instances with
+  round-robin selection.
 
 ## Network Capture
 
@@ -113,7 +120,7 @@ result, err := spitolas.RunSpider(ctx, spitolas.SpiderConfig{
     MaxDuration:  10 * time.Minute,
     MaxDepth:     5,
     BrowserCount: 1,
-    CrawlStrategy: "adaptive", // or "" for default
+    CrawlStrategy: "adaptive",
 }, recordSaver)
 ```
 

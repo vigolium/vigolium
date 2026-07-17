@@ -20,9 +20,9 @@ Target URL
 ┌──────────────────────────────────────────────────────┐
 │  Priority Queue                                      │
 │  ┌────┬────┬────┬────┬─────┬──────┬──────┬────────┐ │
-│  │ P0 │ P1 │ P2 │ P4 │ P5  │ P7   │ P11  │ P12   │ │
-│  │Spdr│Obs │Obs │Obs │Short│ExtVar│Long  │Fuzz   │ │
-│  │ JS │Name│File│Dir │Word │Numric│Word  │       │ │
+│  │ P0 │ P1 │ P2 │ P4 │ P5-6 │ P7   │ P8-11│ P12 │ │
+│  │Spdr│JSReq│Obs │Obs │Short │ExtVar│Long  │Fuzz │ │
+│  │ JS │Name │File│Path│Words │Numeric│Words │     │ │
 │  └────┴────┴────┴────┴─────┴──────┴──────┴────────┘ │
 └──────────────────┬───────────────────────────────────┘
                    ▼
@@ -45,7 +45,7 @@ Target URL
 │    • Extract breadcrumb directories                  │
 │  OnFileDiscovered():                                 │
 │    • Extract extension → trigger extension tasks     │
-│    • Numeric segment → fuzz ±10 variations           │
+│    • Numeric segment → optional ±10 fuzz variations  │
 │    • Queue extension variant probes (.bak, .old, …)  │
 └──────────────────┬───────────────────────────────────┘
                    ▼
@@ -68,10 +68,10 @@ Four data pools grow continuously during the scan:
 
 | Pool | Source | Priority |
 |------|--------|----------|
-| Observed Names | Spider links, JS parsing, response body tokenization | P1 |
+| Observed Names | Spider links, JS parsing, response body tokenization | P1-P3 depending on extension source |
 | Observed Files | Complete filenames from discoveries | P2 |
-| Observed Extensions | File extensions from discoveries | P5 |
-| Observed Paths | Full path segments from URLs | P4 |
+| Observed Extensions | File extensions confirmed from application evidence | Combined with observed/short/long file tasks at P3, P6, and P11 |
+| Observed Paths | Full paths from URLs | P4 |
 
 Every newly discovered directory is probed with ALL observed values as high-priority tasks. When a new extension is found for the first time, it triggers tasks across ALL known directories.
 
@@ -113,16 +113,20 @@ When a file is found at `/a/b/c/file.txt`, the engine extracts `/a/`, `/a/b/`, `
 
 | Task | Priority | Description |
 |------|----------|-------------|
-| Spider/JS Extracted | 0 | URLs from link extraction and JS analysis |
-| Observed Names | 1 | Filenames seen during scan, replayed per directory |
-| Observed Files | 2 | Complete name+extension pairs |
-| Observed Paths | 4 | Full path segments from URLs |
-| Short Wordlist (files) | 5 | Common filenames from short wordlist × extensions |
-| Short Wordlist (dirs) | 6 | Common directory names from short wordlist |
-| Extension Variants | 7 | Backup/alternate extensions (.bak, .old, .zip, .tar.gz) |
-| Numeric Fuzz | 7 | ±10 variations of numeric path segments |
-| Long Wordlist (files) | 9 | Extended filename dictionary × extensions |
-| Long Wordlist (dirs) | 11 | Extended directory dictionary |
+| Spider, JS fetch, form submission | 0 | Highest-confidence URLs and assets from browser/link extraction |
+| JS extracted requests | 1 | Typed requests recovered from JavaScript |
+| Observed filenames without extension | 1 | Server-leaked names replayed per directory |
+| Observed files/directories/literal filenames | 2 | Complete observed resources and directories |
+| Observed names × observed extensions | 3 | Confirmed application names combined with confirmed extensions |
+| Observed paths | 4 | Full paths recovered from URLs |
+| Short files without extension | 5 | Common short filename dictionary |
+| Short directories/files with extensions | 6 | Common directory names and short filename combinations |
+| Extension variants | 7 | Backup/alternate extensions (`.bak`, `.old`, `.zip`, `.tar.gz`) |
+| Numeric fuzz | 7 | ±10 variants of numeric path segments when `enable_numeric_fuzzing` is enabled (off by default) |
+| Long files without extension | 8 | Extended filename dictionary |
+| Long directories/files with configured extensions | 9 | Extended wordlist combinations |
+| Malformed-path probe | 10 | Detects path-normalization and routing behavior |
+| Long files with observed extensions | 11 | Lowest-priority long-wordlist extension combinations |
 | FUZZ | 12 | Template-based fuzzing (`FUZZ` marker replacement) |
 
 ## Deduplication
@@ -135,18 +139,9 @@ Multiple layers prevent redundant work:
 - **Body-level**: Hash prevents re-analyzing identical responses with JSTangle
 - **Directory/file trackers**: Prevent re-processing the same discovery
 
-## Built-In Modules
+## Discovery Modules
 
-YAML-configured modules trigger specialized tasks when matching directories are found:
-
-| Module | Triggers On | What It Does |
-|--------|-------------|--------------|
-| `backup` | Any directory | Tests backup extensions (.bak, .old, .zip, .tar.gz) |
-| `js` | Any directory | Tests .js, .mjs, .map extensions |
-| `api` | `/api/`, `/v1/`, etc. | REST/GraphQL/SOAP endpoint wordlists |
-| `admin` | `/admin/`, `/manage/` | Admin panel paths |
-| `docs` | `/docs/`, `/api-docs/` | Swagger, OpenAPI, GraphQL playground |
-| `static` | `/static/`, `/assets/` | Blocks recursion to avoid noise |
+The only compiled-in discovery module is `wildcard`, which suppresses work under wildcard/catch-all paths. Additional modules are user-defined in YAML through `module-definitions.custom`; they can match paths, segments, filenames, extensions, or globs and then stop recursion, skip default logic, enqueue wordlist tasks, or block matching tasks. Names such as `backup`, `api`, or `static` are examples of custom policy, not guaranteed built-ins.
 
 ## Supporting Systems
 

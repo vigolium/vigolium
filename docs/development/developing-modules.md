@@ -63,7 +63,7 @@ The executor calls the entry point that matches your declared `ScanScopes()`:
 |-------|---------------|
 | `ScanScopeInsertionPoint` | once per parameter/header/cookie/body insertion point |
 | `ScanScopeRequest` | once per unique request |
-| `ScanScopeHost` | once per unique host |
+| `ScanScopeHost` | once per eligible module and canonical `scheme://host:port` origin claim |
 
 > **Thread-safety:** scan methods are called concurrently from many worker
 > goroutines. Keep module state immutable after construction, or guard it.
@@ -210,7 +210,10 @@ picks it up automatically. None of them break the base interface.
 | `ContextualActiveModule` / `ContextualPassiveModule` | Receive a `context.Context` so HTTP calls cancel on phase deadline / scan shutdown |
 | `Prioritized` | `Priority() int` — lower runs first (default 100); high-priority modules get earlier rate-limit slots |
 | `VulnClassifier` | `VulnClass() string` — enables cross-module dedup (e.g. don't re-test XSS another module already confirmed) |
+| `BodyDifferentialConfirmable` | Opt an active module into the executor's replay-and-baseline differential safety net; only for non-state-changing in-band body/header signals |
 | `TechAware` | `RequiredTechs() []string` — allowlist; module only runs when the host's fingerprint matches (fails open if no tech detected yet) |
+| `PerScanModule` | `Fresh() any` — return isolated mutable state for each scan when registry-singleton state cannot live in `ScanContext` |
+| `ContentClassAware` | `RequiredContentClasses() []string` — gate passive analyzers to structurally compatible HTML/JSON/XML/text/binary responses |
 | `TimeoutHinter` | `TimeoutHint() time.Duration` — raise the per-module timeout for legitimately slow analysis (e.g. timing-based DiffScan) |
 | `Flusher` / `BatchFlusher` | End-of-scan finalization; `BatchFlusher` returns deferred findings through the normal pipeline |
 | `ScopeAwareModule` | `ScopeAware() bool` — passive modules that should skip out-of-scope records |

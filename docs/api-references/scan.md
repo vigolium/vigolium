@@ -92,7 +92,7 @@ Starts an asynchronous scan from a base64-encoded raw HTTP request, optionally p
 
 ```bash
 # Request-only scan (scanner fetches the response)
-REQ_B64=$(echo -n "POST /api/login HTTP/1.1\r\nHost: example.com\r\nContent-Type: application/json\r\n\r\n{\"user\":\"admin\"}" | base64)
+REQ_B64=$(printf 'POST /api/login HTTP/1.1\r\nHost: example.com\r\nContent-Type: application/json\r\n\r\n{"user":"admin"}' | base64)
 
 curl -s -X POST http://localhost:9002/api/scan-request \
   -H "Content-Type: application/json" \
@@ -362,7 +362,7 @@ Every scan record has a `scan_mode` field that indicates how the scan was trigge
 | `target`      | `POST /api/scans/run`                    | API-initiated scan targeting a specific URL or scope                                           |
 | `incremental` | Server scan-on-receive                   | Continuous scan that processes each HTTP record as it is ingested into the server (proxy, Burp, etc.) |
 | `single`      | `POST /api/scan-url`                     | One-off scan of a single URL with optional method, body, and headers                           |
-| `selective`   | `POST /api/scan/records`                 | Scan a specific set of HTTP records by UUID                                                    |
+| `selective`   | `POST /api/scan-records`                 | Scan a specific set of HTTP records by UUID                                                    |
 
 ---
 
@@ -823,7 +823,7 @@ curl -s 'http://localhost:9002/api/scans/scan-abc123/logs?level=info&phase=disco
 | `spidering`          | Browser-based crawling                                            |
 | `discovery`          | Input ingestion + content discovery                               |
 | `seed`               | CLI target seeding (when discovery is skipped)                    |
-| `known-issue-scan`   | Known issue scan (Nuclei + Kingfisher)                            |
+| `known-issue-scan`   | Known issue scan (Nuclei + native secret detection)               |
 | `audit`              | Active/passive module scanning                                    |
 
 **Log levels:**
@@ -1000,4 +1000,3 @@ curl -s -X POST http://localhost:9002/api/scan-all-records \
 | 400  | No records match filters, or invalid params  |
 | 409  | A scan is already running                    |
 | 503  | Database unavailable                         |
-

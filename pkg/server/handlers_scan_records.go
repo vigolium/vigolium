@@ -40,25 +40,22 @@ func (h *Handlers) HandleScanRecords(c fiber.Ctx) error {
 		})
 	}
 
-	// Validate UUIDs exist in DB
-	records, err := h.repo.GetRecordsByUUIDs(c.Context(), req.RecordUUIDs)
+	// Validate UUIDs exist in DB. Only the UUIDs are needed here — the scan feed
+	// re-fetches each record's content itself (NewUUIDListDBInputSource below) —
+	// and RecordUUIDs is an unbounded caller-supplied list, so this must not load
+	// whole records.
+	validUUIDs, err := h.repo.ExistingRecordUUIDs(c.Context(), req.RecordUUIDs)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
 			Error: "failed to validate record UUIDs: " + err.Error(),
 			Code:  fiber.StatusInternalServerError,
 		})
 	}
-	if len(records) == 0 {
+	if len(validUUIDs) == 0 {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error: ErrNoValidRecords.Error(),
 			Code:  fiber.StatusBadRequest,
 		})
-	}
-
-	// Collect validated UUIDs
-	validUUIDs := make([]string, len(records))
-	for i, r := range records {
-		validUUIDs[i] = r.UUID
 	}
 
 	// Detached on purpose: registers a scan that runs in a background goroutine

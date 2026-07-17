@@ -11,6 +11,49 @@ import (
 	"go.uber.org/zap"
 )
 
+// MergeOptions tunes what a SQLite-to-SQLite merge copies.
+type MergeOptions struct {
+	// SkipHTTPRecords omits the http_records table from the copy. It is safe for
+	// readers that never resolve a finding's linked records: finding_records
+	// carries no foreign key to http_records (it is a bare
+	// PRIMARY KEY (finding_id, record_uuid) table), and findings embed their own
+	// request/response inline, so the junction and every finding still merge
+	// intact — a later record lookup simply resolves to nothing.
+	//
+	// This exists because http_records holds the raw request/response blobs and
+	// is ~98% of the bytes in a typical result database. A read that renders
+	// purely from findings (the finding tree/table/JSON views) would otherwise
+	// pay to copy every blob into the destination only to discard it.
+	SkipHTTPRecords bool
+
+	// SkipRecordBodies copies http_records without its raw_request/raw_response
+	// columns, which are nullable and hold ~96% of the table's bytes. Every row
+	// still lands, with its metadata intact, so row counts and any predicate over
+	// metadata (status/method/host/content-type) are unaffected — unlike dropping
+	// rows, this changes nothing observable for such a reader.
+	//
+	// It is only safe when nothing downstream reads the raw corpus: a filter that
+	// LIKEs over it (see QueryFilters.UsesRawCorpus) silently matches nothing, and
+	// a renderer that prints it silently prints empty. Ignored when
+	// SkipHTTPRecords is set, which already omits the table.
+	SkipRecordBodies bool
+}
+
+// recordBodyColumns are the http_records blob columns holding the raw
+// request/response corpus — the bulk of the table's bytes, and what
+// MergeOptions.SkipRecordBodies / QueryBuilder.OmitBodies leave out. Both are
+// nullable with no default, so a copy that omits them inserts NULL rather than
+// failing.
+//
+// Note oast_interactions has columns of the same names on a different table;
+// this list is for http_records only.
+var recordBodyColumns = []string{"raw_request", "raw_response"}
+
+// findingBodyColumns are the findings blob columns — the inline request/response
+// evidence a finding carries. Excluded from the findings list queries, which
+// render from metadata and re-fetch evidence per page.
+var findingBodyColumns = []string{"additional_evidence", "request", "response"}
+
 // MergeStats reports what a SQLite-to-SQLite merge copied into the destination.
 type MergeStats struct {
 	ProjectsMerged       int
@@ -69,13 +112,19 @@ var mergeCopyTables = []string{"projects", "scans", "http_records", "agentic_sca
 // BEGIN IMMEDIATE transaction, and retries on SQLITE_BUSY/locked so it
 // tolerates other processes briefly holding the destination's write lock.
 func MergeSQLiteFile(ctx context.Context, dest *DB, srcPath string) (*MergeStats, error) {
+	return MergeSQLiteFileWithOptions(ctx, dest, srcPath, MergeOptions{})
+}
+
+// MergeSQLiteFileWithOptions is MergeSQLiteFile with control over what is
+// copied; see MergeOptions.
+func MergeSQLiteFileWithOptions(ctx context.Context, dest *DB, srcPath string, opts MergeOptions) (*MergeStats, error) {
 	if dest.Driver() != "sqlite" {
 		return nil, fmt.Errorf("merge requires a SQLite destination, got %q", dest.Driver())
 	}
 	var stats *MergeStats
 	err := retryOnBusy(ctx, func() error {
 		var e error
-		stats, e = mergeOnce(ctx, dest, srcPath)
+		stats, e = mergeOnce(ctx, dest, srcPath, opts)
 		return e
 	})
 	return stats, err
@@ -83,7 +132,7 @@ func MergeSQLiteFile(ctx context.Context, dest *DB, srcPath string) (*MergeStats
 
 // mergeOnce performs a single merge attempt. Any failure rolls back the
 // transaction (so a retry starts clean) and detaches the source.
-func mergeOnce(ctx context.Context, dest *DB, srcPath string) (*MergeStats, error) {
+func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions) (*MergeStats, error) {
 	stats := &MergeStats{}
 
 	conn, err := dest.SQLDB().Conn(ctx)
@@ -130,11 +179,19 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string) (*MergeStats, erro
 	// have one (agentic_scans) dedup on their UNIQUE(uuid) instead, and letting
 	// the destination assign ids avoids cross-database id collisions.
 	for _, table := range mergeCopyTables {
+		if opts.SkipHTTPRecords && table == "http_records" {
+			continue
+		}
 		cols, err := commonColumns(ctx, conn, table)
 		if err != nil {
 			return nil, fmt.Errorf("inspect columns for %s: %w", table, err)
 		}
 		cols = dropColumn(cols, "id")
+		if opts.SkipRecordBodies && table == "http_records" {
+			for _, c := range recordBodyColumns {
+				cols = dropColumn(cols, c)
+			}
+		}
 		if len(cols) == 0 {
 			continue
 		}

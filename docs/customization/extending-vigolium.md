@@ -752,13 +752,23 @@ Vigolium runs every agent through the in-process **olium** runtime (`pkg/olium/`
 
 ### Built-in providers
 
-| Provider | Auth | Default model |
-|---|---|---|
-| `openai-codex-oauth` (default) | `~/.codex/auth.json` produced by `codex login` | `gpt-5.5` |
-| `anthropic-api-key` | `$ANTHROPIC_API_KEY` (or `agent.olium.llm_api_key`) | `claude-opus-4-7` |
-| `anthropic-oauth` | OAuth bearer token from `claude setup-token` (`agent.olium.oauth_token`, falls back to `$ANTHROPIC_API_KEY`) | `claude-opus-4-7` |
-| `openai-api-key` | `$OPENAI_API_KEY` (or `agent.olium.llm_api_key`) | `gpt-5.5` |
-| `anthropic-cli` | local `claude` binary (no key here) | `claude-opus-4-7` |
+The shipped default is `openai-compatible`, pointed at local Ollama
+(`http://localhost:11434/v1`, model `gemma4:latest`). The complete provider set
+is:
+
+| Provider | Authentication / transport |
+|---|---|
+| `openai-compatible` | OpenAI Chat Completions-compatible URL; key optional |
+| `anthropic-compatible` | Custom Anthropic Messages-compatible URL |
+| `openai-codex-oauth` | `~/.codex/auth.json` from `codex login` |
+| `openai-api-key` | `agent.olium.llm_api_key` or `$OPENAI_API_KEY` |
+| `openai-responses` | Public OpenAI Responses API with an OpenAI API key |
+| `anthropic-api-key` | `agent.olium.llm_api_key` or `$ANTHROPIC_API_KEY` |
+| `anthropic-oauth` | Bearer token from `claude setup-token` |
+| `anthropic-cli` | Local `claude` CLI |
+| `anthropic-claude-sdk-bridge` | Claude Agent SDK through the audit bridge |
+| `anthropic-vertex` | Claude on Vertex AI with GCP credentials |
+| `google-vertex` | Gemini on Vertex AI with GCP credentials |
 
 ### Configuring olium
 
@@ -766,16 +776,21 @@ Vigolium runs every agent through the in-process **olium** runtime (`pkg/olium/`
 # vigolium-configs.yaml
 agent:
   olium:
-    provider: openai-codex-oauth        # or anthropic-api-key, anthropic-oauth, openai-api-key, anthropic-cli
-    model: gpt-5.5               # empty = provider default
+    provider: openai-compatible
+    model: ""                    # empty = provider/custom-provider default
     oauth_cred_path: ~/.codex/auth.json
     reasoning_effort: medium     # codex-only knob
     max_turns: 32
     max_concurrent: 4
     call_timeout_sec: 600
+    custom_provider:
+      base_url: http://localhost:11434/v1
+      model_id: gemma4:latest
 ```
 
-Override per-run with the matching CLI flags on `vigolium agent autopilot` / `swarm` / `query` / `olium` (e.g. `--provider`, `--model`, `--oauth-cred`, `--llm-api-key`).
+Override per-run with the matching CLI flags on `vigolium agent autopilot` /
+`swarm` / `query` / `olium` (for example `--provider`, `--model`,
+`--oauth-cred`, `--llm-api-key`, `--base-url`, or the Vertex flags).
 
 ### LLM config (for JS extensions only)
 
@@ -818,7 +833,7 @@ The main `vigolium-configs.yaml` is the central control plane for all scan behav
 | `notify` | Alert routing: Telegram, Discord, severity filters |
 | `mutation_strategy` | Payload mutation modes, field-type defaults |
 | `oast` | Out-of-band testing server, blind XSS config |
-| `agent` | AI backends, LLM config, warm sessions |
+| `agent` | AI providers, model/runtime settings, session storage |
 
 ### Environment variable expansion
 

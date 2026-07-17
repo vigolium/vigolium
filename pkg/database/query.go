@@ -90,6 +90,29 @@ func (f QueryFilters) EffectiveExcludeTerms() []string {
 	return nonBlank(f.ExcludeTerms)
 }
 
+// UsesRawCorpus reports whether any active filter matches against the
+// raw_request/raw_response blob columns — the FuzzyTerm branches,
+// recordSearchPredicate (--search) and rawCorpusPredicate (--header/--body),
+// plus all three exclude forms.
+//
+// A caller that would otherwise avoid materializing those blobs (a projected
+// SELECT, or a merge that omits the columns) MUST check this first and keep them
+// when it returns true. The failure is silent, not an error: with the blobs
+// absent every LIKE matches nothing, so --search returns an empty result and the
+// --exclude-* forms — which are negated — return everything.
+//
+// Keep in sync with applyFilters; this is the reason to add a field here rather
+// than open-code the flag checks at each call site.
+func (f QueryFilters) UsesRawCorpus() bool {
+	return f.FuzzyTerm != "" ||
+		f.HeaderSearch != "" ||
+		f.BodySearch != "" ||
+		f.ExcludeHeaderSearch != "" ||
+		f.ExcludeBodySearch != "" ||
+		len(f.EffectiveSearchTerms()) > 0 ||
+		len(f.EffectiveExcludeTerms()) > 0
+}
+
 // nonBlank returns the input with empty strings dropped.
 func nonBlank(in []string) []string {
 	var out []string
@@ -141,8 +164,9 @@ const (
 
 // QueryBuilder builds filtered database queries
 type QueryBuilder struct {
-	db      *DB
-	filters QueryFilters
+	db         *DB
+	filters    QueryFilters
+	omitBodies bool
 }
 
 // NewQueryBuilder creates a new query builder
@@ -153,9 +177,32 @@ func NewQueryBuilder(db *DB, filters QueryFilters) *QueryBuilder {
 	}
 }
 
+// OmitBodies drops raw_request/raw_response from the SELECT list, for callers
+// that read only metadata off the returned records. Those two columns hold the
+// whole request/response corpus and dwarf every other column, so hydrating them
+// for a list view costs memory proportional to the traffic scanned rather than
+// to the page size.
+//
+// Filters are unaffected: they run in SQL against the stored columns, so this is
+// safe even with --search/--header/--body active (contrast MergeOptions.
+// SkipRecordBodies, which removes the columns from the destination and so cannot
+// be used with those filters). The only requirement is that the caller not read
+// HTTPRecord.RawRequest/RawResponse — they come back empty.
+//
+// This mirrors FindingsQueryBuilder.ExecuteWithCount, which always excludes its
+// equivalent blob columns; records can't default to that because --raw/--burp
+// and the record views legitimately need them.
+func (qb *QueryBuilder) OmitBodies() *QueryBuilder {
+	qb.omitBodies = true
+	return qb
+}
+
 // BuildRecordsQuery builds a query for http_records table
 func (qb *QueryBuilder) BuildRecordsQuery() *bun.SelectQuery {
 	query := qb.db.NewSelect().Model((*HTTPRecord)(nil))
+	if qb.omitBodies {
+		query = query.ExcludeColumn(recordBodyColumns...)
+	}
 
 	qb.applyFilters(query)
 	qb.applySorting(query)
@@ -670,7 +717,7 @@ func (fqb *FindingsQueryBuilder) Count(ctx context.Context) (int64, error) {
 func (fqb *FindingsQueryBuilder) Execute(ctx context.Context) ([]*Finding, error) {
 	findings := make([]*Finding, 0)
 	query := fqb.db.NewSelect().Model((*Finding)(nil)).
-		ExcludeColumn("additional_evidence", "request", "response")
+		ExcludeColumn(findingBodyColumns...)
 	fqb.applyFindingFilters(query)
 	fqb.applyFindingSorting(query)
 
@@ -694,7 +741,7 @@ func (fqb *FindingsQueryBuilder) Execute(ctx context.Context) ([]*Finding, error
 func (fqb *FindingsQueryBuilder) ExecuteWithCount(ctx context.Context) ([]*Finding, int64, error) {
 	findings := make([]*Finding, 0)
 	query := fqb.db.NewSelect().Model(&findings).
-		ExcludeColumn("additional_evidence", "request", "response")
+		ExcludeColumn(findingBodyColumns...)
 	fqb.applyFindingFilters(query)
 	fqb.applyFindingSorting(query)
 

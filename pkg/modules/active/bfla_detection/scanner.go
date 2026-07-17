@@ -102,6 +102,17 @@ func (m *Module) ScanPerRequest(
 	if origStatus < 200 || origStatus >= 300 {
 		return nil, nil
 	}
+	// The 2xx gate above already excludes the common vendor blocks that carry a
+	// blocking status (403/503/429). This additionally drops a WAF/CDN challenge
+	// served AT 200 (Cloudflare managed challenge, Cf-Mitigated, or a challenge-body
+	// marker): BFLA deliberately targets admin paths, which carry the strictest,
+	// path-scoped WAF rules, so an auth-stripped probe hits the SAME 200 challenge
+	// page (the edge ignores the credential) and reads as content-similar — while the
+	// random-path catch-all controls dodge the path-scoped rule and can't cancel it.
+	// A challenge page is never a genuine privileged baseline, so drop it.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
+		return nil, nil
+	}
 	origBody := ctx.Response().Body()
 	origBodyLen := len(origBody)
 

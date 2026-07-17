@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.3] - 2026-07-17
+
+A **read-path performance** release: `finding` and `traffic` no longer materialize HTTP request/response bodies they don't render, which turns large `--glob-db` reads from swap-thrashing multi-minute runs into seconds and trims memory across ordinary reads and the REST API too. No module changes (registry stays at 201 active + 116 passive).
+
+### Performance
+
+- **`finding --glob-db` skips the `http_records` table entirely.** Merging a glob of result files copied every request/response blob into an in-memory database before the first filter ran; findings carry their own evidence inline, so the record table is never needed. A 169-database `finding --severity high --tree` drops from ~5m20s / 10.8 GB RSS to ~1.2s / 379 MB, byte-identical output.
+- **`traffic --glob-db` column-projects the raw bodies out of the merge.** Every record row still lands with its metadata (so counts and `--status`/`--host`/`--method` are unaffected), but the `raw_request`/`raw_response` columns — ~96% of the bytes — are dropped unless an output mode or filter needs them. A 169-database `traffic --status 200` drops from ~6m / 20 GB RSS to ~24s / 2 GB. `--search`, `--raw`, `--burp`, `--markdown`, `--json`, and `--columns REQ_HEADERS/RESP_HEADERS` keep the full bodies.
+- **Ordinary single-database reads stop hydrating unused bodies.** The `traffic` table/tree views and agent context enrichment (autopilot/swarm) no longer fetch raw request/response blobs they never read; `traffic --tree -a` on a 453 MB database drops from ~1.1 GB to ~470 MB RSS.
+- **REST API over-fetching removed.** `POST /api/scan-records` validates a caller-supplied UUID list with a projected existence check instead of loading whole records; the record/finding delete and finding status-update handlers read only the project scope rather than the full row; `GET /api/findings` collapses its page + count into a single round-trip.
+
+### Fixed
+
+- **`traffic`'s `includeRaw` control had no effect.** The shared traffic query path accepted a "does this view need bodies" flag but never applied it, so every read hydrated the blobs. It now drives a body-column projection, with `--json` and `--columns REQ_HEADERS/RESP_HEADERS` correctly counted as needing them.
+
 ## [v0.3.2] - 2026-07-14
 
 A focused **REST API scan-path hardening** release: a server database-init correctness fix plus a batch of tests that drive both native and agentic scans end-to-end through the REST API. The fix closes a gap where a half-initialized results database (connection opens but schema creation fails — a locked, read-only, disk-full, or schema-incompatible file) left the server running with a live DB handle paired with a nil repository, which repo-backed handlers dereferenced into nil-pointer panics (HTTP 500). No module changes (registry stays at 201 active + 116 passive).

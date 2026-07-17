@@ -20,7 +20,7 @@ select only those rows. No separate public bridge endpoint is required.
 | `path`         | string |         | Filter by path (supports `*` wildcards)      |
 | `status_code`  | string |         | Filter by status code (comma-separated)      |
 | `content_type` | string |         | Filter by response content type              |
-| `search`       | string |         | Search across URL and path                   |
+| `search`       | string |         | Search metadata plus raw request/response headers and bodies |
 | `source`       | string |         | Filter by source (e.g. `burp`, `ingest-server`, `cli`) |
 | `min_risk`     | int    |         | Filter by minimum risk score                 |
 | `remark`       | string |         | Filter by remark                             |
@@ -49,6 +49,7 @@ curl -s 'http://localhost:9002/api/http-records?domain=*.example.com' | jq .
 
 ```json
 {
+  "project_uuid": "00000000-0000-0000-defa-c01001000001",
   "data": [
     {
       "uuid": "rec-0056-seed-aaaa-bbbb-cccc0038",

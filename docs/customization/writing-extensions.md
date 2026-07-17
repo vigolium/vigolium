@@ -1018,10 +1018,10 @@ To ingest fresh traffic and immediately run only extensions:
 
 ```bash
 # Ingest a URL list and run extensions only
-vigolium scan -u targets.txt --only extension --config vigolium-configs.yaml
+vigolium scan -T targets.txt --only extension --config vigolium-configs.yaml
 
 # Ingest a single URL
-vigolium scan -u https://example.com --only extension --config vigolium-configs.yaml
+vigolium scan https://example.com --only extension --config vigolium-configs.yaml
 ```
 
 ### Use a one-off config with a custom extension path
@@ -1030,7 +1030,7 @@ You don't need to copy files to `~/.vigolium/extensions/`. Use `custom_dir` to p
 
 ```bash
 # Point to your extension file via config or inline
-vigolium scan -u https://example.com \
+vigolium scan https://example.com \
   --only extension \
   --config ./my-test-config.yaml
 ```

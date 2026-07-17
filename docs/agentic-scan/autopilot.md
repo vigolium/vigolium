@@ -250,7 +250,7 @@ Every successful `report_finding` call writes a row via
 `repo.SaveFindingDirect`. Key fields the autopilot stamps:
 
 - `ProjectUUID`, `ScanUUID`, `AgenticScanUUID` — propagate the project/scan
-  scope so `vigolium finding` and `vigolium agent sessions` can join back.
+  scope so `vigolium finding` and `vigolium agent session` can join back.
 - `ModuleID = "olium-autopilot"`, `ModuleType = "ai-agent"`,
   `FindingSource = "autopilot"` — distinguishes agent-originated findings from
   scanner-module findings.
@@ -276,7 +276,7 @@ For each run, autopilot creates a UUID-named directory under the configured
   └── runtime.log   # tee of stdout (assistant text stream)
 ```
 
-The run UUID matches the `AgenticScan.uuid` row, so `vigolium agent sessions`
+The run UUID matches the `AgenticScan.uuid` row, so `vigolium agent session`
 and `vigolium log <uuid>` both work without extra plumbing. Stale dirs older
 than 48h are swept on startup; orphan PID files (from SIGKILL'd runs) are
 cleared via `agent.CleanupOrphanedProcesses`.

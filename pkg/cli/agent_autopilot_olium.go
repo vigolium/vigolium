@@ -214,14 +214,32 @@ func runAutopilotOlium(parentCtx context.Context, settings *config.Settings, rep
 	// (whitebox/audit) and direct (blackbox/pre-scan) paths. Failure is
 	// non-fatal — the run continues without the brief.
 	if kb := strings.TrimSpace(autopilotKnowledgeBase); kb != "" {
-		section, kbErr := buildKnowledgeBaseSection(ctx, prov, model, kb, autopilotKnowledgeBaseRaw, sessionDir, os.Stderr)
+		// Traffic half: HTTP-traffic exports in the KB (HAR, Burp, curl, OpenAPI,
+		// Postman, URL lists, raw HTTP) are parsed into real http_records and
+		// ingested like a Burp import (source=knowledge-base), with a bounded
+		// endpoint sample folded into the brief. Gated on a DB repo (records need
+		// somewhere to land) and suppressed by --knowledge-base-no-traffic, which
+		// then keeps those files in the prose corpus instead.
+		routeTraffic := !autopilotKnowledgeBaseNoTraffic && repo != nil
+		var kbSections []string
+		if routeTraffic {
+			if trafficSection, _ := ingestKnowledgeBaseTraffic(ctx, repo, projectUUID, kb, os.Stderr); trafficSection != "" {
+				kbSections = append(kbSections, trafficSection)
+			}
+		}
+		// Prose half: distill/index the reference docs. Traffic files are excluded
+		// from this corpus when routeTraffic is on (they went to the DB above).
+		section, kbErr := buildKnowledgeBaseSection(ctx, prov, model, kb, autopilotKnowledgeBaseRaw, sessionDir, os.Stderr, routeTraffic)
 		if kbErr != nil {
 			fmt.Fprintf(os.Stderr, "%s Knowledge base: %v — continuing without it\n", terminal.WarningSymbol(), kbErr)
 		} else if section != "" {
+			kbSections = append(kbSections, section)
+		}
+		if combined := strings.Join(kbSections, "\n\n"); combined != "" {
 			if strings.TrimSpace(instruction) != "" {
-				instruction = instruction + "\n\n" + section
+				instruction = instruction + "\n\n" + combined
 			} else {
-				instruction = section
+				instruction = combined
 			}
 		}
 	}

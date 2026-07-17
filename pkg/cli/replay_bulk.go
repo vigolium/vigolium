@@ -36,7 +36,9 @@ func runReplayBulk(ctx context.Context, rr *replayRun) error {
 		return fmt.Errorf("bulk selection flags (--all/--host/--method/--status/--path/--source/--search/--body) can't be combined with --record-uuid/--finding-id/--input")
 	}
 
-	db, err := openReadDB()
+	// Bulk replay re-sends the stored requests, so a --glob-db merge must keep
+	// the bodies.
+	db, err := openReadDB(globDBSkipSet{})
 	if err != nil {
 		return fmt.Errorf("bulk replay requires database access: %w", err)
 	}

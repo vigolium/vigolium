@@ -16,12 +16,14 @@ Vigolium's agent mode runs AI-driven security scans on top of the native scanner
 |--------------|------------------------------------------------------------------|-----------------------------|
 | `query`      | Single-shot prompt (template or inline). Code review, secret hunt, endpoint discovery. | `pkg/cli/agent.go`          |
 | `autopilot`  | Agentic scan: autonomous operator with full tool access.         | `pkg/cli/agent_autopilot.go`|
-| `swarm`      | Agentic scan: 10-phase guided pipeline (plan → extension → scan → triage). | `pkg/cli/agent_swarm.go`    |
+| `swarm`      | Guided pipeline: normalize → analyze → plan → scan → triage. | `pkg/cli/agent_swarm.go`    |
 | `audit`     | Foreground vigolium-audit (multi-phase AI source-code audit).      | `pkg/cli/agent_audit.go`   |
-| `olium`      | Interactive olium TUI or headless prompt.                        | `pkg/cli/agent_olium.go`    |
+| `olium`      | Interactive olium TUI or one-shot `-p` prompt.                   | `pkg/cli/agent_olium.go`    |
 | `session`    | List or inspect past agent runs (sessions list / detail view).   | `pkg/cli/agent_session.go`  |
+| `triage`     | Triage stored findings with an olium prompt.                     | `pkg/cli/agent_triage.go`   |
 
-`query` is the only mode that does **not** orchestrate a scan — it's a one-shot prompt with optional source-code context. `autopilot` and `swarm` are the two **agentic scan** modes.
+`query` is a one-shot prompt and `triage` reviews stored findings; neither runs
+the scan pipeline. `autopilot` and `swarm` are the two agentic scan modes.
 
 ---
 
@@ -30,7 +32,7 @@ Vigolium's agent mode runs AI-driven security scans on top of the native scanner
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  CLI                          pkg/cli/agent_*.go                │
-│  query · autopilot · swarm · audit · olium · session           │
+│  query · autopilot · swarm · audit · olium · session · triage  │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │
 ┌───────────────────────────────▼─────────────────────────────────┐
@@ -38,7 +40,8 @@ Vigolium's agent mode runs AI-driven security scans on top of the native scanner
 │                                                                 │
 │   SwarmRunner          swarm.go + swarm_pipeline.go             │
 │     normalize → auth → source-analysis → code-audit →           │
-│     discovery → plan → extension → scan → triage → finalize     │
+│     discovery → recon → plan → reentry → extension → scan →     │
+│     replan-on-empty → triage → finalize                         │
 │                                                                 │
 │   AutopilotPipelineRunner    autopilot_pipeline.go              │
 │     audit (optional, foreground) → autonomous operator         │
@@ -57,7 +60,7 @@ Vigolium's agent mode runs AI-driven security scans on top of the native scanner
                                 │
 ┌───────────────────────────────▼─────────────────────────────────┐
 │  Providers                    pkg/olium/provider/               │
-│  anthropic · openai · codex (OAuth) · claudecode (CLI)          │
+│  OpenAI · Anthropic · Vertex · compatible endpoints · CLI       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -92,16 +95,18 @@ Native, in-process replacement for the old SDK pool.
 
   | Provider              | Auth source                                           |
   |-----------------------|-------------------------------------------------------|
-  | `openai-codex-oauth`         | `oauth_cred_path` (JSON from `codex login`)           |
-  | `anthropic-api-key`   | `llm_api_key` or `$ANTHROPIC_API_KEY`                 |
-  | `anthropic-oauth`        | `oauth_token` (from `claude setup-token`); falls back to `$ANTHROPIC_API_KEY` |
-  | `openai-api-key`      | `llm_api_key` or `$OPENAI_API_KEY`                    |
-  | `anthropic-cli`     | shells out to the `claude` binary                     |
-  | `anthropic-vertex`   | `oauth_cred_path` (GCP SA JSON, or `$GOOGLE_APPLICATION_CREDENTIALS`) + `google_cloud_project` / `google_cloud_location` |
-  | `google-vertex`      | same GCP creds; routes `gemini-*` models             |
-  | `openai-compatible` | `custom_provider.base_url` (required), `custom_provider.api_key` (optional), `custom_provider.model_id`, `custom_provider.extra_headers` |
+  | `openai-codex-oauth` | Codex OAuth credentials (`~/.codex/auth.json`) |
+  | `openai-api-key`, `openai-responses` | `llm_api_key` or `$OPENAI_API_KEY` |
+  | `anthropic-api-key`, `anthropic-oauth` | Anthropic API key or setup token |
+  | `anthropic-cli` | Local `claude` binary |
+  | `anthropic-claude-sdk-bridge` | Embedded/PATH audit bridge and Claude subscription |
+  | `anthropic-vertex`, `google-vertex` | GCP service-account or ADC credentials |
+  | `openai-compatible`, `anthropic-compatible` | `custom_provider` endpoint and optional key |
 
-Configured in `agent.olium` of `vigolium-configs.yaml`. Per-call deadline defaults to 10m (`call_timeout_sec`).
+Configured in `agent.olium` of `vigolium-configs.yaml`. The shipped default is
+`openai-compatible` against local Ollama; per-call deadline defaults to ten
+minutes. See [agent setup](../getting-started/setup-agent.md) for the complete
+provider matrix.
 
 The `openai-compatible` provider speaks the OpenAI Chat Completions wire format and works with any backend that does too — Ollama, OpenRouter, LM Studio, vLLM, Together, Groq, LocalAI, custom proxies. Set `base_url` to the endpoint (`/v1` root or full `/v1/chat/completions` URL — both work); leave `api_key` empty for unauthenticated local servers. `extra_headers` are applied after the standard headers, so they can override `Authorization` for backends that use a non-Bearer scheme.
 
@@ -144,7 +149,7 @@ Templates render against `TemplateData` (`pkg/agent/agenttypes/types.go`), which
    └──────────┬──────────┘
               ▼
    ┌─────────────────────┐
-   │ auth (optional)     │  browser-based login (--browser-auth + --browser)
+   │ auth (optional)     │  browser-based login (--browser-auth)
    └──────────┬──────────┘
               ▼
    ┌─────────────────────┐
@@ -161,8 +166,16 @@ Templates render against `TemplateData` (`pkg/agent/agenttypes/types.go`), which
    └──────────┬──────────┘
               ▼
    ┌─────────────────────┐
+   │ native-recon        │  GET-only probe when source facts are unavailable
+   └──────────┬──────────┘
+              ▼
+   ┌─────────────────────┐
    │ plan (AI)           │  master agent picks modules + extensions
    │                     │  batched (5 records/batch) for large input sets
+   └──────────┬──────────┘
+              ▼
+   ┌─────────────────────┐
+   │ discover-reentry    │  probe planner-referenced untested paths
    └──────────┬──────────┘
               ▼
    ┌─────────────────────┐
@@ -172,6 +185,10 @@ Templates render against `TemplateData` (`pkg/agent/agenttypes/types.go`), which
               ▼
    ┌─────────────────────┐
    │ native-scan         │  ScanFunc: native modules + custom extensions
+   └──────────┬──────────┘
+              ▼
+   ┌─────────────────────┐
+   │ replan-on-empty     │  supplemental plan when useful signal remains
    └──────────┬──────────┘
               ▼
    ┌─────────────────────┐
@@ -189,9 +206,11 @@ Phase names prefixed `native-` are pure-Go (no LLM). The pipeline is gated by:
 - intensity preset (`SwarmPresets[Quick|Balanced|Deep]` in `agenttypes/constants.go`)
 - `cfg.SourcePath` — empty source skips source-analysis and code-audit
 - `cfg.Discover`, `cfg.CodeAudit`, `cfg.Triage` toggles
-- checkpoint resume — `--resume <session-dir>` skips already-completed phases
+- `--start-from` — creates a new invocation with earlier phases marked complete;
+  Swarm has no public checkpoint `--resume` flag
 
-A parallel **vigolium-audit** subprocess can run in the background (`cfg.Audit != ""`) when source is provided, contributing source-code audit findings without blocking the swarm.
+With source present, `--audit <mode>` can start the vigolium-audit harness in
+the background; `--piolium <mode>` selects the Pi-native harness instead.
 
 ### Plan & extension phases
 
@@ -251,7 +270,8 @@ If `FollowUpScans` is non-empty and rescan is enabled, the pipeline loops back t
    │     Bash, Read, Grep, Glob, Edit, Write,    │
    │     vigolium scan-url, vigolium findings,   │
    │     vigolium traffic, etc.                  │
-   │   bounded by MaxCommands + Timeout          │
+   │   bounded by an internal turn budget and    │
+   │   the public --max-duration limit           │
    └─────────────────┬───────────────────────────┘
                      ▼
    ┌─────────────────────────────────────────────┐
@@ -265,11 +285,14 @@ Effort level (`low`/`medium`) is picked from audit mode: `balanced`/`deep` audit
 
 ### Intensity presets (autopilot)
 
-| Intensity | MaxCommands | Timeout | Audit mode | Browser |
-|-----------|-------------|---------|-------------|---------|
-| quick     | 30          | 1h      | lite        | off     |
-| balanced  | 100         | 6h      | balanced    | off     |
-| deep      | 300         | 12h     | deep        | on      |
+| Intensity | Maximum duration | Audit mode | Native strategy | Browser |
+|-----------|------------------|------------|-----------------|---------|
+| quick     | 1h               | lite       | lite            | on      |
+| balanced  | 6h               | balanced   | balanced        | on      |
+| deep      | 12h              | deep       | deep            | on      |
+
+The CLI exposes `--max-duration`; it does not expose the internal
+`MaxCommands` budget as a flag.
 
 ---
 
@@ -280,16 +303,19 @@ Every swarm and autopilot run writes a session dir under `agent.sessions_dir` (d
 ```
 <session>/
 ├── checkpoint.json         # swarm: completed phases, record stats, last triage round
-├── plan.json               # serialized SwarmPlan
+├── swarm-plan.json         # serialized SwarmPlan
 ├── session-config.json     # auth session definitions (login flows, token rules)
 ├── extensions/             # compiled JS extensions (sanitized filenames)
 ├── vigolium-results/         # audit subprocess output (audit-state.json + findings)
 ├── master-prompt.md        # rendered prompt sent to master agent (debug)
 ├── source-analysis-prompt.md
-├── output.md               # autopilot: agent stream / final transcript
-├── output.txt              # query: raw agent output
+├── autopilot/              # autopilot plan, context, evidence, and verification
+├── output.md               # autopilot operator output
+├── output.txt              # query raw output
 ├── inputs.json             # normalized input records
-└── skills/                 # copied embedded skills (vigolium-scanner, agent-browser)
+├── transcript-*.jsonl      # per-call Pi-compatible olium transcripts
+├── runtime.log             # human-readable live/tool log
+└── skills/                 # copied embedded and selected skills
 ```
 
 `EnsureSessionDir(baseDir, agenticScanUUID)` in `pipeline_types.go` is the canonical creator.
@@ -311,8 +337,8 @@ agent:
     max_high_risk: 20
     min_risk_score: 50
   olium:
-    provider: openai-codex-oauth          # or anthropic-api-key | openai-api-key | anthropic-oauth | anthropic-cli | anthropic-vertex | google-vertex | openai-compatible
-    model: gpt-5.5                 # provider default if empty
+    provider: openai-compatible    # shipped default: local Ollama
+    model: ""                      # provider default if empty
     oauth_cred_path: ~/.codex/auth.json
     llm_api_key: ${ANTHROPIC_API_KEY}
     reasoning_effort: medium
@@ -320,16 +346,14 @@ agent:
     max_turns: 32
     max_concurrent: 4              # global cap on in-flight provider calls
     call_timeout_sec: 600          # per-call deadline; -1 = no timeout
-    custom_provider:               # only used when provider == openai-compatible
+    custom_provider:               # compatible-provider settings
       base_url: http://localhost:11434/v1    # Ollama default; OpenRouter / LM Studio / vLLM also work
       model_id: gemma4:latest                # fallback for olium.model and --model
       api_key: ""                            # optional; empty = no Authorization header
       extra_headers:                         # optional; applied after standard headers
         # X-Provider: custom
-  audit:
-    # …
   browser:
-    # optional agent-browser integration
+    enable: true
 ```
 
 CLI flags (`--provider`, `--model`, `--oauth-token`, `--llm-api-key`, `--base-url`) override the config at runtime.
@@ -361,5 +385,8 @@ CLI flags (`--provider`, `--model`, `--oauth-token`, `--llm-api-key`, `--base-ur
 - **Engine** turns a prompt template + DB context into a structured result. One LLM call.
 - **Orchestrator** sequences many engine calls plus native steps (discovery, scan), checkpoints state, and writes a session directory.
 - **Olium** is the agent runtime — it holds conversation state and dispatches to a provider. One olium engine can serve many engine calls cheaply (prompt cache hits).
-- **Phases** are the unit of resumable work. `--only`, `--skip`, `--start-from`, and `--resume` operate on phase names.
-- **Intensity** is a single knob that hydrates a bundle of toggles (commands, timeout, audit mode, discover/audit/triage flags, browser/auth).
+- **Phases** are the unit of Swarm work. `--only`, `--skip`, and
+  `--start-from` control a new invocation; durable Autopilot separately supports
+  `--resume <agentic-scan-uuid>`.
+- **Intensity** hydrates duration, audit mode, discovery, code-audit, triage,
+  browser/auth, and concurrency defaults.

@@ -31,8 +31,8 @@ vigolium scan-url "https://example.com/search?q=test"
 
 ## 2. Run a full scan
 
-`vigolium scan` runs the full multi-phase pipeline (discovery → spidering →
-dynamic-assessment) using the **balanced** strategy by default:
+`vigolium scan` uses the **balanced** strategy by default: reconnaissance and
+discovery feed dynamic assessment, followed by the known-issue pass.
 
 ```bash
 vigolium scan -t https://example.com
@@ -65,8 +65,9 @@ cat urls.txt | vigolium scan
 echo "curl -X POST -d 'user=admin' https://example.com/login" | vigolium scan-request
 ```
 
-Supported input modes (`-I`): `urls`, `openapi`, `swagger`, `postman`,
-`curl`, `burpxml`, `nuclei`, `har`.
+Supported input modes (`-I`): `urls`, `openapi`/`swagger`, `postman`, `curl`,
+`burpraw`, `burpxml`/`burp`, `nuclei-output`/`nuclei`, `har`, and `deparos`.
+Run `vigolium --list-input-mode` for aliases and examples.
 
 ## 4. Pick specific modules (optional)
 
@@ -102,6 +103,8 @@ vigolium scan -t https://example.com --format jsonl,html -o scan
 | `--format console` | Human-readable terminal output (default) |
 | `--format jsonl` / `-j` | One JSON object per line |
 | `--format html` | Interactive ag-grid report (requires `-o`) |
+| `--format report,pdf` | Document and PDF reports |
+| `--format sqlite,fs` | Standalone DB or browsable filesystem export |
 | `-o, --output` | Output file path (base name; extension added per format) |
 | `--ci-output-format` | JSONL only, no banners or color — ideal for CI |
 | `--silent` | Suppress everything except findings |
@@ -126,8 +129,8 @@ Phases: `ingestion`, `discovery`, `external-harvest`, `spidering`,
 `~/.vigolium/database-vgnm.sqlite`, so you can browse them afterward:
 
 ```bash
-vigolium traffic list      # ingested HTTP records
-vigolium finding list      # discovered vulnerabilities
+vigolium traffic           # ingested HTTP records
+vigolium finding           # discovered vulnerabilities
 ```
 
 For one-shot runs that leave nothing behind (CI, ad-hoc checks), add

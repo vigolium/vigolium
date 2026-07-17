@@ -323,7 +323,7 @@ vigolium run dynamic-assessment -t https://example.com
 vigolium scan -t https://example.com --only dynamic-assessment
 ```
 
-**Run only known-issue-scan (Nuclei templates + Kingfisher secrets):**
+**Run only known-issue-scan (Nuclei templates + native secret detection):**
 ```
 > Run known-issue scan, only critical and high severity
 ```
@@ -400,7 +400,7 @@ vigolium module ls --type active -v
 > Only run reflected XSS and error-based SQL injection modules
 ```
 ```bash
-vigolium scan -t https://example.com -m xss-reflected,sqli-error
+vigolium scan -t https://example.com -m xss-light-url-params,sqli-error-based
 ```
 
 **Filter modules by tags (OR logic):**
@@ -433,7 +433,7 @@ vigolium module enable xss
 > Enable only the reflected XSS module
 ```
 ```bash
-vigolium module enable active-xss-reflected --id
+vigolium module enable xss-light-url-params --id
 ```
 
 ---
@@ -461,7 +461,7 @@ vigolium server --service-port 8443 --no-auth
 > Start the server and auto-scan every request that comes in
 ```
 ```bash
-vigolium server -t https://example.com --scan-on-receive
+vigolium server --scan-on-receive
 ```
 
 **Start server with transparent proxy for recording:**
@@ -472,13 +472,16 @@ vigolium server -t https://example.com --scan-on-receive
 vigolium server --ingest-proxy-port 8080
 ```
 
-**High-concurrency server:**
+**Increase the ingestion queue:**
 ```
-> Start a high-throughput server with 200 workers
+> Increase the in-memory queue before disk/Redis spillover
 ```
 ```bash
-vigolium server -c 200 --mem-buffer 50000
+vigolium server --mem-buffer 50000
 ```
+
+Background scanner concurrency comes from `scanning_pace` configuration;
+`server` does not expose the native scan `-c` flag.
 
 **Ingest an OpenAPI spec locally:**
 ```
@@ -658,12 +661,12 @@ vigolium agent autopilot -t https://example.com
 vigolium agent autopilot -t https://api.example.com --source ./src --prompt "focus on auth bypass"
 ```
 
-**Custom limits (fewer commands, shorter timeout):**
+**Custom wall-clock limit:**
 ```
-> Limit the agent to 50 commands and 15 minutes
+> Limit the agent to 15 minutes
 ```
 ```bash
-vigolium agent autopilot -t https://example.com --max-commands 50 --timeout 15m
+vigolium agent autopilot -t https://example.com --max-duration 15m
 ```
 
 **Preview the system prompt (dry run):**
@@ -679,7 +682,8 @@ vigolium agent autopilot -t https://example.com --dry-run
 > Use my own system prompt for autopilot
 ```
 ```bash
-vigolium agent autopilot -t https://example.com --system-prompt my-system-prompt.md
+vigolium agent autopilot -t https://example.com \
+  --system-prompt-file my-system-prompt.md
 ```
 
 **Use a different provider per invocation:**
@@ -706,13 +710,11 @@ vigolium agent autopilot -t https://example.com --provider anthropic-api-key --l
 vigolium agent swarm --discover -t https://example.com
 ```
 
-The swarm runs:
-1. **Discover** — Native content discovery + spidering (no AI)
-2. **Plan** — AI analyzes discovery results, produces an attack plan
-3. **Scan** — Native executor with agent-selected modules (no AI)
-4. **Triage** — AI reviews findings, confirms/dismisses, suggests follow-ups
-5. **Rescan** — Targeted re-scanning from triage recommendations (no AI)
-6. **Report** — Structured output from database (no AI)
+Swarm normalizes input, optionally authenticates/analyzes source, performs
+native discovery and stack recon, asks the planner to select modules and
+extensions, probes planner-only paths, scans, optionally replans an empty
+result, and then triages/rescans. `quick` disables triage; the default
+`balanced` and `deep` presets enable it.
 
 **Swarm with focus area and source code:**
 ```
@@ -730,12 +732,12 @@ vigolium agent swarm --discover -t https://example.com --prompt "focus on SQL in
 vigolium agent swarm --discover -t https://example.com --max-iterations 3
 ```
 
-**Skip discovery and start from planning (use existing DB data):**
+**Start a new run at planning:**
 ```
-> I already have traffic in the database, start from planning
+> Normalize this target, then skip ahead to planning
 ```
 ```bash
-vigolium agent swarm --discover -t https://example.com --skip discover --start-from plan
+vigolium agent swarm -t https://example.com --start-from plan
 ```
 
 **Skip triage (just discover → plan → scan):**
@@ -746,12 +748,12 @@ vigolium agent swarm --discover -t https://example.com --skip discover --start-f
 vigolium agent swarm --discover -t https://example.com --skip triage --skip rescan
 ```
 
-**Use a scanning profile:**
+**Use the deep intensity preset:**
 ```
-> Run swarm with the deep scanning profile
+> Run swarm at deep intensity
 ```
 ```bash
-vigolium agent swarm --discover -t https://example.com --profile deep
+vigolium agent swarm --discover -t https://example.com --intensity deep
 ```
 
 **Preview agent prompts (dry run):**
@@ -855,12 +857,12 @@ vigolium traffic --header "Bearer"
 vigolium traffic --columns HOST,METHOD,PATH,STATUS,AUTH
 ```
 
-**Watch mode (auto-refresh):**
+**Refresh in a shell loop:**
 ```
 > Monitor traffic in real-time, refresh every 5 seconds
 ```
 ```bash
-vigolium traffic --watch 5s
+while true; do clear; vigolium traffic --limit 20; sleep 5; done
 ```
 
 **View raw HTTP request/response:**
@@ -895,12 +897,12 @@ vigolium finding --severity high,critical
 vigolium finding --search "sql injection"
 ```
 
-**Watch findings in real-time:**
+**Refresh findings in a shell loop:**
 ```
 > Monitor findings as they come in
 ```
 ```bash
-vigolium finding --watch 5s
+while true; do clear; vigolium finding --limit 20; sleep 5; done
 ```
 
 **Replay stored traffic (re-send requests):**
@@ -939,20 +941,20 @@ vigolium db stats
 vigolium db stats --detailed
 ```
 
-**Stats for a specific host:**
+**Inspect records for a specific host:**
 ```
 > Stats for example.com only
 ```
 ```bash
-vigolium db stats --host example.com
+vigolium traffic --host example.com
 ```
 
-**Live-updating stats:**
+**Refresh stats in a shell loop:**
 ```
 > Watch database stats, refresh every 10 seconds
 ```
 ```bash
-vigolium db stats --watch 10s
+while true; do clear; vigolium db stats --detailed; sleep 10; done
 ```
 
 **List database records with filters:**
@@ -960,7 +962,7 @@ vigolium db stats --watch 10s
 > Show findings table, critical and high severity
 ```
 ```bash
-vigolium db ls --table findings --severity critical,high
+vigolium db list findings --severity critical,high
 ```
 
 **List available tables and columns:**
@@ -968,8 +970,8 @@ vigolium db ls --table findings --severity critical,high
 > What tables are in the database? What columns does findings have?
 ```
 ```bash
-vigolium db ls --list-tables
-vigolium db ls --list-columns --table findings
+vigolium db list --list-tables
+vigolium db list findings --list-columns
 ```
 
 **Clean records by hostname:**
@@ -1009,16 +1011,12 @@ vigolium db clean --orphans
 > Wipe the entire database and start fresh
 ```
 ```bash
-vigolium db clean --force
+vigolium db reset --force
 ```
 
-**Reclaim disk space after deletion:**
-```
-> Vacuum the database to reclaim space
-```
-```bash
-vigolium db clean --vacuum
-```
+SQLite deletes run `VACUUM` automatically to reclaim space. Use
+`db reset --force` only when you intend to recreate the database file and
+schema from scratch.
 
 ---
 
@@ -1351,7 +1349,7 @@ vigolium strategy
 ```bash
 vigolium project create my-project
 vigolium project list
-vigolium project use my-project
+eval "$(vigolium project use <project-uuid>)"
 ```
 
 **Scope CLI operations to a project:**
@@ -1367,7 +1365,7 @@ vigolium scan -t https://example.com --project-name my-project
 > Show stats for my-project
 ```
 ```bash
-VIGOLIUM_PROJECT=my-project vigolium db stats
+vigolium db stats --project-name my-project
 ```
 
 ---
@@ -1403,7 +1401,7 @@ These are examples of natural language prompts you can give to Claude Code or Co
 2. **Use strategies** — `lite` for quick checks, `balanced` for most cases, `deep` for full coverage. When you have source code, reach for an agent mode (`swarm`, `autopilot`, `audit`, or `query`) instead.
 3. **Phase isolation** — Use `--only` or `vigolium run <phase>` to iterate on a single phase without re-running the entire pipeline.
 4. **Module tags** — Filter modules by technology (`spring`, `nodejs`) or vulnerability class (`xss`, `injection`) to reduce noise.
-5. **Watch mode** — Add `--watch 5s` to `traffic`, `finding`, or `db stats` for real-time monitoring during long scans.
+5. **Live monitoring** — Wrap `traffic`, `finding`, or `db stats` in a short shell loop; these commands no longer expose a `--watch` flag.
 6. **Dry-run agents** — Always `--dry-run` first for agent commands to preview prompts before spending AI tokens.
 7. **Swarm over autopilot** — Use `agent swarm --discover` for structured scans (lower cost, reproducible). Use `agent autopilot` for exploratory, creative scanning.
 8. **Extensions for custom logic** — Write JS extensions instead of modifying core modules. They run alongside built-in modules with `--ext`.

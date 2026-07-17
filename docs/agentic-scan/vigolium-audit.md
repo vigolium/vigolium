@@ -1,532 +1,321 @@
-# Audit-Audit
+# Vigolium Audit
 
-Vigolium Audit is Vigolium's embedded **multi-phase whitebox security audit engine**. In swarm it runs as a background process alongside the main scan; in autopilot it runs first, then its output is prepared into stable operator context before the autonomous agent starts. Findings are automatically ingested into the Vigolium database alongside native scanner results.
+Vigolium Audit is Vigolium's embedded, multi-phase whitebox security-audit
+harness. It drives either Claude Code or Codex against an application source
+tree, validates candidate findings, constructs proofs of concept, and imports
+the resulting findings into the same project-scoped database used by native and
+agentic scans.
 
-Vigolium Audit replaces the legacy vig-audit-agent with richer finding formats (YAML frontmatter, adversarial verdicts, cold-verify overlays) and a more capable multi-phase pipeline.
+The top-level `vigolium audit` command is an alias for
+`vigolium agent audit`. Both use the unified audit dispatcher, which can run the
+Vigolium Audit harness, Piolium, or both. See [Piolium Audit](piolium-audit.md)
+for the Pi-specific pipeline.
 
-## Table of Contents
-
-- [Quick Start](#quick-start)
-- [How It Works](#how-it-works)
-- [Audit Modes](#audit-modes)
-- [CLI](#cli)
-- [API](#api)
-- [Manual Import](#manual-import)
-- [Configuration](#configuration)
-- [Session Artifacts](#session-artifacts)
-- [Finding Format](#finding-format)
-- [Finding Ingestion](#finding-ingestion)
-- [Architecture](#architecture)
-- [Comparison with Native Scanning](#comparison-with-native-scanning)
-
----
-
-## Quick Start
+## Quick start
 
 ```bash
-# Swarm with background vigolium-audit (lite mode, default)
-vigolium agent swarm -t https://example.com --source ./src --audit
+# Default: balanced intensity, audit driver when its coding-agent CLI is available
+vigolium audit --source ./app
 
-# Swarm with deep 12-phase audit
-vigolium agent swarm -t https://example.com --source ./src --audit deep
+# Force the Vigolium Audit harness and Codex, then keep all raw artifacts
+vigolium audit --driver audit --agent codex --source ./app --mode deep
 
-# Autopilot with vigolium-audit first
-vigolium agent autopilot -t https://example.com --source ./src --audit balanced
+# Run a deep audit and immediately confirm the finalized findings
+vigolium audit --driver audit --source ./app --modes deep,confirm
 
-# Explicitly disable (overrides config)
-vigolium agent swarm -t https://example.com --source ./src --audit off
-
-# Import previously-run audit output
-vigolium import /path/to/audit-output/
+# Leave the main database untouched and collect HTML + raw output in one folder
+vigolium audit --source ./app -S --output-dir audit-out-{ts}
 ```
 
-Vigolium Audit requires `--source` — it audits source code, not network traffic.
+`--source` accepts a local directory, Git URL, local `.zip`/`.tar.*` archive,
+or `gs://` source archive. A Git URL is shallow-cloned by default; use
+`--commit-depth 0` when deep history analysis is required.
 
----
+## Driver selection
 
-## How It Works
+| `--driver` | Behavior |
+|---|---|
+| `auto` (default) | Run the Vigolium Audit harness when the resolved Claude/Codex CLI is available; otherwise fall back to Piolium. A mid-run harness failure is reported rather than silently retried with Piolium. |
+| `audit` | Run only the embedded Vigolium Audit harness. |
+| `piolium` | Run only Piolium. |
+| `both` | Run Audit and then Piolium sequentially under one parent `AgenticScan`. |
 
-When `--audit` is set and `--source` is provided:
+For `auto` and `both`, each participating driver has its own child run and
+session subtree. A post-pass deduplicates equivalent findings across the
+project; pass `--no-dedup` to skip it.
 
-1. Vigolium extracts the embedded vigolium-audit harness (agents, commands, skills) to `~/.vigolium/vigolium-audit/`
-2. A **separate Claude Code process** is launched with the audit plugin, targeting the source directory
-3. The audit agent runs its own multi-phase pipeline independently
-4. Audit state and findings are copied into the Vigolium session directory
-5. Progress is tracked in a child `AgenticScan` record (mode=`audit`) linked to the parent run
-6. When the audit completes, findings are parsed and ingested into the Vigolium database
-7. In autopilot, Audit output is then prepared into stable context and a native plan before the operator starts
-8. The `<source>/audit/` directory is removed (copy preserved in session directory)
-9. If a foreground run is cancelled first, the audit process is gracefully cancelled via SIGTERM (10s grace period)
+The Audit leg resolves its coding agent from `--agent claude|codex`, then
+`agent.audit.default_agent`, then the configured olium provider
+(`anthropic-*` implies Claude and `openai-*` implies Codex). `--provider`
+changes both that hint and its inherited authentication. It does not select the
+model used by the external coding-agent CLI; configure that CLI separately.
 
-```
-+---------------------------------------------------------------+
-|                  vigolium agent swarm/autopilot                |
-|                                                                |
-|  +--------------+    +-------------------------------------+  |
-|  |  Foreground   |    |  Background (separate process)       |  |
-|  |               |    |                                      |  |
-|  |  Swarm/       |    |  claude --plugin-dir <audit>        |
-|  |  Autopilot    |    |  /vigolium-audit:audit:{mode}         |
-|  |  Pipeline     |    |                                      |  |
-|  |               |    |  P1:  Commit Archaeology             |  |
-|  |  normalize    |    |  P2:  Patch Bypass Analysis          |  |
-|  |  source-      |    |  P3:  Knowledge Base + Threat Model  |  |
-|  |   analysis    |    |  P4:  Static Analysis (CodeQL+Semgrep)|  |
-|  |  code-audit   |    |  P5:  Deep Probe + Bug Hunting       |  |
-|  |  discover     |    |  P6:  Spec Gap Analysis              |  |
-|  |  plan         |    |  P7:  Enrichment + Filtering         |  |
-|  |  scan         |    |  P8:  Adversarial Debate Chambers    |  |
-|  |  triage       |    |  P9:  Cold Verification              |  |
-|  |               |    |  P10: Variant Hunting                |  |
-|  |               |    |  P11: PoC + Report Assembly          |  |
-|  |               |    |                                      |  |
-|  |               |    |  -- state sync every 30s -->         |  |
-|  |               |    |  -- findings ingested on done -->    |  |
-|  +-------+------+    +------------------+-------------------+  |
-|          |                              |                      |
-|          v                              v                      |
-|  +-----------------------------------------------------+      |
-|  |                     Database                          |      |
-|  |  findings (source: scanner modules + audit)          |      |
-|  |  http_records, agentic_scans                             |      |
-|  +-----------------------------------------------------+      |
-+---------------------------------------------------------------+
-```
+## Modes and mode chains
 
----
+Use `vigolium audit --list-modes` for the authoritative mode graph supported by
+the embedded runtime.
 
-## Audit Modes
+| Mode | Purpose |
+|---|---|
+| `lite` | Three source-only phases: quick reconnaissance, native secrets scan, and fast SAST/finalization. |
+| `balanced` | Nine phases covering intelligence, threat modeling, built-in SAST, targeted probing, adversarial review, intent reconciliation, PoC work, finding finalization, and the final report. |
+| `deep` | Twelve canonical phases with history/patch analysis, structural SAST, systematic probes, authorization and state review, review chambers, intent reconciliation, PoC partitioning, and reporting. |
+| `revisit` | A fresh, anti-anchored pass over a completed audit while retaining prior findings as a negative list. |
+| `confirm` | Provision or connect to the target, execute existing PoCs, run test fallbacks, and write `confirmation-report.md`. |
+| `merge` | Combine compatible audit result trees. |
 
-### Lite (3 phases)
+`--intensity quick` selects `lite`, `balanced` selects `balanced`, and `deep`
+resolves to the `deep,confirm` chain.
+`--mode` overrides intensity. `--modes a,b,c` runs a chain in order and stops at
+the first non-complete mode. Under `auto` or `both`, unsupported modes are
+filtered per driver; a mode unknown to every selected driver is rejected.
 
-Fast pipeline optimized for CI/CD and routine scans. Runs quick recon, secrets scan, and fast SAST.
-
-| Phase | Name | Description |
-|-------|------|-------------|
-| Q0 | Quick Recon | Architecture inventory, dependency audit |
-| Q1 | Secrets Scan | Credential and secret detection |
-| Q2 | Fast SAST | Quick CodeQL + Semgrep structural scan |
-
-### Balanced (9 phases)
-
-Intermediate audit with SAST, probing, and validation. Runs 9 phases — the legacy `scan` value maps to `balanced`. The core stages are:
-
-| Phase | Name | Description |
-|-------|------|-------------|
-| 1 | Intelligence | CVE/GHSA/OSV hunting, dependency audit, architecture inventory |
-| 2 | Knowledge Base | Threat model, domain attack research, RFC specs |
-| 3 | SAST | CodeQL structural + security scan, Semgrep (parallel with P4) |
-| 4 | Probe | Targeted deep analysis of high-risk areas (parallel with P3) |
-| 5 | Review + FP | Inline verification + false positive elimination |
-| 6 | PoC + Report | Proof-of-concept generation and advisory-style report |
-
-### Deep (12 phases)
-
-Comprehensive audit with adversarial review chambers. Best for pre-release audits, compliance, or high-value targets. Runs 12 phases (deep adds a dedicated authorization pass plus commit archaeology and patch-bypass on top of `balanced`); the legacy `full` mode maps to `deep`. The core stages are:
-
-| Phase | Name | Description |
-|-------|------|-------------|
-| P1 | Commit Archaeology | Analyze git history for silent security fixes, undisclosed CVEs |
-| P2 | Patch Bypass | Test patch completeness, find alternate exploitation paths |
-| P3 | Knowledge Base | Build architecture model, trust boundaries, attack surface map |
-| P4 | Static Analysis | CodeQL + Semgrep with custom rules |
-| P5 | Deep Probe | Multi-hypothesis probing with specialized agents |
-| P6 | Spec Gap Analysis | Find gaps between spec/docs and implementation |
-| P7 | Enrichment & Filtering | Enrich SAST findings with reachability analysis and data flow |
-| P8 | Adversarial Debate | Multi-agent debate chambers validate/disprove findings |
-| P9 | Cold Verification | Independent zero-context re-verification |
-| P10 | Variant Hunting | Search for variants of confirmed vulnerabilities |
-| P11 | Report Assembly | PoC building and advisory-style final report |
-
----
-
-## CLI
-
-### Flag: `--audit`
-
-Available on both `vigolium agent swarm` and `vigolium agent autopilot`.
-
-| Value | Behavior |
-|-------|----------|
-| *(not set)* | Disabled (unless enabled in config) |
-| `--audit` | Lite mode (3-phase fast audit) |
-| `--audit lite` | Lite mode (explicit) |
-| `--audit balanced` | Balanced mode (9-phase intermediate audit) |
-| `--audit deep` | Deep mode (12-phase comprehensive audit) |
-| `--audit off` | Disabled (overrides config) |
-
-### Examples
+Driver-specific modes require an explicit driver. For example:
 
 ```bash
-# Swarm: targeted scan + background lite audit
-vigolium agent swarm \
-  -t https://example.com/api \
-  --source ./backend \
-  --audit
-
-# Swarm: full-scope scan + deep audit
-vigolium agent swarm \
-  -t https://example.com \
-  --source ./backend \
-  --discover \
-  --audit deep
-
-# Autopilot: autonomous scan + balanced-mode audit
-vigolium agent autopilot \
-  -t https://example.com \
-  --source ./backend \
-  --audit balanced
-
-# Disable audit even if config enables it
-vigolium agent swarm \
-  -t https://example.com \
-  --source ./backend \
-  --audit off
+vigolium audit --driver audit --source ./app --mode reinvest
+vigolium audit --driver piolium --source ./app --mode longshot
 ```
 
----
+## Current audit pipelines
 
-## API
+### Lite: L1–L3
 
-The `audit` field is available on both the swarm and autopilot run endpoints.
+| Phase | Output gate |
+|---|---|
+| L1 — Quick recon | `attack-surface/lite-recon.md` and `unauthenticated-surface.md` |
+| L2 — Secrets scan | `attack-surface/lite-secrets-scan.md`, including an explicit clean result when no secret survives filtering |
+| L3 — Fast SAST and finalization | `lite-sast-summary.md`, consolidation manifest, and a `report.md` for every finalized finding |
 
-### Field Reference
+Lite mode works on a plain source snapshot and does not require Git history.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `audit` | string | `"lite"`, `"balanced"`, `"deep"`, `"off"`, or omit for config default |
+### Balanced: B1–B9
 
-### POST /api/agent/run/swarm
+1. Intelligence gathering
+2. Knowledge base and threat model
+3. Built-in CodeQL/Semgrep analysis
+4. One targeted probe team over attacker-controlled inputs
+5. Review chamber, false-positive check, cold verification for critical claims,
+   and triage
+6. Documented-intent reconciliation
+7. Deterministic consolidation, PoC construction, and finding partitioning
+8. Per-finding `report.md` finalization
+9. Consolidated final report
+
+Balanced mode omits commit archaeology, patch-bypass analysis, custom
+structural rules, spec-gap analysis, cross-service taint expansion, and variant
+hunting.
+
+### Deep: D1–D12
+
+| Canonical phase | Work performed |
+|---|---|
+| D1 | Advisory and dependency intelligence |
+| D2 | Security-relevant Git history, when history is available |
+| D3 | Patch-bypass analysis for identified security patches |
+| D4 | Threat model, DFD/CFD slices, and knowledge base |
+| D5 | Structural extraction, CodeQL, Semgrep, SAST enrichment, and multi-service edge enumeration |
+| D6 | Systematic deep-probe teams over every attacker-input component |
+| D7 | Route/handler enumeration and authorization review |
+| D8 | State/concurrency and spec review, adversarial chambers, inline cross-service reasoning and variant expansion, then false-positive validation |
+| D9 | Reconcile surviving findings with repository-documented intent |
+| D10 | Consolidate drafts, author PoCs, and partition executed from theoretical findings |
+| D11 | Author a cold-context `report.md` for every finalized finding |
+| D12 | Assemble `final-audit-report.md` from both finding buckets |
+
+If local Git history is unavailable, D2 and local patch-bypass work are skipped
+explicitly while the source-snapshot phases continue. Cross-service taint and
+variant searches are folded into the deep review chambers; they are not
+standalone phases.
+
+The engine uses artifact completion gates in addition to phase state. If a
+worker exits after producing sufficient output, the next run can resume from
+those artifacts instead of discarding valid work. Do not hand-edit
+`audit-state.json` during an engine-owned run.
+
+## Integration with swarm and autopilot
+
+Swarm can launch a source audit alongside its network pipeline:
 
 ```bash
-# Swarm with lite vigolium-audit
-curl -s -X POST http://localhost:9002/api/agent/run/swarm \
-  -H "Content-Type: application/json" \
+# Bare --audit means lite for swarm
+vigolium agent swarm -t https://example.com --source ./app --audit
+
+vigolium agent swarm -t https://example.com --source ./app --audit deep
+```
+
+Autopilot prepares source-aware context before its operator session. Its
+`--audit` value is `lite`, `balanced`, `deep`, `mock`, or `off`; source-aware
+runs default to an audit unless explicitly disabled.
+
+```bash
+vigolium agent autopilot -t https://example.com --source ./app --audit balanced
+vigolium agent autopilot -t https://example.com --source ./app --audit off
+```
+
+Both commands also expose `--piolium`. When neither harness is explicitly
+selected, their resolver may choose Piolium when the Pi runtime is available.
+
+## REST API
+
+Use the unified endpoint:
+
+```bash
+curl -s -X POST http://localhost:9002/api/agent/run/audit \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <server-api-key>' \
   -d '{
-    "input": "https://example.com",
-    "source": "/home/user/src/my-app",
-    "discover": true,
-    "audit": "lite"
-  }' | jq .
-
-# Swarm with deep 12-phase vigolium-audit
-curl -s -X POST http://localhost:9002/api/agent/run/swarm \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": "https://example.com",
-    "source": "/home/user/src/my-app",
-    "discover": true,
-    "code_audit": true,
-    "audit": "deep"
+    "source": "/srv/src/app",
+    "driver": "audit",
+    "agent": "codex",
+    "modes": ["deep", "confirm"],
+    "stream": false,
+    "keep_raw": true
   }' | jq .
 ```
 
-### POST /api/agent/run/autopilot
+Important fields include:
 
-```bash
-# Autopilot with deep vigolium-audit
-curl -s -X POST http://localhost:9002/api/agent/run/autopilot \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target": "https://example.com",
-    "source": "/home/user/src/my-app",
-    "audit": "deep"
-  }' | jq .
+| Field | Description |
+|---|---|
+| `source` | Required local path, Git URL, `gs://` archive, or local archive |
+| `driver` | `auto`, `both`, `audit`, or `piolium`; default `auto` |
+| `intensity` | `quick`, `balanced`, or `deep` |
+| `mode` / `modes` | One explicit mode or an ordered mode chain; overrides intensity |
+| `agent` | `claude` or `codex` for the Audit leg |
+| `timeout` | Overall Go-duration override |
+| `commit_depth` | Git clone depth; `0` means full history |
+| `diff`, `last_commits`, `files` | Limit or prioritize the source review |
+| `stream` | Return multiplexed SSE; multi-driver events include a `driver` field |
+| `keep_raw` | Retain intermediate Audit artifacts |
+| `no_dedup` | Skip the multi-driver project-wide dedup pass |
+| `api_key`, `oauth_token`, `oauth_cred_file`, `oauth_cred_json` | Per-request BYOK fields |
+| `audit_auth`, `piolium_auth` | Driver-specific BYOK overrides for `auto`/`both` |
+
+The endpoint returns `202 Accepted` for an asynchronous run. Poll
+`GET /api/agent/status/:id`, inspect session artifacts, or set `stream: true`.
+Agent admission control can return `429 Too Many Requests` after the configured
+queue timeout.
+
+See the complete request schema in the [Agent API reference](../api-references/agent.md)
+and authentication details in [Audit BYOK](audit-byok.md).
+
+## Output and finding lifecycle
+
+The Audit harness writes beneath `<source>/vigolium-results/`:
+
+```text
+vigolium-results/
+├── audit-state.json
+├── attack-surface/
+│   ├── knowledge-base-report.md
+│   └── intent-corpus.json
+├── codeql-artifacts/
+├── semgrep-res/
+├── probe-workspace/
+├── chamber-workspace/
+├── findings-draft/
+│   └── consolidation-manifest.json
+├── findings/
+│   └── H1-example/
+│       ├── draft.md
+│       ├── report.md
+│       ├── poc.py
+│       └── evidence/
+├── findings-theoretical/
+│   └── M1-example/
+│       ├── draft.md
+│       └── report.md
+└── final-audit-report.md
 ```
 
-### Response
+`findings/` contains findings whose PoC status met the execution gate.
+`findings-theoretical/` preserves valid but unexecuted or unconfirmed findings
+without presenting them as demonstrated exploits. The deterministic
+consolidation manifest assigns stable severity-prefixed IDs; agents do not copy
+or renumber drafts manually.
 
-Both endpoints return `202 Accepted` with a run ID. Vigolium Audit runs as a background process within the agent run — its progress is tracked in a child `AgenticScan` record. Findings are ingested into the database on completion.
+The driver syncs the result tree into its agent session. Direct CLI audits keep
+the source-tree `vigolium-results/` copy by default; use `--clean-raw` to remove
+that copy after the run. The session copy remains available either way.
+
+Imported findings use:
+
+- `finding_source: audit`
+- `module_type: whitebox`
+- an `audit:` module-ID prefix
+- `report.md` as the preferred body, with `draft.md` as fallback
+
+Query them with:
 
 ```bash
-# Query audit findings after run completes
-curl -s http://localhost:9002/api/findings?source=audit | jq .
+vigolium finding --finding-source audit
+curl -s 'http://localhost:9002/api/findings?finding_source=audit' | jq .
 ```
 
----
+For Piolium findings, use the same `finding_source=audit` filter and narrow by
+the `piolium:` module-ID prefix or `piolium` tag.
 
-## Manual Import
+## Stateless reports and raw bundles
 
-Audit output from external runs can be imported directly without running swarm or autopilot:
+`-S/--stateless` runs the audit against a temporary database and writes a
+self-contained HTML report without changing the main database:
 
 ```bash
-vigolium import /path/to/audit-output-harbor/
+# Default HTML destination: vigolium-result/vigolium-audit-report.html
+vigolium audit --source ./app -S
+
+# Custom report path
+vigolium audit --source ./app -S -o reports/app-{ts}.html
+
+# One directory containing the HTML report and raw result tree
+vigolium audit --source ./app -S --output-dir audit-out-{ts}
 ```
 
-The folder must contain `audit-state.json` and `findings/`. The import:
+`--output-dir` only applies with stateless mode. A relative `-o` path is nested
+under that directory; an absolute path or `gs://` destination escapes it.
 
-1. Parses `audit-state.json` for phase tracking and metadata
-2. Reads all finding files from `findings/`
-3. Applies cold-verify overlays (if `*.cold-verify.md` files exist)
-4. Creates an `AgenticScan` record (mode=`audit`)
-5. Saves findings with deduplication (skips duplicates by finding hash)
-6. Reports counts: total findings, saved, duplicates skipped, severity distribution
+## Manual import
 
----
+An existing Audit result tree can be imported independently:
+
+```bash
+vigolium import ./vigolium-results
+
+# Import and render an HTML report in one command
+vigolium import ./vigolium-results --format html -o audit-report.html
+```
+
+The parser reads `audit-state.json`, optional revisit state, both finalized
+finding buckets, and draft fallbacks. It prefers each finding's `report.md` and
+deduplicates imports by finding hash.
 
 ## Configuration
 
-### YAML Config
+The optional background integration used by swarm and autopilot is configured
+under `agent.audit`:
 
 ```yaml
 agent:
   audit:
-    enable: false              # Enable by default (overridable with --audit off)
-    mode: lite                 # Default mode: lite, scan, or deep
-    plugin_dir: ""             # Custom harness path (default: ~/.vigolium/vigolium-audit/)
-    sync_interval: 30          # Seconds between state syncs
+    enable: false
+    mode: balanced
+    sync_interval: 30
+    default_agent: ""  # inherit provider; or claude / codex
 ```
 
-### Precedence
+Per-run CLI or REST fields override these defaults. The audit content bundle is
+embedded in the Vigolium binary; there is no `plugin_dir` setting to maintain.
 
-1. CLI `--audit <value>` / API `"audit": "<value>"` — highest priority
-2. Config `agent.audit.enable: true` — used when CLI/API doesn't specify
-3. `--audit off` / `"audit": "off"` — overrides config
+## Audit versus native scanning
 
-### Harness Resolution
-
-The vigolium-audit harness (agents, commands, skills) is resolved in this order:
-
-1. **Config `plugin_dir`** — if set and exists, used directly
-2. **Default path** `~/.vigolium/vigolium-audit/` — checked next
-3. **Embedded extraction** — if neither exists, the harness bundled in the Vigolium binary is extracted automatically. A version hash marker detects changes for re-extraction
-
-No manual installation is required — everything ships embedded in the Vigolium binary.
-
----
-
-## Session Artifacts
-
-Vigolium Audit writes output to the source directory under `audit/`, which is synced to the session directory:
-
-### Source Directory (temporary, removed after import)
-
-```
-<source_path>/
-└── audit/
-    ├── audit-state.json              # Phase progress tracking
-    ├── findings/                     # Per-finding markdown files
-    │   ├── p7-001-open-redirect.md   # Phase 7 finding
-    │   ├── p8-001-ssrf-webhook.md    # Phase 8 finding
-    │   ├── p8-001-ssrf.cold-verify.md  # Cold verification overlay
-    │   ├── p10-041-variant.md        # Variant finding
-    │   └── ...
-    ├── knowledge-base-report.md
-    ├── final-audit-report.md
-    ├── advisory-report.md
-    ├── spec-gap-report.md
-    └── attack-pattern-registry.json
-```
-
-### Session Directory (persistent)
-
-```
-~/.vigolium/agent-sessions/<uuid>/
-├── vigolium-results/                   # Synced from source
-│   ├── audit-state.json
-│   ├── findings/
-│   ├── final-audit-report.md
-│   ├── attack-pattern-registry.json
-│   └── ...
-├── vigolium-audit-output.md            # Raw Claude Code process output
-├── output.md                         # Main agent output
-├── skills/
-│   └── vigolium-scanner/
-└── CLAUDE.md
-```
-
----
-
-## Finding Format
-
-Audit produces two finding formats depending on the phase.
-
-### Phase 7 Findings (Table-based)
-
-Early-phase findings use a markdown table format:
-
-```markdown
-# Phase 7 Enriched Finding: P7-001
-
-## Finding Details
-
-| Field | Value |
-|-------|-------|
-| **Finding ID** | P7-001 |
-| **Title** | Open Redirect via Unvalidated postURI |
-| **Severity** | HIGH |
-| **Confidence** | HIGH |
-| **CWE** | CWE-601 (URL Redirection to Untrusted Site) |
-
-PoC-Status: theoretical
-
-## Code Location
-
-**File**: `src/core/controllers/authproxy_redirect.go`
-**Lines**: 73-77
-
-[Detailed analysis...]
-```
-
-### Phase 8+ Findings (Frontmatter-based)
-
-Later-phase findings use structured key-value frontmatter with adversarial verdicts:
-
-```markdown
-Phase: 8
-Sequence: 001
-Slug: admin-db-auth-brute-force
-Verdict: VALID
-Severity-Original: HIGH
-Severity-Final: MEDIUM
-PoC-Status: pending
-Adversarial-Verdict: CONFIRMED
-Adversarial-Rationale: IsSuperUser forces DB auth unconditionally...
-
-## Summary
-
-Harbor's admin account bypasses account lockout...
-
-## Location
-
-- `src/core/auth/authenticator.go:142`
-- `src/core/auth/lock.go:22-51`
-
-[Full analysis with evidence...]
-```
-
-### Cold-Verify Overlays
-
-Phase 9 cold verification produces overlay files (`*.cold-verify.md`) that enhance base findings with independent verdicts. The overlay updates adversarial verdict and severity, and appends a "Cold Verification" section to the finding body.
-
----
-
-## Finding Ingestion
-
-When the audit completes, findings are automatically parsed and stored in the Vigolium database.
-
-### Database Fields
-
-| Audit Field | Database Field | Example |
+| Aspect | Native / swarm / autopilot | Vigolium Audit |
 |---|---|---|
-| Finding ID | `module_id` | `audit:p8-001` |
-| Title | `module_name` | SSRF via Webhook Job Address |
-| Slug | `module_short` | `ssrf-webhook-job` |
-| Severity (final) | `severity` | `high` (normalized) |
-| Verdict | `confidence` | `firm` (CONFIRMED/VALID) or `tentative` |
-| CWE | `cwe_id` | `CWE-918` |
-| Full analysis | `description` | Markdown body with evidence |
-| First location | `source_file` | `src/jobservice/webhook_job.go` |
-| All locations | `matched_at` | `src/jobservice/webhook_job.go:103-120` |
-| Metadata | `tags` | `["audit", "phase-8", "valid", "poc-theoretical", "CWE-918"]` |
+| Primary input | Live HTTP traffic and targets | Application source tree |
+| Main technique | Deterministic modules plus optional agentic probing | Static analysis, repository reasoning, adversarial validation, and PoCs |
+| Best at | Runtime injection, exposure, protocol, and response findings | Authorization, business logic, state, data flow, spec, and patch-bypass flaws |
+| Output | Project findings and HTTP evidence | Finalized and theoretical finding buckets plus audit reports |
 
-All findings are stored with:
-- `finding_source`: `audit`
-- `module_type`: `whitebox`
-- `finding_hash`: MD5(auditID + moduleID + findingID) for deduplication
-
-### Confidence Mapping
-
-| Audit Verdict | Database Confidence |
-|---|---|
-| CONFIRMED, VALID | `firm` |
-| All others (POSSIBLE, UNLIKELY, etc.) | `tentative` |
-
-### Querying Audit Findings
-
-```bash
-# Via CLI
-vigolium finding list --source audit
-
-# Via API
-GET /api/findings?source=audit
-```
-
----
-
-## Architecture
-
-### Specialized Agents (24 total)
-
-The vigolium-audit engine uses a team of specialized agents, each handling a specific aspect of the audit:
-
-| Agent | Phase | Role |
-|-------|-------|------|
-| advisory-hunter | P1 | CVE/GHSA/OSV intelligence gathering |
-| commit-archaeologist | P1 | Git history analysis for silent fixes |
-| patch-bypass-checker | P2 | Bypass analysis for identified patches |
-| knowledge-base-builder | P3 | Threat model + architecture mapping |
-| static-analyzer | P4 | SAST tool coordination (CodeQL, Semgrep) |
-| probe-strategist | P5 | Multi-model hypothesis generation |
-| code-anatomist | P5 | Code structure analysis |
-| backward-reasoner | P5 | Reverse-engineer attack paths |
-| contradiction-reasoner | P5 | Spot logical inconsistencies |
-| causal-verifier | P5 | Validate causality claims |
-| evidence-harvester | P5 | Build proof from code evidence |
-| enrichment-filter | P6-7 | Finding classification by exploitability |
-| spec-gap-analyst | P6-7 | RFC/spec compliance gap detection |
-| chamber-synthesizer | P8 | Debate moderator for adversarial review |
-| attack-ideator | P8 | Exploit brainstorming |
-| code-tracer | P8 | Deep code path tracing |
-| devils-advocate | P8 | Challenge assumptions |
-| variant-scout | P8 | Initial variant identification |
-| cold-verifier | P9 | Independent zero-context verification |
-| variant-hunter | P10 | Deep variant analysis across codebase |
-| poc-builder | P11 | Proof-of-concept generation |
-| report-assembler | P11 | Final report assembly |
-
-### Bundled Skills
-
-The following security skills are embedded in the Vigolium binary for vigolium-audit:
-
-- **audit** — Core multi-phase methodology orchestrator
-- **codeql** — CodeQL database creation and query execution
-- **semgrep** — Semgrep rule management and scanning
-- **semgrep-rule-creator** — Custom Semgrep rule generation
-- **fp-check** — False positive verification methodology
-- **variant-analysis** — Cross-codebase vulnerability variant detection
-- **vuln-report** — Advisory-style vulnerability report generation
-- **differential-review** — Diff-based security review
-- **security-threat-model** — STRIDE/DREAD threat modeling
-- **sarif-parsing** — SARIF output parsing and enrichment
-- **zeroize-audit** — Memory safety analysis (Rust/C)
-
-### Adversarial Review Chambers (Phase 8)
-
-The deep mode's adversarial debate phase uses a structured format where specialized agents argue for and against the exploitability of each finding:
-
-```
-probe-strategist --> generates hypotheses
-         |
-         +-- attack-ideator (brainstorms exploits)
-         +-- backward-reasoner (reverse-engineers paths)
-         +-- evidence-harvester (builds proofs)
-         |
-         +-- chamber-synthesizer (moderates debate)
-                  |
-                  +-- devils-advocate (challenges claims)
-                  +-- contradiction-reasoner (spots inconsistencies)
-                  +-- causal-verifier (validates causality)
-```
-
-Only findings that survive this adversarial process proceed to cold verification and the final report. This dramatically reduces false positives compared to single-pass analysis.
-
-### Cold Verification (Phase 9)
-
-After the adversarial debate, the cold-verifier agent performs an independent, zero-context re-verification of each finding. It receives no prior verdicts or rationale — only the raw code and finding description. Cold verification overlays update the base finding with an independent severity assessment and verdict, providing a second opinion that catches debate-phase groupthink.
-
----
-
-## Comparison with Native Scanning
-
-| Aspect | Vigolium Native (Swarm/Autopilot) | Audit-Audit |
-|--------|-----------------------------------|--------------|
-| **Focus** | Network vulnerabilities (injection, XSS, SSRF, etc.) | Source code vulnerabilities (logic flaws, auth gaps, spec violations) |
-| **Method** | Live HTTP scanning with payloads | Static analysis + AI reasoning + adversarial validation |
-| **False positive handling** | AI triage phase | Multi-layer: adversarial debate chambers + cold verification |
-| **Finding richness** | Standard severity/confidence | Adversarial verdicts, cold-verify overlays, CWE, PoC status |
-| **Speed** | Minutes to hours | Minutes (lite) to hours (deep) |
-| **Requires** | Target URL | Source code path |
-| **Runs as** | Foreground (main pipeline) | Background (separate process) |
-
-The two approaches are complementary. Network scanning finds vulnerabilities that manifest in HTTP responses; vigolium-audit finds vulnerabilities that require understanding code semantics, business logic, and specification compliance. Running both together provides the most comprehensive assessment.
+The approaches are complementary: source analysis explains possible exploit
+paths, while native and confirmation runs test what is reachable in a live
+environment.

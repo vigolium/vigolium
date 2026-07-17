@@ -37,6 +37,50 @@ var globDBSources []globDBSource
 // reading through --glob-db.
 var globRecordFile map[string]string
 
+// globDBSkipSet lets a read command tell openGlobDB which parts of the merge it
+// will never read, so they can be skipped. Every field is a negative opt-in and
+// the zero value merges everything, so a command that passes nothing — or a new
+// one that doesn't know about this — stays correct.
+//
+// This exists because openGlobDB merges into an *in-memory* SQLite before the
+// first WHERE runs, so anything copied is paid for in RAM. Over a large glob
+// (a few hundred result files is ~10 GB, ~98% of it raw request/response blobs)
+// an unskipped merge exceeds physical memory and collapses into swap, which
+// costs minutes of kernel time rather than seconds of work.
+//
+// Each field is only safe when nothing downstream reads what it drops, and the
+// failure mode is silent wrong output rather than an error — so build one from an
+// explicit per-command predicate (findingNeedsRecords, trafficRendersRawBodies)
+// rather than ad hoc at a call site.
+type globDBSkipSet struct {
+	// Records omits the http_records table entirely. Safe only for a reader that
+	// never resolves a finding's linked records: findings embed their own
+	// request/response inline and finding_records has no foreign key into
+	// http_records, so findings and the junction still merge intact.
+	Records bool
+
+	// RecordBodies keeps every http_records row but omits its
+	// raw_request/raw_response columns (~96% of the table's bytes, and nullable).
+	// Because rows are kept, counts and metadata predicates are unaffected. Unsafe
+	// for anything that prints the raw corpus or filters over it in SQL, where the
+	// absent columns make LIKE match nothing (see QueryFilters.UsesRawCorpus).
+	// Ignored when Records is set.
+	RecordBodies bool
+
+	// RecordFileMap omits the record-uuid → source-file map, whose only consumer
+	// is the traffic tree's per-file root labels (globSourceForRecord). Building
+	// it re-scans every merged record and holds an entry per row, so a reader that
+	// isn't the traffic tree should skip it. See skipRecordFileMap for how Records
+	// implies this.
+	RecordFileMap bool
+}
+
+// skipRecordFileMap reports whether the record→file map should be left unbuilt.
+// Skipping the records themselves implies it: there would be nothing to map.
+func (s globDBSkipSet) skipRecordFileMap() bool {
+	return s.Records || s.RecordFileMap
+}
+
 // globDBSource is one --glob-db file and the findings id range it added.
 type globDBSource struct {
 	file      string
@@ -98,9 +142,12 @@ func statelessReadRequested() bool {
 // Under -S/--stateless (or --glob-db) it reads from the --db source directly (a
 // JSONL export or a standalone SQLite file) or the merged --glob-db set;
 // otherwise it returns the shared project DB.
-func openReadDB() (*database.DB, error) {
+//
+// skip narrows what a --glob-db merge copies; pass the zero globDBSkipSet to
+// merge everything (it is ignored unless --glob-db is set).
+func openReadDB(skip globDBSkipSet) (*database.DB, error) {
 	if statelessReadRequested() {
-		return openStatelessDB()
+		return openStatelessDB(skip)
 	}
 	return getDB()
 }
@@ -151,11 +198,11 @@ func effectiveProjectUUID() (string, error) {
 //
 // Callers query with ProjectUUID="" (project scoping off), so all rows in the
 // file are shown regardless of the project_uuid they were exported under.
-func openStatelessDB() (*database.DB, error) {
+func openStatelessDB(skip globDBSkipSet) (*database.DB, error) {
 	// --glob-db expands to many files merged into one in-memory DB; it takes
 	// precedence over a single --db source.
 	if pattern := strings.TrimSpace(globalGlobDB); pattern != "" {
-		return openGlobDB(pattern)
+		return openGlobDB(pattern, skip)
 	}
 	if strings.TrimSpace(globalDB) == "" {
 		return nil, fmt.Errorf("--stateless requires --db <file.jsonl|file.sqlite> or --glob-db <pattern>")
@@ -227,7 +274,7 @@ func loadStatelessJSONL(path string) (*database.DB, error) {
 // archive), so a glob can mix formats. A match that fails to import is skipped
 // with a warning rather than aborting the whole read. Returns an error when the
 // pattern is invalid, matches nothing, or nothing could be loaded.
-func openGlobDB(pattern string) (*database.DB, error) {
+func openGlobDB(pattern string, skip globDBSkipSet) (*database.DB, error) {
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, fmt.Errorf("invalid --glob-db pattern %q: %w", pattern, err)
@@ -263,8 +310,15 @@ func openGlobDB(pattern string) (*database.DB, error) {
 		// each file so the rows it adds (fresh sequential ids/rowids, since no
 		// later file has run yet) can be attributed back to it.
 		fLo := maxRowID(ctx, db, "findings", "id")
-		rLo := maxRowID(ctx, db, "http_records", "rowid")
-		res, impErr := dbimport.ImportPath(ctx, repo, m, "", dbimport.Options{})
+		trackFiles := !skip.skipRecordFileMap()
+		var rLo int64
+		if trackFiles {
+			rLo = maxRowID(ctx, db, "http_records", "rowid")
+		}
+		res, impErr := dbimport.ImportPath(ctx, repo, m, "", dbimport.Options{
+			SkipHTTPRecords:  skip.Records,
+			SkipRecordBodies: skip.RecordBodies,
+		})
 		if impErr != nil {
 			fmt.Fprintf(os.Stderr, "%s --glob-db: skipped %s: %v\n", terminal.WarningSymbol(), terminal.Cyan(m), impErr)
 			continue
@@ -274,7 +328,9 @@ func openGlobDB(pattern string) (*database.DB, error) {
 			findingLo: fLo,
 			findingHi: maxRowID(ctx, db, "findings", "id"),
 		})
-		mapRecordsToFile(ctx, db, rLo, m)
+		if trackFiles {
+			mapRecordsToFile(ctx, db, rLo, m)
+		}
 		loaded++
 		totalRecords += res.RecordsImported
 		totalFindings += res.FindingsTotal
@@ -284,8 +340,14 @@ func openGlobDB(pattern string) (*database.DB, error) {
 		return nil, fmt.Errorf("--glob-db %q: none of the %d matched file(s) could be loaded", pattern, len(matches))
 	}
 
-	fmt.Fprintf(os.Stderr, "%s Stateless: merged %d file(s) — %d HTTP record(s), %d finding(s) — from %s\n",
-		terminal.InfoSymbol(), loaded, totalRecords, totalFindings, terminal.Cyan(pattern))
+	// With the record copy skipped totalRecords is 0 — report findings alone
+	// rather than claiming the source files held no traffic.
+	counts := fmt.Sprintf("%d finding(s)", totalFindings)
+	if !skip.Records {
+		counts = fmt.Sprintf("%d HTTP record(s), %s", totalRecords, counts)
+	}
+	fmt.Fprintf(os.Stderr, "%s Stateless: merged %d file(s) — %s — from %s\n",
+		terminal.InfoSymbol(), loaded, counts, terminal.Cyan(pattern))
 
 	// Cache it so the rest of the command (and closeDatabaseOnExit) reuse and
 	// close this connection rather than opening the default project DB.
@@ -300,7 +362,8 @@ func openGlobDB(pattern string) (*database.DB, error) {
 // standalone source needs no further project handling.
 func openExportDB() (*database.DB, error) {
 	if statelessReadRequested() {
-		return openStatelessDB()
+		// Export streams whole records, bodies included, so it merges everything.
+		return openStatelessDB(globDBSkipSet{})
 	}
 	return getDB()
 }

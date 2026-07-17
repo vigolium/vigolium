@@ -34,7 +34,7 @@ This places the `vigolium` binary on your `$PATH` (assuming `$GOPATH/bin` is in 
 Verify the installation:
 
 ```bash
-vigolium --version
+vigolium version
 ```
 
 ## Your First Scan
@@ -117,16 +117,18 @@ echo 'curl -X POST https://api.example.com/login -d "user=admin&pass=test"' | vi
 | Flag | Description |
 |------|-------------|
 | `-t, --target` | Target URL (base URL for scope) |
-| `-T, --targets-file` | File containing target URLs (one per line) |
+| `-T, --target-file` | File containing target URLs (one per line; repeatable) |
 | `--strategy` | Scanning strategy (e.g., `lite` for dynamic-assessment-only) |
 | `--only` | Run only specific phases (e.g., `--only discovery,dynamic-assessment`) |
 | `--skip` | Skip specific phases (e.g., `--skip spidering`) |
-| `-m, --modules` | Run only specific modules by ID |
+| `-m, --modules` | Fuzzy-select active modules by ID or name |
+| `--module-id` | Select exact active or passive module IDs |
 | `--module-tag` | Filter modules by tag (e.g., `xss`, `spring`, `light`) |
-| `--format` | Output format: `console` (default), `jsonl`, `html` |
-| `-o, --output` | Output file path (required for `html` format) |
-| `--profile, --scanning-profile` | Use a named scanning profile |
-| `-c, --concurrency` | Number of concurrent scan workers (default 50) |
+| `--format` | Output format, including `console`, `jsonl`, `html`, `sqlite`, and `fs` |
+| `-o, --output` | Output path (required for file-based report formats) |
+| `--scanning-profile` | Use a named profile or YAML profile path |
+| `--intensity` | Native scan preset: `quick`, `balanced`, or `deep` |
+| `-c, --concurrency` | Number of concurrent scan workers (generated config default 40; raw CLI fallback 50) |
 | `-r, --rate-limit` | Maximum HTTP requests per second (default 100) |
 
 ## Configuration
@@ -139,5 +141,5 @@ Vigolium reads its configuration from `~/.vigolium/vigolium-configs.yaml`. Use `
 - [Scanning Modes Overview](native-scan/scanning-modes-overview.md) -- compare all scanning modes
 - [Configuration Reference](configuration.md) -- full configuration options
 - [Agent Mode](agentic-scan/agent-mode.md) -- AI-powered scanning with autonomous agents
-- [Getting Started with Codex OAuth](agentic-scan/getting-started-codex.md) -- zero-config agent setup using your existing `~/.codex/auth.json`
+- [Set Up an AI Provider](getting-started/setup-agent.md) -- configure Codex OAuth, API keys, or a local model
 - [Server and Ingestion](server-and-ingestion.md) -- run Vigolium as a REST API server

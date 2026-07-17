@@ -39,7 +39,7 @@ Vigolium requires a Chromium-based browser for spidering. On first use, it autom
 
 For environments where auto-download is not possible (air-gapped systems, containers), you can:
 
-1. Pre-install Chromium and point Vigolium to it via the `browser.executable_path` config option.
+1. Pre-install Chromium and set `spidering.browser_path`.
 2. Build an embedded binary that bundles Chromium:
    ```bash
    make deps-chrome && make build-embedded
@@ -48,7 +48,9 @@ For environments where auto-download is not possible (air-gapped systems, contai
 To verify the browser is available:
 
 ```bash
-vigolium scan -t https://example.com --only spidering --dry-run
+vigolium doctor --json
+# Install a managed Chrome for Testing when needed
+vigolium doctor --fix --only chrome
 ```
 
 ## Tuning Spidering
@@ -57,16 +59,21 @@ Spidering behavior is configurable via `vigolium-configs.yaml` or CLI flags:
 
 ```yaml
 spidering:
-  max_depth: 5          # Maximum navigation depth from the entry point
-  max_pages: 100        # Maximum number of pages to visit
-  max_duration: 300     # Timeout in seconds for the spidering phase
-  interaction:
-    click_buttons: true  # Click discovered buttons
-    fill_forms: true     # Auto-fill and submit forms
-    scroll: true         # Scroll pages to trigger lazy loading
+  max_depth: 5            # 0 means unlimited
+  max_states: 100         # 0 means unlimited
+  max_duration: 10m       # Go duration string
+  max_consecutive_fails: 100
+  browser_count: 2
+  strategy: adaptive      # normal, random, oldest_first, shallow_first, adaptive
+  browser_engine: chromium # chromium, ungoogled, fingerprint
+  headless: true
+  no_cdp: false
+  no_forms: false
 ```
 
-For large SPAs, increase `max_pages` and `max_depth` to ensure full coverage. For quick assessments, reduce them to keep scan times short.
+For large SPAs, increase `max_states`, depth, or duration. CLI
+`--spider-max-time`, `--browsers`, `--browser-engine`, `--headed`, `--no-cdp`,
+and `--no-forms` override the common runtime controls.
 
 ## Common Issues
 
@@ -81,13 +88,13 @@ If you see an error about a missing browser executable:
 
 SPAs with heavy client-side rendering or slow APIs may cause page load timeouts:
 
-- Increase the page timeout via `spidering.page_timeout` in the config.
+- Increase `spidering.max_duration` or pass `--spider-max-time`.
 - Ensure the target application is responsive and accessible from the scanner host.
 
 ### Headless Detection
 
 Some applications block headless browsers. Vigolium applies common evasion techniques by default, but if the application still blocks requests:
 
-- Try setting `browser.headless: false` for headed mode (requires a display server or Xvfb).
-- Use a custom user agent via `browser.user_agent` in the config.
+- Pass `--headed` or set `spidering.headless: false` (requires a display server or Xvfb).
+- Set `scanning_strategy.http.user_agent` or `VIGOLIUM_DEFAULT_UA`.
 - Consider feeding pre-recorded traffic (HAR, Burp XML) as input instead of relying on live spidering.

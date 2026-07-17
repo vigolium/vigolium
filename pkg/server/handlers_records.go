@@ -124,15 +124,13 @@ func (h *Handlers) HandleListRecords(c fiber.Ctx) error {
 		fetchFilters.Offset = 0
 		fetchFilters.Limit = filters.Offset + filters.Limit
 	}
-	qb := database.NewQueryBuilder(h.db, fetchFilters)
-
 	// Excluding raw_* keeps the list payload small. HTTPRecord.MarshalJSON
 	// derives request_body/response_body/request_headers/response_headers from
 	// raw_request/raw_response, so dropping those columns implicitly drops the
 	// derived fields too. Detail endpoints select raw_* and get the full view.
-	query := qb.BuildRecordsQuery().
-		ExcludeColumn("raw_request").
-		ExcludeColumn("raw_response")
+	qb := database.NewQueryBuilder(h.db, fetchFilters).OmitBodies()
+
+	query := qb.BuildRecordsQuery()
 
 	var records []*database.HTTPRecord
 	ctx := c.Context()
@@ -195,8 +193,9 @@ func (h *Handlers) HandleDeleteRecord(c fiber.Ctx) error {
 		})
 	}
 
-	// Verify the record exists and belongs to the request's project
-	rec, err := h.repo.GetRecordByUUID(c.Context(), uuid)
+	// Verify the record exists and belongs to the request's project. Only the
+	// project is needed, so don't load the record's body to delete it.
+	recProject, err := h.repo.RecordProjectUUID(c.Context(), uuid)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
@@ -209,7 +208,7 @@ func (h *Handlers) HandleDeleteRecord(c fiber.Ctx) error {
 			Code:  fiber.StatusInternalServerError,
 		})
 	}
-	if !inRequestProject(c, rec.ProjectUUID) {
+	if !inRequestProject(c, recProject) {
 		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
 			Error: ErrRecordNotFound.Error(),
 			Code:  fiber.StatusNotFound,

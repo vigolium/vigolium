@@ -212,10 +212,13 @@ vigolium scan --stateless -t https://example.com --strategy lite -o results --fo
 vigolium scan --stateless -t https://example.com --strategy deep -o results --format jsonl
 ```
 
-Include the full HTTP response in findings for debugging:
+Include full HTTP responses in a persisted/stateless scan artifact for
+debugging (`scan-url` itself does not expose `--include-response`):
 
 ```bash
-vigolium scan-url --include-response -j https://example.com/api/users?id=1
+vigolium scan -S --include-response \
+  --format jsonl -o endpoint.jsonl \
+  https://example.com/api/users?id=1
 ```
 
 ## Examples

@@ -173,10 +173,27 @@ func init() {
 	})
 }
 
+// findingNeedsRecords reports whether the selected output mode resolves a
+// finding's linked http_records. Only --raw/--burp/--markdown and
+// --json --with-records do; the table, tree, TUI and plain --json views render
+// entirely from the findings row (which carries its own request/response
+// inline). Under --glob-db this decides whether the merge has to copy the
+// http_records blobs at all — see globDBSkipSet.
+func findingNeedsRecords() bool {
+	return findingRaw || findingBurp || findingMarkdown || findingWithRecords
+}
+
 func runFinding(cmd *cobra.Command, args []string) error {
 	defer closeDatabaseOnExit()
 
-	db, err := openReadDB()
+	// What the --glob-db merge can skip. The flags this reads are all parsed by
+	// now; the positional "tree" arg routed below doesn't affect the answer (the
+	// tree needs no records either). No finding view uses the record→file map,
+	// which is traffic-tree only.
+	db, err := openReadDB(globDBSkipSet{
+		Records:       !findingNeedsRecords(),
+		RecordFileMap: true,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
 	}

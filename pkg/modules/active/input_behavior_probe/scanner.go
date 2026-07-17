@@ -67,6 +67,17 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 	baseline := newDetectionBaseline(entry)
+	// A baseline that is itself a WAF/CDN edge block (a CloudFront "Request blocked"
+	// 403, a Cloudflare challenge served at 200 or 403, a 429) is not the
+	// application's response. A probe that rewrites the offending path segment dodges
+	// the edge rule and returns the real 200 page — which the 403→200 status leg
+	// misreads as an access-control flip and the tag-diff leg misreads as an
+	// input-driven structural change. Neither leg has a usable reference, so drop the
+	// endpoint. IsEdgeBlockedResponse flags only vendor blocks, so a genuine app 403
+	// baseline (the real access-control-flip signal) is preserved.
+	if baseline.edgeBlocked {
+		return nil, nil
+	}
 	calibrateTagJitter(ctx, httpClient, baseline)
 
 	var results []*output.ResultEvent
@@ -109,6 +120,11 @@ func (m *Module) ScanPerInsertionPoint(
 		return nil, nil
 	}
 	baseline := newDetectionBaseline(entry)
+	// Drop an edge-blocked baseline (see ScanPerRequest): a WAF/CDN block page is not
+	// a usable reference for the status or tag-structure differential.
+	if baseline.edgeBlocked {
+		return nil, nil
+	}
 	calibrateTagJitter(ctx, httpClient, baseline)
 
 	var results []*output.ResultEvent

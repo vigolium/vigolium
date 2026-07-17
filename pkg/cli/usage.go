@@ -247,7 +247,7 @@ var agentQueryFlagGroups = []flagGroup{
 
 // agentAutopilotFlagGroups categorizes `vigolium agent autopilot`.
 var agentAutopilotFlagGroups = []flagGroup{
-	{"Target & Input", []string{"prompt", "target", "input", "record-uuid", "burp-bridge-url", "prior-context", "knowledge-base", "knowledge-base-raw", "plan-file"}},
+	{"Target & Input", []string{"prompt", "target", "input", "record-uuid", "burp-bridge-url", "prior-context", "knowledge-base", "knowledge-base-raw", "knowledge-base-no-traffic", "plan-file"}},
 	{"Source & Audit", []string{"source", "files", "audit", "piolium", "diff", "last-commits"}},
 	{"AI Provider", []string{"provider", "model", "oauth-cred", "oauth-token", "llm-api-key"}},
 	{"Scan Behavior", []string{"intensity", "skill", "skill-tag", "no-skill-filter", "no-prescan", "no-preflight-discovery", "no-post-halt-verify", "post-halt-gap-threshold", "triage", "disable-guardrail", "max-duration"}},

@@ -113,19 +113,15 @@ A vulnerability is confirmed when injected payloads cause measurable, consistent
 To prevent noisy modules from flooding results, the executor caps findings emitted per module. Once a module reaches the limit, additional findings from that module are suppressed for the remainder of the scan.
 
 ```bash
-# Override the default cap (default: 15)
+# Override the default cap (default: 10)
 vigolium scan -t https://example.com --max-findings-per-module 25
 
 # Disable the cap (unlimited findings)
 vigolium scan -t https://example.com --max-findings-per-module 0
 ```
 
-Configuration in `vigolium-configs.yaml`:
-
-```yaml
-dynamic-assessment:
-  max_findings_per_module: 15    # 0 = unlimited
-```
+The cap is a scan option exposed by `--max-findings-per-module`; it is not a
+`dynamic-assessment` YAML key.
 
 ## Rate Limiting and Deduplication
 

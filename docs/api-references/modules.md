@@ -2,7 +2,7 @@
 
 ## GET /api/modules — List Modules
 
-Returns all registered scanner modules (active and passive).
+Returns all registered scanner modules (active and passive). The response is generated from the live registry, so it is the authoritative way to discover current IDs, scopes, tags, severity, and confirmation criteria.
 
 **Query parameters:**
 
@@ -31,8 +31,8 @@ curl -s 'http://localhost:9002/api/modules?search=misconfig&tag=java' | jq .
 {
   "modules": [
     {
-      "id": "xss-light",
-      "name": "XSS Light Scanner",
+      "id": "xss-light-url-params",
+      "name": "XSS Light - URL Parameters",
       "description": "...",
       "short_description": "Detects reflected XSS via character transformation analysis",
       "confirmation_criteria": "Confirmed when injected probe characters are reflected without sanitization",
@@ -50,7 +50,7 @@ curl -s 'http://localhost:9002/api/modules?search=misconfig&tag=java' | jq .
       "confirmation_criteria": "...",
       "severity": "high",
       "confidence": "certain",
-      "scan_scope": ["PER_HOST"],
+      "scan_scope": ["PER_REQUEST"],
       "tags": ["spring", "java", "misconfiguration", "info-disclosure", "light"],
       "type": "active"
     }

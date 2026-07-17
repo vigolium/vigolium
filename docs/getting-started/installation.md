@@ -123,6 +123,10 @@ binary lives elsewhere (e.g. a `make install` build in `$GOPATH/bin` or a
 Docker image), `update` prints a warning — ensure `~/.local/bin` precedes the
 old location on your `PATH`, or upgrade that copy manually.
 
+Vigolium also checks npm for a newer release on startup at most once per day.
+Set `VIGOLIUM_DISABLE_UPDATE_CHECK=1` to suppress that notice, or
+`VIGOLIUM_AUTO_UPDATE=1` to install and re-exec the newer binary automatically.
+
 > npm and Docker installs are upgraded through their own tooling
 > (`npm update -g @vigolium/vigolium` / `docker pull`), not `vigolium update`.
 

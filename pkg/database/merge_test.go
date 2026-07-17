@@ -127,6 +127,97 @@ func TestMergeSQLiteFile_BasicAndRemap(t *testing.T) {
 	}
 }
 
+// TestMergeSQLiteFileOptions pins the MergeOptions contracts the --glob-db
+// readers rely on. One shared source — a scan, two records carrying bodies, a
+// finding linked to rec1, and an OAST row on it — is merged under each option:
+//
+//   - default: everything copies, bodies included (the opt-in must default safe;
+//     --search LIKEs over the bodies).
+//   - SkipHTTPRecords: the finding reader's case — no records, but findings, the
+//     junction and OAST still merge and remap.
+//   - SkipRecordBodies: the traffic reader's case — every row lands with its
+//     metadata (counts and metadata predicates unaffected) but no bodies.
+func TestMergeSQLiteFileOptions(t *testing.T) {
+	const project = DefaultProjectUUID
+	seed := func(t *testing.T) string {
+		src, srcPath := newFileDB(t, "src.sqlite")
+		mustExec(t, src, `INSERT INTO scans (uuid, project_uuid, status, target) VALUES (?, ?, 'completed', 'https://example.com')`, "scan-1", project)
+		insertHTTPRecord(t, src, "rec1", project)
+		insertHTTPRecord(t, src, "rec2", project)
+		mustExec(t, src, `UPDATE http_records SET raw_request = ?, raw_response = ?, status_code = 200`,
+			[]byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"), []byte("HTTP/1.1 200 OK\r\n\r\nbody"))
+		srcFID := insertFinding(t, src, project, "fh-1", "rec1")
+		mustExec(t, src, `INSERT INTO finding_records (finding_id, record_uuid) VALUES (?, ?)`, srcFID, "rec1")
+		mustExec(t, src, `INSERT INTO oast_interactions
+			(project_uuid, unique_id, full_id, protocol, interacted_at, finding_id)
+			VALUES (?, 'uid-1', 'uid-1.oast', 'dns', CURRENT_TIMESTAMP, ?)`, project, srcFID)
+		if err := src.Close(); err != nil {
+			t.Fatalf("close src: %v", err)
+		}
+		return srcPath
+	}
+
+	for _, tc := range []struct {
+		name        string
+		opts        MergeOptions
+		wantRecords int
+		wantBodies  bool
+	}{
+		{"default copies everything", MergeOptions{}, 2, true},
+		{"skip http_records", MergeOptions{SkipHTTPRecords: true}, 0, false},
+		{"skip record bodies", MergeOptions{SkipRecordBodies: true}, 2, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			srcPath := seed(t)
+			dest, _ := newFileDB(t, "dest.sqlite")
+			stats, err := MergeSQLiteFileWithOptions(ctx, dest, srcPath, tc.opts)
+			if err != nil {
+				t.Fatalf("merge: %v", err)
+			}
+
+			// http_records rows land unless the whole table is skipped.
+			if stats.RecordsMerged != tc.wantRecords {
+				t.Fatalf("RecordsMerged = %d, want %d", stats.RecordsMerged, tc.wantRecords)
+			}
+			if got := scalarInt(t, dest, `SELECT COUNT(*) FROM http_records`); got != int64(tc.wantRecords) {
+				t.Fatalf("http_records rows = %d, want %d", got, tc.wantRecords)
+			}
+
+			// Findings, the junction and OAST always merge and remap to the dest
+			// id, whatever happens to the records.
+			if stats.FindingsMerged != 1 || stats.FindingRecordsMerged != 1 || stats.OASTMerged != 1 || stats.ScansMerged != 1 {
+				t.Fatalf("finding tables not merged: %+v", stats)
+			}
+			destFID := scalarInt(t, dest, `SELECT id FROM findings WHERE project_uuid = ? AND finding_hash = ?`, project, "fh-1")
+			if got := scalarInt(t, dest, `SELECT COUNT(*) FROM finding_records WHERE finding_id = ? AND record_uuid = 'rec1'`, destFID); got != 1 {
+				t.Fatalf("junction not remapped to dest id %d (count=%d)", destFID, got)
+			}
+			var oastFID sql.NullInt64
+			if err := dest.QueryRowContext(ctx, `SELECT finding_id FROM oast_interactions LIMIT 1`).Scan(&oastFID); err != nil {
+				t.Fatalf("query oast finding_id: %v", err)
+			}
+			if !oastFID.Valid || oastFID.Int64 != destFID {
+				t.Fatalf("oast finding_id not remapped: got %v want %d", oastFID, destFID)
+			}
+
+			// Bodies survive only in the full copy; metadata always survives.
+			nonNull := scalarInt(t, dest, `SELECT COUNT(*) FROM http_records WHERE raw_request IS NOT NULL OR raw_response IS NOT NULL`)
+			switch {
+			case tc.wantBodies && nonNull != int64(tc.wantRecords):
+				t.Fatalf("bodies missing: %d rows carry a body, want %d", nonNull, tc.wantRecords)
+			case !tc.wantBodies && nonNull != 0:
+				t.Fatalf("bodies present: %d rows retained a body, want 0", nonNull)
+			}
+			if tc.opts.SkipRecordBodies {
+				if got := scalarInt(t, dest, `SELECT COUNT(*) FROM http_records WHERE status_code = 200`); got != int64(tc.wantRecords) {
+					t.Fatalf("metadata lost under SkipRecordBodies: %d rows status=200, want %d", got, tc.wantRecords)
+				}
+			}
+		})
+	}
+}
+
 func TestMergeSQLiteFile_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	const project = DefaultProjectUUID

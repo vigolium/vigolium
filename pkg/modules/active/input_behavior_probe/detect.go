@@ -41,19 +41,21 @@ func totalTags(counts map[string]int) int {
 
 // detectionBaseline holds the reference values for comparison.
 type detectionBaseline struct {
-	tags       string         // readable opening-tag string, for reporting
-	tagCounts  map[string]int // order-independent tag multiset, for distance
-	statusCode int
-	tagJitter  int // calibrated natural per-request tag variance (added/removed tags)
+	tags        string         // readable opening-tag string, for reporting
+	tagCounts   map[string]int // order-independent tag multiset, for distance
+	statusCode  int
+	tagJitter   int  // calibrated natural per-request tag variance (added/removed tags)
+	edgeBlocked bool // baseline is a vendor WAF/CDN edge block — an unusable reference
 }
 
 // newDetectionBaseline creates a baseline from a cached baseline entry.
 func newDetectionBaseline(entry *modkit.BaselineEntry) *detectionBaseline {
 	tags, counts := scanTags(entry.Response.BodyToString())
 	return &detectionBaseline{
-		tags:       tags,
-		tagCounts:  counts,
-		statusCode: entry.StatusCode,
+		tags:        tags,
+		tagCounts:   counts,
+		statusCode:  entry.StatusCode,
+		edgeBlocked: modkit.IsEdgeBlockedResponse(entry.Response),
 	}
 }
 

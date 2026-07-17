@@ -143,7 +143,7 @@ Spider flags:
 
 ### Known Issue Scan
 
-Runs Nuclei templates and Kingfisher secret scanning against discovered hosts and response bodies. Enabled by `--strategy balanced`/`deep` or by the strategy.
+Runs Nuclei templates and the native in-process secret detector against discovered hosts and stored response bodies. Enabled by the `balanced` and `deep` strategies.
 
 By default, known-issue-scan enriches its target list with path prefixes discovered in previous phases (discovery, spidering). This increases coverage — Nuclei templates run against individual path prefixes (e.g., `https://example.com/api/v1/`) rather than just the host root. Disable this for faster but less granular scans:
 
@@ -169,7 +169,7 @@ vigolium scan -t https://example.com --known-issue-scan-templates-dir ~/nuclei-t
 
 The core scanning phase. Runs active and passive modules against all discovered HTTP records. Enabled in all strategies. CLI aliases: `audit`, `dast`, `assessment`.
 
-Uses a feedback loop (up to 3 rounds): after each round, checks for newly discovered records and rescans if found.
+Uses a configurable feedback loop: `dynamic-assessment.max_feedback_rounds` defaults to 1; increase it (for example, to 3) to check for newly discovered records and rescan them in later rounds.
 
 OAST (Out-of-band Application Security Testing) injects blind callback payloads when configured:
 
@@ -184,11 +184,12 @@ vigolium scan -t https://example.com --oast-url https://your-oast.example.com/ca
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-c` / `--concurrency` | 50 | Number of concurrent scan workers |
-| `--max-per-host` | 2 | Max concurrent requests per host |
+| `-c` / `--concurrency` | 40 | Number of concurrent scan workers |
+| `--max-per-host` | 40 | Max concurrent requests per host |
 | `-r` / `--rate-limit` | 100 | Max request submissions per second |
 | `--max-host-error` | 30 | Skip host after N consecutive errors |
-| `--max-findings-per-module` | 15 | Suppress findings after this many per module (0 = unlimited) |
+| `--max-findings-per-module` | 10 | Suppress findings after this many per module (0 = unlimited) |
+| `--no-waf-pacing` | off | Disable proactive CDN/WAF-edge throttling (reactive backoff still applies) |
 | `--timeout` | 15s | Per-request HTTP timeout |
 | `--retries` | 1 | Retry count for failed requests |
 | `--scanning-max-duration` | unset | Override global max scan duration |
@@ -216,8 +217,9 @@ The `scanning_pace` section in `vigolium-configs.yaml` provides centralized spee
 ```yaml
 scanning_pace:
   # Common defaults (inherited by all phases)
-  concurrency: 50
+  concurrency: 40
   rate_limit: 100
+  max_per_host: 40
   max_per_host: 10
 
   # Per-phase overrides (0 = inherit from common)
@@ -308,10 +310,10 @@ vigolium scan -t https://example.com --list-modules
 vigolium module ls
 
 # Run specific modules only
-vigolium scan -t https://example.com -m xss-reflected,sqli-error
+vigolium scan -t https://example.com -m xss-light-url-params,sqli-error-based
 
 # Run a single module
-vigolium scan-url https://example.com/search?q=test -m xss-reflected
+vigolium scan-url https://example.com/search?q=test -m xss-light-url-params
 ```
 
 ### Filtering by Tag
@@ -326,14 +328,14 @@ vigolium scan -t https://example.com --module-tag spring
 vigolium scan -t https://example.com --module-tag rails --module-tag django
 
 # Combine with -m (results are merged as a union)
-vigolium scan -t https://example.com -m xss-reflected --module-tag spring
+vigolium scan -t https://example.com -m xss-light-url-params --module-tag spring
 ```
 
 Tags are matched with OR logic — a module runs if it matches *any* of the specified tags. When both `-m` and `--module-tag` are provided, the results are merged (union).
 
 ## Custom Extensions
 
-Load JavaScript or YAML extension modules alongside or instead of built-in modules. See [Extension Scanning](extension-scan.md) for full details.
+Load JavaScript or YAML extension modules alongside or instead of built-in modules. See [Extension Scanning](phases/extension.md) for full details.
 
 ```bash
 # Add extensions on top of built-in modules

@@ -159,6 +159,14 @@ func (m *Module) getBaseline(
 	// Prefer the existing response if available
 	if ctx.HasResponse() {
 		resp := ctx.Response()
+		// A baseline that is a vendor WAF/CDN edge block is not the object's real
+		// response. The caller's 2xx-baseline gate already drops a 403/429 block, but
+		// a challenge served at 200 (Cf-Mitigated) would slip through and, if the
+		// determinism re-fetch cannot run (connection reset), be reported as an IDOR.
+		// A challenge page is never a genuine per-object baseline, so drop it.
+		if modkit.IsEdgeBlockedResponse(resp) {
+			return nil, nil
+		}
 		body := resp.Body()
 		summary := authzutil.SummarizeResponse(
 			resp.StatusCode(),
@@ -180,6 +188,10 @@ func (m *Module) getBaseline(
 		return nil, err
 	}
 	if entry == nil || entry.Response == nil {
+		return nil, nil
+	}
+	// Same edge-block gate on the replayed baseline (see above).
+	if modkit.IsEdgeBlockedResponse(entry.Response) {
 		return nil, nil
 	}
 

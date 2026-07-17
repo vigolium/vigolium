@@ -292,6 +292,47 @@ func TestScanPerRequest_PublicPageNoCredentialsNoFalsePositive(t *testing.T) {
 	assert.Empty(t, res, "a public page reached without credentials must not be flagged as a BFLA auth bypass")
 }
 
+// TestScanPerRequest_CloudflareChallengeBaselineNoFalsePositive reproduces the
+// 200-status WAF-challenge baseline false positive. BFLA deliberately targets
+// admin paths, which carry the strictest, path-scoped WAF rules. A Cloudflare
+// managed challenge served AT HTTP 200 (Cf-Mitigated) for /admin/users is the
+// authenticated baseline; the auth-stripped probe hits the SAME 200 challenge (the
+// edge ignores the credential) and is content-similar, while the random-path
+// catch-all controls dodge the path-scoped rule (404) and cannot cancel it. The
+// 200 status slips past the 2xx-baseline gate, so the edge-block gate must discard
+// the challenge before any probing.
+func TestScanPerRequest_CloudflareChallengeBaselineNoFalsePositive(t *testing.T) {
+	t.Parallel()
+	challenge := "<html><head><title>Just a moment...</title></head><body>" +
+		strings.Repeat("Checking your browser before accessing the site. ", 20) + "</body></html>"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/admin/users" {
+			// Path-scoped Cloudflare challenge served at 200, auth-agnostic.
+			w.Header().Set("Cf-Mitigated", "challenge")
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(challenge))
+			return
+		}
+		// Every other path (catch-all / method-baseline controls) dodges the rule.
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("not found"))
+	}))
+	defer srv.Close()
+
+	client := modtest.Requester(t)
+	// Seed the authenticated baseline as a 200 Cloudflare challenge (Cf-Mitigated),
+	// carrying a credential so the auth-strip test would otherwise run.
+	base := modtest.Request(t, srv.URL+"/admin/users")
+	rawResp := "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCf-Mitigated: challenge\r\n" +
+		fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(challenge), challenge)
+	rr := httpmsg.NewHttpRequestResponse(base.Request(), httpmsg.NewHttpResponse([]byte(rawResp)))
+	rr = withHeader(t, rr, "Cookie", "session=valid-session-token")
+
+	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res, "a 200-status Cloudflare challenge baseline (Cf-Mitigated) must not be reported as a BFLA bypass")
+}
+
 // TestScanPerRequest_RandomizedContentNoFalsePositive guards the multi-sample
 // reproduction check: the baseline request is authenticated (carries a Cookie),
 // and the first auth-stripped probe happens to return privileged-looking content,

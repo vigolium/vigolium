@@ -71,7 +71,7 @@ curl -s -X POST http://localhost:9002/api/ingest-http \
 
 ```bash
 # Base64-encode a raw HTTP request
-REQ_B64=$(echo -n "GET /api/users HTTP/1.1\r\nHost: example.com\r\n\r\n" | base64)
+REQ_B64=$(printf 'GET /api/users HTTP/1.1\r\nHost: example.com\r\n\r\n' | base64)
 
 curl -s -X POST http://localhost:9002/api/ingest-http \
   -H "Content-Type: application/json" \
@@ -86,7 +86,7 @@ curl -s -X POST http://localhost:9002/api/ingest-http \
 Raw HTTP requests don't contain the scheme (`https` vs `http`) and the `Host` header alone may not reflect the actual target (e.g. behind a reverse proxy). Provide `url` alongside `http_request_base64` so the parser can resolve the correct scheme and hostname.
 
 ```bash
-REQ_B64=$(echo -n "POST /api/login HTTP/1.1\r\nHost: internal-lb\r\nContent-Type: application/json\r\n\r\n{\"user\":\"admin\"}" | base64)
+REQ_B64=$(printf 'POST /api/login HTTP/1.1\r\nHost: internal-lb\r\nContent-Type: application/json\r\n\r\n{"user":"admin"}' | base64)
 
 curl -s -X POST http://localhost:9002/api/ingest-http \
   -H "Content-Type: application/json" \
@@ -125,7 +125,7 @@ curl -s -X POST http://localhost:9002/api/ingest-http \
 
 ```json
 {
-  "project_uuid": "default",
+  "project_uuid": "00000000-0000-0000-defa-c01001000001",
   "imported": 15,
   "skipped": 0,
   "errors": [],

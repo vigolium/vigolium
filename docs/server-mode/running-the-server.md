@@ -25,6 +25,24 @@ vigolium server -A
 
 The server listens on `0.0.0.0:9002` by default.
 
+Useful server controls:
+
+```bash
+# Mirror every persisted record/finding to a live filesystem tree
+vigolium server --mirror-fs ./live-export
+
+# Read-only API/UI, or the narrower public demo allowlist
+vigolium server --view-only
+vigolium server --demo-only
+
+# Disable agent endpoints or Swagger
+vigolium server --no-agent --no-swagger
+```
+
+`--full-native-scan-on-receive` expands `--scan-on-receive` from the
+dynamic-assessment path to the full native pipeline; `--passive-only` prevents
+active requests.
+
 ## Live Burp Traffic
 
 When the Vigolium Burp extension's Bridge listener is enabled, the server can
@@ -82,7 +100,8 @@ Individual requests or responses larger than 8 MiB are skipped and reported.
 
 ## Authentication
 
-All API requests (except `/health`) require a Bearer token:
+Protected API routes require a Bearer token. Health/metrics, login, Swagger,
+and static UI routes are public:
 
 ```
 Authorization: Bearer my-secret-key
@@ -124,8 +143,9 @@ All queries (findings, HTTP records, stats, scans) return data scoped to the pro
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/` | App info (no auth required) |
+| GET | `/` | Dashboard UI (no auth required) |
 | GET | `/health` | Health check (no auth required) |
+| GET | `/ready` | Readiness check (no auth required) |
 | GET | `/metrics` | Prometheus metrics (no auth required) |
 | GET | `/swagger/*` | Swagger UI and OpenAPI spec (no auth required) |
 | GET | `/server-info` | Server status, queue depth, record/finding counts |
@@ -144,8 +164,7 @@ All queries (findings, HTTP records, stats, scans) return data scoped to the pro
 | POST | `/api/agent/run/query` | Single-shot agent prompt execution |
 | POST | `/api/agent/run/autopilot` | Autonomous AI-driven scanning session |
 | POST | `/api/agent/run/swarm` | AI-guided multi-phase vulnerability swarm |
-| POST | `/api/agent/run/audit` | Foreground vigolium-audit code review (Claude / Codex) |
-| POST | `/api/agent/run/audit` | Foreground piolium audit code review (Pi runtime) |
+| POST | `/api/agent/run/audit` | Unified audit dispatcher (`auto`, `both`, `audit`, or `piolium`) |
 | GET | `/api/agent/status/list` | List agent runs |
 | GET | `/api/agent/status/:id` | Get agent run status (includes full result when completed) |
 | GET | `/api/agent/sessions` | Paginated session history |
@@ -160,25 +179,26 @@ After ingesting HTTP records, trigger a vulnerability scan via the API.
 ### Trigger a Scan
 
 ```bash
-curl -s -X POST http://localhost:9002/api/scan \
+curl -s -X POST http://localhost:9002/api/scans/run \
   -H "Authorization: Bearer my-secret-key" \
   -H "Content-Type: application/json" \
-  -d '{}' | jq .
+  -d '{"targets":["https://example.com"]}' | jq .
 ```
 
 Force re-scan with specific modules:
 
 ```bash
-curl -s -X POST http://localhost:9002/api/scan \
+curl -s -X POST http://localhost:9002/api/scans/run \
   -H "Authorization: Bearer my-secret-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "force": true,
-    "enable_modules": ["xss-scanner", "sqli-error-based"]
+    "targets": ["https://example.com"],
+    "modules": ["xss-scanner", "sqli-error-based"]
   }' | jq .
 ```
 
-Returns `202 Accepted` on success, `409 Conflict` if a scan is already running.
+Returns `202 Accepted` on success. Use `POST /api/scan-all-records` instead when
+the intended inputs are HTTP records already stored in the database.
 
 ### Check Scan Status
 
@@ -198,6 +218,9 @@ See the [API Reference](../api-references/scan.md) for full request/response det
 
 ## Running AI Agents via API
 
-The server exposes agent endpoints that mirror the `vigolium agent` CLI subcommands (query, autopilot, pipeline). Only one agent run can be active at a time (returns `409 Conflict` if busy). Set `"stream": true` for real-time SSE output.
+The server exposes query, autopilot, swarm, and unified audit endpoints. Agent
+runs use separate light/heavy concurrency pools; when a pool remains saturated
+past the queue timeout the server returns `429 Too Many Requests`. Set
+`"stream": true` for real-time SSE output.
 
-For full details on agent modes, prompt templates, and API request/response schemas, see the [Agent Mode](../agents/agent-mode.md) documentation and the [Agent API Reference](../api-references/agent.md).
+For full details on agent modes, prompt templates, and API request/response schemas, see the [Agent Mode](../agentic-scan/agent-mode.md) documentation and the [Agent API Reference](../api-references/agent.md).

@@ -1,181 +1,151 @@
 # Output and Reporting
 
-Vigolium supports multiple output formats for scan results, discovery data, and spidering output. This guide covers the available formats, result structures, and how to query stored findings.
+Vigolium has two related output contracts:
 
-## Output Formats
+- `--format` controls bulk scan/export artifacts;
+- `-j/--json` on read commands such as `finding`, `traffic`, and `db list`
+  emits one compact structured object for scripting or an AI agent.
 
-The `--format` flag controls the output format. Three formats are available:
+## Scan Formats
 
-### Console (default)
+Native scans accept these formats:
 
-```bash
-vigolium scan --target https://example.com
-```
+| Format | Result |
+|---|---|
+| `console` | Live, colored terminal output (default) |
+| `jsonl` | Bulk `{ "type": ..., "data": ... }` records and findings |
+| `html` | Self-contained interactive grid report |
+| `report` | Self-contained document-style report |
+| `pdf` | PDF document rendered through headless Chrome |
+| `sqlite` | Standalone database that can be reopened by Vigolium |
+| `fs` | Flat, browsable request/response and finding tree |
 
-Human-readable terminal output with color-coded severity levels. Findings are printed as they are discovered, with a summary table at the end of the scan. This is the default when no `--format` flag is specified.
-
-Severity colors:
-- **Critical** — Red
-- **High** — Orange/Yellow
-- **Medium** — Yellow
-- **Low** — Blue
-- **Info** — Gray
-
-### JSONL
-
-```bash
-vigolium scan --target https://example.com --format jsonl
-```
-
-One JSON object per line, machine-readable. Each line is a self-contained JSON document representing a single finding or event. This format is well suited for piping to `jq`, ingesting into SIEMs, or processing with custom scripts.
-
-Example usage with `jq`:
+Comma-separate formats to generate several artifacts from one scan:
 
 ```bash
-vigolium scan --target https://example.com --format jsonl | jq 'select(.severity == "high")'
+vigolium scan https://example.com \
+  --format jsonl,html,pdf \
+  -o reports/example
 ```
 
-### HTML
+File-based report formats require `-o/--output`. For multi-format output,
+`-o` is a base path and Vigolium adds the relevant extension.
+
+### Console and JSONL
 
 ```bash
-vigolium scan --target https://example.com --format html -o report.html
+vigolium scan https://example.com
+vigolium scan https://example.com --format jsonl -o findings.jsonl
+vigolium scan-url -j 'https://example.com/search?q=test'
 ```
 
-Interactive HTML report using an embedded ag-grid table. The report is a self-contained HTML file with sorting, filtering, and search capabilities. The `-o/--output` flag is required when using HTML format.
-
-HTML format is supported for:
-- Scan results (findings)
-- Discovery phase output (discovered URLs and endpoints)
-- Spidering phase output (crawled pages)
-
-## Severity Scale
-
-Findings are classified using five severity levels:
-
-| Severity | Description |
-|----------|-------------|
-| **Critical** | Exploitable vulnerabilities with severe impact (e.g., RCE, SQL injection with data exfiltration) |
-| **High** | Significant vulnerabilities that can lead to data compromise or unauthorized access |
-| **Medium** | Vulnerabilities that require specific conditions to exploit or have limited impact |
-| **Low** | Minor issues with minimal security impact |
-| **Info** | Informational findings, such as technology fingerprints or configuration details |
-
-## Confidence Scale
-
-Each finding includes a confidence level indicating the reliability of the detection:
-
-| Confidence | Description |
-|------------|-------------|
-| **Certain** | Confirmed with proof. The scanner has verified the vulnerability through direct evidence (e.g., a reflected payload executed, data was extracted). |
-| **Firm** | Strong evidence supports the finding. Multiple indicators confirm the issue, but direct proof of exploitation was not obtained. |
-| **Tentative** | Based on heuristic or pattern matching. The finding may be a false positive and should be manually verified. |
-
-## Finding Structure
-
-Each finding contains the following fields:
-
-| Field | Description |
-|-------|-------------|
-| **Module** | The scanner module that produced the finding (e.g., `xss-reflected`, `sqli-error-based`) |
-| **Severity** | Critical, High, Medium, Low, or Info |
-| **Confidence** | Certain, Firm, or Tentative |
-| **URL** | The target URL where the vulnerability was detected |
-| **Parameter** | The specific parameter or insertion point that was tested (if applicable) |
-| **Evidence** | Proof of the vulnerability — response excerpts, payloads, or other confirming data |
-| **Description** | Human-readable explanation of the vulnerability and its potential impact |
-
-## Saving Output
-
-### Using the -o/--output Flag
-
-Write output directly to a file:
+JSONL is the bulk stream contract and is suitable for `jq`, a SIEM, or
+line-oriented ingestion. Select finding envelopes before reading fields:
 
 ```bash
-# Save JSONL output
-vigolium scan --target https://example.com --format jsonl -o results.jsonl
-
-# Save HTML report
-vigolium scan --target https://example.com --format html -o report.html
-
-# Save console output
-vigolium scan --target https://example.com -o results.txt
+vigolium scan https://example.com --format jsonl \
+  | jq 'select(.type == "finding") | .data |
+        select(.severity == "high" or .severity == "critical")'
 ```
 
-### Piping JSONL
+`--ci-output-format` is the exception: it emits finding objects only and
+suppresses banners/color for a simple CI stream.
 
-JSONL output can be piped to other tools for processing:
+Use `--include-response` on `scan`/`run` when the full response body is needed
+in scan output, or `--omit-response` to keep persisted exports smaller.
+
+### HTML, Document, and PDF Reports
 
 ```bash
-# Filter high and critical findings
-vigolium scan --target https://example.com --format jsonl | jq 'select(.severity == "high" or .severity == "critical")'
-
-# Count findings by severity
-vigolium scan --target https://example.com --format jsonl | jq -s 'group_by(.severity) | map({severity: .[0].severity, count: length})'
-
-# Extract just URLs with findings
-vigolium scan --target https://example.com --format jsonl | jq -r '.url'
+vigolium scan https://example.com --format html -o report.html
+vigolium scan https://example.com --format report -o report.html
+vigolium scan https://example.com --format pdf -o report.pdf
 ```
 
-## Discovery and Spidering Output
+Full native scans can produce HTML reports. When `--only` isolates a phase,
+HTML is supported for discovery and spidering output.
 
-The discovery and spidering phases produce their own output alongside scan findings.
+### Standalone SQLite
 
-### Discovery Output
-
-Discovery output includes URLs and endpoints found through wordlist-based content discovery, Wayback Machine data, and JavaScript analysis. Each discovered URL is reported with its HTTP status code and response metadata.
+SQLite output requires stateless mode so the result is an explicit standalone
+database rather than the active project database:
 
 ```bash
-# Run only discovery and save results
-vigolium scan --target https://example.com --only discovery --format html -o discovery-report.html
+vigolium scan -S https://example.com --format sqlite -o scan.sqlite
+vigolium finding -S --db scan.sqlite --min-severity high
+vigolium traffic -S --db scan.sqlite --tree
 ```
 
-### Spidering Output
+### Filesystem Output
 
-Spidering output includes pages found by the browser-based crawler, along with forms, links, and dynamic content discovered during crawling.
+The `fs` format writes two sibling trees, `<base>-traffic/` and
+`<base>-findings/`. Requests are replayable `.req` files, responses are split
+into headers and decoded bodies, and each tree has a machine-readable index.
 
 ```bash
-# Run only spidering and save results
-vigolium scan --target https://example.com --only spidering --format html -o spider-report.html
+vigolium scan -S https://example.com --format fs -o run
+vigolium export --format fs -o project-export
 ```
 
-Both phases support all three output formats (console, JSONL, HTML).
+## Export Existing Data
 
-## OAST Interactions
-
-Out-of-band Application Security Testing (OAST) findings come from DNS and HTTP callback interactions. When a scanner payload triggers an out-of-band request to the OAST server, the interaction is correlated back to the original test case.
-
-OAST findings appear in output with:
-- The original request that triggered the out-of-band interaction
-- The type of interaction (DNS lookup, HTTP request)
-- Timing information (when the callback was received)
-- Correlation data linking the interaction to the specific payload
-
-OAST interactions may arrive after the initial scan phase completes, as some out-of-band triggers have delayed execution. Vigolium waits for a configurable period after scanning to collect late-arriving callbacks.
-
-If outbound DNS or HTTP is blocked by a firewall, OAST-based detections will not work. The scanner will still produce findings through other detection methods — OAST simply adds an additional layer of out-of-band detection.
-
-## Querying Results from Database
-
-All scan data is stored in the database (SQLite by default). You can query stored results using CLI commands without re-running scans.
-
-### Listing Findings
+`vigolium export` reads the active project database and supports `jsonl`,
+`html`, `report`, `pdf`, `markdown`, `bundle`, and `fs`:
 
 ```bash
-# List all findings
-vigolium findings list
-
-# List findings for a specific project
-vigolium findings list --project my-project
+vigolium export --only findings,http --format jsonl -o export.jsonl
+vigolium export --format html --severity high,critical -o report.html
+vigolium export --format bundle --scan-uuid <agentic-scan-uuid> \
+  -o results.tar.gz
 ```
 
-### Listing Traffic
+A bundle contains `export.jsonl`, `report.html`, a manifest, and requested
+agent session directories.
+
+## Query Stored Results
+
+Use the noun directly; `finding list` and `traffic list` are not subcommands.
 
 ```bash
-# List recorded HTTP traffic
-vigolium traffic list
+# Human-readable browsing
+vigolium finding
+vigolium finding xss --min-severity medium
+vigolium traffic --host api.example.com --status 200
 
-# List traffic for a specific project
-vigolium traffic list --project my-project
+# Project scoping
+vigolium finding --project-name my-project
+vigolium traffic --project-uuid <uuid>
+
+# Generic table access (the table is positional)
+vigolium db list findings --severity high,critical
+vigolium db list http_records --host api.example.com
 ```
 
-Results are scoped to the active project. Use `--project` to specify a project, or set a default with `vigolium project use <name>`. See the [projects documentation](projects.md) for details on multi-tenancy and project scoping.
+### Compact JSON for Automation
+
+On query commands, `-j/--json` emits a single structured response rather than
+the bulk JSONL stream. Large and binary bodies are previewed or stubbed with
+size/hash metadata.
+
+```bash
+vigolium finding --min-severity high --json --with-records
+vigolium traffic --host api.example.com --json --compact
+vigolium finding --json --fields id,severity,url
+```
+
+Use `--full-body` only when complete bodies are required. `--compact` omits
+bodies, and `--fields` projects selected top-level keys.
+
+## Finding Metadata
+
+Findings include severity (`critical`, `high`, `medium`, `low`, `info`) and
+confidence (`certain`, `firm`, `tentative`), plus module identity, affected
+location, evidence, request/response links, remediation, and source metadata.
+
+For CI gating, let the scanner set the process status after output is written:
+
+```bash
+vigolium scan -S "$TARGET" --format jsonl -o findings.jsonl --fail-on high
+```
+
+`--soft-fail` suppresses the non-zero severity gate while retaining results.

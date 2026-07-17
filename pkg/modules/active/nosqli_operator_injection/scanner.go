@@ -88,12 +88,24 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 	}
 
-	// Baseline data
+	// Baseline data. A captured baseline that is itself a WAF/CDN edge block
+	// (a CloudFront "Request blocked" 403, a Cloudflare/Akamai/Incapsula block,
+	// a 429) is the edge talking, not the application: its status AND its body
+	// belong to the block page. Both captured-baseline detection paths would then
+	// compare the operator response against edge mitigation rather than the app —
+	// the auth-bypass path reads the block's status as a "denied" gate and the
+	// size-change path reads the tiny block page as a small baseline. This is the
+	// motivating false positive: a spider-submitted form value of ~1400 random
+	// chars tripped a CloudFront length/anomaly rule (403, 919-byte block page),
+	// so a short "[$ne]=" operator value that simply did not trip it (200, full
+	// 55 KB page) read as a 403→200 auth bypass. Discard such a baseline so those
+	// two paths do not fire; the boolean-diff and time-based legs measure their
+	// own fresh, per-probe-gated baselines and are unaffected.
 	var baselineBody string
 	var baselineStatus int
-	if ctx.Response() != nil {
-		baselineBody = ctx.Response().BodyToString()
-		baselineStatus = ctx.Response().StatusCode()
+	if r := ctx.Response(); r != nil && !modkit.IsEdgeBlockedResponse(r) {
+		baselineBody = r.BodyToString()
+		baselineStatus = r.StatusCode()
 	}
 
 	// Select payloads based on insertion point type
@@ -216,18 +228,24 @@ func (m *Module) testPayload(
 	case detectSizeChange:
 		findingSeverity = severity.Suspect
 		findingConfidence = severity.Tentative
-		// Require a real captured baseline: a status AND a non-empty body. A
-		// served (2xx) page that captured as 0 bytes is almost always an
-		// encoding/capture artifact (gzip not decoded at capture, streamed/HEAD
-		// body) — and analyzeSizeIncrease(0, N) would misread any non-trivial
-		// response as a size increase from zero. This is exactly the reported
-		// Cloudflare-Access SSO-page false positive: empty captured baseline,
-		// 200 status, a 22 KB static login page returned for every value.
+		// Require a real, ALLOWED captured baseline: a 2xx status AND a non-empty
+		// body. Two artifacts this rejects:
+		//   - a served (2xx) page that captured as 0 bytes is almost always an
+		//     encoding/capture artifact (gzip not decoded at capture, streamed/HEAD
+		//     body) — analyzeSizeIncrease(0, N) would misread any non-trivial
+		//     response as a size increase from zero (the Cloudflare-Access SSO-page
+		//     false positive: empty captured baseline, 200 status, a 22 KB static
+		//     login page returned for every value);
+		//   - a DENIED/blocked baseline (a 401/403 auth or WAF-length page) is not
+		//     the app's normal response, so a short value returning the full page
+		//     over it is the value clearing the gate, not the operator exfiltrating
+		//     data. "Data exfiltration" is only meaningful measured FROM a normal
+		//     2xx response, so a non-2xx baseline cannot anchor a size delta.
 		//
 		// Beyond the captured-baseline delta, confirmSizeIncrease must reproduce
 		// the growth against a FRESH clean fetch AND find the payload body
 		// structurally divergent from it.
-		if baselineStatus != 0 && len(baselineBody) > 0 &&
+		if baselineStatus >= 200 && baselineStatus < 300 && len(baselineBody) > 0 &&
 			analyzeSizeIncrease(len(baselineBody), len(body)) &&
 			m.confirmSizeIncrease(ctx, ip, httpClient, fuzzedValue, body) {
 			detected = true
@@ -263,13 +281,25 @@ func (m *Module) testPayload(
 }
 
 // confirmAuthBypass verifies an apparent 401/403→200 transition is genuinely
-// caused by the operator payload, not a transient block — a 401/403 from a
-// WAF/rate-limit layer that simply cleared between requests, or auth that is
-// enforced intermittently. It re-runs the pair interleaved with the payload as
-// the only variable: each round the ORIGINAL base value must STILL be denied
-// (401/403) and the payload value must STILL be allowed (2xx). The fetches bypass
-// the response cache so a stale replay can't mask flapping. Fails open on a
-// transport error so a transient failure never suppresses a true positive.
+// caused by the operator payload, not a transient block, a WAF, or a value-shape
+// artifact. Each round holds the operator as the only variable and requires ALL
+// of:
+//
+//   - the ORIGINAL base value is STILL denied (401/403) by the APPLICATION — a
+//     denial that is a vendor WAF/CDN edge block (CloudFront/Cloudflare/Akamai/
+//     Incapsula, or a 429) is not an auth gate, so it cannot be "bypassed";
+//   - a benign, OPERATOR-FREE control value is ALSO denied — if a plain
+//     non-operator value is allowed (2xx), the gate is not rejecting on value
+//     content but on something incidental to the original base value (its length
+//     or entropy tripping a WAF rule), so the operator is not what unblocks the
+//     request. This is the CloudFront length-rule false positive: a ~1400-char
+//     random base value was blocked (403) while any short value — operator or
+//     not — passed (200);
+//   - the payload value is STILL allowed (2xx) and not itself an edge block.
+//
+// The fetches bypass the response cache so a stale replay can't mask flapping.
+// Fails open on a transport error so a transient failure never suppresses a true
+// positive.
 func (m *Module) confirmAuthBypass(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
@@ -278,18 +308,35 @@ func (m *Module) confirmAuthBypass(
 ) bool {
 	const rounds = 2
 	for range rounds {
-		controlStatus, err := m.freshStatus(ctx, ip, httpClient, ip.BaseValue())
+		baseStatus, baseBlocked, err := m.freshStatus(ctx, ip, httpClient, ip.BaseValue())
 		if err != nil {
 			return true // fail open on transport error
 		}
-		if controlStatus != 401 && controlStatus != 403 {
+		if baseBlocked {
+			return false // the "denial" is a WAF/CDN edge block, not an app auth gate
+		}
+		if baseStatus != 401 && baseStatus != 403 {
 			return false // not denied WITHOUT the payload → the block isn't payload-attributable
 		}
-		probeStatus, err := m.freshStatus(ctx, ip, httpClient, payloadValue)
+
+		// A benign, operator-free value of comparable shape must ALSO be denied.
+		// If it is allowed, the gate rejects on the base value's incidentals
+		// (length/entropy tripping a WAF), not on operator interpretation — the
+		// operator is not the discriminator, so the 401/403→2xx transition is not
+		// a NoSQL auth bypass.
+		ctrlStatus, ctrlBlocked, err := m.freshStatus(ctx, ip, httpClient, benignProbeSuffix)
 		if err != nil {
 			return true
 		}
-		if probeStatus < 200 || probeStatus >= 300 {
+		if !ctrlBlocked && ctrlStatus >= 200 && ctrlStatus < 300 {
+			return false // benign non-operator value allowed → not operator-attributable
+		}
+
+		probeStatus, probeBlocked, err := m.freshStatus(ctx, ip, httpClient, payloadValue)
+		if err != nil {
+			return true
+		}
+		if probeBlocked || probeStatus < 200 || probeStatus >= 300 {
 			return false // not allowed WITH the payload → not a reproducible bypass
 		}
 	}
@@ -297,26 +344,32 @@ func (m *Module) confirmAuthBypass(
 }
 
 // freshStatus issues the insertion point built with value and returns the status
-// code, bypassing the response cache (NoClustering) so a confirmation re-fetch is
-// a genuinely fresh observation rather than a replayed one.
+// code plus whether the response is a vendor WAF/CDN edge block (CloudFront/
+// Cloudflare/Akamai/Incapsula block or a 429 — NOT a generic application 401/403).
+// It bypasses the response cache (NoClustering) so a confirmation re-fetch is a
+// genuinely fresh observation rather than a replayed one.
 func (m *Module) freshStatus(
 	ctx *httpmsg.HttpRequestResponse,
 	ip httpmsg.InsertionPoint,
 	httpClient *http.Requester,
 	value string,
-) (int, error) {
+) (status int, edgeBlocked bool, err error) {
 	// BuildRequest produces well-formed raw, so wrap directly instead
 	// of re-parsing on this hot path.
 	req := httpmsg.NewRequestResponseRaw(ip.BuildRequest([]byte(value)), ctx.Service())
 	resp, _, err := httpClient.Execute(req, http.Options{NoClustering: true})
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	defer resp.Close()
+	// A vendor-identified edge block is detected before reading the status so a
+	// blocked 403/429 is never mistaken for an application denial. Validate flags
+	// only vendor WAF/CDN blocks and challenges, not a plain app 401/403.
+	edgeBlocked = infra.GetBlockDetectionValidator().Validate(resp) != nil
 	if resp.Response() == nil {
-		return 0, nil
+		return 0, edgeBlocked, nil
 	}
-	return resp.Response().StatusCode, nil
+	return resp.Response().StatusCode, edgeBlocked, nil
 }
 
 // confirmSizeIncrease re-confirms a detectSizeChange hit by checking the body
@@ -349,9 +402,16 @@ func (m *Module) confirmSizeIncrease(
 	maxClean := 0
 	var cleanBody string
 	for i := 0; i < 2; i++ {
-		_, body, _, err := m.measureDuration(ctx, ip, httpClient, ip.BaseValue())
+		_, body, blocked, err := m.measureDuration(ctx, ip, httpClient, ip.BaseValue())
 		if err != nil {
 			return false // fail closed: cannot reproduce a clean baseline
+		}
+		// A denied/blocked fresh fetch of the ORIGINAL value is not a clean
+		// baseline: the "growth" would then just be a short payload value clearing
+		// a WAF/auth gate the long original value tripped, not the operator pulling
+		// records. Drop rather than anchor the delta on a block page.
+		if blocked {
+			return false
 		}
 		if len(body) > maxClean {
 			maxClean = len(body)

@@ -76,7 +76,14 @@ type kbDoc struct {
 // reports whether it was a directory. Non-text and binary files are skipped.
 // Documents are returned in a stable (relpath-sorted) order so re-runs and the
 // on-disk artifact are reproducible.
-func gatherKnowledgeBaseDocs(kbPath string) (rootAbs string, docs []kbDoc, isDir bool, err error) {
+//
+// When routeTraffic is true, files recognized as HTTP-traffic exports (curl,
+// raw HTTP, URL lists — the only traffic shapes that can wear a prose text
+// extension) are also skipped here, because the traffic loader
+// (ingestKnowledgeBaseTraffic) parses them into real http_records instead. With
+// routeTraffic false every text file stays prose (the --knowledge-base-no-traffic
+// behavior), so a capture is never silently dropped from both paths.
+func gatherKnowledgeBaseDocs(kbPath string, routeTraffic bool) (rootAbs string, docs []kbDoc, isDir bool, err error) {
 	rootAbs, err = filepath.Abs(kbPath)
 	if err != nil {
 		return "", nil, false, err
@@ -87,6 +94,14 @@ func gatherKnowledgeBaseDocs(kbPath string) (rootAbs string, docs []kbDoc, isDir
 	}
 
 	if !info.IsDir() {
+		// A single-file KB that is itself a traffic export is handled entirely by
+		// the traffic loader; return no prose docs (not an error) so the caller
+		// degrades to the traffic section alone.
+		if routeTraffic {
+			if _, ok := kbTrafficFormat(rootAbs); ok {
+				return rootAbs, nil, false, nil
+			}
+		}
 		doc, ok := readKBFile(rootAbs, filepath.Base(rootAbs))
 		if !ok {
 			return rootAbs, nil, false, fmt.Errorf("%s is not a readable text document", rootAbs)
@@ -109,6 +124,13 @@ func gatherKnowledgeBaseDocs(kbPath string) (rootAbs string, docs []kbDoc, isDir
 		}
 		if !kbTextExtensions[strings.ToLower(filepath.Ext(path))] {
 			return nil
+		}
+		// A text file whose content is actually a curl/raw-HTTP/URL-list capture
+		// belongs to the traffic path, not the prose corpus.
+		if routeTraffic {
+			if _, ok := kbTrafficFormat(path); ok {
+				return nil
+			}
 		}
 		rel, relErr := filepath.Rel(rootAbs, path)
 		if relErr != nil {
@@ -334,8 +356,10 @@ func renderKnowledgeBaseSection(rootAbs string, isDir bool, summary string, docs
 // also written to <sessionDir>/knowledge-base-brief.md for provenance and
 // --resume reuse. Returns "" (nil error) when the KB holds no readable text
 // docs. Distillation failure is non-fatal — it degrades to the deterministic
-// document index. Progress is logged to w.
-func buildKnowledgeBaseSection(ctx context.Context, prov provider.Provider, model, kbPath string, raw bool, sessionDir string, w io.Writer) (string, error) {
+// document index. Progress is logged to w. routeTraffic mirrors the caller's
+// traffic-routing decision: when true, files parsed as traffic are excluded
+// from the prose corpus (they're ingested as records elsewhere).
+func buildKnowledgeBaseSection(ctx context.Context, prov provider.Provider, model, kbPath string, raw bool, sessionDir string, w io.Writer, routeTraffic bool) (string, error) {
 	// --resume / reused --session-dir: reuse a previously distilled brief so we
 	// don't re-pay the LLM call. Skipped in raw mode (deterministic index is
 	// cheap to rebuild and reflects the current tree).
@@ -351,7 +375,7 @@ func buildKnowledgeBaseSection(ctx context.Context, prov provider.Provider, mode
 		}
 	}
 
-	rootAbs, docs, isDir, err := gatherKnowledgeBaseDocs(kbPath)
+	rootAbs, docs, isDir, err := gatherKnowledgeBaseDocs(kbPath, routeTraffic)
 	if err != nil {
 		return "", err
 	}

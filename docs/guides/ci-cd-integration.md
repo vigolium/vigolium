@@ -9,14 +9,18 @@ Vigolium can be integrated into CI/CD pipelines to automatically scan applicatio
 A minimal CI scan using the `lite` strategy for speed and JSONL output for machine parsing:
 
 ```bash
-vigolium scan -t $TARGET_URL --strategy lite --format jsonl -o results.jsonl
+vigolium scan -S -t "$TARGET_URL" --strategy lite \
+  --format jsonl -o results.jsonl --fail-on high
 ```
 
 The `lite` strategy skips browser spidering and heavy discovery, making it suitable for time-constrained CI environments. JSONL output produces one JSON object per line, which is straightforward to parse in scripts.
 
 ## Exit Codes
 
-Check Vigolium's exit code to determine whether findings were reported. A non-zero exit code can be used to fail a CI pipeline gate when vulnerabilities are detected. Consult `vigolium scan --help` for the exact exit code semantics in your version.
+Use `--fail-on info|low|medium|high|critical` to make `scan`, `scan-url`,
+`scan-request`, or `run` exit non-zero when this run finds an issue at or above
+the threshold. Output is written before the gate is evaluated. Global
+`--soft-fail` forces exit zero while retaining the error on stderr.
 
 ## JSONL Output for Parsing
 
@@ -24,11 +28,13 @@ Use `jq` to filter findings by severity:
 
 ```bash
 # Fail the build only on high/critical findings
-HIGH_COUNT=$(jq -s '[.[] | select(.severity == "high" or .severity == "critical")] | length' results.jsonl)
+HIGH_COUNT=$(jq -s '[.[] | select(.type == "finding") | .data |
+  select(.severity == "high" or .severity == "critical")] | length' results.jsonl)
 
 if [ "$HIGH_COUNT" -gt 0 ]; then
   echo "Found $HIGH_COUNT high/critical severity findings"
-  jq 'select(.severity == "high" or .severity == "critical")' results.jsonl
+  jq 'select(.type == "finding") | .data |
+      select(.severity == "high" or .severity == "critical")' results.jsonl
   exit 1
 fi
 ```
@@ -36,7 +42,8 @@ fi
 Extract a summary of findings:
 
 ```bash
-jq '{name: .name, severity: .severity, url: .url}' results.jsonl
+jq 'select(.type == "finding") | .data |
+    {name: .name, severity: .severity, url: .url}' results.jsonl
 ```
 
 ## With Source Code (Agent Modes)
@@ -45,10 +52,10 @@ When the source code is available in the CI workspace, agent modes can use it fo
 
 ```bash
 # Swarm: AI plans modules, optionally runs source analysis + native scan
-vigolium agent swarm -t $TARGET_URL --source . --format jsonl -o results.jsonl
+vigolium agent swarm -t "$TARGET_URL" --source . --json > agent-summary.json
 
 # Multi-phase AI source-code audit (no live target needed)
-vigolium agent audit --source .
+vigolium agent audit --source . --json > audit-summary.json
 ```
 
 See [Agent mode](../agentic-scan/agent-mode.md) for full coverage of each mode.
@@ -70,10 +77,12 @@ This produces structured JSON output with findings that can be parsed and posted
 For a more thorough AI-driven scan with automatic endpoint discovery:
 
 ```bash
-vigolium agent swarm -t $TARGET_URL --discover --timeout 20m
+vigolium agent swarm -t "$TARGET_URL" --discover --max-duration 20m --json \
+  > swarm-summary.json
 ```
 
-The `--timeout` flag ensures the scan does not run indefinitely in CI. The swarm mode coordinates multiple scan phases with AI-guided triage.
+`--max-duration` bounds the whole Swarm run. Under `--json`, live progress is
+sent to stderr and stdout contains one machine-readable run summary.
 
 ## Docker
 
@@ -86,19 +95,23 @@ make docker
 Run a scan in a container:
 
 ```bash
-docker run --rm vigolium scan -t $TARGET_URL --strategy lite --format jsonl
+docker run --rm vigolium scan -S -t "$TARGET_URL" \
+  --strategy lite --format jsonl
 ```
 
 For scans that require source code access, mount the workspace:
 
 ```bash
-docker run --rm -v $(pwd):/workspace vigolium scan -t $TARGET_URL --source /workspace --format jsonl
+docker run --rm -v "$(pwd):/workspace" vigolium agent swarm \
+  -t "$TARGET_URL" --source /workspace --json
 ```
 
 ## Tips
 
 - **Keep scans fast**: Use `--strategy lite` and `--skip spidering` in CI to avoid long-running browser-based crawling. Save deep scans for staging or nightly runs.
-- **Set timeouts**: Always use `--timeout` in CI to prevent scans from blocking the pipeline indefinitely.
+- **Bound work**: use native phase limits such as `--timeout`,
+  `--discover-max-time`, and `--spider-max-time`; use `--max-duration` for
+  Swarm or Autopilot.
 - **Cache the binary**: Download and cache the Vigolium binary in your CI cache (e.g., GitHub Actions cache, GitLab CI cache) to avoid re-downloading on every run.
 - **Use projects**: Create a dedicated project for CI scans with `vigolium project create ci-scans` to keep findings organized and track trends across builds.
 - **Incremental scanning**: When scanning the same target repeatedly, previous scan data in the project can help Vigolium avoid redundant checks.

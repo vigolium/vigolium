@@ -31,7 +31,7 @@ func TestGatherKnowledgeBaseDocs_Directory(t *testing.T) {
 	writeKBFile(t, dir, "node_modules/pkg/readme.md", "dependency doc, must be skipped")
 	writeKBFile(t, dir, "bin.md", "text\x00with-nul-byte")
 
-	root, docs, isDir, err := gatherKnowledgeBaseDocs(dir)
+	root, docs, isDir, err := gatherKnowledgeBaseDocs(dir, false)
 	require.NoError(t, err)
 	require.True(t, isDir)
 	require.Equal(t, dir, root)
@@ -57,7 +57,7 @@ func TestGatherKnowledgeBaseDocs_SingleFile(t *testing.T) {
 	dir := t.TempDir()
 	p := writeKBFile(t, dir, "kb.md", "# Single doc\n\nContent.")
 
-	root, docs, isDir, err := gatherKnowledgeBaseDocs(p)
+	root, docs, isDir, err := gatherKnowledgeBaseDocs(p, false)
 	require.NoError(t, err)
 	require.False(t, isDir)
 	require.Equal(t, p, root)
@@ -67,7 +67,7 @@ func TestGatherKnowledgeBaseDocs_SingleFile(t *testing.T) {
 }
 
 func TestGatherKnowledgeBaseDocs_MissingPath(t *testing.T) {
-	_, _, _, err := gatherKnowledgeBaseDocs(filepath.Join(t.TempDir(), "nope"))
+	_, _, _, err := gatherKnowledgeBaseDocs(filepath.Join(t.TempDir(), "nope"), false)
 	require.Error(t, err)
 }
 
@@ -143,7 +143,7 @@ func TestBuildKnowledgeBaseSection_RawAndCache(t *testing.T) {
 	sessionDir := t.TempDir()
 
 	var buf bytes.Buffer
-	section, err := buildKnowledgeBaseSection(context.Background(), nil, "", kbDir, true, sessionDir, &buf)
+	section, err := buildKnowledgeBaseSection(context.Background(), nil, "", kbDir, true, sessionDir, &buf, false)
 	require.NoError(t, err)
 	require.Contains(t, section, "## Operator-supplied reference documentation")
 	require.Contains(t, section, "- `"+filepath.Join(kbDir, "auth.md")+"` — Auth model")
@@ -158,7 +158,7 @@ func TestBuildKnowledgeBaseSection_RawAndCache(t *testing.T) {
 	// Non-raw call with a nil provider reuses the cached artifact rather than
 	// attempting (impossible) distillation.
 	var buf2 bytes.Buffer
-	section2, err := buildKnowledgeBaseSection(context.Background(), nil, "", kbDir, false, sessionDir, &buf2)
+	section2, err := buildKnowledgeBaseSection(context.Background(), nil, "", kbDir, false, sessionDir, &buf2, false)
 	require.NoError(t, err)
 	require.Equal(t, strings.TrimRight(string(data), "\n"), section2)
 	require.Contains(t, buf2.String(), "reusing cached brief")
@@ -173,7 +173,7 @@ func TestBuildKnowledgeBaseSection_DistillFallback(t *testing.T) {
 
 	var buf bytes.Buffer
 	// Fresh session dir → no cache; nil provider → distill returns false.
-	section, err := buildKnowledgeBaseSection(context.Background(), nil, "", kbDir, false, t.TempDir(), &buf)
+	section, err := buildKnowledgeBaseSection(context.Background(), nil, "", kbDir, false, t.TempDir(), &buf, false)
 	require.NoError(t, err)
 	require.Contains(t, section, "- `"+filepath.Join(kbDir, "auth.md")+"` — Auth model")
 	require.Contains(t, buf.String(), "falling back to a document index")
@@ -181,7 +181,7 @@ func TestBuildKnowledgeBaseSection_DistillFallback(t *testing.T) {
 
 func TestBuildKnowledgeBaseSection_EmptyDir(t *testing.T) {
 	var buf bytes.Buffer
-	section, err := buildKnowledgeBaseSection(context.Background(), nil, "", t.TempDir(), true, t.TempDir(), &buf)
+	section, err := buildKnowledgeBaseSection(context.Background(), nil, "", t.TempDir(), true, t.TempDir(), &buf, false)
 	require.NoError(t, err)
 	require.Empty(t, section)
 	require.Contains(t, buf.String(), "no readable text documents")

@@ -351,8 +351,9 @@ func resolveReplaySource(ctx context.Context) (*replaySource, error) {
 	}
 
 	// openReadDB honors -S/--stateless: a standalone .sqlite/.jsonl export via
-	// --db, project scoping off. Falls back to the project DB otherwise.
-	db, dbErr := openReadDB()
+	// --db, project scoping off. Falls back to the project DB otherwise. Replay
+	// re-sends the stored requests, so a --glob-db merge must keep the bodies.
+	db, dbErr := openReadDB(globDBSkipSet{})
 	var repo *database.Repository
 	if dbErr == nil {
 		repo = database.NewRepository(db)
@@ -588,7 +589,7 @@ func buildReplayOverlay(ctx context.Context, src *replaySource) (map[string]stri
 	overlay := map[string]string{}
 
 	if replayAuthSession != "" {
-		db, err := openReadDB()
+		db, err := openReadDB(globDBSkipSet{})
 		if err != nil {
 			return nil, fmt.Errorf("--auth-session requires database access: %w", err)
 		}

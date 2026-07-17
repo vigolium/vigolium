@@ -47,37 +47,38 @@ var (
 	// available for autopilot, and credentials/auth intent are extracted from
 	// the prompt (NL path via applyIntentToAutopilotFlags, explicit path via
 	// extractPromptAuthIntent).
-	autopilotCredentials      string
-	autopilotAuthRequired     bool
-	autopilotRequiresBrowser  bool
-	autopilotBrowserStartURL  string
-	autopilotFocusRoutes      []string
-	autopilotAudit            string // canonical audit control: "" | "lite" | "balanced" | "deep" | "off"
-	autopilotPiolium          string // piolium audit control: "" (auto/off) | "lite"|"balanced"|"deep"|... | "off"
-	autopilotDiff             string
-	autopilotLastCommits      int
-	autopilotIntensity        string
-	autopilotNoPrescan        bool
-	autopilotTriage           bool
-	autopilotNoPreflight      bool
-	autopilotNoPostHaltVerify bool
-	autopilotPostHaltGap      int
-	autopilotUploadResults    bool
-	autopilotVerbose          bool
-	autopilotOliumProvider    string
-	autopilotOliumModel       string
-	autopilotSystemPrompt     string
-	autopilotSystemPromptFile string
-	autopilotOliumOAuthCred   string
-	autopilotOliumOAuthToken  string
-	autopilotOliumLLMAPIKey   string
-	autopilotDisableGuardrail bool
-	autopilotHeaded           bool
-	autopilotResume           string
-	autopilotSessionDir       string
-	autopilotTranscript       string
-	autopilotKnowledgeBase    string
-	autopilotKnowledgeBaseRaw bool
+	autopilotCredentials            string
+	autopilotAuthRequired           bool
+	autopilotRequiresBrowser        bool
+	autopilotBrowserStartURL        string
+	autopilotFocusRoutes            []string
+	autopilotAudit                  string // canonical audit control: "" | "lite" | "balanced" | "deep" | "off"
+	autopilotPiolium                string // piolium audit control: "" (auto/off) | "lite"|"balanced"|"deep"|... | "off"
+	autopilotDiff                   string
+	autopilotLastCommits            int
+	autopilotIntensity              string
+	autopilotNoPrescan              bool
+	autopilotTriage                 bool
+	autopilotNoPreflight            bool
+	autopilotNoPostHaltVerify       bool
+	autopilotPostHaltGap            int
+	autopilotUploadResults          bool
+	autopilotVerbose                bool
+	autopilotOliumProvider          string
+	autopilotOliumModel             string
+	autopilotSystemPrompt           string
+	autopilotSystemPromptFile       string
+	autopilotOliumOAuthCred         string
+	autopilotOliumOAuthToken        string
+	autopilotOliumLLMAPIKey         string
+	autopilotDisableGuardrail       bool
+	autopilotHeaded                 bool
+	autopilotResume                 string
+	autopilotSessionDir             string
+	autopilotTranscript             string
+	autopilotKnowledgeBase          string
+	autopilotKnowledgeBaseRaw       bool
+	autopilotKnowledgeBaseNoTraffic bool
 
 	// autopilotInstructionPrefix holds the verbatim task-guidance prompt when
 	// autopilot was invoked with a positional `<prompt>` argument or --prompt. It
@@ -182,8 +183,9 @@ func init() {
 	f.StringVar(&autopilotResume, "resume", "", "Resume a previous durable-autopilot run by its agentic-scan UUID: reuses its session dir, project, target, and durable scratchpad/candidates; skips pre-scan and audit re-prep (requires agent.olium.autopilot_mode != legacy)")
 	f.StringVar(&autopilotSessionDir, "session-dir", "", "Explicit session directory for this run's debug artifacts (transcript.jsonl, runtime.log, scratchpad, tool-results). Default: <agent.sessions_dir>/<run-uuid>. Pin it to know exactly where to look when debugging (e.g. alongside -S/--stateless scans).")
 	f.StringVar(&autopilotTranscript, "transcript", "", "After the run, also copy the session's transcript.jsonl to this path. The in-session copy is always kept; this is a convenience for debugging (e.g. keep the transcript when the DB is throwaway).")
-	f.StringVar(&autopilotKnowledgeBase, "knowledge-base", "", "Path to a markdown file or directory of docs describing the app (auth model, login flows, roles, business logic). An LLM distills it into a compact brief + document index that's front-loaded into the operator; the full docs stay on disk and are read on demand, so a big docs tree never floods the context. Works blackbox and whitebox.")
+	f.StringVar(&autopilotKnowledgeBase, "knowledge-base", "", "Path to a file or directory describing the app. Prose docs (markdown/txt/rst/…) are LLM-distilled into a compact brief + document index front-loaded into the operator (full docs stay on disk, read on demand). HTTP-traffic exports in the same path (HAR, Burp XML, curl, OpenAPI/Swagger, Postman, URL lists, raw HTTP) are auto-detected, parsed, and ingested into the project DB as normal traffic (source=knowledge-base) with a sample folded into the brief — disable with --knowledge-base-no-traffic. Works blackbox and whitebox.")
 	f.BoolVar(&autopilotKnowledgeBaseRaw, "knowledge-base-raw", false, "Skip the LLM distillation of --knowledge-base: front-load a deterministic document index only (offline / reproducible). No-op without --knowledge-base.")
+	f.BoolVar(&autopilotKnowledgeBaseNoTraffic, "knowledge-base-no-traffic", false, "Do not parse HTTP-traffic-format files (HAR, Burp XML, curl, OpenAPI/Swagger, Postman, URL lists, raw HTTP) found in --knowledge-base into normal traffic; treat every file as prose docs instead. By default such files are parsed and ingested into the project DB (source=knowledge-base). No-op without --knowledge-base.")
 }
 
 func runAgentAutopilot(cmd *cobra.Command, args []string) (err error) {

@@ -75,7 +75,8 @@ Makefile             Build & test workflows (always build via make — see build
 | `pkg/server/` | REST API server (Fiber), Swagger UI, ingestion handlers, agent run API |
 | `pkg/notify/` | Outbound notifications |
 | `pkg/types/` | Shared types (incl. `severity`) used across packages |
-| `pkg/utils/`, `pkg/procutil/`, `pkg/gitutil/`, `pkg/toolexec/`, `pkg/terminal/`, `pkg/yamlext/`, `pkg/metrics/`, `pkg/diagnostics/`, `pkg/cftbrowser/`, `pkg/knownissuescan/` | Cross-cutting utilities |
+| `pkg/utils/`, `pkg/procutil/`, `pkg/gitutil/`, `pkg/terminal/`, `pkg/yamlext/`, `pkg/metrics/`, `pkg/diagnostics/`, `pkg/cftbrowser/` | Cross-cutting utilities |
+| `pkg/knownissuescan/`, `pkg/secretscan/` | Nuclei orchestration and native response secret detection |
 
 ## Dependency direction
 
@@ -99,8 +100,9 @@ internal/runner, pkg/server, pkg/cli   ← top-level wiring
 ## Multi-tenancy
 
 All scan data is scoped to a **project** via `project_uuid` on every data table.
-The `--project` flag / `VIGOLIUM_PROJECT` env var scope CLI operations; the
-`X-Project-UUID` header scopes server API operations. See
+The global `--project-uuid` / `--project-name` flags or `VIGOLIUM_PROJECT`
+environment variable scope CLI operations; the `X-Project-UUID` header scopes
+server API operations. See
 [../projects.md](../projects.md).
 
 See also: [building.md](building.md) and

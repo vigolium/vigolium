@@ -205,7 +205,7 @@ Caveat: an imported bundle currently re-creates a new `agentic_scans` row from t
 
 ## Security notes
 
-- **Project isolation.** All keys are validated and prefixed with the project UUID server-side; clients cannot read or write objects outside their project.
+- **Project prefixes.** REST storage endpoints always prefix keys with the request's project UUID. The CLI also validates keys, but an explicit `gs://<different-project>/...` URI intentionally selects that other prefix and logs a notice; access is still governed by the configured bucket credentials.
 - **Path traversal.** Keys containing `..`, `\`, or absolute paths are rejected by `storage.ValidateKey` before any backend call.
 - **Presigned URLs** are bounded by `--expiry` (default 1h). They inherit the project prefix; they cannot be used to reach outside the project.
 - **Credentials live in config.** Use `${ENV_VAR}` interpolation in `vigolium-configs.yaml` rather than committing keys; the loader expands env vars at config-load time.

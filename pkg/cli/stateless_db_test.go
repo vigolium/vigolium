@@ -31,7 +31,7 @@ func TestOpenGlobDBMergesMatches(t *testing.T) {
 	// into other tests in this package.
 	defer clicommon.ResetDBCache()
 
-	db, err := openGlobDB(filepath.Join(dir, "scan-*.jsonl"))
+	db, err := openGlobDB(filepath.Join(dir, "scan-*.jsonl"), globDBSkipSet{})
 	if err != nil {
 		t.Fatalf("openGlobDB: %v", err)
 	}
@@ -57,14 +57,14 @@ func TestOpenGlobDBMergesMatches(t *testing.T) {
 func TestOpenGlobDBErrors(t *testing.T) {
 	t.Run("no match", func(t *testing.T) {
 		defer clicommon.ResetDBCache()
-		if _, err := openGlobDB(filepath.Join(t.TempDir(), "nope-*.sqlite")); err == nil {
+		if _, err := openGlobDB(filepath.Join(t.TempDir(), "nope-*.sqlite"), globDBSkipSet{}); err == nil {
 			t.Fatal("expected an error when the glob matches no files")
 		}
 	})
 
 	t.Run("invalid pattern", func(t *testing.T) {
 		defer clicommon.ResetDBCache()
-		if _, err := openGlobDB("["); err == nil {
+		if _, err := openGlobDB("[", globDBSkipSet{}); err == nil {
 			t.Fatal("expected an error for a malformed glob pattern")
 		}
 	})
@@ -76,7 +76,7 @@ func TestOpenGlobDBErrors(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "junk-1.jsonl"), []byte("not json at all\n"), 0o644); err != nil {
 			t.Fatalf("write junk: %v", err)
 		}
-		if _, err := openGlobDB(filepath.Join(dir, "junk-*.jsonl")); err == nil {
+		if _, err := openGlobDB(filepath.Join(dir, "junk-*.jsonl"), globDBSkipSet{}); err == nil {
 			t.Fatal("expected an error when no matched file could be loaded")
 		}
 	})

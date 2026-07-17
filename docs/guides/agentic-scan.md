@@ -6,13 +6,13 @@ Vigolium's agent mode uses AI to drive vulnerability scanning. The main subcomma
 
 ## Prerequisites
 
-All AI dispatch runs through the in-process **olium** engine. Provider selection lives under `agent.olium.*` in `~/.vigolium/vigolium-configs.yaml`; the default provider is `openai-codex-oauth`. Inspect the current configuration:
+All AI dispatch runs through the in-process **olium** engine. Provider selection lives under `agent.olium.*` in `~/.vigolium/vigolium-configs.yaml`; the shipped default is `openai-compatible` pointed at local Ollama. Inspect the current configuration:
 
 ```bash
 vigolium config ls agent
 ```
 
-Per-invocation provider overrides for olium-backed commands are CLI flags only: `--provider`, `--model`, `--llm-api-key`, `--oauth-cred`, `--oauth-token`. The standalone `vigolium agent audit` (and the audit leg of `vigolium agent audit`) instead picks its coding agent with `--provider <olium-provider>` (resolves the agent **and** that provider's BYOK auth: `anthropic-*` → claude, `openai-*` → codex) or `--agent {claude|codex}` (a pure agent selector that overrides the provider-implied agent while keeping its resolved auth).
+Per-invocation provider overrides for olium-backed commands are CLI flags: `--provider`, `--model`, `--llm-api-key`, `--oauth-cred`, and `--oauth-token`. The audit leg of `vigolium agent audit` picks its coding agent with `--provider <olium-provider>` (agent plus BYOK auth) or `--agent {claude|codex}` (agent selection without changing the resolved auth).
 
 ## Query: Single-Shot Analysis
 
@@ -74,9 +74,7 @@ vigolium agent swarm \
   -t https://example.com
 
 # From a file
-vigolium agent swarm \
-  --input @request.txt \
-  -t https://example.com
+cat request.txt | vigolium agent swarm -t https://example.com
 ```
 
 ### Intensity Presets
@@ -137,7 +135,9 @@ vigolium agent swarm \
 
 ### Enabling Triage
 
-By default, swarm outputs raw findings. Add `--triage` for AI-powered true/false positive classification with automatic rescan:
+Balanced and deep intensity enable triage by default; quick disables it. Use
+`--triage` or `--triage=false` to override the preset and control AI-powered
+true/false-positive classification with optional rescan:
 
 ```bash
 vigolium agent swarm \
@@ -154,7 +154,7 @@ The swarm pipeline runs these phases in order:
 | Phase | Type | Description |
 |-------|------|-------------|
 | `native-normalize` | Native | Parse and normalize input |
-| `auth` | AI/Native | Browser-based login (requires `--browser-auth` + `--browser`) |
+| `auth` | AI/Native | Browser-based login (requires `--browser-auth` and enabled browser integration) |
 | `source-analysis` | AI | Route extraction from source code (if `--source`) |
 | `code-audit` | AI | Deep security code audit (if `--code-audit`) |
 | `native-discover` | Native | Discovery + spidering (if `--discover`) |
@@ -170,9 +170,11 @@ Skip or start from a specific phase:
 # Skip source analysis
 vigolium agent swarm -t https://example.com --skip source-analysis
 
-# Resume from the plan phase
+# Start this new run at the plan phase
 vigolium agent swarm -t https://example.com --start-from plan
 ```
+
+`--start-from` does not resume a checkpointed Swarm run; it starts a new invocation and skips earlier phases.
 
 ## Autopilot: Autonomous Assessment
 
@@ -187,7 +189,7 @@ vigolium agent autopilot -t https://example.com
 1. **Prepare** - resolve target, source, diff, and session artifacts
 2. **Audit (optional)** - when `--source` is set, run an vigolium-audit pass first; findings flow into the operator's context
 3. **Operator session** - one olium engine loop with bash/read/write/edit/grep/glob/web_fetch tools plus `report_finding` and `halt_scan`
-4. **Halt** - the agent halts itself, hits `--max-commands`, or runs out the `--timeout`
+4. **Halt** - the agent halts itself, reaches its intensity-selected turn budget, or reaches `--max-duration`
 
 ### With Source Code
 
@@ -203,18 +205,19 @@ vigolium agent autopilot -t https://example.com --prompt "focus on authenticatio
 
 ### Resuming a Session
 
-Autopilot supports checkpointing. If interrupted, resume from where it left off:
+Durable autopilot supports resume when `agent.olium.autopilot_mode` is
+`shadow` or `enforced`. Resume by agentic-scan UUID:
 
 ```bash
-vigolium agent autopilot --resume ~/.vigolium/agent-sessions/<uuid>
+vigolium agent autopilot --resume <agentic-scan-uuid>
 ```
 
 ### Timeout and Limits
 
 ```bash
 vigolium agent autopilot -t https://example.com \
-  --timeout 2h \
-  --max-commands 50
+  --max-duration 2h \
+  --intensity quick
 ```
 
 ## Session Management

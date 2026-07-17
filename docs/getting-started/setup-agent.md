@@ -25,15 +25,17 @@ The supported providers:
 
 | Provider | Auth | Default model | Notes |
 |---|---|---|---|
-| `openai-codex-oauth` *(default)* | `~/.codex/auth.json` (from `codex login`) | `gpt-5.5` | Cheapest with a ChatGPT sub. |
+| `openai-compatible` *(shipped default)* | Optional API key | `gemma4:latest` | Defaults to local Ollama at `http://localhost:11434/v1`. |
+| `openai-codex-oauth` | `~/.codex/auth.json` (from `codex login`) | `gpt-5.5` | Reuses a Codex/ChatGPT subscription. |
 | `anthropic-api-key` | `$ANTHROPIC_API_KEY` | `claude-opus-4-7` | Direct Anthropic API billing. |
 | `anthropic-oauth` | `claude setup-token` bearer | `claude-opus-4-7` | Uses your Claude Pro/Max plan. |
 | `openai-api-key` | `$OPENAI_API_KEY` | `gpt-5.5` | Direct OpenAI API billing. |
+| `openai-responses` | `$OPENAI_API_KEY` | provider default | Public OpenAI Responses API. |
 | `anthropic-cli` | `claude` binary on `$PATH` | `claude-opus-4-7` | Shells out to Claude Code (alias: `anthropic-claude-cli`). |
 | `anthropic-claude-sdk-bridge` | Claude Code subscription (no key) | bridge default | Claude Code via the Agent SDK (`vigolium-audit bridge` sidecar). |
 | `anthropic-vertex` | GCP service-account JSON | `claude-opus-4-6` | Claude on Vertex AI. |
 | `google-vertex` | GCP service-account JSON | `gemini-2.5-pro` | Gemini on Vertex AI. |
-| `openai-compatible` | optional `api_key` | none — pick one | Ollama, OpenRouter, LM Studio, vLLM, … |
+| `anthropic-compatible` | optional API key | configured model | Anthropic Messages-compatible custom endpoint. |
 
 Verify any setup with:
 
@@ -53,7 +55,7 @@ If you already use OpenAI's **Codex CLI**, vigolium reuses the same OAuth creden
 # 1. Install Codex CLI (one-time) and log in via `codex login`
 codex exec 'hello'             # sanity check — should print a model name
 
-# 2. Pin vigolium to it (defaults already match; this just makes it explicit).
+# 2. Select Codex OAuth instead of the shipped local-model default.
 vigolium config set agent.olium.provider openai-codex-oauth
 vigolium config set agent.olium.oauth_cred_path ~/.codex/auth.json
 vigolium config set agent.olium.model gpt-5.5

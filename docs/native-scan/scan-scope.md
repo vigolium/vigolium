@@ -1,12 +1,12 @@
 # Scan Scope — How Modules Are Dispatched
 
-Every scanner module declares a **scan scope** that tells the executor *when* and *how often* to invoke it. The scan scope determines the granularity at which the module operates: per parameter, per request, or per host.
+Every scanner module declares a **scan scope** that tells the executor *when* and *how often* to invoke it. The scan scope determines the granularity at which the module operates: per insertion point, per request, or per origin.
 
 ```go
 type ScanScope uint8
 
 const (
-    ScanScopeInsertionPoint ScanScope = 1 << iota  // per parameter
+    ScanScopeInsertionPoint ScanScope = 1 << iota  // per injectable point
     ScanScopeRequest                                // per request
     ScanScopeHost                                   // per host
 )
@@ -33,19 +33,19 @@ Scopes are a bitmask. A module can declare multiple scopes (e.g., `ScanScopeRequ
    │  ScanScopeHost   │   │ ScanScopeRequest  │   │ScanScopeInsertion│
    │                  │   │                   │   │     Point        │
    │  Runs ONCE per   │   │  Runs ONCE per    │   │  Runs ONCE per   │
-   │  unique host     │   │  unique request   │   │  PARAMETER in    │
+   │  module + origin │   │  request          │   │  INSERTION POINT │
    │                  │   │                   │   │  the request     │
    │  e.g. only 1x    │   │  e.g. 1x for      │   │                  │
-   │  for example.com │   │  GET /api?id=1    │   │  e.g. 3x for     │
+   │  for an origin   │   │  GET /api?id=1    │   │  e.g. 3x for     │
    │  even with 500   │   │                   │   │  ?a=1&b=2&c=3    │
    │  requests        │   │                   │   │                  │
    └─────────────────┘   └──────────────────┘   └──────────────────┘
           │                       │                       │
           ▼                       ▼                       ▼
-   CORS misconfig          403 bypass            SQLi on param "a"
+   TLS audit               403 bypass            SQLi on param "a"
    Default creds           Host header inj       SQLi on param "b"
-   Sensitive files         JWT manipulation      SQLi on param "c"
-   GraphQL introspect      Method tampering      SSTI on param "a"
+   Cloud-origin bypass     JWT manipulation      SQLi on param "c"
+   Request smuggling       Method tampering      SSTI on param "a"
                            Cache poisoning       SSTI on param "b"
                                                  ...
 ```
@@ -56,7 +56,7 @@ Scopes are a bitmask. A module can declare multiple scopes (e.g., `ScanScopeRequ
 
 ### ScanScopeInsertionPoint
 
-**Invoked once for each parameter (insertion point) in the request.**
+**Invoked once for each compatible insertion point in the request.**
 
 The executor parses the raw HTTP request, extracts every injectable location, and hands them to the module one at a time. The module receives a single `InsertionPoint` with a `BuildRequest(payload)` method to inject its payload at that exact position.
 
@@ -73,7 +73,7 @@ Content-Type: application/x-www-form-urlencoded
 query=test&page=1
 ```
 
-**Step 1 — The executor calls `CreateAllInsertionPoints()` and finds 5 insertion points:**
+**Step 1 — The executor calls `CreateAllInsertionPoints()` and finds application parameters, path segments, and injectable headers.** A representative subset is:
 
 ```
 ┌─────┬──────────────┬────────────┬──────────┐
@@ -83,29 +83,30 @@ query=test&page=1
 │  2  │  session     │  COOKIE    │  abc123  │
 │  3  │  query       │  BODY_PARAM│  test    │
 │  4  │  page        │  BODY_PARAM│  1       │
-│  5  │  Host        │  HEADER    │  exampl… │
 └─────┴──────────────┴────────────┴──────────┘
 ```
+
+The complete result also includes path-segment points, eligible existing headers, and useful synthetic headers such as forwarding headers. Protocol headers such as `Host` are excluded from generic header insertion; request-scoped modules that need to mutate them do so directly.
 
 **Step 2 — For each insertion point, the executor runs all compatible modules in parallel:**
 
 ```
 Insertion Point #1: lang=en (URL_PARAM)
-  ├── sqli_error_based  →  lang=' OR 1=1--     → check response for SQL errors
-  ├── ssti_detection    →  lang={{7*7}}         → check response for "49"
-  ├── lfi_generic       →  lang=../../etc/passwd → check response for "root:"
-  ├── crlf_injection    →  lang=%0d%0aX:injected → check response headers
+  ├── sqli-error-based  →  lang=' OR 1=1--     → check response for SQL errors
+  ├── ssti-detection    →  lang={{7*7}}         → check response for "49"
+  ├── lfi-generic       →  lang=../../etc/passwd → check response for "root:"
+  ├── crlf-injection    →  lang=%0d%0aX:injected → check response headers
   └── ... (all PER_INSERTION_POINT modules that accept URL_PARAM)
 
 Insertion Point #2: session=abc123 (COOKIE)
-  ├── sqli_error_based  →  session=' OR 1=1--  → check response
-  ├── ssti_detection    →  session={{7*7}}      → check response
+  ├── sqli-error-based  →  session=' OR 1=1--  → check response
+  ├── ssti-detection    →  session={{7*7}}      → check response
   └── ... (only modules that accept COOKIE type)
 
 Insertion Point #3: query=test (BODY_PARAM)
-  ├── sqli_error_based  →  query=' OR 1=1--    → check response
-  ├── ssti_detection    →  query={{7*7}}        → check response
-  ├── ssrf_detection    →  query=http://burp.co → check for OOB callback
+  ├── sqli-error-based  →  query=' OR 1=1--    → check response
+  ├── ssti-detection    →  query={{7*7}}        → check response
+  ├── ssrf-detection    →  query=http://burp.co → compare the resulting response
   └── ...
 
 ... and so on for each insertion point
@@ -154,8 +155,7 @@ Each module also declares which `InsertionPointType`s it accepts (via `AllowedIn
 - XML/SAML injection
 - Insecure deserialization
 
-**Active modules using this scope (18):**
-`sqli_error_based`, `ssti_detection`, `reflected_ssti`, `csti_detection`, `ssrf_detection`, `lfi_generic`, `lfi_path_traversal`, `crlf_injection`, `nosqli_error_based`, `nosqli_operator_injection`, `xml_saml_security`, `insecure_deserialization`, `backslash_transformation`, `suspect_transform`, `smart_behavior_detection`, `input_behavior_probe`, `race_interference`, `oast_probe` (hybrid)
+The current registry has **37 active insertion-point modules**. Examples include `sqli-error-based`, `ssti-detection`, `lfi-generic`, `ssrf-detection`, `crlf-injection`, `idor-detection`, and the hybrid `oast-probe`. Run `vigolium module ls --type active` for the authoritative live list and scope grouping.
 
 ---
 
@@ -181,7 +181,7 @@ Host: example.com
 Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
 ```
 
-**The `forbidden_bypass` module receives the whole request and tries multiple attack vectors itself:**
+**The `forbidden-bypass` module receives the whole request and tries multiple attack vectors itself:**
 
 ```
 Original request → 403 Forbidden
@@ -205,7 +205,7 @@ Attempt 4: Method override headers
   X-HTTP-Method-Override: GET  → check status
 ```
 
-**The `host_header_injection` module tests header reflection:**
+**The `host-header-injection` module tests header reflection:**
 
 ```
 Original:
@@ -221,7 +221,7 @@ Test 3:
   Forwarded: host=evil.attacker.com     → reflected anywhere?
 ```
 
-**The `jwt_vulnerability` module manipulates the JWT token:**
+**The `jwt-vulnerability` module manipulates the JWT token:**
 
 ```
 Original token:    eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiam9obiJ9.signature
@@ -252,19 +252,15 @@ Notice how none of these attacks target a single parameter — they modify the r
 - JSONP callback injection
 - Nginx path escape
 
-**Active modules using this scope (20):**
-`forbidden_bypass`, `host_header_injection`, `open_redirect`, `jwt_vulnerability`, `csrf_verify`, `web_cache_poisoning`, `prototype_pollution`, `client_prototype_pollution`, `xxe_generic`, `xss_light_scanner` (3 sub-modules), `sqli_boolean_blind`, `code_exec`, `file_upload_scan`, `spring_actuator_misconfig`, `nginx_path_escape`, `path_normalization`, `jsonp_callback`, `oast_probe` (hybrid)
-
-**Passive modules using this scope (19):**
-`info_disclosure_detect`, `secret_detect`, `cookie_security_detect`, `cors_headers_detect`, `content_type_mismatch`, `dom_xss_detect`, `csrf_detect`, `mixed_content_detect`, `auth_headers_detect`, `jwt_weak_secret`, `oauth_facebook_detect`, `openredirect_params`, `sensitive_url_params`, `sourcemap_detect`, `sql_syntax_detect`, `serialized_object_detect`, `crypto_weakness_detect`, `anomaly_ranking`, `idor_params_detect`
+The current registry has **121 active** and **111 passive** request-scoped modules. Examples include `forbidden-bypass`, `host-header-injection`, `jwt-vulnerability`, `web-cache-poisoning`, `secret-detect`, `cors-headers-detect`, and `anomaly-ranking`. Run `vigolium module ls` for the complete live list.
 
 ---
 
 ### ScanScopeHost
 
-**Invoked once per unique host.**
+**Invoked once per module and canonical origin.**
 
-The executor deduplicates by hostname — if 500 requests arrive for `example.com`, the module runs only once. This scope is for expensive one-time checks that apply to the entire host, not to individual pages or parameters.
+The executor deduplicates each `(module, origin)` pair, where the origin is `scheme://host:port`. If 500 requests arrive for `https://example.com:443`, an eligible host-scoped module normally runs once for that origin. The same hostname on another scheme or port is a separate origin. Claims live in a bounded LRU, so a long-running scan-on-receive process can eventually re-run a module after an old claim is evicted.
 
 #### How it works step by step
 
@@ -278,57 +274,44 @@ Request #3:   GET /products?id=42 HTTP/1.1   Host: example.com
 Request #500: GET /about HTTP/1.1            Host: example.com
 ```
 
-**The executor runs each `ScanScopeHost` module only on the first request it sees for that host. The remaining 499 requests are skipped:**
+**The first eligible request claims each `ScanScopeHost` module for that origin. Later requests do not invoke the already-claimed module:**
 
 ```
-Request #1 arrives for example.com (first time seen)
-  ├── sensitive_file_discovery
-  │     GET /.env               → 404
-  │     GET /.git/config        → 200 ← FOUND!
-  │     GET /robots.txt         → 200
-  │     GET /.DS_Store          → 404
-  │     GET /wp-config.php      → 404
+Request #1 arrives for https://example.com:443
+  ├── backup-file-discovery
+  │     Probe host-level backup and source-control artifacts
   │
-  ├── cors_misconfiguration
-  │     GET / with Origin: https://evil.com
-  │     → Check Access-Control-Allow-Origin header
-  │     → Reflected "evil.com"? ← CORS MISCONFIGURATION!
-  │
-  ├── default_credentials
+  ├── default-credentials
   │     POST /login with admin:admin      → 401
   │     POST /login with admin:password   → 401
   │     POST /login with root:root        → 200 ← DEFAULT CREDS!
   │
-  ├── graphql_scan
-  │     POST /graphql with introspection query
-  │     → Schema returned? ← INTROSPECTION ENABLED!
+  ├── tls-protocol-cipher-audit
+  │     Inspect supported TLS protocols and cipher suites
   │
-  └── http_request_smuggling
+  └── http-request-smuggling
         CL.TE and TE.CL desync probes
 
-Request #2-500 arrive for example.com
-  └── Host already seen → all ScanScopeHost modules SKIPPED
+Request #2-500 arrive for the same origin
+  └── Claimed (module, origin) pairs are skipped
 ```
 
 **Typical vulnerabilities found:**
-- CORS misconfiguration
 - Default credentials
-- GraphQL introspection enabled
 - HTTP request smuggling
-- Sensitive file discovery (`.env`, `.git/config`, `robots.txt`)
+- Backup/source-control artifact discovery
+- TLS protocol and cipher weaknesses
+- Cloud storage exposure and origin bypass
+- Framework- and platform-specific host checks (AEM, MCP, Salesforce, ServiceNow, Power Pages)
 - Missing security headers
 
-**Active modules using this scope (5):**
-`cors_misconfiguration`, `default_credentials`, `graphql_scan`, `http_request_smuggling`, `sensitive_file_discovery`
-
-**Passive modules using this scope (1):**
-`security_headers_missing`
+The current registry has **48 active** and **5 passive** host-scoped modules. Examples include `default-credentials`, `backup-file-discovery`, `http-request-smuggling`, `tls-protocol-cipher-audit`, `cloud-origin-bypass`, `security-headers-missing`, and `csp-weakness-audit`.
 
 ---
 
 ## Hybrid Scope
 
-A module can declare multiple scopes. Currently, **`oast_probe`** is the only module that does this:
+A module can declare multiple scopes. The current hybrid modules are `command-injection-oast`, `input-behavior-probe`, `oast-probe`, `struts-ognl-injection`, and `log4shell-probe`; each declares both request and insertion-point scope:
 
 ```go
 ScanScopeRequest | ScanScopeInsertionPoint
@@ -397,9 +380,9 @@ Content-Type: application/json
 │                  │   - CSRF token present? Try removing it                 │
 │                  │   - Host header reflection                              │
 ├──────────────────┼──────────────────────────────────────────────────────────┤
-│ Host             │ First time seeing example.com?                          │
-│                  │   YES → sensitive file probe, CORS check, etc.          │
-│                  │   NO  → skipped entirely                                │
+│ Host             │ First eligible request for each module + origin?       │
+│                  │   YES → claim and run host-level checks                 │
+│                  │   NO  → skip the already-claimed module                │
 └──────────────────┴──────────────────────────────────────────────────────────┘
 ```
 
@@ -414,19 +397,18 @@ Host: example.com
 ┌──────────────────┬──────────────────────────────────────────────────────────┐
 │ Scope            │ What happens                                            │
 ├──────────────────┼──────────────────────────────────────────────────────────┤
-│ InsertionPoint   │ CreateAllInsertionPoints returns EMPTY list.            │
-│                  │ No query params, no body, no cookies.                   │
-│                  │ *** ALL insertion-point modules are SKIPPED ***         │
-│                  │ No SQLi, XSS, SSTI, or injection testing occurs.       │
+│ InsertionPoint   │ No query/body/cookie values, but path and injectable    │
+│                  │ headers still produce points. A module runs only for    │
+│                  │ the point types it accepts.                             │
 ├──────────────────┼──────────────────────────────────────────────────────────┤
 │ Request          │ Modules still run:                                      │
-│                  │   - forbidden_bypass: response is 403?                  │
+│                  │   - forbidden-bypass: response is 403?                  │
 │                  │     Try /./admin, /admin..;/, PUT /admin                │
-│                  │   - host_header_injection: swap Host header             │
-│                  │   - path_normalization: /admin vs /Admin vs /ADMIN      │
+│                  │   - host-header-injection: swap Host header             │
+│                  │   - path-normalization: /admin vs /Admin vs /ADMIN      │
 │                  │   - sensitive files, swagger discovery, etc.            │
 ├──────────────────┼──────────────────────────────────────────────────────────┤
-│ Host             │ Same as above — runs once if host is new.              │
+│ Host             │ Same as above — each module runs once per origin claim. │
 └──────────────────┴──────────────────────────────────────────────────────────┘
 ```
 
@@ -445,11 +427,11 @@ Host: example.com
 ├──────────────────┼──────────────────────────────────────────────────────────┤
 │ Request          │ Active: most modules skip via CanProcess() — the       │
 │                  │   default filters out .css/.js/.png/.jpg extensions.    │
-│                  │ Passive: still runs — e.g. secret_detect checks for    │
-│                  │   leaked API keys, sourcemap_detect looks for .map     │
+│                  │ Passive: still runs — e.g. secret-detect checks for    │
+│                  │   leaked API keys, sourcemap-detect looks for .map     │
 │                  │   references in JS bundles.                             │
 ├──────────────────┼──────────────────────────────────────────────────────────┤
-│ Host             │ Runs once if host is new.                              │
+│ Host             │ Runs once per eligible module + origin claim.          │
 └──────────────────┴──────────────────────────────────────────────────────────┘
 ```
 
@@ -468,16 +450,16 @@ Host: example.com
 │                  │   1. "42"      (PATH_FOLDER)                           │
 │                  │   2. "profile" (PATH_FILENAME)                         │
 │                  │ Modules accepting path types will test these:           │
-│                  │   lfi_generic   → /api/users/../../etc/passwd/profile   │
-│                  │   ssti_detection → /api/users/{{7*7}}/profile           │
-│                  │   sqli_error    → /api/users/' OR 1=1--/profile         │
+│                  │   lfi-generic   → /api/users/../../etc/passwd/profile   │
+│                  │   ssti-detection → /api/users/{{7*7}}/profile           │
+│                  │   sqli-error-based → /api/users/' OR 1=1--/profile      │
 ├──────────────────┼──────────────────────────────────────────────────────────┤
 │ Request          │ Runs normally:                                          │
-│                  │   - path_normalization: /api/users/42/../42/profile     │
-│                  │   - forbidden_bypass: if 403, try path tricks           │
-│                  │   - host_header_injection: test header reflection       │
+│                  │   - path-normalization: /api/users/42/../42/profile     │
+│                  │   - forbidden-bypass: if 403, try path tricks           │
+│                  │   - host-header-injection: test header reflection       │
 ├──────────────────┼──────────────────────────────────────────────────────────┤
-│ Host             │ Runs once if host is new.                              │
+│ Host             │ Runs once per eligible module + origin claim.          │
 └──────────────────┴──────────────────────────────────────────────────────────┘
 ```
 
@@ -502,13 +484,13 @@ Content-Type: application/json
 │                  │   that "token" contains a Base64/JWT value and creates  │
 │                  │   nested insertion points inside it.                    │
 ├──────────────────┼──────────────────────────────────────────────────────────┤
-│ Request          │   - jwt_vulnerability: detects JWT in body, tries      │
+│ Request          │   - jwt-vulnerability: detects JWT in body, tries      │
 │                  │     algorithm confusion and weak key attacks            │
-│                  │   - xxe_generic: if Content-Type were XML, test XXE    │
-│                  │   - prototype_pollution: inject __proto__ in JSON      │
+│                  │   - xxe-generic: if Content-Type were XML, test XXE    │
+│                  │   - prototype-pollution: inject __proto__ in JSON      │
 ├──────────────────┼──────────────────────────────────────────────────────────┤
-│ Host             │ graphql_scan runs once: introspection query,           │
-│                  │   batching abuse, field suggestion enumeration          │
+│ Host             │ Host-scoped modules run once per origin; GraphQL       │
+│                  │   checks are request-scoped and run on eligible routes. │
 └──────────────────┴──────────────────────────────────────────────────────────┘
 ```
 
@@ -521,36 +503,36 @@ For each incoming request, the executor runs scopes in this order:
 ```
 HttpRequestResponse arrives
 │
-├── Phase 1: Passive modules (no network I/O — sequential)
+├── Phase 1: Passive modules (read-only; before active scanning)
 │   │
-│   ├── 1. ScanScopeHost     →  security_headers_missing (once per host)
+│   ├── 1. ScanScopeHost     →  security-headers-missing (once per origin)
 │   │
-│   └── 2. ScanScopeRequest  →  secret_detect, cookie_security_detect,
-│                                cors_headers_detect, info_disclosure_detect,
-│                                dom_xss_detect, csrf_detect, ...
+│   └── 2. ScanScopeRequest  →  secret-detect, cookie-security-detect,
+│                                cors-headers-detect, info-disclosure-detect,
+│                                dom-xss-detect, csrf-detect, ...
 │
 ├── Phase 2: Active modules (network I/O — all three run in parallel)
 │   │
 │   ├── 3a. ScanScopeHost
-│   │       cors_misconfiguration, default_credentials, ...
-│   │       (runs only if host not seen before)
+│   │       default-credentials, http-request-smuggling, ...
+│   │       (runs once per eligible module + origin claim)
 │   │
 │   ├── 3b. ScanScopeRequest                ─┐
-│   │       forbidden_bypass,                 │
-│   │       host_header_injection,            ├── all three scope
-│   │       jwt_vulnerability, ...            │   categories run
+│   │       forbidden-bypass,                 │
+│   │       host-header-injection,            ├── all three scope
+│   │       jwt-vulnerability, ...            │   categories run
 │   │                                         │   CONCURRENTLY
 │   └── 3c. ScanScopeInsertionPoint          ─┘
 │           for each param:
-│             sqli_error_based,
-│             ssti_detection,
-│             lfi_generic, ...
+│             sqli-error-based,
+│             ssti-detection,
+│             lfi-generic, ...
 │
 └── Phase 3: Wait for all active modules to finish
              Collect ResultEvent findings
 ```
 
-Passive modules run first (sequentially, since they do no network I/O), then all three active scope categories run concurrently.
+Passive modules run first. Host-scoped passive modules are claimed and executed in priority order; request-scoped passive modules run concurrently when `scanning_pace.dynamic-assessment.parallel_passive` is enabled (the default), under a global bound, or sequentially when it is disabled. The three active scope categories then share the executor's bounded active-task concurrency and complete before the request worker moves on.
 
 ---
 

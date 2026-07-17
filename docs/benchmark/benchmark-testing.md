@@ -164,7 +164,7 @@ Each example also has 1-3 **solution variants** that fix the vulnerability. Thes
 ### Key Design Decisions
 
 1. **YAML-driven**: Test cases are defined in YAML, not Go code. Adding a new test case is a one-line YAML addition.
-2. **Module resolution by ID**: Test cases reference modules by their registry ID (e.g., `active-sqli-error-based`). The harness resolves them from `modules.DefaultRegistry`.
+2. **Module resolution by ID**: Test cases reference modules by their registry ID (e.g., `sqli-error-based`). The harness resolves them from `modules.DefaultRegistry`.
 3. **Scan type dispatch**: The harness checks `module.ScanScopes()` to dispatch to the correct method:
    - `ScanScopeInsertionPoint`: Creates insertion points via `httpmsg.CreateAllInsertionPoints()`, filters by `AllowedInsertionPointTypes()`, calls `ScanPerInsertionPoint()` for each.
    - `ScanScopeRequest`: Calls `ScanPerRequest()` once with the full request.
@@ -279,10 +279,12 @@ test/testdata/
 
 | Command | What it runs | Requirements |
 |---------|-------------|--------------|
-| `make test-benchmark-whitebox` | DVWA, VAmPI, Juice Shop, OopsSec, VulnExamples (Docker) | Docker |
+| `make test-benchmark-whitebox` | All YAML-driven whitebox apps, including DVWA, VAmPI, Juice Shop, OopsSec, VulnExamples, vulnerable-java, and vulnerable-nginx | Docker; pre-start any externally managed Compose target required by its definition |
 | `make test-benchmark-blackbox` | Acunetix, Gin&Juice, Testfire (external) | Internet |
 | `make test-benchmark-all` | All whitebox + blackbox | Docker + Internet |
 | `make test-benchmark-crapi` | crAPI only | Docker + `make crapi-up` |
+| `make test-benchmark-vuln-java` | Vulnerable Java only | Docker + `make vulnerable-java-up` |
+| `make test-benchmark-vuln-nginx` | Vulnerable Nginx only | Docker + `make vulnerable-nginx-up` |
 | `make test-benchmark-coverage` | Generate coverage report | None |
 | `make test-xbow` | All 13 XBOW validation benchmarks | Docker + `XBOW_SOURCE_DIR` |
 | `make test-xbow-ssti` | 3 SSTI benchmarks | Docker + `XBOW_SOURCE_DIR` |
@@ -460,7 +462,7 @@ test_cases:
   - id: "dvwa-sqli-blind"
     endpoint: "/vulnerabilities/sqli_blind/?id=1&Submit=Submit"
     method: GET
-    modules: ["sqli-time-based-params"]
+    modules: ["sqli-time-blind"]
     vuln_types: ["sqli-time-based"]
     assertion: soft
     min_findings: 1
@@ -650,31 +652,33 @@ This outputs a markdown table to stdout and writes `test/benchmark/coverage-repo
 ```
 # Vigolium Module Benchmark Coverage
 
-**Total test cases:** 85+
+**Total test cases:** 175
 
-**Active modules:** 20/36 (56%)
+**Active modules:** 30/201 (15%)
 
-**Passive modules:** 14/17 (82%)
+**Passive modules:** 19/116 (16%)
 
 ## Coverage Matrix
 
 | Module ID | Type | Covered | Apps |
 |-----------|------|---------|------|
-| active-authn-bypass | active | Yes | nextjs-vulnexamples |
-| active-code-exec | active | Yes | dvwa, crapi |
-| active-cors-misconfiguration | active | Yes | vampi, juiceshop, crapi, oopssec-store, nextjs-vulnexamples |
-| active-sqli-error-based | active | Yes | dvwa, vampi, juiceshop, oopssec-store, ... |
-| passive-security-headers-missing | passive | Yes | dvwa, vampi, juiceshop, crapi, oopssec-store, nextjs-vulnexamples |
-| passive-ssr-data-exposure | passive | Yes | oopssec-store, nextjs-vulnexamples |
+| code-exec | active | Yes | crapi, dvwa, vulnerable-java, xbow-cmdi-073 |
+| cors-misconfiguration | active | Yes | crapi, juiceshop, nextjs-vulnexamples, oopssec-store, vampi, ... |
+| sqli-error-based | active | Yes | crapi, dvwa, juiceshop, oopssec-store, vampi, ... |
+| security-headers-missing | passive | Yes | crapi, dvwa, juiceshop, nextjs-vulnexamples, oopssec-store, ... |
+| ssr-data-exposure | passive | Yes | nextjs-vulnexamples, oopssec-store |
 | ...
 
 ## Uncovered Modules
 
-- `active-http-request-smuggling` (active)
-- `active-race-interference` (active)
-- `passive-anomaly-ranking` (passive)
+- `http-request-smuggling` (active)
+- `race-interference` (active)
+- `anomaly-ranking` (passive)
 - ...
 ```
+
+These counts reflect the current checked-in definitions and registry; rerun the
+coverage target after adding modules or benchmark cases.
 
 ### Understanding Coverage
 
@@ -903,19 +907,19 @@ The `${XBOW_SOURCE_DIR}` environment variable is expanded via `os.ExpandEnv()` w
 
 | ID | XBOW | Vuln Type | Endpoint | Service:Port | Module | Assertion |
 |----|------|-----------|----------|-------------|--------|-----------|
-| xbow-xss-013 | XBEN-013-24 | XSS | `GET /page?name=test` | web:5000 | `active-xss-light-url-params` | soft |
-| xbow-xss-047 | XBEN-047-24 | XSS | `GET /page?url=test` | web:5000 | `active-xss-light-url-params` | soft |
-| xbow-ssti-009 | XBEN-009-24 | SSTI | `GET /greet/?name=test` | web:8000 | `active-reflected-ssti` | strict |
-| xbow-ssti-053 | XBEN-053-24 | SSTI | `GET /?username=test` | app:80 | `active-reflected-ssti` | strict |
-| xbow-ssti-076 | XBEN-076-24 | SSTI | `GET /greet?name=test` | web:5000 | `active-reflected-ssti` | strict |
-| xbow-sqli-083 | XBEN-083-24 | SQLi | `GET /?category=test` | web:80 | `active-sqli-error-based` | strict |
-| xbow-sqli-071 | XBEN-071-24 | SQLi | `POST /send.php` | app:80 | `active-sqli-error-based` | soft |
-| xbow-cmdi-073 | XBEN-073-24 | CmdI | `POST /ping` | web:80 | `active-code-exec` | strict |
-| xbow-lfi-019 | XBEN-019-24 | LFI | `GET /resource?filename=test.txt` | lfi_static_resource:80 | `active-lfi-generic` | strict |
-| xbow-lfi-061 | XBEN-061-24 | LFI | `GET /post.php?id=test` | web:80 | `active-lfi-generic` | strict |
-| xbow-ssrf-020 | XBEN-020-24 | SSRF | `GET /redirect.php?url=...` | ssrf-demo-app:80 | `active-ssrf-detection` | soft |
-| xbow-xxe-006 | XBEN-006-24 | XXE | `POST /addbook` (XML) | app:80 | `active-xxe-generic` | soft |
-| xbow-xxe-096 | XBEN-096-24 | SQLi | `POST /jobs` (JSON) | libraryv1:5000 | `active-sqli-error-based` | soft |
+| xbow-xss-013 | XBEN-013-24 | XSS | `GET /page?name=test` | web:5000 | `xss-light-url-params` | soft |
+| xbow-xss-047 | XBEN-047-24 | XSS | `GET /page?url=test` | web:5000 | `xss-light-url-params` | soft |
+| xbow-ssti-009 | XBEN-009-24 | SSTI | `GET /greet/?name=test` | web:8000 | `reflected-ssti` | strict |
+| xbow-ssti-053 | XBEN-053-24 | SSTI | `GET /?username=test` | app:80 | `reflected-ssti` | strict |
+| xbow-ssti-076 | XBEN-076-24 | SSTI | `GET /greet?name=test` | web:5000 | `reflected-ssti` | strict |
+| xbow-sqli-083 | XBEN-083-24 | SQLi | `GET /?category=test` | web:80 | `sqli-error-based` | strict |
+| xbow-sqli-071 | XBEN-071-24 | SQLi | `POST /send.php` | app:80 | `sqli-error-based` | soft |
+| xbow-cmdi-073 | XBEN-073-24 | CmdI | `POST /ping` | web:80 | `code-exec` | strict |
+| xbow-lfi-019 | XBEN-019-24 | LFI | `GET /resource?filename=test.txt` | lfi_static_resource:80 | `lfi-generic` | strict |
+| xbow-lfi-061 | XBEN-061-24 | LFI | `GET /post.php?id=test` | web:80 | `lfi-generic` | strict |
+| xbow-ssrf-020 | XBEN-020-24 | SSRF | `GET /redirect.php?url=...` | ssrf-demo-app:80 | `ssrf-detection` | soft |
+| xbow-xxe-006 | XBEN-006-24 | XXE | `POST /addbook` (XML) | app:80 | `xxe-generic` | soft |
+| xbow-xxe-096 | XBEN-096-24 | SQLi | `POST /jobs` (JSON) | libraryv1:5000 | `sqli-error-based` | soft |
 
 ### Test Runner Structure
 
@@ -986,11 +990,11 @@ Failed to start container vulnerables/web-dvwa:latest: ...
 ### Module not found
 
 ```
-active modules not found: [active-nonexistent-module]
+active modules not found: [nonexistent-module]
 ```
 
 - Verify the module ID in `pkg/modules/default_registry.go`
-- Module IDs are case-sensitive and use kebab-case (e.g., `active-sqli-error-based`)
+- Module IDs are case-sensitive and use kebab-case (e.g., `sqli-error-based`)
 
 ### crAPI tests skip
 
@@ -1065,11 +1069,11 @@ Some modules require specialized infrastructure that is impractical for automate
 
 | Module | Reason | Workaround |
 |--------|--------|------------|
-| `active-http-request-smuggling` | Requires specific server configurations (CL.TE, TE.CL) | Manual testing with custom servers |
-| `active-race-interference` | Needs concurrent request handling with precise timing | Dedicated race condition test harness |
-| `active-xml-saml-security` | Needs SAML IdP setup | Test against SAML-vulnerable test apps |
-| `passive-anomaly-ranking` | Needs large traffic corpus for statistical analysis | Replay captured traffic |
-| `passive-oauth-facebook-detect` | Needs Facebook OAuth flow | Mock OAuth server |
-| `passive-serialized-object-detect` | Needs apps with Java/.NET serialization | Custom test server |
+| `http-request-smuggling` | Requires specific server configurations (CL.TE, TE.CL) | Manual testing with custom servers |
+| `race-interference` | Needs concurrent request handling with precise timing | Dedicated race condition test harness |
+| `xml-saml-security` | Needs SAML IdP setup | Test against SAML-vulnerable test apps |
+| `anomaly-ranking` | Needs large traffic corpus for statistical analysis | Replay captured traffic |
+| `oauth-facebook-detect` | Needs Facebook OAuth flow | Mock OAuth server |
+| `serialized-object-detect` | Needs apps with Java/.NET serialization | Custom test server |
 
 These modules should be tested through dedicated test files rather than the YAML-driven benchmark system.

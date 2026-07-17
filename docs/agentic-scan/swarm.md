@@ -2,7 +2,10 @@
 
 `vigolium agent swarm` is the AI-guided agentic scan mode. The master agent reads the target's request/response surface (and optionally its source code), picks the right scanner modules, generates custom JavaScript extensions when needed, runs the native scanner, and optionally triages the results in a verify-and-rescan loop.
 
-It sits between two extremes: it is more **directed** than `autopilot` (which gives the agent free reign with full Claude Code tools) and more **flexible** than a hand-tuned `vigolium scan` (modules and extensions are chosen by the model, not the user).
+It sits between two extremes: it is more **directed** than `autopilot` (which
+gives the olium operator broad tool access) and more **flexible** than a
+hand-tuned `vigolium scan` (modules and extensions are chosen by the model,
+not the user).
 
 This document covers what the pipeline looks like, how data flows between phases, and where the AI / native boundary sits.
 
@@ -24,7 +27,8 @@ Swarm is the right mode when you want the AI to **drive the native scanner**, no
 
 ## 2. Pipeline at a glance
 
-Ten phases run in strict order. Each phase is either **native** (deterministic Go) or **AI** (LLM call via the olium engine). Most phases are conditional — they only fire when their inputs are present or the user opts in.
+The pipeline runs in strict order. Each phase is either **native**
+(deterministic Go) or **AI** (an olium call). Most phases are conditional.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
@@ -32,16 +36,19 @@ Ten phases run in strict order. Each phase is either **native** (deterministic G
 │                                                                             │
 │  [N] native-normalize ─────────────────────────────── always                │
 │         │                                                                   │
-│  [A] auth ─────────────────────────── if --browser-auth and --browser       │
+│  [A] auth ─────────────────────────── if --browser-auth                     │
 │         │                                                                   │
 │  [A] source-analysis ─────────────── if --source  (4-call wave)             │
 │  [A] code-audit ──────────────────── if --code-audit and --source           │
 │         │                                                                   │
 │  [N] native-discover ─────────────── if --discover                          │
+│  [N] native-recon ────────────────── live stack probe without source facts │
 │         │                                                                   │
 │  [A] plan         ────────────────── always (master agent, may batch)       │
+│  [N] native-discover-reentry ─────── probe planner-only untested paths     │
 │  [N] native-extension ────────────── if plan declared extensions            │
 │  [N] native-scan  ────────────────── always (hands off to scanner)          │
+│  [A] replan-on-empty ─────────────── supplemental pass when signal is empty│
 │         │                                                                   │
 │  [A] triage       ────────────────── if --triage                            │
 │  [N] native-rescan ───────────────── per round, when triage requests it     │
@@ -121,17 +128,22 @@ Records grow as the pipeline runs: source analysis appends discovered routes, an
 | # | Phase | Type | Purpose | Trigger |
 |---|---|---|---|---|
 | 1 | `native-normalize` | Native | Parse `--input`/stdin/record-uuid into `HttpRequestResponse` | Always |
-| 2 | `auth` | AI/Native | Browser-driven login, writes auth headers/cookies | `--browser-auth` + `--browser` |
+| 2 | `auth` | AI/Native | Browser-driven login, writes auth headers/cookies | `--browser-auth` and enabled browser integration |
 | 3 | `source-analysis` | AI | 4-call wave: explore → routes / session / extensions | `--source` |
 | 4 | `code-audit` | AI | Code-level security audit, findings → DB | `--code-audit` (auto when `--source` at balanced/deep) |
 | 5 | `native-discover` | Native | Crawl/spider/JS-scan to discover endpoints | `--discover` |
-| 6 | `plan` | AI | Master agent: pick modules, focus areas, extensions spec | Always |
-| 7 | `native-extension` | Native | Validate generated JS, write to `extensions/` | Plan declared extensions |
-| 8 | `native-scan` | Native | Hand off to `runner.RunNativeScan()` | Always |
-| 9 | `triage` | AI | Verify findings; mark confirmed / FP / rescan | `--triage` |
-| 10 | `native-rescan` | Native | Targeted rescan on triage request (loops) | Triage verdict = "rescan" |
+| 6 | `native-recon` | Native | GET-only technology probe | No usable source-analysis result |
+| 7 | `plan` | AI | Pick modules, focus areas, and extension work | Always |
+| 8 | `native-discover-reentry` | Native | Probe up to eight planner-referenced paths not yet tested | Planner names untested paths |
+| 9 | `native-extension` | Native | Validate generated JS and persist it | Plan declares extensions |
+| 10 | `native-scan` | Native | Hand off to the standard native runner | Always |
+| 11 | `replan-on-empty` | AI | Try a supplemental business-logic plan | No findings but useful signal remains |
+| 12 | `triage` | AI | Verify findings; mark confirmed / FP / rescan | Enabled by preset or `--triage` |
+| 13 | `native-rescan` | Native | Targeted dynamic-assessment rerun | Triage asks for a rescan |
 
-Step dispatch lives in `pkg/agent/swarm_pipeline.go` (one `…SwarmStep` function per phase). Skipping/resuming is honored via `--skip-phases` and `--start-from`, which read the checkpoint file (see §9).
+Step dispatch lives in `pkg/agent/swarm_pipeline.go`. Use `--skip` to omit
+work and `--start-from` to begin a new invocation at a later phase. Swarm does
+not expose a public checkpoint-resume flag.
 
 ---
 
@@ -182,7 +194,7 @@ When `len(records) > MasterBatchSize` (default 5; `agenttypes/constants.go:300`)
    records ─► partition into batches of MasterBatchSize
                    │
                    ├─► batch 1 ┐
-                   ├─► batch 2 │  parallel, up to BatchConcurrency (default 3)
+                   ├─► batch 2 │  parallel, bounded by BatchConcurrency
                    ├─► batch 3 │  goroutines via errgroup
                    └─► batch N ┘
                                   ▼
@@ -206,7 +218,9 @@ When records are filtered for the prompt, a compact summary table of all endpoin
 
 ## 7. Triage and rescan loop
 
-Triage is **off by default**. Pass `--triage` to enable (`pkg/cli/agent_swarm.go:369-372`).
+Triage is preset-driven: `quick` disables it, while the default `balanced`
+and `deep` presets enable it. An explicit `--triage=false` overrides those
+presets.
 
 ```
    for round in 1..MaxIterations:
@@ -234,7 +248,8 @@ Triage is **off by default**. Pass `--triage` to enable (`pkg/cli/agent_swarm.go
        checkpoint round, continue
 ```
 
-`MaxIterations` defaults to 1 (`quick`), 3 (`balanced`), 5 (`deep`). Triage processes findings in batches of 25 per round. Implementation in `swarm.go:1623-1692`.
+`MaxIterations` defaults to 1 (`quick`), 3 (`balanced`), or 5 (`deep`).
+Triage processes findings in batches and may request targeted rescans.
 
 Rescans set `IsRescan=true` on the `ScanRequest`, which forces `OnlyPhase = "dynamic-assessment"` and `SkipIngestion = true` so only the targeted modules execute (`agent_swarm.go:732-750`).
 
@@ -275,7 +290,7 @@ A swarm run creates a session directory (default `~/.vigolium/agent-sessions/<ru
 ```
 <sessionDir>/
 ├── swarm-plan.json            ← merged SwarmPlan from master agent
-├── swarm-checkpoint.json      ← phase progress, plan, triage round
+├── checkpoint.json            ← phase progress, plan, triage round
 ├── source-analysis-prompt.md
 ├── source-analysis-output.md
 ├── source-analysis-sections.json
@@ -286,10 +301,14 @@ A swarm run creates a session directory (default `~/.vigolium/agent-sessions/<ru
 ├── auth-{prompt,output}.md
 ├── extensions/*.js            ← validated, persisted
 ├── triage/triage-round-N-{prompt,output}.md
+├── transcript-*.jsonl         ← per-call Pi-compatible olium transcripts
 └── runtime.log                ← tee'd LLM stream; replay with `vigolium log`
 ```
 
-`swarm-checkpoint.json` is rewritten after every phase. Combined with `--start-from`, it lets a partial run resume without re-paying for earlier phases (`agent_swarm.go:430-436`).
+`checkpoint.json` is rewritten after phases for diagnostics and internal
+recovery. There is no public Swarm `--resume` flag. `--start-from` creates a
+new run with preceding phase names marked complete; it does not attach to an
+old run or recover that run's artifacts.
 
 ---
 
@@ -308,8 +327,8 @@ vigolium agent swarm --target https://… --triage --max-iterations 3
 # Use a preset
 vigolium agent swarm --target https://… --intensity deep
 
-# Start from a specific phase using an existing session
-vigolium agent swarm --resume <run-id> --start-from plan
+# Start a new invocation at a specific phase
+vigolium agent swarm --target https://app.example.com --start-from plan
 
 # Render prompts without calling the LLM
 vigolium agent swarm --target https://… --dry-run --show-prompt
@@ -327,9 +346,9 @@ Important flags (`pkg/cli/agent_swarm.go:24-71`):
 | `--triage` | Enable verify-and-rescan loop |
 | `--max-iterations` | Triage rounds (preset-driven default) |
 | `--master-batch-size` | Records per master-agent batch (default 5) |
-| `--batch-concurrency` | Parallel master batches (default 3) |
+| `--batch-concurrency` | Parallel master batches (`0` falls back to 3; presets use 2/3/5) |
 | `--intensity` | `quick` / `balanced` / `deep` preset bundle |
-| `--skip-phases`, `--start-from` | Phase control / resume |
+| `--skip`, `--start-from` | Skip work or start a new run at a phase |
 | `--source-analysis-only` | Stop after source analysis |
 
 Intensity preset table: `pkg/agent/agenttypes/constants.go:292-338`.

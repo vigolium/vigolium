@@ -84,18 +84,21 @@
     {
       "name": "Diagnostics",
       "description": "Server diagnostics"
+    },
+    {
+      "name": "Storage",
+      "description": "Project-scoped cloud source and result storage"
     }
   ],
   "paths": {
-    "/": {
+    "/api/info": {
       "get": {
         "tags": [
           "Info"
         ],
         "summary": "Application info",
-        "description": "Returns basic application metadata. No authentication required.",
+        "description": "Returns basic application metadata to authenticated viewers.",
         "operationId": "getAppInfo",
-        "security": [],
         "responses": {
           "200": {
             "description": "Application info",
@@ -129,6 +132,25 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "tags": [
+          "Info"
+        ],
+        "summary": "Readiness check",
+        "description": "Returns 200 when the server can accept work and 503 when its database is unavailable. No authentication required.",
+        "operationId": "readinessCheck",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server is ready"
+          },
+          "503": {
+            "description": "Server is not ready"
           }
         }
       }
@@ -214,6 +236,31 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/user/info": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Current user",
+        "description": "Returns the authenticated user's identity and role.",
+        "operationId": "getCurrentUser",
+        "responses": {
+          "200": {
+            "description": "Authenticated user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginUser"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
           }
         }
       }
@@ -1313,6 +1360,62 @@
         }
       }
     },
+    "/api/findings/{id}/status": {
+      "patch": {
+        "tags": [
+          "Findings"
+        ],
+        "summary": "Update finding status",
+        "description": "Updates a finding to draft, triaged, false_positive, accepted_risk, or fixed. Requires operator role.",
+        "operationId": "updateFindingStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "triaged",
+                      "false_positive",
+                      "accepted_risk",
+                      "fixed"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Status updated"
+          },
+          "400": {
+            "description": "Invalid status"
+          },
+          "404": {
+            "description": "Finding not found in the selected project"
+          }
+        }
+      }
+    },
     "/api/http-records": {
       "get": {
         "tags": [
@@ -1728,7 +1831,7 @@
           "Agent"
         ],
         "summary": "Run autopilot agent",
-        "description": "Starts an autonomous autopilot agent scan. When source is provided, autopilot runs Archon first, prepares native context and planning artifacts, and then launches a single operator session with full CLI tool access (Read, Grep, Glob, Bash, Edit, Write) via the SDK protocol. Supports warm session pooling, MCP servers, and session resume. Returns 409 if a heavy agent is already running for the project.",
+        "description": "Starts a durable olium autopilot scan. Source-aware runs can execute the configured audit harness before the autonomous operator. Heavy-run quotas return 429 when saturated.",
         "operationId": "agentRunAutopilot",
         "parameters": [
           {
@@ -1792,8 +1895,8 @@
               }
             }
           },
-          "409": {
-            "description": "Heavy agent already running",
+          "429": {
+            "description": "Heavy-agent concurrency quota saturated",
             "content": {
               "application/json": {
                 "schema": {
@@ -1811,7 +1914,7 @@
           "Agent"
         ],
         "summary": "Run swarm agent",
-        "description": "Starts an AI-guided swarm vulnerability scan. The master agent analyzes inputs, selects scanner modules, generates custom JS extensions, executes scans, and optionally triages results. Phases: normalize, source analysis, code audit, SAST, SAST review, discover, plan, extension, native scan, triage, rescan. Supports both targeted single-request and full-scope scanning. Returns 409 if a heavy agent is already running.",
+        "description": "Starts an olium-driven swarm scan. The pipeline normalizes input, optionally authenticates and analyzes source, discovers and probes the target, plans modules/extensions, runs native scans, replans empty results when useful, and optionally triages. Heavy-run quotas return 429 when saturated.",
         "operationId": "agentRunSwarm",
         "parameters": [
           {
@@ -1875,8 +1978,8 @@
               }
             }
           },
-          "409": {
-            "description": "Heavy agent already running",
+          "429": {
+            "description": "Heavy-agent concurrency quota saturated",
             "content": {
               "application/json": {
                 "schema": {
@@ -1884,6 +1987,75 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/agent/run/audit": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Run unified source audit",
+        "description": "Dispatches the audit and/or piolium harness. driver=auto runs audit when available and falls back to piolium; driver=both runs both sequentially.",
+        "operationId": "agentRunAudit",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentAuditRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Audit started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "SSE stream when stream=true"
+          },
+          "400": {
+            "description": "Invalid source, driver, mode, or credential override"
+          },
+          "429": {
+            "description": "Heavy-agent concurrency quota saturated"
+          }
+        }
+      }
+    },
+    "/api/agent/scans/{uuid}/cancel": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Cancel an agentic scan",
+        "operationId": "cancelAgenticScan",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cancellation requested"
+          },
+          "404": {
+            "description": "Agentic scan not found"
           }
         }
       }
@@ -2689,41 +2861,6 @@
         }
       }
     },
-    "/api/projects/domain-map": {
-      "get": {
-        "tags": [
-          "Projects"
-        ],
-        "summary": "Get domain-to-project mapping",
-        "description": "Returns a mapping of domains to their associated project UUIDs.",
-        "operationId": "getProjectDomainMap",
-        "responses": {
-          "200": {
-            "description": "Domain mapping",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/projects/{uuid}": {
       "get": {
         "tags": [
@@ -2856,7 +2993,7 @@
           "Projects"
         ],
         "summary": "Delete project",
-        "description": "Deletes a project and all associated data. Requires admin role.",
+        "description": "Deletes a non-default project and reassigns its data to the default project. Requires admin role.",
         "operationId": "deleteProject",
         "parameters": [
           {
@@ -2905,6 +3042,41 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/projects/{uuid}/stats": {
+      "get": {
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Get project statistics",
+        "operationId": "getProjectStats",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectStats"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found"
           }
         }
       }
@@ -3742,6 +3914,330 @@
           }
         }
       }
+    },
+    "/api/scans/{uuid}/update": {
+      "post": {
+        "tags": [
+          "Scans"
+        ],
+        "summary": "Partially update a native scan",
+        "description": "Updates mutable fields on a scan in the selected project. UUID, project UUID, and creation time are immutable.",
+        "operationId": "updateScanPartial",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated scan"
+          },
+          "404": {
+            "description": "Scan not found in the selected project"
+          }
+        }
+      }
+    },
+    "/api/agent/scans/{uuid}/update": {
+      "post": {
+        "tags": [
+          "Agent"
+        ],
+        "summary": "Partially update an agentic scan",
+        "description": "Updates mutable fields on an agentic scan in the selected project.",
+        "operationId": "updateAgenticScanPartial",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated agentic scan"
+          },
+          "404": {
+            "description": "Agentic scan not found in the selected project"
+          }
+        }
+      }
+    },
+    "/api/import": {
+      "post": {
+        "tags": [
+          "Ingest"
+        ],
+        "summary": "Import scan data",
+        "description": "Imports JSONL or an audit archive from multipart file upload, or from a gs:// URL in a JSON body.",
+        "operationId": "importScanData",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "agentic_scan_uuid": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            },
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "example": "gs://project/key/results.tar.gz"
+                  },
+                  "agentic_scan_uuid": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Import completed"
+          },
+          "415": {
+            "description": "Unsupported content type"
+          }
+        }
+      }
+    },
+    "/api/burp/sitemap/snapshot": {
+      "post": {
+        "tags": [
+          "Ingest"
+        ],
+        "summary": "Ingest a Burp Site map snapshot chunk",
+        "description": "Upserts at most 200 base64-encoded Burp request/response records per chunk.",
+        "operationId": "ingestBurpSiteMapSnapshot",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "snapshot_id",
+                  "records"
+                ],
+                "properties": {
+                  "snapshot_id": {
+                    "type": "string"
+                  },
+                  "chunk_index": {
+                    "type": "integer"
+                  },
+                  "final_chunk": {
+                    "type": "boolean"
+                  },
+                  "captured_at": {
+                    "type": "string"
+                  },
+                  "records": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Snapshot chunk processed"
+          }
+        }
+      }
+    },
+    "/api/storage/upload-source": {
+      "post": {
+        "tags": [
+          "Storage"
+        ],
+        "summary": "Upload a source bundle",
+        "operationId": "uploadStorageSource",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Source uploaded"
+          },
+          "503": {
+            "description": "Cloud storage is not enabled"
+          }
+        }
+      }
+    },
+    "/api/storage/source/{key}": {
+      "get": {
+        "tags": [
+          "Storage"
+        ],
+        "summary": "Download a source object",
+        "operationId": "downloadStorageSource",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Source object bytes"
+          },
+          "404": {
+            "description": "Object not found"
+          }
+        }
+      }
+    },
+    "/api/storage/results/{scan_uuid}": {
+      "get": {
+        "tags": [
+          "Storage"
+        ],
+        "summary": "Download a scan result archive",
+        "operationId": "downloadStorageResults",
+        "parameters": [
+          {
+            "name": "scan_uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Result archive bytes"
+          },
+          "404": {
+            "description": "Result archive not found"
+          }
+        }
+      }
+    },
+    "/api/storage/presign": {
+      "post": {
+        "tags": [
+          "Storage"
+        ],
+        "summary": "Create a presigned storage URL",
+        "operationId": "presignStorageObject",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "key"
+                ],
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": [
+                      "GET",
+                      "PUT"
+                    ],
+                    "default": "GET"
+                  },
+                  "expiry_seconds": {
+                    "type": "integer",
+                    "default": 3600
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Presigned URL"
+          },
+          "503": {
+            "description": "Cloud storage is not enabled"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4401,7 +4897,7 @@
         "properties": {
           "agent": {
             "type": "string",
-            "description": "Agent backend to use"
+            "description": "Descriptive label persisted on the run; provider selection is server-side"
           },
           "prompt_template": {
             "type": "string",
@@ -4449,6 +4945,18 @@
             "type": "boolean",
             "description": "If true, return SSE stream instead of waiting for completion",
             "default": false
+          },
+          "api_key": {
+            "type": "string",
+            "format": "password"
+          },
+          "oauth_token": {
+            "type": "string",
+            "format": "password"
+          },
+          "oauth_cred_json": {
+            "type": "string",
+            "format": "password"
           }
         }
       },
@@ -4480,7 +4988,7 @@
           },
           "agent": {
             "type": "string",
-            "description": "Agent backend identifier"
+            "description": "Descriptive label persisted on the run"
           },
           "source": {
             "type": "string",
@@ -4541,10 +5049,9 @@
             "enum": [
               "lite",
               "balanced",
-              "deep",
-              "mock"
+              "deep"
             ],
-            "description": "Archon audit depth (default \"lite\"). \"mock\" writes a sample audit-state.json without launching any agent."
+            "description": "Audit harness depth (default \"lite\")"
           },
           "diff": {
             "type": "string",
@@ -4591,6 +5098,35 @@
           "upload_results": {
             "type": "boolean",
             "description": "Upload session-dir bundle to cloud storage on completion"
+          },
+          "piolium": {
+            "type": "string",
+            "description": "Explicit piolium audit mode; empty allows server-side harness auto-selection"
+          },
+          "triage": {
+            "type": "boolean",
+            "description": "Classify findings after the scan"
+          },
+          "no_preflight_discovery": {
+            "type": "boolean"
+          },
+          "no_post_halt_verify": {
+            "type": "boolean"
+          },
+          "post_halt_gap_threshold": {
+            "type": "integer"
+          },
+          "api_key": {
+            "type": "string",
+            "format": "password"
+          },
+          "oauth_token": {
+            "type": "string",
+            "format": "password"
+          },
+          "oauth_cred_json": {
+            "type": "string",
+            "format": "password"
           }
         }
       },
@@ -4682,7 +5218,7 @@
           },
           "start_from": {
             "type": "string",
-            "description": "Resume from a specific phase via synthetic checkpoint"
+            "description": "Start this new run from a phase using a synthetic current-run checkpoint"
           },
           "max_iterations": {
             "type": "integer",
@@ -4706,7 +5242,7 @@
           },
           "agent": {
             "type": "string",
-            "description": "Agent backend identifier"
+            "description": "Descriptive label persisted on the run"
           },
           "browser": {
             "type": "boolean",
@@ -4826,6 +5362,145 @@
           "upload_results": {
             "type": "boolean",
             "description": "Upload session-dir bundle to cloud storage on completion"
+          },
+          "piolium": {
+            "type": "string",
+            "description": "Optional piolium audit mode"
+          },
+          "api_key": {
+            "type": "string",
+            "format": "password"
+          },
+          "oauth_token": {
+            "type": "string",
+            "format": "password"
+          },
+          "oauth_cred_json": {
+            "type": "string",
+            "format": "password"
+          }
+        }
+      },
+      "AgentAuditRequest": {
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Local path, git URL, gs:// archive, or local source archive"
+          },
+          "target": {
+            "type": "string"
+          },
+          "intensity": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "balanced",
+              "deep"
+            ],
+            "default": "balanced"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Single audit-mode override"
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Mode chain; overrides mode and intensity"
+          },
+          "driver": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "both",
+              "audit",
+              "piolium"
+            ],
+            "default": "auto"
+          },
+          "agent": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex"
+            ],
+            "description": "Coding agent for the audit leg"
+          },
+          "timeout": {
+            "type": "string",
+            "example": "6h"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "last_commits": {
+            "type": "integer"
+          },
+          "commit_depth": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stream": {
+            "type": "boolean"
+          },
+          "upload_results": {
+            "type": "boolean"
+          },
+          "project_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "scan_uuid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "no_dedup": {
+            "type": "boolean"
+          },
+          "keep_raw": {
+            "type": "boolean",
+            "description": "Retain audit intermediate artifacts"
+          },
+          "pi_provider": {
+            "type": "string"
+          },
+          "pi_model": {
+            "type": "string"
+          },
+          "api_key": {
+            "type": "string",
+            "format": "password"
+          },
+          "oauth_token": {
+            "type": "string",
+            "format": "password"
+          },
+          "oauth_cred_file": {
+            "type": "string",
+            "deprecated": true
+          },
+          "oauth_cred_json": {
+            "type": "string",
+            "format": "password"
+          },
+          "audit_auth": {
+            "type": "object",
+            "description": "Per-audit-leg BYOK override for auto/both"
+          },
+          "piolium_auth": {
+            "type": "object",
+            "description": "Per-piolium-leg BYOK override for auto/both"
           }
         }
       },
@@ -5687,22 +6362,6 @@
           "owner_uuid": {
             "type": "string",
             "format": "uuid"
-          },
-          "allowed_domains": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "example": [
-              "example.com",
-              "api.example.com"
-            ]
-          },
-          "allowed_emails": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         }
       },

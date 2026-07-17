@@ -4,7 +4,13 @@ Unified CRUD API for interacting with any database table. Returns raw JSON and s
 
 Read endpoints (GET) require **viewer** role or above. Write endpoints (POST, PUT, DELETE) require **admin** role.
 
-Project-scoped tables (`scans`, `http_records`, `findings`, `source_repos`, `session_hostnames`, `oast_interactions`, `scan_logs`, `agentic_scans`, `scopes`) automatically filter by the `X-Project-UUID` header. Pass `?all_projects=true` to disable project scoping (admin use).
+List queries for project-scoped tables (`scans`, `http_records`, `findings`,
+`authentication_hostnames`, `oast_interactions`, `scan_logs`, `agentic_scans`,
+and `scopes`) automatically filter by the `X-Project-UUID` header. Pass
+`?all_projects=true` for an intentional cross-project listing. Create requests
+for those tables inject the selected project when `project_uuid` is omitted.
+The generic single-record endpoint is a direct primary-key lookup and does not
+add a project predicate; use it only in the trusted administrative surface.
 
 ---
 
@@ -168,8 +174,8 @@ curl -s http://localhost:9002/api/db/tables/findings/records/42 | jq .
   "table": "findings",
   "record": {
     "id": 42,
-    "project_uuid": "00000000-0000-0000-0000-000000000001",
-    "module_id": "xss-reflected",
+    "project_uuid": "00000000-0000-0000-defa-c01001000001",
+    "module_id": "xss-light-url-params",
     "module_name": "Reflected XSS",
     "severity": "high",
     "confidence": "confirmed",

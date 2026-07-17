@@ -8,16 +8,17 @@ Vigolium's native scan pipeline consists of multiple phases that run sequentiall
 
 When you run a standard scan, phases execute in this order:
 
-1. **External Harvest** - gather endpoints from external sources (Wayback Machine, CT logs)
-2. **Spidering** - browser-based crawling to discover dynamic content
-3. **Discovery** - content discovery via wordlists and fuzzing
-4. **Known Issue Scan** - template-based scanning with Nuclei/Kingfisher
-5. **DynamicAssessment** - active and passive vulnerability scanning modules
+1. **Heuristics / Port Sweep** - classify target roots and, in deep mode, find alternate web ports
+2. **External Harvest** - gather endpoints from external sources (Wayback Machine, CT logs)
+3. **Spidering** - browser-based crawling to discover dynamic content
+4. **Discovery / Ingestion** - parse inputs and perform content discovery
+5. **DynamicAssessment** - run active, passive, and extension modules
+6. **Known Issue Scan** - run Nuclei plus native in-process secret detection
 
 A full scan with all phases enabled:
 
 ```bash
-vigolium scan -t https://example.com --discover --spider --external-harvest --known-issue-scan
+vigolium scan -t https://example.com --strategy deep
 ```
 
 ## Running a Single Phase

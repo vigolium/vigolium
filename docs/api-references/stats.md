@@ -10,12 +10,13 @@ curl -s http://localhost:9002/api/stats | jq .
 
 ```json
 {
+  "project_uuid": "00000000-0000-0000-defa-c01001000001",
   "http_records": {
     "total": 1234
   },
   "modules": {
-    "active": { "total": 18, "enabled": 15 },
-    "passive": { "total": 4, "enabled": 4 }
+    "active": { "total": 201, "enabled": 201 },
+    "passive": { "total": 116, "enabled": 116 }
   },
   "findings": {
     "total": 42,

@@ -66,6 +66,19 @@ func (m *Module) ScanPerRequest(
 	if statusCode != 401 && statusCode != 403 {
 		return results, nil
 	}
+	// A 401/403 that is actually a WAF/CDN edge block (a CloudFront "Request
+	// blocked" page, a Cloudflare/Akamai/Incapsula challenge, or a 429) is not an
+	// application access-control decision. A probe variant that dodges the WAF
+	// rule (an uppercased path, a "/%2e" prefix, a trusted-identity header) then
+	// reaches the origin and reads as a 200 "bypass" even though the block was
+	// edge mitigation, not the app protecting the resource. The guards below only
+	// re-confirm the BARE path stays non-2xx, which a WAF that deterministically
+	// re-blocks it satisfies — so they cannot tell an edge block from an app gate.
+	// Discard such a baseline. IsEdgeBlockedResponse flags only vendor-identified
+	// edge blocks, so a genuine nginx/apache/IIS app 403 (the real signal) is kept.
+	if modkit.IsEdgeBlockedResponse(ctx.Response()) {
+		return results, nil
+	}
 	if !m.markAndShouldContinue(urlx, scanCtx) {
 		return results, nil
 	}

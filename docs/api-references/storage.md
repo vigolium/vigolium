@@ -156,13 +156,10 @@ Result bundles use `.tar.gz` format (gzip-compressed tar), matching the `vigoliu
 
 ### Source Download from Storage
 
-Use `gs://` URIs with `--source` to download and extract source code from cloud storage before scanning:
+Agent source-aware commands accept `gs://` URIs and download/extract the
+archive before running:
 
 ```bash
-# Native scan with source from GCS
-vigolium scan -t https://example.com \
-  --source gs://<project-uuid>/ugc/source-code.tar.gz
-
 # Agentic swarm with source from GCS
 vigolium agent swarm -t https://example.com \
   --source gs://<project-uuid>/ugc/source-code.tar.gz
@@ -226,7 +223,9 @@ curl -s -X POST http://localhost:9002/api/storage/upload-source \
 }
 ```
 
-The returned `storage_url` can be passed directly to `--source` (CLI) or the `source` field (API).
+The returned `storage_url` can be passed to `--source` on `agent swarm`,
+`agent autopilot`, or `agent audit`, or to the corresponding agent API
+`source` field. Native `vigolium scan` has no source-code flag.
 
 ---
 

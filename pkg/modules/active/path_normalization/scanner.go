@@ -155,6 +155,18 @@ func (m *Module) ScanPerRequest(
 	// generic shell for root / unknown paths.
 	baseline := m.probePath(rawRequest, originalPath, httpService, httpClient, false)
 
+	// The clean path is the reference side of BOTH status oracles below: accessUnlock
+	// treats a denied baseline as "protected", and differential treats a 2xx baseline
+	// as the normal page. If that baseline is a vendor WAF/CDN edge block (a CloudFront
+	// "Request blocked" 403, a Cloudflare challenge served at 200/403, a 429) rather
+	// than a genuine app response, a traversal shape that merely evades the edge rule
+	// returns real 2xx content and both oracles misreport a normalization bypass.
+	// GetBlockDetectionValidator flags only vendor edge blocks, so a genuine app 401/403
+	// baseline (a real accessUnlock signal) is preserved.
+	if baseline.edgeBlocked {
+		return results, nil
+	}
+
 	root := baseline
 	if originalPath != "/" {
 		root = m.probePath(rawRequest, "/", httpService, httpClient, false)
@@ -487,12 +499,13 @@ func isTransientBlock(p pathProbe) bool {
 // the sibling static-root oracle's evidence — so the common, discarded probe
 // does not pay for a full headers+body copy.
 type pathProbe struct {
-	status     int
-	body       string
-	blocked    bool // WAF/CDN/auth/rate-limit block page
-	binary     bool // static-asset / binary content type
-	requestRaw string
-	ok         bool
+	status      int
+	body        string
+	blocked     bool // WAF/CDN/auth/rate-limit block page (any 401/403/429/503)
+	edgeBlocked bool // vendor-identified WAF/CDN edge block (NOT a plain app 401/403)
+	binary      bool // static-asset / binary content type
+	requestRaw  string
+	ok          bool
 }
 
 // probePath issues a GET to path (query string cleared, encoded payload preserved
@@ -527,11 +540,12 @@ func (m *Module) probePath(
 
 	ct := resp.Response().Header.Get("Content-Type")
 	return pathProbe{
-		status:     resp.Response().StatusCode,
-		body:       resp.BodyString(),
-		blocked:    infra.IsBlockedResponse(resp),
-		binary:     modkit.IsStaticAssetContentType(ct),
-		requestRaw: string(modifiedRaw),
-		ok:         true,
+		status:      resp.Response().StatusCode,
+		body:        resp.BodyString(),
+		blocked:     infra.IsBlockedResponse(resp),
+		edgeBlocked: infra.GetBlockDetectionValidator().Validate(resp) != nil,
+		binary:      modkit.IsStaticAssetContentType(ct),
+		requestRaw:  string(modifiedRaw),
+		ok:          true,
 	}
 }

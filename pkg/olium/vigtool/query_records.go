@@ -139,12 +139,11 @@ func (q *queryRecordsTool) Execute(ctx context.Context, args map[string]any, _ t
 		Offset:      offset,
 	}
 
-	qb := database.NewQueryBuilder(repo.DB(), filters)
-	// Pull just the summary columns we render — raw_request/raw_response are
-	// multi-KB blobs and the agent gets the full bytes from inspect_record
-	// when it wants them. Single ScanAndCount roundtrip vs separate
-	// Count+Execute.
-	sq := qb.BuildRecordsQuery().ExcludeColumn("raw_request", "raw_response")
+	// Pull just the summary columns we render — the raw bodies are multi-KB
+	// blobs and the agent gets the full bytes from inspect_record when it wants
+	// them. Single ScanAndCount roundtrip vs separate Count+Execute.
+	qb := database.NewQueryBuilder(repo.DB(), filters).OmitBodies()
+	sq := qb.BuildRecordsQuery()
 	records := make([]*database.HTTPRecord, 0, limit)
 	total, err := sq.ScanAndCount(ctx, &records)
 	if err != nil {

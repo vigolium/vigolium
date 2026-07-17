@@ -19,7 +19,7 @@ If no config file is found, built-in defaults are used.
 Settings are resolved from highest to lowest precedence:
 
 1. **CLI flags** -- e.g. `--concurrency 100`, `--rate-limit 50`
-2. **Environment variables** -- e.g. `VIGOLIUM_API_KEY`, `VIGOLIUM_PROJECT`
+2. **Environment variables** -- e.g. `VIGOLIUM_API_KEY`, `VIGOLIUM_PROJECT_UUID`
 3. **Scanning profile** -- loaded via `--scanning-profile <name>` (from `~/.vigolium/profiles/`)
 4. **Project-level config** -- per-project overlay at `~/.vigolium/projects/<uuid>/config.yaml`
 5. **Main config file** -- `~/.vigolium/vigolium-configs.yaml`
@@ -32,8 +32,11 @@ Higher-precedence sources override lower ones. Within the config file, environme
 | Variable | Purpose |
 |---|---|
 | `VIGOLIUM_API_KEY` | API key for the REST server and ingestor client authentication |
-| `VIGOLIUM_PROJECT` | Default project UUID for CLI operations (equivalent to `--project`) |
+| `VIGOLIUM_PROJECT_UUID` | Active project UUID when no project flag is supplied |
+| `VIGOLIUM_PROJECT` | Legacy alias for `VIGOLIUM_PROJECT_UUID` |
 | `VIGOLIUM_PROXY` | HTTP/SOCKS proxy URL, used when `--proxy` is not set |
+| `VIGOLIUM_DEFAULT_UA` | Override the configured outbound User-Agent selector or value |
+| `VIGOLIUM_BURP_BRIDGE_URL` | Default loopback Burp bridge URL for bridge-aware commands |
 | `VIGOLIUM_HOME` | Base directory for Vigolium data (used by the installer; defaults to `~/.vigolium`) |
 | `VIGOLIUM_DISABLE_UPDATE_CHECK` | Set truthy to disable the periodic "new version available" check entirely |
 | `VIGOLIUM_AUTO_UPDATE` | Set truthy to silently run `vigolium update` and re-exec the new binary when a newer release is detected |
@@ -43,7 +46,7 @@ Higher-precedence sources override lower ones. Within the config file, environme
 On startup Vigolium compares the running version against the latest `@vigolium/vigolium` release on the npm registry (cached to at most once per 24 h in `~/.vigolium/update-check.json`). When a newer version exists it prints a one-line notice at the end of the run:
 
 ```
-▼ A new vigolium version is available: v0.1.41-beta → v0.1.42-beta
+▼ A new vigolium version is available: v0.3.1 → v0.3.2
   Run `vigolium update` to upgrade.
 ```
 
@@ -94,7 +97,7 @@ scanning_strategy:
     validate_url: ""             # URL to GET after login to verify credentials
 
   http:
-    user_agent: ""               # empty = built-in Chrome string; {version} is expanded
+    user_agent: preset           # preset | random | literal value; blank behaves like random
 
   # Phase toggles per strategy:
   balanced:
@@ -115,12 +118,11 @@ Available strategies and their default phases:
 | known_issue_scan | - | yes | yes |
 | dynamic-assessment | yes | yes | yes |
 
-**`http.user_agent`** — overrides the `User-Agent` header on every outgoing
-scanner request across all HTTP phases (dynamic-assessment, content discovery,
-404 fingerprinting, Wayback harvesting). Empty (the default) keeps the built-in
-Chrome-like string, which is best for WAF-bypass realism. The literal
-`{version}` is replaced with the running binary version, so a pinned identifier
-stays correct across upgrades:
+**`http.user_agent`** — controls the `User-Agent` header on outgoing scanner
+requests across HTTP phases. The default selector, `preset`, emits the
+self-identifying Vigolium string. `random` rotates realistic browser strings;
+blank behaves like `random`; any other value is used literally. The literal
+`{version}` is replaced with the running binary version:
 
 ```bash
 vigolium config set scanning_strategy.http.user_agent "Mozilla/5.0 (compatible; Vigolium/{version}; +https://github.com/vigolium/vigolium)"
@@ -136,10 +138,10 @@ Centralized speed control. Common values serve as baselines; per-phase subsectio
 
 ```yaml
 scanning_pace:
-  concurrency: 50          # global worker count
+  concurrency: 40          # global worker count
   rate_limit: 100          # max requests/sec across all hosts
-  max_per_host: 10         # max concurrent requests per host
-  max_duration: 2h         # per-phase base duration (each phase scales it by its duration_factor)
+  max_per_host: 40         # max concurrent requests per host
+  max_duration: 45m        # per-phase base duration (each phase scales it by its duration_factor)
 
   # Per-phase overrides (zero = inherit from common):
   discovery:
@@ -148,11 +150,11 @@ scanning_pace:
     concurrency_factor: 0  # multiplier on common concurrency
     duration_factor: 0     # multiplier on common max_duration
   spidering:
-    duration_factor: 0.15  # e.g. 2h * 0.15 = 18m
+    duration_factor: 0.1
   known_issue_scan:
-    duration_factor: 3.0
+    duration_factor: 0.5
   external_harvester:
-    duration_factor: 0.2
+    duration_factor: 0.1
   dynamic-assessment:
     duration_factor: 1.0
     parallel_passive: true         # run passive modules in parallel
@@ -210,7 +212,7 @@ discovery:
     max_consecutive_errors: 0
     max_consecutive_waf_blocks: 0
     observed_max_items: 4000
-    disable_kingfisher: false
+    disable_secret_scan: false  # disable the in-process secret scanner
 
   jstangle:
     enabled: true
@@ -336,66 +338,72 @@ server:
 
 ### `agent`
 
-AI agent integration. Every agent invocation is routed through the in-process
-**olium** runtime — there are no external subprocess backends. Pick a provider
-below and olium handles the rest.
+AI agent integration. Agent commands dispatch through the in-process **olium**
+engine; individual provider drivers may call an API, a compatible local
+endpoint, Vertex AI, the Claude CLI, or the Claude SDK bridge.
 
 ```yaml
 agent:
   default_agent: olium
   templates_dir: ~/.vigolium/prompts/
   sessions_dir: ~/.vigolium/agent-sessions/
-  stream: true                     # real-time output streaming
+  stream: true
 
-  # olium — the in-process agent runtime used by query, autopilot, swarm, and
-  # the JS extension agent API. Credential fields are provider-specific:
-  #   openai-codex-oauth        → oauth_cred_path
-  #   anthropic-api-key  → llm_api_key or $ANTHROPIC_API_KEY
-  #   openai-api-key     → llm_api_key or $OPENAI_API_KEY
-  #   anthropic-cli    → `claude` binary in PATH (no key here)
+  browser:
+    enable: true
+    binary_path: ""               # empty = agent-browser on PATH
+
   olium:
-    provider: openai-codex-oauth
-    model: gpt-5.5                 # empty = provider default
+    provider: openai-compatible    # shipped default: local Ollama
+    model: ""                       # empty = provider/custom-provider default
     oauth_cred_path: ~/.codex/auth.json
-    llm_api_key: ""                # supports ${ENV_VAR}
-    reasoning_effort: medium       # minimal | low | medium | high | xhigh
-    system_prompt: ""              # empty = built-in olium prompt
+    oauth_token: ""
+    llm_api_key: ""                # prefer ${ENV_VAR}
+    reasoning_effort: medium
+    system_prompt: ""
     max_tokens: 1000000
     temperature: 0.0
     max_turns: 32
-    cache_size: 1024               # 0 disables
+    cache_size: 1024
+    max_concurrent: 4              # 0 = default 4; negative = unbounded
+    call_timeout_sec: 600          # negative = no added provider deadline
+    autopilot_mode: legacy         # legacy | shadow | enforced
+    custom_provider:
+      base_url: http://localhost:11434/v1
+      model_id: gemma4:latest
+      api_key: ""
+      extra_headers: []
 
-  # Deprecated / ignored: the JS extension agent API (vigolium.agent.*) now
-  # dispatches through the olium engine configured above (agent.olium).
-  # This `llm:` block is retained only for backward compatibility.
-  llm:
-    provider: anthropic            # anthropic | openai
-    model: claude-sonnet-4-6
-    api_key: ""                    # inline key (prefer api_key_env)
-    api_key_env: ""                # env var name (default: ANTHROPIC_API_KEY or OPENAI_API_KEY)
-    base_url: ""                   # custom endpoint for OpenAI-compatible providers
-    max_tokens: 4096
-    temperature: 0.0
-    cache_size: 256                # LRU entries (0 = disabled)
-    cache_ttl: 300                 # seconds
-
-  # Context enrichment limits:
   context_limits:
     max_findings: 50
     max_endpoints: 100
     max_high_risk: 20
     min_risk_score: 50
 
-  # Autopilot guardrails:
   guardrails:
     log_commands: false
-    max_turns: 0                   # 0 = auto (MaxCommands * 3)
+    max_turns: 0
     disallowed_tools: []
+
+  audit:
+    enable: false
+    mode: balanced
+    sync_interval: 30
+    default_agent: ""              # empty = infer claude/codex from provider
 ```
 
-Override the provider per run with `--provider openai-codex-oauth | anthropic-api-key | openai-api-key | anthropic-cli`
-(autopilot) or via `agent.olium.provider` in config. Model overrides use `--model`
-on `agent autopilot` and `agent olium`.
+Supported providers are `openai-compatible`, `openai-codex-oauth`,
+`openai-api-key`, `openai-responses`, `anthropic-api-key`, `anthropic-oauth`,
+`anthropic-cli`, `anthropic-claude-sdk-bridge`, `anthropic-vertex`,
+`google-vertex`, and `anthropic-compatible`. Most agent commands accept
+`--provider` and `--model` overrides.
+
+`autopilot_mode: shadow` records and verifies durable candidates without
+promoting them through the enforced path; `enforced` enables durable candidate
+promotion and `--resume`; `legacy` retains the earlier operator behavior.
+
+The deprecated `agent.llm` block is accepted only for backward compatibility;
+new configuration belongs under `agent.olium`.
 
 ### `database`
 
@@ -553,17 +561,8 @@ to 5 times on 5xx and network errors with exponential backoff (1s, 2s, 4s,
 scan does not block waiting for the response.
 
 The webhook is best configured **per project** so each project can post to
-its own endpoint. Set it via project config overlay:
-
-```bash
-# scope the value to the active project
-vigolium project config set notify.enabled true
-vigolium project config set notify.provider webhook
-vigolium project config set notify.webhook.url "https://my-endpoint.example/scan-complete"
-vigolium project config set notify.webhook.authorization "Bearer ${MY_WEBHOOK_TOKEN}"
-```
-
-Or edit `~/.vigolium/projects/<project-uuid>/config.yaml` directly:
+its own endpoint. Run `vigolium project config [uuid]` to print the overlay
+path, then edit `~/.vigolium/projects/<project-uuid>/config.yaml` directly:
 
 ```yaml
 notify:
@@ -603,8 +602,7 @@ Field notes:
 - `event` is always `"scan.completed"`. The `status` field distinguishes
   successful from failed runs.
 - `scan_type` is `"native"` for module-driven scans; for agentic scans it is
-  the run mode (`autopilot`, `swarm`, `audit`, `piolium`, `audit`,
-  `query`).
+  the run mode (`autopilot`, `swarm`, `audit`, `piolium`, or `query`).
 - `result_url` is the [storage](storage.md) `gs://` URL for the result
   bundle. Empty when storage is disabled or the run did not request
   `--upload-results`.
@@ -627,11 +625,14 @@ Built-in profiles are bundled in `public/presets/profiles/`. See [native-scan/sc
 
 Each project can have its own config overlay at `~/.vigolium/projects/<uuid>/config.yaml`. This uses the same format as scanning profiles and is automatically applied when the project is active.
 
-Manage project configs with:
+Print the active or named project's overlay path with:
 
 ```bash
-vigolium project config set scanning_pace.concurrency 200
-vigolium project config show
+vigolium project config
+vigolium project config <project-uuid>
 ```
+
+Create or edit the returned `config.yaml` file; `project config` does not have
+`set` or `show` subcommands.
 
 See [projects.md](projects.md) for full project management documentation.

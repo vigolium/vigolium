@@ -61,7 +61,8 @@ vigolium scan --input api.yaml -I openapi -t https://api.example.com \
   -H "Authorization: Bearer <token>"
 ```
 
-For more complex authentication flows (OAuth2, cookie-based sessions, token refresh), refer to the authenticated scanning documentation in `docs/authenticated-scan.md`.
+For login flows, cookie sessions, token refresh, and role comparison, see
+[Native Scan Authentication](../native-scan/authentication.md).
 
 ## Recommended Strategy
 
@@ -97,7 +98,7 @@ vigolium scan --input api.yaml -I openapi -t https://api.example.com \
 To see available module tags, run:
 
 ```bash
-vigolium modules --list-tags
+vigolium module --tags
 ```
 
 This helps reduce scan time and noise by running only the checks that are relevant to API attack surfaces (e.g., injection, authentication bypass, IDOR) rather than browser-oriented checks like reflected XSS in HTML contexts.

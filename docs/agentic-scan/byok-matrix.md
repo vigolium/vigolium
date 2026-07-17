@@ -19,8 +19,7 @@ piolium) or in the in-process olium engine.
 | `POST /api/agent/run/query`       | in-process olium     | yes              | no            | n/a                  |
 | `POST /api/agent/run/autopilot`   | in-process olium     | yes              | no            | n/a                  |
 | `POST /api/agent/run/swarm`       | in-process olium     | yes              | no            | n/a                  |
-| `POST /api/agent/run/audit`      | subprocess (audit)  | yes              | no            | n/a                  |
-| `POST /api/agent/run/audit`       | subprocess (audit + piolium) | yes     | no            | `audit_auth`, `piolium_auth` |
+| `POST /api/agent/run/audit`      | unified audit dispatcher (`auto` / `both` / one driver) | yes | no | `audit_auth`, `piolium_auth` for multi-driver runs |
 | `POST /api/agent/chat/completions`| in-process olium     | yes              | yes (no-auth mode only) | n/a                  |
 
 The autopilot endpoint can also kick off a background vigolium-audit when a
@@ -39,7 +38,7 @@ overlay as the in-process operator agent.
 
   // Audit endpoint only — override the inherited fields per driver. Each
   // sub-object accepts the same four fields above. Only valid with
-  // driver=both; single-driver runs reject these.
+  // driver=auto/both; single-driver runs reject these.
   "audit_auth":     { "api_key": "..." },
   "piolium_auth":    { "oauth_cred_json": "..." }
 }
@@ -93,9 +92,9 @@ header — what every OpenAI SDK sends. The bearer is promoted into
 
 For all other endpoints, BYOK must come from the JSON body.
 
-## Per-driver overrides (`driver=both` only)
+## Per-driver overrides (`driver=auto` or `driver=both`)
 
-`POST /api/agent/run/audit` with `driver: "both"` accepts `audit_auth`
+`POST /api/agent/run/audit` with `driver: "auto"` or `driver: "both"` accepts `audit_auth`
 and `piolium_auth` sub-objects that override the top-level BYOK for one
 driver only. Use this to run a single audit with two tenants' credentials —
 e.g. one operator's Claude OAuth on the audit side and another operator's

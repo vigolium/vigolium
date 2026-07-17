@@ -22,56 +22,62 @@ type columnDef struct {
 	name    string
 	extract func(*database.HTTPRecord) string
 	maxLen  int
+	// needsRawBodies marks a column whose extract parses the record's raw
+	// request/response rather than reading a metadata field. Selecting one forces
+	// the query to fetch those blobs (see trafficColumnsUseRawBodies); every other
+	// column is served from metadata alone. It is a positional field so a new
+	// column cannot be added without answering the question.
+	needsRawBodies bool
 }
 
 // allTrafficColumns is the registry of every available column.
 var allTrafficColumns = []columnDef{
-	{"UUID", func(r *database.HTTPRecord) string { return r.UUID[:min(8, len(r.UUID))] }, 8},
+	{"UUID", func(r *database.HTTPRecord) string { return r.UUID[:min(8, len(r.UUID))] }, 8, false},
 	{"HOST", func(r *database.HTTPRecord) string {
 		return clicommon.Truncate(fmt.Sprintf("%s://%s:%d", r.Scheme, r.Hostname, r.Port), 30)
-	}, 30},
-	{"METHOD", func(r *database.HTTPRecord) string { return r.Method }, 7},
-	{"PATH", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.Path, 40) }, 40},
+	}, 30, false},
+	{"METHOD", func(r *database.HTTPRecord) string { return r.Method }, 7, false},
+	{"PATH", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.Path, 40) }, 40, false},
 	{"STATUS", func(r *database.HTTPRecord) string {
 		if r.HasResponse {
 			s := fmt.Sprintf("%d", r.StatusCode)
 			return colorStatus(s, r.StatusCode)
 		}
 		return ""
-	}, 6},
+	}, 6, false},
 	{"TIME", func(r *database.HTTPRecord) string {
 		if r.HasResponse {
 			return fmt.Sprintf("%dms", r.ResponseTimeMs)
 		}
 		return ""
-	}, 8},
+	}, 8, false},
 	{"SIZE", func(r *database.HTTPRecord) string {
 		if r.HasResponse {
 			return fmt.Sprintf("%d", r.ResponseContentLength)
 		}
 		return ""
-	}, 10},
+	}, 10, false},
 	{"WORDS", func(r *database.HTTPRecord) string {
 		if r.HasResponse {
 			return fmt.Sprintf("%d", r.ResponseWords)
 		}
 		return ""
-	}, 7},
+	}, 7, false},
 	{"CONTENT_TYPE", func(r *database.HTTPRecord) string {
 		return clicommon.Truncate(r.ResponseContentType, 25)
-	}, 25},
+	}, 25, false},
 	{"SENT_AT", func(r *database.HTTPRecord) string {
 		return r.SentAt.Format("2006-01-02 15:04:05")
-	}, 19},
-	{"TITLE", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.ResponseTitle, 30) }, 30},
-	{"AUTH", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.RequestAuthorization, 30) }, 30},
-	{"STATUS_PHRASE", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.StatusPhrase, 20) }, 20},
-	{"REQ_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.RequestHeadersMap(), 40) }, 40},
-	{"RESP_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.ResponseHeadersMap(), 40) }, 40},
-	{"SOURCE", func(r *database.HTTPRecord) string { return r.Source }, 20},
+	}, 19, false},
+	{"TITLE", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.ResponseTitle, 30) }, 30, false},
+	{"AUTH", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.RequestAuthorization, 30) }, 30, false},
+	{"STATUS_PHRASE", func(r *database.HTTPRecord) string { return clicommon.Truncate(r.StatusPhrase, 20) }, 20, false},
+	{"REQ_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.RequestHeadersMap(), 40) }, 40, true},
+	{"RESP_HEADERS", func(r *database.HTTPRecord) string { return formatHeaders(r.ResponseHeadersMap(), 40) }, 40, true},
+	{"SOURCE", func(r *database.HTTPRecord) string { return r.Source }, 20, false},
 	{"REMARKS", func(r *database.HTTPRecord) string {
 		return clicommon.Truncate(strings.Join(r.Remarks, ", "), 40)
-	}, 40},
+	}, 40, false},
 }
 
 // defaultTrafficColumns are shown when no --columns flag is provided.
@@ -225,20 +231,6 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 		trafficBurpBridgeURL = validated
 	}
 
-	db, err := openReadDB()
-	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
-	}
-	if trafficSaveToVigoliumDB {
-		ctx := context.Background()
-		if err := db.CreateSchema(ctx); err != nil {
-			return fmt.Errorf("failed to create database schema: %w", err)
-		}
-		if err := db.SeedDefaults(ctx); err != nil {
-			return fmt.Errorf("failed to seed default data: %w", err)
-		}
-	}
-
 	var fuzzyTerm string
 
 	// Argument routing: "tree" activates tree mode, "ls"/"list" are no-ops, anything else is a fuzzy search term
@@ -253,6 +245,39 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Built once, up front: the filters are a pure function of the flags and the
+	// positional term, so they cannot change between --watch ticks, and the
+	// --glob-db merge below needs them to know whether any filter reads the raw
+	// corpus.
+	filters, err := buildTrafficFilters(fuzzyTerm)
+	if err != nil {
+		return err
+	}
+	rendersRaw := trafficRendersRawBodies()
+
+	// What the --glob-db merge can skip. traffic always needs the record rows
+	// themselves — they are its data — but the bodies can go unless something
+	// renders them or a filter LIKEs over them. Dropping the columns from the
+	// merge would break such a filter, since it would match against absent data;
+	// a query-level projection would not, which is why this is stricter than
+	// rendersRaw alone.
+	db, err := openReadDB(globDBSkipSet{
+		RecordBodies:  !rendersRaw && !filters.UsesRawCorpus(),
+		RecordFileMap: !trafficTree,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	if trafficSaveToVigoliumDB {
+		ctx := context.Background()
+		if err := db.CreateSchema(ctx); err != nil {
+			return fmt.Errorf("failed to create database schema: %w", err)
+		}
+		if err := db.SeedDefaults(ctx); err != nil {
+			return fmt.Errorf("failed to seed default data: %w", err)
+		}
+	}
+
 	// --replay re-sends matched records instead of listing them. Run it
 	// directly (not under --watch, which would re-fire the traffic each tick).
 	if trafficReplay {
@@ -260,11 +285,6 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 	}
 
 	return runWithWatch(func() error {
-		filters, err := buildTrafficFilters(fuzzyTerm)
-		if err != nil {
-			return err
-		}
-
 		ctx := context.Background()
 		if trafficSaveToBurp {
 			records, err := database.NewQueryBuilder(db, filters).Execute(ctx)
@@ -301,8 +321,7 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 		if tuiErr != nil {
 			return tuiErr
 		}
-		includeRaw := tuiActive || trafficRaw || trafficBurp || trafficMarkdown
-		records, total, err := queryTrafficRecords(ctx, db, filters, includeRaw)
+		records, total, err := queryTrafficRecords(ctx, db, filters, rendersRaw)
 		if err != nil {
 			return fmt.Errorf("failed to query database: %w", err)
 		}
@@ -400,6 +419,40 @@ func buildTrafficFilters(fuzzyTerm string) (database.QueryFilters, error) {
 		SortBy:              trafficSort,
 		SortAsc:             trafficAsc,
 	}, nil
+}
+
+// trafficRendersRawBodies reports whether any part of this invocation reads
+// HTTPRecord.RawRequest/RawResponse off the records it fetches: --raw/--burp/
+// --markdown and the TUI's detail view print them, --replay re-sends them, the
+// Burp bridge and --save-to-burp ship them to Burp, --json embeds them, and a
+// --columns selection carrying a needsRawBodies column parses them. Everything
+// else — the table and tree — renders metadata only.
+//
+// A new output mode MUST be added here. This list is exhaustive by construction,
+// not safe by default: an unlisted mode reports false, its bodies are never
+// fetched, and it renders them empty with no error. Column-driven modes are
+// covered automatically via columnDef.needsRawBodies; flag-driven ones are not.
+func trafficRendersRawBodies() bool {
+	// --tui is tested rather than tui.Active, which can only return true when the
+	// flag is set: that errs toward keeping the bodies, and covers the non-TTY
+	// case where Active errors out before rendering. The TUI's selection handler
+	// renders a full raw view.
+	return trafficRaw || trafficBurp || trafficMarkdown || trafficReplay ||
+		trafficSaveToBurp || trafficSaveToVigoliumDB || globalJSON ||
+		trafficTUI || trafficBurpBridgeURL != "" || trafficColumnsUseRawBodies()
+}
+
+// trafficColumnsUseRawBodies reports whether the resolved --columns selection
+// includes a column parsed out of the raw request/response. The default set
+// (defaultTrafficColumnNames) contains none, so this is only true when asked for
+// explicitly.
+func trafficColumnsUseRawBodies() bool {
+	for _, c := range resolveColumns(trafficColumns, trafficExclude) {
+		if c.needsRawBodies {
+			return true
+		}
+	}
+	return false
 }
 
 // printActiveTrafficFilters prints a one-line summary of the filter conditions

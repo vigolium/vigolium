@@ -79,6 +79,16 @@ type Options struct {
 	// Source identifies the audit harness flavor (audit vs piolium). When
 	// zero-valued, audit.DefaultSource() is used.
 	Source *audit.FindingSource
+
+	// SkipHTTPRecords omits the http_records table from a SQLite→SQLite merge;
+	// see database.MergeOptions. Ignored by the JSONL/audit/archive importers,
+	// which don't carry a separate record table to skip.
+	SkipHTTPRecords bool
+
+	// SkipRecordBodies omits the raw_request/raw_response columns from a
+	// SQLite→SQLite merge of http_records; see database.MergeOptions. Ignored by
+	// the JSONL/audit/archive importers.
+	SkipRecordBodies bool
 }
 
 // ImportPath dispatches based on filesystem inspection of path: directory →
@@ -130,7 +140,11 @@ func ImportPath(ctx context.Context, repo *database.Repository, path, projectUUI
 // from database.MergeSQLiteFile. The destination schema must already exist
 // (callers run CreateSchema before ImportPath).
 func ImportSQLite(ctx context.Context, repo *database.Repository, srcPath, projectUUID string, opts Options) (*Result, error) {
-	stats, err := database.MergeSQLiteFile(ctx, repo.DB(), srcPath)
+	stats, err := database.MergeSQLiteFileWithOptions(ctx, repo.DB(), srcPath,
+		database.MergeOptions{
+			SkipHTTPRecords:  opts.SkipHTTPRecords,
+			SkipRecordBodies: opts.SkipRecordBodies,
+		})
 	if err != nil {
 		return nil, fmt.Errorf("merge SQLite database %s: %w", srcPath, err)
 	}

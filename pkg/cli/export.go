@@ -636,10 +636,10 @@ func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, 
 		FuzzyTerm:   topExportSearch,
 		Limit:       topExportLimit,
 	})
-	query := qb.BuildRecordsQuery()
 	if omitResponse {
-		query = query.ExcludeColumn("raw_request", "raw_response")
+		qb = qb.OmitBodies()
 	}
+	query := qb.BuildRecordsQuery()
 	rows, err := query.Rows(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s Failed to query HTTP records: %v\n", terminal.WarningSymbol(), err)

@@ -48,7 +48,7 @@ Phases execute in this order. Each strategy enables a subset of these phases:
 3. Spidering            Browser-based crawling (Chromium), SPA support, form filling
 4. Discovery            Content discovery (brute-force dirs/files, JS analysis)
 5. DynamicAssessment    Active + passive scanner modules against all discovered endpoints
-6. KnownIssueScan       Known Issue Scan (Nuclei templates + Kingfisher secrets)
+6. KnownIssueScan       Known Issue Scan (Nuclei templates + native secret detector)
 7. Extension            Custom JS/YAML extension modules (when --only extension or --ext is used)
 ```
 
@@ -175,7 +175,7 @@ dynamic-assessment:
   enabled_modules:
     active_modules:
       - sqli-error-based
-      - xss-reflected-brutelogic
+      - xss-light-url-params
     passive_modules:
       - all
 

@@ -14,14 +14,16 @@ extended recipe book see [Stateless Scanning](../guides/stateless-scan.md).
 
 | Command | Persists to DB? | Phases | Use it for |
 |---------|-----------------|--------|------------|
-| `scan-url` | No | none — direct module run | One URL, fast |
-| `scan-request` | No | none — direct module run | A raw HTTP request / curl |
+| `scan-url` (direct default) | No | direct module run | One URL, fast |
+| `scan-request` (direct default) | No | direct module run | A raw HTTP request / curl |
 | `scan --stateless` | No (temp DB, discarded) | full pipeline | One-shot full scan |
 | `scan` | Yes (`~/.vigolium/...sqlite`) | full pipeline | Persistent projects |
 
-`scan-url` and `scan-request` never touch a database. `scan --stateless`
-creates a temporary SQLite database, runs every requested phase, exports
-results, and deletes the database on exit.
+The default direct paths for `scan-url` and `scan-request` run in memory. Phase
+flags, persisted file formats, or `-S/--stateless` route them through the full
+Runner, so those invocations may use the active or a temporary database.
+`scan --stateless` creates a temporary SQLite database, runs every requested
+phase, exports results, and deletes the database on exit.
 
 > Pass `-o/--output` (with `--format`) when using `--stateless` — otherwise
 > results are discarded along with the temporary database. Vigolium prints a
@@ -57,15 +59,15 @@ vigolium scan-url -m sqli -m xss "https://example.com/search?q=test"
 # Filter by tag
 vigolium scan-url --module-tag injection https://example.com/api/data
 
-# Skip passive analysis and insertion-point fuzzing for the fastest result
-vigolium scan-url --no-passive --no-insertion-points https://example.com/api/data
+# Skip passive analysis for an active-only result
+vigolium scan-url --no-passive https://example.com/api/data
 ```
 
-Run a discovery/spider phase *before* the scan (these promote `scan-url` to the
-full pipeline and require a database — pass `--db`):
+Run a discovery/spider phase *before* the scan. These promote `scan-url` to the
+full pipeline; add `-S` when you want its database discarded:
 
 ```bash
-vigolium scan-url --discover --db /tmp/scan.sqlite https://example.com
+vigolium scan-url --discover -S --format jsonl -o result.jsonl https://example.com
 ```
 
 ## Scan a raw HTTP request — `scan-request`
@@ -128,11 +130,14 @@ vigolium run dynamic-assessment --stateless -t https://example.com \
   --format jsonl -o results
 ```
 
-Multiple targets from a file — each target gets an isolated temporary database,
-and the output filename is suffixed per host so results don't overwrite:
+Multiple targets share one output by default. Add `--split-by-host` to create a
+separate artifact per host:
 
 ```bash
 vigolium scan --stateless -T targets.txt --format jsonl -o results
+# -> results.jsonl
+
+vigolium scan --stateless -T targets.txt --format jsonl -o results --split-by-host
 # -> results-example.com.jsonl, results-test.example.com.jsonl, ...
 ```
 
@@ -160,7 +165,7 @@ vigolium scan --stateless -i nuclei.jsonl -I nuclei --format jsonl -o results
 ## Tuning a scan
 
 ```bash
-# Speed knobs — defaults: -c 50, -r 100 req/s, --max-per-host 50, --timeout 15s
+# Effective defaults: -c 40, -r 100 req/s, --max-per-host 40, --timeout 15s
 vigolium scan --stateless -t https://example.com \
   -c 100 -r 200 --max-per-host 10 --timeout 30s \
   --format jsonl -o results
@@ -232,7 +237,11 @@ examples.
 | `console` | Terminal (default) | Colored, human-readable |
 | `jsonl` | `<o>.jsonl` | One JSON object per line; `-j` is shorthand |
 | `html` | `<o>.html` | Interactive ag-grid report; requires `-o` |
-| `console,jsonl,html` | All of the above | Comma-separate to combine |
+| `report` | document report | Self-contained report; requires `-o` |
+| `pdf` | `<o>.pdf` | PDF rendered with headless Chrome; requires `-o` |
+| `sqlite` | `<o>.sqlite` | Reopen with `finding -S --db`; requires `-S` |
+| `fs` | sibling directory trees | Browsable request/response and finding files |
+| `console,jsonl,html` | all selected formats | Comma-separate to combine |
 
 For stateless runs, `-o` is the **base** path — Vigolium appends the correct
 extension per format and materializes every requested format from the

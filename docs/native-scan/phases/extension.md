@@ -168,6 +168,6 @@ vigolium scan-url https://example.com/api/users --ext ./idor_detector.js
 
 ## Further Reading
 
-- [Writing Extensions](../customization/writing-extensions.md) — Full guide to writing JS and YAML extensions
-- [Extension API Reference](../api-references/extensions.md) — Complete `vigolium.*` API surface
+- [Writing Extensions](../../customization/writing-extensions.md) — Full guide to writing JS and YAML extensions
+- [Extension API Reference](../../api-references/extensions.md) — Server endpoints for extension management
 - `vigolium ext docs` — Built-in API documentation with examples

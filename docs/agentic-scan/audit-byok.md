@@ -145,10 +145,10 @@ vigolium agent audit --source ./src --driver both \
   --provider openai-codex-oauth \
   --oauth-cred-file ./codex-auth.json
 
-# CI / pipeline: short-lived API key from an env var the runner sets,
-# limited to the diff of the last 50 commits.
+# CI / pipeline: short-lived API key from an env var; use the harness's
+# driver-specific diff mode.
 vigolium agent audit --source . --driver audit \
-  --diff HEAD~50 \
+  --mode diff \
   --api-key '$CI_PROVIDED_ANTHROPIC_KEY'
 ```
 

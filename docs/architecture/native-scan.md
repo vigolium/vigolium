@@ -26,9 +26,9 @@ CLI invocation
          ▼
 ┌─────────────────────┐
 │  Runner Orchestration│  internal/runner/runner.go
-│  6-phase pipeline:   │  Heuristics → Harvest → Spider →
-│  build infra, run    │  Discovery → KnownIssueScan →
-│  phases in order     │  DynamicAssessment
+│  Native scan plan:   │  Heuristics/port sweep → Harvest → Spider →
+│  build infra, run    │  Discovery → targeted re-spider →
+│  phases in order     │  DynamicAssessment → KnownIssueScan
 └────────┬────────────┘
          │
          ▼
@@ -41,8 +41,8 @@ CLI invocation
          ▼
 ┌─────────────────────┐
 │  Module Dispatch     │  pkg/modules/
-│  Passive (sequential)│  ScanPerHost → ScanPerRequest
-│  Active (parallel)   │  ScanPerHost/Request/InsertionPoint
+│  Passive modules     │  Per-host ordered; per-request bounded parallel
+│  Active modules      │  One bounded task pool across all scan scopes
 └────────┬────────────┘
          │
          ▼
@@ -74,16 +74,15 @@ CLI invocation
 
 1. **Copy global flags** into `scanOpts` (`*types.Options`): targets, concurrency, timeout, modules, proxy, format, phases, etc.
 2. **Reconcile `--json` and `--format`**: if `--json` is set and format is still the default `"console"`, switch to `"jsonl"`.
-3. **Load config**: `config.LoadSettings(configPath)` reads `~/.vigolium/vigolium-configs.yaml`. CLI overrides are applied for origin mode, OAST URL, and database settings. Validates database, extensions, and strategy configs.
+3. **Load config**: resolve the active project and load global settings plus its optional project overlay. CLI overrides are then applied. Database, extension, and strategy settings are validated.
 4. **Resolve scanning profile**: precedence is `--scanning-profile` flag > `settings.ScanningStrategy.ScanningProfile`. Profiles are loaded from `~/.vigolium/profiles/` or embedded presets, and applied via `config.ApplyProfile()`.
 5. **Resolve scanning strategy**: precedence is `--strategy` flag > `settings.ScanningStrategy.DefaultStrategy`. Strategy determines which phases are enabled (discovery, spidering, KnownIssueScan, etc.).
 6. **Resolve heuristics check level**: `--skip-heuristics` > `--heuristics-check` > config > default `"basic"`.
 7. **Phase isolation**: `--only` and `--skip` are mutually exclusive. `--only <phase>` enables a single phase and disables all others. `--skip <phase>` disables specific phases. Phase aliases are normalized: `deparos`/`discover` → `discovery`, `spitolas` → `spidering`, `ext` → `extension`.
-8. **Validate HTML output**: `--format html` requires `--output` and is only allowed with `--only discovery` or `--only spidering`.
+8. **Validate output**: report formats require an output path (except per-host naming). When `--only` isolates work, HTML is limited to discovery or spidering; full scans may also render HTML from persisted results.
 9. **Apply scanning pace**: concurrency and max-per-host from config are applied unless explicitly set on CLI.
 10. **Initialize database**: `database.NewDB()` → `CreateSchema()` → `database.NewRepository()`.
-11. **Handle `--source`**: clone git URLs or resolve local paths, link source repos to targets in DB.
-12. **Branch into one of three execution paths**:
+11. **Branch into one of three execution paths**:
 
 ```
 Has --input file?  ──yes──▶  runScanWithIngest()    Parse file, create InputSource, run
@@ -142,7 +141,8 @@ Resolved by `resolveFormat()` in `file.go`:
 | `postman` | Postman collection |
 | `curl` | cURL commands |
 | `burpraw`, `burp-raw`, `raw` | Burp raw request files |
-| `burpxml`, `burp-xml`, `burp` | Burp XML export |
+| `burpxml`, `burp-xml`, `burp`, `burpstate` | Burp XML/state export |
+| `har`, `http-archive` | HTTP Archive (HAR) |
 | `nuclei`, `nuclei-output` | Nuclei JSONL output |
 | `deparos`, `deparos-output` | Deparos discovery output |
 
@@ -266,66 +266,71 @@ type phaseInfra struct {
 Built in order:
 1. **Notifier** — Telegram and/or Discord backends (from config or env vars).
 2. **Services** — wraps Options, Notifier, DedupManager, and HostErrors (circuit breaker for unresponsive hosts).
-3. **HostRateLimiter** — per-host concurrency control (default: 2 concurrent per host, 1000 max tracked hosts, 30s idle eviction).
+3. **HostRateLimiter** — per-host concurrency control. The standard scanning-pace default is 40 concurrent requests per host; phase settings and CLI flags can override it. The limiter tracks at most 1000 hosts and evicts entries after 30 seconds idle.
 4. **HTTP Requester** — HTTP client with retry, proxy, redirect, and middleware support.
 5. **ScopeMatcher** — host/path/status/content-type/body-string filtering from config.
 6. **JS Engine** — Grafana Sobek engine for JavaScript extensions, including pre/post hook chains.
 
-### RunNativeScan() — The 6-Phase Pipeline
+### RunNativeScan() — The Native Scan Plan
 
 ```
 RunNativeScan()
 │
 ├── buildInfrastructure()
 │
-├─── Phase 0: Heuristics Check     [guard: heuristicsCheck != "none"]
+├─── Heuristics Check              [guard: heuristicsCheck != "none"]
 │    Probes target root pages, detects blank/JSON/SPA responses.
 │    Flags targets to skip spidering.
 │
-├─── Phase 1: External Harvest     [guard: ExternalHarvestEnabled]
+├─── Port Sweep                    [guard: deep intensity or --follow-subdomains]
+│    Checks configured alternate HTTP(S) ports on original target hosts.
+│
+├─── External Harvest              [guard: ExternalHarvestEnabled]
 │    Queries Wayback, CommonCrawl, AlienVault, URLScan, VirusTotal.
 │    Ingests discovered URLs into DB (no modules, pure ingestion).
 │
-├─── Phase 2: Spidering            [guard: SpideringEnabled]
+├─── Spidering                     [guard: SpideringEnabled]
 │    Browser-based crawling (Chromium). Applies heuristics filter.
 │    Stores discovered pages in DB via repository.
 │
-├─── Phase 3: Discovery            [guard: !SkipIngestion]
+├─── Discovery / Input Ingestion   [guard: !SkipIngestion]
 │    Content discovery (brute-force dirs/files via deparos engine)
 │    + CLI input source. Both wrapped in MultiSource.
 │    Ingests into DB (no modules, pure ingestion).
 │    Fallback: seedCLITargets() if ingestion skipped but KnownIssueScan/DA need records.
 │
-├─── Phase 4: KnownIssueScan       [guard: KnownIssueScanEnabled]
-│    Nuclei template scan + Kingfisher secret detection on stored
-│    response bodies. Targets enriched with discovered paths
-│    (enrich_targets). Filters out secret_detect passive module
-│    to avoid duplicates in DA phase.
-│    Post-phase: DeduplicateFindings() groups same-module/URL findings.
+├─── Targeted Re-Spider            [guard: spider + discovery + assessment]
+│    Revisits rich or SPA routes surfaced by discovery.
 │
-└─── Phase 5: DynamicAssessment    [guard: !SkipDynamicAssessment]
+├─── DynamicAssessment             [guard: !SkipDynamicAssessment]
      THE CORE SCANNING PHASE. Reads records from DB, dispatches
-     active + passive modules. Per-module finding cap suppresses
-     noisy modules. Feedback loop (up to 3 rounds) re-scans
+     active, passive, and selected extension modules. Per-module finding cap suppresses
+     noisy modules. A configurable feedback loop re-scans
      newly discovered URLs.
      Post-phase: DeduplicateFindings() merges redundant findings.
+│
+└─── KnownIssueScan                [guard: KnownIssueScanEnabled]
+     Runs Nuclei templates and the in-process secret detector over
+     in-scope targets and stored textual response bodies.
+     Post-phase: finding grouping and deduplication.
 ```
 
-Phases 0-4 populate the database with HTTP records. Phase 5 reads those records back and runs the full module pipeline against them.
+Reconnaissance and discovery populate the database. Dynamic assessment and
+known-issue scan consume those records and can add findings or new traffic.
 
-### Phase 4 Detail: KnownIssueScan
+### KnownIssueScan Detail
 
 1. Queries distinct paths from DB via `GetDistinctPaths()`.
 2. Builds target URLs — either path-enriched (default, `enrich_targets: true`) or host-level only.
-3. Runs Nuclei templates + Kingfisher secret scanning against targets.
+3. Runs Nuclei templates, then scans stored bodies with `pkg/secretscan`.
 4. **Post-phase dedup**: calls `DeduplicateFindings()` to group findings with identical `(module_id, severity, matched_at URL)`.
 
-### Phase 5 Detail: DynamicAssessment
+### DynamicAssessment Detail
 
 1. Creates a `database.Scan` record with cursor tracking.
 2. Resolves DA concurrency from config (separate from discovery concurrency).
 3. Optionally starts the OAST (out-of-band) service.
-4. Runs a **feedback loop** (up to `maxFeedbackRounds = 3`):
+4. Runs a **feedback loop**. `dynamic-assessment.max_feedback_rounds` defaults to 1; raise it (for example, to 3) to rescan URLs fed back by modules:
    - Creates a `OneShotDBInputSource` that reads records after the scan cursor.
    - Builds an Executor with all active + passive modules, `SkipBaseline: true` (responses already in DB).
    - The Executor enforces a per-module finding cap (`MaxFindingsPerModule`, default 10) — once a module emits this many findings, further results from that module are suppressed.
@@ -356,7 +361,7 @@ type Executor struct {
     perHostPassive    []modules.PassiveModule
     perRequestPassive []modules.PassiveModule
 
-    ipCache      *lru.Cache[string, []httpmsg.InsertionPoint]  // 4096-entry LRU
+    ipCache      *lru.Cache[string, []httpmsg.InsertionPoint]  // auto-sized bounded LRU
     requestUUIDs *shardedMap   // request hash → DB record UUID
 }
 ```
@@ -371,17 +376,17 @@ At construction time, `NewExecutor()` pre-groups all modules by their `ScanScope
 func (e *Executor) Execute(ctx context.Context) (bool, error)
 ```
 
-1. Spawns `Workers` goroutines reading from a buffered channel (`cap = Workers * 2`).
+1. Spawns `Workers` goroutines reading from a buffered channel (`cap = Workers * 2`). Optional adaptive mode can add workers when the queue remains over 75% full, up to the configured ceiling.
 2. Calls `feedItems()` on the calling goroutine (producer loop).
-3. Closes the channel, waits for all workers to drain.
-4. Flushes passive modules (`Flusher` interface) and OAST service.
+3. After source EOF, drains module-fed requests until the executor is idle, then closes the channel and waits for workers with a bounded shutdown grace.
+4. Flushes passive side effects (`Flusher`), deferred passive findings (`BatchFlusher`), corroboration observations, and the OAST service.
 5. Returns `(foundResults, nil)`.
 
 ### feedItems() — The Producer
 
 For each item from `source.Next()`:
 
-1. **Static file filter**: if path matches a static file extension (`.jpg`, `.css`, etc.), skip.
+1. **Static file filter**: if a path matches a static extension, skip it unless it looks like an object-storage asset. Storage candidates are retained as metadata-only items and fetched with `HEAD` (or a one-byte ranged `GET` fallback), never as full large/binary bodies.
 2. **Pre-request scope check**: `ScopeMatcher.InScopeRequest(host, path, "", "")` — host + path only, no HTTP round-trip. Rejects obviously out-of-scope items early.
 3. **Host error check**: if `HostErrors.Check(hostID)` returns true (host has been circuit-broken), skip.
 4. Send item to the worker channel.
@@ -430,28 +435,45 @@ hooks.RunPreHooks(request)
 
 Pre-hooks can inject auth headers, transform requests, or signal to skip entirely.
 
-### Step 4: Body Size Enforcement
+### Step 4: Body Size Classification and Truncation
 
-If `ScopeMatcher` is set, checks request and response body sizes:
-- `BodySizeDrop` → drop item entirely.
-- `BodySizeTruncate` → truncate bodies to limits, continue scanning.
-- `BodySizeSkipScan` → truncate, save to DB, but skip scanning.
+When a `ScopeMatcher` is configured, the executor classifies oversized request or response bodies and truncates them to the configured limits before any module sees them. The resulting action is applied only after the passive stage:
 
-### Step 5: Scope Check + Database Save
+- `BodySizeTruncate` → persist normally and continue to active scanning.
+- `BodySizeDrop` → allow passive inspection of the truncated exchange, then return without persistence or active scanning.
+- `BodySizeSkipScan` → allow passive inspection, persist the truncated exchange, then return.
+- `BodySizePassiveOnly` → allow passive inspection and normal scope-aware persistence, but skip active scanning.
+
+### Step 5: Module Filter, Record Link, and Full Scope Status
+
+If `item.EnableModules` is non-empty, the executor builds an O(1) module filter; otherwise it reuses the `allModulesFilter` sentinel. DB-sourced items pre-register their existing record UUID so findings link back to that row instead of creating a duplicate. The executor then evaluates full scope using host, path, status, content types, and body rules.
+
+### Step 6: Passive Module Execution
+
+Passive work runs before the body-size and persistence gates:
 
 ```
-if ScopeMatcher configured:
-    check full scope (host, path, status, content types, body strings)
-    if out-of-scope and ScopeOnIngest: drop entirely (no save, no scan)
-    save to database
-    if out-of-scope: saved but not scanned → return
-else:
-    save to database and continue
+per-host passive modules      ordered on the worker; once per (module, origin)
+per-request passive modules   bounded parallel fan-out by default
 ```
 
-`saveToDatabase()` calls `repo.SaveRecord()` and stores the returned UUID in the `requestUUIDs` sharded map (keyed by request SHA-256 hash) for later finding linkage.
+Both groups are pre-filtered by the item module filter, technology/content-class requirements, and `CanProcess()`. On an out-of-scope item, modules implementing `ScopeAwareModule` are skipped; passive modules that are not scope-aware may still inspect the exchange. Per-request parallelism is enabled by the default dynamic-assessment pace and is bounded globally to `max(64, Workers*8)` live tasks. It can be disabled with `scanning_pace.dynamic-assessment.parallel_passive: false`.
 
-### Step 6: Eligibility Pre-Computation
+### Step 7: Body-Size Gate, Persistence, and Scope Gate
+
+After passive analysis, the body-size action described above is applied. Items that continue use this persistence flow:
+
+```
+if out-of-scope and ScopeOnIngest:
+    return without saving
+save or reuse the HTTP record
+if out-of-scope:
+    return without active scanning
+```
+
+New records go through the batched `RecordWriter` when configured, otherwise `Repository.SaveRecord()`. The returned UUID is cached by request hash for finding linkage. Existing DB records reuse `item.RecordUUID`; request-only stubs can have their fetched baseline response backfilled.
+
+### Step 8: Eligibility Pre-Computation
 
 `computeEligibility()` runs once per item (not per module):
 1. Request nil check
@@ -461,58 +483,35 @@ else:
 
 The cached `baseEligible` result lets the executor skip calling `CanProcess()` on modules that embed the standard base checks when the base would reject.
 
-### Step 7: Module Filter
+### Step 9: Active Module Execution
 
-If `item.EnableModules` is non-empty, builds a map-based O(1) filter. Otherwise uses the `allModulesFilter` sentinel.
+Host-, request-, and insertion-point-scoped tasks all share one `conc.WaitGroup` and one context-aware semaphore. The default task budget is `max(32, Workers*8)`, or `ExecutorConfig.ActiveTaskLimit` when set. There are no outer “three category” goroutines: each scope function submits its eligible module calls directly into the same bounded pool, and `runActiveStage()` waits for all of them.
 
-### Step 8: Passive Module Execution (Sequential)
-
-```
-runPassivePerHost(request, filter)      sequential loop over perHostPassive
-runPassivePerRequest(request, filter)   sequential loop over perRequestPassive
-```
-
-For each module: check filter → check `CanProcess()` → call scan method → process results. No goroutines — passive modules do not perform network I/O.
-
-### Step 9: Active Module Execution (Parallel)
-
-Three categories run in parallel via `conc.WaitGroup`:
+For insertion-point modules, the loop is module-outer and insertion-point-inner so module-level gates are evaluated once. Every eligible `(module, insertion point)` pair is submitted as its own bounded task:
 
 ```
-var g conc.WaitGroup
-g.Go(func() { runActivePerHost(request, filter, eligibility) })
-g.Go(func() { runActivePerRequest(request, filter, eligibility) })
-g.Go(func() { runActivePerInsertionPoint(request, filter, eligibility) })
-g.Wait()
+insertionPoints = ipCache.GetOrCompute(requestHash)
+for each module:
+    apply module filter, technology filter, and CanProcess once
+    for each allowed insertion point:
+        submit ScanPerInsertionPoint(...) to the shared active task pool
 ```
 
-Within each category, eligible modules also run concurrently (inner `conc.WaitGroup`).
-
-For the insertion-point category specifically, insertion points are iterated **serially** (one at a time), but all eligible modules for a given point run **concurrently**:
-
-```
-insertion points = ipCache.GetOrCompute(requestHash)
-for each insertionPoint:
-    for each eligible module (parallel):
-        module.ScanPerInsertionPoint(request, insertionPoint, httpClient, scanCtx)
-```
+Per-host active and passive claims are keyed by `(module, canonical scheme://host:port origin)`, so the same module can run independently on HTTP and HTTPS or on distinct ports.
 
 ### Concurrency Model Summary
 
 ```
 Execute()
-├── feedItems()                          [calling goroutine, producer]
-└── Workers goroutines                   [consumer pool]
+├── feedItems()                              producer
+└── Workers goroutines                       record-level consumer pool
     └── processItem()
-        ├── Passive modules              [sequential on worker goroutine]
-        │   ├── runPassivePerHost
-        │   └── runPassivePerRequest
-        └── Active modules               [3-way parallel via conc.WaitGroup]
-            ├── runActivePerHost          [inner parallel: all modules]
-            ├── runActivePerRequest       [inner parallel: all modules]
-            └── runActivePerInsertionPoint
-                └── for each IP (serial)  [inner parallel: all modules]
+        ├── passive per-host                 ordered, run-once claim
+        ├── passive per-request              bounded global task pool (default)
+        └── active host/request/IP calls     one bounded global task pool
 ```
+
+Every module call also has a watchdog: passive calls default to 5 seconds and active calls to 300 seconds, with optional module `TimeoutHint()` overrides. Active whole-request timeouts scale for requests with many insertion points, up to the executor's configured ceiling.
 
 ## Stage 7: Insertion Points
 
@@ -559,7 +558,7 @@ type InsertionPoint interface {
 
 ### LRU Cache
 
-The Executor maintains a 4096-entry LRU cache (`ipCache`) keyed by request SHA-256 hash. `CreateAllInsertionPoints()` is called once per unique request, and the results are reused for all modules scanning that request.
+The Executor maintains an LRU `ipCache` keyed by request SHA-256 hash. Unknown-size sources default to 4096 entries; countable sources auto-size from `count+100` for small inputs through a 25,000-entry cap for very large inputs. `CreateAllInsertionPoints()` is called once per uncached request, and the results are reused across modules.
 
 ### Shared Base Request
 
@@ -598,7 +597,7 @@ A module declares one or more scopes by OR-ing constants. The executor uses `Sca
 
 ### InsertionPointTypeSet — `pkg/modules/modkit/types.go`
 
-A `uint32` bitmask where each bit corresponds to an `InsertionPointType`. Checked by the executor before calling `ScanPerInsertionPoint()`:
+A `uint64` bitmask where each representable bit corresponds to an `InsertionPointType`. This covers fuzzable types through value 37; user/extension/unknown markers at 64 and above are intentionally not members. The executor checks it before calling `ScanPerInsertionPoint()`:
 
 ```go
 module.AllowedInsertionPointTypes().Contains(ip.Type())
@@ -616,39 +615,54 @@ Pre-built presets: `URLParamTypes`, `BodyParamTypes`, `CookieTypes`, `HeaderType
 
 ```
 Per item:
-  1. Passive per-host   → sequential loop, no goroutines
-  2. Passive per-request → sequential loop, no goroutines
-  3. Active per-host     → parallel: all eligible modules concurrently
-  4. Active per-request  → parallel: all eligible modules concurrently
-  5. Active per-IP       → for each insertion point (serial):
-                             all eligible modules concurrently
+  1. Passive per-host    → ordered loop with per-origin claims
+  2. Passive per-request → bounded parallel fan-out by default
+  3. Active per-host     ┐
+  4. Active per-request  ├→ individual tasks in one bounded pool
+  5. Active per-IP       ┘  (one task per module/point pair)
 ```
 
-Steps 3-5 run as three concurrent goroutine groups via `conc.WaitGroup`.
+The active scope functions share one `conc.WaitGroup`; they submit tasks directly rather than launching three outer scope goroutines.
 
 ### ScanContext — `pkg/modules/modkit/context.go`
 
-Shared resources available to all modules during scanning:
+Selected shared resources available to modules during scanning:
 
 ```go
 type ScanContext struct {
     DedupManager        *dedup.Manager
     RiskScoreUpdater    RiskScoreUpdater
+    RemarksAnnotator    RemarksAnnotator
+    RecordRewriter      RecordResponseRewriter
+    ArtifactWriter      DerivedArtifactWriter
     RequestUUIDResolver RequestUUIDResolver
+    Scope               ScopeChecker
     OASTProvider        OASTProvider
     MutationGen         MutationGenerator
-    baselineCache       sync.Map  // "METHOD:host/path" → *BaselineEntry
+    RequestFeeder       RequestFeeder
+    ScopeExpander       ScopeExpander
+    InsertionPoints     InsertionPointProvider
+    ParamFindings       *ParameterFindingRegistry
+    TechStack           *TechRegistry
+    WAFStack            *WAFRegistry
+    ContentClass        *ContentClassRegistry
+    FollowSubdomains    bool
+    DeepScan            bool
+    // bounded baseline/wildcard caches and singleflight groups are private
 }
 ```
 
 - **DedupManager** — request-level deduplication.
 - **OASTProvider** — generates out-of-band callback URLs for blind vulnerability detection.
 - **MutationGenerator** — classifies parameter values and generates test mutations.
-- **baselineCache** — caches baseline responses for diff-based scanning.
+- **RequestFeeder / ScopeExpander** — feed discovered requests back into the executor and, when allowed, expand exact-host scope.
+- **InsertionPoints / ParamFindings** — reuse parsed insertion points and suppress duplicate vulnerability-class work on the same parameter.
+- **TechStack / WAFStack / ContentClass** — per-host registries used for conservative module gating and pacing signals.
+- Private bounded caches plus `singleflight` coalesce baseline, wildcard, and decoy probes.
 
 ### Flusher Interface
 
-Passive modules that buffer state across many requests (e.g., `anomaly_ranking`) implement `Flusher`:
+Passive modules that need an end-of-scan side effect (for example, `anomaly-ranking`) implement `Flusher`:
 
 ```go
 type Flusher interface {
@@ -656,11 +670,19 @@ type Flusher interface {
 }
 ```
 
-Called by the executor after all workers complete, enabling end-of-scan aggregation and final result emission.
+`Flusher` does not return findings. A passive module that buffers deferred findings implements `BatchFlusher` instead:
+
+```go
+type BatchFlusher interface {
+    FlushFindings(scanCtx *ScanContext) ([]*output.ResultEvent, error)
+}
+```
+
+The executor calls flushers only after all workers exit. `BatchFlusher` results re-enter the normal post-hook, finding-cap, persistence, callback, and notification pipeline. If a worker cannot be joined within the shutdown grace, flushing is skipped to avoid racing mutable module buffers.
 
 ### Module Development Defaults — `pkg/modules/modkit/`
 
-Module authors embed `BaseActiveModule` or `BasePassiveModule` to get default implementations of all interface methods. Module IDs must be lowercase kebab-case with prefix `active-` or `passive-` (validated at construction, panics on violation). The `modkit` package also provides `NewBaseModule()`, `NewBaseActiveModule()`, and `NewBasePassiveModule()` constructors.
+Module authors embed `BaseActiveModule` or `BasePassiveModule` to get default implementations of all interface methods. Module IDs must be unique lowercase kebab-case identifiers with no underscore (for example, `sqli-error-based`); active/passive type is registry metadata, not an ID prefix. Construction and registry contract tests fail fast on invalid or duplicate IDs. The `modkit` package also provides `NewBaseModule()`, `NewBaseActiveModule()`, and `NewBasePassiveModule()` constructors.
 
 ## Stage 9: Result Emission
 
@@ -668,22 +690,28 @@ Module authors embed `BaseActiveModule` or `BasePassiveModule` to get default im
 
 ```go
 type ResultEvent struct {
-    ModuleID         string                 `json:"template-id"`
-    Info             Info                   `json:"info,inline"`
-    Type             string                 `json:"type"`
-    Host             string                 `json:"host,omitempty"`
-    URL              string                 `json:"url,omitempty"`
-    Matched          string                 `json:"matched-at,omitempty"`
-    ExtractedResults []string               `json:"extracted-results,omitempty"`
-    Request          string                 `json:"request,omitempty"`
-    Response         string                 `json:"response,omitempty"`
-    Metadata         map[string]interface{} `json:"meta,omitempty"`
-    Timestamp        time.Time              `json:"timestamp"`
-    // ...
+    ModuleID          string                 `json:"template-id"`
+    Info              Info                   `json:"info"`
+    RecordKind        RecordKind             `json:"record_kind,omitempty"`
+    EvidenceGrade     EvidenceGrade          `json:"evidence_grade,omitempty"`
+    Type              string                 `json:"type"`
+    Host              string                 `json:"host,omitempty"`
+    Scheme            string                 `json:"scheme,omitempty"`
+    URL               string                 `json:"url,omitempty"`
+    Matched           string                 `json:"matched-at,omitempty"`
+    ExtractedResults  []string               `json:"extracted-results,omitempty"`
+    Request           string                 `json:"request,omitempty"`
+    Response          string                 `json:"response,omitempty"`
+    AdditionalEvidence []string              `json:"additional_evidence,omitempty"`
+    Metadata          map[string]interface{} `json:"meta,omitempty"`
+    Timestamp         time.Time              `json:"timestamp"`
+    // Fuzzing fields plus non-serialized routing/dedup fields omitted here.
 }
 ```
 
-`ResultEvent.ID()` computes a SHA-1 hash over `ModuleID | Description | Severity | Matched` — this becomes `finding_hash` in the database for deduplication.
+`RecordKind` is `finding`, `candidate`, or `observation`; its zero value remains a finding for compatibility. `EvidenceGrade` records confirmation maturity from `E0` (observation) through `E4` (impact demonstrated).
+
+By default, `ResultEvent.ID()` computes a SHA-1 hash over `ModuleID | Description | Severity | Matched`; non-finding kinds are prefixed so they cannot collide with a promoted finding. A module can set the non-serialized `DedupKey` to choose an explicit identity instead. The resulting ID becomes `finding_hash` in the database.
 
 ### processResults() and emitResult()
 
@@ -697,35 +725,28 @@ processResults(results, module)
   │
   for each result:
   │
-  ├── moduleFindingAllowed(module.ID())
-  │     Per-module finding cap check (MaxFindingsPerModule).
-  │     When > 0, suppresses results after the limit is reached.
-  │     Logs a one-time warning when a module hits its cap.
-  │
-  ├── assignModuleInfo(result, module)
-  │     Set ModuleID, Info.Name, Description, Severity, Confidence
-  │     Default Type = "http"
-  │     Derive Matched from URL if empty
-  │     Derive URL from request bytes if empty
-  │     Fill Host from URL
+  ├── Set ModuleType and FindingSource; assign module metadata/tags
+  ├── Backfill baseline request/response when the module omitted them
+  ├── Optionally re-confirm body differentials for opted-in modules
   │
   └── emitResult(result)
         │
         ├── 1. Post-hooks: RunPostHooks(result)
         │      nil return → drop result (hook filtered it out)
-        │
-        ├── 2. Set results flag: e.results.Store(true)
-        │
-        ├── 3. Database save:
-        │      Build temp HttpRequest from result.Request
-        │      Look up requestUUIDs[requestHash] → recordUUID
-        │      repo.SaveFinding(result, [recordUUID], scanUUID)
-        │      Uses INSERT ON CONFLICT (finding_hash) DO NOTHING
-        │
-        ├── 4. OnResult callback → output writer
-        │
-        └── 5. Notifier.Send(result) → Telegram/Discord
+        ├── 2. Normalize RecordKind
+        ├── 3. For findings only: atomically admit the post-hook identity
+        │      against MaxFindingsPerModule; duplicates share that decision
+        ├── 4. Resolve or persist the evidence HTTP record
+        ├── 5. Persist through FindingWriter (batched) or Repository
+        │      Duplicate hashes merge record links and new evidence
+        └── 6. Route by kind:
+               observation → OnObservation only
+               candidate   → OnCandidate only
+               new finding → OnResult + notifier
+               duplicate   → stored merge only
 ```
+
+Candidates and observations are retained for investigation but do not consume the reportable-finding cap, increment finding totals, trigger cross-module confirmed-result suppression, appear in the normal finding output callback, or send notifications.
 
 ## Stage 10: Output
 
@@ -744,8 +765,8 @@ type Writer interface {
 The default `Writer` implementation:
 
 1. Sets `Timestamp = time.Now()`, defaults `Type = "http"`, forces `MatcherStatus = true`.
-2. Serializes to JSON via `jsoniter.Marshal()`.
-3. Under mutex:
+2. Marshals with `jsoniter` only when JSON stdout or a live output file needs the bytes; console-only runs skip that cost.
+3. Under a writer mutex:
    - **Stdout**: writes JSON (if `--json`) or formatted console output (if not `--silent`).
    - **File**: appends JSON line to output file (JSONL format).
 
@@ -755,7 +776,7 @@ The default `Writer` implementation:
 [› phase │] [moduleType] [moduleName] [severity] matched-at [extracted-results] [fuzz-param]
 ```
 
-- Module ID split into type (`active`/`passive`) and name, colored accordingly.
+- Module type (`active`, `passive`, known-issue source, and so on) comes from internal `ModuleType` metadata; the lowercase kebab-case module ID is rendered unchanged as the module name.
 - Severity shown with symbol and ANSI color (Critical=magenta, High=red, Medium=yellow, Low=green).
 - Output truncated to terminal width.
 
@@ -786,20 +807,22 @@ Mutex-locked, appends JSON + newline (JSONL format). Opens with `O_APPEND|O_CREA
 
 Fully denormalized — no separate hosts or parameters tables. Key fields:
 
-- **Identity**: `UUID` (primary key), `RequestHash` (SHA-256 of raw request)
+- **Identity and tenancy**: `UUID` (primary key), `ProjectUUID`, `ScanUUID`, `RequestHash`
 - **Host info**: `Scheme`, `Hostname`, `Port`, `IP`
-- **Request**: `Method`, `Path`, `URL`, `RequestHeaders` (JSONB), `RawRequest` (bytea), `RequestBody` (bytea)
-- **Response**: `StatusCode`, `ResponseHeaders` (JSONB), `RawResponse` (bytea), `ResponseBody` (bytea), `ResponseTitle`, `ResponseWords`
+- **Request**: `Method`, `Path`, `URL`, HTTP version, content type/length, raw bytes, authorization summary, request hash
+- **Response**: status/phrase/version, content type/length, raw bytes, exact and normalized hashes, timing, word count, title, and `HasResponse`
 - **Parameters**: `Parameters` (JSONB array of `EmbeddedParam`)
-- **Risk**: `RiskScore`, `Remarks` (JSONB array)
+- **Analysis**: technologies, content hash, authentication state, parent record, `RiskScore`, and `Remarks`
 - **Metadata**: `Source`, `SentAt`, `ReceivedAt`, `CreatedAt`
 
 #### Finding (table: `findings`)
 
-- **Identity**: `ID` (auto-increment), `FindingHash` (unique constraint for dedup)
-- **Module info**: `ModuleID`, `ModuleName`, `Description`, `Severity`, `Confidence`
+- **Identity and tenancy**: `ID` (auto-increment), `ProjectUUID`, `FindingHash` (project-scoped unique dedup identity)
+- **Run links**: `ScanUUID`, `AgenticScanUUID`, plus denormalized URL and hostname
+- **Module/routing info**: `ModuleID`, `ModuleName`, `ModuleType`, `FindingSource`, `RecordKind`, `EvidenceGrade`, tags, description, severity, and confidence
+- **Lifecycle/classification**: status, remediation, CWE, CVSS, source file, and repository name
 - **Match data**: `MatchedAt` (JSONB array), `ExtractedResults`, `Request`, `Response`
-- **Relations**: `HTTPRecordUUIDs` (JSONB array), `ScanUUID`
+- **Relations**: `HTTPRecordUUIDs` (JSONB array)
 - **Grouped evidence**: `AdditionalEvidence` (JSONB array of strings) — request/response pairs from duplicate findings that were merged into this survivor (capped at 10 entries)
 
 The `finding_records` junction table links findings to HTTP records (many-to-many).
@@ -817,11 +840,11 @@ Key methods:
 |--------|-------------|
 | `SaveRecord()` | Single INSERT, returns UUID |
 | `SaveRecordsBatch()` | Bulk INSERT in one transaction |
-| `SaveFinding()` | INSERT ON CONFLICT (finding_hash) DO NOTHING + evidence append + junction table |
+| `SaveFinding()` | Project-scoped hash dedup; append new record links/evidence on conflict; maintain junction rows |
 | `DeduplicateFindings()` | Post-phase grouping: merge findings sharing (module_id, severity, matched_at URL) |
 | `CreateScanWithCursor()` | Creates scan record, copies cursor from last completed scan |
 | `CountRecordsAfterCursor()` | Counts new records since cursor (used for feedback loop) |
-| `GetRecordsWithResponseBody()` | UUID-cursor pagination for batch scanning (Kingfisher) |
+| `GetRecordsWithResponseBody()` | UUID-cursor pagination for the native secret detector and other batch consumers |
 | `UpdateRiskScores()` | Batch CASE/WHEN UPDATE, 500 UUIDs per statement |
 
 ### RecordWriter — `pkg/database/record_writer.go`
@@ -830,15 +853,18 @@ Batched asynchronous persistence for high-throughput ingestion:
 
 ```go
 type RecordWriter struct {
-    repo    *Repository
-    cfg     RecordWriterConfig   // BufferSize=4096, BatchSize=128, FlushInterval=50ms
-    ch      chan writeRequest     // backpressure via channel capacity
+    repo      *Repository
+    cfg       RecordWriterConfig   // BufferSize=4096, BatchSize=128, FlushInterval=50ms
+    shards    []*writerShard       // host-hashed queues; backpressure per queue
+    dedupCache *lru.Cache[string, string]
 }
 ```
 
-- `Write()` converts to `HTTPRecord`, sends to buffered channel, blocks until flushed.
-- `flushLoop()` runs as a single background goroutine: accumulates batch, flushes on batch-full or ticker-fire via `repo.SaveRecordsBatch()`.
+- `Write()` converts to `HTTPRecord`, checks the bounded in-memory dedup cache, sends to the host's buffered shard, and waits for that write's result.
+- Each shard accumulates a batch and flushes on batch-full or ticker-fire via `repo.SaveRecordsBatch()`. SQLite defaults to one shard; PostgreSQL defaults to four.
 - Each caller gets a `WriteResult{UUID, Err}` back on a per-request result channel.
+
+`FindingWriter` performs the analogous low-volume finding path without blocking the scan worker: it buffers up to 1024 items, batches 64 findings per transaction or every 50 ms, and falls back to a synchronous save if its queue is full or closing. Both writers drain on shutdown with a bounded timeout.
 
 ## Stage 12: Supporting Systems
 
@@ -867,10 +893,11 @@ type RecordWriter struct {
 `HostRateLimiter` provides per-host concurrency control:
 
 - **32 fixed shards** with inline FNV-1a hashing for shard selection.
-- Each host gets a **buffered channel semaphore** (capacity = `MaxPerHost`, default 2).
+- In static mode, each host gets a buffered-channel semaphore capped at `MaxPerHost`. The standalone limiter default is 20; the normal scanner passes the resolved scanning-pace value, whose default is 40.
 - `Acquire(ctx, host)` blocks until a slot is free; `Release(host)` frees a slot.
 - Background eviction goroutine removes idle entries (default: 30s idle, checked every 10s).
 - Per-shard capacity cap with oldest-entry eviction when exceeded.
+- Optional AIMD pacing starts at the configured ceiling and backs off on distress. The runner also enables reactive WAF auto-arm: healthy hosts remain at full concurrency until a WAF/CDN block is observed. A detected edge can be pre-armed earlier; `--no-waf-pacing` disables that proactive step, not reactive back-off.
 
 ### Host Error Circuit Breaker — `pkg/core/hosterrors/`
 
@@ -897,11 +924,11 @@ Out-of-band callback detection for blind vulnerabilities (SSRF, XXE, etc.). The 
 
 ### Deduplication and Finding Grouping
 
-Three levels of deduplication prevent noise and redundancy:
+Four levels of deduplication prevent noise and redundancy:
 
 1. **Request-level**: `DedupManager` prevents scanning duplicate requests (checked before module dispatch).
 
-2. **Finding-level (inline)**: `finding_hash` unique constraint in the database uses `INSERT ON CONFLICT DO NOTHING`. When a duplicate hash is detected at insert time, `appendRecordsToFinding()` appends the new HTTP record UUIDs and request/response pair (as `AdditionalEvidence`) to the existing finding instead of creating a new row.
+2. **Finding-level (inline)**: the project-scoped `finding_hash` constraint atomically rejects a duplicate insert. `appendRecordsToFinding()` then appends new HTTP record UUIDs, the request/response pair (as `AdditionalEvidence`), and the latest scan link to the existing finding instead of creating another row.
 
 3. **Finding-level (post-phase grouping)**: `DeduplicateFindings()` runs after the KnownIssueScan and dynamic-assessment phases. It groups findings that share the same `(module_id, severity, matched_at[0] URL)` within a project — this catches cases where the same module fires multiple times on the same URL with different payloads (e.g., an injection probe producing dozens of results per endpoint).
 
@@ -954,17 +981,17 @@ vigolium scan -t https://example.com
           │
           ▼
     ┌────────────────────────────────────────────────────────┐
-    │              RunNativeScan() — 6 Phases                │
+    │                 RunNativeScan() plan                   │
     │                                                        │
-    │  [Heuristics] → [Harvest] → [Spider]                  │
-    │       → [Discovery/Ingest] → [KnownIssueScan] → [Dynamic Assess] │
+    │  [Heuristics/Ports] → [Harvest] → [Spider]            │
+    │       → [Discovery/Ingest] → [Re-Spider]              │
+    │       → [Dynamic Assess] → [Known-Issue Scan]         │
     │                                                        │
-    │  Phases 0-4: populate DB with HTTP records             │
-    │  Phase 4-5: DeduplicateFindings() after each          │
-    │  Phase 5: scan records with modules                    │
+    │  Recon phases populate DB records                      │
+    │  Assessment phases scan records and group findings    │
     └───────────────────────┬────────────────────────────────┘
                             │
-                            ▼  (Phase 6 detail)
+                            ▼  (executor detail)
     ┌───────────────────────────────────────────────────┐
     │                    Executor                        │
     │                                                   │
@@ -976,15 +1003,14 @@ vigolium scan -t https://example.com
     │    1. Baseline HTTP fetch (or use DB response)    │
     │    2. Traffic callback                            │
     │    3. Pre-hooks (JS transform/filter)             │
-    │    4. Body size enforcement                       │
-    │    5. Scope check + DB save                       │
-    │    6. Eligibility pre-computation                 │
-    │    7. Passive modules (sequential)                │
-    │    8. Active modules (parallel, 3-way)            │
-    │       └── per insertion point: all modules        │
+    │    4. Body classify/truncate + full scope status  │
+    │    5. Passive host/request modules                │
+    │    6. Body action + persistence/scope gate        │
+    │    7. Eligibility pre-computation                 │
+    │    8. Active host/request/IP tasks (one pool)     │
     │                                                   │
     │  Post-processing:                                 │
-    │    Flush passive modules (Flusher interface)      │
+    │    Flush passive side effects + batch findings    │
     │    Flush OAST service (grace period)              │
     └───────────────────────┬───────────────────────────┘
                             │
@@ -992,13 +1018,13 @@ vigolium scan -t https://example.com
     ┌───────────────────────────────────────────────────┐
     │              Result Emission                       │
     │                                                   │
-    │  Per-module finding cap (suppress after limit)     │
     │  assignModuleInfo() → emitResult():               │
     │    1. Post-hooks (JS transform/filter)            │
-    │    2. SaveFinding() to DB (dedup via finding_hash │
+    │    2. Finding-only cap/admission by final identity│
+    │    3. SaveFinding() to DB (dedup via finding_hash │
     │       + evidence append on conflict)              │
-    │    3. OnResult → StandardWriter.Write()           │
-    │    4. Notifier.Send() → Telegram/Discord          │
+    │    4. Route finding/candidate/observation callback│
+    │    5. Notify only a newly admitted finding        │
     └───────────────────────┬───────────────────────────┘
                             │
                             ▼

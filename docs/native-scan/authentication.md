@@ -506,17 +506,20 @@ Scanning profiles (`~/.vigolium/profiles/`) can also override session strategy v
 
 ## Using Session Config with Agent Modes
 
-Agent modes (`swarm`, `autopilot`) can auto-generate session configs from source code analysis. The generated configs are always written as JSON to the session directory.
+Agent modes (`swarm`, `autopilot`) can prepare authentication from source
+analysis or explicit credentials. Swarm persists generated native-session
+configuration as `auth-config.yaml` in its session directory.
 
-When running agent swarm with `--source`, the source analysis phase discovers authentication flows in the codebase and produces a `session-config.json` in the session directory. This config is then fed into subsequent scan phases automatically.
+With `--source`, Swarm can discover login flows and feed the generated config
+into recon, discovery, and native scanning automatically.
 
-You can also pass a pre-built session config to agent modes the same way as regular scans:
+Swarm's equivalent of native `--auth-file` is `--auth-config`:
 
 ```bash
 # Swarm with pre-configured auth
 vigolium agent swarm \
   --target https://app.com \
-  --auth-file ./auth-config.json
+  --auth-config ./auth-config.yaml
 ```
 
 ## Examples
@@ -525,14 +528,14 @@ vigolium agent swarm \
 
 ```bash
 vigolium scan https://api.example.com \
-  --auth-file "admin:Authorization:Bearer eyJhbG..."
+  --auth "admin:Authorization:Bearer eyJhbG..."
 ```
 
 ### Scan with Cookie-Based Auth
 
 ```bash
 vigolium scan https://app.example.com \
-  --auth-file "user:Cookie:PHPSESSID=abc123; csrftoken=xyz"
+  --auth "user:Cookie:PHPSESSID=abc123; csrftoken=xyz"
 ```
 
 ### Full IDOR Test with Login Automation (YAML)

@@ -21,14 +21,25 @@ This starts two listeners:
 
 The proxy sits between your tools and the target. All HTTP traffic passing through is automatically recorded in the database as HTTP records, ready for scanning.
 
-HTTPS CONNECT tunneling is passed through without recording -- the proxy cannot inspect encrypted traffic without acting as a MITM, so TLS tunnels are forwarded transparently.
+HTTPS `CONNECT` tunnels pass through without recording by default. Enable
+explicit MITM mode when you control the client and target environment:
+
+```bash
+# Write the generated CA certificate, trust it in the client, then start MITM
+vigolium server --export-ca ./vigolium-proxy-ca.pem
+vigolium server --ingest-proxy-port 9003 --proxy-mitm
+```
+
+`--proxy-insecure` skips verification of the upstream server certificate and
+should be reserved for authorized test systems with self-signed TLS.
 
 ## Usage Examples
 
-### curl
+### curl (HTTPS capture with `--proxy-mitm`)
 
 ```bash
-curl -x http://localhost:9003 https://example.com/api/users
+curl -x http://localhost:9003 \
+  --cacert ./vigolium-proxy-ca.pem https://example.com/api/users
 ```
 
 ### httpx
@@ -46,6 +57,10 @@ nuclei -u https://example.com -proxy http://localhost:9003
 ### Browser
 
 Configure your browser's HTTP proxy to `localhost:9003`. In most browsers this is under network or proxy settings. For Firefox, go to Settings > Network Settings > Manual proxy configuration and set the HTTP Proxy to `localhost` with port `9003`.
+
+For any HTTPS client, trust the exported CA and start the proxy with
+`--proxy-mitm`; otherwise the connection succeeds as an opaque tunnel and is
+not recorded.
 
 ## Querying Ingested Data
 
@@ -87,7 +102,7 @@ curl -s "http://localhost:9002/api/findings?severity=high,critical" \
   -H "Authorization: Bearer my-secret-key" | jq .
 
 # Filter by module
-curl -s "http://localhost:9002/api/findings?module_name=xss-reflected" \
+curl -s "http://localhost:9002/api/findings?module_name=xss-light-url-params" \
   -H "Authorization: Bearer my-secret-key" | jq .
 
 # Filter by domain

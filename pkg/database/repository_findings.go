@@ -327,6 +327,25 @@ func (r *Repository) GetFindingByID(ctx context.Context, id int64) (*Finding, er
 	return finding, nil
 }
 
+// FindingProjectUUID returns just the project a finding belongs to, for the
+// existence-plus-scope check the mutating handlers perform before acting on it.
+// Returns sql.ErrNoRows when the finding does not exist, like GetFindingByID.
+//
+// Projected on purpose: the callers read only this one field, and a finding
+// carries its own inline request/response blobs.
+func (r *Repository) FindingProjectUUID(ctx context.Context, id int64) (string, error) {
+	finding := &Finding{}
+	err := r.db.NewSelect().
+		Model(finding).
+		Column("project_uuid").
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return "", err
+	}
+	return finding.ProjectUUID, nil
+}
+
 // HydrateFindingRequests populates the Request field on findings that were
 // loaded without it — the list query (FindingsQueryBuilder) omits the
 // request/response blobs for speed. It fetches id→request for the given findings

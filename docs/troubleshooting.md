@@ -40,7 +40,8 @@ vigolium scan -t https://example.com --strategy lite -c 5 -r 20
 
 Chromium is automatically downloaded on first use to `~/.cache/spitolas/chromium-<version>/`. If this download is blocked by network restrictions:
 
-1. Use `make deps-chrome` to build with an embedded Chromium binary.
+1. Build an embedded-browser binary with
+   `make deps-chrome && make build-embedded`.
 2. Alternatively, skip the spidering phase entirely:
 
 ```bash
@@ -58,7 +59,7 @@ Verify the target URL matches the configured scope. The scanner only tests URLs 
 Check the current scope configuration:
 
 ```bash
-vigolium project config
+vigolium config ls scope
 ```
 
 Explicitly set the scope to include your target by updating the config:
@@ -155,7 +156,8 @@ vigolium scan -t https://example.com --strategy lite --skip discovery --skip spi
 
 **Solutions:**
 
-The default database is SQLite, stored at `~/.vigolium/vigolium.db`.
+The default database is SQLite at
+`~/.vigolium/database-vgnm.sqlite`.
 
 To switch to a different database location:
 
@@ -166,10 +168,12 @@ vigolium scan --target https://example.com --db /path/to/other.db
 To reset the database and start fresh:
 
 ```bash
-vigolium db clean
+vigolium db reset --force
 ```
 
-For production deployments, consider using PostgreSQL instead of SQLite. Configure the database connection in `vigolium-configs.yaml` or via the `--db` flag with a PostgreSQL connection string.
+`--db` selects an alternate SQLite file. Configure PostgreSQL with
+`database.driver: postgres` and the `database.postgres` fields in
+`vigolium-configs.yaml`; `--db` is not a PostgreSQL DSN flag.
 
 ## Agent Mode Not Working
 
@@ -177,27 +181,33 @@ For production deployments, consider using PostgreSQL instead of SQLite. Configu
 
 **Solutions:**
 
-1. **Check backend configuration.** Agent backends are configured in the `agent` section of `vigolium-configs.yaml`. The default backend (`claude`) uses the SDK protocol and requires the `claude` CLI in PATH:
-
-```yaml
-agent:
-  default_agent: claude
-  backends:
-    claude:
-      command: claude
-      protocol: sdk
-```
-
-2. **Ensure the coding agent CLI is installed.** The default `claude` backend requires the Claude Code CLI. Other backends require their respective CLIs:
+1. **Inspect the active olium provider.** All query, Swarm, Autopilot, and
+triage calls use the in-process olium engine:
 
 ```bash
-# Verify Claude CLI is available
-claude --version
+vigolium agent --list-agents
+vigolium config ls olium
+vigolium doctor --json
 ```
 
-3. **Check API keys.** Ensure the required API keys are set as environment variables (e.g., `ANTHROPIC_API_KEY` for Claude, `OPENAI_API_KEY` for Codex).
+2. **Check the provider endpoint and credentials.** The shipped default is an
+`openai-compatible` endpoint at local Ollama. Start that endpoint and choose a
+tool-capable model, or select another provider:
 
-4. **Verify session directory permissions.** Agent sessions are stored under `~/.vigolium/agent-sessions/` by default (configurable via `agent.sessions_dir` in `vigolium-configs.yaml`). Ensure this directory is writable.
+```bash
+vigolium config set agent.olium.provider openai-codex-oauth
+vigolium config set agent.olium.oauth_cred_path ~/.codex/auth.json
+```
+
+For key providers, set `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`; the
+`anthropic-cli` provider is the one that requires a local `claude` binary.
+
+3. **Verify session directory permissions.** Agent sessions are stored under
+`~/.vigolium/agent-sessions/` by default. Ensure it is writable, then inspect a
+failed run with `vigolium agent session <uuid>` and `vigolium log <uuid>`.
+
+See [Set Up an AI Provider](getting-started/setup-agent.md) for all supported
+providers and credential fields.
 
 ## Permission Denied on Build
 

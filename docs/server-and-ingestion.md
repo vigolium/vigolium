@@ -56,7 +56,8 @@ All queries (findings, HTTP records, stats, scans) return data scoped to the pro
 
 ## Authentication
 
-All API requests (except `/health`) require a Bearer token:
+Protected API routes require a Bearer token. Health/metrics, login, Swagger,
+and static UI routes are public:
 
 ```
 Authorization: Bearer my-secret-key
@@ -68,8 +69,9 @@ API key resolution order: `VIGOLIUM_API_KEY` env var > `server.auth_api_key` in 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/` | App info (no auth required) |
+| GET | `/` | Dashboard UI (no auth required) |
 | GET | `/health` | Health check (no auth required) |
+| GET | `/ready` | Readiness check (no auth required) |
 | GET | `/metrics` | Prometheus metrics (no auth required) |
 | GET | `/swagger/*` | Swagger UI and OpenAPI spec (no auth required) |
 | GET | `/server-info` | Server status, queue depth, record/finding counts |
@@ -88,6 +90,7 @@ API key resolution order: `VIGOLIUM_API_KEY` env var > `server.auth_api_key` in 
 | POST | `/api/agent/run/query` | Single-shot agent prompt execution |
 | POST | `/api/agent/run/autopilot` | Autonomous AI-driven scanning session |
 | POST | `/api/agent/run/swarm` | AI-guided targeted vulnerability swarm |
+| POST | `/api/agent/run/audit` | Unified audit dispatcher (`auto`, `both`, `audit`, or `piolium`) |
 | GET | `/api/agent/status/list` | List agent runs |
 | GET | `/api/agent/status/:id` | Get agent run status (includes full result when completed) |
 
@@ -305,7 +308,17 @@ echo "https://example.com" | httpx -proxy http://localhost:9003
 nuclei -u https://example.com -proxy http://localhost:9003
 ```
 
-All proxied HTTP traffic is automatically recorded in the database. HTTPS CONNECT tunneling is passed through without recording.
+Plain HTTP traffic is recorded. HTTPS `CONNECT` is an opaque tunnel by
+default. To capture authorized HTTPS traffic, export and trust the generated
+CA, then enable MITM:
+
+```bash
+vigolium server --export-ca ./vigolium-proxy-ca.pem
+vigolium server --ingest-proxy-port 9003 --proxy-mitm
+```
+
+Use `--proxy-insecure` only when the upstream test service has an intentionally
+untrusted certificate.
 
 ## Querying Ingested Data
 
@@ -356,7 +369,7 @@ curl -s "http://localhost:9002/api/findings?severity=high,critical" \
   -H "Authorization: Bearer my-secret-key" | jq .
 
 # Filter by module
-curl -s "http://localhost:9002/api/findings?module_name=xss-reflected" \
+curl -s "http://localhost:9002/api/findings?module_name=xss-light-url-params" \
   -H "Authorization: Bearer my-secret-key" | jq .
 
 # Filter by domain
@@ -392,25 +405,26 @@ After ingesting HTTP records, trigger a vulnerability scan via the API.
 ### Trigger a Scan
 
 ```bash
-curl -s -X POST http://localhost:9002/api/scan \
+curl -s -X POST http://localhost:9002/api/scans/run \
   -H "Authorization: Bearer my-secret-key" \
   -H "Content-Type: application/json" \
-  -d '{}' | jq .
+  -d '{"targets":["https://example.com"]}' | jq .
 ```
 
 Force re-scan with specific modules:
 
 ```bash
-curl -s -X POST http://localhost:9002/api/scan \
+curl -s -X POST http://localhost:9002/api/scans/run \
   -H "Authorization: Bearer my-secret-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "force": true,
-    "enable_modules": ["xss-scanner", "sqli-error-based"]
+    "targets": ["https://example.com"],
+    "modules": ["xss-scanner", "sqli-error-based"]
   }' | jq .
 ```
 
-Returns `202 Accepted` on success, `409 Conflict` if a scan is already running.
+Returns `202 Accepted` on success. Target-less requests are rejected; use
+`POST /api/scan-all-records` to scan the records already in the database.
 
 ### Check Scan Status
 
@@ -430,7 +444,9 @@ See the [API Reference](api-references/scan.md) for full request/response detail
 
 ## Running AI Agents via API
 
-The agent API provides three run modes that mirror the `vigolium agent` CLI subcommands. Only one agent run can be active at a time (returns `409 Conflict` if busy).
+The agent API provides query, autopilot, swarm, and unified audit run modes.
+Runs use separate light/heavy concurrency pools; a saturated pool waits for the
+configured queue timeout and then returns `429 Too Many Requests`.
 
 ### Query — Single-Shot Agent Run
 
@@ -492,7 +508,7 @@ curl -s http://localhost:9002/api/agent/status/agt-550e8400... \
 
 Once the run completes, the response includes a `result` field with the full agent output (raw text, findings, HTTP records).
 
-See [Agent Mode](agent-mode.md) for the full agent documentation (including autopilot, swarm, context enrichment, and prompt templates) and the [API Reference](api-references/agent.md) for request/response details.
+See [Agent Mode](agentic-scan/agent-mode.md) for the full agent documentation (including autopilot, swarm, context enrichment, and prompt templates) and the [API Reference](api-references/agent.md) for request/response details.
 
 ## Input Modes Reference
 

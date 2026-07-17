@@ -1,180 +1,224 @@
 # Agent Mode
 
-Vigolium ships **8 agent subcommands** under `vigolium agent`. They split into four families:
+Vigolium currently exposes seven commands under `vigolium agent`:
 
-- **Agentic scan modes** — autonomous or AI-guided vulnerability scanning: `autopilot`, `swarm`
-- **Source audit modes** — multi-phase AI code audit: `audit` (Claude/Codex), `piolium` (Pi-native), and `audit` (unified driver that runs both back-to-back)
-- **Single-shot / interactive** — `query`, `olium`
-- **Utility** — `session`
+| Command | Use it for |
+|---|---|
+| `query` | One prompt or template against source code |
+| `autopilot` | An autonomous operator that drives Vigolium and browser tools |
+| `swarm` | A structured AI-planned native scan and triage pipeline |
+| `audit` | A unified source audit using audit, piolium, or both |
+| `triage` | AI verification of one stored finding |
+| `olium` | Interactive or one-shot general-purpose agent access |
+| `session` | Agent-run history and output inspection |
 
-The parent `vigolium agent` command itself only supports `--list-templates` and `--list-agents`. All execution requires a subcommand.
+The parent command only lists templates and agents. Run work through a
+subcommand.
 
----
+## Choosing a Command
 
-## When to use what
+- Use `query` for bounded code review or extraction with structured output.
+- Use `swarm` when you want AI planning around the deterministic native scan
+  pipeline.
+- Use `autopilot` when you want an autonomous operator to explore, scan,
+  inspect evidence, and decide its next action.
+- Use `audit` for source-only, multi-phase security review.
+- Use `triage` to confirm or reject an existing finding.
+- Use `olium` for ad-hoc interactive work that is not a scan workflow.
 
-| You want to... | Use | Why |
-|---|---|---|
-| Run a one-off prompt against code or a target (no scanning loop) | `query` | Single-shot, template-driven, returns structured findings or HTTP records |
-| Hand the agent the wheel for a full autonomous pentest | `autopilot` | One long LLM session with full Bash/Read/Write/Grep/Glob; agent picks strategy |
-| Have the AI **drive the native scanner** on a specific target | `swarm` | Master/worker pipeline: AI plans → native modules execute → optional triage+rescan |
-| Audit source code deeply (secrets, SAST triage, PoC) before or alongside a scan | `audit` | Multi-phase code audit (`lite`/`balanced`/`deep`); imports findings into the DB |
-| Same multi-phase audit but driven through Pi (`pi install` model) | `piolium` | Pi-native piolium harness; same output schema as audit, tagged separately in DB |
-| Run a unified audit (audit, fall back to piolium on failure) on one source under one AgenticScan | `audit` | Unified driver: `--driver=auto` (default) runs audit then piolium only if audit fails; `--driver=both` runs both unconditionally; per-driver child rows + post-pass findings dedup; `--driver=piolium\|audit` to force one |
-| Chat with an LLM interactively in a TUI (debug, explore, ad-hoc) | `olium` | Real-time multi-turn chat; not a security scan — general-purpose agent |
-| Review past agent runs | `session` | Lists prior runs, shows raw output and artifacts |
+## Query
 
----
+```bash
+vigolium agent query \
+  --prompt-template security-code-review \
+  --source ./src
 
-## Mode reference
-
-### `query` — single-shot prompt
-- **File:** `pkg/cli/agent.go`
-- **Use for:** code review, endpoint discovery, secret detection, ad-hoc prompts.
-- **Not for:** network scanning or multi-phase orchestration.
-- **Key flags:** `--prompt-template`, `-p/--prompt`, `--stdin`, `--source`, `--files`, `--source-label`, `--output`, `--dry-run`.
-
-### `autopilot` — autonomous agentic scan
-- **File:** `pkg/cli/agent_autopilot.go`
-- **Use for:** pentest-style engagements where you want the agent to be creative and decide what to do.
-- **How it works:** one long-running LLM session with full CLI tool access until the agent calls `halt_scan` or hits limits.
-- **Key flags:** `[prompt]`/`--prompt` (free-text task guidance — credentials and auth intent are extracted from it; the browser is always on), `-t/--target`, `--input` (curl/raw HTTP/Burp XML/URL/stdin), `--burp-bridge-url` (pull live Burp Proxy history into the project DB before the run, so the operator mines it + prior findings), `--prior-context {auto|summary|off}` (front-load a bounded summary of the project's existing traffic + findings), `--plan-file`, `--source` (auto-runs audit), `--max-commands`, `--max-duration`, `--intensity {quick|balanced|deep}`, `--audit` (`lite|balanced|deep|off`), `--diff`, `--last-commits`.
-
-### `swarm` — AI-guided multi-phase scan
-- **File:** `pkg/cli/agent_swarm.go`
-- **Use for:** target-specific scanning when you want structure (planning → native scan → triage), source-aware route discovery, or verification loops.
-- **How it works:** 10-phase pipeline — normalize → auth (opt) → source-analysis (opt) → code-audit (opt) → discover (opt) → plan (AI) → extension (opt) → native scan → triage (opt) → rescan (opt).
-- **Key flags:** `[prompt]`/`--prompt` (free-text task guidance), `-t/--target` (required with `--source`), `--input`, `--plan-file`, `--record-uuid`, `--source`, `--discover`, `--code-audit`, `--triage`, `--max-iterations`, `-m/--modules`, `--vuln-type`, `--audit {lite|balanced|deep|off}`, `--intensity`, `--only`/`--skip`/`--start-from`.
-
-### Plan file (`--plan-file`)
-Both `autopilot` and `swarm` accept `--plan-file <path>`: a single file that mixes free-text guidance and raw HTTP request(s) — exactly what you'd paste into a terminal. No frontmatter or schema.
-
-- Prose **before the first HTTP request line** becomes the instruction.
-- The request region (everything from the first request line to EOF) is split on lines that are exactly `---` into independent request blocks. Fenced ` ```http ` / ` ```request ` code blocks are also recognized.
-- `autopilot` is single-seed: the first request is the live seed; any extra blocks are folded into the instruction as labelled context.
-- `swarm` is multi-seed: every request block is fed as an independent seed input.
-- A file with no request line is treated as instruction-only (then supply `--target`/`--source`).
-- `--plan-file` owns both the instruction and the seed input, so it **cannot** be combined with `--input` or a prompt (`--prompt` / positional `[prompt]`) (autopilot also rejects `--record-uuid`).
-
+vigolium agent query -p "List every unauthenticated route" --source .
 ```
-Here are the order IDs 0254685 and 0254774 — focus on IDOR.
+
+Useful flags include `--prompt-template`, `--prompt-file`, `-p/--prompt`,
+`--stdin`, `--source`, `--files`, `--source-label`, `--output`, `--dry-run`,
+and `--max-duration`.
+
+Query is single-shot. It does not perform autonomous network scanning.
+
+## Autopilot
+
+```bash
+vigolium agent autopilot \
+  -t https://app.example.com \
+  --source ./src \
+  --intensity deep \
+  --triage
+```
+
+Autopilot's operator uses Vigolium's CLI, HTTP, browser, and source tools until
+it halts or reaches its wall-clock limit. The browser is available without a
+`--browser` flag; put credentials and login intent in the prompt.
+
+Important flags include:
+
+- input: `[prompt]`, `--prompt`, `--input`, `--plan-file`, `--record-uuid`,
+  `-t/--target`, `--burp-bridge-url`;
+- context: `--source`, `--files`, `--knowledge-base`,
+  `--knowledge-base-raw`, `--prior-context`, `--diff`, `--last-commits`;
+- audit: `--audit`, `--piolium`;
+- control: `--intensity`, `--max-duration`, `--dry-run`, `--resume`;
+- debugging: `--session-dir`, `--transcript`, `--verbose`.
+
+There is no public `--max-commands` or `--timeout` flag. Intensity selects the
+internal turn budget; use `--max-duration` for the wall-clock cap.
+
+Durable resume is available when `agent.olium.autopilot_mode` is `shadow` or
+`enforced`:
+
+```bash
+vigolium agent autopilot --resume <agentic-scan-uuid>
+```
+
+`legacy` mode does not support durable resume. See [Autopilot](autopilot.md)
+for scratchpad, candidate, checkpoint, and transcript behavior.
+
+## Swarm
+
+```bash
+vigolium agent swarm \
+  -t https://app.example.com \
+  --source ./src \
+  --discover \
+  --triage
+```
+
+Swarm normalizes inputs, optionally analyzes source and authentication, plans
+the scan, generates extensions when useful, runs native modules, and can
+triage and rescan. Useful flags include `--input`, `--record-uuid`,
+`--records-from`, `--all-records`, `--plan-file`, `--source`, `--code-audit`,
+`--audit`, `--piolium`, `--discover`, `--triage`, `--max-iterations`,
+`--max-duration`, `--only`, `--skip`, and `--start-from`.
+
+Authentication can be supplied with `--auth-config`, repeatable `--cookie`,
+repeatable `-H/--header`, or `--login-curl`. `--browser-auth` enables the
+browser-driven authentication phase.
+
+Swarm has no checkpoint `--resume` flag. `--start-from` starts a newly invoked
+pipeline at a selected phase; it does not restore an old run.
+
+## Plan Files
+
+Autopilot and swarm accept `--plan-file <path>`. A plan file can contain prose
+followed by one or more raw HTTP requests. Split request blocks with a line
+containing only `---`, or use fenced `http`/`request` blocks.
+
+```text
+Focus on cross-account order access.
 
 GET /order/details?orderId=0254809 HTTP/2
-Host: ginandjuice.shop
+Host: shop.example.com
 Cookie: session=...
 ```
-Run with: `vigolium agent autopilot --plan-file ginandjuice-plan.md` (or `swarm`).
 
-### `audit` — AI security source audit (Claude/Codex)
-- **File:** `pkg/cli/agent_audit.go`
-- **Use for:** deep code audit standalone, or as the source-aware companion to `autopilot`/`swarm`.
-- **Modes:** `lite` (3 phases), `balanced`/`scan` (9), `deep` (12), `revisit`, `confirm`, `merge`, `diff`, `longshot`, `refresh`, `reinvest`, `status`, `mock`. `--modes a,b,c` chains modes back-to-back via audit's native `--modes` (one subprocess; stops on the first non-complete mode; `--max-cost` is an aggregate cap; later modes auto-inherit the prior `--from-audit`). `--intensity deep` resolves to the chain `deep,confirm`; `quick`→`lite` and `balanced`→`balanced` stay single-mode.
-- **Key flags:** `--mode`, `--modes a,b,c`, `--list-modes` (print audit's mode graph and exit), `--source <path|git-url>`, `--provider <olium-provider>` (drives the agent **and** forwards that provider's BYOK auth: `anthropic-*` → claude, `openai-*` → codex), `--agent {claude|codex}` (pure agent selector — overrides the agent implied by `--provider` while keeping its resolved auth; reject-on-invalid), `--no-stream`.
-- **Persistent agent:** set `agent.audit.default_agent: {claude|codex}` in `vigolium-configs.yaml` to pin the audit agent without changing `agent.olium.provider` (the provider still supplies BYOK auth). It is a pure agent selector with the same semantics as `--agent`; empty inherits the provider-derived agent. Precedence (highest first): per-run `--agent` > `--provider` > `agent.audit.default_agent` > `agent.olium.provider`-derived > claude.
-- **Detail:** [`docs/agentic-scan/vigolium-audit.md`](vigolium-audit.md).
+Autopilot uses the first request as its live seed and treats the rest as
+context. Swarm treats every request as a seed. `--plan-file` cannot be combined
+with `--input` or a positional/`--prompt` prompt.
 
-### `piolium` driver — AI security source audit (Pi-native)
-- **Invoked via:** `vigolium agent audit --driver=piolium` — there is no standalone `agent piolium` subcommand. Shared driver helpers: `pkg/cli/agent_piolium.go`.
-- **Use for:** the same multi-phase audit as `audit` but running through the Pi runtime + the user-installed piolium extension. Useful when the host already has Pi configured for development work.
-- **Modes:** `lite` (4), `balanced` (9), `deep` (17), `revisit` (9), `confirm` (7), `merge` (7), `diff` (1), `longshot` (3), `status`, `smoke`.
-- **Key flags:** `--mode`, `--intensity {quick|balanced|deep}`, `--source <path|git-url>`, `--commit-depth`, `--no-stream`, `--upload-results`, plus `--plm-*` passthroughs for piolium's session flags.
-- **Detail:** [`docs/agentic-scan/piolium-audit.md`](piolium-audit.md).
+## Audit
 
-### `audit` — unified driver (audit + piolium)
-- **File:** `pkg/cli/agent_audit.go`
-- **Use for:** scoring a single source tree under one or both audit harnesses with one AgenticScan. Default `--driver=auto` runs audit first and only falls back to piolium if audit fails (a clean audit run finishes the audit and piolium is never started — so a missing piolium runtime stays silent). `--driver=both` runs audit then piolium unconditionally. Per-driver session subdirs (`{session}/audit/`, `{session}/piolium/`), per-driver child AgenticScan rows under one parent, and a post-pass project-wide findings dedup once the drivers exit.
-- **Modes:** any mode valid for a participating driver is accepted. `--modes a,b,c` chains modes back-to-back, stopping on the first non-complete mode. audit runs the chain natively (one subprocess, one row, aggregate cost); piolium chains via sequential `pi` runs in the same source tree collapsed into one aggregated child row. For `--driver=auto|both`, modes a driver can't run are skipped on that driver's leg (e.g. `--modes deep,refresh,confirm` runs all three on audit, and `deep,confirm` on piolium since `refresh` is audit-only); a mode unknown to **both** drivers is a hard error. `--intensity deep` resolves to the chain `deep,confirm` (`quick`→`lite`, `balanced`→`balanced` stay single-mode).
-- **Key flags:** `--driver {auto|both|audit|piolium}` (default `auto`), `--mode`, `--modes a,b,c`, `--list-modes` (print the mode graph and exit), `--intensity`, `--source`, `--commit-depth`, `--no-stream`, `--no-dedup`, `--upload-results`, `--provider <olium-provider>` and `--agent {claude|codex}` (both audit-leg only — `--agent` overrides the provider-implied agent without changing auth and warns, rather than errors, on `--driver=piolium`), plus the `--pi-*` and `--plm-*` flags for the piolium driver.
-- **BYOK auth:** `--api-key` / `--oauth-token` / `--oauth-cred-file` accept literal, `$ENV`, or `@path` and apply to whichever driver(s) run. Detail: [`docs/agentic-scan/audit-byok.md`](audit-byok.md).
-- **REST equivalent:** `POST /api/agent/run/audit` with `driver: "auto"|"both"|"audit"|"piolium"` (default `"auto"`).
+```bash
+# Automatic audit-driver selection
+vigolium agent audit --source . --intensity balanced
 
-### `olium` — interactive TUI chat
-- **Aliases:** top-level `vigolium olium` / `vigolium ol`
-- **File:** `pkg/cli/agent_olium.go`
-- **Use for:** interactive debugging, exploration, or one-shot headless prompts. Provider-agnostic.
-- **Not for:** orchestrated scanning — there are no scan phases.
-- **Key flags:** `--provider`, `--model`, `--llm-api-key`, `--oauth-cred`/`--oauth-token`, `--system`, `--headless`, `-p/--prompt`, `--stdin`.
+# Force one driver or run both
+vigolium agent audit --source . --driver audit --agent codex
+vigolium agent audit --source . --driver piolium
+vigolium agent audit --source . --driver both --intensity deep
+```
 
-### `session` — agent run history
-- **Aliases:** `sessions`, `sess`
-- **File:** `pkg/cli/agent_session.go`
-- **Use for:** auditing prior runs, debugging failed scans.
-- **Key flags:** `--mode {query|autopilot|pipeline|swarm}`, `-n/--limit`, `-o/--offset`, `--tail`, `--full`.
+There is one audit subcommand; piolium is selected with `--driver piolium`.
+`--driver auto` falls back to piolium only when the resolved audit coding CLI
+is unavailable during preflight. `--driver both` runs both sequentially.
 
----
+Use `--mode`, `--modes`, or `--intensity`, and inspect the current mode graph
+with `--list-modes`. The command also supports stateless HTML output,
+`--output-dir`, raw-result retention, and explicit audit-agent/BYOK flags.
 
-## Picking between `autopilot` and `swarm`
+See [Vigolium Audit](vigolium-audit.md), [Piolium](piolium-audit.md), and
+[Audit BYOK](audit-byok.md).
 
-Both are agentic scan modes. The distinction:
+## Triage
 
-- **`autopilot`** — the agent **is** the scanner. It opens a shell, reads files, runs tools, and decides everything. Best when the target is fuzzy or you want creative, exploratory testing.
-- **`swarm`** — the agent **directs** the native scanner. It plans, picks modules, generates JS extensions, and the deterministic Go pipeline does the heavy traffic. Best when you want structured, repeatable results with optional verification loops.
+```bash
+vigolium agent triage 42
+vigolium agent triage          # open the finding picker
+vigolium agent triage 42 --dry-run
+```
 
-If you have **source code** and a **target URL**, both work; `swarm --source --target ... --code-audit --triage` gives you the most structured output, while `autopilot --source ...` gives the agent more freedom.
+Triage may re-probe the target. A confirmed result sets the finding status to
+`triaged`; a false positive is downgraded to informational while retaining the
+original evidence and appended reasoning.
 
----
+## Olium
 
-## Cross-cutting
+```bash
+vigolium agent olium
+vigolium ol -p "list the routes in pkg/server"
+echo "summarize this repository" | vigolium olium -p -
+```
 
-- **Session dir:** `~/.vigolium/agent-sessions/` (override via `agent.sessions_dir` in `vigolium-configs.yaml`).
-- **Prompt templates:** `~/.vigolium/prompts/` or embedded under `public/presets/prompts/`.
-- **Output schemas:** `findings`, `http_records`, `attack_plan`, `triage_result`, `source_analysis`.
+Passing `-p/--prompt` selects non-interactive one-shot mode. There is no
+`--headless` flag. A positional prompt seeds the interactive TUI.
 
-### Skills
+Provider overrides include `--provider`, `--model`, `--base-url`,
+`--llm-api-key`, `--oauth-cred`, and `--oauth-token`. The shipped default is
+`openai-compatible`; configure its endpoint and model under
+`agent.olium.custom_provider`, or choose another provider explicitly.
 
-Skills are instructional, attack-vector playbooks (e.g. `idor-blast-radius`,
-`xss-browser-confirm`, `sqli-to-data-exfil`) the agent loads on demand via the
-`load_skill` tool. Built-ins ship embedded and are materialized to
-`~/.vigolium/skills/` on `vigolium init` (override the directory with
-`VIGOLIUM_SKILLS_DIR`); operator edits there are preserved and `vigolium init
---force` resets them. Drop your own `SKILL.md` files (with frontmatter `name`,
-`description`, optional `tags`) into that dir, `.agents/skills/`, or
-`.claude/skills/` — closer scopes win on name collision.
+## Sessions and Transcripts
 
-**Loading per mode:**
-- **olium TUI** — all skills loaded; a count line prints at startup; invoke
-  inline with `/skill:<name>`.
-- **autopilot** — a best-effort pre-flight call selects the skills matching the
-  target; the operator agent loads bodies on demand. Falls back to the full set
-  on any failure.
-- **swarm** — the **plan** phase sees the full menu and emits
-  `RECOMMENDED_SKILLS`; the **triage** phase loads that selection plus the
-  always-on set, and gets the read+replay tool subset (`query_records`,
-  `inspect_record`, `replay_request`, `attack_kit`; `browser_probe` is always a
-  builtin) so the skills are actionable.
+```bash
+vigolium agent session
+vigolium agent session --mode autopilot --limit 20
+vigolium agent session <uuid> --full
+```
 
-**Selection overrides** (autopilot + swarm): `--skill <name>` (repeatable) and
-`--skill-tag <tag>` force-include and bypass planner judgement; `--no-skill-filter`
-loads the full set. Always-on skills (default `triage-finding`, `write-jsext`)
-are configurable via `agent.olium.always_on_skills`.
-- **Engine:** every agent run is dispatched through the in-process olium runtime (`pkg/olium/`). Provider selection lives at `agent.olium.provider` in `vigolium-configs.yaml` — see [`docs/architecture/agentic-scan.md`](../architecture/agentic-scan.md) for the provider list.
-- **Source flag:** `--source` is the canonical source-code flag across all modes; the legacy `--repo`/`--repo-url` flags have been removed.
+Session directories default to `~/.vigolium/agent-sessions/` and are
+configurable with `agent.sessions_dir`.
 
-### REST API
+Olium engine runs record Pi-compatible JSONL transcripts. Direct olium and
+autopilot write `transcript.jsonl`; query and swarm write per-phase
+`transcript-<template>.jsonl` files, adding numeric suffixes for concurrent
+same-template calls. Autopilot additionally exposes `--session-dir` and
+`--transcript` convenience flags.
 
-The server exposes the same three modes plus a status/artifact surface so a controller can launch and tail runs without the CLI.
+## Cross-Cutting Behavior
 
-| Method | Path                                            | Purpose                                                                  |
-| ------ | ----------------------------------------------- | ------------------------------------------------------------------------ |
-| POST   | `/api/agent/run/query`                          | One-shot prompt execution.                                               |
-| POST   | `/api/agent/run/autopilot`                      | Launch an autopilot scan.                                                |
-| POST   | `/api/agent/run/swarm`                          | Launch a swarm scan.                                                     |
-| GET    | `/api/agent/status/list`                        | List active and historical runs (DB + in-memory merge).                  |
-| GET    | `/api/agent/status/:id`                         | Status of a single run.                                                  |
-| GET    | `/api/agent/sessions`                           | Paginated session history (richer than `/status/list`).                  |
-| GET    | `/api/agent/sessions/:id`                       | Full session detail incl. raw output, plan, child runs.                  |
-| GET    | `/api/agent/sessions/:id/logs`                  | Read or tail `runtime.log` (SSE when `Accept: text/event-stream`).       |
-| GET    | `/api/agent/sessions/:id/artifacts`             | List files inside the session_dir (recursive, capped at 500 entries).    |
-| GET    | `/api/agent/sessions/:id/artifacts/{name}`      | Read one file (`output.md`, `plan.json`, etc.). Wildcard supports nesting (`vigolium-results/state.json`). Optional `?max_bytes=N` cap (default 10 MiB, hard cap 100 MiB). |
+- `--source` is the source-code flag; legacy `--repo` flags are gone.
+- Provider configuration lives under `agent.olium`.
+- Built-in prompt templates are embedded; custom templates live under
+  `~/.vigolium/prompts/`.
+- Skills are materialized under `~/.vigolium/skills/` and can also be loaded
+  from `.agents/skills/` or `.claude/skills/`.
+- `-j/--json` on agent commands emits one compact completion summary to stdout
+  while live progress is sent to stderr.
 
-Run endpoints return `202 Accepted` with `{agentic_scan_uuid, status: "running"}` and execute in the background. The expected workflow is:
+## REST API
 
-1. POST one of the `run/*` endpoints, capture `agentic_scan_uuid`.
-2. Poll `GET /api/agent/status/:id` until `status` leaves `running`.
-3. Fetch the session artifacts via `/api/agent/sessions/:id/logs`, `/artifacts`, or `/artifacts/{name}` for the raw outputs (`output.md`, `plan.json`, `audit-stream.jsonl`, generated extensions, etc.).
+The server exposes these agent operations unless started with `--no-agent`:
 
-`stream: true` on the run endpoints opts into Server-Sent Events instead of the async response — most consumers should stick with the async flow and tail logs on demand.
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/agent/run/query` | Run query |
+| `POST` | `/api/agent/run/autopilot` | Run autopilot |
+| `POST` | `/api/agent/run/swarm` | Run swarm |
+| `POST` | `/api/agent/run/audit` | Run unified audit |
+| `POST` | `/api/agent/scans/:uuid/cancel` | Cancel an agent run |
+| `GET` | `/api/agent/status/list` | List run states |
+| `GET` | `/api/agent/status/:id` | Get one run state |
+| `GET` | `/api/agent/sessions` | List sessions |
+| `GET` | `/api/agent/sessions/:id` | Get session details |
+| `GET` | `/api/agent/sessions/:id/logs` | Read or stream logs |
+| `GET` | `/api/agent/sessions/:id/artifacts` | List artifacts |
+| `GET` | `/api/agent/sessions/:id/artifacts/*` | Read an artifact |
 
-#### Provider overrides are CLI / server-config only
-
-The CLI exposes per-invocation provider flags (`--provider`, `--model`, `--oauth-cred`, `--oauth-token`, `--llm-api-key`, `--system`). These are **not** mirrored on the REST request schemas. The server resolves the provider once from `agent.olium.*` in `vigolium-configs.yaml` and reuses it across requests, which keeps warm sessions and prompt caches stable. To switch providers on a server-side workload, edit the YAML and reload — there is no per-request override field.
+Run endpoints support asynchronous `202 Accepted` responses and streaming
+where documented. Provider selection for server workloads comes from the
+server's `agent.olium` configuration rather than per-request provider fields.
