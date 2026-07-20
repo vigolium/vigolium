@@ -114,9 +114,10 @@ func init() {
 	// Server group
 	flags.StringVar(&serverOpts.Host, "host", "0.0.0.0", "Bind address for the API server")
 	flags.IntVar(&serverOpts.ServicePort, "service-port", 9002, "Port for the REST API server")
-	flags.StringVar(
+	flags.StringVarP(
 		&serverOpts.BurpBridgeURL,
 		"burp-bridge-url",
+		"B",
 		burpbridge.URLFromEnvironment(),
 		"Merge live Burp traffic from this loopback bridge URL into /api/http-records")
 	flags.IntVar(&serverOpts.IngestProxyPort, "ingest-proxy-port", 0, "Transparent HTTP proxy port for recording traffic (0 = disabled)")
@@ -323,13 +324,6 @@ func initServerDatabase(cfg *config.DatabaseConfig, silent bool) (*database.DB, 
 
 func runServerCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
-	if serverOpts.BurpBridgeURL != "" {
-		validated, err := burpbridge.ValidateURL(serverOpts.BurpBridgeURL)
-		if err != nil {
-			return fmt.Errorf("--burp-bridge-url: %w", err)
-		}
-		serverOpts.BurpBridgeURL = validated
-	}
 
 	// --export-ca: generate (if needed) and write the MITM CA cert, then exit.
 	if serverOpts.ExportCA != "" {
@@ -337,10 +331,27 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load settings early so config values are available for API key resolution
+	// and for the server.enable_burp_bridge fallback resolved just below.
 	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
 		zap.L().Warn("Failed to load settings, using defaults", zap.Error(err))
 		settings = config.DefaultSettings()
+	}
+
+	// Burp bridge address: -B/--burp-bridge-url (which already defaults to
+	// $VIGOLIUM_BURP_BRIDGE_URL) wins; otherwise fall back to the config file,
+	// but only when server.enable_burp_bridge opts in. The bool is the gate —
+	// server.burp_bridge_url carries a default address, so without it every
+	// config would silently enable the bridge.
+	if serverOpts.BurpBridgeURL == "" && settings.Server.EnableBurpBridge {
+		serverOpts.BurpBridgeURL = firstNonEmptyString(settings.Server.BurpBridgeURL, burpbridge.DefaultURL)
+	}
+	if serverOpts.BurpBridgeURL != "" {
+		validated, verr := burpbridge.ValidateURL(serverOpts.BurpBridgeURL)
+		if verr != nil {
+			return fmt.Errorf("--burp-bridge-url: %w", verr)
+		}
+		serverOpts.BurpBridgeURL = validated
 	}
 
 	// Override SQLite path if --db flag is set, matching scan/ingest/etc.

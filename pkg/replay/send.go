@@ -147,6 +147,17 @@ func sendRawHTTP(ctx context.Context, client *gohttp.Client, raw []byte, scheme,
 	}
 }
 
+// SendRaw sends raw request bytes against scheme://hostname:port using
+// client and returns a structured *Summary (populated even on transport
+// error, so callers always get something to inspect). It is the exact
+// send + body-capture + hashing path Do() uses internally; it is exported
+// so sibling engines — notably pkg/fuzz — can reuse it without reimplementing
+// request parsing, redirect handling, or response hashing. Pass excerptCap=0
+// for DefaultExcerptCap.
+func SendRaw(ctx context.Context, client *gohttp.Client, raw []byte, scheme, hostname string, port int, noRedirects bool, excerptCap int) *Summary {
+	return sendRawHTTP(ctx, client, raw, scheme, hostname, port, noRedirects, excerptCap)
+}
+
 // Do applies mutations (or the raw override), overlays headers, sends,
 // and returns a baseline-vs-replay Result.
 //

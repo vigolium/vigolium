@@ -115,7 +115,7 @@ and refreshes the local nuclei-templates checkout used by the known-issue scan:
 vigolium update                  # update binary + nuclei templates
 vigolium update --skip-templates # only reinstall the binary
 vigolium update --skip-binary    # only refresh nuclei templates
-vigolium update -F               # skip the confirmation prompt
+vigolium update --force          # skip the confirmation prompt
 ```
 
 The binary update always installs to `~/.local/bin/vigolium`. If your running

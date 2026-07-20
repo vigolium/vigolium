@@ -77,9 +77,10 @@ mirror 'vigolium export', so a single import step can emit a fully-branded repor
 }
 
 func init() {
-	importCmd.Flags().StringVar(
+	importCmd.Flags().StringVarP(
 		&importBurpBridgeURL,
 		"burp-bridge-url",
+		"B",
 		burpbridge.URLFromEnvironment(),
 		"Import live Burp Proxy history from this loopback bridge URL into the database")
 	importCmd.Flags().Bool("upload", false, "Upload the local import source to cloud storage after import")

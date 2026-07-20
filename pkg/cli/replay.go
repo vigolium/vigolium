@@ -124,9 +124,10 @@ func init() {
 		"When the source is a stored record, update its stored response with the replay")
 	f.StringVarP(&replayOutputPath, "output", "o", "", "Write JSON result to this file (default: stdout)")
 	f.BoolVar(&replayPretty, "pretty", false, "Human-readable summary instead of JSON")
-	f.StringVar(
+	f.StringVarP(
 		&replayBurpBridgeURL,
 		"burp-bridge-url",
+		"B",
 		burpbridge.URLFromEnvironment(),
 		"Loopback Burp bridge URL used by --save-to-burp")
 	f.BoolVar(
@@ -174,6 +175,13 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	mutations, err := parseReplayMutations()
 	if err != nil {
 		return err
+	}
+	if len(replayMutations) > 0 {
+		// Non-breaking nudge: payload/mutation fuzzing now has a first-class home
+		// with wordlists, payload classes, and anomaly gating. `replay -m` still
+		// works for one-off single-payload confirmations.
+		fmt.Fprintf(os.Stderr, "%s replay -m still works, but `vigolium fuzz` is the fuller fuzzing surface "+
+			"(wordlists, --class, matchers/filters, auto-calibration).\n", terminal.InfoSymbol())
 	}
 
 	rawOverride, err := loadReplayRawOverride()

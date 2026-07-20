@@ -141,7 +141,7 @@ func init() {
 	f.StringVar(&autopilotInput, "input", "", "Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped")
 	f.BoolVar(&globalDBIsolate, "db-isolate", false, dbIsolateAgentFlagUsage)
 	f.StringVar(&autopilotRecordUUID, "record-uuid", "", "Use an HTTP record from the database as the seed input (looked up by UUID)")
-	f.StringVar(&autopilotBurpBridgeURL, "burp-bridge-url", burpbridge.URLFromEnvironment(), "Pull live Burp Proxy history into the project DB before the run (e.g. http://127.0.0.1:9009), so the pre-scan and operator can mine it alongside prior traffic. Also honors $VIGOLIUM_BURP_BRIDGE_URL")
+	f.StringVarP(&autopilotBurpBridgeURL, "burp-bridge-url", "B", burpbridge.URLFromEnvironment(), "Pull live Burp Proxy history into the project DB before the run (e.g. http://127.0.0.1:9009), so the pre-scan and operator can mine it alongside prior traffic. Also honors $VIGOLIUM_BURP_BRIDGE_URL")
 	f.StringVar(&autopilotPriorContext, "prior-context", "auto", "Front-load a bounded summary of the traffic + findings already in the project DB so the operator mines them instead of starting from scratch: auto (default; the bounded table when prior data exists), summary (one-line pointer), off")
 	f.StringVar(&autopilotOliumProvider, "provider", "", oliumProviderFlagUsage)
 	f.StringVar(&autopilotOliumModel, "model", "", "Olium model id override (falls back to agent.olium.model)")

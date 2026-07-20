@@ -106,7 +106,7 @@ vigolium storage presign --key uploads/incoming.tar.gz --method PUT --expiry 30m
 vigolium storage presign --key ugc/foo.tar.gz --json
 
 vigolium storage rm imports/old.tar.gz                            # prompts for confirmation
-vigolium storage rm imports/a.tar.gz imports/b.tar.gz -F          # batch + force
+vigolium storage rm imports/a.tar.gz imports/b.tar.gz --force     # batch + force
 vigolium storage delete ...                       # alias for rm
 ```
 

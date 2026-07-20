@@ -53,6 +53,7 @@ func init() {
 	scanURLCmd.Example = scanURLExamples
 	scanRequestCmd.Example = scanRequestExamples
 	replayCmd.Example = replayExamples
+	fuzzCmd.Example = fuzzExamples
 	updateCmd.Example = updateExamples
 	jsCmd.Example = jsExamples
 	importCmd.Example = importExamples
@@ -324,6 +325,20 @@ var listQueryFlagGroups = []flagGroup{
 	{"Replay", []string{"replay", "concurrency", "with-browser", "burp-bridge-url", "save-to-vigolium-db", "save-to-burp", "in-replace", "timeout"}},
 }
 
+// fuzzFlagGroups categorizes `vigolium fuzz`. Every visible local flag must land
+// in exactly one group (guarded by TestFlagGroups_CoverAllVisibleFlags) so the
+// trailing "Other:" section only ever holds cobra's auto-added --help.
+var fuzzFlagGroups = []flagGroup{
+	{"Source", []string{"input", "input-file", "record-uuid", "target"}},
+	{"Request Builder", []string{"request", "header", "data"}},
+	{"Positions", []string{"fuzz", "point", "fuzz-header", "keyword"}},
+	{"Payloads", []string{"class", "wordlist", "payload"}},
+	{"Matchers", []string{"match-status-code", "match-size", "match-words", "match-lines", "match-regex", "match-time"}},
+	{"Filters", []string{"filter-status-code", "filter-size", "filter-words", "filter-lines", "filter-regex", "filter-time"}},
+	{"Speed & Behaviour", []string{"no-calibrate", "concurrency", "delay", "timeout", "no-redirects"}},
+	{"Output", []string{"output", "all-results", "pretty", "fail-on-match"}},
+}
+
 // replayFlagGroups categorizes `vigolium replay`.
 var replayFlagGroups = []flagGroup{
 	{"Input & Selection", []string{"input", "input-file", "raw-request", "raw-request-file", "record-uuid", "finding-id", "target"}},
@@ -400,6 +415,7 @@ var commandFlagGroups = map[*cobra.Command][]flagGroup{
 	trafficCmd: listQueryFlagGroups,
 	dbListCmd:  listQueryFlagGroups,
 	replayCmd:  replayFlagGroups,
+	fuzzCmd:    fuzzFlagGroups,
 	ingestCmd:  ingestFlagGroups,
 	serverCmd:  serverFlagGroups,
 	exportCmd:  exportFlagGroups,

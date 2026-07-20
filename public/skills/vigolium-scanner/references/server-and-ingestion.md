@@ -22,7 +22,7 @@ Start the API server with Swagger UI, ingestion endpoints, and optional scan-on-
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--alternative-ingest-key` | — | []string | — | Additional API key for ingestion endpoints (repeatable) |
-| `--burp-bridge-url` | — | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Merge live Burp traffic from this loopback bridge URL into `/api/http-records` |
+| `--burp-bridge-url` | `-B` | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Merge live Burp traffic from this loopback bridge URL into `/api/http-records` |
 | `--catchup-threads` | — | int | `4` | **Deprecated: no-op** (catch-up scanning is disabled; the live scan-on-receive scanner covers post-cursor records) |
 | `--demo-only` | — | bool | `false` | Expose only the demo allowlist (GET `/api/findings`, `/api/http-records`, `/api/modules`, `/api/stats`, `/api/extensions`) |
 | `--disable-catchup` | — | bool | `false` | **Deprecated: no-op** (catch-up scanning is already disabled) |
@@ -283,7 +283,7 @@ search term), so it inherits all the `traffic` filter flags.
 | `--with-browser` | bool | `false` | Replay each URL through a real browser routed via `--proxy`, so Burp captures browser-driven traffic (real TLS fingerprint, JS execution, subresource loads). A navigation is a GET, so non-GET method/body are not reproduced. |
 | `--in-replace` | bool | `false` | Overwrite each stored response with the new replay response |
 | `--timeout` | duration | `15s` | Per-request timeout for the replay |
-| `--burp-bridge-url` | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Merge live traffic from this loopback Burp bridge URL with local DB records |
+| `--burp-bridge-url` / `-B` | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Merge live traffic from this loopback Burp bridge URL with local DB records |
 | `--save-to-vigolium-db` | bool | `false` | Persist the live Burp records selected by the active filters into the database |
 | `--save-to-burp` | bool | `false` | Copy the DB records selected by the active filters into Burp's Target site map |
 

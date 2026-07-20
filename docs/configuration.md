@@ -334,7 +334,15 @@ server:
   ingest_proxy_port: 0             # 0 = disabled
   cors_allowed_origins: reflect-origin
   enable_metrics: true
+  enable_burp_bridge: false        # opt in to merging live Burp Proxy history into /api/http-records
+  burp_bridge_url: 'http://127.0.0.1:9009'
 ```
+
+`enable_burp_bridge` is the gate, not `burp_bridge_url`. The URL ships with a
+default address, so the bool is what decides whether the bridge is contacted —
+otherwise every config would silently enable it. Precedence is
+`-B/--burp-bridge-url` → `$VIGOLIUM_BURP_BRIDGE_URL` → config (only when
+`enable_burp_bridge: true`). Passing the flag works regardless of the bool.
 
 ### `agent`
 

@@ -5,6 +5,12 @@ import (
 	"fmt"
 )
 
+// DefaultBurpBridgeURL is the loopback address the Vigolium Burp extension
+// listens on. Kept as a literal rather than referencing burpbridge.DefaultURL
+// because pkg/burpbridge imports pkg/database, which imports this package —
+// TestDefaultBurpBridgeURLMatchesBridge in pkg/cli guards the two staying equal.
+const DefaultBurpBridgeURL = "http://127.0.0.1:9009"
+
 // ServerConfig holds API server configuration
 type ServerConfig struct {
 	AuthAPIKey         string `yaml:"auth_api_key"`
@@ -19,6 +25,8 @@ type ServerConfig struct {
 	AgentQueueTimeout  string `yaml:"agent_queue_timeout"` // max wait when all agent slots busy; 0/empty = default 30s
 	License            string `yaml:"license"`             // license identifier surfaced in /server-info for UI display
 	MirrorFSPath       string `yaml:"mirror_fs_path"`      // when set, mirror ingested traffic + findings to this dir as a live filesystem tree (see --mirror-fs)
+	EnableBurpBridge   bool   `yaml:"enable_burp_bridge"`  // opt in to merging live Burp Proxy history into /api/http-records using BurpBridgeURL (see -B/--burp-bridge-url)
+	BurpBridgeURL      string `yaml:"burp_bridge_url"`     // loopback Burp bridge address used when EnableBurpBridge is set; -B/--burp-bridge-url and $VIGOLIUM_BURP_BRIDGE_URL take precedence
 }
 
 // DefaultServerConfig returns default server configuration
@@ -30,6 +38,7 @@ func DefaultServerConfig() *ServerConfig {
 		ServicePort:        9002,
 		CORSAllowedOrigins: "reflect-origin",
 		EnableMetrics:      true,
+		BurpBridgeURL:      DefaultBurpBridgeURL,
 	}
 }
 

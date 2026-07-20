@@ -15,7 +15,7 @@ var storageRmCmd = &cobra.Command{
 	Use:     "rm <key> [<key>...]",
 	Aliases: []string{"delete"},
 	Short:   "Delete one or more objects from cloud storage",
-	Long:    "Permanently delete objects from the active project's storage. Prompts for confirmation unless --force / -F is set.",
+	Long:    "Permanently delete objects from the active project's storage. Prompts for confirmation unless --force is set.",
 	Args:    cobra.MinimumNArgs(1),
 	RunE:    runStorageRm,
 }

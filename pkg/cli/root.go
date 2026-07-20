@@ -279,7 +279,7 @@ func init() {
 
 	pf.BoolVarP(&globalListModules, "list-modules", "M", false, "List all available scanner modules")
 	pf.BoolVar(&globalListInputModes, "list-input-mode", false, "List all supported input modes with examples")
-	pf.BoolVarP(&globalForce, "force", "F", false, "Skip confirmation prompts")
+	pf.BoolVar(&globalForce, "force", false, "Skip confirmation prompts")
 	pf.BoolVar(&globalSkipDependencyCheck, "skip-dependency-check", false, "Skip the first-run dependency check (chromium, nuclei templates) and stamp ~/.vigolium/initialized immediately")
 	pf.BoolVar(&globalSoftFail, "soft-fail", false, "Always exit 0, even when a command fails (error is still printed to stderr; keeps wrapping scripts/CI from being interrupted)")
 	pf.IntVar(&globalWidth, "width", 70, "Maximum column width for table output")

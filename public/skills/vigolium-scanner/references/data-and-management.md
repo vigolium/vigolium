@@ -751,15 +751,15 @@ Config file location: `~/.vigolium/vigolium-configs.yaml`
 
 ## config clean
 
-**Usage:** `vigolium config clean [-F/--force]`
+**Usage:** `vigolium config clean [--force]`
 
 Reset Vigolium to a clean state: remove the entire `~/.vigolium/` directory (config, database, extensions, prompts, SAST rules, session directories) and regenerate fresh defaults by running the same bootstrap as `vigolium init`.
 
-Prompts for `yes` confirmation unless `-F/--force` is passed.
+Prompts for `yes` confirmation unless `--force` is passed.
 
 ```bash
 vigolium config clean
-vigolium config clean -F            # skip confirmation
+vigolium config clean --force       # skip confirmation
 ```
 
 Warning shown:
@@ -1010,14 +1010,14 @@ vigolium storage presign --key uploads/new.tar.gz --method PUT --expiry 30m --js
 
 **Usage:** `vigolium storage rm <key> [<key>...] [flags]` (alias `delete`)
 
-Permanently delete one or more objects from the active project's storage. Prompts for confirmation (typed `yes`) unless `-F` / `--force` is set.
+Permanently delete one or more objects from the active project's storage. Prompts for confirmation (typed `yes`) unless `--force` is set.
 
 ```bash
 # Single delete (prompts for confirmation)
 vigolium storage rm ugc/foo.tar.gz
 
 # Bulk delete, skip confirmation
-vigolium storage rm ugc/a.pdf ugc/b.pdf -F
+vigolium storage rm ugc/a.pdf ugc/b.pdf --force
 ```
 
 ---

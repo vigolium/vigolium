@@ -1236,6 +1236,27 @@ var projectDeleteExamples = FormatExamples(
 	"vigolium project rm 9b2f-...",
 )
 
+var fuzzExamples = FormatExamples(
+	"# Throw the built-in SQLi class at a URL param, keep only 500s",
+	"vigolium fuzz 'https://acme.test/item?id=FUZZ' --class sqli --match-status-code 500",
+	"# Fuzz one exact insertion point with a custom wordlist (auto-calibrated)",
+	"vigolium fuzz -i req.txt --point URL_PARAM:id -w /list/sqli.txt --filter-status-code 404",
+	"# Content discovery: brute-force a path segment with a builtin wordlist",
+	"vigolium fuzz 'https://acme.test/FUZZ' -w dir-short --match-status-code 200,301,403",
+	"# Fuzz the HTTP method (verb) with inline payloads",
+	"vigolium fuzz 'https://acme.test/admin' --fuzz method -p PUT -p DELETE -p PATCH --match-status-code all",
+	"",
+	"# AGENT: -j prints ONE summary object to stdout (JSONL streams to stderr)",
+	"vigolium fuzz 'https://acme.test/item?id=FUZZ' --class sqli,xss --match-status-code 500 -j",
+	"# AGENT: gate a pipeline — exit non-zero when any payload matches",
+	"vigolium fuzz -i req.txt --fuzz params --class lfi --match-regex 'root:.*:0:0' --fail-on-match",
+	"# Fuzz a header via a persistent proxy (Burp) for inspection",
+	"HTTP_PROXY=http://127.0.0.1:8080 vigolium fuzz -i req.txt --fuzz-header X-Forwarded-For --class ssrf",
+	"",
+	"# NOTE: fuzz reports raw signals, not verdicts. To confirm known classes with",
+	"# the hardened module scanner: vigolium scan-request -i req.txt -m sqli,xss -j",
+)
+
 var replayExamples = FormatExamples(
 	"# Confirm a stored record with a SQLi payload",
 	"vigolium replay --record-uuid abc12345 -m 'name=id,payload=1 OR 1=1'",
@@ -1260,8 +1281,6 @@ var replayExamples = FormatExamples(
 	"vigolium replay --all --save-to-burp --burp-bridge-url http://127.0.0.1:9009 -c 5",
 	"# BULK: replay every record from a standalone export (project scoping off)",
 	"vigolium replay -S --db scan.sqlite --all --proxy http://127.0.0.1:8080 -c 5",
-	"# BULK: fuzz an 'id' param across every matching GET record",
-	"vigolium replay --method GET --host api.example.com -m 'name=id,payload=1 OR 1=1'",
 )
 
 var agentTriageExamples = FormatExamples(

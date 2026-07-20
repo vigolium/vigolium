@@ -32,7 +32,7 @@ func TestGroupedFlagUsages_PipedIsTerse(t *testing.T) {
 		t.Errorf("terse output missing pointer to full help:\n%s", out)
 	}
 	// Hint flags render with their shorthand when present.
-	for _, want := range []string{"-v/--verbose", "-j/--json", "--proxy", "-F/--force"} {
+	for _, want := range []string{"-v/--verbose", "-j/--json", "--proxy", "--force"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("terse output missing hint %q:\n%s", want, out)
 		}

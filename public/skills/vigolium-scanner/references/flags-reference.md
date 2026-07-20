@@ -23,6 +23,7 @@ Alphabetical index of all vigolium CLI flags across all commands.
 - [Import Flags](#import-flags)
 - [Finding Flags](#finding-flags)
 - [Traffic Flags](#traffic-flags)
+- [Fuzz Flags](#fuzz-flags)
 - [Replay Flags](#replay-flags)
 - [DB Flags](#db-flags)
 - [Storage Flags](#storage-flags)
@@ -204,7 +205,7 @@ Flags specific to `vigolium server`.
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--alternative-ingest-key` | — | []string | — | Additional API key for ingestion endpoints (repeatable) |
-| `--burp-bridge-url` | — | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Merge live Burp traffic from this loopback bridge URL into `/api/http-records` |
+| `--burp-bridge-url` | `-B` | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Merge live Burp traffic from this loopback bridge URL into `/api/http-records` |
 | `--catchup-threads` | — | int | `4` | **Deprecated: no-op** (catch-up scanning is disabled — the live scan-on-receive scanner covers post-cursor records) |
 | `--demo-only` | — | bool | `false` | Expose only the demo allowlist (GET `/api/findings`, `/api/http-records`, `/api/modules`, `/api/stats`, `/api/extensions`) |
 | `--disable-catchup` | — | bool | `false` | **Deprecated: no-op** (catch-up scanning is already disabled) |
@@ -282,7 +283,7 @@ Flags specific to `vigolium agent autopilot`. Also accepts a positional natural-
 | `--target` | `-t` | string | — | Target URL (derived from `--input` if not set) |
 | `--input` | — | string | — | Raw input (curl, raw HTTP, Burp XML, URL, base64). Reads from stdin if piped |
 | `--record-uuid` | — | string | — | Use an HTTP record from the database as the seed input |
-| `--burp-bridge-url` | — | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Pull live Burp Proxy history into the project DB before the run (e.g. `http://127.0.0.1:9009`), so the operator mines it + prior findings |
+| `--burp-bridge-url` | `-B` | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Pull live Burp Proxy history into the project DB before the run (e.g. `http://127.0.0.1:9009`), so the operator mines it + prior findings |
 | `--prior-context` | — | string | `auto` | Front-load a bounded summary of the project's existing traffic + findings so the operator mines them instead of starting from scratch: `auto` (default; the bounded table when prior data exists), `summary` (one-line pointer), `off` |
 | `--knowledge-base` | — | string | — | Path to a markdown file or directory of docs describing the app (auth model, login flows, roles, business logic). An LLM distills them into a compact brief + document index front-loaded into the operator; the full docs stay on disk and are read on demand (`read_file`/`grep`), so a big docs tree never floods the context. Works blackbox and whitebox. The distilled brief is cached at `<session-dir>/knowledge-base-brief.md` |
 | `--knowledge-base-raw` | — | bool | `false` | Skip the LLM distillation of `--knowledge-base`: front-load a deterministic document index only (offline / reproducible). No-op without `--knowledge-base` |
@@ -517,7 +518,7 @@ The `--tail` / `--full` / `--follow` / `--strip-ansi` / `--raw` flags are on `lo
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--burp-bridge-url` | — | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Import live Burp Proxy history from this loopback bridge URL into the database |
+| `--burp-bridge-url` | `-B` | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Import live Burp Proxy history from this loopback bridge URL into the database |
 | `--glob-db` | — | string | — | Glob of local files to import alongside any positional paths (one format per run), e.g. `--glob-db 'prefix-*.sqlite'` or `'*.jsonl'` |
 | `--format` | — | string | — | Also write a report after import: `html`, `report`, `pdf`, or `markdown` (`md`). Mirrors `vigolium export --format` |
 | `--output` | `-o` | string | — | Report output path or `gs://<project>/<key>` URL (required when `--format` is set; supports `{ts}`) |
@@ -653,11 +654,88 @@ Traffic replay + Burp-bridge flags (see also `traffic --replay` in `references/s
 | `--with-browser` | — | bool | `false` | Replay each URL through a real browser routed via `--proxy` (`--replay`) |
 | `--in-replace` | — | bool | `false` | With `--replay`, overwrite each stored response with the new replay |
 | `--timeout` | — | duration | `15s` | Per-request timeout for `--replay` |
-| `--burp-bridge-url` | — | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Merge live traffic from this loopback Burp bridge URL with local DB records |
+| `--burp-bridge-url` | `-B` | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Merge live traffic from this loopback Burp bridge URL with local DB records |
 | `--save-to-vigolium-db` | — | bool | `false` | Persist the live Burp records selected by the filters into the database |
 | `--save-to-burp` | — | bool | `false` | Copy the DB records selected by the filters into Burp's Target site map |
 
 ---
+
+## Fuzz Flags
+
+Flags for the top-level `vigolium fuzz` command — a low-level, controllable
+fuzzing **primitive**: inject a payload set into chosen positions of ONE request
+and stream per-payload response signals (status/size/words/lines/time/reflection/
+baseline-delta) with match/filter gating and auto-calibration.
+
+`fuzz` reports raw signals, not verdicts, and emits no findings — the caller
+(you) brings the intelligence. For confirmation-backed detection of KNOWN
+vulnerability classes, prefer the hardened module scanner:
+`vigolium scan-request -i req.txt -m xss,sqli -j`. Reach for `fuzz` when you need
+custom payloads, an exact position, or wordlist-scale discovery the modules can't
+express.
+
+Source (one of; else pipe a request on stdin):
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| _(positional)_ | — | url | — | A URL to build a request from (combine with `-X`/`-H`/`-d`) |
+| `--input` | `-i` | string | — | Raw input: curl, raw HTTP, Burp XML, base64, URL, or `-` for stdin |
+| `--input-file` | — | string | — | Read `--input` value from a file |
+| `--record-uuid` | `-u` | string | — | Use a stored HTTP record (by UUID) as the request to fuzz |
+| `--target` | `-t` | string | — | Override scheme/host/port the request is sent to (e.g. a scheme-less raw request → `http://...`) |
+
+Request builder (with a positional URL):
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--request` | `-X` | string | `GET` | HTTP method |
+| `--header` | `-H` | []string | — | Request header `Name: value` (repeatable) |
+| `--data` | `-d` | string | — | Request body |
+
+Positions — what to fuzz (a literal `FUZZ` marker anywhere in the request wins if present):
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fuzz` | — | string | _(all insertion points)_ | `method`\|`path`\|`params`\|`param-name`\|`headers`\|`cookies`\|`all` |
+| `--point` | — | []string | — | Explicit insertion point `TYPE:name` e.g. `URL_PARAM:id` (repeatable) |
+| `--fuzz-header` | — | []string | — | Fuzz a specific header by name (repeatable) |
+| `--keyword` | — | string | `FUZZ` | Marker keyword replaced by each payload when present |
+
+Payloads (combine freely):
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--class` | — | []string | — | Built-in class(es): `xss,sqli,ssti,ssrf,lfi,path_traversal,xxe,cmdi,open_redirect,crlf` (aliases: `traversal`,`cmd`,`rce`,`redirect`,`sql`,`template`) |
+| `--wordlist` | `-w` | []string | — | Wordlist: a builtin (`fuzz`,`dir-short`,`dir-long`,`file-short`,`file-long`) or a file path (repeatable) |
+| `--payload` | `-p` | []string | — | Inline payload literal (repeatable) |
+
+Matchers keep a response (OR across categories; empty = keep all); filters drop it (OR). `fuzz` markers in the request line are auto-encoded so payloads with spaces stay well-formed.
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--match-status-code` | []string | Match status codes (comma-list, or `all`) |
+| `--match-size` / `--match-words` / `--match-lines` | []int | Match response size / word / line counts |
+| `--match-regex` | string | Match response body against this regex |
+| `--match-time` | int | Match responses taking ≥ this many ms |
+| `--filter-status-code` / `--filter-size` / `--filter-words` / `--filter-lines` | []int | Filter out status / size / word / line counts |
+| `--filter-regex` | string | Filter out responses whose body matches this regex |
+| `--filter-time` | int | Filter out responses taking ≥ this many ms |
+
+Speed, behaviour & output:
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--no-calibrate` | — | bool | `false` | Disable auto-calibration of the target's catch-all response |
+| `--concurrency` | `-c` | int | `10` | Concurrent requests |
+| `--delay` | — | int | `0` | Delay in ms before each request (per worker) |
+| `--timeout` | — | duration | `25s` | Per-request timeout |
+| `--no-redirects` | — | bool | `false` | Don't follow 30x redirects |
+| `--output` | `-o` | string | — | Write JSONL results to this file (default: stdout) |
+| `--all-results` | — | bool | `false` | Emit every result, not just matched ones |
+| `--pretty` | — | bool | `false` | Human-readable table instead of JSONL |
+| `--fail-on-match` | — | bool | `false` | Exit non-zero (3) if any result matches (for agent/CI gating) |
+
+**Agent JSON contract:** with the global `-j/--json`, `fuzz` streams per-payload JSONL to **stderr** and prints ONE summary object to **stdout**: `{target, positions, payloads, sent, matched, calibrated, errors, baseline, top_results, query}` — `top_results` are the ranked anomalies (status-changed / reflected / largest delta first) and `query` is a ready `scan-request` confirmation command. Network policy honors `HTTP_PROXY`/`HTTPS_PROXY` for Burp inspection.
 
 ## Replay Flags
 
@@ -694,7 +772,7 @@ Session / network:
 | `--target` | `-t` | string | — | Override scheme/host/port (e.g. `https://staging.example.com`) |
 | `--timeout` | — | duration | `25s` | Per-request timeout |
 | `--proxy` | — | string | — | Route the replay through this proxy (also honors `HTTP_PROXY`/`HTTPS_PROXY`) |
-| `--burp-bridge-url` | — | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Loopback Burp bridge URL to pull/replay against |
+| `--burp-bridge-url` | `-B` | string | `$VIGOLIUM_BURP_BRIDGE_URL` | Loopback Burp bridge URL to pull/replay against |
 | `--save-to-burp` | — | bool | `false` | Copy the replayed request(s) into Burp's Target site map |
 
 Result handling:

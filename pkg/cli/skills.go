@@ -134,7 +134,7 @@ Destination is chosen from --agent and --scope:
   --agent claude          .claude/skills/   (project)   ~/.claude/skills/   (global)
   --agent codex|agents    .agents/skills/   (project)   ~/.agents/skills/   (global)
 
-An already-installed skill is skipped unless -F/--force is given. --dir
+An already-installed skill is skipped unless --force is given. --dir
 overrides the computed destination entirely.`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -446,7 +446,7 @@ func runSkillsInstall(names []string) error {
 	for _, b := range targets {
 		dest := filepath.Join(baseDir, b.Name)
 		if _, statErr := os.Stat(filepath.Join(dest, "SKILL.md")); statErr == nil && !globalForce {
-			fmt.Printf("%s %s already installed at %s (use -F/--force to overwrite)\n",
+			fmt.Printf("%s %s already installed at %s (use --force to overwrite)\n",
 				terminal.WarningSymbol(), terminal.Cyan(b.Name), terminal.Gray(dest))
 			skipped++
 			continue

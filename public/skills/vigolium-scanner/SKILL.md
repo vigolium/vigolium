@@ -153,7 +153,7 @@ Use this to find the right command quickly:
 | Download an object | `vigolium storage download ugc/foo.tar.gz -o foo.tar.gz` |
 | Download a scan's result bundle | `vigolium storage results <scan-uuid>` |
 | Generate a presigned GET/PUT URL | `vigolium storage presign --key ugc/foo.tar.gz --method GET --expiry 1h` |
-| Delete cloud-storage objects | `vigolium storage rm ugc/foo.tar.gz` (add `-F` to skip confirm) |
+| Delete cloud-storage objects | `vigolium storage rm ugc/foo.tar.gz` (add `--force` to skip confirm) |
 | List agent sessions | `vigolium agent session` or `vigolium agent session <uuid>` |
 | Seed database with sample data | `vigolium db seed` |
 | Import findings from file | `vigolium finding load findings.jsonl` (positional/stdin, not `-i`) |
@@ -1033,9 +1033,9 @@ vigolium storage results 550e8400-e29b-41d4-a716-446655440000
 vigolium storage presign --key ugc/foo.tar.gz --method GET --expiry 1h
 vigolium storage presign --key ugc/foo.tar.gz --method PUT --expiry 30m --json
 
-# Delete one or more objects (prompts unless -F)
+# Delete one or more objects (prompts unless --force)
 vigolium storage rm ugc/foo.tar.gz
-vigolium storage rm ugc/a.pdf ugc/b.pdf -F
+vigolium storage rm ugc/a.pdf ugc/b.pdf --force
 ```
 
 Many agent and scan commands accept a `--source gs://<project>/<key>` URL for source archives — they're downloaded, extracted (`.zip / .tar.gz / .tar.bz2 / .tar.xz`), and cleaned up automatically. Use `--upload-results` on `scan`, `agent autopilot`, `agent swarm`, `agent audit`, and `agent query` to bundle the session/output and push it to storage at the end of the run.
@@ -1168,7 +1168,7 @@ vigolium init
 # Regenerate the API key and re-extract all preset data
 vigolium init --force
 
-# Wipe ~/.vigolium entirely and reinitialize (prompts for confirmation; use -F/--force to skip)
+# Wipe ~/.vigolium entirely and reinitialize (prompts for confirmation; use --force to skip)
 vigolium config clean
 
 # Diagnose installation health (binaries, paths, permissions)
@@ -1226,7 +1226,7 @@ These flags are available on all commands (persistent flags on root):
 | `--config` | — | `~/.vigolium/vigolium-configs.yaml` | Config file path |
 | `--stateless` | — | `false` | Use a temporary database, export results to `--output`, then discard |
 | `--no-clustering` | — | `false` | Disable de-duplication of identical concurrent HTTP requests |
-| `--force` | `-F` | `false` | Skip confirmation prompts |
+| `--force` | — | `false` | Skip confirmation prompts |
 | `--list-modules` | `-M` | `false` | List all scanner modules |
 | `--list-input-mode` | — | `false` | List all supported input modes with examples |
 | `--width` | — | `70` | Max column width for tables |
@@ -1317,7 +1317,7 @@ These flags apply to `scan`, `scan-url`, `scan-request`, and `run` commands:
 - `vigolium storage *` commands require `storage.enabled: true` (or `VIGOLIUM_STORAGE_ENABLED=true`) plus driver/bucket/access-key/secret-key configured. They scope to the active project (`--project-uuid` / `--project-name` / `VIGOLIUM_PROJECT`)
 - `--source` accepts a local path, a git URL (auto-cloned with `--commit-depth`), a local archive (`.zip / .tar.gz / .tar.bz2 / .tar.xz` — auto-extracted), or a `gs://<project>/<key>` URI (downloaded + extracted). Applies to `agent audit`
 - `vigolium init` is a no-op on an existing installation unless `--force` is passed (regenerates API key + re-extracts preset data)
-- `vigolium config clean` prompts for confirmation unless `-F/--force` is passed; it wipes the entire `~/.vigolium/` directory
+- `vigolium config clean` prompts for confirmation unless `--force` is passed; it wipes the entire `~/.vigolium/` directory
 
 ## Resources
 

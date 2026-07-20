@@ -1262,7 +1262,7 @@ clear everything and reclaim space in one step:
 > Delete all records and reclaim space
 ```
 ```bash
-vigolium db clean --all -F
+vigolium db clean --all --force
 ```
 
 **Seed database with sample data (for development/testing):**
@@ -1659,7 +1659,7 @@ vigolium init --force      # regenerate API key + re-extract preset data
 ```
 ```bash
 vigolium config clean      # prompts for confirmation
-vigolium config clean -F   # skip prompt
+vigolium config clean --force   # skip prompt
 ```
 
 **Run a health check on the installation:**

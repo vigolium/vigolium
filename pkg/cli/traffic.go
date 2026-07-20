@@ -182,9 +182,10 @@ func init() {
 	f.BoolVarP(&trafficAll, "all", "a", false, "List/replay every matched record (ignore the -n/--limit cap); pair with --replay to re-send all stored traffic")
 	f.IntVarP(&trafficReplayConcurrency, "concurrency", "c", 10, "Concurrent replays (--replay); keep low to avoid overwhelming an intercepting proxy like Burp")
 	f.BoolVar(&trafficReplayBrowser, "with-browser", false, "Replay each URL through a real browser routed via --proxy (--replay), so Burp captures browser-driven traffic")
-	f.StringVar(
+	f.StringVarP(
 		&trafficBurpBridgeURL,
 		"burp-bridge-url",
+		"B",
 		burpbridge.URLFromEnvironment(),
 		"Merge live traffic from this loopback Burp bridge URL with local database records")
 	f.BoolVar(

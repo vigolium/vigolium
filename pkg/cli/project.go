@@ -273,7 +273,7 @@ func autoCreateProject(ctx context.Context, repo *database.Repository, cmd *cobr
 var projectDeleteCmd = &cobra.Command{
 	Use:     "delete <project-uuid>",
 	Short:   "Delete a project and every record tied to it",
-	Long:    "Permanently delete a project along with its scans, HTTP records, findings, scopes, OAST interactions, agentic scans, authentication hostnames, and scan logs. The default project cannot be deleted. Prompts for confirmation unless --force / -F is set; pass --keep-config to retain the project's config directory on disk.",
+	Long:    "Permanently delete a project along with its scans, HTTP records, findings, scopes, OAST interactions, agentic scans, authentication hostnames, and scan logs. The default project cannot be deleted. Prompts for confirmation unless --force is set; pass --keep-config to retain the project's config directory on disk.",
 	Aliases: []string{"rm", "remove"},
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
