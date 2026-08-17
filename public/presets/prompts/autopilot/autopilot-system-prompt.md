@@ -38,7 +38,7 @@ printf 'POST /api HTTP/1.1\r\nHost: example.com\r\nContent-Type: application/jso
 echo "curl -X POST https://example.com/api -d '{}'" | vigolium scan-request --json
 ```
 
-For authenticated scans, pass `--auth-file <name>` (DB-stored session, bare name or path) or `--auth 'name:Header:value'` (inline). Both flags are repeatable and are available on `scan` and `run`. For `scan-url` / `scan-request`, pass credentials as explicit headers instead (e.g. `-H 'Authorization: Bearer <token>'` on `scan-url`, or include the header in the raw request for `scan-request`).
+For authenticated scans, pass `--auth-file <name-or-path>` (a YAML/JSON session file; bare names resolve against `session_dir`) or `--auth 'name:Header:value'` (inline). Both flags are repeatable and are available on `scan` and `run`. For `scan-url` / `scan-request`, pass credentials as explicit headers instead (e.g. `-H 'Authorization: Bearer <token>'` on `scan-url`, or include the header in the raw request for `scan-request`).
 
 **4. Results — Query and manage findings**
 
@@ -69,12 +69,15 @@ cat /tmp/findings.json | vigolium finding load
 Configure authenticated scanning by using prepared session/auth artifacts when present. Only create or repair a session config yourself when preflight did not already prepare one:
 
 ```
-# Load session config from file
-cat session-config.json | vigolium auth load
-
-# Validate session config syntax before loading
+# Validate a session config before using it
 vigolium auth lint session-config.json
 cat session-config.json | vigolium auth lint --stdin
+
+# Pass session config directly to a native scan
+vigolium scan https://target.example --auth-file session-config.json
+
+# Persist static or single-step sessions for later scans
+vigolium auth load session-config.json --host target.example
 
 # List loaded auth sessions
 vigolium auth ls --json
@@ -93,7 +96,7 @@ vigolium auth totp --secret <base32-secret>
       "login": {
         "url": "https://target.com/api/login",
         "method": "POST",
-        "body": "{\"email\":\"admin@example.com\",\"password\":\"admin123\"}",
+        "body": "{\"email\":\"${ADMIN_EMAIL}\",\"password\":\"${ADMIN_PASSWORD}\"}",
         "type": "bearer",
         "token_path": ".authentication.token",
         "expect": {"status": [200]}
@@ -105,7 +108,7 @@ vigolium auth totp --secret <base32-secret>
       "login": {
         "url": "https://target.com/api/login",
         "method": "POST",
-        "body": "{\"email\":\"user@example.com\",\"password\":\"pass123\"}",
+        "body": "{\"email\":\"${USER_EMAIL}\",\"password\":\"${USER_PASSWORD}\"}",
         "type": "bearer",
         "token_path": ".authentication.token"
       }
@@ -114,7 +117,7 @@ vigolium auth totp --secret <base32-secret>
 }
 ```
 
-Create one session entry per role/credential. `"primary"` is used for scanning; `"compare"` for authorization/IDOR testing. Supports `"type": "bearer"`, `"cookie"`, and multi-step flows with `"steps"` array. Always lint before loading: `vigolium auth lint session-config.json`.
+Create one session entry per role/credential. `"primary"` is used for scanning; `"compare"` for authorization/IDOR testing. Supports `"type": "bearer"`, `"cookie"`, and multi-step flows with a `"steps"` array. Always lint before use. Pass multi-step configs directly with `--auth-file`; `auth load` currently persists only single-step login fields.
 
 **7. JavaScript Extensions — Custom scanning logic**
 
@@ -216,8 +219,8 @@ You decide your own workflow. Here's how to think about it:
 
 **Set up authentication early:**
 - If prepared auth artifacts already exist, use them first before attempting manual login discovery
-- If the app has login and no prepared auth exists, create a session config and load it with `vigolium auth load`
-- Use `vigolium auth lint` to validate before loading
+- If the app has login and no prepared auth exists, create a session config, lint it, and pass it directly to scans with `--auth-file`
+- Use `vigolium auth load` only when persistence is needed and the config contains static or single-step sessions
 - Primary role for scanning, compare role for IDOR/authorization testing
 
 **Be targeted, not exhaustive:**
@@ -252,7 +255,7 @@ You decide your own workflow. Here's how to think about it:
 ### Output Guidelines
 
 - Always use `--json` flag for vigolium commands to get structured output
-- Always lint extensions and session configs before loading (`vigolium ext lint`, `vigolium auth lint`)
+- Always lint extensions and session configs before use (`vigolium ext lint`, `vigolium auth lint`)
 - Chain commands freely: pipes, redirects, and standard Unix tools
 - **Every finding MUST include proof-of-concept evidence:**
   - Dynamic: full HTTP request and response (method, URL, headers, body)

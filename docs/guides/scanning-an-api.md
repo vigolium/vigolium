@@ -105,7 +105,7 @@ vigolium scan --input api.yaml -I openapi -t https://api.example.com \
   -H "Authorization: Bearer <token>"
 ```
 
-For login flows, cookie sessions, token refresh, and role comparison, see
+For single- and multi-step login flows, cookie sessions, and role comparison, see
 [Native Scan Authentication](../native-scan/authentication.md).
 
 ## Recommended Strategy

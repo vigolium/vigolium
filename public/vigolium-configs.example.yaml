@@ -188,7 +188,7 @@ scanning_strategy:
   # --------------------------------------------------------------------------
   # Controls how authentication sessions behave during scanning.
   # Sessions are loaded from --auth-file or --auth flags.
-  # See docs/running-scan/authenticated-scan.md for the full guide.
+  # See docs/native-scan/authentication.md for the full guide.
   session:
     # Directory where session YAML files are stored.
     # When --auth-file receives a bare name (e.g. "myapp"), the scanner
@@ -215,30 +215,15 @@ scanning_strategy:
     # Default: true
     compare_enabled: true
 
-    # Re-execute login flows at this interval to refresh expiring tokens.
-    # Useful for long-running scans where tokens expire mid-scan.
-    # Format: Go duration string (e.g. "15m", "1h", "30m").
-    # Empty or "0" means login once at scan start and never refresh.
-    # Default: "" (disabled)
+    # Reserved for future runtime reauthentication. Native scans currently
+    # hydrate login flows once during initialization and do not enforce this.
     reauth_interval: ""
 
-    # Trigger reactive re-authentication when the primary session receives
-    # one of these HTTP status codes. When triggered, the login flow is
-    # re-executed immediately and the failed request is retried.
-    # Common values: [401, 403]
-    # Default: [] (disabled)
+    # Reserved for future reactive reauthentication; currently not enforced.
     reauth_on_status: []
-    # Example: re-authenticate on 401 Unauthorized and 403 Forbidden:
-    # reauth_on_status: [401, 403]
 
-    # URL to GET after login to verify that extracted credentials work.
-    # The scanner checks for a 2xx response before proceeding with the scan.
-    # Can be a relative path (resolved against the target) or absolute URL.
-    # Empty means no validation — credentials are used as-is.
-    # Default: "" (disabled)
+    # Reserved for future post-login validation; currently not enforced.
     validate_url: ""
-    # Example: validate against a "who am I" endpoint:
-    # validate_url: "/api/me"
 
   # --------------------------------------------------------------------------
   # Native Scan Session Logs
