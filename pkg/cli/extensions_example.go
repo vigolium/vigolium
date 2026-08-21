@@ -620,23 +620,37 @@ sessions:
           pattern: 'token="([^"]+)"'
           apply_as: "Authorization: Bearer {value}"
 
-  # Multi-step: fetch a CSRF token (into var:csrf), then submit the login
-  - name: csrf_app_user
+  # Multi-step: authenticate with an identity provider, then exchange its
+  # intermediate token for the application's final credentials
+  - name: token_exchange_user
     role: compare
     login:
       steps:
-        - url: "https://app.com/login"
-          method: GET
-          extract:
-            - source: regex
-              pattern: 'name="csrf_token" value="([^"]+)"'
-              apply_as: "var:csrf"
-        - url: "https://app.com/login"
+        - url: "https://identity.example.com/passwords/discovery/authenticate"
           method: POST
-          content_type: "application/x-www-form-urlencoded"
-          body: "username=user1&password=pass123&csrf_token={csrf}"
+          content_type: "application/json"
+          body: '{"email_address":"${TEST_EMAIL}","password":"${TEST_PASSWORD}"}'
+          expect:
+            status: [200]
+            body_contains: "intermediate_session_token"
           extract:
-            - source: cookie
+            - source: json
+              path: "$.intermediate_session_token"
+              apply_as: "var:intermediate_session_token"
+        - url: "https://api.example.com/auth/stytch/exchange"
+          method: POST
+          content_type: "application/json"
+          body: '{"intermediate_session_token":"{intermediate_session_token}"}'
+          expect:
+            status: [200]
+            body_contains: "token"
+          extract:
+            - source: json
+              path: "$.token"
+              apply_as: "Authorization: Bearer {value}"
+            - source: json
+              path: "$.token"
+              apply_as: "Cookie: token={value}"
 
   # Static token, no login request needed
   - name: api_key_user
@@ -718,14 +732,14 @@ sessions:
     # Replay primary requests with compare sessions for IDOR/BOLA
     compare_enabled: true
 
-    # Re-run login flows on this Go-duration interval ("" = login once)
+    # Reserved for future runtime reauthentication; currently not enforced
     reauth_interval: ""
 
-    # Reactively re-authenticate when these status codes are seen
-    reauth_on_status: [401, 403]
+    # Reserved for future reactive reauthentication; currently not enforced
+    reauth_on_status: []
 
-    # GET this URL after login to verify credentials (2xx expected; "" = off)
-    validate_url: "/api/me"`,
+    # Reserved for future post-login validation; currently not enforced
+    validate_url: ""`,
 		},
 	}
 }

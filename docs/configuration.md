@@ -117,9 +117,9 @@ scanning_strategy:
     session_dir: ~/.vigolium/sessions/
     use_in_discovery: true       # apply session headers during discovery/spidering
     compare_enabled: true        # cross-session IDOR/BOLA replay in dynamic-assessment
-    reauth_interval: ""          # e.g. "15m" to refresh tokens periodically
-    reauth_on_status: []         # e.g. [401, 403]
-    validate_url: ""             # URL to GET after login to verify credentials
+    reauth_interval: ""          # reserved; currently not enforced
+    reauth_on_status: []         # reserved; currently not enforced
+    validate_url: ""             # reserved; currently not enforced
 
   http:
     user_agent: preset           # preset | random | literal value; blank behaves like random

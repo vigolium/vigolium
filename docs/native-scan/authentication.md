@@ -140,6 +140,87 @@ login:
 }
 ```
 
+### Multi-Step Login Flows
+
+Use `login.steps` when authentication requires more than one HTTP request. Steps
+run in order with a shared cookie jar. To pass a value to a later step, extract
+it with `apply_as: "var:<name>"`, then reference it as `{name}` in a later
+step's URL or body. The final step must extract at least one credential that
+Vigolium can apply to scan requests.
+
+The following provider-backed flow models applications that first receive a
+short-lived identity-provider token and then exchange it for an application
+token. Stytch B2B password discovery uses this shape: the authenticate response
+contains `intermediate_session_token`, and the application exchange endpoint
+returns the application's final token.
+
+```yaml
+sessions:
+  - name: dev_user
+    role: primary
+    login:
+      steps:
+        # Step 1: authenticate with the identity provider.
+        - url: "https://identity.example.com/passwords/discovery/authenticate"
+          method: POST
+          content_type: "application/json"
+          body: >-
+            {"email_address":"${TEST_EMAIL}","password":"${TEST_PASSWORD}"}
+          expect:
+            status: [200]
+            body_contains: "intermediate_session_token"
+          extract:
+            - source: json
+              path: "$.intermediate_session_token"
+              apply_as: "var:intermediate_session_token"
+
+        # Step 2: exchange the intermediate token for the app token.
+        - url: "https://api.example.com/auth/stytch/exchange"
+          method: POST
+          content_type: "application/json"
+          body: >-
+            {"intermediate_session_token":"{intermediate_session_token}"}
+          expect:
+            status: [200]
+            body_contains: "token"
+          extract:
+            - source: json
+              path: "$.token"
+              apply_as: "Authorization: Bearer {value}"
+
+            # Keep this rule only when the application also requires a cookie.
+            - source: json
+              path: "$.token"
+              apply_as: "Cookie: token={value}"
+```
+
+In a browser trace, calls such as Stytch's `sdk/v1/projects/bootstrap` initialize
+the browser SDK and do not produce the authenticated application session. Do
+not add them as login steps unless a later authentication request genuinely
+depends on a value they return. Likewise, an `/auth/me` request verifies the
+finished session; it is not part of the token exchange itself.
+
+Each step may use `expect.status` and `expect.body_contains` to fail early when
+the remote service changes behavior. `vigolium auth lint` checks the file's
+structure only; the remote requests and extraction rules are exercised when a
+scan hydrates the session.
+
+```bash
+vigolium auth lint ./multi-step-token-exchange.yaml
+vigolium scan \
+  https://app.example.com \
+  https://api.example.com \
+  --auth-file ./multi-step-token-exchange.yaml \
+  --scope-origin strict
+```
+
+> **Per-step header limitation:** a multi-step login step currently supports
+> `url`, `method`, `content_type`, `body`, `extract`, and `expect`, but not
+> arbitrary request headers. Browser SDK endpoints that require Basic auth,
+> `Origin`, or SDK-specific headers cannot always be reproduced directly. Use
+> an authorized server-side test endpoint or a pre-acquired static token rather
+> than putting secrets in the URL.
+
 ### Extraction Sources
 
 | Source | Description | Example |
@@ -147,8 +228,17 @@ login:
 | `json` | Extract a value from the JSON response body using dot-notation. | `path: "$.token"` |
 | `cookie` | Extract cookies from `Set-Cookie` response headers. Omit `name` to extract all cookies. | `name: "session_id"` |
 | `header` | Extract a value from a response header. | `name: "X-Auth-Token"` |
+| `regex` | Extract a capture group from the response body. Group 1 is used by default. | `pattern: 'token="([^"]+)"'` |
 
-The `apply_as` field defines how the extracted value is applied as a request header. Use `{value}` as a placeholder.
+The `apply_as` field defines how the extracted value is used. A header template
+such as `Authorization: Bearer {value}` applies it to scan requests. In a
+multi-step flow, `var:name` stores it for `{name}` substitution in later step
+URLs and bodies.
+
+`source: cookie` reads `Set-Cookie` response headers. It cannot observe a cookie
+created later by frontend JavaScript. If an exchange endpoint returns a token
+in JSON and the frontend turns it into a cookie, extract the JSON value and use
+`apply_as: "Cookie: token={value}"` instead.
 
 ## Bundle Files
 
@@ -281,15 +371,27 @@ SessionConfig
 │   ├── role                # (string) "primary" or "compare"
 │   ├── headers             # (map) Static headers, e.g. {"Cookie": "sid=abc"}
 │   ├── login               # (object) Automated login flow
-│   │   ├── url             # (string, required) Login endpoint URL
-│   │   ├── method          # (string, required) HTTP method (POST, GET, etc.)
+│   │   ├── url             # (string) Single-step login endpoint URL
+│   │   ├── method          # (string) Single-step HTTP method
 │   │   ├── content_type    # (string) Request Content-Type
 │   │   ├── body            # (string) Request body
-│   │   └── extract[]       # (array, required) Credential extraction rules
-│   │       ├── source      # (string) "json", "cookie", or "header"
-│   │       ├── name        # (string) Cookie/header name to extract
-│   │       ├── path        # (string) JSONPath for json source
-│   │       └── apply_as    # (string) Header template, e.g. "Authorization: Bearer {value}"
+│   │   ├── type            # (string) "bearer" or "cookie" shorthand
+│   │   ├── token_path      # (string) Token path used by bearer shorthand
+│   │   ├── expect          # (object) status[] and/or body_contains
+│   │   ├── extract[]       # (array) Credential extraction rules
+│   │   │   ├── source      # (string) "json", "cookie", "header", or "regex"
+│   │   │   ├── name        # (string) Cookie/header name to extract
+│   │   │   ├── path        # (string) JSON path for json source
+│   │   │   ├── pattern     # (string) Pattern for regex source
+│   │   │   ├── group       # (int) Regex capture group; defaults to 1
+│   │   │   └── apply_as    # (string) Header template or "var:name"
+│   │   └── steps[]         # (array) Sequential multi-step flow
+│   │       ├── url         # (string, required) Step endpoint URL
+│   │       ├── method      # (string, required) Step HTTP method
+│   │       ├── content_type # (string) Step request Content-Type
+│   │       ├── body        # (string) Supports {name} variables
+│   │       ├── expect      # (object) status[] and/or body_contains
+│   │       └── extract[]   # (array; required on the final step)
 │   └── login_request       # (string) Raw HTTP request for login (alternative to login)
 ```
 
@@ -382,6 +484,33 @@ vigolium scan https://app.com \
 | Discovery / Spidering | Primary session only (controlled by `use_in_discovery`) |
 | DynamicAssessment | Primary session for main scanning; compare sessions for IDOR/BOLA replay (controlled by `compare_enabled`) |
 
+## Validation and Troubleshooting
+
+| Symptom | Meaning and next step |
+|---------|-----------------------|
+| `auth lint` succeeds but scan hydration fails | Lint validates structure without contacting the login services. Check the failing step's status, response shape, and extraction path. |
+| `cookie "token" not found in login response` | The response did not include a matching `Set-Cookie` header. If it returned JSON, use `source: json`; if browser JavaScript creates the cookie, build the `Cookie` header with `apply_as`. |
+| A later request still contains `{name}` | The earlier rule did not use `apply_as: "var:name"`, or its extraction path did not match. Variable names are case-sensitive. |
+| `last step must have at least one extract rule` | Add a final extraction that produces an application header or cookie. Intermediate variables alone are not scan credentials. |
+| The banner prints a scan ID, then `session initialization failed` | The scan stopped before discovery or assessment. The scan ID does not mean findings were produced. |
+| Requests include another environment | Use `--scope-origin strict`, especially when the active project already contains records from several environments. |
+
+Do not print response bodies while debugging production credentials. Prefer a
+dedicated test account and rotate credentials that have appeared in shell
+history, logs, or support transcripts.
+
+## Current Authentication Limitations
+
+- Login flows are hydrated once during scan initialization. The configured
+  `reauth_interval`, `reauth_on_status`, and `validate_url` fields are reserved
+  but are not currently enforced during native scans. Ensure a token's lifetime
+  covers the scan or divide a long scan into shorter runs.
+- Pass multi-step configurations directly with `--auth-file`. `vigolium auth
+  load` currently validates and persists only single-step login fields, so a
+  stored multi-step flow will not round-trip correctly.
+- Multi-step variables are substituted only in subsequent step URLs and bodies.
+  Arbitrary per-step headers are not part of the current schema.
+
 ## Session Strategy Configuration
 
 Session behavior is configured under `scanning_strategy.session` in `vigolium-configs.yaml` (see `public/vigolium-configs.example.yaml` for the full annotated example).
@@ -408,21 +537,13 @@ scanning_strategy:
     # Default: true
     compare_enabled: true
 
-    # Re-execute login flows at this interval to refresh expiring tokens.
-    # Format: Go duration string (e.g. "15m", "1h", "30m").
-    # Default: "" (disabled — login once at scan start)
+    # Reserved for future runtime reauthentication; currently not enforced.
     reauth_interval: ""
 
-    # Trigger reactive re-authentication when the primary session receives
-    # one of these HTTP status codes. The login flow is re-executed immediately
-    # and the failed request is retried.
-    # Default: [] (disabled)
+    # Reserved for future runtime reauthentication; currently not enforced.
     reauth_on_status: []
 
-    # URL to GET after login to verify that extracted credentials work.
-    # The scanner checks for a 2xx response before proceeding.
-    # Can be a relative path (resolved against the target) or absolute URL.
-    # Default: "" (disabled)
+    # Reserved for future post-login validation; currently not enforced.
     validate_url: ""
 ```
 
@@ -433,9 +554,9 @@ scanning_strategy:
 | `session_dir` | string | `~/.vigolium/sessions/` | Directory for session file lookup. `--auth-file myapp` (bare name) resolves to `<session_dir>/myapp.yaml` (tries `.yaml`, `.yml`, `.json` in order). Supports `~` expansion. |
 | `use_in_discovery` | bool | `true` | When `true`, the primary session's headers are injected into the requester used for discovery and spidering. When `false`, those phases run unauthenticated — useful for mapping the public attack surface first, then scanning authenticated. |
 | `compare_enabled` | bool | `true` | When `true`, compare sessions are created and the `authz-compare` module is activated for IDOR/BOLA testing. When `false`, compare sessions are ignored even if defined — handy when you only need authenticated scanning without authorization comparison. |
-| `reauth_interval` | duration | `""` (disabled) | Go duration string (e.g. `"15m"`, `"1h"`). When set, login flows are re-executed at this interval to refresh tokens that expire mid-scan. |
-| `reauth_on_status` | []int | `[]` (disabled) | HTTP status codes that trigger reactive re-authentication. When the primary session receives one of these codes, its login flow is re-executed immediately and the request is retried. |
-| `validate_url` | string | `""` (disabled) | Relative or absolute URL to GET after login. The scanner checks for a 2xx response to confirm credentials are working before proceeding. Catches bad credentials early. |
+| `reauth_interval` | duration | `""` | Reserved; currently not enforced during native scans. |
+| `reauth_on_status` | []int | `[]` | Reserved; currently not enforced during native scans. |
+| `validate_url` | string | `""` | Reserved; currently not enforced during native scans. |
 
 ### Session Directory Resolution
 
@@ -479,18 +600,6 @@ scanning_strategy:
 ```
 
 Useful when you only need to scan behind a login wall but don't have multiple user roles to compare. The primary session's credentials are applied to all phases, but no compare requesters are created and the `authz-compare` module stays inactive.
-
-**Long-running scan with token refresh:**
-
-```yaml
-scanning_strategy:
-  session:
-    reauth_interval: "30m"
-    reauth_on_status: [401, 403]
-    validate_url: "/api/whoami"
-```
-
-Re-executes login flows every 30 minutes proactively, and also reactively when a 401 or 403 is received. The `validate_url` confirms credentials work after each login before resuming scanning.
 
 **Team shared sessions directory:**
 

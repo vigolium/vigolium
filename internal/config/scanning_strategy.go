@@ -77,18 +77,14 @@ type SessionStrategyConfig struct {
 	// cross-session IDOR/BOLA replay during the audit phase. Default: true.
 	CompareEnabled bool `yaml:"compare_enabled"`
 
-	// ReauthInterval re-executes login flows at this interval to refresh
-	// expiring tokens. Zero or empty means login once at scan start.
-	// Accepts Go duration strings (e.g. "15m", "1h").
+	// ReauthInterval is reserved for future runtime reauthentication.
+	// Native scans currently hydrate login flows once during initialization.
 	ReauthInterval string `yaml:"reauth_interval"`
 
-	// ReauthOnStatus triggers re-authentication when the primary session
-	// receives one of these HTTP status codes mid-scan. Common values: [401, 403].
+	// ReauthOnStatus is reserved for future reactive reauthentication.
 	ReauthOnStatus []int `yaml:"reauth_on_status"`
 
-	// ValidateURL is a relative or absolute URL to GET after login to confirm
-	// that extracted credentials are working. The scanner checks for a 2xx
-	// response before proceeding. Empty means no validation.
+	// ValidateURL is reserved for future post-login credential validation.
 	ValidateURL string `yaml:"validate_url"`
 }
 

@@ -94,7 +94,7 @@ sessions:
 | `path` | string | JSONPath expression (for json source) |
 | `pattern` | string | Regex pattern with capture group (for regex source) |
 | `group` | int | Capture group index, default 1 (for regex source) |
-| `apply_as` | string | Header template, e.g. `"Authorization: Bearer {value}"` |
+| `apply_as` | string | Header template such as `"Authorization: Bearer {value}"`, or `"var:name"` for use by a later login step |
 
 ## Managing Sessions with `vigolium auth`
 
@@ -116,7 +116,7 @@ cat login-req.txt | vigolium auth load --name admin --host example.com
 # Skip login flow validation
 vigolium auth load sessions.json --no-validate
 
-# Validate session config syntax before loading
+# Validate session config syntax before use
 vigolium auth lint auth-config.yaml
 cat session-config.json | vigolium auth lint --stdin
 
@@ -127,6 +127,11 @@ vigolium auth ls --host example.com
 # Generate TOTP code for 2FA login flows
 vigolium auth totp --secret JBSWY3DPEHPK3PXP
 ```
+
+`auth lint` validates the configuration structure without executing remote
+login requests. Pass multi-step configurations directly to scans with
+`--auth-file`; `auth load` currently validates and persists only single-step
+login fields, so a stored multi-step flow will not round-trip correctly.
 
 ### `vigolium auth load` Flags
 
@@ -288,30 +293,68 @@ sessions:
 
 ### Multi-Step Login Flow
 
-For applications requiring multiple requests to authenticate (e.g., CSRF token + login):
+Steps execute in sequence with a shared cookie jar. Extract an intermediate
+value with `apply_as: "var:name"`, then reference it as `{name}` in a later
+step's URL or body. The last step must extract the headers or cookies used by
+scan requests.
+
+This example models an identity-provider login followed by an application token
+exchange, including Stytch-style `intermediate_session_token` flows:
 
 ```yaml
 sessions:
-  - name: csrf_login
+  - name: dev_user
     role: primary
     login:
       steps:
-        - url: https://example.com/login
-          method: GET
-          extract:
-            - source: regex
-              pattern: 'name="csrf_token" value="([^"]+)"'
-              apply_as: "X-CSRF-Token: {value}"
-            - source: cookie
-              name: session_id
-        - url: https://example.com/login
+        - url: https://identity.example.com/passwords/discovery/authenticate
           method: POST
-          content_type: application/x-www-form-urlencoded
-          body: "username=admin&password=secret&csrf_token={csrf_token}"
+          content_type: application/json
+          body: >-
+            {"email_address":"${TEST_EMAIL}","password":"${TEST_PASSWORD}"}
+          expect:
+            status: [200]
+            body_contains: "intermediate_session_token"
           extract:
-            - source: cookie
-              name: session_id
+            - source: json
+              path: "$.intermediate_session_token"
+              apply_as: "var:intermediate_session_token"
+
+        - url: https://api.example.com/auth/stytch/exchange
+          method: POST
+          content_type: application/json
+          body: >-
+            {"intermediate_session_token":"{intermediate_session_token}"}
+          expect:
+            status: [200]
+            body_contains: "token"
+          extract:
+            - source: json
+              path: "$.token"
+              apply_as: "Authorization: Bearer {value}"
+            - source: json
+              path: "$.token"
+              apply_as: "Cookie: token={value}"
 ```
+
+Stytch's browser SDK bootstrap request initializes the SDK; it is not normally
+one of the authentication steps. A later `/auth/me` request is useful for
+manual verification, but it is not part of the token exchange.
+
+If the exchange response contains JSON rather than a `Set-Cookie` header, use
+`source: json`. `source: cookie` cannot observe a cookie created later by
+frontend JavaScript.
+
+### Current Limitations
+
+- Login flows hydrate once when a native scan starts. The configured
+  `reauth_interval`, `reauth_on_status`, and `validate_url` fields are reserved
+  but are not currently enforced.
+- Multi-step requests cannot define arbitrary per-step headers. Provider
+  endpoints requiring Basic auth, `Origin`, or SDK-specific headers may need an
+  authorized server-side test endpoint or a pre-acquired static token. Do not
+  put provider secrets in the URL.
+- Variable substitution applies to subsequent step URLs and bodies only.
 
 ### Multiple Extract Rules
 

@@ -1,0 +1,51 @@
+# Example two-step identity-provider to application token exchange.
+# This models flows such as Stytch B2B password discovery:
+#   1. authenticate and extract an intermediate_session_token
+#   2. exchange it for the application's bearer token and/or token cookie
+#
+# Replace the example hosts with authorized test endpoints and export the test
+# credentials before scanning. The identity endpoint must be callable without
+# arbitrary per-step headers; the current multi-step schema cannot set them.
+#
+# Usage:
+#   export TEST_EMAIL='scanner@example.com'
+#   export TEST_PASSWORD='replace-me'
+#   vigolium auth lint ./multi-step-token-exchange.yaml
+#   vigolium scan https://app.example.com https://api.example.com \
+#     --auth-file ./multi-step-token-exchange.yaml --scope-origin strict
+
+sessions:
+  - name: token_exchange_user
+    role: primary
+    login:
+      steps:
+        - url: "https://identity.example.com/passwords/discovery/authenticate"
+          method: POST
+          content_type: "application/json"
+          body: >-
+            {"email_address":"${TEST_EMAIL}","password":"${TEST_PASSWORD}"}
+          expect:
+            status: [200]
+            body_contains: "intermediate_session_token"
+          extract:
+            - source: json
+              path: "$.intermediate_session_token"
+              apply_as: "var:intermediate_session_token"
+
+        - url: "https://api.example.com/auth/stytch/exchange"
+          method: POST
+          content_type: "application/json"
+          body: >-
+            {"intermediate_session_token":"{intermediate_session_token}"}
+          expect:
+            status: [200]
+            body_contains: "token"
+          extract:
+            - source: json
+              path: "$.token"
+              apply_as: "Authorization: Bearer {value}"
+
+            # Remove this rule when the target uses bearer authentication only.
+            - source: json
+              path: "$.token"
+              apply_as: "Cookie: token={value}"
