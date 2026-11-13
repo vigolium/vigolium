@@ -50,7 +50,11 @@ func ProjectUUIDMiddleware(repo *database.Repository, cfg ...ProjectMiddlewareCo
 		conf = cfg[0]
 	}
 	return func(c fiber.Ctx) error {
-		projectUUID := strings.TrimSpace(c.Get("X-Project-UUID"))
+		// Clone: Fiber runs with Immutable off, so c.Get returns a string that
+		// aliases fasthttp's reused header buffer (TrimSpace only narrows it).
+		// This value is handed to background scans and agent runs and keys
+		// long-lived maps, all of which outlive the request.
+		projectUUID := strings.Clone(strings.TrimSpace(c.Get("X-Project-UUID")))
 		if projectUUID == "" {
 			projectUUID = database.DefaultProjectUUID
 		}
