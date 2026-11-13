@@ -354,12 +354,12 @@ func runRemoteIngest(_ *cobra.Command, _ []string) (ingestOutcome, error) {
 	}()
 
 	stats, err := ingestor.Run(ctx, ingestOpts)
-	if err != nil {
-		return outcome, err
-	}
+	// Stats first: Run reports what it submitted even when an input source
+	// failed, and the caller adds this outcome to its total before it looks
+	// at the error.
 	outcome.Submitted = stats.Submitted
 	outcome.Errors = stats.Errors
-	return outcome, nil
+	return outcome, err
 }
 
 // runLocalIngest fetches HTTP responses and stores request/response pairs in

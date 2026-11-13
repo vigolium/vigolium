@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"os"
@@ -89,12 +90,16 @@ func Run(ctx context.Context, opts *Options) (RunStats, error) {
 	startTime := time.Now()
 	var submitted, errors atomic.Int64
 
+	// At least one worker: Run waits for the input reader below, which would
+	// block forever on a full request channel with nobody draining it.
+	workers := max(opts.Concurrency, 1)
+
 	// Create request channel
 	reqChan := make(chan *IngestRequest, 100)
 
 	// Start workers
 	var wg conc.WaitGroup
-	for i := 0; i < opts.Concurrency; i++ {
+	for i := 0; i < workers; i++ {
 		wg.Go(func() {
 			for req := range reqChan {
 				select {
@@ -115,21 +120,28 @@ func Run(ctx context.Context, opts *Options) (RunStats, error) {
 		})
 	}
 
-	// Parse and send requests
+	// Parse and send requests. Input failures are collected, not fatal: the
+	// readable sources are still submitted, and the caller is told afterwards.
+	inputErrCh := make(chan error, 1)
 	go func() {
 		defer close(reqChan)
+		var inputErrs []error
 		switch opts.InputFormat {
 		case "openapi", "swagger":
 			// OpenAPI/Swagger handles its own input loading (file or URL)
-			parseSpecInput(ctx, reqChan, opts)
+			if err := parseSpecInput(ctx, reqChan, opts); err != nil {
+				inputErrs = append(inputErrs, err)
+			}
 		case "nuclei":
 			for _, in := range opts.inputSources() {
 				reader, closer, err := openInput(in)
 				if err != nil {
-					zap.L().Error("Failed to open input", zap.String("input", in), zap.Error(err))
+					inputErrs = append(inputErrs, fmt.Errorf("open input %s: %w", in, err))
 					continue
 				}
-				parseNucleiInput(ctx, reader, reqChan, opts)
+				if err := parseNucleiInput(ctx, reader, reqChan, opts); err != nil {
+					inputErrs = append(inputErrs, fmt.Errorf("read input %s: %w", in, err))
+				}
 				if closer != nil {
 					_ = closer.Close()
 				}
@@ -138,25 +150,35 @@ func Run(ctx context.Context, opts *Options) (RunStats, error) {
 			for _, in := range opts.inputSources() {
 				reader, closer, err := openInput(in)
 				if err != nil {
-					zap.L().Error("Failed to open input", zap.String("input", in), zap.Error(err))
+					inputErrs = append(inputErrs, fmt.Errorf("open input %s: %w", in, err))
 					continue
 				}
-				parseURLsInput(ctx, reader, reqChan, opts)
+				if err := parseURLsInput(ctx, reader, reqChan, opts); err != nil {
+					inputErrs = append(inputErrs, fmt.Errorf("read input %s: %w", in, err))
+				}
 				if closer != nil {
 					_ = closer.Close()
 				}
 			}
 		}
+		inputErrCh <- stderrors.Join(inputErrs...)
 	}()
 
 	// Wait for workers
 	wg.Wait()
 
-	return RunStats{
+	stats := RunStats{
 		Submitted: submitted.Load(),
 		Errors:    errors.Load(),
 		Elapsed:   time.Since(startTime),
-	}, nil
+	}
+	// The input goroutine always sends exactly once: it selects on ctx.Done()
+	// wherever it could block on reqChan, so it finishes even when the workers
+	// stopped early.
+	if inputErr := <-inputErrCh; inputErr != nil {
+		return stats, fmt.Errorf("ingest input: %w", inputErr)
+	}
+	return stats, nil
 }
 
 // inputSources returns the ordered list of inputs to read for plain URL /
@@ -212,12 +234,12 @@ func (m *multiCloser) Close() error {
 	return lastErr
 }
 
-func parseURLsInput(ctx context.Context, reader io.Reader, reqChan chan<- *IngestRequest, opts *Options) {
+func parseURLsInput(ctx context.Context, reader io.Reader, reqChan chan<- *IngestRequest, opts *Options) error {
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
 		}
 
@@ -235,9 +257,10 @@ func parseURLsInput(ctx context.Context, reader io.Reader, reqChan chan<- *Inges
 		select {
 		case reqChan <- scanReq:
 		case <-ctx.Done():
-			return
+			return nil
 		}
 	}
+	return scanner.Err()
 }
 
 // nucleiOutput matches nuclei JSON output format.
@@ -250,19 +273,29 @@ type requestData struct {
 	Raw string `json:"raw"`
 }
 
-func parseNucleiInput(ctx context.Context, reader io.Reader, reqChan chan<- *IngestRequest, opts *Options) {
+// parseNucleiInput forwards nuclei JSON output (a stream of JSON objects).
+// It returns the error that ended the read early, if any.
+func parseNucleiInput(ctx context.Context, reader io.Reader, reqChan chan<- *IngestRequest, opts *Options) error {
 	dec := json.NewDecoder(reader)
 	for dec.More() {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
 		}
 
 		var result nucleiOutput
 		if err := dec.Decode(&result); err != nil {
-			zap.L().Debug("Failed to decode JSON", zap.Error(err))
-			continue
+			// A value of the wrong type leaves the decoder positioned after
+			// that value, so the stream can continue. Anything else (a syntax
+			// error, a truncated object) is sticky: Decode returns it forever
+			// while More() stays true, so continuing would loop without end.
+			var typeErr *json.UnmarshalTypeError
+			if stderrors.As(err, &typeErr) {
+				zap.L().Debug("Skipping nuclei record with an unexpected field type", zap.Error(err))
+				continue
+			}
+			return fmt.Errorf("malformed nuclei JSON: %w", err)
 		}
 
 		if result.URL == "" {
@@ -282,17 +315,17 @@ func parseNucleiInput(ctx context.Context, reader io.Reader, reqChan chan<- *Ing
 		select {
 		case reqChan <- scanReq:
 		case <-ctx.Done():
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
-func parseSpecInput(ctx context.Context, reqChan chan<- *IngestRequest, opts *Options) {
+func parseSpecInput(ctx context.Context, reqChan chan<- *IngestRequest, opts *Options) error {
 	// Load spec from file or URL
 	data, ext, err := openapi.LoadSpec(opts.Input)
 	if err != nil {
-		zap.L().Error("Failed to load spec", zap.String("input", opts.Input), zap.Error(err))
-		return
+		return fmt.Errorf("load spec %s: %w", opts.Input, err)
 	}
 
 	// Parse headers
@@ -341,6 +374,7 @@ func parseSpecInput(ctx context.Context, reqChan chan<- *IngestRequest, opts *Op
 
 	// Parse based on format - ParseSwaggerForServer auto-detects version
 	if err := openapi.ParseSwaggerForServer(data, ext, serverOpts, callback); err != nil {
-		zap.L().Error("Failed to parse spec", zap.Error(err))
+		return fmt.Errorf("parse spec %s: %w", opts.Input, err)
 	}
+	return nil
 }
