@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -356,23 +358,59 @@ func safeArchivePath(name string) (string, bool) {
 }
 
 // symlinkStaysInside reports whether a symlink at linkPath (relative to the
-// extraction root) pointing at target resolves, lexically, inside the root.
-// Absolute targets never do; they are rejected before joining, because
-// filepath.Join would rewrite one into a path under the link's directory.
-func symlinkStaysInside(linkPath, target string) bool {
+// extraction root) pointing at target resolves inside the root. links holds
+// every symlink in the archive (path -> target).
+//
+// The path is walked component by component instead of being cleaned as a
+// whole, because cleaning is only faithful when nothing on the way is itself
+// a symlink: with d/s -> .., a link d/s/t -> .. cleans to "d" but is created
+// at the root and resolves above it. So a walk that passes through another
+// archive symlink, or climbs above the root, is rejected. Absolute targets
+// never resolve inside.
+func symlinkStaysInside(linkPath, target string, links map[string]string) bool {
 	target = filepath.FromSlash(target)
 	if target == "" || filepath.IsAbs(target) {
 		return false
 	}
-	return filepath.IsLocal(filepath.Join(filepath.Dir(linkPath), target))
+	var walked []string
+	step := func(comp string, final bool) bool {
+		switch comp {
+		case "", ".":
+			return true
+		case "..":
+			if len(walked) == 0 {
+				return false
+			}
+			walked = walked[:len(walked)-1]
+			return true
+		}
+		walked = append(walked, comp)
+		_, isLink := links[filepath.Join(walked...)]
+		return final || !isLink
+	}
+	if dir := filepath.Dir(linkPath); dir != "." {
+		for _, comp := range strings.Split(dir, string(os.PathSeparator)) {
+			if !step(comp, false) {
+				return false
+			}
+		}
+	}
+	comps := strings.Split(target, string(os.PathSeparator))
+	for i, comp := range comps {
+		if !step(comp, i == len(comps)-1) {
+			return false
+		}
+	}
+	return true
 }
 
 // archiveWriter writes archive members under an os.Root, which refuses to
 // follow a symlink out of the destination, so an archive cannot plant a link
 // and then write through it.
 type archiveWriter struct {
-	root *os.Root
-	made map[string]struct{} // directories already created
+	root  *os.Root
+	made  map[string]struct{} // directories already created
+	links map[string]string   // symlinks to create once all entries are seen
 }
 
 func openArchiveWriter(destDir string) (*archiveWriter, error) {
@@ -380,7 +418,7 @@ func openArchiveWriter(destDir string) (*archiveWriter, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &archiveWriter{root: root, made: map[string]struct{}{".": {}}}, nil
+	return &archiveWriter{root: root, made: map[string]struct{}{".": {}}, links: map[string]string{}}, nil
 }
 
 func (w *archiveWriter) Close() error { return w.root.Close() }
@@ -416,10 +454,19 @@ func (w *archiveWriter) writeFile(name string, mode os.FileMode, src io.Reader) 
 	return err
 }
 
-// symlink creates an in-tree symlink, best-effort; escaping targets are skipped.
+// symlink records a symlink entry. Links are created by createLinks, after
+// every entry is known, so each is checked against all the others.
 func (w *archiveWriter) symlink(name, target string) {
-	if symlinkStaysInside(name, target) {
-		_ = w.root.Symlink(target, name)
+	w.links[name] = target
+}
+
+// createLinks creates, best-effort, every recorded symlink that resolves
+// inside the root; the rest are skipped.
+func (w *archiveWriter) createLinks() {
+	for _, name := range slices.Sorted(maps.Keys(w.links)) {
+		if target := w.links[name]; symlinkStaysInside(name, target, w.links) {
+			_ = w.root.Symlink(target, name)
+		}
 	}
 }
 
@@ -540,6 +587,7 @@ func extractTar(r io.Reader, destDir string) error {
 			w.symlink(name, hdr.Linkname)
 		}
 	}
+	w.createLinks()
 	return nil
 }
 
