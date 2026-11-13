@@ -13,14 +13,28 @@ import (
 // HandleGetConfig handles GET /api/config — returns flattened config entries.
 // Query params:
 //   - filter: substring match on key (optional)
-//   - show_sensitive: "true" to show unredacted sensitive values (optional)
+//   - show_sensitive: "true" to show unredacted sensitive values (admin only;
+//     ignored for other roles and on --view-only servers)
 func (h *Handlers) HandleGetConfig(c fiber.Ctx) error {
 	if h.settings == nil {
 		return respondErrorMsg(c, fiber.StatusInternalServerError, "settings not available")
 	}
 
 	filter := c.Query("filter")
+	// Unmasking is admin-only. This route is viewer-readable and stays
+	// registered under --view-only, and the flattened config includes the
+	// server's own admin API key, so honouring the flag for every role would
+	// let a read-only token escalate. A nil user means auth is disabled
+	// (--no-auth), where there are no roles to enforce, except that a
+	// --view-only server never unmasks: it is the read-only face of an
+	// instance, often run without auth precisely so others can look at it.
 	showSensitive := c.Query("show_sensitive") == "true"
+	if user := getAuthUser(c); user != nil && user.Role != RoleAdmin {
+		showSensitive = false
+	}
+	if h.config.ViewOnly {
+		showSensitive = false
+	}
 
 	entries := config.FlattenSettings(h.settings)
 

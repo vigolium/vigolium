@@ -9,7 +9,7 @@ Returns the full server configuration as flattened dot-notation key-value pairs.
 | Parameter        | Type   | Default | Description                                  |
 |------------------|--------|---------|----------------------------------------------|
 | `filter`         | string |         | Substring match on key name                  |
-| `show_sensitive` | string | `false` | Set to `true` to show unredacted sensitive values |
+| `show_sensitive` | string | `false` | Set to `true` to show unredacted sensitive values. Admin role only; ignored for viewer and operator tokens and on `--view-only` servers |
 
 ```bash
 # View all config
@@ -18,7 +18,7 @@ curl -s http://localhost:9002/api/config | jq .
 # Filter by section
 curl -s 'http://localhost:9002/api/config?filter=scope' | jq .
 
-# Show sensitive values
+# Show sensitive values (admin token required)
 curl -s 'http://localhost:9002/api/config?show_sensitive=true' | jq .
 ```
 
