@@ -273,11 +273,7 @@ func TestRunURLsEndToEnd(t *testing.T) {
 		t.Fatalf("write input: %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(IngestResponse{Status: "queued"})
-	}))
-	defer srv.Close()
+	srv := newAcceptServer(t)
 
 	opts := DefaultOptions()
 	opts.ServerURL = srv.URL
@@ -648,11 +644,7 @@ func TestRunPartialInputFailureStillSubmits(t *testing.T) {
 		t.Fatalf("write input: %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(IngestResponse{Status: "queued"})
-	}))
-	defer srv.Close()
+	srv := newAcceptServer(t)
 
 	opts := DefaultOptions()
 	opts.ServerURL = srv.URL
@@ -678,11 +670,7 @@ func TestRunNonPositiveConcurrencyStillSubmits(t *testing.T) {
 	if err := os.WriteFile(good, []byte("http://t/a\n"), 0o600); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(IngestResponse{Status: "queued"})
-	}))
-	defer srv.Close()
+	srv := newAcceptServer(t)
 
 	opts := DefaultOptions()
 	opts.ServerURL = srv.URL
@@ -796,4 +784,15 @@ func TestIngestRequestJSONRoundTrip(t *testing.T) {
 	if strings.Contains(string(empty), "request") || strings.Contains(string(empty), "metadata") {
 		t.Errorf("empty request should omit optional fields: %s", empty)
 	}
+}
+
+// newAcceptServer is an ingest endpoint that accepts every submission.
+func newAcceptServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(IngestResponse{Status: "queued"})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }

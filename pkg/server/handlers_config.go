@@ -21,20 +21,12 @@ func (h *Handlers) HandleGetConfig(c fiber.Ctx) error {
 	}
 
 	filter := c.Query("filter")
-	// Unmasking is admin-only. This route is viewer-readable and stays
-	// registered under --view-only, and the flattened config includes the
-	// server's own admin API key, so honouring the flag for every role would
-	// let a read-only token escalate. A nil user means auth is disabled
-	// (--no-auth), where there are no roles to enforce, except that a
-	// --view-only server never unmasks: it is the read-only face of an
-	// instance, often run without auth precisely so others can look at it.
-	showSensitive := c.Query("show_sensitive") == "true"
-	if user := getAuthUser(c); user != nil && user.Role != RoleAdmin {
-		showSensitive = false
-	}
-	if h.config.ViewOnly {
-		showSensitive = false
-	}
+	// Unmasking is admin-only: this viewer-readable route returns the server's
+	// own admin API key. A nil user means --no-auth (no roles to enforce); a
+	// --view-only server, often public, never unmasks.
+	user := getAuthUser(c)
+	showSensitive := c.Query("show_sensitive") == "true" && !h.config.ViewOnly &&
+		(user == nil || user.Role == RoleAdmin)
 
 	entries := config.FlattenSettings(h.settings)
 

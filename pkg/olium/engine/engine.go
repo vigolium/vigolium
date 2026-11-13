@@ -372,11 +372,8 @@ func (e *Engine) run(ctx context.Context, userPrompt string, out chan<- Event) {
 	defer close(out)
 
 	e.mu.Lock()
-	// Close out a previous run's unanswered tool calls BEFORE this turn's
-	// user message goes in. The repair appends at the tail, so doing it on
-	// the first history read (after the user message) would leave a tool
-	// result behind a user turn — an order providers reject, and one that
-	// never heals because it is stored.
+	// Repair before appending the user turn: the repair appends at the tail,
+	// so running it later would store a tool result after the user message.
 	e.answerDanglingToolCallsLocked()
 	e.history = appendUserTurn(e.history, userPrompt)
 	e.mu.Unlock()
@@ -492,7 +489,7 @@ func (e *Engine) run(ctx context.Context, userPrompt string, out chan<- Event) {
 				case <-ctx.Done():
 					// The calls we are about to skip stay unanswered here;
 					// answerDanglingToolCallsLocked closes the turn out the
-					// next time history is read.
+					// next time history is read or a user turn is appended.
 					out <- Event{Type: EventError, Err: ctx.Err().Error()}
 					return
 				default:
@@ -1150,10 +1147,11 @@ func (e *Engine) snapshotHistory() []provider.Message {
 // Every provider rejects a turn whose tool calls aren't all answered
 // ("tool_use ids were found without tool_result blocks"), and history is
 // re-sent on more paths than it is written: a stream retry, a TUI follow-up
-// after Esc, a Fork, a post-halt re-entry. Enforcing it here - wherever
-// history is read - covers all of them, including cancel sites that don't
-// exist yet. Only the trailing turn can dangle; earlier ones were completed
-// before the next assistant message was appended.
+// after Esc, a Fork, a post-halt re-entry. Enforcing it wherever history is
+// read covers all of them, including cancel sites that don't exist yet. It
+// must also run before a user turn is appended (see run), or the placeholder
+// lands after the user message. Only the trailing turn can dangle; earlier
+// ones were completed before the next assistant message was appended.
 func (e *Engine) answerDanglingToolCallsLocked() {
 	last := -1
 	for i := len(e.history) - 1; i >= 0; i-- {

@@ -346,8 +346,7 @@ const archiveFilePermMask = 0o755
 
 // safeArchivePath turns an archive member name into a path relative to the
 // extraction root. It reports false for a name that is empty or climbs out
-// of the root. A leading slash is stripped rather than rejected, which is
-// what joining onto the destination directory did before.
+// of the root. A leading slash is stripped rather than rejected.
 func safeArchivePath(name string) (string, bool) {
 	clean := filepath.Clean(strings.TrimLeft(filepath.FromSlash(name), string(os.PathSeparator)))
 	if clean == "." || !filepath.IsLocal(clean) {
@@ -358,15 +357,68 @@ func safeArchivePath(name string) (string, bool) {
 
 // symlinkStaysInside reports whether a symlink at linkPath (relative to the
 // extraction root) pointing at target resolves, lexically, inside the root.
-// Absolute targets never do. filepath.Join must not be used on its own for
-// this check: it rewrites an absolute target into a path under the link's
-// directory, which makes every absolute target look contained.
+// Absolute targets never do; they are rejected before joining, because
+// filepath.Join would rewrite one into a path under the link's directory.
 func symlinkStaysInside(linkPath, target string) bool {
 	target = filepath.FromSlash(target)
 	if target == "" || filepath.IsAbs(target) {
 		return false
 	}
 	return filepath.IsLocal(filepath.Join(filepath.Dir(linkPath), target))
+}
+
+// archiveWriter writes archive members under an os.Root, which refuses to
+// follow a symlink out of the destination, so an archive cannot plant a link
+// and then write through it.
+type archiveWriter struct {
+	root *os.Root
+	made map[string]struct{} // directories already created
+}
+
+func openArchiveWriter(destDir string) (*archiveWriter, error) {
+	root, err := os.OpenRoot(destDir)
+	if err != nil {
+		return nil, err
+	}
+	return &archiveWriter{root: root, made: map[string]struct{}{".": {}}}, nil
+}
+
+func (w *archiveWriter) Close() error { return w.root.Close() }
+
+// mkdir creates dir once per extraction: Root.MkdirAll walks every path
+// component, so calling it for each file's parent is a syscall per level.
+func (w *archiveWriter) mkdir(dir string) error {
+	if _, ok := w.made[dir]; ok {
+		return nil
+	}
+	if err := w.root.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	w.made[dir] = struct{}{}
+	return nil
+}
+
+// writeFile writes src to name with its mode capped by archiveFilePermMask.
+func (w *archiveWriter) writeFile(name string, mode os.FileMode, src io.Reader) error {
+	if err := w.mkdir(filepath.Dir(name)); err != nil {
+		return err
+	}
+	out, err := w.root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode.Perm()&archiveFilePermMask)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, src) //nolint:gosec // bounded by archive entry
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// symlink creates an in-tree symlink, best-effort; escaping targets are skipped.
+func (w *archiveWriter) symlink(name, target string) {
+	if symlinkStaysInside(name, target) {
+		_ = w.root.Symlink(target, name)
+	}
 }
 
 // extractZip extracts a zip archive to destDir.
@@ -377,47 +429,32 @@ func extractZip(archivePath, destDir string) error {
 	}
 	defer func() { _ = r.Close() }()
 
-	root, err := os.OpenRoot(destDir)
+	w, err := openArchiveWriter(destDir)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = root.Close() }()
+	defer func() { _ = w.Close() }()
 
 	for _, f := range r.File {
 		name, ok := safeArchivePath(f.Name)
 		if !ok {
 			continue
 		}
-
 		if f.FileInfo().IsDir() {
-			if err := root.MkdirAll(name, 0o755); err != nil {
+			if err := w.mkdir(name); err != nil {
 				return err
 			}
 			continue
 		}
-
-		if dir := filepath.Dir(name); dir != "." {
-			if err := root.MkdirAll(dir, 0o755); err != nil {
-				return err
-			}
-		}
-
 		rc, err := f.Open()
 		if err != nil {
 			return err
 		}
-		out, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode().Perm()&archiveFilePermMask)
-		if err != nil {
-			_ = rc.Close()
-			return err
-		}
-		if _, err := io.Copy(out, rc); err != nil { //nolint:gosec // bounded by archive entry
-			_ = out.Close()
-			_ = rc.Close()
-			return err
-		}
-		_ = out.Close()
+		err = w.writeFile(name, f.Mode(), rc)
 		_ = rc.Close()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -463,21 +500,17 @@ func extractTarXz(archivePath, destDir string) error {
 	return nil
 }
 
-// extractTar extracts a tar stream to destDir.
-//
-// All writes go through an os.Root opened on destDir, which refuses to follow
-// a symlink that leaves the directory, so an archive cannot plant a link and
-// then write through it. Symlinks with absolute or escaping targets are
-// skipped rather than created.
+// extractTar extracts a tar stream to destDir. Writes go through an
+// archiveWriter, and symlinks with absolute or escaping targets are skipped
+// rather than created.
 func extractTar(r io.Reader, destDir string) error {
-	root, err := os.OpenRoot(destDir)
+	w, err := openArchiveWriter(destDir)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = root.Close() }()
+	defer func() { _ = w.Close() }()
 
 	tr := tar.NewReader(r)
-
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -494,29 +527,15 @@ func extractTar(r io.Reader, destDir string) error {
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := root.MkdirAll(name, 0o755); err != nil {
+			if err := w.mkdir(name); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if dir := filepath.Dir(name); dir != "." {
-				if err := root.MkdirAll(dir, 0o755); err != nil {
-					return err
-				}
-			}
-			out, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode).Perm()&archiveFilePermMask)
-			if err != nil {
+			if err := w.writeFile(name, os.FileMode(hdr.Mode), tr); err != nil {
 				return err
 			}
-			if _, err := io.Copy(out, tr); err != nil { //nolint:gosec // bounded by tar entry
-				_ = out.Close()
-				return err
-			}
-			_ = out.Close()
 		case tar.TypeSymlink:
-			if !symlinkStaysInside(name, hdr.Linkname) {
-				continue
-			}
-			_ = root.Symlink(hdr.Linkname, name) // best-effort, as before
+			w.symlink(name, hdr.Linkname)
 		}
 	}
 	return nil

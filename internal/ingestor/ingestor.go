@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
-	stderrors "errors"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -88,10 +88,10 @@ func Run(ctx context.Context, opts *Options) (RunStats, error) {
 	client := NewClient(opts.ServerURL, opts.APIKey, opts.RateLimit)
 
 	startTime := time.Now()
-	var submitted, errors atomic.Int64
+	var submitted, failed atomic.Int64
 
-	// At least one worker: Run waits for the input reader below, which would
-	// block forever on a full request channel with nobody draining it.
+	// At least one worker: inputs are read on this goroutine, which would block
+	// forever on a full request channel with nobody draining it.
 	workers := max(opts.Concurrency, 1)
 
 	// Create request channel
@@ -110,7 +110,7 @@ func Run(ctx context.Context, opts *Options) (RunStats, error) {
 
 				_, err := client.Submit(ctx, req)
 				if err != nil {
-					errors.Add(1)
+					failed.Add(1)
 					zap.L().Debug("Submit failed", zap.String("url", req.URL), zap.Error(err))
 				} else {
 					submitted.Add(1)
@@ -120,65 +120,57 @@ func Run(ctx context.Context, opts *Options) (RunStats, error) {
 		})
 	}
 
-	// Parse and send requests. Input failures are collected, not fatal: the
-	// readable sources are still submitted, and the caller is told afterwards.
-	inputErrCh := make(chan error, 1)
-	go func() {
-		defer close(reqChan)
-		var inputErrs []error
-		switch opts.InputFormat {
-		case "openapi", "swagger":
-			// OpenAPI/Swagger handles its own input loading (file or URL)
-			if err := parseSpecInput(ctx, reqChan, opts); err != nil {
-				inputErrs = append(inputErrs, err)
-			}
-		case "nuclei":
-			for _, in := range opts.inputSources() {
-				reader, closer, err := openInput(in)
-				if err != nil {
-					inputErrs = append(inputErrs, fmt.Errorf("open input %s: %w", in, err))
-					continue
-				}
-				if err := parseNucleiInput(ctx, reader, reqChan, opts); err != nil {
-					inputErrs = append(inputErrs, fmt.Errorf("read input %s: %w", in, err))
-				}
-				if closer != nil {
-					_ = closer.Close()
-				}
-			}
-		default: // "urls"
-			for _, in := range opts.inputSources() {
-				reader, closer, err := openInput(in)
-				if err != nil {
-					inputErrs = append(inputErrs, fmt.Errorf("open input %s: %w", in, err))
-					continue
-				}
-				if err := parseURLsInput(ctx, reader, reqChan, opts); err != nil {
-					inputErrs = append(inputErrs, fmt.Errorf("read input %s: %w", in, err))
-				}
-				if closer != nil {
-					_ = closer.Close()
-				}
-			}
-		}
-		inputErrCh <- stderrors.Join(inputErrs...)
-	}()
-
-	// Wait for workers
+	// Input failures are not fatal: the readable sources are still submitted,
+	// and the caller is told afterwards.
+	inputErr := readInputs(ctx, reqChan, opts)
+	close(reqChan)
 	wg.Wait()
 
 	stats := RunStats{
 		Submitted: submitted.Load(),
-		Errors:    errors.Load(),
+		Errors:    failed.Load(),
 		Elapsed:   time.Since(startTime),
 	}
-	// The input goroutine always sends exactly once: it selects on ctx.Done()
-	// wherever it could block on reqChan, so it finishes even when the workers
-	// stopped early.
-	if inputErr := <-inputErrCh; inputErr != nil {
+	if inputErr != nil {
 		return stats, fmt.Errorf("ingest input: %w", inputErr)
 	}
 	return stats, nil
+}
+
+// readInputs parses every input source into reqChan and returns the joined
+// errors of the sources that could not be read in full. Every parser selects
+// on ctx.Done() when sending, so this returns even if the workers stopped.
+func readInputs(ctx context.Context, reqChan chan<- *IngestRequest, opts *Options) error {
+	if opts.InputFormat == "openapi" || opts.InputFormat == "swagger" {
+		// OpenAPI/Swagger handles its own input loading (file or URL)
+		return parseSpecInput(ctx, reqChan, opts)
+	}
+	parse := parseURLsInput
+	if opts.InputFormat == "nuclei" {
+		parse = parseNucleiInput
+	}
+	var errs []error
+	for _, in := range opts.inputSources() {
+		if err := readSource(ctx, in, parse, reqChan, opts); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// readSource opens one input source and runs parse over it.
+func readSource(ctx context.Context, in string, parse func(context.Context, io.Reader, chan<- *IngestRequest, *Options) error, reqChan chan<- *IngestRequest, opts *Options) error {
+	reader, closer, err := openInput(in)
+	if err != nil {
+		return fmt.Errorf("open input %s: %w", in, err)
+	}
+	if closer != nil {
+		defer func() { _ = closer.Close() }()
+	}
+	if err := parse(ctx, reader, reqChan, opts); err != nil {
+		return fmt.Errorf("read input %s: %w", in, err)
+	}
+	return nil
 }
 
 // inputSources returns the ordered list of inputs to read for plain URL /
@@ -291,7 +283,7 @@ func parseNucleiInput(ctx context.Context, reader io.Reader, reqChan chan<- *Ing
 			// error, a truncated object) is sticky: Decode returns it forever
 			// while More() stays true, so continuing would loop without end.
 			var typeErr *json.UnmarshalTypeError
-			if stderrors.As(err, &typeErr) {
+			if errors.As(err, &typeErr) {
 				zap.L().Debug("Skipping nuclei record with an unexpected field type", zap.Error(err))
 				continue
 			}

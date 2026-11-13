@@ -168,7 +168,7 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 			zap.L().Warn("KnownIssueScan: Nuclei scan stopped at phase max_duration", zap.Error(nucleiCtx.Err()))
 		} else {
 			zap.L().Error("KnownIssueScan: Nuclei scan failed", zap.Error(err))
-			r.noteKISLegFailure(nucleiCtx, err)
+			r.currentPhase.Load().noteError(err)
 		}
 	}
 
@@ -186,7 +186,7 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 			zap.L().Warn("KnownIssueScan: secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(secretScanCtx.Err()))
 		} else {
 			zap.L().Error("KnownIssueScan: secret scan failed", zap.Error(err))
-			r.noteKISLegFailure(secretScanCtx, err)
+			r.currentPhase.Load().noteError(err)
 		}
 	}
 
@@ -217,23 +217,6 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 	elapsed := time.Since(phaseStart)
 	r.printPhaseComplete("KnownIssueScan", fmt.Sprintf("completed in %s", terminal.HiPurple(fmtDuration(elapsed))))
 	return nil
-}
-
-// noteKISLegFailure records a known-issue-scan leg's error on the phase
-// outcome and reports whether it did. An error that arrives after the leg's
-// own context ended is a curtailment (its max_duration, or the scan being
-// stopped), which trackedPhaseDeadline and the scan's stop reason already
-// account for, so it is not recorded here.
-//
-// Without this the nuclei and secret-scan legs only logged their failures:
-// the phase reported "completed" and a scan whose engine never started was
-// indistinguishable from one that ran and found nothing.
-func (r *Runner) noteKISLegFailure(legCtx context.Context, err error) bool {
-	if err == nil || legCtx.Err() != nil {
-		return false
-	}
-	r.currentPhase.Load().noteError(err)
-	return true
 }
 
 // runKnownIssueScan executes known issue scanning using the nuclei Go library.

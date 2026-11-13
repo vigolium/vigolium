@@ -602,7 +602,7 @@ func TestSafeArchivePath(t *testing.T) {
 	}{
 		{"app/main.go", filepath.Join("app", "main.go"), true},
 		{"./app/../app/main.go", filepath.Join("app", "main.go"), true},
-		{"/abs/file.txt", filepath.Join("abs", "file.txt"), true}, // leading slash stripped, as before
+		{"/abs/file.txt", filepath.Join("abs", "file.txt"), true}, // leading slash stripped
 		{"../escape.txt", "", false},
 		{"app/../../escape.txt", "", false},
 		{"", "", false},
