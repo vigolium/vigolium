@@ -22,11 +22,8 @@ func (h *Handlers) HandleGetConfig(c fiber.Ctx) error {
 
 	filter := c.Query("filter")
 	// Unmasking is admin-only: this viewer-readable route returns the server's
-	// own admin API key. A nil user means --no-auth (no roles to enforce); a
-	// --view-only server, often public, never unmasks.
-	user := getAuthUser(c)
-	showSensitive := c.Query("show_sensitive") == "true" && !h.config.ViewOnly &&
-		(user == nil || user.Role == RoleAdmin)
+	// own admin API key. A --view-only server, often public, never unmasks.
+	showSensitive := c.Query("show_sensitive") == "true" && !h.config.ViewOnly && hasRole(c, RoleAdmin)
 
 	entries := config.FlattenSettings(h.settings)
 

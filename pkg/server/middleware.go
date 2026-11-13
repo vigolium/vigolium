@@ -231,21 +231,19 @@ func getAuthUser(c fiber.Ctx) *ResolvedUser {
 // is not in the allowed set. Must be applied after BearerAuth.
 // When no auth user is present (--no-auth mode), requests are allowed through.
 func RoleGuard(allowed ...string) fiber.Handler {
-	set := make(map[string]bool, len(allowed))
-	for _, r := range allowed {
-		set[r] = true
-	}
 	return func(c fiber.Ctx) error {
-		user := getAuthUser(c)
-		if user == nil {
-			// No user means auth was skipped (--no-auth) → allow
-			return c.Next()
-		}
-		if !set[user.Role] {
+		if !hasRole(c, allowed...) {
 			return respondError(c, fiber.StatusForbidden, ErrForbidden)
 		}
 		return c.Next()
 	}
+}
+
+// hasRole reports whether the request's user holds one of roles. No user
+// means auth was skipped (--no-auth), where every role check passes.
+func hasRole(c fiber.Ctx, roles ...string) bool {
+	user := getAuthUser(c)
+	return user == nil || slices.Contains(roles, user.Role)
 }
 
 // DebugRequestMiddleware logs the raw request body, URL/query parameters,

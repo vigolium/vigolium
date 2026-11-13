@@ -372,8 +372,7 @@ func TestRunNucleiFormat(t *testing.T) {
 }
 
 func TestRunOpenInputError(t *testing.T) {
-	// A nonexistent input file must not look like a clean run: Run reports it,
-	// so the CLI exits non-zero instead of printing "Submitted: 0 | Errors: 0".
+	// A missing input file is reported as an error naming the file.
 	opts := DefaultOptions()
 	opts.ServerURL = "http://localhost:9"
 	opts.APIKey = "tok"
@@ -606,9 +605,8 @@ func TestParseNucleiInputDecodeErrorContinues(t *testing.T) {
 	}
 }
 
-// TestParseNucleiInputStopsOnSyntaxError is the regression for the infinite
-// loop: after a JSON syntax error the decoder returns the same error forever
-// while More() stays true, so "continue" spun a core and never returned.
+// TestParseNucleiInputStopsOnSyntaxError pins that a syntax error ends the
+// read with an error: the decoder's error is sticky while More() stays true.
 func TestParseNucleiInputStopsOnSyntaxError(t *testing.T) {
 	reader := strings.NewReader("{\"url\":\"http://a\"}\nnot json\n{\"url\":\"http://b\"}\n")
 	ch := make(chan *IngestRequest, 10)
@@ -638,11 +636,7 @@ func TestParseNucleiInputStopsOnSyntaxError(t *testing.T) {
 // TestRunPartialInputFailureStillSubmits pins that one bad source does not
 // discard the readable ones, and that the failure is still reported.
 func TestRunPartialInputFailureStillSubmits(t *testing.T) {
-	dir := t.TempDir()
-	good := filepath.Join(dir, "urls.txt")
-	if err := os.WriteFile(good, []byte("http://t/a\nhttp://t/b\n"), 0o600); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
+	good := writeInput(t, "http://t/a\nhttp://t/b\n")
 
 	srv := newAcceptServer(t)
 
@@ -650,7 +644,7 @@ func TestRunPartialInputFailureStillSubmits(t *testing.T) {
 	opts.ServerURL = srv.URL
 	opts.APIKey = "tok"
 	opts.Input = good
-	opts.TargetFiles = []string{filepath.Join(dir, "missing.txt")}
+	opts.TargetFiles = []string{filepath.Join(filepath.Dir(good), "missing.txt")}
 	opts.Concurrency = 1
 
 	stats, err := Run(context.Background(), opts)
@@ -663,13 +657,10 @@ func TestRunPartialInputFailureStillSubmits(t *testing.T) {
 }
 
 // TestRunNonPositiveConcurrencyStillSubmits pins that Run neither hangs nor
-// drops input when no worker count was given: Run waits for the input reader
-// to finish, so with zero workers a full request channel would block forever.
+// drops input when no worker count was given: inputs are read on Run's own
+// goroutine, so with zero workers a full request channel would block forever.
 func TestRunNonPositiveConcurrencyStillSubmits(t *testing.T) {
-	good := filepath.Join(t.TempDir(), "urls.txt")
-	if err := os.WriteFile(good, []byte("http://t/a\n"), 0o600); err != nil {
-		t.Fatalf("write input: %v", err)
-	}
+	good := writeInput(t, "http://t/a\n")
 	srv := newAcceptServer(t)
 
 	opts := DefaultOptions()
@@ -795,4 +786,14 @@ func newAcceptServer(t *testing.T) *httptest.Server {
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// writeInput writes content to a temp input file and returns its path.
+func writeInput(t *testing.T, content string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "urls.txt")
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	return p
 }

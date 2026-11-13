@@ -394,7 +394,9 @@ func (w *archiveWriter) mkdir(dir string) error {
 	if err := w.root.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	w.made[dir] = struct{}{}
+	for d := dir; d != "."; d = filepath.Dir(d) {
+		w.made[d] = struct{}{}
+	}
 	return nil
 }
 

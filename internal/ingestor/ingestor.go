@@ -145,7 +145,7 @@ func readInputs(ctx context.Context, reqChan chan<- *IngestRequest, opts *Option
 		// OpenAPI/Swagger handles its own input loading (file or URL)
 		return parseSpecInput(ctx, reqChan, opts)
 	}
-	parse := parseURLsInput
+	var parse inputParser = parseURLsInput
 	if opts.InputFormat == "nuclei" {
 		parse = parseNucleiInput
 	}
@@ -158,8 +158,11 @@ func readInputs(ctx context.Context, reqChan chan<- *IngestRequest, opts *Option
 	return errors.Join(errs...)
 }
 
+// inputParser forwards one input stream's requests to reqChan.
+type inputParser func(ctx context.Context, reader io.Reader, reqChan chan<- *IngestRequest, opts *Options) error
+
 // readSource opens one input source and runs parse over it.
-func readSource(ctx context.Context, in string, parse func(context.Context, io.Reader, chan<- *IngestRequest, *Options) error, reqChan chan<- *IngestRequest, opts *Options) error {
+func readSource(ctx context.Context, in string, parse inputParser, reqChan chan<- *IngestRequest, opts *Options) error {
 	reader, closer, err := openInput(in)
 	if err != nil {
 		return fmt.Errorf("open input %s: %w", in, err)

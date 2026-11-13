@@ -236,7 +236,7 @@ func TestHandleGetConfig(t *testing.T) {
 // role escalation. A --view-only server never unmasks, even with auth
 // disabled: it is the read-only face meant to be shown to others.
 func TestHandleGetConfig_ShowSensitiveNeedsAdmin(t *testing.T) {
-	const secret = "plan002-secret-value"
+	const secret = "sensitive-test-value"
 
 	// appFor serves the handler as a user with the given role; "" means no
 	// resolved user at all, which is how --no-auth requests look.

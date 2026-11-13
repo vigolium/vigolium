@@ -1148,10 +1148,9 @@ func (e *Engine) snapshotHistory() []provider.Message {
 // ("tool_use ids were found without tool_result blocks"), and history is
 // re-sent on more paths than it is written: a stream retry, a TUI follow-up
 // after Esc, a Fork, a post-halt re-entry. Enforcing it wherever history is
-// read covers all of them, including cancel sites that don't exist yet. It
-// must also run before a user turn is appended (see run), or the placeholder
-// lands after the user message. Only the trailing turn can dangle; earlier
-// ones were completed before the next assistant message was appended.
+// read covers all of them, including cancel sites that don't exist yet. Only
+// the trailing turn can dangle; earlier ones were completed before the next
+// assistant message was appended.
 func (e *Engine) answerDanglingToolCallsLocked() {
 	last := -1
 	for i := len(e.history) - 1; i >= 0; i-- {
