@@ -339,6 +339,36 @@ func detectEffectiveRoot(destDir string) (string, error) {
 	return destDir, nil
 }
 
+// archiveFilePermMask bounds the permission bits an archive can give an
+// extracted file: owner rwx, group/other r-x at most. An archive must not be
+// able to plant group- or world-writable files.
+const archiveFilePermMask = 0o755
+
+// safeArchivePath turns an archive member name into a path relative to the
+// extraction root. It reports false for a name that is empty or climbs out
+// of the root. A leading slash is stripped rather than rejected, which is
+// what joining onto the destination directory did before.
+func safeArchivePath(name string) (string, bool) {
+	clean := filepath.Clean(strings.TrimLeft(filepath.FromSlash(name), string(os.PathSeparator)))
+	if clean == "." || !filepath.IsLocal(clean) {
+		return "", false
+	}
+	return clean, true
+}
+
+// symlinkStaysInside reports whether a symlink at linkPath (relative to the
+// extraction root) pointing at target resolves, lexically, inside the root.
+// Absolute targets never do. filepath.Join must not be used on its own for
+// this check: it rewrites an absolute target into a path under the link's
+// directory, which makes every absolute target look contained.
+func symlinkStaysInside(linkPath, target string) bool {
+	target = filepath.FromSlash(target)
+	if target == "" || filepath.IsAbs(target) {
+		return false
+	}
+	return filepath.IsLocal(filepath.Join(filepath.Dir(linkPath), target))
+}
+
 // extractZip extracts a zip archive to destDir.
 func extractZip(archivePath, destDir string) error {
 	r, err := zip.OpenReader(archivePath)
@@ -347,30 +377,36 @@ func extractZip(archivePath, destDir string) error {
 	}
 	defer func() { _ = r.Close() }()
 
-	for _, f := range r.File {
-		target := filepath.Join(destDir, f.Name) //nolint:gosec // archive path validated below
+	root, err := os.OpenRoot(destDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
 
-		// Prevent path traversal
-		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
+	for _, f := range r.File {
+		name, ok := safeArchivePath(f.Name)
+		if !ok {
 			continue
 		}
 
 		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := root.MkdirAll(name, 0o755); err != nil {
 				return err
 			}
 			continue
 		}
 
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
+		if dir := filepath.Dir(name); dir != "." {
+			if err := root.MkdirAll(dir, 0o755); err != nil {
+				return err
+			}
 		}
 
 		rc, err := f.Open()
 		if err != nil {
 			return err
 		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
+		out, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode().Perm()&archiveFilePermMask)
 		if err != nil {
 			_ = rc.Close()
 			return err
@@ -428,7 +464,18 @@ func extractTarXz(archivePath, destDir string) error {
 }
 
 // extractTar extracts a tar stream to destDir.
+//
+// All writes go through an os.Root opened on destDir, which refuses to follow
+// a symlink that leaves the directory, so an archive cannot plant a link and
+// then write through it. Symlinks with absolute or escaping targets are
+// skipped rather than created.
 func extractTar(r io.Reader, destDir string) error {
+	root, err := os.OpenRoot(destDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+
 	tr := tar.NewReader(r)
 
 	for {
@@ -440,23 +487,23 @@ func extractTar(r io.Reader, destDir string) error {
 			return fmt.Errorf("tar read error: %w", err)
 		}
 
-		target := filepath.Join(destDir, hdr.Name) //nolint:gosec // archive path validated below
-
-		// Prevent path traversal
-		if !strings.HasPrefix(filepath.Clean(target), filepath.Clean(destDir)+string(os.PathSeparator)) {
+		name, ok := safeArchivePath(hdr.Name)
+		if !ok {
 			continue
 		}
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := root.MkdirAll(name, 0o755); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
+			if dir := filepath.Dir(name); dir != "." {
+				if err := root.MkdirAll(dir, 0o755); err != nil {
+					return err
+				}
 			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
+			out, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode).Perm()&archiveFilePermMask)
 			if err != nil {
 				return err
 			}
@@ -466,12 +513,10 @@ func extractTar(r io.Reader, destDir string) error {
 			}
 			_ = out.Close()
 		case tar.TypeSymlink:
-			// Resolve symlink target to prevent escaping destDir
-			linkTarget := filepath.Join(filepath.Dir(target), hdr.Linkname)
-			if !strings.HasPrefix(filepath.Clean(linkTarget), filepath.Clean(destDir)+string(os.PathSeparator)) {
+			if !symlinkStaysInside(name, hdr.Linkname) {
 				continue
 			}
-			os.Symlink(hdr.Linkname, target) //nolint:errcheck // best-effort symlink
+			_ = root.Symlink(hdr.Linkname, name) // best-effort, as before
 		}
 	}
 	return nil
