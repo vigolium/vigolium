@@ -526,7 +526,9 @@ func TestParseURLsInput(t *testing.T) {
 		EnableModules: []string{"xss"},
 		WebhookURL:    "http://hook",
 	}
-	parseURLsInput(context.Background(), reader, ch, opts)
+	if err := parseURLsInput(context.Background(), reader, ch, opts); err != nil {
+		t.Fatalf("parseURLsInput: %v", err)
+	}
 	close(ch)
 
 	var urls []string
@@ -551,7 +553,9 @@ func TestParseURLsInputContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	// Should return promptly without producing anything.
-	parseURLsInput(ctx, reader, ch, &Options{})
+	if err := parseURLsInput(ctx, reader, ch, &Options{}); err != nil {
+		t.Fatalf("parseURLsInput: %v", err)
+	}
 	close(ch)
 	if len(ch) != 0 {
 		t.Errorf("channel has %d items, want 0", len(ch))
@@ -565,7 +569,9 @@ func TestParseNucleiInput(t *testing.T) {
 `
 	reader := strings.NewReader(body)
 	ch := make(chan *IngestRequest, 10)
-	parseNucleiInput(context.Background(), reader, ch, &Options{EnableModules: []string{"sqli"}})
+	if err := parseNucleiInput(context.Background(), reader, ch, &Options{EnableModules: []string{"sqli"}}); err != nil {
+		t.Fatalf("parseNucleiInput: %v", err)
+	}
 	close(ch)
 
 	var reqs []*IngestRequest
@@ -587,12 +593,13 @@ func TestParseNucleiInput(t *testing.T) {
 }
 
 func TestParseNucleiInputDecodeErrorContinues(t *testing.T) {
-	// A malformed object that decodes with error: the loop logs and continues,
-	// but dec.More on broken JSON typically stops. We assert no panic and the
-	// valid leading object is captured.
+	// A field of the wrong type is a recoverable decode error: the record is
+	// skipped, the stream continues, and the valid leading object is captured.
 	reader := strings.NewReader(`{"url":"http://a"}{"url":123}`)
 	ch := make(chan *IngestRequest, 10)
-	parseNucleiInput(context.Background(), reader, ch, &Options{})
+	if err := parseNucleiInput(context.Background(), reader, ch, &Options{}); err != nil {
+		t.Fatalf("parseNucleiInput: %v", err)
+	}
 	close(ch)
 	var got []string
 	for req := range ch {
@@ -728,7 +735,9 @@ func TestParseSpecInputFromFile(t *testing.T) {
 		EnableModules: []string{"all"},
 		WebhookURL:    "http://hook",
 	}
-	parseSpecInput(context.Background(), ch, opts)
+	if err := parseSpecInput(context.Background(), ch, opts); err != nil {
+		t.Fatalf("parseSpecInput: %v", err)
+	}
 	close(ch)
 
 	var reqs []*IngestRequest
