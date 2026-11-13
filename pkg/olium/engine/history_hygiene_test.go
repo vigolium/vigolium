@@ -161,3 +161,53 @@ func TestAppendUserTurn(t *testing.T) {
 		t.Fatalf("user after user must merge: %+v", h)
 	}
 }
+
+// TestEngine_DanglingToolCallsAnsweredBeforeNextUserTurn pins the ORDER of
+// the repair. A cancel during a serial two-call batch leaves the second call
+// unanswered; the placeholder result for it must land directly after the
+// assistant turn, before the follow-up user message. Appended after it, the
+// history reads assistant(tool A, tool B) / tool A / user / tool B, which
+// providers reject on every later request in the session.
+func TestEngine_DanglingToolCallsAnsweredBeforeNextUserTurn(t *testing.T) {
+	prov := &scriptedProvider{fn: func(int32) []stream.Event {
+		return []stream.Event{
+			{Type: stream.EventTextDelta, Delta: "ok"},
+			doneEvent(),
+		}
+	}}
+	eng := New(Config{Provider: prov, Tools: tool.NewRegistry(), Model: "m", MaxTurns: 1})
+
+	// The state a cancelled batch leaves behind: two calls, one result.
+	eng.mu.Lock()
+	eng.history = []provider.Message{
+		{Role: provider.RoleUser, Text: "first"},
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{
+			{ID: "call_a", Name: "bash"},
+			{ID: "call_b", Name: "bash"},
+		}},
+		{Role: provider.RoleTool, ToolCallID: "call_a", Content: "done"},
+	}
+	eng.mu.Unlock()
+
+	_ = drainEngine(t, eng.Run(context.Background(), "follow-up"), 5*time.Second)
+
+	sent := prov.lastRequest().Messages
+	userIdx, toolBIdx := -1, -1
+	for i, m := range sent {
+		if m.Role == provider.RoleUser && strings.Contains(m.Text, "follow-up") {
+			userIdx = i
+		}
+		if m.Role == provider.RoleTool && m.ToolCallID == "call_b" {
+			toolBIdx = i
+		}
+	}
+	if toolBIdx < 0 {
+		t.Fatalf("call_b never got a result: %+v", sent)
+	}
+	if userIdx < 0 {
+		t.Fatalf("the follow-up user turn was not sent: %+v", sent)
+	}
+	if toolBIdx > userIdx {
+		t.Errorf("tool result for call_b sits at index %d, after the follow-up user turn at %d: %+v", toolBIdx, userIdx, sent)
+	}
+}

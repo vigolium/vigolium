@@ -372,6 +372,12 @@ func (e *Engine) run(ctx context.Context, userPrompt string, out chan<- Event) {
 	defer close(out)
 
 	e.mu.Lock()
+	// Close out a previous run's unanswered tool calls BEFORE this turn's
+	// user message goes in. The repair appends at the tail, so doing it on
+	// the first history read (after the user message) would leave a tool
+	// result behind a user turn — an order providers reject, and one that
+	// never heals because it is stored.
+	e.answerDanglingToolCallsLocked()
 	e.history = appendUserTurn(e.history, userPrompt)
 	e.mu.Unlock()
 
