@@ -1517,7 +1517,7 @@ Register an OAST session and mint one or more callback URLs
 |------|-------|------|---------|-------------|
 | `--count` | `-n` | int | `1` | Number of callback URLs to mint |
 | `--server` | - | string | `oast.pro` | interactsh server URL |
-| `--token` | - | string | - | interactsh auth token (for a self-hosted server) |
+| `--token` | - | string | - | interactsh auth token (for a self-hosted server; falls back to $VIGOLIUM_OAST_TOKEN) |
 
 ## vigolium kit oast poll
 
