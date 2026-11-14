@@ -72,6 +72,10 @@ type Options struct {
 	// Cookie header, which is then spliced into the session/-H cookie string
 	// rather than replacing it. A header the request lacks is never added.
 	PreserveHeaders []string
+	// PreserveConnection keeps a stored "Connection: close" on the wire. By
+	// default the net/http path drops it (ECON-13): a captured record carrying
+	// it made every probe built from it pay a fresh TCP+TLS handshake.
+	PreserveConnection bool
 	// RawRequestTarget, when non-empty, is written verbatim as the HTTP
 	// request-line target (request-URI) while the TCP/TLS connection still goes
 	// to the request's real host. It enables routing-based SSRF / "Cracking the
@@ -1784,6 +1788,9 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 			)
 		}
 	} else {
+		if !opts.PreserveConnection {
+			dropConnectionClose(req.Header)
+		}
 		if opts.NoRedirects {
 			resp, err = r.clientNoRedir.Do(req)
 		} else {
@@ -1835,6 +1842,18 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 		return nil, errors.Wrap(err, "could not generate response chain")
 	}
 	return respChain, nil
+}
+
+// dropConnectionClose removes a Connection header whose only token is
+// "close" (ECON-13), so the pooled connection is reused. Any other value
+// (Upgrade, keep-alive, a hop-by-hop list) is left alone. Raw requests never
+// come through here: their bytes are the test.
+func dropConnectionClose(h http.Header) {
+	vals := h["Connection"]
+	if len(vals) != 1 || !strings.EqualFold(strings.TrimSpace(vals[0]), "close") {
+		return
+	}
+	delete(h, "Connection")
 }
 
 // stripRawhttpDecodedEncoding removes the content-coding and framing headers

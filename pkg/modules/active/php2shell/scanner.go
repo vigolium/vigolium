@@ -172,7 +172,7 @@ func send(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, path, bo
 		return exchange{}, false
 	}
 	req := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
-	resp, _, err := httpClient.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
+	resp, _, err := httpClient.Execute(req, http.Options{NoRedirects: true, NoClustering: true, PreserveConnection: true})
 	if err != nil {
 		return exchange{}, false
 	}
