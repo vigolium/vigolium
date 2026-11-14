@@ -15,6 +15,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/types/severity"
 	"go.uber.org/zap"
 )
 
@@ -399,7 +400,18 @@ type callOutcome struct {
 	events    []*output.ResultEvent
 	completed bool
 	err       error
+
+	// late is set when the call hit its per-module timeout while the phase was
+	// still live: the abandoned module goroutine delivers its result there when
+	// it eventually unwinds. lateWait bounds how long a harvester waits for it,
+	// and stats is the call's requester stats (nil without a requester).
+	late     <-chan moduleCallResult
+	lateWait time.Duration
+	stats    *http.CallStats
 }
+
+// maxLateHarvestWait caps how long a timed-out call's findings are waited for.
+const maxLateHarvestWait = 30 * time.Second
 
 // failedTransiently reports whether the call failed for a reason that says
 // nothing about the target's answer — it did not complete, or its error is a
@@ -518,7 +530,8 @@ func (e *Executor) runActiveCall(
 			} else {
 				e.noteModuleError(module, item, r.err, moduleErrorKind(r.err))
 			}
-			return callOutcome{completed: true, err: r.err}
+			// Keep whatever the module confirmed before it failed (MISS-20).
+			return callOutcome{events: r.events, completed: true, err: r.err}
 		}
 		e.noteThrottledCall(module, reqClient, r.events)
 		return callOutcome{events: r.events, completed: true}
@@ -543,7 +556,13 @@ func (e *Executor) runActiveCall(
 			zap.String("module", module.ID()),
 			zap.String("url", item.Target()),
 			zap.Duration("timeout", timeout))
-		return callOutcome{}
+		if ctx.Err() != nil {
+			return callOutcome{}
+		}
+		// The module keeps running and is told to stop sending (abandon flag);
+		// whatever it confirmed is still worth having. Hand the result channel to
+		// a bounded harvester (see harvestLate) instead of dropping it (MISS-20).
+		return callOutcome{late: ch, lateWait: min(timeout, maxLateHarvestWait), stats: reqClient.CallStats()}
 	case <-ctx.Done():
 		// Parent cancellation (Ctrl-C, --scanning-max-duration, phase deadline) —
 		// an interruption, not a timed-out module, so it is not counted.
@@ -588,4 +607,60 @@ func IsLevelDBClosed(err error) bool {
 		return false
 	}
 	return errors.Is(err, leveldb.ErrClosed) || strings.Contains(err.Error(), "leveldb: closed")
+}
+
+// deliverCall hands a finished call's events to processResults, or — for a
+// call that timed out with the phase still live — registers a harvester that
+// does so if the module's result arrives within the late-wait bound.
+func (e *Executor) deliverCall(ctx context.Context, o callOutcome, module modules.Module, item *httpmsg.HttpRequestResponse, ip httpmsg.InsertionPoint) {
+	if o.completed {
+		if len(o.events) > 0 {
+			e.processResults(ctx, o.events, module, item, ip)
+		}
+		return
+	}
+	e.harvestLate(ctx, o, func(events []*output.ResultEvent) {
+		e.processResults(ctx, events, module, item, ip)
+	})
+}
+
+// harvestLate waits (on the scan's taskWG, bounded by o.lateWait and ctx) for
+// a timed-out module call's result and delivers its events. A call whose
+// requests were refused after the timeout (CallStats Refused/Abandoned > 0)
+// may have stopped short of its confirmation steps, so its late findings are
+// downgraded to Tentative with a note. The item's response buffer was already
+// withheld from the pool when the call timed out, so reading item here is safe.
+func (e *Executor) harvestLate(ctx context.Context, o callOutcome, deliver func([]*output.ResultEvent)) {
+	if o.late == nil || o.lateWait <= 0 {
+		return
+	}
+	e.pool.taskWG.Add(1)
+	go func() {
+		defer e.pool.taskWG.Done()
+		timer := time.NewTimer(o.lateWait)
+		defer timer.Stop()
+		select {
+		case r := <-o.late:
+			if len(r.events) == 0 || ctx.Err() != nil {
+				return
+			}
+			refused := o.stats != nil && (o.stats.Refused.Load() > 0 || o.stats.Abandoned.Load() > 0)
+			for _, ev := range r.events {
+				if ev == nil {
+					continue
+				}
+				if ev.Metadata == nil {
+					ev.Metadata = map[string]any{}
+				}
+				ev.Metadata["late_result"] = true
+				if refused && ev.Info.Confidence > severity.Tentative {
+					ev.Info.Confidence = severity.Tentative
+					ev.Info.Description += " (reported after the module's call timed out; some of its requests were refused, so confirmation may be incomplete)"
+				}
+			}
+			deliver(r.events)
+		case <-timer.C:
+		case <-ctx.Done():
+		}
+	}()
 }

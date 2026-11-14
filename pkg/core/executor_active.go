@@ -55,9 +55,7 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 			if o.failedTransiently() && ctx.Err() == nil {
 				e.releaseHostClaim(e.caches.perHostActiveClaimed, claimKey)
 			}
-			if o.completed && len(o.events) > 0 {
-				e.processResults(ctx, o.events, mod, item, nil)
-			}
+			e.deliverCall(ctx, o, mod, item, nil)
 		})
 	}
 }
@@ -94,7 +92,7 @@ func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requ
 
 		mod := module // capture loop variable
 		e.goActiveTask(ctx, t, hostKey, func(releaseSlot func()) {
-			results, completed := e.runActiveWithTimeout(ctx,
+			o := e.runActiveCall(ctx,
 				func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
 						return contextual.ScanPerRequestContext(runCtx, item, client, e.scanCtx)
@@ -102,9 +100,7 @@ func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requ
 					return mod.ScanPerRequest(item, client, e.scanCtx)
 				},
 				mod, item, reqClient, releaseSlot, workUnits)
-			if completed && len(results) > 0 {
-				e.processResults(ctx, results, mod, item, nil)
-			}
+			e.deliverCall(ctx, o, mod, item, nil)
 		})
 	}
 }
@@ -205,7 +201,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 					releaseSlot()
 					return
 				}
-				results, completed := e.runActiveWithTimeout(ctx,
+				o := e.runActiveCall(ctx,
 					func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 						if contextual, ok := mod.(modules.ContextualActiveModule); ok {
 							return contextual.ScanPerInsertionPointContext(runCtx, item, pt, client, e.scanCtx)
@@ -213,9 +209,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 						return mod.ScanPerInsertionPoint(item, pt, client, e.scanCtx)
 					},
 					mod, item, reqClient, releaseSlot, 0)
-				if completed && len(results) > 0 {
-					e.processResults(ctx, results, mod, item, pt)
-				}
+				e.deliverCall(ctx, o, mod, item, pt)
 			})
 		}
 	}
