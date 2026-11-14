@@ -1185,10 +1185,13 @@ func (c *PayloadCoordinator) handleRedirect(
 			_ = cb.OnFileDiscovered(fileURL, depth, confirmExt)
 		}
 
-		// Create Result for non-trailing-slash redirect
+		// The 3xx is the SOURCE URL's response: record it under the source
+		// (storing it under the Location URL paired the target with someone
+		// else's response). The target is fetched on its own as a referenced
+		// task, so it is recorded with its own response.
 		if cb.OnResult != nil {
 			cb.OnResult(&Result{
-				URL:     parseURL(redirectInfo.ResolvedLocation),
+				URL:     parseURL(urlStr),
 				Request: &storage.RequestData{Method: req.Method},
 				Metadata: &storage.DiscoveryMetadata{
 					FoundBy:   "redirect",
@@ -1197,6 +1200,9 @@ func (c *PayloadCoordinator) handleRedirect(
 				},
 				rc: rc,
 			})
+		}
+		if cb.QueueReferencedURL != nil && !redirectPreservesPath(urlStr, redirectInfo.ResolvedLocation) {
+			cb.QueueReferencedURL(redirectInfo.ResolvedLocation, depth)
 		}
 	}
 

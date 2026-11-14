@@ -949,6 +949,7 @@ func (e *Engine) newCallbacks() *Callbacks {
 	return &Callbacks{
 		OnDirectoryDiscovered:       e.OnDirectoryDiscovered,
 		OnFileDiscovered:            e.OnFileDiscovered,
+		QueueReferencedURL:          e.queueReferencedURL,
 		OnResult:                    e.onResult,
 		AddObservedName:             e.AddObservedNameTrusted,
 		AddObservedPath:             e.AddObservedPathTrusted,
