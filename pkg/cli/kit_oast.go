@@ -17,6 +17,21 @@ import (
 
 const kitOASTDefaultSession = "oast-session.yaml"
 
+// kitOASTTokenEnv is read when --token is empty, so a caller can hand the
+// interactsh token over without putting it on a command line (where every
+// local user can read it from the process table). The same variable feeds
+// oast.token in the shipped config template.
+const kitOASTTokenEnv = "VIGOLIUM_OAST_TOKEN"
+
+// resolveKitOASTToken returns the --token value, or $VIGOLIUM_OAST_TOKEN when
+// the flag is empty. An explicit flag always wins.
+func resolveKitOASTToken(flag string) string {
+	if flag != "" {
+		return flag
+	}
+	return os.Getenv(kitOASTTokenEnv)
+}
+
 var (
 	kitOASTSession    string
 	kitOASTServer     string
@@ -68,7 +83,7 @@ func init() {
 
 	nf := kitOASTNewCmd.Flags()
 	nf.StringVar(&kitOASTServer, "server", config.DefaultOASTServer, "interactsh server URL")
-	nf.StringVar(&kitOASTToken, "token", "", "interactsh auth token (for a self-hosted server)")
+	nf.StringVar(&kitOASTToken, "token", "", "interactsh auth token (for a self-hosted server; falls back to $"+kitOASTTokenEnv+")")
 	nf.IntVarP(&kitOASTCount, "count", "n", 1, "Number of callback URLs to mint")
 
 	pf := kitOASTPollCmd.Flags()
@@ -94,7 +109,7 @@ func runKitOASTNew(cmd *cobra.Command, args []string) error {
 
 	client, err := interactshclient.New(&interactshclient.Options{
 		ServerURL: kitOASTServer,
-		Token:     kitOASTToken,
+		Token:     resolveKitOASTToken(kitOASTToken),
 	})
 	if err != nil {
 		return fmt.Errorf("registering with interactsh server %q: %w", kitOASTServer, err)

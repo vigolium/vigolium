@@ -55,13 +55,19 @@ func NewClient(baseURL, apiKey string, rateLimit int) *Client {
 	// Normalize base URL
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
+	// A non-positive rate limit means "no limit". rate.NewLimiter(0, 0) has
+	// burst 0, so every Wait would fail and nothing would ever be submitted.
+	limiter := rate.NewLimiter(rate.Inf, 0)
+	if rateLimit > 0 {
+		limiter = rate.NewLimiter(rate.Limit(rateLimit), rateLimit)
+	}
 	return &Client{
 		baseURL: baseURL,
 		apiKey:  apiKey,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		rateLimiter: rate.NewLimiter(rate.Limit(rateLimit), rateLimit),
+		rateLimiter: limiter,
 	}
 }
 

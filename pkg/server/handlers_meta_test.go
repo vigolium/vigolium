@@ -230,6 +230,53 @@ func TestHandleGetConfig(t *testing.T) {
 	})
 }
 
+// TestHandleGetConfig_ShowSensitiveNeedsAdmin pins who may turn masking off.
+// The route is viewer-readable and survives --view-only, and the flattened
+// config holds the admin API key, so an unredacted read by a viewer is a
+// role escalation. A --view-only server never unmasks, even with auth
+// disabled: it is the read-only face meant to be shown to others.
+func TestHandleGetConfig_ShowSensitiveNeedsAdmin(t *testing.T) {
+	const secret = "sensitive-test-value"
+
+	// appFor serves the handler as a user with the given role; "" means no
+	// resolved user at all, which is how --no-auth requests look.
+	appFor := func(role string, viewOnly bool) *fiber.App {
+		settings := config.DefaultSettings()
+		settings.Server.AuthAPIKey = secret
+		h := newBasicHandlers(t, ServerConfig{ViewOnly: viewOnly}, &fakeQueue{}, nil, nil, settings)
+		app := fiber.New()
+		app.Use(func(c fiber.Ctx) error {
+			if role != "" {
+				c.Locals(authUserLocalsKey, &ResolvedUser{Name: "t", Role: role})
+			}
+			return c.Next()
+		})
+		app.Get("/api/config", h.HandleGetConfig)
+		return app
+	}
+	leaked := func(app *fiber.App) bool {
+		_, body := doGet(t, app, "/api/config?show_sensitive=true", nil)
+		return strings.Contains(string(body), secret)
+	}
+
+	for _, role := range []string{RoleViewer, RoleOperator} {
+		if leaked(appFor(role, false)) {
+			t.Errorf("role %q read an unredacted sensitive value with show_sensitive=true", role)
+		}
+	}
+	if !leaked(appFor(RoleAdmin, false)) {
+		t.Errorf("admin must still be able to read sensitive values with show_sensitive=true")
+	}
+	if !leaked(appFor("", false)) {
+		t.Errorf("with auth disabled (no resolved user) show_sensitive=true must still work")
+	}
+	for _, role := range []string{"", RoleAdmin} {
+		if leaked(appFor(role, true)) {
+			t.Errorf("view-only server unmasked a sensitive value (role %q)", role)
+		}
+	}
+}
+
 func TestHandleGetConfig_NoSettings(t *testing.T) {
 	h := newBasicHandlers(t, ServerConfig{}, &fakeQueue{}, nil, nil, nil) // settings nil
 	app := fiber.New()

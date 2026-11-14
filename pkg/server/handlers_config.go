@@ -13,14 +13,17 @@ import (
 // HandleGetConfig handles GET /api/config — returns flattened config entries.
 // Query params:
 //   - filter: substring match on key (optional)
-//   - show_sensitive: "true" to show unredacted sensitive values (optional)
+//   - show_sensitive: "true" to show unredacted sensitive values (admin only;
+//     ignored for other roles and on --view-only servers)
 func (h *Handlers) HandleGetConfig(c fiber.Ctx) error {
 	if h.settings == nil {
 		return respondErrorMsg(c, fiber.StatusInternalServerError, "settings not available")
 	}
 
 	filter := c.Query("filter")
-	showSensitive := c.Query("show_sensitive") == "true"
+	// Unmasking is admin-only: this viewer-readable route returns the server's
+	// own admin API key. A --view-only server, often public, never unmasks.
+	showSensitive := c.Query("show_sensitive") == "true" && !h.config.ViewOnly && hasRole(c, RoleAdmin)
 
 	entries := config.FlattenSettings(h.settings)
 

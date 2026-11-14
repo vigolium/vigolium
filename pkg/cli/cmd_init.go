@@ -45,6 +45,13 @@ func runInitCmd(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(settingsPath); err == nil && !globalForce {
 		fmt.Fprintf(os.Stderr, "%s Already initialized (%s exists). Use --force to reinitialize.\n",
 			terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(settingsPath)))
+		// The config exists, but the core deps may not: every bootstrapping command writes the
+		// config on first use without fetching chromium or nuclei-templates, so an explicit
+		// `init` on such a home must still complete them. installCoreDeps returns at once when
+		// the marker is already stamped.
+		if err := installCoreDeps(); err != nil {
+			return fmt.Errorf("core dependency install failed: %w", err)
+		}
 		if globalJSON {
 			return emitMutation(cmd, "", mutationResult{
 				Action: "noop",

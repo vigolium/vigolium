@@ -283,6 +283,39 @@ func TestProjectUUIDMiddleware_HeaderAndDefault(t *testing.T) {
 	}
 }
 
+// TestProjectUUIDMiddleware_ValueDetachedFromRequestBuffer pins that the
+// project UUID stored for the request is a copy. Fiber (Immutable off) hands
+// out strings that alias fasthttp's reused header buffer; handlers pass this
+// value to background scans and use it as a map key, so an aliased string
+// changes project underneath a running scan when the next request arrives.
+func TestProjectUUIDMiddleware_ValueDetachedFromRequestBuffer(t *testing.T) {
+	const original = "33333333-4444-5555-6666-777777777777"
+	// Same length as original, so fasthttp rewrites the header value in place.
+	const overwrite = "99999999-8888-7777-6666-555555555555"
+
+	app := fiber.New()
+	app.Use(ProjectUUIDMiddleware(nil))
+	var retained string
+	app.Get("/api/echo-project", func(c fiber.Ctx) error {
+		retained = getProjectUUID(c)
+		// Stand in for the next request reusing this header buffer.
+		c.Request().Header.Set("X-Project-UUID", overwrite)
+		return c.SendString("ok")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/echo-project", nil)
+	req.Header.Set("X-Project-UUID", original)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatalf("call: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if retained != original {
+		t.Errorf("retained project UUID = %q after the header buffer was reused, want %q", retained, original)
+	}
+}
+
 func TestProjectUUIDMiddleware_AutoCreatesProject(t *testing.T) {
 	db, repo := newProjectModelTestDB(t)
 	app := fiber.New()

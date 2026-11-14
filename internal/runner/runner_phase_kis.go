@@ -168,6 +168,7 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 			zap.L().Warn("KnownIssueScan: Nuclei scan stopped at phase max_duration", zap.Error(nucleiCtx.Err()))
 		} else {
 			zap.L().Error("KnownIssueScan: Nuclei scan failed", zap.Error(err))
+			r.currentPhase.Load().noteError(err)
 		}
 	}
 
@@ -185,6 +186,7 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 			zap.L().Warn("KnownIssueScan: secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(secretScanCtx.Err()))
 		} else {
 			zap.L().Error("KnownIssueScan: secret scan failed", zap.Error(err))
+			r.currentPhase.Load().noteError(err)
 		}
 	}
 

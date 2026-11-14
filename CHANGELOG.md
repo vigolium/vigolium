@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.7] - 2026-11-14
+
+### Added
+
+- `kit oast new` falls back to `$VIGOLIUM_OAST_TOKEN` when `--token` is empty.
+
+### Security
+
+- `GET /api/config?show_sensitive=true` unmasks secrets for admin tokens only; rotate keys if viewer tokens were shared.
+- `agent audit --source` extracts archives inside `os.Root`, skipping escaping symlinks and capping modes at `0755`.
+
+### Fixed
+
+- `vigolium init` on an existing config still installs missing core deps (chromium, nuclei-templates).
+- REST background scans and agent runs no longer drift to another project via a reused `X-Project-UUID` buffer.
+- A failed Nuclei or secret-scan leg marks `known-issue-scan` as `failed`.
+- `ingest --server` stops on malformed nuclei JSON, fails on unreadable inputs, and treats `--rate-limit 0` as unlimited.
+- A cancelled agent tool batch no longer breaks later requests in the same session.
+
 ## [v0.5.6] - 2026-10-25
 
 ### New Vulnerability Checks

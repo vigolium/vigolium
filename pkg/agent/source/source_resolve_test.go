@@ -3,9 +3,11 @@ package source
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/vigolium/vigolium/pkg/gitutil"
@@ -494,5 +496,188 @@ func TestResolveDiff_GitRefWithoutSource(t *testing.T) {
 	_, _, err := ResolveDiff("main...feature", 0, "", t.TempDir())
 	if err == nil {
 		t.Error("expected error for git ref range without source")
+	}
+}
+
+// writeTar builds an in-memory tar from headers; a header whose Name has an
+// entry in bodies gets that content.
+func writeTar(t *testing.T, headers []tar.Header, bodies map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, h := range headers {
+		body, hasBody := bodies[h.Name]
+		if hasBody {
+			h.Size = int64(len(body))
+		}
+		if err := tw.WriteHeader(&h); err != nil {
+			t.Fatal(err)
+		}
+		if hasBody {
+			if _, err := tw.Write([]byte(body)); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// TestExtractTar_SymlinkCannotEscape is the regression for an archive that
+// plants a symlink with an absolute target and then writes through it.
+func TestExtractTar_SymlinkCannotEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation needs privileges on Windows")
+	}
+	tmp := t.TempDir()
+	outside := filepath.Join(tmp, "outside")
+	dest := filepath.Join(tmp, "dest")
+	for _, d := range []string{outside, dest} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	data := writeTar(t, []tar.Header{
+		{Name: "app/", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "app/evil", Typeflag: tar.TypeSymlink, Linkname: outside},
+		{Name: "app/evil/pwned.txt", Typeflag: tar.TypeReg, Mode: 0o644},
+		{Name: "app/rel", Typeflag: tar.TypeSymlink, Linkname: "../../outside"},
+		{Name: "app/ok", Typeflag: tar.TypeSymlink, Linkname: "main.go"},
+		{Name: "app/main.go", Typeflag: tar.TypeReg, Mode: 0o644},
+	}, map[string]string{"app/evil/pwned.txt": "x", "app/main.go": "package main\n"})
+
+	if err := extractTar(bytes.NewReader(data), dest); err != nil {
+		t.Fatalf("extractTar: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(outside, "pwned.txt")); err == nil {
+		t.Errorf("a file was written outside the destination through a symlink")
+	}
+	if fi, err := os.Lstat(filepath.Join(dest, "app", "evil")); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("a symlink with an absolute target was created")
+	}
+	if _, err := os.Lstat(filepath.Join(dest, "app", "rel")); err == nil {
+		t.Errorf("a symlink whose relative target climbs out of the destination was created")
+	}
+	// Chained links: each looks contained on its own, together they escape.
+	chain := writeTar(t, []tar.Header{
+		{Name: "d/", Typeflag: tar.TypeDir, Mode: 0o755},
+		{Name: "d/s", Typeflag: tar.TypeSymlink, Linkname: ".."},
+		{Name: "d/s/t", Typeflag: tar.TypeSymlink, Linkname: ".."},
+		{Name: "d1/d2", Typeflag: tar.TypeSymlink, Linkname: ".."},
+		{Name: "e", Typeflag: tar.TypeSymlink, Linkname: "d1/d2/../.."},
+	}, nil)
+	chainDest := filepath.Join(tmp, "chain")
+	if err := os.MkdirAll(chainDest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractTar(bytes.NewReader(chain), chainDest); err != nil {
+		t.Fatalf("extractTar(chain): %v", err)
+	}
+	for _, name := range []string{"t", "e"} {
+		if _, err := os.Lstat(filepath.Join(chainDest, name)); err == nil {
+			t.Errorf("chained symlink %q that resolves outside the destination was created", name)
+		}
+	}
+
+	// An ordinary in-tree relative symlink must keep working.
+	if got, err := os.Readlink(filepath.Join(dest, "app", "ok")); err != nil || got != "main.go" {
+		t.Errorf("in-tree symlink: got %q, err %v; want %q", got, err, "main.go")
+	}
+}
+
+// TestExtractTar_MasksFileMode pins that archive-chosen modes cannot make an
+// extracted file group/world-writable.
+func TestExtractTar_MasksFileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits")
+	}
+	dest := t.TempDir()
+	data := writeTar(t, []tar.Header{
+		{Name: "loose.sh", Typeflag: tar.TypeReg, Mode: 0o4777},
+	}, map[string]string{"loose.sh": "#!/bin/sh\n"})
+
+	if err := extractTar(bytes.NewReader(data), dest); err != nil {
+		t.Fatalf("extractTar: %v", err)
+	}
+	fi, err := os.Stat(filepath.Join(dest, "loose.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := fi.Mode().Perm(); perm&0o022 != 0 {
+		t.Errorf("extracted file is group/world-writable: %v", perm)
+	}
+	if fi.Mode()&os.ModeSetuid != 0 {
+		t.Errorf("extracted file kept a setuid bit")
+	}
+}
+
+func TestSafeArchivePath(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   string
+		wantOK bool
+	}{
+		{"app/main.go", filepath.Join("app", "main.go"), true},
+		{"./app/../app/main.go", filepath.Join("app", "main.go"), true},
+		{"/abs/file.txt", filepath.Join("abs", "file.txt"), true}, // leading slash stripped
+		{"../escape.txt", "", false},
+		{"app/../../escape.txt", "", false},
+		{"", "", false},
+		{".", "", false},
+	}
+	for _, tc := range cases {
+		got, ok := safeArchivePath(tc.in)
+		if ok != tc.wantOK || got != tc.want {
+			t.Errorf("safeArchivePath(%q) = (%q, %v), want (%q, %v)", tc.in, got, ok, tc.want, tc.wantOK)
+		}
+	}
+}
+
+// TestSymlinkStaysInside_ChainedLinks pins that the check walks through the
+// archive's other links rather than cleaning the path lexically.
+func TestSymlinkStaysInside_ChainedLinks(t *testing.T) {
+	links := map[string]string{
+		filepath.Join("d", "s"):      "..",
+		filepath.Join("d", "s", "t"): "..",
+		filepath.Join("d1", "d2"):    "..",
+		"e":                          "d1/d2/../..",
+		"alias":                      filepath.Join("d", "s"),
+	}
+	cases := []struct {
+		link string
+		want bool
+	}{
+		{filepath.Join("d", "s"), true},       // d/.. is the root itself
+		{filepath.Join("d", "s", "t"), false}, // created through d/s, so it sits at the root
+		{"e", false},                          // walks through d1/d2, then climbs out
+		{"alias", true},                       // points at another link; that link is checked on its own
+	}
+	for _, tc := range cases {
+		if got := symlinkStaysInside(tc.link, links[tc.link], links); got != tc.want {
+			t.Errorf("symlinkStaysInside(%q -> %q) = %v, want %v", tc.link, links[tc.link], got, tc.want)
+		}
+	}
+}
+
+func TestSymlinkStaysInside(t *testing.T) {
+	cases := []struct {
+		link, target string
+		want         bool
+	}{
+		{filepath.Join("app", "ok"), "main.go", true},
+		{filepath.Join("app", "sub", "up"), "../main.go", true},
+		{filepath.Join("app", "evil"), "/etc", false},
+		{filepath.Join("app", "rel"), "../../outside", false},
+		{"top", "..", false},
+		{"top", "", false},
+	}
+	for _, tc := range cases {
+		if got := symlinkStaysInside(tc.link, tc.target, nil); got != tc.want {
+			t.Errorf("symlinkStaysInside(%q, %q) = %v, want %v", tc.link, tc.target, got, tc.want)
+		}
 	}
 }

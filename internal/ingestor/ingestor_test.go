@@ -273,11 +273,7 @@ func TestRunURLsEndToEnd(t *testing.T) {
 		t.Fatalf("write input: %v", err)
 	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(IngestResponse{Status: "queued"})
-	}))
-	defer srv.Close()
+	srv := newAcceptServer(t)
 
 	opts := DefaultOptions()
 	opts.ServerURL = srv.URL
@@ -376,7 +372,7 @@ func TestRunNucleiFormat(t *testing.T) {
 }
 
 func TestRunOpenInputError(t *testing.T) {
-	// A nonexistent input file: workers see a closed channel, run completes with zero stats.
+	// A missing input file is reported as an error naming the file.
 	opts := DefaultOptions()
 	opts.ServerURL = "http://localhost:9"
 	opts.APIKey = "tok"
@@ -384,8 +380,11 @@ func TestRunOpenInputError(t *testing.T) {
 	opts.Concurrency = 1
 
 	stats, err := Run(context.Background(), opts)
-	if err != nil {
-		t.Fatalf("Run error: %v", err)
+	if err == nil {
+		t.Fatal("Run returned nil error for an input file that does not exist")
+	}
+	if !strings.Contains(err.Error(), "does-not-exist.txt") {
+		t.Errorf("error does not name the failed input: %v", err)
 	}
 	if stats.Submitted != 0 || stats.Errors != 0 {
 		t.Errorf("stats = %+v, want zero submitted/errors", stats)
@@ -522,7 +521,9 @@ func TestParseURLsInput(t *testing.T) {
 		EnableModules: []string{"xss"},
 		WebhookURL:    "http://hook",
 	}
-	parseURLsInput(context.Background(), reader, ch, opts)
+	if err := parseURLsInput(context.Background(), reader, ch, opts); err != nil {
+		t.Fatalf("parseURLsInput: %v", err)
+	}
 	close(ch)
 
 	var urls []string
@@ -547,7 +548,9 @@ func TestParseURLsInputContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	// Should return promptly without producing anything.
-	parseURLsInput(ctx, reader, ch, &Options{})
+	if err := parseURLsInput(ctx, reader, ch, &Options{}); err != nil {
+		t.Fatalf("parseURLsInput: %v", err)
+	}
 	close(ch)
 	if len(ch) != 0 {
 		t.Errorf("channel has %d items, want 0", len(ch))
@@ -561,7 +564,9 @@ func TestParseNucleiInput(t *testing.T) {
 `
 	reader := strings.NewReader(body)
 	ch := make(chan *IngestRequest, 10)
-	parseNucleiInput(context.Background(), reader, ch, &Options{EnableModules: []string{"sqli"}})
+	if err := parseNucleiInput(context.Background(), reader, ch, &Options{EnableModules: []string{"sqli"}}); err != nil {
+		t.Fatalf("parseNucleiInput: %v", err)
+	}
 	close(ch)
 
 	var reqs []*IngestRequest
@@ -583,12 +588,13 @@ func TestParseNucleiInput(t *testing.T) {
 }
 
 func TestParseNucleiInputDecodeErrorContinues(t *testing.T) {
-	// A malformed object that decodes with error: the loop logs and continues,
-	// but dec.More on broken JSON typically stops. We assert no panic and the
-	// valid leading object is captured.
+	// A field of the wrong type is a recoverable decode error: the record is
+	// skipped, the stream continues, and the valid leading object is captured.
 	reader := strings.NewReader(`{"url":"http://a"}{"url":123}`)
 	ch := make(chan *IngestRequest, 10)
-	parseNucleiInput(context.Background(), reader, ch, &Options{})
+	if err := parseNucleiInput(context.Background(), reader, ch, &Options{}); err != nil {
+		t.Fatalf("parseNucleiInput: %v", err)
+	}
 	close(ch)
 	var got []string
 	for req := range ch {
@@ -596,6 +602,97 @@ func TestParseNucleiInputDecodeErrorContinues(t *testing.T) {
 	}
 	if len(got) == 0 || got[0] != "http://a" {
 		t.Errorf("expected first valid url captured, got %v", got)
+	}
+}
+
+// TestParseNucleiInputStopsOnSyntaxError pins that a syntax error ends the
+// read with an error: the decoder's error is sticky while More() stays true.
+func TestParseNucleiInputStopsOnSyntaxError(t *testing.T) {
+	reader := strings.NewReader("{\"url\":\"http://a\"}\nnot json\n{\"url\":\"http://b\"}\n")
+	ch := make(chan *IngestRequest, 10)
+
+	done := make(chan error, 1)
+	go func() { done <- parseNucleiInput(context.Background(), reader, ch, &Options{}) }()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("a syntax error in the input must be returned")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("parseNucleiInput did not return on malformed input (infinite loop)")
+	}
+	close(ch)
+
+	var got []string
+	for req := range ch {
+		got = append(got, req.URL)
+	}
+	if len(got) != 1 || got[0] != "http://a" {
+		t.Errorf("want the valid leading object only, got %v", got)
+	}
+}
+
+// TestRunPartialInputFailureStillSubmits pins that one bad source does not
+// discard the readable ones, and that the failure is still reported.
+func TestRunPartialInputFailureStillSubmits(t *testing.T) {
+	good := writeInput(t, "http://t/a\nhttp://t/b\n")
+
+	srv := newAcceptServer(t)
+
+	opts := DefaultOptions()
+	opts.ServerURL = srv.URL
+	opts.APIKey = "tok"
+	opts.Input = good
+	opts.TargetFiles = []string{filepath.Join(filepath.Dir(good), "missing.txt")}
+	opts.Concurrency = 1
+
+	stats, err := Run(context.Background(), opts)
+	if err == nil {
+		t.Fatal("Run returned nil error although one input could not be opened")
+	}
+	if stats.Submitted != 2 {
+		t.Errorf("Submitted = %d, want 2 (the readable source must still be sent)", stats.Submitted)
+	}
+}
+
+// TestRunNonPositiveConcurrencyStillSubmits pins that Run neither hangs nor
+// drops input when no worker count was given: inputs are read on Run's own
+// goroutine, so with zero workers a full request channel would block forever.
+func TestRunNonPositiveConcurrencyStillSubmits(t *testing.T) {
+	good := writeInput(t, "http://t/a\n")
+	srv := newAcceptServer(t)
+
+	opts := DefaultOptions()
+	opts.ServerURL = srv.URL
+	opts.APIKey = "tok"
+	opts.Input = good
+	opts.Concurrency = 0
+
+	done := make(chan RunStats, 1)
+	go func() {
+		stats, _ := Run(context.Background(), opts)
+		done <- stats
+	}()
+	select {
+	case stats := <-done:
+		if stats.Submitted != 1 {
+			t.Errorf("Submitted = %d, want 1", stats.Submitted)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return with Concurrency = 0")
+	}
+}
+
+func TestNewClientNonPositiveRateLimitIsUnlimited(t *testing.T) {
+	for _, rl := range []int{0, -1} {
+		c := NewClient("http://x", "k", rl)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		err := c.rateLimiter.Wait(ctx)
+		cancel()
+		if err != nil {
+			t.Errorf("rate limit %d: Wait failed (%v); a non-positive limit must mean unlimited", rl, err)
+		}
 	}
 }
 
@@ -617,7 +714,9 @@ func TestParseSpecInputFromFile(t *testing.T) {
 		EnableModules: []string{"all"},
 		WebhookURL:    "http://hook",
 	}
-	parseSpecInput(context.Background(), ch, opts)
+	if err := parseSpecInput(context.Background(), ch, opts); err != nil {
+		t.Fatalf("parseSpecInput: %v", err)
+	}
 	close(ch)
 
 	var reqs []*IngestRequest
@@ -638,10 +737,12 @@ func TestParseSpecInputFromFile(t *testing.T) {
 }
 
 func TestParseSpecInputLoadError(t *testing.T) {
-	// Nonexistent spec input: function logs and returns without producing requests.
+	// Nonexistent spec input: the load error is returned and no requests are produced.
 	ch := make(chan *IngestRequest, 4)
 	opts := &Options{Input: filepath.Join(t.TempDir(), "missing.yaml"), InputFormat: "openapi"}
-	parseSpecInput(context.Background(), ch, opts)
+	if err := parseSpecInput(context.Background(), ch, opts); err == nil {
+		t.Error("want an error for an unloadable spec")
+	}
 	close(ch)
 	if len(ch) != 0 {
 		t.Errorf("expected no requests on load error, got %d", len(ch))
@@ -674,4 +775,25 @@ func TestIngestRequestJSONRoundTrip(t *testing.T) {
 	if strings.Contains(string(empty), "request") || strings.Contains(string(empty), "metadata") {
 		t.Errorf("empty request should omit optional fields: %s", empty)
 	}
+}
+
+// newAcceptServer is an ingest endpoint that accepts every submission.
+func newAcceptServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(IngestResponse{Status: "queued"})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// writeInput writes content to a temp input file and returns its path.
+func writeInput(t *testing.T, content string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "urls.txt")
+	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	return p
 }
