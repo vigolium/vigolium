@@ -159,18 +159,7 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 
 	// Initialize JS extension engine
 	if reachesTarget && r.settings != nil && r.settings.DynamicAssessment.Extensions.Enabled {
-		jsEngineOpts := &jsext.EngineOptions{
-			ScanUUID:   r.options.ScanUUID,
-			Repository: r.repository,
-			LLMClient:  extensionLLMClient(r.settings),
-		}
-		if r.settings != nil {
-			scopeCfg := r.settings.Scope
-			jsEngineOpts.ScopeConfig = &scopeCfg
-			// The same matcher, from the same settings and the same targets, as
-			// the one built above - so share it rather than paying for a second.
-			jsEngineOpts.ScopeMatcher = infra.scopeMatcher
-		}
+		jsEngineOpts := r.jsEngineOptions(infra.scopeMatcher)
 		jsEngine, err := jsext.NewEngine(&r.settings.DynamicAssessment.Extensions, httpRequester, jsEngineOpts)
 		if err != nil {
 			zap.L().Warn("Failed to initialize JS extensions", zap.Error(err))
@@ -402,4 +391,25 @@ func headerNameSet(headers []string) map[string]struct{} {
 		}
 	}
 	return out
+}
+
+// jsEngineOptions is the scanner context handed to the JS extension engine.
+// ProjectUUID is set so what an extension stores (vigolium.ingest /
+// SaveRecord) lands in the scan's project, not the default one (NEW-1).
+func (r *Runner) jsEngineOptions(scopeMatcher *config.ScopeMatcher) *jsext.EngineOptions {
+	opts := &jsext.EngineOptions{
+		ScanUUID:    r.options.ScanUUID,
+		ProjectUUID: r.options.ProjectUUID,
+		Repository:  r.repository,
+		LLMClient:   extensionLLMClient(r.settings),
+	}
+	if r.settings != nil {
+		scopeCfg := r.settings.Scope
+		opts.ScopeConfig = &scopeCfg
+		// The same matcher, from the same settings and the same targets, as
+		// the one built in buildInfra - so share it rather than paying for a
+		// second.
+		opts.ScopeMatcher = scopeMatcher
+	}
+	return opts
 }
