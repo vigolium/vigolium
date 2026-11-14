@@ -10,7 +10,7 @@ import (
 
 // SendTimed sends one timing-oracle probe and returns the latency the
 // requester measured — from after the rate token and the host slot to the end
-// of the response — instead of wall-clock time around Execute (MISS-14). At
+// of the response — instead of wall-clock time around Execute. At
 // --rate-limit 5 the token wait alone exceeded a 2-second sleep payload, so a
 // module that wrapped Execute in time.Since timed its own queue.
 //

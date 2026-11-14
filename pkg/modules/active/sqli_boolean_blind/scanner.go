@@ -128,7 +128,7 @@ func (m *Module) scanPerRequest(
 		return results, errors.Wrap(err, "failed to create insertion points")
 	}
 	// Header points: same class gate the executor applies to per-point
-	// modules (ECON-1) — noise headers never, logged/negotiation/routing
+	// modules — noise headers never, logged/negotiation/routing
 	// headers once per host.
 	points = modkit.FilterPointsFor(scanCtx, m, ctx, points)
 
@@ -178,7 +178,7 @@ ipScan:
 		// different responses due to syntax breakage, not SQL logic).
 		//
 		// The unmodified response is the same for every insertion point of this
-		// record, so it is fetched once per record (memoised, ECON-6); each point
+		// record, so it is fetched once per record (memoised); each point
 		// still builds its own signature, normalised for its own base value. The
 		// step-7 drift re-check stays per point.
 		rb, err := m.recordBaseline(ctx, httpClient, scanCtx)
@@ -219,7 +219,7 @@ ipScan:
 		// Consecutive blocked plain pairs: once maxConsecutiveBlockedPairs in a
 		// row are blocked, the remaining plain pairs would only be blocked too —
 		// skip to the WAF variants and the HPP fallback, which exist for exactly
-		// this case (ECON-6).
+		// this case.
 		blockedRun := 0
 		for i, pair := range payloads {
 			if i < len(plain) && blockedRun >= maxConsecutiveBlockedPairs {

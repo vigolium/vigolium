@@ -89,7 +89,7 @@ func (p timePair) render(seconds int) string {
 // from being trimmed). Each backend also has a form that needs no comment at
 // all — the injection closes into the original query's trailing quote
 // (' AND SLEEP(n) AND '1'='1) or concatenates into the string ('||…||') — for
-// sinks that append text after the parameter (MISS-16).
+// sinks that append text after the parameter.
 var stringPayloads = []timePair{
 	{context: "string", dbType: "mysql", template: "' OR SLEEP(%d)-- -", risk: riskHigh},
 	{context: "string", dbType: "mysql", template: "' AND SLEEP(%d)-- -"},

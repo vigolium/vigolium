@@ -35,7 +35,7 @@ func buildCRLFPayloads(cookieVal string) []crlfPayload {
 		{value: "any?\nSet-cookie: " + cookieVal},
 		{value: "any\r\nSet-cookie: " + cookieVal + "\r\n"},
 		{value: "any?\r\nSet-cookie: " + cookieVal + "\r\n"},
-		// Already percent-encoded: sent as written (MISS-12). Through
+		// Already percent-encoded: sent as written. Through
 		// BuildRequest they became %250d%250a / %25250d — never a CRLF.
 		{value: "%0d%0aSet-cookie: " + cookieVal, preEncoded: true},
 		{value: "%0D%0ASet-cookie: " + cookieVal, preEncoded: true},

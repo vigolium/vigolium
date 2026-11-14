@@ -122,7 +122,7 @@ func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.S
 		})
 	}
 
-	// Claim the host only now that it matched (MISS-19): a host whose
+	// Claim the host only now that it matched: a host whose
 	// first response showed nothing stays open for later responses.
 	if len(results) > 0 && diskSet != nil && !diskSet.ClaimOnMatch(host) {
 		return nil, nil

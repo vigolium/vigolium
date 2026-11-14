@@ -273,7 +273,7 @@ type timed struct {
 func (p *prober) timed(value string, isAttack bool) (timed, error) {
 	raw := p.ip.BuildRequest([]byte(value))
 	req := httpmsg.NewRequestResponseRaw(raw, p.ctx.Service())
-	// SendTimed (MISS-14): requester-measured latency (also on a timeout).
+	// SendTimed: requester-measured latency (also on a timeout).
 	resp, elapsed, err := modkit.SendTimed(p.client, req, http.Options{})
 	if err != nil {
 		if !isAttack || errors.Is(err, hosterrors.ErrUnresponsiveHost) {

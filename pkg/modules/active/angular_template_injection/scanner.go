@@ -190,6 +190,6 @@ func (m *Module) tryProbeTemplate(
 }
 
 // RequiresReflection opts into the executor's shared reflection probe
-// (modkit.ReflectionAware, ECON-2): the oracle reads the payload back, so a
+// (modkit.ReflectionAware): the oracle reads the payload back, so a
 // point whose value does not come back is skipped.
 func (m *Module) RequiresReflection() modkit.ReflectionNeed { return modkit.ReflectBody }

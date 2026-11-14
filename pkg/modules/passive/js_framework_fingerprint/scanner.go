@@ -126,7 +126,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		// "javascript" is descriptive. "nodejs" is a backend stack tag, so it is
 		// marked only on evidence the page was rendered by a Node server: a
 		// static export (Gatsby, CRA, next export) runs on any backend, and
-		// marking nodejs there excluded every other backend's modules (MISS-21).
+		// marking nodejs there excluded every other backend's modules.
 		scanCtx.MarkTech(host, "javascript")
 		if hasSSREvidence(ctx.Response(), pat.framework) {
 			scanCtx.MarkTech(host, "nodejs")
@@ -148,7 +148,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			}
 		}
 
-		// Claim the host only now that it matched (MISS-19): a host whose
+		// Claim the host only now that it matched: a host whose
 		// first response showed nothing stays open for later responses.
 		if diskSet != nil && !diskSet.ClaimOnMatch(host) {
 			return nil, nil

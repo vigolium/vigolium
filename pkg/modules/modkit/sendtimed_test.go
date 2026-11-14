@@ -17,7 +17,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// MISS-14: with a 1 rps limiter the second and third sends wait ~1s each for a
+// With a 1 rps limiter the second and third sends wait ~1s each for a
 // token; SendTimed must report the server's latency, not that wait. Identical
 // probes must all reach the server (no clustering).
 func TestSendTimed_ExcludesQueueWaitAndNeverClusters(t *testing.T) {

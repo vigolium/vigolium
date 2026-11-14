@@ -16,7 +16,7 @@ func nextPage(host, extraHeaders string) *httpmsg.HttpRequestResponse {
 }
 
 // nodejs is a backend stack tag: marked only on evidence of server rendering,
-// never for a static export that can sit on any backend (MISS-21).
+// never for a static export that can sit on any backend.
 func TestNodejsMarkedOnlyOnSSREvidence(t *testing.T) {
 	m := New()
 

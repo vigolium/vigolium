@@ -77,7 +77,7 @@ func CrackHMAC(token string, secrets [][]byte) (secret string, alg string, ok bo
 		// length can never match, so the whole dictionary pass is skipped —
 		// which is every genuine RS*/PS* token (256+ byte signatures) and every
 		// ES* token outside the one same-size variant. Before, each such token
-		// cost 3 x the wordlist in HMACs for a guaranteed miss (ECON-14).
+		// cost 3 x the wordlist in HMACs for a guaranteed miss.
 		if v.newHash().Size() != len(signature) {
 			continue
 		}

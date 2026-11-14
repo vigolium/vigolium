@@ -232,7 +232,7 @@ func TestCanProcess(t *testing.T) {
 	}
 }
 
-// SAFE-11: with external lookups disabled (no ExternalFetcher — the default,
+// With external lookups disabled (no ExternalFetcher — the default,
 // and always under --offline) the registry receives nothing.
 func TestFlushFindings_ExternalLookupsDisabledSendsNothing(t *testing.T) {
 	var hits atomic.Int64

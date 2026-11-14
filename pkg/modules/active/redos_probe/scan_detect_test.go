@@ -74,7 +74,7 @@ func TestDetectsExponentialBacktracking(t *testing.T) {
 	res := runProbe(t, srv, "email")
 	require.Len(t, res, 1)
 	assert.Equal(t, "email", res[0].FuzzingParameter)
-	assert.Equal(t, severity.Suspect, res[0].Info.Severity, "timing-only ReDoS oracle: Suspect (RES-7)")
+	assert.Equal(t, severity.Suspect, res[0].Info.Severity, "timing-only ReDoS oracle: Suspect")
 	assert.Equal(t, 64, res[0].Metadata["high_run_length"])
 	assert.Equal(t, 32, res[0].Metadata["low_run_length"])
 }

@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestActiveModulesDoNotTimeTheQueue (MISS-14) fails when an active module
+// TestActiveModulesDoNotTimeTheQueue fails when an active module
 // wraps Execute in its own wall clock: `time.Since` within a few lines after
 // `.Execute(`. Execute's caller-side clock includes the rate token and the
 // host-slot wait, which at a low --rate-limit exceeds a sleep payload. Use

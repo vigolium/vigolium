@@ -12,7 +12,7 @@ import (
 )
 
 // The same weak-secret token carried by requests to many URLs is reported
-// once per scan (ECON-14).
+// once per scan.
 func TestOneFindingPerToken(t *testing.T) {
 	mgr := dedup.NewManager()
 	t.Cleanup(mgr.Close)

@@ -15,7 +15,7 @@ import (
 
 // A target that only falls for the double-encoded traversal: its raw query must
 // carry "%252e%252e%252f" as written. Through BuildRequest the payload arrived
-// as "%25252e…" and the module could never fire (MISS-12).
+// as "%25252e…" and the module could never fire.
 func TestScanPerInsertionPoint_DoubleEncodedPayloadArrivesAsWritten(t *testing.T) {
 	var sawDouble bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

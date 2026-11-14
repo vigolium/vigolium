@@ -48,7 +48,7 @@ func New() *Module {
 			ModuleSeverity,
 			ModuleConfidence,
 			modkit.ScanScopeInsertionPoint,
-			// Parameter names reflect into templates too (opt-in, MISS-15).
+			// Parameter names reflect into templates too (opt-in).
 			modkit.AllParamTypes|modkit.ParamNameTypes,
 		),
 		result:   strconv.Itoa(primaryFirst * primaryLast),
@@ -216,6 +216,6 @@ func buildPayloads(firstNum, lastNum int) []string {
 }
 
 // RequiresReflection opts into the executor's shared reflection probe
-// (modkit.ReflectionAware, ECON-2): the oracle reads the payload back, so a
+// (modkit.ReflectionAware): the oracle reads the payload back, so a
 // point whose value does not come back is skipped.
 func (m *Module) RequiresReflection() modkit.ReflectionNeed { return modkit.ReflectBody }

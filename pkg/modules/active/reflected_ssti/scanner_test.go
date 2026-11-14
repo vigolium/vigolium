@@ -134,7 +134,7 @@ func TestBuildPayloads(t *testing.T) {
 	assert.Contains(t, joined, "<%=7*7%>", "ERB/EJS-style delimiter expected")
 }
 
-// Every payload is distinct: a duplicate is a wasted request per point (ECON-6).
+// Every payload is distinct: a duplicate is a wasted request per point.
 func TestBuildPayloadsNoDuplicates(t *testing.T) {
 	seen := map[string]bool{}
 	for _, p := range buildPayloads(7, 9) {

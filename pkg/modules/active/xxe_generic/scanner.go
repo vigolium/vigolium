@@ -123,7 +123,7 @@ func New() *Module {
 			ModuleSeverity,
 			ModuleConfidence,
 			modkit.ScanScopeRequest,
-			// Document-level: declares the entire-body point it works on (MISS-15).
+			// Document-level: declares the entire-body point it works on.
 			modkit.AllInsertionPointTypes|modkit.EntireBodyTypes,
 		),
 		rhm: dedup.LazyDefaultRHM("xxe_generic"),

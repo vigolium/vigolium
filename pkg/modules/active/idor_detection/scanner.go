@@ -97,7 +97,7 @@ func (m *Module) ScanPerInsertionPoint(
 	// Per-host budget, charged only for a point that is actually going to be
 	// probed: an object ID with neighbours. Charging before classification spent
 	// the whole budget on the first maxProbesPerHost parameters of any kind, and
-	// the real id parameters after them were never tested (MISS-18).
+	// the real id parameters after them were never tested.
 	if diskSet := m.ds.Get(scanCtx.DedupMgr()); diskSet != nil {
 		hostKey := utils.Sha1(urlx.Host)
 		if _, ok := diskSet.IncrementAndCheck(hostKey, maxProbesPerHost); !ok {
@@ -347,7 +347,7 @@ func (m *Module) probeNeighbor(
 	// between the two objects (so the neighbor really is another user's data).
 	// Anything less — public per-id content, or a credentialed differential with
 	// no user fields — is a single-session neighbour diff, an unproven oracle:
-	// a Suspect/Tentative lead (RES-7).
+	// a Suspect/Tentative lead.
 	sev, confidence := severity.Suspect, severity.Tentative
 	if comparison.UserFieldsDiffer && authzutil.RequestCarriesCredential(ctx.Request()) {
 		sev, confidence = severity.High, severity.Firm

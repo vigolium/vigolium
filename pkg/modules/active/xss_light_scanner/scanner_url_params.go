@@ -203,7 +203,7 @@ func (m *URLParamsModule) scanURLParameters(
 	// primary entry already enumerated the identical (raw, includeNested=true)
 	// set, so this hits a warm cache.
 	// The full set: this module also tests URL parameter NAMES, an opt-in
-	// point type (MISS-15).
+	// point type.
 	points, err := scanCtx.GetAllInsertionPoints(ctx.Request().Raw(), ctx.Request().ID(), true)
 	if err != nil {
 		return nil, err
@@ -237,7 +237,7 @@ func (m *URLParamsModule) scanURLParameters(
 			continue // another xss module already reported this param here
 		}
 		// An empty base value cannot be checked against the stored page; the
-		// shared reflection probe (ECON-2) settles "not reflected anywhere"
+		// shared reflection probe settles "not reflected anywhere"
 		// with one request the other reflection modules reuse. Fails open.
 		if ip.BaseValue() == "" {
 			if prof, err := scanCtx.ReflectionProfile(context.Background(), ctx, ip, httpClient); err == nil &&

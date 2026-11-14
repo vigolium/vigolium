@@ -28,7 +28,7 @@ const (
 // Any other tag a fingerprint module publishes (spa, angular, javascript, …)
 // is DESCRIPTIVE: recorded for recon output and http_records.technology, never
 // used to gate. "javascript" was in this set and gated 24 passive JS modules on
-// a tag only meta-framework fingerprints set (MISS-21).
+// a tag only meta-framework fingerprints set.
 //
 // Keep this list aligned with the tags published by the *_fingerprint passive
 // modules and the recon agent (pkg/agent/recon/fingerprint.go).

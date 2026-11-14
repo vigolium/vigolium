@@ -254,7 +254,7 @@ func (m *Module) sendTimedPayload(
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(fuzzedRaw, ctx.Service())
 
-	// SendTimed (MISS-14) times the send, not the rate/slot queue. NoClustering: this is a timing oracle. The slow/fast payloads are each re-sent
+	// SendTimed times the send, not the rate/slot queue. NoClustering: this is a timing oracle. The slow/fast payloads are each re-sent
 	// across confirmation rounds; the 500ms request-cluster cache keys on raw request
 	// bytes, so a clustered re-send of the slow payload returns the first response's
 	// cached copy in ~0ms — below slowMinDuration — and blind SSTI can essentially

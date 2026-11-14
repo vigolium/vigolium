@@ -116,7 +116,7 @@ type payloadMaker struct {
 	injectionType string
 	prefix        string
 	// preEncoded: the prefix carries its own %-encoding and is built through
-	// httpmsg.BuildPreEncoded so "%0d%0a" is not double-encoded (MISS-12).
+	// httpmsg.BuildPreEncoded so "%0d%0a" is not double-encoded.
 	preEncoded bool
 }
 

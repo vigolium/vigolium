@@ -131,7 +131,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		desc = "An HTTP error response contains independent Jackson/Java deserialization anchors. This supports an input-processing candidate, but no attacker-selected type, gadget reachability, side effect, or code execution was demonstrated."
 	}
 
-	// Claim the host only now that it matched (MISS-19): a host whose
+	// Claim the host only now that it matched: a host whose
 	// first response showed nothing stays open for later responses.
 	if diskSet != nil && !diskSet.ClaimOnMatch(host) {
 		return nil, nil

@@ -14,7 +14,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
 
-// The per-host budget is charged only for points that are probed (MISS-18):
+// The per-host budget is charged only for points that are probed:
 // sixty non-ID parameters seen first must not use up the 50-probe budget before
 // the real id parameter gets its turn.
 func TestBudgetChargedOnlyForObjectIDs(t *testing.T) {

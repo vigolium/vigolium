@@ -76,7 +76,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if err != nil {
 		return nil, nil
 	}
-	// The response's shared parsed document (one parse per response, ECON-14).
+	// The response's shared parsed document (one parse per response).
 	doc, err := ctx.Response().HTMLDocument()
 	if err != nil {
 		return nil, nil

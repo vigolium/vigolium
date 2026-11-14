@@ -232,7 +232,7 @@ func TestDefaultRegistry_CanProcessNoPanic(t *testing.T) {
 // TestDefaultRegistry_TentativeImpliesSuspect: a module whose default
 // confidence is Tentative declares an unproven oracle, so its default severity
 // must be Suspect or below — unless it is on TentativeSeverityWaivers with a
-// reason (RES-7).
+// reason.
 func TestDefaultRegistry_TentativeImpliesSuspect(t *testing.T) {
 	for _, entry := range allDefaultModules() {
 		m := entry.mod

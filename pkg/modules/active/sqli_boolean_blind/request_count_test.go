@@ -16,7 +16,7 @@ import (
 const staticPage = "<html><body><h1>Catalogue</h1><p>Some stable content that does not change.</p></body></html>"
 
 // The step-1 baseline is fetched once per record, not once per insertion
-// point (ECON-6): three parameters, one unmodified request.
+// point: three parameters, one unmodified request.
 func TestRecordBaselineFetchedOncePerRecord(t *testing.T) {
 	const original = "a=1&b=2&c=3"
 	var unmodified atomic.Int64
@@ -39,7 +39,7 @@ func TestRecordBaselineFetchedOncePerRecord(t *testing.T) {
 }
 
 // After maxConsecutiveBlockedPairs blocked plain pairs the rest of the plain
-// pairs are skipped (ECON-6).
+// pairs are skipped.
 func TestBlockedPairsStopEarly(t *testing.T) {
 	var payloadPairs atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

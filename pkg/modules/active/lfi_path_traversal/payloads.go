@@ -12,8 +12,7 @@ type lfiPayload struct {
 	confirm filesig.ConfirmFunc
 	// preEncoded marks a payload that carries its own percent-encoding (%00,
 	// %252e, %C0%AE, %u002e): it is built through httpmsg.BuildPreEncoded so the
-	// encoding reaches the server as written instead of being double-encoded
-	// (MISS-12).
+	// encoding reaches the server as written instead of being double-encoded.
 	preEncoded bool
 }
 

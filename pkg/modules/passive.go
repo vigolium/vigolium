@@ -72,7 +72,7 @@ type ScopeAwareModule interface {
 // JS sink scanners, storage-pattern scanners. When BodyOnly returns true the
 // executor runs the module once per distinct (Content-Type, body) per scan and
 // skips identical bodies served at other URLs: the same bundle at 50 URLs used
-// to be scanned 50 times (ECON-14).
+// to be scanned 50 times.
 type BodyOnlyPassive interface {
 	BodyOnly() bool
 }

@@ -26,7 +26,7 @@ func TestInsertionPointTypeSet_HighNumberedTypes(t *testing.T) {
 			t.Errorf("NewInsertionPointTypeSet(%d) does not Contain %d", ty, ty)
 		}
 		// The opt-in extras (names, entire body) are representable but not in
-		// AllInsertionPointTypes (MISS-15).
+		// AllInsertionPointTypes.
 		inAll := (AllInsertionPointTypes | ExtraInsertionPointTypes).Contains(ty)
 		if !inAll {
 			t.Errorf("AllInsertionPointTypes|ExtraInsertionPointTypes does not Contain type %d", ty)

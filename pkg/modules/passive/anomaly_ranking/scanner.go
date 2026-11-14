@@ -84,7 +84,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	headers := headersToMap(ctx.Response().Headers())
 
 	// Reuse the response's shared parsed HTML document instead of parsing the
-	// body again (ECON-14); only for a declared HTML response, so a JSON or
+	// body again; only for a declared HTML response, so a JSON or
 	// JS body is never parsed as HTML just to be ignored.
 	var doc *html.Node
 	if strings.Contains(strings.ToLower(ctx.Response().Header("Content-Type")), "html") {

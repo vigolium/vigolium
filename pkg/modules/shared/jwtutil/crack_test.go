@@ -83,7 +83,7 @@ func TestCrackHMACAlgConfusion(t *testing.T) {
 }
 
 // A genuine asymmetric token's signature cannot be an HMAC tag (wrong length),
-// so no dictionary pass runs for it at all (ECON-14).
+// so no dictionary pass runs for it at all.
 func TestCrackHMACSkipsImpossibleSignatureLengths(t *testing.T) {
 	sig := base64.RawURLEncoding.EncodeToString(make([]byte, 256)) // RSA-2048 sized
 	hdr := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))

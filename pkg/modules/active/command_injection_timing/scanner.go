@@ -97,7 +97,7 @@ func (m *Module) ScanPerRequest(
 		return results, errors.Wrap(err, "failed to create insertion points")
 	}
 	// Header points: same class gate the executor applies to per-point
-	// modules (ECON-1) — noise headers never, logged/negotiation/routing
+	// modules — noise headers never, logged/negotiation/routing
 	// headers once per host.
 	points = modkit.FilterPointsFor(scanCtx, m, ctx, points)
 
@@ -157,7 +157,7 @@ var errBaselineBlocked = errors.New("command_injection_timing: baseline response
 // deriveThreshold returns the record's timing threshold through the shared
 // per-record memo (modkit.TimingThreshold): one latency model per record,
 // shared by every insertion point and by the other time-based module, instead
-// of modkit.TimingBaselineSamples unmodified requests per point per module (ECON-6). A
+// of modkit.TimingBaselineSamples unmodified requests per point per module. A
 // blocked baseline (WAF/auth/rate-limit) is errBaselineBlocked.
 func (m *Module) deriveThreshold(
 	ctx *httpmsg.HttpRequestResponse,
@@ -277,7 +277,7 @@ func (m *Module) confirmTiming(
 				sleepLow, last.low.Milliseconds(), sleepHigh, last.high.Milliseconds()),
 			// Impact would be Critical, but the oracle is timing-only and
 			// network-sensitive: an unproven oracle files Suspect/Tentative pending
-			// corroboration by the echo or OAST modules (RES-7).
+			// corroboration by the echo or OAST modules.
 			Severity:   severity.Suspect,
 			Confidence: severity.Tentative,
 		},
@@ -321,7 +321,7 @@ func (m *Module) sendTimedPayload(
 	// original service) instead of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(fuzzedRaw, ctx.Service())
 
-	// SendTimed (MISS-14): the requester-measured latency, not the queue.
+	// SendTimed: the requester-measured latency, not the queue.
 	resp, elapsed, err := modkit.SendTimed(httpClient, fuzzedReq, http.Options{})
 	if err != nil {
 		return timedResult{}, err

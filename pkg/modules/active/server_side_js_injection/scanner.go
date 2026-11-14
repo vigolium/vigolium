@@ -226,7 +226,7 @@ func (m *Module) sendTimed(
 	payload string,
 ) (time.Duration, error) {
 	req := httpmsg.NewRequestResponseRaw(ip.BuildRequest([]byte(payload)), ctx.Service())
-	// SendTimed (MISS-14): requester-measured latency, not the queue.
+	// SendTimed: requester-measured latency, not the queue.
 	resp, elapsed, err := modkit.SendTimed(httpClient, req, http.Options{})
 	if err != nil {
 		return 0, err

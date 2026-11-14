@@ -11,7 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
 
-// The module gates on the response's shared, memoised HTML parse (ECON-14)
+// The module gates on the response's shared, memoised HTML parse
 // and runs its lexical pass only for a page whose parse holds a truncated
 // hydration script. Proven by removing the script from the already-parsed
 // tree: a module that still scanned the raw body on every page would report.
