@@ -64,5 +64,5 @@ func TestCleanVerdictsExpire(t *testing.T) {
 	cv.mark("b")
 	cv.mark("c")
 	cv.mark("d")
-	assert.LessOrEqual(t, len(cv.entries), 2)
+	assert.LessOrEqual(t, cv.entries.Len(), 2)
 }

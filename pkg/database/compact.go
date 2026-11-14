@@ -1,7 +1,6 @@
 package database
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -10,11 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/pathglob"
 	"go.uber.org/zap"
 )
 
@@ -189,10 +188,7 @@ func (db *DB) CompactBodies(ctx context.Context, opts CompactOptions) (*CompactS
 	if opts.Now != nil {
 		now = opts.Now
 	}
-	filter, err := newCompactFilter(opts)
-	if err != nil {
-		return nil, err
-	}
+	filter := newCompactFilter(opts)
 
 	sum := &CompactSummary{DryRun: opts.DryRun, MaxDBSize: opts.MaxDBSize, BudgetMet: true}
 	sum.DBBytesBefore = db.fileBytes()
@@ -641,26 +637,30 @@ func (db *DB) vacuum(ctx context.Context) error {
 // given, at least one only glob (content type OR path). Skip wins over only, so
 // a caller protecting a class of bodies cannot have the protection undone by a
 // broad only list.
+// compactFilter selects candidates by content-type and path globs
+// (pathglob: "*" crosses "/", so `*.js` matches a script at any depth),
+// case-insensitively.
 type compactFilter struct {
-	skipType, onlyType, skipPath, onlyPath []*regexp.Regexp
+	skipType, onlyType, skipPath, onlyPath []string
 }
 
-func newCompactFilter(o CompactOptions) (*compactFilter, error) {
-	f := &compactFilter{}
-	var err error
-	if f.skipType, err = compileGlobs(o.SkipContentTypes); err != nil {
-		return nil, err
+func newCompactFilter(o CompactOptions) *compactFilter {
+	return &compactFilter{
+		skipType: lowerGlobs(o.SkipContentTypes),
+		onlyType: lowerGlobs(o.OnlyContentTypes),
+		skipPath: lowerGlobs(o.SkipPaths),
+		onlyPath: lowerGlobs(o.OnlyPaths),
 	}
-	if f.onlyType, err = compileGlobs(o.OnlyContentTypes); err != nil {
-		return nil, err
+}
+
+// lowerGlobs trims and lowercases globs; the subjects they match are
+// lowercased too (compactMediaType, compactPath).
+func lowerGlobs(globs []string) []string {
+	out := make([]string, 0, len(globs))
+	for _, g := range globs {
+		out = append(out, strings.ToLower(strings.TrimSpace(g)))
 	}
-	if f.skipPath, err = compileGlobs(o.SkipPaths); err != nil {
-		return nil, err
-	}
-	if f.onlyPath, err = compileGlobs(o.OnlyPaths); err != nil {
-		return nil, err
-	}
-	return f, nil
+	return out
 }
 
 func (f *compactFilter) selects(cand compactCandidate) bool {
@@ -688,39 +688,11 @@ func compactPath(p string) string {
 	return strings.ToLower(p)
 }
 
-func anyMatch(res []*regexp.Regexp, s string) bool {
-	for _, re := range res {
-		if re.MatchString(s) {
+func anyMatch(globs []string, s string) bool {
+	for _, g := range globs {
+		if pathglob.Match(g, s) {
 			return true
 		}
 	}
 	return false
-}
-
-// compileGlobs turns `*` / `?` globs into anchored, case-insensitive regexps.
-// `*` crosses `/` on purpose: a path glob like `*.js` is meant to match a
-// script at any depth, which path.Match's segment-bound `*` would not.
-func compileGlobs(globs []string) ([]*regexp.Regexp, error) {
-	out := make([]*regexp.Regexp, 0, len(globs))
-	for _, g := range globs {
-		var b bytes.Buffer
-		b.WriteString("(?i)^")
-		for _, r := range strings.TrimSpace(g) {
-			switch r {
-			case '*':
-				b.WriteString(".*")
-			case '?':
-				b.WriteString(".")
-			default:
-				b.WriteString(regexp.QuoteMeta(string(r)))
-			}
-		}
-		b.WriteString("$")
-		re, err := regexp.Compile(b.String())
-		if err != nil {
-			return nil, fmt.Errorf("invalid glob %q: %w", g, err)
-		}
-		out = append(out, re)
-	}
-	return out, nil
 }

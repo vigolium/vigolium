@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
 // Scoped readiness (`vigolium doctor --for scan|agent|server`).
@@ -327,7 +328,7 @@ func checkDisk(dbDir string) ScopedCheck {
 		if !ok {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s: %s free", config.ContractPath(d), humanBytes(free)))
+		parts = append(parts, fmt.Sprintf("%s: %s free", config.ContractPath(d), terminal.HumanBytes(int64(free))))
 		switch {
 		case free < diskNotReadyBytes:
 			status = ScopedNotReady
@@ -357,14 +358,6 @@ func existingParent(d string) string {
 		d = parent
 	}
 	return d
-}
-
-func humanBytes(n uint64) string {
-	const gb, mb = 1 << 30, 1 << 20
-	if n >= gb {
-		return fmt.Sprintf("%.1f GB", float64(n)/gb)
-	}
-	return fmt.Sprintf("%d MB", n/mb)
 }
 
 func checkFDs() ScopedCheck {

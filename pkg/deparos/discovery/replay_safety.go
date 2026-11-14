@@ -7,6 +7,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/spider"
 	"github.com/vigolium/vigolium/pkg/deparos/spider/formparser"
 	"github.com/vigolium/vigolium/pkg/safety"
+	"github.com/vigolium/vigolium/pkg/types"
 )
 
 // ReplaySafety is the method-level safety ladder for JS-extracted request replay.
@@ -119,8 +120,7 @@ func (p ReplaySafety) FormWithheldReason(method string, form *spider.FormRequest
 		if in.Type == formparser.InputTypePassword {
 			return "form:password"
 		}
-		switch strings.ToLower(in.Name) {
-		case "_method", "_httpmethod", "x-http-method-override":
+		if isMethodOverrideField(in.Name) {
 			switch strings.ToUpper(strings.TrimSpace(in.Value)) {
 			case "DELETE", "PUT", "PATCH":
 				return "form:method-override"
@@ -152,4 +152,20 @@ func (p ReplaySafety) FormWithheldReason(method string, form *spider.FormRequest
 		}
 	}
 	return "method:" + method
+}
+
+// isMethodOverrideField reports whether a form field names the method the
+// server should apply: a framework's _method/_httpmethod field, or a field
+// named like one of the method-override headers.
+func isMethodOverrideField(name string) bool {
+	switch strings.ToLower(name) {
+	case "_method", "_httpmethod":
+		return true
+	}
+	for _, h := range types.MethodOverrideHeaders {
+		if strings.EqualFold(name, h) {
+			return true
+		}
+	}
+	return false
 }

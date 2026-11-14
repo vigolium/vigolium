@@ -11,11 +11,11 @@ import (
 
 // Finding identity.
 //
-// A finding's identity (and so its stored finding_hash) used to be the content
-// hash of module + description + severity + matched URL. Prose is not identity:
-// a timing module that writes the measured delay into its description got a new
-// identity on every run, so a re-detection became a new row, `fixed` was never
-// reopened and triage was lost.
+// The v1 identity (and so stored finding_hash) is the content hash of module +
+// description + severity + matched URL. Prose is not identity: a timing module
+// that writes the measured delay into its description gets a new v1 identity
+// on every run, so a re-detection becomes a new row, `fixed` is never reopened
+// and triage is lost.
 //
 // Identity v2 is location-based and applies to findings tied to an insertion
 // point (the executor stamps InsertionPointType): kind, module, rule, method,
@@ -143,25 +143,39 @@ func (r *ResultEvent) IdentityKey() string {
 	if r.usesLocationIdentity() {
 		return IdentityPrefixV2 + IdentityKeyV2(r.identityFields())
 	}
-	var b strings.Builder
-	// Non-finding kinds are prefixed so a candidate can later be promoted
-	// without colliding with itself.
-	if kind := r.EffectiveRecordKind(); kind != RecordKindFinding {
-		b.WriteString(string(kind))
-		b.WriteByte('|')
-	}
+	kind := r.EffectiveRecordKind()
 	if r.DedupKey != "" {
+		var b strings.Builder
+		writeKindPrefix(&b, kind)
 		b.WriteString("dedup|")
 		b.WriteString(r.DedupKey)
 		return b.String()
 	}
-	b.WriteString(r.ModuleID)
+	return contentKeyV1(kind, r.ModuleID, r.Info.Description, r.Info.Severity.String(), r.Matched)
+}
+
+// writeKindPrefix prefixes a non-finding kind ("candidate|"), so a candidate
+// can later be promoted without colliding with itself.
+func writeKindPrefix(b *strings.Builder, kind RecordKind) {
+	if kind != "" && kind != RecordKindFinding {
+		b.WriteString(string(kind))
+		b.WriteByte('|')
+	}
+}
+
+// contentKeyV1 is the v1 content identity key:
+// [kind|]module|description|severity|matched.
+func contentKeyV1(kind RecordKind, moduleID, description, sev, matched string) string {
+	var b strings.Builder
+	b.Grow(len(kind) + len(moduleID) + len(description) + len(sev) + len(matched) + 5)
+	writeKindPrefix(&b, kind)
+	b.WriteString(moduleID)
 	b.WriteByte('|')
-	b.WriteString(r.Info.Description)
+	b.WriteString(description)
 	b.WriteByte('|')
-	b.WriteString(r.Info.Severity.String())
+	b.WriteString(sev)
 	b.WriteByte('|')
-	b.WriteString(r.Matched)
+	b.WriteString(matched)
 	return b.String()
 }
 
@@ -189,17 +203,5 @@ func HashIdentityV2(f IdentityFields) string {
 // non-findings) module|description|severity|matched. The store migration uses
 // it to tell a content-hashed row (re-keyable) from a DedupKey row (kept).
 func HashContentV1(kind RecordKind, moduleID, description, sev, matched string) string {
-	var b strings.Builder
-	if kind != "" && kind != RecordKindFinding {
-		b.WriteString(string(kind))
-		b.WriteByte('|')
-	}
-	b.WriteString(moduleID)
-	b.WriteByte('|')
-	b.WriteString(description)
-	b.WriteByte('|')
-	b.WriteString(sev)
-	b.WriteByte('|')
-	b.WriteString(matched)
-	return HashIdentity(b.String())
+	return HashIdentity(contentKeyV1(kind, moduleID, description, sev, matched))
 }
