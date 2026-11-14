@@ -83,7 +83,12 @@ func AnalyzeRequest(request []byte) (*RequestInfo, error) {
 
 	// Step 3: Determine Content-Type from headers
 	contentType, boundary := ParseContentType(headers)
-	info.ContentType = mapContentType(contentType)
+	var body []byte
+	if bodyOffset < len(request) {
+		body = request[bodyOffset:]
+	}
+	_, bodyType := ClassifyMediaType(contentType, body)
+	info.ContentType = bodyType
 
 	// Step 4: Parse URL query parameters from request line
 	// Calculate URL offset in request: "METHOD URL HTTP..." -> URL starts after "METHOD "
@@ -108,7 +113,7 @@ func AnalyzeRequest(request []byte) (*RequestInfo, error) {
 	// Step 7: Dispatch to appropriate body parser based on Content-Type
 	if bodyOffset < len(request) {
 		info.HasBody = true
-		bodyParams := parseBodyByContentType(request, bodyOffset, contentType, boundary)
+		bodyParams := parseBodyByContentType(request, bodyOffset, bodyType, boundary)
 		info.Parameters = append(info.Parameters, bodyParams...)
 	}
 
@@ -262,31 +267,33 @@ func extractQueryParametersFromURL(url string) ([]*Param, error) {
 	return ParseQueryString(urlBytes)
 }
 
-// parseBodyByContentType dispatches to appropriate body parser based on content type.
+// parseBodyByContentType dispatches to the body parser for contentType, the
+// class ClassifyMediaType derived from the Content-Type header (and the body,
+// when the header is missing or text/plain).
 //
 // Parameters:
 //   - request: Complete HTTP request bytes
 //   - bodyOffset: Byte offset where body starts
-//   - contentType: MIME type string (e.g., "application/json")
+//   - contentType: body class from ClassifyMediaType
 //   - boundary: Multipart boundary string (if applicable)
 //
 // Returns:
 //   - List of Param objects extracted from body
-func parseBodyByContentType(request []byte, bodyOffset int, contentType, boundary string) []*Param {
+func parseBodyByContentType(request []byte, bodyOffset int, contentType ContentType, boundary string) []*Param {
 	switch contentType {
-	case "application/x-www-form-urlencoded":
+	case ContentTypeURLEncoded:
 		params, _ := ParseURLEncodedBody(request, bodyOffset)
 		return params
 
-	case "multipart/form-data":
+	case ContentTypeMultipart:
 		params, _ := ParseMultipartBody(request, bodyOffset, boundary)
 		return params
 
-	case "application/xml", "text/xml":
+	case ContentTypeXML:
 		params, _ := ParseXMLBody(request, bodyOffset)
 		return params
 
-	case "application/json", "text/json":
+	case ContentTypeJSON:
 		params, _ := ParseJSONBody(request, bodyOffset)
 		return params
 
@@ -455,27 +462,8 @@ func parseCookies(cookieValue string, headerOffset int) []*Param {
 // Returns:
 //   - ContentType enum value
 func mapContentType(mimeType string) ContentType {
-	// Map MIME type to ContentType enum
-	switch mimeType {
-	case "application/x-www-form-urlencoded":
-		return ContentTypeURLEncoded
-
-	case "multipart/form-data":
-		return ContentTypeMultipart
-
-	case "application/json":
-		return ContentTypeJSON
-
-	case "application/xml", "text/xml":
-		return ContentTypeXML
-
-	case "application/x-amf":
-		return ContentTypeAMF
-
-	default:
-		// Unknown or no content type
-		return ContentTypeUnknown
-	}
+	_, ct := ClassifyMediaType(mimeType, nil)
+	return ct
 }
 
 // StartsWithIgnoreCase checks if string starts with prefix (case-insensitive).
