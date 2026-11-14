@@ -254,7 +254,45 @@ func (e *CandidateElementExtractor) markChecked(candidate *CandidateElement) boo
 	// hover-menu action and a click action on the SAME element coexist (a nav
 	// trigger that both clicks through and opens a submenu on hover).
 	key := stateID + "\x00" + string(candidate.EventType) + "\x00" + candidate.GetUniqueString()
+	// A navigable link goes to the same URL whatever state shows it, so it is
+	// clicked once per crawl, keyed by its resolved href without the state
+	// (MISS-28b): a 60-link navigation bar used to be re-fired from every state.
+	if href := e.navigableHrefKey(candidate); href != "" {
+		key = "href\x00" + href
+	}
 	return e.clickOnceSeen.claim(key)
+}
+
+// navigableHrefKey is the resolved absolute URL of a navigable anchor (an <a>
+// whose href is absolute or root-relative, not a fragment, javascript: or
+// mailto/tel link) for state-independent click-once, or "".
+func (e *CandidateElementExtractor) navigableHrefKey(c *CandidateElement) string {
+	if c == nil || c.EventType != EventTypeClick || c.TagName != "a" {
+		return ""
+	}
+	href := strings.TrimSpace(c.Href)
+	if href == "" || strings.HasPrefix(href, "#") {
+		return ""
+	}
+	lower := strings.ToLower(href)
+	for _, p := range []string{"javascript:", "mailto:", "tel:", "data:"} {
+		if strings.HasPrefix(lower, p) {
+			return ""
+		}
+	}
+	u, err := url.Parse(href)
+	if err != nil {
+		return ""
+	}
+	switch {
+	case u.IsAbs():
+	case strings.HasPrefix(href, "/") && e.baseURL != nil:
+		u = e.baseURL.ResolveReference(u)
+	default:
+		return "" // path-relative: its target depends on the page
+	}
+	u.Fragment = ""
+	return u.String()
 }
 
 // clickOnceMemory is the crawl-wide set of extracted element keys. Shared by
