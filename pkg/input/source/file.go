@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/input/formats/wsdl"
 	"github.com/vigolium/vigolium/pkg/work"
 	"go.uber.org/zap"
+	"golang.org/x/net/publicsuffix"
 )
 
 // FileSource provides lazy-loading input from files using format parsers.
@@ -276,6 +278,95 @@ func ParseFileRecords(filePath, formatName string, max int) ([]*httpmsg.HttpRequ
 		return max <= 0 || len(records) < max
 	})
 	return records, parseErr
+}
+
+// HostCensus counts the hosts an input file's records target, for deriving a
+// file-input scan's scope when no -t was given (SAFE-4). primary is the host
+// the file is "about":
+//
+//   - HAR, Burp and other traffic exports: the first record's host, else the
+//     most frequent registrable domain;
+//   - OpenAPI: the first absolute server (the census lists every server, one
+//     count each; scanning them all needs an explicit --spec-url or
+//     --scope-origin all).
+//
+// formatName is resolved like NewFileSource resolves it (the URL-list default
+// is displaced by content detection). Hosts are lowercased, without port.
+func HostCensus(filePath, formatName string) (census map[string]int, primary string, err error) {
+	fs, err := NewFileSource(FileSourceConfig{FilePath: filePath, Format: formatName})
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = fs.Close() }()
+	census = make(map[string]int)
+	if _, isSpec := fs.Format().(*openapi.Format); isSpec {
+		servers, err := openapi.SpecServerURLs(filePath)
+		if err != nil {
+			return nil, "", err
+		}
+		for _, raw := range servers {
+			host := hostOfURL(raw)
+			if host == "" {
+				continue
+			}
+			if primary == "" {
+				primary = host
+			}
+			census[host]++
+		}
+		return census, primary, nil
+	}
+	first := ""
+	parseErr := fs.Format().Parse(filePath, func(rr *httpmsg.HttpRequestResponse) bool {
+		svc := rr.Service()
+		if svc == nil {
+			return true
+		}
+		host := strings.ToLower(strings.TrimSpace(svc.Host()))
+		if host == "" {
+			return true
+		}
+		if first == "" {
+			first = host
+		}
+		census[host]++
+		return true
+	})
+	if parseErr != nil && len(census) == 0 {
+		return nil, "", parseErr
+	}
+	if first != "" {
+		return census, first, nil
+	}
+	return census, mostFrequentDomain(census), nil
+}
+
+// mostFrequentDomain is the registrable domain with the most records in
+// census (ties broken alphabetically), or "".
+func mostFrequentDomain(census map[string]int) string {
+	byDomain := make(map[string]int)
+	for host, n := range census {
+		d, err := publicsuffix.EffectiveTLDPlusOne(host)
+		if err != nil {
+			d = host
+		}
+		byDomain[d] += n
+	}
+	best, bestN := "", 0
+	for d, n := range byDomain {
+		if n > bestN || (n == bestN && d < best) {
+			best, bestN = d, n
+		}
+	}
+	return best
+}
+
+func hostOfURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
 }
 
 // Detection returns the content detection NewFileSource ran when the format

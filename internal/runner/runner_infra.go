@@ -124,7 +124,7 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 	// filtering. Built before the requester so the in-scope redirect mode (the
 	// default) can judge every hop against it from the first request (SAFE-2).
 	if r.settings != nil {
-		infra.scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.options.Targets...)
+		infra.scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.scopeTargets()...)
 		svc.HopScope = infra.scopeMatcher.HostInScope
 	}
 

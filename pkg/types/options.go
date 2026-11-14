@@ -56,6 +56,14 @@ type Options struct {
 
 	Targets        []string
 	ExcludeTargets []string
+	// ScopeTargets widen the scope-origin index without becoming crawl,
+	// discovery or admission seeds (SAFE-4). A file-input scan with no -t
+	// derives them from the file's primary host (source.HostCensus), so its
+	// scope is that host's origin rather than every host the file names.
+	ScopeTargets []string
+	// ScopeCensus is the per-host record count of the input file ScopeTargets
+	// were derived from, for the banner and the plan. Nil when not derived.
+	ScopeCensus map[string]int `json:"-" yaml:"-"`
 
 	Silent bool
 	// ScanConfigPrinted indicates the scan configuration summary has already been

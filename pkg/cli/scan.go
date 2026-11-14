@@ -474,6 +474,10 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 		}
 	}
 
+	// -i with no -t: scope to the input's primary host instead of every host
+	// the file names (SAFE-4). Before --dry-run so the plan shows it.
+	deriveFileInputScope(settings, scanOpts)
+
 	// --dry-run: resolve and print the plan, then stop — before any fan-out,
 	// scan uuid, scan row, output file, wordlist, login or OAST registration.
 	if scanDryRun {
