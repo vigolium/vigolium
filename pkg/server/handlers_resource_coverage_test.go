@@ -403,18 +403,52 @@ func intToStr(n int64) string {
 	return string(b)
 }
 
-func TestIsProjectScopedTable(t *testing.T) {
-	scoped := []string{"scans", "http_records", "findings", "oast_interactions", "scopes", "agentic_scans"}
-	for _, tn := range scoped {
-		if !isProjectScopedTable(tn) {
-			t.Errorf("isProjectScopedTable(%q) = false, want true", tn)
-		}
+// SAFE-13: the generic DB API scopes by introspected project_uuid columns,
+// all_projects is admin-only, a cross-project get is 404, and tables without a
+// project column are admin-only.
+func TestGenericDBAPI_ProjectScoping(t *testing.T) {
+	db, repo := newPinnedTestDB(t)
+	otherID := insertFindingReturning(t, db, "other-project")
+	ownID := insertFindingReturning(t, db, database.DefaultProjectUUID)
+
+	h := newBasicHandlers(t, ServerConfig{}, &fakeQueue{}, db, repo, nil)
+	viewer := fiber.New()
+	viewer.Use(func(c fiber.Ctx) error {
+		c.Locals(authUserLocalsKey, &ResolvedUser{Role: RoleViewer})
+		return c.Next()
+	})
+	viewer.Get("/api/db/tables/:table/records", h.HandleListDBRecords)
+	viewer.Get("/api/db/tables/:table/records/:id", h.HandleGetDBRecord)
+	admin := fiber.New()
+	admin.Get("/api/db/tables/:table/records", h.HandleListDBRecords)
+
+	if status, _ := doGet(t, viewer, "/api/db/tables/findings/records?all_projects=true", nil); status != http.StatusForbidden {
+		t.Errorf("viewer all_projects: status = %d, want 403", status)
 	}
-	unscoped := []string{"finding_records", "users", "unknown_table"}
-	for _, tn := range unscoped {
-		if isProjectScopedTable(tn) {
-			t.Errorf("isProjectScopedTable(%q) = true, want false", tn)
-		}
+	if status, _ := doGet(t, admin, "/api/db/tables/findings/records?all_projects=true", nil); status != http.StatusOK {
+		t.Errorf("admin all_projects: status = %d, want 200", status)
+	}
+	if status, _ := doGet(t, viewer, "/api/db/tables/findings/records/"+intToStr(otherID), nil); status != http.StatusNotFound {
+		t.Errorf("cross-project get: status = %d, want 404", status)
+	}
+	if status, _ := doGet(t, viewer, "/api/db/tables/findings/records/"+intToStr(ownID), nil); status != http.StatusOK {
+		t.Errorf("own-project get: status = %d, want 200", status)
+	}
+	// host_observations was missing from the old hand-kept list.
+	status, body := doGet(t, viewer, "/api/db/tables/host_observations/records", nil)
+	if status != http.StatusOK {
+		t.Errorf("host_observations: status = %d, want 200 (%s)", status, body)
+	}
+	if status, _ := doGet(t, viewer, "/api/db/tables/users/records", nil); status != http.StatusForbidden && status != http.StatusNotFound {
+		t.Errorf("viewer users table: status = %d, want 403", status)
+	}
+	if status, _ := doGet(t, viewer, "/api/db/tables/finding_records/records", nil); status != http.StatusForbidden {
+		t.Errorf("viewer finding_records: status = %d, want 403", status)
+	}
+	// The list for a viewer only carries the request project's rows.
+	_, body = doGet(t, viewer, "/api/db/tables/findings/records", nil)
+	if strings.Contains(string(body), "other-project") {
+		t.Error("viewer list leaked another project's findings")
 	}
 }
 

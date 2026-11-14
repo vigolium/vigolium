@@ -64,17 +64,29 @@ func (h *Handlers) HandleListDBRecords(c fiber.Ctx) error {
 		return respondError(c, fiber.StatusBadRequest, err)
 	}
 
-	// Auto-inject project_uuid filter for project-scoped tables
+	// Project scoping (SAFE-13): a table with a project_uuid column is filtered
+	// to the request's project; all_projects=true lifts that for admins only.
+	// A table without one (users, projects, finding_records, …) is admin-only.
+	scoped, err := h.tableProjectScoped(c, tableName)
+	if err != nil {
+		return respondError(c, fiber.StatusNotFound, err)
+	}
 	projectScopedFilter := false
-	if isProjectScopedTable(tableName) {
-		projectUUID := getProjectUUID(c)
-		allProjects := c.Query("all_projects", "false")
-		if allProjects != "true" && projectUUID != "" {
+	admin := isAdminRequest(c)
+	if !scoped && !admin {
+		return respondErrorMsg(c, fiber.StatusForbidden, "table is not project-scoped; admin only")
+	}
+	if scoped {
+		allProjects := c.Query("all_projects", "false") == "true"
+		if allProjects && !admin {
+			return respondErrorMsg(c, fiber.StatusForbidden, "all_projects requires the admin role")
+		}
+		if !allProjects {
 			projectScopedFilter = true
 			opts.Filters = append(opts.Filters, database.GenericFilter{
 				Column:   "project_uuid",
 				Operator: "eq",
-				Value:    projectUUID,
+				Value:    getProjectUUID(c),
 			})
 		}
 	}
@@ -112,6 +124,14 @@ func (h *Handlers) HandleGetDBRecord(c fiber.Ctx) error {
 	tableName := c.Params("table")
 	pkValue := c.Params("id")
 
+	scoped, err := h.tableProjectScoped(c, tableName)
+	if err != nil {
+		return respondError(c, fiber.StatusNotFound, err)
+	}
+	if !scoped && !isAdminRequest(c) {
+		return respondErrorMsg(c, fiber.StatusForbidden, "table is not project-scoped; admin only")
+	}
+
 	record, err := database.GetGenericRecord(c.Context(), h.db, tableName, pkValue)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -122,6 +142,11 @@ func (h *Handlers) HandleGetDBRecord(c fiber.Ctx) error {
 			status = fiber.StatusBadRequest
 		}
 		return respondError(c, status, err)
+	}
+	// A record from another project is "not found", never 403: cross-project
+	// existence must not leak (SAFE-13).
+	if scoped && !inRequestProject(c, fmt.Sprint(record["project_uuid"])) {
+		return respondErrorMsg(c, fiber.StatusNotFound, "record not found")
 	}
 
 	return c.JSON(fiber.Map{
@@ -141,7 +166,9 @@ func (h *Handlers) HandleCreateDBRecord(c fiber.Ctx) error {
 	}
 
 	// Auto-inject project_uuid for project-scoped tables
-	if isProjectScopedTable(tableName) {
+	if scoped, err := h.tableProjectScoped(c, tableName); err != nil {
+		return respondError(c, fiber.StatusNotFound, err)
+	} else if scoped {
 		if _, ok := fields["project_uuid"]; !ok {
 			fields["project_uuid"] = getProjectUUID(c)
 		}
@@ -294,18 +321,30 @@ func parseGenericQueryOptions(c fiber.Ctx) (database.GenericQueryOptions, error)
 	return opts, nil
 }
 
-// isProjectScopedTable returns true if the table has a project_uuid column.
-func isProjectScopedTable(tableName string) bool {
-	scoped := map[string]bool{
-		"scans":                    true,
-		"http_records":             true,
-		"findings":                 true,
-		"authentication_hostnames": true,
-		"oast_interactions":        true,
-		"scan_logs":                true,
-		"agentic_scans":            true,
-		"scopes":                   true,
-		"finding_records":          false,
+// tableProjectScoped reports whether tableName has a project_uuid column, by
+// introspection rather than a hand-kept list (SAFE-13): the list missed every
+// table added after it (host_observations, …), and those were served across
+// projects. An unknown table is an error.
+func (h *Handlers) tableProjectScoped(c fiber.Ctx, tableName string) (bool, error) {
+	if err := database.ValidateTableName(c.Context(), h.db, tableName); err != nil {
+		return false, err
 	}
-	return scoped[tableName]
+	cols, err := database.ListColumns(c.Context(), h.db, tableName)
+	if err != nil {
+		return false, err
+	}
+	for _, col := range cols {
+		if strings.EqualFold(col.Name, "project_uuid") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// isAdminRequest reports whether the caller holds the admin role. With auth
+// disabled (--no-auth) there is no user and every caller is the operator of
+// a local server, treated as admin — the same rule RoleGuard applies.
+func isAdminRequest(c fiber.Ctx) bool {
+	user := getAuthUser(c)
+	return user == nil || user.Role == RoleAdmin
 }
