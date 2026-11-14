@@ -1,12 +1,14 @@
 package clicommon
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 )
 
 // captureWarnings redirects ConfigWarn for one test and returns the collected
@@ -37,7 +39,37 @@ func TestLoadSettingsExplicitBrokenFails(t *testing.T) {
 	}
 }
 
-// A DISCOVERED broken config degrades to defaults, with one warning naming it.
+// RUN-8: a DISCOVERED broken config is fatal (config_invalid, naming the path
+// and the validate command) on every command the root marks; it used to
+// degrade silently to built-in defaults, dropping scope excludes and rate
+// limits.
+func TestLoadSettingsDiscoveredBrokenFails(t *testing.T) {
+	_ = captureWarnings(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".vigolium"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(home, ".vigolium", "vigolium-configs.yaml")
+	if err := os.WriteFile(cfg, []byte("server: [1, 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev := DiscoveredConfigFatal
+	DiscoveredConfigFatal = true
+	t.Cleanup(func() { DiscoveredConfigFatal = prev })
+
+	_, err := LoadSettings("")
+	var coded interface{ Code() apicontract.ErrorCode }
+	if !errors.As(err, &coded) || coded.Code() != apicontract.CodeConfigInvalid {
+		t.Fatalf("LoadSettings = %v, want a config_invalid error", err)
+	}
+	if !strings.Contains(err.Error(), cfg) || !strings.Contains(err.Error(), "vigolium config validate") {
+		t.Errorf("error %q does not name the file and the validate command", err)
+	}
+}
+
+// On the repair commands (DiscoveredConfigFatal unset) a DISCOVERED broken
+// config degrades to defaults, with one warning naming it.
 func TestLoadSettingsDiscoveredBrokenWarnsAndDefaults(t *testing.T) {
 	warnings := captureWarnings(t)
 	home := t.TempDir()
