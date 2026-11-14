@@ -234,10 +234,10 @@ type Stats struct {
 	// SkippedDestructive counts click candidates the destructive-click guard
 	// dropped (spidering.interaction.deny_click_pattern, SAFE-9).
 	SkippedDestructive int64
-	BacktrackCount       int
-	InvariantFails       int
-	StartTime            time.Time
-	EndTime              time.Time
+	BacktrackCount     int
+	InvariantFails     int
+	StartTime          time.Time
+	EndTime            time.Time
 
 	// Start-redirect observations (default host-scope rule only).
 	// OffHostLanding is true when the start URL redirected the browser to a host
