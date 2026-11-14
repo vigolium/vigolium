@@ -44,6 +44,7 @@ type WildcardDetection struct {
 type Comparator struct {
 	cache   *Cache
 	learner *Learner
+	clean   *cleanVerdicts
 }
 
 // NewComparator creates a new comparator
@@ -51,6 +52,7 @@ func NewComparator(cache *Cache, learner *Learner) *Comparator {
 	return &Comparator{
 		cache:   cache,
 		learner: learner,
+		clean:   newCleanVerdicts(cleanVerdictMax, cleanVerdictTTL),
 	}
 }
 
@@ -286,125 +288,105 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 	if basePath == "" {
 		basePath = "/"
 	}
-
-	// Test path 1: Prepend random to last segment (6 chars)
-	// Detects suffix wildcards like *admin
-	prefix, err := generateRandomHex(6)
-	if err != nil {
-		return Unknown, err
-	}
-	testPath1 := prependToLastSegment(basePath, prefix)
-
-	// Test path 2: Append random to last segment (6 chars)
-	// Detects prefix wildcards like user*
-	suffix, err := generateRandomHex(6)
-	if err != nil {
-		return Unknown, err
-	}
-	testPath2 := appendToLastSegment(basePath, suffix)
-
-	// Test path 3: Add fake extension (4 chars)
-	// Detects extension-based routing
-	fakeExt, err := generateRandomHex(4)
-	if err != nil {
-		return Unknown, err
-	}
-	testPath3 := addFakeExtension(basePath, fakeExt)
-
-	// Test path 4: Insert random into middle (9 chars)
-	// Most effective - breaks both prefix AND suffix wildcards
-	middle, err := generateRandomHex(9)
-	if err != nil {
-		return Unknown, err
-	}
-	testPath4 := insertIntoLastSegment(basePath, middle)
-
-	// Map paths to strategies for tracking
-	testConfigs := []struct {
-		path     string
-		strategy PathVariation
-	}{
-		{testPath1, VariationPrefix},
-		{testPath2, VariationSuffix},
-		{testPath3, VariationExtension},
-		{testPath4, VariationMiddle},
+	gen := func(v PathVariation) (string, error) {
+		switch v {
+		case VariationPrefix:
+			r, err := generateRandomHex(6)
+			return prependToLastSegment(basePath, r), err
+		case VariationSuffix:
+			r, err := generateRandomHex(6)
+			return appendToLastSegment(basePath, r), err
+		case VariationExtension:
+			r, err := generateRandomHex(4)
+			return addFakeExtension(basePath, r), err
+		default:
+			r, err := generateRandomHex(9)
+			return insertIntoLastSegment(basePath, r), err
+		}
 	}
 
-	// Fetch all 4 random paths and track which strategy detected wildcard.
-	// breakingContent records whether a PREFIX-BREAKING probe (Prefix/Middle)
-	// returned content — the decisive signal for a genuine host-wide wildcard.
-	// Prefix-preserving probes (Suffix/Extension) returning content alone only
-	// indicate the origin routes on the segment prefix, which does not make the
-	// exact target a false positive (see the function doc).
-	wildcardDetections := make([]WildcardDetection, 0, 4)
-	breakingContent := false
-	throttled := false
+	// Only the prefix-BREAKING probes (Prefix, Middle) decide the verdict, so
+	// they go first; the prefix-preserving ones (Suffix, Extension) are fetched
+	// only when a wildcard is being learned. A directory/extension that came
+	// back clean recently is re-checked with the Middle probe alone (ECON-8).
+	decisive := []PathVariation{VariationPrefix, VariationMiddle}
+	cleanKey := cleanVerdictKey(targetURL, key)
+	if c.clean != nil && c.clean.fresh(cleanKey) {
+		decisive = []PathVariation{VariationMiddle}
+	}
 
-	for i, config := range testConfigs {
-		// Add delay between requests (except first)
+	var wildcardDetections []WildcardDetection
+	breakingContent, throttled := false, false
+	probe := func(i int, v PathVariation) error {
 		if i > 0 {
 			select {
 			case <-ctx.Done():
-				return Unknown, ctx.Err()
+				return ctx.Err()
 			case <-time.After(20 * time.Millisecond):
 			}
 		}
-
-		// Build test URL
+		wire, err := gen(v)
+		if err != nil {
+			return err
+		}
 		testURL := *targetURL
-		SetWirePath(&testURL, config.path)
-
-		// Fetch the random path
+		SetWirePath(&testURL, wire)
 		sample, hasContent, err := c.fetchAndCheckContent(ctx, &testURL)
 		if err != nil {
-			// Ignore errors - treat as no content
-			continue
+			return nil // ignore errors - treat as no content
 		}
-
 		if sample.Throttled() {
 			throttled = true
-			continue
+			return nil
 		}
 		if !hasContent {
-			continue
+			return nil
 		}
-
-		// Track which strategy detected this wildcard
-		wildcardDetections = append(wildcardDetections, WildcardDetection{
-			Sample:   sample,
-			Strategy: config.strategy,
-		})
-
+		wildcardDetections = append(wildcardDetections, WildcardDetection{Sample: sample, Strategy: v})
 		// A prefix-breaking probe returning the SAME page as the hit means the
 		// catch-all does not require the segment's real leading characters ->
-		// genuine wildcard. A different page (another status, type or shape)
-		// does not make the hit a false positive.
-		switch config.strategy {
-		case VariationPrefix, VariationMiddle:
-			if hit == nil || hit.Resembles(sample) {
-				breakingContent = true
-			}
+		// genuine wildcard. A different page does not make the hit a false positive.
+		if (v == VariationPrefix || v == VariationMiddle) && (hit == nil || hit.Resembles(sample)) {
+			breakingContent = true
+		}
+		return nil
+	}
+
+	n := 0
+	for _, v := range decisive {
+		if err := probe(n, v); err != nil {
+			return Unknown, err
+		}
+		n++
+		if breakingContent {
+			break
 		}
 	}
 
 	if !breakingContent {
 		// A throttled sibling leaves the directory's shape unknown: keep the hit
-		// without claiming it was validated.
+		// without claiming it was validated (and remember nothing).
 		if throttled {
 			return Unknown, nil
 		}
-		// No prefix-breaking probe returned the hit's page -> target is VALID.
-		// This covers the "all probes 404" unique-resource case and the "only
-		// prefix-preserving probes returned 200" real-route-behind-a-prefix-router
-		// case.
+		if c.clean != nil {
+			c.clean.mark(cleanKey)
+		}
 		return TruePositive, nil
 	}
 
-	// A prefix-breaking probe returned the hit's page -> genuine wildcard.
-	// Learn these wildcard responses and cache them. wildcardDetections is
-	// non-empty here: breakingContent is only set after appending to it.
+	// Genuine wildcard: fetch the prefix-preserving probes too, so every
+	// catch-all shape this directory answers with is learned and cached.
+	if c.clean != nil {
+		c.clean.forget(cleanKey)
+	}
+	for _, v := range []PathVariation{VariationSuffix, VariationExtension} {
+		if err := probe(n, v); err != nil {
+			break
+		}
+		n++
+	}
 	_ = c.learnWildcardPatterns(ctx, key, targetURL, wildcardDetections)
-
 	return FalsePositive, nil
 }
 

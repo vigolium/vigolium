@@ -33,6 +33,12 @@ type DiscoveryConfig struct {
 	// off otherwise; true/false force it.
 	ExtractWords *bool `yaml:"extract_words"`
 
+	// PhaseMaxDuration caps the whole discovery phase ("" = default:
+	// --discover-max-time × min(targets, 3); "0" = no phase ceiling). Each
+	// target keeps its own --discover-max-time budget inside it; without a
+	// phase ceiling 1000 targets at width 3 had no upper bound at all.
+	PhaseMaxDuration string `yaml:"phase_max_duration"`
+
 	// TargetConcurrency is how many targets are discovered at once; targets on
 	// the same host:port never overlap and the engine threads are split across
 	// the targets in flight. 0 = default (min(targets, 3)); 1 = one at a time.
@@ -46,6 +52,22 @@ type DiscoveryConfig struct {
 	// nil = default (true); false keeps it until the target finishes (keep the
 	// shorter path, cap shortest-path-first). No effect with flush_interval "0".
 	StreamFuzz *bool `yaml:"stream_fuzz"`
+}
+
+// PhaseMaxDurationValue resolves discovery.phase_max_duration: the configured
+// duration, or perTarget × min(targets, 3) when unset. 0 = no ceiling.
+func (c *DiscoveryConfig) PhaseMaxDurationValue(perTarget time.Duration, targets int) time.Duration {
+	if strings.TrimSpace(c.PhaseMaxDuration) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(c.PhaseMaxDuration))
+		if err != nil || d <= 0 {
+			return 0
+		}
+		return d
+	}
+	if perTarget <= 0 || targets <= 0 {
+		return 0
+	}
+	return perTarget * time.Duration(min(targets, 3))
 }
 
 // StreamsFuzz resolves discovery.stream_fuzz (default true).

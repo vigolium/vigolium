@@ -3,6 +3,7 @@ package runner
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	nethttp "net/http"
 	neturl "net/url"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/core/egress"
 	"github.com/vigolium/vigolium/pkg/core/services"
@@ -67,6 +69,7 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 
 	var sources []source.InputSource
 	var discoveryTargets []string
+	discoveryDeadline := false
 
 	expandSeedParents := false
 	if r.settings != nil {
@@ -149,6 +152,15 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 			}
 		}
 		deparosCfg.Egress = discoveryEgress(infra, deparosCfg.RateLimit)
+		// Phase ceiling (discovery.phase_max_duration): every target keeps its
+		// own budget, but the phase as a whole is bounded too.
+		if d := r.discoveryPhaseMaxDuration(len(discoveryTargets)); d > 0 {
+			var deadlineCancel context.CancelFunc
+			phaseCtx, deadlineCancel = context.WithTimeout(phaseCtx, d)
+			defer deadlineCancel()
+			discoveryDeadline = true
+			zap.L().Info("Discovery: phase ceiling", zap.Duration("max", d), zap.Int("targets", len(discoveryTargets)))
+		}
 		src, srcErr := source.NewDeparosDiscoverySource(phaseCtx, deparosCfg)
 		if srcErr != nil {
 			zap.L().Warn("Failed to initialize deparos discovery", zap.Error(srcErr))
@@ -323,6 +335,11 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 
 	executor := core.NewExecutor(executorCfg, compositeSource, nil, discoveryPassive)
 	_, err := executor.Execute(phaseCtx)
+	if discoveryDeadline && ctx.Err() == nil && errors.Is(phaseCtx.Err(), context.DeadlineExceeded) {
+		if tr := r.currentPhase.Load(); tr != nil {
+			tr.markPartial(database.ReasonPhaseDeadline)
+		}
+	}
 	r.currentPhase.Load().noteExecution(executor.Report())
 
 	// Shut down in producer-then-writer order: phaseCancel stops the deparos
@@ -681,4 +698,14 @@ func (r *Runner) cleanupDeparosRecords(ctx context.Context) {
 	} else {
 		report("soft-deduplicated", softRes)
 	}
+}
+
+// discoveryPhaseMaxDuration resolves the discovery phase ceiling from
+// discovery.phase_max_duration (default --discover-max-time × min(targets, 3)).
+func (r *Runner) discoveryPhaseMaxDuration(targets int) time.Duration {
+	if r.settings == nil {
+		var dc config.DiscoveryConfig
+		return dc.PhaseMaxDurationValue(r.options.DiscoverMaxDuration, targets)
+	}
+	return r.settings.Discovery.PhaseMaxDurationValue(r.options.DiscoverMaxDuration, targets)
 }
