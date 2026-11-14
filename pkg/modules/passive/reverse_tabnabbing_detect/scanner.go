@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/vigolium/vigolium/pkg/anomaly/htmlutils"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
@@ -58,7 +59,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	// The shared, memoised parse (ECON-14): the other HTML passives reuse it.
+	// The shared, memoised parse: the other HTML passives reuse it.
 	doc, err := ctx.Response().HTMLDocument()
 	if err != nil || doc == nil {
 		return nil, nil
@@ -101,60 +102,47 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}}, nil
 }
 
-// explicitOpenerLinks walks the (shared, read-only) document for cross-origin
-// target=_blank <a>/<area> links that opt back into an opener.
+// explicitOpenerLinks lists, in document order, the cross-origin
+// target=_blank <a>/<area> links of the (shared, read-only) document that opt
+// back into an opener.
 func explicitOpenerLinks(doc *html.Node, pageURL *url.URL) []string {
 	seen := make(map[string]struct{})
 	var offenders []string
-
-	var walk func(*html.Node) bool
-	walk = func(node *html.Node) bool {
-		if node.Type == html.ElementNode && (node.Data == "a" || node.Data == "area") {
-			if href, ok := openerOffender(node, pageURL); ok {
-				if _, duplicate := seen[href]; !duplicate {
-					seen[href] = struct{}{}
-					offenders = append(offenders, href)
-					if len(offenders) == maxExamples {
-						return false
-					}
-				}
-			}
+	for _, node := range htmlutils.GetElementsByTagName(doc, "*") {
+		if node.Data != "a" && node.Data != "area" {
+			continue
 		}
-		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			if !walk(child) {
-				return false
-			}
+		href, ok := openerOffender(node, pageURL)
+		if !ok {
+			continue
 		}
-		return true
+		if _, duplicate := seen[href]; duplicate {
+			continue
+		}
+		seen[href] = struct{}{}
+		offenders = append(offenders, href)
+		if len(offenders) == maxExamples {
+			break
+		}
 	}
-	walk(doc)
 	return offenders
 }
 
 // openerOffender reports the href of a cross-origin target=_blank link that
 // explicitly declares rel=opener without noopener/noreferrer.
 func openerOffender(node *html.Node, pageURL *url.URL) (string, bool) {
-	attrs := attributeMap(node.Attr)
-	if !strings.EqualFold(strings.TrimSpace(attrs["target"]), "_blank") {
+	if !strings.EqualFold(htmlutils.GetAttributeTrimSpace(node, "target"), "_blank") {
 		return "", false
 	}
-	relTokens := tokenSet(attrs["rel"])
+	relTokens := tokenSet(htmlutils.GetAttribute(node, "rel"))
 	if !relTokens["opener"] || relTokens["noopener"] || relTokens["noreferrer"] {
 		return "", false
 	}
-	href := strings.TrimSpace(attrs["href"])
+	href := htmlutils.GetAttributeTrimSpace(node, "href")
 	if !isCrossOriginHTTP(href, pageURL) {
 		return "", false
 	}
 	return href, true
-}
-
-func attributeMap(attrs []html.Attribute) map[string]string {
-	result := make(map[string]string, len(attrs))
-	for _, attr := range attrs {
-		result[strings.ToLower(attr.Key)] = attr.Val
-	}
-	return result
 }
 
 func tokenSet(raw string) map[string]bool {

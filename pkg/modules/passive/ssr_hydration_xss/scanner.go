@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/vigolium/vigolium/pkg/anomaly/htmlutils"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
@@ -79,10 +80,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	// Gate on the shared, memoised parse (ECON-14): the other HTML passives
-	// reuse it, and almost no page carries a truncated hydration script. The
-	// lexical pass over the raw body runs only for the page that does, to
-	// recover the exact boundary, tail and reflection evidence.
+	// Gate on the shared, memoised parse: the other HTML passives reuse it,
+	// and almost no page carries a truncated hydration script. The lexical pass
+	// over the raw body runs only for the page that does, to recover the exact
+	// boundary, tail and reflection evidence.
 	doc, err := ctx.Response().HTMLDocument()
 	if err != nil || doc == nil || !hasTruncatedHydrationScript(doc) {
 		return nil, nil
@@ -184,61 +185,46 @@ func findHydrationBreakouts(body string, paramValues map[string]string) []hydrat
 // first </script> boundary a browser does, so its text child is the content
 // the lexical pass would examine.
 func hasTruncatedHydrationScript(doc *html.Node) bool {
-	var walk func(*html.Node) bool
-	walk = func(node *html.Node) bool {
-		if node.Type == html.ElementNode && node.Data == "script" {
-			var content strings.Builder
-			for child := node.FirstChild; child != nil; child = child.NextSibling {
-				if child.Type == html.TextNode {
-					content.WriteString(child.Data)
-				}
-			}
-			text := content.String()
-			if isHydrationScriptAttrs(attrMap(node.Attr), text) && serializationAppearsTruncated(text) {
-				return true
-			}
-		}
+	for _, node := range htmlutils.GetElementsByTagName(doc, "script") {
+		var content strings.Builder
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			if walk(child) {
-				return true
+			if child.Type == html.TextNode {
+				content.WriteString(child.Data)
 			}
 		}
-		return false
+		text := content.String()
+		if isHydrationScriptID(htmlutils.GetAttribute(node, "id"), text) && serializationAppearsTruncated(text) {
+			return true
+		}
 	}
-	return walk(doc)
-}
-
-func attrMap(attrs []html.Attribute) map[string]string {
-	m := make(map[string]string, len(attrs))
-	for _, attr := range attrs {
-		m[strings.ToLower(attr.Key)] = attr.Val
-	}
-	return m
+	return false
 }
 
 func isHydrationScript(openTag, content string) bool {
-	return isHydrationScriptAttrs(parseScriptAttributes(openTag), content)
+	return isHydrationScriptID(scriptTagID(openTag), content)
 }
 
-func isHydrationScriptAttrs(attrs map[string]string, content string) bool {
-	id := strings.ToUpper(strings.TrimSpace(attrs["id"]))
+func isHydrationScriptID(id, content string) bool {
+	id = strings.ToUpper(strings.TrimSpace(id))
 	if id == "__NEXT_DATA__" || id == "__NUXT_DATA__" {
 		return true
 	}
 	return hydrationPrefix.MatchString(content)
 }
 
-func parseScriptAttributes(openTag string) map[string]string {
+// scriptTagID returns the id attribute of a raw <script ...> open tag.
+func scriptTagID(openTag string) string {
 	tokenizer := html.NewTokenizer(strings.NewReader(openTag))
 	if tokenizer.Next() != html.StartTagToken {
-		return nil
+		return ""
 	}
-	token := tokenizer.Token()
-	attrs := make(map[string]string, len(token.Attr))
-	for _, attr := range token.Attr {
-		attrs[strings.ToLower(attr.Key)] = attr.Val
+	var id string
+	for _, attr := range tokenizer.Token().Attr {
+		if strings.EqualFold(attr.Key, "id") {
+			id = attr.Val
+		}
 	}
-	return attrs
+	return id
 }
 
 // serializationAppearsTruncated is deliberately lexical. It does not claim to
