@@ -65,6 +65,10 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 	phaseCtx, phaseCancel := context.WithCancel(ctx)
 	defer phaseCancel()
 
+	// Discovery wordlists may not spend the whole --max-requests budget before
+	// the assessment runs: cap the phase at its request share (ECON-5).
+	defer r.requestBudget.LimitPhase(string(PhaseDiscovery), r.discoveryRequestShare())()
+
 	var sources []source.InputSource
 	var discoveryTargets []string
 

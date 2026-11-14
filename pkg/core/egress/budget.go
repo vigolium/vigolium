@@ -42,6 +42,9 @@ const (
 	BudgetGlobal BudgetKind = "global"
 	// BudgetHost is the per-host --max-requests-per-host limit.
 	BudgetHost BudgetKind = "host"
+	// BudgetPhase is a phase's share of --max-requests (Budget.LimitPhase);
+	// Host carries the phase name. It ends the phase's sends, not the scan.
+	BudgetPhase BudgetKind = "phase"
 )
 
 // ErrBudgetExhausted matches (errors.Is) every *BudgetError.
@@ -52,13 +55,16 @@ var ErrBudgetExhausted = errors.New("request budget exhausted")
 // scan stopped by the scan-wide limit (see BudgetCause).
 type BudgetError struct {
 	Kind  BudgetKind
-	Host  string // BudgetHost only
+	Host  string // BudgetHost: the host; BudgetPhase: the phase
 	Limit int64
 }
 
 func (e *BudgetError) Error() string {
 	if e.Kind == BudgetHost {
 		return fmt.Sprintf("request budget exhausted: host %s used its %d requests (--max-requests-per-host)", e.Host, e.Limit)
+	}
+	if e.Kind == BudgetPhase {
+		return fmt.Sprintf("phase request share exhausted: %s may use requests up to %d of the scan's --max-requests (the rest is reserved for later phases)", e.Host, e.Limit)
 	}
 	return fmt.Sprintf("request budget exhausted: the scan used its %d requests (--max-requests)", e.Limit)
 }
@@ -110,6 +116,13 @@ type Budget struct {
 
 	globalHit  atomic.Bool
 	globalOnce sync.Once
+
+	// phaseLimit, when > 0, is the scan-wide count the running phase may not
+	// pass (LimitPhase) — a share of --max-requests, so discovery wordlists
+	// cannot spend the whole budget before the assessment runs (ECON-5).
+	// Refusing at it ends only the phase's sends; the scan carries on.
+	phaseLimit atomic.Int64
+	phaseName  atomic.Pointer[string]
 
 	hooks atomic.Pointer[BudgetHooks]
 
@@ -201,6 +214,40 @@ func (b *Budget) forHost(host string) hostBudget {
 	return hostBudget{key: key, n: c.(*atomic.Int64)}
 }
 
+// LimitPhase caps the running phase at share (0..1) of the scan-wide budget
+// still unspent, and returns the func that lifts the cap when the phase ends.
+// A no-op without a scan-wide limit.
+func (b *Budget) LimitPhase(name string, share float64) (release func()) {
+	if b == nil || b.max <= 0 || share <= 0 || share >= 1 {
+		return func() {}
+	}
+	used := b.Used()
+	remaining := b.max - used
+	if remaining <= 0 {
+		return func() {}
+	}
+	limit := used + int64(float64(remaining)*share)
+	if limit <= used {
+		limit = used + 1
+	}
+	b.phaseName.Store(&name)
+	b.phaseLimit.Store(limit)
+	return func() { b.phaseLimit.CompareAndSwap(limit, 0) }
+}
+
+// phaseRefusal returns the phase-cap error when the running phase used its share.
+func (b *Budget) phaseRefusal() error {
+	pl := b.phaseLimit.Load()
+	if pl <= 0 || b.used.Load()+b.external.Load() < pl {
+		return nil
+	}
+	name := ""
+	if p := b.phaseName.Load(); p != nil {
+		name = *p
+	}
+	return &BudgetError{Kind: BudgetPhase, Host: name, Limit: pl}
+}
+
 // check is the read-only test run before an attempt waits for anything, so a
 // request that cannot be admitted never takes a rate token or a host slot.
 func (b *Budget) check(hb hostBudget) error {
@@ -209,6 +256,9 @@ func (b *Budget) check(hb hostBudget) error {
 	}
 	if b.max > 0 && (b.globalHit.Load() || b.used.Load()+b.external.Load() >= b.max) {
 		return b.refuseGlobal()
+	}
+	if err := b.phaseRefusal(); err != nil {
+		return err
 	}
 	if hb.n != nil && hb.n.Load() >= b.perHost {
 		return b.refuseHost(hb.key)
@@ -223,6 +273,12 @@ func (b *Budget) take(hb hostBudget) error {
 	}
 	if hb.n != nil && !reserve(hb.n, 0, b.perHost) {
 		return b.refuseHost(hb.key)
+	}
+	if err := b.phaseRefusal(); err != nil {
+		if hb.n != nil {
+			hb.n.Add(-1)
+		}
+		return err
 	}
 	if b.max > 0 {
 		if b.globalHit.Load() || !reserve(&b.used, b.external.Load(), b.max) {

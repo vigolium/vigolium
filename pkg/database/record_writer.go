@@ -70,6 +70,11 @@ type RecordWriterConfig struct {
 	MaxSubmitRecords int
 	MaxSubmitBytes   int64
 
+	// SurfaceScorer, when set, computes surface_score for a record at ingest
+	// (when the record carries none). Injected so this package stays free of
+	// module code; the runner wires surface_scoring.IngestScore (ECON-5).
+	SurfaceScorer func(*httpmsg.HttpRequestResponse) int
+
 	// ScanUUID, when set, is stamped on every row this writer INSERTS, unless
 	// the write's own lineage names a scan. A dedup hit (cache or batched lookup)
 	// keeps the existing row's scan_uuid: the column records the first scan to
@@ -335,6 +340,9 @@ func (w *RecordWriter) admit(ctx context.Context, rr *httpmsg.HttpRequestRespons
 	// call. See HTTPRecord.FromHttpRequestResponse.
 	if err := record.EnrichFromHttpRequestResponse(rr); err != nil {
 		return pendingWrite{err: fmt.Errorf("failed to convert request: %w", err), resolved: true}
+	}
+	if record.SurfaceScore == 0 && w.cfg.SurfaceScorer != nil {
+		record.SurfaceScore = w.cfg.SurfaceScorer(rr)
 	}
 
 	// Admission gate: once admitted, Close() waits for this enqueue to finish

@@ -240,6 +240,27 @@ func (s Signal) Score() int {
 // fingerprint module that would populate it. Returns 0 when there is no
 // response, which cannot earn any signal.
 func recordSignals(item *httpmsg.HttpRequestResponse, host string, scanCtx *modkit.ScanContext) Signal {
+	return RecordSignals(item, func() modkit.ContentClass {
+		if scanCtx == nil {
+			return modkit.ContentClassUnknown
+		}
+		return scanCtx.ContentClass.Get(host)
+	})
+}
+
+// IngestScore is the record-scoped surface score computed at ingest, before
+// any module ran (ECON-5): the record writer stamps it so a fresh scan's
+// assessment order (risk_score DESC, surface_score DESC) is not merely
+// chronological. The passive module re-scores at flush with the host-scoped
+// tech signal added, which can only raise it.
+func IngestScore(item *httpmsg.HttpRequestResponse) int {
+	return RecordSignals(item, nil).Score()
+}
+
+// RecordSignals is the pure record-scoped signal computation. hostClass, when
+// non-nil, resolves the host's content class for a record whose own
+// Content-Type is indeterminate.
+func RecordSignals(item *httpmsg.HttpRequestResponse, hostClass func() modkit.ContentClass) Signal {
 	if item == nil {
 		return 0
 	}
@@ -320,7 +341,9 @@ func recordSignals(item *httpmsg.HttpRequestResponse, host string, scanCtx *modk
 		// gate uses (see Executor.passesContentClassFilter). Resolved here rather
 		// than by the caller because it is an LRU lookup under a lock and this
 		// branch is the minority: most records carry a usable Content-Type.
-		class = scanCtx.ContentClass.Get(host)
+		if hostClass != nil {
+			class = hostClass()
+		}
 	}
 
 	if class == modkit.ContentClassJSON {

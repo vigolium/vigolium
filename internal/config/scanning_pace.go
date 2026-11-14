@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/types"
@@ -40,6 +41,14 @@ type ScanningPaceConfig struct {
 	MaxRequests        int64 `yaml:"max_requests"`
 	MaxRequestsPerHost int64 `yaml:"max_requests_per_host"`
 
+	// Reserve keeps a share of the scan's total time budget
+	// (--scanning-max-duration) for later phases (ECON-5): before dynamic
+	// assessment starts, an earlier phase's deadline is capped so the sum of the
+	// reserves of the phases still to come stays unspent. Keys are phase ids
+	// with "_" or "-" (dynamic_assessment, known_issue_scan); values 0..1.
+	// Only applies when the scan has a total budget.
+	Reserve map[string]float64 `yaml:"reserve,omitempty"`
+
 	Discovery         PhasePace `yaml:"discovery"`
 	Probe             PhasePace `yaml:"probe"`
 	Spidering         PhasePace `yaml:"spidering"`
@@ -60,6 +69,10 @@ type PhasePace struct {
 	ParallelPassive      *bool   `yaml:"parallel_passive,omitempty"`
 	FeedbackDrainTimeout string  `yaml:"feedback_drain_timeout,omitempty"`
 	ActiveModuleTimeout  string  `yaml:"active_module_timeout,omitempty"`
+	// RequestShare caps the phase at this share (0..1] of the --max-requests
+	// budget still unspent when it starts (ECON-5). 0 = the phase default
+	// (discovery: 0.4, others: uncapped); 1 = uncapped.
+	RequestShare float64 `yaml:"request_share,omitempty"`
 }
 
 // PaceSource says where a resolved value came from.
@@ -105,6 +118,7 @@ func DefaultScanningPaceConfig() *ScanningPaceConfig {
 		MaxPerHost:  types.DefaultMaxPerHost,
 		MaxDuration: "45m",
 
+		Reserve:           map[string]float64{"dynamic_assessment": 0.5, "known_issue_scan": 0.1},
 		Discovery:         PhasePace{DurationFactor: 0.5},
 		KnownIssueScan:    PhasePace{DurationFactor: 0.5},
 		Spidering:         PhasePace{DurationFactor: 0.1},
@@ -426,4 +440,22 @@ func (c *ScanningPaceConfig) Validate() error {
 	}
 
 	return nil
+}
+
+// DefaultDiscoveryRequestShare is discovery's default share of --max-requests.
+const DefaultDiscoveryRequestShare = 0.4
+
+// ReserveFraction returns the configured reserve for phase (dash or underscore
+// spelling), 0 when unset or out of range.
+func (c *ScanningPaceConfig) ReserveFraction(phase string) float64 {
+	if c == nil || len(c.Reserve) == 0 {
+		return 0
+	}
+	key := strings.ReplaceAll(strings.ToLower(phase), "-", "_")
+	for k, v := range c.Reserve {
+		if strings.ReplaceAll(strings.ToLower(k), "-", "_") == key && v > 0 && v < 1 {
+			return v
+		}
+	}
+	return 0
 }

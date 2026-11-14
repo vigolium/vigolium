@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"github.com/vigolium/vigolium/internal/config"
 	"strings"
 	"sync"
 	"time"
@@ -95,8 +96,12 @@ func (s *scanOutcome) snapshot() ([]database.PhaseOutcome, string) {
 // budget": the latter is the scan's stop reason, reported once, not a per-phase
 // defect repeated for every phase that was still running.
 func (r *Runner) trackedPhaseDeadline(ctx context.Context, maxDuration time.Duration) (context.Context, context.CancelFunc) {
-	child, cancel := phaseDeadline(ctx, maxDuration)
-	if maxDuration <= 0 {
+	phase := ""
+	if t := r.currentPhase.Load(); t != nil {
+		phase = t.phase
+	}
+	child, cancel := phaseDeadlineReserved(ctx, maxDuration, r.reserveAfter(phase))
+	if _, ok := child.Deadline(); !ok || child == ctx {
 		return child, cancel
 	}
 	// Captured now rather than re-read in the closure: the phase loop clears
@@ -433,4 +438,33 @@ func DirectTargetTally(target string, rep core.ExecutionReport, failures []core.
 		t.AddUnreachable(database.TargetIssue{Target: target, Code: failures[0].Class, Detail: failures[0].Detail})
 	}
 	return t
+}
+
+// reserveAfter is the share of the scan's remaining time a phase must leave
+// for the phases after it (ECON-5): the configured reserves of dynamic
+// assessment and known-issue scan for every phase before the assessment, the
+// known-issue reserve for the assessment, nothing for the last phase.
+func (r *Runner) reserveAfter(phase string) float64 {
+	pace := config.DefaultScanningPaceConfig()
+	if r.settings != nil {
+		pace = &r.settings.ScanningPace
+	}
+	da := pace.ReserveFraction(string(PhaseDynamicAssessment))
+	kis := pace.ReserveFraction(string(PhaseKnownIssueScan))
+	if r.options == nil || !r.options.KnownIssueScanEnabled {
+		kis = 0
+	}
+	var share float64
+	switch NativePhase(phase) {
+	case PhaseKnownIssueScan:
+		return 0
+	case PhaseDynamicAssessment:
+		share = kis
+	default:
+		share = da + kis
+	}
+	if share >= 0.95 {
+		share = 0.95
+	}
+	return share
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core/egress"
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
@@ -122,4 +123,16 @@ func ApplyRequestBudget(c database.ScanCompletion, b *egress.Budget) database.Sc
 		stop = database.ReasonRequestBudget
 	}
 	return mergeDirectNote(c, note, stop)
+}
+
+// discoveryRequestShare is discovery's share of the unspent --max-requests
+// budget (ECON-5): scanning_pace.discovery.request_share when set (1 = no
+// cap), else config.DefaultDiscoveryRequestShare.
+func (r *Runner) discoveryRequestShare() float64 {
+	if r.settings != nil {
+		if s := r.settings.ScanningPace.Discovery.RequestShare; s > 0 {
+			return s
+		}
+	}
+	return config.DefaultDiscoveryRequestShare
 }
