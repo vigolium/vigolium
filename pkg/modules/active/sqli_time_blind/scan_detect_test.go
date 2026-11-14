@@ -286,18 +286,20 @@ func TestGetPayloadsForValue(t *testing.T) {
 		dbmsGated []string // backends with no time payload left at balanced
 	}{
 		{
-			name:      "string",
-			value:     "hello",
-			wantSafe:  []string{"' AND SLEEP(%d)--", "' OR (SELECT pg_sleep(%d))::text='1'--"},
+			name:  "string",
+			value: "hello",
+			wantSafe: []string{"' AND SLEEP(%d)-- -", "' AND SLEEP(%d) AND '1'='1",
+				"' OR (SELECT pg_sleep(%d))::text='1'--", "'||(SELECT '' FROM pg_sleep(%d))||'",
+				"' AND 1=DBMS_PIPE.RECEIVE_MESSAGE('a',%d)-- -"},
 			allCount:  len(stringPayloads),
-			dbmsGated: []string{"mssql", "oracle"},
+			dbmsGated: []string{"mssql"},
 		},
 		{
 			name:      "numeric",
 			value:     "42",
-			wantSafe:  []string{" AND SLEEP(%d)--"},
+			wantSafe:  []string{" AND SLEEP(%d)-- -", " AND SLEEP(%d)", " AND 1=(SELECT 1 FROM pg_sleep(%d))"},
 			allCount:  len(numericPayloads),
-			dbmsGated: []string{"postgres", "mssql", "oracle"},
+			dbmsGated: []string{"mssql", "oracle"},
 		},
 	}
 	for _, tc := range cases {
