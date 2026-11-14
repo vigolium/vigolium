@@ -650,6 +650,7 @@ func (r *Runner) cleanupDeparosRecords(ctx context.Context) {
 				KeepOnePerHost: dedupCfg.KeepOneStatuses(),
 				KeepPerPath:    dedupCfg.KeepPerPathStatuses(),
 				PerPathCap:     dedupCfg.PerPathCapValue(),
+				AuthWallCap:    dedupCfg.AuthWallCapValue(),
 			}
 			res, err := r.repository.ApplyDeparosStatusPolicy(ctx, r.options.ProjectUUID, statusPolicy)
 			if err != nil {
@@ -659,7 +660,13 @@ func (r *Runner) cleanupDeparosRecords(ctx context.Context) {
 			}
 		}
 		if dedupCfg.NormalizeReflectedEnabled() {
-			res, err := r.repository.DeduplicateDeparosByNormHash(ctx, r.options.ProjectUUID)
+			// Per-path statuses keep their distinct paths (and are capped by
+			// the status policy), so the reflected-URL collapse skips them.
+			var keepPerPath []int
+			if dedupCfg.DropClientErrorsEnabled() {
+				keepPerPath = dedupCfg.KeepPerPathStatuses()
+			}
+			res, err := r.repository.DeduplicateDeparosByNormHash(ctx, r.options.ProjectUUID, keepPerPath...)
 			if err != nil {
 				zap.L().Warn("Deparos reflected-URL dedup failed", zap.Error(err))
 			} else {

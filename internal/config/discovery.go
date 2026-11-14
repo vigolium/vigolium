@@ -145,16 +145,19 @@ type DeparosDedupConfig struct {
 	Enabled          *bool `yaml:"enabled"`            // nil = default (true)
 	DropClientErrors *bool `yaml:"drop_client_errors"` // drop 4xx discovery records; nil = default (true)
 	// KeepOnePerHost statuses are collapsed to one representative per host instead
-	// of dropped. nil = default ([401,403,429]: authz walls + pacing); empty slice
-	// = collapse none.
+	// of dropped. nil = default ([429]: pacing); empty slice = collapse none.
 	KeepOnePerHost []int `yaml:"keep_one_per_host"`
-	// KeepPerPath statuses preserve every distinct path (each is a real endpoint
-	// hit with the wrong method/payload), capped per host by PerPathCap. nil =
-	// default ([405,415,422]); empty slice = keep none per-path.
+	// KeepPerPath statuses preserve every distinct path, capped per host by
+	// PerPathCap (AuthWallCap for 401/403). nil = default
+	// ([401,403,405,415,422]: authz walls and wrong-method/payload routes are
+	// each a target); empty slice = keep none per-path.
 	KeepPerPath []int `yaml:"keep_per_path"`
 	// PerPathCap bounds distinct KeepPerPath paths kept per (host, status). 0 =
 	// default (100); negative = unbounded.
-	PerPathCap         int   `yaml:"per_path_cap"`
+	PerPathCap int `yaml:"per_path_cap"`
+	// AuthWallCap bounds distinct 401/403 paths kept per host. 0 = default
+	// (25); negative = use per_path_cap.
+	AuthWallCap        int   `yaml:"auth_wall_cap"`
 	NormalizeReflected *bool `yaml:"normalize_reflected"` // collapse records differing only by a reflected URL/path or dynamic tokens; nil = default (true)
 }
 
@@ -176,24 +179,38 @@ func (c *DeparosDedupConfig) NormalizeReflectedEnabled() bool {
 }
 
 // KeepOneStatuses returns the statuses collapsed to a single record per host
-// rather than dropped. nil (absent YAML) defaults to {401,403,429} — an authz
-// wall (401/403) or a pacing signal (429) is worth keeping, but one record per
-// host is enough. An explicit empty slice collapses none.
+// rather than dropped. nil (absent YAML) defaults to {429} — a pacing signal is
+// worth one record per host. An explicit empty slice collapses none.
 func (c *DeparosDedupConfig) KeepOneStatuses() []int {
 	if c.KeepOnePerHost == nil {
-		return []int{401, 403, 429}
+		return []int{429}
 	}
 	return c.KeepOnePerHost
 }
 
-// KeepPerPathStatuses returns the statuses whose distinct paths are preserved
-// (each is a discovered endpoint hit with the wrong method/payload). nil (absent
-// YAML) defaults to {405,415,422}; an explicit empty slice keeps none per-path.
+// KeepPerPathStatuses returns the statuses whose distinct paths are preserved.
+// nil (absent YAML) defaults to {401,403,405,415,422}: /admin, /backup and
+// /.git at 403 are three forbidden-bypass targets, not one (collapsing auth
+// walls to one row per host left the bypass module a single record), and
+// 405/415/422 are real routes hit with the wrong method/payload. An explicit
+// empty slice keeps none per-path.
 func (c *DeparosDedupConfig) KeepPerPathStatuses() []int {
 	if c.KeepPerPath == nil {
-		return []int{405, 415, 422}
+		return []int{401, 403, 405, 415, 422}
 	}
 	return c.KeepPerPath
+}
+
+// AuthWallCapValue returns the per-host cap on distinct 401/403 paths. 0
+// (absent YAML) defaults to 25; negative falls back to the per-path cap.
+func (c *DeparosDedupConfig) AuthWallCapValue() int {
+	if c.AuthWallCap == 0 {
+		return 25
+	}
+	if c.AuthWallCap < 0 {
+		return 0
+	}
+	return c.AuthWallCap
 }
 
 // PerPathCapValue returns the per-(host,status) cap on distinct KeepPerPath
