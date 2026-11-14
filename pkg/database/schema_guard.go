@@ -30,9 +30,10 @@ import (
 // fix in setSchemaVersion, stamped their own lower version over them. Nothing
 // here can stop an old binary; the guard protects the stores from now on.
 
-// minReaderVersion is the min_reader_version this binary stamps. Schema v2
-// (this file's columns) is additive, so a v1 binary still reads it.
-const minReaderVersion = 1
+// minReaderVersion is the min_reader_version this binary stamps. Schema v6
+// re-keyed finding hashes (identity v2): a pre-v6 binary would compute the old
+// hash for every re-detection and fork the finding, so it is refused.
+const minReaderVersion = 6
 
 // MinReaderVersion exposes the reader floor this binary writes, for
 // `vigolium version --json`.

@@ -309,7 +309,9 @@ func (b *sarifBuilder) addFinding(f *ReportFinding) {
 	if f.FindingHash != "" {
 		// Versioned key: a change to how the hash is computed must not silently
 		// re-key existing alerts, it must present as a new fingerprint scheme.
-		res.PartialFingerprints = map[string]string{"vigoliumFindingHash/v1": f.FindingHash}
+		// v2: finding identity v2 (schema v6) — insertion-point findings hash
+		// their location, not their prose (output.ResultEvent.IdentityKey).
+		res.PartialFingerprints = map[string]string{"vigoliumFindingHash/v2": f.FindingHash}
 	}
 	if f.CVSSScore > 0 {
 		// SARIF rank is 0-100; CVSS is 0-10.

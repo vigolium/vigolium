@@ -79,6 +79,10 @@ type MergeStats struct {
 	OASTMerged           int
 	ObservationsMerged   int
 	StatusEventsMerged   int
+
+	// rekeyNeeded is set when findings were merged from a source below schema
+	// v6 (identity v2), so the destination must re-key them.
+	rekeyNeeded bool
 }
 
 // Add accumulates o's counters into s, for aggregating the stats of several
@@ -145,7 +149,18 @@ func MergeSQLiteFileWithOptions(ctx context.Context, dest *DB, srcPath string, o
 		stats, e = mergeOnce(ctx, dest, srcPath, opts)
 		return e
 	})
-	return stats, err
+	if err != nil {
+		return stats, err
+	}
+	// A source written before identity v2 carries content hashes for
+	// insertion-point findings; re-key what landed so a re-detection (hashed
+	// v2) finds them and same-location rows from both stores merge.
+	if stats != nil && stats.rekeyNeeded {
+		if _, err := dest.RekeyFindingIdentities(ctx, ""); err != nil {
+			return stats, fmt.Errorf("re-key merged findings: %w", err)
+		}
+	}
+	return stats, nil
 }
 
 // attachSpec renders srcPath as a read-only URI filename for ATTACH.
@@ -215,6 +230,8 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 		srcOAST           []bufferedRow
 		srcObservations   []bufferedRow
 		srcStatusEvents   []bufferedRow
+		srcAliases        []bufferedRow
+		aliasCols         []string
 		findingCols       []string
 		oastCols          []string
 		observationCols   []string
@@ -243,6 +260,11 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 		if err != nil {
 			return nil, fmt.Errorf("read source finding_status_events: %w", err)
 		}
+		srcAliases, aliasCols, err = readRows(ctx, conn, "finding_hash_aliases")
+		if err != nil {
+			return nil, fmt.Errorf("read source finding_hash_aliases: %w", err)
+		}
+		stats.rekeyNeeded = len(srcFindings) > 0 && sourceSchemaVersion(ctx, conn) < identityV2Version
 	}
 
 	tx, err := conn.BeginTx(ctx, nil)
@@ -314,6 +336,10 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 
 	if err := mergeFindingStatusEvents(ctx, tx, srcStatusEvents, statusEventCols, idMap, stats); err != nil {
 		return nil, fmt.Errorf("merge finding_status_events: %w", err)
+	}
+
+	if err := mergeFindingHashAliases(ctx, tx, srcAliases, aliasCols, idMap); err != nil {
+		return nil, fmt.Errorf("merge finding_hash_aliases: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -559,6 +585,50 @@ func mergeFindingObservations(ctx context.Context, tx *sql.Tx, rows []bufferedRo
 		}
 		if n, _ := res.RowsAffected(); n > 0 {
 			stats.ObservationsMerged++
+		}
+	}
+	return nil
+}
+
+// sourceSchemaVersion reads src.schema_meta's version (0 when absent).
+func sourceSchemaVersion(ctx context.Context, conn *sql.Conn) int {
+	var v int
+	if err := conn.QueryRowContext(ctx, "SELECT version FROM src.schema_meta WHERE id = 1").Scan(&v); err != nil {
+		return 0
+	}
+	return v
+}
+
+// mergeFindingHashAliases copies the source's hash aliases, remapping
+// finding_id; an alias the destination already has is kept as it is.
+func mergeFindingHashAliases(ctx context.Context, tx *sql.Tx, rows []bufferedRow, cols []string, idMap map[int64]int64) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	findingIdx := indexOf(cols, "finding_id")
+	if findingIdx < 0 {
+		return fmt.Errorf("finding_hash_aliases table missing finding_id column")
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(cols)), ", ")
+	stmt, err := tx.PrepareContext(ctx, fmt.Sprintf("INSERT OR IGNORE INTO main.finding_hash_aliases (%s) VALUES (%s)",
+		strings.Join(cols, ", "), placeholders))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stmt.Close() }()
+	for _, row := range rows {
+		srcFID, ok := toInt64(row[findingIdx])
+		if !ok {
+			continue
+		}
+		dstFID, mapped := idMap[srcFID]
+		if !mapped {
+			continue
+		}
+		args := slices.Clone([]any(row))
+		args[findingIdx] = dstFID
+		if _, err := stmt.ExecContext(ctx, args...); err != nil {
+			return err
 		}
 	}
 	return nil

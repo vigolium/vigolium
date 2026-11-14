@@ -151,6 +151,7 @@ var projectOwnedTables = []string{
 	// (denormalized from the finding / scan), so they move and purge with it.
 	"finding_observations",
 	"finding_status_events",
+	"finding_hash_aliases",
 	"oast_payloads",
 }
 

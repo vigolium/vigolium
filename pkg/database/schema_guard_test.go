@@ -102,7 +102,7 @@ func TestSchemaGuard_V1StoreMigratesAdditively(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if res.FromVersion != 1 || res.ToVersion != currentSchemaVersion || res.MinReaderVersion != 1 || res.AlreadyCurrent {
+	if res.FromVersion != 1 || res.ToVersion != currentSchemaVersion || res.MinReaderVersion != minReaderVersion || res.AlreadyCurrent {
 		t.Errorf("Migrate result = %+v", res)
 	}
 	if len(res.Applied) == 0 {

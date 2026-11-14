@@ -548,6 +548,9 @@ type Finding struct {
 
 	FoundAt   time.Time `bun:"found_at,notnull,default:current_timestamp" json:"found_at"`
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	// LastSeenAt is when a scan last detected the finding (schema v6). NULL on
+	// rows no v6 binary has re-detected; FoundAt is then the best answer.
+	LastSeenAt *time.Time `bun:"last_seen_at,nullzero" json:"last_seen_at,omitempty"`
 }
 
 // FindingInsertionPoint names the insertion point a module mutated, e.g.

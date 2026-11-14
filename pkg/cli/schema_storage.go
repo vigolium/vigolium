@@ -43,6 +43,7 @@ var storageTablePurpose = map[string]string{
 	"finding_records":       "Which http_records evidence each finding",
 	"finding_observations":  "Each scan that observed a finding (first/last seen history)",
 	"finding_status_events": "Verdict history written by `vigolium finding mark`",
+	"finding_hash_aliases":  "Old finding hashes (pre-identity-v2, or merged duplicates) and the finding that absorbed each",
 	"scans":                 "Native scan runs: status, plan, phase outcomes, liveness",
 	"agentic_scans":         "Agent runs (autopilot, swarm, audit)",
 	"host_observations":     "Per host:port facts a run observed: DNS answers, TLS handshake and certificate, fingerprint and not-found baseline (read with `vigolium hosts`)",

@@ -286,6 +286,16 @@ func resolveFindingSelectors(ctx context.Context, idb bun.IDB, projectUUID strin
 		if err := q.Scan(ctx, &rows); err != nil {
 			return nil, nil, fmt.Errorf("look up findings by hash: %w", err)
 		}
+		if len(rows) == 0 {
+			// A hash from before identity v2, or of a duplicate merged away,
+			// resolves through finding_hash_aliases to the finding that
+			// absorbed it.
+			aliased, err := resolveAliasPrefix(ctx, idb, projectUUID, prefix, upper, maxCandidates)
+			if err != nil {
+				return nil, nil, err
+			}
+			rows = aliased
+		}
 		switch {
 		case len(rows) == 0:
 			notFound = append(notFound, h)
@@ -309,6 +319,36 @@ func resolveFindingSelectors(ctx context.Context, idb bun.IDB, projectUUID strin
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, notFound, nil
+}
+
+// resolveAliasPrefix looks a hash prefix up in finding_hash_aliases and loads
+// the findings it names (at most limit+1 distinct ones).
+func resolveAliasPrefix(ctx context.Context, idb bun.IDB, projectUUID, prefix, upper string, limit int) ([]findingStatusRow, error) {
+	var ids []int64
+	q := idb.NewSelect().Model((*FindingHashAlias)(nil)).ColumnExpr("DISTINCT finding_id").
+		Where("alias_hash >= ? AND alias_hash < ?", prefix, upper).
+		Limit(int64(limit + 1))
+	if projectUUID != "" {
+		q = q.Where("project_uuid = ?", projectUUID)
+	}
+	if err := q.Scan(ctx, &ids); err != nil {
+		return nil, fmt.Errorf("look up finding hash aliases: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []findingStatusRow
+	fq := idb.NewSelect().Model((*Finding)(nil)).
+		Column("id", "project_uuid", "finding_hash", "status").
+		Where("id IN (?)", bun.List(ids)).
+		OrderExpr("finding_hash ASC")
+	if projectUUID != "" {
+		fq = fq.Where("project_uuid = ?", projectUUID)
+	}
+	if err := fq.Scan(ctx, &rows); err != nil {
+		return nil, fmt.Errorf("load aliased findings: %w", err)
+	}
+	return rows, nil
 }
 
 // allSameFinding reports whether every row is the same finding (the hash

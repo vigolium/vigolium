@@ -17,7 +17,7 @@ import (
 // findingChildTables are the tables keyed by findings.id that must not outlive
 // their finding. finding_records is the evidence junction; the other two are
 // the finding's history.
-var findingChildTables = []string{"finding_records", "finding_observations", "finding_status_events"}
+var findingChildTables = []string{"finding_records", "finding_observations", "finding_status_events", "finding_hash_aliases"}
 
 // recordFindingObservation notes that scanUUID observed the finding. A repeat
 // within one scan is a no-op (PRIMARY KEY (finding_id, scan_uuid)), and a save
@@ -138,6 +138,28 @@ func migrateFindingHistoryTx(ctx context.Context, tx bun.Tx, survivorID int64, d
 			survivorID, bun.List(chunk),
 		).Exec(ctx); err != nil {
 			return fmt.Errorf("failed to migrate finding_status_events to survivor: %w", err)
+		}
+		// Aliases the duplicates carried now name the survivor, and each
+		// duplicate's own hash becomes one, so a hash someone already holds
+		// (in a ticket, an ignore file, a CI log) still resolves after the merge.
+		if _, err := tx.NewRaw(
+			"UPDATE finding_hash_aliases SET finding_id = ? WHERE finding_id IN (?)",
+			survivorID, bun.List(chunk),
+		).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to migrate finding_hash_aliases to survivor: %w", err)
+		}
+		if _, err := tx.NewRaw(
+			`INSERT INTO finding_hash_aliases (project_uuid, alias_hash, finding_id, created_at)
+			 SELECT d.project_uuid, d.finding_hash, ?, CURRENT_TIMESTAMP
+			 FROM findings d
+			 WHERE d.id IN (?)
+			   AND NOT EXISTS (
+			       SELECT 1 FROM finding_hash_aliases a
+			       WHERE a.project_uuid = d.project_uuid AND a.alias_hash = d.finding_hash
+			   )`,
+			survivorID, bun.List(chunk),
+		).Exec(ctx); err != nil {
+			return fmt.Errorf("failed to alias merged finding hashes: %w", err)
 		}
 	}
 	return nil

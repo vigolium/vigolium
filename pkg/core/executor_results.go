@@ -161,6 +161,14 @@ func (e *Executor) setReplayContext(result *output.ResultEvent, item *httpmsg.Ht
 	if item == nil || item.Request() == nil {
 		return
 	}
+	// The unmutated item's URL is the finding's v2 identity location
+	// (output.ResultEvent.IdentityKey) and the scheme for a URL rebuilt from
+	// the request.
+	if result.BaseURL == "" {
+		if u, err := item.URL(); err == nil && u != nil {
+			result.BaseURL = u.String()
+		}
+	}
 	if result.OriginRecordUUID == "" && e.caches.requestUUIDs != nil {
 		result.OriginRecordUUID = e.ResolveRequestUUID(item.Request().ID())
 	}
@@ -448,7 +456,7 @@ func (e *Executor) assignModuleInfo(result *output.ResultEvent, m modules.Module
 	}
 
 	if result.URL == "" && result.Request != "" {
-		result.URL = httpmsg.GetURLFromRequest("https", []byte(result.Request))
+		result.URL = httpmsg.GetURLFromRequest(resultScheme(result), []byte(result.Request))
 		if result.Matched == "" {
 			result.Matched = result.URL
 		}
@@ -457,6 +465,18 @@ func (e *Executor) assignModuleInfo(result *output.ResultEvent, m modules.Module
 	if result.Host == "" {
 		e.fillHostFromResult(result)
 	}
+}
+
+// resultScheme is the scheme for a URL rebuilt from the finding's request: the
+// scanned item's (BaseURL), else the event's own, else https.
+func resultScheme(result *output.ResultEvent) string {
+	if result.Scheme != "" {
+		return result.Scheme
+	}
+	if i := strings.Index(result.BaseURL, "://"); i > 0 {
+		return strings.ToLower(result.BaseURL[:i])
+	}
+	return "https"
 }
 
 func (e *Executor) fillHostFromResult(result *output.ResultEvent) {

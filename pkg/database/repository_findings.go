@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/uptrace/bun"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -117,6 +118,13 @@ func (r *Repository) SaveFindingsBatchResults(ctx context.Context, writes []Find
 func (r *Repository) saveFindingIDB(ctx context.Context, idb bun.IDB, finding *Finding, httpRecordUUIDs []string) (bool, error) {
 	// Atomic dedup: INSERT with conflict resolution on finding_hash.
 	// If a duplicate hash exists, the row is silently skipped.
+	if finding.LastSeenAt == nil {
+		seen := finding.FoundAt
+		if seen.IsZero() {
+			seen = time.Now()
+		}
+		finding.LastSeenAt = &seen
+	}
 	var res sql.Result
 	var err error
 	if finding.FindingHash != "" {
@@ -133,7 +141,7 @@ func (r *Repository) saveFindingIDB(ctx context.Context, idb bun.IDB, finding *F
 	// If ON CONFLICT fired, no row was inserted — append records and evidence to existing finding
 	if finding.FindingHash != "" {
 		if n, _ := res.RowsAffected(); n == 0 {
-			return false, r.appendRecordsToFinding(ctx, idb, finding.ProjectUUID, finding.FindingHash, httpRecordUUIDs, buildEvidence(finding.Request, finding.Response), finding.ScanUUID)
+			return false, r.appendRecordsToFinding(ctx, idb, finding, httpRecordUUIDs, buildEvidence(finding.Request, finding.Response))
 		}
 	}
 
@@ -324,13 +332,18 @@ func (r *Repository) insertFindingRecords(ctx context.Context, idb bun.IDB, find
 // record UUIDs and additional evidence (request/response pair) to it. The lookup is
 // project-scoped so evidence from one project is never merged into another project's
 // finding, even when both share a finding_hash.
-func (r *Repository) appendRecordsToFinding(ctx context.Context, idb bun.IDB, projectUUID, findingHash string, newUUIDs []string, evidence string, scanUUID string) error {
+//
+// A re-detection also updates what the later scan says about the issue (see
+// recordRedetectionTx): last_seen_at, the latest severity/confidence/description,
+// and a `fixed` finding reopens.
+func (r *Repository) appendRecordsToFinding(ctx context.Context, idb bun.IDB, latest *Finding, newUUIDs []string, evidence string) error {
+	projectUUID, findingHash, scanUUID := latest.ProjectUUID, latest.FindingHash, latest.ScanUUID
 	// Only fetch the (potentially large) request/response bodies when there's
 	// evidence to append — they're needed solely to dedup against the survivor's
 	// own primary pair below.
 	existing := &Finding{}
 	sel := idb.NewSelect().Model(existing).
-		Column("id", "http_record_uuids", "additional_evidence").
+		Column("id", "http_record_uuids", "additional_evidence", "status").
 		Where("project_uuid = ?", defaultProjectUUID(projectUUID)).
 		Where("finding_hash = ?", findingHash)
 	if evidence != "" {
@@ -350,9 +363,13 @@ func (r *Repository) appendRecordsToFinding(ctx context.Context, idb bun.IDB, pr
 	}
 
 	merged := mergeUniqueStrings(existing.HTTPRecordUUIDs, newUUIDs)
-	q := idb.NewUpdate().Model((*Finding)(nil)).
-		Set("http_record_uuids = ?", merged).
-		Where("id = ?", existing.ID)
+	q, reopened := recordRedetectionTx(idb, existing.ID, existing.Status, latest)
+	q = q.Set("http_record_uuids = ?", merged)
+	if reopened != nil {
+		if _, err := idb.NewInsert().Model(reopened).Exec(ctx); err != nil {
+			return fmt.Errorf("record reopen status event: %w", err)
+		}
+	}
 
 	// Attribute the finding to the scan that most recently observed it. Finding
 	// uniqueness is project-wide, so the earliest row is kept — but leaving its

@@ -75,8 +75,8 @@ func TestSchemaV3_MigratesV2Store(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if res.FromVersion != 2 || res.ToVersion != currentSchemaVersion || res.MinReaderVersion != 1 {
-		t.Fatalf("Migrate result = %+v, want 2 -> %d with min_reader 1", res, currentSchemaVersion)
+	if res.FromVersion != 2 || res.ToVersion != currentSchemaVersion || res.MinReaderVersion != minReaderVersion {
+		t.Fatalf("Migrate result = %+v, want 2 -> %d with min_reader %d", res, currentSchemaVersion, minReaderVersion)
 	}
 	if err := r.CheckSchema(ctx); err != nil {
 		t.Fatalf("CheckSchema after migrate = %v", err)

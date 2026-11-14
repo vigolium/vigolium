@@ -247,7 +247,7 @@ func TestSARIFPartialFingerprintCarriesFindingHash(t *testing.T) {
 		"finding_hash": "deadbeef",
 	})})
 	assert.Equal(t, "deadbeef",
-		log.Runs[0].Results[0].PartialFingerprints["vigoliumFindingHash/v1"])
+		log.Runs[0].Results[0].PartialFingerprints["vigoliumFindingHash/v2"])
 }
 
 func TestSARIFRulesDedupedAndIndexed(t *testing.T) {

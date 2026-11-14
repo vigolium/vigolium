@@ -915,7 +915,15 @@ func (db *DB) renderDDL(tmpl string) string {
 //	   not_found (the fingerprint phase).
 //	5  host_observations.favicon (the probe phase's --favicon), additive (min
 //	   reader stays 1).
-const currentSchemaVersion = 5
+//	6  Finding identity v2 (BREAKING, min reader 6): findings.last_seen_at, the
+//	   finding_hash_aliases table, and a one-time re-key of insertion-point
+//	   findings from the content hash to the location identity
+//	   (RekeyFindingIdentities), merging rows that share it and keeping every
+//	   old hash as an alias. A pre-v6 binary would hash re-detections the old
+//	   way and fork every re-keyed finding, so it must not write a v6 store.
+//	   Track B's scan_record_progress / scans.coverage_modules and the
+//	   scans.module_stats / oast_sessions additions ride the same version.
+const currentSchemaVersion = 6
 
 // legacyBackfillsVersion is the version that gated the pre-versioning backfills
 // and index reshaping in CreateSchema. A store at or past it has had them.
@@ -1120,6 +1128,15 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 	// and the version gate means it would never be retried.
 	if storedVersion < observationsBackfillVersion {
 		if err := db.backfillFindingObservations(ctx); err != nil {
+			return err
+		}
+	}
+
+	// Schema v6: re-key insertion-point findings to identity v2. Fatal like the
+	// v3 backfill: a store stamped v6 without it would fork every re-detected
+	// finding into a second row, and the version gate would never retry it.
+	if storedVersion < identityV2Version {
+		if _, err := db.RekeyFindingIdentities(ctx, ""); err != nil {
 			return err
 		}
 	}

@@ -2,8 +2,6 @@ package output
 
 import (
 	"crypto/sha1"
-	"encoding/hex"
-	"hash"
 	"io"
 	"os"
 	"strings"
@@ -123,6 +121,11 @@ type ResultEvent struct {
 	// stay separate) regardless of the protocol-derived description/severity an
 	// upgrade changes. Empty for the default content-based identity.
 	DedupKey string `json:"-"`
+
+	// BaseURL is the URL of the unmutated item the module scanned, stamped by
+	// the executor. It is the location of a v2 identity (IdentityKey), so a
+	// payload in the path or query never changes a finding's identity.
+	BaseURL string `json:"-"`
 }
 
 // EffectiveRecordKind returns a validated kind, treating the zero value and
@@ -213,37 +216,10 @@ var sha1Pool = sync.Pool{
 	New: func() interface{} { return sha1.New() },
 }
 
-// ID returns a unique identifier for deduplication purposes. When DedupKey is set
-// the identity is derived from it alone (an explicit dedup grouping chosen by the
-// producer, e.g. the OAST per-payload nonce); otherwise it is the content hash of
-// the module, description, severity, and matched location.
+// ID returns the finding's identity hash: the SHA-1 of IdentityKey(). See
+// identity.go for what identifies a finding.
 func (r *ResultEvent) ID() string {
-	h := sha1Pool.Get().(hash.Hash)
-	h.Reset()
-	// Preserve historical hashes for default findings. Prefix only non-finding
-	// events so a candidate can later be promoted without colliding with itself.
-	if kind := r.EffectiveRecordKind(); kind != RecordKindFinding {
-		_, _ = io.WriteString(h, string(kind))
-		_, _ = io.WriteString(h, "|")
-	}
-
-	if r.DedupKey != "" {
-		_, _ = io.WriteString(h, "dedup|")
-		_, _ = io.WriteString(h, r.DedupKey)
-	} else {
-		_, _ = io.WriteString(h, r.ModuleID)
-		_, _ = io.WriteString(h, "|")
-		_, _ = io.WriteString(h, r.Info.Description)
-		_, _ = io.WriteString(h, "|")
-		_, _ = io.WriteString(h, r.Info.Severity.String())
-		_, _ = io.WriteString(h, "|")
-		_, _ = io.WriteString(h, r.Matched)
-	}
-
-	var buf [sha1.Size]byte
-	id := hex.EncodeToString(h.Sum(buf[:0]))
-	sha1Pool.Put(h)
-	return id
+	return HashIdentity(r.IdentityKey())
 }
 
 // Writer is an interface which writes output to somewhere for scan events.

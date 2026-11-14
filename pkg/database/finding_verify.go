@@ -55,7 +55,7 @@ func (r *Repository) ResolveFindings(ctx context.Context, projectUUID string, id
 func (r *Repository) FindingsInScan(ctx context.Context, projectUUID, scanUUID string) ([]*Finding, error) {
 	var out []*Finding
 	q := r.db.NewSelect().Model(&out).
-		Where("scan_uuid = ?", scanUUID).
+		Where("(scan_uuid = ? OR EXISTS (SELECT 1 FROM finding_observations o WHERE o.finding_id = f.id AND o.scan_uuid = ?))", scanUUID, scanUUID).
 		Where("COALESCE(record_kind, ?) = ?", RecordKindFinding, RecordKindFinding).
 		OrderExpr("id ASC")
 	if projectUUID != "" {

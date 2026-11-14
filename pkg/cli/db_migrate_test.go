@@ -56,7 +56,7 @@ func TestDBMigrateJSONContract(t *testing.T) {
 	res := items[0].(map[string]any)
 	require.EqualValues(t, 1, res["from_version"])
 	require.EqualValues(t, database.CurrentSchemaVersion(), res["to_version"])
-	require.EqualValues(t, 1, res["min_reader_version"])
+	require.EqualValues(t, database.MinReaderVersion(), res["min_reader_version"])
 	require.NotEmpty(t, res["applied"])
 
 	// Second run: nothing to do.

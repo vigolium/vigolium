@@ -27,8 +27,8 @@ func TestSchemaV5_MigratesV4Store(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if res.FromVersion != 4 || res.ToVersion != 5 || res.MinReaderVersion != 1 {
-		t.Fatalf("Migrate result = %+v, want 4 -> 5 with min_reader 1", res)
+	if res.FromVersion != 4 || res.ToVersion != currentSchemaVersion || res.MinReaderVersion != minReaderVersion {
+		t.Fatalf("Migrate result = %+v, want 4 -> %d with min_reader %d", res, currentSchemaVersion, minReaderVersion)
 	}
 	cols, err := listAllColumns(ctx, w)
 	if err != nil {

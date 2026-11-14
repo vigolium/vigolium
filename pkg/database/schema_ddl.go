@@ -334,6 +334,16 @@ var schemaTables = []string{
 		verified_at {{TIMESTAMP}},
 		finding_hash TEXT NOT NULL,
 		found_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_seen_at {{TIMESTAMP}}
+	)`,
+	// Schema v6: a finding hash that no longer names a row — a pre-v6 content
+	// hash re-keyed to identity v2, or a duplicate folded into a survivor —
+	// mapped to the finding that absorbed it, so old hashes keep resolving.
+	`CREATE TABLE IF NOT EXISTS finding_hash_aliases (
+		project_uuid TEXT NOT NULL,
+		alias_hash TEXT NOT NULL,
+		finding_id INTEGER NOT NULL,
 		created_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`,
 	`CREATE TABLE IF NOT EXISTS finding_records (
@@ -666,6 +676,9 @@ var schemaIndexes = []string{
 	"CREATE INDEX IF NOT EXISTS idx_finding_obs_project_scan ON finding_observations(project_uuid, scan_uuid)",
 	"CREATE INDEX IF NOT EXISTS idx_finding_obs_project_hash ON finding_observations(project_uuid, finding_hash)",
 
+	// -- finding_hash_aliases --
+	"CREATE UNIQUE INDEX IF NOT EXISTS idx_finding_hash_aliases_project_hash ON finding_hash_aliases(project_uuid, alias_hash)",
+	"CREATE INDEX IF NOT EXISTS idx_finding_hash_aliases_finding ON finding_hash_aliases(finding_id)",
 	// -- finding_status_events --
 	"CREATE INDEX IF NOT EXISTS idx_finding_status_events_finding ON finding_status_events(finding_id, id)",
 	"CREATE INDEX IF NOT EXISTS idx_finding_status_events_project_created ON finding_status_events(project_uuid, created_at)",
@@ -906,6 +919,9 @@ var columnMigrations = []columnMigration{
 	// Schema v5: the origin's icon as the probe phase's --favicon hashed it.
 	// Nullable, no default: NULL means "not fetched".
 	{"host_observations", "favicon", "{{JSON}}"},
+	// Schema v6: finding identity v2. last_seen_at is set on every re-detection;
+	// NULL means no v6 binary has re-detected the row.
+	{"findings", "last_seen_at", "{{TIMESTAMP}}"},
 }
 
 func init() {

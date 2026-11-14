@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/uptrace/bun"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -103,19 +102,10 @@ func withoutDismissed(ctx context.Context, repo *database.Repository, projectUUI
 			hashes = append(hashes, e.ID())
 		}
 	}
-	var dismissed []string
-	q := repo.DB().NewSelect().Model((*database.Finding)(nil)).Column("finding_hash").
-		Where("finding_hash IN (?)", bun.List(hashes)).
-		Where("status IN (?)", bun.List(database.DismissedFindingStatuses))
-	if projectUUID != "" {
-		q = q.Where("project_uuid = ?", projectUUID)
-	}
-	if err := q.Scan(ctx, &dismissed); err != nil || len(dismissed) == 0 {
+	// By live hash or by alias (a pre-identity-v2 hash, or a merged duplicate's).
+	skip, err := repo.DismissedFindingHashes(ctx, projectUUID, hashes)
+	if err != nil || len(skip) == 0 {
 		return events
-	}
-	skip := make(map[string]bool, len(dismissed))
-	for _, h := range dismissed {
-		skip[h] = true
 	}
 	kept := make([]*output.ResultEvent, 0, len(events))
 	for _, e := range events {
