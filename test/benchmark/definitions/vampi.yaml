@@ -19,6 +19,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection in username parameter of debug endpoint (blind SQLi, not error-based)"
@@ -30,6 +31,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection in book search parameter (blind SQLi, not error-based)"
@@ -42,6 +44,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection in user profile endpoint - unsanitized username in SELECT query"
@@ -50,9 +53,10 @@ test_cases:
   - id: "vampi-sqli-time-debug"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["sqli-time-based-params"]
+    modules: ["sqli-time-blind"]
     vuln_types: ["sqli-time-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     timeout: 60s
@@ -62,9 +66,10 @@ test_cases:
   - id: "vampi-sqli-time-books"
     endpoint: "/books/v1?book=test"
     method: GET
-    modules: ["sqli-time-based-params"]
+    modules: ["sqli-time-blind"]
     vuln_types: ["sqli-time-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     timeout: 60s
@@ -75,8 +80,7 @@ test_cases:
     endpoint: "/users/v1"
     method: GET
     modules: ["sqli-error-based"]
-    assertion: soft
-    min_findings: 0
+    assertion: negative
     scan_mode: active
     description: "Safe endpoint without injection points"
 
@@ -87,6 +91,7 @@ test_cases:
     modules: ["nosqli-error-based"]
     vuln_types: ["nosqli"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "NoSQL injection in username parameter"
@@ -98,6 +103,7 @@ test_cases:
     modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CORS misconfiguration on API endpoint"
@@ -113,6 +119,7 @@ test_cases:
     modules: ["jwt-vulnerability"]
     vuln_types: ["jwt-vulnerability"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "JWT authentication bypass via weak signing key (HS256 with dictionary-crackable secret)"
@@ -125,9 +132,10 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"xsstest","password":"xsspass123","email":"xss@test.com"}'
-    modules: ["xss-light"]
+    modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
+    soft_reason: "JSON body points get plain XSS payloads only once the xss_light body scanner lands (MISS-17)"
     min_findings: 1
     scan_mode: active
     description: "XSS in user registration endpoint JSON parameters"
@@ -139,6 +147,7 @@ test_cases:
     modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "XSS in book search query parameter"
@@ -150,6 +159,7 @@ test_cases:
     modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CRLF injection in API debug endpoint parameters"
@@ -161,6 +171,7 @@ test_cases:
     modules: ["host-header-injection"]
     vuln_types: ["host-header-injection"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Host header injection on VAmPI API"
@@ -171,10 +182,9 @@ test_cases:
     method: GET
     modules: ["open-redirect"]
     vuln_types: ["open-redirect"]
-    assertion: soft
-    min_findings: 0
+    assertion: negative
     scan_mode: active
-    description: "Open redirect check on API endpoint (negative expected for VAmPI)"
+    description: "Open redirect check on API endpoint (VAmPI has no redirect sink)"
 
   # SQLi on password change endpoint (writeup: unauthorized password change)
   # PUT /users/v1/{username}/password - no auth check at object level
@@ -187,6 +197,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection on password change endpoint (writeup: unauthorized password change via BOLA)"
@@ -202,6 +213,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection on email update endpoint (also vulnerable to RegexDOS per writeup)"
@@ -213,6 +225,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 0
     scan_mode: active
     description: "DELETE endpoint for user removal - tests method dispatch fix"
@@ -224,6 +237,7 @@ test_cases:
     modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 0
     scan_mode: active
     description: "OPTIONS pre-flight request for CORS testing - validates method dispatch"
@@ -238,6 +252,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection via JSON body parameters on registration endpoint"
@@ -247,9 +262,10 @@ test_cases:
   - id: "vampi-sqli-header-injection"
     endpoint: "/users/v1/_debug?username=admin"
     method: GET
-    modules: ["sqli-time-based-header"]
+    modules: ["sqli-time-blind"]
     vuln_types: ["sqli-time-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 0
     scan_mode: active
     timeout: 60s
@@ -262,6 +278,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection via REST path segment /users/v1/{username}/books"
@@ -273,6 +290,7 @@ test_cases:
     modules: ["oast-probe"]
     vuln_types: ["oast"]
     assertion: soft
+    soft_reason: "needs a reachable OAST collector from the container; not available in every run"
     min_findings: 0
     requires_oast: true
     scan_mode: active
@@ -282,9 +300,10 @@ test_cases:
   - id: "vampi-swagger-disclose"
     endpoint: "/"
     method: GET
-    modules: ["swagger-disclose"]
-    vuln_types: ["swagger-disclose"]
+    modules: ["swagger-exposure"]
+    vuln_types: ["swagger-exposure"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Swagger UI/API documentation exposed (VAmPI ships with Swagger UI)"
@@ -297,6 +316,7 @@ test_cases:
     method: GET
     modules: ["security-headers-missing"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "VAmPI missing security headers (soft: Flask API may have minimal headers)"
@@ -307,6 +327,7 @@ test_cases:
     method: GET
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Debug endpoint exposes sensitive information"
@@ -317,6 +338,7 @@ test_cases:
     method: GET
     modules: ["auth-headers-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Auth headers in API responses"
@@ -327,6 +349,7 @@ test_cases:
     method: GET
     modules: ["content-type-mismatch"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 0
     scan_mode: passive
     description: "Content type mismatch check on API endpoint"
@@ -340,6 +363,7 @@ test_cases:
     body: '{"username":"name1","password":"pass1"}'
     modules: ["jwt-weak-secret"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "JWT weak signing key detection in login response (writeup: key crackable from rockyou.txt)"
@@ -350,6 +374,7 @@ test_cases:
     method: GET
     modules: ["cors-headers-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "CORS headers passive detection on API endpoint"
@@ -360,6 +385,7 @@ test_cases:
     method: GET
     modules: ["sql-syntax-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Passive SQL syntax/error detection in debug endpoint response"
@@ -370,6 +396,7 @@ test_cases:
     method: GET
     modules: ["secret-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Secret/credential exposure in debug endpoint (writeup: passwords leaked via excessive data exposure)"
@@ -380,6 +407,7 @@ test_cases:
     method: GET
     modules: ["sensitive-url-params"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Sensitive URL parameters in debug endpoint"
@@ -393,6 +421,7 @@ test_cases:
     body: '{"username":"name1","password":"pass1"}'
     modules: ["cookie-security-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 0
     scan_mode: passive
     description: "Cookie security flags check on login endpoint (VAmPI uses JWT, may not set cookies)"
@@ -406,6 +435,7 @@ test_cases:
     body: '{"username":"name1","password":"pass1"}'
     modules: ["security-headers-missing"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Missing security headers on authentication endpoint"
@@ -419,6 +449,7 @@ test_cases:
     body: '{"username":"nonexistent","password":"wrong"}'
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "User enumeration via verbose error messages on login (writeup: different messages for invalid user vs wrong password)"

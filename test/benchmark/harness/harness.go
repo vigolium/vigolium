@@ -3,6 +3,7 @@ package harness
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -14,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
@@ -203,14 +203,21 @@ func ResolvePassiveModules(ids []string) ([]modules.PassiveModule, error) {
 //   - ScanScopeInsertionPoint: creates insertion points, calls ScanPerInsertionPoint for each
 //   - ScanScopeRequest: calls ScanPerRequest once
 //   - ScanScopeHost: calls ScanPerHost once
-func RunActiveTestCase(t *testing.T, tc TestCase, baseURL string, infra *TestInfra) []TestResult {
+func RunActiveTestCase(t testing.TB, tc TestCase, baseURL string, infra *TestInfra) []TestResult {
 	t.Helper()
 	var results []TestResult
+
+	// An unresolvable module ID used to log a warning and run the remaining
+	// modules - with every ID stale the case ran nothing and passed. Resolve
+	// before sending anything so a stale definition fails fast.
+	activeMods, err := ResolveActiveModules(tc.Modules)
+	if err != nil {
+		t.Fatalf("[%s] %v", tc.ID, err)
+	}
 
 	fullURL := baseURL + tc.Endpoint
 
 	var rr *httpmsg.HttpRequestResponse
-	var err error
 	switch {
 	case tc.Body != "":
 		rr, err = buildRequestWithMethodAndBody(fullURL, tc.Method, tc.Body, tc.Headers)
@@ -227,11 +234,6 @@ func RunActiveTestCase(t *testing.T, tc TestCase, baseURL string, infra *TestInf
 	// response would otherwise see nothing to compare with.
 	if baseline := fetchBaseline(t, rr, infra); baseline != nil {
 		rr = baseline
-	}
-
-	activeMods, err := ResolveActiveModules(tc.Modules)
-	if err != nil {
-		t.Logf("Warning: %v", err)
 	}
 
 	for _, mod := range activeMods {
@@ -252,7 +254,7 @@ func RunActiveTestCase(t *testing.T, tc TestCase, baseURL string, infra *TestInf
 			findings, scanErr = mod.ScanPerHost(rr, infra.HTTPClient, infra.ScanCtx)
 
 		default:
-			t.Logf("[%s] %s: unknown ScanScope %v, skipping", tc.ID, mod.ID(), scanScopes)
+			scanErr = fmt.Errorf("unknown ScanScope %v", scanScopes)
 		}
 
 		duration := time.Since(start)
@@ -267,11 +269,8 @@ func RunActiveTestCase(t *testing.T, tc TestCase, baseURL string, infra *TestInf
 
 		if scanErr != nil {
 			t.Logf("[%s] %s error: %v", tc.ID, mod.ID(), scanErr)
-			tr.Passed = false
-		} else {
-			ApplyAssertion(t, tc, mod.ID(), findings)
-			tr.Passed = evaluateAssertion(tc, len(findings))
 		}
+		tr.Passed = ApplyAssertion(t, tc, mod.ID(), findings, scanErr)
 
 		for _, f := range findings {
 			t.Logf("[%s] Finding: module=%s param=%s url=%s",
@@ -287,7 +286,7 @@ func RunActiveTestCase(t *testing.T, tc TestCase, baseURL string, infra *TestInf
 // fetchBaseline sends rr once and returns rr paired with the response, or nil
 // when rr already has one or the send fails (the caller then scans the
 // response-less record, as before).
-func fetchBaseline(t *testing.T, rr *httpmsg.HttpRequestResponse, infra *TestInfra) *httpmsg.HttpRequestResponse {
+func fetchBaseline(t testing.TB, rr *httpmsg.HttpRequestResponse, infra *TestInfra) *httpmsg.HttpRequestResponse {
 	t.Helper()
 
 	if rr == nil || rr.HasResponse() {
@@ -312,7 +311,7 @@ func fetchBaseline(t *testing.T, rr *httpmsg.HttpRequestResponse, infra *TestInf
 
 // runPerInsertionPoint creates insertion points from the request and calls
 // ScanPerInsertionPoint for each one, collecting all findings.
-func runPerInsertionPoint(t *testing.T, tc TestCase, rr *httpmsg.HttpRequestResponse, mod modules.ActiveModule, infra *TestInfra) ([]*output.ResultEvent, error) {
+func runPerInsertionPoint(t testing.TB, tc TestCase, rr *httpmsg.HttpRequestResponse, mod modules.ActiveModule, infra *TestInfra) ([]*output.ResultEvent, error) {
 	t.Helper()
 
 	points, err := httpmsg.CreateAllInsertionPoints(rr.Request().Raw(), true)
@@ -338,31 +337,34 @@ func runPerInsertionPoint(t *testing.T, tc TestCase, rr *httpmsg.HttpRequestResp
 	t.Logf("[%s] %s: scanning %d insertion points", tc.ID, mod.ID(), len(filteredPoints))
 
 	var allFindings []*output.ResultEvent
+	var errs []error
 	for _, ip := range filteredPoints {
 		findings, err := mod.ScanPerInsertionPoint(rr, ip, infra.HTTPClient, infra.ScanCtx)
 		if err != nil {
-			t.Logf("[%s] %s: insertion point %q error: %v", tc.ID, mod.ID(), ip.Name(), err)
+			errs = append(errs, fmt.Errorf("insertion point %q: %w", ip.Name(), err))
 			continue
 		}
 		allFindings = append(allFindings, findings...)
 	}
 
-	return allFindings, nil
+	// A module error is surfaced, not swallowed: strict and negative cases fail
+	// on it (ApplyAssertion), so an erroring module cannot pass as "0 findings".
+	return allFindings, errors.Join(errs...)
 }
 
 // RunPassiveTestCase executes a single passive test case against a base URL.
-func RunPassiveTestCase(t *testing.T, tc TestCase, baseURL string, infra *TestInfra) []TestResult {
+func RunPassiveTestCase(t testing.TB, tc TestCase, baseURL string, infra *TestInfra) []TestResult {
 	t.Helper()
 	var results []TestResult
+
+	passiveMods, err := ResolvePassiveModules(tc.Modules)
+	if err != nil {
+		t.Fatalf("[%s] %v", tc.ID, err)
+	}
 
 	fullURL := baseURL + tc.Endpoint
 	rr, err := FetchForPassiveScan(fullURL, tc.Headers, infra)
 	require.NoError(t, err, "Failed to fetch URL for passive scan: %s", fullURL)
-
-	passiveMods, err := ResolvePassiveModules(tc.Modules)
-	if err != nil {
-		t.Logf("Warning: %v", err)
-	}
 
 	for _, mod := range passiveMods {
 		start := time.Now()
@@ -370,10 +372,13 @@ func RunPassiveTestCase(t *testing.T, tc TestCase, baseURL string, infra *TestIn
 		var scanErr error
 
 		scanScopes := mod.ScanScopes()
-		if scanScopes.Has(modkit.ScanScopeRequest) {
+		switch {
+		case scanScopes.Has(modkit.ScanScopeRequest):
 			findings, scanErr = mod.ScanPerRequest(rr, infra.ScanCtx)
-		} else if scanScopes.Has(modkit.ScanScopeHost) {
+		case scanScopes.Has(modkit.ScanScopeHost):
 			findings, scanErr = mod.ScanPerHost(rr, infra.ScanCtx)
+		default:
+			scanErr = fmt.Errorf("unknown ScanScope %v", scanScopes)
 		}
 
 		duration := time.Since(start)
@@ -388,11 +393,8 @@ func RunPassiveTestCase(t *testing.T, tc TestCase, baseURL string, infra *TestIn
 
 		if scanErr != nil {
 			t.Logf("[%s] %s error: %v", tc.ID, mod.ID(), scanErr)
-			tr.Passed = false
-		} else {
-			ApplyAssertion(t, tc, mod.ID(), findings)
-			tr.Passed = evaluateAssertion(tc, len(findings))
 		}
+		tr.Passed = ApplyAssertion(t, tc, mod.ID(), findings, scanErr)
 
 		for _, f := range findings {
 			t.Logf("[%s] Finding: module=%s matched=%s",
@@ -405,40 +407,57 @@ func RunPassiveTestCase(t *testing.T, tc TestCase, baseURL string, infra *TestIn
 	return results
 }
 
-// ApplyAssertion checks findings against the test case assertion mode.
-func ApplyAssertion(t *testing.T, tc TestCase, moduleID string, findings []*output.ResultEvent) {
+// ApplyAssertion checks one module's outcome against the test case assertion
+// mode, failing t when it does not hold, and reports whether it held.
+func ApplyAssertion(t testing.TB, tc TestCase, moduleID string, findings []*output.ResultEvent, scanErr error) bool {
 	t.Helper()
 
-	switch tc.Assertion {
-	case "strict":
-		assert.GreaterOrEqual(t, len(findings), tc.MinFindings,
-			"[%s] Expected >= %d findings from %s at %s",
-			tc.ID, tc.MinFindings, moduleID, tc.Endpoint)
-	case "soft":
-		if len(findings) < tc.MinFindings {
-			t.Logf("[%s] Soft assertion: expected >= %d findings from %s at %s, got %d",
-				tc.ID, tc.MinFindings, moduleID, tc.Endpoint, len(findings))
-		}
-	case "negative":
-		assert.Equal(t, 0, len(findings),
-			"[%s] Expected 0 findings from %s at %s (negative test)",
-			tc.ID, moduleID, tc.Endpoint)
-	default:
-		t.Logf("[%s] Unknown assertion type: %s, treating as soft", tc.ID, tc.Assertion)
+	if tc.Assertion == "soft" && len(findings) < tc.MinFindings {
+		t.Logf("[%s] Soft assertion (%s): expected >= %d findings from %s at %s, got %d",
+			tc.ID, tc.SoftReason, tc.MinFindings, moduleID, tc.Endpoint, len(findings))
 	}
+	if msg := AssertionFailure(tc, len(findings), scanErr); msg != "" {
+		t.Errorf("[%s] %s at %s: %s", tc.ID, moduleID, tc.Endpoint, msg)
+		return false
+	}
+	return true
 }
 
-// evaluateAssertion returns whether the finding count satisfies the assertion.
-func evaluateAssertion(tc TestCase, findingCount int) bool {
+// AssertionFailure returns why a module outcome fails the case's assertion, or
+// "" when it holds. Kept free of *testing.T so the rules are unit-testable.
+//
+//   - strict: >= MinFindings (exactly ExpectedFindings when set); a module error fails.
+//   - negative: zero findings; a module error fails (an erroring module proves nothing).
+//   - soft: never fails, so it must carry a SoftReason (definitions lint).
+//   - anything else fails: an unknown assertion used to pass as soft.
+func AssertionFailure(tc TestCase, findingCount int, scanErr error) string {
 	switch tc.Assertion {
 	case "strict":
-		return findingCount >= tc.MinFindings
-	case "soft":
-		return true // soft assertions never fail
+		if scanErr != nil {
+			return fmt.Sprintf("module error: %v", scanErr)
+		}
+		if tc.ExpectedFindings != nil {
+			if findingCount != *tc.ExpectedFindings {
+				return fmt.Sprintf("expected exactly %d findings, got %d", *tc.ExpectedFindings, findingCount)
+			}
+			return ""
+		}
+		if findingCount < tc.MinFindings {
+			return fmt.Sprintf("expected >= %d findings, got %d", tc.MinFindings, findingCount)
+		}
+		return ""
 	case "negative":
-		return findingCount == 0
+		if scanErr != nil {
+			return fmt.Sprintf("module error: %v", scanErr)
+		}
+		if findingCount != 0 {
+			return fmt.Sprintf("expected 0 findings (negative case), got %d", findingCount)
+		}
+		return ""
+	case "soft":
+		return ""
 	default:
-		return true
+		return fmt.Sprintf("unknown assertion %q (want strict, negative or soft)", tc.Assertion)
 	}
 }
 

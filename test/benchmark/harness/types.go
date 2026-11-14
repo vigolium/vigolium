@@ -46,19 +46,26 @@ type AuthStep struct {
 
 // TestCase defines a single benchmark test.
 type TestCase struct {
-	ID           string            `yaml:"id"`
-	Endpoint     string            `yaml:"endpoint"`
-	Method       string            `yaml:"method"`
-	Headers      map[string]string `yaml:"headers,omitempty"`
-	Body         string            `yaml:"body,omitempty"`
-	Modules      []string          `yaml:"modules"`
-	VulnTypes    []string          `yaml:"vuln_types,omitempty"`
-	Assertion    string            `yaml:"assertion"` // strict | soft | negative
-	MinFindings  int               `yaml:"min_findings,omitempty"`
-	ScanMode     string            `yaml:"scan_mode"` // active | passive
-	Description  string            `yaml:"description,omitempty"`
-	Timeout      time.Duration     `yaml:"timeout,omitempty"`
-	RequiresOAST bool              `yaml:"requires_oast,omitempty"`
+	ID          string            `yaml:"id"`
+	Endpoint    string            `yaml:"endpoint"`
+	Method      string            `yaml:"method"`
+	Headers     map[string]string `yaml:"headers,omitempty"`
+	Body        string            `yaml:"body,omitempty"`
+	Modules     []string          `yaml:"modules"`
+	VulnTypes   []string          `yaml:"vuln_types,omitempty"`
+	Assertion   string            `yaml:"assertion"` // strict | soft | negative
+	MinFindings int               `yaml:"min_findings,omitempty"`
+	// ExpectedFindings, on a strict case, pins the exact finding count recorded
+	// against the live app; MinFindings remains the floor when it is unset.
+	ExpectedFindings *int `yaml:"expected_findings,omitempty"`
+	// SoftReason is required on every soft case: why it cannot assert yet
+	// (count not recorded, needs a second principal, ...). Soft cases never fail,
+	// so the reason is the only thing that keeps them honest.
+	SoftReason   string        `yaml:"soft_reason,omitempty"`
+	ScanMode     string        `yaml:"scan_mode"` // active | passive
+	Description  string        `yaml:"description,omitempty"`
+	Timeout      time.Duration `yaml:"timeout,omitempty"`
+	RequiresOAST bool          `yaml:"requires_oast,omitempty"`
 }
 
 // TestResult captures the outcome of a single test case execution.

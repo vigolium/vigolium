@@ -33,6 +33,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection in mechanic search parameter"
@@ -44,6 +45,7 @@ test_cases:
     modules: ["nosqli-error-based"]
     vuln_types: ["nosqli"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "NoSQL injection in community posts endpoint"
@@ -55,6 +57,7 @@ test_cases:
     modules: ["ssrf-detection"]
     vuln_types: ["ssrf"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SSRF in contact mechanic endpoint"
@@ -66,6 +69,7 @@ test_cases:
     modules: ["jwt-vulnerability"]
     vuln_types: ["jwt-vulnerability"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "JWT vulnerability in dashboard auth"
@@ -77,6 +81,7 @@ test_cases:
     modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CORS misconfiguration on API endpoints"
@@ -88,6 +93,7 @@ test_cases:
     modules: ["code-exec"]
     vuln_types: ["code-exec"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Command injection in QR code endpoint"
@@ -99,6 +105,7 @@ test_cases:
     modules: ["host-header-injection"]
     vuln_types: ["host-header-injection"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Host header injection in password reset"
@@ -121,6 +128,7 @@ test_cases:
     method: GET
     modules: ["auth-headers-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Auth headers exposure in API responses"
@@ -131,6 +139,7 @@ test_cases:
     method: GET
     modules: ["cookie-security-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Cookie security flags check"
@@ -141,6 +150,7 @@ test_cases:
     method: GET
     modules: ["jwt-weak-secret"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "JWT with known weak secret 'crapi'"
@@ -151,6 +161,7 @@ test_cases:
     method: GET
     modules: ["cors-headers-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "CORS headers analysis"

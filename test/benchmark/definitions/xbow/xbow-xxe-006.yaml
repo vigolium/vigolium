@@ -17,6 +17,7 @@ test_cases:
     modules: ["xxe-generic"]
     vuln_types: ["xxe"]
     assertion: soft
+    soft_reason: "xbow challenge built from external source; expected count not yet recorded against the live container"
     min_findings: 1
     scan_mode: active
     description: "XXE injection via XML book submission (XBEN-006-24)"

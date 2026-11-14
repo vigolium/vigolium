@@ -20,6 +20,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection in product search - Sequelize/SQLite (needs ')) to break out)"
@@ -34,6 +35,7 @@ test_cases:
     modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "XSS in product search - JSON response, DOM-based via Angular"
@@ -48,6 +50,7 @@ test_cases:
     modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CORS wildcard on API Products endpoint (ACAO:* confirmed)"
@@ -59,6 +62,7 @@ test_cases:
     modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CRLF injection on product search endpoint"
@@ -70,6 +74,7 @@ test_cases:
     modules: ["xxe-generic"]
     vuln_types: ["xxe"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "XXE in B2B orders endpoint"
@@ -84,6 +89,7 @@ test_cases:
     modules: ["xxe-generic"]
     vuln_types: ["xxe"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "XXE via XML body on B2B orders endpoint (INS_PARAM_XML coverage)"
@@ -95,6 +101,7 @@ test_cases:
     modules: ["host-header-injection"]
     vuln_types: ["host-header-injection"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Host header injection on main page"
@@ -106,6 +113,7 @@ test_cases:
     modules: ["reflected-ssti"]
     vuln_types: ["ssti"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SSTI detection via product search parameter"
@@ -117,6 +125,7 @@ test_cases:
     modules: ["path-normalization"]
     vuln_types: ["path-normalization"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Path normalization issues on Products API"
@@ -154,6 +163,7 @@ test_cases:
     method: GET
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Products API exposes internal data structure (IDs, prices, timestamps)"
@@ -165,6 +175,7 @@ test_cases:
     method: GET
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Swagger UI exposed at /api-docs/ (full API documentation)"
@@ -175,6 +186,7 @@ test_cases:
     method: GET
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "X-Powered-By header may expose Express framework"
@@ -185,6 +197,7 @@ test_cases:
     method: GET
     modules: ["dom-xss-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "DOM XSS sinks in Angular SPA JavaScript"
@@ -195,6 +208,7 @@ test_cases:
     method: GET
     modules: ["sourcemap-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "JavaScript source maps exposed"
@@ -205,6 +219,7 @@ test_cases:
     method: GET
     modules: ["cookie-security-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Cookie security flags check"
@@ -216,6 +231,7 @@ test_cases:
     method: GET
     modules: ["openredirect-params"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Open redirect parameter 'to' in URL (Challenge 30)"
@@ -226,6 +242,7 @@ test_cases:
     method: GET
     modules: ["content-type-mismatch"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 0
     scan_mode: passive
     description: "Content type mismatch check on Products API (JSON response)"

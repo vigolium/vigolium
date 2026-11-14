@@ -14,6 +14,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "SQL injection in login parameters"
@@ -25,6 +26,7 @@ test_cases:
     modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "Reflected XSS in search"
@@ -33,9 +35,10 @@ test_cases:
   - id: "testfire-swagger"
     endpoint: "/swagger/index.html"
     method: GET
-    modules: ["swagger-disclose"]
+    modules: ["swagger-exposure"]
     vuln_types: ["swagger-disclosure"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "Swagger documentation exposed"
@@ -47,6 +50,7 @@ test_cases:
     modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "CORS misconfiguration check"
@@ -59,6 +63,7 @@ test_cases:
     method: GET
     modules: ["security-headers-missing"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: passive
     description: "Missing security headers"
@@ -69,6 +74,7 @@ test_cases:
     method: GET
     modules: ["cookie-security-detect"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: passive
     description: "Cookie security flags"
@@ -79,6 +85,7 @@ test_cases:
     method: GET
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: passive
     description: "Server information disclosure"

@@ -16,9 +16,10 @@ test_cases:
   - id: "vulnexamples-missing-authn-api"
     endpoint: "/api/example-1-missing-authentication/vulnerable"
     method: GET
-    modules: ["authn-bypass"]
+    modules: ["authz-compare"]
     vuln_types: ["missing-authentication"]
-    assertion: strict
+    assertion: soft
+    soft_reason: "authz-compare needs a second principal (session pair); the harness runs a single anonymous client"
     min_findings: 1
     scan_mode: active
     description: "Missing authentication on route handler - blog posts accessible without login"
@@ -30,9 +31,10 @@ test_cases:
     method: GET
     headers:
       Cookie: "sessionToken=valid-session-token"
-    modules: ["authz-bypass"]
+    modules: ["authz-compare"]
     vuln_types: ["missing-authorization"]
     assertion: soft
+    soft_reason: "authz-compare needs a second principal (session pair); the harness runs a single client"
     min_findings: 1
     scan_mode: active
     description: "Missing authorization on route handler - exposes all users' unpublished posts"
@@ -45,6 +47,7 @@ test_cases:
     modules: ["xss-light-url-params"]
     vuln_types: ["xss-stored"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Stored XSS via dangerouslySetInnerHTML with unsanitized DB content"
@@ -56,6 +59,7 @@ test_cases:
     modules: ["nextjs-data-leakage"]
     vuln_types: ["data-leakage"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Next.js server component leaking password hashes and API key to client"
@@ -67,6 +71,7 @@ test_cases:
     modules: ["nextjs-middleware-bypass"]
     vuln_types: ["auth-bypass"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Next.js middleware bypass check on example pages"
@@ -78,6 +83,7 @@ test_cases:
     modules: ["sensitive-file-discovery"]
     vuln_types: ["sensitive-file"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Sensitive file discovery (.env, next.config.js)"
@@ -89,6 +95,7 @@ test_cases:
     modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CORS misconfiguration on unauthenticated API endpoint"
@@ -124,6 +131,7 @@ test_cases:
     body: '{"username":"alice","password":"abc"}'
     modules: ["cookie-security-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Session cookie security flags check (HttpOnly, Secure, SameSite)"
@@ -134,6 +142,7 @@ test_cases:
     method: GET
     modules: ["ssr-data-exposure"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "SSR state inspection for password hashes and API key exposure"
@@ -144,6 +153,7 @@ test_cases:
     method: GET
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Password hashes and API key visible in server-rendered HTML"
@@ -154,6 +164,7 @@ test_cases:
     method: GET
     modules: ["dom-xss-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "XSS payload detection in server-rendered response (onerror handler)"
@@ -164,6 +175,7 @@ test_cases:
     method: GET
     modules: ["error-message-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Error message leakage on nonexistent endpoint"
@@ -174,6 +186,7 @@ test_cases:
     method: GET
     modules: ["nextjs-config-audit"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Next.js configuration audit (ignoreBuildErrors, missing CSP)"
@@ -187,6 +200,34 @@ test_cases:
     body: '{"username":"alice","password":"abc"}'
     modules: ["csrf-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Missing CSRF protection on login endpoint"
+
+  # === Negative cases (MEAS-1) ===
+  # Every example in the upstream app ships a fixed "solution-1" variant beside
+  # "vulnerable"; the module that fires on the vulnerable page must stay quiet here.
+  - id: "vulnexamples-ssr-secrets-solution-negative"
+    endpoint: "/example-5-secrets-exposure/solution-1"
+    method: GET
+    modules: ["ssr-data-exposure"]
+    assertion: negative
+    scan_mode: passive
+    description: "Fixed variant renders no password hashes or API key"
+
+  - id: "vulnexamples-nextjs-data-leakage-solution-negative"
+    endpoint: "/example-5-secrets-exposure/solution-1"
+    method: GET
+    modules: ["nextjs-data-leakage"]
+    assertion: negative
+    scan_mode: active
+    description: "Fixed variant passes only the needed fields to the client"
+
+  - id: "vulnexamples-xss-passive-solution-negative"
+    endpoint: "/example-6-cross-site-scripting/solution-1"
+    method: GET
+    modules: ["dom-xss-detect"]
+    assertion: negative
+    scan_mode: passive
+    description: "Fixed variant renders blog content without dangerouslySetInnerHTML"

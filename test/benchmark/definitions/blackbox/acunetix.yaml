@@ -14,6 +14,7 @@ test_cases:
     modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "Reflected XSS in search parameter"
@@ -25,6 +26,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "Error-based SQL injection in cat parameter"
@@ -36,6 +38,7 @@ test_cases:
     modules: ["lfi-generic"]
     vuln_types: ["lfi"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "Local File Inclusion in file parameter"
@@ -47,6 +50,7 @@ test_cases:
     modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "CRLF injection in redirect parameter"
@@ -58,6 +62,7 @@ test_cases:
     modules: ["open-redirect"]
     vuln_types: ["open-redirect"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "Open redirect in redirect parameter"
@@ -69,6 +74,7 @@ test_cases:
     modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: active
     description: "XSS in artist parameter"
@@ -81,6 +87,7 @@ test_cases:
     method: GET
     modules: ["security-headers-missing"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: passive
     description: "Missing security headers on testphp.vulnweb.com"
@@ -91,6 +98,7 @@ test_cases:
     method: GET
     modules: ["cookie-security-detect"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: passive
     description: "Cookie security flags"
@@ -101,6 +109,7 @@ test_cases:
     method: GET
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: passive
     description: "Information disclosure in server headers"
@@ -111,6 +120,7 @@ test_cases:
     method: GET
     modules: ["sql-syntax-detect"]
     assertion: soft
+    soft_reason: "third-party public site: content and WAF behaviour drift, so counts are not stable enough to pin"
     min_findings: 1
     scan_mode: passive
     description: "SQL error syntax visible in response"
