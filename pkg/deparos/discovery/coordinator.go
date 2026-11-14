@@ -311,6 +311,14 @@ func (c *PayloadCoordinator) executeWorkItem(ctx context.Context, item *WorkItem
 	foundBy := item.Task.FoundByName()
 	c.triggerDiscoveryCallbacks(item.URL, item.Depth, cb, foundByConfirmsExtension(foundBy))
 
+	// An extensionless 200 (/api) is treated as a file and never recursed
+	// into; one probe of its directory form (/api/) lets recursion find out.
+	if cb.QueueReferencedURL != nil && rc.Response().StatusCode == stdhttp.StatusOK {
+		if dirURL, ok := dirFormProbeURL(item.URL); ok {
+			cb.QueueReferencedURL(dirURL, item.Depth)
+		}
+	}
+
 	// Result callback
 	if cb.OnResult != nil {
 		cb.OnResult(&Result{
@@ -1355,4 +1363,23 @@ func observePrefixBreaker(b *tracker.PrefixBreaker, u *url.URL, rc *responsechai
 			zap.Int64("dominant_length_bucket_lower", reason.DominantLenLower),
 			zap.Int("dominant_count", reason.DominantCount))
 	}
+}
+
+// dirFormProbeURL returns the directory form ("/api/") of an extensionless
+// file URL ("/api"), without its query. ok is false for directories, the root
+// and paths with an extension.
+func dirFormProbeURL(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.Path == "" || u.Path == "/" || strings.HasSuffix(u.Path, "/") {
+		return "", false
+	}
+	last := u.Path[strings.LastIndex(u.Path, "/")+1:]
+	if last == "" || strings.Contains(last, ".") {
+		return "", false
+	}
+	d := url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path + "/", RawPath: ""}
+	if u.RawPath != "" {
+		d.RawPath = u.RawPath + "/"
+	}
+	return d.String(), true
 }
