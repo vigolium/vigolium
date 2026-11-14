@@ -16,7 +16,7 @@ var (
 **Fix:** Serve only the public/ directory as web root and block direct access to artisan, storage/, database files, vendor/, and config source.`
 
 	ModuleConfirmation = "Confirmed when probed Laravel file paths return 200 with expected content markers"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"laravel", "php", "sensitive-file", "probe", "light"}
 )

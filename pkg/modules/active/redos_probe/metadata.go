@@ -16,7 +16,7 @@ var (
 **Fix:** Rewrite the pattern without nested or overlapping quantifiers, cap input length before matching, or use a linear-time regex engine (RE2).`
 
 	ModuleConfirmation = "Confirmed when the delay added by \"aaaa…!\" inputs over a same-length matching control grows super-linearly with the input length (16/32/64 characters) in two independent rounds"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	// "risk:high" is modules.TagRiskHigh (a literal here: pkg/modules imports
 	// this package). A vulnerable pattern pins a server worker per probe, so a

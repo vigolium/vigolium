@@ -183,7 +183,7 @@ func (m *Module) build(s ssrfServlet, status int, baseURL string) *output.Result
 				"The SSRF-capable AEM servlet %s is reachable (status %d, a specific mount — a random sibling 404s) and reproduced across %d rounds. Detection-only: no destination URL was supplied, so no server-side request was triggered. Confidence is Tentative because SSRF exploitation was not confirmed by design.",
 				s.path, status, reproduceRounds,
 			),
-			Severity:   severity.Medium,
+			Severity:   severity.Suspect,
 			Confidence: severity.Tentative,
 			Tags:       []string{"aem", "adobe", "ssrf", "exposure"},
 			Reference:  s.ref,

@@ -451,7 +451,7 @@ func (m *Module) testForwardedFor(
 				Info: output.Info{
 					Name:        "Proxy Header Trust Candidate: X-Forwarded-For Content Variation",
 					Description: "Response content reproducibly varies with the spoofed X-Forwarded-For source IP, beyond the page's natural per-request variance. The application appears to gate content on the client-supplied source address, which may expose IP-restricted content or behavior to a spoofed caller. Verify what differs before treating it as an access-control bypass.",
-					Severity:    severity.Medium,
+					Severity:    severity.Suspect,
 					Confidence:  severity.Tentative,
 					Tags:        []string{"proxy", "forwarded-headers", "ip-spoofing", "host-injection"},
 					Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/"},

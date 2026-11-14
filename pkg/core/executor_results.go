@@ -279,6 +279,9 @@ func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent, b
 	}
 
 	result.RecordKind = result.EffectiveRecordKind()
+	if result.IsFinding() {
+		clampTentativeSeverity(result)
+	}
 	duplicateFinding := false
 	if result.IsFinding() {
 		first, allowed := e.admitFinding(result.ID(), result.ModuleID)
@@ -551,4 +554,24 @@ func findingResponse(raw string, baseline *httpmsg.HttpResponse) *httpmsg.HttpRe
 		return baseline
 	}
 	return httpmsg.NewHttpResponse([]byte(raw))
+}
+
+// clampTentativeSeverity enforces the severity rule at emit time: a Tentative
+// finding is an unproven oracle and files at Suspect at most. The module's
+// requested severity is kept as Metadata["claimed_severity"]. Modules on
+// modules.TentativeSeverityWaivers are exempt (RES-7).
+func clampTentativeSeverity(result *output.ResultEvent) {
+	if result == nil || result.Info.Confidence != severity.Tentative || result.Info.Severity <= severity.Suspect {
+		return
+	}
+	if modules.TentativeSeverityWaived(result.ModuleID) {
+		return
+	}
+	if result.Metadata == nil {
+		result.Metadata = map[string]any{}
+	}
+	if _, set := result.Metadata["claimed_severity"]; !set {
+		result.Metadata["claimed_severity"] = result.Info.Severity.String()
+	}
+	result.Info.Severity = severity.Suspect
 }

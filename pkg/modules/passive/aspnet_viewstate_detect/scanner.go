@@ -167,7 +167,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			Info: output.Info{
 				Name:        "ASP.NET Anti-CSRF Token Missing",
 				Description: "The page has a postback form but lacks __RequestVerificationToken, indicating the anti-forgery token is not implemented.",
-				Severity:    severity.Low,
+				Severity:    severity.Suspect,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"aspnet", "csrf", "anti-forgery"},
 				Reference:   []string{"https://learn.microsoft.com/en-us/aspnet/web-api/overview/security/preventing-cross-site-request-forgery-csrf-attacks"},

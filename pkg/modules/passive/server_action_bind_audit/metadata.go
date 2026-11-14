@@ -16,7 +16,7 @@ var (
 **Fix:** Re-authorize every resource inside the action body by checking the session against the bound identifier, never client IDs.`
 
 	ModuleConfirmation = "Candidate when a server-action file binds an ID-shaped argument without recognized auth; confirmation requires ownership-flow tracing or cross-user replay"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "idor", "light"}
 )

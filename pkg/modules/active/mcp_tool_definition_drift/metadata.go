@@ -16,7 +16,7 @@ var (
 **Fix:** Pin and verify tool definitions after approval, and re-prompt the user whenever a description or schema changes between fetches.`
 
 	ModuleConfirmation = "Observation for tool availability drift; differential candidate for canonicalized same-tool description/schema changes, with confirmation requiring an approved definition to be replaced without review"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"mcp", "rug-pull", "integrity", "moderate"}
 )

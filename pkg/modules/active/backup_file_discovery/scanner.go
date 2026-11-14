@@ -366,7 +366,7 @@ func (m *Module) probePath(
 		Info: output.Info{
 			Name:        fmt.Sprintf("Backup File Exposed: %s", filename),
 			Description: fmt.Sprintf("Publicly accessible backup file found at %s. Backup archives may contain source code, database dumps, credentials, or other sensitive data.", path),
-			Severity:    severity.Medium,
+			Severity:    severity.Suspect,
 			Confidence:  severity.Tentative,
 			Tags:        []string{"backup-file", "information-disclosure", "misconfiguration"},
 			Reference:   []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information"},

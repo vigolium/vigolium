@@ -16,7 +16,7 @@ var (
 **Fix:** Mark session-dependent routes dynamic and uncacheable (force-dynamic, no-store, revalidate 0) and scope cache keys to the user.`
 
 	ModuleConfirmation = "Candidate when source-like code contains cache and auth patterns after artifact filtering; confirmation requires connected flow and cross-user replay"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"info-disclosure", "cache-poisoning", "light"}
 )

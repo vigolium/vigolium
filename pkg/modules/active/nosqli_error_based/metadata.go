@@ -22,7 +22,7 @@ var (
 	// static-asset, corroboration, reproduce, and clean-control gates. Report
 	// High/Tentative so the finding is treated as a lead to verify, not a
 	// definitive injection.
-	ModuleSeverity   = severity.High
+	ModuleSeverity   = severity.Suspect
 	ModuleConfidence = severity.Tentative
 	ModuleTags       = []string{"injection", "sqli", "moderate"}
 )

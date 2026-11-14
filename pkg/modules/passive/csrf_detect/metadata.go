@@ -16,7 +16,7 @@ var (
 **Fix:** Require a per-session anti-CSRF token (or a server-validated custom header) on every state-changing request, and set SameSite on session cookies.`
 
 	ModuleConfirmation = "Indicated when a state-changing request lacks CSRF token parameters, custom anti-CSRF headers, and SameSite cookie attributes"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"csrf", "session", "light"}
 )

@@ -16,7 +16,7 @@ var (
 **Fix:** Block dotfiles, VCS directories, backups, debug endpoints, and config files at the web server or proxy, and remove these artifacts from the web root.`
 
 	ModuleConfirmation = "Marker-based: confirmed when response contains expected content markers. Generic: confirmed when response has text/plain or octet-stream Content-Type and body differs from 404 fingerprint"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"file-exposure", "info-disclosure", "moderate"}
 )

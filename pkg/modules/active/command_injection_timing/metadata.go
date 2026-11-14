@@ -16,7 +16,7 @@ var (
 **Fix:** Never build shell strings from user input; pass arguments as a fixed array without a shell. Timing-only, so reported Tentative - corroborate with the echo or OAST modules.`
 
 	ModuleConfirmation = "Suspected when injected sleep commands cause a response delay that scales with the requested duration across multiple independent rounds, above an adaptive per-target threshold; timing-only so reported as Tentative"
-	ModuleSeverity     = severity.Critical
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"rce", "command-injection", "injection", "heavy"}
 )

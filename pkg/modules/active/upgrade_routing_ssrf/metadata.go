@@ -16,7 +16,7 @@ var (
 **Fix:** Strip Upgrade/Connection headers on non-WebSocket routes and block proxy egress to internal and link-local ranges.`
 
 	ModuleConfirmation = "Reported (Tentative) when a plain (non-HTML) metadata body carrying several distinct self-evidencing tokens appears only with the WebSocket upgrade headers present (absent without them), reproduces, and is not a block page."
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"ssrf", "proxy", "websocket", "upgrade", "request-line", "heavy"}
 )

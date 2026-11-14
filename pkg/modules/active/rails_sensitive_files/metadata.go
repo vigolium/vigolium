@@ -16,7 +16,7 @@ var (
 **Fix:** Block direct access to source and config directories at the proxy, never serve the Rails root statically, and rotate exposed credentials.`
 
 	ModuleConfirmation = "Confirmed when Rails configuration files are accessible and contain expected content markers"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"rails", "ruby", "file-exposure", "info-disclosure", "light"}
 )

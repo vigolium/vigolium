@@ -16,7 +16,7 @@ var (
 **Fix:** Place admin panels, API documentation, and GraphQL introspection behind authentication or IP allowlists, or disable them in production.`
 
 	ModuleConfirmation = "Heuristic: an endpoint returns 200 satisfying every framework/endpoint-specific marker group (an anchor token plus corroboration) that survives a reflected-path strip, is not a login wall, is not the same shell served at the base path, and is not reproduced by a nonexistent sibling path (catch-all). A bare generic token (login/email/admin/data) never confirms on its own. Reported Tentative; warrants manual confirmation."
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"laravel", "php", "info-disclosure", "probe", "light"}
 )

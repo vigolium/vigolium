@@ -16,7 +16,7 @@ var (
 **Fix:** Enforce an explicit auth check at the start of every state-changing Server Action, not just UI or middleware.`
 
 	ModuleConfirmation = "Candidate when source-like code combines server directive and mutations without recognized auth; confirmation requires call-graph review or an unauthorized action replay"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "authentication", "light"}
 )

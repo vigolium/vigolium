@@ -140,7 +140,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			Info: output.Info{
 				Name:        "Server Action Authorization Candidate",
 				Description: fmt.Sprintf("Source-like code at %s contains a server directive and %d mutation pattern(s), with no recognized auth token in the file. Middleware, imported helpers, and call-graph authorization were not resolved.", urlx.Path, len(mutations)),
-				Severity:    severity.Medium,
+				Severity:    severity.Suspect,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"auth", "server-action", "nextjs", "source-analysis"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/862.html"},

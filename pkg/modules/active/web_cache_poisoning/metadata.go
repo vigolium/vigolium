@@ -16,7 +16,7 @@ var (
 **Fix:** Include influential headers in the cache key, strip untrusted forwarding headers, or mark the response uncacheable.`
 
 	ModuleConfirmation = "Candidate on fresh reflection plus explicit cacheability; confirmed only by repeated clean cross-client replay of the injected value"
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"cache-poisoning", "header-security", "moderate"}
 )

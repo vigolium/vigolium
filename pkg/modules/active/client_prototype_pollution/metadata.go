@@ -16,7 +16,7 @@ var (
 **Fix:** Avoid recursive merge of untrusted URL input, strip __proto__ and constructor keys, and use Object.create(null) or Map for parameter stores.`
 
 	ModuleConfirmation = "Candidate after same-origin source-pattern proximity and optional reachability probe; runtime prototype mutation and source-to-gadget flow remain unconfirmed"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"prototype-pollution", "xss", "light"}
 )

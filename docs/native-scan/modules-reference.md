@@ -1,6 +1,6 @@
 # Scanner Modules Reference
 
-Vigolium ships with **335 scanner modules** — 217 active and 119 passive — covering the OWASP Top 10 and beyond. The categorized tables below are a curated selection synchronized with the current registry. Run `vigolium module ls` (or call `GET /api/modules`) for all modules and the authoritative live metadata.
+Vigolium ships with **336 scanner modules** — 217 active and 119 passive — covering the OWASP Top 10 and beyond. The categorized tables below are a curated selection synchronized with the current registry. Run `vigolium module ls` (or call `GET /api/modules`) for all modules and the authoritative live metadata.
 
 ## Severity Scale
 
@@ -82,8 +82,8 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `nosqli-error-based` | NoSQLi Error Based | Detects NoSQL injection via error messages and operator injection | High | Tentative | `injection`, `sqli`, `moderate` |
-| `nosqli-operator-injection` | NoSQL Operator Injection | Detects MongoDB operator injection ($ne, $gt, $regex, $where) for auth bypass and data exfiltration | High | Tentative | `injection`, `sqli`, `moderate` |
+| `nosqli-error-based` | NoSQLi Error Based | Detects NoSQL injection via error messages and operator injection | Suspect | Tentative | `injection`, `sqli`, `moderate` |
+| `nosqli-operator-injection` | NoSQL Operator Injection | Detects MongoDB operator injection ($ne, $gt, $regex, $where) for auth bypass and data exfiltration | Suspect | Tentative | `injection`, `sqli`, `moderate` |
 
 ### Template Injection
 
@@ -107,7 +107,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `code-exec` | Code Execution (RCE) | Detects OS command injection via time-based blind | Critical | Certain | `rce`, `injection`, `heavy` |
 | `command-injection-echo` | OS Command Injection (Results-Based) | Detects OS command injection by making the shell compute a unique arithmetic value echoed back in the response | Critical | Certain | `rce`, `command-injection`, `injection`, `moderate` |
 | `command-injection-oast` | OS Command Injection (Out-of-Band) | Detects blind OS command injection via out-of-band DNS/HTTP callbacks | Critical | Certain | `rce`, `command-injection`, `oast`, `moderate` |
-| `command-injection-timing` | OS Command Injection (Time-Based) | Detects blind OS command injection by confirming the response delay scales with the injected sleep duration | Critical | Tentative | `rce`, `command-injection`, `injection`, `heavy` |
+| `command-injection-timing` | OS Command Injection (Time-Based) | Detects blind OS command injection by confirming the response delay scales with the injected sleep duration | Suspect | Tentative | `rce`, `command-injection`, `injection`, `heavy` |
 | `crlf-injection` | CRLF Injection | Detects CRLF injection | Medium | Firm | `crlf`, `injection`, `moderate` |
 | `esi-injection` | Edge Side Includes (ESI) Injection | Detects Edge Side Includes injection via an in-band ESI tag oracle and an out-of-band include | Medium | Firm | `injection`, `esi`, `ssrf`, `moderate` |
 | `xxe-generic` | XXE Generic | Detects XML external entity injection in generic XML endpoints | Critical | Certain | `injection`, `xxe`, `moderate` |
@@ -118,7 +118,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `ssrf-detection` | SSRF Detection | Detects server-side request forgery via out-of-band and in-band techniques | High | Tentative | `ssrf`, `injection`, `moderate` |
+| `ssrf-detection` | SSRF Detection | Detects server-side request forgery via out-of-band and in-band techniques | Suspect | Tentative | `ssrf`, `injection`, `moderate` |
 | `oast-probe` | OAST Probe | Detects blind vulnerabilities via out-of-band callbacks (DNS/HTTP) | High | Certain | `injection`, `ssrf`, `rce`, `heavy` |
 | `proxy-pingback` | Proxy Pingback | Detects open proxy/callback endpoints via OAST URL injection into proxy-related paths | High | Certain | `ssrf`, `misconfiguration`, `moderate` |
 
@@ -130,7 +130,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `spring-actuator-misconfig` | Spring Actuator Misconfiguration | Detects exposed Spring Boot actuator endpoints | High | Firm | `spring`, `java`, `misconfiguration`, `info-disclosure`, `light` |
 | `host-header-injection` | Host Header Injection | Detects host header injection and routing manipulation | Medium | Firm | `injection`, `misconfiguration`, `moderate` |
 | `password-reset-poisoning` | Password Reset Poisoning | Detects password-reset link poisoning by replaying recorded reset requests with OAST hosts in Host and forwarding headers | High | Firm | `authentication`, `host-header`, `oast`, `moderate`, `risk:high` |
-| `web-cache-poisoning` | Web Cache Poisoning | Detects web cache poisoning via unkeyed header injection | High | Tentative | `cache-poisoning`, `header-security`, `moderate` |
+| `web-cache-poisoning` | Web Cache Poisoning | Detects web cache poisoning via unkeyed header injection | Suspect | Tentative | `cache-poisoning`, `header-security`, `moderate` |
 
 ### Access Control
 
@@ -139,7 +139,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `forbidden-bypass` | 403/401 Forbidden Bypass | Detects bypass methods for 403/401 Forbidden responses | Medium | Firm | `auth-bypass`, `probe`, `moderate` |
 | `http-method-tampering` | HTTP Method Tampering | Observes declared write methods and safely confirms OPTIONS override capability | Info | Firm | `misconfiguration`, `auth-bypass`, `moderate` |
 | `csrf-verify` | CSRF Token Verification | Verifies CSRF token enforcement by removing, emptying, or randomizing tokens | High | Firm | `csrf`, `audit`, `moderate` |
-| `idor-detection` | IDOR Detection | Detects missing authorization on object ID parameters (IDOR/BOLA) | High | Tentative | `idor`, `auth-bypass`, `moderate` |
+| `idor-detection` | IDOR Detection | Detects missing authorization on object ID parameters (IDOR/BOLA) | Suspect | Tentative | `idor`, `auth-bypass`, `moderate` |
 | `mass-assignment` | Mass Assignment | Detects mass assignment / parameter pollution in JSON APIs | High | Firm | `injection`, `api`, `moderate` |
 | `open-redirect` | Open Redirect | Detects open redirect vulnerabilities | Medium | Firm | `open-redirect`, `moderate` |
 
@@ -148,7 +148,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
 | `path-normalization` | Path Normalization | Detects path normalization vulnerabilities | High | Firm | `misconfiguration`, `lfi`, `traversal`, `moderate` |
-| `nginx-off-by-slash` | Nginx Off-by-Slash | Detects Nginx alias traversal via missing trailing slash | High | Tentative | `nginx`, `misconfiguration`, `lfi`, `moderate` |
+| `nginx-off-by-slash` | Nginx Off-by-Slash | Detects Nginx alias traversal via missing trailing slash | Suspect | Tentative | `nginx`, `misconfiguration`, `lfi`, `moderate` |
 | `nginx-path-escape` | Nginx Path Escape Detection | Diff-based Nginx path escape detection (alias traversal, encoding bypass, semicolon injection) | Info | Tentative | `nginx`, `misconfiguration`, `moderate` |
 
 ### Differential & Behavior Detection
@@ -164,7 +164,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
 | `prototype-pollution` | Prototype Pollution | Detects server-side prototype pollution via JSON injection | High | Firm | `prototype-pollution`, `injection`, `javascript`, `moderate` |
-| `client-prototype-pollution` | Client-Side Prototype Pollution | Detects client-side prototype pollution via JavaScript static analysis | Medium | Tentative | `prototype-pollution`, `xss`, `light` |
+| `client-prototype-pollution` | Client-Side Prototype Pollution | Detects client-side prototype pollution via JavaScript static analysis | Suspect | Tentative | `prototype-pollution`, `xss`, `light` |
 
 ### Race Conditions
 
@@ -176,7 +176,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `redos-probe` | ReDoS Probe | Detects regular-expression denial of service by timing growing backtracking inputs against pattern-validated parameters | Medium | Tentative | `dos`, `redos`, `intrusive`, `risk:high` |
+| `redos-probe` | ReDoS Probe | Detects regular-expression denial of service by timing growing backtracking inputs against pattern-validated parameters | Suspect | Tentative | `dos`, `redos`, `intrusive`, `risk:high` |
 
 ### XML, JWT & HTTP Protocol
 
@@ -195,7 +195,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `graphql-scan` | GraphQL Security Scanner | Tests GraphQL endpoints for introspection, injection, and batching vulnerabilities | Medium | Certain | `graphql`, `injection`, `info-disclosure`, `idor`, `bola`, `xss`, `dos`, `batching`, `console`, `csrf`, `moderate` |
 | `file-upload-scan` | File Upload Scanner | Tests for arbitrary file upload and execution vulnerabilities | High | Certain | `rce`, `injection`, `heavy` |
 | `default-credentials` | Default Credentials | Tests for default or common credential pairs on login endpoints | High | Certain | `auth-bypass`, `probe`, `moderate` |
-| `sensitive-file-discovery` | Sensitive File Discovery | Probes for exposed sensitive files (.env, .git/config, dot files, log files, and more) | Medium | Tentative | `file-exposure`, `info-disclosure`, `moderate` |
+| `sensitive-file-discovery` | Sensitive File Discovery | Probes for exposed sensitive files (.env, .git/config, dot files, log files, and more) | Suspect | Tentative | `file-exposure`, `info-disclosure`, `moderate` |
 | `jsonp-callback` | JSONP Callback Injection | Detects JSONP endpoints that allow cross-origin data theft via callback injection | Medium | Firm | `xss`, `info-disclosure`, `moderate` |
 
 ### Proxy & Utility
@@ -206,7 +206,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `api-rate-limit-bypass` | API Rate Limit Bypass | Detects rate limiting bypass via IP spoofing headers | Medium | Firm | `auth-bypass`, `probe`, `moderate` |
 | `ws-cswsh` | WebSocket CSWSH | Tests for Cross-Site WebSocket Hijacking via insufficient origin validation | Medium | Firm | `csrf`, `session`, `moderate` |
 | `swagger-exposure` | Exposed API Documentation | Detects publicly exposed Swagger/OpenAPI/Redoc documentation routes | Low | Firm | `api`, `discovery`, `swagger`, `openapi`, `exposure`, `info-leak`, `light` |
-| `backup-file-discovery` | Backup File Discovery | Probes for exposed backup archives derived from hostname, common names, and year variants | Medium | Tentative | `sensitive-file`, `info-disclosure`, `moderate` |
+| `backup-file-discovery` | Backup File Discovery | Probes for exposed backup archives derived from hostname, common names, and year variants | Suspect | Tentative | `sensitive-file`, `info-disclosure`, `moderate` |
 | `angular-template-injection` | Angular Template Injection | Detects Angular template injection via expression evaluation | High | Firm | `angular`, `injection`, `ssti`, `moderate` |
 
 ### SQL Injection (Time-Based)
@@ -250,7 +250,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `spring-h2-console-exposure` | Spring H2 Console Exposure | Detects exposed H2 database web consoles commonly left enabled in Spring Boot applications | Medium | Firm | `spring`, `java`, `misconfiguration`, `rce`, `light` |
 | `spring-jolokia-exposure` | Spring Jolokia Exposure | Detects exposed Jolokia JMX endpoints providing HTTP access to Java Management Extensions | High | Firm | `spring`, `java`, `misconfiguration`, `info-disclosure`, `light` |
 | `java-appserver-console` | Java App Server Console | Detects exposed admin consoles for WildFly/JBoss, WebLogic, and GlassFish/Payara | High | Firm | `java`, `tomcat`, `info-disclosure`, `probe`, `light` |
-| `java-sensitive-files` | Java Sensitive Files | Detects Java-specific sensitive files: application configs, WEB-INF, META-INF, and build artifacts | Medium | Tentative | `java`, `sensitive-file`, `probe`, `light` |
+| `java-sensitive-files` | Java Sensitive Files | Detects Java-specific sensitive files: application configs, WEB-INF, META-INF, and build artifacts | Suspect | Tentative | `java`, `sensitive-file`, `probe`, `light` |
 | `tomcat-manager-exposure` | Tomcat Manager Exposure | Detects exposed Apache Tomcat Manager and Host Manager interfaces | High | Firm | `tomcat`, `java`, `misconfiguration`, `authentication`, `light` |
 | `spring4shell-probe` | Spring4Shell Probe | Detects Spring4Shell (CVE-2022-22965) ClassLoader data binding via a safe status differential | High | Firm | `spring`, `java`, `rce`, `moderate` |
 | `text4shell-probe` | Text4Shell Probe | Detects Text4Shell (CVE-2022-42889) Commons Text interpolation via OAST dns/url lookups | Critical | Certain | `java`, `rce`, `injection`, `oast`, `moderate` |
@@ -271,11 +271,11 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `laravel-admin-exposure` | Laravel Admin Exposure | Detects unauthenticated access to Laravel admin panels, API documentation, and GraphQL endpoints | High | Tentative | `laravel`, `php`, `info-disclosure`, `probe`, `light` |
+| `laravel-admin-exposure` | Laravel Admin Exposure | Detects unauthenticated access to Laravel admin panels, API documentation, and GraphQL endpoints | Suspect | Tentative | `laravel`, `php`, `info-disclosure`, `probe`, `light` |
 | `laravel-devtool-exposure` | Laravel Developer Tool Exposure | Detects exposed Laravel developer tools: Web Tinker, Clockwork, Pulse, and Log Viewer | High | Firm | `laravel`, `php`, `misconfiguration`, `info-disclosure`, `light` |
 | `laravel-ignition-rce` | Laravel Ignition RCE | Detects exposed Ignition endpoints and flags CVE-2021-3129 RCE candidates | Critical | Firm | `laravel`, `php`, `rce`, `light` |
 | `laravel-misconfig` | Laravel Misconfiguration | Detects Laravel debug mode, exposed debugbar, application logs, and configuration leaks | High | Firm | `laravel`, `php`, `misconfiguration`, `info-disclosure`, `moderate` |
-| `laravel-sensitive-files` | Laravel Sensitive Files | Detects Laravel-specific sensitive files: PHPUnit config, SQLite DB, storage internals, eval-stdin, and wrong document root | Medium | Tentative | `laravel`, `php`, `sensitive-file`, `probe`, `light` |
+| `laravel-sensitive-files` | Laravel Sensitive Files | Detects Laravel-specific sensitive files: PHPUnit config, SQLite DB, storage internals, eval-stdin, and wrong document root | Suspect | Tentative | `laravel`, `php`, `sensitive-file`, `probe`, `light` |
 | `symfony-misconfig` | Symfony Misconfiguration | Detects exposed Symfony profiler, debug toolbar, dev front controller, and configuration leaks | High | Firm | `symfony`, `php`, `misconfiguration`, `info-disclosure`, `light` |
 | `php-composer-exposure` | PHP Composer Exposure | Detects exposed Composer manifests, vendor directory, and PHPUnit dev endpoints | High | Firm | `php`, `file-exposure`, `info-disclosure`, `light` |
 | `php-debug-exposure` | PHP Debug Exposure | Detects exposed phpinfo pages, PHP-FPM status endpoints, and phpMyAdmin instances | Medium | Firm | `php`, `misconfiguration`, `info-disclosure`, `light` |
@@ -290,9 +290,9 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 |---|---|---|---|---|---|
 | `rails-info-exposure` | Rails Info Exposure | Detects exposed Rails development and debug endpoints in production | High | Firm | `rails`, `ruby`, `info-disclosure`, `misconfiguration`, `light` |
 | `rails-admin-dashboard` | Rails Admin Dashboard | Detects exposed Rails ecosystem admin panels and dashboard UIs | High | Firm | `rails`, `ruby`, `misconfiguration`, `info-disclosure`, `light` |
-| `rails-sensitive-files` | Rails Sensitive Files | Detects exposed Rails configuration files, credentials, and artifacts | Medium | Tentative | `rails`, `ruby`, `file-exposure`, `info-disclosure`, `light` |
+| `rails-sensitive-files` | Rails Sensitive Files | Detects exposed Rails configuration files, credentials, and artifacts | Suspect | Tentative | `rails`, `ruby`, `file-exposure`, `info-disclosure`, `light` |
 | `rails-action-mailbox-probe` | Rails Action Mailbox Probe | Detects exposed Rails Action Mailbox ingress endpoints that may accept unauthorized submissions | Medium | Firm | `rails`, `ruby`, `misconfiguration`, `light` |
-| `rails-active-storage-probe` | Rails Active Storage Probe | Detects exposed Rails Active Storage direct upload and Action Mailbox ingress endpoints | Medium | Tentative | `rails`, `ruby`, `misconfiguration`, `file-exposure`, `light` |
+| `rails-active-storage-probe` | Rails Active Storage Probe | Detects exposed Rails Active Storage direct upload and Action Mailbox ingress endpoints | Suspect | Tentative | `rails`, `ruby`, `misconfiguration`, `file-exposure`, `light` |
 
 #### Express (Node.js)
 
@@ -310,7 +310,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | `aspnet-health-exposure` | ASP.NET Health Endpoint Exposure | Detects exposed ASP.NET health checks, monitoring dashboards, and metrics endpoints | Medium | Firm | `aspnet`, `info-disclosure`, `probe`, `light` |
 | `aspnet-identity-probe` | ASP.NET Identity Probe | Detects exposed ASP.NET Identity endpoints, IdentityServer discovery, and authentication misconfigurations | Medium | Firm | `aspnet`, `auth-bypass`, `probe`, `moderate` |
 | `aspnet-misconfig` | ASP.NET Misconfiguration | Detects ASP.NET/IIS misconfigurations including exposed diagnostics, debug endpoints, and verbose errors | High | Firm | `aspnet`, `misconfiguration`, `info-disclosure`, `light` |
-| `aspnet-sensitive-files` | ASP.NET Sensitive Files | Probes for exposed ASP.NET configuration files, backups, and sensitive directories | Medium | Tentative | `aspnet`, `sensitive-file`, `probe`, `light` |
+| `aspnet-sensitive-files` | ASP.NET Sensitive Files | Probes for exposed ASP.NET configuration files, backups, and sensitive directories | Suspect | Tentative | `aspnet`, `sensitive-file`, `probe`, `light` |
 | `aspnet-service-exposure` | ASP.NET Service Exposure | Detects exposed ASP.NET service endpoints including ASMX, WCF, OData, and legacy service paths | Medium | Firm | `aspnet`, `info-disclosure`, `probe`, `light` |
 | `aspnet-viewstate-scan` | ASP.NET ViewState Scan | Tests for ASP.NET ViewState MAC disabled, event validation bypass, and cookieless sessions | High | Firm | `aspnet`, `misconfiguration`, `moderate` |
 | `iis-shortname-discovery` | IIS Short Filename Discovery | Enumerates IIS 8.3 short filenames via tilde-based oracle (per-host) | Medium | Certain | `iis`, `aspnet`, `info-disclosure`, `heavy` |
@@ -377,7 +377,7 @@ Passive modules analyze existing request/response pairs without sending new traf
 | `sql-syntax-detect` | SQL Syntax in Request Detection | Detects SQL syntax in HTTP request parameter values | Info | Firm | `sqli`, `injection`, `light` |
 | `serialized-object-detect` | Serialized Object Detection | Detects serialized Java/PHP/.NET/Python/Ruby/Node.js objects in request parameters (incl. base64-wrapped) | Low | Firm | `deserialization`, `light` |
 | `input-reflection-detect` | Input Reflection Detect | Detects request parameter values reflected in responses | Info | Tentative | `xss`, `injection`, `light` |
-| `csv-formula-injection` | CSV / Formula Injection | Detects unescaped formula cells in CSV and XLSX export responses | Medium | Tentative | `injection`, `csv-injection`, `light` |
+| `csv-formula-injection` | CSV / Formula Injection | Detects unescaped formula cells in CSV and XLSX export responses | Suspect | Tentative | `injection`, `csv-injection`, `light` |
 | `base64-data-detect` | Base64 Data Detect | Identifies interesting base64 encoded data like JSON, PHP Object in requests/responses | Info | Tentative | `info-disclosure`, `deserialization`, `light` |
 
 ### Information Disclosure
@@ -410,14 +410,14 @@ Passive modules analyze existing request/response pairs without sending new traf
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `csrf-detect` | CSRF Detection | Flags state-changing requests missing anti-CSRF protections | Medium | Tentative | `csrf`, `session`, `light` |
+| `csrf-detect` | CSRF Detection | Flags state-changing requests missing anti-CSRF protections | Suspect | Tentative | `csrf`, `session`, `light` |
 | `idor-params-detect` | IDOR Parameter Detection | Detects parameters that may reference object identifiers (IDOR/BOLA triage) | Info | Tentative | `idor`, `authentication`, `light` |
 
 ### Cryptography
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `crypto-weakness-detect` | Cryptographic Weakness Detection | Detects weak cryptographic patterns in HTTP traffic | Medium | Tentative | `cryptography`, `misconfiguration`, `light` |
+| `crypto-weakness-detect` | Cryptographic Weakness Detection | Detects weak cryptographic patterns in HTTP traffic | Suspect | Tentative | `cryptography`, `misconfiguration`, `light` |
 
 ### Anomaly Detection
 
@@ -431,11 +431,11 @@ Passive modules analyze existing request/response pairs without sending new traf
 |---|---|---|---|---|---|
 | `js-framework-fingerprint` | JS Framework Fingerprint | Identifies JavaScript frameworks (Next.js, Nuxt, Angular, React, Remix, SvelteKit, Gatsby) | Info | Certain | `javascript`, `fingerprint`, `nextjs`, `angular`, `react`, `light` |
 | `ssr-data-exposure` | SSR Data Exposure | Detects sensitive data leaked in server-side rendered state blobs | Medium | Firm | `javascript`, `info-disclosure`, `light` |
-| `cache-auth-misconfiguration` | Cache-Auth Misconfiguration | Detects cacheable responses with user-specific data missing Vary headers | Medium | Tentative | `misconfiguration`, `cache-poisoning`, `session`, `light` |
-| `server-action-auth` | Server Action Auth Check | Detects Next.js Server Actions missing authorization checks | Medium | Tentative | `nextjs`, `javascript`, `authentication`, `light` |
+| `cache-auth-misconfiguration` | Cache-Auth Misconfiguration | Detects cacheable responses with user-specific data missing Vary headers | Suspect | Tentative | `misconfiguration`, `cache-poisoning`, `session`, `light` |
+| `server-action-auth` | Server Action Auth Check | Detects Next.js Server Actions missing authorization checks | Suspect | Tentative | `nextjs`, `javascript`, `authentication`, `light` |
 | `nextjs-config-audit` | Next.js Config Audit | Detects insecure Next.js configuration patterns | Medium | Firm | `nextjs`, `javascript`, `misconfiguration`, `light` |
 | `client-auth-guard` | Client Auth Guard Check | Detects client-only auth guards without server-side enforcement | Info | Tentative | `authentication`, `javascript`, `light` |
-| `cache-data-leak` | Cache Data Leak | Detects cache and static generation patterns that may leak user data | Medium | Tentative | `info-disclosure`, `cache-poisoning`, `light` |
+| `cache-data-leak` | Cache Data Leak | Detects cache and static generation patterns that may leak user data | Suspect | Tentative | `info-disclosure`, `cache-poisoning`, `light` |
 
 ### JS Framework Security (Source Analysis)
 
@@ -443,7 +443,7 @@ Passive modules analyze existing request/response pairs without sending new traf
 |---|---|---|---|---|---|
 | `unsafe-html-sink` | Unsafe HTML Sink | Detects raw HTML injection sinks in JS/TS framework code | Low | Firm | `xss`, `javascript`, `light` |
 | `insecure-token-storage` | Insecure Token Storage | Detects auth tokens stored in localStorage/sessionStorage | Medium | Firm | `authentication`, `session`, `javascript`, `light` |
-| `env-secret-exposure` | Environment Secret Exposure | Detects credential-shaped values in public environment variables and served dotenv files | Medium | Tentative | `info-disclosure`, `file-exposure`, `light` |
+| `env-secret-exposure` | Environment Secret Exposure | Detects credential-shaped values in public environment variables and served dotenv files | Suspect | Tentative | `info-disclosure`, `file-exposure`, `light` |
 | `build-misconfig-detect` | Build Misconfiguration Detect | Detects build and deployment misconfigurations in framework config files | High | Firm | `misconfiguration`, `info-disclosure`, `javascript`, `light` |
 
 ### Framework Fingerprinting
@@ -504,15 +504,15 @@ Passive modules analyze existing request/response pairs without sending new traf
 
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
-| `nextjs-dynamic-param-audit` | Next.js Dynamic Param Audit | Detects unsafe usage of dynamic route params without validation | Medium | Tentative | `nextjs`, `javascript`, `injection`, `light` |
+| `nextjs-dynamic-param-audit` | Next.js Dynamic Param Audit | Detects unsafe usage of dynamic route params without validation | Suspect | Tentative | `nextjs`, `javascript`, `injection`, `light` |
 | `nextauth-config-audit` | NextAuth.js Configuration Audit | Detects insecure NextAuth.js session and cookie configurations | Medium | Firm | `nextjs`, `javascript`, `authentication`, `session`, `light` |
 | `nuxt-config-audit` | Nuxt Config Audit | Detects insecure Nuxt configuration patterns and sensitive data in Nuxt state | Medium | Firm | `nuxt`, `javascript`, `misconfiguration`, `light` |
 | `remix-loader-exposure` | Remix Loader Exposure | Detects sensitive data leaked through Remix loader data and context | Medium | Firm | `javascript`, `info-disclosure`, `light` |
-| `ssr-hydration-xss` | SSR Hydration XSS Detection | Detects potential XSS in server-side rendered JSON hydration scripts | High | Tentative | `xss`, `javascript`, `light` |
-| `server-action-bind-audit` | Server Action Bind Audit | Detects Server Action .bind() with sensitive identifiers risking IDOR | Medium | Tentative | `nextjs`, `javascript`, `idor`, `light` |
-| `server-action-input-audit` | Server Action Input Audit | Detects Next.js Server Actions missing runtime input validation | Medium | Tentative | `nextjs`, `javascript`, `injection`, `light` |
-| `server-only-boundary-audit` | Server-Only Boundary Audit | Detects server-side modules leaked into client component bundles | Medium | Tentative | `nextjs`, `javascript`, `info-disclosure`, `light` |
-| `javascript-uri-sink` | JavaScript URI Sink Detection | Detects javascript: URIs reflected in href/src attributes | Medium | Tentative | `xss`, `javascript`, `light` |
+| `ssr-hydration-xss` | SSR Hydration XSS Detection | Detects potential XSS in server-side rendered JSON hydration scripts | Suspect | Tentative | `xss`, `javascript`, `light` |
+| `server-action-bind-audit` | Server Action Bind Audit | Detects Server Action .bind() with sensitive identifiers risking IDOR | Suspect | Tentative | `nextjs`, `javascript`, `idor`, `light` |
+| `server-action-input-audit` | Server Action Input Audit | Detects Next.js Server Actions missing runtime input validation | Suspect | Tentative | `nextjs`, `javascript`, `injection`, `light` |
+| `server-only-boundary-audit` | Server-Only Boundary Audit | Detects server-side modules leaked into client component bundles | Suspect | Tentative | `nextjs`, `javascript`, `info-disclosure`, `light` |
+| `javascript-uri-sink` | JavaScript URI Sink Detection | Detects javascript: URIs reflected in href/src attributes | Suspect | Tentative | `xss`, `javascript`, `light` |
 | `wasm-module-detect` | WebAssembly Module Detect | Detects WebAssembly modules and WASM instantiation in HTTP responses | Info | Certain | `javascript`, `fingerprint`, `light` |
 
 ### Session & Authentication (Passive)
@@ -521,9 +521,9 @@ Passive modules analyze existing request/response pairs without sending new traf
 |---|---|---|---|---|---|
 | `express-session-audit` | Express Session Audit | Audits Express.js session cookies for default naming, excessive expiry, and session proliferation | Low | Firm | `express`, `nodejs`, `session`, `misconfiguration`, `hygiene`, `light` |
 | `jwt-claims-detect` | JWT Claim Analyzer | Analyzes JWT claims for security misconfigurations | Medium | Firm | `authentication`, `session`, `cryptography`, `light` |
-| `jackson-deserialize-detect` | Jackson Deserialization Detect | Detects Jackson polymorphic typing indicators and Java deserialization error patterns in responses | Low | Tentative | `java`, `deserialization`, `light` |
+| `jackson-deserialize-detect` | Jackson Deserialization Detect | Detects Jackson polymorphic typing indicators and Java deserialization error patterns in responses | Suspect | Tentative | `java`, `deserialization`, `light` |
 | `python-debug-detect` | Python Debug Detect | Detects Python tracebacks, debug pages, and path disclosure in responses | High | Firm | `python`, `info-disclosure`, `misconfiguration`, `light` |
 | `rails-debug-detect` | Rails Debug Detect | Detects Rails debug exception pages, Better Errors, Web Console, and ActiveRecord errors in responses | High | Firm | `rails`, `ruby`, `info-disclosure`, `misconfiguration`, `light` |
 | `rails-action-cable-detect` | Rails Action Cable Detect | Passively detects Action Cable WebSocket endpoints and configuration in responses | Info | Firm | `rails`, `ruby`, `fingerprint`, `light` |
 | `rails-active-storage-detect` | Rails Active Storage Detect | Passively detects Active Storage URLs and direct upload references in responses | Info | Certain | `rails`, `ruby`, `fingerprint`, `file-exposure`, `light` |
-| `sensitive-api-fields-detect` | Sensitive API Fields Detect | Flags JSON API responses containing sensitive field names like passwords, API keys, and PII | Medium | Tentative | `api`, `info-disclosure`, `light` |
+| `sensitive-api-fields-detect` | Sensitive API Fields Detect | Flags JSON API responses containing sensitive field names like passwords, API keys, and PII | Suspect | Tentative | `api`, `info-disclosure`, `light` |

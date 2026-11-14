@@ -92,7 +92,7 @@ func (m *Module) phaseDoS(
 					"or that the query causes meaningful resource amplification; review the configured "+
 					"cost controls before treating it as a denial-of-service vulnerability.",
 				dosProbeDepth),
-			Severity:   severity.Low,
+			Severity:   severity.Suspect,
 			Confidence: severity.Tentative,
 			Tags:       ModuleTags,
 		},

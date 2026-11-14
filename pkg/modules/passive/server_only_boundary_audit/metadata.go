@@ -16,7 +16,7 @@ var (
 **Fix:** Wrap server-only modules with the server-only package and keep secrets and internal URLs out of client code.`
 
 	ModuleConfirmation = "Candidate after two server-oriented signals or one non-placeholder credentialed database URI; runtime reachability and credential validity remain unconfirmed"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "info-disclosure", "light"}
 )

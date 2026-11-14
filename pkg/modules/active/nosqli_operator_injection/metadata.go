@@ -20,7 +20,7 @@ var (
 	// boolean differential, body growth, time delay) rather than direct proof of
 	// query control, so every finding is reported High/Tentative — a high-impact
 	// lead to verify, not a confirmed injection.
-	ModuleSeverity   = severity.High
+	ModuleSeverity   = severity.Suspect
 	ModuleConfidence = severity.Tentative
 	ModuleTags       = []string{"injection", "sqli", "moderate"}
 )

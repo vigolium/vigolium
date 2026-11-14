@@ -368,7 +368,7 @@ func TestScanPerRequest_ForwardedForContentVariation(t *testing.T) {
 		}
 	}
 	require.NotNil(t, got, "expected a Content Variation finding when content reproducibly tracks the spoofed IP")
-	assert.Equal(t, "medium/tentative", *got, "size-based content variation must be Medium/Tentative, not a High bypass")
+	assert.Equal(t, "suspect/tentative", *got, "size-based content variation is an unproven oracle: Suspect/Tentative (RES-7)")
 }
 
 // TestScanPerRequest_ForwardedHostStaticSentinelNoFalsePositive reproduces a

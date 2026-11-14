@@ -16,7 +16,7 @@ var (
 **Fix:** Enforce server-side authorization on every privileged endpoint and method, validating identity and role on each request and denying by default.`
 
 	ModuleConfirmation = "Confirmed when a privileged endpoint returns a successful response after removing or downgrading authentication credentials"
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"auth-bypass", "api-security", "moderate"}
 )

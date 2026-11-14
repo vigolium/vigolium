@@ -16,7 +16,7 @@ var (
 **Fix:** Remove backup and dump files from web-accessible directories, or deny backup/archive/dump extensions at the web server.`
 
 	ModuleConfirmation = "Confirmed when response returns 200 with matching archive Content-Type, body size >1KB, and body differs from 404 fingerprint. SQL dumps additionally validated via content markers."
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"sensitive-file", "info-disclosure", "moderate"}
 )

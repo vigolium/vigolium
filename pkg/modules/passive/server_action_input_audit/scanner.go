@@ -172,7 +172,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			Info: output.Info{
 				Name:        "Server Action Input-Validation Candidate",
 				Description: fmt.Sprintf("Source-like code at %s contains server-action, input-access, and database-operation patterns without a recognized schema library. Regex proximity does not prove that the input reaches the operation or that imported/manual validation is absent.", urlx.Path),
-				Severity:    severity.Medium,
+				Severity:    severity.Suspect,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"input-validation", "server-action", "nextjs", "source-analysis"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/20.html"},

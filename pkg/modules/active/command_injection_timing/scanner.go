@@ -271,9 +271,10 @@ func (m *Module) confirmTiming(
 					"or out-of-band (command-injection-oast) modules where possible.",
 				ip.Name(), timeRounds, tmpl.Label, last.noSleep.Milliseconds(),
 				sleepLow, last.low.Milliseconds(), sleepHigh, last.high.Milliseconds()),
-			// Impact is Critical, but the oracle is timing-only and network-sensitive,
-			// so the finding is reported as Tentative pending corroboration.
-			Severity:   severity.Critical,
+			// Impact would be Critical, but the oracle is timing-only and
+			// network-sensitive: an unproven oracle files Suspect/Tentative pending
+			// corroboration by the echo or OAST modules (RES-7).
+			Severity:   severity.Suspect,
 			Confidence: severity.Tentative,
 		},
 		// Per-round timings live in ExtractedResults (every round) and the

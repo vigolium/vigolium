@@ -94,7 +94,7 @@ Requires **Go 1.27+** and **bun 1.3.11+**. See [HACKING.md](HACKING.md#build-and
 
 ### Native Scan
 
-- **335 scanner modules**: 217 active (fuzzing) + 119 passive (pattern matching), covering OWASP Top 10 and beyond
+- **336 scanner modules**: 217 active (fuzzing) + 119 passive (pattern matching), covering OWASP Top 10 and beyond
 - **Out-of-band testing (OAST)**: blind XSS/SSRF/command injection via interactsh callbacks with automatic payload correlation
 - **Value-aware mutation**: classifies parameters by semantic type (integer, UUID, JWT, email) and mutates per intent
 - **Multi-phase pipeline**: external harvesting, content discovery (Deparos), browser/SPA spidering (Spitolas), and audit, controlled by strategy presets and scanning profiles

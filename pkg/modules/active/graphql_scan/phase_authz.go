@@ -173,7 +173,7 @@ func (m *Module) phaseAuthz(
 						"authorized to that principal. Verify '%s' with an identifier owned by another user "+
 						"before classifying it as IDOR/BOLA.",
 					field, lookup.IDArg, field),
-				Severity:   severity.Medium,
+				Severity:   severity.Suspect,
 				Confidence: severity.Tentative,
 				Tags:       ModuleTags,
 			},

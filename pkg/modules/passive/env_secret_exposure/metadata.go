@@ -16,7 +16,7 @@ var (
 **Fix:** Validate and rotate live credentials, keep secrets server-side, and block dotenv files.`
 
 	ModuleConfirmation = "Candidate when a successful response exposes a non-placeholder, credential-shaped value in a public framework variable or directly served dotenv file; live-secret validation is required"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"info-disclosure", "file-exposure", "light"}
 )

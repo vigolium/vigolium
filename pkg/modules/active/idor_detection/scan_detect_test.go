@@ -166,30 +166,41 @@ func TestScanPerInsertionPoint_NoCredentialDowngrade(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "a distinct neighbor object is still a lead, just a weaker one without credentials")
-	assert.Equal(t, severity.Medium, res[0].Info.Severity, "no credential crosses no authorization boundary — downgrade to Medium")
+	assert.Equal(t, severity.Suspect, res[0].Info.Severity, "no credential crosses no authorization boundary — a Suspect lead (RES-7)")
 	assert.Equal(t, severity.Tentative, res[0].Info.Confidence)
 }
 
 // TestScanPerInsertionPoint_CredentialedStaysHigh verifies the converse: when the
-// original request carries a session Cookie, a neighbor object reachable past
-// that credential is a genuine authorization bypass and stays High.
+// original request carries a session Cookie AND the neighbor object carries
+// different user fields, it is a genuine authorization bypass: High/Firm. The
+// same differential without differing user fields is a Suspect/Tentative lead
+// (RES-7).
 func TestScanPerInsertionPoint_CredentialedStaysHigh(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(objectBody(r.URL.Query().Get("user_id"))))
+		id := r.URL.Query().Get("user_id")
+		body := objectBody(id)
+		if id != "12345" {
+			// Another user's record: no "username" field in this shape.
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		_, _ = w.Write([]byte(body[:len(body)-1] + `,"username":"owner"}`))
 	}))
 	defer srv.Close()
 
 	client := modtest.Requester(t)
+	base := objectBody("12345")
 	rr := authedResponse(t, srv.URL+"/api/profile?user_id=12345", "session=valid-session-token",
-		"application/json", objectBody("12345"))
+		"application/json", base[:len(base)-1]+`,"username":"owner"}`)
 	ip := modtest.InsertionPoint(t, rr, "user_id")
 
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res)
-	assert.Equal(t, severity.High, res[0].Info.Severity, "a credentialed request crossing into another object is a real authorization bypass")
+	assert.Equal(t, severity.High, res[0].Info.Severity, "a credentialed request crossing into another user's object is a real authorization bypass")
+	assert.Equal(t, severity.Firm, res[0].Info.Confidence)
 }
 
 // authedResponse builds an HttpRequestResponse for rawURL carrying a Cookie

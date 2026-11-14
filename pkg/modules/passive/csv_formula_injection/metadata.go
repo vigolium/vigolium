@@ -16,7 +16,7 @@ var (
 **Fix:** Prefix cells starting with = + - @ tab or carriage return with an apostrophe, and quote every field.`
 
 	ModuleConfirmation = "Confirmed when a CSV cell starting with = + - @ tab or carriage return contains a scan canary, a function call or a DDE command, or an XLSX formula cell contains a scan canary, a DDE command or an external-data function"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"injection", "csv-injection", "light"}
 )

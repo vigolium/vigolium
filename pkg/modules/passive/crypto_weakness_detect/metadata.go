@@ -16,7 +16,7 @@ var (
 **Fix:** Use strict comparison, modern hashing (bcrypt/argon2, SHA-256+), authenticated encryption (AES-GCM or encrypt-then-HMAC), and generic errors that hide padding details.`
 
 	ModuleConfirmation = "Passive indicators are observations/candidates only; confirmation requires code-level algorithm evidence or repeatable active comparison/ciphertext-mutation behavior"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"cryptography", "misconfiguration", "light"}
 )
