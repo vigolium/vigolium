@@ -93,7 +93,7 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 	}
 	if !enrichTargets && !r.options.Silent {
 		fmt.Fprintf(os.Stderr, "  %s %s %s\n",
-			terminal.TipPrefix(), terminal.Gray("enrich KnownIssueScan targets with discovered paths via"), terminal.HiCyan("vigolium config known_issue_scan.enrich_targets=true"))
+			terminal.TipPrefix(), terminal.Gray("enrich KnownIssueScan targets with discovered paths via"), terminal.HiCyan("vigolium config set known_issue_scan.enrich_targets true"))
 	}
 	// Surface the active severity filter and how to widen it. An empty list means
 	// "all severities", so only hint when the configured set does not already

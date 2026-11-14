@@ -231,12 +231,13 @@ token extraction, and multi-session IDOR/BOLA testing.
 
 ## CI/CD integration
 
-`--ci-output-format` forces clean JSONL with no banners or color codes, ideal
-for parsing in a pipeline:
+Use `-j` for one machine-readable JSON envelope on stdout (human logs go to
+stderr), `--format jsonl,sarif -o findings` for files a pipeline can archive,
+and `--fail-on high` to fail the job on findings (a partial scan also fails it):
 
 ```bash
 vigolium scan --stateless -t https://example.com \
-  --ci-output-format -o findings
+  --format jsonl,sarif -o findings --fail-on high
 ```
 
 A minimal gate that fails the build when any finding is reported:

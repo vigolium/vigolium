@@ -114,12 +114,12 @@ vigolium scan -t https://example.com --format jsonl,html -o scan
 | Flag | Effect |
 |------|--------|
 | `--format console` | Human-readable terminal output (default) |
-| `--format jsonl` / `-j` | One JSON object per line |
+| `--format jsonl` | One JSON object per line (findings stream) |
+| `-j` / `--json` | One machine-readable JSON envelope on stdout (not JSONL) |
 | `--format html` | Interactive ag-grid report (requires `-o`) |
 | `--format report,pdf` | Document and PDF reports |
 | `--format sqlite,fs` | Standalone DB or browsable filesystem export |
 | `-o, --output` | Output file path (base name; extension added per format) |
-| `--ci-output-format` | JSONL only, no banners or color — ideal for CI |
 | `--silent` | Suppress everything except findings |
 
 ## 6. Run a single phase

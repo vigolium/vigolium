@@ -107,7 +107,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	r.printPhaseDetail(fmt.Sprintf("Feedback rounds: %s", terminal.HiBlue(fmt.Sprintf("%d", feedbackRounds))))
 	if feedbackRounds <= 1 && !r.options.Silent {
 		fmt.Fprintf(os.Stderr, "  %s %s %s\n",
-			terminal.TipPrefix(), terminal.Gray("increase feedback rounds to re-scan newly discovered URLs via"), terminal.HiCyan("vigolium config dynamic-assessment.max_feedback_rounds=3"))
+			terminal.TipPrefix(), terminal.Gray("increase feedback rounds to re-scan newly discovered URLs via"), terminal.HiCyan("vigolium config set dynamic-assessment.max_feedback_rounds 3"))
 	}
 
 	zap.L().Info("DynamicAssessment: running modules on database records",
@@ -689,7 +689,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 				fmt.Fprintf(os.Stderr, "  %s %s %s\n",
 					terminal.TipPrefix(), terminal.Orange(fmt.Sprintf("%d", newCount)), terminal.Gray(fmt.Sprintf("new records discovered but skipped (max_feedback_rounds=%d)", feedbackRounds)))
 				fmt.Fprintf(os.Stderr, "  %s %s %s\n",
-					terminal.TipPrefix(), terminal.Gray("enable multi-round scanning via"), terminal.Cyan("vigolium config dynamic-assessment.max_feedback_rounds=3"))
+					terminal.TipPrefix(), terminal.Gray("enable multi-round scanning via"), terminal.Cyan("vigolium config set dynamic-assessment.max_feedback_rounds 3"))
 			}
 		}
 	}

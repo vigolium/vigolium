@@ -38,7 +38,7 @@ vigolium scan -t https://example.com --strategy lite -c 5 -r 20
 
 **Solutions:**
 
-Chromium is automatically downloaded on first use to `~/.cache/spitolas/chromium-<version>/`. If this download is blocked by network restrictions:
+When no system Chrome/Chromium is found, Chrome for Testing is downloaded on first use to `~/.cache/vigolium/chrome-for-testing-<version>/` (embedded-browser builds extract to `~/.cache/spitolas/<engine>-<version>/`). `vigolium doctor --fix --only chrome` pre-downloads it. If this download is blocked by network restrictions:
 
 1. Build an embedded-browser binary with
    `make deps-chrome && make build-embedded`.
