@@ -174,6 +174,9 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 			}
 
 			mod, pt := module, ip // capture loop variables
+			// A point that lives in a header (or one cookie) keeps the module's
+			// value over the session's / -H copy (MISS-11).
+			ptClient := reqClient.WithPreservedHeaders(httpmsg.OwnedHeaderKeysOf(pt))
 			e.goActiveTask(ctx, t, func(releaseSlot func()) {
 				// Re-check when the task actually runs: it may have waited on the
 				// active-task semaphore while a same-class module confirmed this
@@ -189,7 +192,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 						}
 						return mod.ScanPerInsertionPoint(item, pt, client, e.scanCtx)
 					},
-					mod, item, reqClient, releaseSlot, 0)
+					mod, item, ptClient, releaseSlot, 0)
 				if completed && len(results) > 0 {
 					e.processResults(ctx, results, mod, item, pt)
 				}

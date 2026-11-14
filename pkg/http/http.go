@@ -65,6 +65,13 @@ type Options struct {
 	// Preflight and probe baselines — plain GETs whose only job is to learn
 	// whether the host answers — set it.
 	RetryTimeouts bool
+	// PreserveHeaders names headers whose value the module set deliberately
+	// (MISS-11): when the request already carries a non-empty value for one,
+	// the session's and the operator's (-H) copy no longer overwrite it.
+	// Lowercased header names, or "cookie:<name>" for one cookie inside the
+	// Cookie header, which is then spliced into the session/-H cookie string
+	// rather than replacing it. A header the request lacks is never added.
+	PreserveHeaders []string
 	// RawRequestTarget, when non-empty, is written verbatim as the HTTP
 	// request-line target (request-URI) while the TCP/TLS connection still goes
 	// to the request's real host. It enables routing-based SSRF / "Cracking the
@@ -197,6 +204,10 @@ type Requester struct {
 	// admitted or dialed, and counted in refused. See NewOfflineRequester.
 	offline error
 	refused *atomic.Int64
+	// preserved are PreserveHeaders keys applied to every request on this
+	// view (WithPreservedHeaders). The executor sets them per task for an
+	// insertion point that lives in a header (httpmsg.HeaderOwner).
+	preserved []string
 }
 
 // WithLiveSession returns a shallow clone that sends live's credentials and
@@ -1181,6 +1192,12 @@ func (r *Requester) ExecuteContext(ctx context.Context, input *httpmsg.HttpReque
 		// Stamp this requester's cache partition onto the options copy the
 		// clusterer keys on. Callers never set this field.
 		opts.clusterScope = r.clusterScope
+		// Preserved headers change what goes on the wire for the same raw
+		// bytes (the module's value instead of the session's), so they get
+		// their own cache partition.
+		if len(r.preserved) > 0 || len(opts.PreserveHeaders) > 0 {
+			opts.clusterScope += "|preserve:" + strings.Join(r.preserved, ",") + ";" + strings.Join(opts.PreserveHeaders, ",")
+		}
 		return r.clusterer.Execute(input, opts, func(in *httpmsg.HttpRequestResponse, o Options) (*httpUtils.ResponseChain, time.Duration, error) {
 			return r.executeDirectly(ctx, in, o)
 		})
@@ -1658,6 +1675,13 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 		return nil, &requestBuildError{err: err}
 	}
 
+	// Module-owned header values, read before anything below overwrites them
+	// (MISS-11); restored after the session credentials are applied.
+	var preserved *preservedSnapshot
+	if len(r.preserved) > 0 || len(opts.PreserveHeaders) > 0 {
+		preserved = snapshotPreserved(req.Header, r.preserved, opts.PreserveHeaders)
+	}
+
 	// Apply default browser headers (only those not already set on the request).
 	// Template keys are canonical, so direct map access skips the per-entry
 	// canonicalization + EqualFold the old loop ran on every request.
@@ -1697,6 +1721,7 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 			req.Header.Set(name, value)
 		}
 	}
+	preserved.restore(req.Header)
 
 	if r.services.Options.Debug {
 		zap.L().Debug("HTTP Request", zap.String("url", req.String()))
