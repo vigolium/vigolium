@@ -262,11 +262,12 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 			zap.L().Warn("DynamicAssessment: failed to reset scan cursor", zap.Error(err))
 		}
 	}
-	// Coverage ledger + tier passes (ECON-4). Not for scan-on-receive, whose
-	// continuous source has no round snapshot to tier.
+	// Coverage ledger + tier passes. Not for scan-on-receive, whose continuous
+	// source has no round snapshot to tier.
+	var ledger *daLedger
 	if !r.options.ScanOnReceive {
-		r.daLedger = r.prepareDALedger(ctx, infra.scanUUID, activeModules, passiveModules)
-		defer r.closeDALedger()
+		ledger = r.prepareDALedger(ctx, infra.scanUUID, activeModules, passiveModules)
+		defer ledger.close()
 	}
 
 	var recordWriter *database.RecordWriter
@@ -660,7 +661,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		deadlineHit bool
 	)
 	for round := 0; round < feedbackRounds; round++ {
-		res, err := r.runDynamicAssessmentRound(ctx, infra, round, inScopeHosts, activeModules, passiveModules, baseExecutorCfg, oastService)
+		res, err := r.runDynamicAssessmentRound(ctx, infra, round, inScopeHosts, activeModules, passiveModules, baseExecutorCfg, oastService, ledger)
 		roundsRun = round + 1
 		executed.note(r.currentPhase.Load(), res.moduleMetrics)
 		if err != nil {
@@ -759,9 +760,10 @@ func (r *Runner) runDynamicAssessmentRound(
 	passiveModules []modules.PassiveModule,
 	baseCfg core.ExecutorConfig,
 	oastService *oast.Service,
+	ledger *daLedger,
 ) (daRoundResult, error) {
-	if l := r.daLedger; l != nil {
-		return r.runTieredRound(ctx, infra, round, inScopeHosts, activeModules, passiveModules, baseCfg, oastService, l)
+	if ledger != nil {
+		return r.runTieredRound(ctx, infra, round, inScopeHosts, passiveModules, baseCfg, oastService, ledger)
 	}
 	dbSource := r.newDASource(infra, inScopeHosts)
 	return r.runDAPass(ctx, infra, round, activeModules, passiveModules, baseCfg, oastService, dbSource)

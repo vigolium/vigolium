@@ -91,10 +91,6 @@ type Runner struct {
 	done      chan struct{}         // closed when RunNativeScan finishes
 	pauseCtrl *core.PauseController // cooperative pause/resume for workers
 
-	// daLedger is the dynamic-assessment phase's coverage ledger (ECON-4);
-	// set for the phase's duration only.
-	daLedger *daLedger
-
 	closeOnce sync.Once   // guards one-time resource release (Close/Discard may race)
 	finalized atomic.Bool // set once RunNativeScan has written the terminal scan status
 

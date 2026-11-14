@@ -8,9 +8,10 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
-// TestModuleLedger_FoldsReportsErrorsAndSkips is RES-6 (interim): the scan's
-// module ledger sums every executor report's calls/requests/findings, counts
-// skips by reason (timeouts from the error path), and carries errors.
+// TestModuleLedger_FoldsReportsErrorsAndSkips: the scan's module ledger sums
+// every executor report's calls/requests/findings, counts skips by reason, and
+// carries errors. A timeout's skip comes from the report only, so the error
+// path does not count it a second time.
 func TestModuleLedger_FoldsReportsErrorsAndSkips(t *testing.T) {
 	l := newModuleErrorLedger()
 	round := func(req int64) core.ExecutionReport {
@@ -19,8 +20,14 @@ func TestModuleLedger_FoldsReportsErrorsAndSkips(t *testing.T) {
 			ModuleSkips: map[string]map[string]int64{"spring-actuator": {database.SkipTechFilter: 4}},
 		}
 	}
+	timeoutRound := func() core.ExecutionReport {
+		return core.ExecutionReport{
+			ModuleSkips: map[string]map[string]int64{"sqli": {database.SkipTimeout: 1}},
+		}
+	}
 	l.addExecution(round(10))
 	l.addExecution(round(5))
+	l.addExecution(timeoutRound())
 	l.note("sqli", "timeout")
 	l.note("sqli", "exception")
 

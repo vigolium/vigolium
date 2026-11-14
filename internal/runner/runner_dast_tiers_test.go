@@ -95,9 +95,8 @@ func TestTieredRoundCoversCheapTierFirst(t *testing.T) {
 	if l == nil || len(l.pass0) != 1 || len(l.pass1) != 1 {
 		t.Fatalf("tier split: %+v", l)
 	}
-	r.daLedger = l
-	_, _ = r.runDynamicAssessmentRound(ctx, infra, 0, nil, active, nil, cfg, nil)
-	r.closeDALedger()
+	_, _ = r.runDynamicAssessmentRound(ctx, infra, 0, nil, active, nil, cfg, nil, l)
+	l.close()
 
 	cheap.mu.Lock()
 	covered := len(cheap.seen)
@@ -119,11 +118,11 @@ func TestTieredRoundResumeSkipsDoneWork(t *testing.T) {
 	active := []modules.ActiveModule{cheap, slow}
 	ctx := context.Background()
 
-	r.daLedger = r.prepareDALedger(ctx, infra.scanUUID, active, nil)
-	if _, err := r.runDynamicAssessmentRound(ctx, infra, 0, nil, active, nil, cfg, nil); err != nil {
+	l := r.prepareDALedger(ctx, infra.scanUUID, active, nil)
+	if _, err := r.runDynamicAssessmentRound(ctx, infra, 0, nil, active, nil, cfg, nil, l); err != nil {
 		t.Fatal(err)
 	}
-	r.closeDALedger()
+	l.close()
 	if cheap.calls.Load() != 6 || slow.calls.Load() != 6 {
 		t.Fatalf("first run: cheap=%d slow=%d, want 6/6", cheap.calls.Load(), slow.calls.Load())
 	}
@@ -147,11 +146,11 @@ func TestTieredRoundResumeSkipsDoneWork(t *testing.T) {
 	cheap2 := newTierProbe("cheap-inband", modkit.ClassCostInBand, 0)
 	slow2 := newTierProbe("slow-timing", modkit.ClassCostTiming, 0)
 	active2 := []modules.ActiveModule{cheap2, slow2}
-	r.daLedger = r.prepareDALedger(ctx, infra.scanUUID, active2, nil)
-	if _, err := r.runDynamicAssessmentRound(ctx, infra, 0, nil, active2, nil, cfg, nil); err != nil {
+	l2 := r.prepareDALedger(ctx, infra.scanUUID, active2, nil)
+	if _, err := r.runDynamicAssessmentRound(ctx, infra, 0, nil, active2, nil, cfg, nil, l2); err != nil {
 		t.Fatal(err)
 	}
-	r.closeDALedger()
+	l2.close()
 	if n := cheap2.calls.Load() + slow2.calls.Load(); n != 0 {
 		t.Fatalf("resumed run re-ran %d module calls on finished records", n)
 	}

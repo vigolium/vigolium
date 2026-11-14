@@ -22,7 +22,7 @@ import (
 // finalizer persists the totals on scans.module_errors, which scan.finished
 // reads back.
 //
-// It is also the scan's module ledger (RES-6): per module, calls, wire
+// It is also the scan's module ledger: per module, calls, wire
 // requests and findings folded from every executor's report, and calls not
 // made by skip reason (database.ModuleSkipReasons), persisted on
 // scans.module_stats.
@@ -121,13 +121,11 @@ func newModuleErrorLedger() *moduleErrorLedger { return &moduleErrorLedger{} }
 
 // note records one failure and returns the module's running total. Nil-safe:
 // a nil ledger counts nothing and reports 1, so the executor still emits the
-// first event.
+// first event. A timeout is counted here as an error only: its skip is already
+// in the executor report's ModuleSkips, which addExecution folds.
 func (l *moduleErrorLedger) note(moduleID, kind string) int64 {
 	if l == nil {
 		return 1
-	}
-	if kind == "timeout" {
-		l.noteSkip(moduleID, database.SkipTimeout, 1)
 	}
 	v, ok := l.m.Load(moduleID)
 	if !ok {
