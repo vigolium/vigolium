@@ -203,6 +203,10 @@ type phaseInfra struct {
 	// classifies a failure into some code, so a separate bool would only be
 	// another name for this field being set.
 	authFailureReason string
+	// authUnverified names the sessions whose login ran but could not be
+	// verified, or whose credentials did not change the target's answer
+	// (MISS-41). The assessment phase reports it as auth_unverified.
+	authUnverified []string
 
 	// sessions keeps the live sessions (and their Manager) alive for the scan, so
 	// an expired session can be logged in again mid-scan (see

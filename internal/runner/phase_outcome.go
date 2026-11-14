@@ -231,7 +231,7 @@ func firstPhaseReason(phases []database.PhaseOutcome) string {
 // it is a poor answer to "why did this scan stop".
 func nonStoppingReason(reason string) bool {
 	switch reason {
-	case database.ReasonAuthUnavailable, database.ReasonOASTUnavailable:
+	case database.ReasonAuthUnavailable, database.ReasonOASTUnavailable, database.ReasonAuthUnverified:
 		return true
 	}
 	return false

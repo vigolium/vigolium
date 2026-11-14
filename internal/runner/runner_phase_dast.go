@@ -169,6 +169,9 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		tracker.markPartial(database.ReasonAuthUnavailable)
 		tracker.markPartial(infra.authFailureReason)
 	}
+	if len(infra.authUnverified) > 0 {
+		r.currentPhase.Load().markPartial(database.ReasonAuthUnverified)
+	}
 
 	// Wire compare session clients into the authz-compare module
 	if len(infra.compareSessions) > 0 {

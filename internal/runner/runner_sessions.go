@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
+	"time"
 
 	"github.com/vigolium/vigolium/pkg/authentication"
 	"github.com/vigolium/vigolium/pkg/core/egress"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
 )
 
@@ -88,6 +92,9 @@ func (r *Runner) initSessions(ctx context.Context, infra *phaseInfra) error {
 	if err := mgr.HydrateSessionsContext(ctx); err != nil {
 		return fmt.Errorf("session hydration failed: %w", err)
 	}
+	if err := r.noteLoginVerification(mgr.LoginResults(), sessions, infra); err != nil {
+		return err
+	}
 
 	// Persist CLI sessions to DB for reuse in future scans
 	if hasCLISessions {
@@ -101,16 +108,23 @@ func (r *Runner) initSessions(ctx context.Context, infra *phaseInfra) error {
 	// is left out of the headers below so the explicit value is the one sent.
 	pinned := headerNames(baseHeaders)
 	live := &liveSessions{}
+	warnedNoCheck := false
 	liveFor := func(s *authentication.Session) *authentication.LiveSession {
 		ls := r.newLiveSession(ctx, mgr, s, pinned)
 		if ls != nil {
 			live.all = append(live.all, ls)
+		} else if s != nil && s.Check == nil && !warnedNoCheck {
+			// Without a check block nothing watches the session: an expired
+			// login mid-scan turns the rest of the run anonymous, silently.
+			warnedNoCheck = true
+			r.warnAuth(fmt.Sprintf("session %q has no check block: an expiry mid-scan will not be detected or re-logged in (add check: to the session)", s.Name))
 		}
 		return ls
 	}
 	live.primary = liveFor(mgr.Primary())
 	infra.sessions = live
 
+	anonRequester := infra.httpRequester
 	primaryHeaders := mgr.PrimaryHeaders()
 	if live.primary != nil {
 		primaryHeaders = withoutHeaders(primaryHeaders, pinned)
@@ -198,6 +212,10 @@ func (r *Runner) initSessions(ctx context.Context, infra *phaseInfra) error {
 		zap.String("primary", mgr.Primary().Name),
 		zap.Int("compare_sessions", len(cmpSessions)))
 
+	// Does the primary session change what the target returns? A login that
+	// "worked" but whose credentials the app ignores reads, for the rest of the
+	// scan, as an app with nothing behind the login.
+	r.checkAuthDifferential(ctx, anonRequester, mgr.Primary(), infra)
 	return nil
 }
 
@@ -368,4 +386,89 @@ func (r *Runner) persistSessionsToDB(ctx context.Context, sessions []*authentica
 	zap.L().Info("Persisted CLI sessions to authentication_hostnames",
 		zap.Int("sessions", len(sessions)),
 		zap.Strings("hostnames", hostnames))
+}
+
+// warnAuth prints an authentication warning on stderr (unless --silent) and in
+// the scan log.
+func (r *Runner) warnAuth(msg string) {
+	zap.L().Warn(msg)
+	if r.scanLogger != nil {
+		r.scanLogger.Warn("auth", msg)
+	}
+	if r.options != nil && !r.options.Silent {
+		fmt.Fprintf(os.Stderr, "%s %s\n", terminal.WarnPrefix(), msg)
+	}
+}
+
+// noteLoginVerification reports logins that ran but could not be verified:
+// a warning, the session recorded for the auth_unverified reason, and — when
+// the session's reauth.on_failure is abort — an error that stops the scan
+// before it probes an app it may not be logged in to.
+func (r *Runner) noteLoginVerification(results []authentication.LoginResult, sessions []*authentication.Session, infra *phaseInfra) error {
+	byName := make(map[string]*authentication.Session, len(sessions))
+	for _, s := range sessions {
+		byName[s.Name] = s
+	}
+	for _, res := range results {
+		if !res.OK || res.Verified {
+			continue
+		}
+		infra.authUnverified = append(infra.authUnverified, res.Session)
+		r.warnAuth(fmt.Sprintf("session %q: login could not be verified — %s", res.Session, res.Message))
+		if s := byName[res.Session]; s != nil && s.Reauth != nil && s.Reauth.OnFailure == authentication.ReauthAbort {
+			return fmt.Errorf("session %q: login could not be verified and reauth.on_failure is abort: %s", res.Session, res.Message)
+		}
+	}
+	return nil
+}
+
+// authDifferentialProbe sends the request anonymously and with the session's
+// headers, without redirects or clustering, for AssessAuthenticated.
+func authDifferentialProbe(ctx context.Context, req *http.Requester, target string) *authentication.ProbeResponse {
+	p := &authentication.ProbeResponse{URL: target}
+	hr, err := httpmsg.HttpRequestFromURL(target)
+	if err != nil {
+		p.Err = err
+		return p
+	}
+	chain, _, err := req.ExecuteContext(ctx, httpmsg.NewHttpRequestResponse(hr, nil),
+		http.Options{NoRedirects: true, NoClustering: true, DisableCompression: true})
+	if err != nil {
+		p.Err = err
+		return p
+	}
+	defer chain.Close()
+	resp := chain.Response()
+	if resp == nil {
+		p.Err = fmt.Errorf("no response")
+		return p
+	}
+	p.Status = resp.StatusCode
+	p.Header = resp.Header.Clone()
+	p.Body = append([]byte(nil), chain.BodyBytes()...)
+	return p
+}
+
+// checkAuthDifferential compares the first target fetched anonymously and as
+// the primary session (the same assessment as `vigolium auth check`). When the
+// two are indistinguishable the credentials are probably not reaching or not
+// changing the app: warned, and recorded as auth_unverified.
+func (r *Runner) checkAuthDifferential(ctx context.Context, anon *http.Requester, primary *authentication.Session, infra *phaseInfra) {
+	if anon == nil || primary == nil || len(primary.HeaderSlice()) == 0 || len(r.options.Targets) == 0 {
+		return
+	}
+	authView, err := anon.WithAdditionalHeaders(primary.HeaderSlice())
+	if err != nil {
+		return
+	}
+	target := r.options.Targets[0]
+	pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	a := authentication.AssessAuthenticated(authDifferentialProbe(pctx, authView, target), authDifferentialProbe(pctx, anon, target), primary.Check)
+	if a.Verdict != authentication.VerdictIndistinguishable && a.Verdict != authentication.VerdictLoginWall && a.Verdict != authentication.VerdictUnauthorized {
+		return
+	}
+	infra.authUnverified = append(infra.authUnverified, primary.Name)
+	r.warnAuth(fmt.Sprintf("session %q: %s on %s (%s) — the scan may be running unauthenticated; check with 'vigolium auth check'",
+		primary.Name, a.Verdict, target, a.Reason))
 }

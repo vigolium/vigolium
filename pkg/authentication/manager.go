@@ -38,6 +38,10 @@ type Manager struct {
 	// flowMu guards the login flows rehydrate copies and writes back (a
 	// rotated OAuth2 refresh_token).
 	flowMu sync.Mutex
+
+	// loginResults are the logins HydrateSessionsContext ran (LoginResults).
+	loginMu      sync.Mutex
+	loginResults []LoginResult
 }
 
 // ManagerOption configures optional Manager behavior.
@@ -151,10 +155,18 @@ func (m *Manager) HydrateSessionsContext(ctx context.Context) error {
 			return fmt.Errorf("session %q: login not attempted: %w", s.Name, err)
 		}
 		zap.L().Info("Executing login flow", zap.String("session", s.Name), zap.String("url", s.Login.URL))
-		if err := executeLogin(ctx, s, client); err != nil {
-			return err
+		// CheckLogin is the scan's login (executeLogin) plus the verdict on
+		// whether the response proves it worked, which the runner reports.
+		res := CheckLogin(ctx, s, client)
+		m.recordLogin(res)
+		if !res.OK {
+			return res.Err
 		}
-		zap.L().Info("Login successful", zap.String("session", s.Name))
+		if res.Verified {
+			zap.L().Info("Login successful", zap.String("session", s.Name))
+		} else {
+			zap.L().Warn("Login ran but could not be verified", zap.String("session", s.Name), zap.String("detail", res.Message))
+		}
 	}
 	return nil
 }
@@ -395,4 +407,19 @@ func isJSON(path string, content string) bool {
 // ~/.vigolium/sessions/) with .yaml, .yml and .json tried in order.
 func ResolveSessionPath(path, sessionDir string) string {
 	return resolveSessionPath(path, sessionDir)
+}
+
+// recordLogin keeps a login's result for LoginResults.
+func (m *Manager) recordLogin(res LoginResult) {
+	m.loginMu.Lock()
+	defer m.loginMu.Unlock()
+	m.loginResults = append(m.loginResults, res)
+}
+
+// LoginResults returns the result of every login HydrateSessionsContext ran,
+// in order: whether each succeeded and whether its response proved it.
+func (m *Manager) LoginResults() []LoginResult {
+	m.loginMu.Lock()
+	defer m.loginMu.Unlock()
+	return append([]LoginResult(nil), m.loginResults...)
 }
