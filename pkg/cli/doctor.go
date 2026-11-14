@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -25,6 +27,8 @@ var (
 	doctorFor string
 	// doctorTarget adds DNS/TCP/TLS reachability checks for a URL (--for scan).
 	doctorTarget string
+	// doctorYes consents to vendor installers (curl | bash, global agent tools).
+	doctorYes bool
 )
 
 // doctorRunDiagnostics is diagnostics.Run, replaced in tests: a real run spawns
@@ -46,6 +50,7 @@ func init() {
 	doctorCmd.Flags().BoolVar(&doctorFix, "fix", false, "Auto-install/fix failing checks")
 	doctorCmd.Flags().StringSliceVar(&doctorOnly, "only", nil, "Fix only specific items (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill)")
 	doctorCmd.Flags().BoolVar(&doctorStrict, "strict", false, "Exit 1 when the verdict is degraded, not only when it is not_ready")
+	doctorCmd.Flags().BoolVarP(&doctorYes, "yes", "y", false, "With --fix: also run vendor installers piped into a shell and global agent tooling installs (bun, claude, agent-browser, pi, piolium) without asking")
 	doctorCmd.Flags().StringVar(&doctorFor, "for", "", "Scope the verdict to one purpose: "+strings.Join(diagnostics.Purposes, "|")+" (checks that do not affect it are reported but not counted)")
 	doctorCmd.Flags().StringVarP(&doctorTarget, "target", "t", "", "With --for scan: also check DNS, TCP and TLS reachability of this URL")
 	doctorCmd.Flags().BoolVarP(&globalStateless, "stateless", "S", false, "With --for scan: the scan will use a temporary database, so the database check is skipped")
@@ -238,7 +243,10 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	fixes := diagnostics.RunFixes(ctx, report, settings, doctorOnly)
+	fixes := diagnostics.RunFixesWith(ctx, report, settings, doctorOnly, diagnostics.FixOptions{
+		AssumeYes: doctorYes,
+		Confirm:   doctorVendorConfirm(),
+	})
 	// The skill reinstall is CLI-side: it needs this binary's embedded bundle
 	// and version, which pkg/diagnostics cannot import.
 	if doctorSkillFixSelected(doctorOnly) {
@@ -346,6 +354,8 @@ func printFixResults(results []diagnostics.FixResult) {
 	for _, r := range results {
 		if r.Success {
 			fmt.Printf("  %s %-20s %s\n", terminal.Green(terminal.SymbolSuccess), terminal.Green(r.Label), terminal.White(r.Message))
+		} else if r.Skipped {
+			fmt.Printf("  %s %-20s %s\n", terminal.Yellow(terminal.SymbolWarning), terminal.Yellow(r.Label), terminal.White(r.Message))
 		} else {
 			fmt.Printf("  %s %-20s %s\n", terminal.Red(terminal.SymbolError), terminal.Red(r.Label), terminal.White(r.Message))
 		}
@@ -575,8 +585,8 @@ func printDoctorReport(r *diagnostics.Report) {
 		fmt.Printf("  %s %s%s%s\n",
 			terminal.Yellow(terminal.SymbolTip),
 			terminal.White("re-run with "),
-			terminal.BoldCyan("vigolium doctor --fix"),
-			terminal.White(" to attempt auto-installation of missing components"),
+			terminal.BoldCyan("vigolium doctor --fix --only chrome,nuclei"),
+			terminal.White(" to install the scan dependencies (add --yes for agent tooling)"),
 		)
 	}
 	fmt.Println()
@@ -872,4 +882,23 @@ func formatAgentMessage(a *diagnostics.AgentCheck) string {
 		msg += ", ping=ok"
 	}
 	return msg
+}
+
+// doctorVendorConfirm returns the interactive consent prompt for vendor
+// installers, or nil when there is no terminal to ask on (-j, piped stdin):
+// then only --only and --yes consent.
+func doctorVendorConfirm() func(label, source string) bool {
+	if globalJSON || !stdinIsTerminal() || !terminal.StderrIsTerminal() {
+		return nil
+	}
+	reader := bufio.NewReader(os.Stdin)
+	return func(label, source string) bool {
+		fmt.Fprintf(os.Stderr, "  %s Install %s by running `%s`? [y/N] ", terminal.Yellow(terminal.SymbolTip), label, source)
+		line, _ := reader.ReadString('\n')
+		switch strings.ToLower(strings.TrimSpace(line)) {
+		case "y", "yes":
+			return true
+		}
+		return false
+	}
 }

@@ -154,8 +154,8 @@ func initializeVigolium(createDefaultDB bool) error {
 		fmt.Fprintf(os.Stderr, "  %s Database: %s\n", terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(config.ExpandPath(globalDB))))
 	}
 	fmt.Fprintf(os.Stderr, "  %s Docs & guides: %s\n", terminal.InfoSymbol(), terminal.Cyan("https://docs.vigolium.com"))
-	fmt.Fprintf(os.Stderr, "  %s Run %s for a full setup (browser, templates, and agentic-scan runtimes).\n",
-		terminal.TipSymbol(), terminal.BoldCyan("vigolium doctor --fix"))
+	fmt.Fprintf(os.Stderr, "  %s Run %s to install the browser and templates (add --yes for agentic-scan runtimes).\n",
+		terminal.TipSymbol(), terminal.BoldCyan("vigolium doctor --fix --only chrome,nuclei"))
 
 	return nil
 }
@@ -290,7 +290,7 @@ func (s coreDepState) missing() bool { return s.chromeMissing || s.nucleiMissing
 // notice is the single stderr line ensureCoreDeps prints when something is
 // missing: what will happen lazily, and how to do it now instead.
 func (s coreDepState) notice() string {
-	const fix = "check with 'vigolium doctor --for scan'; run 'vigolium doctor --fix' to pre-install"
+	const fix = "check with 'vigolium doctor --for scan'; run 'vigolium doctor --fix --only chrome,nuclei' to pre-install"
 	switch {
 	case s.chromeMissing && s.nucleiMissing:
 		return "chromium and nuclei-templates not found — chromium is downloaded on first --spider (~150 MB), templates are cloned on first known-issue scan; " + fix

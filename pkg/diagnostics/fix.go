@@ -50,6 +50,9 @@ type FixResult struct {
 	Label   string `json:"label"`
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+	// Skipped marks an install that was not attempted because it pipes a
+	// vendor installer into a shell and consent was not given.
+	Skipped bool `json:"skipped,omitempty"`
 }
 
 // fixableItem defines a fixable doctor check.
@@ -63,6 +66,19 @@ type fixableItem struct {
 	DependsOn []string
 	IsFailing func(*Report) bool
 	Fix       func(ctx context.Context, settings *config.Settings) error
+	// VendorScript marks an install that runs (or may bootstrap) a vendor
+	// script piped into a shell, or installs global agent tooling. It runs
+	// only with consent: named in --only, --yes, or a TTY confirmation.
+	VendorScript bool
+}
+
+// FixOptions governs consent for VendorScript installs.
+type FixOptions struct {
+	// AssumeYes consents to every vendor install (doctor --fix --yes).
+	AssumeYes bool
+	// Confirm, when set, is asked per vendor install not named in --only
+	// (an interactive prompt); nil means no consent.
+	Confirm func(label, source string) bool
 }
 
 // aliases maps short names to canonical fix keys.
@@ -130,11 +146,12 @@ func fixRegistry() []fixableItem {
 			Fix:     fixChromium,
 		},
 		{
-			Key:     "bun",
-			Label:   "Bun",
-			Source:  "curl -fsSL https://bun.sh/install | bash",
-			ToolKey: "bun",
-			Fix:     fixBun,
+			VendorScript: true,
+			Key:          "bun",
+			Label:        "Bun",
+			Source:       "curl -fsSL https://bun.sh/install | bash",
+			ToolKey:      "bun",
+			Fix:          fixBun,
 		},
 		{
 			// Only an audit_external build has anything to fix here: it
@@ -150,30 +167,34 @@ func fixRegistry() []fixableItem {
 			Fix: fixAuditHelper,
 		},
 		{
-			Key:     "claude",
-			Label:   "Claude Code",
-			Source:  "curl -fsSL https://claude.ai/install.sh | bash",
-			ToolKey: "claude",
-			Fix:     fixClaude,
+			VendorScript: true,
+			Key:          "claude",
+			Label:        "Claude Code",
+			Source:       "curl -fsSL https://claude.ai/install.sh | bash",
+			ToolKey:      "claude",
+			Fix:          fixClaude,
 		},
 		{
-			Key:     "agent-browser",
-			Label:   "agent-browser",
-			Source:  "bun install --global agent-browser  (or npm install -g agent-browser)",
-			ToolKey: "agent-browser",
-			Fix:     fixAgentBrowser,
+			VendorScript: true,
+			Key:          "agent-browser",
+			Label:        "agent-browser",
+			Source:       "bun install --global agent-browser  (or npm install -g agent-browser)",
+			ToolKey:      "agent-browser",
+			Fix:          fixAgentBrowser,
 		},
 		{
-			Key:     "pi",
-			Label:   "Pi (pi-coding-agent)",
-			Source:  "bun add -g @earendil-works/pi-coding-agent  (or npm install -g …)",
-			ToolKey: "pi",
-			Fix:     fixPi,
+			VendorScript: true,
+			Key:          "pi",
+			Label:        "Pi (pi-coding-agent)",
+			Source:       "bun add -g @earendil-works/pi-coding-agent  (or npm install -g …)",
+			ToolKey:      "pi",
+			Fix:          fixPi,
 		},
 		{
-			Key:    "piolium",
-			Label:  "Piolium (Pi extension)",
-			Source: "pi install npm:@vigolium/piolium",
+			VendorScript: true,
+			Key:          "piolium",
+			Label:        "Piolium (Pi extension)",
+			Source:       "pi install npm:@vigolium/piolium",
 			IsFailing: func(r *Report) bool {
 				return r.Piolium != nil && r.Piolium.Status != StatusOK
 			},
@@ -240,7 +261,16 @@ func HasFixableIssues(r *Report) bool {
 // The standalone bun install is skipped by default when npm is present —
 // npm-equipped hosts use npm for the global installs. `--only bun` force-
 // installs bun regardless.
+//
+// Installs that pipe a vendor script into a shell or add global agent tooling
+// (VendorScript: bun, claude, agent-browser, pi, piolium) are skipped unless
+// named in only; RunFixesWith adds --yes and an interactive confirmation.
 func RunFixes(ctx context.Context, report *Report, settings *config.Settings, only []string) []FixResult {
+	return RunFixesWith(ctx, report, settings, only, FixOptions{})
+}
+
+// RunFixesWith is RunFixes with consent options for vendor installs.
+func RunFixesWith(ctx context.Context, report *Report, settings *config.Settings, only []string, opts FixOptions) []FixResult {
 	registry := fixRegistry()
 
 	// Resolve aliases in only list.
@@ -292,6 +322,19 @@ func RunFixes(ctx context.Context, report *Report, settings *config.Settings, on
 			isFailing = func(r *Report) bool { return toolFailing(r, key) }
 		}
 		if isFailing != nil && !isFailing(report) {
+			continue
+		}
+
+		// A vendor installer piped into a shell, or global agent tooling,
+		// runs only with consent: named in --only, --yes, or confirmed.
+		if item.VendorScript && !onlySet[item.Key] && !opts.AssumeYes &&
+			(opts.Confirm == nil || !opts.Confirm(item.Label, item.Source)) {
+			results = append(results, FixResult{
+				Key:     item.Key,
+				Label:   item.Label,
+				Skipped: true,
+				Message: fmt.Sprintf("skipped: runs `%s`; name it with --only %s or pass --yes", item.Source, item.Key),
+			})
 			continue
 		}
 
