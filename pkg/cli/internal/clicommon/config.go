@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 )
 
 // EffectiveConfigPath resolves the config file path to operate on: the expanded
@@ -56,6 +57,11 @@ func ResetConfigWarningsForTest() {
 	configWarnMu.Unlock()
 }
 
+// DiscoveredConfigFatal makes an unreadable DISCOVERED config fatal in
+// LoadSettings. The root command sets it for every command except the ones
+// that exist to inspect or repair a broken config (see LoadSettings).
+var DiscoveredConfigFatal bool
+
 // LoadSettings is the CLI's single entry point for reading configuration.
 //
 // It applies the one policy that was previously re-decided (differently) at
@@ -67,9 +73,13 @@ func ResetConfigWarningsForTest() {
 //     --config meant the command ran against the default database and the
 //     default scan profile and exited 0 — the single worst outcome available,
 //     because it looks exactly like success.
-//   - A config file found by DISCOVERY is a convenience. An unreadable one warns
-//     and falls back to defaults, because there is nothing the operator asked
-//     for to betray.
+//   - A config file found by DISCOVERY that cannot be read is fatal too
+//     (config_invalid, naming the path and `vigolium config validate`) on
+//     every command that acts on it — DiscoveredConfigFatal, set by the root
+//     command. Falling back to built-in defaults silently dropped the operator's
+//     scope excludes, rate limits and `oast.enabled: false`. The repair
+//     commands (doctor, config validate|clean|ls, version, help) keep the old
+//     warn-and-default behaviour so the broken file can be inspected and fixed.
 //
 // Non-fatal diagnostics (unknown keys, a shadowed ./vigolium-configs.yaml) are
 // printed once per process through ConfigWarn.
@@ -77,6 +87,11 @@ func LoadSettings(configPath string) (*config.Settings, error) {
 	settings, warnings, err := config.LoadSettingsWithWarnings(configPath)
 	if err != nil {
 		var loadErr *config.LoadError
+		if errors.As(err, &loadErr) && !loadErr.Explicit && DiscoveredConfigFatal {
+			return nil, CodedErrorf(apicontract.CodeConfigInvalid,
+				"config %s is unreadable: %v; fix it (run `vigolium config validate`) or pass --config <file>",
+				loadErr.Path, loadErr.Err)
+		}
 		if errors.As(err, &loadErr) && !loadErr.Explicit {
 			WarnConfigOnce(fmt.Sprintf("ignoring unreadable config %s: %v; using built-in defaults",
 				loadErr.Path, loadErr.Err))

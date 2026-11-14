@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/internal/resources/wordlists"
 	"github.com/vigolium/vigolium/pkg/bulkhttp"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -243,7 +244,7 @@ func wordlistDir() string {
 	if dir := os.Getenv(wordlistDirEnv); dir != "" {
 		return config.ExpandPath(dir)
 	}
-	return config.ExpandPath(defaultWordlistDir)
+	return paths.StateDir("wordlists", config.ExpandPath(defaultWordlistDir))
 }
 
 // resolvedDiscoveryWordlists holds the effective deparos wordlist paths after

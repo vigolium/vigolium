@@ -138,7 +138,7 @@ func ApplyIntensityAndProfile(settings *config.Settings, opts *types.Options, re
 		return "", nil
 	}
 	profilePath := settings.ScanningStrategy.ResolveProfilePath(profileName)
-	profile, err := config.LoadProfile(profilePath)
+	profile, err := config.LoadProfileWithBuiltin(profilePath, profileName)
 	if err != nil {
 		return "", fmt.Errorf("failed to load scanning profile %q: %w", profileName, err)
 	}

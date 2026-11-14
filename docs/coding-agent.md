@@ -120,6 +120,26 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
 - **`scan-url` and `scan-request` persist by default.** Their findings and
   traffic go into the project database like any other scan; `-S/--stateless`
   is what makes a run throwaway (pair it with `-o`/`--format` to keep anything).
+- **`-S` on a scan writes nothing to `$HOME`.** On `scan`, `run`, `scan-url`
+  and `scan-request`, `-S` skips the first-run bootstrap (no config, database,
+  presets or `initialized` marker is created; the scan runs on embedded
+  defaults and built-in profiles), does not write the update-check cache, and
+  redirects every state path — native-sessions liveness, materialized
+  wordlists, and a jstangle cache it cannot write — to a per-process scratch
+  directory under `$TMPDIR` that is removed on exit. It may READ caches: an
+  installed browser (`~/.cache/vigolium/chrome-for-testing-*`), jstangle, and
+  nuclei templates. A download that would land in `$HOME` fails closed with
+  the fix: missing templates fail the known-issue scan (`vigolium doctor --fix
+  --only nuclei`, or `--known-issue-scan-templates-dir`), a missing browser
+  fails the crawl (`vigolium doctor --fix --only chrome`, `spidering.browser_path`,
+  or `--skip spidering`). Pin paths explicitly with `VIGOLIUM_WORDLIST_DIR`,
+  `--known-issue-scan-templates-dir` and `spidering.browser_path` to reuse
+  prepared copies in a read-only image. **Limitation:** the embedded
+  nuclei/uncover libraries create their config directories
+  (`~/Library/Application Support/{nuclei,uncover}` on macOS,
+  `~/.config/{nuclei,uncover}` on Linux) at package init, before any flag is
+  parsed; set `XDG_CONFIG_HOME`/`NUCLEI_CONFIG_DIR` to a writable path (e.g.
+  `/tmp`) to keep them out of `$HOME`.
 - **Every scan command prints ONE scan document under `-j`** — `scan`, `run`,
   `scan-url` and `scan-request`, on every path (direct, `-S`, `-o`, `--only`,
   `--skip`, one target or many, success or failure). See

@@ -154,11 +154,14 @@ func (r *Runner) provisionNucleiTemplates(ctx context.Context, inScopeHosts []da
 			return nil
 		}
 	}
+	if r.settings != nil {
+		knownissuescan.SetTemplatesPin(r.settings.KnownIssueScan.TemplatesVersion, r.settings.KnownIssueScan.TemplatesSHA256)
+	}
 	var step *setupStep
 	err := ensureNucleiTemplates(dir, func(state, _ string, _ error) {
 		if state == knownissuescan.TemplatesStarted {
 			step = r.beginSetup(setupComponentNuclei, "nuclei-templates",
-				"not found, cloning them once (typically 1–3 min; not counted against the known-issue-scan budget)")
+				"not found, downloading the release archive once (typically under a minute; not counted against the known-issue-scan budget)")
 		}
 	})
 	if step != nil {

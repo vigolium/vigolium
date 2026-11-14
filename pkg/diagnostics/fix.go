@@ -14,6 +14,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/audit/bin"
 	"github.com/vigolium/vigolium/pkg/cftbrowser"
+	"github.com/vigolium/vigolium/pkg/nucleitemplates"
 	"github.com/vigolium/vigolium/pkg/piolium"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -50,6 +51,9 @@ type FixResult struct {
 	Label   string `json:"label"`
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+	// Skipped marks an install that was not attempted because it pipes a
+	// vendor installer into a shell and consent was not given.
+	Skipped bool `json:"skipped,omitempty"`
 }
 
 // fixableItem defines a fixable doctor check.
@@ -63,6 +67,22 @@ type fixableItem struct {
 	DependsOn []string
 	IsFailing func(*Report) bool
 	Fix       func(ctx context.Context, settings *config.Settings) error
+	// VendorScript marks an install that runs (or may bootstrap) a vendor
+	// script piped into a shell, or installs global agent tooling. It runs
+	// only with consent: named in --only, --yes, or a TTY confirmation.
+	VendorScript bool
+	// Refreshable items re-install when named in --only even if their check
+	// passes (`doctor --fix --only nuclei` refreshes the templates).
+	Refreshable bool
+}
+
+// FixOptions governs consent for VendorScript installs.
+type FixOptions struct {
+	// AssumeYes consents to every vendor install (doctor --fix --yes).
+	AssumeYes bool
+	// Confirm, when set, is asked per vendor install not named in --only
+	// (an interactive prompt); nil means no consent.
+	Confirm func(label, source string) bool
 }
 
 // aliases maps short names to canonical fix keys.
@@ -114,9 +134,10 @@ func ResolveFixKey(name string) string {
 func fixRegistry() []fixableItem {
 	return []fixableItem{
 		{
-			Key:    "nuclei-templates",
-			Label:  "Nuclei Templates",
-			Source: "git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git ~/nuclei-templates",
+			Key:         "nuclei-templates",
+			Label:       "Nuclei Templates",
+			Source:      "release archive from github.com/projectdiscovery/nuclei-templates (pinned by known_issue_scan.templates_version)",
+			Refreshable: true,
 			IsFailing: func(r *Report) bool {
 				return r.NucleiTemplates != nil && r.NucleiTemplates.Status != StatusOK
 			},
@@ -130,11 +151,12 @@ func fixRegistry() []fixableItem {
 			Fix:     fixChromium,
 		},
 		{
-			Key:     "bun",
-			Label:   "Bun",
-			Source:  "curl -fsSL https://bun.sh/install | bash",
-			ToolKey: "bun",
-			Fix:     fixBun,
+			VendorScript: true,
+			Key:          "bun",
+			Label:        "Bun",
+			Source:       "curl -fsSL https://bun.sh/install | bash",
+			ToolKey:      "bun",
+			Fix:          fixBun,
 		},
 		{
 			// Only an audit_external build has anything to fix here: it
@@ -150,30 +172,34 @@ func fixRegistry() []fixableItem {
 			Fix: fixAuditHelper,
 		},
 		{
-			Key:     "claude",
-			Label:   "Claude Code",
-			Source:  "curl -fsSL https://claude.ai/install.sh | bash",
-			ToolKey: "claude",
-			Fix:     fixClaude,
+			VendorScript: true,
+			Key:          "claude",
+			Label:        "Claude Code",
+			Source:       "curl -fsSL https://claude.ai/install.sh | bash",
+			ToolKey:      "claude",
+			Fix:          fixClaude,
 		},
 		{
-			Key:     "agent-browser",
-			Label:   "agent-browser",
-			Source:  "bun install --global agent-browser  (or npm install -g agent-browser)",
-			ToolKey: "agent-browser",
-			Fix:     fixAgentBrowser,
+			VendorScript: true,
+			Key:          "agent-browser",
+			Label:        "agent-browser",
+			Source:       "bun install --global agent-browser  (or npm install -g agent-browser)",
+			ToolKey:      "agent-browser",
+			Fix:          fixAgentBrowser,
 		},
 		{
-			Key:     "pi",
-			Label:   "Pi (pi-coding-agent)",
-			Source:  "bun add -g @earendil-works/pi-coding-agent  (or npm install -g …)",
-			ToolKey: "pi",
-			Fix:     fixPi,
+			VendorScript: true,
+			Key:          "pi",
+			Label:        "Pi (pi-coding-agent)",
+			Source:       "bun add -g @earendil-works/pi-coding-agent  (or npm install -g …)",
+			ToolKey:      "pi",
+			Fix:          fixPi,
 		},
 		{
-			Key:    "piolium",
-			Label:  "Piolium (Pi extension)",
-			Source: "pi install npm:@vigolium/piolium",
+			VendorScript: true,
+			Key:          "piolium",
+			Label:        "Piolium (Pi extension)",
+			Source:       "pi install npm:@vigolium/piolium",
 			IsFailing: func(r *Report) bool {
 				return r.Piolium != nil && r.Piolium.Status != StatusOK
 			},
@@ -240,7 +266,16 @@ func HasFixableIssues(r *Report) bool {
 // The standalone bun install is skipped by default when npm is present —
 // npm-equipped hosts use npm for the global installs. `--only bun` force-
 // installs bun regardless.
+//
+// Installs that pipe a vendor script into a shell or add global agent tooling
+// (VendorScript: bun, claude, agent-browser, pi, piolium) are skipped unless
+// named in only; RunFixesWith adds --yes and an interactive confirmation.
 func RunFixes(ctx context.Context, report *Report, settings *config.Settings, only []string) []FixResult {
+	return RunFixesWith(ctx, report, settings, only, FixOptions{})
+}
+
+// RunFixesWith is RunFixes with consent options for vendor installs.
+func RunFixesWith(ctx context.Context, report *Report, settings *config.Settings, only []string, opts FixOptions) []FixResult {
 	registry := fixRegistry()
 
 	// Resolve aliases in only list.
@@ -291,7 +326,21 @@ func RunFixes(ctx context.Context, report *Report, settings *config.Settings, on
 			key := item.ToolKey
 			isFailing = func(r *Report) bool { return toolFailing(r, key) }
 		}
-		if isFailing != nil && !isFailing(report) {
+		refresh := item.Refreshable && onlySet[item.Key]
+		if isFailing != nil && !isFailing(report) && !refresh {
+			continue
+		}
+
+		// A vendor installer piped into a shell, or global agent tooling,
+		// runs only with consent: named in --only, --yes, or confirmed.
+		if item.VendorScript && !onlySet[item.Key] && !opts.AssumeYes &&
+			(opts.Confirm == nil || !opts.Confirm(item.Label, item.Source)) {
+			results = append(results, FixResult{
+				Key:     item.Key,
+				Label:   item.Label,
+				Skipped: true,
+				Message: fmt.Sprintf("skipped: runs `%s`; name it with --only %s or pass --yes", item.Source, item.Key),
+			})
 			continue
 		}
 
@@ -414,19 +463,20 @@ func fixChromium(ctx context.Context, _ *config.Settings) error {
 
 func fixNucleiTemplates(ctx context.Context, settings *config.Settings) error {
 	dir := nucleiTemplatesDir(settings)
-	// --quiet suppresses the "Cloning into…", "remote: …", and
-	// "Receiving/Resolving" progress chatter so `vigolium doctor --fix` and
-	// the first-run setup show a single success line. Real errors still go
-	// to stderr.
-	cmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth", "1",
-		"https://github.com/projectdiscovery/nuclei-templates.git", dir)
-	cmd.Stdout = fixOut
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git clone failed: %w", err)
+	pin := nucleitemplates.Pin{}
+	if settings != nil {
+		pin = nucleitemplates.Pin{Version: settings.KnownIssueScan.TemplatesVersion, SHA256: settings.KnownIssueScan.TemplatesSHA256}
 	}
+	m, err := installTemplates(ctx, dir, pin)
+	if err != nil {
+		return err
+	}
+	fixf("    nuclei-templates %s installed at %s (sha256 %s)\n", m.Version, config.ContractPath(dir), shortDigest(m.SHA256))
 	return nil
 }
+
+// installTemplates is nucleitemplates.Install, replaceable in tests.
+var installTemplates = nucleitemplates.Install
 
 // findNpm locates the npm binary on PATH. npm ships with Node, so unlike
 // bun there's no well-known fixed install location to fall back to.

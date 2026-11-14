@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -21,13 +23,23 @@ var initCmd = &cobra.Command{
 	Long: `Create the ~/.vigolium directory with a default config file, database schema,
 scanning profiles, prompt templates, and extensions.
 
-Safe to run on an existing installation — skips components that already exist
-unless --force is passed, which regenerates the config (with a new API key)
-and re-extracts all preset data.`,
+Idempotent: on an existing installation it re-runs every step that is safe to
+repeat — database schema and seed, write-if-missing presets (profiles,
+extensions, prompts, skills) and the core dependency check — so a deleted
+profile or a missing database is restored and existing edits are kept.
+--force backs up the config and preset directories to
+~/.vigolium/backup-<timestamp>/ before regenerating them (with a new API key).
+Fails (not_ready) when chromium or nuclei-templates cannot be installed;
+--offline skips those downloads.`,
 	RunE: runInitCmd,
 }
 
+// initOffline is `init --offline`: complete every local step but download
+// nothing (chromium, nuclei-templates).
+var initOffline bool
+
 func init() {
+	initCmd.Flags().BoolVar(&initOffline, "offline", false, "Do every local setup step but download nothing (chromium, nuclei-templates); a missing dependency is reported, not fatal")
 	rootCmd.AddCommand(initCmd)
 }
 
@@ -42,43 +54,47 @@ func runInitCmd(cmd *cobra.Command, args []string) error {
 	vigoliumDir := filepath.Join(homeDir, ".vigolium")
 	settingsPath := filepath.Join(vigoliumDir, settingsFileName)
 
-	if _, err := os.Stat(settingsPath); err == nil && !globalForce {
-		fmt.Fprintf(os.Stderr, "%s Already initialized (%s exists). Use --force to reinitialize.\n",
-			terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(settingsPath)))
-		// The config exists, but the core deps may not: every bootstrapping command writes the
-		// config on first use without fetching chromium or nuclei-templates, so an explicit
-		// `init` on such a home must still complete them. installCoreDeps returns at once when
-		// the marker is already stamped.
-		if err := installCoreDeps(); err != nil {
-			return fmt.Errorf("core dependency install failed: %w", err)
-		}
-		if globalJSON {
-			return emitMutation(cmd, "", mutationResult{
-				Action: "noop",
-				Extra:  map[string]any{"already_initialized": true, "config_path": config.ContractPath(settingsPath)},
-			})
-		}
-		return nil
-	}
+	_, statErr := os.Stat(settingsPath)
+	existed := statErr == nil
 
 	if err := os.MkdirAll(vigoliumDir, 0755); err != nil {
 		return fmt.Errorf("failed to create .vigolium directory: %w", err)
 	}
 
-	// Write default config with a fresh API key
-	configData := bytes.Replace(
-		public.DefaultConfigYAML,
-		[]byte(`auth_api_key: "auto-generated-on-first-run"`),
-		[]byte(fmt.Sprintf(`auth_api_key: "%s"`, config.GenerateRandomHex(40))),
-		1,
-	)
-	if err := os.WriteFile(settingsPath, configData, 0600); err != nil {
-		return fmt.Errorf("failed to write default config: %w", err)
+	backupDir := ""
+	if globalForce && existed {
+		dir, err := backupVigoliumHome(vigoliumDir, settingsPath)
+		if err != nil {
+			return fmt.Errorf("back up before --force: %w", err)
+		}
+		backupDir = dir
 	}
 
-	settings := config.DefaultSettings()
+	wroteConfig := false
+	if !existed || globalForce {
+		// Write default config with a fresh API key
+		configData := bytes.Replace(
+			public.DefaultConfigYAML,
+			[]byte(`auth_api_key: "auto-generated-on-first-run"`),
+			[]byte(fmt.Sprintf(`auth_api_key: "%s"`, config.GenerateRandomHex(40))),
+			1,
+		)
+		if err := os.WriteFile(settingsPath, configData, 0600); err != nil {
+			return fmt.Errorf("failed to write default config: %w", err)
+		}
+		wroteConfig = true
+	}
 
-	// Initialize database
+	// The database the effective config names (the default on a fresh home).
+	settings := config.DefaultSettings()
+	if existed && !globalForce {
+		if loaded, err := clicommon.LoadSettings(globalConfig); err == nil && loaded != nil {
+			settings = loaded
+		}
+	}
+
+	// Initialize database: schema and seed are idempotent, so they run on every
+	// init and restore a store that was deleted or never created.
 	if settings.Database.Enabled {
 		db, err := database.NewDB(&settings.Database)
 		if err != nil {
@@ -95,19 +111,6 @@ func runInitCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if globalForce {
-		// Remove sentinel directories so bootstrap helpers re-extract
-		for _, sub := range []string{"profiles", "extensions", "prompts"} {
-			_ = os.RemoveAll(filepath.Join(vigoliumDir, sub))
-		}
-		// Skills may live outside vigoliumDir (VIGOLIUM_SKILLS_DIR), so resolve
-		// and wipe the actual dir before re-extracting. --force resets to
-		// defaults, discarding any operator edits.
-		if sk := skill.UserSkillsDir(); sk != "" {
-			_ = os.RemoveAll(sk)
-		}
-	}
-
 	bootstrapDefaultProfiles(vigoliumDir)
 	bootstrapExtensions(vigoliumDir)
 	bootstrapPrompts(vigoliumDir)
@@ -117,13 +120,12 @@ func runInitCmd(cmd *cobra.Command, args []string) error {
 	// `vigolium init` is a complete setup — unlike a scan, which only checks and
 	// lets the phase that needs a dependency fetch it. Without --force the
 	// marker may already exist and installCoreDeps short-circuits; under --force
-	// we wipe the marker first so the check re-runs on the same invocation
-	// (handy when --force is used to recover a broken setup).
+	// we wipe the marker first so the check re-runs on the same invocation.
 	if globalForce {
 		_ = os.Remove(filepath.Join(vigoliumDir, initMarkerFileName))
 	}
 	if err := installCoreDeps(); err != nil {
-		return fmt.Errorf("core dependency install failed: %w", err)
+		return err
 	}
 
 	if globalJSON {
@@ -141,19 +143,65 @@ func runInitCmd(cmd *cobra.Command, args []string) error {
 		if sk := skill.UserSkillsDir(); sk != "" {
 			items = append(items, initPathView{Kind: "skills", Path: config.ContractPath(sk)})
 		}
-		action := "create"
-		if globalForce {
-			action = "reset"
+		if backupDir != "" {
+			items = append(items, initPathView{Kind: "backup", Path: config.ContractPath(backupDir)})
 		}
-		return emitMutation(cmd, "", mutationResult{Changed: true, Action: action, Items: items})
+		action := "create"
+		switch {
+		case globalForce:
+			action = "reset"
+		case existed:
+			action = "repair"
+		}
+		return emitMutation(cmd, "", mutationResult{Changed: wroteConfig || !existed, Action: action, Items: items,
+			Extra: map[string]any{"already_initialized": existed, "config_path": config.ContractPath(settingsPath)}})
 	}
 
-	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.SuccessSymbol(), terminal.BoldGreen("Vigolium initialized successfully!"))
+	headline := "Vigolium initialized successfully!"
+	if existed && !globalForce {
+		headline = "Vigolium installation checked and repaired (existing config kept)."
+	}
+	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.SuccessSymbol(), terminal.BoldGreen(headline))
 	fmt.Fprintf(os.Stderr, "  %s Config:   %s\n", terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(settingsPath)))
 	fmt.Fprintf(os.Stderr, "  %s Database: %s\n", terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(config.ExpandPath(settings.Database.SQLite.Path))))
+	if backupDir != "" {
+		fmt.Fprintf(os.Stderr, "  %s Backup:   %s\n", terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(backupDir)))
+	}
 	fmt.Fprintf(os.Stderr, "  %s Docs:     %s\n", terminal.InfoSymbol(), terminal.Cyan("https://docs.vigolium.com"))
 
 	return nil
+}
+
+// backupVigoliumHome moves the config file and the preset directories
+// (profiles, extensions, prompts, and the skills dir) into
+// ~/.vigolium/backup-<timestamp>/ so --force regenerates from defaults without
+// destroying operator edits. Returns the backup directory.
+func backupVigoliumHome(vigoliumDir, settingsPath string) (string, error) {
+	dir := filepath.Join(vigoliumDir, "backup-"+time.Now().UTC().Format("20060102T150405Z"))
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	move := func(src, name string) error {
+		if _, err := os.Lstat(src); err != nil {
+			return nil
+		}
+		return os.Rename(src, filepath.Join(dir, name))
+	}
+	if err := move(settingsPath, filepath.Base(settingsPath)); err != nil {
+		return "", err
+	}
+	for _, sub := range []string{"profiles", "extensions", "prompts"} {
+		if err := move(filepath.Join(vigoliumDir, sub), sub); err != nil {
+			return "", err
+		}
+	}
+	// Skills may live outside vigoliumDir (VIGOLIUM_SKILLS_DIR); a rename
+	// across filesystems can fail, in which case the skills are left in place
+	// (write-if-missing keeps the operator's copies).
+	if sk := skill.UserSkillsDir(); sk != "" {
+		_ = move(sk, "skills")
+	}
+	return dir, nil
 }
 
 // initPathView is one path `init -j` wrote or re-extracted.

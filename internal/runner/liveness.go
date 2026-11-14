@@ -12,6 +12,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/atomicfile"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
 )
@@ -432,7 +433,7 @@ func sessionsDirFor(settings *config.Settings) string {
 	if settings == nil {
 		return ""
 	}
-	return settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir()
+	return paths.StateDir("native-sessions", settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir())
 }
 
 // sqliteDBPathFor names the database file a scan writes, "" for a non-SQLite

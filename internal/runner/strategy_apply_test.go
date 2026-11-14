@@ -276,6 +276,19 @@ func TestApplyIntensityAndProfile(t *testing.T) {
 		}
 	})
 
+	t.Run("built-in profile falls back to the embedded copy", func(t *testing.T) {
+		// RUN-7: a home whose profiles directory is empty (a mounted config,
+		// no init) still resolves --intensity quick from the embed.
+		s, opts := config.DefaultSettings(), types.DefaultOptions()
+		s.ScanningStrategy.ProfilesDir = t.TempDir()
+		if _, err := ApplyIntensityAndProfile(s, opts, ProfileRequest{Intensity: "quick"}); err != nil {
+			t.Fatalf("empty profiles dir + intensity quick: %v", err)
+		}
+		if opts.ScanningProfile != "quick" {
+			t.Errorf("profile=%q", opts.ScanningProfile)
+		}
+	})
+
 	t.Run("no request and no config profile is a no-op", func(t *testing.T) {
 		path, err := ApplyIntensityAndProfile(newSettings(), types.DefaultOptions(), ProfileRequest{})
 		if err != nil || path != "" {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/atomicfile"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/public"
 	"gopkg.in/yaml.v3"
 )
 
@@ -76,7 +77,40 @@ func LoadProfile(path string) (*ProfileSettings, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read profile file %s: %w", path, err)
 	}
+	return parseProfile(data, path)
+}
 
+// LoadProfileWithBuiltin is LoadProfile with a fallback for the built-in
+// profiles: when path does not exist and name is a bare built-in profile name
+// (quick, standard, full — the files under public/presets/profiles), the
+// embedded copy is parsed instead. A container that mounts a config but never
+// ran `init` has no profiles directory, and `--intensity quick` must still
+// work there. A file on disk always wins, so operator edits stand.
+func LoadProfileWithBuiltin(path, name string) (*ProfileSettings, error) {
+	profile, err := LoadProfile(path)
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
+		return profile, err
+	}
+	if data, ok := BuiltinProfile(name); ok {
+		return parseProfile(data, "embedded presets/profiles/"+name+".yaml")
+	}
+	return nil, err
+}
+
+// BuiltinProfile returns the embedded YAML of a built-in profile by bare name.
+func BuiltinProfile(name string) ([]byte, bool) {
+	if name == "" || strings.ContainsAny(name, `/\~.`) {
+		return nil, false
+	}
+	data, err := public.StaticFS.ReadFile("presets/profiles/" + name + ".yaml")
+	if err != nil {
+		return nil, false
+	}
+	return data, true
+}
+
+// parseProfile parses profile YAML; label names the source in errors.
+func parseProfile(data []byte, path string) (*ProfileSettings, error) {
 	content := ExpandEnvVars(string(data))
 
 	// Parse once into a node, then derive both the typed struct and the per-section

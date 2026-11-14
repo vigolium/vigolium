@@ -11,7 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 	oliumresources "github.com/vigolium/vigolium/internal/resources/olium"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/diagnostics"
@@ -33,6 +35,10 @@ const (
 // init only when both are, or by --skip-dependency-check. Once stamped, scan
 // commands fast-path past the dep check on every invocation.
 func writeInitMarker(vigoliumDir string) error {
+	// A stateless (-S) scan writes no state to $HOME (internal/paths).
+	if paths.Stateless() {
+		return nil
+	}
 	path := filepath.Join(vigoliumDir, initMarkerFileName)
 	payload := fmt.Sprintf(`{"version":%q,"initialized_at":%q}`+"\n",
 		Version,
@@ -153,49 +159,19 @@ func initializeVigolium(createDefaultDB bool) error {
 		fmt.Fprintf(os.Stderr, "  %s Database: %s\n", terminal.InfoSymbol(), terminal.Cyan(config.ContractPath(config.ExpandPath(globalDB))))
 	}
 	fmt.Fprintf(os.Stderr, "  %s Docs & guides: %s\n", terminal.InfoSymbol(), terminal.Cyan("https://docs.vigolium.com"))
-	fmt.Fprintf(os.Stderr, "  %s Run %s for a full setup (browser, templates, and agentic-scan runtimes).\n",
-		terminal.TipSymbol(), terminal.BoldCyan("vigolium doctor --fix"))
+	fmt.Fprintf(os.Stderr, "  %s Run %s to install the browser and templates (add --yes for agentic-scan runtimes).\n",
+		terminal.TipSymbol(), terminal.BoldCyan("vigolium doctor --fix --only chrome,nuclei"))
 
 	return nil
 }
 
-// bootstrapDefaultProfiles copies embedded profile YAMLs to the profiles directory
-// if the directory does not exist yet. This runs during first-time initialization.
+// bootstrapDefaultProfiles copies embedded profile YAMLs into the profiles
+// directory, write-if-missing per file: a profile the operator deleted comes
+// back, one they edited is left alone, and a directory that exists but is
+// missing some built-ins (a mounted config volume, a half-finished init) is
+// completed rather than skipped.
 func bootstrapDefaultProfiles(vigoliumDir string) {
-	profilesDir := filepath.Join(vigoliumDir, "profiles")
-
-	// Only bootstrap if the profiles directory does not exist
-	if _, err := os.Stat(profilesDir); err == nil {
-		return
-	}
-
-	if err := os.MkdirAll(profilesDir, 0755); err != nil {
-		zap.L().Debug("Failed to create profiles directory", zap.Error(err))
-		return
-	}
-
-	entries, err := public.StaticFS.ReadDir("presets/profiles")
-	if err != nil {
-		zap.L().Debug("Failed to read embedded profiles", zap.Error(err))
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		data, readErr := public.StaticFS.ReadFile("presets/profiles/" + entry.Name())
-		if readErr != nil {
-			continue
-		}
-		dest := filepath.Join(profilesDir, entry.Name())
-		if err := os.WriteFile(dest, data, 0644); err != nil {
-			zap.L().Debug("Failed to write default profile", zap.String("dest", dest), zap.Error(err))
-		}
-	}
-
-	zap.L().Info("Bootstrapped default scanning profiles",
-		zap.String("dir", profilesDir))
+	bootstrapEmbeddedDir(vigoliumDir, "profiles", "presets/profiles", "default scanning profiles")
 }
 
 // bootstrapPrompts copies embedded prompt templates to the prompts directory.
@@ -229,31 +205,31 @@ func bootstrapSkills() {
 }
 
 // bootstrapEmbeddedDir copies files from an embedded FS path into a subdirectory
-// of vigoliumDir, preserving directory structure. It only runs if the target
-// directory does not exist yet.
-func bootstrapEmbeddedDir(vigoliumDir, subDir, embedPath, label string) {
+// of vigoliumDir, preserving directory structure, write-if-missing per file
+// (existing files, edited or not, are never overwritten). Returns how many
+// files it wrote.
+func bootstrapEmbeddedDir(vigoliumDir, subDir, embedPath, label string) int {
 	targetDir := filepath.Join(vigoliumDir, subDir)
-
-	if _, err := os.Stat(targetDir); err == nil {
-		return
-	}
-
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		zap.L().Debug("Failed to create "+subDir+" directory", zap.Error(err))
-		return
+		return 0
 	}
-
-	copyEmbeddedDir(targetDir, embedPath)
-
-	zap.L().Info("Bootstrapped "+label, zap.String("dir", targetDir))
+	n := copyEmbeddedDir(targetDir, embedPath)
+	if n > 0 {
+		zap.L().Info("Bootstrapped "+label, zap.String("dir", targetDir), zap.Int("written", n))
+	}
+	return n
 }
 
-// copyEmbeddedDir recursively copies files from the embedded FS into targetDir.
-func copyEmbeddedDir(targetDir, embedPath string) {
+// copyEmbeddedDir recursively copies files from the embedded FS into
+// targetDir, skipping any destination that already exists. Returns the number
+// of files written.
+func copyEmbeddedDir(targetDir, embedPath string) int {
 	entries, err := public.StaticFS.ReadDir(embedPath)
 	if err != nil {
-		return
+		return 0
 	}
+	written := 0
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -262,18 +238,24 @@ func copyEmbeddedDir(targetDir, embedPath string) {
 				zap.L().Debug("Failed to create bootstrap subdir", zap.String("dir", subTarget), zap.Error(err))
 				continue
 			}
-			copyEmbeddedDir(subTarget, embedPath+"/"+entry.Name())
+			written += copyEmbeddedDir(subTarget, embedPath+"/"+entry.Name())
+			continue
+		}
+		dest := filepath.Join(targetDir, entry.Name())
+		if _, err := os.Lstat(dest); err == nil {
 			continue
 		}
 		data, readErr := public.StaticFS.ReadFile(embedPath + "/" + entry.Name())
 		if readErr != nil {
 			continue
 		}
-		dest := filepath.Join(targetDir, entry.Name())
 		if err := os.WriteFile(dest, data, 0644); err != nil {
 			zap.L().Debug("Failed to write bootstrapped file", zap.String("dest", dest), zap.Error(err))
+			continue
 		}
+		written++
 	}
+	return written
 }
 
 // coreDepCommands lists the command paths (not leaf names: `oast ingest` is not
@@ -313,7 +295,7 @@ func (s coreDepState) missing() bool { return s.chromeMissing || s.nucleiMissing
 // notice is the single stderr line ensureCoreDeps prints when something is
 // missing: what will happen lazily, and how to do it now instead.
 func (s coreDepState) notice() string {
-	const fix = "run 'vigolium doctor --fix' to pre-install"
+	const fix = "check with 'vigolium doctor --for scan'; run 'vigolium doctor --fix --only chrome,nuclei' to pre-install"
 	switch {
 	case s.chromeMissing && s.nucleiMissing:
 		return "chromium and nuclei-templates not found — chromium is downloaded on first --spider (~150 MB), templates are cloned on first known-issue scan; " + fix
@@ -392,6 +374,11 @@ func ensureCoreDeps(quiet bool) error {
 // installCoreDeps is `vigolium init`'s explicit setup: it installs chromium and
 // nuclei-templates when missing (doctor's `--fix --only nuclei,chrome`) and
 // stamps the marker once both are present. The scan bootstrap does not call it.
+//
+// It fails with not_ready when a dependency is still missing after the
+// install: an init that reported success while both downloads failed sent the
+// operator to a scan that then crawled nothing. Under --offline nothing is
+// downloaded; a missing dependency is reported, not failed on.
 func installCoreDeps() error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -408,6 +395,13 @@ func installCoreDeps() error {
 	}
 	if !checkCoreDeps(settings).missing() {
 		stampInitMarker(vigoliumDir)
+		return nil
+	}
+
+	if initOffline {
+		st := checkCoreDeps(settings)
+		fmt.Fprintf(os.Stderr, "%s --offline: not downloading %s; install later with %s\n",
+			terminal.WarnPrefix(), st.missingNames(), terminal.Cyan("vigolium doctor --fix --only chrome,nuclei"))
 		return nil
 	}
 
@@ -430,10 +424,26 @@ func installCoreDeps() error {
 		}
 	}
 
-	if !checkCoreDeps(settings).missing() {
-		stampInitMarker(vigoliumDir)
+	if st := checkCoreDeps(settings); st.missing() {
+		return clicommon.CodedErrorf(apicontract.CodeNotReady,
+			"%s still missing after install; retry with `vigolium doctor --fix --only chrome,nuclei` or pass --offline to skip downloads",
+			st.missingNames())
 	}
+	stampInitMarker(vigoliumDir)
 	return nil
+}
+
+// missingNames names the missing dependencies for a message.
+func (s coreDepState) missingNames() string {
+	switch {
+	case s.chromeMissing && s.nucleiMissing:
+		return "chromium and nuclei-templates"
+	case s.chromeMissing:
+		return "chromium"
+	case s.nucleiMissing:
+		return "nuclei-templates"
+	}
+	return "nothing"
 }
 
 // coreDepInstallTimeout caps `vigolium init`'s chromium + nuclei-templates
@@ -443,6 +453,9 @@ const coreDepInstallTimeout = 10 * time.Minute
 
 // stampInitMarker writes the marker (best-effort, dir created if needed).
 func stampInitMarker(vigoliumDir string) {
+	if paths.Stateless() {
+		return
+	}
 	if err := os.MkdirAll(vigoliumDir, 0755); err != nil {
 		zap.L().Debug("Failed to create .vigolium dir for init marker", zap.Error(err))
 		return

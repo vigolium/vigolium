@@ -11,6 +11,12 @@ type KnownIssueScanConfig struct {
 	ExcludeTags  []string `yaml:"exclude_tags"`  // tags to exclude
 	Severities   []string `yaml:"severities"`    // filter severities (empty = all)
 	TemplatesDir string   `yaml:"templates_dir"` // custom templates path
+	// TemplatesVersion pins the nuclei-templates release installed by
+	// `vigolium doctor --fix --only nuclei` and the first known-issue scan
+	// (e.g. "v10.2.4"); empty installs the latest release. TemplatesSHA256,
+	// when set, must match the release archive or the install fails.
+	TemplatesVersion string `yaml:"templates_version,omitempty"`
+	TemplatesSHA256  string `yaml:"templates_sha256,omitempty"`
 	// Templates, when non-empty, are the only template sources run: template
 	// files, directories, or paths relative to TemplatesDir (nuclei's -t).
 	// TemplatesDir then only roots those relative paths. Set from the CLI's

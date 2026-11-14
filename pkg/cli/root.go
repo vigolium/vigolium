@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/memlimit"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/internal/scratch"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -158,6 +159,10 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		zapLogger := initLogger(globalVerbose, globalSilent, globalDebug, globalDumpTraffic, globalLogFile)
 		_ = zapLogger // logger is set globally via zap.ReplaceGlobals
 
+		// A broken default config stops every command that would act on it;
+		// only the commands that inspect or repair it keep running on defaults.
+		clicommon.DiscoveredConfigFatal = discoveredConfigFatal(cmd)
+
 		// Applied before anything can open a database. --read-only is refused on
 		// commands that exist to write, rather than silently ignored there: a
 		// flag that looks like a safety control and does nothing is worse than
@@ -254,9 +259,19 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		// to need it. `version`, `help`, `completion` and the hidden completion
 		// RPCs are excluded: see shouldBootstrap for why a tab-completion must
 		// not create a database.
+		// -S on a scan-driving command: no config/state written to $HOME. The
+		// bootstrap (config, database, presets) is skipped — the scan runs on
+		// embedded defaults and profiles — and every state path redirects to a
+		// per-process scratch directory (internal/paths).
+		if err := applyStatelessHome(cmd); err != nil {
+			return err
+		}
+
 		if shouldBootstrap(cmd) {
-			if err := ensureInitialized(); err != nil {
-				return err
+			if !paths.Stateless() {
+				if err := ensureInitialized(); err != nil {
+					return err
+				}
 			}
 			// --skip-dependency-check opts out of the first-run chromium +
 			// nuclei-templates check entirely: stamp the marker now so this and
@@ -628,4 +643,69 @@ func resolveModules() []string {
 // syncLogger should be deferred in RunE functions to flush buffered logs.
 func syncLogger() {
 	clicommon.SyncLogger()
+}
+
+// configRepairCommands are the command paths that still run (on built-in
+// defaults, with a warning) when the discovered config is unreadable: the
+// commands an operator uses to find and fix it.
+var configRepairCommands = map[string]bool{
+	"doctor":          true,
+	"config validate": true,
+	"config clean":    true,
+	"config ls":       true,
+	"version":         true,
+	"help":            true,
+	"completion":      true,
+}
+
+// discoveredConfigFatal reports whether an unreadable discovered config must
+// fail cmd (clicommon.DiscoveredConfigFatal).
+func discoveredConfigFatal(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return true
+	}
+	path := strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()))
+	for p := path; p != ""; {
+		if configRepairCommands[p] {
+			return false
+		}
+		i := strings.LastIndex(p, " ")
+		if i < 0 {
+			break
+		}
+		p = p[:i]
+	}
+	// cobra's hidden completion RPCs.
+	return !strings.HasPrefix(cmd.Name(), "__complete")
+}
+
+// statelessHomeCommands are the scan-driving command paths on which -S means
+// "write nothing to $HOME" (the read commands' -S only switches the store).
+var statelessHomeCommands = map[string]bool{
+	"scan":         true,
+	"run":          true,
+	"scan-url":     true,
+	"scan-request": true,
+}
+
+// applyStatelessHome enables the stateless home (internal/paths) for a -S
+// scan, rooted in this process's scratch directory.
+func applyStatelessHome(cmd *cobra.Command) error {
+	if !globalStateless || cmd == nil {
+		paths.EnableStateless("")
+		return nil
+	}
+	top := cmd
+	for top.Parent() != nil && top.Parent() != cmd.Root() {
+		top = top.Parent()
+	}
+	if !statelessHomeCommands[top.Name()] {
+		return nil
+	}
+	dir, err := scratch.MkdirTemp("stateless-home-*")
+	if err != nil {
+		return fmt.Errorf("stateless (-S): cannot create a scratch home: %w", err)
+	}
+	paths.EnableStateless(dir)
+	return nil
 }

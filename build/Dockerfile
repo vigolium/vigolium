@@ -116,7 +116,7 @@ ENV IS_SANDBOX=1
 
 # Pull in runtime dependencies in one shot: bun, claude, agent-browser,
 # piolium (bun+pi+extension), nuclei-templates, chrome-for-testing.
-RUN vigolium doctor --fix
+RUN vigolium doctor --fix --yes
 
 WORKDIR /root
 
