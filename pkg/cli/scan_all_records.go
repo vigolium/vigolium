@@ -3,10 +3,8 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/vigolium/vigolium/internal/config"
@@ -50,12 +48,6 @@ func registerAllRecordsFlag(flags *pflag.FlagSet) {
 // so the target-contract tests can prove `--all-records` reaches it without
 // running a scan.
 var runDBScanFn = runDBScan
-
-// scanIsInteractive reports whether a human is plausibly watching: both stdout
-// and stderr are terminals. A var so tests can flip it.
-var scanIsInteractive = func() bool {
-	return terminal.IsTerminal() && (isatty.IsTerminal(os.Stderr.Fd()) || isatty.IsCygwinTerminal(os.Stderr.Fd()))
-}
 
 // scanStdinExplicit records why runScanCmd chose stdin: true for a typed `-i -`
 // (full --input-read-timeout), false for the implicit guess (first-byte window).
@@ -136,15 +128,11 @@ func resolveScanTargetSource(cmd *cobra.Command, settings *config.Settings) erro
 		return nil
 	}
 
-	machine := globalJSON || globalCIOutput || scanOpts.Events != "" || !scanIsInteractive()
-	if machine {
-		return usageErrorf("no targets: pass -t <url>, -T <file>, -i <file>, pipe URLs on stdin, "+
-			"or --%s to scan every HTTP record already in the %s", allRecordsFlag, store)
-	}
-	fmt.Fprintf(os.Stderr, "%s no target given: falling back to every HTTP record in the %s. "+
-		"This fallback is deprecated and will become an error; pass %s to keep it\n",
-		terminal.WarnPrefix(), store, terminal.BoldCyan("--"+allRecordsFlag))
-	return nil
+	// No target is a usage error everywhere, terminal or not: the old TTY
+	// fallback rescanned every stored record after a warning, which turned a
+	// forgotten -t into a scan of a whole project.
+	return usageErrorf("no targets: pass -t <url>, -T <file>, -i <file>, pipe URLs on stdin, "+
+		"or --%s to scan every HTTP record already in the %s", allRecordsFlag, store)
 }
 
 // prefetchScanStdin drains stdin for the URL-list path before any database or

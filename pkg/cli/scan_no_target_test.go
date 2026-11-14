@@ -142,14 +142,15 @@ func TestAllRecordsWithATargetIsAUsageError(t *testing.T) {
 	}
 }
 
-// resolveScanTargetSource on an interactive terminal keeps the old fallback for
-// one release, with a deprecation warning, and stays an error under -j/--events.
-func TestBareScanOnATTYWarnsAndStillRescans(t *testing.T) {
+// RUN-13: a bare `vigolium scan` is a usage error on a terminal too — the
+// deprecated TTY fallback that rescanned every stored record is gone. The error
+// names the store and project, and -j/--events keep the same exit 2.
+func TestBareScanIsAUsageErrorEverywhere(t *testing.T) {
 	saveOpts := *scanOpts
-	saveInput, saveJSON, saveAll, saveInteractive := globalInput, globalJSON, globalAllRecords, scanIsInteractive
+	saveInput, saveJSON, saveAll := globalInput, globalJSON, globalAllRecords
 	t.Cleanup(func() {
 		*scanOpts = saveOpts
-		globalInput, globalJSON, globalAllRecords, scanIsInteractive = saveInput, saveJSON, saveAll, saveInteractive
+		globalInput, globalJSON, globalAllRecords = saveInput, saveJSON, saveAll
 	})
 
 	cmd := &cobra.Command{Use: "scan"}
@@ -161,25 +162,19 @@ func TestBareScanOnATTYWarnsAndStillRescans(t *testing.T) {
 	scanOpts.Targets, scanOpts.TargetsFilePaths, scanOpts.Stdin, scanOpts.Events = nil, nil, false, ""
 	scanOpts.ProjectUUID = database.DefaultProjectUUID
 	globalInput, globalAllRecords = "-", false
-	scanIsInteractive = func() bool { return true }
 
-	globalJSON = false
-	if err := resolveScanTargetSource(cmd, settings); err != nil {
-		t.Fatalf("an interactive bare scan keeps working for one release, got %v", err)
-	}
-
-	globalJSON = true
-	err := resolveScanTargetSource(cmd, settings)
-	if err == nil || classifyExitCode(err) != 2 {
-		t.Fatalf("-j makes a bare scan a usage error even on a TTY, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "/tmp/a2-tty.sqlite") || !strings.Contains(err.Error(), "default project") {
-		t.Errorf("the error must name the store and project, got %q", err)
-	}
-
-	globalJSON = false
-	scanOpts.Events = "-"
-	if err := resolveScanTargetSource(cmd, settings); err == nil || classifyExitCode(err) != 2 {
-		t.Fatalf("--events makes a bare scan a usage error even on a TTY, got %v", err)
+	for _, mode := range []struct {
+		name   string
+		json   bool
+		events string
+	}{{"terminal", false, ""}, {"-j", true, ""}, {"--events", false, "-"}} {
+		globalJSON, scanOpts.Events = mode.json, mode.events
+		err := resolveScanTargetSource(cmd, settings)
+		if err == nil || classifyExitCode(err) != 2 {
+			t.Fatalf("%s: a bare scan must be a usage error, got %v", mode.name, err)
+		}
+		if !strings.Contains(err.Error(), "/tmp/a2-tty.sqlite") || !strings.Contains(err.Error(), "default project") {
+			t.Errorf("%s: the error must name the store and project, got %q", mode.name, err)
+		}
 	}
 }
