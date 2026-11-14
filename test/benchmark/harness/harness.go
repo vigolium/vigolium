@@ -261,6 +261,9 @@ func RunActiveTestCase(t testing.TB, tc TestCase, baseURL string, infra *TestInf
 				tc.ID, f.ModuleID, f.FuzzingParameter, f.URL)
 		}
 
+		if err := RecordBenchResult(tr); err != nil {
+			t.Logf("[%s] BENCH_OUT: %v", tc.ID, err)
+		}
 		results = append(results, tr)
 	}
 
@@ -342,6 +345,9 @@ func RunPassiveTestCase(t testing.TB, tc TestCase, baseURL string, infra *TestIn
 				tc.ID, f.ModuleID, f.Matched)
 		}
 
+		if err := RecordBenchResult(tr); err != nil {
+			t.Logf("[%s] BENCH_OUT: %v", tc.ID, err)
+		}
 		results = append(results, tr)
 	}
 

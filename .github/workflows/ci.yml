@@ -394,10 +394,24 @@ jobs:
 
       # Strict and negative cases gate; soft cases only log (each carries a
       # soft_reason). Same suite as `make test-benchmark-whitebox`.
+      # Every case appends one JSON line (commit, case_id, module, findings,
+      # requests, duration) to $BENCH_OUT; compare two nights' artifacts with
+      # `make bench-diff BASE=... HEAD=...`.
       - name: Whitebox benchmark
+        env:
+          BENCH_OUT: ${{ runner.temp }}/benchmark-whitebox.jsonl
         run: |
           tags="canary${VIGOLIUM_CI_TAGS:+,$VIGOLIUM_CI_TAGS}"
           go test -tags="$tags" -count=1 -timeout 100m ./test/benchmark/whitebox/...
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-whitebox-${{ github.sha }}
+          path: ${{ runner.temp }}/benchmark-whitebox.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
 
   benchmark-blackbox:
     name: Blackbox benchmark (public sites)
@@ -414,9 +428,20 @@ jobs:
         uses: ./.github/actions/setup-vigolium
 
       - name: Blackbox benchmark
+        env:
+          BENCH_OUT: ${{ runner.temp }}/benchmark-blackbox.jsonl
         run: |
           tags="blackbox${VIGOLIUM_CI_TAGS:+,$VIGOLIUM_CI_TAGS}"
           go test -tags="$tags" -count=1 -timeout 50m ./test/benchmark/blackbox/...
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-blackbox-${{ github.sha }}
+          path: ${{ runner.temp }}/benchmark-blackbox.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
 
   dependency-review:
     name: Dependency review

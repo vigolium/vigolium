@@ -31,10 +31,10 @@ The benchmark system validates that Vigolium's active and passive scanner module
 
 | Category | Build Tag | Targets | Assertions | Requirements |
 |----------|-----------|---------|------------|--------------|
-| **Whitebox** | `canary` | Docker containers (DVWA, VAmPI, Juice Shop, OopsSec Store, NextJS VulnExamples, etc.) | Strict + Soft | Docker |
+| **Whitebox** | `canary` | Docker containers (DVWA, VAmPI, Juice Shop, OopsSec Store, NextJS VulnExamples, etc.) | Strict + Negative + Soft | Docker |
 | **crAPI** | `canary` | Docker Compose (crAPI — 10 services) | Soft | Docker + `make crapi-up` |
 | **XBOW** | `xbow` | CTF-style benchmarks built from source (XSS, SSTI, SQLi, LFI, CmdI, SSRF, XXE) | Strict + Soft | Docker + `XBOW_SOURCE_DIR` |
-| **Blackbox** | `blackbox` | External demo sites (Acunetix, PortSwigger, IBM) | Soft only | Internet |
+| **Blackbox** | `blackbox` | External demo sites (Acunetix, PortSwigger, IBM) | Soft only (each with `soft_reason`) | Internet |
 | **Coverage** | `canary` | None (analyzes YAML definitions) | N/A | None |
 
 ### Relationship to Existing Tests
@@ -422,8 +422,10 @@ test_cases:
       - "xss-light-url-params"
     vuln_types:                       # Expected vulnerability types (informational)
       - "xss-reflected"
-    assertion: strict                 # strict | soft | negative
+    assertion: strict                 # strict | soft | negative (anything else fails)
     min_findings: 1                   # Minimum expected findings (default: 1)
+    expected_findings: 2              # strict only: exact count recorded against the live app (optional)
+    soft_reason: "..."                # required on soft cases, forbidden otherwise
     scan_mode: active                 # active | passive
     timeout: 30s                      # Per-test timeout (blackbox only)
     description: "Reflected XSS in name parameter"
@@ -442,7 +444,7 @@ test_cases:
 
 | Mode | What Happens |
 |------|-------------|
-| `active` | Harness creates `HttpRequestResponse` from URL, resolves active module, calls `ScanPerRequest`/`ScanPerHost` |
+| `active` | Harness creates `HttpRequestResponse` from URL, fetches a baseline response, then `modtest.RunActive` runs every scan scope the module declares (per host, per request, per insertion point) |
 | `passive` | Harness fetches URL with HTTP client first (to get actual response), then passes full request+response to passive module's `ScanPerRequest`/`ScanPerHost` |
 
 ---
@@ -692,23 +694,24 @@ coverage target after adding modules or benchmark cases.
 
 | Mode | Behavior | Use Case |
 |------|----------|----------|
-| `strict` | Test fails if `len(findings) < min_findings` | Known vulnerabilities in controlled Docker apps |
-| `soft` | Logs a warning but test passes regardless | Experimental tests, blackbox sites, modern apps with protections |
-| `negative` | Test fails if `len(findings) > 0` | False positive testing — endpoints that should NOT trigger |
+| `strict` | Fails if `len(findings) < min_findings`, or `!= expected_findings` when set, or the module errors | Known vulnerabilities in controlled Docker apps |
+| `negative` | Fails if `len(findings) > 0` or the module errors | False-positive checks: endpoints that must NOT trigger (for example a fixed `solution-1` variant) |
+| `soft` | Never fails; logs when it under-finds. Requires `soft_reason` | Counts not yet recorded, blackbox sites, cases needing setup the harness lacks |
+
+Any other value fails the case (it used to pass silently as soft). `min_findings: 0` is not a way to say "expect nothing": `LoadDefinition` raises 0 to 1; use `negative`.
 
 ### Choosing the Right Assertion
 
 ```
-Is this a Docker app with a known, reliably detectable vuln?
-├─ Yes → strict
+Should this endpoint produce NO findings?
+├─ Yes → negative
 └─ No
-    ├─ Is this an external site or might detection fail?
-    │   └─ Yes → soft
-    └─ Should this endpoint have NO findings?
-        └─ Yes → negative
+    ├─ Docker app, vuln reliably detectable, count recorded? → strict (+ expected_findings)
+    └─ Otherwise → soft, with a soft_reason saying what is missing
 ```
 
 ---
+
 
 ## Harness Package Reference
 
@@ -745,7 +748,9 @@ The `test/benchmark/harness/` package is a shared Go library (not a test package
 | `SetupDVWA(t, baseURL)` | Initialize DVWA DB, login, return session cookies |
 | `ResolveActiveModules(ids)` | Look up active modules from DefaultRegistry |
 | `ResolvePassiveModules(ids)` | Look up passive modules from DefaultRegistry |
-| `ApplyAssertion(t, tc, moduleID, findings)` | Check findings against assertion mode |
+| `ApplyAssertion(t, tc, moduleID, findings, scanErr)` | Check one module outcome against the assertion mode; returns pass/fail |
+| `AssertionFailure(tc, count, scanErr)` | Pure assertion rules (why a case fails, or "") |
+| `RecordBenchResult(tr)` | Append a result line to `$BENCH_OUT` (no-op when unset) |
 | `GenerateCoverageReport(dirs...)` | Generate module coverage matrix |
 | `FormatCoverageMarkdown(report)` | Render coverage report as markdown |
 | `CheckExternalAvailability(t, url)` | Skip test if external site is unreachable |
@@ -753,93 +758,117 @@ The `test/benchmark/harness/` package is a shared Go library (not a test package
 ### Active Test Case Flow
 
 ```go
-// 1. Build HttpRequestResponse from URL (GET or POST with optional headers/body)
-if tc.Method == "POST" && tc.Body != "" {
-    rr, err = buildPOSTRequest(baseURL + tc.Endpoint, tc.Body, tc.Headers)
-} else {
-    rr, err = buildRequestWithHeaders(baseURL + tc.Endpoint, tc.Headers)
-}
+// 1. Resolve modules by ID - an unknown ID is t.Fatalf before any request.
+mods, err := ResolveActiveModules(tc.Modules)
 
-// 2. Resolve module by ID
-mods := modules.GetActiveModulesByIDs(tc.Modules)
+// 2. Build the HttpRequestResponse (method/body/headers from the case) and
+//    send it once so modules see a record with a baseline response.
+rr = fetchBaseline(t, rr, infra)
 
-// 3. Dispatch based on module's ScanScope
-switch {
-case mod.ScanScopes().Has(modkit.ScanScopeInsertionPoint):
-    // Create insertion points and scan each one
-    points, _ := httpmsg.CreateAllInsertionPoints(rr.Request().Raw(), true)
-    for _, ip := range points {
-        if mod.AllowedInsertionPointTypes().Contains(ip.Type()) {
-            findings, _ = mod.ScanPerInsertionPoint(rr, ip, httpClient, scanCtx)
-        }
-    }
-case mod.ScanScopes().Has(modkit.ScanScopeRequest):
-    findings, err = mod.ScanPerRequest(rr, httpClient, scanCtx)
-case mod.ScanScopes().Has(modkit.ScanScopeHost):
-    findings, err = mod.ScanPerHost(rr, httpClient, scanCtx)
-}
+// 3. Dispatch exactly as the executor does: every declared scan scope
+//    (per host, per request, per insertion point). Shared with the benign
+//    sweep in pkg/modules.
+var sent atomic.Int64
+findings, scanErr := modtest.RunActive(mod, rr, infra.HTTPClient.WithSendCounter(&sent), infra.ScanCtx)
 
-// 4. Apply assertion
-ApplyAssertion(t, tc, mod.ID(), findings)
+// 4. Apply the assertion (module errors fail strict/negative cases) and,
+//    when $BENCH_OUT is set, append the result line.
+tr.Passed = ApplyAssertion(t, tc, mod.ID(), findings, scanErr)
 ```
 
 ### Passive Test Case Flow
 
 ```go
-// 1. Fetch URL to get actual response (with optional auth headers)
-rr, err := FetchForPassiveScan(baseURL + tc.Endpoint, tc.Headers, infra)
-//    Internally: Execute request → respChain.FullResponse() → rr.WithResponse(httpResp)
+// 1. Resolve passive modules (unknown ID: t.Fatalf).
+mods, err := ResolvePassiveModules(tc.Modules)
 
-// 2. Resolve passive module
-mods := modules.GetPassiveModulesByIDs(tc.Modules)
+// 2. Fetch the URL to get the actual response (with optional auth headers).
+rr, err := FetchForPassiveScan(baseURL+tc.Endpoint, tc.Headers, infra)
 
-// 3. Pass full request+response to passive module
-findings, err = mod.ScanPerRequest(rr, scanCtx)
+// 3. Pass the full request+response to the module's ScanPerRequest / ScanPerHost.
+findings, scanErr = mod.ScanPerRequest(rr, scanCtx)
 
-// 4. Apply assertion
-ApplyAssertion(t, tc, mod.ID(), findings)
+// 4. Apply the assertion.
+tr.Passed = ApplyAssertion(t, tc, mod.ID(), findings, scanErr)
 ```
 
 ---
 
 ## CI Integration
 
-### Recommended CI Strategy
+CI is `.github/workflows/ci.yml`. What runs depends on the event:
 
-| Trigger | What to Run | Timeout |
-|---------|------------|---------|
-| On every PR | `make test-benchmark-whitebox` (DVWA + VAmPI only) | 15 min |
-| Nightly | `make test-benchmark-all` (all whitebox + blackbox) | 30 min |
-| Weekly | `make test-benchmark-crapi` (requires crAPI up) | 20 min |
-| Weekly | `make test-xbow` (requires XBOW_SOURCE_DIR) | 30 min |
-| On release | `make test-benchmark-coverage` | 1 min |
+| Event | Jobs | Benchmark coverage |
+|-------|------|--------------------|
+| Pull request, push to `main` | `lint`, `unit` | Static only: `test/benchmark/harness/definitions_lint_test.go` (no build tag, so it runs in the unit suite) |
+| Nightly (`schedule`, 03:17 UTC) and `workflow_dispatch` | everything else: `race`, `postgres`, `canary`, `benchmark-whitebox`, `benchmark-blackbox`, cross-compile, coverage, govulncheck, SBOM | Full whitebox run (Docker) gates `ci-ok`; blackbox is `continue-on-error` |
+| Manual only | `macos` (`gh workflow run ci.yml -f macos=true`) | none |
 
-### Example GitHub Actions Workflow
+crAPI (`make crapi-up`) and XBOW (`XBOW_SOURCE_DIR`) need external setup and are not in CI; run them locally.
 
-```yaml
-- name: Run whitebox benchmarks
-  run: |
-    make test-benchmark-whitebox
-  timeout-minutes: 15
+### The static gate (every PR)
 
-- name: Run blackbox benchmarks (nightly only)
-  if: github.event_name == 'schedule'
-  run: |
-    make test-benchmark-blackbox
-  timeout-minutes: 20
-  continue-on-error: true  # Blackbox may fail due to external site issues
+`TestDefinitionsLint` loads every definition under `test/benchmark/definitions/` (top level and one directory down) and fails when:
 
-- name: Run XBOW validation benchmarks (weekly)
-  if: github.event_name == 'schedule'
-  run: |
-    make xbow-build
-    make test-xbow
-  timeout-minutes: 30
-  env:
-    XBOW_SOURCE_DIR: ${{ github.workspace }}/validation-benchmarks
+- a module ID does not resolve in the registry (a stale ID used to run zero modules and pass);
+- `assertion` is not `strict`, `negative` or `soft`;
+- a `soft` case has no `soft_reason`, or a non-soft case has one;
+- `expected_findings` is set on a soft or negative case;
+- the number of soft cases differs from `softCaseBudget`. The budget is a ratchet: converting a soft case to strict or negative must lower the constant in the same change, and adding a soft case needs a reason to raise it.
+
+`TestDefinitionsLint_HasNegativeCases` requires at least one negative case. Those checks need neither Docker nor network, so `make test-unit` runs them too, and `make release` depends on `test-unit`.
+
+### What fails a live case
+
+The harness (`test/benchmark/harness`) fails a case when:
+
+- any module ID is unknown (`t.Fatalf`, before any request is sent);
+- a `strict` case finds fewer than `min_findings`, or not exactly `expected_findings` when that is set;
+- a `negative` case finds anything;
+- a `strict` or `negative` case's module returns an error (an erroring module proves nothing);
+- a blackbox case exceeds its `timeout` (`t.Errorf`; the harness still waits for the module so it never touches `t` after the subtest returns).
+
+`soft` cases never fail; their `soft_reason` is logged when they under-find.
+
+### Recording counts (Docker required)
+
+Most of the 155 soft cases are soft only because nobody has recorded the expected count against the live app. To convert one:
+
+1. Start the app (the whitebox test starts Docker apps itself; crAPI needs `make crapi-up`).
+2. Run the case with `BENCH_OUT` set, for example `BENCH_OUT=/tmp/bench.jsonl go test -tags canary -run 'TestWhitebox_VAmPI' ./test/benchmark/whitebox/...`.
+3. Read the case's `findings` from `/tmp/bench.jsonl`, set `assertion: strict` with `expected_findings: N` (or `negative` if it should be silent), delete `soft_reason`, and lower `softCaseBudget` by one.
+
+### Result files and `make bench-diff`
+
+When `BENCH_OUT` names a file, every case appends one JSON object per module (`harness.BenchRecord`):
+
+```json
+{"commit":"48081540...","case_id":"vampi-sqli-users","module":"sqli-error-based","scan_mode":"active","assertion":"soft","findings":1,"requests":38,"duration_ms":2140,"passed":true}
+```
+
+`commit` comes from `BENCH_COMMIT`, then `GITHUB_SHA`, then `git rev-parse HEAD`. The nightly benchmark jobs set `BENCH_OUT` and upload the file as the `benchmark-results-whitebox-<sha>` / `benchmark-results-blackbox-<sha>` artifacts (kept 90 days).
+
+Compare two result files:
+
+```bash
+make bench-diff BASE=old.jsonl HEAD=new.jsonl
+# also fail on request-count growth beyond 25%:
+make bench-diff BASE=old.jsonl HEAD=new.jsonl BENCH_DIFF_FLAGS=-strict-requests
+```
+
+It exits 1 on a regression: a case that passed now fails, a non-negative case finds less, or a case is missing from `HEAD`. Request drift beyond 25% is printed and only fails with `-strict-requests`.
+
+### Benign sweep and request budgets (unit suite)
+
+`pkg/modules/benign_sweep_test.go` runs every registered active module against the benign fixtures in `pkg/modules/modtest/fixtures.go` (safe echo, WAF block page, soft 404, random content, 429 limiter, and a slow host for timing modules only, skipped under `-short`), with a query record and a JSON-body record. Any finding above Info is a false positive and fails the test, unless the module/fixture pair is in `benignSweepAllowList` with a reason; a stale entry also fails. Each cell's request count is checked against `pkg/modules/testdata/request_budget.json` (±25%, at least ±2). After an intended change in a module's request volume, regenerate it:
+
+```bash
+go test ./pkg/modules/ -run 'TestBenignSweep$' -args -update-request-budget        # full, includes slow_host
+go test -short ./pkg/modules/ -run 'TestBenignSweep$' -args -update-request-budget # keeps recorded slow_host cells
 ```
 
 ---
+
 
 ## XBOW Validation Benchmarks
 
