@@ -482,7 +482,9 @@ func reportScanCompletion(
 	}
 	maybePrintScanFindings(context.Background(), db, opts.ProjectUUID, opts.ScanUUID)
 	maybePrintScanTraffic(context.Background(), db, opts.ProjectUUID)
-	evaluateFailOnGate(repo, opts.ProjectUUID, opts.ScanUUID, opts.Silent)
+	if !evaluateBaselineGate(repo, opts.ProjectUUID, opts.ScanUUID, opts.Silent) {
+		evaluateFailOnGate(repo, opts.ProjectUUID, opts.ScanUUID, opts.Silent)
+	}
 	evaluatePartialGate(repo, opts.ScanUUID)
 	return artifacts
 }

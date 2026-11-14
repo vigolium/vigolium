@@ -242,6 +242,7 @@ func registerLightweightScanIOFlags(flags *pflag.FlagSet) {
 	flags.StringSliceVar(&globalSkipPhases, "skip", nil, "Skip these phases (repeatable: "+runner.PhaseNamesDesc(true)+"; aliases accepted, see 'vigolium run --help')")
 	flags.StringVar(&scanFailOn, "fail-on", "", failOnUsage("for CI/agent gating; implies --fail-on-partial; --soft-fail overrides."))
 	flags.BoolVar(&scanFailOnPartial, "fail-on-partial", false, "Exit 5 (incomplete) when the scan's coverage was partial (a phase cut short, blocked, or failed); implied by --fail-on")
+	registerBaselineFlags(flags)
 	flags.BoolVar(&scanPrintFinding, "print-finding", false, "After the scan, print each finding to stdout as Markdown (description + matched evidence + request/response), like 'vigolium finding --markdown'. Pairs well with -S and --silent for a quick single-target scan.")
 	flags.BoolVar(&scanPrintTrafficTree, "print-traffic-tree", false, "After the scan, print the run's HTTP traffic to stdout as a host/path hierarchy tree, like 'vigolium traffic --tree'. Pairs well with -S and --silent.")
 	flags.BoolVar(&scanPrintTraffic, "print-traffic", false, "After the scan, print the run's raw HTTP request/response pairs to stdout, like 'vigolium traffic --raw'. Pairs well with -S and --silent.")

@@ -188,14 +188,16 @@ type scanDocExtras struct {
 	// errors (database.CoverageCaveats).
 	Caveats []database.Caveat `json:"caveats"`
 	// Artifacts are the files the run wrote; Next the suggested follow-ups.
-	Artifacts        []scanArtifact `json:"artifacts"`
-	Next             []scanNextStep `json:"next"`
-	Modules          scanDocModules `json:"modules"`
-	CountsBySeverity map[string]int `json:"counts_by_severity"`
-	Candidates       int64          `json:"candidates"`
-	Observations     int64          `json:"observations"`
-	Errors           []scanDocError `json:"errors"`
-	ItemsTruncated   bool           `json:"items_truncated"`
+	Artifacts []scanArtifact `json:"artifacts"`
+	Next      []scanNextStep `json:"next"`
+	// Baseline is set with --baseline or an ignore file; null otherwise.
+	Baseline         *baselineCounts `json:"baseline"`
+	Modules          scanDocModules  `json:"modules"`
+	CountsBySeverity map[string]int  `json:"counts_by_severity"`
+	Candidates       int64           `json:"candidates"`
+	Observations     int64           `json:"observations"`
+	Errors           []scanDocError  `json:"errors"`
+	ItemsTruncated   bool            `json:"items_truncated"`
 	// Plan is the scan's stored plan (scans.plan, the `schema plan` document),
 	// verbatim; null when the row has none or the document spans several scans.
 	Plan       *scanplan.Plan `json:"plan"`

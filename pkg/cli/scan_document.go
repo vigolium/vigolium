@@ -984,6 +984,7 @@ func (b *scanDocBuilder) envelope() *agentEnvelope {
 		With("phase_outcomes", phases).
 		With("caveats", caveats).
 		With("artifacts", collectedScanArtifacts()).
+		With("baseline", baselineDocument()).
 		With("next", scanDocNextSteps(uuids, dbPath, total, persisted && !stateless)).
 		With("modules", modules).
 		With("counts_by_severity", counts).

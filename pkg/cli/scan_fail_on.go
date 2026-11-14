@@ -69,6 +69,10 @@ func evaluatePartialGate(repo *database.Repository, scanUUID string) {
 func resetFailOnGate() error {
 	failOnGateTriggered = false
 	partialGateReason = ""
+	baselineGate.loaded, baselineGate.baseline, baselineGate.ignore, baselineGate.counts = false, nil, nil, nil
+	if err := prepareBaselineGate(context.Background()); err != nil {
+		return err
+	}
 	if scanFailOn == "" {
 		return nil
 	}
@@ -107,10 +111,62 @@ func evaluateFailOnGate(repo *database.Repository, projectUUID, scanUUID string,
 	markFailOnTriggered(int(n), silent)
 }
 
+// evaluateBaselineGate (DB path) classifies the scan's findings against
+// --baseline and the ignore file, records the -j `baseline` counts, and — when
+// --fail-on is set — trips it on the NEW, non-ignored findings at or above the
+// threshold. Returns false when neither a baseline nor an ignore file applies,
+// so the caller runs the plain gate.
+func evaluateBaselineGate(repo *database.Repository, projectUUID, scanUUID string, silent bool) bool {
+	if repo == nil || (baselineGate.baseline == nil && len(baselineGate.ignore) == 0) {
+		return false
+	}
+	findings, err := database.NewFindingsQueryBuilder(repo.DB(), database.QueryFilters{
+		ProjectUUID:     projectUUID,
+		ObservedInScan:  scanUUID,
+		ExcludeStatuses: database.DismissedFindingStatuses,
+	}).Execute(context.Background())
+	if err != nil {
+		return false
+	}
+	current := make([]gateFinding, 0, len(findings))
+	for _, f := range findings {
+		current = append(current, gateFinding{Hash: f.FindingHash, Severity: f.Severity})
+	}
+	tripGateOn(classifyForGate(current), silent)
+	return true
+}
+
+// tripGateOn applies --fail-on to already-classified findings.
+func tripGateOn(findings []gateFinding, silent bool) {
+	if scanFailOn == "" {
+		return
+	}
+	threshold := severityRank(scanFailOn)
+	n := 0
+	for _, f := range findings {
+		if severityRank(f.Severity) >= threshold {
+			n++
+		}
+	}
+	if n > 0 {
+		markFailOnTriggered(n, silent)
+	}
+}
+
 // failOnGateFromEvents (in-memory path) trips the gate when any result event is
 // at or above the threshold. Used by the lightweight scan-url / scan-request
 // direct path, which holds findings in memory rather than a database.
 func failOnGateFromEvents(findings []*output.ResultEvent, silent bool) {
+	if baselineGate.baseline != nil || len(baselineGate.ignore) > 0 {
+		current := make([]gateFinding, 0, len(findings))
+		for _, f := range findings {
+			if f != nil {
+				current = append(current, gateFinding{Hash: f.ID(), Severity: f.Info.Severity.String()})
+			}
+		}
+		tripGateOn(classifyForGate(current), silent)
+		return
+	}
 	if scanFailOn == "" {
 		return
 	}

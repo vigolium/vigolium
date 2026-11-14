@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/apicontract"
@@ -35,6 +36,13 @@ var scanDiffCmd = &cobra.Command{
   not_reobserved  the same, when the head scan is NOT comparable (curtailed,
                   narrower, still running): absence is not evidence of a fix
 
+The base may also be a previous run's export (a .jsonl file or a .sqlite
+store, e.g. from a CI artifact): its findings are compared with the head scan
+by finding hash.
+
+Hashes listed in --ignore-file (default .vigolium-ignore.yaml when present)
+are left out of new and counted as ignored.
+
 A scan is a full UUID, a UUID prefix (8+ characters), or a keyword: "latest"
 (the most recently started scan that is not running) and "previous" (the one
 before it). --target <url> --last N compares the N-th most recent scan of that
@@ -60,6 +68,7 @@ func init() {
 	f.IntVar(&scanDiffLast, "last", 2, "With --target: compare the N-th most recent scan of the target against the most recent (N >= 2)")
 	f.StringVar(&scanDiffFailOnNew, "fail-on-new", "", "Exit 4 when a NEW finding is at or above this severity ("+strings.Join(severityOrder, "|")+")")
 	f.BoolVar(&scanDiffIncludeDismissed, "include-dismissed", false, "Keep findings marked false_positive or accepted_risk")
+	f.StringVar(&scanIgnoreFile, "ignore-file", "", "YAML list of finding hashes to leave out of `new` ({hash, reason, expires}); default "+defaultIgnoreFile+" when present")
 	f.BoolVarP(&globalStateless, "stateless", "S", false, "Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB")
 	f.StringVar(&globalGlobDB, "glob-db", "", "Read across a glob of result files merged into one temporary DB; implies -S")
 	registerAgentJSONFlags(f)
@@ -108,23 +117,41 @@ func runScanDiff(cmd *cobra.Command, args []string) error {
 	repo := database.NewRepository(db)
 	ctx := context.Background()
 
-	base, head, err := resolveDiffScans(ctx, repo, projectUUID, args)
+	var diff *database.ScanDiff
+	if len(args) == 2 && isBaselineFileRef(args[0]) {
+		head, rerr := repo.ResolveScanRef(ctx, projectUUID, args[1])
+		if errors.Is(rerr, database.ErrScanNotFound) {
+			return clicommon.NewCodedError(apicontract.CodeScanNotFound, rerr)
+		}
+		if rerr != nil {
+			return rerr
+		}
+		if diff, err = diffAgainstBaselineFile(ctx, repo, projectUUID, args[0], head); err != nil {
+			return err
+		}
+	} else {
+		base, head, rerr := resolveDiffScans(ctx, repo, projectUUID, args)
+		if rerr != nil {
+			return rerr
+		}
+		if base.UUID == head.UUID {
+			return usageErrorf("scan diff compares two different scans; both resolved to %s", base.UUID)
+		}
+		diff, err = repo.DiffScans(ctx, database.ScanDiffOptions{
+			ProjectUUID:      projectUUID,
+			Base:             base,
+			Head:             head,
+			IncludeDismissed: scanDiffIncludeDismissed,
+		})
+		if err != nil {
+			return fmt.Errorf("scan diff: %w", err)
+		}
+	}
+	ignore, err := loadIgnoreFile(scanIgnoreFile, time.Now())
 	if err != nil {
-		return err
+		return asUsageError(err)
 	}
-	if base.UUID == head.UUID {
-		return usageErrorf("scan diff compares two different scans; both resolved to %s", base.UUID)
-	}
-
-	diff, err := repo.DiffScans(ctx, database.ScanDiffOptions{
-		ProjectUUID:      projectUUID,
-		Base:             base,
-		Head:             head,
-		IncludeDismissed: scanDiffIncludeDismissed,
-	})
-	if err != nil {
-		return fmt.Errorf("scan diff: %w", err)
-	}
+	applyIgnoreToDiff(diff, ignore)
 
 	if globalJSON {
 		err = writeScanDiffJSON(cmd, diff, projectUUID)
