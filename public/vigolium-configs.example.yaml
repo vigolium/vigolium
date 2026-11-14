@@ -1002,12 +1002,15 @@ discovery:
     # Default: true
     test_backup_extensions: true
 
-    # Custom backup extension list (used when test_backup_extensions is true).
-    # Default: deparos built-in list (~1, $$$, bak, old, tmp, backup, etc.)
+    # Custom backup variant list (used when test_backup_extensions is true).
+    # Each entry is a template over the discovered file: {f} = full name
+    # (admin.php), {n} = name without extension (admin), {e} = extension (php).
+    # A bare suffix without placeholders means "{f}.<suffix>" (admin.php.bak).
+    # Default: ~40 built-in templates ({f}~, {f}.bak, {n}.bak, .{f}.swp, {n}_old.{e}, ...)
     # backup_extensions:
-    #   - bak
+    #   - "{f}~"
+    #   - "{n}.bak"
     #   - old
-    #   - tmp
 
     # Test files without extensions.
     # Default: true

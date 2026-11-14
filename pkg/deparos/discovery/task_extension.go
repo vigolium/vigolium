@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"strings"
 
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/payload"
 )
@@ -137,13 +138,21 @@ func (e *ExtensionVariantTask) Expand(ctx context.Context, callback func(url str
 		}
 
 		url := e.buildURL(variant)
+		if url == "" {
+			continue // template needs an extension the file does not have
+		}
 		callback(url, e.depth)
 	}
 }
 
-// buildURL constructs URL for extension variant testing.
-// Format: schemeHost + path + filename.originalExt.variant
+// buildURL constructs the URL for one backup variant: schemeHost + path + the
+// variant name produced by ExpandBackupTemplate. Returns "" when the template
+// does not apply to this file.
 func (e *ExtensionVariantTask) buildURL(variant []byte) string {
+	name := ExpandBackupTemplate(string(variant), string(e.filename), string(e.originalExt))
+	if name == "" {
+		return ""
+	}
 	var buf bytes.Buffer
 	buf.Write(e.schemeHost)
 	buf.Write(e.path)
@@ -152,18 +161,35 @@ func (e *ExtensionVariantTask) buildURL(variant []byte) string {
 	if len(e.path) > 0 && e.path[len(e.path)-1] != '/' {
 		buf.WriteByte('/')
 	}
-
-	buf.Write(e.filename)
-
-	if len(e.originalExt) > 0 {
-		buf.WriteByte('.')
-		buf.Write(e.originalExt)
-	}
-
-	buf.WriteByte('.')
-	buf.Write(variant)
+	buf.WriteString(name)
 
 	return collapseDoubleSlashes(buf.String())
+}
+
+// ExpandBackupTemplate renders one backup-variant template for a file with
+// base name n and extension e: {f} = "n.e" (or n when e is empty), {n} = n,
+// {e} = e. A template without a placeholder is a legacy bare suffix meaning
+// "{f}.<suffix>". Returns "" when the template uses {e} and the file has no
+// extension, or when it would leave the directory.
+func ExpandBackupTemplate(tmpl, n, e string) string {
+	if tmpl == "" {
+		return ""
+	}
+	full := n
+	if e != "" {
+		full = n + "." + e
+	}
+	if !strings.Contains(tmpl, "{") {
+		return full + "." + tmpl
+	}
+	if e == "" && strings.Contains(tmpl, "{e}") {
+		return ""
+	}
+	out := strings.NewReplacer("{f}", full, "{n}", n, "{e}", e).Replace(tmpl)
+	if out == "" || strings.Contains(out, "/") || out == full {
+		return ""
+	}
+	return out
 }
 
 // ShouldCreateVariantTask determines if an extension variant task should be created.

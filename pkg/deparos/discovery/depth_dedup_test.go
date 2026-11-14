@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vigolium/vigolium/pkg/deparos/config"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/payload"
 )
 
@@ -47,7 +48,7 @@ func TestHashDeduplication_DepthExcluded(t *testing.T) {
 	})
 
 	t.Run("ExtensionVariantTask - same hash regardless of depth", func(t *testing.T) {
-		extProvider := payload.NewExtensionProvider()
+		extProvider := payload.NewExtensionProviderWithVariants(config.DefaultBackupExtensions)
 
 		task1 := NewExtensionVariantTask(&ExtensionVariantTaskConfig{
 			SchemeHost:  []byte("http://example.com"),
@@ -106,7 +107,7 @@ func TestHashDeduplication_DepthExcluded(t *testing.T) {
 // TestRealWorldScenario_IndexBackupDuplication simulates the exact bug from logs.
 // Shows how index.bak would be discovered at depths 5, 9, 10, 11, 12... without the fix.
 func TestRealWorldScenario_IndexBackupDuplication(t *testing.T) {
-	extProvider := payload.NewExtensionProvider()
+	extProvider := payload.NewExtensionProviderWithVariants(config.DefaultBackupExtensions)
 
 	// Simulate discovering index.bak multiple times at different depths
 	// This happens in real scans when:
