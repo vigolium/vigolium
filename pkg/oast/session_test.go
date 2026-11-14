@@ -60,7 +60,7 @@ func TestKeepSession_LateCallbackCorrelates(t *testing.T) {
 	late := &Service{repo: repo, scanUUID: "scan-1", projectUUID: database.DefaultProjectUUID}
 	if !late.handleInteractionCorrelated(&server.Interaction{
 		Protocol: "http", UniqueID: nonce, FullId: nonce,
-		RawRequest: "GET / HTTP/1.1\r\nHost: " + cb + "\r\nUser-Agent: Go-http-client/1.1\r\n\r\n",
+		RawRequest:    "GET / HTTP/1.1\r\nHost: " + cb + "\r\nUser-Agent: Go-http-client/1.1\r\n\r\n",
 		RemoteAddress: "203.0.113.9", Timestamp: time.Now(),
 	}) {
 		t.Fatal("late callback did not correlate from oast_payloads")

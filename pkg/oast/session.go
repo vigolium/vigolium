@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/output"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,15 +24,14 @@ import (
 //
 // A blind payload's callback can arrive long after the scan that planted it:
 // an admin renders a stored blind XSS next week, a queued job fetches a URL
-// tonight. In interactsh mode correlation used to live only in this process's
-// in-memory tracker, and the session was deregistered ten seconds after the
-// scan, so every late callback was lost.
+// tonight. An in-memory tracker and a session deregistered at scan end would
+// lose every such late callback.
 //
-// Now every minted payload context is written to oast_payloads (as the fixed
-// {nonce} mode already did), a callback whose nonce is no longer in the
-// tracker is looked up there, and — unless the scan is stateless or
-// oast.keep_session is off — the interactsh registration is kept open at the
-// end of the scan and stored in oast_sessions. `vigolium oast poll` and the
+// So every minted payload context is written to oast_payloads, a callback
+// whose nonce is no longer in the tracker is looked up there, and — unless
+// the scan is stateless or oast.keep_session is off — the interactsh
+// registration is kept open at the end of the scan and stored in
+// oast_sessions. `vigolium oast poll` and the
 // server's periodic poller resume it (interactsh SessionInfo), collect what
 // arrived, and file findings through the same classifier.
 
@@ -52,23 +53,24 @@ func (s *Service) lookupStoredPayload(nonce, callback string) (PayloadContext, b
 	return payloadContextFromRow(row, callback), true
 }
 
-// recordStoredPayload attaches the planted value to a persisted payload row,
-// still queued or already written.
+// recordStoredPayload attaches the planted value to a persisted payload row:
+// on the queued row, or — for a row already written — with the next buffer
+// write (a stored-payload lookup flushes first, so it always sees the value).
 func (s *Service) recordStoredPayload(nonce, payload string) {
 	if s.repo == nil || nonce == "" {
 		return
 	}
 	s.payloadMu.Lock()
 	defer s.payloadMu.Unlock()
-	for _, p := range s.pendingPayloads {
-		if p.Nonce == nonce {
-			p.Payload = payload
-			return
-		}
+	if p, ok := s.pendingPayloads[nonce]; ok {
+		p.Payload = payload
+		return
 	}
-	if err := s.repo.SetOASTPayloadValue(context.Background(), nonce, payload); err != nil {
-		zap.L().Warn("OAST: failed to record planted payload", zap.Error(err))
+	if s.pendingValues == nil {
+		s.pendingValues = make(map[string]string)
 	}
+	s.pendingValues[nonce] = payload
+	s.maybeWritePendingLocked()
 }
 
 // sessionInfoOf exports a registered client's session. interactsh only writes
@@ -161,20 +163,51 @@ type PollOptions struct {
 	Emit func(*output.ResultEvent)
 }
 
+// pollParallelism bounds how many kept sessions PollSessions polls at once:
+// each poll mostly waits out opts.Wait, so polling them one after another
+// would take sessions × Wait.
+const pollParallelism = 8
+
 // PollSessions resumes each kept session, collects the callbacks that arrived
 // since it was last polled, correlates them through oast_payloads and files
 // findings, then leaves the session open (or closes it with opts.Close). A
-// session the server no longer knows (evicted) is closed.
+// session the server no longer knows (evicted) is closed. Sessions are polled
+// up to pollParallelism at a time; opts.Emit is never called concurrently.
+// Results are in session order; a session not reached before ctx ended is
+// left out.
 func PollSessions(ctx context.Context, repo *database.Repository, sessions []*database.OASTSession, opts PollOptions) []PollResult {
 	if opts.Wait <= 0 {
 		opts.Wait = 2 * time.Second
 	}
-	out := make([]PollResult, 0, len(sessions))
-	for _, row := range sessions {
+	if emit := opts.Emit; emit != nil {
+		var mu sync.Mutex
+		opts.Emit = func(ev *output.ResultEvent) {
+			mu.Lock()
+			defer mu.Unlock()
+			emit(ev)
+		}
+	}
+	results := make([]*PollResult, len(sessions))
+	var g errgroup.Group
+	g.SetLimit(pollParallelism)
+	for i, row := range sessions {
 		if ctx.Err() != nil {
 			break
 		}
-		out = append(out, pollSession(ctx, repo, row, opts))
+		g.Go(func() error {
+			if ctx.Err() == nil {
+				res := pollSession(ctx, repo, row, opts)
+				results[i] = &res
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
+	out := make([]PollResult, 0, len(sessions))
+	for _, res := range results {
+		if res != nil {
+			out = append(out, *res)
+		}
 	}
 	return out
 }
