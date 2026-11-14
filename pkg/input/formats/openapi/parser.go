@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -428,7 +429,7 @@ func getParameterExample(param *openapi3.Parameter) (any, bool) {
 
 // getMediaTypeExample extracts example value from media type.
 // Priority: MediaType.Example > MediaType.Examples > Schema
-func getMediaTypeExample(mediaType *openapi3.MediaType, fieldTypeDefaults map[string][]string) (any, error) {
+func getMediaTypeExample(mediaType *openapi3.MediaType, fieldTypeDefaults map[string][]string, requiredOnly bool) (any, error) {
 	if mediaType.Example != nil {
 		return mediaType.Example, nil
 	}
@@ -438,7 +439,7 @@ func getMediaTypeExample(mediaType *openapi3.MediaType, fieldTypeDefaults map[st
 		}
 	}
 	if mediaType.Schema != nil && mediaType.Schema.Value != nil {
-		return generateExampleFromSchema(mediaType.Schema.Value, fieldTypeDefaults)
+		return generateExampleFromSchemaOpts(mediaType.Schema.Value, fieldTypeDefaults, requiredOnly)
 	}
 	return map[string]any{}, nil
 }
@@ -493,6 +494,13 @@ func generateRequestsFromOp(opts *generateReqOptions) error {
 			zap.L().Debug("Using default fallback for required param",
 				zap.String("param", value.Name),
 				zap.String("value", opts.opts.DefaultFallbackValue))
+		} else if !value.Required && opts.opts.RequiredOnly {
+			// --required-only: an optional parameter with no explicit value
+			// is left out rather than filled from its schema.
+			opts.requestPath = strings.ReplaceAll(opts.requestPath, fmt.Sprintf("{%s}", value.Name), "")
+			continue
+		} else if idVal, ok := idLikeParamValue(value); ok {
+			paramValue = idVal
 		} else if exampleVal, ok := schemaParamExample(value, opts.opts.FieldTypeDefaults); ok {
 			paramValue = exampleVal
 		} else if value.Required {
@@ -547,7 +555,7 @@ func generateRequestsFromOp(opts *generateReqOptions) error {
 		for contentType, mediaType := range opts.op.RequestBody.Value.Content {
 			cloned := req.Clone(req.Context())
 
-			val, err := getMediaTypeExample(mediaType, opts.opts.FieldTypeDefaults)
+			val, err := getMediaTypeExample(mediaType, opts.opts.FieldTypeDefaults, opts.opts.RequiredOnly)
 			if err != nil {
 				opts.opts.Stats.SkippedOperations++
 				zap.L().Debug("Failed to build request body example",
@@ -574,7 +582,7 @@ func generateRequestsFromOp(opts *generateReqOptions) error {
 
 // setRequestBody sets the request body based on content type.
 func setRequestBody(req *http.Request, contentType string, val any, schemaRef *openapi3.SchemaRef) error {
-	switch contentType {
+	switch canonicalMediaType(contentType) {
 	case "application/json":
 		marshalled, err := marshalJSON(val)
 		if err != nil {
@@ -582,7 +590,7 @@ func setRequestBody(req *http.Request, contentType string, val any, schemaRef *o
 		}
 		req.Body = io.NopCloser(bytes.NewReader(marshalled))
 		req.ContentLength = int64(len(marshalled))
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", declaredOr(contentType, "application/json"))
 
 	case "application/xml":
 		xmlData, err := marshalXML(val)
@@ -591,7 +599,7 @@ func setRequestBody(req *http.Request, contentType string, val any, schemaRef *o
 		}
 		req.Body = io.NopCloser(bytes.NewReader(xmlData))
 		req.ContentLength = int64(len(xmlData))
-		req.Header.Set("Content-Type", "application/xml")
+		req.Header.Set("Content-Type", declaredOr(contentType, "application/xml"))
 
 	case "application/x-www-form-urlencoded":
 		if values, ok := val.(map[string]any); ok {
@@ -602,7 +610,7 @@ func setRequestBody(req *http.Request, contentType string, val any, schemaRef *o
 			encoded := form.Encode()
 			req.Body = io.NopCloser(strings.NewReader(encoded))
 			req.ContentLength = int64(len(encoded))
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Content-Type", declaredOr(contentType, "application/x-www-form-urlencoded"))
 		}
 
 	case "multipart/form-data":
@@ -631,7 +639,7 @@ func setRequestBody(req *http.Request, contentType string, val any, schemaRef *o
 		str := toString(val)
 		req.Body = io.NopCloser(strings.NewReader(str))
 		req.ContentLength = int64(len(str))
-		req.Header.Set("Content-Type", "text/plain")
+		req.Header.Set("Content-Type", declaredOr(contentType, "text/plain"))
 
 	case "application/octet-stream":
 		str := toString(val)
@@ -903,10 +911,29 @@ type cachedSchema struct {
 // generateExampleFromSchema creates an example value from an OpenAPI schema.
 // fieldTypeDefaults provides configurable default values per field type (may be nil).
 func generateExampleFromSchema(schema *openapi3.Schema, fieldTypeDefaults map[string][]string) (any, error) {
-	return openAPIExample(schema, make(map[*openapi3.Schema]*cachedSchema), fieldTypeDefaults)
+	return generateExampleFromSchemaOpts(schema, fieldTypeDefaults, false)
 }
 
-func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedSchema, fieldTypeDefaults map[string][]string) (out any, err error) {
+// generateExampleFromSchemaOpts is generateExampleFromSchema honouring
+// Options.RequiredOnly: when set, optional object properties are omitted.
+func generateExampleFromSchemaOpts(schema *openapi3.Schema, fieldTypeDefaults map[string][]string, requiredOnly bool) (any, error) {
+	return openAPIExample(schema, make(map[*openapi3.Schema]*cachedSchema), fieldTypeDefaults, requiredOnly)
+}
+
+// effectiveType returns the schema's first non-null declared type (OpenAPI
+// 3.1 allows `type: [string, "null"]`, and Types.Is is false for any
+// multi-type list, so such a property used to drop its whole operation), or
+// "" when untyped.
+func effectiveType(schema *openapi3.Schema) string {
+	for _, t := range schema.Type.Slice() {
+		if t != openapi3.TypeNull {
+			return t
+		}
+	}
+	return ""
+}
+
+func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedSchema, fieldTypeDefaults map[string][]string, requiredOnly bool) (out any, err error) {
 	if ex, ok := getSchemaExample(schema); ok {
 		return ex, nil
 	}
@@ -930,7 +957,7 @@ func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedS
 	if len(schema.OneOf) > 0 {
 		for _, candidate := range schema.OneOf {
 			if candidate.Value != nil {
-				ex, err := openAPIExample(candidate.Value, cache, fieldTypeDefaults)
+				ex, err := openAPIExample(candidate.Value, cache, fieldTypeDefaults, requiredOnly)
 				if err == nil {
 					return ex, nil
 				}
@@ -942,7 +969,7 @@ func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedS
 	if len(schema.AnyOf) > 0 {
 		for _, candidate := range schema.AnyOf {
 			if candidate.Value != nil {
-				ex, err := openAPIExample(candidate.Value, cache, fieldTypeDefaults)
+				ex, err := openAPIExample(candidate.Value, cache, fieldTypeDefaults, requiredOnly)
 				if err == nil {
 					return ex, nil
 				}
@@ -957,7 +984,7 @@ func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedS
 			if allOf.Value == nil {
 				continue
 			}
-			candidate, err := openAPIExample(allOf.Value, cache, fieldTypeDefaults)
+			candidate, err := openAPIExample(allOf.Value, cache, fieldTypeDefaults, requiredOnly)
 			if err != nil {
 				return nil, err
 			}
@@ -968,11 +995,12 @@ func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedS
 		return example, nil
 	}
 
+	typ := effectiveType(schema)
 	switch {
-	case schema.Type.Is("boolean"):
+	case typ == "boolean":
 		return true, nil
 
-	case schema.Type.Is("number"), schema.Type.Is("integer"):
+	case typ == "number", typ == "integer":
 		value := 0.0
 		if schema.Min != nil && *schema.Min > value {
 			value = *schema.Min
@@ -990,12 +1018,12 @@ func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedS
 		if schema.Max != nil && *schema.Max < value {
 			value = *schema.Max
 		}
-		if schema.Type.Is("integer") {
+		if typ == "integer" {
 			return int(value), nil
 		}
 		return value, nil
 
-	case schema.Type.Is("string"):
+	case typ == "string":
 		if ex := stringFormatExample(schema.Format, fieldTypeDefaults); ex != "" {
 			return ex, nil
 		}
@@ -1008,10 +1036,10 @@ func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedS
 		}
 		return example, nil
 
-	case schema.Type.Is("array"), schema.Items != nil:
+	case typ == "array", typ == "" && schema.Items != nil:
 		example := []any{}
 		if schema.Items != nil && schema.Items.Value != nil {
-			ex, err := openAPIExample(schema.Items.Value, cache, fieldTypeDefaults)
+			ex, err := openAPIExample(schema.Items.Value, cache, fieldTypeDefaults, requiredOnly)
 			if err != nil {
 				return nil, fmt.Errorf("can't get example for array item: %w", err)
 			}
@@ -1022,13 +1050,16 @@ func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedS
 		}
 		return example, nil
 
-	case schema.Type.Is("object"), len(schema.Properties) > 0:
+	case typ == "object", typ == "" && len(schema.Properties) > 0:
 		example := map[string]any{}
 		for k, v := range schema.Properties {
 			if v.Value == nil || v.Value.ReadOnly {
 				continue
 			}
-			ex, err := openAPIExample(v.Value, cache, fieldTypeDefaults)
+			if requiredOnly && !slices.Contains(schema.Required, k) {
+				continue
+			}
+			ex, err := openAPIExample(v.Value, cache, fieldTypeDefaults, requiredOnly)
 			if errors.Is(err, errRecursive) {
 				if slices.Contains(schema.Required, k) {
 					return nil, fmt.Errorf("can't get example for '%s': %w", k, err)
@@ -1043,13 +1074,23 @@ func openAPIExample(schema *openapi3.Schema, cache map[*openapi3.Schema]*cachedS
 		if schema.AdditionalProperties.Has != nil && schema.AdditionalProperties.Schema != nil {
 			addl := schema.AdditionalProperties.Schema.Value
 			if addl != nil && !addl.ReadOnly {
-				ex, err := openAPIExample(addl, cache, fieldTypeDefaults)
+				ex, err := openAPIExample(addl, cache, fieldTypeDefaults, requiredOnly)
 				if err == nil {
 					example["additionalPropertyName"] = ex
 				}
 			}
 		}
 		return example, nil
+
+	case typ == "":
+		// Untyped with nothing to infer from: any JSON value is allowed, and a
+		// short scalar is what most handlers accept. Dropping the operation
+		// (the old errNoExample) lost the endpoint entirely. A declared
+		// format still shapes it (format: uuid → a UUID).
+		if ex := stringFormatExample(schema.Format, fieldTypeDefaults); ex != "" {
+			return ex, nil
+		}
+		return "1", nil
 	}
 
 	return nil, errNoExample
@@ -1094,4 +1135,87 @@ func CountOperations(data []byte, opts Options) (int64, error) {
 	}
 
 	return count, nil
+}
+
+// canonicalMediaType maps a declared request media type onto the body
+// encoding it implies: parameters are stripped and case folded
+// (mime.ParseMediaType), and structured-syntax suffixes resolve to their base
+// (application/vnd.api+json -> application/json, application/soap+xml ->
+// application/xml). Before this, anything but an exact "application/json"
+// fell through to Go's %v rendering of a map.
+func canonicalMediaType(declared string) string {
+	mt, _, err := mime.ParseMediaType(declared)
+	if err != nil {
+		mt = strings.ToLower(strings.TrimSpace(declared))
+		if i := strings.IndexByte(mt, ';'); i >= 0 {
+			mt = strings.TrimSpace(mt[:i])
+		}
+	}
+	switch {
+	case mt == "application/json", mt == "text/json", strings.HasSuffix(mt, "+json"),
+		strings.HasSuffix(mt, "/x-json"):
+		return "application/json"
+	case mt == "application/xml", mt == "text/xml", strings.HasSuffix(mt, "+xml"):
+		return "application/xml"
+	}
+	return mt
+}
+
+// declaredOr keeps the spec's declared media type on the wire (a server that
+// routes on application/vnd.api+json must receive exactly that) unless it is
+// a wildcard or empty.
+func declaredOr(declared, fallback string) string {
+	d := strings.TrimSpace(declared)
+	if d == "" || strings.Contains(d, "*") {
+		return fallback
+	}
+	return d
+}
+
+// idLikeParamValue returns a usable identifier for a path or query parameter
+// with no explicit example: integer path parameters (and integer query
+// parameters named like IDs) become max(1, minimum) because 0 is almost never
+// a valid row, and string parameters named "*id" with no format or pattern
+// become "1" rather than the literal "string". Values shaped like this let
+// by-ID operations reach the handler instead of a 404.
+func idLikeParamValue(param *openapi3.Parameter) (any, bool) {
+	if param.In != "path" && param.In != "query" {
+		return nil, false
+	}
+	if param.Schema == nil || param.Schema.Value == nil {
+		return nil, false
+	}
+	sc := param.Schema.Value
+	switch effectiveType(sc) {
+	case "integer", "number":
+		if param.In != "path" && !isIDName(param.Name) {
+			return nil, false
+		}
+		v := 1.0
+		if sc.Min != nil && *sc.Min > v {
+			v = *sc.Min
+			if sc.ExclusiveMin.IsTrue() {
+				v++
+			}
+		}
+		if eb := sc.ExclusiveMin; eb.Value != nil && *eb.Value >= v {
+			v = *eb.Value + 1
+		}
+		if sc.Max != nil && *sc.Max < v {
+			v = *sc.Max
+		}
+		return int(v), true
+	case "string":
+		if sc.Format != "" || sc.Pattern != "" || !isIDName(param.Name) {
+			return nil, false
+		}
+		return "1", true
+	}
+	return nil, false
+}
+
+// isIDName reports whether a parameter name names an identifier: "id", or a
+// name ending in "id" (userId, user_id, orderid).
+func isIDName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), "id")
 }

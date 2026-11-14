@@ -584,9 +584,10 @@ paths:
 		opts := Options{UseSpecServers: true}
 		err := ParseOpenAPI(spec, opts, callback)
 		require.NoError(t, err)
-		// Schema generates "string" for type: string
+		// An ID-named string path param gets "1" (MISS-40), not the literal
+		// "string" that sends every by-ID operation to a 404.
 		require.Len(t, requests, 1)
-		assert.Contains(t, requests[0].Target(), "/items/string")
+		assert.Contains(t, requests[0].Target(), "/items/1")
 	})
 
 	t.Run("with fallback - fallback takes precedence over schema generated", func(t *testing.T) {
@@ -749,10 +750,11 @@ paths:
 
 	users := got["GET users"]
 	assert.Contains(t, users, "GET /users/")
-	assert.Contains(t, users, "ref=00000000-0000-0000-0000-000000000000")
+	assert.Contains(t, users, "GET /users/1?", "an integer path ID is max(1, minimum), never 0")
+	assert.Contains(t, users, "ref=550e8400-e29b-41d4-a716-446655440000", "an untyped param with format uuid is shaped by its format")
 	assert.Contains(t, users, "flag=true")
 	assert.Contains(t, users, "filter=")
-	assert.Equal(t, 1, stats.SynthesizedParams, "only the untyped uuid param needs a placeholder")
+	assert.Zero(t, stats.SynthesizedParams, "every param here has a schema to infer from")
 	assert.Zero(t, stats.SkippedOperations)
 }
 
