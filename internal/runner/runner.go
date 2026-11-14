@@ -55,11 +55,15 @@ type Runner struct {
 	// (buildDeparosConfig) and the shared scan requester so later phases inherit
 	// the cleared session. Nil when spidering did not run or carrying is disabled.
 	browserSessions   map[string]httpmsg.CarriedSession
-	autoFuzzDiscovery bool                 // set by runDiscoveryPhase when low-yield/SSO auto-enables FUZZ fuzzing
-	scanLogger        *database.ScanLogger // Optional: structured scan logging
-	teeWriter         *teeWriter           // Optional: captures stderr for trace logging
-	sessionLogFile    *os.File             // Optional: runtime.log handle for verbose file-only writes
-	sessionLogMu      sync.Mutex           // serializes concurrent writes to sessionLogFile
+	autoFuzzDiscovery bool // set by runDiscoveryPhase when low-yield/SSO auto-enables FUZZ fuzzing
+	// secretCoverage records the records dynamic assessment's secret_detect
+	// pass analysed, so the known-issue secret batch scans only the rest
+	// (MISS-33). Nil when assessment did not run.
+	secretCoverage *secretCoverage
+	scanLogger     *database.ScanLogger // Optional: structured scan logging
+	teeWriter      *teeWriter           // Optional: captures stderr for trace logging
+	sessionLogFile *os.File             // Optional: runtime.log handle for verbose file-only writes
+	sessionLogMu   sync.Mutex           // serializes concurrent writes to sessionLogFile
 	// targetsAreInput is set by New when the input source was built from
 	// options.Targets alone, so scope admission over them covers the whole
 	// input (see targetAdmission).

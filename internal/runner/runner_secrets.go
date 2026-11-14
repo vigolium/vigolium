@@ -31,7 +31,13 @@ func (r *Runner) runSecretScanBatch(ctx context.Context, infra *phaseInfra, onRe
 	zap.L().Info("KnownIssueScan: native secret scan — scanning response bodies for secrets")
 
 	var cursor string
-	var totalFindings int
+	var totalFindings, skippedCovered int
+	defer func() {
+		if skippedCovered > 0 {
+			zap.L().Debug("KnownIssueScan: secret scan skipped records already covered by dynamic assessment",
+				zap.Int("skipped", skippedCovered))
+		}
+	}()
 	// Collapse the same secret re-observed on the same URL across records (the
 	// same page can survive record-dedup under different paths/sources): emit one
 	// finding per (host, url, rule, snippet) so near-identical request/response
@@ -59,6 +65,12 @@ func (r *Runner) runSecretScanBatch(ctx context.Context, infra *phaseInfra, onRe
 
 			if err := ctx.Err(); err != nil {
 				return err
+			}
+			// Dynamic assessment's secret_detect already analysed this record's
+			// response; scanning it again yields the same findings.
+			if r.secretCoverage.has(record.UUID) {
+				skippedCovered++
+				continue
 			}
 
 			// Parse the raw response once so we can both scan the body and inspect

@@ -148,15 +148,30 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 		}
 	}
 
-	// Nuclei scan on distinct hosts. It gets its OWN max_duration budget so that a
-	// long Nuclei run no longer starves the secret scan below — the two
-	// legs are bounded independently rather than sharing one budget. A ctx error
-	// means this leg's max_duration (or the overall scan) elapsed — that is a
-	// curtailment, not a failure.
+	// Secret scan first: it reads stored response bodies locally (no network),
+	// covers only the records dynamic assessment's secret_detect did not reach
+	// (r.secretCoverage), and is the cheaper leg, so a scan cut short during
+	// the nuclei leg below still has its secrets. It gets its own max_duration
+	// budget (derived from the parent ctx, so still bounded by the overall scan
+	// budget). A ctx error is a curtailment, distinct from a scanner failure.
+	secretScanCtx, secretScanCancel := r.trackedPhaseDeadline(ctx, kisMaxDuration)
+	defer secretScanCancel()
+	if err := r.runSecretScanBatch(secretScanCtx, infra, onResult, inScopeHosts); err != nil {
+		if secretScanCtx.Err() != nil {
+			zap.L().Warn("KnownIssueScan: secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(secretScanCtx.Err()))
+		} else {
+			zap.L().Error("KnownIssueScan: secret scan failed", zap.Error(err))
+			r.currentPhase.Load().noteError(err)
+		}
+	}
+
+	// Nuclei scan on distinct hosts, on its OWN max_duration budget so the two
+	// legs are bounded independently. A ctx error means this leg's max_duration
+	// (or the overall scan) elapsed — a curtailment, not a failure.
 	//
 	// A first run clones nuclei-templates here, before the leg's deadline starts
 	// (setup, not scanning). When the clone fails the nuclei leg is skipped and
-	// the phase records the error; the secret scan below still runs.
+	// the phase records the error.
 	templatesErr := r.provisionNucleiTemplates(ctx, inScopeHosts)
 	nucleiCtx, nucleiCancel := r.trackedPhaseDeadline(ctx, kisMaxDuration)
 	defer nucleiCancel()
@@ -168,24 +183,6 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 			zap.L().Warn("KnownIssueScan: Nuclei scan stopped at phase max_duration", zap.Error(nucleiCtx.Err()))
 		} else {
 			zap.L().Error("KnownIssueScan: Nuclei scan failed", zap.Error(err))
-			r.currentPhase.Load().noteError(err)
-		}
-	}
-
-	// secret scan on all response bodies. It gets a FRESH max_duration
-	// budget that starts now (derived from the parent ctx, so still bounded by the
-	// overall scan budget), so it always runs even when the Nuclei leg above was
-	// curtailed at its deadline. secret scan reads DB response bodies locally (no
-	// network) and normally finishes well within this budget. Worst-case phase
-	// wall-clock is ~2× max_duration, capped by the overall scan budget. A ctx error
-	// is a curtailment, distinct from a genuine scanner failure.
-	secretScanCtx, secretScanCancel := r.trackedPhaseDeadline(ctx, kisMaxDuration)
-	defer secretScanCancel()
-	if err := r.runSecretScanBatch(secretScanCtx, infra, onResult, inScopeHosts); err != nil {
-		if secretScanCtx.Err() != nil {
-			zap.L().Warn("KnownIssueScan: secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(secretScanCtx.Err()))
-		} else {
-			zap.L().Error("KnownIssueScan: secret scan failed", zap.Error(err))
 			r.currentPhase.Load().noteError(err)
 		}
 	}

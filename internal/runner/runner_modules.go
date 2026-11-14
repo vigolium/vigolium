@@ -482,17 +482,6 @@ func adaptiveHostLimiterSettings(settings *config.Settings) (bool, int, int) {
 	return sp.AdaptivePerHost, sp.MinPerHost, sp.MaxPerHostCeiling
 }
 
-// filterOutPassiveModule removes a passive module with the given ID from the list.
-func filterOutPassiveModule(mods []modules.PassiveModule, id string) []modules.PassiveModule {
-	result := make([]modules.PassiveModule, 0, len(mods))
-	for _, m := range mods {
-		if m.ID() != id {
-			result = append(result, m)
-		}
-	}
-	return result
-}
-
 // buildModulesString returns a comma-separated string of module IDs for scan record storage.
 func (r *Runner) buildModulesString(active []modules.ActiveModule, passive []modules.PassiveModule) string {
 	ids := make([]string, 0, len(active)+len(passive))
