@@ -713,7 +713,6 @@ dynamic-assessment:
     allow_load_failures: false  # keep scanning when an --ext/custom_dir file fails to load (--ext-allow-failures)
     limits:
       timeout: 30s
-      max_memory_mb: 128
 ```
 
 An extension named with `--ext` or listed in `custom_dir` that fails to load

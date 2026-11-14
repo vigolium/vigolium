@@ -3,6 +3,7 @@ package jsext
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 
@@ -156,18 +157,21 @@ func doRequest(vm *sobek.Runtime, httpClient *http.Requester, method, urlStr, bo
 		sb.WriteString(body)
 	}
 
-	return doRawRequest(vm, httpClient, sb.String())
+	return doRawRequestTo(vm, httpClient, sb.String(), urlStr)
 }
 
 func doRawRequest(vm *sobek.Runtime, httpClient *http.Requester, rawReq string) sobek.Value {
+	return doRawRequestTo(vm, httpClient, rawReq, "")
+}
+
+// doRawRequestTo sends rawReq to targetURL's scheme/host/port when known, else
+// to the Host header (https for port 443). It used to connect over plain http
+// whatever the URL said (NEW-3).
+func doRawRequestTo(vm *sobek.Runtime, httpClient *http.Requester, rawReq, targetURL string) sobek.Value {
 	req := httpmsg.NewHttpRequest([]byte(rawReq))
 
-	// Infer service from Host header so the requester knows where to connect
-	if host := req.Header("Host"); host != "" {
-		svc, err := httpmsg.ParseService("http://" + host)
-		if err == nil {
-			req = httpmsg.NewHttpRequestWithService(svc, []byte(rawReq))
-		}
+	if svc := serviceForRequest(targetURL, req.Header("Host")); svc != nil {
+		req = httpmsg.NewHttpRequestWithService(svc, []byte(rawReq))
 	}
 
 	hrr := httpmsg.NewHttpRequestResponse(req, nil)
@@ -181,7 +185,7 @@ func doRawRequest(vm *sobek.Runtime, httpClient *http.Requester, rawReq string) 
 		// An offline requester (ext eval without --allow-network) throws, so
 		// the extension and its author see why there is no response instead
 		// of a silent undefined.
-		if errors.Is(err, http.ErrNetworkDisabled) {
+		if errors.Is(err, http.ErrNetworkDisabled) || errors.Is(err, http.ErrHostOutOfScope) {
 			panic(vm.NewGoError(err))
 		}
 		zap.L().Debug("JS HTTP request failed", zap.Error(err))
@@ -321,4 +325,27 @@ func extractHost(rawURL string) string {
 		return rawURL[:slashIdx]
 	}
 	return rawURL
+}
+
+// serviceForRequest is the connection target for an extension request: the
+// URL's scheme, host and port when targetURL is absolute, else the Host
+// header with https for port 443 and http otherwise.
+func serviceForRequest(targetURL, hostHeader string) *httpmsg.Service {
+	if u, err := url.Parse(targetURL); err == nil && u.Scheme != "" && u.Host != "" {
+		if svc, err := httpmsg.ParseService(u.Scheme + "://" + u.Host); err == nil {
+			return svc
+		}
+	}
+	if hostHeader == "" {
+		return nil
+	}
+	scheme := "http"
+	if _, port, err := net.SplitHostPort(hostHeader); err == nil && port == "443" {
+		scheme = "https"
+	}
+	svc, err := httpmsg.ParseService(scheme + "://" + hostHeader)
+	if err != nil {
+		return nil
+	}
+	return svc
 }

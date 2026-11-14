@@ -223,6 +223,9 @@ type Requester struct {
 	// depends on (MISS-22). A fresh one is attached per module call by
 	// WithAbandonFlag; the root requester carries a scan-wide one.
 	callStats *CallStats
+	// hostFilter, when set, refuses requests to hosts it rejects
+	// (WithHostFilter).
+	hostFilter func(host string) bool
 	// preserved are PreserveHeaders keys applied to every request on this
 	// view (WithPreservedHeaders). The executor sets them per task for an
 	// insertion point that lives in a header (httpmsg.HeaderOwner).
@@ -547,6 +550,23 @@ func (r *Requester) trafficPolicy() *types.TrafficPolicy {
 		return nil
 	}
 	return r.services.Options.TrafficPolicy
+}
+
+// ErrHostOutOfScope is returned by a WithHostFilter view for a request to a
+// host the filter refuses. Nothing is sent.
+var ErrHostOutOfScope = errors.New("request refused: host is outside the scan scope")
+
+// WithHostFilter returns a shallow clone that refuses requests whose target
+// host allow rejects (ErrHostOutOfScope). JS extension HTTP is sent through
+// such a view so an extension cannot reach hosts outside the scan's scope
+// (SAFE-14). A nil allow returns r unchanged.
+func (r *Requester) WithHostFilter(allow func(host string) bool) *Requester {
+	if r == nil || allow == nil {
+		return r
+	}
+	clone := *r
+	clone.hostFilter = allow
+	return &clone
 }
 
 // ErrRequestAbandoned is returned by Execute when the calling module has already
@@ -1278,6 +1298,12 @@ func (r *Requester) ExecuteContext(ctx context.Context, input *httpmsg.HttpReque
 		r.refused.Add(1)
 		r.noteStat(func(c *CallStats) { c.Refused.Add(1) })
 		return nil, 0, r.offline
+	}
+	if r.hostFilter != nil {
+		if svc := input.Service(); svc != nil && svc.Host() != "" && !r.hostFilter(svc.Host()) {
+			r.noteStat(func(c *CallStats) { c.Refused.Add(1) })
+			return nil, 0, ErrHostOutOfScope
+		}
 	}
 	// Traffic policy chokepoint (SAFE-8). The priority lane (login, re-login,
 	// reachability preflight) is exempt: it is the operator's own session

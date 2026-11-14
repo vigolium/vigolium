@@ -534,9 +534,10 @@ dynamic-assessment:
       # Default: 30s
       timeout: 30s
 
-      # Maximum memory in MB per VM instance
-      # Default: 128
-      max_memory_mb: 128
+    # Let vigolium.http.* reach hosts outside the scan scope. Extension HTTP is
+    # scope-checked like module traffic by default.
+    # Default: false
+    allow_out_of_scope: false
 
 # ============================================================================
 # OAST (Out-of-Band Application Security Testing)
