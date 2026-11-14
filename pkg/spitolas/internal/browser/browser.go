@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"sync/atomic"
 	"context"
 	"fmt"
 	"math/rand"
@@ -402,6 +403,12 @@ func buildBrowserCandidates(ctx context.Context, goos, goarch, configPath string
 
 	// 4. Chrome for Testing — a previously cached copy (no network).
 	add("Chrome for Testing (cached)", cftCandidate(cftbrowser.FindCachedBrowser))
+
+	// --offline (SAFE-11): no download rungs at all — a missing browser fails
+	// with the install hint instead of fetching one.
+	if offlineMode.Load() {
+		return cands
+	}
 
 	// 5. Chrome for Testing — download on the fly (network, last real resort).
 	//    This is what recovers a host whose only system browser is broken.
@@ -1331,3 +1338,12 @@ func WaitContext(ctx context.Context, timeout time.Duration) (context.Context, c
 	}
 	return ctx, func() {}
 }
+
+// offlineMode drops the browser download rungs (SAFE-11, --offline).
+var offlineMode atomic.Bool
+
+// SetOffline turns the browser download fallbacks off (true) or on.
+func SetOffline(v bool) { offlineMode.Store(v) }
+
+// Offline reports whether browser downloads are disabled.
+func Offline() bool { return offlineMode.Load() }

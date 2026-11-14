@@ -67,6 +67,10 @@ type Options struct {
 	// TrafficPolicy is the per-method traffic policy resolved once by the
 	// runner from scope.methods (SAFE-8). Nil allows everything.
 	TrafficPolicy *TrafficPolicy `json:"-" yaml:"-"`
+	// Offline (--offline / settings key offline) keeps the scan off every
+	// network path that is not the target (SAFE-11): third-party lookups,
+	// OAST, nuclei template clones, browser downloads and update checks.
+	Offline bool
 
 	Silent bool
 	// ScanConfigPrinted indicates the scan configuration summary has already been
@@ -157,6 +161,10 @@ type Options struct {
 	DialerKeepAlive time.Duration
 	// SystemResolvers enables override of nuclei's DNS client opting to use system resolver stack.
 	SystemResolvers bool
+	// Resolvers are explicit DNS resolvers for the scan dialer. Empty: the
+	// system resolvers (resolv.conf), with public resolvers only as a fallback
+	// when the system names none (SAFE-11).
+	Resolvers []string
 	// MaxRedirects is the maximum numbers of redirects to be followed.
 	MaxRedirects int
 	// TargetsSchemeAssumed holds the entries of Targets whose scheme this

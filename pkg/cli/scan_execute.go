@@ -567,6 +567,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 		Headers:              ingestParseHeaders(globalSpecHeader),
 		Variables:            ingestParseVariables(globalSpecVar),
 		DefaultFallbackValue: globalSpecDefault,
+		HTTPClient:           specFetchClient(globalProxy),
 	})
 
 	// Create Runner with the input source — RunNativeScan handles all 3 phases

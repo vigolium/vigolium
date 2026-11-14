@@ -144,7 +144,13 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, _ *modkit.Scan
 
 // FlushFindings resolves every unique candidate name against the npm registry and
 // emits a Suspect finding for each that is unclaimed (HTTP 404).
-func (m *Module) FlushFindings(_ *modkit.ScanContext) ([]*output.ResultEvent, error) {
+//
+// The lookups go to a third party, not the target, and disclose the target's
+// internal package names, so they run only through scanCtx.ExternalFetcher —
+// the scan's proxy and timeout — and only when the operator enabled
+// dynamic_assessment.external_lookups (and not under --offline). Without it
+// the buffered names are dropped and nothing is sent (SAFE-11).
+func (m *Module) FlushFindings(scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	m.mu.Lock()
 	observed := m.observed
 	m.observed = nil
@@ -153,6 +159,12 @@ func (m *Module) FlushFindings(_ *modkit.ScanContext) ([]*output.ResultEvent, er
 	if len(observed) == 0 {
 		return nil, nil
 	}
+	if scanCtx == nil || scanCtx.ExternalFetcher == nil {
+		zap.L().Debug("dependency-confusion: external lookups disabled; skipping registry resolution",
+			zap.Int("candidates", len(observed)))
+		return nil, nil
+	}
+	reg := &registryClient{baseURL: m.registry.baseURL, client: scanCtx.ExternalFetcher}
 
 	names := make([]string, 0, len(observed))
 	for name := range observed {
@@ -170,7 +182,7 @@ func (m *Module) FlushFindings(_ *modkit.ScanContext) ([]*output.ResultEvent, er
 	ctx, cancel := context.WithTimeout(context.Background(), totalFlushTimeout)
 	defer cancel()
 
-	unclaimed := m.resolveUnclaimed(ctx, names)
+	unclaimed := m.resolveUnclaimed(ctx, reg, names)
 
 	results := make([]*output.ResultEvent, 0, len(unclaimed))
 	for _, name := range unclaimed {
@@ -183,7 +195,7 @@ func (m *Module) FlushFindings(_ *modkit.ScanContext) ([]*output.ResultEvent, er
 // and returns those that 404, preserving input order. Each goroutine owns a
 // unique index, so it writes its own slot in unclaimedByIdx without a lock;
 // wg.Wait establishes the happens-before for the read that follows.
-func (m *Module) resolveUnclaimed(ctx context.Context, names []string) []string {
+func (m *Module) resolveUnclaimed(ctx context.Context, reg *registryClient, names []string) []string {
 	sem := make(chan struct{}, registryConcurrency)
 	unclaimedByIdx := make([]bool, len(names))
 	var wg sync.WaitGroup
@@ -198,7 +210,7 @@ func (m *Module) resolveUnclaimed(ctx context.Context, names []string) []string 
 				return // leaves false — same as an indeterminate result
 			}
 			defer func() { <-sem }()
-			unclaimedByIdx[idx] = m.registry.lookup(ctx, n) == resolutionUnclaimed
+			unclaimedByIdx[idx] = reg.lookup(ctx, n) == resolutionUnclaimed
 		}(i, name)
 	}
 	wg.Wait()

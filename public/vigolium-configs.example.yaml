@@ -576,8 +576,8 @@ oast:
   # callback carries whatever the payload pulled out of the target (an internal
   # hostname, a header, a token), so on an engagement whose authorization names
   # the collector, falling back to a public server is unapproved egress.
-  # Default: true
-  fallback_to_default: true
+  # Default: false
+  fallback_to_default: false
 
   # Seconds between polling the interactsh server for new interactions.
   # Lower values detect callbacks faster but generate more traffic.

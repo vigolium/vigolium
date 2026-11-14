@@ -33,6 +33,10 @@ type Settings struct {
 	Agent             AgentConfig             `yaml:"agent"`
 	OAST              OASTConfig              `yaml:"oast"`
 	Storage           StorageConfig           `yaml:"storage"`
+	// Offline keeps scans off every network path that is not the target
+	// (SAFE-11): third-party lookups, OAST, template clones, browser downloads
+	// and update checks. --offline sets it for one run.
+	Offline bool `yaml:"offline,omitempty"`
 }
 
 // ProfileScanningStrategy is the allowlist of ScanningStrategyConfig keys a

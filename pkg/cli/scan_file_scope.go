@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -102,4 +104,17 @@ func deriveFileInputScope(settings *config.Settings, opts *types.Options) {
 	}
 	line += "; pass -t or --scope-origin all to widen"
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.NoteSymbol(), line)
+}
+
+// specFetchClient is the client a spec URL is fetched with: through --proxy
+// when one is set (SAFE-11), else nil (the loader's proxy-environment client).
+func specFetchClient(proxy string) *http.Client {
+	if proxy == "" {
+		return nil
+	}
+	u, err := url.Parse(proxy)
+	if err != nil {
+		return nil
+	}
+	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u)}}
 }

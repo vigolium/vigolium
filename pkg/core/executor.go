@@ -404,6 +404,7 @@ func NewExecutor(
 		e.scanCtx.FollowSubdomains = true
 	}
 	e.scanCtx.DeepScan = cfg.DeepScan
+	e.scanCtx.ExternalFetcher = cfg.ExternalFetcher
 	e.scanCtx.AllowRiskyPayloads = cfg.AllowRiskyPayloads
 	e.scanCtx.NoParamDedup = cfg.NoParamDedup
 	e.scanCtx.ParamFindings = &modkit.ParameterFindingRegistry{}

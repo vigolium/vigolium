@@ -37,7 +37,7 @@ func (f *Format) SetOpenAPIOptions(opts Options) {
 // Parse parses an OpenAPI/Swagger spec file and calls callback for each request.
 func (f *Format) Parse(input string, callback formats.ParseReqRespCallback) error {
 	// Load spec from file or URL
-	data, ext, err := LoadSpec(input)
+	data, ext, err := LoadSpecWithClient(input, f.openapiOpts.HTTPClient)
 	if err != nil {
 		return fmt.Errorf("failed to load spec: %w", err)
 	}
@@ -66,7 +66,7 @@ func (f *Format) Stats() ParseStats {
 // Count returns the number of operations in the OpenAPI spec.
 // If UseSpecServers is true, multiplies by number of servers.
 func (f *Format) Count(input string) (int64, error) {
-	data, _, err := LoadSpec(input)
+	data, _, err := LoadSpecWithClient(input, f.openapiOpts.HTTPClient)
 	if err != nil {
 		return 0, err
 	}

@@ -85,6 +85,7 @@ var (
 
 	// Scope origin mode
 	globalScopeOrigin string
+	globalOffline     bool
 
 	// Scanning pace override
 	globalScanningMaxDuration time.Duration
@@ -357,6 +358,7 @@ func init() {
 	pf.BoolVarP(&globalJSON, "json", "j", false, "Emit machine-readable JSON for agent/programmatic use (compact bodies; pair with --fields/--compact/--full-body on finding/traffic/db). For the bulk {type,data} stream use --format jsonl / export.")
 	pf.StringVar(&globalConfig, "config", "", `Path to config file (default "~/.vigolium/vigolium-configs.yaml")`)
 	pf.StringVar(&globalProxy, "proxy", "", "Route all requests through this proxy (HTTP/SOCKS5 URL)")
+	pf.BoolVar(&globalOffline, "offline", false, "Keep off every network path that is not the target: no OAST callbacks, third-party lookups (npm registry), nuclei template clone/update, browser download or update check (also settings key offline)")
 	pf.StringVar(&globalDB, "db", "", `Path to SQLite database file (default "~/.vigolium/database-vgnm.sqlite"). Also honors $VIGOLIUM_DB_PATH, which additionally reads that file with project scoping off`)
 	pf.StringVar(&globalMemLimit, "mem-limit", "", "Soft heap ceiling (GOMEMLIMIT) for scans: empty = auto (1/3 of RAM, scaled down by -P/--parallel so all children stay under ⅔ of RAM), 'off' to disable, or an explicit size/percent like 6GiB or 50%. An existing GOMEMLIMIT env var overrides this.")
 

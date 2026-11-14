@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -137,6 +138,7 @@ func NewDialer(options *types.Options) (*fastdialer.Dialer, error) {
 		opts.ResolversFile = true
 		opts.EnableFallback = true
 	}
+	opts.BaseResolvers = baseResolvers(options.Resolvers, systemResolverCount(resolvConfPath()), opts.BaseResolvers)
 
 	opts.Deny = append(opts.Deny, expandedDenyList...)
 
@@ -184,4 +186,48 @@ func Close() {
 	// rather than conflicting with a policy nothing is holding any more.
 	activePolicy = ""
 	StopActiveMemGuardian()
+}
+
+// baseResolvers picks fastdialer's BaseResolvers (SAFE-11). fastdialer tries
+// the system resolvers (resolv.conf) first and then round-robins BaseResolvers,
+// public 1.1.1.1/8.8.8.8 by default — so internal hostnames leaked to public
+// DNS. Explicit resolvers always win; with working system resolvers no public
+// base is added; with none the public defaults stay so resolution still works.
+func baseResolvers(explicit []string, systemCount int, defaults []string) []string {
+	if len(explicit) > 0 {
+		return explicit
+	}
+	if systemCount > 0 {
+		return nil
+	}
+	return defaults
+}
+
+// resolvConfPath is the resolver file fastdialer reads (RESOLVERS_PATH
+// overrides, as it does in fastdialer).
+func resolvConfPath() string {
+	if p := os.Getenv("RESOLVERS_PATH"); p != "" {
+		return os.ExpandEnv(p)
+	}
+	return fastdialer.ResolverFilePath
+}
+
+// systemResolverCount counts the nameserver lines in a resolv.conf; 0 when the
+// file is missing or names none.
+func systemResolverCount(path string) int {
+	if path == "" {
+		return 0
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "nameserver" {
+			n++
+		}
+	}
+	return n
 }

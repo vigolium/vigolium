@@ -1,6 +1,7 @@
 package core
 
 import (
+	nethttp "net/http"
 	goruntime "runtime"
 	"sync/atomic"
 	"time"
@@ -171,6 +172,10 @@ type ExecutorConfig struct {
 	// DeepScan mirrors --intensity=deep into ScanContext so modules can unlock
 	// heavier probing (e.g. dashboard_exposure's full mount-path sweep).
 	DeepScan bool
+
+	// ExternalFetcher is copied into ScanContext.ExternalFetcher (SAFE-11);
+	// nil disables third-party lookups.
+	ExternalFetcher *nethttp.Client
 	// AllowRiskyPayloads mirrors --allow-risky-payloads (or config
 	// dynamic-assessment.allow_risky_payloads) into ScanContext, unlocking
 	// risk:high payloads below deep.

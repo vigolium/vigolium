@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"crypto/md5"
 	"crypto/sha1"
-	"crypto/tls"
-	"crypto/x509"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -14,7 +12,6 @@ import (
 	"io/fs"
 	"math/rand"
 	randv2 "math/rand/v2"
-	"net"
 	"net/url"
 	"os"
 	"path"
@@ -564,56 +561,3 @@ func MightBeFunction(value string) bool {
 	return lo.Contains(phpFunctions, value)
 }
 
-func GetCertificateFromHostname(host string) []string {
-	if host == "" {
-		return []string{}
-	}
-	hostname, port, _ := net.SplitHostPort(host)
-	if hostname == "" {
-		hostname = host
-	}
-	if port == "" {
-		port = "443"
-	}
-
-	conn, err := tls.Dial("tcp", hostname+":"+port, &tls.Config{
-		InsecureSkipVerify: true,
-	})
-	if err != nil {
-		return []string{}
-	}
-	defer func() { _ = conn.Close() }()
-
-	certs, _, err := serverCert(hostname, port)
-	if err != nil {
-		return []string{}
-	}
-	if len(certs) == 0 {
-		return []string{}
-	}
-	cert := certs[0]
-
-	return cert.DNSNames
-}
-
-var serverCert = func(host, port string) ([]*x509.Certificate, string, error) {
-	d := &net.Dialer{
-		Timeout: time.Duration(5) * time.Second,
-	}
-
-	conn, err := tls.DialWithDialer(d, "tcp", host+":"+port, &tls.Config{
-		InsecureSkipVerify: true,
-		CipherSuites:       nil,
-		MaxVersion:         tls.VersionTLS12,
-	})
-	if err != nil {
-		return []*x509.Certificate{{}}, "", err
-	}
-	defer func() { _ = conn.Close() }()
-
-	addr := conn.RemoteAddr()
-	ip, _, _ := net.SplitHostPort(addr.String())
-	cert := conn.ConnectionState().PeerCertificates
-
-	return cert, ip, nil
-}

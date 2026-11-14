@@ -3,6 +3,10 @@ package runner
 import (
 	"context"
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/knownissuescan"
+	"github.com/vigolium/vigolium/pkg/spitolas"
+	nethttp "net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -132,6 +136,10 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 		if r.options.TrafficPolicy == nil {
 			r.options.TrafficPolicy = types.NewTrafficPolicy(r.settings.Scope.Methods)
 		}
+	}
+	// --offline (SAFE-11): nothing leaves for a non-target network path.
+	if r.offline() {
+		r.applyOffline()
 	}
 
 	httpRequester, err := http.NewRequester(r.options, svc)
@@ -340,4 +348,42 @@ func phaseDeadline(ctx context.Context, maxDuration time.Duration) (context.Cont
 // helpers that need a writer are not handed the infra.
 func (r *Runner) newScanRecordWriter() *database.RecordWriter {
 	return database.NewRecordWriter(r.repository, database.RecordWriterConfig{ScanUUID: r.options.ScanUUID})
+}
+
+// offline reports whether this run is --offline (flag or settings key).
+func (r *Runner) offline() bool {
+	return r.options.Offline || (r.settings != nil && r.settings.Offline)
+}
+
+// applyOffline turns off every non-target network path for the run
+// (SAFE-11): OAST registration, third-party lookups (externalFetcher returns
+// nil), nuclei template clones and browser downloads.
+func (r *Runner) applyOffline() {
+	r.options.Offline = true
+	if r.settings != nil {
+		r.settings.OAST.Enabled = false
+		r.settings.DynamicAssessment.ExternalLookups = false
+	}
+	spitolas.SetOffline(true)
+	knownissuescan.SetOffline(true)
+}
+
+// externalFetcher is the client modules use for third-party lookups that are
+// not the target (SAFE-11), built from the scan's proxy and timeout. nil
+// unless dynamic_assessment.external_lookups is on and the run is not offline.
+func (r *Runner) externalFetcher() *nethttp.Client {
+	if r.offline() || r.settings == nil || !r.settings.DynamicAssessment.ExternalLookups {
+		return nil
+	}
+	transport := &nethttp.Transport{Proxy: nethttp.ProxyFromEnvironment}
+	if r.options.ProxyURL != "" {
+		if u, err := url.Parse(r.options.ProxyURL); err == nil {
+			transport.Proxy = nethttp.ProxyURL(u)
+		}
+	}
+	timeout := r.options.Timeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	return &nethttp.Client{Timeout: timeout, Transport: transport}
 }

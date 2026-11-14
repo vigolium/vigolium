@@ -192,3 +192,7 @@ func (s BrowserSecurity) Fields() map[string]any {
 
 // SecurityFieldOrder is the order report lines render Fields() in.
 var SecurityFieldOrder = []string{"sandbox", "tls", "mixed_content", "web_security"}
+
+// SetOffline disables every browser download fallback for the process
+// (--offline, SAFE-11): a missing browser fails with the install hint.
+func SetOffline(v bool) { browser.SetOffline(v) }
