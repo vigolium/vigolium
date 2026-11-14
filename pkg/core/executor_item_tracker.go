@@ -11,7 +11,7 @@ import (
 // itemTracker owns one work item from the end of its dispatch phase until its
 // last active-module task finishes. It is what lets a worker hand an item's
 // slow tasks off and go back to the queue instead of pinning itself in a
-// per-item Wait (head-of-line blocking: one 2-minute module task used to stop
+// per-item Wait (head-of-line blocking: one 2-minute module task would stop
 // that worker from fetching any other baseline).
 //
 // Ownership: the worker owns the item, its pooled response buffer and the
@@ -66,8 +66,8 @@ func (e *Executor) newItemTracker(ctx context.Context, item *work.WorkItem, hold
 		finished:   make(chan struct{}),
 	}
 	t.ctx = withResponseBufferGuard(ctx, &t.guard)
-	if e.cfg.Ledger != nil && item != nil && item.RecordUUID != "" {
-		t.prog = newItemProgress()
+	if e.ledger != nil && item != nil && item.RecordUUID != "" {
+		t.prog = newItemProgress(e.ledger.size)
 	}
 	t.pending.Store(1)
 	e.pool.inFlight.Add(1)

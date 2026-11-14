@@ -3,6 +3,7 @@ package modkit
 import (
 	"net"
 	"strconv"
+	"strings"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -28,8 +29,8 @@ func (s HeaderClassSet) Has(c infra.HeaderClass) bool { return s&(1<<uint(c)) !=
 var AllTestableHeaderClasses = HeaderClasses(infra.HeaderClassApp, infra.HeaderClassNegotiation,
 	infra.HeaderClassLogged, infra.HeaderClassRouting)
 
-// HeaderInterest returns which header classes a vulnerability class tests
-// (ECON-1): SQLi reaches logged and negotiation headers (log tables, locale
+// HeaderInterest returns which header classes a vulnerability class tests:
+// SQLi reaches logged and negotiation headers (log tables, locale
 // lookups), command injection logged ones, traversal negotiation ones (locale
 // file includes), SSRF routing ones. Everything else tests application headers
 // only.
@@ -85,7 +86,7 @@ func (sc *ScanContext) HeaderClaim(origin, moduleID, header string) bool {
 	if sc == nil || sc.HeaderClaims == nil {
 		return true
 	}
-	seen, _ := sc.HeaderClaims.cache.ContainsOrAdd(headerClaimKey(origin, moduleID, httpLower(header)), struct{}{})
+	seen, _ := sc.HeaderClaims.cache.ContainsOrAdd(headerClaimKey(origin, moduleID, strings.ToLower(header)), struct{}{})
 	return !seen
 }
 
@@ -95,17 +96,7 @@ func (sc *ScanContext) ReleaseHeaderClaim(origin, moduleID, header string) {
 	if sc == nil || sc.HeaderClaims == nil {
 		return
 	}
-	sc.HeaderClaims.cache.Remove(headerClaimKey(origin, moduleID, httpLower(header)))
-}
-
-func httpLower(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
-			b[i] = c + 32
-		}
-	}
-	return string(b)
+	sc.HeaderClaims.cache.Remove(headerClaimKey(origin, moduleID, strings.ToLower(header)))
 }
 
 // headerOnlyTypes reports whether a module tests headers and nothing else —
@@ -123,17 +114,17 @@ type HeaderGateDecision struct {
 }
 
 // GateHeaderPoint decides whether module tests header point ip of a record on
-// origin (ECON-1): noise headers never; headers outside the module's class
+// origin: noise headers never; headers outside the module's class
 // interest (HeaderInterest by vuln class, a HeaderClassAware override, or —
 // for header-only modules — every testable class) never; logged, negotiation
 // and routing headers once per (origin, module, header); application headers
-// per point as before. Non-header points always pass. HeaderPointsAll turns
-// the gate off.
-func GateHeaderPoint(sc *ScanContext, module headerGateModule, vulnClass, origin string, ip httpmsg.InsertionPoint) HeaderGateDecision {
+// per point. Non-header points always pass. HeaderPointsAll turns the gate
+// off. class is infra.ClassifyHeader(ip.Name()), computed by the caller so a
+// point shared by many modules is classified once.
+func GateHeaderPoint(sc *ScanContext, module headerGateModule, vulnClass, origin string, ip httpmsg.InsertionPoint, class infra.HeaderClass) HeaderGateDecision {
 	if ip == nil || ip.Type() != httpmsg.INS_HEADER || (sc != nil && sc.HeaderPointsAll) {
 		return HeaderGateDecision{Allow: true}
 	}
-	class := infra.ClassifyHeader(ip.Name())
 	if class == infra.HeaderClassNoise {
 		return HeaderGateDecision{}
 	}
@@ -187,7 +178,11 @@ func FilterPointsFor(sc *ScanContext, module headerGateModule, item *httpmsg.Htt
 	origin := RecordOrigin(item)
 	out := points[:0:0]
 	for _, ip := range points {
-		if GateHeaderPoint(sc, module, vulnClass, origin, ip).Allow {
+		if ip == nil || ip.Type() != httpmsg.INS_HEADER {
+			out = append(out, ip)
+			continue
+		}
+		if GateHeaderPoint(sc, module, vulnClass, origin, ip, infra.ClassifyHeader(ip.Name())).Allow {
 			out = append(out, ip)
 			continue
 		}

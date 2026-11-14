@@ -8,9 +8,9 @@ import (
 
 // A dynamic-assessment phase builds one executor per feedback round from one
 // base config. With SharePhaseState, round 2 sees round 1's tech detections,
-// param findings, WAF/content-class facts and per-host claims (NEW-8). Before,
-// every round started empty: the tech gate let every gated module run, param
-// dedup restarted and per-host modules re-fired.
+// param findings, WAF/content-class facts and per-host claims, instead of
+// starting empty (the tech gate letting every gated module run, param dedup
+// restarting and per-host modules re-firing).
 func TestPhaseStateSharedAcrossRounds(t *testing.T) {
 	var detected []string
 	base := ExecutorConfig{
@@ -23,7 +23,7 @@ func TestPhaseStateSharedAcrossRounds(t *testing.T) {
 	round1 := NewExecutor(base, &sliceSource{}, nil, nil)
 	round1.scanCtx.TechStack.Mark("app.test", "spring")
 	round1.scanCtx.ParamFindings.MarkFound("app.test/login", "user", "sqli")
-	round1.caches.perHostActiveClaimed.Add(hostClaimKey{moduleID: "m", origin: "https://app.test:443"}, struct{}{})
+	round1.caches.hostClaims.active.Add(hostClaimKey{moduleID: "m", origin: "https://app.test:443"}, struct{}{})
 
 	round2 := NewExecutor(base, &sliceSource{}, nil, nil)
 	if !round2.scanCtx.TechStack.Has("app.test", "spring") {
@@ -32,7 +32,7 @@ func TestPhaseStateSharedAcrossRounds(t *testing.T) {
 	if !round2.scanCtx.ParamFindings.HasFinding("app.test/login", "user", "sqli") {
 		t.Error("round 2 lost round 1's param finding (param dedup restarted)")
 	}
-	if !round2.caches.perHostActiveClaimed.Contains(hostClaimKey{moduleID: "m", origin: "https://app.test:443"}) {
+	if !round2.caches.hostClaims.active.Contains(hostClaimKey{moduleID: "m", origin: "https://app.test:443"}) {
 		t.Error("round 2 lost round 1's per-host claim")
 	}
 	if round2.scanCtx.WAFStack != round1.scanCtx.WAFStack {

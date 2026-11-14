@@ -15,7 +15,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/modules"
-	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/work"
 	"go.uber.org/zap"
 )
@@ -33,8 +32,11 @@ const (
 // Executor orchestrates scanning with worker pool.
 type Executor struct {
 	cfg ExecutorConfig
+	// ledger is cfg.Ledger resolved for this executor's modules (nil without
+	// a ledger).
+	ledger *ledgerPlan
 	// methodPolicySkips counts records kept out of the active stage by the
-	// traffic policy (SAFE-8, skip reason method_policy).
+	// traffic policy (skip reason method_policy).
 	methodPolicySkips atomic.Int64
 	// notifyOnce installs the finding writer's new-finding callback once.
 	notifyOnce     sync.Once
@@ -61,7 +63,7 @@ type Executor struct {
 	moduleErrs moduleErrorCounts
 	// moduleSkips counts, per module, why it did not test something it was
 	// considered for (see SkipReason*). Exposed through Report().ModuleSkips.
-	moduleSkips *moduleSkipLedger
+	moduleSkips moduleSkipLedger
 
 	// moduleTimeouts counts active-module invocations that hit the per-module
 	// timeout and were skipped. Surfaced via the OnStatus callback so the status
@@ -202,19 +204,9 @@ type scanCaches struct {
 	// one through ExecutorConfig.FindingAdmission — see FindingAdmission.
 	admission FindingAdmission
 
-	// perHostActiveClaimed / perHostPassiveClaimed ensure per-host modules run
-	// exactly once per (module, host) pair even with concurrent workers.
-	// Key: hostClaimKey{moduleID, origin} → struct{}. Bounded LRUs rather than
-	// unbounded sync.Maps: in a long-lived scan-on-receive executor the (module,
-	// host) key space grows with every distinct host ingested, so an unbounded
-	// map leaks for the process lifetime. The LRU caps that growth and, by
-	// evicting the least-recently-claimed pairs, lets per-host modules re-fire
-	// for a host whose claim has aged out — restoring coverage on hosts seen long
-	// ago.
-	perHostActiveClaimed  *lru.Cache[hostClaimKey, struct{}]
-	perHostPassiveClaimed *lru.Cache[hostClaimKey, struct{}]
-	// hostClaims owns the two caches above plus the per-pair retry count
-	// (MISS-19); nil on literal test executors.
+	// hostClaims ensures per-host modules run exactly once per (module, origin)
+	// pair even with concurrent workers, and retries a pair whose run failed
+	// transiently (see HostClaims). nil on literal test executors.
 	hostClaims *HostClaims
 
 	// moduleTechReq is a per-module required-tech cache. Populated lazily by
@@ -258,7 +250,7 @@ type workerPool struct {
 	// (see activeScheduler).
 	sched *activeScheduler
 	// deferred parks items whose host is already far over its task cap so
-	// workers keep dispatching other hosts' items (ECON-3 item fairness).
+	// workers keep dispatching other hosts' items (item fairness).
 	deferred deferredItems
 	// passiveTaskSem bounds concurrent parallel-passive goroutines GLOBALLY across
 	// all record workers. Without it, ParallelPassive spawns one goroutine per
@@ -311,12 +303,9 @@ func NewExecutor(
 		ipCache = NewInsertionPointCache(ipCacheSize)
 	}
 
-	// Bounded LRUs for the per-host run-once claims — the phase's shared ones
-	// when supplied (NEW-8), else this executor's own.
-	claims := cfg.HostClaims
-	if claims == nil {
-		claims = NewHostClaims()
-	}
+	// Phase-shared state (registries, per-host and header claims): the
+	// phase's instances when supplied, else this executor's own.
+	cfg.SharePhaseState()
 	storageHosts, _ := lru.New[string, struct{}](perHostClaimCacheSize)
 
 	e := &Executor{
@@ -335,11 +324,9 @@ func NewExecutor(
 		corroboration:  newProbeCorroboration(),
 		storageHosts:   storageHosts,
 		caches: scanCaches{
-			requestUUIDs:          newShardedMap(cfg.Workers),
-			ipCache:               ipCache,
-			perHostActiveClaimed:  claims.active,
-			perHostPassiveClaimed: claims.passive,
-			hostClaims:            claims,
+			requestUUIDs: newShardedMap(cfg.Workers),
+			ipCache:      ipCache,
+			hostClaims:   cfg.HostClaims,
 		},
 		pool: workerPool{
 			feedbackCh: make(chan *work.WorkItem, cfg.Workers*16),
@@ -425,34 +412,14 @@ func NewExecutor(
 	e.scanCtx.ExternalFetcher = cfg.ExternalFetcher
 	e.scanCtx.AllowRiskyPayloads = cfg.AllowRiskyPayloads
 	e.scanCtx.NoParamDedup = cfg.NoParamDedup
-	// Header insertion-point gate (ECON-1).
+	// Header insertion-point gate.
 	e.scanCtx.HeaderPointsAll = cfg.HeaderPointsAll
 	e.scanCtx.HeaderClaims = cfg.HeaderClaims
-	if e.scanCtx.HeaderClaims == nil {
-		e.scanCtx.HeaderClaims = modkit.NewHeaderClaims()
-	}
 	e.scanCtx.OnHeaderGated = func(moduleID string) { e.noteModuleSkip(moduleID, SkipReasonHeaderGated) }
-	// Registries: the phase-shared ones when supplied (NEW-8), else fresh.
 	e.scanCtx.ParamFindings = cfg.ParamFindings
-	if e.scanCtx.ParamFindings == nil {
-		e.scanCtx.ParamFindings = &modkit.ParameterFindingRegistry{}
-	}
 	e.scanCtx.TechStack = cfg.TechRegistry
-	if e.scanCtx.TechStack == nil {
-		e.scanCtx.TechStack = modkit.NewTechRegistry()
-		e.scanCtx.TechStack.OnDetect = cfg.OnTechDetected
-	}
 	e.scanCtx.WAFStack = cfg.WAFStack
-	if e.scanCtx.WAFStack == nil {
-		e.scanCtx.WAFStack = modkit.NewWAFRegistry()
-	}
 	e.scanCtx.ContentClass = cfg.ContentClass
-	if e.scanCtx.ContentClass == nil {
-		e.scanCtx.ContentClass = modkit.NewContentClassRegistry()
-		for host, class := range cfg.ContentClassByHost {
-			e.scanCtx.ContentClass.Set(host, modkit.ContentClass(class))
-		}
-	}
 
 	// Wire insertion point provider for module reuse of cached IPs
 	e.scanCtx.InsertionPoints = &executorIPProvider{cache: e.caches.ipCache}
@@ -476,7 +443,7 @@ func NewExecutor(
 	total := getKnownTotal(src)
 	e.statsTracker = stats.New(total, false)
 	e.moduleMetrics = &stats.ModuleMetrics{}
-	e.moduleSkips = newModuleSkipLedger(activeModules, passiveModules)
+	e.ledger = newLedgerPlan(cfg.Ledger, activeModules)
 
 	return e
 }
@@ -512,11 +479,10 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 
 	// Give this execution its own cancellation scope, ALWAYS — not only when a
 	// phase timeout is configured. Background loops below (the status callback)
-	// used to exit on the caller's ctx alone, so with MaxDuration == 0 a normal
-	// EOF return left them running: dynamic assessment builds one executor per
-	// round against a phase-long context, so each finished round leaked a ticker
-	// goroutine that kept firing OnStatus — reporting a completed executor's
-	// metrics, and reading the database — until the whole phase ended.
+	// must stop when Execute returns: dynamic assessment builds one executor per
+	// round against a phase-long context, so a loop bound to the caller's ctx
+	// would keep firing OnStatus for a finished round — reporting a completed
+	// executor's metrics, and reading the database — until the phase ended.
 	execCtx, cancelExec := context.WithCancel(ctx)
 	defer cancelExec()
 	ctx = execCtx

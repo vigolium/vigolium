@@ -9,7 +9,7 @@ import (
 // latencyBuckets is a lock-free log-scale histogram of completed module-call
 // durations: bucket i holds calls in [2^(i/4) ms, 2^((i+1)/4) ms), i.e. four
 // buckets per doubling (~19% resolution), from 1ms up to ~2^31.75 ms. Enough to
-// read a p99 for the adaptive per-module timeout (ECON-7) without storing
+// read a p99 for the adaptive per-module timeout without storing
 // samples.
 type latencyBuckets struct {
 	counts [128]atomic.Int64
@@ -58,16 +58,11 @@ func (l *latencyBuckets) quantile(q float64) (time.Duration, int64) {
 // RecordCompletedDuration records the duration of a module call that finished
 // inside its timeout, for the adaptive timeout's latency model. Calls that
 // timed out or were interrupted must not be recorded: they would teach the
-// model that the timeout itself is normal.
-func (mm *ModuleMetrics) RecordCompletedDuration(moduleID string, d time.Duration) {
-	if mm == nil {
-		return
+// model that the timeout itself is normal. Safe on a nil receiver.
+func (ms *ModuleStats) RecordCompletedDuration(d time.Duration) {
+	if ms != nil {
+		ms.latency.observe(d)
 	}
-	val, ok := mm.metrics.Load(moduleID)
-	if !ok {
-		val, _ = mm.metrics.LoadOrStore(moduleID, &ModuleStats{})
-	}
-	val.(*ModuleStats).latency.observe(d)
 }
 
 // LatencyQuantile returns moduleID's approximate completed-call latency at

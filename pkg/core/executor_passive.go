@@ -17,11 +17,9 @@ func (e *Executor) runPassivePerHostFiltered(ctx context.Context, item *httpmsg.
 	origin := originKeyFromItem(item)
 
 	for _, module := range eligible {
-		// Claim this (module, origin) pair — skip if another worker already claimed
-		// it. ContainsOrAdd is atomic (single lock) so two concurrent workers
-		// can't both win the claim; ok==true means the pair was already claimed.
+		// Claim this (module, origin) pair — skip if another worker already did.
 		claimKey := hostClaimKey{moduleID: module.ID(), origin: origin}
-		if ok, _ := e.caches.perHostPassiveClaimed.ContainsOrAdd(claimKey, struct{}{}); ok {
+		if !e.caches.hostClaims.claimPassive(claimKey) {
 			continue
 		}
 
@@ -36,7 +34,7 @@ func (e *Executor) runPassivePerHostFiltered(ctx context.Context, item *httpmsg.
 			module, item,
 		)
 		if o.failedTransiently() && ctx.Err() == nil {
-			e.releaseHostClaim(e.caches.perHostPassiveClaimed, claimKey)
+			e.caches.hostClaims.releasePassive(claimKey)
 		}
 		e.processResults(ctx, o.events, module, item, nil)
 	}
@@ -51,8 +49,8 @@ func (e *Executor) runPassivePerRequestFiltered(ctx context.Context, item *httpm
 	if e.cfg.ParallelPassive {
 		var g conc.WaitGroup
 		// sem bounds live passive goroutines across all record workers. nil (an
-		// executor built without NewExecutor, e.g. in a unit test) falls back to the
-		// old unbounded fan-out.
+		// executor built without NewExecutor, e.g. in a unit test) means an
+		// unbounded fan-out.
 		sem := e.pool.passiveTaskSem
 		for _, module := range eligible {
 			mod := module

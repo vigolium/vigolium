@@ -38,7 +38,7 @@ func TestClassifyHeader(t *testing.T) {
 	}
 }
 
-// The header gate (ECON-1).
+// The header gate.
 func TestGateHeaderPoint(t *testing.T) {
 	sc := &ScanContext{HeaderClaims: NewHeaderClaims()}
 	sqli := gateMod{"sqli-x", AllInsertionPointTypes}
@@ -49,7 +49,7 @@ func TestGateHeaderPoint(t *testing.T) {
 	const o1, o2 = "https://a.test:443", "https://b.test:443"
 
 	allow := func(m gateMod, class, origin, header string) bool {
-		return GateHeaderPoint(sc, m, class, origin, hdrPoint{header}).Allow
+		return GateHeaderPoint(sc, m, class, origin, hdrPoint{header}, infra.ClassifyHeader(header)).Allow
 	}
 	if allow(sqli, VulnClassSQLi, o1, "Sec-Fetch-Mode") {
 		t.Error("noise header tested")
@@ -88,7 +88,7 @@ func TestGateHeaderPoint(t *testing.T) {
 	}
 
 	off := &ScanContext{HeaderPointsAll: true}
-	if !GateHeaderPoint(off, xss, VulnClassXSS, o1, hdrPoint{"Sec-Fetch-Mode"}).Allow {
+	if !GateHeaderPoint(off, xss, VulnClassXSS, o1, hdrPoint{"Sec-Fetch-Mode"}, infra.ClassifyHeader("Sec-Fetch-Mode")).Allow {
 		t.Error("header_points: all must disable the gate")
 	}
 }

@@ -176,11 +176,12 @@ func TestModuleErrorKindTimeout(t *testing.T) {
 	e2, _ := newTestExecutor(ExecutorConfig{ActiveModuleTimeout: 20 * time.Millisecond}, nil)
 	amod := &activeStub{id: "slow-active", canProc: true}
 	released := make(chan struct{})
-	_, completed := e2.runActiveWithTimeout(context.Background(),
+	res := e2.runActiveWithTimeout(context.Background(),
 		func(context.Context, *http.Requester) ([]*output.ResultEvent, error) {
 			<-release
 			return nil, nil
 		}, amod, item, nil, func() { close(released) }, 0)
+	completed := res.completed
 	if completed {
 		t.Fatal("the call should have timed out")
 	}

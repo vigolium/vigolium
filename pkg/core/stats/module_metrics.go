@@ -29,21 +29,41 @@ type ModuleMetrics struct {
 	considered sync.Map // key: module ID → struct{} (modules whose CanProcess was evaluated, fired or not)
 }
 
-// Record records a single module invocation with its duration, finding count, and error.
-// Safe to call on nil receiver. Implies MarkConsidered — a module that ran was
-// necessarily considered.
-func (mm *ModuleMetrics) Record(moduleID string, duration time.Duration, findings int, err error) {
-	if mm == nil {
-		return
-	}
-	// Load-first: avoid the eager &ModuleStats{} heap allocation that
-	// LoadOrStore would discard on the common (already-present) path. This is
-	// the hottest call in the dispatcher (once per module invocation).
+// statsFor returns moduleID's stats, creating them on first use. Load first:
+// LoadOrStore would heap-allocate a &ModuleStats{} on every call only to
+// discard it on the common (already-present) path.
+func (mm *ModuleMetrics) statsFor(moduleID string) *ModuleStats {
 	val, ok := mm.metrics.Load(moduleID)
 	if !ok {
 		val, _ = mm.metrics.LoadOrStore(moduleID, &ModuleStats{})
 	}
-	ms := val.(*ModuleStats)
+	return val.(*ModuleStats)
+}
+
+// For returns moduleID's live stats and marks the module considered, so a
+// caller recording several things about one module call looks it up once.
+// Returns nil on a nil receiver; every ModuleStats recording method is
+// nil-safe.
+func (mm *ModuleMetrics) For(moduleID string) *ModuleStats {
+	if mm == nil {
+		return nil
+	}
+	mm.considered.LoadOrStore(moduleID, struct{}{})
+	return mm.statsFor(moduleID)
+}
+
+// Record records a single module invocation with its duration, finding count, and error.
+// Safe to call on nil receiver. Implies MarkConsidered — a module that ran was
+// necessarily considered.
+func (mm *ModuleMetrics) Record(moduleID string, duration time.Duration, findings int, err error) {
+	mm.For(moduleID).Record(duration, findings, err)
+}
+
+// Record records one invocation of the module. Safe on a nil receiver.
+func (ms *ModuleStats) Record(duration time.Duration, findings int, err error) {
+	if ms == nil {
+		return
+	}
 	ms.Invocations.Add(1)
 	ms.TotalTimeNs.Add(int64(duration))
 	if findings > 0 {
@@ -52,7 +72,6 @@ func (mm *ModuleMetrics) Record(moduleID string, duration time.Duration, finding
 	if err != nil {
 		ms.Errors.Add(1)
 	}
-	mm.considered.LoadOrStore(moduleID, struct{}{})
 }
 
 // RecordInconclusive counts one module call whose result is inconclusive
@@ -61,11 +80,7 @@ func (mm *ModuleMetrics) RecordInconclusive(moduleID string) {
 	if mm == nil {
 		return
 	}
-	val, ok := mm.metrics.Load(moduleID)
-	if !ok {
-		val, _ = mm.metrics.LoadOrStore(moduleID, &ModuleStats{})
-	}
-	val.(*ModuleStats).Inconclusive.Add(1)
+	mm.statsFor(moduleID).Inconclusive.Add(1)
 }
 
 // MarkConsidered records that a module was evaluated against a record — i.e.,
@@ -80,18 +95,13 @@ func (mm *ModuleMetrics) MarkConsidered(moduleID string) {
 	mm.considered.LoadOrStore(moduleID, struct{}{})
 }
 
-// AddRequests adds n wire requests to moduleID's tally. Called once per module
-// call when its work has unwound (so requests sent after a timeout still
-// count). Safe to call on nil receiver; n <= 0 is a no-op.
-func (mm *ModuleMetrics) AddRequests(moduleID string, n int64) {
-	if mm == nil || n <= 0 {
-		return
+// AddRequests adds n wire requests to the module's tally. Called once per
+// module call when its work has unwound (so requests sent after a timeout
+// still count). Safe on a nil receiver; n <= 0 is a no-op.
+func (ms *ModuleStats) AddRequests(n int64) {
+	if ms != nil && n > 0 {
+		ms.Requests.Add(n)
 	}
-	val, ok := mm.metrics.Load(moduleID)
-	if !ok {
-		val, _ = mm.metrics.LoadOrStore(moduleID, &ModuleStats{})
-	}
-	val.(*ModuleStats).Requests.Add(n)
 }
 
 // ConsideredCount returns the number of distinct modules whose CanProcess has
@@ -118,6 +128,18 @@ type ModuleStatsSnapshot struct {
 	Requests    int64
 	// Inconclusive: calls that completed while throttled with nothing found.
 	Inconclusive int64
+}
+
+// Add returns the field-wise sum of s and o (merging one module's snapshots
+// from several executors).
+func (s ModuleStatsSnapshot) Add(o ModuleStatsSnapshot) ModuleStatsSnapshot {
+	s.Invocations += o.Invocations
+	s.Findings += o.Findings
+	s.Errors += o.Errors
+	s.TotalTime += o.TotalTime
+	s.Requests += o.Requests
+	s.Inconclusive += o.Inconclusive
+	return s
 }
 
 // DistinctCount returns the number of distinct modules that have been invoked at least once.

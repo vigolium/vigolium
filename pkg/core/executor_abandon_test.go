@@ -31,7 +31,7 @@ func TestRunActiveWithTimeout_AbandonedModuleStopsIssuingRequests(t *testing.T) 
 		release      = make(chan struct{})
 	)
 
-	got, completed := e.runActiveWithTimeout(context.Background(),
+	res := e.runActiveWithTimeout(context.Background(),
 		func(_ context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 			// Outlive the timeout, then keep trying to send — exactly what a
 			// timed-out module's loop does.
@@ -42,6 +42,7 @@ func TestRunActiveWithTimeout_AbandonedModuleStopsIssuingRequests(t *testing.T) 
 			return []*output.ResultEvent{{}}, nil
 		},
 		&fakeActiveModule{id: "zombie"}, item, reqClient, func() {}, 0)
+	got, completed := res.events, res.completed
 
 	if completed {
 		t.Fatal("expected completed=false: the module overran its per-module timeout")
@@ -74,7 +75,7 @@ func TestRunActiveWithTimeout_CompletedModuleNotAbandoned(t *testing.T) {
 	want := []*output.ResultEvent{{}}
 	var sawAbandon atomic.Bool
 
-	got, completed := e.runActiveWithTimeout(context.Background(),
+	res := e.runActiveWithTimeout(context.Background(),
 		func(_ context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 			// No network here: just prove the abandon gate is open. A real send
 			// would need a live server, and the gate is checked before dialing.
@@ -83,6 +84,7 @@ func TestRunActiveWithTimeout_CompletedModuleNotAbandoned(t *testing.T) {
 			return want, nil
 		},
 		&fakeActiveModule{id: "prompt"}, item, reqClient, func() {}, 0)
+	got, completed := res.events, res.completed
 
 	if !completed {
 		t.Fatal("expected completed=true for a module inside its timeout")

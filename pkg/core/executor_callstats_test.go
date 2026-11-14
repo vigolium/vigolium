@@ -22,9 +22,8 @@ func TestRunActiveWithTimeout_ThrottledCallIsInconclusive(t *testing.T) {
 		e := &Executor{
 			cfg:           ExecutorConfig{ActiveModuleTimeout: 5 * time.Second},
 			moduleMetrics: &stats.ModuleMetrics{},
-			moduleSkips:   newModuleSkipLedger(nil, nil),
 		}
-		_, completed := e.runActiveWithTimeout(context.Background(),
+		res := e.runActiveWithTimeout(context.Background(),
 			func(_ context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 				cs := client.CallStats()
 				if cs == nil {
@@ -34,6 +33,7 @@ func TestRunActiveWithTimeout_ThrottledCallIsInconclusive(t *testing.T) {
 				return events, nil
 			},
 			&fakeActiveModule{id: id}, item, reqClient, func() {}, 0)
+		completed := res.completed
 		if !completed {
 			t.Fatal("expected completed")
 		}
@@ -56,9 +56,9 @@ func TestRunActiveWithTimeout_ThrottledCallIsInconclusive(t *testing.T) {
 }
 
 // The skip ledger counts per (module, reason), ignores unknown reasons and is
-// safe on a nil receiver (literal test executors carry none).
+// safe on a nil receiver.
 func TestModuleSkipLedgerSnapshot(t *testing.T) {
-	l := newModuleSkipLedger(nil, nil)
+	var l moduleSkipLedger
 	l.note("m", SkipReasonIPType)
 	l.note("m", SkipReasonIPType)
 	l.note("m", "not-a-reason")

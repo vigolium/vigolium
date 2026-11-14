@@ -19,7 +19,7 @@ func TestGoActiveTask_ContextCancellationSkipsTask(t *testing.T) {
 	var ran atomic.Bool
 	item, _ := makeTestItem("example.com", "/", "ok")
 	tr := e.newItemTracker(ctx, item, false)
-	e.goActiveTask(ctx, tr, "example.com:80", func(releaseSlot func()) { ran.Store(true); releaseSlot() })
+	e.goActiveTask(ctx, tr, "example.com:80", func(releaseSlot func()) { ran.Store(true); releaseSlot() }, nil)
 	tr.done()
 	<-tr.finished
 
@@ -36,7 +36,7 @@ func TestGoActiveTask_RunsWhenSlotAvailable(t *testing.T) {
 	done := make(chan struct{})
 	item, _ := makeTestItem("example.com", "/", "ok")
 	tr := e.newItemTracker(context.Background(), item, false)
-	e.goActiveTask(context.Background(), tr, "example.com:80", func(releaseSlot func()) { close(done); releaseSlot() })
+	e.goActiveTask(context.Background(), tr, "example.com:80", func(releaseSlot func()) { close(done); releaseSlot() }, nil)
 	tr.done()
 	<-tr.finished
 
