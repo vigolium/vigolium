@@ -1161,7 +1161,11 @@ func (u *UnfiredFragmentCandidates) pollByMAB(stateID string) *CandidateCrawlAct
 	for i, act := range actions {
 		actionID := act.GetCandidateElement().GetIdentification().Value
 		actionIDs[i] = actionID
-		u.mabPolicy.AddAction(stateID, actionID)
+		if sp, ok := u.mabPolicy.(signatureMABPolicy); ok {
+			sp.AddActionWithSignature(stateID, actionID, CandidateSignature(act.GetCandidateElement()))
+		} else {
+			u.mabPolicy.AddAction(stateID, actionID)
+		}
 	}
 
 	// Trigger probability calculation (firstCall logic)
