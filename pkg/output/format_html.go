@@ -18,6 +18,15 @@ import (
 
 // HTMLReportMeta carries metadata for the HTML report generation.
 type HTMLReportMeta struct {
+	// NoRedact keeps credential headers, cookie values and sensitive query
+	// parameters in the request/response evidence of HTML, PDF, SARIF and
+	// Markdown reports. Off by default: those artifacts are made to be shared
+	// (SAFE-12). --no-redact / output.redact_evidence: false set it. JSONL and
+	// the database always keep the raw exchange.
+	NoRedact bool
+	// RedactHeaders are extra lowercased header names to redact (operator -H
+	// names, live-session header names) on top of the built-in table.
+	RedactHeaders   map[string]struct{}
 	Title           string
 	Version         string
 	ScanDuration    string

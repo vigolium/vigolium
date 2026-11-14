@@ -36,12 +36,14 @@ type Executor struct {
 	// methodPolicySkips counts records kept out of the active stage by the
 	// traffic policy (SAFE-8, skip reason method_policy).
 	methodPolicySkips atomic.Int64
-	source            source.InputSource
-	activeModules     []modules.ActiveModule
-	passiveModules    []modules.PassiveModule
-	httpClient        *http.Requester
-	scanCtx           *modules.ScanContext
-	hooks             HookRunner // Optional: pre/post hooks
+	// notifyOnce installs the finding writer's new-finding callback once.
+	notifyOnce     sync.Once
+	source         source.InputSource
+	activeModules  []modules.ActiveModule
+	passiveModules []modules.PassiveModule
+	httpClient     *http.Requester
+	scanCtx        *modules.ScanContext
+	hooks          HookRunner // Optional: pre/post hooks
 
 	// Grouped modules for efficient routing
 	perHostActive     []modules.ActiveModule

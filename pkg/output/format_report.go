@@ -3,6 +3,7 @@ package output
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/vigolium/vigolium/internal/redact"
 	"html/template"
 	"os"
 	"strings"
@@ -153,6 +154,9 @@ func buildReportData(items []any, title string, meta HTMLReportMeta) ReportData 
 		switch envelope.Type {
 		case "finding":
 			rf := parseFinding(envelope.Data, md)
+			if !meta.NoRedact {
+				redactReportFinding(&rf, meta.RedactHeaders)
+			}
 			switch strings.ToLower(rf.Severity) {
 			case "critical":
 				rd.CriticalFindings = append(rd.CriticalFindings, rf)
@@ -308,4 +312,22 @@ func truncateStr(s string, maxLen int) string {
 		return s
 	}
 	return textutil.TruncateUTF8(s, maxLen) + "..."
+}
+
+// redactReportFinding scrubs credentials from a finding's shareable evidence
+// (SAFE-12): request/response headers and cookie values, sensitive query
+// parameters in the request line and the URLs.
+func redactReportFinding(rf *ReportFinding, extra map[string]struct{}) {
+	rf.Request = redact.HTTPMessage(rf.Request, extra)
+	rf.Response = redact.HTTPMessage(rf.Response, extra)
+	if red := redact.URL(rf.URL); red != rf.URL {
+		rf.Title = strings.Replace(rf.Title, truncateStr(rf.URL, 80), truncateStr(red, 80), 1)
+		rf.URL = red
+	}
+	for i, m := range rf.MatchedAt {
+		rf.MatchedAt[i] = redact.URL(m)
+	}
+	for i, e := range rf.AdditionalEvidence {
+		rf.AdditionalEvidence[i] = redact.HTTPMessage(e, extra)
+	}
 }

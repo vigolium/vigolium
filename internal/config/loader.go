@@ -37,6 +37,18 @@ type Settings struct {
 	// (SAFE-11): third-party lookups, OAST, template clones, browser downloads
 	// and update checks. --offline sets it for one run.
 	Offline bool `yaml:"offline,omitempty"`
+	// Output tunes the shareable artifacts a scan writes.
+	Output OutputConfig `yaml:"output,omitempty"`
+}
+
+// OutputConfig tunes the shareable artifacts (HTML/PDF/SARIF/Markdown reports,
+// notifications).
+type OutputConfig struct {
+	// RedactEvidence scrubs credential headers, cookie values and sensitive
+	// query parameters from report evidence (SAFE-12). Unset = true; false
+	// keeps the raw exchange (same as --no-redact). JSONL exports and the
+	// database are never redacted.
+	RedactEvidence *bool `yaml:"redact_evidence,omitempty"`
 }
 
 // ProfileScanningStrategy is the allowlist of ScanningStrategyConfig keys a

@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"github.com/vigolium/vigolium/internal/redact"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,13 @@ type Config struct {
 	// ShutdownTimeout is how long to wait for pending notifications on Close.
 	// Default: 30s
 	ShutdownTimeout time.Duration
+
+	// RedactHeaders are extra lowercased header names (operator -H, live
+	// session) whose values are scrubbed from notifications on top of the
+	// built-in credential table (SAFE-12).
+	RedactHeaders map[string]struct{}
+	// NoRedact sends the raw evidence (output.redact_evidence: false).
+	NoRedact bool
 }
 
 // notification represents a queued notification item.
@@ -53,6 +61,9 @@ type Manager struct {
 	closed atomic.Bool
 
 	shutdownTimeout time.Duration
+
+	redactHeaders map[string]struct{}
+	noRedact      bool
 }
 
 // New creates a new notification Manager.
@@ -70,6 +81,8 @@ func New(cfg Config) *Manager {
 		backends:          cfg.Backends,
 		allowedSeverities: cfg.AllowedSeverities,
 		notifyAll:         containsIgnoreCase(cfg.AllowedSeverities, "all"),
+		redactHeaders:     cfg.RedactHeaders,
+		noRedact:          cfg.NoRedact,
 		queue:             make(chan *notification, cfg.QueueSize),
 		ctx:               ctx,
 		cancel:            cancel,
@@ -98,6 +111,12 @@ func (m *Manager) Send(result *output.ResultEvent) error {
 	// Check severity filter
 	if !m.shouldNotify(result.Info.Severity.String()) {
 		return nil
+	}
+
+	// Notifications leave for a chat backend: send a scrubbed clone, never
+	// the caller's event (SAFE-12).
+	if !m.noRedact {
+		result = redactedClone(result, m.redactHeaders)
 	}
 
 	select {
@@ -223,4 +242,18 @@ func containsIgnoreCase(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// redactedClone is a shallow copy of r with credentials scrubbed from its
+// request/response evidence and URLs.
+func redactedClone(r *output.ResultEvent, extra map[string]struct{}) *output.ResultEvent {
+	if r == nil {
+		return nil
+	}
+	c := *r
+	c.Request = redact.HTTPMessage(r.Request, extra)
+	c.Response = redact.HTTPMessage(r.Response, extra)
+	c.URL = redact.URL(r.URL)
+	c.Matched = redact.URL(r.Matched)
+	return &c
 }
