@@ -341,6 +341,7 @@ func NewExecutor(
 		}
 	}
 	e.pool.sched = newActiveScheduler(activeTaskLimit, e.hostTaskCapFunc(activeTaskLimit))
+	e.pool.sched.pause = cfg.PauseCtrl
 
 	maxOutstanding := cfg.MaxOutstandingItems
 	if maxOutstanding <= 0 {

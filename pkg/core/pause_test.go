@@ -94,31 +94,51 @@ func TestPauseController_WaitIfPausedContextCancel(t *testing.T) {
 	}
 }
 
-func TestPauseController_PauseWaitsForActiveWorkers(t *testing.T) {
+func TestPauseController_PauseReturnsWithStuckWorker(t *testing.T) {
 	p := NewPauseController()
 
-	// A worker holds the read lock; Pause must block until it is released.
+	// A worker is mid-dispatch and stays there. Pause must still return at
+	// once (MISS-39); only Quiesced waits for the worker.
 	p.AcquireWorker()
 
-	paused := make(chan struct{})
-	go func() {
-		p.Pause()
-		close(paused)
-	}()
-
-	select {
-	case <-paused:
-		t.Fatal("Pause returned while a worker was still active")
-	case <-time.After(50 * time.Millisecond):
+	start := time.Now()
+	p.Pause()
+	if d := time.Since(start); d > 100*time.Millisecond {
+		t.Fatalf("Pause took %s with a stuck worker; must not block", d)
 	}
+	if !p.IsPaused() {
+		t.Fatal("expected paused")
+	}
+	if p.Quiesced() {
+		t.Fatal("Quiesced while a worker is still mid-dispatch")
+	}
+	qc := p.QuiescedCh()
+
+	// Resume and a second Pause must not block either.
+	done := make(chan struct{})
+	go func() {
+		p.Resume()
+		p.Pause()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Resume/Pause blocked behind a stuck worker")
+	}
+	qc = p.QuiescedCh()
 
 	p.ReleaseWorker()
-
 	select {
-	case <-paused:
+	case <-qc:
 	case <-time.After(time.Second):
-		t.Fatal("Pause did not return after the worker was released")
+		t.Fatal("quiesced channel not closed after the last worker released")
 	}
-
+	if !p.Quiesced() {
+		t.Fatal("expected Quiesced after the worker released")
+	}
 	p.Resume()
+	if p.Quiesced() {
+		t.Fatal("Quiesced must be false when not paused")
+	}
 }
