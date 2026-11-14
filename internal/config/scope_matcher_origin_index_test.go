@@ -38,14 +38,14 @@ func hostMatchesOriginReference(m *ScopeMatcher, targets []originTarget, host st
 			hostETLD, err := publicsuffix.EffectiveTLDPlusOne(hostLower)
 			match = err == nil && hostETLD == ot.etldPlus1
 		case m.originMode == "relaxed":
-			if ot.keyword == "" {
+			if len(ot.keyword) < minRelaxedKeywordLen {
 				match = hostLower == ot.exactHost
 				break
 			}
 			hostETLD, err := publicsuffix.EffectiveTLDPlusOne(hostLower)
 			match = err == nil && strings.Contains(leadingLabel(hostETLD), ot.keyword)
 		default:
-			match = true
+			match = hostLower == ot.exactHost
 		}
 		if match {
 			return true

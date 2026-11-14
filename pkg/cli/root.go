@@ -173,6 +173,12 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 			return err
 		}
 
+		// --scope-origin is bound on several commands (scan, scan-url, ingest,
+		// …); an unknown value used to admit every host (SAFE-5).
+		if err := validateScopeOrigin(globalScopeOrigin); err != nil {
+			return err
+		}
+
 		// --color auto|always|never (--no-color = never). Auto colors only when
 		// stdout and stderr are both terminals; machine modes force never. The -P
 		// parent passes --color=always to its children so their captured

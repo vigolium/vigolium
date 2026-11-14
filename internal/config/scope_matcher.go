@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"go.uber.org/zap"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -150,12 +151,32 @@ func buildOriginIndex(targets []originTarget, mode string) originIndex {
 		if !wantKeywords || ot.keyword == "" {
 			continue
 		}
+		// A short label substring-matches unrelated domains ("a.io" admits
+		// banana.com), so relaxed mode keeps only the exact host for it.
+		if len(ot.keyword) < minRelaxedKeywordLen {
+			warnShortRelaxedKeyword(ot.keyword)
+			continue
+		}
 		if _, dup := seenKeyword[ot.keyword]; !dup {
 			seenKeyword[ot.keyword] = struct{}{}
 			idx.keywords = append(idx.keywords, ot.keyword)
 		}
 	}
 	return idx
+}
+
+// minRelaxedKeywordLen is the shortest registrable label relaxed mode will
+// substring-match (SAFE-5).
+const minRelaxedKeywordLen = 4
+
+var shortKeywordWarned sync.Map
+
+func warnShortRelaxedKeyword(keyword string) {
+	if _, dup := shortKeywordWarned.LoadOrStore(keyword, struct{}{}); dup {
+		return
+	}
+	zap.L().Warn("Relaxed scope: target label too short to match as a keyword; only its exact host is in scope",
+		zap.String("keyword", keyword), zap.Int("min_length", minRelaxedKeywordLen))
 }
 
 // InvalidateCache clears the cached host scope results.
@@ -748,14 +769,13 @@ func (m *ScopeMatcher) hostMatchesOrigin(host string) bool {
 	}
 
 	switch m.originMode {
-	case "strict":
-		return false
 	case "balanced", "relaxed":
 	default:
-		// An unrecognized mode admits everything, which is what the per-target
-		// switch did through its default arm. Preserved deliberately: a typo in
-		// cli_origin_mode should not quietly narrow a scan's scope.
-		return true
+		// strict, and anything unrecognised: only the exact-host set above
+		// admits. ResolveCLIOriginMode never yields an unknown mode; failing
+		// closed here keeps a hand-built matcher from admitting every host the
+		// way the old default arm did (SAFE-5).
+		return false
 	}
 
 	// A host with no registrable domain (a single-label internal name, say) is

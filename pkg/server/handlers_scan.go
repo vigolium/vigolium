@@ -121,12 +121,8 @@ func validateRunScanRequest(req RunScanRequest) error {
 		}
 	}
 
-	if req.ScopeOrigin != "" {
-		switch req.ScopeOrigin {
-		case "all", "relaxed", "balanced", "strict":
-		default:
-			return fmt.Errorf("invalid scope_origin %q; valid values: all, relaxed, balanced, strict", req.ScopeOrigin)
-		}
+	if req.ScopeOrigin != "" && !config.ValidCLIOriginMode(req.ScopeOrigin) {
+		return fmt.Errorf("invalid scope_origin %q; valid values: %s", req.ScopeOrigin, strings.Join(config.CLIOriginModes, ", "))
 	}
 
 	if req.HeuristicsCheck != "" {

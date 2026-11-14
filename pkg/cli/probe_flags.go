@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	vighttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -126,4 +127,16 @@ func validateRedirectMode(mode string) error {
 	}
 	return usageErrorf("invalid --redirect-mode value %q; valid modes: %s",
 		mode, strings.Join(vighttp.RedirectModes, ", "))
+}
+
+// validateScopeOrigin rejects an unknown --scope-origin as a usage error
+// (exit 2). The resolver no longer admits everything on an unknown mode, but a
+// typo must still fail fast rather than quietly scan in the default mode.
+func validateScopeOrigin(mode string) error {
+	mode = strings.TrimSpace(mode)
+	if mode == "" || config.ValidCLIOriginMode(mode) {
+		return nil
+	}
+	return usageErrorf("invalid --scope-origin value %q; valid modes: %s",
+		mode, strings.Join(config.CLIOriginModes, ", "))
 }

@@ -1,6 +1,11 @@
 package config
 
-import "strings"
+import (
+	"strings"
+	"sync"
+
+	"go.uber.org/zap"
+)
 
 // DefaultCLIOriginMode is the origin-scope mode a scan uses when nothing sets
 // one. Referenced by the config default, the matcher's empty-string fallback,
@@ -29,9 +34,42 @@ const DefaultCLIOriginMode = "balanced"
 // default, so a scan that ran in "balanced" was recorded as having run in "".
 func ResolveCLIOriginMode(configured string) string {
 	if m := strings.ToLower(strings.TrimSpace(configured)); m != "" {
-		return m
+		if ValidCLIOriginMode(m) {
+			return m
+		}
+		// An unknown mode used to admit every host (SAFE-5). The CLI and the
+		// REST API reject one up front; a value that still reaches here (a
+		// config file, a library caller) runs as the default, loudly.
+		warnUnknownOriginMode(m)
+		return DefaultCLIOriginMode
 	}
 	return DefaultCLIOriginMode
+}
+
+// CLIOriginModes lists every accepted scope.cli_origin_mode / --scope-origin
+// value, most permissive first. Error messages derive from it.
+var CLIOriginModes = []string{"all", "relaxed", "balanced", "strict"}
+
+// ValidCLIOriginMode reports whether s names an origin mode (case-insensitive).
+func ValidCLIOriginMode(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	for _, m := range CLIOriginModes {
+		if s == m {
+			return true
+		}
+	}
+	return false
+}
+
+var unknownOriginModeWarned sync.Map
+
+func warnUnknownOriginMode(m string) {
+	if _, dup := unknownOriginModeWarned.LoadOrStore(m, struct{}{}); dup {
+		return
+	}
+	zap.L().Warn("Unknown scope.cli_origin_mode; using the default",
+		zap.String("mode", m), zap.String("default", DefaultCLIOriginMode),
+		zap.Strings("valid", CLIOriginModes))
 }
 
 // ScopeConfig defines which HTTP records are in scope for scanning.
