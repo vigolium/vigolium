@@ -2,7 +2,10 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
 	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -13,27 +16,39 @@ import (
 // secretCoverage is the set of record UUIDs whose response the dynamic
 // assessment's secret_detect pass already analysed in this scan.
 //
-// secret_detect used to be removed from dynamic assessment whenever the
-// known-issue scan was enabled, to avoid duplicate secret findings. The
-// known-issue scan is the last phase, so a scan cut short (budget, Ctrl-C,
-// failure) lost secret detection entirely. Now both run: assessment covers what
-// it reaches, and the known-issue batch covers only the records assessment did
-// not, with finding identity collapsing anything that overlaps.
+// Both secret passes run: dynamic assessment covers the records it reaches,
+// and the known-issue batch (the last phase, so the one a curtailed scan
+// loses) covers only the records assessment did not, with finding identity
+// collapsing anything that overlaps.
+//
+// It holds one entry per record assessment reached, so entries are 16-byte
+// keys (the parsed UUID) rather than 36-byte strings.
 type secretCoverage struct {
 	mu   sync.RWMutex
-	uuid map[string]struct{}
+	uuid map[[16]byte]struct{}
 }
 
 func newSecretCoverage() *secretCoverage {
-	return &secretCoverage{uuid: make(map[string]struct{})}
+	return &secretCoverage{uuid: make(map[[16]byte]struct{})}
+}
+
+// coverageKey is the set key for a record UUID: its 16 bytes, or for a value
+// that is not a UUID the leading 16 bytes of its SHA-256.
+func coverageKey(id string) [16]byte {
+	if u, err := uuid.Parse(id); err == nil {
+		return u
+	}
+	sum := sha256.Sum256([]byte(id))
+	return [16]byte(sum[:16])
 }
 
 func (c *secretCoverage) add(uuid string) {
 	if c == nil || uuid == "" {
 		return
 	}
+	k := coverageKey(uuid)
 	c.mu.Lock()
-	c.uuid[uuid] = struct{}{}
+	c.uuid[k] = struct{}{}
 	c.mu.Unlock()
 }
 
@@ -43,8 +58,9 @@ func (c *secretCoverage) has(uuid string) bool {
 	if c == nil || uuid == "" {
 		return false
 	}
+	k := coverageKey(uuid)
 	c.mu.RLock()
-	_, ok := c.uuid[uuid]
+	_, ok := c.uuid[k]
 	c.mu.RUnlock()
 	return ok
 }

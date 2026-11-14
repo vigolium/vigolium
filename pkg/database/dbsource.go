@@ -727,7 +727,7 @@ type RiskPrioritizedDBInputSource struct {
 	// lastPageInBucket: the page just pulled was short, so the bucket is
 	// drained once the keyset advances past it.
 	lastPageInBucket bool
-	everStarted   bool // any page has been served
+	everStarted      bool // any page has been served
 
 	buffer  []*HTTPRecord // full records for the current page's coalescing survivors
 	bufHead int           // read cursor into buffer; lets refill reuse the backing array

@@ -53,9 +53,8 @@ func TestSecretBatch_MemoAndOrderedEmit(t *testing.T) {
 	r := &Runner{options: opts, repository: repo, settings: config.DefaultSettings()}
 	memo := newSecretMatchMemo()
 	var got []string
-	var total, skipped int
-	if err := r.scanSecretRecordBatch(ctx, &phaseInfra{scanUUID: "s"}, det, memo, records,
-		map[string]struct{}{}, func(ev *output.ResultEvent) { got = append(got, ev.URL) }, &total, &skipped); err != nil {
+	if _, err := r.scanSecretRecordBatch(ctx, &phaseInfra{scanUUID: "s"}, det, memo, records,
+		map[string]struct{}{}, func(ev *output.ResultEvent) { got = append(got, ev.URL) }); err != nil {
 		t.Fatal(err)
 	}
 	if len(memo.m) != 2 {

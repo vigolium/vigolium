@@ -61,20 +61,35 @@ func (r *Runner) runSecretScanBatch(ctx context.Context, infra *phaseInfra, onRe
 			return err
 		}
 
-		records, err := r.repository.GetRecordsWithResponseBody(ctx, r.options.ProjectUUID, cursor, secretScanBatchSize, inScopeHosts...)
+		// Records dynamic assessment's secret_detect already analysed are
+		// dropped before their bodies are read: scanning one again yields the
+		// same findings.
+		var keep func(string) bool
+		if r.secretCoverage.len() > 0 {
+			keep = func(uuid string) bool {
+				if r.secretCoverage.has(uuid) {
+					skippedCovered++
+					return false
+				}
+				return true
+			}
+		}
+		records, last, pageLen, err := r.repository.GetRecordsWithResponseBodyPage(ctx, r.options.ProjectUUID, cursor, secretScanBatchSize, keep, inScopeHosts...)
 		if err != nil {
 			return fmt.Errorf("secret scan: failed to fetch records: %w", err)
 		}
-		if len(records) == 0 {
+		if pageLen == 0 {
 			break
 		}
 
-		if err := r.scanSecretRecordBatch(ctx, infra, det, memo, records, seenSecret, onResult, &totalFindings, &skippedCovered); err != nil {
+		found, err := r.scanSecretRecordBatch(ctx, infra, det, memo, records, seenSecret, onResult)
+		if err != nil {
 			return err
 		}
-		cursor = records[len(records)-1].UUID
+		totalFindings += found
+		cursor = last
 
-		if len(records) < secretScanBatchSize {
+		if pageLen < secretScanBatchSize {
 			break
 		}
 	}
@@ -339,22 +354,20 @@ func (c *secretMatchMemo) put(key string, v []secretscan.Match) {
 	c.m[key] = v
 }
 
-// secretScanItem is one record's state between the parallel detect stage and
+// secretScanItem is one eligible record between the parallel detect stage and
 // the ordered emit stage.
 type secretScanItem struct {
-	record  *database.HTTPRecord
-	resp    *httpmsg.HttpResponse
-	body    []byte
-	key     string
-	matches []secretscan.Match
-	run     bool // detection needed (not memoised, not a duplicate in-batch)
-	skip    bool
+	record *database.HTTPRecord
+	resp   *httpmsg.HttpResponse
+	body   []byte
+	key    string
 }
 
-// scanSecretRecordBatch scans one page of records: eligibility and memo lookup
-// in order, detection for the distinct remaining bodies on a bounded worker
-// pool, then grading and emission in record order so output and the shared
-// seenSecret map stay deterministic and single-threaded.
+// scanSecretRecordBatch scans one page of records and returns how many
+// findings it emitted: eligibility in record order, detection for the bodies
+// neither the memo nor an earlier record of the page already has on a bounded
+// worker pool, then grading and emission in record order so output and the
+// shared seenSecret map stay deterministic and single-threaded.
 func (r *Runner) scanSecretRecordBatch(
 	ctx context.Context,
 	infra *phaseInfra,
@@ -363,20 +376,13 @@ func (r *Runner) scanSecretRecordBatch(
 	records []*database.HTTPRecord,
 	seenSecret map[string]struct{},
 	onResult func(*output.ResultEvent),
-	totalFindings, skippedCovered *int,
-) error {
-	items := make([]secretScanItem, len(records))
-	firstByKey := make(map[string]int)
-	for i, record := range records {
-		it := &items[i]
-		it.record = record
-		it.skip = true
-		// Dynamic assessment's secret_detect already analysed this record's
-		// response; scanning it again yields the same findings.
-		if r.secretCoverage.has(record.UUID) {
-			*skippedCovered++
-			continue
-		}
+) (int, error) {
+	var items []secretScanItem
+	// matches holds every eligible body's detector matches by body key: from
+	// the memo, or filled by the detect stage for the keys in pending.
+	matches := make(map[string][]secretscan.Match)
+	var pending []secretScanItem
+	for _, record := range records {
 		// Parse the raw response once so we can both scan the body and inspect
 		// the status/headers for the severity decision below.
 		resp := record.ParsedResponse()
@@ -394,23 +400,21 @@ func (r *Runner) scanSecretRecordBatch(
 		if !secret_detect.ShouldScanBody(record.ResponseContentType, record.URL, len(body)) {
 			continue
 		}
-		it.skip = false
-		it.resp = resp
-		it.body = body
-		it.key = secretBodyKey(body)
-		if m, ok := memo.get(it.key); ok {
-			it.matches = m
+		it := secretScanItem{record: record, resp: resp, body: body, key: secretBodyKey(body)}
+		items = append(items, it)
+		if _, ok := matches[it.key]; ok {
 			continue
 		}
-		if _, dup := firstByKey[it.key]; dup {
-			continue // filled from the first copy after detection
+		m, ok := memo.get(it.key)
+		matches[it.key] = m
+		if !ok {
+			pending = append(pending, it)
 		}
-		firstByKey[it.key] = i
-		it.run = true
 	}
 
-	// Detect: distinct bodies only, bounded parallelism. Each worker writes
-	// only its own item, so no lock is needed.
+	// Detect: distinct unmemoised bodies only, bounded parallelism. Each worker
+	// writes only its own slot, so no lock is needed.
+	detected := make([][]secretscan.Match, len(pending))
 	work := make(chan int)
 	var wg sync.WaitGroup
 	for w := 0; w < secretScanWorkers(); w++ {
@@ -418,14 +422,11 @@ func (r *Runner) scanSecretRecordBatch(
 		go func() {
 			defer wg.Done()
 			for i := range work {
-				items[i].matches = det.Detect(items[i].body)
+				detected[i] = det.Detect(pending[i].body)
 			}
 		}()
 	}
-	for i := range items {
-		if !items[i].run {
-			continue
-		}
+	for i := range pending {
 		if ctx.Err() != nil {
 			break
 		}
@@ -434,31 +435,22 @@ func (r *Runner) scanSecretRecordBatch(
 	close(work)
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
-		return err
+		return 0, err
 	}
-
-	for i := range items {
-		if items[i].run {
-			memo.put(items[i].key, items[i].matches)
-		}
+	for i, it := range pending {
+		matches[it.key] = detected[i]
+		memo.put(it.key, detected[i])
 	}
 
 	// Emit in record order.
-	for i := range items {
-		it := &items[i]
-		if it.skip {
-			continue
-		}
-		if !it.run {
-			if m, ok := memo.get(it.key); ok {
-				it.matches = m
-			}
-		}
-		if len(it.matches) == 0 {
+	found := 0
+	for _, it := range items {
+		m := matches[it.key]
+		if len(m) == 0 {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
-			return err
+			return found, err
 		}
 		record, resp := it.record, it.resp
 		ev := secret_detect.EvidenceContext{
@@ -471,12 +463,12 @@ func (r *Runner) scanSecretRecordBatch(
 			ContentType:  record.ResponseContentType,
 			HeaderValues: secret_detect.JoinHeaderValues(resp.Headers()),
 		}
-		*totalFindings += r.emitSecretFindings(ctx, infra, it.matches, ev, seenSecret, onResult, secretEmitOptions{
+		found += r.emitSecretFindings(ctx, infra, m, ev, seenSecret, onResult, secretEmitOptions{
 			RecordUUIDs: []string{record.UUID},
 			ModuleShort: "Leaked secret detected in HTTP response body",
 		})
 	}
-	return nil
+	return found, nil
 }
 
 // secretBodyKey is the memo key for a decoded response body. The stored
