@@ -74,6 +74,12 @@ type Config struct {
 	// the identical request.
 	PrefixTargets []string
 
+	// Requests, when set, counts every request nuclei sends (via its progress
+	// hooks). The runner registers it with the request budget so nuclei's
+	// traffic counts toward --max-requests (soft enforcement: the scan stops
+	// once the watcher sees the limit passed).
+	Requests *atomic.Int64
+
 	// Duplicate, when set, reports whether a match repeats a finding the
 	// native modules already filed for this scan. Such a match is neither
 	// emitted nor stored; the callback may record the link.
@@ -237,7 +243,7 @@ func Run(ctx context.Context, cfg Config) error {
 					httpmsg.NewHttpRequest([]byte(result.Request)),
 					httpmsg.NewHttpResponse([]byte(result.Response)),
 				)
-				recordUUID, recErr := cfg.Repository.SaveRecordWithLineage(scanCtx, fuzzedRR, "spa", cfg.ProjectUUID, database.RecordLineage{ScanUUID: cfg.ScanUUID})
+				recordUUID, recErr := cfg.Repository.SaveRecordWithLineage(scanCtx, fuzzedRR, database.RecordSourceFinding, cfg.ProjectUUID, database.RecordLineage{ScanUUID: cfg.ScanUUID})
 				if recErr != nil {
 					zap.L().Debug("KnownIssueScan: failed to save http record", zap.Error(recErr))
 				} else {
@@ -467,6 +473,11 @@ func buildEngineOptionsFor(ctx context.Context, cfg Config, logger *gologger.Log
 	// Pass our properly initialized logger to avoid nil pointer panics
 	// from nuclei's bare default logger.
 	opts = append(opts, nuclei.WithLogger(logger))
+
+	// Count sent requests for the request budget.
+	if cfg.Requests != nil {
+		opts = append(opts, nuclei.UseStatsWriter(requestCounter{n: cfg.Requests}))
+	}
 
 	return opts
 }

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -269,6 +270,19 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		targets = buildKnownIssueScanHostTargets(paths)
 	}
 
+	// Path-level scope: nuclei applies host scope only, and stored paths can
+	// include prefixes the scope excludes.
+	var droppedTargets, droppedPrefixes int
+	targets, droppedTargets = filterKISTargetsByScope(infra.scopeMatcher, targets)
+	prefixes, droppedPrefixes = filterKISTargetsByScope(infra.scopeMatcher, prefixes)
+	if dropped := droppedTargets + droppedPrefixes; dropped > 0 {
+		zap.L().Info("KnownIssueScan: dropped out-of-scope targets", zap.Int("dropped", dropped))
+	}
+	if len(targets) == 0 && len(prefixes) == 0 {
+		zap.L().Info("KnownIssueScan: no in-scope targets, skipping")
+		return nil
+	}
+
 	zap.L().Info("KnownIssueScan: targets from database",
 		zap.Int("origins", len(targets)),
 		zap.Int("prefixes", len(prefixes)),
@@ -276,11 +290,17 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 
 	duplicate, suppressed := r.knownIssueScanDuplicateFilter(ctx, infra.scanUUID)
 
+	// nuclei bypasses the egress gate; count what it sends so --max-requests
+	// holds it (soft: the budget watcher cancels the scan once passed).
+	nucleiRequests := new(atomic.Int64)
+	r.trackUngatedRequests(nucleiRequests.Load)
+
 	// Build KnownIssueScan config from settings
 	cfg := knownissuescan.Config{
 		Targets:       targets,
 		PrefixTargets: prefixes,
 		Duplicate:     duplicate,
+		Requests:      nucleiRequests,
 		Concurrency:   r.options.Concurrency,
 		ScanUUID:      r.options.ScanUUID,
 		ProjectUUID:   r.options.ProjectUUID,
@@ -317,9 +337,10 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		// scanning_pace.known-issue-scan controls speed
 		knownIssueScanPace := r.settings.ScanningPace.ResolvePhase("known-issue-scan")
 		cfg.Concurrency = r.phaseConcurrency("known-issue-scan")
-		if knownIssueScanPace.RateLimit > 0 {
-			cfg.RateLimit = knownIssueScanPace.RateLimit
-		}
+		// Explicit only (section or typed --rate-limit), else the phase's own
+		// conservative default; the global 100 rps default no longer overrides
+		// it.
+		cfg.RateLimit = r.settings.ScanningPace.KnownIssueScanRateLimit(r.options)
 		if knownIssueScanPace.MaxDuration > 0 {
 			cfg.Timeout = knownIssueScanPace.MaxDuration
 		}

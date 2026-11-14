@@ -1124,6 +1124,16 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		}
 	}
 
+	// Known-issue-scan evidence used to be stored with source "spa", which no
+	// evidence filter knew, so it was rescanned as input. Relabel it once per
+	// schema bump (idempotent: nothing writes "spa" any more, so later runs
+	// touch no rows). Not tied to a version of its own; the next bump applies
+	// it to every existing store.
+	if storedVersion < currentSchemaVersion {
+		db.execBestEffort(ctx, "relabel known-issue evidence records",
+			"UPDATE http_records SET source = ? WHERE source = ?", RecordSourceFinding, legacyKISEvidenceSource)
+	}
+
 	// Record the version so the next open can skip the gated work above. Done last
 	// so a failure partway through leaves the version unset and the migrations retry.
 	db.setSchemaVersion(ctx, currentSchemaVersion)

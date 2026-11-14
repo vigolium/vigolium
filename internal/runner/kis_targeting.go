@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent/recon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -315,4 +316,29 @@ func (r *Runner) knownIssueScanDuplicateFilter(ctx context.Context, scanUUID str
 			zap.String("template", ev.ModuleID), zap.String("matched", ev.Matched))
 		return true
 	}, suppressed
+}
+
+// filterKISTargetsByScope drops known-issue targets the scan's scope rejects
+// by host or path. Paths come from stored records, which can include
+// out-of-scope prefixes (an excluded /admin/ seen by the crawler), and nuclei
+// only applies host-level scope on its own. A prefix target names a directory,
+// so it is matched as "<path>/". Nil matcher keeps every target.
+func filterKISTargetsByScope(m *config.ScopeMatcher, targets []string) (kept []string, dropped int) {
+	if m == nil {
+		return targets, 0
+	}
+	for _, t := range targets {
+		u, err := url.Parse(t)
+		if err != nil {
+			dropped++
+			continue
+		}
+		path := strings.TrimRight(u.Path, "/") + "/"
+		if m.InScopeTarget(u.Hostname(), path) {
+			kept = append(kept, t)
+		} else {
+			dropped++
+		}
+	}
+	return kept, dropped
 }

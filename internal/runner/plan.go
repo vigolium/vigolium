@@ -437,6 +437,9 @@ func planPhasePace(settings *config.Settings, opts *types.Options, phase string)
 		if phase == string(PhaseDiscovery) {
 			pace.RateLimit = settings.ScanningPace.DiscoveryRateLimit(opts)
 		}
+		if phase == string(PhaseKnownIssueScan) {
+			pace.RateLimit = settings.ScanningPace.KnownIssueScanRateLimit(opts)
+		}
 	}
 	if config.PhasePaceSupports(phase, config.PaceFieldConcurrency) {
 		pace.Concurrency = resolved.Concurrency
