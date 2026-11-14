@@ -58,7 +58,12 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	offenders := explicitOpenerLinks(ctx.Response().BodyToString(), pageURL)
+	// The shared, memoised parse (ECON-14): the other HTML passives reuse it.
+	doc, err := ctx.Response().HTMLDocument()
+	if err != nil || doc == nil {
+		return nil, nil
+	}
+	offenders := explicitOpenerLinks(doc, pageURL)
 	if len(offenders) == 0 {
 		return nil, nil
 	}
@@ -96,45 +101,52 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}}, nil
 }
 
-func explicitOpenerLinks(body string, pageURL *url.URL) []string {
-	tokenizer := html.NewTokenizer(strings.NewReader(body))
+// explicitOpenerLinks walks the (shared, read-only) document for cross-origin
+// target=_blank <a>/<area> links that opt back into an opener.
+func explicitOpenerLinks(doc *html.Node, pageURL *url.URL) []string {
 	seen := make(map[string]struct{})
 	var offenders []string
 
-	for {
-		typeToken := tokenizer.Next()
-		if typeToken == html.ErrorToken {
-			return offenders
+	var walk func(*html.Node) bool
+	walk = func(node *html.Node) bool {
+		if node.Type == html.ElementNode && (node.Data == "a" || node.Data == "area") {
+			if href, ok := openerOffender(node, pageURL); ok {
+				if _, duplicate := seen[href]; !duplicate {
+					seen[href] = struct{}{}
+					offenders = append(offenders, href)
+					if len(offenders) == maxExamples {
+						return false
+					}
+				}
+			}
 		}
-		if typeToken != html.StartTagToken && typeToken != html.SelfClosingTagToken {
-			continue
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if !walk(child) {
+				return false
+			}
 		}
-		token := tokenizer.Token()
-		if token.Data != "a" && token.Data != "area" {
-			continue
-		}
-
-		attrs := attributeMap(token.Attr)
-		if !strings.EqualFold(strings.TrimSpace(attrs["target"]), "_blank") {
-			continue
-		}
-		relTokens := tokenSet(attrs["rel"])
-		if !relTokens["opener"] || relTokens["noopener"] || relTokens["noreferrer"] {
-			continue
-		}
-		href := strings.TrimSpace(attrs["href"])
-		if !isCrossOriginHTTP(href, pageURL) {
-			continue
-		}
-		if _, duplicate := seen[href]; duplicate {
-			continue
-		}
-		seen[href] = struct{}{}
-		offenders = append(offenders, href)
-		if len(offenders) == maxExamples {
-			return offenders
-		}
+		return true
 	}
+	walk(doc)
+	return offenders
+}
+
+// openerOffender reports the href of a cross-origin target=_blank link that
+// explicitly declares rel=opener without noopener/noreferrer.
+func openerOffender(node *html.Node, pageURL *url.URL) (string, bool) {
+	attrs := attributeMap(node.Attr)
+	if !strings.EqualFold(strings.TrimSpace(attrs["target"]), "_blank") {
+		return "", false
+	}
+	relTokens := tokenSet(attrs["rel"])
+	if !relTokens["opener"] || relTokens["noopener"] || relTokens["noreferrer"] {
+		return "", false
+	}
+	href := strings.TrimSpace(attrs["href"])
+	if !isCrossOriginHTTP(href, pageURL) {
+		return "", false
+	}
+	return href, true
 }
 
 func attributeMap(attrs []html.Attribute) map[string]string {

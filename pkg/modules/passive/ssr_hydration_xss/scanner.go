@@ -79,6 +79,14 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
+	// Gate on the shared, memoised parse (ECON-14): the other HTML passives
+	// reuse it, and almost no page carries a truncated hydration script. The
+	// lexical pass over the raw body runs only for the page that does, to
+	// recover the exact boundary, tail and reflection evidence.
+	doc, err := ctx.Response().HTMLDocument()
+	if err != nil || doc == nil || !hasTruncatedHydrationScript(doc) {
+		return nil, nil
+	}
 	breakouts := findHydrationBreakouts(ctx.Response().BodyToString(), extractParamValues(ctx))
 	if len(breakouts) == 0 {
 		return nil, nil
@@ -170,8 +178,49 @@ func findHydrationBreakouts(body string, paramValues map[string]string) []hydrat
 	return results
 }
 
+// hasTruncatedHydrationScript reports whether the (shared, read-only) document
+// holds a hydration <script> whose content ends while a quoted value or a
+// bracket group is still open. The parser ends a script element at the same
+// first </script> boundary a browser does, so its text child is the content
+// the lexical pass would examine.
+func hasTruncatedHydrationScript(doc *html.Node) bool {
+	var walk func(*html.Node) bool
+	walk = func(node *html.Node) bool {
+		if node.Type == html.ElementNode && node.Data == "script" {
+			var content strings.Builder
+			for child := node.FirstChild; child != nil; child = child.NextSibling {
+				if child.Type == html.TextNode {
+					content.WriteString(child.Data)
+				}
+			}
+			text := content.String()
+			if isHydrationScriptAttrs(attrMap(node.Attr), text) && serializationAppearsTruncated(text) {
+				return true
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if walk(child) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(doc)
+}
+
+func attrMap(attrs []html.Attribute) map[string]string {
+	m := make(map[string]string, len(attrs))
+	for _, attr := range attrs {
+		m[strings.ToLower(attr.Key)] = attr.Val
+	}
+	return m
+}
+
 func isHydrationScript(openTag, content string) bool {
-	attrs := parseScriptAttributes(openTag)
+	return isHydrationScriptAttrs(parseScriptAttributes(openTag), content)
+}
+
+func isHydrationScriptAttrs(attrs map[string]string, content string) bool {
 	id := strings.ToUpper(strings.TrimSpace(attrs["id"]))
 	if id == "__NEXT_DATA__" || id == "__NUXT_DATA__" {
 		return true
