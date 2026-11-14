@@ -82,7 +82,7 @@ func (r *Runner) emitSpiderDOMXssFindings(ctx context.Context, scanUUID string, 
 // many in-scope DB hosts) can't blow the phase out to len(targets) × max-duration.
 //
 // Exported because it is the number the CLI's fan-out hint quotes: the phase
-// crawls hosts one at a time, so on a target list larger than this the cap — not
+// crawls a bounded number of hosts at a time (VIGOLIUM_SPIDER_HOST_PARALLELISM, default 2), so on a target list larger than this the cap — not
 // the pace flags — is what decides how much of the list is reached, and the
 // operator has to be told the figure to act on it. One constant, so the hint and
 // the ceiling it describes cannot drift apart.
@@ -761,22 +761,28 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	// launched only to stop at once.
 	grace := SpideringGrace(maxDuration)
 
-	for _, group := range groups {
+	// Host groups are independent (each crawls in its own browser context), so
+	// up to reSpiderHostParallelism of them run at once (ECON-9: hosts used to
+	// be crawled strictly one at a time). Everything a group shares with the
+	// phase — the totals, the harvested sessions, the SSO hosts, the capture
+	// receipt, progress — is touched only while holding accMu; the lock is
+	// released around the browser work itself.
+	var accMu sync.Mutex
+	runGroup := func(group []string) {
+		accMu.Lock()
+		defer accMu.Unlock()
 		// Overall ceiling exhausted — skip the remaining targets rather than
-		// launching crawls against an already-expired context.
+		// launching crawls against an already-expired context. They are counted
+		// as skipped once every group has returned.
 		if deadlineWithin(phaseCtx, grace) {
-			skippedTargets = len(targets) - processed
-			zap.L().Warn("Spidering: phase budget ceiling reached, skipping remaining targets",
-				zap.Int("skipped", skippedTargets),
-				zap.Int("total", len(targets)),
-				zap.Duration("max_duration", maxDuration),
-				zap.Int("budget_cap", spideringPhaseBudgetCap))
-			break
+			return
 		}
 
 		// A shared session only pays for itself across several seeds; for a lone
 		// target it is machinery around the proven single-crawl path.
+		accMu.Unlock()
 		sess, sessRW := r.openSpiderSession(phaseCtx, group, settingsCfg, maxDuration, infra, requests)
+		accMu.Lock()
 		abandoned := false
 
 		for gi, target := range group {
@@ -792,6 +798,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			// browser/teardown wedges, so a single target can never hang the scan.
 			timeoutCtx, cancel := context.WithTimeout(phaseCtx, maxDuration)
 			var oc crawlOutcome
+			accMu.Unlock()
 			if sess != nil {
 				oc = runReSpiderSessionCrawl(timeoutCtx, sess, target, maxDuration)
 			} else {
@@ -799,6 +806,9 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 				requests.wire(&cfg)
 				rw := r.newScanRecordWriter()
 				oc = runSpiderWatchdog(timeoutCtx, cfg, rw, maxDuration, target)
+			}
+			accMu.Lock()
+			if sess == nil {
 				phaseCapture.Merge(oc.capture())
 			}
 			// Asked BEFORE cancel(): cancelling a context whose deadline had not
@@ -1014,8 +1024,22 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 		progress.Set(processed)
 
 		if sess != nil {
-			phaseCapture.Merge(sessionCapture(sess, sessRW, abandoned))
+			accMu.Unlock()
+			receipt := sessionCapture(sess, sessRW, abandoned)
+			accMu.Lock()
+			phaseCapture.Merge(receipt)
 		}
+	}
+
+	runHostGroups(groups, reSpiderHostParallelism(len(groups)),
+		func() bool { return deadlineWithin(phaseCtx, grace) }, runGroup)
+	if processed < len(targets) && deadlineWithin(phaseCtx, grace) {
+		skippedTargets = len(targets) - processed
+		zap.L().Warn("Spidering: phase budget ceiling reached, skipping remaining targets",
+			zap.Int("skipped", skippedTargets),
+			zap.Int("total", len(targets)),
+			zap.Duration("max_duration", maxDuration),
+			zap.Int("budget_cap", spideringPhaseBudgetCap))
 	}
 
 	// Carry the harvested per-host sessions forward: store them for the Discovery
@@ -1096,7 +1120,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	// HTTP phases get from shutdownWriters.
 	recordCapture(tracker, phaseCapture)
 	// Name the way out at the moment it bit. The ceiling is not a pace the flags
-	// can widen — the phase crawls one host at a time — so an operator told only
+	// can widen — the phase crawls a bounded number of hosts at a time — so an operator told only
 	// that N targets were dropped has no move to make from that line alone. The
 	// flags come from SpiderFanOutSuggestion, the same resolver the pre-scan hint
 	// uses, so both the advice and its preconditions match this run.
@@ -1178,4 +1202,36 @@ func (b *reloginBroadcast) notify() {
 		default:
 		}
 	}
+}
+
+// runHostGroups runs run once per host group, up to par at a time (ECON-9),
+// stopping before a group once stop reports the phase budget is spent. par<=1
+// is the sequential crawl.
+func runHostGroups[T any](groups [][]T, par int, stop func() bool, run func([]T)) {
+	if par <= 1 {
+		for _, group := range groups {
+			if stop() {
+				return
+			}
+			run(group)
+		}
+		return
+	}
+	zap.L().Info("Spidering: crawling independent hosts concurrently",
+		zap.Int("hosts", len(groups)), zap.Int("parallelism", par))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, par)
+	for _, group := range groups {
+		if stop() {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(group []T) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			run(group)
+		}(group)
+	}
+	wg.Wait()
 }
