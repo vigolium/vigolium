@@ -19,7 +19,7 @@ import (
 //
 // Before, body parsing switched on the exact header string, so
 // "Application/JSON", "application/vnd.api+json" or "application/soap+xml"
-// produced no body insertion points at all (MISS-10).
+// produced no body insertion points at all.
 //
 // canonical is "" when nothing could be determined; the ContentType is then
 // ContentTypeUnknown.

@@ -188,7 +188,7 @@ func Close() {
 	StopActiveMemGuardian()
 }
 
-// baseResolvers picks fastdialer's BaseResolvers (SAFE-11). fastdialer tries
+// baseResolvers picks fastdialer's BaseResolvers. fastdialer tries
 // the system resolvers (resolv.conf) first and then round-robins BaseResolvers,
 // public 1.1.1.1/8.8.8.8 by default — so internal hostnames leaked to public
 // DNS. Explicit resolvers always win; with working system resolvers no public

@@ -10,7 +10,7 @@ import (
 
 // A Tentative finding above Suspect is clamped to Suspect at emit time, with
 // the module's claim kept in Metadata; a waived module and a Firm finding are
-// untouched (RES-7).
+// untouched.
 func TestEmitResult_ClampsTentative(t *testing.T) {
 	var got []*output.ResultEvent
 	e, _ := newTestExecutor(ExecutorConfig{}, nil)

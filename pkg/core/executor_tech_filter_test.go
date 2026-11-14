@@ -76,7 +76,7 @@ func TestPassesTechFilter(t *testing.T) {
 		}
 	})
 
-	// MISS-21 (a): a front-end-only identification says nothing about the
+	// A front-end-only identification says nothing about the
 	// backend. {angular, spa} are descriptive; nextjs is a meta-framework.
 	t.Run("descriptive tags never gate", func(t *testing.T) {
 		e := makeExecutor(false, nil)
@@ -97,7 +97,7 @@ func TestPassesTechFilter(t *testing.T) {
 			t.Fatal("a Next.js front end must not exclude backend modules")
 		}
 	})
-	// MISS-21 (b): "javascript" no longer gates.
+	// "javascript" no longer gates.
 	t.Run("javascript tag does not gate", func(t *testing.T) {
 		e := makeExecutor(false, map[string]string{"example.com": "django"})
 		m := &techStub{id: "js-secrets", tags: []string{"javascript", "passive"}}
@@ -105,7 +105,7 @@ func TestPassesTechFilter(t *testing.T) {
 			t.Fatal("javascript-tagged module must run on any host")
 		}
 	})
-	// MISS-21 (c): a reverse proxy banner never excludes the app behind it.
+	// A reverse proxy banner never excludes the app behind it.
 	t.Run("server tags never exclude", func(t *testing.T) {
 		e := makeExecutor(false, map[string]string{"example.com": "nginx"})
 		m := &techStub{id: "tomcat-mgr", tags: []string{"tomcat"}}

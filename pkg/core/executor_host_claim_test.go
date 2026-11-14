@@ -47,7 +47,7 @@ func runPerHostItems(t *testing.T, mod modules.ActiveModule, n int) {
 
 // A per-host run that failed transiently (quarantined host, transport error,
 // abandoned request) gives its claim back, so a later item for the same origin
-// retries it — at most twice in total (MISS-19). Before, the claim was taken
+// retries it — at most twice in total. Before, the claim was taken
 // before the run and never released: one transient failure skipped the module
 // for the origin for the rest of the scan.
 func TestPerHostClaimReleasedOnTransientFailure(t *testing.T) {

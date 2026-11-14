@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// SAFE-11: with resolv.conf naming nameservers, no public base resolvers are
+// With resolv.conf naming nameservers, no public base resolvers are
 // added (internal names never leak to 1.1.1.1 / 8.8.8.8).
 func TestBaseResolvers_NoPublicWhenSystemResolversExist(t *testing.T) {
 	dir := t.TempDir()

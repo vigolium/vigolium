@@ -39,7 +39,7 @@ type ipCacheEntry struct {
 	// points is the standard set (no opt-in extras) — what the module-facing
 	// provider and the per-request timeout scaling see.
 	points []httpmsg.InsertionPoint
-	// all adds the opt-in parameter-name and entire-body points (MISS-15); the
+	// all adds the opt-in parameter-name and entire-body points; the
 	// per-insertion-point stage dispatches from it and each module's allowed
 	// types decide. nil for an entry stored through Add.
 	all    []httpmsg.InsertionPoint

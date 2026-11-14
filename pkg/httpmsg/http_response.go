@@ -50,7 +50,7 @@ type HttpResponse struct {
 
 	// Memoized parsed HTML document (HTMLDocument). Parsed once per response
 	// and shared, read-only, by the anomaly fingerprint and the HTML-walking
-	// passive modules (ECON-14). Guarded by mu; invalidated by TruncateBody.
+	// passive modules. Guarded by mu; invalidated by TruncateBody.
 	htmlDoc   *html.Node
 	htmlErr   error
 	htmlDocOK bool

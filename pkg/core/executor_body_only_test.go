@@ -13,7 +13,7 @@ func (*bodyOnlyPassive) BodyOnly() bool { return true }
 
 // A BodyOnlyPassive module runs once per distinct body: the same bundle served
 // at three URLs is analysed once; an ordinary passive module still runs on
-// every record (ECON-14).
+// every record.
 func TestBodyOnlyPassiveRunsOncePerBody(t *testing.T) {
 	bo := &bodyOnlyPassive{trackingPassiveModule{id: "body-only"}}
 	plain := &trackingPassiveModule{id: "plain"}

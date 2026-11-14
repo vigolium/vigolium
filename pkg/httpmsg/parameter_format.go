@@ -90,7 +90,7 @@ func DetectParameterFormat(value string) ParameterFormat {
 
 	// Check for Base64 encoding: the standard padded form as before, and the
 	// URL-safe / unpadded variants when their decoded payload is itself a
-	// structured document (MISS-13) — the raw variants accept too many plain
+	// structured document — the raw variants accept too many plain
 	// words to flag on alphabet alone.
 	if isValidBase64(trimmed) {
 		return FormatBase64

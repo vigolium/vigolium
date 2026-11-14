@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestActiveMemGuardianRunsMonitor is RES-10: StartActiveMemGuardian starts a
+// TestActiveMemGuardianRunsMonitor: StartActiveMemGuardian starts a
 // monitor (it used to have no caller and never ran Run, so IsLowOnMemory was
 // always false), Stop tears it down, and a second Start in the same process
 // gets a working monitor again.

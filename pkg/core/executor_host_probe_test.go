@@ -45,7 +45,7 @@ func (m *hostProbeModule) ScanPerHost(item *httpmsg.HttpRequestResponse, client 
 // A run-once host probe whose requests failed transiently — here the target
 // resets every connection during the first record — must neither claim the
 // host in its own dedup set nor keep the executor's per-host claim, so the
-// next record of the host runs the probe again (MISS-19). Before, the module
+// next record of the host runs the probe again. Before, the module
 // claimed the host before probing and returned nil after swallowing the send
 // error: the executor saw a clean run, and the host was never probed again.
 func TestPerHostProbeRetriedAfterTransientTransportFailure(t *testing.T) {

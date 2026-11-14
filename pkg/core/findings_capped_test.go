@@ -21,7 +21,7 @@ func cappedEvent(param, desc, url string) *output.ResultEvent {
 	}
 }
 
-// TestFindingsCapped_CountsDistinctIdentities is RES-1: the cap counts
+// TestFindingsCapped_CountsDistinctIdentities: the cap counts
 // distinct findings (identity keys), the drop count names each dropped finding
 // once, and payload/prose variants of one finding consume nothing.
 func TestFindingsCapped_CountsDistinctIdentities(t *testing.T) {

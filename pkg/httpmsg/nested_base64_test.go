@@ -9,7 +9,7 @@ import (
 )
 
 // A base64url-unpadded JSON state parameter round-trips: the child's payload is
-// re-wrapped in the same base64 variant (MISS-13). Before, detection missed the
+// re-wrapped in the same base64 variant. Before, detection missed the
 // URL-safe/unpadded variant entirely, and even a std-base64 value went back as
 // the raw JSON document.
 func TestNestedBase64URLUnpaddedRoundTrip(t *testing.T) {
@@ -73,7 +73,7 @@ func TestDecodeBase64Variant(t *testing.T) {
 	}
 }
 
-// encodePayloadForIP uses the point's own encoder (NEW-14): a path parameter
+// encodePayloadForIP uses the point's own encoder: a path parameter
 // encodes space as %20, not '+'.
 func TestEncodePayloadForIPMatchesBuildRequest(t *testing.T) {
 	raw := "GET /a/b?q=1 HTTP/1.1\r\nHost: h.test\r\n\r\n"

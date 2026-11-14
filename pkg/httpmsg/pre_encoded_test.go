@@ -18,7 +18,7 @@ func pointsByName(t *testing.T, raw string) map[string]InsertionPoint {
 	return out
 }
 
-// Pre-encoded payloads reach the server as written (MISS-12): '%' is not
+// Pre-encoded payloads reach the server as written: '%' is not
 // re-escaped, while bytes that cannot appear literally are.
 func TestBuildPreEncoded_QueryAndHeader(t *testing.T) {
 	raw := "GET /a?file=x HTTP/1.1\r\nHost: h.test\r\nX-Custom: v\r\n\r\n"

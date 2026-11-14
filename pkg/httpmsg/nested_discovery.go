@@ -98,7 +98,7 @@ func createNestedShared(shared *sharedBaseRequest, parentParam *Param, format Pa
 		}
 		childBuf = decoded
 		// Re-apply the base64 layer — in the variant it was found in — on the
-		// way out; without it the child document went back raw (MISS-13).
+		// way out; without it the child document went back raw.
 		layers = []Encoder{variant.encoder()}
 
 	case FormatURLEncoded:

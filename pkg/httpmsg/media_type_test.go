@@ -41,7 +41,7 @@ func TestClassifyMediaType(t *testing.T) {
 }
 
 // A vendor +json body, mixed-case JSON and a SOAP body now yield body
-// insertion points (MISS-10); before, the exact-string switch gave none.
+// insertion points; before, the exact-string switch gave none.
 func TestAnalyzeRequest_StructuredSuffixBodies(t *testing.T) {
 	for _, tc := range []struct{ ct, body string }{
 		{"application/vnd.api+json", `{"user":"alice"}`},

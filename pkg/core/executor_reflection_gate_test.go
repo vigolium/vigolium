@@ -32,7 +32,7 @@ func (m *reflectionStub) ScanPerInsertionPoint(*httpmsg.HttpRequestResponse, htt
 }
 
 // A reflection-aware module runs on a point only when the shared canary probe
-// saw the value come back; a blocked probe fails open (ECON-2).
+// saw the value come back; a blocked probe fails open.
 func TestReflectionGate(t *testing.T) {
 	run := func(handler http.HandlerFunc) int64 {
 		srv := httptest.NewServer(handler)

@@ -204,7 +204,7 @@ func (p *ParameterInsertionPoint) BuildRequest(payload []byte) []byte {
 // bytes that cannot appear literally in a request line or body are escaped
 // (control bytes, space, '#', bytes >= 0x80) and '%' is kept, so the module's
 // encoding arrives as written. BuildRequest escapes '%' itself, which turned
-// every such payload into a double-encoded no-op (MISS-12).
+// every such payload into a double-encoded no-op.
 //
 // Applies to URL-encoded parameters (query, path, form body, cookie); other
 // parameter types (JSON, XML) have no percent layer and fall back to
@@ -1070,7 +1070,7 @@ func encodePayloadForIP(ip InsertionPoint, payload []byte) []byte {
 	switch v := ip.(type) {
 	case *ParameterInsertionPoint:
 		// The same encoder BuildRequest uses (path, query, JSON-aware), so a
-		// batch build matches a single build (NEW-14).
+		// batch build matches a single build.
 		return v.encodePayload(payload)
 	case *EncodedInsertionPoint:
 		payloadWithPrefix := payload

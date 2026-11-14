@@ -9,7 +9,7 @@ import (
 
 // After 50 completed calls the per-module timeout follows the module's own
 // p99 × 3, clamped to [30s, 300s]; before that, and whenever the operator set
-// a timeout, the configured/default value applies (ECON-7).
+// a timeout, the configured/default value applies.
 func TestAdaptiveActiveTimeout(t *testing.T) {
 	e := &Executor{moduleMetrics: &stats.ModuleMetrics{}}
 	if got := e.adaptiveActiveTimeout("m"); got != defaultActiveModuleTimeout {

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// The parsed document is computed once per response and shared (ECON-14);
+// The parsed document is computed once per response and shared;
 // TruncateBody invalidates it.
 func TestHTMLDocumentMemoised(t *testing.T) {
 	r := NewHttpResponse([]byte("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><a href=/x>x</a></body></html>"))

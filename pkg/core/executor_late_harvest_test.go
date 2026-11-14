@@ -56,8 +56,8 @@ func runLateModule(t *testing.T, mod *lateModule, timeout time.Duration) []*outp
 	return got
 }
 
-// A call that overran its per-module timeout still delivers what it found
-// (MISS-20). It had requests refused after the timeout, so the finding is
+// A call that overran its per-module timeout still delivers what it found.
+// It had requests refused after the timeout, so the finding is
 // downgraded to Tentative with a note.
 func TestLateFindingHarvestedAsTentative(t *testing.T) {
 	mod := &lateModule{activeStub: activeStub{id: "late", scopes: modules.ScanScopeRequest, canProc: true},

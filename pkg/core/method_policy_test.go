@@ -8,7 +8,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// SAFE-8: a record whose method the traffic policy refuses is kept out of the
+// A record whose method the traffic policy refuses is kept out of the
 // active stage and counted as a method_policy skip.
 func TestMethodPolicyAllows(t *testing.T) {
 	opts := types.DefaultOptions()

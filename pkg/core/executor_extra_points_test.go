@@ -31,8 +31,8 @@ func (m *typeRecorder) ScanPerInsertionPoint(_ *httpmsg.HttpRequestResponse, ip 
 	return nil, nil
 }
 
-// Parameter-name and entire-body points reach only modules that opt in
-// (MISS-15): a module on AllInsertionPointTypes never sees them, one that adds
+// Parameter-name and entire-body points reach only modules that opt in:
+// a module on AllInsertionPointTypes never sees them, one that adds
 // ParamNameTypes / EntireBodyTypes does.
 func TestExtraInsertionPointsAreOptIn(t *testing.T) {
 	names := &typeRecorder{

@@ -34,7 +34,7 @@ func (m *vulnClassRecorder) ScanPerInsertionPoint(_ *httpmsg.HttpRequestResponse
 	return nil, nil
 }
 
-// Header points through the executor (ECON-1): noise headers produce no task
+// Header points through the executor: noise headers produce no task
 // at all; a logged header reaches SQLi once per origin and never XSS; an
 // application header reaches both on every record.
 func TestHeaderGateInExecutor(t *testing.T) {
