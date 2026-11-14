@@ -287,6 +287,26 @@
         "probe"
       ]
     },
+    "scanplan.InputHost": {
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "records": {
+          "type": "integer"
+        },
+        "in_scope": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "host",
+        "records",
+        "in_scope"
+      ]
+    },
     "scanplan.JSTangle": {
       "properties": {
         "enabled": {
@@ -707,6 +727,18 @@
               "type": "null"
             }
           ]
+        },
+        "scope_targets": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "input_hosts": {
+          "items": {
+            "$ref": "#/$defs/scanplan.InputHost"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,

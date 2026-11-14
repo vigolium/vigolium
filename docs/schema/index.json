@@ -156,6 +156,12 @@
     "description": "Findings saved from logged OAST callbacks; the counters say how the callbacks were attributed."
   },
   {
+    "name": "oast poll",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "One item per kept OAST session polled: callbacks collected, how many correlated to a planted payload, and whether it was closed."
+  },
+  {
     "name": "params",
     "kind": "command",
     "envelope_kind": "read",

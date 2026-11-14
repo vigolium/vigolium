@@ -1,6 +1,30 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "cli.baselineCounts": {
+      "properties": {
+        "new": {
+          "type": "integer"
+        },
+        "unchanged": {
+          "type": "integer"
+        },
+        "fixed": {
+          "type": "integer"
+        },
+        "ignored": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "new",
+        "unchanged",
+        "fixed",
+        "ignored"
+      ]
+    },
     "cli.hostView": {
       "properties": {
         "hostname": {
@@ -122,6 +146,26 @@
         "port",
         "observed_at",
         "complete"
+      ]
+    },
+    "cli.scanArtifact": {
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "format",
+        "path",
+        "bytes"
       ]
     },
     "cli.scanDocError": {
@@ -271,6 +315,32 @@
         "reached"
       ]
     },
+    "cli.scanNextStep": {
+      "properties": {
+        "argv": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "why": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "argv",
+        "why"
+      ]
+    },
     "contract.GlobSkipped": {
       "properties": {
         "file": {
@@ -347,6 +417,40 @@
         "returned",
         "omitted",
         "next_offset"
+      ]
+    },
+    "database.Caveat": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "hosts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "modules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "code",
+        "message"
       ]
     },
     "database.NotFoundBaseline": {
@@ -480,6 +584,18 @@
           "type": "object"
         },
         "budget_exhausted_hosts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "findings_capped": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        },
+        "blocked_hosts": {
           "items": {
             "type": "string"
           },
@@ -1245,6 +1361,26 @@
         "probe"
       ]
     },
+    "scanplan.InputHost": {
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "records": {
+          "type": "integer"
+        },
+        "in_scope": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "host",
+        "records",
+        "in_scope"
+      ]
+    },
     "scanplan.JSTangle": {
       "properties": {
         "enabled": {
@@ -1665,6 +1801,18 @@
               "type": "null"
             }
           ]
+        },
+        "scope_targets": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "input_hosts": {
+          "items": {
+            "$ref": "#/$defs/scanplan.InputHost"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -2031,6 +2179,55 @@
         }
       ]
     },
+    "caveats": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/database.Caveat"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "artifacts": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/cli.scanArtifact"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "next": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/cli.scanNextStep"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "baseline": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/cli.baselineCounts"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "modules": {
       "$ref": "#/$defs/cli.scanDocModules"
     },
@@ -2109,6 +2306,10 @@
     "targets",
     "targets_not_scanned",
     "phase_outcomes",
+    "caveats",
+    "artifacts",
+    "next",
+    "baseline",
     "modules",
     "counts_by_severity",
     "candidates",

@@ -398,7 +398,7 @@ func installCoreDeps() error {
 		return nil
 	}
 
-	if initOffline {
+	if initOffline || globalOffline {
 		st := checkCoreDeps(settings)
 		fmt.Fprintf(os.Stderr, "%s --offline: not downloading %s; install later with %s\n",
 			terminal.WarnPrefix(), st.missingNames(), terminal.Cyan("vigolium doctor --fix --only chrome,nuclei"))

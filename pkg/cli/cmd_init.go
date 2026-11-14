@@ -34,12 +34,12 @@ Fails (not_ready) when chromium or nuclei-templates cannot be installed;
 	RunE: runInitCmd,
 }
 
-// initOffline is `init --offline`: complete every local step but download
+// initOffline forces init's offline mode in tests; the global --offline flag
+// sets it for users: complete every local step but download
 // nothing (chromium, nuclei-templates).
 var initOffline bool
 
 func init() {
-	initCmd.Flags().BoolVar(&initOffline, "offline", false, "Do every local setup step but download nothing (chromium, nuclei-templates); a missing dependency is reported, not fatal")
 	rootCmd.AddCommand(initCmd)
 }
 

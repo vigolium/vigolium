@@ -543,6 +543,12 @@
         "requests_in_scope": {
           "type": "integer"
         },
+        "findings_capped": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        },
         "done": {
           "type": "integer"
         },
@@ -726,6 +732,21 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "findings_capped": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        },
+        "caveats": {
+          "items": {
+            "$ref": "#/$defs/scanevents.Caveat"
+          },
+          "type": "array"
+        },
+        "flushed": {
+          "type": "boolean"
         },
         "exports": {
           "items": {
@@ -1073,6 +1094,40 @@
       "required": [
         "max_requests",
         "max_requests_per_host"
+      ]
+    },
+    "scanevents.Caveat": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "hosts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "modules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "count": {
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "code",
+        "message"
       ]
     },
     "scanevents.Egress": {
@@ -1446,6 +1501,26 @@
         "per_shape",
         "cdx_max_rows",
         "probe"
+      ]
+    },
+    "scanplan.InputHost": {
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "records": {
+          "type": "integer"
+        },
+        "in_scope": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "host",
+        "records",
+        "in_scope"
       ]
     },
     "scanplan.JSTangle": {
@@ -1868,6 +1943,18 @@
               "type": "null"
             }
           ]
+        },
+        "scope_targets": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "input_hosts": {
+          "items": {
+            "$ref": "#/$defs/scanplan.InputHost"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
