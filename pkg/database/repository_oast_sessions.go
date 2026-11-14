@@ -99,17 +99,6 @@ func (r *Repository) GetOASTPayload(ctx context.Context, projectUUID, nonce stri
 	return rows[nonce], nil
 }
 
-// RedactOASTSessionKeys blanks the session key material in this store (for an
-// exported copy). Missing table is not an error.
-func (db *DB) RedactOASTSessionKeys(ctx context.Context) error {
-	if !db.tableExists(ctx, "oast_sessions") {
-		return nil
-	}
-	_, err := db.ExecContext(ctx,
-		"UPDATE oast_sessions SET secret_key = NULL, private_key = NULL, public_key = NULL, token = NULL")
-	return err
-}
-
 // redactGenericRows blanks secret columns in rows read through the generic
 // table API (`vigolium db`, /api/db): today the oast_sessions key material.
 func redactGenericRows(tableName string, rows []map[string]interface{}) {

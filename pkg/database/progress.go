@@ -64,6 +64,18 @@ func (r *Repository) LoadRecordProgress(ctx context.Context, projectUUID, scanUU
 	return out, nil
 }
 
+// HasRecordProgress reports whether scanUUID has any coverage-ledger row, so
+// a source can skip per-page ledger reads for a scan that never wrote one.
+func (r *Repository) HasRecordProgress(ctx context.Context, projectUUID, scanUUID string) (bool, error) {
+	if r == nil || r.db == nil || scanUUID == "" {
+		return false, nil
+	}
+	return r.db.NewSelect().Model((*ScanRecordProgress)(nil)).
+		Where("project_uuid = ?", defaultProjectUUID(projectUUID)).
+		Where("scan_uuid = ?", scanUUID).
+		Exists(ctx)
+}
+
 // SetScanCoverageModules records the module ordinal order done_bits refer to.
 func (r *Repository) SetScanCoverageModules(ctx context.Context, scanUUID string, moduleIDs []string) error {
 	b, err := json.Marshal(moduleIDs)

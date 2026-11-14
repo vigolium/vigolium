@@ -142,6 +142,8 @@ type DBInputSource struct {
 	// the lookback window, so the polling re-read (pollLookback) never serves
 	// one twice. Pruned as the read cursor moves past the window.
 	served map[string]time.Time
+	// servedPrunedAt is the cursor second served was last pruned at.
+	servedPrunedAt time.Time
 	// ackMaxAt/ackMaxUUID are the furthest key the durable cursor was moved
 	// to; a late record served from the lookback must never move it back.
 	ackMaxAt   time.Time
@@ -415,15 +417,17 @@ func (s *DBInputSource) fetchNextBatch(ctx context.Context) ([]*HTTPRecord, erro
 
 // lookbackLocked returns records inside the lookback window behind the read
 // cursor (created_at >= cursor − pollLookback, at or before the cursor key)
-// that were never served. Caller holds s.mu.
+// that were never served. It reads keys first and fetches the scan columns for
+// unseen rows only, so a poll over a window of already-served records does not
+// re-read their bodies. Caller holds s.mu.
 func (s *DBInputSource) lookbackLocked(ctx context.Context) ([]*HTTPRecord, error) {
 	if s.readCursorAt.IsZero() {
 		return nil, nil
 	}
 	from := dbTimestampString(s.db.Driver(), s.readCursorAt.Add(-pollLookback))
 	at := dbTimestampString(s.db.Driver(), s.readCursorAt)
-	var rows []*HTTPRecord
-	q := s.db.NewSelect().Model(&rows).Column(scanRecordColumns...).
+	var keys []*HTTPRecord
+	q := s.db.NewSelect().Model(&keys).Column("uuid", "created_at").
 		Where("created_at >= ?", from).
 		Where("(created_at < ? OR (created_at = ? AND uuid <= ?))", at, at, s.readCursorUUID)
 	q = applyHostScopeFilter(q, s.hostScopes)
@@ -434,19 +438,28 @@ func (s *DBInputSource) lookbackLocked(ctx context.Context) ([]*HTTPRecord, erro
 	if err := q.OrderExpr("created_at ASC, uuid ASC").Limit(maxLookbackRows).Scan(ctx); err != nil {
 		return nil, err
 	}
-	out := rows[:0]
-	for _, r := range rows {
-		if _, seen := s.served[r.UUID]; seen {
+	var unseen []string
+	for _, k := range keys {
+		if _, seen := s.served[k.UUID]; seen {
 			continue
 		}
 		// A record at or before the durable cursor that was never served by
 		// this source predates it (a resumed source's earlier run handled it).
-		if !s.servedSince(r) {
+		if !s.servedSince(k) {
 			continue
 		}
-		out = append(out, r)
+		unseen = append(unseen, k.UUID)
 	}
-	return out, nil
+	if len(unseen) == 0 {
+		return nil, nil
+	}
+	var rows []*HTTPRecord
+	if err := s.db.NewSelect().Model(&rows).Column(scanRecordColumns...).
+		Where("uuid IN (?)", bun.List(unseen)).
+		OrderExpr("created_at ASC, uuid ASC").Scan(ctx); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // servedSince reports whether r could have been missed by this source: it was
@@ -457,7 +470,14 @@ func (s *DBInputSource) servedSince(r *HTTPRecord) bool {
 }
 
 // pruneServedLocked forgets served records the lookback can no longer reach.
+// The floor only moves when the read cursor enters a new second, so the map is
+// walked at most once per second of cursor progress rather than every batch.
 func (s *DBInputSource) pruneServedLocked() {
+	sec := s.readCursorAt.Truncate(time.Second)
+	if !sec.After(s.servedPrunedAt) {
+		return
+	}
+	s.servedPrunedAt = sec
 	floor := s.readCursorAt.Add(-2 * pollLookback)
 	for id, at := range s.served {
 		if at.Before(floor) {
@@ -704,6 +724,9 @@ type RiskPrioritizedDBInputSource struct {
 	keyAt         time.Time // last served (created_at, uuid) inside the bucket
 	keyID         string
 	started       bool // keyAt/keyID valid for the current bucket
+	// lastPageInBucket: the page just pulled was short, so the bucket is
+	// drained once the keyset advances past it.
+	lastPageInBucket bool
 	everStarted   bool // any page has been served
 
 	buffer  []*HTTPRecord // full records for the current page's coalescing survivors
@@ -734,7 +757,9 @@ type RiskPrioritizedDBInputSource struct {
 	presetAt        time.Time
 	presetID        string
 	coverageByUUID  map[string]RecordCoverage
-	coverageSkipped int
+	// hasProgress: the scan had ledger rows when the bound was captured; when
+	// false no page reads the ledger (nothing in it to skip or carry).
+	hasProgress bool
 
 	// advanceCursor is the durable checkpoint write, injectable so the failure
 	// path is testable without a broken database. Defaults to the repository's
@@ -783,14 +808,6 @@ func (s *RiskPrioritizedDBInputSource) Bound() (at time.Time, id string, ok bool
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.boundAt, s.boundID, s.hasBound
-}
-
-// CoverageSkipped reports how many records the ledger showed already finished
-// for this pass's tier.
-func (s *RiskPrioritizedDBInputSource) CoverageSkipped() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.coverageSkipped
 }
 
 // WithHostScopes sets an in-scope origin filter so only records matching these
@@ -938,6 +955,11 @@ func (s *RiskPrioritizedDBInputSource) captureBoundLocked(ctx context.Context) e
 	s.resumeID = scan.CursorUUID
 	s.projectUUID = scan.ProjectUUID
 	s.coalescer = newParamShapeCoalescer(s.maxParamShapeSamples)
+	if s.coverage {
+		// A failed probe reads the ledger per page as before.
+		has, err := s.repo.HasRecordProgress(ctx, s.projectUUID, s.scanUUID)
+		s.hasProgress = has || err != nil
+	}
 
 	type boundRow struct {
 		CreatedAt time.Time `bun:"created_at"`
@@ -1035,7 +1057,10 @@ func (s *RiskPrioritizedDBInputSource) nextPageRowsLocked(ctx context.Context) (
 			// Do NOT advance the keyset here. The caller advances it
 			// (advanceKeyLocked) only after the page's records are either
 			// coalesced away or successfully fetched, so a transient bulk-fetch
-			// failure re-pulls THIS exact page instead of stepping past it.
+			// failure re-pulls THIS exact page instead of stepping past it. A
+			// short page is the bucket's last: advancing past it steps to the
+			// next bucket without an empty page query.
+			s.lastPageInBucket = len(rows) < riskPrefetchBatchSize
 			return rows, nil
 		}
 		// Bucket drained: step to the next lower one.
@@ -1084,9 +1109,13 @@ func (s *RiskPrioritizedDBInputSource) nextBucketLocked(ctx context.Context) (bo
 	return true, nil
 }
 
-// advanceKeyLocked steps the keyset past the given page's last row. Caller holds s.mu.
+// advanceKeyLocked steps the keyset past the given page's last row, and past
+// the bucket when that page was its last. Caller holds s.mu.
 func (s *RiskPrioritizedDBInputSource) advanceKeyLocked(last riskPageRow) {
 	s.keyAt, s.keyID, s.started = last.CreatedAt, last.UUID, true
+	if s.lastPageInBucket {
+		s.bucketSet = false
+	}
 }
 
 // fillNextPageLocked pulls keyset pages (applying coalescing) until it has a
@@ -1117,46 +1146,14 @@ func (s *RiskPrioritizedDBInputSource) fillNextPageLocked(ctx context.Context) (
 			continue
 		}
 
-		// Fetch full records for the survivors, with a bounded retry so a transient
-		// DB error (SQLITE_BUSY, a brief failover) doesn't drop the page. Release the
-		// lock across each attempt so worker ack callbacks (ackSnapshotItem) aren't
-		// blocked. Next() has a single caller, so no other goroutine advances the
-		// lane state meanwhile.
-		var records []*HTTPRecord
-		ferr := RetryBusy(ctx, func() error {
-			s.mu.Unlock()
-			defer s.mu.Lock()
-			var err error
-			records, err = s.repo.GetScanRecordsByUUIDs(ctx, surviving)
-			return err
-		}, s.pageRetryPolicy(ctx, "risk-prioritized page fetch"))
-		if ferr != nil {
-			// The keyset was NOT advanced, so re-pulling this page after the error is
-			// surfaced retries the exact same survivors — a transient failure becomes
-			// retryable coverage instead of a silent hole committed as "complete".
-			// Return the error rather than counting survivors as skipped.
-			//
-			// The uncommitted plan is simply discarded: had those choices been
-			// recorded, the re-pull would see every row as a duplicate of itself,
-			// survive nothing, and fall into the "whole page coalesced away" branch
-			// above — stepping the keyset past a page that was never served.
-			return false, fmt.Errorf("risk-prioritized page record fetch failed: %w", ferr)
-		}
-		// Fetch succeeded: the page is ours, so the coalescing choices stick and it
-		// is safe to advance the keyset and count survivors.
-		s.coalescer.commit(plan)
-		s.advanceKeyLocked(last)
-		s.total += len(surviving)
-
-		byUUID := make(map[string]*HTTPRecord, len(records))
-		for _, rec := range records {
-			byUUID[rec.UUID] = rec
-		}
-		ledgerSkipped := 0
-		if s.coverage {
-			// One ledger read per page (ECON-4). A failed read serves the page
-			// without coverage — the work is redone, never skipped.
-			var cov map[string]RecordCoverage
+		// Read the coverage ledger before fetching bodies, so records it shows
+		// finished for this pass's tier are never fetched. One ledger read per
+		// page; a failed read serves the page without coverage — the work is
+		// redone, never skipped.
+		toFetch := surviving
+		var finished int
+		var cov map[string]RecordCoverage
+		if s.coverage && s.hasProgress {
 			_ = RetryBusy(ctx, func() error {
 				s.mu.Unlock()
 				defer s.mu.Lock()
@@ -1164,21 +1161,64 @@ func (s *RiskPrioritizedDBInputSource) fillNextPageLocked(ctx context.Context) (
 				cov, err = s.repo.LoadRecordProgress(ctx, s.projectUUID, s.scanUUID, surviving)
 				return err
 			}, s.pageRetryPolicy(ctx, "coverage ledger read"))
-			if s.coverageByUUID == nil {
-				s.coverageByUUID = make(map[string]RecordCoverage)
-			}
-			for uuid, c := range cov {
-				if c.TierDone >= s.coverageMinTier {
-					if _, ok := byUUID[uuid]; ok {
-						delete(byUUID, uuid)
-						s.coverageSkipped++
-						s.skipped++
-						ledgerSkipped++
+			if len(cov) > 0 {
+				toFetch = make([]string, 0, len(surviving))
+				for _, uuid := range surviving {
+					if c, ok := cov[uuid]; ok && c.TierDone >= s.coverageMinTier {
+						finished++
+						continue
 					}
-					continue
+					toFetch = append(toFetch, uuid)
+				}
+			}
+		}
+
+		// Fetch full records for the survivors, with a bounded retry so a transient
+		// DB error (SQLITE_BUSY, a brief failover) doesn't drop the page. Release the
+		// lock across each attempt so worker ack callbacks (ackSnapshotItem) aren't
+		// blocked. Next() has a single caller, so no other goroutine advances the
+		// lane state meanwhile.
+		var records []*HTTPRecord
+		if len(toFetch) > 0 {
+			ferr := RetryBusy(ctx, func() error {
+				s.mu.Unlock()
+				defer s.mu.Lock()
+				var err error
+				records, err = s.repo.GetScanRecordsByUUIDs(ctx, toFetch)
+				return err
+			}, s.pageRetryPolicy(ctx, "risk-prioritized page fetch"))
+			if ferr != nil {
+				// The keyset was NOT advanced, so re-pulling this page after the error is
+				// surfaced retries the exact same survivors — a transient failure becomes
+				// retryable coverage instead of a silent hole committed as "complete".
+				// Return the error rather than counting survivors as skipped.
+				//
+				// The uncommitted plan is simply discarded: had those choices been
+				// recorded, the re-pull would see every row as a duplicate of itself,
+				// survive nothing, and fall into the "whole page coalesced away" branch
+				// above — stepping the keyset past a page that was never served.
+				return false, fmt.Errorf("risk-prioritized page record fetch failed: %w", ferr)
+			}
+		}
+		// Fetch succeeded: the page is ours, so the coalescing choices stick and it
+		// is safe to advance the keyset and count survivors. Ledger-finished
+		// records are resolved as skipped without being served.
+		s.coalescer.commit(plan)
+		s.advanceKeyLocked(last)
+		s.total += len(surviving)
+		s.skipped += finished
+		for uuid, c := range cov {
+			if c.TierDone < s.coverageMinTier {
+				if s.coverageByUUID == nil {
+					s.coverageByUUID = make(map[string]RecordCoverage)
 				}
 				s.coverageByUUID[uuid] = c
 			}
+		}
+
+		byUUID := make(map[string]*HTTPRecord, len(records))
+		for _, rec := range records {
+			byUUID[rec.UUID] = rec
 		}
 		if s.buffer == nil {
 			s.buffer = make([]*HTTPRecord, 0, riskPrefetchBatchSize)
@@ -1194,7 +1234,7 @@ func (s *RiskPrioritizedDBInputSource) fillNextPageLocked(ctx context.Context) (
 		// UUIDs the DB no longer returns (deleted between listing and fetch) are
 		// never served; resolve them so they can't stall the cursor commit.
 		// (Ledger-finished records were already counted as skipped above.)
-		if missing := len(surviving) - len(s.buffer) - ledgerSkipped; missing > 0 {
+		if missing := len(toFetch) - len(s.buffer); missing > 0 {
 			s.skipped += missing
 			s.maybeCommitCursorLocked()
 		}
