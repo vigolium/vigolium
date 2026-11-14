@@ -1,6 +1,9 @@
 package httpmsg
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestHostPortKey(t *testing.T) {
 	cases := []struct {
@@ -39,5 +42,49 @@ func TestHostPortKey_MethodIndependent(t *testing.T) {
 	}
 	if HostPortKey(get) != HostPortKey(post) {
 		t.Errorf("HostPortKey differs by method: %q vs %q", HostPortKey(get), HostPortKey(post))
+	}
+}
+
+func TestURLHostPortAndOrigin(t *testing.T) {
+	cases := []struct {
+		url, hostPort, origin string
+	}{
+		{"http://Example.COM/a", "example.com:80", "http://example.com:80"},
+		{"HTTPS://example.com", "example.com:443", "https://example.com:443"},
+		{"wss://example.com:8443/x", "example.com:8443", "wss://example.com:8443"},
+		{"http://[::1]/", "[::1]:80", "http://[::1]:80"},
+		{"ftp://example.com/", "example.com:80", "ftp://example.com:80"},
+		{"/relative", "", ""},
+	}
+	for _, tc := range cases {
+		u, err := url.Parse(tc.url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := URLHostPort(u); got != tc.hostPort {
+			t.Errorf("URLHostPort(%q) = %q, want %q", tc.url, got, tc.hostPort)
+		}
+		if got := URLOrigin(u); got != tc.origin {
+			t.Errorf("URLOrigin(%q) = %q, want %q", tc.url, got, tc.origin)
+		}
+	}
+	if URLHostPort(nil) != "" || URLOrigin(nil) != "" {
+		t.Error("nil URL should yield empty keys")
+	}
+}
+
+func TestOriginKeyAndTargetHostPortKey(t *testing.T) {
+	rr, err := GetRawRequestFromURL("https://Example.com:8443/admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := OriginKey(rr); got != "https://example.com:8443" {
+		t.Errorf("OriginKey = %q", got)
+	}
+	if got := TargetHostPortKey(rr); got != "example.com:8443" {
+		t.Errorf("TargetHostPortKey = %q", got)
+	}
+	if OriginKey(nil) != "" || TargetHostPortKey(nil) != "" {
+		t.Error("nil item should yield empty keys")
 	}
 }

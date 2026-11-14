@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/core/ratelimit"
+	"github.com/vigolium/vigolium/pkg/core/services"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"go.uber.org/goleak"
 )
 
@@ -47,5 +50,36 @@ func TestSchedulerLowMemoryHalvesGlobal(t *testing.T) {
 	s.lowMemory = func() bool { return true }
 	if got := s.effectiveGlobal(); got != 4 {
 		t.Fatalf("effectiveGlobal = %d, want 4", got)
+	}
+}
+
+// The scheduler queues tasks per host:port but the host limiter keys hosts
+// bare, so the cap lookup must strip the port: a host the limiter has backed
+// off must cap the scheduler at that reduced limit, not at its ceiling.
+func TestHostTaskCapFuncReadsLimiterVerdict(t *testing.T) {
+	hl := ratelimit.NewHostRateLimiter(ratelimit.HostRateLimiterConfig{MaxPerHost: 8, WafAutoArm: true, DisableThrottlePause: true})
+	defer func() { _ = hl.Close() }()
+	if err := hl.Acquire(context.Background(), "a.test"); err != nil {
+		t.Fatal(err)
+	}
+	hl.Release("a.test")
+	hl.FeedbackWith("a.test", ratelimit.FeedbackOutcome{Status: 429})
+	limit, _ := hl.CurrentLimit("a.test")
+	if limit != 4 {
+		t.Fatalf("precondition: limiter limit = %d, want 4 after one throttle", limit)
+	}
+
+	e := &Executor{cfg: ExecutorConfig{Services: &services.Services{HostLimiter: hl}}}
+	capFor := e.hostTaskCapFunc(64)
+	item, err := httpmsg.GetRawRequestFromURL("http://a.test/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := httpmsg.TargetHostPortKey(item)
+	if key != "a.test:80" {
+		t.Fatalf("queue key = %q, want a.test:80", key)
+	}
+	if got := capFor(key); got != limit {
+		t.Errorf("capFor(%q) = %d, want the limiter's current limit %d", key, got, limit)
 	}
 }

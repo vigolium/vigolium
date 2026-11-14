@@ -5,13 +5,13 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent/recon"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/output"
 	"go.uber.org/zap"
 )
@@ -181,7 +181,7 @@ func (r *Runner) knownIssueScanTechExcludes(ctx context.Context, scanUUID string
 	byEndpoint := make(map[string]*recon.TechStackReport, len(rows))
 	for _, row := range rows {
 		if row.Fingerprint != nil {
-			byEndpoint[strings.ToLower(row.Hostname)+":"+strconv.Itoa(row.Port)] = row.Fingerprint
+			byEndpoint[httpmsg.HostPort(row.Hostname, row.Port)] = row.Fingerprint
 		}
 	}
 	stacks := make(map[string][]string, len(origins))
@@ -190,14 +190,7 @@ func (r *Runner) knownIssueScanTechExcludes(ctx context.Context, scanUUID string
 		if err != nil {
 			return nil
 		}
-		port := u.Port()
-		if port == "" {
-			port = "80"
-			if u.Scheme == "https" {
-				port = "443"
-			}
-		}
-		rep := byEndpoint[strings.ToLower(u.Hostname())+":"+port]
+		rep := byEndpoint[httpmsg.URLHostPort(u)]
 		if rep == nil {
 			stacks[o] = nil
 			continue

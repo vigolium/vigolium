@@ -110,19 +110,6 @@ func stripCrossHostHeaders(h http.Header) {
 	}
 }
 
-// hostPortKey is the default-port-normalised host:port identity of u, so
-// http://a and http://a:80 are the same host and http://a vs https://a are not.
-func hostPortKey(u *url.URL) string {
-	if u == nil {
-		return ""
-	}
-	port := u.Port()
-	if port == "" {
-		port = strconv.Itoa(httpmsg.GetDefaultPort(strings.ToLower(u.Scheme)))
-	}
-	return strings.ToLower(u.Hostname()) + ":" + port
-}
-
 // makeRedirectFunc builds the http.Client CheckRedirect policy for mode.
 //
 // via[0] is the ORIGINAL request, not the previous hop: a chain that walks
@@ -174,7 +161,7 @@ func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(hos
 				return http.ErrUseLastResponse
 			}
 		}
-		if hostPortKey(req.URL) != hostPortKey(via[0].URL) {
+		if httpmsg.URLHostPort(req.URL) != httpmsg.URLHostPort(via[0].URL) {
 			stripCrossHostHeaders(req.Header)
 		}
 		return nil

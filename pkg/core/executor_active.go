@@ -18,7 +18,7 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 		return
 	}
 
-	origin := originKeyFromItem(item)
+	origin := httpmsg.OriginKey(item)
 
 	for _, module := range e.perHostActive {
 		if !filter.allows(module.ID()) || e.moduleDone(t.item, module.ID()) {
@@ -142,7 +142,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 		return
 	}
 
-	origin := modkit.RecordOrigin(item)
+	origin := httpmsg.OriginKey(item)
 
 	// Pre-compute the registry location key for cross-module finding dedup
 	// (the same key modules use via ScanContext.ParamAlreadyFound).
@@ -331,7 +331,7 @@ func (e *Executor) runActiveStage(ctx context.Context, t *itemTracker, req *http
 		reqClient = e.httpClient.WithContext(ctx).WithBaseline(req)
 	}
 
-	hostKey := schedHostKey(req)
+	hostKey := httpmsg.TargetHostPortKey(req)
 	if t.prog != nil {
 		t.prog.mu.Lock()
 		t.prog.dispatched = true

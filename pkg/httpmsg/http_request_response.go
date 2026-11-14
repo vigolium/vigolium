@@ -112,21 +112,6 @@ func (h *HttpRequestResponse) ID() string {
 	return strconv.FormatUint(hash.Sum64(), 16)
 }
 
-// HostPortKey returns rr's lower-cased "host:port" (IPv6 hosts bracketed), or ""
-// when rr has no service. It is the dead-host breaker's key: unlike ID() it
-// carries no method, so a host that stopped answering GETs is quarantined for
-// POSTs too, and it is readable enough to report as-is.
-func HostPortKey(rr *HttpRequestResponse) string {
-	if rr == nil {
-		return ""
-	}
-	service := rr.Service()
-	if service == nil || service.Host() == "" {
-		return ""
-	}
-	return net.JoinHostPort(strings.ToLower(service.Host()), strconv.Itoa(service.Port()))
-}
-
 // GetScanHash returns a unique hash that represents a scan by hashing (URL + templateId).
 func (h *HttpRequestResponse) GetScanHash(templateId string) string {
 	urlx, err := h.sharedURL()

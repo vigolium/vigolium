@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"net"
-	"strconv"
 	"sync"
 
 	"github.com/vigolium/vigolium/pkg/core/network"
@@ -304,29 +303,6 @@ func (s *activeScheduler) stats() (running, queued int) {
 	return s.running, queued
 }
 
-// schedHostKey is the scheduler's per-host key: host:port, the same identity
-// the egress gate and host limiter use (egress.HostPort).
-func schedHostKey(item *httpmsg.HttpRequestResponse) string {
-	if item == nil {
-		return ""
-	}
-	if svc := item.Service(); svc != nil && svc.Host() != "" {
-		return net.JoinHostPort(svc.Host(), strconv.Itoa(svc.Port()))
-	}
-	if u, err := item.URL(); err == nil && u != nil && u.Hostname() != "" {
-		port := u.Port()
-		if port == "" {
-			if u.Scheme == "https" {
-				port = "443"
-			} else {
-				port = "80"
-			}
-		}
-		return net.JoinHostPort(u.Hostname(), port)
-	}
-	return ""
-}
-
 // itemFairnessFactor: a worker parks a newly dequeued item whose host already
 // has more than this many × its cap tasks queued or running (ECON-3).
 const itemFairnessFactor = 4
@@ -348,8 +324,10 @@ func (s *activeScheduler) drainCancelled() {
 }
 
 // hostTaskCapFunc returns the per-host task cap source: the configured
-// override, else the host limiter's current verdict for host:port (its ceiling
-// while the host is still untracked), else no per-host cap beyond G.
+// override, else the host limiter's current verdict for the queue's host (its
+// ceiling while the host is still untracked), else no per-host cap beyond G.
+// Queues are keyed host:port, the limiter by the bare host (egress hands it
+// the host part of the same key), so the lookup strips the port.
 func (e *Executor) hostTaskCapFunc(global int) func(string) int {
 	if e.cfg.HostTaskCap != nil {
 		return e.cfg.HostTaskCap
@@ -358,7 +336,11 @@ func (e *Executor) hostTaskCapFunc(global int) func(string) int {
 		return func(string) int { return global }
 	}
 	hl := e.cfg.Services.HostLimiter
-	return func(host string) int {
+	return func(hostPort string) int {
+		host := hostPort
+		if h, _, err := net.SplitHostPort(hostPort); err == nil {
+			host = h
+		}
 		if limit, _ := hl.CurrentLimit(host); limit > 0 {
 			return limit
 		}
@@ -422,7 +404,7 @@ func (e *Executor) parkIfOverloaded(item *work.WorkItem) bool {
 	if item == nil || item.Request == nil {
 		return false
 	}
-	host := schedHostKey(item.Request)
+	host := httpmsg.TargetHostPortKey(item.Request)
 	if !e.pool.sched.overloaded(host, itemFairnessFactor) {
 		return false
 	}

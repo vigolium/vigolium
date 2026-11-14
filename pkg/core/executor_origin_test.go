@@ -32,8 +32,8 @@ func TestOriginKeyFromItem_DistinguishesPortsAndSchemes(t *testing.T) {
 		{"http://example.com:8080/", "http://example.com:8080"},
 	}
 	for _, tc := range cases {
-		if got := originKeyFromItem(originItem(t, tc.url)); got != tc.want {
-			t.Errorf("originKeyFromItem(%q) = %q, want %q", tc.url, got, tc.want)
+		if got := httpmsg.OriginKey(originItem(t, tc.url)); got != tc.want {
+			t.Errorf("httpmsg.OriginKey(%q) = %q, want %q", tc.url, got, tc.want)
 		}
 	}
 
@@ -41,7 +41,7 @@ func TestOriginKeyFromItem_DistinguishesPortsAndSchemes(t *testing.T) {
 	// multi-port suppression bug the origin key fixes.
 	distinct := map[string]struct{}{}
 	for _, u := range []string{"https://example.com/", "https://example.com:8443/", "http://example.com:8080/"} {
-		distinct[originKeyFromItem(originItem(t, u))] = struct{}{}
+		distinct[httpmsg.OriginKey(originItem(t, u))] = struct{}{}
 	}
 	if len(distinct) != 3 {
 		t.Fatalf("expected 3 distinct origin keys for a multi-port host, got %d: %v", len(distinct), distinct)
