@@ -1362,8 +1362,9 @@ release-prune:
 # LAST, then prune old archives. Installers resolve the version from
 # metadata.json first, so until the pointer flips they keep resolving the
 # previous version, whose archives are still in place. Old archives are only
-# pruned after the new release is fully live.
-release: prepare-release-scripts ensure-audit-dist ensure-jstangle-dist
+# pruned after the new release is fully live. The unit suite (incl. the static
+# benchmark-definition lint) runs first: a red tree never ships.
+release: test-unit prepare-release-scripts ensure-audit-dist ensure-jstangle-dist
 	@echo "$(PREFIX) Building release..."
 	VIGOLIUM_VERSION=$(GORELEASER_VERSION) goreleaser --verbose release --snapshot --clean --parallelism 1
 	@$(MAKE) restage-host-audit

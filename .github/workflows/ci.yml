@@ -1,9 +1,22 @@
 name: CI
 
-# Manual only: the full suite is long, so it runs on demand from the Actions
-# tab or `gh workflow run ci.yml` (add `-f macos=true` for the macOS job).
-# Pushes and pull requests do not trigger it.
+# Triggers:
+#   - pull_request and push to main: the fast gate only (lint + unit). The unit
+#     job includes the static benchmark-definition lint
+#     (test/benchmark/harness/definitions_lint_test.go), so a stale module ID or
+#     an unexplained soft case fails a PR.
+#   - schedule (nightly) and workflow_dispatch: everything else (race,
+#     PostgreSQL e2e, canary, whitebox benchmark, blackbox benchmark, cross
+#     compile, coverage, govulncheck, SBOM). Every such job carries
+#     `if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}`;
+#     test/cicontract checks that.
+#   - `gh workflow run ci.yml -f macos=true` also runs the macOS job.
 on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       macos:
@@ -13,6 +26,9 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
+  # A newer push to the same PR supersedes the running gate; nightly and
+  # main-branch runs are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -82,6 +98,7 @@ jobs:
   race:
     name: Unit tests (race detector)
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # Non-blocking while existing races are burned down (plan H2: two weeks).
     # To make it gate merges, delete this line and move `race` from ADVISORY to
     # the required set in the ci-ok job below.
@@ -100,6 +117,7 @@ jobs:
   postgres:
     name: PostgreSQL e2e
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # Best-effort for two weeks (decision D22), then required: delete this line
     # and move `postgres` from ADVISORY to the required set in ci-ok.
     continue-on-error: true
@@ -172,7 +190,7 @@ jobs:
     name: macOS (arm64)
     runs-on: macos-14
     # macOS minutes cost 10x, so this runs only when the run asks for it.
-    if: inputs.macos
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.macos }}
     steps:
       - uses: actions/checkout@v6
 
@@ -202,6 +220,7 @@ jobs:
   cross-compile:
     name: Cross-compile ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # The shipped matrix includes windows/amd64, but every other job here runs
     # natively on linux or darwin, so nothing else would notice a unix-only
     # import (a bare syscall call, an os/exec of `bash`) until release day. This
@@ -246,6 +265,7 @@ jobs:
   windows-smoke:
     name: Windows runtime smoke
     needs: cross-compile
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: windows-latest
     # Cross-compiling proves the tree builds for Windows; it proves nothing
     # about whether the binary RUNS there. This job exercises the artifact the
@@ -281,6 +301,7 @@ jobs:
   coverage-report:
     name: Combined coverage (report only)
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # Report-only: this never gates a merge. The enforced floor lives in the
     # unit job above (coverage-gate over the -short unit profile). This job
     # folds in the no-Docker e2e tier so the headline number reflects code
@@ -309,6 +330,7 @@ jobs:
   govulncheck:
     name: Vulnerability scan
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # Informational: advisories can appear without any code change, so a finding
     # here should prompt a triage rather than hard-fail every unrelated PR.
     continue-on-error: true
@@ -327,6 +349,7 @@ jobs:
   sbom:
     name: SBOM (CycloneDX)
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     # Informational supply-chain artifact, not a gate. syft reads go.mod
     # directly, so this needs neither a build nor the embedded jstangle binaries.
     continue-on-error: true
@@ -340,12 +363,66 @@ jobs:
           format: cyclonedx-json
           artifact-name: vigolium-sbom.cdx.json
 
+  canary:
+    name: Canary e2e (Docker)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up toolchain and jstangle
+        uses: ./.github/actions/setup-vigolium
+
+      # Same suite as `make test-canary`; called directly so the stub tag from
+      # setup-vigolium ($VIGOLIUM_CI_TAGS) survives the explicit -tags.
+      - name: Canary suite
+        run: |
+          tags="canary${VIGOLIUM_CI_TAGS:+,$VIGOLIUM_CI_TAGS}"
+          go test -tags="$tags" -count=1 -timeout 60m ./test/e2e/...
+
+  benchmark-whitebox:
+    name: Whitebox detection benchmark (Docker)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up toolchain and jstangle
+        uses: ./.github/actions/setup-vigolium
+
+      # Strict and negative cases gate; soft cases only log (each carries a
+      # soft_reason). Same suite as `make test-benchmark-whitebox`.
+      - name: Whitebox benchmark
+        run: |
+          tags="canary${VIGOLIUM_CI_TAGS:+,$VIGOLIUM_CI_TAGS}"
+          go test -tags="$tags" -count=1 -timeout 100m ./test/benchmark/whitebox/...
+
+  benchmark-blackbox:
+    name: Blackbox benchmark (public sites)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    # Third-party sites drift and go down; a failure here is a signal to look,
+    # never a gate. Not listed in ci-ok.
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up toolchain and jstangle
+        uses: ./.github/actions/setup-vigolium
+
+      - name: Blackbox benchmark
+        run: |
+          tags="blackbox${VIGOLIUM_CI_TAGS:+,$VIGOLIUM_CI_TAGS}"
+          go test -tags="$tags" -count=1 -timeout 50m ./test/benchmark/blackbox/...
+
   dependency-review:
     name: Dependency review
     runs-on: ubuntu-latest
     # Diffs the dependency graph against the PR base for known-vulnerable or
-    # license-incompatible additions; only meaningful on pull requests, so it
-    # is skipped while CI is manual-only.
+    # license-incompatible additions; only meaningful on pull requests.
     if: github.event_name == 'pull_request'
     # Non-blocking for now (mirrors the govulncheck stance): surface advisories
     # for triage rather than hard-failing unrelated PRs.
@@ -360,14 +437,14 @@ jobs:
 
   # The single required status check for branch protection. It waits for every
   # gating job and fails if any of them failed or was cancelled. A job that did
-  # not run for this event (macos on a PR) counts as skipped, not failed.
-  # Advisory jobs are listed in `needs` so their result shows up here, but a
-  # failure only warns. Informational jobs (coverage-report, govulncheck, sbom,
-  # dependency-review) are deliberately left out.
+  # not run for this event (every nightly job on a PR) counts as skipped, not
+  # failed. Advisory jobs are listed in `needs` so their result shows up here,
+  # but a failure only warns. Informational jobs (coverage-report, govulncheck,
+  # sbom, dependency-review, benchmark-blackbox) are deliberately left out.
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [lint, unit, race, postgres, macos, cross-compile, windows-smoke]
+    needs: [lint, unit, race, postgres, canary, benchmark-whitebox, macos, cross-compile, windows-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Check job results
