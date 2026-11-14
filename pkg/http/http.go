@@ -2055,7 +2055,7 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 			rawOpts := *rawClient.Options
 			rawOpts.FollowRedirects = false
 			resp, err = rawClient.DoRawWithOptions(
-				req.Method, req.URL.String(), "", req.Header, req.Body, &rawOpts,
+				req.Method, req.String(), "", req.Header, req.Body, &rawOpts,
 			)
 		}
 	} else {

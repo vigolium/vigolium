@@ -55,7 +55,7 @@ func TestWaitStable_CapsAtSettleCap(t *testing.T) {
 	if err != nil {
 		t.Skipf("no usable browser in this environment: %v", err)
 	}
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	page, err := b.NewPage()
 	if err != nil {
 		t.Fatal(err)

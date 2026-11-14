@@ -1408,9 +1408,9 @@ func applyHostScopeFilter(q *bun.SelectQuery, hosts []HostTarget) *bun.SelectQue
 			names[i] = k.host
 		}
 		terms = append(terms, "hostname IN (?)")
-		args = append(args, bun.In(names))
+		args = append(args, bun.List(names))
 	}
-	q = q.Where("hostname IN (?)", bun.In(allHosts))
+	q = q.Where("hostname IN (?)", bun.List(allHosts))
 	return q.Where("("+strings.Join(terms, " OR ")+")", args...)
 }
 

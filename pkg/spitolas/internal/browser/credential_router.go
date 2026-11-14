@@ -108,7 +108,8 @@ func (p *Page) enableInterception(r *credentialRouter) error {
 			add(pat, "")
 		}
 	}
-	if r.firstParty != nil && !(credActive && (r.methodAllowed != nil || len(r.credPatterns) == 0)) {
+	pausesAll := credActive && (r.methodAllowed != nil || len(r.credPatterns) == 0)
+	if r.firstParty != nil && !pausesAll {
 		add("*", proto.NetworkResourceTypeFont)
 		add("*", proto.NetworkResourceTypeMedia)
 		add("*", proto.NetworkResourceTypeImage)
