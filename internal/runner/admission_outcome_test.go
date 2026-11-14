@@ -150,3 +150,19 @@ func TestNoteExecutionFeedbackDropped(t *testing.T) {
 		t.Errorf("Reasons = %v, want [feedback_dropped]", out.Reasons)
 	}
 }
+
+// Module calls answered by a throttling host with nothing found are a limit
+// (throttled), not a degraded phase.
+func TestNoteExecutionThrottledLimit(t *testing.T) {
+	tr := newLedger(string(PhaseDynamicAssessment))
+	tr.noteExecution(core.ExecutionReport{Responded: 1, ModuleSkips: map[string]map[string]int64{
+		"sqli_error_based": {core.SkipReasonInconclusiveThrottled: 3},
+	}})
+	out := tr.finish(context.Background(), nil)
+	if len(out.Reasons) != 0 {
+		t.Errorf("Reasons = %v, want none", out.Reasons)
+	}
+	if !reflect.DeepEqual(out.Limits, []string{database.LimitThrottled}) {
+		t.Errorf("Limits = %v, want [throttled]", out.Limits)
+	}
+}

@@ -13,6 +13,9 @@ type ModuleStats struct {
 	Findings    atomic.Int64
 	Errors      atomic.Int64
 	TotalTimeNs atomic.Int64 // nanoseconds spent in module scan functions
+	// Inconclusive counts calls that completed with no finding while the host
+	// throttled them (429/503): their negatives are not real negatives.
+	Inconclusive atomic.Int64
 }
 
 // ModuleMetrics tracks metrics for all modules in a scan.
@@ -45,6 +48,19 @@ func (mm *ModuleMetrics) Record(moduleID string, duration time.Duration, finding
 		ms.Errors.Add(1)
 	}
 	mm.considered.LoadOrStore(moduleID, struct{}{})
+}
+
+// RecordInconclusive counts one module call whose result is inconclusive
+// (completed while throttled, nothing found). Safe on a nil receiver.
+func (mm *ModuleMetrics) RecordInconclusive(moduleID string) {
+	if mm == nil {
+		return
+	}
+	val, ok := mm.metrics.Load(moduleID)
+	if !ok {
+		val, _ = mm.metrics.LoadOrStore(moduleID, &ModuleStats{})
+	}
+	val.(*ModuleStats).Inconclusive.Add(1)
 }
 
 // MarkConsidered records that a module was evaluated against a record — i.e.,
@@ -80,6 +96,8 @@ type ModuleStatsSnapshot struct {
 	Findings    int64
 	Errors      int64
 	TotalTime   time.Duration
+	// Inconclusive: calls that completed while throttled with nothing found.
+	Inconclusive int64
 }
 
 // DistinctCount returns the number of distinct modules that have been invoked at least once.
@@ -118,10 +136,11 @@ func (mm *ModuleMetrics) Snapshot() map[string]ModuleStatsSnapshot {
 	mm.metrics.Range(func(key, value any) bool {
 		ms := value.(*ModuleStats)
 		result[key.(string)] = ModuleStatsSnapshot{
-			Invocations: ms.Invocations.Load(),
-			Findings:    ms.Findings.Load(),
-			Errors:      ms.Errors.Load(),
-			TotalTime:   time.Duration(ms.TotalTimeNs.Load()),
+			Invocations:  ms.Invocations.Load(),
+			Findings:     ms.Findings.Load(),
+			Errors:       ms.Errors.Load(),
+			TotalTime:    time.Duration(ms.TotalTimeNs.Load()),
+			Inconclusive: ms.Inconclusive.Load(),
 		}
 		return true
 	})

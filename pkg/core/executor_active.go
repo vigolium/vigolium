@@ -23,10 +23,12 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 			continue
 		}
 		if !e.passesTechFilter(module, item) {
+			e.noteModuleSkip(module.ID(), SkipReasonTechFilter)
 			continue
 		}
 		e.moduleMetrics.MarkConsidered(module.ID())
 		if !activeModuleCanProcess(module, item, elig) {
+			e.noteModuleSkip(module.ID(), SkipReasonCannotProcess)
 			continue
 		}
 
@@ -70,10 +72,12 @@ func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requ
 			continue
 		}
 		if !e.passesTechFilter(module, item) {
+			e.noteModuleSkip(module.ID(), SkipReasonTechFilter)
 			continue
 		}
 		e.moduleMetrics.MarkConsidered(module.ID())
 		if !activeModuleCanProcess(module, item, elig) {
+			e.noteModuleSkip(module.ID(), SkipReasonCannotProcess)
 			continue
 		}
 
@@ -145,10 +149,12 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 			continue
 		}
 		if !e.passesTechFilter(module, item) {
+			e.noteModuleSkip(module.ID(), SkipReasonTechFilter)
 			continue
 		}
 		e.moduleMetrics.MarkConsidered(module.ID())
 		if !activeModuleCanProcess(module, item, elig) {
+			e.noteModuleSkip(module.ID(), SkipReasonCannotProcess)
 			continue
 		}
 
@@ -160,6 +166,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 
 		for _, ip := range allPoints {
 			if !allowedTypes.Contains(ip.Type()) {
+				e.noteModuleSkip(module.ID(), SkipReasonIPType)
 				continue
 			}
 			if ipFilter := e.cfg.InsertionPointFilter; ipFilter != nil && !ipFilter(ip) {
@@ -169,6 +176,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 			// Cross-module dedup: skip if another module already found this vuln
 			// class on this param.
 			if vulnClass != "" && e.scanCtx.ParamFindings.HasFinding(itemKey, ip.Name(), vulnClass) {
+				e.noteModuleSkip(module.ID(), SkipReasonParamAlreadyFound)
 				continue
 			}
 
@@ -178,6 +186,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 				// scheduler queue while a same-class module confirmed this
 				// param, and the dispatch-time check above could not see that.
 				if vulnClass != "" && e.scanCtx.ParamFindings.HasFinding(itemKey, pt.Name(), vulnClass) {
+					e.noteModuleSkip(mod.ID(), SkipReasonParamAlreadyFound)
 					releaseSlot()
 					return
 				}
@@ -262,7 +271,10 @@ func (e *Executor) runActiveStage(ctx context.Context, t *itemTracker, req *http
 	// clusterer isn't poisoned by one module's timeout (see runActiveWithTimeout).
 	var reqClient *http.Requester
 	if e.httpClient != nil {
-		reqClient = e.httpClient.WithContext(ctx)
+		// The record's unmodified request is the breaker's recovery probe for
+		// this item's payload traffic (MISS-24): a host that silently drops
+		// payloads is then probed with something it answers.
+		reqClient = e.httpClient.WithContext(ctx).WithBaseline(req)
 	}
 
 	hostKey := schedHostKey(req)

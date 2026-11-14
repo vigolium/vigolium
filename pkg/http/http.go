@@ -124,6 +124,10 @@ type Requester struct {
 	// abandonFlag, when non-nil and set, marks the owning module call as abandoned:
 	// Execute then refuses to start any NEW request. See WithAbandonFlag.
 	abandonFlag *atomic.Bool
+	// TRACK-B STUB (Track A owns; integrator reconciles): per-call stats and
+	// baseline, see trackb_stubs.go.
+	callStats *CallStats
+	baseline  *httpmsg.HttpRequestResponse
 	// carried holds browser-harvested per-host sessions (cookies + optional
 	// pinned User-Agent) carried forward from the spidering phase. It is a
 	// pointer to an atomic-published store so WithContext's shallow copy shares
@@ -502,6 +506,7 @@ func (r *Requester) WithAbandonFlag(flag *atomic.Bool) *Requester {
 	}
 	clone := *r
 	clone.abandonFlag = flag
+	clone.callStats = &CallStats{} // TRACK-B STUB: one CallStats per module call
 	return &clone
 }
 

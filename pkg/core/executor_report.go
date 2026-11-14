@@ -52,6 +52,10 @@ type ExecutionReport struct {
 	// dropped because the feedback overflow list was full. A coverage gap the
 	// runner reports as feedback_dropped.
 	FeedbackDropped int64
+	// ModuleSkips is module id → skip reason → count (reasons: SkipReason*
+	// constants). Cumulative over the executor's lifetime; an executor normally
+	// runs one Execute. Track C persists it to scans.module_stats.
+	ModuleSkips map[string]map[string]int64
 }
 
 // Clean reports whether the run covered its whole input with nothing abandoned.
@@ -73,6 +77,7 @@ func (e *Executor) Report() ExecutionReport {
 	rep.ScopeRejected = e.scopeRejected.Load() - e.reportBase.scopeRejected
 	rep.Responded = e.responded.Load() - e.reportBase.responded
 	rep.FeedbackDropped = e.FeedbackDropped() - e.reportBase.feedbackDropped
+	rep.ModuleSkips = e.ModuleSkips()
 	e.quarantineReport(&rep)
 	return rep
 }

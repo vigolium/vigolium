@@ -459,6 +459,7 @@ func (e *Executor) runActiveWithTimeout(
 			}
 			return nil, true
 		}
+		e.noteThrottledCall(module, reqClient, r.events)
 		return r.events, true
 	case <-timeoutC:
 		// The scan goroutine outlives this wrapper and still holds item, whose
@@ -472,6 +473,7 @@ func (e *Executor) runActiveWithTimeout(
 		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
 		if ctx.Err() == nil {
 			e.recordModuleTimeout()
+			e.noteModuleSkip(module.ID(), SkipReasonTimeout)
 			e.noteModuleError(module, item, fmt.Errorf("timed out after %s", timeout), ModuleErrorTimeout)
 		}
 		// Logged at debug level: a per-skip WARN floods stderr on slow targets.

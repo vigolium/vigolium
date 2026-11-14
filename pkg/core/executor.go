@@ -54,6 +54,9 @@ type Executor struct {
 	// moduleErrs counts this executor's failed module calls per module id
 	// (see noteModuleError).
 	moduleErrs moduleErrorCounts
+	// moduleSkips counts, per module, why it did not test something it was
+	// considered for (see SkipReason*). Exposed through Report().ModuleSkips.
+	moduleSkips *moduleSkipLedger
 
 	// moduleTimeouts counts active-module invocations that hit the per-module
 	// timeout and were skipped. Surfaced via the OnStatus callback so the status
@@ -439,6 +442,7 @@ func NewExecutor(
 	total := getKnownTotal(src)
 	e.statsTracker = stats.New(total, false)
 	e.moduleMetrics = &stats.ModuleMetrics{}
+	e.moduleSkips = newModuleSkipLedger(activeModules, passiveModules)
 
 	return e
 }
