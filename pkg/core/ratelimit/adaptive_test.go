@@ -160,9 +160,14 @@ func TestAdaptive_ContextCancelNotDistress(t *testing.T) {
 	h.Release(host)
 
 	h.Feedback(host, 0, context.Canceled, false)
-	h.Feedback(host, 0, context.DeadlineExceeded, false)
 	if got := h.currentLimit(host); got != 8 {
 		t.Fatalf("context cancellation must not back off; got %d, want 8", got)
+	}
+	// A deadline is a client timeout — the host failed to answer — and backs
+	// off (MISS-23). A caller whose own context expired does not report.
+	h.Feedback(host, 0, context.DeadlineExceeded, false)
+	if got := h.currentLimit(host); got != 4 {
+		t.Fatalf("a client timeout must back off; got %d, want 4", got)
 	}
 }
 
