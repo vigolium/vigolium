@@ -76,6 +76,9 @@ type TestResult struct {
 	Passed       bool
 	Error        error
 	Duration     time.Duration
+	// Requests is the number of wire requests the module sent for this case
+	// (active cases only; passive modules send none).
+	Requests int64
 }
 
 // BenchmarkReport is a summary of all test results for one definition file.

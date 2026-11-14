@@ -3,7 +3,6 @@ package harness
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -12,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,6 +26,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/modtest"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types"
 )
@@ -199,10 +200,8 @@ func ResolvePassiveModules(ids []string) ([]modules.PassiveModule, error) {
 }
 
 // RunActiveTestCase executes a single active test case against a base URL.
-// It dispatches to the correct scan method based on the module's ScanScopes:
-//   - ScanScopeInsertionPoint: creates insertion points, calls ScanPerInsertionPoint for each
-//   - ScanScopeRequest: calls ScanPerRequest once
-//   - ScanScopeHost: calls ScanPerHost once
+// Scope dispatch (per host / per request / per insertion point) is
+// modtest.RunActive, shared with the benign sweep in pkg/modules.
 func RunActiveTestCase(t testing.TB, tc TestCase, baseURL string, infra *TestInfra) []TestResult {
 	t.Helper()
 	var results []TestResult
@@ -238,25 +237,9 @@ func RunActiveTestCase(t testing.TB, tc TestCase, baseURL string, infra *TestInf
 
 	for _, mod := range activeMods {
 		start := time.Now()
-		var findings []*output.ResultEvent
-		var scanErr error
-
-		scanScopes := mod.ScanScopes()
-
-		switch {
-		case scanScopes.Has(modkit.ScanScopeInsertionPoint):
-			findings, scanErr = runPerInsertionPoint(t, tc, rr, mod, infra)
-
-		case scanScopes.Has(modkit.ScanScopeRequest):
-			findings, scanErr = mod.ScanPerRequest(rr, infra.HTTPClient, infra.ScanCtx)
-
-		case scanScopes.Has(modkit.ScanScopeHost):
-			findings, scanErr = mod.ScanPerHost(rr, infra.HTTPClient, infra.ScanCtx)
-
-		default:
-			scanErr = fmt.Errorf("unknown ScanScope %v", scanScopes)
-		}
-
+		// Per-module send counter: the request count lands in the report.
+		var sent atomic.Int64
+		findings, scanErr := modtest.RunActive(mod, rr, infra.HTTPClient.WithSendCounter(&sent), infra.ScanCtx)
 		duration := time.Since(start)
 
 		tr := TestResult{
@@ -264,6 +247,7 @@ func RunActiveTestCase(t testing.TB, tc TestCase, baseURL string, infra *TestInf
 			ModuleID:     mod.ID(),
 			FindingCount: len(findings),
 			Duration:     duration,
+			Requests:     sent.Load(),
 			Error:        scanErr,
 		}
 
@@ -307,49 +291,6 @@ func fetchBaseline(t testing.TB, rr *httpmsg.HttpRequestResponse, infra *TestInf
 		return nil
 	}
 	return rr.WithResponse(httpmsg.NewHttpResponse([]byte(raw)))
-}
-
-// runPerInsertionPoint creates insertion points from the request and calls
-// ScanPerInsertionPoint for each one, collecting all findings.
-func runPerInsertionPoint(t testing.TB, tc TestCase, rr *httpmsg.HttpRequestResponse, mod modules.ActiveModule, infra *TestInfra) ([]*output.ResultEvent, error) {
-	t.Helper()
-
-	points, err := httpmsg.CreateAllInsertionPoints(rr.Request().Raw(), true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create insertion points: %w", err)
-	}
-
-	// Filter insertion points by the module's allowed types
-	allowedTypes := mod.AllowedInsertionPointTypes()
-	var filteredPoints []httpmsg.InsertionPoint
-	for _, ip := range points {
-		if allowedTypes.Contains(ip.Type()) {
-			filteredPoints = append(filteredPoints, ip)
-		}
-	}
-
-	if len(filteredPoints) == 0 {
-		t.Logf("[%s] %s: no insertion points found (total=%d, filtered=0)",
-			tc.ID, mod.ID(), len(points))
-		return nil, nil
-	}
-
-	t.Logf("[%s] %s: scanning %d insertion points", tc.ID, mod.ID(), len(filteredPoints))
-
-	var allFindings []*output.ResultEvent
-	var errs []error
-	for _, ip := range filteredPoints {
-		findings, err := mod.ScanPerInsertionPoint(rr, ip, infra.HTTPClient, infra.ScanCtx)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("insertion point %q: %w", ip.Name(), err))
-			continue
-		}
-		allFindings = append(allFindings, findings...)
-	}
-
-	// A module error is surfaced, not swallowed: strict and negative cases fail
-	// on it (ApplyAssertion), so an erroring module cannot pass as "0 findings".
-	return allFindings, errors.Join(errs...)
 }
 
 // RunPassiveTestCase executes a single passive test case against a base URL.

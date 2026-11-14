@@ -124,6 +124,9 @@ type Requester struct {
 	// abandonFlag, when non-nil and set, marks the owning module call as abandoned:
 	// Execute then refuses to start any NEW request. See WithAbandonFlag.
 	abandonFlag *atomic.Bool
+	// sendCounter, when non-nil, is incremented once per wire attempt this view
+	// sends (retries included; request-cache hits excluded). See WithSendCounter.
+	sendCounter *atomic.Int64
 	// carried holds browser-harvested per-host sessions (cookies + optional
 	// pinned User-Agent) carried forward from the spidering phase. It is a
 	// pointer to an atomic-published store so WithContext's shallow copy shares
@@ -502,6 +505,20 @@ func (r *Requester) WithAbandonFlag(flag *atomic.Bool) *Requester {
 	}
 	clone := *r
 	clone.abandonFlag = flag
+	return &clone
+}
+
+// WithSendCounter returns a shallow clone that adds one to counter for every
+// wire attempt it sends (each retry is an attempt; a request served from the
+// request cache sends nothing and is not counted). The executor wraps each
+// module call's client with one to attribute requests to modules; tests use it
+// to assert request budgets. A nil counter returns r unchanged.
+func (r *Requester) WithSendCounter(counter *atomic.Int64) *Requester {
+	if counter == nil {
+		return r
+	}
+	clone := *r
+	clone.sendCounter = counter
 	return &clone
 }
 
@@ -1266,6 +1283,9 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		// that only moves on success reads as a stalled scan against a failing
 		// host — the exact case a consumer most needs to see moving.
 		r.sent.Add(1)
+		if r.sendCounter != nil {
+			r.sendCounter.Add(1)
+		}
 		// Read per attempt, so a retry after a re-login sends the new
 		// credentials and its response is attributed to their generation.
 		creds = r.live.Credentials()

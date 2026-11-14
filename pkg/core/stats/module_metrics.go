@@ -13,6 +13,9 @@ type ModuleStats struct {
 	Findings    atomic.Int64
 	Errors      atomic.Int64
 	TotalTimeNs atomic.Int64 // nanoseconds spent in module scan functions
+	// Requests counts wire attempts sent by the module's calls (Requester
+	// WithSendCounter); request-cache hits and redirect hops are not counted.
+	Requests atomic.Int64
 }
 
 // ModuleMetrics tracks metrics for all modules in a scan.
@@ -59,6 +62,20 @@ func (mm *ModuleMetrics) MarkConsidered(moduleID string) {
 	mm.considered.LoadOrStore(moduleID, struct{}{})
 }
 
+// AddRequests adds n wire requests to moduleID's tally. Called once per module
+// call when its work has unwound (so requests sent after a timeout still
+// count). Safe to call on nil receiver; n <= 0 is a no-op.
+func (mm *ModuleMetrics) AddRequests(moduleID string, n int64) {
+	if mm == nil || n <= 0 {
+		return
+	}
+	val, ok := mm.metrics.Load(moduleID)
+	if !ok {
+		val, _ = mm.metrics.LoadOrStore(moduleID, &ModuleStats{})
+	}
+	val.(*ModuleStats).Requests.Add(n)
+}
+
 // ConsideredCount returns the number of distinct modules whose CanProcess has
 // been evaluated at least once. Reaches the total enabled-module count once
 // every module has been seen, regardless of whether any of them actually ran.
@@ -80,6 +97,7 @@ type ModuleStatsSnapshot struct {
 	Findings    int64
 	Errors      int64
 	TotalTime   time.Duration
+	Requests    int64
 }
 
 // DistinctCount returns the number of distinct modules that have been invoked at least once.
@@ -122,6 +140,7 @@ func (mm *ModuleMetrics) Snapshot() map[string]ModuleStatsSnapshot {
 			Findings:    ms.Findings.Load(),
 			Errors:      ms.Errors.Load(),
 			TotalTime:   time.Duration(ms.TotalTimeNs.Load()),
+			Requests:    ms.Requests.Load(),
 		}
 		return true
 	})
