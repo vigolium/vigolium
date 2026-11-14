@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/projectdiscovery/utils/env"
@@ -23,7 +24,30 @@ var (
 	memMu      sync.Mutex
 	memTimer   *time.Ticker
 	cancelFunc context.CancelFunc
+
+	// activeGuardian is the monitor StartActiveMemGuardian runs. A fresh one
+	// per Start: MemGuardian.Run closes its ticker and context when its ctx
+	// ends, so the package default cannot be run twice in one process (a
+	// server running scan after scan). nil when none is running.
+	activeGuardian atomic.Pointer[memguardian.MemGuardian]
+
+	// lowMemoryOverride lets tests force IsLowOnMemory (0 = off, 1 = low,
+	// 2 = not low).
+	lowMemoryOverride atomic.Int32
 )
+
+// newGuardian builds a monitor with the package default's thresholds
+// (MEMGUARDIAN_INTERVAL, MEMGUARDIAN_MAX_RAM_RATIO, MEMGUARDIAN_MAX_RAM).
+func newGuardian() (*memguardian.MemGuardian, error) {
+	opts := []memguardian.MemGuardianOption{
+		memguardian.WitInterval(memguardian.DefaultInterval),
+		memguardian.WithMaxRamRatioWarning(memguardian.DefaultMaxUsedRamRatio),
+	}
+	if maxRam := env.GetEnvOrDefault(memguardian.MemGuardianMaxUsedMemoryENV, ""); maxRam != "" {
+		opts = append(opts, memguardian.WithMaxRamAmountWarning(maxRam))
+	}
+	return memguardian.New(opts...)
+}
 
 func StartActiveMemGuardian(ctx context.Context) {
 	if memguardian.DefaultMemGuardian == nil {
@@ -41,6 +65,20 @@ func StartActiveMemGuardian(ctx context.Context) {
 	timer := time.NewTicker(time.Second * 15) // default 30s
 	ctx, cancel := context.WithCancel(ctx)
 	memTimer, cancelFunc = timer, cancel
+
+	// The monitor that sets the low-memory flag. It was never run: nothing
+	// called this function, and the default guardian's Run was never started,
+	// so IsLowOnMemory was always false and admission never backed off.
+	if mg, err := newGuardian(); err == nil {
+		activeGuardian.Store(mg)
+		go func() {
+			if err := mg.Run(ctx); err != nil {
+				zap.L().Debug("memguardian stopped", zap.Error(err))
+			}
+		}()
+	} else {
+		zap.L().Debug("memguardian unavailable", zap.Error(err))
+	}
 
 	// The ticker and context are CAPTURED rather than read from the globals: a
 	// later Stop/Start pair reassigns those while this goroutine still runs.
@@ -69,6 +107,7 @@ func StopActiveMemGuardian() {
 	memMu.Lock()
 	timer, cancel := memTimer, cancelFunc
 	memTimer, cancelFunc = nil, nil
+	activeGuardian.Store(nil)
 	memMu.Unlock()
 
 	if timer != nil {
@@ -79,12 +118,39 @@ func StopActiveMemGuardian() {
 	}
 }
 
+// IsLowOnMemory reports whether the running memory monitor is in its warning
+// state (used RAM over MEMGUARDIAN_MAX_RAM_RATIO, default 75%, or over
+// MEMGUARDIAN_MAX_RAM). Admission control reads it to back off: the executor's
+// active-task scheduler halves its global concurrency while it is true.
 func IsLowOnMemory() bool {
+	switch lowMemoryOverride.Load() {
+	case 1:
+		return true
+	case 2:
+		return false
+	}
+	if mg := activeGuardian.Load(); mg != nil {
+		return mg.Warning.Load()
+	}
 	if memguardian.DefaultMemGuardian != nil && memguardian.DefaultMemGuardian.Warning.Load() {
 		return true
 	}
 	return false
 }
+
+// SetLowMemoryForTest forces IsLowOnMemory's answer; reset restores it. For
+// tests of components that back off under memory pressure.
+func SetLowMemoryForTest(low bool) (reset func()) {
+	if low {
+		lowMemoryOverride.Store(1)
+	} else {
+		lowMemoryOverride.Store(2)
+	}
+	return func() { lowMemoryOverride.Store(0) }
+}
+
+// activeMemGuardianRunning reports whether a monitor is running (tests).
+func activeMemGuardianRunning() bool { return activeGuardian.Load() != nil }
 
 var muGlobalChange sync.Mutex
 

@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core"
+	"github.com/vigolium/vigolium/pkg/core/network"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
@@ -59,6 +60,11 @@ func (r *Runner) RunNativeScan() (err error) {
 	r.scanOutcome.reset()
 	r.moduleErrors.Store(newModuleErrorLedger())
 	r.preflight = nil
+
+	// Memory pressure monitor for the scan's lifetime: shrinks the response
+	// buffer pool and lets admission back off when RAM runs low.
+	network.StartActiveMemGuardian(ctx)
+	defer network.StopActiveMemGuardian()
 
 	// Total scan budget: when --scanning-max-duration is set, bound the WHOLE scan
 	// (all phases combined). Each phase wraps this ctx with its own per-phase
