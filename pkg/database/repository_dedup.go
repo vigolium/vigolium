@@ -583,6 +583,7 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 	groupQuery := `
 		WITH base AS (
 				SELECT id, additional_evidence, module_id, severity, COALESCE(NULLIF(record_kind, ''), 'finding') AS record_kind, created_at,
+			       COALESCE(scan_uuid, '') AS scan_uuid,
 			       json_extract(matched_at, '$[0]') AS matched_url
 			FROM findings
 			WHERE project_uuid = ?` + hostFilter + `
@@ -591,7 +592,7 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 			  AND matched_at != ''
 			  AND module_id != '` + secretDetectModuleID + `'
 		)
-		SELECT id, additional_evidence, ROW_NUMBER() OVER (
+		SELECT id, additional_evidence, scan_uuid, ROW_NUMBER() OVER (
 				PARTITION BY record_kind, module_id, severity, matched_url
 				ORDER BY created_at ASC, id ASC
 		) AS rn,
@@ -602,6 +603,7 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 	type findingRow struct {
 		ID                 int64    `bun:"id"`
 		AdditionalEvidence []string `bun:"additional_evidence,type:jsonb"`
+		ScanUUID           string   `bun:"scan_uuid"`
 		RN                 int64    `bun:"rn"`
 		GroupKey           string   `bun:"group_key"`
 	}
@@ -623,6 +625,9 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 		existingEvidence []string
 		newEvidence      []string
 		dups             []dupRow
+		// scans tracks the survivor's scan_uuid and the newest member's, so the
+		// survivor stays attributed to the latest scan that observed the issue.
+		scans newestScan
 	}
 	// Group count is bounded by row count; sizing up front avoids rehashing.
 	groups := make(map[string]*groupData, len(rows))
@@ -635,9 +640,11 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 		if row.RN == 1 {
 			g.survivorID = row.ID
 			g.existingEvidence = row.AdditionalEvidence
+			g.scans.survivor = row.ScanUUID
 		} else {
 			g.dups = append(g.dups, dupRow{id: row.ID, evidence: row.AdditionalEvidence})
 		}
+		g.scans.observe(row.RN, row.ScanUUID)
 	}
 
 	// Collect the groups that actually have duplicates, plus the finding IDs whose
@@ -707,6 +714,9 @@ func (r *Repository) DeduplicateFindings(ctx context.Context, projectUUID string
 			// Likewise their history: every scan that observed a folded
 			// duplicate observed the survivor's issue.
 			if err := migrateFindingHistoryTx(ctx, tx, g.survivorID, dupIDs); err != nil {
+				return err
+			}
+			if err := g.scans.applyTx(ctx, tx, g.survivorID); err != nil {
 				return err
 			}
 
@@ -818,6 +828,7 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 		ExtractedResults   []string `bun:"extracted_results,type:jsonb"`
 		Tags               []string `bun:"tags,type:jsonb"`
 		AdditionalEvidence []string `bun:"additional_evidence,type:jsonb"`
+		ScanUUID           string   `bun:"scan_uuid"`
 	}
 
 	// Only findings with a non-empty extracted value can be value-grouped — except
@@ -854,7 +865,7 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 	}
 	loadQuery := `
 			SELECT id, hostname, module_id, module_name, severity, COALESCE(NULLIF(record_kind, ''), 'finding') AS record_kind, description, matched_at, extracted_results, tags,
-		       additional_evidence
+		       additional_evidence, COALESCE(scan_uuid, '') AS scan_uuid
 		FROM findings
 		WHERE project_uuid = ?` + hostFilter + ` AND ` + where + `
 		ORDER BY created_at ASC, id ASC`
@@ -892,6 +903,7 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 		// by module) whose survivor is relabeled to suspectBundleFindingName so a
 		// bundle of many low-confidence rules isn't titled with just the first rule.
 		suspectBundle bool
+		scans         newestScan
 	}
 	groups := make(map[string]*groupData)
 	var order []string
@@ -917,9 +929,14 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 				existingEvidence:    row.AdditionalEvidence,
 				mergeValues:         mergeValues,
 				suspectBundle:       output.IsSuspectBundle(row.ModuleID, row.Severity, row.Tags, bundleSuspect),
+				scans:               newestScan{survivor: row.ScanUUID, newest: row.ScanUUID},
 			}
 			order = append(order, key)
 			continue
+		}
+		// Rows load oldest first, so each later member is the newest so far.
+		if row.ScanUUID != "" {
+			g.scans.newest = row.ScanUUID
 		}
 		// Duplicate: fold its URLs and evidence into the survivor (body-derived
 		// evidence is built in pass 2).
@@ -991,6 +1008,13 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 			if err := migrateFindingRecordsTx(ctx, tx, g.survivorID, dupIDs); err != nil {
 				return err
 			}
+			// Every scan that observed a folded duplicate observed the survivor.
+			if err := migrateFindingHistoryTx(ctx, tx, g.survivorID, dupIDs); err != nil {
+				return err
+			}
+			if err := g.scans.applyTx(ctx, tx, g.survivorID); err != nil {
+				return err
+			}
 			mergedMatched := mergeUniqueStrings(g.survivorMatched, g.extraMatched)
 			if opts.MaxURLs > 0 && len(mergedMatched) > opts.MaxURLs {
 				mergedMatched = mergedMatched[:opts.MaxURLs]
@@ -1043,6 +1067,38 @@ func (r *Repository) GroupFindingsByValue(ctx context.Context, projectUUID strin
 	}
 
 	return int64(len(allDupIDs)), grouped, nil
+}
+
+// newestScan carries a duplicate group's scan attribution. The survivor of a
+// merge is the oldest row (its id and triage are kept), but its scan_uuid must
+// be the newest member's: a re-detection whose prose differed (a measured delay
+// in a description) lands as a new row, and keeping the oldest scan_uuid hides
+// it from the current scan's --fail-on gate, summary and report.
+type newestScan struct {
+	survivor string
+	newest   string
+	newestRN int64
+}
+
+// observe records a member by its oldest-first row number.
+func (n *newestScan) observe(rn int64, scanUUID string) {
+	if scanUUID != "" && rn >= n.newestRN {
+		n.newest, n.newestRN = scanUUID, rn
+	}
+}
+
+// applyTx moves the survivor's scan_uuid to the newest member's when it differs.
+func (n *newestScan) applyTx(ctx context.Context, tx bun.Tx, survivorID int64) error {
+	if n.newest == "" || n.newest == n.survivor {
+		return nil
+	}
+	if _, err := tx.NewUpdate().Model((*Finding)(nil)).
+		Set("scan_uuid = ?", n.newest).
+		Where("id = ?", survivorID).
+		Exec(ctx); err != nil {
+		return fmt.Errorf("failed to update survivor scan_uuid: %w", err)
+	}
+	return nil
 }
 
 // suspectBundleFindingName is the module_name given to a collapsed Suspect-tier

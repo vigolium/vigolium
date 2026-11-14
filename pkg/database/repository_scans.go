@@ -108,7 +108,7 @@ func (r *Repository) queryScanFindings(ctx context.Context, scanUUID string) (sc
 		TableExpr("findings").
 		ColumnExpr("severity").
 		ColumnExpr("COUNT(*) AS count").
-		Where("scan_uuid = ?", scanUUID).
+		Where("(scan_uuid = ? OR EXISTS (SELECT 1 FROM finding_observations o WHERE o.finding_id = findings.id AND o.scan_uuid = ?))", scanUUID, scanUUID).
 		Where("(record_kind IS NULL OR record_kind = '' OR record_kind = ?)", RecordKindFinding).
 		GroupExpr("severity").
 		Scan(ctx, &rows)

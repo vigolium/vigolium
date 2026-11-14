@@ -1213,8 +1213,10 @@ func streamFindings(ctx context.Context, db *database.DB, projectUUID, scanUUID 
 	// report reflects that run, not the project's whole history. maybeGenerateReports
 	// and finishScanJSONLExport pass the scan uuid; `vigolium export` passes ""
 	// (project-wide), parallel to how projectUUID is threaded.
+	// A finding the scan re-detected counts even when a dedup merge kept an
+	// older row (see database.QueryFilters.ObservedInScan).
 	if scanUUID != "" {
-		q = q.Where("f.scan_uuid = ?", scanUUID)
+		q = q.Where("(f.scan_uuid = ? OR EXISTS (SELECT 1 FROM finding_observations o WHERE o.finding_id = f.id AND o.scan_uuid = ?))", scanUUID, scanUUID)
 	}
 	if topExportSearch != "" {
 		p := database.LikeContains(topExportSearch)

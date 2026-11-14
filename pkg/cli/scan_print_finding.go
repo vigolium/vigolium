@@ -30,8 +30,8 @@ func maybePrintScanFindings(ctx context.Context, db *database.DB, projectUUID, s
 		return
 	}
 	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{
-		ProjectUUID: projectUUID,
-		ScanUUID:    scanUUID,
+		ProjectUUID:    projectUUID,
+		ObservedInScan: scanUUID,
 	}).Execute(ctx)
 	if err != nil {
 		zap.L().Warn("--print-finding: failed to query findings", zap.Error(err))

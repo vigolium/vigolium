@@ -51,6 +51,12 @@ type QueryFilters struct {
 	PathPattern      string   // Path pattern (supports wildcards)
 	StatusCodes      []int    // Status codes (200, 404, etc.)
 	ScanUUID         string   // Scan UUID: findings.scan_uuid for findings, http_records.scan_uuid (first-stored-by) for records
+	// ObservedInScan selects findings the scan observed: its scan_uuid is the
+	// finding's, or the scan has a finding_observations row for it. A finding
+	// first stored by an earlier scan and re-detected (possibly merged as a
+	// dedup duplicate) by this one counts, which f.scan_uuid alone can miss.
+	// Findings only; records ignore it.
+	ObservedInScan string
 	AgenticScanUUIDs []string // Agentic-scan UUID(s) (links agent-produced findings; pass the scan tree for nested audit/swarm runs)
 	Source           string   // Filter by record source (e.g. scanner, ingest-cli, ingest-server)
 
@@ -1029,6 +1035,10 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 	// Scan UUID filtering
 	if fqb.filters.ScanUUID != "" {
 		query.Where("f.scan_uuid = ?", fqb.filters.ScanUUID)
+	}
+	if fqb.filters.ObservedInScan != "" {
+		query.Where("(f.scan_uuid = ? OR EXISTS (SELECT 1 FROM finding_observations o WHERE o.finding_id = f.id AND o.scan_uuid = ?))",
+			fqb.filters.ObservedInScan, fqb.filters.ObservedInScan)
 	}
 
 	// Agentic-scan UUID filtering (agent-produced findings; list covers the

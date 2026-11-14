@@ -222,7 +222,7 @@ func docReadContext() (context.Context, context.CancelFunc) {
 // The row may be missing (it was never created); the findings are read anyway,
 // by scan_uuid, which every finding of the run carries.
 func (b *scanDocBuilder) fillFromStore(ctx context.Context, repo *database.Repository, s *scanDocScan, projectScope string) *database.Scan {
-	filters := database.QueryFilters{ProjectUUID: projectScope, ScanUUID: s.scanUUID, SortBy: "severity", Limit: b.limit}
+	filters := database.QueryFilters{ProjectUUID: projectScope, ObservedInScan: s.scanUUID, SortBy: "severity", Limit: b.limit}
 	if scanDocListsHosts() {
 		// The fingerprint document's items are the origins it fingerprinted,
 		// the host facts `vigolium hosts` reads; findings are still counted.
@@ -323,7 +323,7 @@ func hydrateFindingEvidence(ctx context.Context, repo *database.Repository, find
 // them).
 func countRecordKind(ctx context.Context, repo *database.Repository, projectScope, scanUUID, kind string) int64 {
 	_, total, err := repo.ListFindings(ctx, database.QueryFilters{
-		ProjectUUID: projectScope, ScanUUID: scanUUID, RecordKinds: []string{kind}, Limit: 1,
+		ProjectUUID: projectScope, ObservedInScan: scanUUID, RecordKinds: []string{kind}, Limit: 1,
 	})
 	if err != nil {
 		return 0

@@ -56,7 +56,7 @@ func evaluateFailOnGate(repo *database.Repository, projectUUID, scanUUID string,
 	}
 	n, err := database.NewFindingsQueryBuilder(repo.DB(), database.QueryFilters{
 		ProjectUUID:     projectUUID,
-		ScanUUID:        scanUUID,
+		ObservedInScan:  scanUUID,
 		Severity:        wanted,
 		ExcludeStatuses: database.DismissedFindingStatuses,
 	}).Count(context.Background())
