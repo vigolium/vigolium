@@ -208,7 +208,10 @@ type Crawler struct {
 	// authOps installs credentials on a page (zero value: the page's own
 	// methods). credentialHeadersWithdrawn is set once the crawl leaves the
 	// credential scope; later pages do not get the headers back (guarded by mu).
-	authOps                    pageAuthOps
+	authOps pageAuthOps
+	// authGen is the live-session credential generation last applied
+	// (MISS-26); guarded by mu.
+	authGen                    uint64
 	credentialHeadersWithdrawn bool
 }
 

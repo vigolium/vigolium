@@ -1,8 +1,10 @@
 package crawler
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/authsig"
 	"net/http"
 	"net/url"
 	"slices"
@@ -21,6 +23,8 @@ const (
 	AuthConfigured   = "configured"    // configured, not yet applied to a page
 	AuthApplied      = "applied"       // installed on the start page (and later pages)
 	AuthFailed       = "failed"        // configured but not (fully) applied
+	AuthLost         = "lost"          // the crawl was logged out and re-applying did not restore it (MISS-26)
+	AuthRestored     = "restored"      // logged out once and restored by re-applying credentials
 )
 
 // pageAuthOps are the two page calls that install credentials. Nil fields use
@@ -233,4 +237,102 @@ func (c *Crawler) firstPartyResource(rawURL string) bool {
 		return true
 	}
 	return sameOrSubdomain(strings.ToLower(u.Hostname()), strings.ToLower(c.config.URL.Hostname()))
+}
+
+// authConfigured reports whether this crawl carries credentials.
+func (c *Crawler) authConfigured() bool {
+	return len(c.config.InitialCookies) > 0 || len(c.config.ExtraHeaders) > 0 || c.config.AuthMonitor != nil
+}
+
+// refreshAuthIfChanged re-applies the live session's credentials when their
+// generation moved (a re-login happened elsewhere in the scan) (MISS-26).
+func (c *Crawler) refreshAuthIfChanged(page *browser.Page) {
+	mon := c.config.AuthMonitor
+	if mon == nil || (page == nil && c.authOps.setHeaders == nil) {
+		return
+	}
+	gen, headers, cookies := mon.Credentials()
+	c.mu.Lock()
+	changed := gen != 0 && gen != c.authGen
+	if changed {
+		c.authGen = gen
+	}
+	c.mu.Unlock()
+	if !changed {
+		return
+	}
+	c.reapplyCredentials(page, headers, cookies)
+}
+
+// reapplyCredentials installs headers (through the credential router) and
+// cookies on page.
+func (c *Crawler) reapplyCredentials(page *browser.Page, headers map[string]string, cookies []*http.Cookie) {
+	if len(headers) > 0 {
+		if err := c.installHeaders(page, headers); err != nil {
+			zap.L().Debug("Spidering: re-applying session headers failed", zap.Error(err))
+		}
+	}
+	if len(cookies) > 0 {
+		if err := c.authOps.cookies(page, cookies); err != nil {
+			zap.L().Debug("Spidering: re-applying session cookies failed", zap.Error(err))
+		}
+	}
+}
+
+// checkLoggedOut detects a crawl that lost its session (MISS-26): after an
+// authenticated start, a page landing on a login form/URL. It re-applies the
+// credentials once and reloads; if the page is still a login page the crawl
+// is marked AuthLost (and keeps going anonymously, now honestly reported),
+// else AuthRestored. Returns true when the page was a login page.
+func (c *Crawler) checkLoggedOut(ctx context.Context, page *browser.Page) bool {
+	if !c.authConfigured() || page == nil {
+		return false
+	}
+	c.mu.Lock()
+	state := c.stats.AuthState
+	c.mu.Unlock()
+	if state != AuthApplied && state != AuthRestored {
+		return false
+	}
+	if !c.pageLooksLoggedOut(page) {
+		return false
+	}
+	headers := c.config.ExtraHeaders
+	var cookies []*http.Cookie
+	if mon := c.config.AuthMonitor; mon != nil {
+		var gen uint64
+		gen, headers, cookies = mon.Credentials()
+		c.mu.Lock()
+		c.authGen = gen
+		c.mu.Unlock()
+	} else {
+		cookies = c.config.InitialCookies
+	}
+	c.reapplyCredentials(page, headers, cookies)
+	if err := page.ReloadCtx(ctx); err == nil {
+		_ = page.WaitStable(c.config.DOMStableTime)
+	}
+	next := AuthRestored
+	if c.pageLooksLoggedOut(page) {
+		next = AuthLost
+	}
+	c.mu.Lock()
+	c.stats.AuthState = next
+	c.mu.Unlock()
+	zap.L().Warn("Spidering: the crawl landed on a login page after an authenticated start",
+		zap.String("outcome", next))
+	return true
+}
+
+// pageLooksLoggedOut reports whether page is a login page: a login/SSO URL
+// or a document that reads as a login form.
+func (c *Crawler) pageLooksLoggedOut(page *browser.Page) bool {
+	raw, err := page.URL()
+	if err == nil {
+		if u, perr := url.Parse(raw); perr == nil && authsig.LooksLikeLoginURL(u) {
+			return true
+		}
+	}
+	html, err := page.HTML()
+	return err == nil && authsig.BodyLooksLikeLogin([]byte(html))
 }

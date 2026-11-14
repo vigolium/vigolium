@@ -569,6 +569,10 @@ func (c *Crawler) crawlThroughActions(ctx context.Context, w *tabWorker) {
 			return
 		}
 
+		// A re-login elsewhere in the scan minted new credentials: put them on
+		// the page before the next action (MISS-26).
+		c.refreshAuthIfChanged(w.page)
+
 		act := c.candidates.PollByMode(currentState.ID, c.config.CrawlStrategy, afterBacktrack)
 		if act == nil {
 			// No more actions for current state, exit DFS
@@ -707,6 +711,11 @@ func (c *Crawler) crawlThroughActions(ctx context.Context, w *tabWorker) {
 		c.stats.ActionsExecuted++
 		c.mu.Unlock()
 		c.consecutiveFails.Store(0) // Reset on success
+
+		// An authenticated crawl that just landed on a login page lost its
+		// session (a logout control, an expired token): re-apply once, then
+		// report honestly (MISS-26).
+		c.checkLoggedOut(ctx, page)
 
 		// Record successful action to metrics (only when benchmark mode)
 		if c.metricsCollector != nil {

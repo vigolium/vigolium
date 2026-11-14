@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/authentication"
+	nethttp "net/http"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -458,6 +460,7 @@ func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringCo
 		DenyClickPattern:        settingsCfg.Interaction.DenyClickPattern,
 		ExcludeSelectors:        settingsCfg.ExcludeSelectors,
 		MethodAllowed:           r.browserMethodFilter(),
+		AuthMonitor:             liveSessionMonitor(infra),
 		BrowserCompat:           &compat,
 		NoForms:                 !policy.EditFields && !policy.SubmitForms,
 		LoginCredentialAttempts: policy.LoginAttempts,
@@ -930,6 +933,15 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 				// failed to log in, not on whether the login failed.
 				r.currentPhase.Load().markPartial(database.ReasonAuthUnavailable)
 			}
+			// The crawl was logged out (a logout control, an expired session)
+			// and re-applying credentials did not bring it back: the rest of
+			// this target was crawled anonymously (MISS-26).
+			if result.AuthState == spitolas.AuthLost {
+				r.printPhaseDetail(fmt.Sprintf("%s %s: the browser session was lost mid-crawl and could not be restored — the rest of this target was crawled unauthenticated.",
+					terminal.Yellow(terminal.SymbolWarning),
+					terminal.Gray(target)))
+				r.currentPhase.Load().markPartial(database.ReasonAuthLost)
+			}
 			if len(result.CredentialHostsDenied) > 0 {
 				r.printPhaseDetail(fmt.Sprintf("%s %s: credential headers withheld from %s (outside the operator scope).",
 					terminal.Gray(terminal.SymbolArrow),
@@ -1102,4 +1114,36 @@ func (r *Runner) browserMethodFilter() func(string) bool {
 		return pol.AllowsMethod
 	}
 	return nil
+}
+
+// liveSessionAuthMonitor adapts the scan's primary live session to the
+// crawler's AuthMonitor (MISS-26): the browser re-applies the session's
+// current credentials after a re-login and feeds responses back.
+type liveSessionAuthMonitor struct {
+	s *authentication.LiveSession
+}
+
+func (m liveSessionAuthMonitor) Observe(gen uint64, status int, h nethttp.Header, body []byte) {
+	m.s.Observe(gen, status, h, body)
+}
+
+func (m liveSessionAuthMonitor) Credentials() (uint64, map[string]string, []*nethttp.Cookie) {
+	creds := m.s.Credentials()
+	if creds == nil {
+		return 0, nil, nil
+	}
+	return creds.Gen, creds.Headers, nil
+}
+
+// liveSessionMonitor is the AuthMonitor for infra's primary live session, or
+// nil when the scan has none.
+func liveSessionMonitor(infra *phaseInfra) spitolas.AuthMonitor {
+	if infra == nil || infra.sessions == nil {
+		return nil
+	}
+	live := infra.sessions.primaryLive()
+	if live == nil {
+		return nil
+	}
+	return liveSessionAuthMonitor{s: live}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/safety"
 	"math/big"
 	"net/url"
 	"regexp"
@@ -81,6 +82,8 @@ type CandidateElementExtractor struct {
 	// nil disables. skippedDestructive counts them, shared by ForTab copies.
 	denyClick          *regexp.Regexp
 	skippedDestructive *atomic.Int64
+	// denyLogout drops logout controls even when the deny pattern is off.
+	denyLogout bool
 
 	// currentStateID namespaces clickOnce dedup by the state being extracted, so
 	// the SAME element location in a DIFFERENT state (a multi-step form / wizard
@@ -124,6 +127,9 @@ func NewCandidateElementExtractor(cfg *config.Config) *CandidateElementExtractor
 		maxListenerProbeNodes: cfg.MaxListenerProbeNodes,
 		denyClick:             compileDenyClick(cfg.DenyClickPattern),
 		skippedDestructive:    &atomic.Int64{},
+		// An authenticated crawl never clicks a logout control, whatever
+		// deny_click_pattern says (MISS-26).
+		denyLogout: len(cfg.ExtraHeaders) > 0 || len(cfg.InitialCookies) > 0 || cfg.AuthMonitor != nil,
 	}
 }
 
@@ -174,13 +180,16 @@ func compileDenyClick(pattern string) *regexp.Regexp {
 // its text, href, aria-label, title or value matches the deny pattern — and
 // counts it (SAFE-9). Hover candidates only reveal menus and are exempt.
 func (e *CandidateElementExtractor) deniedByPattern(c *CandidateElement) bool {
-	if e.denyClick == nil || c == nil || c.EventType == EventTypeHover {
+	if (e.denyClick == nil && !e.denyLogout) || c == nil || c.EventType == EventTypeHover {
 		return false
 	}
 	fields := []string{c.Text, c.Href}
 	fields = append(fields, denyAttrValues(c.Attributes)...)
 	for _, f := range fields {
-		if f != "" && e.denyClick.MatchString(f) {
+		if f == "" {
+			continue
+		}
+		if (e.denyClick != nil && e.denyClick.MatchString(f)) || (e.denyLogout && safety.LogoutRe.MatchString(f)) {
 			if e.skippedDestructive != nil {
 				e.skippedDestructive.Add(1)
 			}
@@ -344,6 +353,7 @@ func (e *CandidateElementExtractor) ForTab() *CandidateElementExtractor {
 		clickOnceSeen:         e.clickOnceSeen,
 		denyClick:             e.denyClick,
 		skippedDestructive:    e.skippedDestructive,
+		denyLogout:            e.denyLogout,
 	}
 }
 

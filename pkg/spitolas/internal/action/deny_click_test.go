@@ -57,3 +57,21 @@ func TestDenyAttrValues(t *testing.T) {
 		}
 	}
 }
+
+// MISS-26: with auth configured the crawl never clicks a logout control, even
+// when the destructive-click guard is turned off.
+func TestAuthenticatedCrawlNeverClicksLogout(t *testing.T) {
+	cfg, err := config.New("https://app.example.com/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.DenyClickPattern = ""
+	cfg.ExtraHeaders = map[string]string{"Authorization": "Bearer x"}
+	e := NewCandidateElementExtractor(cfg)
+	if !e.deniedByPattern(&CandidateElement{Text: "Sign out", EventType: EventTypeClick}) {
+		t.Error("logout must be denied in an authenticated crawl")
+	}
+	if e.deniedByPattern(&CandidateElement{Text: "Delete", EventType: EventTypeClick}) {
+		t.Error("with the guard off only logout is denied")
+	}
+}

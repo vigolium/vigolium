@@ -209,6 +209,10 @@ type Config struct {
 	// MethodAllowed, when set, is the scan's traffic policy (SAFE-8): the
 	// browser fails any request whose method it refuses (BlockedByClient).
 	MethodAllowed func(method string) bool
+	// AuthMonitor, when set, is the scan's live session (MISS-26): the crawl
+	// re-applies its credentials when they change (a re-login) and when a
+	// page lands on a login form after an authenticated start.
+	AuthMonitor AuthMonitor
 	// BlockResources fails font and media requests and third-party images
 	// (ECON-9). First-party images are never blocked. Default true.
 	BlockResources               bool
@@ -1109,4 +1113,12 @@ func (c *Config) SetLoginCredentialAttempts(enabled, fullList bool) *Config {
 	c.Policy.LoginAttempts = enabled
 	c.LoginCredentialFullList = fullList
 	return c
+}
+
+// AuthMonitor is the crawl's view of the scan's live session (MISS-26).
+type AuthMonitor interface {
+	// Observe feeds a response the session's logged-out detector.
+	Observe(gen uint64, status int, h http.Header, body []byte)
+	// Credentials are the session's current credentials and generation.
+	Credentials() (gen uint64, headers map[string]string, cookies []*http.Cookie)
 }
