@@ -151,6 +151,15 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		if pol := r.options.TrafficPolicy; pol != nil {
 			deparosCfg.MethodFilter = pol.AllowsMethod
 		}
+		// Forms follow the browser's submit_forms decision (SAFE-7): when the
+		// crawl may not submit, discovery keeps forms as metadata-only stubs.
+		if r.settings != nil {
+			bp := resolveBrowserPolicy(r.settings.Spidering, r.options.Intensity)
+			bp.applyTrafficPolicy(r.options.TrafficPolicy)
+			if !bp.policy.SubmitForms {
+				deparosCfg.FormSafety = "metadata-only"
+			}
+		}
 		deparosCfg.Egress = discoveryEgress(infra, deparosCfg.RateLimit)
 		src, srcErr := source.NewDeparosDiscoverySource(phaseCtx, deparosCfg)
 		if srcErr != nil {

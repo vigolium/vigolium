@@ -36,6 +36,11 @@ type RequestTemplateRegistry interface {
 	// Outcomes reports every template with its final note. A template that was
 	// never noted is classified by whether it was ever claimed for replay.
 	Outcomes() []TemplateOutcome
+	// AddWithheld records a request that was never eligible for sending (a
+	// form the replay safety policy refused, SAFE-7): it is stored with note
+	// as its outcome and never enters the pending replay set, so it survives
+	// as a request stub without ever being sent.
+	AddWithheld(sourceURL string, fact jstangle.HTTPRequestFact, note ReplayNote) bool
 }
 
 type requestTemplateRegistry struct {
@@ -80,6 +85,27 @@ func (r *requestTemplateRegistry) Add(sourceURL string, fact jstangle.HTTPReques
 	}
 	r.items[key] = template
 	r.pending[key] = struct{}{}
+	return true
+}
+
+func (r *requestTemplateRegistry) AddWithheld(sourceURL string, fact jstangle.HTTPRequestFact, note ReplayNote) bool {
+	if fact.Kind == "" {
+		fact.Kind = "httpRequest"
+	}
+	if fact.ID == "" {
+		fact.ID = stableTemplateID(sourceURL, fact.URL.Rendered, fact.Method.Rendered, renderFactFields(fact.Query))
+	}
+	key := sourceURL + "\x00" + fact.ID
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.items[key]; ok {
+		return false
+	}
+	r.items[key] = ExtractedRequestTemplate{
+		ID: fact.ID, SourceURL: sourceURL,
+		Request: cloneRequestFact(fact), Confidence: fact.Provenance.Confidence, SchemaVersion: 2,
+	}
+	r.outcomes[key] = note
 	return true
 }
 
