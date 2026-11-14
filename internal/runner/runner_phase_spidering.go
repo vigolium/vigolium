@@ -457,6 +457,7 @@ func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringCo
 		Policy:                  &policy,
 		DenyClickPattern:        settingsCfg.Interaction.DenyClickPattern,
 		ExcludeSelectors:        settingsCfg.ExcludeSelectors,
+		MethodAllowed:           r.browserMethodFilter(),
 		BrowserCompat:           &compat,
 		NoForms:                 !policy.EditFields && !policy.SubmitForms,
 		LoginCredentialAttempts: policy.LoginAttempts,
@@ -1090,6 +1091,15 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 		r.printPhaseDetail(fmt.Sprintf("%s Re-run with %s to scan the list as parallel child processes, each with its own browser and its own budget.",
 			terminal.Yellow(terminal.SymbolArrow),
 			terminal.HiCyan(flags)))
+	}
+	return nil
+}
+
+// browserMethodFilter is the traffic policy's method check for the browser
+// crawl (SAFE-8), nil when every method is allowed.
+func (r *Runner) browserMethodFilter() func(string) bool {
+	if pol := r.options.TrafficPolicy; pol != nil && len(pol.AllowedMethods) > 0 {
+		return pol.AllowsMethod
 	}
 	return nil
 }

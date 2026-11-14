@@ -205,7 +205,10 @@ type Config struct {
 	// (SAFE-9). Hover candidates are exempt. Empty disables the guard. The
 	// default is pkg/safety's destructive pattern (log out, delete, remove,
 	// deactivate, unsubscribe, close account, …).
-	DenyClickPattern             string
+	DenyClickPattern string
+	// MethodAllowed, when set, is the scan's traffic policy (SAFE-8): the
+	// browser fails any request whose method it refuses (BlockedByClient).
+	MethodAllowed                func(method string) bool
 	DontClickSelectors           []string
 	DontClickChildrenOfSelectors []string
 	UseCDPDetection              bool     // Enable CDP event listener detection

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -51,6 +52,11 @@ type Page struct {
 
 	dialogMu sync.Mutex
 	dialogs  []DialogEvent
+
+	// credRouter is the Fetch-interception credential policy
+	// (InstallCredentialRouter, SAFE-3); credRouterOnce starts its event loop.
+	credRouter     atomic.Pointer[credentialRouter]
+	credRouterOnce sync.Once
 }
 
 // crawlCtxDone reports whether the crawl context bound to this page (via

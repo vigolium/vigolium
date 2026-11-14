@@ -43,14 +43,38 @@ func (o pageAuthOps) cookies(page *browser.Page, cookies []*http.Cookie) error {
 	return page.SetCookies(cookies)
 }
 
-func (o pageAuthOps) headers(page *browser.Page, headers map[string]string) error {
-	if o.setHeaders != nil {
-		return o.setHeaders(page, headers)
+// installHeaders puts the operator's credential headers on page. By default
+// that is the per-request credential router (SAFE-3): headers ride only on
+// requests the credential scope admits, never on third-party subresources,
+// and the scan's method policy blocks disallowed XHR/fetch methods.
+// Network.setExtraHTTPHeaders, which put them on every request, is not used.
+func (c *Crawler) installHeaders(page *browser.Page, headers map[string]string) error {
+	if c.authOps.setHeaders != nil {
+		return c.authOps.setHeaders(page, headers)
 	}
 	if page == nil {
 		return errNoPage
 	}
-	return page.SetExtraHeaders(headers)
+	return page.InstallCredentialRouter(headers, c.credentialRouteAllowed, c.config.MethodAllowed, c.credentialPatterns())
+}
+
+// credentialRouteAllowed is the router's per-request credential decision:
+// inside the credential scope, and not withdrawn for leaving it.
+func (c *Crawler) credentialRouteAllowed(rawURL string) bool {
+	c.mu.Lock()
+	withdrawn := c.credentialHeadersWithdrawn
+	c.mu.Unlock()
+	return !withdrawn && c.credentialOriginAllowed(rawURL)
+}
+
+// credentialPatterns narrows which requests the router pauses: the target
+// host and its subdomains under the default host scope, every request ("*")
+// under an explicit crawl scope (judged by credentialOriginAllowed).
+func (c *Crawler) credentialPatterns() []string {
+	if c.config.CrawlScope != nil || c.config.URL == nil {
+		return nil
+	}
+	return browser.CredentialHostPatterns(c.config.URL.Hostname())
 }
 
 // initialAuthState is the state before any page exists.
@@ -88,6 +112,13 @@ func (c *Crawler) credentialOriginAllowed(rawURL string) bool {
 // whose start page went out unauthenticated says so even if a later page got
 // the credentials. The error is returned for RequireAuth to act on.
 func (c *Crawler) applyPageAuth(page *browser.Page) error {
+	// A method policy with no credential headers still needs the router: it
+	// is what blocks a read-only crawl's XHR/fetch writes (SAFE-8/SAFE-3).
+	if c.config.MethodAllowed != nil && len(c.config.ExtraHeaders) == 0 && page != nil && c.authOps.setHeaders == nil {
+		if err := page.InstallCredentialRouter(nil, nil, c.config.MethodAllowed, nil); err != nil {
+			zap.L().Debug("Spidering: could not install the method-policy router", zap.Error(err))
+		}
+	}
 	if len(c.config.InitialCookies) == 0 && len(c.config.ExtraHeaders) == 0 {
 		return nil
 	}
@@ -112,7 +143,7 @@ func (c *Crawler) applyPageAuth(page *browser.Page) error {
 			errs = append(errs, fmt.Errorf("extra headers withheld: the target %s is outside the operator scope", c.config.URL.Hostname()))
 		default:
 			zap.L().Debug("Setting extra headers", zap.Int("count", len(c.config.ExtraHeaders)))
-			if err := c.authOps.headers(page, c.config.ExtraHeaders); err != nil {
+			if err := c.installHeaders(page, c.config.ExtraHeaders); err != nil {
 				errs = append(errs, fmt.Errorf("set extra headers: %w", err))
 			}
 		}
@@ -162,7 +193,7 @@ func (c *Crawler) withdrawCredentialHeaders(page *browser.Page, landingURL, host
 	if already {
 		return
 	}
-	if err := c.authOps.headers(page, map[string]string{}); err != nil {
+	if err := c.installHeaders(page, map[string]string{}); err != nil {
 		zap.L().Warn("Spidering: could not clear credential headers after leaving the credential scope",
 			zap.String("host", host), zap.Error(err))
 		return

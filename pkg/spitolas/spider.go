@@ -104,6 +104,9 @@ type SpiderConfig struct {
 	DenyClickPattern *string
 	// ExcludeSelectors are CSS selectors the crawl never clicks.
 	ExcludeSelectors []string
+	// MethodAllowed is the scan's traffic policy (scope.methods): requests
+	// with a refused method are failed in the browser. nil = every method.
+	MethodAllowed func(method string) bool
 
 	// BrowserCompat, when set, is the set of browser security exceptions the
 	// crawl launches with; nil means DefaultBrowserCompat.
@@ -370,6 +373,7 @@ func buildCrawlerConfig(cfg SpiderConfig) (*config.Config, error) {
 		crawlerCfg.DenyClickPattern = *cfg.DenyClickPattern
 	}
 	crawlerCfg.ExcludeSelectors = append(crawlerCfg.ExcludeSelectors, cfg.ExcludeSelectors...)
+	crawlerCfg.MethodAllowed = cfg.MethodAllowed
 	crawlerCfg.BrowserCompat = config.BrowserCompat(cfg.EffectiveCompat())
 	crawlerCfg.LoginCredentialFullList = cfg.LoginCredentialFullList
 	if cfg.IdentityEmailDomain != "" {
