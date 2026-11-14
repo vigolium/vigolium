@@ -102,8 +102,9 @@ func TestResumeManifestMarkDoneOutOfOrder(t *testing.T) {
 	m := newResumeManifest("p.json", "p", nil, nil, "")
 
 	// Line 1 finishes before line 0 (parallel fan-out): cursor must not move and
-	// its counts must not be tallied yet.
-	assert.False(t, m.markDone(1, "https://b", childStats{records: 3}))
+	// its counts must not be tallied yet — but the manifest changed (done_indices),
+	// so markDone asks for a save.
+	assert.True(t, m.markDone(1, "https://b", childStats{records: 3}))
 	assert.Equal(t, -1, m.CompletedThrough)
 	assert.Equal(t, 0, m.Records)
 

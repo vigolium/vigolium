@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/uptrace/bun/driver/sqliteshim"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -353,6 +354,29 @@ func runStatelessTargetsParallel(cmd *cobra.Command, settings *config.Settings, 
 		}
 		targets = targets[startOffset:]
 	}
+	// absIdx maps this run's slice back to absolute target lines. Targets that
+	// finished out of order in an earlier run (manifest done_indices) are not
+	// scanned again.
+	absIdx := make([]int, 0, len(targets))
+	if scanOpts.Resume {
+		kept := targets[:0:0]
+		for i, target := range targets {
+			if manifest.doneAhead(startOffset + i) {
+				continue
+			}
+			kept = append(kept, target)
+			absIdx = append(absIdx, startOffset+i)
+		}
+		targets = kept
+		if len(targets) == 0 {
+			printParallelSummary(nil, 0, 0, 0, manifestPath, priorCarry)
+			return nil
+		}
+	} else {
+		for i := range targets {
+			absIdx = append(absIdx, startOffset+i)
+		}
+	}
 
 	parallel := scanOpts.Parallel
 	if parallel > len(targets) {
@@ -458,7 +482,7 @@ func runStatelessTargetsParallel(cmd *cobra.Command, settings *config.Settings, 
 		if res.interrupted || (res.err != nil && !res.gated) {
 			return
 		}
-		if manifest.markDone(startOffset+idx, res.target, res.stats) {
+		if manifest.markDone(absIdx[idx], res.target, res.stats) {
 			if err := manifest.save(); err != nil {
 				zap.L().Warn("Failed to persist resume manifest", zap.String("path", manifestPath), zap.Error(err))
 			}
@@ -772,6 +796,11 @@ func runIsolatedTargetsParallel(cmd *cobra.Command, settings *config.Settings, s
 	// and the summary prints the generic re-run hint rather than a --resume tip.
 	results, failed, interrupted, gated := fanOutTargetScans(ctx, exe, targets, parallel, planFor, nil)
 
+	// The staging directory (and every child console in it) is removed when
+	// this returns; keep the failed children's logs the summary points at.
+	if failed > 0 {
+		preserveFailedConsoles(results, failedConsoleDir(scanOpts.Output))
+	}
 	printParallelSummary(results, failed, interrupted, gated, "", carryoverStats{})
 
 	// Export the unified output only when at least one child merged something —
@@ -829,6 +858,11 @@ func exportUnifiedFromDB(destCfg config.DatabaseConfig, opts *types.Options) err
 // failures), so a CI job that asked to be stopped by a high-severity finding
 // was not. It now exits 4, the same code a single-target run gives, which is
 // what makes the flag mean one thing on both paths.
+//
+// A partial failure or a partial interrupt exits 5 (incomplete): the batch ran
+// but did not cover every target, and 99 of 100 targets failing must not read
+// as success. Precedence follows the single-target path: error (1) > gate (4) >
+// incomplete (5).
 func parallelBatchError(failed, interrupted, gated, total int) error {
 	if total == 0 {
 		return nil
@@ -843,7 +877,66 @@ func parallelBatchError(failed, interrupted, gated, total int) error {
 		//vigolium:not-usage gate result (exit 4), not a usage error
 		return gateError{fmt.Errorf("--fail-on: %d of %d targets tripped the severity gate", gated, total)}
 	}
+	if failed > 0 || interrupted > 0 {
+		return incompleteErrorf(apicontract.CodePartial, "%d of %d target scans failed and %d were interrupted", failed, total, interrupted)
+	}
 	return nil
+}
+
+// preserveFailedConsoles copies the console logs of failed children out of
+// the staging directory (removed when the batch ends) into dir, and repoints
+// each result at its copy, so the summary's "see <file>" still names a file
+// that exists. Best-effort per file.
+func preserveFailedConsoles(results []targetResult, dir string) {
+	made := false
+	for i := range results {
+		r := &results[i]
+		if r.err == nil || r.interrupted || r.gated || r.console == "" {
+			continue
+		}
+		data, err := os.ReadFile(r.console)
+		if err != nil {
+			continue
+		}
+		if !made {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				zap.L().Warn("Failed to create directory for failed child logs", zap.String("dir", dir), zap.Error(err))
+				return
+			}
+			made = true
+		}
+		dst := filepath.Join(dir, fmt.Sprintf("%03d-%s.console.log", i, sanitizeConsoleName(r.target)))
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
+			continue
+		}
+		r.console = dst
+	}
+}
+
+// sanitizeConsoleName reduces a target to a filename-safe stem.
+func sanitizeConsoleName(target string) string {
+	var b strings.Builder
+	for _, c := range target {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '.', c == '-':
+			b.WriteRune(c)
+		default:
+			b.WriteByte('_')
+		}
+		if b.Len() >= 80 {
+			break
+		}
+	}
+	return b.String()
+}
+
+// failedConsoleDir is where --db-isolate -P keeps failed children's logs:
+// <output>.failed/ (format extension stripped), or vigolium-scan.failed/.
+func failedConsoleDir(output string) string {
+	if base := types.StripFormatExtension(output); base != "" {
+		return base + ".failed"
+	}
+	return "vigolium-scan.failed"
 }
 
 // runChildScan runs one child scan process, capturing its combined stdout and

@@ -67,6 +67,11 @@ type resumeManifest struct {
 	Parallel int      `json:"parallel,omitempty"`
 	ScanArgs []string `json:"scan_args,omitempty"`
 
+	// DoneIndices are targets past the cursor that already finished cleanly
+	// (out of order, ahead of a gap), with their counts. Persisted so a resume
+	// skips them instead of re-scanning every target after the first failure.
+	DoneIndices []resumeDoneEntry `json:"done_indices,omitempty"`
+
 	path    string             // on-disk location; not serialized
 	pending map[int]resumeDone // in-memory: out-of-order completions awaiting contiguous advance
 }
@@ -76,6 +81,24 @@ type resumeManifest struct {
 type resumeDone struct {
 	target string
 	stats  childStats
+}
+
+// resumeDoneEntry is one persisted out-of-order completion.
+type resumeDoneEntry struct {
+	Index    int            `json:"index"`
+	Target   string         `json:"target"`
+	Records  int            `json:"records,omitempty"`
+	Findings int            `json:"findings,omitempty"`
+	Severity map[string]int `json:"severity,omitempty"`
+}
+
+// doneAhead reports whether absolute line absIdx already finished out of order.
+func (m *resumeManifest) doneAhead(absIdx int) bool {
+	if m == nil {
+		return false
+	}
+	_, ok := m.pending[absIdx]
+	return ok
 }
 
 // carryoverStats is the prior progress folded into the final roll-up so it
@@ -249,6 +272,11 @@ func loadResumeManifest(path string) (*resumeManifest, bool) {
 		m.Severity = make(map[string]int)
 	}
 	m.pending = make(map[int]resumeDone)
+	for _, d := range m.DoneIndices {
+		if d.Index > m.CompletedThrough {
+			m.pending[d.Index] = resumeDone{target: d.Target, stats: childStats{records: d.Records, findings: d.Findings, sev: d.Severity}}
+		}
+	}
 	m.path = path
 	return &m, true
 }
@@ -260,6 +288,11 @@ func (m *resumeManifest) save() error {
 		return nil
 	}
 	m.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	m.DoneIndices = m.DoneIndices[:0]
+	for idx, d := range m.pending {
+		m.DoneIndices = append(m.DoneIndices, resumeDoneEntry{Index: idx, Target: d.target, Records: d.stats.records, Findings: d.stats.findings, Severity: d.stats.sev})
+	}
+	sort.Slice(m.DoneIndices, func(i, j int) bool { return m.DoneIndices[i].Index < m.DoneIndices[j].Index })
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal resume manifest: %w", err)
@@ -284,8 +317,10 @@ func (m *resumeManifest) markDone(absIdx int, target string, stats childStats) b
 	if m == nil || absIdx <= m.CompletedThrough {
 		return false
 	}
+	_, known := m.pending[absIdx]
 	m.pending[absIdx] = resumeDone{target: target, stats: stats}
-	advanced := false
+	// A new out-of-order completion changes the persisted done_indices too.
+	advanced := !known
 	for {
 		di, ok := m.pending[m.CompletedThrough+1]
 		if !ok {
@@ -336,9 +371,18 @@ func (m *resumeManifest) carryover() carryoverStats {
 	for k, v := range m.Severity {
 		sev[k] = v
 	}
+	records, findings := m.Records, m.Findings
+	for _, d := range m.pending {
+		count++
+		records += d.stats.records
+		findings += d.stats.findings
+		for k, v := range d.stats.sev {
+			sev[k] += v
+		}
+	}
 	return carryoverStats{
 		count: count,
-		stats: childStats{records: m.Records, findings: m.Findings, sev: sev},
+		stats: childStats{records: records, findings: findings, sev: sev},
 	}
 }
 

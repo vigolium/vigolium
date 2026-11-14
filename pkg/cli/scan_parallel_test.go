@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -179,22 +180,71 @@ func TestValidateParallelScanSingleTargetDegrades(t *testing.T) {
 	assert.False(t, opts.SplitByHost, "split-by-host should be cleared for a single target")
 }
 
-// parallelBatchError exits non-zero only when every target genuinely failed, or
-// the batch was interrupted before any target finished cleanly. Partial success
-// (including a partial interrupt) and an empty batch are clean exits.
+// parallelBatchError: every target failing (or a stop before any success) is
+// an error (1); a partial failure or partial interrupt is incomplete (5), so 99
+// failed targets out of 100 no longer exit 0 (RES-4).
 func TestParallelBatchError(t *testing.T) {
 	assert.NoError(t, parallelBatchError(0, 0, 0, 0), "empty batch is not a failure")
 	assert.NoError(t, parallelBatchError(0, 0, 0, 5), "all succeeded")
-	assert.NoError(t, parallelBatchError(4, 0, 0, 5), "partial success exits clean")
-	assert.Error(t, parallelBatchError(5, 0, 0, 5), "all failed exits non-zero")
+	assert.Equal(t, ExitIncomplete, classifyExitCode(parallelBatchError(4, 0, 0, 5)), "partial failure is incomplete")
+	assert.Equal(t, ExitIncomplete, classifyExitCode(parallelBatchError(99, 0, 0, 100)), "99 of 100 failed is incomplete")
+	assert.Equal(t, ExitError, classifyExitCode(parallelBatchError(5, 0, 0, 5)), "all failed exits 1")
 	assert.Error(t, parallelBatchError(1, 0, 0, 1), "single failed target exits non-zero")
 
-	// Interrupt handling: a full stop (nothing finished) is non-zero, but a
-	// partial interrupt — some targets completed before Ctrl-C — exits clean.
-	assert.Error(t, parallelBatchError(0, 5, 0, 5), "full interrupt before any success exits non-zero")
-	assert.Error(t, parallelBatchError(2, 3, 0, 5), "all targets failed or interrupted exits non-zero")
-	assert.NoError(t, parallelBatchError(0, 3, 0, 5), "partial interrupt with successes exits clean")
-	assert.NoError(t, parallelBatchError(1, 2, 0, 5), "some succeeded despite interrupt exits clean")
+	// Interrupt handling: a full stop (nothing finished) is an error, a
+	// partial interrupt — some targets completed before Ctrl-C — is incomplete.
+	assert.Equal(t, ExitError, classifyExitCode(parallelBatchError(0, 5, 0, 5)), "full interrupt before any success")
+	assert.Equal(t, ExitError, classifyExitCode(parallelBatchError(2, 3, 0, 5)), "all targets failed or interrupted")
+	assert.Equal(t, ExitIncomplete, classifyExitCode(parallelBatchError(0, 3, 0, 5)), "partial interrupt is incomplete")
+	assert.Equal(t, ExitIncomplete, classifyExitCode(parallelBatchError(1, 2, 0, 5)), "some succeeded despite interrupt")
+}
+
+// TestResumeManifestPersistsDoneIndices: a target that finished out of order
+// (after a failed one) is recorded in done_indices and skipped on resume.
+func TestResumeManifestPersistsDoneIndices(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "m.progress.json")
+	m := newResumeManifest(path, "out.jsonl", []string{"jsonl"}, []string{"t.txt"}, "fp")
+	assert.True(t, m.markDone(0, "a", childStats{records: 1}))
+	// index 1 failed; 2 and 3 finished.
+	assert.True(t, m.markDone(2, "c", childStats{records: 2, findings: 1}))
+	assert.True(t, m.markDone(3, "d", childStats{records: 3}))
+	assert.NoError(t, m.save())
+
+	loaded, ok := loadResumeManifest(path)
+	assert.True(t, ok)
+	assert.Equal(t, 0, loaded.CompletedThrough)
+	assert.False(t, loaded.doneAhead(1), "the failed target is rescanned")
+	assert.True(t, loaded.doneAhead(2))
+	assert.True(t, loaded.doneAhead(3))
+	carry := loaded.carryover()
+	assert.Equal(t, 3, carry.count)
+	assert.Equal(t, 6, carry.stats.records)
+	// Filling the gap advances the cursor over the persisted completions.
+	assert.True(t, loaded.markDone(1, "b", childStats{}))
+	assert.Equal(t, 3, loaded.CompletedThrough)
+	assert.Equal(t, 6, loaded.Records)
+}
+
+// TestPreserveFailedConsoles: --db-isolate -P removes its staging directory, so
+// a failed child's console is copied out and the result repointed at it.
+func TestPreserveFailedConsoles(t *testing.T) {
+	staging := t.TempDir()
+	failedLog := filepath.Join(staging, "t001.console.log")
+	okLog := filepath.Join(staging, "t000.console.log")
+	assert.NoError(t, os.WriteFile(failedLog, []byte("boom"), 0o644))
+	assert.NoError(t, os.WriteFile(okLog, []byte("fine"), 0o644))
+	results := []targetResult{
+		{target: "https://ok.test", console: okLog},
+		{target: "https://bad.test/x", console: failedLog, err: errors.New("exit 1")},
+	}
+	dir := failedConsoleDir(filepath.Join(t.TempDir(), "report.jsonl"))
+	preserveFailedConsoles(results, dir)
+	assert.Equal(t, okLog, results[0].console)
+	assert.NotEqual(t, failedLog, results[1].console)
+	assert.True(t, strings.HasPrefix(results[1].console, dir))
+	data, err := os.ReadFile(results[1].console)
+	assert.NoError(t, err)
+	assert.Equal(t, "boom", string(data))
 }
 
 // A gated child scanned fine and tripped --fail-on. The batch must report that
@@ -211,7 +261,7 @@ func TestParallelBatchErrorGate(t *testing.T) {
 	assert.Equal(t, ExitError, classifyExitCode(parallelBatchError(5, 0, 0, 5)),
 		"all failed is still a failure")
 	assert.Equal(t, ExitFailOnGate, classifyExitCode(parallelBatchError(4, 0, 1, 5)),
-		"a partial failure is clean, so the gate decides")
+		"the gate outranks incomplete")
 
 	// An interrupt that stopped everything outranks the gate too: the batch did
 	// not finish, so its verdict is incomplete.
