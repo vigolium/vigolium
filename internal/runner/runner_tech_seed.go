@@ -19,9 +19,9 @@ import (
 // confidence or better are kept: the tech gate EXCLUDES modules on a positive
 // identification, so a low-confidence guess must not be one.
 //
-// Without it the dynamic-assessment tech registry started empty and the gate
-// failed open on every host until a passive fingerprint module happened to
-// re-detect the stack mid-phase (MISS-21).
+// Without it the dynamic-assessment tech registry would start empty and the
+// gate fail open on every host until a passive fingerprint module happened to
+// re-detect the stack mid-phase.
 func (r *Runner) techByHostFromStoredFacts(ctx context.Context) map[string][]string {
 	if r.repository == nil {
 		return nil
@@ -30,20 +30,14 @@ func (r *Runner) techByHostFromStoredFacts(ctx context.Context) map[string][]str
 	if project == "" {
 		project = database.DefaultProjectUUID
 	}
-	rows, _, err := r.repository.ListHostObservationsWithCount(ctx, database.HostObservationQuery{
-		ProjectUUID: project,
-		Has:         "fingerprint",
-	})
+	reports, err := r.storedFingerprints(ctx, project, "")
 	if err != nil {
 		zap.L().Debug("tech seed: reading stored host facts failed", zap.Error(err))
 		return nil
 	}
 	out := make(map[string][]string)
-	for _, row := range rows {
-		if row.Fingerprint == nil {
-			continue
-		}
-		key := registryKeyForEndpoint(row.Hostname, row.Port)
+	for ep, report := range reports {
+		key := registryKeyForEndpoint(ep.host, ep.port)
 		if key == "" {
 			continue
 		}
@@ -51,7 +45,7 @@ func (r *Runner) techByHostFromStoredFacts(ctx context.Context) map[string][]str
 		for _, t := range out[key] {
 			seen[t] = struct{}{}
 		}
-		for _, tag := range stackTagsFromReport(row.Fingerprint) {
+		for _, tag := range stackTagsFromReport(report) {
 			if _, dup := seen[tag]; dup {
 				continue
 			}
@@ -60,6 +54,32 @@ func (r *Runner) techByHostFromStoredFacts(ctx context.Context) map[string][]str
 		}
 	}
 	return out
+}
+
+// fingerprintEndpoint keys a stored fingerprint: lowercased hostname and port.
+type fingerprintEndpoint struct {
+	host string
+	port int
+}
+
+// storedFingerprints returns the latest fingerprint report host_observations
+// holds per endpoint in projectUUID ("" reads every project), limited to
+// scanUUID's observations when set. The one reader of stored fingerprints for
+// the tech-registry seed and the known-issue scan's tech selection.
+func (r *Runner) storedFingerprints(ctx context.Context, projectUUID, scanUUID string) (map[fingerprintEndpoint]*recon.TechStackReport, error) {
+	rows, _, err := r.repository.ListHostObservationsWithCount(ctx, database.HostObservationQuery{
+		ProjectUUID: projectUUID, ScanUUID: scanUUID, Has: "fingerprint",
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[fingerprintEndpoint]*recon.TechStackReport, len(rows))
+	for _, row := range rows {
+		if row.Fingerprint != nil {
+			out[fingerprintEndpoint{host: strings.ToLower(row.Hostname), port: row.Port}] = row.Fingerprint
+		}
+	}
+	return out, nil
 }
 
 // stackTagsFromReport returns the gating stack tags of report's detections at

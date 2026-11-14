@@ -909,7 +909,7 @@ func runLocalIngestScan(settings *config.Settings, db *database.DB, repo *databa
 	// can never see.
 	opts.ProjectUUID = ingestScanProjectUUID
 	// A capture names many hosts; scan only its primary one unless -t or
-	// --scope-origin all says otherwise (SAFE-4).
+	// --scope-origin all says otherwise.
 	opts.ScopeTargets, opts.ScopeCensus = ingestScanScope(settings)
 	if scanUUID == "" {
 		scan := &database.Scan{

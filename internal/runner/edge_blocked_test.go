@@ -11,7 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// TestPhase_EdgeBlockedMarksPartial is RES-5: a phase whose traffic a WAF
+// TestPhase_EdgeBlockedMarksPartial: a phase whose traffic a WAF
 // challenged ends partial with edge_blocked and names the host, and the
 // coverage caveats say so — a blocked scan never reads "complete, 0 findings".
 func TestPhase_EdgeBlockedMarksPartial(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/spider"
 	"github.com/vigolium/vigolium/pkg/deparos/spider/formparser"
 	"github.com/vigolium/vigolium/pkg/safety"
+	"github.com/vigolium/vigolium/pkg/types"
 )
 
 // ReplaySafety is the method-level safety ladder for JS-extracted request replay.
@@ -84,11 +85,10 @@ func (p ReplaySafety) AllowsFact(fact *jstangle.HTTPRequestFact) bool {
 }
 
 // AllowsForm reports whether the policy permits submitting form during
-// discovery (SAFE-7). Forms used to be sent with only scope and dedup checks,
-// with session headers attached. A GET form needs read-only or above; any
+// discovery, where it is sent with session headers attached. A GET form needs read-only or above; any
 // other method needs state-changing. Never, under any policy: a form with a
 // password input (authentication is the login flow's job), a form whose
-// _method override names DELETE/PUT/PATCH, or one whose action, name, id,
+// method override field names DELETE/PUT/PATCH, or one whose action, name, id,
 // class or submit label reads as destructive (pkg/safety).
 func (p ReplaySafety) AllowsForm(method string, form *spider.FormRequest) bool {
 	return p.FormWithheldReason(method, form) == ""
@@ -119,8 +119,7 @@ func (p ReplaySafety) FormWithheldReason(method string, form *spider.FormRequest
 		if in.Type == formparser.InputTypePassword {
 			return "form:password"
 		}
-		switch strings.ToLower(in.Name) {
-		case "_method", "_httpmethod", "x-http-method-override":
+		if isMethodOverrideField(in.Name) {
 			switch strings.ToUpper(strings.TrimSpace(in.Value)) {
 			case "DELETE", "PUT", "PATCH":
 				return "form:method-override"
@@ -152,4 +151,20 @@ func (p ReplaySafety) FormWithheldReason(method string, form *spider.FormRequest
 		}
 	}
 	return "method:" + method
+}
+
+// isMethodOverrideField reports whether a form field names the method the
+// server should apply: a framework's _method/_httpmethod field, or a field
+// named like one of the method-override headers.
+func isMethodOverrideField(name string) bool {
+	switch strings.ToLower(name) {
+	case "_method", "_httpmethod":
+		return true
+	}
+	for _, h := range types.MethodOverrideHeaders {
+		if strings.EqualFold(name, h) {
+			return true
+		}
+	}
+	return false
 }

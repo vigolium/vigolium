@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Structural near-duplicate detection (MISS-28a). State identity is the exact
+// Structural near-duplicate detection. State identity is the exact
 // hash of the stripped DOM, so two renderings of the same template that differ
 // in a counter, a timestamp or one list item were two states, and the crawl
 // spent its budget re-exploring each. StructID is a SimHash over the DOM's

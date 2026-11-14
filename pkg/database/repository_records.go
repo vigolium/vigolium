@@ -198,7 +198,7 @@ type RecordAdoption struct {
 	Source  string
 }
 
-// AdoptRecords applies a batch of adoptions in ONE transaction (ECON-10): the
+// AdoptRecords applies a batch of adoptions in ONE transaction: the
 // record writer used to issue one autocommit UPDATE per deduplicated record,
 // so a duplicate-heavy batch paid a commit (and on SQLite an fsync) per row.
 // Best-effort like AdoptRecord: a failed batch is logged, never returned.
@@ -1050,29 +1050,79 @@ func (r *Repository) OverwriteRecordResponseBody(ctx context.Context, uuid strin
 	return nil
 }
 
+// HasRecordsFromSources reports whether projectUUID holds any record whose
+// source is one of sources (an index probe on (project_uuid, source)).
+func (r *Repository) HasRecordsFromSources(ctx context.Context, projectUUID string, sources []string) (bool, error) {
+	if len(sources) == 0 {
+		return false, nil
+	}
+	return r.db.NewSelect().Model((*HTTPRecord)(nil)).
+		Where("project_uuid = ?", defaultProjectUUID(projectUUID)).
+		Where("source IN (?)", bun.List(sources)).
+		Exists(ctx)
+}
+
 // GetRecordsWithResponseBody returns HTTP records that have a non-empty response body,
 // using UUID-based cursor pagination. Only columns needed for batch secret scanning are selected.
 func (r *Repository) GetRecordsWithResponseBody(ctx context.Context, projectUUID, afterUUID string, limit int, hosts ...HostTarget) ([]*HTTPRecord, error) {
-	var records []*HTTPRecord
-	q := r.db.NewSelect().
-		Model(&records).
-		Column("uuid", "hostname", "url", "has_response", "raw_response", "response_content_type").
-		Where("has_response = ?", true).
-		Where("raw_response IS NOT NULL").
-		Where("length(raw_response) > 0")
-	if projectUUID != "" {
-		q = q.Where("project_uuid = ?", projectUUID)
+	records, _, _, err := r.GetRecordsWithResponseBodyPage(ctx, projectUUID, afterUUID, limit, nil, hosts...)
+	return records, err
+}
+
+// GetRecordsWithResponseBodyPage is GetRecordsWithResponseBody with a filter
+// applied before any body is read: it pages the matching uuids (after
+// afterUUID, at most limit), then fetches the secret-scan columns only for the
+// uuids keep accepts (all of them when keep is nil, in one query). It returns
+// the kept records in uuid order, the page's last uuid (the next cursor) and
+// the page size before filtering; a page shorter than limit is the last.
+func (r *Repository) GetRecordsWithResponseBodyPage(ctx context.Context, projectUUID, afterUUID string, limit int, keep func(uuid string) bool, hosts ...HostTarget) (records []*HTTPRecord, last string, pageLen int, err error) {
+	page := func(q *bun.SelectQuery) *bun.SelectQuery {
+		q = q.Where("has_response = ?", true).
+			Where("raw_response IS NOT NULL").
+			Where("length(raw_response) > 0")
+		if projectUUID != "" {
+			q = q.Where("project_uuid = ?", projectUUID)
+		}
+		// Optional in-scope origin filter — empty means all project records.
+		q = applyHostScopeFilter(q, hosts)
+		if afterUUID != "" {
+			q = q.Where("uuid > ?", afterUUID)
+		}
+		return q.OrderExpr("uuid ASC").Limit(int64(limit))
 	}
-	// Optional in-scope origin filter — empty means all project records.
-	q = applyHostScopeFilter(q, hosts)
-	if afterUUID != "" {
-		q = q.Where("uuid > ?", afterUUID)
+	columns := []string{"uuid", "hostname", "url", "has_response", "raw_response", "response_content_type"}
+	if keep == nil {
+		if err := page(r.db.NewSelect().Model(&records).Column(columns...)).Scan(ctx); err != nil {
+			return nil, "", 0, fmt.Errorf("failed to query records with response body: %w", err)
+		}
+		if len(records) > 0 {
+			last = records[len(records)-1].UUID
+		}
+		return records, last, len(records), nil
 	}
-	err := q.OrderExpr("uuid ASC").Limit(int64(limit)).Scan(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query records with response body: %w", err)
+	var uuids []string
+	if err := page(r.db.NewSelect().Model((*HTTPRecord)(nil)).Column("uuid")).Scan(ctx, &uuids); err != nil {
+		return nil, "", 0, fmt.Errorf("failed to query records with response body: %w", err)
 	}
-	return records, nil
+	if len(uuids) == 0 {
+		return nil, "", 0, nil
+	}
+	kept := uuids[:0:0]
+	for _, id := range uuids {
+		if keep(id) {
+			kept = append(kept, id)
+		}
+	}
+	last, pageLen = uuids[len(uuids)-1], len(uuids)
+	if len(kept) == 0 {
+		return nil, last, pageLen, nil
+	}
+	if err := r.db.NewSelect().Model(&records).Column(columns...).
+		Where("uuid IN (?)", bun.List(kept)).
+		OrderExpr("uuid ASC").Scan(ctx); err != nil {
+		return nil, "", 0, fmt.Errorf("failed to query records with response body: %w", err)
+	}
+	return records, last, pageLen, nil
 }
 
 // WalkJavaScriptRecords streams JavaScript responses already stored for a host by
@@ -1370,7 +1420,7 @@ func parseTargetOrigins(targets []string) map[string]struct{} {
 // while {Scheme,Hostname,Port} matches the exact origin.
 //
 // The origins are grouped by which fields they constrain into at most four
-// row-value IN terms under one hostname IN prefilter (MISS-36). One OR term
+// row-value IN terms under one hostname IN prefilter. One OR term
 // per origin nested the expression past SQLite's depth limit (1000) on a
 // large host list, and assessment paging failed outright.
 func applyHostScopeFilter(q *bun.SelectQuery, hosts []HostTarget) *bun.SelectQuery {

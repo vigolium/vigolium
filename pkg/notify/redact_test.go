@@ -23,7 +23,7 @@ func (c *captureBackend) Send(r *output.ResultEvent) error {
 func (c *captureBackend) SendRaw(string) error { return nil }
 func (c *captureBackend) Close()               {}
 
-// SAFE-12: notifications carry a redacted clone; the caller's event is
+// Notifications carry a redacted clone; the caller's event is
 // untouched.
 func TestManagerSendRedactsClone(t *testing.T) {
 	be := &captureBackend{}

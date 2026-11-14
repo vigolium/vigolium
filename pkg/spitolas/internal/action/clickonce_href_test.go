@@ -6,7 +6,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
 )
 
-// MISS-28b: a navigable link is clicked once per crawl, whatever state shows
+// A navigable link is clicked once per crawl, whatever state shows
 // it; a non-link element (a wizard "Next" button) stays per-state.
 func TestClickOnce_NavigableLinkAcrossStates(t *testing.T) {
 	cfg, err := config.New("https://app.test/")

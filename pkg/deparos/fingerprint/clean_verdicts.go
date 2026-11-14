@@ -2,11 +2,12 @@ package fingerprint
 
 import (
 	"net/url"
-	"sync"
 	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
-// Clean-verdict cache bounds (ECON-8).
+// Clean-verdict cache bounds.
 const (
 	cleanVerdictTTL = 10 * time.Minute
 	cleanVerdictMax = 4096
@@ -15,17 +16,21 @@ const (
 // cleanVerdicts remembers (host, directory, extension) groups whose last
 // sibling validation found no catch-all, so the next unmatched hit there is
 // re-checked with one probe instead of four. Entries expire after the TTL so a
-// catch-all that appears later is still caught.
+// catch-all that appears later is still caught; past maxEntries the least
+// recently marked group is dropped.
+//
+// A plain LRU with the mark time as value rather than the expirable LRU: that
+// one starts a cleanup goroutine per cache that never exits, and a comparator
+// is built per discovery run.
 type cleanVerdicts struct {
-	mu      sync.Mutex
 	ttl     time.Duration
-	max     int
-	entries map[string]time.Time
+	entries *lru.Cache[string, time.Time]
 	now     func() time.Time
 }
 
 func newCleanVerdicts(maxEntries int, ttl time.Duration) *cleanVerdicts {
-	return &cleanVerdicts{ttl: ttl, max: maxEntries, entries: make(map[string]time.Time), now: time.Now}
+	entries, _ := lru.New[string, time.Time](max(maxEntries, 1))
+	return &cleanVerdicts{ttl: ttl, entries: entries, now: time.Now}
 }
 
 func cleanVerdictKey(u *url.URL, key CacheKey) string {
@@ -37,46 +42,17 @@ func cleanVerdictKey(u *url.URL, key CacheKey) string {
 }
 
 func (c *cleanVerdicts) fresh(k string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	at, ok := c.entries[k]
+	at, ok := c.entries.Peek(k)
 	if !ok {
 		return false
 	}
 	if c.now().Sub(at) > c.ttl {
-		delete(c.entries, k)
+		c.entries.Remove(k)
 		return false
 	}
 	return true
 }
 
-func (c *cleanVerdicts) mark(k string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, ok := c.entries[k]; !ok && len(c.entries) >= c.max {
-		now := c.now()
-		for ek, at := range c.entries {
-			if now.Sub(at) > c.ttl {
-				delete(c.entries, ek)
-			}
-		}
-		// Still full: drop the oldest entry.
-		if len(c.entries) >= c.max {
-			var oldestK string
-			var oldest time.Time
-			for ek, at := range c.entries {
-				if oldestK == "" || at.Before(oldest) {
-					oldestK, oldest = ek, at
-				}
-			}
-			delete(c.entries, oldestK)
-		}
-	}
-	c.entries[k] = c.now()
-}
+func (c *cleanVerdicts) mark(k string) { c.entries.Add(k, c.now()) }
 
-func (c *cleanVerdicts) forget(k string) {
-	c.mu.Lock()
-	delete(c.entries, k)
-	c.mu.Unlock()
-}
+func (c *cleanVerdicts) forget(k string) { c.entries.Remove(k) }

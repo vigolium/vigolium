@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// MISS-7: auth walls are kept per path by default (capped at 25 per host);
+// Auth walls are kept per path by default (capped at 25 per host);
 // only 429 still collapses to one record per host.
 func TestDeparosDedupDefaults(t *testing.T) {
 	var c DeparosDedupConfig

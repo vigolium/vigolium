@@ -4,8 +4,22 @@ import (
 	"strings"
 )
 
+// HeaderNameSet is the lowercased name set of "Name: value" header strings
+// (the operator's -H headers), the extra set HTTPMessage takes.
+func HeaderNameSet(headers []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(headers))
+	for _, h := range headers {
+		if name, _, ok := strings.Cut(h, ":"); ok {
+			if n := strings.ToLower(strings.TrimSpace(name)); n != "" {
+				out[n] = struct{}{}
+			}
+		}
+	}
+	return out
+}
+
 // HTTPMessage redacts a raw HTTP request or response dump for a shareable
-// artifact (SAFE-12): the value of every credential header (HeaderNames, any
+// artifact: the value of every credential header (HeaderNames, any
 // header IsSensitiveName flags, and extra — lowercased operator -H and
 // live-session header names), every cookie value in Cookie / Set-Cookie
 // (names and cookie attributes kept, so the exchange's shape survives), and

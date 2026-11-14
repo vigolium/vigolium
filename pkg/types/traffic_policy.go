@@ -2,7 +2,7 @@ package types
 
 import "strings"
 
-// TrafficPolicy is the scan's per-method traffic policy (SAFE-8), resolved
+// TrafficPolicy is the scan's per-method traffic policy, resolved
 // once by the runner from scope.methods and read by every sender: the
 // requester (chokepoint), the executor (method_policy skip), discovery, the
 // browser crawler and the known-issue scan. A nil *TrafficPolicy allows

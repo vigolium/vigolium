@@ -9,7 +9,7 @@ import (
 	"github.com/grafana/sobek"
 )
 
-// SAFE-14: an empty sandbox_dir means the working directory, not anywhere.
+// An empty sandbox_dir means the working directory, not anywhere.
 func TestResolveSandboxPath_EmptyMeansCwd(t *testing.T) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -23,7 +23,7 @@ func TestResolveSandboxPath_EmptyMeansCwd(t *testing.T) {
 	}
 }
 
-// SAFE-14: the JS call bound follows extensions.limits.timeout.
+// The JS call bound follows extensions.limits.timeout.
 func TestCallJSWithTimeout_UsesConfiguredLimit(t *testing.T) {
 	SetCallTimeout(150 * time.Millisecond)
 	defer SetCallTimeout(0)
@@ -46,7 +46,7 @@ func TestCallJSWithTimeout_UsesConfiguredLimit(t *testing.T) {
 	}
 }
 
-// NEW-3: an https URL connects over https on 443, not plain http.
+// An https URL connects over https on 443, not plain http.
 func TestServiceForRequest(t *testing.T) {
 	svc := serviceForRequest("https://app.test/x", "app.test")
 	if svc == nil || svc.Protocol() != "https" || svc.Port() != 443 {

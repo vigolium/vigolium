@@ -166,7 +166,7 @@ func doRawRequest(vm *sobek.Runtime, httpClient *http.Requester, rawReq string) 
 
 // doRawRequestTo sends rawReq to targetURL's scheme/host/port when known, else
 // to the Host header (https for port 443). It used to connect over plain http
-// whatever the URL said (NEW-3).
+// whatever the URL said.
 func doRawRequestTo(vm *sobek.Runtime, httpClient *http.Requester, rawReq, targetURL string) sobek.Value {
 	req := httpmsg.NewHttpRequest([]byte(rawReq))
 

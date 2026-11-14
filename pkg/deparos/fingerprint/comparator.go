@@ -308,7 +308,7 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 	// Only the prefix-BREAKING probes (Prefix, Middle) decide the verdict, so
 	// they go first; the prefix-preserving ones (Suffix, Extension) are fetched
 	// only when a wildcard is being learned. A directory/extension that came
-	// back clean recently is re-checked with the Middle probe alone (ECON-8).
+	// back clean recently is re-checked with the Middle probe alone.
 	decisive := []PathVariation{VariationPrefix, VariationMiddle}
 	cleanKey := cleanVerdictKey(targetURL, key)
 	if c.clean != nil && c.clean.fresh(cleanKey) {

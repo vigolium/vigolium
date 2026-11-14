@@ -14,7 +14,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
-// SAFE-4 (REST): a HAR naming several hosts is scoped to its primary host;
+// A HAR naming several hosts is scoped to its primary host;
 // the third-party records are stored as context, which scan-on-receive never
 // scans.
 func TestIngestHTTP_DerivesScopeFromCapture(t *testing.T) {

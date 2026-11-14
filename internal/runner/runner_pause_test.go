@@ -9,7 +9,7 @@ import (
 
 // TestRunnerPauseDoesNotBlockOnStuckWorker: Pause returns at once even while a
 // worker is stuck mid-dispatch, and PauseState reports "pausing" until it
-// releases (MISS-39). The server handler calls Pause under its scan lock, so a
+// releases. The server handler calls Pause under its scan lock, so a
 // blocking Pause hung stop/status for every project.
 func TestRunnerPauseDoesNotBlockOnStuckWorker(t *testing.T) {
 	r := &Runner{pauseCtrl: core.NewPauseController()}

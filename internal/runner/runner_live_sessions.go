@@ -153,7 +153,7 @@ func (r *Runner) onLiveSessionEvent(ev authentication.LiveEvent) {
 		if ok {
 			r.printPhaseDetail(fmt.Sprintf("session %s expired and was logged in again (credential generation %d)",
 				terminal.HiBlue(ev.Session), ev.Gen))
-			// Browser crawls re-apply the new credentials (MISS-26).
+			// Browser crawls re-apply the new credentials.
 			r.relogins.notify()
 		}
 	case authentication.LiveEventLost:

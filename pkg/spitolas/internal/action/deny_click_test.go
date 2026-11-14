@@ -6,7 +6,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
 )
 
-// SAFE-9: the default destructive-click guard drops "Sign out", an href to
+// The default destructive-click guard drops "Sign out", an href to
 // /account/delete and an aria-label "Delete item", keeps "Next", exempts
 // hover, and an empty pattern disables it.
 func TestDenyClickPattern_DefaultGuard(t *testing.T) {
@@ -58,7 +58,7 @@ func TestDenyAttrValues(t *testing.T) {
 	}
 }
 
-// MISS-26: with auth configured the crawl never clicks a logout control, even
+// With auth configured the crawl never clicks a logout control, even
 // when the destructive-click guard is turned off.
 func TestAuthenticatedCrawlNeverClicksLogout(t *testing.T) {
 	cfg, err := config.New("https://app.example.com/")

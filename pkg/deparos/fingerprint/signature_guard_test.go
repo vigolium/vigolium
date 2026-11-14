@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// MISS-8e: a baseline learned during a 429 burst, with an unstable status, or
+// A baseline learned during a 429 burst, with an unstable status, or
 // from bodies too varied to leave 3 stable attributes is refused; an empty
 // signature never matches.
 func TestNewSignatureRefusesUnusableBaselines(t *testing.T) {

@@ -123,8 +123,8 @@ type FindingWriter struct {
 	saveBatch func(context.Context, []FindingWrite) []FindingSaveResult
 
 	// onInserted, when set, is called for every finding persisted as a NEW
-	// row (not a dedup-append), so notifications fire only for new findings
-	// (SAFE-12). Called from the writer goroutine (or the inline saver).
+	// row (not a dedup-append), so notifications fire only for new findings.
+	// Called from the writer goroutine (or the inline saver).
 	onInserted atomic.Pointer[func(*output.ResultEvent)]
 
 	enqueued     atomic.Int64

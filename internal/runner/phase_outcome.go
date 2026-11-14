@@ -445,7 +445,7 @@ func DirectTargetTally(target string, rep core.ExecutionReport, failures []core.
 }
 
 // reserveAfter is the share of the scan's remaining time a phase must leave
-// for the phases after it (ECON-5): the configured reserves of dynamic
+// for the phases after it: the configured reserves of dynamic
 // assessment and known-issue scan for every phase before the assessment, the
 // known-issue reserve for the assessment, nothing for the last phase.
 func (r *Runner) reserveAfter(phase string) float64 {

@@ -833,8 +833,9 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	// scan-on-receive watches every project, not just the default: one
-	// receiver (runner + its own cursor row) per project, started as projects
-	// appear. Full-native-on-receive stays on the default project.
+	// receiver (runner + its own cursor row) per project, started once the
+	// project holds ingested traffic. Full-native-on-receive stays on the
+	// default project.
 	var receivers *projectReceivers
 	if scanRunner != nil && globalScanOnReceive && !globalFullNativeScanOnReceive && repo != nil {
 		receivers = newProjectReceivers(func(projectUUID string) (receiver, error) {

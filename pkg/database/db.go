@@ -921,8 +921,9 @@ func (db *DB) renderDDL(tmpl string) string {
 //	   (RekeyFindingIdentities), merging rows that share it and keeping every
 //	   old hash as an alias. A pre-v6 binary would hash re-detections the old
 //	   way and fork every re-keyed finding, so it must not write a v6 store.
-//	   Track B's scan_record_progress / scans.coverage_modules and the
-//	   scans.module_stats / oast_sessions additions ride the same version.
+//	   scan_record_progress / scans.coverage_modules, scans.module_stats,
+//	   oast_sessions and the drop of idx_records_project_risk_score (covered
+//	   by idx_records_project_risk_order) ride the same version.
 const currentSchemaVersion = 6
 
 // legacyBackfillsVersion is the version that gated the pre-versioning backfills
@@ -1141,12 +1142,15 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 		}
 	}
 
-	// Known-issue-scan evidence used to be stored with source "spa", which no
-	// evidence filter knew, so it was rescanned as input. Relabel it once
-	// (schema v6; idempotent: nothing writes "spa" any more).
+	// Schema v6: relabel known-issue-scan evidence stored under the legacy
+	// source "spa", which no evidence filter knew, so it was rescanned as input
+	// (idempotent: nothing writes "spa" now). Drop idx_records_project_risk_score,
+	// whose prefix idx_records_project_risk_order covers.
 	if storedVersion < identityV2Version {
 		db.execBestEffort(ctx, "relabel known-issue evidence records",
 			"UPDATE http_records SET source = ? WHERE source = ?", RecordSourceFinding, legacyKISEvidenceSource)
+		db.execBestEffort(ctx, "drop superseded index idx_records_project_risk_score",
+			"DROP INDEX IF EXISTS idx_records_project_risk_score")
 	}
 
 	// Record the version so the next open can skip the gated work above. Done last

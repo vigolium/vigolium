@@ -18,7 +18,7 @@ func ipEvent(desc string) *output.ResultEvent {
 	return ev
 }
 
-// TestRedetection_DifferentProseIsOneRow is RES-2b: the same location found
+// TestRedetection_DifferentProseIsOneRow: the same location found
 // again with a different measured delay updates one row, reopens `fixed`, and
 // records who reopened it.
 func TestRedetection_DifferentProseIsOneRow(t *testing.T) {

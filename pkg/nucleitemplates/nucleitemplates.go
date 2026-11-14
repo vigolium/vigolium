@@ -5,8 +5,6 @@
 package nucleitemplates
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,10 +14,11 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/vigolium/vigolium/pkg/dbimport"
 )
 
 // MarkerFile is written into the templates directory after an install.
@@ -202,65 +201,11 @@ func Install(ctx context.Context, dir string, pin Pin) (*Marker, error) {
 }
 
 // extract unpacks a .tar.gz into dst, dropping the archive's top-level
-// directory and refusing entries that escape dst or are links.
+// directory and refusing entries that escape dst; links are not written.
 func extract(archive, dst string) error {
-	f, err := os.Open(archive)
+	files, err := dbimport.ExtractTarGz(archive, dst, true)
 	if err != nil {
 		return err
-	}
-	defer func() { _ = f.Close() }()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = gz.Close() }()
-	tr := tar.NewReader(gz)
-	files := 0
-	for {
-		hdr, err := tr.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		name := path.Clean(strings.TrimPrefix(hdr.Name, "./"))
-		if i := strings.IndexByte(name, '/'); i >= 0 {
-			name = name[i+1:]
-		} else {
-			continue // the top-level directory itself
-		}
-		if name == "" || name == "." || strings.HasPrefix(name, "../") || path.IsAbs(name) {
-			continue
-		}
-		target := filepath.Join(dst, filepath.FromSlash(name))
-		if !strings.HasPrefix(target, filepath.Clean(dst)+string(filepath.Separator)) {
-			return fmt.Errorf("archive entry %q escapes the destination", hdr.Name)
-		}
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return err
-			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(out, io.LimitReader(tr, hdr.Size)); err != nil {
-				_ = out.Close()
-				return err
-			}
-			if err := out.Close(); err != nil {
-				return err
-			}
-			files++
-		default:
-			// symlinks, devices: not needed by templates, never followed.
-		}
 	}
 	if files == 0 {
 		return errors.New("archive contained no files")

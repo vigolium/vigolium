@@ -29,19 +29,27 @@ func (r *Repository) SaveOASTPayloads(ctx context.Context, payloads []*OASTPaylo
 	return nil
 }
 
-// SetOASTPayloadValue records the literal value planted for nonce (see
-// oast.Service.RecordPayload) on an already stored payload row.
-func (r *Repository) SetOASTPayloadValue(ctx context.Context, nonce, payload string) error {
-	if nonce == "" {
+// SetOASTPayloadValues records the literal values planted (see
+// oast.Service.RecordPayload) on already stored payload rows, nonce → value,
+// in one transaction.
+func (r *Repository) SetOASTPayloadValues(ctx context.Context, values map[string]string) error {
+	if len(values) == 0 {
 		return nil
 	}
-	if _, err := r.db.NewUpdate().Model((*OASTPayload)(nil)).
-		Set("payload = ?", payload).
-		Where("nonce = ?", nonce).
-		Exec(ctx); err != nil {
-		return fmt.Errorf("failed to update OAST payload: %w", err)
-	}
-	return nil
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		for nonce, payload := range values {
+			if nonce == "" {
+				continue
+			}
+			if _, err := tx.NewUpdate().Model((*OASTPayload)(nil)).
+				Set("payload = ?", payload).
+				Where("nonce = ?", nonce).
+				Exec(ctx); err != nil {
+				return fmt.Errorf("failed to update OAST payload: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // oastPayloadLookupChunk bounds the IN list of one lookup query, well under

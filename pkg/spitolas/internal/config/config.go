@@ -201,20 +201,20 @@ type Config struct {
 	ClickSelectors   []string // CSS selectors for clickables
 	ExcludeSelectors []string // CSS selectors to exclude
 	// DenyClickPattern is a case-insensitive regex; a click candidate whose
-	// text, href, aria-label, title or value matches it is never clicked
-	// (SAFE-9). Hover candidates are exempt. Empty disables the guard. The
+	// text, href, aria-label, title or value matches it is never clicked.
+	// Hover candidates are exempt. Empty disables the guard. The
 	// default is pkg/safety's destructive pattern (log out, delete, remove,
 	// deactivate, unsubscribe, close account, …).
 	DenyClickPattern string
-	// MethodAllowed, when set, is the scan's traffic policy (SAFE-8): the
+	// MethodAllowed, when set, is the scan's traffic policy: the
 	// browser fails any request whose method it refuses (BlockedByClient).
 	MethodAllowed func(method string) bool
-	// AuthMonitor, when set, is the scan's live session (MISS-26): the crawl
+	// AuthMonitor, when set, is the scan's live session: the crawl
 	// re-applies its credentials when they change (a re-login) and when a
 	// page lands on a login form after an authenticated start.
 	AuthMonitor AuthMonitor
-	// BlockResources fails font and media requests and third-party images
-	// (ECON-9). First-party images are never blocked. Default true.
+	// BlockResources fails font and media requests and third-party images.
+	// First-party images are never blocked. Default true.
 	BlockResources               bool
 	DontClickSelectors           []string
 	DontClickChildrenOfSelectors []string
@@ -1115,7 +1115,7 @@ func (c *Config) SetLoginCredentialAttempts(enabled, fullList bool) *Config {
 	return c
 }
 
-// AuthMonitor is the crawl's view of the scan's live session (MISS-26).
+// AuthMonitor is the crawl's view of the scan's live session.
 type AuthMonitor interface {
 	// Observe feeds a response the session's logged-out detector.
 	Observe(gen uint64, status int, h http.Header, body []byte)

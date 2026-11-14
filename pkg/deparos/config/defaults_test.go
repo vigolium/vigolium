@@ -131,7 +131,7 @@ func TestAllowedObservedExtensions(t *testing.T) {
 }
 
 func TestDefaultBackupExtensions(t *testing.T) {
-	// MISS-6: templates over the discovered file, ~40 of them.
+	// Templates over the discovered file, ~40 of them.
 	assert.GreaterOrEqual(t, len(DefaultBackupExtensions), 35)
 	assert.LessOrEqual(t, len(DefaultBackupExtensions), 50)
 	for _, tmpl := range []string{"{f}~", "{f}.bak", ".{f}.swp", "{n}.bak", "{n}_old.{e}", "{f}.1", "{f}.zip"} {

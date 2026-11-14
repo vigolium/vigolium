@@ -6,7 +6,7 @@ import (
 )
 
 // The ledger upsert only moves forward and unions passive_done; done_bits is
-// written whole (ECON-4).
+// written whole.
 func TestProgressWriterUpsert(t *testing.T) {
 	db := newTestDB(t)
 	repo := NewRepository(db)

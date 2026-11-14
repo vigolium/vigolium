@@ -133,8 +133,8 @@ type SpideringInteractionConfig struct {
 	LoginAttempts   *bool  `yaml:"login_attempts,omitempty"`   // try default credentials on a confirmed login form (default: by intensity)
 	Dialogs         string `yaml:"dialogs,omitempty"`          // "" or "record-dismiss" (default), "accept-all"
 	// DenyClickPattern is a case-insensitive regex; a click candidate whose
-	// text, href, aria-label, title or value matches it is never clicked
-	// (SAFE-9). Unset = the built-in destructive pattern (log out, sign out,
+	// text, href, aria-label, title or value matches it is never clicked.
+	// Unset = the built-in destructive pattern (log out, sign out,
 	// delete, remove, deactivate, unsubscribe, close/cancel account); "" turns
 	// the guard off. Not a permission category, so it is not in the policy
 	// report.

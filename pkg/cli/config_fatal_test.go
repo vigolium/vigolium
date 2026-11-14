@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestDiscoveredConfigFatal_ExemptsRepairCommands is RUN-8: a broken
+// TestDiscoveredConfigFatal_ExemptsRepairCommands: a broken
 // discovered config stops every command except the ones used to repair it.
 func TestDiscoveredConfigFatal_ExemptsRepairCommands(t *testing.T) {
 	for path, want := range map[string]bool{

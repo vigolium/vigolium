@@ -98,7 +98,8 @@ func TestModuleMetrics_NilReceiver(t *testing.T) {
 
 func TestModuleStatsSnapshot_Add(t *testing.T) {
 	a := ModuleStatsSnapshot{Invocations: 1, Findings: 2, Errors: 3, TotalTime: time.Second, Requests: 4, Inconclusive: 5}
-	got := a.Add(a)
+	got := a
+	got.Add(a)
 	want := ModuleStatsSnapshot{Invocations: 2, Findings: 4, Errors: 6, TotalTime: 2 * time.Second, Requests: 8, Inconclusive: 10}
 	if got != want {
 		t.Fatalf("Add = %+v, want %+v", got, want)

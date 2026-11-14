@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -39,6 +40,15 @@ type OASTSession struct {
 // RedactedOASTSessionColumns are the oast_sessions columns that hold session
 // key material; exports blank them.
 var RedactedOASTSessionColumns = []string{"secret_key", "private_key", "public_key", "token"}
+
+// oastSessionKeysNull is the SET list that blanks RedactedOASTSessionColumns.
+var oastSessionKeysNull = func() string {
+	sets := make([]string, len(RedactedOASTSessionColumns))
+	for i, c := range RedactedOASTSessionColumns {
+		sets[i] = c + " = NULL"
+	}
+	return strings.Join(sets, ", ")
+}()
 
 // SaveOASTSession stores a kept session. A session already stored for the
 // same (project, correlation id) is left as it is.
@@ -84,7 +94,7 @@ func (r *Repository) MarkOASTSessionPolled(ctx context.Context, id int64, at tim
 func (r *Repository) CloseOASTSession(ctx context.Context, id int64, at time.Time) error {
 	_, err := r.db.NewUpdate().Model((*OASTSession)(nil)).
 		Set("closed_at = ?", at).
-		Set("secret_key = NULL").Set("private_key = NULL").Set("public_key = NULL").Set("token = NULL").
+		Set(oastSessionKeysNull).
 		Where("id = ?", id).Exec(ctx)
 	return err
 }
@@ -97,17 +107,6 @@ func (r *Repository) GetOASTPayload(ctx context.Context, projectUUID, nonce stri
 		return nil, err
 	}
 	return rows[nonce], nil
-}
-
-// RedactOASTSessionKeys blanks the session key material in this store (for an
-// exported copy). Missing table is not an error.
-func (db *DB) RedactOASTSessionKeys(ctx context.Context) error {
-	if !db.tableExists(ctx, "oast_sessions") {
-		return nil
-	}
-	_, err := db.ExecContext(ctx,
-		"UPDATE oast_sessions SET secret_key = NULL, private_key = NULL, public_key = NULL, token = NULL")
-	return err
 }
 
 // redactGenericRows blanks secret columns in rows read through the generic
@@ -138,6 +137,6 @@ func RedactOASTSessionKeysInFile(ctx context.Context, path string) error {
 	if err := sqldb.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'oast_sessions'").Scan(&n); err != nil || n == 0 {
 		return err
 	}
-	_, err = sqldb.ExecContext(ctx, "UPDATE oast_sessions SET secret_key = NULL, private_key = NULL, public_key = NULL, token = NULL")
+	_, err = sqldb.ExecContext(ctx, "UPDATE oast_sessions SET "+oastSessionKeysNull)
 	return err
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// TestScanTierCeilingFromResolvedProfile is RUN-2: the tier ceiling follows the
+// TestScanTierCeilingFromResolvedProfile: the tier ceiling follows the
 // resolved profile, not only a typed --intensity, and --safe caps it.
 func TestScanTierCeilingFromResolvedProfile(t *testing.T) {
 	cases := []struct {

@@ -8,7 +8,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/state"
 )
 
-// MISS-29c: with reflected-parameter candidates in the graph, the crawl stops
+// With reflected-parameter candidates in the graph, the crawl stops
 // scheduling early enough to leave the DOM-XSS probe min(45s, MaxDuration/10);
 // without candidates it runs to the drain grace as before.
 func TestShouldTerminateLeavesDOMXSSLead(t *testing.T) {

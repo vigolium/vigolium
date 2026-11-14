@@ -72,7 +72,7 @@ type RecordWriterConfig struct {
 
 	// SurfaceScorer, when set, computes surface_score for a record at ingest
 	// (when the record carries none). Injected so this package stays free of
-	// module code; the runner wires surface_scoring.IngestScore (ECON-5).
+	// module code; the runner wires surface_scoring.IngestScore.
 	SurfaceScorer func(*httpmsg.HttpRequestResponse) int
 
 	// ScanUUID, when set, is stamped on every row this writer INSERTS, unless
@@ -845,7 +845,7 @@ func (w *RecordWriter) flush(ctx context.Context, batch []writeRequest) {
 		}
 	}
 
-	// All of the batch's adoptions go in one transaction (ECON-10).
+	// All of the batch's adoptions go in one transaction.
 	batchAdoptions := make([]RecordAdoption, 0, len(adoptions))
 	for _, i := range adoptions {
 		// RootUUID is only real lineage when it names a DIFFERENT row. A

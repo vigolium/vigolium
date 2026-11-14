@@ -39,7 +39,7 @@ func pathRecorder(t *testing.T, handler func(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-// MISS-3: a directory key learns from children of the directory with the key's
+// A directory key learns from children of the directory with the key's
 // extension on the wire — /api/<rand>.php — never /<rand>api/.
 func TestLearnAndCacheProbesChildrenWithExtension(t *testing.T) {
 	srv, paths := pathRecorder(t, nil)

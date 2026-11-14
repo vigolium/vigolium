@@ -1,4 +1,4 @@
-// Package pathglob matches URL paths against scope globs (SAFE-6).
+// Package pathglob matches URL paths against scope globs.
 //
 // filepath.Match is a file-name matcher: its "*" stops at "/", so the sample
 // config's `/api/*` never excluded `/api/users/1`, and it was handed paths that

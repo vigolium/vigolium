@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// TestPopupURLBecomesFrontierSeed (MISS-29a): a page reachable only through a
+// TestPopupURLBecomesFrontierSeed: a page reachable only through a
 // target=_blank link is browsed into the frontier, so the actions it offers
 // are explored — its button's XHR fires.
 func TestPopupURLBecomesFrontierSeed(t *testing.T) {

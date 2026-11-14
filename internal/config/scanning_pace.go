@@ -46,7 +46,7 @@ type ScanningPaceConfig struct {
 	// rescale the per-phase budgets: it is the cap they share.
 	ScanMaxDuration string `yaml:"scan_max_duration,omitempty"`
 	// Reserve keeps a share of the scan's total time budget
-	// (--scanning-max-duration) for later phases (ECON-5): before dynamic
+	// (--scanning-max-duration) for later phases: before dynamic
 	// assessment starts, an earlier phase's deadline is capped so the sum of the
 	// reserves of the phases still to come stays unspent. Keys are phase ids
 	// with "_" or "-" (dynamic_assessment, known_issue_scan); values 0..1.
@@ -74,7 +74,7 @@ type PhasePace struct {
 	FeedbackDrainTimeout string  `yaml:"feedback_drain_timeout,omitempty"`
 	ActiveModuleTimeout  string  `yaml:"active_module_timeout,omitempty"`
 	// RequestShare caps the phase at this share (0..1] of the --max-requests
-	// budget still unspent when it starts (ECON-5). 0 = the phase default
+	// budget still unspent when it starts. 0 = the phase default
 	// (discovery: 0.4, others: uncapped); 1 = uncapped.
 	RequestShare float64 `yaml:"request_share,omitempty"`
 }

@@ -154,7 +154,7 @@ func TestHarvestProbe_KeepsLiveDropsDeadAndNotFound(t *testing.T) {
 	defer srv.Close()
 	dead := refusedHost(t)
 	// A host that accepts and hangs up is reachable: one failed liveness
-	// request is no reason to delete what the archive saw there (MISS-8c).
+	// request is no reason to delete what the archive saw there.
 	hangup, _ := deadHost(t)
 
 	r, infra, repo, tr := newHarvestProbeRunner(t)

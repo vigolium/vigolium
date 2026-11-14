@@ -9,7 +9,7 @@ import (
 )
 
 // The bucket page query is served in order by idx_records_project_risk_order:
-// no TEMP B-TREE sort (ECON-10). The old single risk_score keyset re-sorted the
+// no TEMP B-TREE sort. The old single risk_score keyset re-sorted the
 // whole equal-score block on every page.
 func TestRiskBucketPageQueryUsesIndexOrder(t *testing.T) {
 	db := newTestDB(t)

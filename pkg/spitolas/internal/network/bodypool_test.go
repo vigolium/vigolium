@@ -8,7 +8,7 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 )
 
-// MISS-29b: a slow response-body fetch runs on the worker pool, so the event
+// A slow response-body fetch runs on the worker pool, so the event
 // goroutine (onLoadingFinished) returns at once and later responses are not
 // held behind it; every entry is still written by Close.
 func TestBodyFetchOffEventLoop(t *testing.T) {

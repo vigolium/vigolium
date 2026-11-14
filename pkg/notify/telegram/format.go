@@ -17,7 +17,7 @@ func FormatResult(result *output.ResultEvent) string {
 	fmt.Fprintf(&sb, "Severity: *%s*\n",
 		EscapeMarkdown(strings.TrimSpace(strings.ToTitle(result.Info.Severity.String()))))
 
-	// Host. Formatting never touches the network (SAFE-11): it used to open a
+	// Host. Formatting never touches the network: it used to open a
 	// TLS connection to the finding's host per notification, with no timeout,
 	// outside the scan's proxy and rate limit, to list certificate names.
 	fmt.Fprintf(&sb, "Host: *%s*\n", EscapeMarkdown(result.Host))

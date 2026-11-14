@@ -447,7 +447,7 @@ func pctEncodeComponent(s string) string {
 }
 
 // domXssLead is how much of the crawl's end the DOM-XSS probe is given when
-// it has work: min(domXssBudget, MaxDuration/10) (MISS-29c).
+// it has work: min(domXssBudget, MaxDuration/10).
 func (c *Crawler) domXssLead() time.Duration {
 	if c.config == nil {
 		return 0

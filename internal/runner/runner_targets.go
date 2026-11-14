@@ -36,7 +36,7 @@ func (r *Runner) getInScopeDBHosts(ctx context.Context) []database.HostTarget {
 }
 
 // scopeTargets is every target the scope-origin index is built from: the
-// seeds (Targets) plus scope-only targets (ScopeTargets, SAFE-4).
+// seeds (Targets) plus scope-only targets (ScopeTargets).
 func (r *Runner) scopeTargets() []string {
 	if len(r.options.ScopeTargets) == 0 {
 		return r.options.Targets

@@ -9,7 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/nucleitemplates"
 )
 
-// TestFixNucleiTemplates_ArchiveAndRefresh is RUN-11: the nuclei fix installs
+// TestFixNucleiTemplates_ArchiveAndRefresh: the nuclei fix installs
 // the pinned release archive (no git), and `--fix --only nuclei` refreshes
 // templates that are already present.
 func TestFixNucleiTemplates_ArchiveAndRefresh(t *testing.T) {

@@ -28,8 +28,8 @@ func TestRequestCounterCountsSends(t *testing.T) {
 	if n.Load() != 6 {
 		t.Fatalf("counted %d, want 6", n.Load())
 	}
-	opts := buildEngineOptions(t.Context(), Config{Requests: &n}, nil)
-	without := buildEngineOptions(t.Context(), Config{}, nil)
+	opts := buildEngineOptions(t.Context(), Config{Requests: &n}, nil, nil)
+	without := buildEngineOptions(t.Context(), Config{}, nil, nil)
 	if len(opts) != len(without)+1 {
 		t.Fatalf("a Requests counter must add the stats-writer option (%d vs %d)", len(opts), len(without))
 	}

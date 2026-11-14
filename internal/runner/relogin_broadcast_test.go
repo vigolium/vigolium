@@ -2,7 +2,7 @@ package runner
 
 import "testing"
 
-// MISS-26: a successful re-login reaches every crawl subscribed to it, and
+// A successful re-login reaches every crawl subscribed to it, and
 // notifications coalesce rather than block.
 func TestReloginBroadcast(t *testing.T) {
 	var b reloginBroadcast

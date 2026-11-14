@@ -2,6 +2,8 @@ package oast
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/rs/xid"
@@ -144,8 +146,17 @@ func (s *Service) queuePayload(p *database.OASTPayload) {
 	}
 	s.payloadMu.Lock()
 	defer s.payloadMu.Unlock()
-	s.pendingPayloads = append(s.pendingPayloads, p)
-	if len(s.pendingPayloads) >= oastPayloadFlushBatch {
+	if s.pendingPayloads == nil {
+		s.pendingPayloads = make(map[string]*database.OASTPayload)
+	}
+	s.pendingPayloads[p.Nonce] = p
+	s.maybeWritePendingLocked()
+}
+
+// maybeWritePendingLocked writes the buffer once it holds
+// oastPayloadFlushBatch entries; payloadMu must be held.
+func (s *Service) maybeWritePendingLocked() {
+	if len(s.pendingPayloads)+len(s.pendingValues) >= oastPayloadFlushBatch {
 		s.writePendingLocked()
 	}
 }
@@ -161,17 +172,23 @@ func (s *Service) flushPayloads() {
 	s.writePendingLocked()
 }
 
-// writePendingLocked writes the buffer; payloadMu must be held, which also
-// keeps a concurrent recordFixedPayload from updating a row whose insert is
-// still in flight.
+// writePendingLocked writes the buffer: queued rows first, then planted
+// values for rows written earlier. payloadMu must be held, which also keeps a
+// concurrent RecordPayload from updating a row whose insert is in flight.
 func (s *Service) writePendingLocked() {
-	if len(s.pendingPayloads) == 0 {
-		return
+	if len(s.pendingPayloads) > 0 {
+		rows := slices.Collect(maps.Values(s.pendingPayloads))
+		s.pendingPayloads = nil
+		if err := s.repo.SaveOASTPayloads(context.Background(), rows); err != nil {
+			zap.L().Warn("OAST: failed to persist payload contexts; their callbacks cannot be ingested later",
+				zap.Int("payloads", len(rows)), zap.Error(err))
+		}
 	}
-	rows := s.pendingPayloads
-	s.pendingPayloads = nil
-	if err := s.repo.SaveOASTPayloads(context.Background(), rows); err != nil {
-		zap.L().Warn("OAST: failed to persist payload contexts; their callbacks cannot be ingested later",
-			zap.Int("payloads", len(rows)), zap.Error(err))
+	if len(s.pendingValues) > 0 {
+		values := s.pendingValues
+		s.pendingValues = nil
+		if err := s.repo.SetOASTPayloadValues(context.Background(), values); err != nil {
+			zap.L().Warn("OAST: failed to record planted payloads", zap.Int("payloads", len(values)), zap.Error(err))
+		}
 	}
 }

@@ -205,7 +205,7 @@ func TestMaxPerHostDefaultsAgree(t *testing.T) {
 	}
 }
 
-// TestResolveSafeAndMaxTime is RUN-1: --safe applies the embedded overlay
+// TestResolveSafeAndMaxTime: --safe applies the embedded overlay
 // (pace, 15m total budget, strict origin, GET/HEAD, browser interaction off,
 // intrusive templates excluded) and turns risky payloads off even at deep
 // intensity, typed flags still win, and a scan with no --max-time is bounded by

@@ -31,7 +31,7 @@ type SpecOptions struct {
 	// FieldTypeDefaults are OpenAPI per-type defaults from the config.
 	FieldTypeDefaults map[string][]string
 	// HTTPClient fetches an OpenAPI spec given as a URL; build it from the
-	// scan's --proxy (SAFE-11). nil = proxy-environment client.
+	// scan's --proxy. nil = proxy-environment client.
 	HTTPClient *http.Client
 }
 

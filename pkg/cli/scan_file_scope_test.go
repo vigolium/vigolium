@@ -29,7 +29,7 @@ func writeScopeHAR(t *testing.T) string {
 	return p
 }
 
-// SAFE-4: `scan -i capture.har` with no -t scopes to the capture's primary
+// `scan -i capture.har` with no -t scopes to the capture's primary
 // host; the plan lists every input host with its verdict.
 func TestDeriveFileInputScope_HAR(t *testing.T) {
 	savedInput, savedMode, savedTargets, savedJSON := globalInput, globalInputMode, globalTargets, globalJSON
@@ -76,7 +76,7 @@ func TestDeriveFileInputScope_HAR(t *testing.T) {
 	}
 }
 
-// SAFE-4: `ingest --scan-on-receive` of a capture scans its primary host only.
+// `ingest --scan-on-receive` of a capture scans its primary host only.
 func TestIngestScanScope_HAR(t *testing.T) {
 	savedIn, savedFmt, savedTargets := ingestOpts.Input, ingestOpts.InputFormat, globalTargets
 	defer func() { ingestOpts.Input, ingestOpts.InputFormat, globalTargets = savedIn, savedFmt, savedTargets }()

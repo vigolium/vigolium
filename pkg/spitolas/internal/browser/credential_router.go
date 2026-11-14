@@ -3,7 +3,6 @@ package browser
 import (
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	"github.com/go-rod/rod/lib/proto"
 	"go.uber.org/zap"
@@ -18,7 +17,7 @@ type credentialRouter struct {
 	allow         func(url string) bool
 	methodAllowed func(method string) bool
 	credPatterns  []string
-	// firstParty, when set, turns resource blocking on (ECON-9): fonts and
+	// firstParty, when set, turns resource blocking on: fonts and
 	// media are failed, and images whose URL it rejects (third-party).
 	firstParty func(url string) bool
 }
@@ -35,9 +34,8 @@ func CredentialHostPatterns(host string) []string {
 
 // InstallCredentialRouter injects the operator's credential headers per
 // request through CDP Fetch interception, only on requests whose URL allow
-// admits (SAFE-3). Network.setExtraHTTPHeaders put them on EVERY request the
-// page made — third-party scripts, analytics, CDNs — until the crawl itself
-// navigated off-scope.
+// admits. Network.setExtraHTTPHeaders would put them on EVERY request the
+// page makes — third-party scripts, analytics, CDNs.
 //
 //   - allowed URL: FetchContinueRequest with the request's own headers plus
 //     headers (operator values win);
@@ -46,8 +44,9 @@ func CredentialHostPatterns(host string) []string {
 //     FetchFailRequest(BlockedByClient), so a read-only crawl's XHR/fetch
 //     writes never leave the browser.
 //
-// patterns narrows which requests are paused at all ("*" when empty or when a
-// method policy is set, since every request must then be judged). Responses
+// patterns narrows which requests are paused for the headers ("*" when
+// empty); a method policy also pauses every request type that can carry a
+// write method (methodPolicyResourceTypes). Responses
 // are never fulfilled by the router (no rod LoadResponse): requests continue
 // to the network untouched apart from headers.
 //
@@ -67,8 +66,8 @@ func (p *Page) InstallCredentialRouter(headers map[string]string, allow func(url
 	return p.enableInterception(cur)
 }
 
-// SetResourceBlocking fails font and media requests and third-party images
-// (ECON-9): they cost bandwidth and time and carry no crawlable surface.
+// SetResourceBlocking fails font and media requests and third-party images:
+// they cost bandwidth and time and carry no crawlable surface.
 // firstParty reports whether an image URL belongs to the target; first-party
 // images are never blocked (they can be the surface: an avatar upload, a
 // generated chart). nil turns blocking off.
@@ -90,6 +89,19 @@ func (p *Page) currentRouter() *credentialRouter {
 	return &credentialRouter{}
 }
 
+// methodPolicyResourceTypes are the request types a page can send with a
+// method other than GET: navigations and form posts, XHR/fetch, beacons, CSP
+// reports, CORS preflights, and the unclassified rest.
+var methodPolicyResourceTypes = []proto.NetworkResourceType{
+	proto.NetworkResourceTypeDocument,
+	proto.NetworkResourceTypeXHR,
+	proto.NetworkResourceTypeFetch,
+	proto.NetworkResourceTypePing,
+	proto.NetworkResourceTypeCSPViolationReport,
+	proto.NetworkResourceTypePreflight,
+	proto.NetworkResourceTypeOther,
+}
+
 // enableInterception (re)issues Fetch.enable with the union of the patterns
 // r needs and starts the event loop once.
 func (p *Page) enableInterception(r *credentialRouter) error {
@@ -97,18 +109,25 @@ func (p *Page) enableInterception(r *credentialRouter) error {
 	add := func(url string, rt proto.NetworkResourceType) {
 		reqPatterns = append(reqPatterns, &proto.FetchRequestPattern{URLPattern: url, ResourceType: rt, RequestStage: proto.FetchRequestStageRequest})
 	}
-	credActive := len(r.headers) > 0 || r.methodAllowed != nil
+	// Credential headers pause the requests they may go on: every request
+	// without credential patterns, else those patterns' URLs.
+	pausesAll := len(r.headers) > 0 && len(r.credPatterns) == 0
 	switch {
-	case r.methodAllowed != nil:
+	case pausesAll:
 		add("*", "")
-	case credActive && len(r.credPatterns) == 0:
-		add("*", "")
-	case credActive:
+	case len(r.headers) > 0:
 		for _, pat := range r.credPatterns {
 			add(pat, "")
 		}
 	}
-	pausesAll := credActive && (r.methodAllowed != nil || len(r.credPatterns) == 0)
+	// A method policy only needs the request types that can carry a method
+	// other than GET; pausing every subresource would put a CDP round trip on
+	// each image, script and stylesheet for nothing.
+	if r.methodAllowed != nil && !pausesAll {
+		for _, rt := range methodPolicyResourceTypes {
+			add("*", rt)
+		}
+	}
 	if r.firstParty != nil && !pausesAll {
 		add("*", proto.NetworkResourceTypeFont)
 		add("*", proto.NetworkResourceTypeMedia)
@@ -146,7 +165,6 @@ func (p *Page) routePaused(e *proto.FetchRequestPaused) {
 			return
 		}
 		if r.firstParty != nil && blockedResource(e.ResourceType, e.Request.URL, r.firstParty) {
-			resourcesBlocked.Add(1)
 			fail()
 			return
 		}
@@ -161,7 +179,7 @@ func (p *Page) routePaused(e *proto.FetchRequestPaused) {
 }
 
 // blockedResource reports whether a paused request is a resource the crawl
-// skips (ECON-9): every font and media request, and third-party images.
+// skips: every font and media request, and third-party images.
 func blockedResource(rt proto.NetworkResourceType, url string, firstParty func(string) bool) bool {
 	switch rt {
 	case proto.NetworkResourceTypeFont, proto.NetworkResourceTypeMedia:
@@ -171,13 +189,6 @@ func blockedResource(rt proto.NetworkResourceType, url string, firstParty func(s
 	}
 	return false
 }
-
-// resourcesBlocked counts requests failed by resource blocking (process-wide).
-var resourcesBlocked atomic.Int64
-
-// ResourcesBlocked is how many font/media/third-party-image requests the
-// resource blocker failed in this process.
-func ResourcesBlocked() int64 { return resourcesBlocked.Load() }
 
 // mergeFetchHeaders is the request's headers with extra applied over them
 // (case-insensitive; extra wins).

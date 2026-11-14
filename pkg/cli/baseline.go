@@ -186,7 +186,6 @@ type baselineCounts struct {
 // baselineGate holds the per-run baseline/ignore state the gate and the scan
 // document read. Reset by resetFailOnGate.
 var baselineGate struct {
-	loaded   bool
 	baseline map[string]baselineFinding // nil without --baseline
 	ignore   ignoreSet
 	counts   *baselineCounts // set once the run's findings were classified
@@ -194,7 +193,6 @@ var baselineGate struct {
 
 // prepareBaselineGate loads --baseline and the ignore file once per run.
 func prepareBaselineGate(ctx context.Context) error {
-	baselineGate.loaded = true
 	ig, err := loadIgnoreFile(scanIgnoreFile, time.Now())
 	if err != nil {
 		return asUsageError(err)
@@ -290,40 +288,24 @@ func diffAgainstBaselineFile(ctx context.Context, repo *database.Repository, pro
 		return nil, fmt.Errorf("scan diff: %w", err)
 	}
 	comparable := head.Completeness == database.CompletenessComplete
-	diff := &database.ScanDiff{
-		Base:       &database.Scan{UUID: "file:" + path, Status: "completed", Target: path},
-		Head:       head,
-		Comparable: comparable,
-		History:    "complete",
-		Counts:     map[string]int{},
-	}
+	var reasons []string
 	if !comparable {
-		diff.ComparabilityReasons = []string{database.ComparabilityHeadPartial}
+		reasons = []string{database.ComparabilityHeadPartial}
 	}
-	for _, c := range database.DiffChanges {
-		diff.Counts[c] = 0
-	}
+	diff := database.NewScanDiff(&database.Scan{UUID: "file:" + path, Status: "completed", Target: path},
+		head, comparable, reasons, database.DiffHistoryComplete)
 	seen := make(map[string]bool, len(current))
 	for _, f := range current {
 		seen[f.FindingHash] = true
-		change := database.DiffNew
-		if _, ok := base[f.FindingHash]; ok {
-			change = database.DiffUnchanged
-		}
-		diff.Entries = append(diff.Entries, database.ScanDiffEntry{Finding: f, Change: change})
-		diff.Counts[change]++
+		_, inBase := base[f.FindingHash]
+		diff.Classify(f, inBase, true, "")
 	}
 	for h, b := range base {
-		if seen[h] || b.Finding == nil {
-			continue
+		if !seen[h] && b.Finding != nil {
+			diff.Classify(b.Finding, true, false, "")
 		}
-		change := database.DiffNotReobserved
-		if comparable {
-			change = database.DiffFixed
-		}
-		diff.Entries = append(diff.Entries, database.ScanDiffEntry{Finding: b.Finding, Change: change})
-		diff.Counts[change]++
 	}
+	diff.SortEntries()
 	return diff, nil
 }
 

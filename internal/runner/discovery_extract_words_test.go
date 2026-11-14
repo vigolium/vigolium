@@ -7,7 +7,7 @@ import (
 )
 
 // TestBuildDeparosConfigExtractWords pins discovery.extract_words: unset means
-// on at --intensity deep only; an explicit value wins either way (MISS-9).
+// on at --intensity deep only; an explicit value wins either way.
 func TestBuildDeparosConfigExtractWords(t *testing.T) {
 	build := func(intensity string, v *bool) bool {
 		settings := paceSettings(nil)

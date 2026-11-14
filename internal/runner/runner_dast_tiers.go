@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -15,12 +16,12 @@ import (
 	"go.uber.org/zap"
 )
 
-// daLedger is the dynamic-assessment phase's coverage ledger and tier split
-// (ECON-4). Dispatch used to be record-major: within the phase deadline the
-// first records got every module and the tail got none, and a curtailed run
-// saved nothing for the next one. With the ledger the phase runs the cheap
-// in-band tier over every record first, then the expensive tier, and records
-// each record × module outcome so a resumed scan picks up where it stopped.
+// daLedger is the dynamic-assessment phase's coverage ledger and tier split.
+// Record-major dispatch would give the first records every module within the
+// phase deadline and the tail none, and a curtailed run would save nothing for
+// the next one. With the ledger the phase runs the cheap in-band tier over
+// every record first, then the expensive tier, and records each record ×
+// module outcome so a resumed scan picks up where it stopped.
 type daLedger struct {
 	writer   *database.ProgressWriter
 	ordinals map[string]int
@@ -102,8 +103,9 @@ func (r *Runner) prepareDALedger(ctx context.Context, scanUUID string, active []
 		l.ordinals[id] = i
 	}
 	l.pass0, l.pass1 = splitTiers(active)
-	if len(l.pass1) > 0 {
-		l.maxTier = 1
+	if len(l.pass0) == 0 {
+		// Only expensive modules: one pass at tier 0.
+		l.pass0, l.pass1 = l.pass1, nil
 	}
 	for _, m := range l.pass0 {
 		l.tiers[m.ID()] = 0
@@ -111,18 +113,14 @@ func (r *Runner) prepareDALedger(ctx context.Context, scanUUID string, active []
 	for _, m := range l.pass1 {
 		l.tiers[m.ID()] = 1
 	}
-	if len(l.pass0) == 0 {
-		// Only expensive modules: one pass at tier 0.
-		l.pass0, l.pass1, l.maxTier = l.pass1, nil, 0
-		for id := range l.tiers {
-			l.tiers[id] = 0
-		}
+	if len(l.pass1) > 0 {
+		l.maxTier = 1
 	}
 	l.writer = database.NewProgressWriter(r.repository)
 	return l
 }
 
-func (l *daLedger) spec(tier int, runsPassives bool) *core.LedgerSpec {
+func (l *daLedger) spec(runsPassives bool) *core.LedgerSpec {
 	return &core.LedgerSpec{Writer: l.writer, Ordinals: l.ordinals, Tiers: l.tiers, MaxTier: l.maxTier, RunsPassives: runsPassives}
 }
 
@@ -137,7 +135,6 @@ func (r *Runner) runTieredRound(
 	infra *phaseInfra,
 	round int,
 	inScopeHosts []database.HostTarget,
-	_ []modules.ActiveModule,
 	passiveModules []modules.PassiveModule,
 	baseCfg core.ExecutorConfig,
 	oastService *oast.Service,
@@ -146,7 +143,7 @@ func (r *Runner) runTieredRound(
 	// Single pass: all active modules at tier 0, committing the cursor.
 	if len(l.pass1) == 0 {
 		cfg := baseCfg
-		cfg.Ledger = l.spec(0, true)
+		cfg.Ledger = l.spec(true)
 		src := r.newDASource(infra, inScopeHosts).WithCoverage(0)
 		return r.runDAPass(ctx, infra, round, l.pass0, passiveModules, cfg, oastService, src)
 	}
@@ -159,7 +156,7 @@ func (r *Runner) runTieredRound(
 		}
 	}
 	cfg0 := baseCfg
-	cfg0.Ledger = l.spec(0, true)
+	cfg0.Ledger = l.spec(true)
 	src0 := r.newDASource(infra, inScopeHosts).WithoutCursorCommit().WithCoverage(0)
 	res0, err := r.runDAPass(pass0Ctx, infra, round, l.pass0, passiveModules, cfg0, oastService, src0)
 	cancel0()
@@ -179,7 +176,7 @@ func (r *Runner) runTieredRound(
 	// Pass 1 over the same window; it owns the cursor commit. Passives already
 	// ran in pass 0 (passive_done), so it runs active modules only.
 	cfg1 := baseCfg
-	cfg1.Ledger = l.spec(1, false)
+	cfg1.Ledger = l.spec(false)
 	src1 := r.newDASource(infra, inScopeHosts).WithBound(boundAt, boundID).WithCoverage(1)
 	res1, err := r.runDAPass(ctx, infra, round, l.pass1, nil, cfg1, oastService, src1)
 	res1.processed += res0.processed
@@ -187,27 +184,20 @@ func (r *Runner) runTieredRound(
 	return res1, err
 }
 
-// closeDALedger drains the ledger writer at phase end.
-func (r *Runner) closeDALedger() {
-	if r.daLedger != nil {
-		r.daLedger.writer.Close()
-		r.daLedger = nil
+// close drains the ledger writer at phase end. Nil-safe.
+func (l *daLedger) close() {
+	if l != nil {
+		l.writer.Close()
 	}
 }
 
 // mergeModuleMetrics adds b's per-module counters into a copy of a.
 func mergeModuleMetrics(a, b map[string]stats.ModuleStatsSnapshot) map[string]stats.ModuleStatsSnapshot {
 	out := make(map[string]stats.ModuleStatsSnapshot, len(a)+len(b))
-	for id, m := range a {
-		out[id] = m
-	}
+	maps.Copy(out, a)
 	for id, m := range b {
 		cur := out[id]
-		cur.Invocations += m.Invocations
-		cur.Findings += m.Findings
-		cur.Errors += m.Errors
-		cur.TotalTime += m.TotalTime
-		cur.Inconclusive += m.Inconclusive
+		cur.Add(m)
 		out[id] = cur
 	}
 	return out

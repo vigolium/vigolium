@@ -127,7 +127,8 @@ func TestProvisionSpideringBrowserSuccess(t *testing.T) {
 func TestProvisionNucleiTemplatesFailure(t *testing.T) {
 	buf := captureEvents(t)
 	orig := ensureNucleiTemplates
-	ensureNucleiTemplates = func(dir string, p knownissuescan.TemplatesProgress) error {
+	ensureNucleiTemplates = func(tc knownissuescan.Config, p knownissuescan.TemplatesProgress) error {
+		dir := tc.TemplatesDir
 		failure := errors.New("clone failed; Install with: vigolium doctor --fix --only nuclei")
 		p(knownissuescan.TemplatesStarted, dir, nil)
 		p(knownissuescan.TemplatesFailed, dir, failure)

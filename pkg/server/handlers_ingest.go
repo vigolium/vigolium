@@ -157,8 +157,8 @@ type ingestAccumulator struct {
 	imported    int
 	errors      []string
 
-	// derive, when set, scopes a multi-host capture to its primary host
-	// (SAFE-4): the first record's host. Records for other hosts are stored
+	// derive, when set, scopes a multi-host capture to its primary host:
+	// the first record's host. Records for other hosts are stored
 	// as context (RecordSourceIngestContext) — kept, never fetched, never
 	// scanned by scan-on-receive.
 	derive       *derivedIngestScope
@@ -167,7 +167,7 @@ type ingestAccumulator struct {
 }
 
 // derivedIngestScope is the scope a REST file ingest derives from its first
-// record when the project names no targets (SAFE-4).
+// record when the project names no targets.
 type derivedIngestScope struct {
 	cfg     config.ScopeConfig
 	primary string
@@ -497,7 +497,7 @@ func (h *Handlers) ingestOpenAPI(c fiber.Ctx, ctx context.Context, req *IngestHT
 	acc := h.newIngestAccumulator(ctx, ingestSource(c), getProjectUUID(c))
 	if req.URL == "" {
 		// No base URL: the spec's servers name the hosts; only the first is
-		// the scan's scope (SAFE-4), the rest are stored as context.
+		// the scan's scope, the rest are stored as context.
 		acc.deriveScope()
 	}
 	admit := h.ingestAdmitter(getProjectUUID(c))
@@ -605,7 +605,7 @@ func (h *Handlers) ingestFileFormat(c fiber.Ctx, ctx context.Context, req *Inges
 	var skipped int
 	acc := h.newIngestAccumulator(ctx, ingestSource(c), getProjectUUID(c))
 	if urlOverrideSvc == nil && !source.IsTargetListFormat(format) {
-		// A capture names many hosts; scope it to its primary one (SAFE-4).
+		// A capture names many hosts; scope it to its primary one.
 		acc.deriveScope()
 	}
 	admit := h.ingestAdmitter(getProjectUUID(c))

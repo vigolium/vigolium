@@ -88,38 +88,6 @@ func resolveHashAliases(ctx context.Context, idb bun.IDB, projectUUID string, ha
 	return out, nil
 }
 
-// ResolveFindingHash returns the live finding_hash for h: h itself when a
-// finding carries it, else the hash of the finding h is an alias of, else "".
-func (r *Repository) ResolveFindingHash(ctx context.Context, projectUUID, h string) (string, error) {
-	if h == "" {
-		return "", nil
-	}
-	var live []string
-	q := r.db.NewSelect().Model((*Finding)(nil)).Column("finding_hash").Where("finding_hash = ?", h).Limit(1)
-	if projectUUID != "" {
-		q = q.Where("project_uuid = ?", projectUUID)
-	}
-	if err := q.Scan(ctx, &live); err != nil {
-		return "", err
-	}
-	if len(live) > 0 {
-		return live[0], nil
-	}
-	ids, err := resolveHashAliases(ctx, r.db, projectUUID, []string{h})
-	if err != nil || len(ids) == 0 {
-		return "", err
-	}
-	var target []string
-	if err := r.db.NewSelect().Model((*Finding)(nil)).Column("finding_hash").
-		Where("id = ?", ids[h]).Limit(1).Scan(ctx, &target); err != nil {
-		return "", err
-	}
-	if len(target) == 0 {
-		return "", nil
-	}
-	return target[0], nil
-}
-
 // DismissedFindingHashes returns which of the given hashes name a finding
 // carrying a dismissed verdict (DismissedFindingStatuses), by live hash or by
 // alias. The result maps each input hash that is dismissed to true.

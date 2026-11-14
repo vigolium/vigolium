@@ -112,10 +112,12 @@ type Service struct {
 	// template is the parsed fixedURL when it carries {nonce} (see fixed.go);
 	// nil for interactsh mode and for a fixed URL without the placeholder.
 	template *fixedTemplate
-	// payloadMu guards pendingPayloads, the payload contexts minted from a
-	// {nonce} template and not yet written to oast_payloads.
+	// payloadMu guards the write buffer: pendingPayloads, the payload
+	// contexts minted and not yet written to oast_payloads (by nonce), and
+	// pendingValues, planted values (by nonce) for rows already written.
 	payloadMu       sync.Mutex
-	pendingPayloads []*database.OASTPayload
+	pendingPayloads map[string]*database.OASTPayload
+	pendingValues   map[string]string
 
 	// emitMu guards emittedRank, the finding-coalescing state. A single planted
 	// payload typically produces several callbacks — DNS A + AAAA, multiple recursive

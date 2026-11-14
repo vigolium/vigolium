@@ -1091,7 +1091,7 @@ type respSlot struct {
 func doRawRequestBytes(httpClient *gohttp.Requester, rawReq string) respSlot {
 	req := httpmsg.NewHttpRequest([]byte(rawReq))
 
-	// Infer service from Host header (https for port 443, NEW-3)
+	// Infer service from Host header (https for port 443)
 	if svc := serviceForRequest("", req.Header("Host")); svc != nil {
 		req = httpmsg.NewHttpRequestWithService(svc, []byte(rawReq))
 	}

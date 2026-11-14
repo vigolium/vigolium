@@ -284,7 +284,7 @@ func fetchRoot(ctx context.Context, requester *http.Requester, rootURL string) (
 		DisableCompression: true,
 		NoRedirects:        true,
 		// A plain GET learning whether the host answers: a timed-out attempt
-		// is safe to retry (SAFE-10 keeps timeouts unretried by default).
+		// is safe to retry (timeouts stay unretried by default).
 		RetryTimeouts: true,
 	})
 	if err != nil {

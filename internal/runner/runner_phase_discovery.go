@@ -68,7 +68,7 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 	defer phaseCancel()
 
 	// Discovery wordlists may not spend the whole --max-requests budget before
-	// the assessment runs: cap the phase at its request share (ECON-5).
+	// the assessment runs: cap the phase at its request share.
 	defer r.requestBudget.LimitPhase(string(PhaseDiscovery), r.discoveryRequestShare())()
 
 	var sources []source.InputSource
@@ -158,7 +158,7 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		if pol := r.options.TrafficPolicy; pol != nil {
 			deparosCfg.MethodFilter = pol.AllowsMethod
 		}
-		// Forms follow the browser's submit_forms decision (SAFE-7): when the
+		// Forms follow the browser's submit_forms decision: when the
 		// crawl may not submit, discovery keeps forms as metadata-only stubs.
 		if r.settings != nil {
 			bp := resolveBrowserPolicy(r.settings.Spidering, r.options.Intensity)

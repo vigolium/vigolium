@@ -262,11 +262,12 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 			zap.L().Warn("DynamicAssessment: failed to reset scan cursor", zap.Error(err))
 		}
 	}
-	// Coverage ledger + tier passes (ECON-4). Not for scan-on-receive, whose
-	// continuous source has no round snapshot to tier.
+	// Coverage ledger + tier passes. Not for scan-on-receive, whose continuous
+	// source has no round snapshot to tier.
+	var ledger *daLedger
 	if !r.options.ScanOnReceive {
-		r.daLedger = r.prepareDALedger(ctx, infra.scanUUID, activeModules, passiveModules)
-		defer r.closeDALedger()
+		ledger = r.prepareDALedger(ctx, infra.scanUUID, activeModules, passiveModules)
+		defer ledger.close()
 	}
 
 	var recordWriter *database.RecordWriter
@@ -392,13 +393,13 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		StatusInterval: 1 * time.Minute,
 	}
 	// One set of tech/WAF/content-class registries, param-finding registry and
-	// per-host claims for every round's executor (NEW-8): a detection, a
+	// per-host claims for every round's executor: a detection, a
 	// confirmed parameter or a per-host run made in round 1 still holds in
 	// round 2.
 	baseExecutorCfg.SharePhaseState()
 	// Seed the shared tech registry from the stack the fingerprint phase stored
 	// (host_observations), so the tech gate knows each host before round 1
-	// instead of failing open until a passive module re-detects it (MISS-21).
+	// instead of failing open until a passive module re-detects it.
 	if n := r.seedTechRegistry(ctx, baseExecutorCfg.TechRegistry); n > 0 {
 		zap.L().Debug("DynamicAssessment: seeded tech registry from stored host facts", zap.Int("tags", n))
 	}
@@ -648,10 +649,9 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 
 	// Feedback loop: re-scan newly discovered URLs.
 	//
-	// roundsRun / roundErr / deadlineHit record HOW the loop ended, because the
-	// completion line used to claim "all rounds completed" on every exit path
-	// including a round that errored out — the one case where it was certainly
-	// false. roundErr is returned at the end rather than swallowed: a round that
+	// roundsRun / roundErr / deadlineHit record HOW the loop ended, so the
+	// completion line never claims "all rounds completed" for a round that
+	// errored out. roundErr is returned at the end rather than swallowed: a round that
 	// failed is a failed phase, and the scan continues past it exactly as it does
 	// past any other non-fatal phase error.
 	var (
@@ -660,7 +660,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		deadlineHit bool
 	)
 	for round := 0; round < feedbackRounds; round++ {
-		res, err := r.runDynamicAssessmentRound(ctx, infra, round, inScopeHosts, activeModules, passiveModules, baseExecutorCfg, oastService)
+		res, err := r.runDynamicAssessmentRound(ctx, infra, round, inScopeHosts, activeModules, passiveModules, baseExecutorCfg, oastService, ledger)
 		roundsRun = round + 1
 		executed.note(r.currentPhase.Load(), res.moduleMetrics)
 		if err != nil {
@@ -732,12 +732,10 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	return nil
 }
 
-// dynamicAssessmentExitLine describes how the feedback loop actually ended.
-//
-// It used to print "all rounds completed in …" unconditionally — on a round that
-// errored, on a phase cut off at its deadline, and on a loop that stopped early
-// because there was nothing left to scan. Three of the four cases were false, and
-// the one an operator most needs to see (a failed round) was the most misleading.
+// dynamicAssessmentExitLine describes how the feedback loop actually ended: a
+// round error, the phase deadline, or completion (including a loop that
+// stopped early because there was nothing left to scan). A failed round is the
+// case an operator most needs to see, so it is never reported as completed.
 func dynamicAssessmentExitLine(rounds int, elapsed time.Duration, roundErr error, deadlineHit bool) string {
 	d := terminal.HiPurple(fmtDuration(elapsed))
 	switch {
@@ -759,9 +757,10 @@ func (r *Runner) runDynamicAssessmentRound(
 	passiveModules []modules.PassiveModule,
 	baseCfg core.ExecutorConfig,
 	oastService *oast.Service,
+	ledger *daLedger,
 ) (daRoundResult, error) {
-	if l := r.daLedger; l != nil {
-		return r.runTieredRound(ctx, infra, round, inScopeHosts, activeModules, passiveModules, baseCfg, oastService, l)
+	if ledger != nil {
+		return r.runTieredRound(ctx, infra, round, inScopeHosts, passiveModules, baseCfg, oastService, ledger)
 	}
 	dbSource := r.newDASource(infra, inScopeHosts)
 	return r.runDAPass(ctx, infra, round, activeModules, passiveModules, baseCfg, oastService, dbSource)
@@ -775,7 +774,7 @@ func (r *Runner) newDASource(infra *phaseInfra, inScopeHosts []database.HostTarg
 }
 
 // runDAPass runs one executor over dbSource: one feedback round, or one tier
-// pass of a round (ECON-4).
+// pass of a round.
 func (r *Runner) runDAPass(
 	ctx context.Context,
 	infra *phaseInfra,
@@ -918,7 +917,7 @@ func (r *Runner) waitForNewRecords(ctx context.Context, scanUUID string, pollInt
 	}
 }
 
-// headerPointsAll resolves the header insertion-point gate (ECON-1):
+// headerPointsAll resolves the header insertion-point gate:
 // --header-fuzz wins, else config dynamic_assessment.header_points; default
 // gated.
 func (r *Runner) headerPointsAll() bool {

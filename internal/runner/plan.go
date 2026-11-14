@@ -286,7 +286,7 @@ func planScope(s config.ScopeConfig) scanplan.Scope {
 	}
 }
 
-// planScopeTargets adds the derived file-input scope (SAFE-4) to the plan:
+// planScopeTargets adds the derived file-input scope to the plan:
 // the scope-only targets and the input's host census with each verdict.
 func planScopeTargets(out *scanplan.Scope, s config.ScopeConfig, opts *types.Options) {
 	if opts == nil || len(opts.ScopeTargets) == 0 {

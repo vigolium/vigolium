@@ -356,7 +356,7 @@ func seedIsDocument(path string) bool {
 const maxPopupSeedRounds = 3
 
 // crawlPopupSeeds browses the popup URLs recorded since the last call into the
-// state graph (MISS-29a) and returns how many became reachable states.
+// state graph and returns how many became reachable states.
 func (c *Crawler) crawlPopupSeeds(ctx context.Context, page *browser.Page) int {
 	c.mu.Lock()
 	pending := append([]string(nil), c.stats.PopupURLs[c.popupSeeded:]...)

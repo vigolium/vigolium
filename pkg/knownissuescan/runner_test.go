@@ -241,7 +241,7 @@ func TestBuildEngineOptions(t *testing.T) {
 	logger.SetWriter(writer.NewCLI())
 	logger.SetMaxLevel(levels.LevelSilent)
 
-	opts := buildEngineOptions(t.Context(), cfg, logger)
+	opts := buildEngineOptions(t.Context(), cfg, logger, nil)
 
 	// Verify we get a reasonable number of options
 	// (filters + rate limit + concurrency + proxy + headers + verbosity + disable update + logger)

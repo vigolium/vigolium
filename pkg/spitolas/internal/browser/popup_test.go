@@ -11,7 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
 )
 
-// MISS-29a (real browser; skipped under -short): a popup opened by a click is
+// A popup opened by a click is
 // listed with its URL and given time to load, so its own requests happen
 // before the crawl closes it.
 func TestPopupURLs(t *testing.T) {

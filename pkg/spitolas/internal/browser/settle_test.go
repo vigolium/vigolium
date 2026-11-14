@@ -11,7 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
 )
 
-// ECON-9: fonts and media are always blocked, images only when third-party.
+// Fonts and media are always blocked, images only when third-party.
 func TestBlockedResource(t *testing.T) {
 	first := func(u string) bool { return u == "https://app.test/logo.png" }
 	cases := []struct {
@@ -33,7 +33,7 @@ func TestBlockedResource(t *testing.T) {
 	}
 }
 
-// ECON-9 (real browser; skipped under -short): a page whose DOM never stops
+// A page whose DOM never stops
 // changing settles at the 3s cap instead of the 30s page timeout.
 func TestWaitStable_CapsAtSettleCap(t *testing.T) {
 	if testing.Short() {

@@ -11,7 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// TestSpideringLaunchFailureIsPartial is MISS-27: a browser that never started
+// TestSpideringLaunchFailureIsPartial: a browser that never started
 // leaves the phase partial with targets_failed and browser_unavailable, rather
 // than "completed, 0 records".
 func TestSpideringLaunchFailureIsPartial(t *testing.T) {

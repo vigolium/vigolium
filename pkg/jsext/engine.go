@@ -32,7 +32,7 @@ func NewEngine(cfg *config.ExtensionsConfig, httpClient *http.Requester, engineO
 	scripts, failures := LoadScriptsReport(cfg)
 
 	// Extension HTTP is scope-checked like module traffic unless
-	// extensions.allow_out_of_scope (SAFE-14): every vigolium.http.* path —
+	// extensions.allow_out_of_scope: every vigolium.http.* path —
 	// plain, session, batch — goes through this requester view.
 	if engineOpts != nil && engineOpts.ScopeMatcher != nil && !cfg.AllowOutOfScope && httpClient != nil {
 		httpClient = httpClient.WithHostFilter(engineOpts.ScopeMatcher.HostInScope)
@@ -47,7 +47,7 @@ func NewEngine(cfg *config.ExtensionsConfig, httpClient *http.Requester, engineO
 		ExecTimeout:     cfg.ExecTimeout(),
 		AllowOutOfScope: cfg.AllowOutOfScope,
 	}
-	// One extension call is bounded by extensions.limits.timeout (SAFE-14);
+	// One extension call is bounded by extensions.limits.timeout;
 	// it used to be a hard-coded 60s whatever the config said.
 	SetCallTimeout(cfg.Limits.TimeoutDuration())
 	if cfg.Limits.MaxMemoryMB > 0 {

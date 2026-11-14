@@ -205,7 +205,7 @@ test_cases:
     scan_mode: passive
     description: "Missing CSRF protection on login endpoint"
 
-  # === Negative cases (MEAS-1) ===
+  # === Negative cases ===
   # Every example in the upstream app ships a fixed "solution-1" variant beside
   # "vulnerable"; the module that fires on the vulnerable page must stay quiet here.
   - id: "vulnexamples-ssr-secrets-solution-negative"

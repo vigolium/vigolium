@@ -57,7 +57,7 @@ type Capture struct {
 	logged  map[string]struct{} // Track logged entries by hash to prevent stderr duplicates
 	// seenHashes tracks written request hashes. true = written with its
 	// response body; false = PROVISIONAL, written while the body fetch failed,
-	// so a later complete copy of the same request is still written (MISS-29b).
+	// so a later complete copy of the same request is still written.
 	seenHashes map[string]bool
 	// loginHosts records the hosts observed serving an authentication endpoint
 	// during document navigation and redirects. The crawler reads it to deny a
@@ -69,7 +69,7 @@ type Capture struct {
 	// (records are filtered separately by the writer). Set once before Start.
 	ScopeFilter func(host, path string) bool
 	// OnResponse, when set, sees every completed in-scope document / XHR /
-	// fetch response before dedup (MISS-26: the crawl's live-session
+	// fetch response before dedup (the crawl's live-session
 	// logged-out detector). Runs on the capture goroutine; must be cheap.
 	OnResponse func(entry *TrafficEntry)
 	// workerSessions holds the CDP sessionIDs of attached service-worker targets.
@@ -98,7 +98,7 @@ type Capture struct {
 	maxBodyBytes int64
 	// bodiesTooLarge counts responses whose body was skipped by that cap.
 	bodiesTooLarge int
-	// bodiesFailed counts responses whose body fetch failed (MISS-29b).
+	// bodiesFailed counts responses whose body fetch failed.
 	bodiesFailed int
 	// targetHost is the hostname used by the cross-origin stderr-log filter.
 	// It starts as the input URL's host but is re-pointed via SetTargetHost when
@@ -647,7 +647,7 @@ func (c *Capture) onLoadingFinished(e *proto.NetworkLoadingFinished, sessionID p
 				zap.Duration("age", time.Since(pending.startTime)))
 		} else {
 			// The CDP body fetch runs on the bounded body worker pool, off the
-			// event goroutine (MISS-29b): one slow body used to hold every
+			// event goroutine: one slow body used to hold every
 			// other event of the browser behind it.
 			job := bodyJob{pending: pending, requestID: e.RequestID, includeBody: includeBody, includeHeaders: includeHeaders}
 			if c.enqueueBody(job) {
@@ -1132,7 +1132,7 @@ func (c *Capture) writeEntry(entry *TrafficEntry) {
 
 	// Check if this exact request (shape + values) was already written. A
 	// provisional write (body fetch failed) is upgraded by a later copy that
-	// carries its body instead of being dropped as a duplicate (MISS-29b).
+	// carries its body instead of being dropped as a duplicate.
 	complete, seen := c.seenHashes[entry.Hash]
 	alreadyWritten := seen && (complete || entry.BodySource == BodySourceFailed || entry.BodySource == BodySourceUnavailable)
 
@@ -1452,7 +1452,7 @@ func elapsedMs(start time.Time) int64 {
 }
 
 // BodiesFailed is how many captured responses lost their body to a failed
-// fetch (MISS-29b).
+// fetch.
 func (c *Capture) BodiesFailed() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1460,7 +1460,7 @@ func (c *Capture) BodiesFailed() int {
 }
 
 // observeResponse hands a completed in-scope document/XHR/fetch response to
-// OnResponse (MISS-26).
+// OnResponse.
 func (c *Capture) observeResponse(entry *TrafficEntry) {
 	if c.OnResponse == nil || entry == nil || entry.Response == nil {
 		return

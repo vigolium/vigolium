@@ -253,7 +253,7 @@ func TestResolveSandboxPath(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "outside sandbox")
 
-	// No sandbox: the working directory (SAFE-14), so /etc/passwd is out.
+	// No sandbox: the working directory, so /etc/passwd is out.
 	_, err = resolveSandboxPath("/etc/passwd", "")
 	assert.Error(t, err)
 }

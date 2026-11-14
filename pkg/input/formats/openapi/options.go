@@ -10,7 +10,7 @@ type Options struct {
 	// UseSpecServers allows using servers defined in spec when BaseURL is not provided
 	UseSpecServers bool
 	// HTTPClient fetches a spec given as a URL (nil = proxy-environment
-	// client). Callers pass one built from the scan's --proxy (SAFE-11).
+	// client). Callers pass one built from the scan's --proxy.
 	HTTPClient *http.Client
 
 	// PreserveSpecServerPath, when BaseURL is set, keeps the scheme/host from BaseURL

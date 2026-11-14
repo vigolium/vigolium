@@ -2,7 +2,7 @@ package config
 
 import "testing"
 
-// SAFE-5: an unknown origin mode no longer admits every host.
+// An unknown origin mode no longer admits every host.
 func TestScopeOrigin_UnknownModeRejectsForeignHost(t *testing.T) {
 	cfg := *DefaultScopeConfig()
 	cfg.CLIOriginMode = "bogus"

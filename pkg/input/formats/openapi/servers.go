@@ -13,7 +13,7 @@ import (
 )
 
 // SpecServerURLs returns the absolute server URLs a spec declares, in spec
-// order, with server variables replaced by their defaults (SAFE-4). Relative
+// order, with server variables replaced by their defaults. Relative
 // server URLs are skipped: they name no host. Swagger 2.0 host/basePath/schemes
 // are converted the way ParseSwagger converts them.
 func SpecServerURLs(input string) ([]string, error) {

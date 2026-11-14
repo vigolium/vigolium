@@ -2,7 +2,6 @@ package diagnostics
 
 import (
 	"context"
-	"errors"
 	"net"
 	"net/http/httptest"
 	"testing"
@@ -13,11 +12,10 @@ import (
 
 func stubScoped(t *testing.T, free, fds uint64) {
 	t.Helper()
-	pf, pfd, plp := scopedFreeBytes, scopedFDLimit, scopedLookPath
+	pf, pfd := scopedFreeBytes, scopedFDLimit
 	scopedFreeBytes = func(string) (uint64, bool) { return free, true }
 	scopedFDLimit = func() (uint64, bool) { return fds, true }
-	scopedLookPath = func(string) (string, error) { return "", errors.New("absent") }
-	t.Cleanup(func() { scopedFreeBytes, scopedFDLimit, scopedLookPath = pf, pfd, plp })
+	t.Cleanup(func() { scopedFreeBytes, scopedFDLimit = pf, pfd })
 }
 
 func healthyReport() *Report {
@@ -44,7 +42,7 @@ func checkByID(r *ScopedReport, id string) *ScopedCheck {
 	return nil
 }
 
-// TestScoped_Verdicts is RUN-5: the scoped verdict is the worst counted
+// TestScoped_Verdicts: the scoped verdict is the worst counted
 // check; uncounted checks are reported only.
 func TestScoped_Verdicts(t *testing.T) {
 	settings := config.DefaultSettings()
@@ -77,11 +75,11 @@ func TestScoped_Verdicts(t *testing.T) {
 		t.Errorf("-S with db error = %s, want ready with database skipped", r.Status)
 	}
 
-	// Missing templates degrade the scan and pull in the (uncounted) git row.
+	// Missing templates degrade the scan.
 	noTmpl := healthyReport()
 	noTmpl.NucleiTemplates = &CheckResult{Status: StatusWarning, Message: "missing"}
 	r, _ = Scoped(PurposeScan, noTmpl, ScopedDeps{Settings: settings})
-	if r.Status != "degraded" || checkByID(r, "git") == nil || checkByID(r, "git").Counts {
+	if r.Status != "degraded" {
 		t.Errorf("missing templates = %s %+v", r.Status, r.Checks)
 	}
 	if fix := checkByID(r, "nuclei_templates").FixArgv; len(fix) == 0 {

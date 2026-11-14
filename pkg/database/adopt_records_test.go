@@ -22,7 +22,7 @@ func (c *txCounter) AfterQuery(_ context.Context, ev *bun.QueryEvent) {
 	}
 }
 
-// A batch of adoptions runs in one transaction (ECON-10), and still applies
+// A batch of adoptions runs in one transaction, and still applies
 // each row's promote-only backfill.
 func TestAdoptRecordsOneTransaction(t *testing.T) {
 	db := newTestDB(t)

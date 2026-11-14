@@ -9,7 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/payload"
 )
 
-// MISS-5: a confirmed extension is swept with the short file list in every
+// A confirmed extension is swept with the short file list in every
 // known directory, not only at the start path, so /admin/upload.php is
 // guessed. The long list × extension stays at the start path.
 func TestFactory_DynamicExtensionShortListPerDirectory(t *testing.T) {

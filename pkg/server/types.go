@@ -396,8 +396,8 @@ type IngestHTTPResponse struct {
 	// reason (out_of_scope, unparsed_line, skipped_operation, …), so nothing
 	// is dropped silently. Skipped is the out_of_scope count.
 	SkippedReasons map[string]int `json:"skipped_reasons,omitempty"`
-	// DerivedScope is the primary host a multi-host capture was scoped to
-	// (SAFE-4); records for other hosts were stored as context (ContextOnly
+	// DerivedScope is the primary host a multi-host capture was scoped to;
+	// records for other hosts were stored as context (ContextOnly
 	// of them, source ingest-context) and are not scanned by scan-on-receive.
 	DerivedScope string   `json:"derived_scope,omitempty"`
 	ContextOnly  int      `json:"context_only,omitempty"`

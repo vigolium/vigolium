@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// ECON-8: discovery has a phase ceiling, default --discover-max-time ×
+// Discovery has a phase ceiling, default --discover-max-time ×
 // min(targets, 3); an explicit value wins and "0" disables it.
 func TestDiscoveryPhaseMaxDuration(t *testing.T) {
 	var c DiscoveryConfig

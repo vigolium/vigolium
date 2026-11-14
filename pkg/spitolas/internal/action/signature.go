@@ -7,7 +7,7 @@ import (
 )
 
 // signatureMABPolicy is the optional MAB extension that seeds a new arm from
-// its signature's crawl-wide reward (MISS-28c).
+// its signature's crawl-wide reward.
 type signatureMABPolicy interface {
 	AddActionWithSignature(stateID, actionID, sig string)
 }

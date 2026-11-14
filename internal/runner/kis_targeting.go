@@ -171,18 +171,14 @@ func (r *Runner) knownIssueScanTechExcludes(ctx context.Context, scanUUID string
 	if !kcfg.TechSelectionEnabled() || len(kcfg.Tags) > 0 {
 		return nil
 	}
-	rows, _, err := r.repository.ListHostObservationsWithCount(ctx, database.HostObservationQuery{
-		ProjectUUID: r.options.ProjectUUID, ScanUUID: scanUUID, Has: "fingerprint",
-	})
+	reports, err := r.storedFingerprints(ctx, r.options.ProjectUUID, scanUUID)
 	if err != nil {
 		zap.L().Debug("KnownIssueScan: tech selection unavailable", zap.Error(err))
 		return nil
 	}
-	byEndpoint := make(map[string]*recon.TechStackReport, len(rows))
-	for _, row := range rows {
-		if row.Fingerprint != nil {
-			byEndpoint[httpmsg.HostPort(row.Hostname, row.Port)] = row.Fingerprint
-		}
+	byEndpoint := make(map[string]*recon.TechStackReport, len(reports))
+	for ep, rep := range reports {
+		byEndpoint[httpmsg.HostPort(ep.host, ep.port)] = rep
 	}
 	stacks := make(map[string][]string, len(origins))
 	for _, o := range origins {
@@ -290,7 +286,9 @@ func (r *Runner) knownIssueScanDuplicateFilter(ctx context.Context, scanUUID str
 	if r.repository == nil || scanUUID == "" {
 		return nil, nil
 	}
-	findings, err := r.repository.FindingsInScan(ctx, r.options.ProjectUUID, scanUUID)
+	// Only what newNativeDuplicateIndex reads: no evidence bodies.
+	findings, err := r.repository.FindingsInScan(ctx, r.options.ProjectUUID, scanUUID,
+		"id", "finding_source", "module_type", "hostname", "module_id", "module_name", "tags", "url")
 	if err != nil || len(findings) == 0 {
 		return nil, nil
 	}

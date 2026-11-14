@@ -371,14 +371,11 @@ func TestCompactBodies_OverBudgetVacuumsOnlyWhenPagesAreFree(t *testing.T) {
 }
 
 func TestCompactFilter(t *testing.T) {
-	f, err := newCompactFilter(CompactOptions{
+	f := newCompactFilter(CompactOptions{
 		OnlyContentTypes: []string{"image/*"},
 		OnlyPaths:        []string{"/media/*"},
 		SkipPaths:        []string{"*.svg"},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	cases := []struct {
 		ct, path string
 		want     bool

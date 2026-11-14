@@ -17,7 +17,7 @@ type ExtensionsConfig struct {
 	SandboxDir   string            `yaml:"sandbox_dir"` // base path for file ops; empty = cwd
 	// AllowOutOfScope lets vigolium.http.* send to hosts outside the scan's
 	// scope. Off by default: extension HTTP is scope-checked like module
-	// traffic (SAFE-14).
+	// traffic.
 	AllowOutOfScope bool `yaml:"allow_out_of_scope"`
 
 	// YAMLStrict makes an unknown key in a .vgm.yaml extension a load failure
@@ -54,7 +54,7 @@ type ScriptLimits struct {
 	// Timeout bounds one extension call (the VM is interrupted at it).
 	Timeout string `yaml:"timeout"`
 	// MaxMemoryMB is accepted for old configs but NOT enforced: the JS VM has
-	// no memory limit to apply it to (SAFE-14). Setting it logs a warning.
+	// no memory limit to apply it to. Setting it logs a warning.
 	MaxMemoryMB int `yaml:"max_memory_mb,omitempty"`
 }
 

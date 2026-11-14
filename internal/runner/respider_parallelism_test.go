@@ -9,7 +9,7 @@ func TestReSpiderHostParallelism(t *testing.T) {
 		numGroups int
 		want      int
 	}{
-		{"default 2 (ECON-9)", "", 5, 2},
+		{"default 2", "", 5, 2},
 		{"explicit sequential", "1", 5, 1},
 		{"opt-in 2", "2", 5, 2},
 		{"clamped to hosts", "8", 3, 3},

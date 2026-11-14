@@ -130,16 +130,14 @@ type ModuleStatsSnapshot struct {
 	Inconclusive int64
 }
 
-// Add returns the field-wise sum of s and o (merging one module's snapshots
-// from several executors).
-func (s ModuleStatsSnapshot) Add(o ModuleStatsSnapshot) ModuleStatsSnapshot {
+// Add accumulates o's counters into s.
+func (s *ModuleStatsSnapshot) Add(o ModuleStatsSnapshot) {
 	s.Invocations += o.Invocations
 	s.Findings += o.Findings
 	s.Errors += o.Errors
 	s.TotalTime += o.TotalTime
 	s.Requests += o.Requests
 	s.Inconclusive += o.Inconclusive
-	return s
 }
 
 // DistinctCount returns the number of distinct modules that have been invoked at least once.

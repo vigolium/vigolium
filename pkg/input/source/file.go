@@ -163,11 +163,8 @@ var formatRegistry = []formatEntry{
 // would let it construct a parser of its own.
 //
 // It exists so the CLI's -I help text and `--list-input-mode` table are derived
-// from the registry rather than re-typed beside it. The hand-maintained copy
-// they used to carry had already drifted: it advertised "nuclei-output" as the
-// canonical name with "nuclei" as the alias, which is the reverse of what
-// resolveFormat accepts, and it was missing burpscope's burp-project-config
-// alias entirely.
+// from the registry rather than re-typed beside it, where a hand-maintained
+// copy drifts (a canonical name swapped with its alias, an alias missing).
 type FormatInfo struct {
 	Name       string   // canonical -I value
 	Aliases    []string // accepted alternatives, in registry order
@@ -201,6 +198,13 @@ func Formats() []FormatInfo {
 func IsTargetListFormat(name string) bool {
 	e, ok := lookupFormat(name)
 	return ok && e.targetList
+}
+
+// IsOpenAPIFormat reports whether the given -I name or alias selects the
+// OpenAPI/Swagger parser (whose spec carries servers[] and honours --spec-url).
+func IsOpenAPIFormat(name string) bool {
+	e, ok := lookupFormat(name)
+	return ok && e.canonical == "openapi"
 }
 
 // LookupFormat resolves an input-format name or alias (case-insensitive; empty
@@ -281,7 +285,7 @@ func ParseFileRecords(filePath, formatName string, max int) ([]*httpmsg.HttpRequ
 }
 
 // HostCensus counts the hosts an input file's records target, for deriving a
-// file-input scan's scope when no -t was given (SAFE-4). primary is the host
+// file-input scan's scope when no -t was given. primary is the host
 // the file is "about":
 //
 //   - HAR, Burp and other traffic exports: the first record's host, else the

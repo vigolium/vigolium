@@ -99,6 +99,7 @@ func (s *sliceInputSource) Next(ctx context.Context) (*work.WorkItem, error) {
 		return nil, io.EOF
 	}
 	it := s.items[s.next]
+	s.items[s.next] = nil // served: let it be collected as the phase stores
 	s.next++
 	return it, nil
 }

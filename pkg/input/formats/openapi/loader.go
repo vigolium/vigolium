@@ -13,7 +13,7 @@ import (
 
 const specLoadTimeout = 30 * time.Second
 
-// MaxSpecBytes bounds a spec fetched from a URL (SAFE-11): the read used to be
+// MaxSpecBytes bounds a spec fetched from a URL: the read used to be
 // unbounded, so a hostile or broken endpoint could stream until memory ran out.
 const MaxSpecBytes = 50 << 20
 
@@ -29,7 +29,7 @@ func LoadSpec(input string) ([]byte, string, error) {
 
 // LoadSpecWithClient is LoadSpec fetching a URL through client (nil = a
 // client honouring the proxy environment). It used http.DefaultClient, which
-// ignored --proxy (SAFE-11).
+// ignored --proxy.
 func LoadSpecWithClient(input string, client *http.Client) ([]byte, string, error) {
 	if isURL(input) {
 		return loadFromURL(input, client)

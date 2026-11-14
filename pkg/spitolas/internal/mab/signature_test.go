@@ -2,7 +2,7 @@ package mab
 
 import "testing"
 
-// MISS-28c: a new arm whose signature paid off elsewhere starts ahead of an
+// A new arm whose signature paid off elsewhere starts ahead of an
 // unseen one; the memory survives the per-state removal of pulled arms.
 func TestSignatureSeedsNewArms(t *testing.T) {
 	p := NewMABExp3Policy(10)

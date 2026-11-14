@@ -2,7 +2,7 @@ package config
 
 import "testing"
 
-// SAFE-6: path rules see the path only, and "*" crosses "/".
+// Path rules see the path only, and "*" crosses "/".
 func TestScopePath_QueryAndGlobSemantics(t *testing.T) {
 	cfg := *DefaultScopeConfig()
 	cfg.Path = ScopeRule{Include: []string{"*"}, Exclude: []string{"/logout", "/admin/*"}}

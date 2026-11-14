@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Response-body fetch pool (MISS-29b). Network.getResponseBody used to run
+// Response-body fetch pool. Network.getResponseBody used to run
 // inline on the browser's single event goroutine, so one slow body held every
 // later event — the requests behind it waited, and a burst of bodies could
 // age out of the browser's buffer before their turn.

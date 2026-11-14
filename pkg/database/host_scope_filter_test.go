@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// MISS-36: 1500 origins used to build 1500 OR terms, past SQLite's expression
+// 1500 origins used to build 1500 OR terms, past SQLite's expression
 // depth limit, and the count query failed.
 func TestHostScopeFilter_ManyOrigins(t *testing.T) {
 	db := newTestDB(t)

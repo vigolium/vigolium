@@ -69,7 +69,7 @@ func evaluatePartialGate(repo *database.Repository, scanUUID string) {
 func resetFailOnGate() error {
 	failOnGateTriggered = false
 	partialGateReason = ""
-	baselineGate.loaded, baselineGate.baseline, baselineGate.ignore, baselineGate.counts = false, nil, nil, nil
+	baselineGate.baseline, baselineGate.ignore, baselineGate.counts = nil, nil, nil
 	if err := prepareBaselineGate(context.Background()); err != nil {
 		return err
 	}

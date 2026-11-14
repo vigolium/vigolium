@@ -8,7 +8,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// TestJSEngineOptions_CarryOASTAndProject is MISS-37: the extension engine
+// TestJSEngineOptions_CarryOASTAndProject: the extension engine
 // gets the scan's OAST service (vigolium.oast.* was dead in scans) and its
 // project.
 func TestJSEngineOptions_CarryOASTAndProject(t *testing.T) {

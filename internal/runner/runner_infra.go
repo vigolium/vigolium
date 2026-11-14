@@ -3,18 +3,18 @@ package runner
 import (
 	"context"
 	"fmt"
-	"github.com/vigolium/vigolium/pkg/knownissuescan"
-	"github.com/vigolium/vigolium/pkg/modules/passive/surface_scoring"
-	"github.com/vigolium/vigolium/pkg/spitolas"
 	nethttp "net/http"
 	"net/url"
 	"os"
-	"strings"
 	"time"
+
+	"github.com/vigolium/vigolium/pkg/modules/passive/surface_scoring"
+	"github.com/vigolium/vigolium/pkg/spitolas"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/redact"
 	"github.com/vigolium/vigolium/pkg/core/egress"
 	"github.com/vigolium/vigolium/pkg/core/services"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -56,12 +56,11 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 		var backends []notify.Backend
 		notifyCfg := &r.settings.Notify
 
-		// Telegram backend (from settings or env). Construction no longer
-		// contacts Telegram (see telegram.NewClient), so this cannot delay the
-		// first phase; what it can still report is a malformed token or chat id,
-		// which used to be dropped on the floor — an operator who enabled
-		// notifications and mistyped the config got no notifications and no
-		// explanation, matching the Discord branch below.
+		// Telegram backend (from settings or env). Construction does not
+		// contact Telegram (see telegram.NewClient), so this cannot delay the
+		// first phase; what it can report is a malformed token or chat id, which
+		// is logged like the Discord branch below — an operator who enabled
+		// notifications and mistyped the config must get an explanation.
 		if notifyCfg.IsProviderActive(config.NotifyProviderTelegram) {
 			tgOpts := r.buildTelegramOptions()
 			if tg, err := telegram.NewBackend(tgOpts...); err == nil {
@@ -92,7 +91,7 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 			infra.notifier = notify.New(notify.Config{
 				Backends:          backends,
 				AllowedSeverities: notifyCfg.Severities,
-				RedactHeaders:     headerNameSet(r.options.Headers),
+				RedactHeaders:     redact.HeaderNameSet(r.options.Headers),
 				NoRedact:          r.settings.Output.RedactEvidence != nil && !*r.settings.Output.RedactEvidence,
 			})
 		}
@@ -131,17 +130,17 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 
 	// Create scope matcher from settings, passing CLI targets for cli_origin_mode
 	// filtering. Built before the requester so the in-scope redirect mode (the
-	// default) can judge every hop against it from the first request (SAFE-2).
+	// default) can judge every hop against it from the first request.
 	if r.settings != nil {
 		infra.scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.scopeTargets()...)
 		svc.HopScope = infra.scopeMatcher.HostInScope
-		// The traffic policy is resolved once, here, before any sender exists
-		// (SAFE-8); every sender reads it from the shared options.
+		// The traffic policy is resolved once, here, before any sender exists;
+		// every sender reads it from the shared options.
 		if r.options.TrafficPolicy == nil {
 			r.options.TrafficPolicy = types.NewTrafficPolicy(r.settings.Scope.Methods)
 		}
 	}
-	// --offline (SAFE-11): nothing leaves for a non-target network path.
+	// --offline: nothing leaves for a non-target network path.
 	if r.offline() {
 		r.applyOffline()
 	}
@@ -159,8 +158,7 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 	reachesTarget := plan.SendsTargetTraffic()
 
 	// OAST registration starts before the extension engine is built, so
-	// extensions get the scan's service (vigolium.oast.*): it used to start
-	// last, and the engine was built with no service at all.
+	// extensions get the scan's service (vigolium.oast.*).
 	r.startOASTRegistration(plan, infra)
 
 	// Initialize JS extension engine
@@ -359,7 +357,7 @@ func phaseDeadline(ctx context.Context, maxDuration time.Duration) (context.Cont
 
 // phaseDeadlineReserved is phaseDeadline that also keeps reserveAfter (0..1)
 // of the time the parent context has left for the phases that come after this
-// one (ECON-5): when ctx carries the scan's total budget, the phase's deadline
+// one: when ctx carries the scan's total budget, the phase's deadline
 // is capped at (1 - reserveAfter) of what remains. Without a parent deadline,
 // or with reserveAfter 0, it is phaseDeadline.
 func phaseDeadlineReserved(ctx context.Context, maxDuration time.Duration, reserveAfter float64) (context.Context, context.CancelFunc) {
@@ -389,7 +387,7 @@ func (r *Runner) newScanRecordWriter() *database.RecordWriter {
 	return database.NewRecordWriter(r.repository, database.RecordWriterConfig{
 		ScanUUID: r.options.ScanUUID,
 		// Score each record's attack surface at ingest so the assessment's
-		// (risk, surface) order means something on a fresh scan (ECON-5).
+		// (risk, surface) order means something on a fresh scan.
 		SurfaceScorer: surface_scoring.IngestScore,
 	})
 }
@@ -399,8 +397,8 @@ func (r *Runner) offline() bool {
 	return r.options.Offline || (r.settings != nil && r.settings.Offline)
 }
 
-// applyOffline turns off every non-target network path for the run
-// (SAFE-11): OAST registration, third-party lookups (externalFetcher returns
+// applyOffline turns off every non-target network path for the run:
+// OAST registration, third-party lookups (externalFetcher returns
 // nil), nuclei template clones and browser downloads.
 func (r *Runner) applyOffline() {
 	r.options.Offline = true
@@ -409,11 +407,10 @@ func (r *Runner) applyOffline() {
 		r.settings.DynamicAssessment.ExternalLookups = false
 	}
 	spitolas.SetOffline(true)
-	knownissuescan.SetOffline(true)
 }
 
 // externalFetcher is the client modules use for third-party lookups that are
-// not the target (SAFE-11), built from the scan's proxy and timeout. nil
+// not the target, built from the scan's proxy and timeout. nil
 // unless dynamic_assessment.external_lookups is on and the run is not offline.
 func (r *Runner) externalFetcher() *nethttp.Client {
 	if r.offline() || r.settings == nil || !r.settings.DynamicAssessment.ExternalLookups {
@@ -430,17 +427,4 @@ func (r *Runner) externalFetcher() *nethttp.Client {
 		timeout = 10 * time.Second
 	}
 	return &nethttp.Client{Timeout: timeout, Transport: transport}
-}
-
-// headerNameSet is the lowercased name set of "Name: value" header strings.
-func headerNameSet(headers []string) map[string]struct{} {
-	out := make(map[string]struct{}, len(headers))
-	for _, h := range headers {
-		if name, _, ok := strings.Cut(h, ":"); ok {
-			if n := strings.ToLower(strings.TrimSpace(name)); n != "" {
-				out[n] = struct{}{}
-			}
-		}
-	}
-	return out
 }
