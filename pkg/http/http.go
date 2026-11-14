@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -214,6 +215,10 @@ type Requester struct {
 	// admitted or dialed, and counted in refused. See NewOfflineRequester.
 	offline error
 	refused *atomic.Int64
+	// baseline is the record's unmodified request (WithBaseline). When the
+	// breaker admits one of this requester's sends as its half-open recovery
+	// probe, the baseline is sent instead of the payload (MISS-24).
+	baseline *httpmsg.HttpRequestResponse
 	// callStats counts per-call transport outcomes a module's negative result
 	// depends on (MISS-22). A fresh one is attached per module call by
 	// WithAbandonFlag; the root requester carries a scan-wide one.
@@ -542,6 +547,19 @@ func (r *Requester) WithAbandonFlag(flag *atomic.Bool) *Requester {
 	// The per-call clone: its own outcome counters, read by the executor
 	// after the module returns (CallStats).
 	clone.callStats = &CallStats{}
+	return &clone
+}
+
+// WithBaseline returns a shallow clone that probes a recovering host with rr
+// (the record's unmodified request) instead of whatever payload arrives at
+// the half-open breaker (MISS-24). The executor sets it on the per-item clone.
+// A nil rr returns r unchanged.
+func (r *Requester) WithBaseline(rr *httpmsg.HttpRequestResponse) *Requester {
+	if r == nil || rr == nil || rr.Request() == nil {
+		return r
+	}
+	clone := *r
+	clone.baseline = rr
 	return &clone
 }
 
@@ -1336,8 +1354,23 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		elapsed time.Duration
 		creds   *authentication.Credentials
 	)
+	// probeBaseline is the record's own request when it differs from this
+	// one: if the breaker hands this call its recovery probe, the baseline
+	// goes out instead (MISS-24). Never for raw requests, whose bytes are the
+	// test (smuggling, request-line attacks).
+	var probeBaseline *httpmsg.HttpRequestResponse
+	if r.baseline != nil && !opts.RawRequest && input.Request() != nil &&
+		!bytes.Equal(r.baseline.Request().Raw(), input.Request().Raw()) {
+		probeBaseline = r.baseline
+	}
 	for throttleRetry := 0; ; throttleRetry++ {
-		attempts, err := r.gate.Do(ctx, hostPort, r.lane, policy, func(int) error {
+		probedBaseline := false
+		attempts, err := r.gate.DoProbeAware(ctx, hostPort, r.lane, policy, func(_ int, isProbe bool) error {
+			if isProbe && probeBaseline != nil {
+				probedBaseline = true
+				probeBaseline = nil // once per call
+				return r.sendBaselineProbe(ctx, host, opts)
+			}
 			// The clock starts HERE — after the rate token and the host slot, right
 			// before the send. Queue time is vigolium's own saturation, not the
 			// target's latency. It covers this attempt only (redirect hops and body
@@ -1371,6 +1404,17 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 			}
 			return sendErr
 		})
+		if probedBaseline {
+			// The probe went to the baseline. Success closed the breaker: send
+			// the real request through a fresh admission. Failure means the
+			// host really is down — not that it dislikes this payload.
+			if err != nil {
+				r.noteStat(func(c *CallStats) { c.Refused.Add(1) })
+				return nil, 0, hosterrors.ErrUnresponsiveHost
+			}
+			throttleRetry--
+			continue
+		}
 		if err != nil {
 			if attempts > 1 && ctx.Err() == nil {
 				// The message retryablehttp used to give a retried failure, so logs
@@ -1440,6 +1484,24 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		}
 		return resp, elapsed, nil
 	}
+}
+
+// sendBaselineProbe sends the record's baseline as the breaker's recovery
+// probe and reports its outcome to the limiter; the response is discarded.
+func (r *Requester) sendBaselineProbe(ctx context.Context, host string, opts Options) error {
+	r.sent.Add(1)
+	probeOpts := Options{NoRedirects: opts.NoRedirects, DisableCompression: opts.DisableCompression}
+	resp, err := r.doRequest(ctx, r.baseline, probeOpts, r.live.Credentials())
+	if err != nil {
+		if ctx.Err() == nil {
+			r.reportHostFeedback(host, 0, err, false)
+		}
+		return err
+	}
+	status := responseChainStatus(resp)
+	r.reportHostFeedback(host, status, nil, classifyWAFBlock(resp) != nil)
+	resp.Close()
+	return nil
 }
 
 // Transparent throttle retry bounds (MISS-22).

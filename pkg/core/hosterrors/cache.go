@@ -284,31 +284,44 @@ func (c *Cache) AnyTripped() bool {
 // probe. A half-open probe that has not reported within ProbeTTL is treated as
 // lost, and one more caller is admitted in its place.
 func (c *Cache) Admit(key string) bool {
+	ok, _ := c.AdmitProbe(key)
+	return ok
+}
+
+// AdmitProbe is Admit that also reports whether the admission is the
+// half-open recovery probe (MISS-24). A caller holding the probe can spend it
+// on a request whose outcome actually says whether the host is alive — the
+// record's unmodified baseline — instead of whatever payload happened to
+// arrive: a WAF that silently drops payloads used to fail every probe and get
+// the host declared dead.
+func (c *Cache) AdmitProbe(key string) (ok, isProbe bool) {
 	it := c.trippedItem(key)
 	if it == nil {
-		return true
+		return true, false
 	}
 	now := c.nowNanos()
 	switch State(it.state.Load()) {
 	case StateClosed:
-		return true
+		return true, false
 	case StateOpen:
 		if now < it.openedAt.Load()+it.cooldown.Load() {
-			return false
+			return false, false
 		}
 		// probeAt is written before the CAS so a reader that sees HalfOpen
 		// never sees a stale probe time. Losers overwrite it with ~the same
 		// instant, which only matters at ProbeTTL granularity.
 		it.probeAt.Store(now)
-		return it.state.CompareAndSwap(int32(StateOpen), int32(StateHalfOpen))
+		won := it.state.CompareAndSwap(int32(StateOpen), int32(StateHalfOpen))
+		return won, won
 	case StateHalfOpen:
 		p := it.probeAt.Load()
 		if now-p < int64(c.probeTTL) {
-			return false
+			return false, false
 		}
-		return it.probeAt.CompareAndSwap(p, now)
+		won := it.probeAt.CompareAndSwap(p, now)
+		return won, won
 	default:
-		return false
+		return false, false
 	}
 }
 

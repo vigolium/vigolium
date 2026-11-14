@@ -232,8 +232,15 @@ func (g *Gate) AcquireHost(ctx context.Context, host string, port int, lane Lane
 }
 
 func (g *Gate) acquire(ctx context.Context, t target, lane Lane) (Release, error) {
+	release, _, err := g.acquireProbe(ctx, t, lane)
+	return release, err
+}
+
+// acquireProbe is acquire that also reports whether the breaker admitted this
+// attempt as its half-open recovery probe (MISS-24).
+func (g *Gate) acquireProbe(ctx context.Context, t target, lane Lane) (Release, bool, error) {
 	if g == nil {
-		return noopRelease, nil
+		return noopRelease, false, nil
 	}
 	a := admission{host: t.host, key: t.key, breaker: g.cfg.Breaker}
 	if t.key == "" {
@@ -241,15 +248,15 @@ func (g *Gate) acquire(ctx context.Context, t target, lane Lane) (Release, error
 	}
 
 	if a.breaker != nil && a.breaker.Quarantined(t.key) {
-		return nil, hosterrors.ErrUnresponsiveHost
+		return nil, false, hosterrors.ErrUnresponsiveHost
 	}
 	hb := g.budget.forHost(t.host)
 	if err := g.budget.check(hb); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if g.cfg.Rate != nil {
 		if err := g.cfg.Rate.Wait(ctx); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 
@@ -257,14 +264,14 @@ func (g *Gate) acquire(ctx context.Context, t target, lane Lane) (Release, error
 		if lane == LanePriority {
 			release, err := hosts.AcquirePriority(ctx, t.host)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			a.freePriority = release
 		} else {
 			// Acquire timeout/cancellation is our own saturation or shutdown,
 			// not host distress, so nothing is reported to the breaker.
 			if err := hosts.AcquireWithTimeoutContext(ctx, t.host); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			a.hosts = hosts
 		}
@@ -274,19 +281,24 @@ func (g *Gate) acquire(ctx context.Context, t target, lane Lane) (Release, error
 	// half-open probe claimed by a request that never went out.
 	if err := g.budget.take(hb); err != nil {
 		a.freeSlot()
-		return nil, err
+		return nil, false, err
 	}
-	if a.breaker != nil && !a.breaker.Admit(t.key) {
-		g.budget.refund(hb)
-		a.freeSlot()
-		return nil, hosterrors.ErrUnresponsiveHost
+	isProbe := false
+	if a.breaker != nil {
+		ok, probe := a.breaker.AdmitProbe(t.key)
+		if !ok {
+			g.budget.refund(hb)
+			a.freeSlot()
+			return nil, false, hosterrors.ErrUnresponsiveHost
+		}
+		isProbe = probe
 	}
 
 	g.count(1)
 	if a.breaker == nil && a.hosts == nil && a.freePriority == nil {
-		return noopRelease, nil
+		return noopRelease, false, nil
 	}
-	return a.release, nil
+	return a.release, isProbe, nil
 }
 
 // admission is what an admitted attempt's Release has to undo. Its release
@@ -399,6 +411,13 @@ func DefaultBackoff(attempt int) time.Duration {
 // attempt's own error is returned — it says why the host is down; "skipping"
 // does not. A ctx cancelled during a backoff returns ctx's error.
 func (g *Gate) Do(ctx context.Context, hostPort string, lane Lane, p RetryPolicy, send func(attempt int) error) (int, error) {
+	return g.DoProbeAware(ctx, hostPort, lane, p, func(attempt int, _ bool) error { return send(attempt) })
+}
+
+// DoProbeAware is Do whose send learns whether the attempt was admitted as the
+// breaker's half-open recovery probe (MISS-24), so it can send the record's
+// baseline instead of a payload.
+func (g *Gate) DoProbeAware(ctx context.Context, hostPort string, lane Lane, p RetryPolicy, send func(attempt int, isProbe bool) error) (int, error) {
 	backoff := p.Backoff
 	if backoff == nil {
 		backoff = DefaultBackoff
@@ -406,14 +425,14 @@ func (g *Gate) Do(ctx context.Context, hostPort string, lane Lane, p RetryPolicy
 	t := parseTarget(hostPort) // once, not per attempt
 	var lastErr error
 	for attempt := 0; ; attempt++ {
-		release, err := g.acquire(ctx, t, lane)
+		release, isProbe, err := g.acquireProbe(ctx, t, lane)
 		if err != nil {
 			if lastErr != nil && errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return attempt, lastErr
 			}
 			return attempt, err
 		}
-		err = send(attempt)
+		err = send(attempt, isProbe)
 		release(Outcome{Err: err, IgnoreTimeout: p.IgnoreTimeout})
 		if err == nil {
 			return attempt + 1, nil
