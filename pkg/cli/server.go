@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
@@ -688,19 +687,7 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	var inputSource source.InputSource
 	if globalScanOnReceive && db != nil && repo != nil {
 		// Create a persistent scan record for the server session
-		scanUUID := uuid.New().String()
-		serverScan := &database.Scan{
-			UUID:        fmt.Sprintf("scan-%s", scanUUID),
-			ProjectUUID: database.DefaultProjectUUID,
-			Name:        fmt.Sprintf("server-scan-on-receive-%s", scanUUID[:8]),
-			Status:      "running",
-			Target:      strings.Join(globalTargets, ","),
-			Modules:     strings.Join(runnerOpts.Modules, ","),
-			Threads:     globalConcurrency,
-			ScanSource:  "scan-on-receive",
-			ScanMode:    "incremental",
-			StartedAt:   time.Now(),
-		}
+		serverScan := newScanOnReceiveRow(database.DefaultProjectUUID, strings.Join(globalTargets, ","), strings.Join(runnerOpts.Modules, ","), globalConcurrency)
 		if err := repo.CreateScanWithCursor(context.Background(), serverScan); err != nil {
 			zap.L().Warn("Failed to create server scan record", zap.Error(err))
 		}
@@ -840,6 +827,40 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
+	// scan-on-receive watches every project, not just the default: one
+	// receiver (runner + its own cursor row) per project, started as projects
+	// appear. Full-native-on-receive stays on the default project.
+	var receivers *projectReceivers
+	if scanRunner != nil && globalScanOnReceive && !globalFullNativeScanOnReceive && repo != nil {
+		receivers = newProjectReceivers(func(projectUUID string) (receiver, error) {
+			opts := *runnerOpts
+			row := newScanOnReceiveRow(projectUUID, strings.Join(globalTargets, ","), strings.Join(runnerOpts.Modules, ","), globalConcurrency)
+			if err := repo.CreateScanWithCursor(context.Background(), row); err != nil {
+				return nil, err
+			}
+			opts.ScanUUID = row.UUID
+			opts.ProjectUUID = projectUUID
+			idle, err := queue.NewQueue(queue.Config{Type: queue.QueueTypeMemory, MemBufferSize: 1})
+			if err != nil {
+				return nil, err
+			}
+			r, err := runner.NewWithInputSource(&opts, queue.NewQueueInputSource(idle))
+			if err != nil {
+				return nil, err
+			}
+			r.SetSettings(settings)
+			r.SetRepository(repo)
+			go func() {
+				if err := r.RunNativeScan(); err != nil {
+					zap.L().Error("Runner error", zap.String("project", projectUUID), zap.Error(err))
+				}
+			}()
+			return r, nil
+		})
+		receivers.add(database.DefaultProjectUUID, scanRunner)
+		go receivers.watch(ctx, repo, projectReceiverInterval)
+	}
+
 	// Catch-up scanning is disabled — the previous implementation re-scanned the
 	// live scan-on-receive range instead of the historical backlog it detected, so
 	// it only ever produced duplicate work. The live incremental scanner already
@@ -867,7 +888,9 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 
 	// Close runner first (stops workers from dequeuing). Only present when
 	// scan-on-receive or full-native-on-receive was enabled.
-	if scanRunner != nil {
+	if receivers != nil {
+		receivers.closeAll() // includes scanRunner
+	} else if scanRunner != nil {
 		scanRunner.Close()
 	}
 

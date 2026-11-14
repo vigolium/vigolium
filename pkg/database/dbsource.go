@@ -129,13 +129,33 @@ type DBInputSource struct {
 	projectUUID    string // the owning scan's project; scopes record selection (resolved on init)
 	readCursorAt   time.Time
 	readCursorUUID string
+	startAt        time.Time // the durable cursor this source started from
 	nextSeq        uint64
 	nextAckSeq     uint64
 	pendingBySeq   map[uint64]*cursorAck
 
+	// served remembers records already handed out whose created_at is inside
+	// the lookback window, so the polling re-read (pollLookback) never serves
+	// one twice. Pruned as the read cursor moves past the window.
+	served map[string]time.Time
+	// ackMaxAt/ackMaxUUID are the furthest key the durable cursor was moved
+	// to; a late record served from the lookback must never move it back.
+	ackMaxAt   time.Time
+	ackMaxUUID string
+
 	// count is the eligible-record snapshot taken on the first fetch; see Count.
 	count atomic.Int64
 }
+
+// pollLookback is how far behind the read cursor a polling source re-reads.
+// On SQLite created_at has one-second resolution and the keyset tie-breaks on
+// a random UUID, so a record committed in the cursor's second with a smaller
+// UUID (or a little late, by another writer) sits behind the cursor and a
+// strict keyset never serves it.
+const pollLookback = 2 * time.Second
+
+// maxLookbackRows bounds the lookback re-read per poll.
+const maxLookbackRows = 512
 
 type cursorAck struct {
 	seq       uint64
@@ -323,6 +343,8 @@ func (s *DBInputSource) fetchNextBatch(ctx context.Context) ([]*HTTPRecord, erro
 		}
 		s.readCursorAt = scan.CursorAt
 		s.readCursorUUID = scan.CursorUUID
+		s.startAt = scan.CursorAt
+		s.ackMaxAt, s.ackMaxUUID = scan.CursorAt, scan.CursorUUID
 		s.projectUUID = scan.ProjectUUID
 		s.readCursorInit = true
 		s.captureCount(ctx)
@@ -347,13 +369,28 @@ func (s *DBInputSource) fetchNextBatch(ctx context.Context) ([]*HTTPRecord, erro
 	if err := q.OrderExpr("created_at ASC, uuid ASC").Limit(int64(limit)).Scan(ctx); err != nil {
 		return nil, err
 	}
+	if !s.oneShot {
+		late, err := s.lookbackLocked(ctx)
+		if err != nil {
+			return nil, err
+		}
+		records = append(late, records...)
+	}
 	if len(records) == 0 {
 		return nil, sql.ErrNoRows
 	}
 
-	last := records[len(records)-1]
-	s.readCursorAt = last.CreatedAt
-	s.readCursorUUID = last.UUID
+	for _, rec := range records {
+		if s.served == nil {
+			s.served = make(map[string]time.Time)
+		}
+		s.served[rec.UUID] = rec.CreatedAt
+		if rec.CreatedAt.After(s.readCursorAt) || (rec.CreatedAt.Equal(s.readCursorAt) && rec.UUID > s.readCursorUUID) {
+			s.readCursorAt = rec.CreatedAt
+			s.readCursorUUID = rec.UUID
+		}
+	}
+	s.pruneServedLocked()
 
 	// Compute idle duration BEFORE updating lastActivityNs so the callback
 	// reflects the gap that just ended, not zero.
@@ -370,6 +407,59 @@ func (s *DBInputSource) fetchNextBatch(ctx context.Context) ([]*HTTPRecord, erro
 	}
 
 	return records, nil
+}
+
+// lookbackLocked returns records inside the lookback window behind the read
+// cursor (created_at >= cursor − pollLookback, at or before the cursor key)
+// that were never served. Caller holds s.mu.
+func (s *DBInputSource) lookbackLocked(ctx context.Context) ([]*HTTPRecord, error) {
+	if s.readCursorAt.IsZero() {
+		return nil, nil
+	}
+	from := dbTimestampString(s.db.Driver(), s.readCursorAt.Add(-pollLookback))
+	at := dbTimestampString(s.db.Driver(), s.readCursorAt)
+	var rows []*HTTPRecord
+	q := s.db.NewSelect().Model(&rows).Column(scanRecordColumns...).
+		Where("created_at >= ?", from).
+		Where("(created_at < ? OR (created_at = ? AND uuid <= ?))", at, at, s.readCursorUUID)
+	q = applyHostScopeFilter(q, s.hostScopes)
+	q = applyProjectFilter(q, s.projectUUID)
+	if len(s.includeSources) > 0 {
+		q = q.Where("source IN (?)", bun.List(s.includeSources))
+	}
+	if err := q.OrderExpr("created_at ASC, uuid ASC").Limit(maxLookbackRows).Scan(ctx); err != nil {
+		return nil, err
+	}
+	out := rows[:0]
+	for _, r := range rows {
+		if _, seen := s.served[r.UUID]; seen {
+			continue
+		}
+		// A record at or before the durable cursor that was never served by
+		// this source predates it (a resumed source's earlier run handled it).
+		if !s.servedSince(r) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// servedSince reports whether r could have been missed by this source: it was
+// created after the cursor this source started from, minus the lookback.
+// Records older than that belong to a previous run's committed range.
+func (s *DBInputSource) servedSince(r *HTTPRecord) bool {
+	return s.startAt.IsZero() || !r.CreatedAt.Before(s.startAt.Add(-pollLookback))
+}
+
+// pruneServedLocked forgets served records the lookback can no longer reach.
+func (s *DBInputSource) pruneServedLocked() {
+	floor := s.readCursorAt.Add(-2 * pollLookback)
+	for id, at := range s.served {
+		if at.Before(floor) {
+			delete(s.served, id)
+		}
+	}
 }
 
 // applyEligibility restricts q to the records this source will serve: after the
@@ -474,8 +564,12 @@ func (s *DBInputSource) ack(seq uint64) {
 		delete(s.pendingBySeq, s.nextAckSeq)
 		s.nextAckSeq++
 		advanced++
-		lastAt = head.createdAt
-		lastUUID = head.uuid
+		// The furthest key, not the last: a late record served from the
+		// lookback sits behind keys already acknowledged.
+		if head.createdAt.After(s.ackMaxAt) || (head.createdAt.Equal(s.ackMaxAt) && head.uuid > s.ackMaxUUID) {
+			s.ackMaxAt, s.ackMaxUUID = head.createdAt, head.uuid
+		}
+		lastAt, lastUUID = s.ackMaxAt, s.ackMaxUUID
 	}
 
 	if advanced > 0 {

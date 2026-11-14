@@ -480,7 +480,12 @@ func (r *Repository) countRecordsAfterCursor(ctx context.Context, projectUUID st
 	}
 
 	if !cursorAt.IsZero() {
-		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", cursorAt, cursorAt, cursorUUID)
+		// The same text form the cursor keyset compares everywhere else: bun's
+		// time.Time rendering carries a zone suffix that SQLite's
+		// CURRENT_TIMESTAMP text does not, which made same-second rows compare
+		// wrong.
+		at := dbTimestampString(r.db.Driver(), cursorAt)
+		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, cursorUUID)
 	}
 
 	q = applyHostScopeFilter(q, hosts)
