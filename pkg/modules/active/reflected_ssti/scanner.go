@@ -203,7 +203,6 @@ func buildPayloads(firstNum, lastNum int) []string {
 		fmt.Sprintf("<%%=%d*%d%%>", firstNum, lastNum),
 		fmt.Sprintf("{%d*%d}", firstNum, lastNum),
 		fmt.Sprintf("{{{%d*%d}}}", firstNum, lastNum),
-		fmt.Sprintf("${{%d*%d}}", firstNum, lastNum),
 		fmt.Sprintf("#{%d*%d}", firstNum, lastNum),
 		fmt.Sprintf("[[%d*%d]]", firstNum, lastNum),
 		fmt.Sprintf("{{=%d*%d}}", firstNum, lastNum),

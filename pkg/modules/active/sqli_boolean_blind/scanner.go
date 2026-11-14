@@ -172,12 +172,22 @@ ipScan:
 		// This lets us detect cases where both TRUE and FALSE payloads differ
 		// from baseline in the same way (e.g., mangled header values causing
 		// different responses due to syntax breakage, not SQL logic).
-		baselineFull, baselineSig, baselineBlocked, err := m.sendPayload(ctx, httpClient, ip, baseValue)
+		//
+		// The unmodified response is the same for every insertion point of this
+		// record, so it is fetched once per record (memoised, ECON-6); each point
+		// still builds its own signature, normalised for its own base value. The
+		// step-7 drift re-check stays per point.
+		rb, err := m.recordBaseline(ctx, httpClient, scanCtx)
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return results, nil
 			}
 			continue
+		}
+		baselineFull, baselineBlocked := rb.full, rb.blocked
+		var baselineSig responseSignature
+		if rb.status != 0 {
+			baselineSig = newResponseSignature(rb.status, rb.body, baseValue)
 		}
 
 		// A WAF/CDN block on the *unmodified* request means this surface is fronted
@@ -195,12 +205,22 @@ ipScan:
 			continue
 		}
 
-		payloads := getPayloadsForValue(baseValue)
+		plain := getPayloadsForValue(baseValue)
+		var waf []payloadPair
 		if wafType != "" {
-			payloads = append(payloads, wafVariants(payloads, wafType)...)
+			waf = wafVariants(plain, wafType)
 		}
+		payloads := append(append(make([]payloadPair, 0, len(plain)+len(waf)), plain...), waf...)
 
-		for _, pair := range payloads {
+		// Consecutive blocked plain pairs: once maxConsecutiveBlockedPairs in a
+		// row are blocked, the remaining plain pairs would only be blocked too —
+		// skip to the WAF variants and the HPP fallback, which exist for exactly
+		// this case (ECON-6).
+		blockedRun := 0
+		for i, pair := range payloads {
+			if i < len(plain) && blockedRun >= maxConsecutiveBlockedPairs {
+				continue
+			}
 			// Honor the per-module deadline BETWEEN payload pairs too: a
 			// high-parameter request's baseline/true/false/WAF/stability/confirmation
 			// probes for one point can far outlast the watchdog if only checked
@@ -208,12 +228,17 @@ ipScan:
 			if runCtx.Err() != nil {
 				return results, nil
 			}
-			result, err := m.testPayloadPair(ctx, httpClient, ip, baseValue, pair, baselineSig, baselineFull)
+			result, pairBlocked, err := m.testPayloadPairDetail(ctx, httpClient, ip, baseValue, pair, baselineSig, baselineFull)
 			if err != nil {
 				if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 					return results, nil
 				}
 				continue
+			}
+			if pairBlocked {
+				blockedRun++
+			} else {
+				blockedRun = 0
 			}
 
 			if result != nil {
@@ -281,6 +306,36 @@ func (m *Module) testPayloadPair(
 	baselineSig responseSignature,
 	baselineFull string,
 ) (*output.ResultEvent, error) {
+	res, _, err := m.testPayloadPairDetail(ctx, httpClient, ip, baseValue, pair, baselineSig, baselineFull)
+	return res, err
+}
+
+// testPayloadPairDetail is testPayloadPair also reporting whether the pair was
+// rejected because TRUE or FALSE came back blocked.
+func (m *Module) testPayloadPairDetail(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	ip httpmsg.InsertionPoint,
+	baseValue string,
+	pair payloadPair,
+	baselineSig responseSignature,
+	baselineFull string,
+) (*output.ResultEvent, bool, error) {
+	var blocked bool
+	res, err := m.testPayloadPairBody(ctx, httpClient, ip, baseValue, pair, baselineSig, baselineFull, &blocked)
+	return res, blocked, err
+}
+
+func (m *Module) testPayloadPairBody(
+	ctx *httpmsg.HttpRequestResponse,
+	httpClient *http.Requester,
+	ip httpmsg.InsertionPoint,
+	baseValue string,
+	pair payloadPair,
+	baselineSig responseSignature,
+	baselineFull string,
+	blockedOut *bool,
+) (*output.ResultEvent, error) {
 	truePayload := baseValue + pair.trueVal
 	falsePayload := baseValue + pair.falseVal
 
@@ -301,6 +356,7 @@ func (m *Module) testPayloadPair(
 	// tautology, the `/**/` comment-evasion form), not the application's SQL logic.
 	// This is the single most common boolean-blind false positive — kill it here.
 	if trueBlocked || falseBlocked {
+		*blockedOut = true
 		return nil, nil
 	}
 

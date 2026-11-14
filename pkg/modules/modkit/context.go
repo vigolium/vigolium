@@ -254,6 +254,12 @@ type ScanContext struct {
 	hostMemoOnce   sync.Once
 	hostMemoCache  *lru.Cache[string, any]
 	hostMemoFlight singleflight.Group
+
+	// Named per-endpoint values of any type with an optional TTL (timing
+	// baselines, boolean-blind step-1 baselines). See EndpointMemo.
+	endpointMemoOnce   sync.Once
+	endpointMemoCache  *lru.Cache[string, memoEntry]
+	endpointMemoFlight singleflight.Group
 }
 
 func (sc *ScanContext) cookiePolicies() *CookiePolicyRegistry {

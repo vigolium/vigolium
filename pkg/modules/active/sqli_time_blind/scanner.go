@@ -16,20 +16,8 @@ import (
 )
 
 const (
-	// baselineSamples is how many unmodified requests are sent per insertion
-	// point to model the target's normal response-time distribution before any
-	// sleep payload is tested.
-	baselineSamples = 4
-	// timeStdevCoeff multiplies the baseline standard deviation when deriving
-	// the delay threshold. sqlmap uses 7 (≈99.9999% confidence); 5 keeps us
-	// sensitive while staying clear of normal network/server jitter.
-	timeStdevCoeff = 5
-	// minSleepMargin is the minimum absolute delay above the baseline mean that
-	// a sleep payload must add before it is believed (guards low-variance hosts).
-	minSleepMargin = 3 * time.Second
-	// absoluteFloor is a hard lower bound on the threshold so a near-instant
-	// baseline can never let trivial jitter masquerade as an injection.
-	absoluteFloor = 2 * time.Second
+	// The baseline sampling and threshold formula live in
+	// modkit.TimingThreshold, shared with the other time-based module.
 	// maxThreshold caps the derived threshold: if a host is so slow/jittery that
 	// the threshold would exceed this, the (10s) sleep payloads can't clear it,
 	// so we skip rather than risk a false positive on an unstable target.
@@ -113,7 +101,7 @@ ipScan:
 		// a per-target delay threshold, instead of a single fixed cutoff. This
 		// makes detection adaptive: fast targets can be confirmed with a modest
 		// margin, while slow/jittery targets raise the bar (or are skipped).
-		threshold, err := m.deriveThreshold(ctx, httpClient, ip)
+		threshold, err := m.deriveThreshold(ctx, httpClient, scanCtx)
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return results, nil
@@ -155,40 +143,21 @@ ipScan:
 // host error — the host is up, it is just denying this request.
 var errBaselineBlocked = errors.New("sqli_time_blind: baseline response is blocked")
 
-// deriveThreshold samples the insertion point's unmodified latency a few times
-// and returns the delay a sleep payload must exceed to be believed:
-// max(absoluteFloor, mean + max(coeff·stdev, minSleepMargin)).
+// deriveThreshold returns the record's timing threshold through the shared
+// per-record memo (modkit.TimingThreshold): one latency model per record,
+// shared by every insertion point and by the other time-based module, instead
+// of modkit.TimingBaselineSamples unmodified requests per point per module (ECON-6). A
+// blocked baseline (WAF/auth/rate-limit) is errBaselineBlocked.
 func (m *Module) deriveThreshold(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
-	ip httpmsg.InsertionPoint,
+	scanCtx *modkit.ScanContext,
 ) (time.Duration, error) {
-	base := ip.BaseValue()
-	samples := make([]time.Duration, 0, baselineSamples)
-	for i := 0; i < baselineSamples; i++ {
-		d, err := m.sendTimedPayload(ctx, httpClient, ip, base, false)
-		if err != nil {
-			return 0, err
-		}
-		// If even the unmodified request is blocked (CloudFront/WAF 403, 429
-		// rate-limit, auth gate), there is no application surface to time-test —
-		// skip rather than spend a probe per payload only to drop each one.
-		if d.blocked {
-			return 0, errBaselineBlocked
-		}
-		samples = append(samples, d.elapsed)
+	threshold, err := scanCtx.TimingThreshold(ctx, modkit.UnmodifiedTimingSample(ctx, httpClient))
+	if errors.Is(err, modkit.ErrTimingBaselineBlocked) {
+		return 0, errBaselineBlocked
 	}
-
-	mean, stdev := infra.MeanStdev(samples)
-	margin := time.Duration(timeStdevCoeff) * stdev
-	if margin < minSleepMargin {
-		margin = minSleepMargin
-	}
-	threshold := mean + margin
-	if threshold < absoluteFloor {
-		threshold = absoluteFloor
-	}
-	return threshold, nil
+	return threshold, err
 }
 
 const (
