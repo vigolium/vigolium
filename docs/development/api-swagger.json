@@ -2254,6 +2254,11 @@
             },
             "type": "object"
           },
+          "last_seen_at": {
+            "format": "date-time",
+            "nullable": true,
+            "type": "string"
+          },
           "matched_at": {
             "items": {
               "type": "string"
@@ -3615,6 +3620,12 @@
             "description": "Maximum response body size in bytes (0 = unlimited)",
             "format": "int64",
             "type": "integer"
+          },
+          "methods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "path": {
             "$ref": "#/components/schemas/ScopeRule"
