@@ -192,8 +192,15 @@ func TestResolvedPaceTableOmitsUnenforcedFields(t *testing.T) {
 	if entry.Concurrency != 3 {
 		t.Errorf("concurrency = %d, want 3", entry.Concurrency)
 	}
-	if entry.RateLimit != 100 {
-		t.Errorf("rate_limit = %d, want the resolved 100 (nuclei applies it)", entry.RateLimit)
+	// MISS-35: the known-issue scan honours only an EXPLICIT rate (section or
+	// typed --rate-limit); the untyped global default no longer overrides its
+	// own conservative 20 rps.
+	if entry.RateLimit != config.KnownIssueScanDefaultRateLimit {
+		t.Errorf("rate_limit = %d, want the phase default %d", entry.RateLimit, config.KnownIssueScanDefaultRateLimit)
+	}
+	opts.RateLimitExplicitlySet = true
+	if _, typed := resolvedPaceTable(settings, opts); typed["known-issue-scan"].RateLimit != 100 {
+		t.Errorf("typed --rate-limit 100 must reach the known-issue scan, got %d", typed["known-issue-scan"].RateLimit)
 	}
 	if entry.MaxPerHost != 0 {
 		t.Errorf("max_per_host = %d, want 0 (not enforced)", entry.MaxPerHost)

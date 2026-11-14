@@ -29,6 +29,11 @@ const multiplexSentinel = "vigolium-proto-probe"
 //   - a payload holds CR, LF or NUL, whose meaning (header injection,
 //     request splitting) only exists in HTTP/1.1's text framing.
 func MultiplexBlocker(raw []byte, positions []Position, cases []Case) string {
+	return MultiplexBlockerPlan(raw, positions, CaseSlice(cases))
+}
+
+// MultiplexBlockerPlan is MultiplexBlocker over a lazily-indexed plan.
+func MultiplexBlockerPlan(raw []byte, positions []Position, cases CasePlan) string {
 	base, err := parseRawRequest(raw)
 	if err != nil {
 		return "the request does not parse as HTTP/1.1"
@@ -57,8 +62,8 @@ func MultiplexBlocker(raw []byte, positions []Position, cases []Case) string {
 			return fmt.Sprintf("position %s %s", label, reason)
 		}
 	}
-	for _, c := range cases {
-		for _, a := range c.Assignments {
+	for i, n := 0, planLen(cases); i < n; i++ {
+		for _, a := range cases.At(i).Assignments {
 			if strings.ContainsAny(a.Payload, "\r\n\x00") {
 				return "a payload contains CR, LF or NUL"
 			}
@@ -69,4 +74,11 @@ func MultiplexBlocker(raw []byte, positions []Position, cases []Case) string {
 
 func parseRawRequest(raw []byte) (*http.Request, error) {
 	return http.ReadRequest(bufio.NewReader(bytes.NewReader(NormalizeRawRequest(raw))))
+}
+
+func planLen(p CasePlan) int {
+	if p == nil {
+		return 0
+	}
+	return p.Len()
 }

@@ -129,6 +129,10 @@ func resolvedPaceTable(settings *config.Settings, opts *types.Options) (scaneven
 			if phase == "discovery" {
 				entry.RateLimit = settings.ScanningPace.DiscoveryRateLimit(opts)
 			}
+			// Same rule for the known-issue scan: explicit, else its own 20 rps.
+			if phase == "known-issue-scan" {
+				entry.RateLimit = settings.ScanningPace.KnownIssueScanRateLimit(opts)
+			}
 		}
 		if config.PhasePaceSupports(phase, config.PaceFieldConcurrency) {
 			entry.Concurrency = resolved.Concurrency

@@ -34,13 +34,13 @@ type fuzzWire struct {
 // baseline and every case go out on the same one, and the default worker
 // count rises when that protocol is multiplexed. bulk is nil on a plain
 // HTTP/1.1 client; the caller closes it.
-func resolveFuzzProtocol(cmd *cobra.Command, src *replaySource, positions []fuzz.Position, cases []fuzz.Case, sendViaBurp bool, cookies gohttp.CookieJar) (client *gohttp.Client, bulk *bulkhttp.Transport, wire fuzzWire, err error) {
+func resolveFuzzProtocol(cmd *cobra.Command, src *replaySource, positions []fuzz.Position, cases fuzz.CasePlan, sendViaBurp bool, cookies gohttp.CookieJar) (client *gohttp.Client, bulk *bulkhttp.Transport, wire fuzzWire, err error) {
 	mode, err := fuzzHTTPVersionSetting()
 	if err != nil {
 		return nil, nil, wire, err
 	}
 	if mode != bulkhttp.ModeHTTP1 && !sendViaBurp {
-		if blocker := fuzz.MultiplexBlocker(src.BaselineRequest, positions, cases); blocker != "" {
+		if blocker := fuzz.MultiplexBlockerPlan(src.BaselineRequest, positions, cases); blocker != "" {
 			if mode == bulkhttp.ModeHTTP3 {
 				return nil, nil, wire, usageErrorf("--http3-only: this job must be sent as HTTP/1.1: %s", blocker)
 			}

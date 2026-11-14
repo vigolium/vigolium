@@ -2,6 +2,7 @@ package anomaly_ranking
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 
@@ -154,10 +155,14 @@ func (m *Module) rankAndUpdate(batch []bufferedEntry, scanCtx *modkit.ScanContex
 		return
 	}
 
-	batchSize := len(records)
-	scores := make(map[string]int, batchSize)
+	scores := make(map[string]int, len(records))
+	raw := make([]int, len(records))
+	for i, rec := range records {
+		raw[i] = rec.Score
+	}
+	percentiles := lowerSharePercentiles(raw)
 
-	for rank, rec := range records {
+	for i, rec := range records {
 		reqHash, ok := rec.Metadata.(string)
 		if !ok {
 			continue
@@ -166,10 +171,7 @@ func (m *Module) rankAndUpdate(batch []bufferedEntry, scanCtx *modkit.ScanContex
 		if uuid == "" {
 			continue
 		}
-
-		// Percentile: rank 0 (highest anomaly) gets ~100, last gets ~0
-		percentile := min((batchSize-rank)*100/batchSize, 100)
-		scores[uuid] = percentile
+		scores[uuid] = percentiles[i]
 	}
 
 	if len(scores) == 0 {
@@ -189,4 +191,23 @@ func headersToMap(headers []httpmsg.HttpHeader) map[string][]string {
 		m[key] = append(m[key], h.Value)
 	}
 	return m
+}
+
+// lowerSharePercentiles maps each anomaly score to the percentage of the batch
+// with a strictly lower score. Ties share one value: fifty identical responses
+// all score 0 instead of a position-ordered 100, 98, ... 2, which ranked
+// interchangeable records as if they differed.
+func lowerSharePercentiles(scores []int) []int {
+	n := len(scores)
+	out := make([]int, n)
+	if n == 0 {
+		return out
+	}
+	sorted := append([]int(nil), scores...)
+	sort.Ints(sorted)
+	for i, s := range scores {
+		lower := sort.SearchInts(sorted, s) // count of values < s
+		out[i] = lower * 100 / n
+	}
+	return out
 }

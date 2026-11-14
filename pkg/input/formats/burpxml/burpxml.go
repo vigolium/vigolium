@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/base64"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -82,10 +83,26 @@ func (f *Format) Parse(input string, callback formats.ParseReqRespCallback) erro
 		return r, nil
 	}
 
+	// Items that decoded as XML but produced no request are counted and
+	// reported once: a partial import that looks complete is how a scan
+	// silently covers half the capture.
+	skipped := 0
+	defer func() {
+		if skipped > 0 {
+			zap.L().Warn("burpxml: some items were skipped (undecodable or unparsable request)",
+				zap.String("file", input), zap.Int("skipped", skipped))
+		}
+	}()
+
 	for {
 		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
 		if err != nil {
-			break // EOF or error
+			// A truncated or corrupt export must not report success with a
+			// partial import.
+			return fmt.Errorf("burpxml: %s is not well-formed at byte %d: %w", input, decoder.InputOffset(), err)
 		}
 
 		startElem, ok := token.(xml.StartElement)
@@ -95,12 +112,12 @@ func (f *Format) Parse(input string, callback formats.ParseReqRespCallback) erro
 
 		var item burpItem
 		if err := decoder.DecodeElement(&item, &startElem); err != nil {
-			zap.L().Debug("burpxml: failed to decode item", zap.Error(err))
-			continue
+			return fmt.Errorf("burpxml: %s: failed to decode <item> at byte %d: %w", input, decoder.InputOffset(), err)
 		}
 
 		rr := f.processItem(&item)
 		if rr == nil {
+			skipped++
 			continue
 		}
 
@@ -191,7 +208,28 @@ func (f *Format) processItem(item *burpItem) *httpmsg.HttpRequestResponse {
 		return nil
 	}
 
+	// Attach the recorded response: without it every imported item costs a
+	// re-fetch, and the passive modules see nothing until it happens.
+	if resp := decodeResponse(item); resp != nil {
+		rr = rr.WithResponse(resp)
+	}
+
 	return rr
+}
+
+// decodeResponse decodes an item's recorded response, or nil when it has none
+// or it does not parse.
+func decodeResponse(item *burpItem) *httpmsg.HttpResponse {
+	raw, err := decodeContent(&item.Response)
+	if err != nil {
+		zap.L().Debug("burpxml: failed to decode response content",
+			zap.String("url", item.URL), zap.Error(err))
+		return nil
+	}
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	return httpmsg.NewHttpResponse([]byte(raw))
 }
 
 // decodeContent decodes a burpContent value, handling base64 encoding if specified.

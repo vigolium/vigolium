@@ -219,16 +219,108 @@ func BuildCases(mode AttackMode, positions []Position, sets [][]string, fallback
 		return cases, nil
 
 	default: // sniper
-		var cases []Case
-		for i, p := range positions {
-			list := listFor(i)
-			if len(list) == 0 {
-				return nil, fmt.Errorf("no payloads")
-			}
-			for _, payload := range list {
-				cases = append(cases, newCase(CaseAssignment{Position: p, Payload: payload}))
-			}
+		plan, err := newSniperPlan(positions, listFor)
+		if err != nil {
+			return nil, err
+		}
+		cases := make([]Case, plan.Len())
+		for i := range cases {
+			cases[i] = plan.At(i)
 		}
 		return cases, nil
 	}
+}
+
+// CasePlan is an ordered, indexable set of sends. It lets a run walk a plan
+// without materializing it: sniper over 200 positions and a 10k wordlist is
+// two million cases, and holding them all before the first send was the same
+// unexplained-OOM failure MaxCases exists to prevent for clusterbomb.
+type CasePlan interface {
+	Len() int
+	At(i int) Case
+}
+
+// CaseSlice adapts a materialized []Case to CasePlan.
+type CaseSlice []Case
+
+// Len implements CasePlan.
+func (s CaseSlice) Len() int { return len(s) }
+
+// At implements CasePlan.
+func (s CaseSlice) At(i int) Case { return s[i] }
+
+// sniperPlan computes sniper case k on demand: position i owns the index range
+// [offsets[i], offsets[i+1]).
+type sniperPlan struct {
+	positions []Position
+	lists     [][]string
+	offsets   []int // len(positions)+1; offsets[last] == total
+}
+
+func newSniperPlan(positions []Position, listFor func(int) []string) (*sniperPlan, error) {
+	p := &sniperPlan{
+		positions: positions,
+		lists:     make([][]string, len(positions)),
+		offsets:   make([]int, len(positions)+1),
+	}
+	total := 0
+	for i := range positions {
+		list := listFor(i)
+		if len(list) == 0 {
+			return nil, fmt.Errorf("no payloads")
+		}
+		p.lists[i] = list
+		p.offsets[i] = total
+		total += len(list)
+		if total > MaxCases {
+			return nil, fmt.Errorf(
+				"sniper over %d positions would expand to more than %d sends; "+
+					"narrow the positions (--points/--fuzz-headers) or shorten the wordlist",
+				len(positions), MaxCases)
+		}
+	}
+	p.offsets[len(positions)] = total
+	return p, nil
+}
+
+// Len implements CasePlan.
+func (p *sniperPlan) Len() int { return p.offsets[len(p.positions)] }
+
+// At implements CasePlan.
+func (p *sniperPlan) At(k int) Case {
+	// Binary search for the position owning k.
+	lo, hi := 0, len(p.positions)-1
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if p.offsets[mid] <= k {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return newCase(CaseAssignment{Position: p.positions[lo], Payload: p.lists[lo][k-p.offsets[lo]]})
+}
+
+// BuildPlan is BuildCases without materialization for sniper, the mode whose
+// expansion is additive and therefore reachable at sizes that matter. The
+// multi-position modes stay materialized (they are bounded by MaxCases and by
+// the marker count).
+func BuildPlan(mode AttackMode, positions []Position, sets [][]string, fallback []string) (CasePlan, error) {
+	if mode == ModeSniper {
+		if len(positions) == 0 {
+			return nil, fmt.Errorf("no positions to fuzz")
+		}
+		listFor := func(i int) []string {
+			if i < len(sets) && len(sets[i]) > 0 {
+				return sets[i]
+			}
+			return fallback
+		}
+		return newSniperPlan(positions, listFor)
+	}
+	cases, err := BuildCases(mode, positions, sets, fallback)
+	if err != nil {
+		return nil, err
+	}
+	return CaseSlice(cases), nil
 }

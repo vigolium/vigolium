@@ -32,7 +32,11 @@ func Run(ctx context.Context, job Job) (*Report, error) {
 	if job.Hostname == "" {
 		return nil, fmt.Errorf("fuzz.Run: job.Hostname is required")
 	}
-	if len(job.Cases) == 0 {
+	plan := job.Plan
+	if plan == nil && len(job.Cases) > 0 {
+		plan = CaseSlice(job.Cases)
+	}
+	if plan == nil {
 		if len(job.Positions) == 0 {
 			return nil, fmt.Errorf("fuzz.Run: no positions to fuzz")
 		}
@@ -40,12 +44,12 @@ func Run(ctx context.Context, job Job) (*Report, error) {
 			return nil, fmt.Errorf("fuzz.Run: no payloads")
 		}
 		// No explicit plan: the historical positions x payloads expansion,
-		// which is exactly sniper.
-		cases, err := BuildCases(ModeSniper, job.Positions, nil, job.Payloads)
+		// which is exactly sniper — walked lazily, never materialized.
+		p, err := BuildPlan(ModeSniper, job.Positions, nil, job.Payloads)
 		if err != nil {
 			return nil, fmt.Errorf("fuzz.Run: %w", err)
 		}
-		job.Cases = cases
+		plan = p
 	}
 
 	// Guarantee a parseable request regardless of how the caller assembled it
@@ -79,15 +83,23 @@ func Run(ctx context.Context, job Job) (*Report, error) {
 	// Baseline — the un-fuzzed request, for delta reporting and calibration.
 	baseSum, baseline := sampleBaseline(ctx, job, send)
 	report := &Report{Baseline: baseline}
+	if baseline.Samples == 0 && !job.AllowBaselineError {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
+		return report, fmt.Errorf("fuzz.Run: baseline request failed (%s); "+
+			"every delta and the calibration would compare against nothing — fix the request or allow it explicitly",
+			baseline.Error)
+	}
 
 	var detect *detector
 	if job.Anomaly != nil {
 		detect = newDetector(*job.Anomaly, report.Baseline, baseSum.Headers, baseSum.RawBody)
 	}
 
-	var calib *calibration
+	var calib *calibrator
 	if job.AutoCalibrate {
-		calib = calibrate(ctx, job, send)
+		calib = newCalibrator(ctx, job.Raw, send)
 	}
 
 	concurrency := job.Concurrency
@@ -104,10 +116,11 @@ func Run(ctx context.Context, job Job) (*Report, error) {
 		pending []pendingResult
 	)
 
-	for _, c := range job.Cases {
+	for i, n := 0, plan.Len(); i < n; i++ {
 		if ctx.Err() != nil {
 			break
 		}
+		c := plan.At(i)
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(c Case) {
@@ -198,7 +211,7 @@ func newRateLimiter(rps float64) *rate.Limiter {
 
 // makeResult builds one Result: extract signals, compute baseline deltas and
 // reflection, apply the matcher/filter gate, and fold in calibration.
-func makeResult(c Case, sum *replay.Summary, base Baseline, calib *calibration, m Matchers, f Filters) Result {
+func makeResult(c Case, sum *replay.Summary, base Baseline, calib *calibrator, m Matchers, f Filters) Result {
 	status, length, words, lines := signals(sum)
 	position, positionType, payload := c.label()
 	// Reflection is checked per assigned payload, so a multi-position case
@@ -233,7 +246,9 @@ func makeResult(c Case, sum *replay.Summary, base Baseline, calib *calibration, 
 	if res.Error != "" {
 		return res
 	}
-	res.Calibrated = calib.matches(status, length)
+	if len(c.Assignments) > 0 {
+		res.Calibrated = calib.forPosition(c.Assignments[0].Position).matches(status, length, words)
+	}
 	res.Matched = !res.Calibrated && keep(res, sum.RawBody, sum.Headers, m, f)
 	return res
 }
@@ -372,33 +387,85 @@ func rescoreAnomalies(detect *detector, pending []pendingResult, job Job, report
 // metadata.
 const MaxReportedAnomalies = 100
 
-// calibrate sends the improbable probes at the first position and records any
-// (status,length) signature seen by a majority of probes as the wildcard
-// fingerprint.
-func calibrate(ctx context.Context, job Job, send func([]byte) *replay.Summary) *calibration {
+// calibrator learns catch-all signatures per position, lazily, the first time
+// a case at that position is about to be judged. One position's catch-all says
+// nothing about another's: a path segment's 404 page and a query parameter's
+// "invalid value" page are different shapes, and calibrating only the first
+// position left every later one uncalibrated.
+type calibrator struct {
+	ctx  context.Context
+	raw  []byte
+	send func([]byte) *replay.Summary
+
+	mu    sync.Mutex
+	byPos map[string]*calibEntry
+}
+
+type calibEntry struct {
+	once sync.Once
+	c    *calibration
+}
+
+func newCalibrator(ctx context.Context, raw []byte, send func([]byte) *replay.Summary) *calibrator {
+	return &calibrator{ctx: ctx, raw: raw, send: send, byPos: make(map[string]*calibEntry)}
+}
+
+// forPosition returns the position's calibration, learning it on first use.
+// Concurrent callers for the same position wait for the one learner.
+func (c *calibrator) forPosition(pos Position) *calibration {
+	if c == nil {
+		return nil
+	}
+	key := pos.Label + "\x00" + pos.Name
+	c.mu.Lock()
+	e, ok := c.byPos[key]
+	if !ok {
+		e = &calibEntry{}
+		c.byPos[key] = e
+	}
+	c.mu.Unlock()
+	e.once.Do(func() { e.c = calibrate(c.ctx, c.raw, pos, c.send) })
+	return e.c
+}
+
+// calibrate sends the improbable probes at one position and records any
+// signature (status, word count, length bucket) a majority of probes share as
+// that position's wildcard fingerprint.
+func calibrate(ctx context.Context, raw []byte, pos Position, send func([]byte) *replay.Summary) *calibration {
 	if ctx.Err() != nil {
 		return nil
 	}
-	pos, ok := job.calibrationPosition()
-	if !ok {
-		return nil
+	type cluster struct {
+		sig calibSig
+		n   int
 	}
-	counts := make(map[calibSig]int)
+	var clusters []cluster
 	for _, probe := range calibrationProbes {
 		if ctx.Err() != nil {
 			break
 		}
-		sum := send(pos.build(job.Raw, probe))
+		sum := send(pos.build(raw, probe))
 		if sum.Error != "" {
 			continue
 		}
-		counts[calibSig{status: sum.Status, length: sum.ResponseLen}]++
+		status, length, words, _ := signals(sum)
+		placed := false
+		for i := range clusters {
+			if clusters[i].sig.matches(status, length, words) {
+				clusters[i].n++
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			clusters = append(clusters, cluster{sig: calibSig{status: status, length: length, words: words}, n: 1})
+		}
 	}
 	threshold := (len(calibrationProbes) + 1) / 2 // majority
-	c := &calibration{sigs: make(map[calibSig]struct{})}
-	for sig, n := range counts {
-		if n >= threshold {
-			c.sigs[sig] = struct{}{}
+	c := &calibration{}
+	for _, cl := range clusters {
+		if cl.n >= threshold {
+			c.sigs = append(c.sigs, cl.sig)
 		}
 	}
 	if len(c.sigs) == 0 {

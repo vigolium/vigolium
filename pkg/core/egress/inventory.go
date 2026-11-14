@@ -66,8 +66,8 @@ var gatedPaths = []inventoryEntry{
 // exemptPaths bypass the gate. Listed so a consumer of scan.started can see
 // exactly which traffic --rate-limit and max-per-host do not govern.
 var exemptPaths = []inventoryEntry{
-	{path: "known-issue-scan", reason: "own HTTP stack (nuclei): its own rate and concurrency apply, not the shared host slots or quarantine",
-		phases: []string{"known-issue-scan"}},
+	{path: "known-issue-scan", reason: "own HTTP stack (nuclei): its own rate and concurrency apply, not the shared host slots or quarantine; requests are counted, not gated",
+		phases: []string{"known-issue-scan"}, budget: budgetCounted},
 	{path: "spidering", reason: "browser (Chrome): requests are counted, not gated",
 		phases: []string{"spidering", "targeted-respider"}, budget: budgetCounted},
 	{path: "browser-confirmations", reason: "browser (Chrome) used by confirmation modules: low volume, not gated or counted",

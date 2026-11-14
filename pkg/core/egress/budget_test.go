@@ -277,7 +277,7 @@ func TestRequestCapEnforcement(t *testing.T) {
 	want := map[string]string{
 		"discovery":          EnforcementHard,
 		"spidering":          EnforcementSoft,
-		"known-issue-scan":   EnforcementPartial,
+		"known-issue-scan":   EnforcementSoft, // MISS-35: nuclei requests are counted via its progress hooks
 		"dynamic-assessment": EnforcementPartial,
 		"external-harvest":   EnforcementHard,
 	}

@@ -355,6 +355,17 @@ func (r *Runner) RunNativeScan() (err error) {
 	// covered everything; see finalizeFindingGrouping.
 	defer r.finalizeFindingGrouping()
 
+	// External harvest sends nothing to the target, so its archive queries
+	// start now and overlap preflight, heuristics and the port sweep; the
+	// harvest phase joins them at its plan position (ECON-11).
+	if !r.options.FullNativeScanOnReceive && len(r.options.Targets) > 0 && r.settings != nil && plan.enables(PhaseExternalHarvest) {
+		p := startHarvestPrefetch(ctx, r.buildExternalHarvesterSource)
+		r.harvestPrefetchMu.Lock()
+		r.harvestPrefetch = p
+		r.harvestPrefetchMu.Unlock()
+		defer func() { r.takeHarvestPrefetch().stop() }()
+	}
+
 	// Reachability preflight: one GET per admitted CLI target. None answered
 	// ends the run here (stop_reason no_targets_reachable; the CLI exits 1 with
 	// that error.code); some answered marks the scan partial with

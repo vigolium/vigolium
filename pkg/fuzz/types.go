@@ -115,22 +115,6 @@ type Matchers = Criteria
 // Filters drop a response when it satisfies the configured categories.
 type Filters = Criteria
 
-// calibrationPosition picks the position the catch-all probes are sent at.
-// It reads through Cases rather than Positions so a caller that supplied only
-// an explicit plan (the two are alternatives) still calibrates instead of
-// indexing an empty slice.
-func (j Job) calibrationPosition() (Position, bool) {
-	for _, c := range j.Cases {
-		if len(c.Assignments) > 0 {
-			return c.Assignments[0].Position, true
-		}
-	}
-	if len(j.Positions) > 0 {
-		return j.Positions[0], true
-	}
-	return Position{}, false
-}
-
 // Baseline is the un-fuzzed request's response, used for delta reporting and
 // as the seed for auto-calibration.
 type Baseline struct {
@@ -239,6 +223,15 @@ type Job struct {
 	Positions []Position
 	Payloads  []string
 	Cases     []Case
+	// Plan, when set, replaces Cases with a lazily-indexed plan (BuildPlan),
+	// so a large sniper run never holds every case in memory.
+	Plan CasePlan
+
+	// AllowBaselineError lets a run proceed when every baseline sample
+	// failed. Off by default: with no baseline, every delta, the calibration
+	// seed and the anomaly detector compare against an empty response, so the
+	// "signals" a run produces are artifacts of the failed baseline.
+	AllowBaselineError bool
 
 	Matchers Matchers
 	Filters  Filters

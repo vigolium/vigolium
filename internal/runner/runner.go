@@ -55,7 +55,15 @@ type Runner struct {
 	// (buildDeparosConfig) and the shared scan requester so later phases inherit
 	// the cleared session. Nil when spidering did not run or carrying is disabled.
 	browserSessions   map[string]httpmsg.CarriedSession
-	autoFuzzDiscovery bool                 // set by runDiscoveryPhase when low-yield/SSO auto-enables FUZZ fuzzing
+	autoFuzzDiscovery bool // set by runDiscoveryPhase when low-yield/SSO auto-enables FUZZ fuzzing
+	// secretCoverage records the records dynamic assessment's secret_detect
+	// pass analysed, so the known-issue secret batch scans only the rest
+	// (MISS-33). Nil when assessment did not run.
+	secretCoverage *secretCoverage
+	// harvestPrefetch is the background external-harvest drain started at
+	// scan start (ECON-11), consumed by the harvest phase.
+	harvestPrefetchMu sync.Mutex
+	harvestPrefetch   *harvestPrefetch
 	scanLogger        *database.ScanLogger // Optional: structured scan logging
 	teeWriter         *teeWriter           // Optional: captures stderr for trace logging
 	sessionLogFile    *os.File             // Optional: runtime.log handle for verbose file-only writes

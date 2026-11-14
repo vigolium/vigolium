@@ -15,7 +15,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/modules/active/authz_compare"
-	"github.com/vigolium/vigolium/pkg/modules/passive/secret_detect"
 	"github.com/vigolium/vigolium/pkg/oast"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/spitolas"
@@ -122,9 +121,13 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		}
 	}
 
-	// If KnownIssueScan was enabled, filter out secret-detect to avoid duplicate secret findings
+	// secret-detect stays in assessment even when the known-issue scan will run:
+	// that phase is last, so dropping the module here lost all secret detection
+	// whenever a scan was cut short. Record what this pass covers so the
+	// known-issue secret batch scans only the records assessment never reached.
 	if r.options.KnownIssueScanEnabled {
-		passiveModules = filterOutPassiveModule(passiveModules, secret_detect.ModuleID)
+		r.secretCoverage = newSecretCoverage()
+		passiveModules = wrapSecretCoverage(passiveModules, r.secretCoverage)
 	}
 
 	// Isolate per-scan-stateful modules from the shared registry singletons before

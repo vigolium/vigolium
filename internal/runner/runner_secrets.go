@@ -2,12 +2,17 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/passive/secret_detect"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -31,13 +36,23 @@ func (r *Runner) runSecretScanBatch(ctx context.Context, infra *phaseInfra, onRe
 	zap.L().Info("KnownIssueScan: native secret scan — scanning response bodies for secrets")
 
 	var cursor string
-	var totalFindings int
+	var totalFindings, skippedCovered int
+	defer func() {
+		if skippedCovered > 0 {
+			zap.L().Debug("KnownIssueScan: secret scan skipped records already covered by dynamic assessment",
+				zap.Int("skipped", skippedCovered))
+		}
+	}()
 	// Collapse the same secret re-observed on the same URL across records (the
 	// same page can survive record-dedup under different paths/sources): emit one
 	// finding per (host, url, rule, snippet) so near-identical request/response
 	// copies don't pile up as redundant Additional Evidence. Run-scoped across
 	// batches; bounded by the number of distinct secrets, which is small.
 	seenSecret := make(map[string]struct{})
+	// Detection depends on the body alone, so one body stored under many URLs
+	// (a bundle, a shared error page) is matched once; grading, which reads the
+	// URL and headers, still runs per record.
+	memo := newSecretMatchMemo()
 	for {
 		// Break promptly when the phase/scan budget elapses. Returning ctx.Err()
 		// lets the caller log the secret-scan curtailment notice rather than
@@ -54,54 +69,10 @@ func (r *Runner) runSecretScanBatch(ctx context.Context, infra *phaseInfra, onRe
 			break
 		}
 
-		for _, record := range records {
-			cursor = record.UUID
-
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-
-			// Parse the raw response once so we can both scan the body and inspect
-			// the status/headers for the severity decision below.
-			resp := record.ParsedResponse()
-			if resp == nil {
-				continue
-			}
-			// A WAF/CDN edge block is the edge talking, not the application, so its
-			// challenge/error page's random tokens must never be scanned as app
-			// secrets — same guard the passive path applies.
-			if modkit.IsEdgeBlockedResponse(resp) {
-				continue
-			}
-			body := resp.Body()
-			// Shared eligibility policy (size cap + media + text MIME) — the batch
-			// previously filtered on MIME alone, letting oversized or mislabeled
-			// binary bodies reach the detector.
-			if !secret_detect.ShouldScanBody(record.ResponseContentType, record.URL, len(body)) {
-				continue
-			}
-
-			matches := det.Detect(body)
-			if len(matches) == 0 {
-				continue
-			}
-
-			ev := secret_detect.EvidenceContext{
-				Body:         body,
-				Host:         record.Hostname,
-				URL:          record.URL,
-				Request:      string(record.RawRequest),
-				RespHead:     string(resp.Head()),
-				StatusCode:   resp.StatusCode(),
-				ContentType:  record.ResponseContentType,
-				HeaderValues: secret_detect.JoinHeaderValues(resp.Headers()),
-			}
-
-			totalFindings += r.emitSecretFindings(ctx, infra, matches, ev, seenSecret, onResult, secretEmitOptions{
-				RecordUUIDs: []string{record.UUID},
-				ModuleShort: "Leaked secret detected in HTTP response body",
-			})
+		if err := r.scanSecretRecordBatch(ctx, infra, det, memo, records, seenSecret, onResult, &totalFindings, &skippedCovered); err != nil {
+			return err
 		}
+		cursor = records[len(records)-1].UUID
 
 		if len(records) < secretScanBatchSize {
 			break
@@ -327,4 +298,191 @@ func sourceMapArtifactOrigin(artifact *database.AnalysisArtifact) (generatedURL,
 		sourcePath = meta.SourcePath
 	}
 	return meta.GeneratedURL, sourcePath
+}
+
+// secretScanWorkers bounds the detector goroutines of the record batch. The
+// detector is CPU-bound regex work, so more than the core count only adds
+// contention.
+func secretScanWorkers() int {
+	return max(1, min(runtime.NumCPU(), 8))
+}
+
+// secretMatchMemoCap bounds the memo; past it the memo restarts, which costs
+// re-detection, never correctness.
+const secretMatchMemoCap = 100_000
+
+// secretMatchMemo caches detector matches by response hash. Read and written
+// only from the batch's sequential stages, so it needs no lock.
+type secretMatchMemo struct {
+	m map[string][]secretscan.Match
+}
+
+func newSecretMatchMemo() *secretMatchMemo {
+	return &secretMatchMemo{m: make(map[string][]secretscan.Match)}
+}
+
+func (c *secretMatchMemo) get(key string) ([]secretscan.Match, bool) {
+	if key == "" {
+		return nil, false
+	}
+	v, ok := c.m[key]
+	return v, ok
+}
+
+func (c *secretMatchMemo) put(key string, v []secretscan.Match) {
+	if key == "" {
+		return
+	}
+	if len(c.m) >= secretMatchMemoCap {
+		c.m = make(map[string][]secretscan.Match)
+	}
+	c.m[key] = v
+}
+
+// secretScanItem is one record's state between the parallel detect stage and
+// the ordered emit stage.
+type secretScanItem struct {
+	record  *database.HTTPRecord
+	resp    *httpmsg.HttpResponse
+	body    []byte
+	key     string
+	matches []secretscan.Match
+	run     bool // detection needed (not memoised, not a duplicate in-batch)
+	skip    bool
+}
+
+// scanSecretRecordBatch scans one page of records: eligibility and memo lookup
+// in order, detection for the distinct remaining bodies on a bounded worker
+// pool, then grading and emission in record order so output and the shared
+// seenSecret map stay deterministic and single-threaded.
+func (r *Runner) scanSecretRecordBatch(
+	ctx context.Context,
+	infra *phaseInfra,
+	det *secretscan.Detector,
+	memo *secretMatchMemo,
+	records []*database.HTTPRecord,
+	seenSecret map[string]struct{},
+	onResult func(*output.ResultEvent),
+	totalFindings, skippedCovered *int,
+) error {
+	items := make([]secretScanItem, len(records))
+	firstByKey := make(map[string]int)
+	for i, record := range records {
+		it := &items[i]
+		it.record = record
+		it.skip = true
+		// Dynamic assessment's secret_detect already analysed this record's
+		// response; scanning it again yields the same findings.
+		if r.secretCoverage.has(record.UUID) {
+			*skippedCovered++
+			continue
+		}
+		// Parse the raw response once so we can both scan the body and inspect
+		// the status/headers for the severity decision below.
+		resp := record.ParsedResponse()
+		if resp == nil {
+			continue
+		}
+		// A WAF/CDN edge block is the edge talking, not the application, so its
+		// challenge/error page's random tokens must never be scanned as app
+		// secrets — same guard the passive path applies.
+		if modkit.IsEdgeBlockedResponse(resp) {
+			continue
+		}
+		body := resp.Body()
+		// Shared eligibility policy (size cap + media + text MIME).
+		if !secret_detect.ShouldScanBody(record.ResponseContentType, record.URL, len(body)) {
+			continue
+		}
+		it.skip = false
+		it.resp = resp
+		it.body = body
+		it.key = secretBodyKey(body)
+		if m, ok := memo.get(it.key); ok {
+			it.matches = m
+			continue
+		}
+		if _, dup := firstByKey[it.key]; dup {
+			continue // filled from the first copy after detection
+		}
+		firstByKey[it.key] = i
+		it.run = true
+	}
+
+	// Detect: distinct bodies only, bounded parallelism. Each worker writes
+	// only its own item, so no lock is needed.
+	work := make(chan int)
+	var wg sync.WaitGroup
+	for w := 0; w < secretScanWorkers(); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range work {
+				items[i].matches = det.Detect(items[i].body)
+			}
+		}()
+	}
+	for i := range items {
+		if !items[i].run {
+			continue
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		work <- i
+	}
+	close(work)
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	for i := range items {
+		if items[i].run {
+			memo.put(items[i].key, items[i].matches)
+		}
+	}
+
+	// Emit in record order.
+	for i := range items {
+		it := &items[i]
+		if it.skip {
+			continue
+		}
+		if !it.run {
+			if m, ok := memo.get(it.key); ok {
+				it.matches = m
+			}
+		}
+		if len(it.matches) == 0 {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		record, resp := it.record, it.resp
+		ev := secret_detect.EvidenceContext{
+			Body:         it.body,
+			Host:         record.Hostname,
+			URL:          record.URL,
+			Request:      string(record.RawRequest),
+			RespHead:     string(resp.Head()),
+			StatusCode:   resp.StatusCode(),
+			ContentType:  record.ResponseContentType,
+			HeaderValues: secret_detect.JoinHeaderValues(resp.Headers()),
+		}
+		*totalFindings += r.emitSecretFindings(ctx, infra, it.matches, ev, seenSecret, onResult, secretEmitOptions{
+			RecordUUIDs: []string{record.UUID},
+			ModuleShort: "Leaked secret detected in HTTP response body",
+		})
+	}
+	return nil
+}
+
+// secretBodyKey is the memo key for a decoded response body. The stored
+// response_hash column hashes the raw (possibly compressed, header-bearing)
+// response, so the decoded body is hashed here instead.
+func secretBodyKey(body []byte) string {
+	sum := sha256.Sum256(body)
+	return hex.EncodeToString(sum[:])
 }

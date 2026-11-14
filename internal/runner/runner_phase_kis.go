@@ -6,6 +6,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -119,7 +121,8 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 		if len(paths) > 0 {
 			var knownIssueScanTargets []string
 			if enrichTargets {
-				knownIssueScanTargets = buildKnownIssueScanTargetsFromPaths(paths)
+				origins, prefixes := buildKnownIssueScanTargetSets(paths, kisMaxPrefixesPerHost)
+				knownIssueScanTargets = append(origins, prefixes...)
 			} else {
 				knownIssueScanTargets = buildKnownIssueScanHostTargets(paths)
 			}
@@ -148,15 +151,46 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 		}
 	}
 
-	// Nuclei scan on distinct hosts. It gets its OWN max_duration budget so that a
-	// long Nuclei run no longer starves the secret scan below — the two
-	// legs are bounded independently rather than sharing one budget. A ctx error
-	// means this leg's max_duration (or the overall scan) elapsed — that is a
-	// curtailment, not a failure.
+	// The two legs share one result sink; the secret leg runs on its own
+	// goroutine, so serialize it.
+	var resultMu sync.Mutex
+	sink := onResult
+	onResult = func(result *output.ResultEvent) {
+		resultMu.Lock()
+		defer resultMu.Unlock()
+		sink(result)
+	}
+
+	// Secret scan, concurrently with nuclei: it reads stored response bodies
+	// locally (no network, nothing sent to the target), covers only the records
+	// dynamic assessment's secret_detect did not reach (r.secretCoverage), and
+	// used to wait behind the whole nuclei leg — so a scan cut short there lost
+	// it. It starts first and gets its own max_duration budget (derived from the
+	// parent ctx, so still bounded by the overall scan budget). A ctx error is a
+	// curtailment, distinct from a scanner failure.
+	secretScanCtx, secretScanCancel := r.trackedPhaseDeadline(ctx, kisMaxDuration)
+	defer secretScanCancel()
+	secretDone := make(chan struct{})
+	tracker := r.currentPhase.Load()
+	go func() {
+		defer close(secretDone)
+		if err := r.runSecretScanBatch(secretScanCtx, infra, onResult, inScopeHosts); err != nil {
+			if secretScanCtx.Err() != nil {
+				zap.L().Warn("KnownIssueScan: secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(secretScanCtx.Err()))
+			} else {
+				zap.L().Error("KnownIssueScan: secret scan failed", zap.Error(err))
+				tracker.noteError(err)
+			}
+		}
+	}()
+
+	// Nuclei scan on distinct hosts, on its OWN max_duration budget so the two
+	// legs are bounded independently. A ctx error means this leg's max_duration
+	// (or the overall scan) elapsed — a curtailment, not a failure.
 	//
 	// A first run clones nuclei-templates here, before the leg's deadline starts
 	// (setup, not scanning). When the clone fails the nuclei leg is skipped and
-	// the phase records the error; the secret scan below still runs.
+	// the phase records the error.
 	templatesErr := r.provisionNucleiTemplates(ctx, inScopeHosts)
 	nucleiCtx, nucleiCancel := r.trackedPhaseDeadline(ctx, kisMaxDuration)
 	defer nucleiCancel()
@@ -171,24 +205,7 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 			r.currentPhase.Load().noteError(err)
 		}
 	}
-
-	// secret scan on all response bodies. It gets a FRESH max_duration
-	// budget that starts now (derived from the parent ctx, so still bounded by the
-	// overall scan budget), so it always runs even when the Nuclei leg above was
-	// curtailed at its deadline. secret scan reads DB response bodies locally (no
-	// network) and normally finishes well within this budget. Worst-case phase
-	// wall-clock is ~2× max_duration, capped by the overall scan budget. A ctx error
-	// is a curtailment, distinct from a genuine scanner failure.
-	secretScanCtx, secretScanCancel := r.trackedPhaseDeadline(ctx, kisMaxDuration)
-	defer secretScanCancel()
-	if err := r.runSecretScanBatch(secretScanCtx, infra, onResult, inScopeHosts); err != nil {
-		if secretScanCtx.Err() != nil {
-			zap.L().Warn("KnownIssueScan: secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(secretScanCtx.Err()))
-		} else {
-			zap.L().Error("KnownIssueScan: secret scan failed", zap.Error(err))
-			r.currentPhase.Load().noteError(err)
-		}
-	}
+	<-secretDone
 
 	// Print summary using grouped tallies (repeats of the same value count once),
 	// then one muted rollup line per collapsed value noting how many URLs it spanned.
@@ -243,24 +260,51 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		enrichTargets = r.settings.KnownIssueScan.EnrichTargets
 	}
 
-	var targets []string
+	// Origins get every template; with enrich_targets the ranked directory
+	// prefixes (<= kisMaxPrefixesPerHost per origin) get only the templates
+	// whose requests depend on the path (knownissuescan.planPasses).
+	var targets, prefixes []string
 	if enrichTargets {
-		targets = buildKnownIssueScanTargetsFromPaths(paths)
+		targets, prefixes = buildKnownIssueScanTargetSets(paths, kisMaxPrefixesPerHost)
 	} else {
 		targets = buildKnownIssueScanHostTargets(paths)
 	}
 
+	// Path-level scope: nuclei applies host scope only, and stored paths can
+	// include prefixes the scope excludes.
+	var droppedTargets, droppedPrefixes int
+	targets, droppedTargets = filterKISTargetsByScope(infra.scopeMatcher, targets)
+	prefixes, droppedPrefixes = filterKISTargetsByScope(infra.scopeMatcher, prefixes)
+	if dropped := droppedTargets + droppedPrefixes; dropped > 0 {
+		zap.L().Info("KnownIssueScan: dropped out-of-scope targets", zap.Int("dropped", dropped))
+	}
+	if len(targets) == 0 && len(prefixes) == 0 {
+		zap.L().Info("KnownIssueScan: no in-scope targets, skipping")
+		return nil
+	}
+
 	zap.L().Info("KnownIssueScan: targets from database",
-		zap.Int("count", len(targets)),
+		zap.Int("origins", len(targets)),
+		zap.Int("prefixes", len(prefixes)),
 		zap.Int("in_scope_origins", len(inScopeHosts)))
+
+	duplicate, suppressed := r.knownIssueScanDuplicateFilter(ctx, infra.scanUUID)
+
+	// nuclei bypasses the egress gate; count what it sends so --max-requests
+	// holds it (soft: the budget watcher cancels the scan once passed).
+	nucleiRequests := new(atomic.Int64)
+	r.trackUngatedRequests(nucleiRequests.Load)
 
 	// Build KnownIssueScan config from settings
 	cfg := knownissuescan.Config{
-		Targets:     targets,
-		Concurrency: r.options.Concurrency,
-		ScanUUID:    r.options.ScanUUID,
-		ProjectUUID: r.options.ProjectUUID,
-		ProxyURL:    r.options.ProxyURL,
+		Targets:       targets,
+		PrefixTargets: prefixes,
+		Duplicate:     duplicate,
+		Requests:      nucleiRequests,
+		Concurrency:   r.options.Concurrency,
+		ScanUUID:      r.options.ScanUUID,
+		ProjectUUID:   r.options.ProjectUUID,
+		ProxyURL:      r.options.ProxyURL,
 		// nuclei runs its own HTTP stack, so it cannot use the assessment
 		// requester's view — it needs the headers themselves. Under
 		// use_in_discovery: false this is the only way the primary session
@@ -293,13 +337,28 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		// scanning_pace.known-issue-scan controls speed
 		knownIssueScanPace := r.settings.ScanningPace.ResolvePhase("known-issue-scan")
 		cfg.Concurrency = r.phaseConcurrency("known-issue-scan")
-		if knownIssueScanPace.RateLimit > 0 {
-			cfg.RateLimit = knownIssueScanPace.RateLimit
-		}
+		// Explicit only (section or typed --rate-limit), else the phase's own
+		// conservative default; the global 100 rps default no longer overrides
+		// it.
+		cfg.RateLimit = r.settings.ScanningPace.KnownIssueScanRateLimit(r.options)
 		if knownIssueScanPace.MaxDuration > 0 {
 			cfg.Timeout = knownIssueScanPace.MaxDuration
 		}
+
+		// Stack-driven narrowing: exclude product-tagged templates for products
+		// no origin runs (only on complete fingerprint knowledge; untagged
+		// templates always run). known_issue_scan.tech_selection: off disables.
+		if excl := r.knownIssueScanTechExcludes(ctx, infra.scanUUID, targets); len(excl) > 0 {
+			cfg.ExcludeTags = append(append([]string(nil), cfg.ExcludeTags...), excl...)
+			r.printPhaseDetail(fmt.Sprintf("Tech selection: %s product tags excluded (no origin runs them; %s to disable)",
+				terminal.Orange(strconv.Itoa(len(excl))), terminal.HiCyan("vigolium config set known_issue_scan.tech_selection off")))
+		}
 	}
 
-	return knownissuescan.Run(ctx, cfg)
+	err = knownissuescan.Run(ctx, cfg)
+	if suppressed != nil && suppressed.Load() > 0 {
+		r.printPhaseDetail(fmt.Sprintf("%s nuclei matches suppressed as duplicates of native findings",
+			terminal.Orange(strconv.FormatInt(suppressed.Load(), 10))))
+	}
+	return err
 }

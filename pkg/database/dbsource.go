@@ -28,11 +28,16 @@ const (
 	RecordSourceProbe        = "probe"         // `vigolium run probe` host sweep (one request per target, no fuzzing)
 	RecordSourceFingerprint  = "fingerprint"   // `vigolium fingerprint`: the per-origin reads the fingerprint phase sent
 	RecordSourceHarvest      = "harvest"       // external-harvest archive URL; request-only until harvest-probe completes it
-	RecordSourceFinding      = "finding"       // request/response attached to a finding
+	RecordSourceFinding      = "finding"       // request/response attached to a finding (native modules and known-issue scan)
 	RecordSourceBurp         = "burp"          // Burp Suite, via the loopback bridge or a push to /api/ingest-http
 	RecordSourceCaido        = "caido"         // Caido, via the loopback bridge or a push to /api/ingest-http
 	RecordSourceParamMining  = "param-mining"  // request carrying a hidden parameter the param-mining phase confirmed
 )
+
+// legacyKISEvidenceSource is the label known-issue-scan evidence was stored
+// under before it used RecordSourceFinding. Read only by the one-time relabel
+// in CreateSchema and by evidence filters that must still match old rows.
+const legacyKISEvidenceSource = "spa"
 
 // BridgeRecordSources lists the http_records.source values a loopback bridge
 // listener can produce. Which one a given record gets is decided by the

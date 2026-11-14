@@ -66,11 +66,29 @@ type Config struct {
 	// active phase outside the per-host limiter and the WAF block notice. See
 	// edge.go for what each hook buys and why a transport port is not on offer.
 	Edge Edge
+
+	// PrefixTargets are directory-prefix URLs (scheme://host/dir) beyond the
+	// origins in Targets. They are scanned in a second pass that excludes the
+	// templates whose requests ignore the path (RootOnlyTemplateIDs): those
+	// already ran against the origin, and every prefix of a host would resend
+	// the identical request.
+	PrefixTargets []string
+
+	// Requests, when set, counts every request nuclei sends (via its progress
+	// hooks). The runner registers it with the request budget so nuclei's
+	// traffic counts toward --max-requests (soft enforcement: the scan stops
+	// once the watcher sees the limit passed).
+	Requests *atomic.Int64
+
+	// Duplicate, when set, reports whether a match repeats a finding the
+	// native modules already filed for this scan. Such a match is neither
+	// emitted nor stored; the callback may record the link.
+	Duplicate func(*output.ResultEvent) bool
 }
 
 // Run executes the known-issue scan using the nuclei Go library.
 func Run(ctx context.Context, cfg Config) error {
-	if len(cfg.Targets) == 0 {
+	if len(cfg.Targets) == 0 && len(cfg.PrefixTargets) == 0 {
 		return fmt.Errorf("knownissuescan: no targets provided")
 	}
 
@@ -111,13 +129,20 @@ func Run(ctx context.Context, cfg Config) error {
 	// already blocking is dropped rather than scanned — pushing template traffic
 	// through a wall of challenge pages produces no findings and arms the rate
 	// limiter further.
-	if kept, blockedHosts := preflightHosts(ctx, cfg.Targets, cfg.Edge.Probe); len(blockedHosts) > 0 {
+	allTargets := append(append([]string(nil), cfg.Targets...), cfg.PrefixTargets...)
+	if kept, blockedHosts := preflightHosts(ctx, allTargets, cfg.Edge.Probe); len(blockedHosts) > 0 {
 		zap.L().Warn("KnownIssueScan: skipping hosts whose edge is already filtering scan traffic",
 			zap.Strings("blocked_hosts", blockedHosts),
-			zap.Int("targets_before", len(cfg.Targets)),
+			zap.Int("targets_before", len(allTargets)),
 			zap.Int("targets_after", len(kept)))
-		cfg.Targets = kept
-		if len(cfg.Targets) == 0 {
+		keep := make(map[string]struct{}, len(kept))
+		for _, t := range kept {
+			keep[t] = struct{}{}
+		}
+		cfg.Targets = filterKept(cfg.Targets, keep)
+		cfg.PrefixTargets = filterKept(cfg.PrefixTargets, keep)
+		allTargets = kept
+		if len(allTargets) == 0 {
 			return nil
 		}
 	}
@@ -125,7 +150,7 @@ func Run(ctx context.Context, cfg Config) error {
 	// Narrow nuclei's own knobs to the per-host verdict the limiter has already
 	// reached, so a CDN-fronted host makes this phase open narrow from its first
 	// request instead of bursting the edge into a rate-based block.
-	cfg.Concurrency, cfg.RateLimit = pacedFor(cfg.Targets, cfg.Edge.HostLimit, cfg.Concurrency, cfg.RateLimit)
+	cfg.Concurrency, cfg.RateLimit = pacedFor(allTargets, cfg.Edge.HostLimit, cfg.Concurrency, cfg.RateLimit)
 
 	// Create a properly initialized logger for nuclei to avoid nil pointer
 	// panics from the bare default logger in nuclei's DefaultOptions().
@@ -137,8 +162,7 @@ func Run(ctx context.Context, cfg Config) error {
 	scanLogger.SetMaxLevel(levels.LevelSilent)
 	gologger.DefaultLogger.SetMaxLevel(levels.LevelSilent)
 
-	// Build engine options
-	opts := buildEngineOptions(ctx, cfg, scanLogger)
+	passes := planPasses(cfg)
 
 	// Log the active severity filter (empty = all) so the narrowing is visible in
 	// both CLI and server logs, not only via the CLI-only console tip.
@@ -148,6 +172,8 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 	zap.L().Info("Starting known-issue scan",
 		zap.Int("targets", len(cfg.Targets)),
+		zap.Int("prefix_targets", len(cfg.PrefixTargets)),
+		zap.Int("passes", len(passes)),
 		zap.Int("concurrency", cfg.Concurrency),
 		zap.Int("rate_limit", cfg.RateLimit),
 		zap.Strings("tags", cfg.Tags),
@@ -156,29 +182,11 @@ func Run(ctx context.Context, cfg Config) error {
 		zap.Duration("timeout", cfg.Timeout),
 	)
 
-	// Create nuclei engine with timeout context. NOTE: cancel() is deferred, but
-	// ne.Close() is NOT — its safety depends on the exit path (see below), so it
-	// is invoked explicitly per-path.
+	// One deadline for every pass. NOTE: cancel() is deferred, but ne.Close() is
+	// NOT — its safety depends on the exit path (see runPass), so it is invoked
+	// explicitly per-path.
 	scanCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
-
-	ne, err := nuclei.NewNucleiEngineCtx(scanCtx, opts...)
-	if err != nil {
-		return fmt.Errorf("knownissuescan: failed to create nuclei engine: %w", err)
-	}
-
-	// Re-probe while the scan runs: a host that starts filtering mid-phase is the
-	// case the pre-flight cannot catch, and the one that silently hollows out the
-	// results. Each probe rides the shared requester, so the operator notice and
-	// the waf.block event fire exactly as they do in every other phase.
-	//
-	// Started AFTER the engine exists: NewNucleiEngineCtx can sit behind a
-	// multi-minute first-run template clone, and a sentinel armed before it would
-	// spend that whole window probing a target nuclei has not touched yet.
-	defer cfg.Edge.sentinel(scanCtx, cfg.Targets, cancel)()
-
-	// Load targets
-	ne.LoadTargets(cfg.Targets, false)
 
 	// Normalize severity-override keys to lowercase once so per-finding lookups
 	// are a cheap case-insensitive map hit (nuclei template IDs are lowercase by
@@ -213,6 +221,11 @@ func Run(ctx context.Context, cfg Config) error {
 		if override, ok := severityOverrides[strings.ToLower(result.ModuleID)]; ok {
 			result.Info.Severity = override
 		}
+		// A template that re-finds what a native module already filed (the
+		// same CVE on the host, the same exposed file) is the same issue twice.
+		if cfg.Duplicate != nil && cfg.Duplicate(result) {
+			return
+		}
 		findingCount.Add(1)
 
 		// Invoke user callback
@@ -230,7 +243,7 @@ func Run(ctx context.Context, cfg Config) error {
 					httpmsg.NewHttpRequest([]byte(result.Request)),
 					httpmsg.NewHttpResponse([]byte(result.Response)),
 				)
-				recordUUID, recErr := cfg.Repository.SaveRecordWithLineage(scanCtx, fuzzedRR, "spa", cfg.ProjectUUID, database.RecordLineage{ScanUUID: cfg.ScanUUID})
+				recordUUID, recErr := cfg.Repository.SaveRecordWithLineage(scanCtx, fuzzedRR, database.RecordSourceFinding, cfg.ProjectUUID, database.RecordLineage{ScanUUID: cfg.ScanUUID})
 				if recErr != nil {
 					zap.L().Debug("KnownIssueScan: failed to save http record", zap.Error(recErr))
 				} else {
@@ -243,45 +256,103 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 	}
 
-	// nuclei's ExecuteCallbackWithCtx blocks on its internal in-flight drain even
-	// after scanCtx is cancelled (it does <-wait(&wg) on ctx.Done()). Run it in our
-	// own goroutine and enforce cfg.Timeout / parent-cancel as a HARD wall-clock
-	// bound: return at the deadline instead of waiting for the drain.
-	var scanErr error
-	deadlineErr := runScanWithDeadline(scanCtx,
-		func() error { return ne.ExecuteCallbackWithCtx(scanCtx, callback) },
-		// onComplete: scan returned within budget — its goroutine is gone, so
-		// Close() is safe inline here. The scan's own error is captured for
-		// classification below.
-		func(e error) { scanErr = e; ne.Close() },
-		// onAbandon: detached cleanup. Runs only after the abandoned scan goroutine
-		// finally drains, so Close() never races a live scan. May never run if a
-		// no-deadline protocol read hangs (inherent nuclei limit) — but that no
-		// longer blocks the caller.
-		func() { ne.Close() },
-	)
-
-	if deadlineErr != nil {
-		// Deadline (or parent cancel) fired before the scan finished. The phase
-		// caller classifies this as a curtailment via ctx.Err().
-		done.Store(true)
-		zap.L().Warn("Known-issue scan curtailed at deadline; nuclei resource cleanup deferred to background",
-			zap.Int64("findings", findingCount.Load()),
-			zap.Error(deadlineErr))
-		return deadlineErr
-	}
-	if scanErr != nil {
-		// A clean in-budget curtailment (nuclei drained before its own deadline
-		// returned) is a curtailment, not a failure — surface it as the ctx error.
-		if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
-			zap.L().Info("Known-issue scan stopped at deadline", zap.Int64("findings", findingCount.Load()))
-			return scanErr
+	sentinelStarted := false
+	for _, ps := range passes {
+		if scanCtx.Err() != nil {
+			break
 		}
-		return fmt.Errorf("knownissuescan: execution failed: %w", scanErr)
+		ne, err := nuclei.NewNucleiEngineCtx(scanCtx, buildEngineOptionsFor(ctx, cfg, scanLogger, ps.excludeIDs)...)
+		if err != nil {
+			return fmt.Errorf("knownissuescan: failed to create nuclei engine: %w", err)
+		}
+		// Re-probe while the scan runs: a host that starts filtering mid-phase is
+		// the case the pre-flight cannot catch, and the one that silently hollows
+		// out the results. Each probe rides the shared requester, so the operator
+		// notice and the waf.block event fire exactly as they do in every other
+		// phase.
+		//
+		// Started AFTER the first engine exists: NewNucleiEngineCtx can sit behind
+		// a multi-minute first-run template clone, and a sentinel armed before it
+		// would spend that whole window probing a target nuclei has not touched.
+		if !sentinelStarted {
+			sentinelStarted = true
+			defer cfg.Edge.sentinel(scanCtx, allTargets, cancel)()
+		}
+		ne.LoadTargets(ps.targets, false)
+
+		var scanErr error
+		deadlineErr := runScanWithDeadline(scanCtx,
+			func() error { return ne.ExecuteCallbackWithCtx(scanCtx, callback) },
+			// onComplete: scan returned within budget — its goroutine is gone, so
+			// Close() is safe inline here.
+			func(e error) { scanErr = e; ne.Close() },
+			// onAbandon: detached cleanup. Runs only after the abandoned scan
+			// goroutine finally drains, so Close() never races a live scan.
+			func() { ne.Close() },
+		)
+
+		if deadlineErr != nil {
+			// Deadline (or parent cancel) fired before the scan finished. The phase
+			// caller classifies this as a curtailment via ctx.Err().
+			done.Store(true)
+			zap.L().Warn("Known-issue scan curtailed at deadline; nuclei resource cleanup deferred to background",
+				zap.Int64("findings", findingCount.Load()),
+				zap.Error(deadlineErr))
+			return deadlineErr
+		}
+		if scanErr != nil {
+			// A clean in-budget curtailment is a curtailment, not a failure —
+			// surface it as the ctx error.
+			if errors.Is(scanErr, context.Canceled) || errors.Is(scanErr, context.DeadlineExceeded) {
+				zap.L().Info("Known-issue scan stopped at deadline", zap.Int64("findings", findingCount.Load()))
+				return scanErr
+			}
+			return fmt.Errorf("knownissuescan: execution failed: %w", scanErr)
+		}
 	}
 
 	zap.L().Info("Known-issue scan completed", zap.Int64("findings", findingCount.Load()))
 	return nil
+}
+
+// scanPass is one nuclei engine run: a target list and the template IDs it
+// excludes on top of the configured filters.
+type scanPass struct {
+	targets    []string
+	excludeIDs []string
+}
+
+// planPasses splits the run: origins get every template; prefixes get only
+// the templates whose requests depend on the path. When nothing classifies as
+// origin-anchored (custom template list, unreadable dir), one pass over all
+// targets is the same work without a second engine load.
+func planPasses(cfg Config) []scanPass {
+	if len(cfg.PrefixTargets) == 0 {
+		return []scanPass{{targets: cfg.Targets}}
+	}
+	var rootOnly []string
+	if len(cfg.Templates) == 0 {
+		if dir, err := TemplatesDir(cfg.TemplatesDir); err == nil {
+			rootOnly, _ = RootOnlyTemplateIDs(dir)
+		}
+	}
+	if len(rootOnly) == 0 || len(cfg.Targets) == 0 {
+		return []scanPass{{targets: append(append([]string(nil), cfg.Targets...), cfg.PrefixTargets...)}}
+	}
+	return []scanPass{
+		{targets: cfg.Targets},
+		{targets: cfg.PrefixTargets, excludeIDs: rootOnly},
+	}
+}
+
+func filterKept(targets []string, keep map[string]struct{}) []string {
+	out := targets[:0:0]
+	for _, t := range targets {
+		if _, ok := keep[t]; ok {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // runScanWithDeadline runs scan() in a goroutine and returns as soon as either
@@ -310,6 +381,12 @@ func runScanWithDeadline(ctx context.Context, scan func() error, onComplete func
 
 // buildEngineOptions constructs nuclei SDK options from known-issue scan config.
 func buildEngineOptions(ctx context.Context, cfg Config, logger *gologger.Logger) []nuclei.NucleiSDKOptions {
+	return buildEngineOptionsFor(ctx, cfg, logger, nil)
+}
+
+// buildEngineOptionsFor is buildEngineOptions with extra template IDs excluded
+// (the prefix pass drops origin-anchored templates).
+func buildEngineOptionsFor(ctx context.Context, cfg Config, logger *gologger.Logger, excludeIDs []string) []nuclei.NucleiSDKOptions {
 	var opts []nuclei.NucleiSDKOptions
 
 	// Template filters
@@ -328,6 +405,7 @@ func buildEngineOptions(ctx context.Context, cfg Config, logger *gologger.Logger
 		// removes the leak at the source and speeds up the phase. http,
 		// headless, dns, ssl, websocket, etc. still run.
 		ExcludeProtocolTypes: "tcp,javascript",
+		ExcludeIDs:           excludeIDs,
 	}
 	if len(cfg.Severities) > 0 {
 		filters.Severity = strings.Join(cfg.Severities, ",")
@@ -395,6 +473,11 @@ func buildEngineOptions(ctx context.Context, cfg Config, logger *gologger.Logger
 	// Pass our properly initialized logger to avoid nil pointer panics
 	// from nuclei's bare default logger.
 	opts = append(opts, nuclei.WithLogger(logger))
+
+	// Count sent requests for the request budget.
+	if cfg.Requests != nil {
+		opts = append(opts, nuclei.UseStatsWriter(requestCounter{n: cfg.Requests}))
+	}
 
 	return opts
 }

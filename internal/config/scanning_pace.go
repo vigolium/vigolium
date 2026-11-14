@@ -253,6 +253,29 @@ func (c *ScanningPaceConfig) DiscoveryRateLimit(opts *types.Options) int {
 	return 0
 }
 
+// KnownIssueScanDefaultRateLimit is the known-issue scan's unattended rate
+// (requests/second): nuclei runs its own HTTP stack outside the egress gate
+// and does not back off, so it opens conservatively. Mirrors
+// knownissuescan.defaultRateLimit (a test holds them together).
+const KnownIssueScanDefaultRateLimit = 20
+
+// KnownIssueScanRateLimit resolves the rate the known-issue scan runs at, with
+// the same explicit-only rule as DiscoveryRateLimit: the phase section's
+// rate_limit, else a typed --rate-limit, else KnownIssueScanDefaultRateLimit.
+// It does not inherit the global 100 rps default — that default always beat
+// the phase's own 20 rps, which made the conservative default dead code.
+//
+// Nil-safe on both arguments.
+func (c *ScanningPaceConfig) KnownIssueScanRateLimit(opts *types.Options) int {
+	if c != nil && c.KnownIssueScan.RateLimit > 0 {
+		return c.KnownIssueScan.RateLimit
+	}
+	if opts != nil && opts.RateLimitExplicitlySet && opts.RateLimit > 0 {
+		return opts.RateLimit
+	}
+	return KnownIssueScanDefaultRateLimit
+}
+
 // PhasePaceSupports reports whether phase actually enforces the named pace field.
 // An unknown phase or field reports false — the fail-closed direction, since the
 // consequence is a warning or an omitted table entry rather than a changed scan.

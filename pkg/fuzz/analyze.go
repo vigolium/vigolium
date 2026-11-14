@@ -217,22 +217,52 @@ func matchHeader(headers http.Header, h HeaderMatcher) bool {
 	return false
 }
 
-// calibration captures the target's wildcard/catch-all response fingerprint,
-// learned by sending improbable probe values. A result whose (status,length)
-// matches a learned signature is suppressed as noise.
+// calibration captures the target's wildcard/catch-all response fingerprint
+// at one position, learned by sending improbable probe values there. A result
+// whose signature matches a learned one is suppressed as noise.
+//
+// The match is deliberately approximate: a catch-all page that reflects the
+// probe (or carries a timestamp or a CSRF token) differs by a few bytes per
+// send, and an exact (status, length) key never matched it again — so the
+// noise it was meant to remove came straight through.
 type calibration struct {
-	sigs map[calibSig]struct{}
+	sigs []calibSig
 }
 
+// calibSig is one learned catch-all shape: status and word count exactly,
+// length within a tolerance band (see lengthClose).
 type calibSig struct {
 	status int
 	length int
+	words  int
 }
 
-func (c *calibration) matches(status, length int) bool {
-	if c == nil || len(c.sigs) == 0 {
+// lengthClose reports whether two body lengths fall in the same bucket:
+// within max(16 bytes, 2% of the reference).
+func lengthClose(ref, got int) bool {
+	tol := ref / 50
+	if tol < 16 {
+		tol = 16
+	}
+	d := got - ref
+	if d < 0 {
+		d = -d
+	}
+	return d <= tol
+}
+
+func (s calibSig) matches(status, length, words int) bool {
+	return s.status == status && s.words == words && lengthClose(s.length, length)
+}
+
+func (c *calibration) matches(status, length, words int) bool {
+	if c == nil {
 		return false
 	}
-	_, ok := c.sigs[calibSig{status: status, length: length}]
-	return ok
+	for _, s := range c.sigs {
+		if s.matches(status, length, words) {
+			return true
+		}
+	}
+	return false
 }
