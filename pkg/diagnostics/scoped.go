@@ -76,10 +76,12 @@ type ScopedDeps struct {
 
 // Probes are the side-effecting checks, replaceable in tests.
 var (
-	scopedFreeBytes  = freeBytes
-	scopedFDLimit    = fdLimit
-	scopedLookPath   = exec.LookPath
-	scopedDial       = func(ctx context.Context, network, addr string) (net.Conn, error) { return (&net.Dialer{}).DialContext(ctx, network, addr) }
+	scopedFreeBytes = freeBytes
+	scopedFDLimit   = fdLimit
+	scopedLookPath  = exec.LookPath
+	scopedDial      = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}
 	scopedLookupHost = net.DefaultResolver.LookupHost
 	scopedNow        = time.Now
 )

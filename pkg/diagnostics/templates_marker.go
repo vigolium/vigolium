@@ -12,4 +12,6 @@ const TemplatesMarkerFile = nucleitemplates.MarkerFile
 type TemplatesMarker = nucleitemplates.Marker
 
 // ReadTemplatesMarker reads dir's marker.
-func ReadTemplatesMarker(dir string) (*TemplatesMarker, error) { return nucleitemplates.ReadMarker(dir) }
+func ReadTemplatesMarker(dir string) (*TemplatesMarker, error) {
+	return nucleitemplates.ReadMarker(dir)
+}

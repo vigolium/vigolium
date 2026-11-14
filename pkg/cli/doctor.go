@@ -187,7 +187,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	// the real driver error instead of "not configured".
 	// A stateless scan never opens the project database, so `--for scan -S`
 	// does not either.
-	if !(globalStateless && doctorFor == diagnostics.PurposeScan) {
+	if !globalStateless || doctorFor != diagnostics.PurposeScan {
 		db, dbErr := getDB()
 		if dbErr == nil {
 			deps.DB = db

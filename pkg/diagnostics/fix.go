@@ -326,7 +326,8 @@ func RunFixesWith(ctx context.Context, report *Report, settings *config.Settings
 			key := item.ToolKey
 			isFailing = func(r *Report) bool { return toolFailing(r, key) }
 		}
-		if isFailing != nil && !isFailing(report) && !(item.Refreshable && onlySet[item.Key]) {
+		refresh := item.Refreshable && onlySet[item.Key]
+		if isFailing != nil && !isFailing(report) && !refresh {
 			continue
 		}
 
