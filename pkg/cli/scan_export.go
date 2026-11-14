@@ -358,6 +358,11 @@ func exportStatelessSQLite(ctx context.Context, db *database.DB, outputPath stri
 	if _, err := db.ExecContext(ctx, stmt); err != nil {
 		return exportedFile{}, fmt.Errorf("export sqlite %s: %w", outputPath, err)
 	}
+	// A kept OAST session's keys let whoever holds them read its callbacks;
+	// they stay in the operator's store and never travel in an export.
+	if err := database.RedactOASTSessionKeysInFile(ctx, stagePath); err != nil {
+		return exportedFile{}, fmt.Errorf("redact sqlite export %s: %w", outputPath, err)
+	}
 	// The old sidecars belong to the file being replaced, not to the stage. Left
 	// behind they would describe a database that no longer exists, and SQLite
 	// would rather trust a stale -wal than the fresh file next to it.

@@ -101,6 +101,9 @@ type Service struct {
 	blindXSSSrc        string // JS script src for blind XSS payloads
 	enabledBlindXSS    bool   // whether blind XSS probing is active
 	fallbackToDefault  bool   // re-register against config.DefaultOASTServer when serverURL does not answer
+	// keepSession keeps the interactsh registration open on Close, stored in
+	// oast_sessions, for a later poll (see session.go). Requires a store.
+	keepSession bool
 	// onFallback reports that registration reached config.DefaultOASTServer
 	// instead of serverURL. Atomic because register() writes it from its own
 	// goroutine while ServerURL() reads it from the scan's.
@@ -233,7 +236,7 @@ func (s *Service) GenerateURLFor(cls Class, targetURL, paramName, label, moduleI
 	// We use the full subdomain (before first dot) as the tracker key.
 	nonce := extractNonce(url)
 	if nonce != "" {
-		s.trackerCache().Add(nonce, PayloadContext{
+		pctx := PayloadContext{
 			TargetURL:     targetURL,
 			ParameterName: paramName,
 			InjectionType: label,
@@ -241,6 +244,19 @@ func (s *Service) GenerateURLFor(cls Class, targetURL, paramName, label, moduleI
 			ModuleID:      moduleID,
 			RequestHash:   requestHash,
 			CallbackURL:   url,
+		}
+		s.trackerCache().Add(nonce, pctx)
+		// Persisted (batch-written) so a callback that outlives the tracker
+		// or this process still correlates (see session.go).
+		s.queuePayload(&database.OASTPayload{
+			Nonce:       nonce,
+			ProjectUUID: s.projectUUID,
+			ScanUUID:    s.scanUUID,
+			Class:       string(pctx.class()),
+			ModuleID:    moduleID,
+			TargetURL:   targetURL,
+			Param:       paramName,
+			RequestHash: requestHash,
 		})
 	}
 
@@ -269,12 +285,11 @@ func (s *Service) RecordPayload(callbackURL, payload string) {
 		return
 	}
 	cache := s.trackerCache()
-	pctx, ok := cache.Get(nonce)
-	if !ok {
-		return
+	if pctx, ok := cache.Get(nonce); ok {
+		pctx.Payload = payload
+		cache.Add(nonce, pctx)
 	}
-	pctx.Payload = payload
-	cache.Add(nonce, pctx)
+	s.recordStoredPayload(nonce, payload)
 }
 
 // BlindXSSSrc returns the configured blind XSS script src URL.
@@ -304,13 +319,24 @@ func (s *Service) SetRequestUUIDResolver(fn func(string) string) {
 
 // handleInteraction processes a single interaction from the interactsh server.
 func (s *Service) handleInteraction(interaction *server.Interaction) {
+	s.handleInteractionCorrelated(interaction)
+}
+
+// handleInteractionCorrelated is handleInteraction reporting whether the
+// callback correlated to a planted payload.
+func (s *Service) handleInteractionCorrelated(interaction *server.Interaction) bool {
 	if interaction == nil {
-		return
+		return false
 	}
 
-	// Look up payload context using the unique ID
+	// Look up payload context using the unique ID: the in-memory tracker
+	// first, then the persisted payload contexts (evicted, or planted by an
+	// earlier process whose session a poll resumed).
 	nonce := interaction.UniqueID
 	pctx, found := s.trackerCache().Get(nonce)
+	if !found {
+		pctx, found = s.lookupStoredPayload(nonce, interaction.FullId)
+	}
 
 	// Debug, not Info: a single planted payload fans out into ~5-6 callbacks
 	// (DNS A/AAAA, several recursive resolvers, then the HTTP leg), so logging
@@ -325,9 +351,10 @@ func (s *Service) handleInteraction(interaction *server.Interaction) {
 
 	// Only emit finding if we have correlation context
 	if !found {
-		return
+		return false
 	}
 	s.reportCorrelated(interaction, nonce, pctx)
+	return true
 }
 
 // recordInteraction stores one callback in oast_interactions, with the
@@ -974,6 +1001,8 @@ func classifyInteraction(protocol string, pctx PayloadContext) (severity.Severit
 		return classifyESI(proto, injectionDesc)
 	case oastclass.PasswordResetPoisoning:
 		return classifyResetPoisoning(proto, injectionDesc)
+	case oastclass.BlindXSS:
+		return classifyBlindXSS(proto, injectionDesc)
 	}
 
 	// Host-routing / host-reflection SSRF — request-line manipulation
@@ -1142,6 +1171,11 @@ func refineOASTCallback(interaction *server.Interaction, pctx PayloadContext, se
 	}
 	raw, target := interaction.RawRequest, pctx.TargetURL
 
+	// Blind XSS is the inverse case: its fetcher IS a browser.
+	if pctx.class() == oastclass.BlindXSS {
+		return refineBlindXSS(raw, target, sev, conf, desc)
+	}
+
 	// Classes with a specific, non-browser out-of-band fetcher → aggressive check.
 	if label := harvestableFetchLabel(pctx.class()); label != "" {
 		if harvested, reason := looksLikeHarvestedURLFetch(raw, target); harvested {
@@ -1158,6 +1192,63 @@ func refineOASTCallback(interaction *server.Interaction, pctx PayloadContext, se
 			return severity.Info, severity.Tentative, "Possible blind SSRF, UNCONFIRMED: an out-of-band HTTP request reached the OAST server, but " + reason +
 				". An external site monitor / crawler that harvested the injected URL calls back identically without any server-side request forgery. Confirm the fetch originates from the target's own infrastructure before treating this as SSRF."
 		}
+	}
+	return sev, conf, desc
+}
+
+// classifyBlindXSS rates a callback to a planted blind XSS script host. The
+// HTTP leg is a fetch of the injected <script src>; refineBlindXSS keeps it
+// High only when a browser made it. DNS alone says only that something
+// resolved the host — a log pipeline or URL scanner does that too.
+func classifyBlindXSS(proto, injectionDesc string) (severity.Severity, severity.Confidence, string) {
+	switch proto {
+	case "http", "https":
+		return severity.High, severity.Firm, "Blind XSS: a browser loaded the script injected via " + injectionDesc +
+			", so the stored value is rendered as HTML (unencoded) on a page someone opened — the script runs in that viewer's session."
+	default:
+		return severity.Suspect, severity.Tentative, "Possible blind XSS, UNCONFIRMED: the script host injected via " + injectionDesc +
+			" was resolved (" + proto + " only), but no browser fetched the script. Log pipelines and URL scanners resolve stored hosts too; wait for (or `vigolium oast poll` for) an HTTP fetch from a browser."
+	}
+}
+
+// refineBlindXSS keeps a blind XSS HTTP callback at its rating only when the
+// fetch came from a web browser that is not a self-identifying crawler; any
+// other client (a library, a link-preview bot, a monitor) fetching the script
+// URL harvested it rather than rendering the page, and is Suspect/Tentative.
+// The Referer, when the browser sent one, names the page that rendered it.
+func refineBlindXSS(rawRequest, targetURL string, sev severity.Severity, conf severity.Confidence, desc string) (severity.Severity, severity.Confidence, string) {
+	if sev == severity.Suspect {
+		return sev, conf, desc
+	}
+	h := callbackHeaderMap(rawRequest)
+	ua := strings.ToLower(strings.TrimSpace(h["user-agent"]))
+	browser := false
+	for _, t := range browserUATokens {
+		if strings.Contains(ua, t) {
+			browser = true
+			break
+		}
+	}
+	crawler := uaContactRe.MatchString(ua)
+	for _, t := range crawlerUATokens {
+		if strings.Contains(ua, t) {
+			crawler = true
+			break
+		}
+	}
+	if host := oastHost(targetURL); host != "" && strings.Contains(ua, host) {
+		crawler = true
+	}
+	if !browser || crawler {
+		who := "a non-browser client"
+		if ua != "" {
+			who = "User-Agent \"" + ua + "\""
+		}
+		return severity.Suspect, severity.Tentative, "Possible blind XSS, UNCONFIRMED: the injected script URL was fetched, but by " + who +
+			", not a browser rendering the page — a crawler, preview bot or log pipeline that harvested the stored URL fetches it the same way."
+	}
+	if ref := strings.TrimSpace(h["referer"]); ref != "" {
+		desc += " Rendered on: " + ref + "."
 	}
 	return sev, conf, desc
 }

@@ -113,6 +113,7 @@ var machineKinds = map[string]machineKind{
 
 	// Out-of-band callbacks logged by the operator's endpoint.
 	"oast ingest": kindMutation,
+	"oast poll":   kindMutation,
 
 	// Kit.
 	"kit harvest":     kindRead,

@@ -153,6 +153,7 @@ var projectOwnedTables = []string{
 	"finding_status_events",
 	"finding_hash_aliases",
 	"oast_payloads",
+	"oast_sessions",
 }
 
 // ReassignProjectData moves all data owned by sourceUUID to targetUUID.

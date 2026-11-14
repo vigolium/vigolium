@@ -130,6 +130,7 @@ func New(cfg *config.OASTConfig, emitResult func(*output.ResultEvent), repo *dat
 		gracePeriod:        gracePeriod,
 		blindXSSSrc:        cfg.BlindXSSSrc,
 		enabledBlindXSS:    cfg.EnabledBlindXSS,
+		keepSession:        cfg.KeepSession && repo != nil,
 	}
 	// The seams are read here, on the caller's goroutine, so a test that swaps
 	// them never races a registration goroutine still running from an earlier
@@ -392,6 +393,10 @@ func (s *Service) Close() {
 	s.lifeMu.Unlock()
 
 	if client != nil {
+		if s.keepSession && s.repo != nil {
+			s.keepSessionOpen(client)
+			return
+		}
 		closeClient(client)
 	}
 }

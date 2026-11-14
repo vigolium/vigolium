@@ -426,6 +426,23 @@ var schemaTables = []string{
 	// that arrives out of band (a fixed OAST URL, `oast ingest`) be attributed
 	// to the scan, module, target and parameter that planted it, after the
 	// in-memory tracker of the planting process is gone.
+	// Schema v6: interactsh sessions a scan kept open (oast.keep_session) so a
+	// later `vigolium oast poll` or the server's poller collects late callbacks.
+	// Key material is redacted from every export.
+	`CREATE TABLE IF NOT EXISTS oast_sessions (
+		id {{AUTOINC_PK}},
+		project_uuid TEXT NOT NULL,
+		scan_uuid TEXT,
+		server_url TEXT NOT NULL,
+		correlation_id TEXT NOT NULL,
+		secret_key TEXT,
+		private_key TEXT,
+		public_key TEXT,
+		token TEXT,
+		created_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_polled_at {{TIMESTAMP}},
+		closed_at {{TIMESTAMP}}
+	)`,
 	`CREATE TABLE IF NOT EXISTS oast_payloads (
 		nonce TEXT PRIMARY KEY NOT NULL,
 		project_uuid TEXT NOT NULL,
@@ -695,6 +712,9 @@ var schemaIndexes = []string{
 	"CREATE INDEX IF NOT EXISTS idx_oast_project_scan ON oast_interactions(project_uuid, scan_uuid)",
 	"CREATE INDEX IF NOT EXISTS idx_oast_interactions_unique_id ON oast_interactions(unique_id)",
 
+	// -- oast_sessions --
+	"CREATE UNIQUE INDEX IF NOT EXISTS idx_oast_sessions_project_corr ON oast_sessions(project_uuid, correlation_id)",
+	"CREATE INDEX IF NOT EXISTS idx_oast_sessions_open ON oast_sessions(project_uuid, scan_uuid, closed_at)",
 	// -- oast_payloads -- (nonce lookups ride the primary key)
 	"CREATE INDEX IF NOT EXISTS idx_oast_payloads_project_scan ON oast_payloads(project_uuid, scan_uuid)",
 
