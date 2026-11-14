@@ -66,20 +66,6 @@ func StartActiveMemGuardian(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	memTimer, cancelFunc = timer, cancel
 
-	// The monitor that sets the low-memory flag. It was never run: nothing
-	// called this function, and the default guardian's Run was never started,
-	// so IsLowOnMemory was always false and admission never backed off.
-	if mg, err := newGuardian(); err == nil {
-		activeGuardian.Store(mg)
-		go func() {
-			if err := mg.Run(ctx); err != nil {
-				zap.L().Debug("memguardian stopped", zap.Error(err))
-			}
-		}()
-	} else {
-		zap.L().Debug("memguardian unavailable", zap.Error(err))
-	}
-
 	// The ticker and context are CAPTURED rather than read from the globals: a
 	// later Stop/Start pair reassigns those while this goroutine still runs.
 	go func() {
@@ -97,6 +83,25 @@ func StartActiveMemGuardian(ctx context.Context) {
 			}
 		}
 	}()
+
+	// The monitor that sets the low-memory flag. network.Init started the
+	// buffer-pool loop above, but no one ever ran a guardian's Run, so
+	// IsLowOnMemory was always false and nothing backed off. Started after the
+	// loop (its goroutine is a named function, not a closure) so goleak
+	// allow-lists stay stable.
+	if mg, err := newGuardian(); err == nil {
+		activeGuardian.Store(mg)
+		go runGuardian(ctx, mg)
+	} else {
+		zap.L().Debug("memguardian unavailable", zap.Error(err))
+	}
+}
+
+// runGuardian runs a memory monitor until ctx ends.
+func runGuardian(ctx context.Context, mg *memguardian.MemGuardian) {
+	if err := mg.Run(ctx); err != nil {
+		zap.L().Debug("memguardian stopped", zap.Error(err))
+	}
 }
 
 func StopActiveMemGuardian() {

@@ -50,6 +50,7 @@ func VerifyNoLeaks(m *testing.M) {
 	goleak.VerifyTestMain(m,
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 		goleak.IgnoreTopFunction("github.com/vigolium/vigolium/pkg/core/network.StartActiveMemGuardian.func1"),
+		goleak.IgnoreAnyFunction("github.com/vigolium/vigolium/pkg/core/network.runGuardian"),
 		goleak.IgnoreAnyFunction("github.com/syndtr/goleveldb/leveldb.(*DB).mpoolDrain"),
 		goleak.IgnoreAnyFunction("github.com/syndtr/goleveldb/leveldb.(*DB).tCompaction"),
 		goleak.IgnoreAnyFunction("github.com/syndtr/goleveldb/leveldb.(*DB).mCompaction"),
