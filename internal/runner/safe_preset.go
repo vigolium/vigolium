@@ -63,12 +63,3 @@ func ApplyDefaultScanBudget(settings *config.Settings, opts *types.Options) {
 	}
 }
 
-// SafeMethodAllowed reports whether method is permitted under --safe.
-func SafeMethodAllowed(method string) bool {
-	for _, m := range SafeMethods {
-		if m == method {
-			return true
-		}
-	}
-	return false
-}

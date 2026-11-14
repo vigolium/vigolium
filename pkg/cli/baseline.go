@@ -186,7 +186,6 @@ type baselineCounts struct {
 // baselineGate holds the per-run baseline/ignore state the gate and the scan
 // document read. Reset by resetFailOnGate.
 var baselineGate struct {
-	loaded   bool
 	baseline map[string]baselineFinding // nil without --baseline
 	ignore   ignoreSet
 	counts   *baselineCounts // set once the run's findings were classified
@@ -194,7 +193,6 @@ var baselineGate struct {
 
 // prepareBaselineGate loads --baseline and the ignore file once per run.
 func prepareBaselineGate(ctx context.Context) error {
-	baselineGate.loaded = true
 	ig, err := loadIgnoreFile(scanIgnoreFile, time.Now())
 	if err != nil {
 		return asUsageError(err)

@@ -3,7 +3,6 @@ package browser
 import (
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	"github.com/go-rod/rod/lib/proto"
 	"go.uber.org/zap"
@@ -146,7 +145,6 @@ func (p *Page) routePaused(e *proto.FetchRequestPaused) {
 			return
 		}
 		if r.firstParty != nil && blockedResource(e.ResourceType, e.Request.URL, r.firstParty) {
-			resourcesBlocked.Add(1)
 			fail()
 			return
 		}
@@ -171,13 +169,6 @@ func blockedResource(rt proto.NetworkResourceType, url string, firstParty func(s
 	}
 	return false
 }
-
-// resourcesBlocked counts requests failed by resource blocking (process-wide).
-var resourcesBlocked atomic.Int64
-
-// ResourcesBlocked is how many font/media/third-party-image requests the
-// resource blocker failed in this process.
-func ResourcesBlocked() int64 { return resourcesBlocked.Load() }
 
 // mergeFetchHeaders is the request's headers with extra applied over them
 // (case-insensitive; extra wins).

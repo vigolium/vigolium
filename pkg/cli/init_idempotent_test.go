@@ -30,8 +30,9 @@ func TestInstallCoreDeps_FailsNotReady(t *testing.T) {
 	}
 
 	// --offline downloads nothing and does not fail.
-	initOffline = true
-	t.Cleanup(func() { initOffline = false })
+	prevOffline := globalOffline
+	globalOffline = true
+	t.Cleanup(func() { globalOffline = prevOffline })
 	runCoreDepFixes = func(context.Context, *diagnostics.Report, *config.Settings, []string) []diagnostics.FixResult {
 		t.Fatal("--offline must not download")
 		return nil

@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -78,7 +77,6 @@ type ScopedDeps struct {
 var (
 	scopedFreeBytes = freeBytes
 	scopedFDLimit   = fdLimit
-	scopedLookPath  = exec.LookPath
 	scopedDial      = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, addr)
 	}
@@ -121,32 +119,28 @@ func Scoped(purpose string, r *Report, deps ScopedDeps) (*ScopedReport, error) {
 	out := &ScopedReport{For: purpose}
 	add := func(c ScopedCheck) { out.Checks = append(out.Checks, c) }
 
-	add(fromResult("config", r.Config, ScopedDegraded, true, []string{"every setting (scope, pace, OAST) falls back to defaults"}, nil))
+	add(fromResult("config", r.Config, ScopedDegraded, []string{"every setting (scope, pace, OAST) falls back to defaults"}))
 	if purpose == PurposeScan && deps.Stateless {
 		add(ScopedCheck{ID: "database", Status: ScopedSkipped, Counts: false, Message: "stateless (-S): the scan uses a temporary database"})
 	} else {
-		add(fromResult("database", r.Database, ScopedNotReady, true, []string{"storing records and findings"}, nil))
+		add(fromResult("database", r.Database, ScopedNotReady, []string{"storing records and findings"}))
 	}
 
 	switch purpose {
 	case PurposeScan:
-		add(fromResult("scope", r.Scope, ScopedDegraded, true, []string{"requests the broken rule touches"}, nil))
+		add(fromResult("scope", r.Scope, ScopedDegraded, []string{"requests the broken rule touches"}))
 		if deps.Proxy != "" {
 			add(checkProxy(deps.Proxy))
 		}
 		add(checkDisk(deps.DBDir))
 		add(checkFDs())
 		add(chromiumCheck(r))
-		tmpl, missing := templatesCheck(settings, r)
-		add(tmpl)
-		if missing {
-			add(gitCheck())
-		}
+		add(templatesCheck(settings, r))
 		var js *CheckResult
 		if r.EmbeddedBinaries != nil {
 			js = r.EmbeddedBinaries["jstangle"]
 		}
-		add(fromResult("jstangle", js, ScopedDegraded, true, []string{"JavaScript endpoint extraction in discovery"}, nil))
+		add(fromResult("jstangle", js, ScopedDegraded, []string{"JavaScript endpoint extraction in discovery"}))
 		add(oastCheck(r.OAST))
 		if deps.Target != "" {
 			for _, c := range checkTarget(deps.Target, deps.Proxy) {
@@ -155,13 +149,13 @@ func Scoped(purpose string, r *Report, deps ScopedDeps) (*ScopedReport, error) {
 		}
 	case PurposeAgent:
 		add(agentCheck(r.Agent))
-		add(fromResult("sessions_dir", r.SessionsDir, ScopedDegraded, true, []string{"agent session persistence"}, nil))
-		add(fromResult("templates_dir", r.TemplatesDir, ScopedDegraded, true, []string{"agent prompt templates"}, nil))
+		add(fromResult("sessions_dir", r.SessionsDir, ScopedDegraded, []string{"agent session persistence"}))
+		add(fromResult("templates_dir", r.TemplatesDir, ScopedDegraded, []string{"agent prompt templates"}))
 		add(chromiumCheck(r))
 	case PurposeServer:
-		add(fromResult("scope", r.Scope, ScopedDegraded, true, []string{"requests the broken rule touches"}, nil))
+		add(fromResult("scope", r.Scope, ScopedDegraded, []string{"requests the broken rule touches"}))
 		if r.Queue != nil {
-			add(fromResult("queue", r.Queue, ScopedNotReady, true, []string{"server scan queue"}, nil))
+			add(fromResult("queue", r.Queue, ScopedNotReady, []string{"server scan queue"}))
 		}
 		add(checkDisk(deps.DBDir))
 		add(checkFDs())
@@ -191,8 +185,8 @@ func scopedVerdict(checks []ScopedCheck) Status {
 // fromResult maps a full-report check onto a scoped one: an error (or, for
 // blocking checks, a warning too when failStatus is not_ready) takes
 // failStatus; a warning on a non-blocking check is degraded.
-func fromResult(id string, c *CheckResult, failStatus string, counts bool, affects, fix []string) ScopedCheck {
-	sc := ScopedCheck{ID: id, Counts: counts, FixArgv: fix}
+func fromResult(id string, c *CheckResult, failStatus string, affects []string) ScopedCheck {
+	sc := ScopedCheck{ID: id, Counts: true}
 	if c == nil {
 		sc.Status = ScopedSkipped
 		sc.Counts = false
@@ -238,25 +232,25 @@ func toolMsg(t *ToolCheck) string {
 }
 
 // templatesCheck: missing templates degrade (no known-issue scan); stale
-// templates are reported, not counted. Reports whether they were missing.
-func templatesCheck(settings *config.Settings, r *Report) (ScopedCheck, bool) {
+// templates are reported, not counted.
+func templatesCheck(settings *config.Settings, r *Report) ScopedCheck {
 	fix := []string{"vigolium", "doctor", "--fix", "--only", "nuclei"}
 	dir := NucleiTemplatesDir(settings)
 	if r.NucleiTemplates != nil && r.NucleiTemplates.Status != StatusOK {
 		return ScopedCheck{ID: "nuclei_templates", Status: ScopedDegraded, Counts: true,
-			Message: r.NucleiTemplates.Message, Affects: []string{"known-issue scan (nuclei)"}, FixArgv: fix}, true
+			Message: r.NucleiTemplates.Message, Affects: []string{"known-issue scan (nuclei)"}, FixArgv: fix}
 	}
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
 		return ScopedCheck{ID: "nuclei_templates", Status: ScopedDegraded, Counts: true,
-			Message: "nuclei templates not found at " + config.ContractPath(dir), Affects: []string{"known-issue scan (nuclei)"}, FixArgv: fix}, true
+			Message: "nuclei templates not found at " + config.ContractPath(dir), Affects: []string{"known-issue scan (nuclei)"}, FixArgv: fix}
 	}
 	if age, ok := TemplatesAge(dir); ok && age > templatesStaleAge {
 		return ScopedCheck{ID: "nuclei_templates", Status: ScopedWarning, Counts: false,
 			Message: fmt.Sprintf("templates at %s are %d days old", config.ContractPath(dir), int(age.Hours()/24)),
-			Affects: []string{"known-issue scan misses recent CVEs"}, FixArgv: fix}, false
+			Affects: []string{"known-issue scan misses recent CVEs"}, FixArgv: fix}
 	}
-	return ScopedCheck{ID: "nuclei_templates", Status: ScopedOK, Counts: true, Message: "path=" + config.ContractPath(dir)}, false
+	return ScopedCheck{ID: "nuclei_templates", Status: ScopedOK, Counts: true, Message: "path=" + config.ContractPath(dir)}
 }
 
 // TemplatesAge is how old the templates install is: the pinned marker's
@@ -272,16 +266,8 @@ func TemplatesAge(dir string) (time.Duration, bool) {
 	return scopedNow().Sub(info.ModTime()), true
 }
 
-func gitCheck() ScopedCheck {
-	if p, err := scopedLookPath("git"); err == nil {
-		return ScopedCheck{ID: "git", Status: ScopedOK, Counts: false, Message: p}
-	}
-	return ScopedCheck{ID: "git", Status: ScopedWarning, Counts: false,
-		Message: "git not found; the templates install uses the release archive, so git is optional"}
-}
-
 func oastCheck(c *CheckResult) ScopedCheck {
-	sc := fromResult("oast", c, ScopedDegraded, true, []string{"blind (out-of-band) checks"}, nil)
+	sc := fromResult("oast", c, ScopedDegraded, []string{"blind (out-of-band) checks"})
 	// OAST disabled by config is a choice, not a failure.
 	if c != nil && c.Status == StatusWarning {
 		sc.Status = ScopedWarning

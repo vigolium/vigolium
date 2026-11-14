@@ -262,7 +262,7 @@ func Run(ctx context.Context, cfg Config) error {
 		if scanCtx.Err() != nil {
 			break
 		}
-		ne, err := nuclei.NewNucleiEngineCtx(scanCtx, buildEngineOptionsFor(ctx, cfg, scanLogger, ps.excludeIDs)...)
+		ne, err := nuclei.NewNucleiEngineCtx(scanCtx, buildEngineOptions(ctx, cfg, scanLogger, ps.excludeIDs)...)
 		if err != nil {
 			return fmt.Errorf("knownissuescan: failed to create nuclei engine: %w", err)
 		}
@@ -380,14 +380,10 @@ func runScanWithDeadline(ctx context.Context, scan func() error, onComplete func
 	}
 }
 
-// buildEngineOptions constructs nuclei SDK options from known-issue scan config.
-func buildEngineOptions(ctx context.Context, cfg Config, logger *gologger.Logger) []nuclei.NucleiSDKOptions {
-	return buildEngineOptionsFor(ctx, cfg, logger, nil)
-}
-
-// buildEngineOptionsFor is buildEngineOptions with extra template IDs excluded
-// (the prefix pass drops origin-anchored templates).
-func buildEngineOptionsFor(ctx context.Context, cfg Config, logger *gologger.Logger, excludeIDs []string) []nuclei.NucleiSDKOptions {
+// buildEngineOptions constructs nuclei SDK options from known-issue scan config,
+// with extra template IDs excluded (the prefix pass drops origin-anchored
+// templates; nil for none).
+func buildEngineOptions(ctx context.Context, cfg Config, logger *gologger.Logger, excludeIDs []string) []nuclei.NucleiSDKOptions {
 	var opts []nuclei.NucleiSDKOptions
 
 	// Template filters
