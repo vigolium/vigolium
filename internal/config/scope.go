@@ -60,6 +60,10 @@ type ScopeConfig struct {
 	// marketing estate — someone else's infrastructure, never the thing under
 	// test. Relaxed stays available for deliberate brand-wide recon.
 	CLIOriginMode       string    `yaml:"cli_origin_mode" json:"cli_origin_mode"`
+	// Methods limits module, discovery and browser traffic to these HTTP
+	// methods (empty = all). `--safe` sets [GET, HEAD]. Read by the traffic
+	// policy (types.TrafficPolicy).
+	Methods []string `yaml:"methods,omitempty" json:"methods,omitempty"`
 	Host                ScopeRule `yaml:"host" json:"host"`
 	Path                ScopeRule `yaml:"path" json:"path"`
 	StatusCode          ScopeRule `yaml:"status_code" json:"status_code"`

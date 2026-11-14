@@ -232,6 +232,19 @@ func (r *Runner) printCoverageCaveats(w io.Writer) {
 	}
 }
 
+// printSafeSkipped writes the --safe summary line: how many in-scope records
+// use a method the GET/HEAD policy kept out of testing.
+func (r *Runner) printSafeSkipped(ctx context.Context, w io.Writer) {
+	if r.options == nil || !r.options.Safe || r.repository == nil {
+		return
+	}
+	n, err := r.repository.CountRecordsWithMethodsNotIn(ctx, r.options.ProjectUUID, r.getInScopeDBHosts(ctx), SafeMethods)
+	if err != nil || n == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "  %s %d write-method records not tested (--safe)\n", terminal.Purple(terminal.SymbolInfo), n)
+}
+
 // printModuleErrorSummary writes the module error line under the finished
 // banner, when any module failed.
 func (r *Runner) printModuleErrorSummary(w io.Writer, scanUUID string) {

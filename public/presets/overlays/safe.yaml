@@ -1,0 +1,35 @@
+# description: --safe — a bounded, non-mutating first scan. Applied after the
+# intensity/profile and before typed flags (typed flags win). The code also
+# enforces risky payloads off and module/crawler traffic limited to GET/HEAD.
+scanning_pace:
+  concurrency: 10
+  rate_limit: 20
+  max_per_host: 5
+  scan_max_duration: 15m
+
+scope:
+  cli_origin_mode: strict
+  # Read-only traffic policy (Track A's types.TrafficPolicy reads it): module,
+  # discovery and browser traffic limited to these methods.
+  methods:
+    - GET
+    - HEAD
+
+discovery:
+  recursion:
+    max_depth: 2
+
+spidering:
+  interaction:
+    edit_fields: false
+    submit_forms: false
+    upload_files: false
+    register_account: false
+    login_attempts: false
+
+known_issue_scan:
+  exclude_tags:
+    - dos
+    - intrusive
+    - fuzz
+    - default-login

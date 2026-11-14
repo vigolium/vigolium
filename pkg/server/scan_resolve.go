@@ -55,6 +55,7 @@ func resolveRequestStrategy(settings *config.Settings, opts *types.Options, inte
 		return runner.ResolvedStrategy{}, err
 	}
 	runner.ApplyScanSettingOverrides(settings, opts)
+	runner.ApplyDefaultScanBudget(settings, opts)
 	return runner.ApplyScanStrategy(settings, opts, req)
 }
 

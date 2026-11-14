@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/input/source"
@@ -101,8 +102,29 @@ func registerScopeOriginFlag(flags *pflag.FlagSet) {
 	flags.StringVar(&globalScopeOrigin, "scope-origin", "", scopeOriginFlagUsage)
 }
 
+// registerScanningMaxDurationFlag declares --max-time (canonical) and its
+// alias --scanning-max-duration, bound to one value. Unset, the scan is
+// bounded by scanning_pace.scan_max_duration (default 1h; --safe 15m).
 func registerScanningMaxDurationFlag(flags *pflag.FlagSet) {
-	flags.DurationVar(&globalScanningMaxDuration, "scanning-max-duration", 0, "Maximum total scan duration (overrides config, e.g. 1h, 30m)")
+	flags.DurationVar(&globalScanningMaxDuration, "max-time", 0, "Maximum total scan duration, e.g. 15m, 2h (default: scanning_pace.scan_max_duration, 1h; alias --scanning-max-duration)")
+	flags.DurationVar(&globalScanningMaxDuration, "scanning-max-duration", 0, "Alias of --max-time")
+	_ = flags.MarkHidden("scanning-max-duration")
+	registerSafeFlag(flags)
+}
+
+// registerSafeFlag declares --safe (scan, run, scan-url, scan-request).
+func registerSafeFlag(flags *pflag.FlagSet) {
+	flags.BoolVar(&scanOpts.Safe, "safe", false, "Bounded, non-mutating scan: GET/HEAD traffic only, no form submission/uploads/login attempts in the browser, no risky payloads or intrusive templates, low pace, 15m total budget (typed flags still win)")
+}
+
+// maxTimeTyped reports whether --max-time or its alias was typed.
+func maxTimeTyped(cmd *cobra.Command) bool {
+	for _, name := range []string{"max-time", "scanning-max-duration"} {
+		if f := cmd.Flags().Lookup(name); f != nil && f.Changed {
+			return true
+		}
+	}
+	return false
 }
 
 // registerOASTURLFlag declares --oast-url for scan, run, scan-url and

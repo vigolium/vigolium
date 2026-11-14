@@ -57,11 +57,16 @@ func resolveNativeScanOptions(cmd *cobra.Command, settings *config.Settings, opt
 	if profilePath != "" {
 		zap.L().Info("Applied scanning profile", zap.String("profile", opts.ScanningProfile), zap.String("path", profilePath))
 	}
+	// --safe narrows the profile; typed flags (applied below) still win.
+	if err := runner.ApplySafePreset(settings, opts); err != nil {
+		return "", err
+	}
 
-	if cmd.Flags().Changed("scanning-max-duration") && globalScanningMaxDuration > 0 {
+	if maxTimeTyped(cmd) && globalScanningMaxDuration > 0 {
 		opts.ScanMaxDuration = globalScanningMaxDuration
 	}
 	runner.ApplyScanSettingOverrides(settings, opts)
+	runner.ApplyDefaultScanBudget(settings, opts)
 
 	strategy, err := runner.ApplyScanStrategy(settings, opts, runner.StrategyRequest{
 		Name:            globalStrategy,
@@ -166,7 +171,14 @@ func resolveLightweightScanOptions(settings *config.Settings, opts *types.Option
 			opts.SkipPortSweep = true
 		}
 	}
+	if err := runner.ApplySafePreset(settings, opts); err != nil {
+		return err
+	}
 	runner.ApplyScanSettingOverrides(settings, opts)
+	runner.ApplyDefaultScanBudget(settings, opts)
+	if opts.Safe {
+		profiled = true // fold the overlay's pace into the knobs not typed
+	}
 	if !profiled {
 		return nil
 	}

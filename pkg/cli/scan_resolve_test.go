@@ -3,12 +3,14 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/server"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -68,7 +70,8 @@ func newResolveTestCmd(t *testing.T, args ...string) *cobra.Command {
 	fs.StringVar(&globalScanningProfile, "scanning-profile", "", "")
 	fs.StringVar(&globalHeuristicsCheck, "heuristics-check", "", "")
 	fs.BoolVar(&globalSkipHeuristics, "skip-heuristics", false, "")
-	fs.DurationVar(&globalScanningMaxDuration, "scanning-max-duration", 0, "")
+	swapGlobal(t, &scanOpts.Safe, false)
+	registerScanningMaxDurationFlag(fs)
 	if err := cmd.ParseFlags(args); err != nil {
 		t.Fatalf("parse %v: %v", args, err)
 	}
@@ -86,6 +89,7 @@ func cliResolve(t *testing.T, profilesDir string, args ...string) (*types.Option
 	opts.Concurrency = globalConcurrency
 	opts.MaxPerHost = globalMaxPerHost
 	opts.RateLimit = globalRateLimit
+	opts.Safe = scanOpts.Safe
 	settings := resolveTestSettings(t, profilesDir)
 	name, err := resolveNativeScanOptions(cmd, settings, opts)
 	if err != nil {
@@ -198,5 +202,51 @@ func TestMaxPerHostDefaultsAgree(t *testing.T) {
 		if got != want {
 			t.Errorf("%s = %d, want %d", site, got, want)
 		}
+	}
+}
+
+// TestResolveSafeAndMaxTime is RUN-1: --safe applies the embedded overlay
+// (pace, 15m total budget, strict origin, GET/HEAD, browser interaction off,
+// intrusive templates excluded) and turns risky payloads off even at deep
+// intensity, typed flags still win, and a scan with no --max-time is bounded by
+// scanning_pace.scan_max_duration (1h). --scanning-max-duration is an alias.
+func TestResolveSafeAndMaxTime(t *testing.T) {
+	profiles := writeIntensityProfiles(t)
+
+	opts, settings, _ := cliResolve(t, profiles)
+	if opts.ScanMaxDuration != time.Hour {
+		t.Fatalf("default total budget = %s, want 1h", opts.ScanMaxDuration)
+	}
+
+	opts, settings, _ = cliResolve(t, profiles, "--safe", "--intensity", "deep")
+	if opts.ScanMaxDuration != 15*time.Minute {
+		t.Errorf("--safe budget = %s, want 15m", opts.ScanMaxDuration)
+	}
+	if opts.Concurrency != 10 || opts.RateLimit != 20 || opts.MaxPerHost != 5 {
+		t.Errorf("--safe pace = c%d r%d h%d, want 10/20/5", opts.Concurrency, opts.RateLimit, opts.MaxPerHost)
+	}
+	if got := settings.Scope.Methods; len(got) != 2 || got[0] != "GET" || got[1] != "HEAD" {
+		t.Errorf("scope.methods = %v, want [GET HEAD]", got)
+	}
+	if settings.Scope.CLIOriginMode != "strict" {
+		t.Errorf("origin mode = %q, want strict", settings.Scope.CLIOriginMode)
+	}
+	if sf := settings.Spidering.Interaction.SubmitForms; sf == nil || *sf {
+		t.Error("--safe must turn browser form submission off")
+	}
+	if !slices.Contains(settings.KnownIssueScan.ExcludeTags, "intrusive") {
+		t.Errorf("KIS exclude tags = %v, want intrusive excluded", settings.KnownIssueScan.ExcludeTags)
+	}
+	if runner.RiskyPayloadsAllowed(opts, settings) {
+		t.Error("--safe must disable risky payloads even at --intensity deep")
+	}
+
+	opts, _, _ = cliResolve(t, profiles, "--safe", "--rate-limit", "50", "--max-time", "30m")
+	if opts.RateLimit != 50 || opts.ScanMaxDuration != 30*time.Minute {
+		t.Errorf("typed flags must win over --safe: rate=%d budget=%s", opts.RateLimit, opts.ScanMaxDuration)
+	}
+	opts, _, _ = cliResolve(t, profiles, "--scanning-max-duration", "2h")
+	if opts.ScanMaxDuration != 2*time.Hour {
+		t.Errorf("alias --scanning-max-duration = %s, want 2h", opts.ScanMaxDuration)
 	}
 }

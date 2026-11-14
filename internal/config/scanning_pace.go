@@ -40,6 +40,11 @@ type ScanningPaceConfig struct {
 	MaxRequests        int64 `yaml:"max_requests"`
 	MaxRequestsPerHost int64 `yaml:"max_requests_per_host"`
 
+	// ScanMaxDuration bounds the WHOLE scan's wall clock when --max-time is
+	// not typed (default 1h; "0" = unlimited). Unlike max_duration it does not
+	// rescale the per-phase budgets: it is the cap they share.
+	ScanMaxDuration string `yaml:"scan_max_duration,omitempty"`
+
 	Discovery         PhasePace `yaml:"discovery"`
 	Probe             PhasePace `yaml:"probe"`
 	Spidering         PhasePace `yaml:"spidering"`
@@ -105,12 +110,30 @@ func DefaultScanningPaceConfig() *ScanningPaceConfig {
 		MaxPerHost:  types.DefaultMaxPerHost,
 		MaxDuration: "45m",
 
+		ScanMaxDuration: DefaultScanMaxDuration,
+
 		Discovery:         PhasePace{DurationFactor: 0.5},
 		KnownIssueScan:    PhasePace{DurationFactor: 0.5},
 		Spidering:         PhasePace{DurationFactor: 0.1},
 		ExternalHarvester: PhasePace{DurationFactor: 0.1},
 		DynamicAssessment: PhasePace{DurationFactor: 1.0, ParallelPassive: boolPtr(true), FeedbackDrainTimeout: "500ms"},
 	}
+}
+
+// DefaultScanMaxDuration is the total scan budget when neither --max-time nor
+// scanning_pace.scan_max_duration says otherwise.
+const DefaultScanMaxDuration = "1h"
+
+// ScanMaxDurationParsed parses scan_max_duration (0 when unset, "0" or bad).
+func (c *ScanningPaceConfig) ScanMaxDurationParsed() time.Duration {
+	if c == nil || c.ScanMaxDuration == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(c.ScanMaxDuration)
+	if err != nil || d < 0 {
+		return 0
+	}
+	return d
 }
 
 // maxDurationParsed parses the common max_duration string into a time.Duration.

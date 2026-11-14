@@ -471,6 +471,10 @@ type Options struct {
 	// was not passed (config dynamic-assessment.allow_risky_payloads decides),
 	// otherwise the explicit CLI value, which wins over config. When the resolved
 	// value is true (or Intensity == "deep"), risk:high payloads and modules run.
+	// Safe is --safe: the bounded, non-mutating preset (embedded overlay
+	// presets/overlays/safe.yaml, risky payloads off, GET/HEAD-only traffic).
+	Safe bool
+
 	AllowRiskyPayloads *bool
 
 	// NoParamDedup is --no-param-dedup: turn off the cross-module (param,

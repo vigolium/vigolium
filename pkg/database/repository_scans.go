@@ -621,3 +621,21 @@ func (r *Repository) DeleteScan(ctx context.Context, uuid string) error {
 	}
 	return nil
 }
+
+// CountRecordsWithMethodsNotIn counts a project's records on the given
+// origins (empty = every origin) whose method is not in methods, excluding
+// finding evidence. `--safe` reports it as the write-method records its
+// GET/HEAD policy left untested.
+func (r *Repository) CountRecordsWithMethodsNotIn(ctx context.Context, projectUUID string, hosts []HostTarget, methods []string) (int64, error) {
+	q := r.db.NewSelect().Model((*HTTPRecord)(nil))
+	if projectUUID != "" {
+		q = q.Where("project_uuid = ?", projectUUID)
+	}
+	q = applyHostScopeFilter(q, hosts)
+	q = applyEvidenceExclusion(q)
+	if len(methods) > 0 {
+		q = q.Where("UPPER(COALESCE(method, '')) NOT IN (?)", bun.List(methods))
+	}
+	n, err := q.Count(ctx)
+	return int64(n), err
+}

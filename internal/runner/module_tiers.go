@@ -51,6 +51,9 @@ func resolveAllowRiskyPayloads(opts *types.Options, settings *config.Settings) b
 // scan with these options and settings: always at --intensity deep, otherwise
 // only with the --allow-risky-payloads / config opt-in.
 func RiskyPayloadsAllowed(opts *types.Options, settings *config.Settings) bool {
+	if opts != nil && opts.Safe {
+		return false // --safe: never, whatever the intensity or opt-in says
+	}
 	if opts != nil && isDeepIntensity(opts.Intensity) {
 		return true
 	}

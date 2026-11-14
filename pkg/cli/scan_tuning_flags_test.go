@@ -16,7 +16,7 @@ import (
 
 // scanTuningFlags are the flags scan-url and scan-request share with
 // `vigolium scan` through registerLightweightScanTuningFlags.
-var scanTuningFlags = []string{"intensity", "scanning-max-duration", "scope-origin", "oast-url", "auth", "auth-file"}
+var scanTuningFlags = []string{"intensity", "max-time", "scanning-max-duration", "safe", "scope-origin", "oast-url", "auth", "auth-file"}
 
 // resetScanTuningGlobals clears the globals the tuning flags bind.
 func resetScanTuningGlobals(t *testing.T) {

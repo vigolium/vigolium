@@ -152,6 +152,7 @@ func needsRunnerScan() bool {
 	return hasPhaseFlags() ||
 		len(scanOpts.AuthFiles)+len(scanOpts.AuthInline) > 0 ||
 		strings.TrimSpace(globalIntensity) != "" ||
+		scanOpts.Safe ||
 		len(globalExtScripts) > 0 || globalExtDir != "" ||
 		globalStateless ||
 		scanOpts.Output != "" ||
@@ -1007,6 +1008,7 @@ func buildPhaseOptions(target string) (*types.Options, error) {
 	// through runner.ApplyScanSettingOverrides there.
 	opts.Intensity = strings.TrimSpace(globalIntensity)
 	opts.ScanMaxDuration = globalScanningMaxDuration
+	opts.Safe = scanOpts.Safe
 	opts.OastURL = scanOpts.OastURL
 	opts.AuthFiles = scanOpts.AuthFiles
 	opts.AuthInline = scanOpts.AuthInline

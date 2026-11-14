@@ -131,6 +131,7 @@ func TestSkillReferenceRouter(t *testing.T) {
 // consumer is example material that README.md or docs/ must point at.
 var presetConsumers = map[string]string{
 	"extensions": "code",
+	"overlays":   "code", // --safe overlay (internal/runner/safe_preset.go)
 	"profiles":   "code",
 	"prompts":    "code",
 	"sessions":   "docs", // auth-file examples, linked from README and the auth guide

@@ -219,7 +219,7 @@ var scanFlagGroups = []flagGroup{
 	{"Input Format", []string{"required-only", "skip-format-validation"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
 	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter", "allow-risky-payloads", "no-param-dedup"}},
-	{"Scanning", []string{"only", "skip", "dry-run", "strategy", "scanning-profile", "intensity", "scope-origin", "ignore-scope", "scanning-max-duration", "heuristics-check", "skip-heuristics", "oast-url"}},
+	{"Scanning", []string{"only", "skip", "dry-run", "strategy", "scanning-profile", "intensity", "scope-origin", "ignore-scope", "max-time", "safe", "heuristics-check", "skip-heuristics", "oast-url"}},
 	{"Discovery", []string{"discover", "discover-max-time", "discovery-wordlist", "discovery-extensions", "discovery-max-depth", "no-discovery-fuzz", "no-prefix-breaker", "follow-subdomains", "port-sweep-ports", "param-mining"}},
 	{"Spidering", []string{"spider", "spider-max-time", "browser-engine", "browsers", "headless", "headed", "no-cdp", "no-forms", "browser-insecure", "require-auth", "no-carry-browser-session"}},
 	{"Probe (host sweep)", []string{"probe", "tls-probe", "favicon", "redirect-mode", "record-redirect-chain", "depth", "fingerprint-depth"}},

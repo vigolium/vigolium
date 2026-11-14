@@ -326,6 +326,7 @@ func (r *Runner) RunNativeScan() (err error) {
 			r.printFinishedBanner(finalCtx, os.Stderr, infra.scanUUID, time.Since(scanStartedAt))
 			r.printModuleErrorSummary(os.Stderr, infra.scanUUID)
 			r.printCoverageCaveats(os.Stderr)
+			r.printSafeSkipped(finalCtx, os.Stderr)
 		}()
 	}
 

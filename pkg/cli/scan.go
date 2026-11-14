@@ -320,7 +320,7 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	}{
 		{"discover-max-time", scanOpts.DiscoverMaxDuration},
 		{"spider-max-time", scanOpts.SpideringMaxDuration},
-		{"scanning-max-duration", globalScanningMaxDuration},
+		{"max-time", globalScanningMaxDuration},
 	} {
 		if d.value < 0 {
 			return fmt.Errorf("--%s must not be negative, got %s", d.flag, d.value)
