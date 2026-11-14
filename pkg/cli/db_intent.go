@@ -137,6 +137,7 @@ var dbIntents = map[string]string{
 
 	// Ingested callbacks become findings of the scan that planted them.
 	"oast ingest": "write",
+	"oast poll":   "write",
 
 	// Kit utilities are offline tools.
 	"kit harvest":     dbIntentNone,
