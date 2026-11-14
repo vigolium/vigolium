@@ -60,10 +60,14 @@ type Runner struct {
 	// pass analysed, so the known-issue secret batch scans only the rest
 	// (MISS-33). Nil when assessment did not run.
 	secretCoverage *secretCoverage
-	scanLogger     *database.ScanLogger // Optional: structured scan logging
-	teeWriter      *teeWriter           // Optional: captures stderr for trace logging
-	sessionLogFile *os.File             // Optional: runtime.log handle for verbose file-only writes
-	sessionLogMu   sync.Mutex           // serializes concurrent writes to sessionLogFile
+	// harvestPrefetch is the background external-harvest drain started at
+	// scan start (ECON-11), consumed by the harvest phase.
+	harvestPrefetchMu sync.Mutex
+	harvestPrefetch   *harvestPrefetch
+	scanLogger        *database.ScanLogger // Optional: structured scan logging
+	teeWriter         *teeWriter           // Optional: captures stderr for trace logging
+	sessionLogFile    *os.File             // Optional: runtime.log handle for verbose file-only writes
+	sessionLogMu      sync.Mutex           // serializes concurrent writes to sessionLogFile
 	// targetsAreInput is set by New when the input source was built from
 	// options.Targets alone, so scope admission over them covers the whole
 	// input (see targetAdmission).

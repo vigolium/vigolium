@@ -30,10 +30,32 @@ func (r *Runner) runExternalHarvestPhase(ctx context.Context, infra *phaseInfra)
 	phaseStart := time.Now()
 	r.harvestStubs = nil
 
-	src := r.buildExternalHarvesterSource()
-	if src == nil {
-		zap.L().Warn("ExternalHarvest: no source could be built, skipping")
-		return nil
+	// The archive queries normally ran here, alone, although they send nothing
+	// to the target. When the phase loop started them in the background at
+	// scan start (startHarvestPrefetch), join that work instead: the phase then
+	// costs only the wait for whatever is still outstanding.
+	var (
+		src   source.InputSource
+		stats func() harvester.Stats
+	)
+	if p := r.takeHarvestPrefetch(); p != nil {
+		err := p.wait(ctx)
+		defer p.stop() // closes the drained archive source
+		if err != nil {
+			return fmt.Errorf("external harvest: read source: %w", err)
+		}
+		if p.src == nil {
+			zap.L().Warn("ExternalHarvest: no source could be built, skipping")
+			return nil
+		}
+		src, stats = p.replay(), p.src.Stats
+	} else {
+		built := r.buildExternalHarvesterSource()
+		if built == nil {
+			zap.L().Warn("ExternalHarvest: no source could be built, skipping")
+			return nil
+		}
+		src, stats = built, built.Stats
 	}
 
 	r.printPhaseStart("ExternalHarvest", "harvest URLs from external intelligence sources")
@@ -52,7 +74,7 @@ func (r *Runner) runExternalHarvestPhase(ctx context.Context, infra *phaseInfra)
 	if err != nil {
 		return err
 	}
-	r.reportHarvestShaping(src.Stats())
+	r.reportHarvestShaping(stats())
 
 	// Increment processed_count for external harvest phase
 	if r.repository != nil && stored > 0 {

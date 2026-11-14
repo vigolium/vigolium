@@ -340,6 +340,16 @@ func (p NativeScanPlan) SendsTargetTraffic() bool {
 	return false
 }
 
+// enables reports whether the plan has phase as an enabled step.
+func (p NativeScanPlan) enables(phase NativePhase) bool {
+	for _, step := range p.Steps {
+		if step.Enabled && step.Phase == phase {
+			return true
+		}
+	}
+	return false
+}
+
 // parseOnlyPhases parses a comma-separated --only value into a normalized
 // set + ordered slice. Empty entries are skipped, duplicates collapse, and an
 // unknown phase produces an error using the canonical phase list.

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -148,22 +149,38 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 		}
 	}
 
-	// Secret scan first: it reads stored response bodies locally (no network),
-	// covers only the records dynamic assessment's secret_detect did not reach
-	// (r.secretCoverage), and is the cheaper leg, so a scan cut short during
-	// the nuclei leg below still has its secrets. It gets its own max_duration
-	// budget (derived from the parent ctx, so still bounded by the overall scan
-	// budget). A ctx error is a curtailment, distinct from a scanner failure.
+	// The two legs share one result sink; the secret leg runs on its own
+	// goroutine, so serialize it.
+	var resultMu sync.Mutex
+	sink := onResult
+	onResult = func(result *output.ResultEvent) {
+		resultMu.Lock()
+		defer resultMu.Unlock()
+		sink(result)
+	}
+
+	// Secret scan, concurrently with nuclei: it reads stored response bodies
+	// locally (no network, nothing sent to the target), covers only the records
+	// dynamic assessment's secret_detect did not reach (r.secretCoverage), and
+	// used to wait behind the whole nuclei leg — so a scan cut short there lost
+	// it. It starts first and gets its own max_duration budget (derived from the
+	// parent ctx, so still bounded by the overall scan budget). A ctx error is a
+	// curtailment, distinct from a scanner failure.
 	secretScanCtx, secretScanCancel := r.trackedPhaseDeadline(ctx, kisMaxDuration)
 	defer secretScanCancel()
-	if err := r.runSecretScanBatch(secretScanCtx, infra, onResult, inScopeHosts); err != nil {
-		if secretScanCtx.Err() != nil {
-			zap.L().Warn("KnownIssueScan: secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(secretScanCtx.Err()))
-		} else {
-			zap.L().Error("KnownIssueScan: secret scan failed", zap.Error(err))
-			r.currentPhase.Load().noteError(err)
+	secretDone := make(chan struct{})
+	tracker := r.currentPhase.Load()
+	go func() {
+		defer close(secretDone)
+		if err := r.runSecretScanBatch(secretScanCtx, infra, onResult, inScopeHosts); err != nil {
+			if secretScanCtx.Err() != nil {
+				zap.L().Warn("KnownIssueScan: secret scan curtailed before all response bodies were scanned — phase max_duration reached", zap.Error(secretScanCtx.Err()))
+			} else {
+				zap.L().Error("KnownIssueScan: secret scan failed", zap.Error(err))
+				tracker.noteError(err)
+			}
 		}
-	}
+	}()
 
 	// Nuclei scan on distinct hosts, on its OWN max_duration budget so the two
 	// legs are bounded independently. A ctx error means this leg's max_duration
@@ -186,6 +203,7 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 			r.currentPhase.Load().noteError(err)
 		}
 	}
+	<-secretDone
 
 	// Print summary using grouped tallies (repeats of the same value count once),
 	// then one muted rollup line per collapsed value noting how many URLs it spanned.
