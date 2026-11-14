@@ -18,9 +18,9 @@ import (
 )
 
 type payload struct {
-	name      string
-	tmpl      string // %s = canary token
-	rawInject bool   // if true, inject directly into raw request bytes (skip URL encoding)
+	name       string
+	tmpl       string // %s = canary token
+	preEncoded bool   // payload carries its own %-encoding: built via httpmsg.BuildPreEncoded (MISS-12)
 }
 
 // Detection-location kinds returned by probePayload, ordered from the strongest
@@ -58,12 +58,12 @@ func buildHeaderPayloads(canary string) []payload {
 	// Mirrors real-world vectors: value reflected into Set-Cookie, Location, or custom headers.
 	return []payload{
 		// URL-encoded payloads: inject directly into raw request to avoid double-encoding
-		{name: "crlf-encoded", tmpl: "%s%%0d%%0aX-Injected:+" + canary, rawInject: true},
-		{name: "crlf-encoded-upper", tmpl: "%s%%0D%%0AX-Injected:+" + canary, rawInject: true},
-		{name: "crlf-double-encoded", tmpl: "%s%%250d%%250aX-Injected:+" + canary, rawInject: true},
-		{name: "crlf-setcookie-encoded", tmpl: "%s%%0d%%0aSet-Cookie:+injected=" + canary, rawInject: true},
-		{name: "crlf-body-break-encoded", tmpl: "%s%%0d%%0a%%0d%%0a<injected>" + canary + "</injected>", rawInject: true},
-		{name: "crlf-unicode", tmpl: "%s%%e5%%98%%8a%%e5%%98%%8dX-Injected:+" + canary, rawInject: true},
+		{name: "crlf-encoded", tmpl: "%s%%0d%%0aX-Injected:+" + canary, preEncoded: true},
+		{name: "crlf-encoded-upper", tmpl: "%s%%0D%%0AX-Injected:+" + canary, preEncoded: true},
+		{name: "crlf-double-encoded", tmpl: "%s%%250d%%250aX-Injected:+" + canary, preEncoded: true},
+		{name: "crlf-setcookie-encoded", tmpl: "%s%%0d%%0aSet-Cookie:+injected=" + canary, preEncoded: true},
+		{name: "crlf-body-break-encoded", tmpl: "%s%%0d%%0a%%0d%%0a<injected>" + canary + "</injected>", preEncoded: true},
+		{name: "crlf-unicode", tmpl: "%s%%e5%%98%%8a%%e5%%98%%8dX-Injected:+" + canary, preEncoded: true},
 		// Raw CRLF payloads: use BuildRequest which will URL-encode \r\n to %0D%0A
 		{name: "crlf-header", tmpl: "%s\r\nX-Injected: " + canary},
 		{name: "crlf-lf-only", tmpl: "%s\nX-Injected: " + canary},
@@ -186,13 +186,10 @@ func (m *Module) probePayload(
 	pattern *regexp.Regexp,
 ) (location, fuzzedRawStr, evidence, contentType string, found bool, err error) {
 	var fuzzedRaw []byte
-	if p.rawInject {
-		// For URL-encoded payloads (%0d%0a), inject directly into the raw request
-		// bytes to avoid double-encoding by the insertion point encoder.
-		fuzzedRaw = m.injectRawPayload(ctx.Request().Raw(), ip, fmt.Sprintf(p.tmpl, ip.BaseValue()))
-	} else {
-		fuzzedRaw = ip.BuildRequest([]byte(fmt.Sprintf(p.tmpl, ip.BaseValue())))
-	}
+	// Pre-encoded payloads (%0d%0a) keep their own encoding through
+	// httpmsg.BuildPreEncoded (MISS-12); the old hand-rolled string splice only
+	// worked for a query value that appeared verbatim in the request line.
+	fuzzedRaw = httpmsg.BuildPayload(ip, []byte(fmt.Sprintf(p.tmpl, ip.BaseValue())), p.preEncoded)
 	if fuzzedRaw == nil {
 		return "", "", "", "", false, nil
 	}
@@ -318,28 +315,6 @@ func (m *Module) confirmInjection(
 		_, _, _, _, found, perr := m.probePayload(ctx, ip, httpClient, p, canary, headerPatternFor(canary))
 		return found, perr
 	})
-}
-
-// injectRawPayload replaces the parameter value directly in the raw request bytes,
-// bypassing URL encoding. This is necessary for payloads containing pre-encoded
-// sequences like %0d%0a that would otherwise be double-encoded.
-func (m *Module) injectRawPayload(rawRequest []byte, ip httpmsg.InsertionPoint, payload string) []byte {
-	raw := string(rawRequest)
-	originalValue := ip.BaseValue()
-	paramName := ip.Name()
-
-	// Find "paramName=originalValue" in the query string portion of the request line
-	needle := paramName + "=" + originalValue
-	idx := strings.Index(raw, needle)
-	if idx < 0 {
-		return nil
-	}
-
-	// Replace only the value part
-	valueStart := idx + len(paramName) + 1
-	valueEnd := valueStart + len(originalValue)
-	result := raw[:valueStart] + payload + raw[valueEnd:]
-	return []byte(result)
 }
 
 func (m *Module) buildResult(url, paramName, payloadName, location, contentType, request, response string, rqpAmplified bool, rqpEvidence string) *output.ResultEvent {

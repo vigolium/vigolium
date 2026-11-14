@@ -18,7 +18,7 @@ import (
 type Module struct {
 	modkit.BaseActiveModule
 	randomStr           string
-	payloads            []string
+	payloads            []crlfPayload
 	patternCookieTamper *regexp.Regexp
 	rhm                 dedup.Lazy[dedup.RequestHashManager]
 }
@@ -26,19 +26,28 @@ type Module struct {
 // buildCRLFPayloads returns the CRLF payload set carrying the given cookie value
 // (e.g. "Tamper=<canary>"). The index of each payload is stable, so a successful
 // technique can be replayed verbatim with a fresh canary during re-confirmation.
-func buildCRLFPayloads(cookieVal string) []string {
-	return []string{
-		"Set-cookie: " + cookieVal,
-		"any\r\nSet-cookie: " + cookieVal,
-		"any?\r\nSet-cookie: " + cookieVal,
-		"any\nSet-cookie: " + cookieVal,
-		"any?\nSet-cookie: " + cookieVal,
-		"any\r\nSet-cookie: " + cookieVal + "\r\n",
-		"any?\r\nSet-cookie: " + cookieVal + "\r\n",
-		"%0d%0aSet-cookie: " + cookieVal,
-		"%0D%0ASet-cookie: " + cookieVal,
-		"%250d%250aSet-cookie: " + cookieVal,
+func buildCRLFPayloads(cookieVal string) []crlfPayload {
+	return []crlfPayload{
+		{value: "Set-cookie: " + cookieVal},
+		{value: "any\r\nSet-cookie: " + cookieVal},
+		{value: "any?\r\nSet-cookie: " + cookieVal},
+		{value: "any\nSet-cookie: " + cookieVal},
+		{value: "any?\nSet-cookie: " + cookieVal},
+		{value: "any\r\nSet-cookie: " + cookieVal + "\r\n"},
+		{value: "any?\r\nSet-cookie: " + cookieVal + "\r\n"},
+		// Already percent-encoded: sent as written (MISS-12). Through
+		// BuildRequest they became %250d%250a / %25250d — never a CRLF.
+		{value: "%0d%0aSet-cookie: " + cookieVal, preEncoded: true},
+		{value: "%0D%0ASet-cookie: " + cookieVal, preEncoded: true},
+		{value: "%250d%250aSet-cookie: " + cookieVal, preEncoded: true},
 	}
+}
+
+// crlfPayload is one CRLF payload; preEncoded payloads carry their own
+// percent-encoding and are built through httpmsg.BuildPreEncoded.
+type crlfPayload struct {
+	value      string
+	preEncoded bool
 }
 
 func New() *Module {
@@ -96,10 +105,10 @@ func (m *Module) ScanPerInsertionPoint(
 
 	for i, payload := range m.payloads {
 		// Append payload to original value
-		fullPayload := ip.BaseValue() + payload
+		fullPayload := ip.BaseValue() + payload.value
 
 		// Build fuzzed request with payload
-		fuzzedRaw := ip.BuildRequest([]byte(fullPayload))
+		fuzzedRaw := httpmsg.BuildPayload(ip, []byte(fullPayload), payload.preEncoded)
 
 		// BuildRequest produces well-formed raw, so wrap directly instead of
 		// re-parsing on this hot path.
@@ -149,7 +158,7 @@ func (m *Module) ScanPerInsertionPoint(
 			Request:          string(fuzzedRaw),
 			Response:         provingResp,
 			FuzzingParameter: ip.Name(),
-			ExtractedResults: []string{payload},
+			ExtractedResults: []string{payload.value},
 			Info: output.Info{
 				Description: fmt.Sprintf("CRLF header injection confirmed: %q reflected as an injected response header across multiple fresh-canary rounds", matches),
 			},
@@ -172,7 +181,7 @@ func (m *Module) confirmCRLF(
 	return modkit.ConfirmReflection(2, func(canary string) (bool, error) {
 		cookieVal := "Tamper=" + canary
 		payload := buildCRLFPayloads(cookieVal)[techniqueIdx]
-		fuzzedRaw := ip.BuildRequest([]byte(ip.BaseValue() + payload))
+		fuzzedRaw := httpmsg.BuildPayload(ip, []byte(ip.BaseValue()+payload.value), payload.preEncoded)
 
 		// BuildRequest produces well-formed raw, so wrap directly instead of
 		// re-parsing on this hot path.

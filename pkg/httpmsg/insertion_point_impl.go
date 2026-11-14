@@ -196,8 +196,32 @@ func (p *ParameterInsertionPoint) BuildRequest(payload []byte) []byte {
 	}
 
 	// Encode payload based on parameter type
-	encoded := p.encodePayload(payload)
+	return p.buildEncoded(p.encodePayload(payload))
+}
 
+// BuildRequestPreEncoded injects a payload that is ALREADY percent-encoded the
+// way it must reach the server ("%00", "%252e%252e%252f", "%0d%0a"): only the
+// bytes that cannot appear literally in a request line or body are escaped
+// (control bytes, space, '#', bytes >= 0x80) and '%' is kept, so the module's
+// encoding arrives as written. BuildRequest escapes '%' itself, which turned
+// every such payload into a double-encoded no-op (MISS-12).
+//
+// Applies to URL-encoded parameters (query, path, form body, cookie); other
+// parameter types (JSON, XML) have no percent layer and fall back to
+// BuildRequest.
+func (p *ParameterInsertionPoint) BuildRequestPreEncoded(payload []byte) []byte {
+	if payload == nil {
+		panic("Payload cannot be nil")
+	}
+	t := p.parameter.Type()
+	if t != ParamPathFolder && t != ParamPathFilename && !p.parameter.CanURLEncode() {
+		return p.BuildRequest(payload)
+	}
+	return p.buildEncoded(appendMinimalEncoded(make([]byte, 0, len(payload)+8), payload))
+}
+
+// buildEncoded splices an already-encoded value into the base request.
+func (p *ParameterInsertionPoint) buildEncoded(encoded []byte) []byte {
 	startOffset := p.parameter.ValueStart()
 	endOffset := p.parameter.ValueEnd()
 

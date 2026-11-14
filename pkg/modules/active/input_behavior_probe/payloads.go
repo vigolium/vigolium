@@ -44,6 +44,8 @@ var debugParamNames = []string{"debug", "_debug", "admin", "internal", "is_admin
 var debugParamValues = []string{"true", "null", "1"}
 
 // paramFuzzChars are characters appended to param values for behavior detection.
+// The whole table is pre-encoded: each entry is sent exactly as written
+// (built through httpmsg.BuildPreEncoded), so "%00" is a NUL, not "%2500".
 var paramFuzzChars = []string{
 	"%00", "\\0", "\\u000", "..;", "..", "%20", "%09", "%0A", "%0D", "%ff",
 	"..%2f", "..;/", "../", "..%00/", "..%0d/", "..%5c", "..\\", "..%ff/",
