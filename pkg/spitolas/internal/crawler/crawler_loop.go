@@ -543,7 +543,6 @@ func (c *Crawler) followPath(ctx context.Context, w *tabWorker, path []*action.E
 // that is not the target state's (a server-side state change, MISS-28d).
 var errPathDiverged = errors.New("path diverged")
 
-
 // DUPLICATE_EVENT_SEED is used to encode equivalentAccess in eventable IDs.
 const DUPLICATE_EVENT_SEED = 100000
 
