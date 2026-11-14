@@ -185,10 +185,45 @@ var evidenceRecordKinds = []string{RecordKindFinding, RecordKindCandidate, Recor
 // reads as less information rather than wrong information, and must not fail
 // the save that prompted it.
 func (r *Repository) AdoptRecord(ctx context.Context, uuid string, lineage RecordLineage, source string) {
-	if uuid == "" {
+	if err := adoptRecordOn(ctx, r.db, uuid, lineage, source); err != nil {
+		zap.L().Debug("failed to adopt record lineage",
+			zap.String("uuid", uuid), zap.String("source", source), zap.Error(err))
+	}
+}
+
+// RecordAdoption is one AdoptRecord call, for AdoptRecords.
+type RecordAdoption struct {
+	UUID    string
+	Lineage RecordLineage
+	Source  string
+}
+
+// AdoptRecords applies a batch of adoptions in ONE transaction (ECON-10): the
+// record writer used to issue one autocommit UPDATE per deduplicated record,
+// so a duplicate-heavy batch paid a commit (and on SQLite an fsync) per row.
+// Best-effort like AdoptRecord: a failed batch is logged, never returned.
+func (r *Repository) AdoptRecords(ctx context.Context, batch []RecordAdoption) {
+	if len(batch) == 0 {
 		return
 	}
-	q := r.db.NewUpdate().Model((*HTTPRecord)(nil)).Where("uuid = ?", uuid)
+	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		for _, a := range batch {
+			if err := adoptRecordOn(ctx, tx, a.UUID, a.Lineage, a.Source); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		zap.L().Debug("failed to adopt record lineage batch", zap.Int("records", len(batch)), zap.Error(err))
+	}
+}
+
+func adoptRecordOn(ctx context.Context, db bun.IDB, uuid string, lineage RecordLineage, source string) error {
+	if uuid == "" {
+		return nil
+	}
+	q := db.NewUpdate().Model((*HTTPRecord)(nil)).Where("uuid = ?", uuid)
 	set := false
 	if lineage.ParentUUID != "" && lineage.ParentUUID != uuid {
 		q = q.Set("parent_uuid = CASE WHEN parent_uuid IS NULL OR parent_uuid = '' THEN ? ELSE parent_uuid END", lineage.ParentUUID)
@@ -211,12 +246,10 @@ func (r *Repository) AdoptRecord(ctx context.Context, uuid string, lineage Recor
 		set = true
 	}
 	if !set {
-		return
+		return nil
 	}
-	if _, err := q.Exec(ctx); err != nil {
-		zap.L().Debug("failed to adopt record lineage",
-			zap.String("uuid", uuid), zap.String("source", source), zap.Error(err))
-	}
+	_, err := q.Exec(ctx)
+	return err
 }
 
 // UpsertSnapshotRecord stores a Burp snapshot record idempotently. When an

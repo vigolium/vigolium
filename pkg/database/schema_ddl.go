@@ -734,6 +734,10 @@ var recordSecondaryIndexes = []string{
 	"CREATE INDEX IF NOT EXISTS idx_records_project_scheme_host_port ON http_records(project_uuid, scheme, hostname, port)",
 	"CREATE INDEX IF NOT EXISTS idx_records_project_risk_score ON http_records(project_uuid, risk_score)",
 	"CREATE INDEX IF NOT EXISTS idx_records_project_surface_score ON http_records(project_uuid, surface_score)",
+	// The dynamic-assessment page order (ECON-10): one (risk, surface) bucket
+	// is an equality prefix, so a bucket page is an in-order index range scan
+	// with no temp b-tree sort.
+	"CREATE INDEX IF NOT EXISTS idx_records_project_risk_order ON http_records(project_uuid, risk_score DESC, surface_score DESC, created_at, uuid)",
 	// Covering index for findDuplicateRecord: the duplicate probe filters on
 	// (project_uuid, method, hostname, path, url[, request_hash]) and selects
 	// only uuid. Indexing all of those plus uuid lets the lookup resolve

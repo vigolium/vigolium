@@ -837,6 +837,8 @@ func (w *RecordWriter) flush(ctx context.Context, batch []writeRequest) {
 		}
 	}
 
+	// All of the batch's adoptions go in one transaction (ECON-10).
+	batchAdoptions := make([]RecordAdoption, 0, len(adoptions))
 	for _, i := range adoptions {
 		// RootUUID is only real lineage when it names a DIFFERENT row. A
 		// standalone record self-roots during enrichment, and that uuid belongs
@@ -846,13 +848,18 @@ func (w *RecordWriter) flush(ctx context.Context, batch []writeRequest) {
 		if root == records[i].UUID {
 			root = ""
 		}
-		w.repo.AdoptRecord(ctx, existing[i], RecordLineage{
-			ParentUUID:     records[i].ParentUUID,
-			RootUUID:       root,
-			Target:         records[i].Target,
-			ChainTruncated: records[i].ChainTruncated,
-		}, records[i].Source)
+		batchAdoptions = append(batchAdoptions, RecordAdoption{
+			UUID: existing[i],
+			Lineage: RecordLineage{
+				ParentUUID:     records[i].ParentUUID,
+				RootUUID:       root,
+				Target:         records[i].Target,
+				ChainTruncated: records[i].ChainTruncated,
+			},
+			Source: records[i].Source,
+		})
 	}
+	w.repo.AdoptRecords(ctx, batchAdoptions)
 
 	w.flushed.Add(okCount)
 	w.flushFailed.Add(failCount)

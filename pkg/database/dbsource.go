@@ -571,16 +571,23 @@ type RiskPrioritizedDBInputSource struct {
 	resumeAt time.Time
 	resumeID string
 
-	// Single keyset cursor, ordered (risk_score DESC, created_at ASC, uuid ASC).
-	// That one ordering reproduces the old snapshot's effective set — high-risk
-	// records first (risk_score>0, score-descending), then the risk_score=0 tail in
-	// chronological order — without materializing every UUID in memory, because
-	// risk_score=0 sorts last and within any score the (created_at, uuid) order is
-	// the same. started is false until the first page fixes the cursor.
-	keyScore int
-	keyAt    time.Time
-	keyID    string
-	started  bool
+	// Keyset cursor, ordered (risk_score DESC, surface_score DESC, created_at
+	// ASC, uuid ASC): high-risk records first, then — within a risk score — the
+	// larger attack surface, then chronological. It walks one (risk, surface)
+	// BUCKET at a time: inside a bucket the page query is an equality on both
+	// scores plus a (created_at, uuid) range, which the
+	// idx_records_project_risk_order index serves in order with no sort; when a
+	// bucket runs dry the cursor steps to the next lower bucket (ECON-10). The
+	// old single query `risk_score < ? OR (risk_score = ? AND …)` could not use
+	// an index for its order, so every 128-row page re-sorted the whole
+	// equal-score block.
+	bucketSet     bool // a bucket is selected
+	bucketRisk    int
+	bucketSurface int
+	keyAt         time.Time // last served (created_at, uuid) inside the bucket
+	keyID         string
+	started       bool // keyAt/keyID valid for the current bucket
+	everStarted   bool // any page has been served
 
 	buffer  []*HTTPRecord // full records for the current page's coalescing survivors
 	bufHead int           // read cursor into buffer; lets refill reuse the backing array
@@ -653,6 +660,7 @@ type riskPageRow struct {
 	UUID                 string          `bun:"uuid"`
 	CreatedAt            time.Time       `bun:"created_at"`
 	RiskScore            int             `bun:"risk_score"`
+	SurfaceScore         int             `bun:"surface_score"`
 	Method               string          `bun:"method"`
 	URL                  string          `bun:"url"`
 	RequestContentType   string          `bun:"request_content_type"`
@@ -798,7 +806,7 @@ func (s *RiskPrioritizedDBInputSource) Count() int64 {
 // pageColumns is the projection each lane page selects — coalescing columns are
 // included only when coalescing is enabled (they cost a JSONB decode per row).
 func (s *RiskPrioritizedDBInputSource) pageColumns() []string {
-	cols := []string{"uuid", "created_at", "risk_score", "method", "url"}
+	cols := []string{"uuid", "created_at", "risk_score", "surface_score", "method", "url"}
 	if s.coalescer != nil {
 		cols = append(cols, "request_content_type", "request_content_length", "parameters")
 	}
@@ -818,44 +826,84 @@ func (s *RiskPrioritizedDBInputSource) applyResumeAndBound(q *bun.SelectQuery) *
 }
 
 // nextPageRowsLocked returns the next keyset page of eligible rows, ordered
-// risk_score DESC then (created_at, uuid) ASC — high-risk first, then the
-// chronological risk_score=0 tail. Returns (nil, nil) once the stream is drained.
-// Caller holds s.mu.
+// (risk_score DESC, surface_score DESC, created_at ASC, uuid ASC), one
+// (risk, surface) bucket at a time. Returns (nil, nil) once the stream is
+// drained. Caller holds s.mu.
 func (s *RiskPrioritizedDBInputSource) nextPageRowsLocked(ctx context.Context) ([]riskPageRow, error) {
 	if s.streamsExhausted {
 		return nil, nil
 	}
+	for {
+		if !s.bucketSet {
+			ok, err := s.nextBucketLocked(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, nil // caller marks the stream exhausted
+			}
+		}
 
+		var rows []riskPageRow
+		if err := s.bucketPageQueryLocked().Scan(ctx, &rows); err != nil {
+			return nil, err
+		}
+		if len(rows) > 0 {
+			// Do NOT advance the keyset here. The caller advances it
+			// (advanceKeyLocked) only after the page's records are either
+			// coalesced away or successfully fetched, so a transient bulk-fetch
+			// failure re-pulls THIS exact page instead of stepping past it.
+			return rows, nil
+		}
+		// Bucket drained: step to the next lower one.
+		s.bucketSet = false
+	}
+}
+
+// bucketPageQueryLocked is the page query inside the current bucket.
+func (s *RiskPrioritizedDBInputSource) bucketPageQueryLocked() *bun.SelectQuery {
 	q := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column(s.pageColumns()...)
 	q = s.applyResumeAndBound(q)
+	q = q.Where("risk_score = ?", s.bucketRisk).Where("surface_score = ?", s.bucketSurface)
 	if s.started {
-		// Keyset for (risk_score DESC, created_at ASC, uuid ASC): rows after the
-		// last one are lower-risk, or same-risk with a later (created_at, uuid).
 		at := dbTimestampString(s.db.Driver(), s.keyAt)
-		q = q.Where("(risk_score < ? OR (risk_score = ? AND (created_at > ? OR (created_at = ? AND uuid > ?))))",
-			s.keyScore, s.keyScore, at, at, s.keyID)
+		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, s.keyID)
 	}
 	q = applyHostScopeFilter(q, s.hostScopes)
-	q = q.OrderExpr("risk_score DESC, created_at ASC, uuid ASC").Limit(riskPrefetchBatchSize)
+	return q.OrderExpr("created_at ASC, uuid ASC").Limit(riskPrefetchBatchSize)
+}
 
-	var rows []riskPageRow
+// nextBucketLocked selects the highest (risk_score, surface_score) bucket in
+// the window strictly below the current one (or the top bucket on the first
+// call). Returns false when no bucket remains. Caller holds s.mu.
+func (s *RiskPrioritizedDBInputSource) nextBucketLocked(ctx context.Context) (bool, error) {
+	type bucketRow struct {
+		RiskScore    int `bun:"risk_score"`
+		SurfaceScore int `bun:"surface_score"`
+	}
+	q := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column("risk_score", "surface_score")
+	q = s.applyResumeAndBound(q)
+	if s.everStarted {
+		q = q.Where("(risk_score < ? OR (risk_score = ? AND surface_score < ?))",
+			s.bucketRisk, s.bucketRisk, s.bucketSurface)
+	}
+	q = applyHostScopeFilter(q, s.hostScopes)
+	q = q.OrderExpr("risk_score DESC, surface_score DESC").Limit(1)
+	var rows []bucketRow
 	if err := q.Scan(ctx, &rows); err != nil {
-		return nil, err
+		return false, err
 	}
 	if len(rows) == 0 {
-		return nil, nil // caller marks the stream exhausted
+		return false, nil
 	}
-
-	// Do NOT advance the keyset here. The caller advances it (advanceKeyLocked)
-	// only after the page's records are either coalesced away or successfully
-	// fetched, so a transient bulk-fetch failure re-pulls THIS exact page instead
-	// of stepping past it and leaving a permanent coverage hole.
-	return rows, nil
+	s.bucketRisk, s.bucketSurface = rows[0].RiskScore, rows[0].SurfaceScore
+	s.bucketSet, s.started, s.everStarted = true, false, true
+	return true, nil
 }
 
 // advanceKeyLocked steps the keyset past the given page's last row. Caller holds s.mu.
 func (s *RiskPrioritizedDBInputSource) advanceKeyLocked(last riskPageRow) {
-	s.keyScore, s.keyAt, s.keyID, s.started = last.RiskScore, last.CreatedAt, last.UUID, true
+	s.keyAt, s.keyID, s.started = last.CreatedAt, last.UUID, true
 }
 
 // fillNextPageLocked pulls keyset pages (applying coalescing) until it has a

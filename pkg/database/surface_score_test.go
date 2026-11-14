@@ -38,8 +38,10 @@ func TestSurfaceScoreMigratesExistingDatabase(t *testing.T) {
 	// The index has to go first — SQLite refuses to drop a column an index
 	// references. Dropping both is also what makes this a faithful fixture: a
 	// pre-surface_score database has neither.
-	if _, err := db.ExecContext(ctx, "DROP INDEX IF EXISTS idx_records_project_surface_score"); err != nil {
-		t.Fatalf("drop surface_score index: %v", err)
+	for _, idx := range []string{"idx_records_project_surface_score", "idx_records_project_risk_order"} {
+		if _, err := db.ExecContext(ctx, "DROP INDEX IF EXISTS "+idx); err != nil {
+			t.Fatalf("drop surface_score index %s: %v", idx, err)
+		}
 	}
 	if _, err := db.ExecContext(ctx, "ALTER TABLE http_records DROP COLUMN surface_score"); err != nil {
 		t.Fatalf("drop surface_score to build the legacy fixture: %v", err)
