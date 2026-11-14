@@ -271,11 +271,13 @@ func TestWafAutoArm_StaysPinnedUntilBlock(t *testing.T) {
 	if got := h.currentLimit(host); got != 16 {
 		t.Fatalf("unarmed WAF-auto-arm host should be pinned at MaxPerHost=16, got %d", got)
 	}
-	// A burst of ordinary distress (429/503/timeout) must not change the limit while
+	// A burst of ordinary distress (502/503/timeout) must not change the limit while
 	// the host is unarmed — that's the "no behavior change for non-WAF targets" rule.
+	// (A 429 is a server throttle, not ordinary distress: it arms the host — MISS-22,
+	// see TestFeedbackWith_ThrottlePausesAndHalves.)
 	for i := 0; i < 5; i++ {
 		time.Sleep(decreaseCooldown + 5*time.Millisecond)
-		h.Feedback(host, 429, nil, false)
+		h.Feedback(host, 502, nil, false)
 		h.Feedback(host, 503, nil, false)
 		h.Feedback(host, 0, errors.New("dial tcp: i/o timeout"), false)
 	}

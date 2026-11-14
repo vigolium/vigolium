@@ -24,7 +24,9 @@ import (
 	httpUtils "github.com/projectdiscovery/utils/http"
 	"github.com/vigolium/vigolium/pkg/authentication"
 	"github.com/vigolium/vigolium/pkg/core/egress"
+	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/core/network"
+	"github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/core/services"
 	"github.com/vigolium/vigolium/pkg/deparos/waf"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -76,6 +78,10 @@ type Options struct {
 	// default the net/http path drops it (ECON-13): a captured record carrying
 	// it made every probe built from it pay a fresh TCP+TLS handshake.
 	PreserveConnection bool
+	// ExpectThrottle is for probes that provoke a 429 on purpose (rate-limit
+	// bypass checks): the 429 comes straight back with no transparent retry
+	// and does not pause the host (MISS-22).
+	ExpectThrottle bool
 	// RawRequestTarget, when non-empty, is written verbatim as the HTTP
 	// request-line target (request-URI) while the TCP/TLS connection still goes
 	// to the request's real host. It enables routing-based SSRF / "Cracking the
@@ -208,6 +214,10 @@ type Requester struct {
 	// admitted or dialed, and counted in refused. See NewOfflineRequester.
 	offline error
 	refused *atomic.Int64
+	// callStats counts per-call transport outcomes a module's negative result
+	// depends on (MISS-22). A fresh one is attached per module call by
+	// WithAbandonFlag; the root requester carries a scan-wide one.
+	callStats *CallStats
 	// preserved are PreserveHeaders keys applied to every request on this
 	// view (WithPreservedHeaders). The executor sets them per task for an
 	// insertion point that lives in a header (httpmsg.HeaderOwner).
@@ -529,7 +539,38 @@ func (r *Requester) WithAbandonFlag(flag *atomic.Bool) *Requester {
 	}
 	clone := *r
 	clone.abandonFlag = flag
+	// The per-call clone: its own outcome counters, read by the executor
+	// after the module returns (CallStats).
+	clone.callStats = &CallStats{}
 	return &clone
+}
+
+// CallStats counts outcomes on one module call's requests that make a
+// negative result unreliable (MISS-22): Throttled — a response the module
+// received was the server throttling (429, or 503 with Retry-After) after the
+// transparent retries; Abandoned — a request refused because the call had
+// timed out; Refused — a request the gate refused (quarantine, offline,
+// method policy) before sending.
+type CallStats struct {
+	Throttled atomic.Int64
+	Abandoned atomic.Int64
+	Refused   atomic.Int64
+}
+
+// CallStats returns this requester's outcome counters: per module call on a
+// WithAbandonFlag clone, scan-wide on the root. Never nil for a requester
+// built by NewRequester; nil-safe on a nil receiver (returns nil).
+func (r *Requester) CallStats() *CallStats {
+	if r == nil {
+		return nil
+	}
+	return r.callStats
+}
+
+func (r *Requester) noteStat(f func(*CallStats)) {
+	if r != nil && r.callStats != nil {
+		f(r.callStats)
+	}
 }
 
 // abandoned reports whether the owning module call has been given up on.
@@ -856,6 +897,7 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 		sent:          sent,
 		gate:          gate,
 		retries:       max(options.Retries, 0),
+		callStats:     &CallStats{},
 	}
 
 	// Keep the edge-pacer's once-per-host dedup in sync with the limiter's entry
@@ -1170,10 +1212,12 @@ func (r *Requester) ExecuteContext(ctx context.Context, input *httpmsg.HttpReque
 	// before the clusterer so an abandoned caller neither starts a request nor
 	// joins a singleflight group it would only abandon again.
 	if r.abandoned() {
+		r.noteStat(func(c *CallStats) { c.Abandoned.Add(1) })
 		return nil, 0, ErrRequestAbandoned
 	}
 	if r.offline != nil {
 		r.refused.Add(1)
+		r.noteStat(func(c *CallStats) { c.Refused.Add(1) })
 		return nil, 0, r.offline
 	}
 	// Verbatim bytes bypass the parsed request entirely, so the cluster key --
@@ -1292,84 +1336,167 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		elapsed time.Duration
 		creds   *authentication.Credentials
 	)
-	attempts, err := r.gate.Do(ctx, hostPort, r.lane, policy, func(int) error {
-		// The clock starts HERE — after the rate token and the host slot, right
-		// before the send. Queue time is vigolium's own saturation, not the
-		// target's latency. It covers this attempt only (redirect hops and body
-		// capture included): an earlier failed attempt and its backoff say
-		// nothing about how fast the host answered the request that succeeded.
-		start := time.Now()
-		// Counted before the send, not after a successful one: a request that
-		// timed out or was refused still hit the network, and a progress counter
-		// that only moves on success reads as a stalled scan against a failing
-		// host — the exact case a consumer most needs to see moving.
-		r.sent.Add(1)
-		// Read per attempt, so a retry after a re-login sends the new
-		// credentials and its response is attributed to their generation.
-		creds = r.live.Credentials()
-		wrote.Store(false)
-		attemptCtx := ctx
-		if !opts.RawRequest {
-			attemptCtx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-				WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) },
-			})
+	for throttleRetry := 0; ; throttleRetry++ {
+		attempts, err := r.gate.Do(ctx, hostPort, r.lane, policy, func(int) error {
+			// The clock starts HERE — after the rate token and the host slot, right
+			// before the send. Queue time is vigolium's own saturation, not the
+			// target's latency. It covers this attempt only (redirect hops and body
+			// capture included): an earlier failed attempt and its backoff say
+			// nothing about how fast the host answered the request that succeeded.
+			start := time.Now()
+			// Counted before the send, not after a successful one: a request that
+			// timed out or was refused still hit the network, and a progress counter
+			// that only moves on success reads as a stalled scan against a failing
+			// host — the exact case a consumer most needs to see moving.
+			r.sent.Add(1)
+			// Read per attempt, so a retry after a re-login sends the new
+			// credentials and its response is attributed to their generation.
+			creds = r.live.Credentials()
+			wrote.Store(false)
+			attemptCtx := ctx
+			if !opts.RawRequest {
+				attemptCtx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+					WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) },
+				})
+			}
+			var sendErr error
+			resp, sendErr = r.doRequest(attemptCtx, input, opts, creds)
+			elapsed = time.Since(start)
+			if sendErr != nil {
+				// Feed transport failures (timeout/reset/refused) to the adaptive
+				// limiter so it can back the host off; a no-op in static mode.
+				r.reportHostFeedback(host, 0, sendErr, false)
+			}
+			return sendErr
+		})
+		if err != nil {
+			if attempts > 1 && ctx.Err() == nil {
+				// The message retryablehttp used to give a retried failure, so logs
+				// and transport-error classification read the same as before.
+				err = fmt.Errorf("%s giving up after %d attempts: %w", requestLabel(input), attempts, err)
+			}
+			// elapsed is the last attempt's send-to-failure time (0 when the gate
+			// refused before sending). Timing probes read it on error: a request
+			// that timed out after waiting is the expected outcome of a
+			// catastrophic-backtracking or sleep payload (MISS-14).
+			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+				r.noteStat(func(c *CallStats) { c.Refused.Add(1) })
+			}
+			return nil, elapsed, err
 		}
-		var sendErr error
-		resp, sendErr = r.doRequest(attemptCtx, input, opts, creds)
-		elapsed = time.Since(start)
-		if sendErr != nil {
-			// Feed transport failures (timeout/reset/refused) to the adaptive
-			// limiter so it can back the host off; a no-op in static mode.
-			r.reportHostFeedback(host, 0, sendErr, false)
-		}
-		return sendErr
-	})
-	if err != nil {
-		if attempts > 1 && ctx.Err() == nil {
-			// The message retryablehttp used to give a retried failure, so logs
-			// and transport-error classification read the same as before.
-			err = fmt.Errorf("%s giving up after %d attempts: %w", requestLabel(input), attempts, err)
-		}
-		// elapsed is the last attempt's send-to-failure time (0 when the gate
-		// refused before sending). Timing probes read it on error: a request
-		// that timed out after waiting is the expected outcome of a
-		// catastrophic-backtracking or sleep payload (MISS-14).
-		return nil, elapsed, err
-	}
 
-	// Classify a WAF/CDN block once (cheap status pre-gate; only reads the body on a
-	// block-status response) and feed that single result to both consumers: the
-	// adaptive limiter (arms/backs-off WAF-auto-arm throttling) and the once-per-host
-	// operator warning. Sharing the result avoids re-running ClassifyParts per block.
-	status := responseChainStatus(resp)
-	block := classifyWAFBlock(resp)
-	r.reportHostFeedback(host, status, nil, block != nil)
-	r.blockNotifier.reportBlock(host, block, status)
-	// Proactively pace a host the first time it is seen behind a CDN/WAF edge, so a
-	// later phase's burst never arms a rate-based WAF. Runs on every phase's traffic
-	// through this shared requester (heuristics/discovery hit each host before the
-	// active phase), so the pre-arm lands ahead of the active-module fan-out.
-	r.maybePaceEdge(host, resp, block != nil)
-	// Feed the session's logged-out detector. Status and Location are O(1);
-	// the body is only read on the sampled responses (inside Observe).
-	if r.live != nil && creds != nil {
-		var hdr http.Header
-		if hr := resp.Response(); hr != nil {
-			hdr = hr.Header
+		// Classify a WAF/CDN block once (cheap status pre-gate; only reads the body on a
+		// block-status response) and feed that single result to both consumers: the
+		// adaptive limiter (arms/backs-off WAF-auto-arm throttling) and the once-per-host
+		// operator warning. Sharing the result avoids re-running ClassifyParts per block.
+		status := responseChainStatus(resp)
+		block := classifyWAFBlock(resp)
+		retryAfter := responseRetryAfter(resp)
+		outcome := ratelimit.FeedbackOutcome{Status: status, WAFBlocked: block != nil, RetryAfter: retryAfter, ExpectedThrottle: opts.ExpectThrottle}
+		r.reportHostFeedbackWith(host, outcome)
+		throttled := outcome.Throttled()
+		// A server throttle is retried transparently (MISS-22): the limiter has
+		// just paused the host, so the next gate admission waits the window out.
+		// Raw requests are one round trip by contract; a Retry-After past 30s is
+		// longer than a module call should silently stall.
+		if throttled && !opts.RawRequest && retryAfter <= maxThrottleRetryAfter &&
+			throttleRetry < maxThrottleRetries && ctx.Err() == nil {
+			resp.Close()
+			resp = nil
+			if err := r.waitThrottleWithoutLimiter(ctx, retryAfter); err != nil {
+				return nil, 0, err
+			}
+			continue
 		}
-		r.live.Observe(creds.Gen, status, hdr, resp.BodyBytes())
-	}
-	// Forward server errors to the corroboration observer. Gate on 5xx here (not
-	// just inside report) so the URL string is materialized only for server errors,
-	// never on the 2xx/3xx/4xx hot path. No-op without an installed sink.
-	if status >= 500 && r.respObserver.sink.Load() != nil {
-		urlStr := ""
-		if u, err := input.URL(); err == nil && u != nil {
-			urlStr = u.String()
+		if throttled {
+			r.noteStat(func(c *CallStats) { c.Throttled.Add(1) })
 		}
-		r.respObserver.report(host, urlStr, input.Request().Raw(), resp, status)
+		r.blockNotifier.reportBlock(host, block, status)
+		// Proactively pace a host the first time it is seen behind a CDN/WAF edge, so a
+		// later phase's burst never arms a rate-based WAF. Runs on every phase's traffic
+		// through this shared requester (heuristics/discovery hit each host before the
+		// active phase), so the pre-arm lands ahead of the active-module fan-out.
+		r.maybePaceEdge(host, resp, block != nil)
+		// Feed the session's logged-out detector. Status and Location are O(1);
+		// the body is only read on the sampled responses (inside Observe).
+		if r.live != nil && creds != nil {
+			var hdr http.Header
+			if hr := resp.Response(); hr != nil {
+				hdr = hr.Header
+			}
+			r.live.Observe(creds.Gen, status, hdr, resp.BodyBytes())
+		}
+		// Forward server errors to the corroboration observer. Gate on 5xx here (not
+		// just inside report) so the URL string is materialized only for server errors,
+		// never on the 2xx/3xx/4xx hot path. No-op without an installed sink.
+		if status >= 500 && r.respObserver.sink.Load() != nil {
+			urlStr := ""
+			if u, err := input.URL(); err == nil && u != nil {
+				urlStr = u.String()
+			}
+			r.respObserver.report(host, urlStr, input.Request().Raw(), resp, status)
+		}
+		return resp, elapsed, nil
 	}
-	return resp, elapsed, nil
+}
+
+// Transparent throttle retry bounds (MISS-22).
+const (
+	maxThrottleRetries    = 2
+	maxThrottleRetryAfter = 30 * time.Second
+)
+
+// waitThrottleWithoutLimiter sleeps out a throttle window when no host
+// limiter is installed to pause the host for us (a bare requester): the
+// Retry-After, else 1s. With a limiter it returns at once — the next gate
+// admission waits on the limiter's pause.
+func (r *Requester) waitThrottleWithoutLimiter(ctx context.Context, retryAfter time.Duration) error {
+	if r.services != nil && r.services.HostLimiter != nil {
+		return nil
+	}
+	d := max(retryAfter, time.Second)
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// responseRetryAfter parses the response's Retry-After (delta-seconds or an
+// HTTP-date); 0 when absent or unparseable.
+func responseRetryAfter(resp *httpUtils.ResponseChain) time.Duration {
+	if resp == nil {
+		return 0
+	}
+	hr := resp.Response()
+	if hr == nil {
+		return 0
+	}
+	return ParseRetryAfter(hr.Header.Get("Retry-After"), time.Now())
+}
+
+// ParseRetryAfter parses a Retry-After value: delta-seconds or an HTTP-date
+// relative to now. 0 for an empty, unparseable or past value.
+func ParseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
 }
 
 // requestLabel is "METHOD url" for error messages.
@@ -1587,10 +1714,16 @@ func classifyWAFBlock(resp *httpUtils.ResponseChain) *waf.BlockResult {
 // correctly produces no feedback. wafBlocked marks a classified WAF/CDN block, which
 // arms WAF-auto-arm throttling and always counts as host distress.
 func (r *Requester) reportHostFeedback(host string, statusCode int, err error, wafBlocked bool) {
+	r.reportHostFeedbackWith(host, ratelimit.FeedbackOutcome{Status: statusCode, Err: err, WAFBlocked: wafBlocked})
+}
+
+// reportHostFeedbackWith is reportHostFeedback with the full outcome
+// (Retry-After included, MISS-22).
+func (r *Requester) reportHostFeedbackWith(host string, o ratelimit.FeedbackOutcome) {
 	if host == "" || r.services.HostLimiter == nil {
 		return
 	}
-	r.services.HostLimiter.Feedback(host, statusCode, err, wafBlocked)
+	r.services.HostLimiter.FeedbackWith(host, o)
 }
 
 // maybePaceEdge pre-arms the host limiter's pacing the first time host is seen behind
