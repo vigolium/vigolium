@@ -427,12 +427,15 @@ func (h *HostRateLimiter) shardFor(host string) *hostShard {
 // Acquire blocks until a slot is available for the given host.
 // Returns context.Canceled/DeadlineExceeded if context is cancelled.
 func (h *HostRateLimiter) Acquire(ctx context.Context, host string) error {
-	if err := h.waitPause(ctx, host); err != nil {
+	entry, err := h.entryAfterPause(ctx, host)
+	if err != nil {
 		return err
 	}
-	shard := h.shardFor(host)
-	entry := h.getOrCreateEntry(shard, host)
+	return acquireEntry(ctx, entry)
+}
 
+// acquireEntry blocks until one of entry's slots is free or ctx ends.
+func acquireEntry(ctx context.Context, entry *hostEntry) error {
 	// Adaptive mode: acquire a token from the resizable pool (receive). Same
 	// lock-free hot path as the static send below, just the opposite channel
 	// direction; the pool's current size is the effective per-host limit.
@@ -488,10 +491,11 @@ func (h *HostRateLimiter) AcquireWithTimeoutContext(ctx context.Context, host st
 	}
 	// A throttled host's pause is waited out BEFORE the acquire timeout
 	// starts: the pause is the server's instruction, not our saturation.
-	if err := h.waitPause(ctx, host); err != nil {
+	entry, err := h.entryAfterPause(ctx, host)
+	if err != nil {
 		return err
 	}
-	if h.tryAcquire(host) {
+	if tryAcquireEntry(entry) {
 		return nil
 	}
 
@@ -499,17 +503,14 @@ func (h *HostRateLimiter) AcquireWithTimeoutContext(ctx context.Context, host st
 	// from ctx so a scan shutdown can unblock the wait promptly).
 	acquireCtx, cancel := context.WithTimeout(ctx, h.acquireTimeout)
 	defer cancel()
-	return h.Acquire(acquireCtx, host)
+	return acquireEntry(acquireCtx, entry)
 }
 
-// tryAcquire attempts a non-blocking slot acquisition. It returns true only if a
-// slot was obtained immediately, and never blocks — callers use it to skip the
-// timeout-context/timer setup on the uncontended hot path. The blocking retry
-// (with the same touch/inflight bookkeeping) lives in Acquire.
-func (h *HostRateLimiter) tryAcquire(host string) bool {
-	shard := h.shardFor(host)
-	entry := h.getOrCreateEntry(shard, host)
-
+// tryAcquireEntry takes one of entry's slots only if one is free right now,
+// and never blocks — callers use it to skip the timeout-context/timer setup on
+// the uncontended hot path. The blocking retry (with the same touch/inflight
+// bookkeeping) is acquireEntry.
+func tryAcquireEntry(entry *hostEntry) bool {
 	if entry.tokens != nil {
 		select {
 		case <-entry.tokens:
@@ -550,11 +551,10 @@ func (h *HostRateLimiter) AcquirePriority(ctx context.Context, host string) (fun
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := h.waitPause(ctx, host); err != nil {
+	entry, err := h.entryAfterPause(ctx, host)
+	if err != nil {
 		return nil, err
 	}
-	shard := h.shardFor(host)
-	entry := h.getOrCreateEntry(shard, host)
 	normal := func() { h.Release(host) }
 	reserved := func() {
 		select {
@@ -564,7 +564,7 @@ func (h *HostRateLimiter) AcquirePriority(ctx context.Context, host string) (fun
 		}
 	}
 
-	if h.tryAcquire(host) {
+	if tryAcquireEntry(entry) {
 		return normal, nil
 	}
 	select {
@@ -604,13 +604,8 @@ func (h *HostRateLimiter) AcquirePriority(ctx context.Context, host string) (fun
 // Release releases a slot for the given host.
 // Must be called after Acquire to free the slot.
 func (h *HostRateLimiter) Release(host string) {
-	shard := h.shardFor(host)
-
-	shard.mu.RLock()
-	entry, exists := shard.hosts[host]
-	shard.mu.RUnlock()
-
-	if !exists {
+	entry := h.existing(host)
+	if entry == nil {
 		// Host was evicted while holding slot - this is fine
 		return
 	}

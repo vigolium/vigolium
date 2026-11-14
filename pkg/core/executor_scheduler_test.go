@@ -63,7 +63,7 @@ func TestHostTaskCapFuncReadsLimiterVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	hl.Release("a.test")
-	hl.FeedbackWith("a.test", ratelimit.FeedbackOutcome{Status: 429})
+	hl.Feedback("a.test", ratelimit.FeedbackOutcome{Status: 429})
 	limit, _ := hl.CurrentLimit("a.test")
 	if limit != 4 {
 		t.Fatalf("precondition: limiter limit = %d, want 4 after one throttle", limit)

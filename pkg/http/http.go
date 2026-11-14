@@ -1483,7 +1483,7 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 	}
 	for throttleRetry := 0; ; throttleRetry++ {
 		probedBaseline := false
-		attempts, err := r.gate.DoProbeAware(ctx, hostPort, r.lane, policy, func(_ int, isProbe bool) error {
+		attempts, err := r.gate.Do(ctx, hostPort, r.lane, policy, func(_ int, isProbe bool) error {
 			if isProbe && probeBaseline != nil {
 				probedBaseline = true
 				probeBaseline = nil // once per call
@@ -1519,7 +1519,7 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 				// limiter so it can back the host off; a no-op in static mode.
 				// Skipped when OUR context ended (shutdown, module abandon,
 				// phase deadline): that says nothing about the host (MISS-23).
-				r.reportHostFeedback(host, 0, sendErr, false)
+				r.reportHostFeedback(host, ratelimit.FeedbackOutcome{Err: sendErr})
 			}
 			return sendErr
 		})
@@ -1558,7 +1558,7 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		block := classifyWAFBlock(resp)
 		retryAfter := responseRetryAfter(resp)
 		outcome := ratelimit.FeedbackOutcome{Status: status, WAFBlocked: block != nil, RetryAfter: retryAfter, ExpectedThrottle: opts.ExpectThrottle}
-		r.reportHostFeedbackWith(host, outcome)
+		r.reportHostFeedback(host, outcome)
 		throttled := outcome.Throttled()
 		// A server throttle is retried transparently (MISS-22): the limiter has
 		// just paused the host, so the next gate admission waits the window out.
@@ -1613,12 +1613,11 @@ func (r *Requester) sendBaselineProbe(ctx context.Context, host string, opts Opt
 	resp, err := r.doRequest(r.poolStats.traceContext(ctx, nil), r.baseline, probeOpts, r.live.Credentials())
 	if err != nil {
 		if ctx.Err() == nil {
-			r.reportHostFeedback(host, 0, err, false)
+			r.reportHostFeedback(host, ratelimit.FeedbackOutcome{Err: err})
 		}
 		return err
 	}
-	status := responseChainStatus(resp)
-	r.reportHostFeedback(host, status, nil, classifyWAFBlock(resp) != nil)
+	r.reportHostFeedback(host, ratelimit.FeedbackOutcome{Status: responseChainStatus(resp), WAFBlocked: classifyWAFBlock(resp) != nil})
 	resp.Close()
 	return nil
 }
@@ -1867,22 +1866,15 @@ func classifyWAFBlock(resp *httpUtils.ResponseChain) *waf.BlockResult {
 	return waf.ClassifyParts(httpResp.StatusCode, httpResp.Header, body)
 }
 
-// reportHostFeedback forwards a per-request outcome to the adaptive host limiter.
-// No-op without a limiter/host; in static mode Feedback itself is a no-op. It runs
-// only on the executeDirectly path, so a clusterer cache hit (no network request)
-// correctly produces no feedback. wafBlocked marks a classified WAF/CDN block, which
-// arms WAF-auto-arm throttling and always counts as host distress.
-func (r *Requester) reportHostFeedback(host string, statusCode int, err error, wafBlocked bool) {
-	r.reportHostFeedbackWith(host, ratelimit.FeedbackOutcome{Status: statusCode, Err: err, WAFBlocked: wafBlocked})
-}
-
-// reportHostFeedbackWith is reportHostFeedback with the full outcome
-// (Retry-After included, MISS-22).
-func (r *Requester) reportHostFeedbackWith(host string, o ratelimit.FeedbackOutcome) {
+// reportHostFeedback forwards a per-request outcome to the adaptive host
+// limiter. No-op without a limiter/host; in static mode Feedback only pauses
+// on a throttle. It runs only on the executeDirectly path, so a clusterer cache
+// hit (no network request) correctly produces no feedback.
+func (r *Requester) reportHostFeedback(host string, o ratelimit.FeedbackOutcome) {
 	if host == "" || r.services.HostLimiter == nil {
 		return
 	}
-	r.services.HostLimiter.FeedbackWith(host, o)
+	r.services.HostLimiter.Feedback(host, o)
 }
 
 // maybePaceEdge pre-arms the host limiter's pacing the first time host is seen behind

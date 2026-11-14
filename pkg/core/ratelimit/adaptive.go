@@ -57,11 +57,8 @@ func (h *HostRateLimiter) CurrentLimit(host string) (limit int, ceiling int) {
 	if h == nil || host == "" || !h.usesAdaptiveEntries() {
 		return 0, 0
 	}
-	shard := h.shardFor(host)
-	shard.mu.RLock()
-	entry, ok := shard.hosts[host]
-	shard.mu.RUnlock()
-	if !ok || entry == nil {
+	entry := h.existing(host)
+	if entry == nil {
 		return 0, 0
 	}
 	return int(entry.limit.Load()), h.ceilingPerHost
@@ -150,20 +147,7 @@ func (h *HostRateLimiter) newEntry() *hostEntry {
 	return e
 }
 
-// Feedback reports the outcome of one request to the host so adaptive mode can
-// adjust its concurrency limit. It is a no-op in static mode (and for an evicted
-// host). A distress signal (429/503/502/504, connection error, timeout, or a
-// confirmed WAF/CDN block) backs the limit off; a healthy completion counts toward
-// the next ramp-up. statusCode may be 0 when err != nil (transport-level failure).
-// wafBlocked marks the response as a classified WAF/CDN block: it always counts as
-// distress, and in WAF-auto-arm mode it is the signal that arms this host's AIMD
-// control (before which the host stays pinned at MaxPerHost, unaffected by ordinary
-// 429/5xx so a non-WAF scan is never throttled by this path).
-func (h *HostRateLimiter) Feedback(host string, statusCode int, err error, wafBlocked bool) {
-	h.FeedbackWith(host, FeedbackOutcome{Status: statusCode, Err: err, WAFBlocked: wafBlocked})
-}
-
-// FeedbackOutcome is one request's outcome for FeedbackWith.
+// FeedbackOutcome is one request's outcome for Feedback.
 type FeedbackOutcome struct {
 	Status     int
 	Err        error
@@ -200,31 +184,41 @@ func (h *HostRateLimiter) ThrottleStreak(host string) int {
 	if h == nil || host == "" || !h.anyPaused.Load() {
 		return 0
 	}
-	shard := h.shardFor(host)
-	shard.mu.RLock()
-	entry, ok := shard.hosts[host]
-	shard.mu.RUnlock()
-	if !ok {
+	entry := h.existing(host)
+	if entry == nil {
 		return 0
 	}
 	return int(entry.throttles.Load())
 }
 
-// FeedbackWith is Feedback with the Retry-After the server sent. A throttle
-// (429, or 503 + Retry-After) pauses the host in every mode — new acquires
-// wait until now+clamp(RetryAfter or 1s·2^n, 1s, 60s) — and, where hosts use
-// adaptive pools, arms AIMD like a WAF block and halves the limit. A plain
-// 429 used to change nothing until a WAF block had armed the host, so modules
-// read an application rate limiter's 429s as negatives.
-func (h *HostRateLimiter) FeedbackWith(host string, o FeedbackOutcome) {
+// Feedback reports the outcome of one request to the host so adaptive mode can
+// adjust its concurrency limit. A distress signal (429/503/502/504, connection
+// error, timeout, or a confirmed WAF/CDN block) backs the limit off; a healthy
+// completion counts toward the next ramp-up. Status may be 0 when Err != nil
+// (transport-level failure). WAFBlocked marks a classified WAF/CDN block: it
+// always counts as distress, and in WAF-auto-arm mode it is the signal that
+// arms this host's AIMD control (before which the host stays pinned at
+// MaxPerHost, unaffected by ordinary 5xx so a non-WAF scan is never throttled
+// by this path).
+//
+// A throttle (429, or 503 + Retry-After) pauses the host in every mode — new
+// acquires wait until now+clamp(RetryAfter or 1s·2^n, 1s, 60s) — and, where
+// hosts use adaptive pools, arms AIMD like a WAF block and halves the limit,
+// so modules do not read an application rate limiter's 429s as negatives.
+// Everything but the pause is a no-op in static mode and for an evicted host.
+func (h *HostRateLimiter) Feedback(host string, o FeedbackOutcome) {
 	if h == nil || host == "" {
 		return
 	}
 	throttled := o.Throttled()
+	var entry *hostEntry
 	if throttled {
-		h.pauseHost(host, o.RetryAfter)
+		entry = h.pauseHost(host, o.RetryAfter)
 	} else if h.anyPaused.Load() && o.Err == nil && o.Status > 0 && o.Status < 500 {
-		h.resetThrottles(host)
+		// A healthy answer ends the host's throttle streak.
+		if entry = h.existing(host); entry != nil && entry.throttles.Load() != 0 {
+			entry.throttles.Store(0)
+		}
 	}
 	statusCode, err, wafBlocked := o.Status, o.Err, o.WAFBlocked || throttled
 	if !h.usesAdaptiveEntries() {
@@ -237,11 +231,10 @@ func (h *HostRateLimiter) FeedbackWith(host string, o FeedbackOutcome) {
 	if h.wafAutoArm && !wafBlocked && !h.anyArmed.Load() {
 		return
 	}
-	shard := h.shardFor(host)
-	shard.mu.RLock()
-	entry, ok := shard.hosts[host]
-	shard.mu.RUnlock()
-	if !ok || entry.tokens == nil {
+	if entry == nil {
+		entry = h.existing(host)
+	}
+	if entry == nil || entry.tokens == nil {
 		return
 	}
 
@@ -378,15 +371,15 @@ func isContextCanceled(err error) bool {
 
 // pauseHost holds host's new acquires for clamp(retryAfter or 1s·2^n, 1s,
 // 60s) from now, never shortening a pause already in force.
-func (h *HostRateLimiter) pauseHost(host string, retryAfter time.Duration) {
-	shard := h.shardFor(host)
-	entry := h.getOrCreateEntry(shard, host)
+// It returns host's entry.
+func (h *HostRateLimiter) pauseHost(host string, retryAfter time.Duration) *hostEntry {
+	entry := h.getOrCreateEntry(h.shardFor(host), host)
 	n := entry.throttles.Add(1) - 1
 	if h.throttlePauseDisabled {
 		// The streak is still counted (ThrottleStreak stops transparent
 		// retries on a persistently throttling host); only the wait is off.
 		h.anyPaused.Store(true)
-		return
+		return entry
 	}
 	d := retryAfter
 	if d <= 0 {
@@ -395,7 +388,7 @@ func (h *HostRateLimiter) pauseHost(host string, retryAfter time.Duration) {
 		// stalling the scan on it — its concurrency is already at the floor
 		// and callers see the 429 marked as throttled (CallStats).
 		if n >= maxPausedThrottles {
-			return
+			return entry
 		}
 		d = min(minThrottlePause<<min(n, 2), 4*time.Second)
 	}
@@ -410,16 +403,7 @@ func (h *HostRateLimiter) pauseHost(host string, retryAfter time.Duration) {
 	h.anyPaused.Store(true)
 	zap.L().Debug("HostRateLimiter: server throttle — pausing host",
 		zap.String("host", host), zap.Duration("pause", d))
-}
-
-func (h *HostRateLimiter) resetThrottles(host string) {
-	shard := h.shardFor(host)
-	shard.mu.RLock()
-	entry, ok := shard.hosts[host]
-	shard.mu.RUnlock()
-	if ok && entry.throttles.Load() != 0 {
-		entry.throttles.Store(0)
-	}
+	return entry
 }
 
 // PausedUntil reports when host's throttle pause ends (zero time when none
@@ -428,34 +412,52 @@ func (h *HostRateLimiter) PausedUntil(host string) time.Time {
 	if h == nil || host == "" || !h.anyPaused.Load() {
 		return time.Time{}
 	}
-	shard := h.shardFor(host)
-	shard.mu.RLock()
-	entry, ok := shard.hosts[host]
-	shard.mu.RUnlock()
-	if !ok {
-		return time.Time{}
+	if until := h.pauseDeadline(h.existing(host)); until != 0 {
+		return time.Unix(0, until)
+	}
+	return time.Time{}
+}
+
+// pauseDeadline is entry's throttle pause end in unix nanos, 0 when none is in
+// force. Free while no host was ever throttled.
+func (h *HostRateLimiter) pauseDeadline(entry *hostEntry) int64 {
+	if entry == nil || !h.anyPaused.Load() {
+		return 0
 	}
 	until := entry.pauseUntil.Load()
 	if until <= time.Now().UnixNano() {
-		return time.Time{}
+		return 0
 	}
-	return time.Unix(0, until)
+	return until
 }
 
-// waitPause blocks (ctx-aware) until host's throttle pause has passed. Free
-// when no host was ever throttled.
-func (h *HostRateLimiter) waitPause(ctx context.Context, host string) error {
+// entryAfterPause returns host's entry (created if needed) once its throttle
+// pause has passed, waiting ctx-aware. The unpaused path is one lookup; after
+// an actual wait the entry is fetched again, since the host may have been
+// evicted meanwhile.
+func (h *HostRateLimiter) entryAfterPause(ctx context.Context, host string) (*hostEntry, error) {
+	shard := h.shardFor(host)
 	for {
-		until := h.PausedUntil(host)
-		if until.IsZero() {
-			return nil
+		entry := h.getOrCreateEntry(shard, host)
+		until := h.pauseDeadline(entry)
+		if until == 0 {
+			return entry, nil
 		}
-		timer := time.NewTimer(time.Until(until))
+		timer := time.NewTimer(time.Until(time.Unix(0, until)))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return ctx.Err()
+			return nil, ctx.Err()
 		case <-timer.C:
 		}
 	}
+}
+
+// existing returns host's entry without creating one (nil when untracked).
+func (h *HostRateLimiter) existing(host string) *hostEntry {
+	shard := h.shardFor(host)
+	shard.mu.RLock()
+	entry := shard.hosts[host]
+	shard.mu.RUnlock()
+	return entry
 }
