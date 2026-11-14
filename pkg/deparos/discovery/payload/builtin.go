@@ -53,6 +53,21 @@ func normalizeAndDedup(payloads [][]byte) [][]byte {
 	return result
 }
 
+// dedupExact removes exact duplicates, keeping the first occurrence and the
+// original case.
+func dedupExact(payloads [][]byte) [][]byte {
+	seen := make(map[string]struct{}, len(payloads))
+	result := make([][]byte, 0, len(payloads))
+	for _, p := range payloads {
+		if _, exists := seen[string(p)]; exists {
+			continue
+		}
+		seen[string(p)] = struct{}{}
+		result = append(result, p)
+	}
+	return result
+}
+
 // loadWordlist reads a wordlist file line by line.
 // Format: one payload per line (not bytes).
 // Trims whitespace and skips empty lines.

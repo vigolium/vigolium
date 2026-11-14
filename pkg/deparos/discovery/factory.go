@@ -16,6 +16,29 @@ import (
 type Factory struct {
 	config        *config.Config
 	wordlistCache *payload.WordlistCache
+	// caseMode reports the case sensitivity detected so far for files
+	// (dir=false) or directories (dir=true); nil = the configured mode only.
+	// The engine wires it to its CaseSensitivityManager.
+	caseMode func(dir bool) config.CaseSensitivityMode
+}
+
+// SetCaseModeSource injects the detected case-sensitivity mode (MISS-4).
+func (f *Factory) SetCaseModeSource(fn func(dir bool) config.CaseSensitivityMode) {
+	f.caseMode = fn
+}
+
+// keepsCase reports whether wordlist entries keep their original case: only a
+// host known to be case-INSENSITIVE gets the lowercased (folded) list. A
+// case-sensitive or not-yet-detected host gets the list as written (exact
+// dedup), so WEB-INF and Makefile are actually sent.
+func (f *Factory) keepsCase(dir bool) bool {
+	mode := f.config.Engine.CaseSensitivity
+	if f.caseMode != nil {
+		if detected := f.caseMode(dir); detected != config.CaseAutoDetect && detected != "" {
+			mode = detected
+		}
+	}
+	return mode != config.CaseInsensitive
 }
 
 // NewFactory creates a new task factory.
@@ -79,16 +102,16 @@ func (f *Factory) createFileTasks(schemeHost, path []byte, depth uint16, listTyp
 	return tasks, nil
 }
 
-// isFileCaseSensitive returns true if files should be treated as case-sensitive.
-// For auto_detect mode, defaults to false (case-insensitive) until detection completes.
+// isFileCaseSensitive returns true if file wordlists keep their original case
+// (see keepsCase): sensitive or not yet detected.
 func (f *Factory) isFileCaseSensitive() bool {
-	return f.config.Engine.CaseSensitivity == config.CaseSensitive
+	return f.keepsCase(false)
 }
 
-// isDirCaseSensitive returns true if directories should be treated as case-sensitive.
-// For auto_detect mode, defaults to false (case-insensitive) until detection completes.
+// isDirCaseSensitive returns true if directory wordlists keep their original
+// case (see keepsCase): sensitive or not yet detected.
 func (f *Factory) isDirCaseSensitive() bool {
-	return f.config.Engine.CaseSensitivity == config.CaseSensitive
+	return f.keepsCase(true)
 }
 
 // createDirTask creates a directory task for a given wordlist (short or long).
@@ -406,21 +429,14 @@ func (f *Factory) CreateDynamicExtensionTasks(
 	startSchemeHost := []byte(extractSchemeHost(f.config.Target.StartURL))
 	startPath := []byte(extractPathFromURL(f.config.Target.StartURL))
 
-	// Priority 6: Short wordlist + this extension (base path only)
-	if f.config.Filenames.Wordlists.HasShortFiles() && f.config.Extensions.TestObserved {
-		shortProvider, err := f.getBuiltInProvider(
-			payload.ShortFileList,
-			f.config.Filenames.Wordlists.ShortFilePath,
-			f.isFileCaseSensitive())
-		if err == nil {
-			tasks = append(tasks, NewWordlistTask(&WordlistTaskConfig{
-				TaskType:   ShortFilesObservedExt,
-				Provider:   shortProvider,
-				Extension:  extension,
-				SchemeHost: startSchemeHost,
-				Path:       startPath,
-				Depth:      depth,
-			}))
+	// Priority 6: Short wordlist + this extension, for EVERY known directory
+	// (the start path is in directoryURLs). Recursion under ConfirmRequired
+	// otherwise only ever tried extensionless names, so /admin/upload.php was
+	// never guessed (MISS-5).
+	if f.config.Extensions.TestObserved {
+		for _, dirURL := range directoryURLs {
+			tasks = append(tasks, f.CreateShortFileExtensionTasks(
+				[]byte(extractSchemeHost(dirURL)), []byte(extractPathFromURL(dirURL)), depth, []string{extension})...)
 		}
 	}
 
@@ -450,6 +466,38 @@ func (f *Factory) CreateDynamicExtensionTasks(
 		zap.Int("task_count", len(tasks)),
 		zap.Int("directories_tested", len(directoryURLs)))
 
+	return tasks
+}
+
+// CreateShortFileExtensionTasks creates short-file-list × extension tasks for
+// one directory (one task per extension). The long list × extension stays at
+// the start path only (CreateDynamicExtensionTasks). The task type and fields
+// match CreateDynamicExtensionTasks' so the queue dedups the two paths.
+func (f *Factory) CreateShortFileExtensionTasks(schemeHost, dirPath []byte, depth uint16, extensions []string) []Task {
+	if !f.config.Filenames.Wordlists.HasShortFiles() || len(extensions) == 0 {
+		return nil
+	}
+	tasks := make([]Task, 0, len(extensions))
+	for _, ext := range extensions {
+		if ext == "" {
+			continue
+		}
+		provider, err := f.getBuiltInProvider(
+			payload.ShortFileList,
+			f.config.Filenames.Wordlists.ShortFilePath,
+			f.isFileCaseSensitive())
+		if err != nil {
+			return tasks
+		}
+		tasks = append(tasks, NewWordlistTask(&WordlistTaskConfig{
+			TaskType:   ShortFilesObservedExt,
+			Provider:   provider,
+			Extension:  ext,
+			SchemeHost: schemeHost,
+			Path:       dirPath,
+			Depth:      depth,
+		}))
+	}
 	return tasks
 }
 

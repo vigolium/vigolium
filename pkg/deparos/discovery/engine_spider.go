@@ -252,6 +252,33 @@ func (e *Engine) collectValidatedLinks(links []*spider.DiscoveredLink, parentDep
 	return result
 }
 
+// queueReferencedURL enqueues one application-referenced URL (a redirect
+// Location) as a spider task: in scope only, path + query kept, directory form
+// when the path ends in "/". The request cache dedups repeats.
+func (e *Engine) queueReferencedURL(rawURL string, depth uint16) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return
+	}
+	if e.spiderScope != nil && !e.spiderScope.IsInScope(u) {
+		return
+	}
+	p := u.EscapedPath()
+	if p == "" {
+		p = "/"
+	}
+	if u.RawQuery != "" {
+		p += "?" + u.RawQuery
+	}
+	batch := &SpiderLinkBatch{Depth: depth, BaseURL: []byte(u.Scheme + "://" + u.Host)}
+	if strings.HasSuffix(u.Path, "/") || u.Path == "" {
+		batch.Directories = [][]byte{[]byte(p)}
+	} else {
+		batch.Files = [][]byte{[]byte(p)}
+	}
+	e.createSpiderBatchTask(batch)
+}
+
 // createSpiderBatchTask creates a single task from batched spider links.
 func (e *Engine) createSpiderBatchTask(batch *SpiderLinkBatch) {
 	// Create file task if we have files

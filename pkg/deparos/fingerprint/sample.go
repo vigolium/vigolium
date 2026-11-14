@@ -16,6 +16,9 @@ import (
 type Sample struct {
 	attributes map[Attribute]uint32 // CRC32 hashes for each attribute
 	debug      string               // Human-readable description for debugging
+	// Live-response facts (zero for samples rebuilt from stored attributes).
+	throttled bool // 429/503/edge block: the answer says nothing about the path
+	bodyLen   int  // body length after normalization; -1 when unknown
 }
 
 // NewSampleFromRC creates a fingerprint sample from ResponseChain.
@@ -93,6 +96,8 @@ func newSampleInternal(resp *http.Response, htmlParsed *html.HTMLParsed, body []
 	s := &Sample{
 		attributes: make(map[Attribute]uint32),
 		debug:      debugStr,
+		throttled:  IsThrottledResponse(resp.StatusCode, resp.Header, body),
+		bodyLen:    len(body),
 	}
 
 	// Extract all attributes
@@ -108,6 +113,43 @@ func newSampleInternal(resp *http.Response, htmlParsed *html.HTMLParsed, body []
 	}
 
 	return s, nil
+}
+
+// Status is the sample's HTTP status code (0 when unknown).
+func (s *Sample) Status() int { return int(s.attributes[StatusCode]) }
+
+// Throttled reports a 429/503/edge-block answer: it carries no information
+// about whether the probed path exists.
+func (s *Sample) Throttled() bool { return s.throttled }
+
+// Resembles reports whether two responses look like the same page: same status
+// and content type, and either the same HTML tag structure or a body length
+// within max(16 bytes, 2%). Soft-404 validation drops a hit only when a
+// never-existent sibling resembles it.
+func (s *Sample) Resembles(o *Sample) bool {
+	if s == nil || o == nil {
+		return false
+	}
+	if s.Status() != o.Status() || s.GetHash(ContentType) != o.GetHash(ContentType) {
+		return false
+	}
+	if s.HasAttribute(TagNames) && o.HasAttribute(TagNames) && s.GetHash(TagNames) == o.GetHash(TagNames) {
+		return true
+	}
+	if s.bodyLen < 0 || o.bodyLen < 0 {
+		// A stored sample has no length: fall back to the full-body hash.
+		return s.HasAttribute(BodyContent) && s.GetHash(BodyContent) == o.GetHash(BodyContent)
+	}
+	a, b := s.bodyLen, o.bodyLen
+	diff := a - b
+	if diff < 0 {
+		diff = -diff
+	}
+	tol := max(a, b) / 50
+	if tol < 16 {
+		tol = 16
+	}
+	return diff <= tol
 }
 
 // GetHash returns the hash for a specific attribute
@@ -329,6 +371,7 @@ func NewSampleFromAttrs(attrs map[uint8]uint32) *Sample {
 	s := &Sample{
 		attributes: make(map[Attribute]uint32, len(attrs)),
 		debug:      "from-db",
+		bodyLen:    -1,
 	}
 	for id, hash := range attrs {
 		s.attributes[Attribute(id)] = hash

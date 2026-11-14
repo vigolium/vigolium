@@ -95,6 +95,136 @@ func (l *Learner) Learn(ctx context.Context, baseURL *url.URL) (*Signature, erro
 	return signature, nil
 }
 
+// learnKeyChildLengths are the random-name lengths of LearnKey's file-form
+// children. Different lengths keep a length-echoing 404 page from looking
+// stable only because every probe name was the same size.
+var learnKeyChildLengths = []int{6, 9, 12, 8}
+
+// keyProbeDir is the escaped (on-the-wire) directory LearnKey's children live
+// in: the base URL's wire path up to and including its last "/", so a bypass
+// prefix ("/%23/../") survives. Falls back to key.Path, then "/".
+func keyProbeDir(key CacheKey, base *url.URL) string {
+	dir := ""
+	if base != nil {
+		dir = base.EscapedPath()
+	}
+	if dir == "" {
+		dir = key.Path
+	}
+	if dir == "" {
+		return "/"
+	}
+	if !strings.HasSuffix(dir, "/") {
+		idx := strings.LastIndex(dir, "/")
+		if idx < 0 {
+			return "/"
+		}
+		dir = dir[:idx+1]
+	}
+	if !strings.HasPrefix(dir, "/") {
+		dir = "/" + dir
+	}
+	return dir
+}
+
+// LearnKey learns the soft-404 shape of a cache key by requesting never-existent
+// CHILDREN of the key's directory carrying the key's extension on the wire:
+// dir + random + key.Extension. (Learn mutates the base URL's last segment, so a
+// directory key "/api/" learned "/<rand>api/" — a sibling of /api, not a child —
+// and an extension key never sent its extension.)
+//
+// An extension key probes four file-form children. The "" key also covers
+// directory-form hits, so its fourth probe is "dir/<rand>/"; when that answer
+// does not match the file-form signature, two more directory-form probes learn
+// a second signature for the same key. The first returned signature is the
+// file-form one.
+func (l *Learner) LearnKey(ctx context.Context, key CacheKey, base *url.URL) ([]*Signature, error) {
+	if base == nil {
+		return nil, fmt.Errorf("base URL is nil")
+	}
+	dir := keyProbeDir(key, base)
+
+	fetch := func(i int, wire string) (*Sample, error) {
+		if i > 0 && l.delay > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(l.delay):
+			}
+		}
+		u := *base
+		u.RawQuery = ""
+		u.Fragment = ""
+		SetWirePath(&u, wire)
+		s, err := l.RequestAndExtract(ctx, &u)
+		if err != nil {
+			return nil, fmt.Errorf("failed to request path %s: %w", wire, err)
+		}
+		return s, nil
+	}
+	child := func(n int, dirForm bool) (string, error) {
+		r, err := generateRandomHex(n)
+		if err != nil {
+			return "", err
+		}
+		if dirForm {
+			return dir + r + "/", nil
+		}
+		return dir + r + key.Extension, nil
+	}
+
+	fileProbes := len(learnKeyChildLengths)
+	if key.Extension == "" {
+		fileProbes-- // the last probe is the directory form
+	}
+	samples := make([]*Sample, 0, fileProbes)
+	n := 0
+	for _, length := range learnKeyChildLengths[:fileProbes] {
+		wire, err := child(length, false)
+		if err != nil {
+			return nil, err
+		}
+		s, err := fetch(n, wire)
+		n++
+		if err != nil {
+			return nil, err
+		}
+		samples = append(samples, s)
+	}
+	fileSig, err := NewSignature(samples)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create signature: %w", err)
+	}
+	fileSig.SetDebug(fmt.Sprintf("learned from %s%s*%s", base.Host, dir, key.Extension))
+	sigs := []*Signature{fileSig}
+	if key.Extension != "" {
+		return sigs, nil
+	}
+
+	// Directory form: one probe, two more only when it answers differently.
+	dirSamples := make([]*Sample, 0, 3)
+	for i := 0; i < 3; i++ {
+		wire, err := child(learnKeyChildLengths[i], true)
+		if err != nil {
+			return sigs, nil
+		}
+		s, err := fetch(n, wire)
+		n++
+		if err != nil {
+			return sigs, nil // the file-form signature still stands
+		}
+		if i == 0 && fileSig.Matches(s) {
+			return sigs, nil
+		}
+		dirSamples = append(dirSamples, s)
+	}
+	if dirSig, err := NewSignature(dirSamples); err == nil {
+		dirSig.SetDebug(fmt.Sprintf("learned from %s%s*/", base.Host, dir))
+		sigs = append(sigs, dirSig)
+	}
+	return sigs, nil
+}
+
 // LearnFromPaths learns from specific paths (for testing or custom scenarios)
 func (l *Learner) LearnFromPaths(ctx context.Context, baseURL *url.URL, paths []string) (*Signature, error) {
 	if baseURL == nil {

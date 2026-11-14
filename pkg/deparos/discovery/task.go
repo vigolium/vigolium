@@ -118,6 +118,11 @@ type Callbacks struct {
 	// May be nil.
 	QueueJSFetch func(urls []*url.URL)
 
+	// QueueReferencedURL enqueues one in-scope URL the application itself
+	// pointed at (a redirect Location) as a referenced spider task, so it is
+	// fetched and recorded with its own response. May be nil.
+	QueueReferencedURL func(rawURL string, depth uint16)
+
 	// HTTPClient is the client used for HTTP requests.
 	HTTPClient http.HTTPClient
 

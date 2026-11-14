@@ -23,6 +23,15 @@ func NewSignature(samples []*Sample) (*Signature, error) {
 		return nil, fmt.Errorf("need at least 3 samples for consistency detection, got %d", len(samples))
 	}
 
+	// A throttled sample (429/503/edge block) is the edge's page, not the
+	// directory's soft-404: a signature learned from it would match every page
+	// the edge later blocks — and, near-empty, every page in the directory.
+	for _, s := range samples {
+		if s != nil && s.Throttled() {
+			return nil, fmt.Errorf("throttled sample (status %d): baseline not learned", s.Status())
+		}
+	}
+
 	sig := &Signature{
 		stable: make(map[Attribute]uint32),
 		debug:  fmt.Sprintf("learned from %d samples", len(samples)),
@@ -40,8 +49,30 @@ func NewSignature(samples []*Sample) (*Signature, error) {
 		}
 	}
 
+	if _, ok := sig.stable[StatusCode]; !ok {
+		return nil, fmt.Errorf("unstable status across samples: baseline not learned")
+	}
+	// Bodies whose shape varied so much that almost nothing is stable leave a
+	// signature that matches any page with that status. An empty-body baseline
+	// legitimately has only status (+ length) to go on, so the floor applies
+	// only when every sample carried a body.
+	withBodies := true
+	for _, s := range samples {
+		if s == nil || s.bodyLen <= 0 {
+			withBodies = false
+			break
+		}
+	}
+	if withBodies && len(sig.stable) < minStableAttributes {
+		return nil, fmt.Errorf("only %d stable attributes (need %d): baseline not learned", len(sig.stable), minStableAttributes)
+	}
 	return sig, nil
 }
+
+// minStableAttributes is the fewest stable attributes a usable signature has.
+// A near-empty signature (status alone, say) matches every page with that
+// status and turns real content into soft-404s.
+const minStableAttributes = 3
 
 // isStableAcrossSamples checks if an attribute has the same hash across all samples
 func (sig *Signature) isStableAcrossSamples(attr Attribute, samples []*Sample) bool {
@@ -73,6 +104,10 @@ func (sig *Signature) isStableAcrossSamples(attr Attribute, samples []*Sample) b
 // Matches checks if a sample matches this signature
 // Returns true if ALL stable attributes in signature match the sample
 func (sig *Signature) Matches(sample *Sample) bool {
+	// An empty signature constrains nothing; it must not match everything.
+	if sig == nil || len(sig.stable) == 0 || sample == nil {
+		return false
+	}
 	// Check each stable attribute
 	for attr, expectedHash := range sig.stable {
 		// Sample must have this attribute

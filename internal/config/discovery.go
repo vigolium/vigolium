@@ -28,6 +28,16 @@ type DiscoveryConfig struct {
 	PassiveModuleTags        []string                 `yaml:"passive_module_tags"` // run passive modules matching these tags during discovery (e.g., ["fingerprint"])
 	ReSpider                 DiscoveryReSpiderConfig  `yaml:"respider"`            // targeted re-spider of rich/SPA routes found after discovery dedup
 	DeparosDedup             DeparosDedupConfig       `yaml:"deparos_dedup"`       // post-discovery status-retention + reflected-URL-robust record dedup
+	// ExtractWords harvests words from response bodies into the observed-name
+	// wordlist (deparos WordlistExtraction). nil = auto: on at --intensity deep,
+	// off otherwise; true/false force it.
+	ExtractWords *bool `yaml:"extract_words"`
+
+	// PhaseMaxDuration caps the whole discovery phase ("" = default:
+	// --discover-max-time × min(targets, 3); "0" = no phase ceiling). Each
+	// target keeps its own --discover-max-time budget inside it; without a
+	// phase ceiling 1000 targets at width 3 had no upper bound at all.
+	PhaseMaxDuration string `yaml:"phase_max_duration"`
 
 	// TargetConcurrency is how many targets are discovered at once; targets on
 	// the same host:port never overlap and the engine threads are split across
@@ -42,6 +52,22 @@ type DiscoveryConfig struct {
 	// nil = default (true); false keeps it until the target finishes (keep the
 	// shorter path, cap shortest-path-first). No effect with flush_interval "0".
 	StreamFuzz *bool `yaml:"stream_fuzz"`
+}
+
+// PhaseMaxDurationValue resolves discovery.phase_max_duration: the configured
+// duration, or perTarget × min(targets, 3) when unset. 0 = no ceiling.
+func (c *DiscoveryConfig) PhaseMaxDurationValue(perTarget time.Duration, targets int) time.Duration {
+	if strings.TrimSpace(c.PhaseMaxDuration) != "" {
+		d, err := time.ParseDuration(strings.TrimSpace(c.PhaseMaxDuration))
+		if err != nil || d <= 0 {
+			return 0
+		}
+		return d
+	}
+	if perTarget <= 0 || targets <= 0 {
+		return 0
+	}
+	return perTarget * time.Duration(min(targets, 3))
 }
 
 // StreamsFuzz resolves discovery.stream_fuzz (default true).
@@ -141,16 +167,19 @@ type DeparosDedupConfig struct {
 	Enabled          *bool `yaml:"enabled"`            // nil = default (true)
 	DropClientErrors *bool `yaml:"drop_client_errors"` // drop 4xx discovery records; nil = default (true)
 	// KeepOnePerHost statuses are collapsed to one representative per host instead
-	// of dropped. nil = default ([401,403,429]: authz walls + pacing); empty slice
-	// = collapse none.
+	// of dropped. nil = default ([429]: pacing); empty slice = collapse none.
 	KeepOnePerHost []int `yaml:"keep_one_per_host"`
-	// KeepPerPath statuses preserve every distinct path (each is a real endpoint
-	// hit with the wrong method/payload), capped per host by PerPathCap. nil =
-	// default ([405,415,422]); empty slice = keep none per-path.
+	// KeepPerPath statuses preserve every distinct path, capped per host by
+	// PerPathCap (AuthWallCap for 401/403). nil = default
+	// ([401,403,405,415,422]: authz walls and wrong-method/payload routes are
+	// each a target); empty slice = keep none per-path.
 	KeepPerPath []int `yaml:"keep_per_path"`
 	// PerPathCap bounds distinct KeepPerPath paths kept per (host, status). 0 =
 	// default (100); negative = unbounded.
-	PerPathCap         int   `yaml:"per_path_cap"`
+	PerPathCap int `yaml:"per_path_cap"`
+	// AuthWallCap bounds distinct 401/403 paths kept per host. 0 = default
+	// (25); negative = use per_path_cap.
+	AuthWallCap        int   `yaml:"auth_wall_cap"`
 	NormalizeReflected *bool `yaml:"normalize_reflected"` // collapse records differing only by a reflected URL/path or dynamic tokens; nil = default (true)
 }
 
@@ -172,24 +201,38 @@ func (c *DeparosDedupConfig) NormalizeReflectedEnabled() bool {
 }
 
 // KeepOneStatuses returns the statuses collapsed to a single record per host
-// rather than dropped. nil (absent YAML) defaults to {401,403,429} — an authz
-// wall (401/403) or a pacing signal (429) is worth keeping, but one record per
-// host is enough. An explicit empty slice collapses none.
+// rather than dropped. nil (absent YAML) defaults to {429} — a pacing signal is
+// worth one record per host. An explicit empty slice collapses none.
 func (c *DeparosDedupConfig) KeepOneStatuses() []int {
 	if c.KeepOnePerHost == nil {
-		return []int{401, 403, 429}
+		return []int{429}
 	}
 	return c.KeepOnePerHost
 }
 
-// KeepPerPathStatuses returns the statuses whose distinct paths are preserved
-// (each is a discovered endpoint hit with the wrong method/payload). nil (absent
-// YAML) defaults to {405,415,422}; an explicit empty slice keeps none per-path.
+// KeepPerPathStatuses returns the statuses whose distinct paths are preserved.
+// nil (absent YAML) defaults to {401,403,405,415,422}: /admin, /backup and
+// /.git at 403 are three forbidden-bypass targets, not one (collapsing auth
+// walls to one row per host left the bypass module a single record), and
+// 405/415/422 are real routes hit with the wrong method/payload. An explicit
+// empty slice keeps none per-path.
 func (c *DeparosDedupConfig) KeepPerPathStatuses() []int {
 	if c.KeepPerPath == nil {
-		return []int{405, 415, 422}
+		return []int{401, 403, 405, 415, 422}
 	}
 	return c.KeepPerPath
+}
+
+// AuthWallCapValue returns the per-host cap on distinct 401/403 paths. 0
+// (absent YAML) defaults to 25; negative falls back to the per-path cap.
+func (c *DeparosDedupConfig) AuthWallCapValue() int {
+	if c.AuthWallCap == 0 {
+		return 25
+	}
+	if c.AuthWallCap < 0 {
+		return 0
+	}
+	return c.AuthWallCap
 }
 
 // PerPathCapValue returns the per-(host,status) cap on distinct KeepPerPath

@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vigolium/vigolium/pkg/deparos/config"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/payload"
 )
 
@@ -160,8 +161,8 @@ func TestHashDeduplication_WordlistTask_DifferentConfig(t *testing.T) {
 
 // TestHashDeduplication_ExtensionVariantTask tests ExtensionVariantTask hash behavior
 func TestHashDeduplication_ExtensionVariantTask(t *testing.T) {
-	extProvider1 := payload.NewExtensionProvider()
-	extProvider2 := payload.NewExtensionProvider()
+	extProvider1 := payload.NewExtensionProviderWithVariants(config.DefaultBackupExtensions)
+	extProvider2 := payload.NewExtensionProviderWithVariants(config.DefaultBackupExtensions)
 
 	// Same config should produce same hash
 	task1 := NewExtensionVariantTask(&ExtensionVariantTaskConfig{
@@ -383,7 +384,7 @@ func TestHashDeduplication_AllTaskTypes(t *testing.T) {
 	assert.False(t, engine.AddTask(fileTask2), "Duplicate WordlistTask should be rejected")
 
 	// Test ExtensionVariantTask deduplication
-	extProvider := payload.NewExtensionProvider()
+	extProvider := payload.NewExtensionProviderWithVariants(config.DefaultBackupExtensions)
 	extTask1 := NewExtensionVariantTask(&ExtensionVariantTaskConfig{
 		SchemeHost:  []byte("http://example.com"),
 		Path:        []byte("/test/"),

@@ -31,27 +31,38 @@ var paramMiningCandidateColumns = []string{
 // the ones the dynamic-assessment phase of scanUUID will see (after the scan
 // cursor, in the project, within hosts), answered 2xx, GET or POST, and not
 // param-mining output themselves. Ordered by risk_score, then surface_score,
-// then age; at most limit rows. Content-type and per-endpoint/per-host
-// selection is left to the caller.
-func (r *Repository) ParamMiningCandidates(ctx context.Context, scanUUID string, hosts []HostTarget, limit int) ([]HTTPRecord, error) {
+// then age; at most perHost rows per origin (scheme, hostname, port), so one
+// large host cannot crowd the others out of a global cap. perHost <= 0 = no
+// cap. Content-type and per-endpoint selection is left to the caller.
+func (r *Repository) ParamMiningCandidates(ctx context.Context, scanUUID string, hosts []HostTarget, perHost int) ([]HTTPRecord, error) {
 	scan, err := r.GetScanByUUID(ctx, scanUUID)
 	if err != nil {
 		return nil, fmt.Errorf("load scan %s: %w", scanUUID, err)
 	}
-	var rows []HTTPRecord
-	q := r.db.NewSelect().Model(&rows).Column(paramMiningCandidateColumns...).
-		Where("has_response = ?", true).
-		Where("status_code >= 200 AND status_code < 300").
-		Where("method IN (?)", bun.List([]string{"GET", "POST"})).
-		Where("(source IS NULL OR source != ?)", RecordSourceParamMining)
-	if !scan.CursorAt.IsZero() {
-		at := dbTimestampString(r.db.Driver(), scan.CursorAt)
-		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, scan.CursorUUID)
+	filter := func(q *bun.SelectQuery) *bun.SelectQuery {
+		q = q.Where("has_response = ?", true).
+			Where("status_code >= 200 AND status_code < 300").
+			Where("method IN (?)", bun.List([]string{"GET", "POST"})).
+			Where("(source IS NULL OR source != ?)", RecordSourceParamMining)
+		if !scan.CursorAt.IsZero() {
+			at := dbTimestampString(r.db.Driver(), scan.CursorAt)
+			q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, scan.CursorUUID)
+		}
+		q = applyHostScopeFilter(q, hosts)
+		return applyProjectFilter(q, scan.ProjectUUID)
 	}
-	q = applyHostScopeFilter(q, hosts)
-	q = applyProjectFilter(q, scan.ProjectUUID)
-	if limit > 0 {
-		q = q.Limit(int64(limit))
+
+	var rows []HTTPRecord
+	q := r.db.NewSelect().Model(&rows).Column(paramMiningCandidateColumns...)
+	if perHost > 0 {
+		ranked := filter(r.db.NewSelect().Model((*HTTPRecord)(nil)).Column("uuid").
+			ColumnExpr("ROW_NUMBER() OVER (PARTITION BY scheme, hostname, port " +
+				"ORDER BY risk_score DESC, surface_score DESC, created_at ASC, uuid ASC) AS host_rank"))
+		keep := r.db.NewSelect().TableExpr("(?) AS ranked", ranked).Column("ranked.uuid").
+			Where("ranked.host_rank <= ?", perHost)
+		q = q.Where("uuid IN (?)", keep)
+	} else {
+		q = filter(q)
 	}
 	if err := q.OrderExpr("risk_score DESC, surface_score DESC, created_at ASC, uuid ASC").Scan(ctx); err != nil {
 		return nil, err

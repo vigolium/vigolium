@@ -11,6 +11,7 @@ import (
 
 	"github.com/sourcegraph/conc"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/queue"
+	"github.com/vigolium/vigolium/pkg/deparos/discovery/tracker"
 	pkghttp "github.com/vigolium/vigolium/pkg/deparos/http"
 	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/deparos/jstangle/sourcemap"
@@ -265,21 +266,7 @@ func (c *PayloadCoordinator) executeWorkItem(ctx context.Context, item *WorkItem
 	// Feed prefix breaker with this probe outcome. Done before any analyzer
 	// gating so soft-200 / soft-403 traps still register signal even when the
 	// fingerprinter classifies them out.
-	if cb.PrefixBreaker != nil {
-		resp := rc.Response()
-		body := rc.BodyBytes()
-		reason, tripped := cb.PrefixBreaker.Observe(req.URL, resp.StatusCode, resp.Header.Get("Content-Type"), int64(len(body)))
-		if tripped {
-			logger.Info("Prefix breaker tripped — stopping further probes under this prefix",
-				zap.String("host", reason.Host),
-				zap.String("prefix", reason.Prefix),
-				zap.Int("samples", reason.Samples),
-				zap.Int("dominant_status", reason.DominantStatus),
-				zap.String("dominant_content_type", reason.DominantCT),
-				zap.Int64("dominant_length_bucket_lower", reason.DominantLenLower),
-				zap.Int("dominant_count", reason.DominantCount))
-		}
-	}
+	observePrefixBreaker(cb.PrefixBreaker, req.URL, rc)
 
 	// Source maps are handled here, above the task-type dispatch, because which
 	// fetch path sees a given asset is incidental: the asset graph queues a
@@ -323,6 +310,14 @@ func (c *PayloadCoordinator) executeWorkItem(ctx context.Context, item *WorkItem
 	// catch-all 200.
 	foundBy := item.Task.FoundByName()
 	c.triggerDiscoveryCallbacks(item.URL, item.Depth, cb, foundByConfirmsExtension(foundBy))
+
+	// An extensionless 200 (/api) is treated as a file and never recursed
+	// into; one probe of its directory form (/api/) lets recursion find out.
+	if cb.QueueReferencedURL != nil && rc.Response().StatusCode == stdhttp.StatusOK {
+		if dirURL, ok := dirFormProbeURL(item.URL); ok {
+			cb.QueueReferencedURL(dirURL, item.Depth)
+		}
+	}
 
 	// Result callback
 	if cb.OnResult != nil {
@@ -1198,10 +1193,13 @@ func (c *PayloadCoordinator) handleRedirect(
 			_ = cb.OnFileDiscovered(fileURL, depth, confirmExt)
 		}
 
-		// Create Result for non-trailing-slash redirect
+		// The 3xx is the SOURCE URL's response: record it under the source
+		// (storing it under the Location URL paired the target with someone
+		// else's response). The target is fetched on its own as a referenced
+		// task, so it is recorded with its own response.
 		if cb.OnResult != nil {
 			cb.OnResult(&Result{
-				URL:     parseURL(redirectInfo.ResolvedLocation),
+				URL:     parseURL(urlStr),
 				Request: &storage.RequestData{Method: req.Method},
 				Metadata: &storage.DiscoveryMetadata{
 					FoundBy:   "redirect",
@@ -1210,6 +1208,9 @@ func (c *PayloadCoordinator) handleRedirect(
 				},
 				rc: rc,
 			})
+		}
+		if cb.QueueReferencedURL != nil && !redirectPreservesPath(urlStr, redirectInfo.ResolvedLocation) {
+			cb.QueueReferencedURL(redirectInfo.ResolvedLocation, depth)
 		}
 	}
 
@@ -1335,4 +1336,50 @@ func (c *PayloadCoordinator) CurrentTask() Task {
 func parseURL(urlStr string) *url.URL {
 	u, _ := url.Parse(urlStr)
 	return u
+}
+
+// observePrefixBreaker feeds one probe outcome to the prefix breaker. Statuses
+// the analyzer already treats as hard misses (404/400/414/421/431) are skipped:
+// a directory whose misses are ordinary 404s is not a trap, and counting them
+// made any subtree with a hit rate under 10% trip eventually (MISS-1). The
+// breaker exists for soft-200/soft-403 black holes the fingerprinter misses.
+func observePrefixBreaker(b *tracker.PrefixBreaker, u *url.URL, rc *responsechain.ResponseChain) {
+	if b == nil || rc == nil || !rc.Has() {
+		return
+	}
+	resp := rc.Response()
+	if pkghttp.IsHardNotFound(resp.StatusCode) {
+		return
+	}
+	body := rc.BodyBytes()
+	reason, tripped := b.Observe(u, resp.StatusCode, resp.Header.Get("Content-Type"), int64(len(body)))
+	if tripped {
+		logger.Info("Prefix breaker tripped — stopping further probes under this prefix",
+			zap.String("host", reason.Host),
+			zap.String("prefix", reason.Prefix),
+			zap.Int("samples", reason.Samples),
+			zap.Int("dominant_status", reason.DominantStatus),
+			zap.String("dominant_content_type", reason.DominantCT),
+			zap.Int64("dominant_length_bucket_lower", reason.DominantLenLower),
+			zap.Int("dominant_count", reason.DominantCount))
+	}
+}
+
+// dirFormProbeURL returns the directory form ("/api/") of an extensionless
+// file URL ("/api"), without its query. ok is false for directories, the root
+// and paths with an extension.
+func dirFormProbeURL(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.Path == "" || u.Path == "/" || strings.HasSuffix(u.Path, "/") {
+		return "", false
+	}
+	last := u.Path[strings.LastIndex(u.Path, "/")+1:]
+	if last == "" || strings.Contains(last, ".") {
+		return "", false
+	}
+	d := url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path + "/", RawPath: ""}
+	if u.RawPath != "" {
+		d.RawPath = u.RawPath + "/"
+	}
+	return d.String(), true
 }

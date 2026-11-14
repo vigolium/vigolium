@@ -49,7 +49,7 @@ func NewAnalyzerWithComparator(comparator FingerprintComparator) *Analyzer {
 // status discarded the result. Every other status gets the fingerprint check,
 // which catches soft-404s regardless of status code.
 func (a *Analyzer) Analyze(ctx context.Context, req *nethttp.Request, rc *responsechain.ResponseChain) (bool, error) {
-	if isHardNotFound(rc.Response().StatusCode) {
+	if IsHardNotFound(rc.Response().StatusCode) {
 		return false, nil
 	}
 
@@ -64,7 +64,7 @@ func (a *Analyzer) Analyze(ctx context.Context, req *nethttp.Request, rc *respon
 	return true, nil
 }
 
-// isHardNotFound reports the statuses that never mean a resource exists. 404,
+// IsHardNotFound reports the statuses that never mean a resource exists. 404,
 // and the request-shape rejections: a 400 (e.g. the Jetty/nginx "Ambiguous URI
 // empty segment" page a stray // triggers), 414 (URI too long), 421
 // (misdirected request) or 431 (request headers too large) means the origin
@@ -73,10 +73,11 @@ func (a *Analyzer) Analyze(ctx context.Context, req *nethttp.Request, rc *respon
 // variant would otherwise land as a distinct "discovered" record. (405 Method
 // Not Allowed is deliberately NOT here: it means the path exists but rejects
 // the method, which is a real discovery signal.)
-func isHardNotFound(status int) bool {
-	switch status {
-	case 404, 400, 414, 421, 431:
-		return true
-	}
-	return false
+func IsHardNotFound(status int) bool { return fingerprint.IsHardMissStatus(status) }
+
+// IsThrottled reports a response that says nothing about the probed path
+// because the origin or its edge refused to serve it: 429, 503, or a WAF/CDN
+// block page.
+func IsThrottled(status int, header nethttp.Header, body []byte) bool {
+	return fingerprint.IsThrottledResponse(status, header, body)
 }

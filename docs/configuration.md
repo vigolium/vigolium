@@ -425,7 +425,9 @@ discovery:
   save_response_body: true
   enable_malformed_path_probe: false
   enrich_targets: false        # feed paths from spidering/harvest into discovery
+  extract_words:               # harvest response-body words into the observed wordlist; unset = on at --intensity deep only
   target_concurrency: 0        # targets at once; 0 = min(targets, 3); same host:port never overlaps
+  phase_max_duration: ""       # whole-phase ceiling; "" = --discover-max-time × min(targets, 3), "0" = none
   flush_interval: 15s          # stream records every interval (and per 500 nodes); "0" = at target end
   stream_fuzz: true            # stream wordlist/fuzz results too (keep-first dedup, first-N cluster cap); false = at target end
 

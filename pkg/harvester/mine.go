@@ -85,8 +85,7 @@ func (row cdxRow) capture() capture {
 // This is deliberately not `utils.IsMediaURL` or the discovery engine's asset
 // lists: those exclude `js` and `css`, and a JavaScript bundle (and its source
 // map) is the single highest-yield target there is. The table is applied to
-// mined URLs and, through normalizeURL (together with archiveExtensions), to
-// every harvested URL before dedup.
+// mined URLs and, through normalizeURL, to every harvested URL before dedup.
 var junkExtensions = map[string]bool{
 	"css": true, "jpg": true, "jpeg": true, "png": true, "gif": true, "svg": true,
 	"webp": true, "bmp": true, "ico": true, "tif": true, "tiff": true, "avif": true,

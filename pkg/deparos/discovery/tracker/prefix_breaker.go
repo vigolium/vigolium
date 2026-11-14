@@ -36,6 +36,29 @@ type BreakerConfig struct {
 	// Two responses fall into the same bucket if their lengths div by this
 	// value are equal.
 	LengthBucket int64
+	// BasePath is the target's start directory ("/app/"). Prefix segments are
+	// counted relative to it, so a base-path target does not put its whole
+	// primary wordlist in one bucket, and the base path itself never trips.
+	// Paths outside it are bucketed from the root. "" or "/" = the root.
+	BasePath string
+}
+
+// BasePathOf returns the directory a start URL's path lives in, cleaned the
+// way effectivePrefix cleans request paths: "/app/" -> "/app/", "/app/x.php"
+// -> "/app/", "/#/../FUZZ" -> "/".
+func BasePathOf(urlPath string) string {
+	if urlPath == "" {
+		return "/"
+	}
+	dir := urlPath
+	if !strings.HasSuffix(dir, "/") {
+		dir = path.Dir(dir)
+	}
+	dir = path.Clean(dir)
+	if dir == "." || dir == "/" {
+		return "/"
+	}
+	return dir + "/"
 }
 
 // DefaultBreakerConfig returns sensible defaults: enabled, trips after 12
@@ -88,6 +111,9 @@ type outcomeKey struct {
 // NewPrefixBreaker creates a breaker. If cfg.Enabled is false, all methods
 // become no-ops and IsDead always returns false.
 func NewPrefixBreaker(cfg BreakerConfig) *PrefixBreaker {
+	if cfg.BasePath != "" {
+		cfg.BasePath = BasePathOf(cfg.BasePath)
+	}
 	return &PrefixBreaker{
 		cfg:     cfg,
 		buckets: make(map[string]*prefixBucket),
@@ -105,7 +131,7 @@ func (b *PrefixBreaker) Observe(reqURL *url.URL, status int, contentType string,
 	}
 
 	host := reqURL.Host
-	prefix := effectivePrefix(reqURL.Path, b.cfg.PrefixSegments)
+	prefix := b.effectivePrefix(reqURL.Path)
 	if prefix == "" {
 		return TrippedReason{}, false
 	}
@@ -172,7 +198,7 @@ func (b *PrefixBreaker) IsDead(reqURL *url.URL) bool {
 	if b == nil || !b.cfg.Enabled || reqURL == nil {
 		return false
 	}
-	prefix := effectivePrefix(reqURL.Path, b.cfg.PrefixSegments)
+	prefix := b.effectivePrefix(reqURL.Path)
 	if prefix == "" {
 		return false
 	}
@@ -189,7 +215,7 @@ func (b *PrefixBreaker) IsDeadReason(reqURL *url.URL) (TrippedReason, bool) {
 	if b == nil || !b.cfg.Enabled || reqURL == nil {
 		return TrippedReason{}, false
 	}
-	prefix := effectivePrefix(reqURL.Path, b.cfg.PrefixSegments)
+	prefix := b.effectivePrefix(reqURL.Path)
 	if prefix == "" {
 		return TrippedReason{}, false
 	}
@@ -223,7 +249,11 @@ func (b *PrefixBreaker) TrippedCount() int {
 // first ("/#/../metrics" → "/metrics") restores a per-resource prefix so each word
 // is grouped by its real target. For ordinary (already-clean) paths this is a
 // no-op, so recursive-directory black-hole detection is unchanged.
-func effectivePrefix(urlPath string, n int) string {
+func (b *PrefixBreaker) effectivePrefix(urlPath string) string {
+	return effectivePrefix(urlPath, b.cfg.PrefixSegments, b.cfg.BasePath)
+}
+
+func effectivePrefix(urlPath string, n int, basePath string) string {
 	// path.Clean only changes the prefix for paths carrying dot-segments or double
 	// slashes (the bypass "/#/../metrics" matches via ".."); the guard skips the
 	// clean — which would also strip a meaningful trailing slash — for the ordinary
@@ -231,6 +261,20 @@ func effectivePrefix(urlPath string, n int) string {
 	cleaned := urlPath
 	if strings.Contains(urlPath, "..") || strings.Contains(urlPath, "//") {
 		cleaned = path.Clean(urlPath)
+	}
+	if basePath != "" && basePath != "/" {
+		baseDir := strings.TrimSuffix(basePath, "/")
+		switch {
+		case cleaned == baseDir || cleaned == basePath:
+			// The target's own base path is never a trap candidate.
+			return ""
+		case strings.HasPrefix(cleaned, basePath):
+			rel := PrefixOf(cleaned[len(baseDir):], n)
+			if rel == "" {
+				return ""
+			}
+			return baseDir + rel
+		}
 	}
 	return PrefixOf(cleaned, n)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 
@@ -237,7 +238,15 @@ type DeparosStatusPolicy struct {
 	// PerPathCap bounds the KeepPerPath tier per (hostname, status_code). <=0
 	// disables the cap (keep all distinct paths).
 	PerPathCap int
+	// AuthWallCap is the tighter per-(hostname, status_code) cap applied to
+	// 401/403 in the KeepPerPath tier: /admin, /backup and /.git at 403 are each
+	// worth a forbidden-bypass attempt, but a host that answers 403 for
+	// everything must not flood the store. <=0 = use PerPathCap.
+	AuthWallCap int
 }
+
+// authWallStatuses are the KeepPerPath statuses AuthWallCap applies to.
+var authWallStatuses = []int{401, 403}
 
 func dedupeInts(in []int) []int {
 	seen := make(map[int]struct{}, len(in))
@@ -353,19 +362,30 @@ func (r *Repository) ApplyDeparosStatusPolicy(ctx context.Context, projectUUID s
 		// (3b) Cap the number of DISTINCT paths kept per (host, status). DENSE_RANK
 		// gives identical paths the same rank, so pr > cap drops paths beyond the
 		// cap while path-dupes (removed in 3a) don't consume separate ranks.
-		if policy.PerPathCap > 0 {
+		// Auth walls (401/403) get the tighter AuthWallCap.
+		if policy.PerPathCap > 0 || policy.AuthWallCap > 0 {
+			const unbounded = math.MaxInt32
+			perCap := policy.PerPathCap
+			if perCap <= 0 {
+				perCap = unbounded
+			}
+			authCap := policy.AuthWallCap
+			if authCap <= 0 {
+				authCap = perCap
+			}
 			capQuery := `
 				SELECT uuid FROM (
-					SELECT uuid, DENSE_RANK() OVER (
+					SELECT uuid, status_code, DENSE_RANK() OVER (
 						PARTITION BY hostname, scheme, port, status_code
 						ORDER BY LENGTH(path) ASC, path ASC
 					) AS pr
 					FROM http_records
 					WHERE source = 'deparos' AND project_uuid = ?
 					  AND status_code IN (?)
-				) sub WHERE pr > ?`
+				) sub WHERE pr > CASE WHEN status_code IN (?) THEN ? ELSE ? END`
 			var capUUIDs []string
-			if err := r.db.NewRaw(capQuery, projectUUID, bun.List(keepPath), policy.PerPathCap).Scan(ctx, &capUUIDs); err != nil {
+			if err := r.db.NewRaw(capQuery, projectUUID, bun.List(keepPath),
+				bun.List(authWallStatuses), authCap, perCap).Scan(ctx, &capUUIDs); err != nil {
 				return RecordCleanupResult{}, fmt.Errorf("failed to identify over-cap deparos records: %w", err)
 			}
 			for _, u := range capUUIDs {
@@ -395,11 +415,19 @@ func (r *Repository) ApplyDeparosStatusPolicy(ctx context.Context, projectUUID s
 //
 // Grouping is on (hostname, method, status_code, response_content_type,
 // response_norm_hash); the shortest path per group survives. Records with no
-// normalized hash (empty bodies) are left to exact-hash dedup. Returns the number
-// of deleted records and a status-code breakdown.
-func (r *Repository) DeduplicateDeparosByNormHash(ctx context.Context, projectUUID string) (RecordCleanupResult, error) {
+// normalized hash (empty bodies) are left to exact-hash dedup. Statuses in
+// keepPerPath are exempt: their distinct paths ARE the signal (each 403 is a
+// forbidden-bypass target) and ApplyDeparosStatusPolicy already caps them.
+// Returns the number of deleted records and a status-code breakdown.
+func (r *Repository) DeduplicateDeparosByNormHash(ctx context.Context, projectUUID string, keepPerPath ...int) (RecordCleanupResult, error) {
 	projectUUID = defaultProjectUUID(projectUUID)
 
+	exempt := ""
+	args := []any{projectUUID}
+	if len(keepPerPath) > 0 {
+		exempt = " AND status_code NOT IN (?)"
+		args = append(args, bun.List(dedupeInts(keepPerPath)))
+	}
 	dupQuery := `
 		SELECT uuid FROM (
 			SELECT uuid, ROW_NUMBER() OVER (
@@ -411,11 +439,11 @@ func (r *Repository) DeduplicateDeparosByNormHash(ctx context.Context, projectUU
 			  AND project_uuid = ?
 			  AND has_response = true
 			  AND response_norm_hash IS NOT NULL
-			  AND response_norm_hash != ''
+			  AND response_norm_hash != ''` + exempt + `
 		) sub WHERE rn > 1`
 
 	var uuids []string
-	if err := r.db.NewRaw(dupQuery, projectUUID).Scan(ctx, &uuids); err != nil {
+	if err := r.db.NewRaw(dupQuery, args...).Scan(ctx, &uuids); err != nil {
 		return RecordCleanupResult{}, fmt.Errorf("failed to identify reflected-URL-duplicate deparos records: %w", err)
 	}
 	if len(uuids) == 0 {

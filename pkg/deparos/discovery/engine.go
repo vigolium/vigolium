@@ -549,25 +549,27 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 	}
 
 	engine := &Engine{
-		config:              cfg,
-		stateNotify:         make(chan struct{}),
-		taskQueue:           taskQueue,
-		coordinator:         nil, // Initialized after engine creation
-		httpClient:          httpClient,
-		analyzer:            analyzer,
-		fpCache:             fpCache,
-		fpComparator:        fpComparator,
-		fpLearner:           fpLearner,
-		spiderCoordinator:   spiderCoordinatorInstance,
-		spiderResolver:      spiderResolver,
-		spiderScope:         spiderScope,
-		redirectDetector:    redirectDetector,
-		storage:             st,
-		observedNames:       payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
+		config:            cfg,
+		stateNotify:       make(chan struct{}),
+		taskQueue:         taskQueue,
+		coordinator:       nil, // Initialized after engine creation
+		httpClient:        httpClient,
+		analyzer:          analyzer,
+		fpCache:           fpCache,
+		fpComparator:      fpComparator,
+		fpLearner:         fpLearner,
+		spiderCoordinator: spiderCoordinatorInstance,
+		spiderResolver:    spiderResolver,
+		spiderScope:       spiderScope,
+		redirectDetector:  redirectDetector,
+		storage:           st,
+		// Observed names/files keep their case unless the host is configured
+		// case-insensitive (MISS-4): an undetected host may well be sensitive.
+		observedNames:       payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity != config.CaseInsensitive, cfg.Engine.ObservedMaxItems),
 		observedExtensions:  payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
 		confirmedExtensions: make(map[string]struct{}),
 		observedPaths:       payload.NewObservedProviderWithLimit(true, cfg.Engine.ObservedMaxItems), // Always case-sensitive for REST API paths
-		observedFiles:       payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
+		observedFiles:       payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity != config.CaseInsensitive, cfg.Engine.ObservedMaxItems),
 		testedDirectories:   testedDirsTracker,
 		testedFiles:         testedFilesTracker,
 		prefixBreaker: tracker.NewPrefixBreaker(tracker.BreakerConfig{
@@ -576,6 +578,7 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 			TripRatio:      cfg.Engine.PrefixBreaker.TripRatio,
 			PrefixSegments: cfg.Engine.PrefixBreaker.PrefixSegments,
 			LengthBucket:   cfg.Engine.PrefixBreaker.LengthBucket,
+			BasePath:       startURLPath(cfg.Target.StartURL),
 		}),
 		taskHashes:           taskHashesDS,
 		seenExtensions:       seenExtensionsDS,
@@ -682,6 +685,12 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 	// Initialize case sensitivity detection manager
 	caseSenseDetector := casesense.NewDetector(fpLearner)
 	engine.caseSenseManager = NewCaseSensitivityManager(caseSenseDetector, cfg.Engine.CaseSensitivity)
+	engine.factory.SetCaseModeSource(func(dir bool) config.CaseSensitivityMode {
+		if dir {
+			return engine.caseSenseManager.DirMode()
+		}
+		return engine.caseSenseManager.FileMode()
+	})
 	if cfg.Engine.CaseSensitivity == config.CaseAutoDetect {
 		logger.Info("Case sensitivity auto-detection enabled")
 	} else {
@@ -940,6 +949,7 @@ func (e *Engine) newCallbacks() *Callbacks {
 	return &Callbacks{
 		OnDirectoryDiscovered:       e.OnDirectoryDiscovered,
 		OnFileDiscovered:            e.OnFileDiscovered,
+		QueueReferencedURL:          e.queueReferencedURL,
 		OnResult:                    e.onResult,
 		AddObservedName:             e.AddObservedNameTrusted,
 		AddObservedPath:             e.AddObservedPathTrusted,
@@ -1968,4 +1978,14 @@ func (e *Engine) FlushSecretFindings() {
 	logger.Info("Secret scan completed",
 		zap.Int("findings", totalFindings),
 		zap.Int("urls_with_findings", len(urlFindings)))
+}
+
+// startURLPath is the decoded path of the start URL ("" when it does not
+// parse); the prefix breaker buckets relative to its directory.
+func startURLPath(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Path
 }

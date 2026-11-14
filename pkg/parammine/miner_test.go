@@ -253,8 +253,10 @@ func TestMine_BudgetStopsMining(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Mine: %v", err)
 	}
-	if res.Aborted != AbortBudget || res.Requests != 6 {
-		t.Errorf("aborted %q after %d requests, want %q after 6", res.Aborted, res.Requests, AbortBudget)
+	// The scan stops short of the budget (the rest is the confirmation
+	// reserve); with nothing isolated yet the reserve goes unspent.
+	if res.Aborted != AbortBudget || res.Requests > 6 {
+		t.Errorf("aborted %q after %d requests, want %q within 6", res.Aborted, res.Requests, AbortBudget)
 	}
 }
 

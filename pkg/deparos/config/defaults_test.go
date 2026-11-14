@@ -131,28 +131,17 @@ func TestAllowedObservedExtensions(t *testing.T) {
 }
 
 func TestDefaultBackupExtensions(t *testing.T) {
-	// Verify the exported default list has 36 items
-	assert.Len(t, DefaultBackupExtensions, 36, "should have 36 backup extensions")
-
-	// Verify critical backup extensions are present
-	criticalBackups := []string{"bak", "old", "tmp", "backup"}
-	for _, ext := range criticalBackups {
-		assert.Contains(t, DefaultBackupExtensions, ext,
-			"should contain critical backup extension: %s", ext)
+	// MISS-6: templates over the discovered file, ~40 of them.
+	assert.GreaterOrEqual(t, len(DefaultBackupExtensions), 35)
+	assert.LessOrEqual(t, len(DefaultBackupExtensions), 50)
+	for _, tmpl := range []string{"{f}~", "{f}.bak", ".{f}.swp", "{n}.bak", "{n}_old.{e}", "{f}.1", "{f}.zip"} {
+		assert.Contains(t, DefaultBackupExtensions, tmpl, "should contain backup template %s", tmpl)
 	}
-
-	// Verify archive formats are present
-	archiveFormats := []string{"zip", "tar", "gz"}
-	for _, ext := range archiveFormats {
-		assert.Contains(t, DefaultBackupExtensions, ext,
-			"should contain archive format: %s", ext)
-	}
-
-	// Verify config file extensions are present
-	configExts := []string{"conf", "ini"}
-	for _, ext := range configExts {
-		assert.Contains(t, DefaultBackupExtensions, ext,
-			"should contain config extension: %s", ext)
+	seen := map[string]bool{}
+	for _, tmpl := range DefaultBackupExtensions {
+		assert.Contains(t, tmpl, "{", "default %q must be a template, not a bare suffix", tmpl)
+		assert.False(t, seen[tmpl], "duplicate template %q", tmpl)
+		seen[tmpl] = true
 	}
 }
 

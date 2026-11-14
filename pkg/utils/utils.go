@@ -209,7 +209,7 @@ var mediaRegex = regexp.MustCompile(
 	`^(woff|woff2|ttf|eot|otf|svg|mp4|webm|ogg|mkv|flv|avi|mov|wmv|css|jpg|jpeg|png|gif|bmp|webp|js|ico|pdf|mp3|m3u8)$`,
 )
 var mediaAndJSRegex = regexp.MustCompile(
-	`^(woff|woff2|ttf|eot|otf|svg|mp4|webm|ogg|mkv|flv|avi|mov|wmv|css|jpg|jpeg|png|gif|bmp|webp|js|ico|pdf|mp3|m3u8|js|json|zip|tar.gz|exe|gz|rar)$`,
+	`^(woff|woff2|ttf|eot|otf|svg|mp4|webm|ogg|mkv|flv|avi|mov|wmv|css|jpg|jpeg|png|gif|bmp|webp|js|ico|pdf|mp3|m3u8|js|json|zip|tar.gz|exe|gz|rar|tar|tgz|7z|bz2)$`,
 )
 
 // IsMediaAndJSURL checks if a URL is a media or JS file

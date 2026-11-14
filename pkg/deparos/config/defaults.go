@@ -76,13 +76,21 @@ var (
 		"functions", "utils", "helpers",
 	}
 
-	// DefaultBackupExtensions lists backup/temp file extensions tested when a file is discovered
-	// (e.g., admin.php -> admin.bak).
+	// DefaultBackupExtensions lists the backup/temp variants tried for every
+	// discovered file. Each entry is a TEMPLATE over the discovered file:
+	// {f} = full name ("admin.php"), {n} = name without extension ("admin"),
+	// {e} = extension ("php"). An entry without a placeholder is a legacy bare
+	// suffix and means "{f}.<suffix>" (admin.php.bak). Editor/VCS leftovers such
+	// as admin.php~ and .admin.php.swp were unreachable when every variant was
+	// appended after a dot (MISS-6).
 	DefaultBackupExtensions = []string{
-		"~1", "$$$", "1", "bac", "backup", "bak", "conf", "cs", "csproj",
-		"gz", "inc", "ini", "java", "log", "old", "sav", "tar", "tmp", "zip",
-		"~bk", "0", "BAC", "BACKUP", "BAK", "OLD", "INC", "lst", "orig",
-		"ORIG", "save", "temp", "TMP", "-OLD", "-old", "vbproj", "vb",
+		"{f}~", "{f}.bak", "{f}.old", "{f}.orig", "{f}.save", "{f}.swp", ".{f}.swp", "{f}.swo",
+		"{n}.bak", "{n}.old", "{n}.txt", "{n}.orig", "{n}.save",
+		"{f}-old", "{f}_old", "{n}_old.{e}", "{n}-old.{e}", "{n}.old.{e}", "{n}_bak.{e}", "{n}-bak.{e}",
+		"{n}_backup.{e}", "{n}-backup.{e}", "{n}.backup.{e}", "{n}~.{e}", "{n}1.{e}", "{n}2.{e}",
+		"{f}.1", "{f}.2", "{f}.tmp", "{f}.temp", "{f}.backup", "{f}.bk", "{f}.bkp",
+		"{f}.copy", "{f}.dist", "{f}.sample", "{f}.txt", "{f}.$$$", "{f}.~1",
+		"{f}.zip", "{f}.gz", "{f}.tar.gz", "{n}.zip", "{n}.tar.gz",
 	}
 )
 

@@ -422,6 +422,17 @@ func (r *Runner) resolveDiscoveryWordlists() resolvedDiscoveryWordlists {
 	return w
 }
 
+// discoveryExtractWords resolves discovery.extract_words: an explicit value
+// wins; unset means on at --intensity deep and off otherwise. Response-word
+// harvesting feeds every response body's tokens into the observed-name
+// wordlist, so it multiplies brute-force work and is kept for deep scans.
+func (r *Runner) discoveryExtractWords() bool {
+	if r.settings != nil && r.settings.Discovery.ExtractWords != nil {
+		return *r.settings.Discovery.ExtractWords
+	}
+	return r.options != nil && strings.EqualFold(strings.TrimSpace(r.options.Intensity), "deep")
+}
+
 // discoveryFuzzingState reports whether deparos FUZZ fuzzing is enabled for this
 // run, with a short reason for the header. Fuzzing makes deparos auto-append
 // /FUZZ and brute-force the (large) fuzz wordlist at each directory, so it is ON
@@ -678,6 +689,7 @@ func (r *Runner) buildDeparosConfig(additionalTargets []string, wls resolvedDisc
 		ConfirmViaProbe:       false,
 	}
 	cfg.BruteForceConcurrency, cfg.Protocol = r.discoveryWirePace(discoveryConcurrency)
+	cfg.ExtractWords = r.discoveryExtractWords()
 
 	// Apply YAML settings if available
 	if r.settings != nil {

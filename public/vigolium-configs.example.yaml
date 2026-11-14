@@ -900,6 +900,11 @@ discovery:
   # Default: false
   enrich_targets: false
 
+  # Harvest words from response bodies into the observed-name wordlist so they
+  # are brute-forced as path names. Unset = on at --intensity deep, off
+  # otherwise; true/false force it.
+  # extract_words: true
+
   # Enable malformed path probing during directory discovery.
   # When true, uses the fuzz wordlist (fuzz_wordlist_path) to test directories
   # with path traversal and malformed path payloads (e.g., ..;/, .%00/, %2e%2e/).
@@ -997,12 +1002,15 @@ discovery:
     # Default: true
     test_backup_extensions: true
 
-    # Custom backup extension list (used when test_backup_extensions is true).
-    # Default: deparos built-in list (~1, $$$, bak, old, tmp, backup, etc.)
+    # Custom backup variant list (used when test_backup_extensions is true).
+    # Each entry is a template over the discovered file: {f} = full name
+    # (admin.php), {n} = name without extension (admin), {e} = extension (php).
+    # A bare suffix without placeholders means "{f}.<suffix>" (admin.php.bak).
+    # Default: ~40 built-in templates ({f}~, {f}.bak, {n}.bak, .{f}.swp, {n}_old.{e}, ...)
     # backup_extensions:
-    #   - bak
+    #   - "{f}~"
+    #   - "{n}.bak"
     #   - old
-    #   - tmp
 
     # Test files without extensions.
     # Default: true

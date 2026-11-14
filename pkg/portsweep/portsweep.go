@@ -38,6 +38,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,6 +117,8 @@ type PortResult struct {
 	// fp is the honeypot fingerprint: status + server + body-hash prefix.
 	// Two ports that return effectively the same response share an fp.
 	fp string
+	// plainToTLS marks a plain-HTTP answer saying the port speaks TLS.
+	plainToTLS bool
 }
 
 // URL renders the confirmed service as a scheme://host:port/ URL, bracketing
@@ -269,9 +272,46 @@ func confirmHTTP(ctx context.Context, client *http.Client, host string, port int
 		primary, secondary = "https", "http"
 	}
 	if pr, ok := tryScheme(ctx, client, host, port, primary); ok {
+		// A TLS port answering a plain-HTTP request with a 400/497 "plain HTTP
+		// request was sent to HTTPS port" page is an HTTPS service: recording it
+		// as http:// would point every later phase at the error page.
+		if primary == "http" && pr.plainToTLS {
+			if tls, ok := tryScheme(ctx, client, host, port, "https"); ok {
+				return tls, true
+			}
+		}
 		return pr, true
 	}
 	return tryScheme(ctx, client, host, port, secondary)
+}
+
+// plainHTTPToTLSMarkers are the bodies servers send when plain HTTP reaches a
+// TLS listener (nginx, Apache, Tomcat/Jetty, generic proxies).
+var plainHTTPToTLSMarkers = []string{
+	"plain http request was sent to https port",
+	"speaking plain http to an ssl-enabled server",
+	"http request to an https server",
+	"http to https port",
+	"this combination of host and port requires tls",
+	"the plain http request was sent",
+}
+
+// looksLikeTLSPort reports a plain-HTTP answer that says the port speaks TLS:
+// nginx's 497, or a 400 whose body names the mismatch.
+func looksLikeTLSPort(status int, body []byte) bool {
+	if status == 497 {
+		return true
+	}
+	if status != http.StatusBadRequest {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	for _, m := range plainHTTPToTLSMarkers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // tryScheme performs one GET and, on an HTTP response, builds the PortResult and
@@ -293,11 +333,12 @@ func tryScheme(ctx context.Context, client *http.Client, host string, port int, 
 	server := resp.Header.Get("Server")
 
 	return PortResult{
-		Port:   port,
-		Scheme: scheme,
-		Status: resp.StatusCode,
-		Server: server,
-		fp:     fingerprint(resp.StatusCode, server, body),
+		Port:       port,
+		Scheme:     scheme,
+		Status:     resp.StatusCode,
+		Server:     server,
+		fp:         fingerprint(resp.StatusCode, server, body),
+		plainToTLS: scheme == "http" && looksLikeTLSPort(resp.StatusCode, body),
 	}, true
 }
 
