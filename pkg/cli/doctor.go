@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -20,6 +21,10 @@ var (
 	doctorFix    bool
 	doctorOnly   []string
 	doctorStrict bool
+	// doctorFor scopes the verdict to one purpose (scan, agent, server).
+	doctorFor string
+	// doctorTarget adds DNS/TCP/TLS reachability checks for a URL (--for scan).
+	doctorTarget string
 )
 
 // doctorRunDiagnostics is diagnostics.Run, replaced in tests: a real run spawns
@@ -41,6 +46,63 @@ func init() {
 	doctorCmd.Flags().BoolVar(&doctorFix, "fix", false, "Auto-install/fix failing checks")
 	doctorCmd.Flags().StringSliceVar(&doctorOnly, "only", nil, "Fix only specific items (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill)")
 	doctorCmd.Flags().BoolVar(&doctorStrict, "strict", false, "Exit 1 when the verdict is degraded, not only when it is not_ready")
+	doctorCmd.Flags().StringVar(&doctorFor, "for", "", "Scope the verdict to one purpose: "+strings.Join(diagnostics.Purposes, "|")+" (checks that do not affect it are reported but not counted)")
+	doctorCmd.Flags().StringVarP(&doctorTarget, "target", "t", "", "With --for scan: also check DNS, TCP and TLS reachability of this URL")
+	doctorCmd.Flags().BoolVarP(&globalStateless, "stateless", "S", false, "With --for scan: the scan will use a temporary database, so the database check is skipped")
+}
+
+// doctorScoped builds the --for report from the full one (nil without --for).
+func doctorScoped(report *diagnostics.Report, settings *config.Settings) *diagnostics.ScopedReport {
+	if doctorFor == "" || report == nil {
+		return nil
+	}
+	deps := diagnostics.ScopedDeps{
+		Settings:  settings,
+		Stateless: globalStateless,
+		Proxy:     globalProxy,
+		Target:    doctorTarget,
+	}
+	if settings != nil && settings.Database.Driver == "sqlite" && !globalStateless {
+		deps.DBDir = filepath.Dir(config.ExpandPath(settings.Database.SQLite.Path))
+	}
+	scoped, err := diagnostics.Scoped(doctorFor, report, deps)
+	if err != nil {
+		return nil
+	}
+	return scoped
+}
+
+// printScopedReport renders a --for report.
+func printScopedReport(s *diagnostics.ScopedReport) {
+	fmt.Println()
+	fmt.Printf("  %s %s\n", terminal.BoldCyan("Vigolium Doctor"), terminal.White("— ready for "+s.For+"?"))
+	fmt.Println()
+	for _, c := range s.Checks {
+		status := diagnostics.StatusOK
+		switch c.Status {
+		case diagnostics.ScopedNotReady:
+			status = diagnostics.StatusError
+		case diagnostics.ScopedDegraded, diagnostics.ScopedWarning:
+			status = diagnostics.StatusWarning
+		}
+		msg := c.Message
+		if !c.Counts && c.Status != diagnostics.ScopedOK {
+			msg += " (not counted)"
+		}
+		if c.Status == diagnostics.ScopedSkipped {
+			msg = "skipped — " + c.Message
+		}
+		printCheck(c.ID, status, msg)
+		if len(c.Affects) > 0 && c.Status != diagnostics.ScopedOK {
+			printDetails(true, []string{"affects: " + strings.Join(c.Affects, "; ")})
+		}
+		if len(c.FixArgv) > 0 && c.Status != diagnostics.ScopedOK {
+			printTip("`" + strings.Join(c.FixArgv, " ") + "`")
+		}
+	}
+	fmt.Println()
+	fmt.Printf("  %s %s\n", terminal.BoldCyan("Verdict:"), terminal.White(string(s.Status)))
+	fmt.Println()
 }
 
 // emitDoctorJSON writes the doctor -j document: items:[report], with the
@@ -52,7 +114,7 @@ func init() {
 // The legacy alias reproduces the pre-envelope shapes under
 // --json-legacy-keys: "." flattens the bare report a plain run printed, and
 // "report" renders the {report, fixes, updated} object --fix printed.
-func emitDoctorJSON(cmd *cobra.Command, report *diagnostics.Report, fixes []diagnostics.FixResult, updated *diagnostics.Report) error {
+func emitDoctorJSON(cmd *cobra.Command, report *diagnostics.Report, fixes []diagnostics.FixResult, updated *diagnostics.Report, scoped *diagnostics.ScopedReport) error {
 	verdict := report
 	legacyKey := "."
 	var opts []envOpt
@@ -64,7 +126,10 @@ func emitDoctorJSON(cmd *cobra.Command, report *diagnostics.Report, fixes []diag
 		}
 		opts = append(opts, withExtra("fixes", fixes), withExtra("updated", updated))
 	}
-	if verdict != nil {
+	switch {
+	case scoped != nil:
+		opts = append(opts, withExtra("status", scoped.Status), withExtra("for", scoped.For), withExtra("checks", scoped.Checks))
+	case verdict != nil:
 		opts = append(opts, withExtra("status", verdict.Status))
 	}
 	return emitObject(cmd, legacyKey, report, opts...)
@@ -78,6 +143,12 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	// on the data channel and a success status for a command that did not run —
 	// a caller had no way to learn its invocation was inert. An ineffective
 	// combination is a bad command line: exit 2, before any check runs.
+	if doctorFor != "" && !diagnostics.ValidPurpose(doctorFor) {
+		return usageErrorf("invalid --for %q (want one of: %s)", doctorFor, strings.Join(diagnostics.Purposes, ", "))
+	}
+	if doctorTarget != "" && doctorFor != diagnostics.PurposeScan {
+		return usageErrorf("--target checks scan reachability; use it with --for scan")
+	}
 	if len(doctorOnly) > 0 && !doctorFix {
 		return usageErrorf("--only selects which checks to repair and has no effect without --fix; "+
 			"add --fix to repair %s, or drop --only to report on every check",
@@ -109,12 +180,16 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	// Try to open DB (optional — report error if it fails). The error is
 	// passed through to diagnostics so a postgres connect failure surfaces as
 	// the real driver error instead of "not configured".
-	db, dbErr := getDB()
-	if dbErr == nil {
-		deps.DB = db
-		defer closeDatabaseOnExit()
-	} else {
-		deps.DBErr = dbErr
+	// A stateless scan never opens the project database, so `--for scan -S`
+	// does not either.
+	if !(globalStateless && doctorFor == diagnostics.PurposeScan) {
+		db, dbErr := getDB()
+		if dbErr == nil {
+			deps.DB = db
+			defer closeDatabaseOnExit()
+		} else {
+			deps.DBErr = dbErr
+		}
 	}
 
 	report := doctorRunDiagnostics(deps)
@@ -127,16 +202,21 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	ensureInitMarkerIfDepsPresent(report)
 
 	if !doctorFix {
+		scoped := doctorScoped(report, settings)
 		if globalJSON {
 			// Through the shared writer so this counts as the invocation's one
 			// result document and the error path does not append a second.
-			if err := emitDoctorJSON(cmd, report, nil, nil); err != nil {
+			if err := emitDoctorJSON(cmd, report, nil, nil, scoped); err != nil {
 				return err
 			}
-			return doctorVerdictError(report)
+			return doctorVerdict(report, scoped)
 		}
-		printDoctorReport(report)
-		return doctorVerdictError(report)
+		if scoped != nil {
+			printScopedReport(scoped)
+		} else {
+			printDoctorReport(report)
+		}
+		return doctorVerdict(report, scoped)
 	}
 
 	// --fix mode: print initial report, fix, then recheck. When --only narrows
@@ -178,15 +258,20 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 	// so subsequent scans skip the redundant first-run check.
 	ensureInitMarkerIfDepsPresent(updated)
 
+	scopedUpdated := doctorScoped(updated, settings)
 	if globalJSON {
-		if err := emitDoctorJSON(cmd, report, fixes, updated); err != nil {
+		if err := emitDoctorJSON(cmd, report, fixes, updated, scopedUpdated); err != nil {
 			return err
 		}
-		return doctorVerdictError(updated)
+		return doctorVerdict(updated, scopedUpdated)
 	}
 
 	fmt.Println()
 	fmt.Printf("  %s\n", terminal.BoldCyan("Updated status:"))
+	if scopedUpdated != nil {
+		printScopedReport(scopedUpdated)
+		return doctorVerdict(updated, scopedUpdated)
+	}
 	if focused {
 		printDoctorFocused(updated, doctorOnly)
 		fmt.Println()
@@ -221,6 +306,27 @@ func doctorVerdictError(r *diagnostics.Report) error {
 		return clicommon.CodedErrorf(apicontract.CodeNotReady, "doctor: system not ready (%s)", doctorBlockers(r))
 	case doctorStrict && r.Status == "degraded":
 		return clicommon.CodedErrorf(apicontract.CodeNotReady, "doctor: system degraded (--strict)")
+	}
+	return nil
+}
+
+// doctorVerdict is doctorVerdictError, scoped by --for when given: the
+// scoped verdict (the worst counted check) decides the exit.
+func doctorVerdict(r *diagnostics.Report, scoped *diagnostics.ScopedReport) error {
+	if scoped == nil {
+		return doctorVerdictError(r)
+	}
+	var blockers []string
+	for _, c := range scoped.Checks {
+		if c.Counts && c.Status == diagnostics.ScopedNotReady {
+			blockers = append(blockers, c.ID+": "+c.Message)
+		}
+	}
+	switch {
+	case scoped.Status == "not_ready":
+		return clicommon.CodedErrorf(apicontract.CodeNotReady, "doctor: not ready for %s (%s)", scoped.For, strings.Join(blockers, "; "))
+	case doctorStrict && scoped.Status == "degraded":
+		return clicommon.CodedErrorf(apicontract.CodeNotReady, "doctor: degraded for %s (--strict)", scoped.For)
 	}
 	return nil
 }

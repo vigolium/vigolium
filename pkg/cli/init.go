@@ -290,7 +290,7 @@ func (s coreDepState) missing() bool { return s.chromeMissing || s.nucleiMissing
 // notice is the single stderr line ensureCoreDeps prints when something is
 // missing: what will happen lazily, and how to do it now instead.
 func (s coreDepState) notice() string {
-	const fix = "run 'vigolium doctor --fix' to pre-install"
+	const fix = "check with 'vigolium doctor --for scan'; run 'vigolium doctor --fix' to pre-install"
 	switch {
 	case s.chromeMissing && s.nucleiMissing:
 		return "chromium and nuclei-templates not found — chromium is downloaded on first --spider (~150 MB), templates are cloned on first known-issue scan; " + fix
