@@ -120,6 +120,7 @@ type Capture struct {
 	extraParked extraPark
 	// Lazy request-body fetches (capture_extrainfo.go).
 	postDataState
+	bodyPoolState
 }
 
 // pendingEntry tracks an in-flight request waiting for response.
@@ -239,6 +240,7 @@ func (c *Capture) Start(browser *rod.Browser) error {
 		zap.Bool("include_headers", c.includeResponseHeaders))
 
 	c.startPostDataWorkers()
+	c.startBodyWorkers()
 	go c.subscribeEvents(browser)
 	go c.cleanupLoop()
 
@@ -621,7 +623,6 @@ func (c *Capture) onLoadingFinished(e *proto.NetworkLoadingFinished, sessionID p
 		// Skipping a static body we'd discard also skips this response's page
 		// enumeration + CDP body transfer — the dominant per-response cost —
 		// instead of fetching every image/font/media body just to throw it away.
-		var bodyFetch time.Duration
 		if fetch, skipped := shouldFetchResponseBody(pending.entry, includeBody, e.EncodedDataLength, maxBody); !fetch {
 			pending.entry.BodySource = skipped
 			if skipped == BodySourceTooLarge {
@@ -645,56 +646,85 @@ func (c *Capture) onLoadingFinished(e *proto.NetworkLoadingFinished, sessionID p
 				zap.String("url", pending.entry.Request.URL),
 				zap.Duration("age", time.Since(pending.startTime)))
 		} else {
-			fetchStart := time.Now()
-			body, err := c.fetchResponseBody(pending.sessionID, e.RequestID)
-			bodyFetch = time.Since(fetchStart)
-			if err != nil {
-				pending.entry.BodySource = BodySourceFailed
-				c.mu.Lock()
-				c.bodiesFailed++
-				c.mu.Unlock()
-				// Categorize error types for better debugging
-				if errors.Is(err, context.DeadlineExceeded) {
-					zap.L().Warn("Response body fetch timed out",
-						zap.String("url", pending.entry.Request.URL),
-						zap.Duration("timeout", 5*time.Second))
-				} else if strings.Contains(err.Error(), "page not found") {
-					zap.L().Debug("Page no longer exists for session",
-						zap.String("sessionID", string(pending.sessionID)))
-				} else {
-					zap.L().Debug("Could not fetch body",
-						zap.String("url", pending.entry.Request.URL),
-						zap.Error(err))
-				}
-			} else {
-				pending.entry.Response.Body = body
-				pending.entry.BodySource = BodySourceCDP
+			// The CDP body fetch runs on the bounded body worker pool, off the
+			// event goroutine (MISS-29b): one slow body used to hold every
+			// other event of the browser behind it.
+			job := bodyJob{pending: pending, requestID: e.RequestID, includeBody: includeBody, includeHeaders: includeHeaders}
+			if c.enqueueBody(job) {
+				return
 			}
+			c.runBodyJob(job)
+			return
 		}
 
-		finalizeTimings(pending, bodyFetch)
-
-		// Compute httpx fields BEFORE potentially discarding data
-		computeHTTPXFields(pending.entry)
-
-		// Now apply flags to control what gets saved to parquet
-		if !includeBody {
-			if pending.entry.BodySource == BodySourceCDP {
-				// Fetched for the metrics above, not kept.
-				pending.entry.BodySource = BodySourceOmittedPolicy
-			}
-			pending.entry.Response.Body = nil
-		}
-		if !includeHeaders {
-			pending.entry.Response.Headers = nil
-		}
+		c.finishResponse(pending, e.RequestID, 0, includeBody, includeHeaders)
+		return
 	}
 
+	c.finishEntry(pending, e.RequestID)
+}
+
+// runBodyJob fetches one response body over CDP and finishes the entry.
+func (c *Capture) runBodyJob(job bodyJob) {
+	pending := job.pending
+	fetchStart := time.Now()
+	body, err := c.responseBody(pending.sessionID, job.requestID)
+	bodyFetch := time.Since(fetchStart)
+	if err != nil {
+		pending.entry.BodySource = BodySourceFailed
+		c.mu.Lock()
+		c.bodiesFailed++
+		c.mu.Unlock()
+		// Categorize error types for better debugging
+		if errors.Is(err, context.DeadlineExceeded) {
+			zap.L().Warn("Response body fetch timed out",
+				zap.String("url", pending.entry.Request.URL),
+				zap.Duration("timeout", 5*time.Second))
+		} else if strings.Contains(err.Error(), "page not found") {
+			zap.L().Debug("Page no longer exists for session",
+				zap.String("sessionID", string(pending.sessionID)))
+		} else {
+			zap.L().Debug("Could not fetch body",
+				zap.String("url", pending.entry.Request.URL),
+				zap.Error(err))
+		}
+	} else {
+		pending.entry.Response.Body = body
+		pending.entry.BodySource = BodySourceCDP
+	}
+	c.finishResponse(pending, job.requestID, bodyFetch, job.includeBody, job.includeHeaders)
+}
+
+// finishResponse completes a response entry once its body is settled:
+// timings, httpx fields, the retention flags, then the store path.
+func (c *Capture) finishResponse(pending *pendingEntry, requestID proto.NetworkRequestID, bodyFetch time.Duration, includeBody, includeHeaders bool) {
+	finalizeTimings(pending, bodyFetch)
+
+	// Compute httpx fields BEFORE potentially discarding data
+	computeHTTPXFields(pending.entry)
+
+	// Now apply flags to control what gets saved to parquet
+	if !includeBody {
+		if pending.entry.BodySource == BodySourceCDP {
+			// Fetched for the metrics above, not kept.
+			pending.entry.BodySource = BodySourceOmittedPolicy
+		}
+		pending.entry.Response.Body = nil
+	}
+	if !includeHeaders {
+		pending.entry.Response.Headers = nil
+	}
+	c.finishEntry(pending, requestID)
+}
+
+// finishEntry stores a finished entry, after its request body when
+// requestWillBeSent left one out.
+func (c *Capture) finishEntry(pending *pendingEntry, requestID proto.NetworkRequestID) {
 	// A body requestWillBeSent left out is fetched off the event loop, and only
 	// for an entry that will be stored: in scope and not a static asset.
 	if pending.needPostData && pending.inScope &&
 		!hasStaticExtension(pending.entry.Request.URL) && !isBinaryStaticContentType(pending.entry.ContentType) {
-		c.enqueuePostData(postDataJob{entry: pending.entry, sessionID: pending.sessionID, requestID: e.RequestID})
+		c.enqueuePostData(postDataJob{entry: pending.entry, sessionID: pending.sessionID, requestID: requestID})
 		return
 	}
 	c.writeEntry(pending.entry)
@@ -1376,6 +1406,9 @@ func convertHeaders(headers proto.NetworkHeaders) map[string]string {
 // Note: The capture goroutine exits automatically when browser closes.
 func (c *Capture) Close() error {
 	// Write what the body-fetch workers still hold while the writer is open.
+	// Response bodies first: a finished body may still queue a request-body
+	// fetch.
+	c.stopBodyWorkers()
 	c.stopPostDataWorkers()
 
 	c.mu.Lock()
