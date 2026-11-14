@@ -126,6 +126,10 @@ type ExecutorConfig struct {
 	PassiveModuleTimeout  time.Duration        // Timeout per passive module call (default: 5s). 0 uses default.
 	ActiveModuleTimeout   time.Duration        // Timeout per active module call (default: 300s). 0 uses default. Modules may raise via TimeoutHinter.
 	ActiveTaskLimit       int                  // Max concurrent active module tasks across host/request/IP scopes
+	// HostTaskCap, when non-nil, overrides the per-host active-task cap the
+	// scheduler admits under (default: the host limiter's current per-host
+	// limit). Tests inject it; a value < 1 is treated as 1.
+	HostTaskCap func(hostPort string) int
 	// MaxOutstandingItems caps items that are dequeued but not yet finished —
 	// a worker dispatches an item's active tasks and moves on, and the item
 	// stays outstanding until its last task returns. Each one holds its live

@@ -46,6 +46,9 @@ func (e *Executor) feedItems(ctx context.Context, itemCh chan<- *work.WorkItem) 
 
 		// Drain any pending feedback items (non-blocking) before pulling from source
 		e.drainFeedback(ctx, itemCh)
+		if !e.requeueDeferred(ctx, itemCh, false) {
+			return false
+		}
 
 		// Block feeding while paused
 		if e.cfg.PauseCtrl != nil {
@@ -190,6 +193,14 @@ func (e *Executor) worker(ctx context.Context, _ int, itemCh <-chan *work.WorkIt
 			if !ok {
 				<-e.pool.itemSlots
 				return
+			}
+			// Item fairness: an item for a host whose task backlog is already
+			// far over its cap would only queue more tasks behind it; park it
+			// and let this worker dispatch another host's item instead. The
+			// feeder re-sends it once the host drains (requeueDeferred).
+			if e.parkIfOverloaded(item) {
+				<-e.pool.itemSlots
+				continue
 			}
 			t := e.newItemTracker(ctx, item, true)
 			// PauseCtrl covers the worker's own part only. Tasks already

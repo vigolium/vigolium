@@ -240,11 +240,15 @@ type workerPool struct {
 	taskWG sync.WaitGroup
 
 	// feedbackCh lets modules inject discovered requests back into the pipeline;
-	// feeder wraps it to track drop metrics. activeTaskSem bounds concurrent
-	// active-module tasks.
-	feedbackCh    chan *work.WorkItem
-	feeder        *executorFeeder
-	activeTaskSem chan struct{}
+	// feeder wraps it to track drop metrics.
+	feedbackCh chan *work.WorkItem
+	feeder     *executorFeeder
+	// sched admits active-module tasks under the global and per-host caps
+	// (see activeScheduler).
+	sched *activeScheduler
+	// deferred parks items whose host is already far over its task cap so
+	// workers keep dispatching other hosts' items (ECON-3 item fairness).
+	deferred deferredItems
 	// passiveTaskSem bounds concurrent parallel-passive goroutines GLOBALLY across
 	// all record workers. Without it, ParallelPassive spawns one goroutine per
 	// eligible passive module for every in-flight record (workers × modules), which
@@ -336,7 +340,7 @@ func NewExecutor(
 			activeTaskLimit = 32
 		}
 	}
-	e.pool.activeTaskSem = make(chan struct{}, activeTaskLimit)
+	e.pool.sched = newActiveScheduler(activeTaskLimit, e.hostTaskCapFunc(activeTaskLimit))
 
 	maxOutstanding := cfg.MaxOutstandingItems
 	if maxOutstanding <= 0 {
@@ -548,6 +552,11 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 		}()
 	}
 
+	// A cancelled run drops the scheduler's queued tasks at once, instead of
+	// waiting for a running (possibly stuck) task's release to pump them out.
+	stopSchedWatch := context.AfterFunc(ctx, e.pool.sched.drainCancelled)
+	defer stopSchedWatch()
+
 	var wg conc.WaitGroup
 	itemCh := make(chan *work.WorkItem, e.cfg.Workers*2)
 
@@ -608,6 +617,15 @@ drainLoop:
 				lastProgress = time.Now() // a worker completed an item
 			}
 			prevInFlight = cur
+			// Parked items go back once their host drains; with nothing in
+			// flight no host can drain further, so send them all.
+			if e.pool.deferred.len() > 0 {
+				if !e.requeueDeferred(ctx, itemCh, cur == 0) {
+					break drainLoop
+				}
+				idleSince = time.Time{}
+				continue
+			}
 			if cur != 0 || len(e.pool.feedbackCh) != 0 {
 				idleSince = time.Time{}
 				if stallTimeout > 0 && time.Since(lastProgress) >= stallTimeout {
@@ -635,6 +653,11 @@ drainLoop:
 
 	close(itemCh)
 	close(stopWorkers)
+	// Items still parked at shutdown were never processed: keep them unacked so
+	// a durable cursor re-serves them.
+	if n := len(e.pool.deferred.takeReady(nil, true)); n > 0 {
+		e.unacked.Add(int64(n))
+	}
 
 	// Bound the wait for workers, then their detached tasks, to exit. Healthy
 	// workers return immediately once itemCh is closed, and on a clean drain

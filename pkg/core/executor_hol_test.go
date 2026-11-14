@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -271,8 +272,7 @@ func TestFeedbackFromDetachedTaskIsDrained(t *testing.T) {
 func TestPanicInDetachedTaskForcesAck(t *testing.T) {
 	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 
-	e := NewExecutor(ExecutorConfig{Workers: 1}, nil, nil, nil)
-	e.pool.activeTaskSem = make(chan struct{}, 1)
+	e := NewExecutor(ExecutorConfig{Workers: 1, ActiveTaskLimit: 1}, nil, nil, nil)
 
 	var acks atomic.Int64
 	item := ackedItem("/poison", &acks)
@@ -282,7 +282,7 @@ func TestPanicInDetachedTaskForcesAck(t *testing.T) {
 	cancel()
 	tr := e.newItemTracker(cancelled, item, false)
 	// The task panics before handing its slot to a module wrapper.
-	e.goActiveTask(context.Background(), tr, func(func()) { panic("boom") })
+	e.goActiveTask(context.Background(), tr, "h:80", func(func()) { panic("boom") })
 	tr.done()
 	waitClosed(t, tr.finished, "the item to complete")
 
@@ -292,8 +292,8 @@ func TestPanicInDetachedTaskForcesAck(t *testing.T) {
 	if got := e.Report().Unacked; got != 0 {
 		t.Fatalf("Unacked = %d, want 0", got)
 	}
-	if got := len(e.pool.activeTaskSem); got != 0 {
-		t.Fatalf("active-task slot leaked by the panicking task (%d held)", got)
+	if running, _ := e.pool.sched.stats(); running != 0 {
+		t.Fatalf("active-task slot leaked by the panicking task (%d held)", running)
 	}
 	if got := e.InFlight(); got != 0 {
 		t.Fatalf("InFlight() = %d, want 0", got)
@@ -380,7 +380,7 @@ func TestBufferNotReturnedWhileTaskRunning(t *testing.T) {
 	buf := tr.pooledBuf
 	release1, release2 := make(chan struct{}), make(chan struct{})
 	for _, rel := range []chan struct{}{release1, release2} {
-		e.goActiveTask(context.Background(), tr, func(releaseSlot func()) {
+		e.goActiveTask(context.Background(), tr, "h:80", func(releaseSlot func()) {
 			defer releaseSlot()
 			<-rel
 		})
@@ -408,4 +408,125 @@ func TestBufferNotReturnedWhileTaskRunning(t *testing.T) {
 	if got := returnedCount(); got != 1 {
 		t.Fatalf("an escaped buffer was returned to the pool")
 	}
+}
+
+// TestSlowHostDoesNotStarveOthers: with a global cap of 4 and a per-host cap of
+// 2, ten items whose tasks block on host A must not keep host B's tasks from
+// running (MISS-30 / ECON-3). Under the old global semaphore A's blocked tasks
+// held all four slots and B waited until A drained.
+func TestSlowHostDoesNotStarveOthers(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+
+	releaseA := make(chan struct{})
+	var bDone atomic.Int64
+	bFinished := make(chan struct{})
+	mod := newHookedModule(func(ctx context.Context, item *httpmsg.HttpRequestResponse, _ *modules.ScanContext) {
+		if item.Service().Host() == "a.test" {
+			select {
+			case <-releaseA:
+			case <-ctx.Done():
+			}
+			return
+		}
+		if bDone.Add(1) == 2 {
+			close(bFinished)
+		}
+	})
+	var items []*work.WorkItem
+	for i := 0; i < 10; i++ {
+		it, _ := makeTestItem("a.test", "/a"+strconv.Itoa(i), "<html>ok</html>")
+		items = append(items, it)
+	}
+	for i := 0; i < 2; i++ {
+		it, _ := makeTestItem("b.test", "/b"+strconv.Itoa(i), "<html>ok</html>")
+		items = append(items, it)
+	}
+	e := NewExecutor(ExecutorConfig{
+		Workers: 2, SkipBaseline: true, ActiveTaskLimit: 4, MaxOutstandingItems: 16,
+		HostTaskCap: func(string) int { return 2 },
+	}, &sliceSource{items: items}, []modules.ActiveModule{mod}, nil)
+
+	done := runExecute(t, e, context.Background())
+	waitClosed(t, bFinished, "host B's tasks while host A's are blocked")
+	if running, _ := e.pool.sched.stats(); running > 4 {
+		t.Fatalf("running tasks = %d, exceeds the global cap 4", running)
+	}
+	close(releaseA)
+	waitClosed(t, done, "Execute to return")
+	if got := e.Processed(); got != 12 {
+		t.Fatalf("Processed() = %d, want 12 (parked items must still run)", got)
+	}
+}
+
+// TestSchedulerPerHostCapAndRoundRobin checks the admission invariants
+// directly: never more than cap per host or G overall, and a cancelled queue is
+// dropped without running.
+func TestSchedulerPerHostCapAndRoundRobin(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+
+	s := newActiveScheduler(3, func(string) int { return 2 })
+	s.lowMemory = nil
+	var mu sync.Mutex
+	perHost := map[string]int{}
+	maxPerHost := map[string]int{}
+	var total, maxTotal int
+	gate := make(chan struct{})
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+	var dropped atomic.Int64
+	enq := func(host string) {
+		wg.Add(1)
+		s.enqueue(&schedTask{ctx: ctx, host: host,
+			drop: func() { dropped.Add(1); wg.Done() },
+			run: func(release func()) {
+				go func() {
+					defer wg.Done()
+					mu.Lock()
+					perHost[host]++
+					total++
+					maxPerHost[host] = max(maxPerHost[host], perHost[host])
+					maxTotal = max(maxTotal, total)
+					mu.Unlock()
+					<-gate
+					mu.Lock()
+					perHost[host]--
+					total--
+					mu.Unlock()
+					release()
+				}()
+			}})
+	}
+	for i := 0; i < 6; i++ {
+		enq("a:80")
+	}
+	enq("b:80")
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	if perHost["b:80"] != 1 {
+		t.Errorf("host b not admitted while host a is at its cap: %v", perHost)
+	}
+	mu.Unlock()
+	close(gate)
+	wg.Wait()
+	if maxPerHost["a:80"] > 2 || maxTotal > 3 {
+		t.Fatalf("caps exceeded: perHost=%v total=%d", maxPerHost, maxTotal)
+	}
+
+	// Cancellation drops queued tasks.
+	block := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		s.enqueue(&schedTask{ctx: context.Background(), host: "c:80", drop: func() { wg.Done() },
+			run: func(release func()) { go func() { defer wg.Done(); <-block; release() }() }})
+	}
+	for i := 0; i < 3; i++ {
+		enq("c:80")
+	}
+	cancel()
+	s.drainCancelled()
+	if got := dropped.Load(); got != 3 {
+		t.Fatalf("dropped = %d, want 3", got)
+	}
+	close(block)
+	wg.Wait()
 }
