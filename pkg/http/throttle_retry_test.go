@@ -53,7 +53,7 @@ func TestThrottle_429ThenOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r := newLimitedRequester(t).WithAbandonFlag(&atomic.Bool{})
+	r := newLimitedRequester(t).WithCall(&atomic.Bool{}, nil)
 	rr, _ := httpmsg.GetRawRequestFromURL(srv.URL + "/x")
 	resp, _, err := r.Execute(rr, Options{NoClustering: true})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestThrottle_PersistentMarksCall(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
-	r := newLimitedRequester(t).WithAbandonFlag(&atomic.Bool{})
+	r := newLimitedRequester(t).WithCall(&atomic.Bool{}, nil)
 	rr, _ := httpmsg.GetRawRequestFromURL(srv.URL + "/x")
 	resp, _, err := r.Execute(rr, Options{NoClustering: true})
 	if err != nil {

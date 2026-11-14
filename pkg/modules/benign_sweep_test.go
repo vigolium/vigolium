@@ -162,7 +162,7 @@ func runBenignSweep(t *testing.T) map[sweepCell]sweepResult {
 								// module's retry count depend on the others.
 								client = modtest.RequesterNoThrottlePause(t)
 							}
-							events, _ := modtest.RunActive(mod, rr, client.WithSendCounter(&sent), scanCtx)
+							events, _ := modtest.RunActive(mod, rr, client.WithCall(nil, &sent), scanCtx)
 							res := sweepResult{requests: sent.Load(), deterministic: fx.Deterministic}
 							for _, ev := range events {
 								if ev == nil || !ev.IsFinding() || ev.Info.Severity <= severity.Info {

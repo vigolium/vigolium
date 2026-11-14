@@ -239,7 +239,7 @@ func RunActiveTestCase(t testing.TB, tc TestCase, baseURL string, infra *TestInf
 		start := time.Now()
 		// Per-module send counter: the request count lands in the report.
 		var sent atomic.Int64
-		findings, scanErr := modtest.RunActive(mod, rr, infra.HTTPClient.WithSendCounter(&sent), infra.ScanCtx)
+		findings, scanErr := modtest.RunActive(mod, rr, infra.HTTPClient.WithCall(nil, &sent), infra.ScanCtx)
 		duration := time.Since(start)
 
 		tr := TestResult{

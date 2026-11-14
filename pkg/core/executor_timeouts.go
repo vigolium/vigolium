@@ -523,20 +523,17 @@ func (e *Executor) runActiveCall(
 	// Deferring the set is correct on all three exits: on the normal path the
 	// scan goroutine has already delivered its result, and on the timeout /
 	// parent-cancel paths flagging it is precisely the intent.
+	//
+	// sent attributes this call's wire requests to the module. It is flushed by
+	// the scan goroutine once scanFn unwinds, so requests an abandoned call
+	// still sent after its timeout are counted too.
 	var abandoned atomic.Bool
+	var sent atomic.Int64
 	var callStats *http.CallStats
 	if reqClient != nil {
 		defer abandoned.Store(true)
-		reqClient = reqClient.WithAbandonFlag(&abandoned)
+		reqClient = reqClient.WithCall(&abandoned, &sent)
 		callStats = reqClient.CallStats()
-	}
-
-	// MEAS-4: attribute this call's wire requests to the module. Flushed by the
-	// scan goroutine once scanFn unwinds, so requests an abandoned call still
-	// sent after its timeout are counted too.
-	var sent atomic.Int64
-	if reqClient != nil {
-		reqClient = reqClient.WithSendCounter(&sent)
 	}
 
 	start := time.Now()

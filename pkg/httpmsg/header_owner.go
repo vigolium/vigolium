@@ -4,14 +4,14 @@ import "strings"
 
 // HeaderOwner is implemented by insertion points whose payload lives in a
 // request header the requester would otherwise overwrite with the session's
-// or the operator's (-H) value (MISS-11). OwnedHeaderKeys returns lowercased
-// keys in the http.Options.PreserveHeaders format: a header name ("x-api-key")
+// or the operator's (-H) value. OwnedHeaderKeys returns lowercased keys in
+// the http.Requester.WithPreservedHeaders format: a header name ("x-api-key")
 // or "cookie:<name>" for a single cookie inside the Cookie header.
 type HeaderOwner interface {
 	OwnedHeaderKeys() []string
 }
 
-// PreserveCookieKeyPrefix marks a PreserveHeaders key naming one cookie.
+// PreserveCookieKeyPrefix marks a preserved-header key naming one cookie.
 const PreserveCookieKeyPrefix = "cookie:"
 
 // OwnedHeaderKeys: a header insertion point owns its header.

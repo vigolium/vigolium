@@ -70,25 +70,39 @@ func TestPoolStatsTraceCounts(t *testing.T) {
 	}
 }
 
-// A trace already on the context is composed into a per-request copy, never
+// Each attempt gets its own trace copy carrying the attempt's WroteRequest
+// hook, and a trace already on the context is composed into that copy, never
 // into the shared pool trace: composing into the shared one raced across
 // goroutines and chained hooks onto it on every request.
 func TestPoolStatsTraceContextLeavesSharedTraceUntouched(t *testing.T) {
 	ps := newPoolStats()
 	before := ps.ct.WroteRequest
+	var outerWrote, attemptWrote int
 	outer := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
-		WroteRequest: func(httptrace.WroteRequestInfo) {},
+		WroteRequest: func(httptrace.WroteRequestInfo) { outerWrote++ },
 	})
 	for range 3 {
-		got := httptrace.ContextClientTrace(ps.traceContext(outer))
+		got := httptrace.ContextClientTrace(ps.traceContext(outer, func(httptrace.WroteRequestInfo) { attemptWrote++ }))
 		if got == ps.ct {
 			t.Fatal("traceContext attached the shared trace itself")
 		}
-		if got.WroteRequest == nil {
-			t.Fatal("outer WroteRequest hook lost in composition")
+		if got.WroteRequest == nil || got.GotConn == nil {
+			t.Fatal("attempt trace lost a hook")
 		}
+		got.WroteRequest(httptrace.WroteRequestInfo{})
+	}
+	if outerWrote != 3 || attemptWrote != 3 {
+		t.Fatalf("hooks fired outer=%d attempt=%d, want 3 each", outerWrote, attemptWrote)
 	}
 	if (ps.ct.WroteRequest == nil) != (before == nil) {
 		t.Fatal("shared pool trace was mutated by composition")
+	}
+	if ps.requests.Load() != 3 {
+		t.Errorf("requests = %d, want 3", ps.requests.Load())
+	}
+	// No telemetry and no hook: nothing to attach.
+	var nilStats *poolStats
+	if nilStats.traceContext(outer, nil) != outer {
+		t.Error("nil poolStats with no hook should return ctx unchanged")
 	}
 }

@@ -68,13 +68,6 @@ type Options struct {
 	// Preflight and probe baselines — plain GETs whose only job is to learn
 	// whether the host answers — set it.
 	RetryTimeouts bool
-	// PreserveHeaders names headers whose value the module set deliberately
-	// (MISS-11): when the request already carries a non-empty value for one,
-	// the session's and the operator's (-H) copy no longer overwrite it.
-	// Lowercased header names, or "cookie:<name>" for one cookie inside the
-	// Cookie header, which is then spliced into the session/-H cookie string
-	// rather than replacing it. A header the request lacks is never added.
-	PreserveHeaders []string
 	// PreserveConnection keeps a stored "Connection: close" on the wire. By
 	// default the net/http path drops it (ECON-13): a captured record carrying
 	// it made every probe built from it pay a fresh TCP+TLS handshake.
@@ -152,10 +145,10 @@ type Requester struct {
 	// reaches modules that call Execute (not ExecuteContext). nil → Background.
 	defaultCtx context.Context
 	// abandonFlag, when non-nil and set, marks the owning module call as abandoned:
-	// Execute then refuses to start any NEW request. See WithAbandonFlag.
+	// Execute then refuses to start any NEW request. See WithCall.
 	abandonFlag *atomic.Bool
 	// sendCounter, when non-nil, is incremented once per wire attempt this view
-	// sends (retries included; request-cache hits excluded). See WithSendCounter.
+	// sends (retries included; request-cache hits excluded). See WithCall.
 	sendCounter *atomic.Int64
 	// carried holds browser-harvested per-host sessions (cookies + optional
 	// pinned User-Agent) carried forward from the spidering phase. It is a
@@ -224,15 +217,18 @@ type Requester struct {
 	baseline *httpmsg.HttpRequestResponse
 	// callStats counts per-call transport outcomes a module's negative result
 	// depends on (MISS-22). A fresh one is attached per module call by
-	// WithAbandonFlag; the root requester carries a scan-wide one.
+	// WithCall; the root requester carries a scan-wide one.
 	callStats *CallStats
 	// hostFilter, when set, refuses requests to hosts it rejects
 	// (WithHostFilter).
 	hostFilter func(host string) bool
-	// preserved are PreserveHeaders keys applied to every request on this
-	// view (WithPreservedHeaders). The executor sets them per task for an
-	// insertion point that lives in a header (httpmsg.HeaderOwner).
-	preserved []string
+	// preserved are the header keys whose module-set value wins over the
+	// session's and -H's on every request of this view (WithPreservedHeaders).
+	// The executor sets them per task for an insertion point that lives in a
+	// header (httpmsg.HeaderOwner). preservedScope is their response-cache
+	// partition suffix, built once with them.
+	preserved      []string
+	preservedScope string
 }
 
 // WithLiveSession returns a shallow clone that sends live's credentials and
@@ -606,16 +602,17 @@ func (r *Requester) WithHostFilter(allow func(host string) bool) *Requester {
 // cancelled), so any result it produces will be discarded.
 var ErrRequestAbandoned = errors.New("request abandoned: module call already timed out")
 
-// WithAbandonFlag returns a shallow clone whose Execute refuses to START new
-// requests once flag is set. Requests already in flight are untouched.
+// WithCall returns the per-module-call clone: its own outcome counters
+// (CallStats, read by the executor after the module returns), the call's
+// abandon flag and its wire-attempt counter. Either may be nil.
 //
-// This exists because a per-module timeout does not stop the module. The
-// executor's watchdog returns (nil, false) and the caller discards the result,
-// but the module's goroutine keeps running — and kept issuing fresh requests
-// against the phase-bound requester. On a real scan that was 725+ timed-out
-// modules still hammering the target, competing for the same per-host
-// concurrency as live work, to produce findings that are thrown away by
-// definition.
+// flag, once set, makes Execute refuse to START new requests; requests
+// already in flight are untouched. A per-module timeout does not stop the
+// module: the executor's watchdog discards the result, but the module's
+// goroutine keeps running and would keep issuing fresh requests against the
+// phase-bound requester — on a real scan, 725+ timed-out modules still
+// hammering the target, competing for the same per-host concurrency as live
+// work, to produce findings that are thrown away by definition.
 //
 // The signal is separate from WithContext, and only gates request INITIATION,
 // for one specific reason: the request clusterer dedups concurrent identical
@@ -631,29 +628,16 @@ var ErrRequestAbandoned = errors.New("request abandoned: module call already tim
 // there would allocate a context plus a CancelFunc and take the shared phase
 // context's children-map lock twice per call, serializing hundreds of concurrent
 // dispatches on one mutex to carry a single bit.
-func (r *Requester) WithAbandonFlag(flag *atomic.Bool) *Requester {
-	if flag == nil {
-		return r
-	}
+//
+// counter gets one per wire attempt the clone sends (each retry is an attempt;
+// a request served from the request cache sends nothing and is not counted):
+// the executor attributes requests to modules with it, tests assert request
+// budgets with it.
+func (r *Requester) WithCall(flag *atomic.Bool, counter *atomic.Int64) *Requester {
 	clone := *r
 	clone.abandonFlag = flag
-	// The per-call clone: its own outcome counters, read by the executor
-	// after the module returns (CallStats).
-	clone.callStats = &CallStats{}
-	return &clone
-}
-
-// WithSendCounter returns a shallow clone that adds one to counter for every
-// wire attempt it sends (each retry is an attempt; a request served from the
-// request cache sends nothing and is not counted). The executor wraps each
-// module call's client with one to attribute requests to modules; tests use it
-// to assert request budgets. A nil counter returns r unchanged.
-func (r *Requester) WithSendCounter(counter *atomic.Int64) *Requester {
-	if counter == nil {
-		return r
-	}
-	clone := *r
 	clone.sendCounter = counter
+	clone.callStats = &CallStats{}
 	return &clone
 }
 
@@ -694,7 +678,7 @@ func (r *Requester) noteCallError(err error) {
 }
 
 // CallStats returns this requester's outcome counters: per module call on a
-// WithAbandonFlag clone, scan-wide on the root. Never nil for a requester
+// WithCall clone, scan-wide on the root. Never nil for a requester
 // built by NewRequester; nil-safe on a nil receiver (returns nil).
 func (r *Requester) CallStats() *CallStats {
 	if r == nil {
@@ -1394,13 +1378,10 @@ func (r *Requester) executeContext(ctx context.Context, input *httpmsg.HttpReque
 	if r.clusterer != nil && !opts.NoClustering {
 		// Stamp this requester's cache partition onto the options copy the
 		// clusterer keys on. Callers never set this field.
-		opts.clusterScope = r.clusterScope
 		// Preserved headers change what goes on the wire for the same raw
 		// bytes (the module's value instead of the session's), so they get
 		// their own cache partition.
-		if len(r.preserved) > 0 || len(opts.PreserveHeaders) > 0 {
-			opts.clusterScope += "|preserve:" + strings.Join(r.preserved, ",") + ";" + strings.Join(opts.PreserveHeaders, ",")
-		}
+		opts.clusterScope = r.clusterScope + r.preservedScope
 		return r.clusterer.Execute(input, opts, func(in *httpmsg.HttpRequestResponse, o Options) (*httpUtils.ResponseChain, time.Duration, error) {
 			return r.executeDirectly(ctx, in, o)
 		})
@@ -1528,9 +1509,7 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 			wrote.Store(false)
 			attemptCtx := ctx
 			if !opts.RawRequest {
-				attemptCtx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-					WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) },
-				})
+				attemptCtx = r.poolStats.traceContext(ctx, func(httptrace.WroteRequestInfo) { wrote.Store(true) })
 			}
 			var sendErr error
 			resp, sendErr = r.doRequest(attemptCtx, input, opts, creds)
@@ -1631,7 +1610,7 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 func (r *Requester) sendBaselineProbe(ctx context.Context, host string, opts Options) error {
 	r.sent.Add(1)
 	probeOpts := Options{NoRedirects: opts.NoRedirects, DisableCompression: opts.DisableCompression}
-	resp, err := r.doRequest(ctx, r.baseline, probeOpts, r.live.Credentials())
+	resp, err := r.doRequest(r.poolStats.traceContext(ctx, nil), r.baseline, probeOpts, r.live.Credentials())
 	if err != nil {
 		if ctx.Err() == nil {
 			r.reportHostFeedback(host, 0, err, false)
@@ -1977,16 +1956,9 @@ var defaultHeaderTemplate = func() http.Header {
 }()
 
 func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestResponse, opts Options, creds *authentication.Credentials) (*httpUtils.ResponseChain, error) {
+	// ctx already carries the attempt's ClientTrace (poolStats.traceContext);
+	// a raw request bypasses net/http and is not traced.
 	start := time.Now()
-
-	// Attach connection-pool tracing so scan diagnostics can surface reuse ratio /
-	// handshake churn (OPT-3). One shared ClientTrace, so this costs a single context
-	// wrap. The rawhttp path bypasses net/http, so it is intentionally not traced.
-	if r.poolStats != nil && !opts.RawRequest {
-		ctx = r.poolStats.traceContext(ctx)
-		r.poolStats.requests.Add(1)
-	}
-
 	req, err := input.BuildRetryableRequestWithContext(ctx)
 	if err != nil {
 		return nil, &requestBuildError{err: err}
@@ -1994,10 +1966,7 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 
 	// Module-owned header values, read before anything below overwrites them
 	// (MISS-11); restored after the session credentials are applied.
-	var preserved *preservedSnapshot
-	if len(r.preserved) > 0 || len(opts.PreserveHeaders) > 0 {
-		preserved = snapshotPreserved(req.Header, r.preserved, opts.PreserveHeaders)
-	}
+	preserved := snapshotPreserved(req.Header, r.preserved)
 
 	// Apply default browser headers (only those not already set on the request).
 	// Template keys are canonical, so direct map access skips the per-entry
@@ -2050,56 +2019,37 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 
 	var resp *http.Response
 	if opts.RawRequest {
-		rawClient := r.rawClient
-		// Every raw send goes through DoRawWithOptions with FollowRedirects
-		// false: rawhttp's Dor hard-codes FollowRedirects true and tests
-		// Current <= MaxRedirects, so it follows one hop even at a limit of 0.
-		if len(opts.RawBytes) > 0 {
+		// Every raw send goes through DoRawWithOptions on a copy of the raw
+		// client's options, whose FollowRedirects is off: a raw probe is
+		// exactly one round trip, so the response belongs to the bytes sent.
+		rawOpts := *r.rawClient.Options
+		var body io.Reader = req.Body
+		target := ""
+		switch {
+		case len(opts.RawBytes) > 0:
 			// Framing-attack path: hand rawhttp the exact bytes and switch off
 			// every automatic header it would otherwise synthesize. With
 			// CustomRawBytes set rawhttp writes the buffer to the connection and
 			// derives nothing, so a deliberately wrong Content-Length and a
 			// duplicate/odd-cased Transfer-Encoding both reach the server intact.
-			rawOpts := *rawClient.Options
 			rawOpts.CustomRawBytes = opts.RawBytes
 			rawOpts.AutomaticHostHeader = false
 			rawOpts.AutomaticContentLength = false
-			// Redirect following would re-issue the request through the normal
-			// builder and silently re-frame it; the probe must be exactly one
-			// round trip so the response belongs to the bytes we sent.
-			rawOpts.FollowRedirects = false
-			resp, err = rawClient.DoRawWithOptions(
-				req.Method, req.String(), "", req.Header, nil, &rawOpts,
-			)
-		} else if opts.RawRequestTarget != "" {
+			body = nil
+		case opts.RawRequestTarget != "":
 			// Routing-based SSRF / request-line attacks ("Cracking the lens"):
 			// connect to the real host (req.URL) but emit an attacker-chosen,
 			// literal request target on the wire — rawhttp sends the uripath arg
-			// verbatim. AutomaticHostHeader is disabled for this call so the
-			// request's own Host header (carried in req.Header by
-			// BuildRetryableRequest) is sent as-is instead of being overwritten
-			// with the connection host; the Host/target mismatch is the whole
-			// point of these attacks. The client's options are copied so the
-			// shared rawhttp default (used by the smuggling module via Dor) is
-			// left untouched.
-			rawOpts := *rawClient.Options
+			// verbatim. AutomaticHostHeader is off so the request's own Host
+			// header (carried in req.Header by BuildRetryableRequest) is sent
+			// as-is instead of being overwritten with the connection host; the
+			// Host/target mismatch is the whole point of these attacks.
 			rawOpts.AutomaticHostHeader = false
-			rawOpts.FollowRedirects = false
-			// req embeds *urlutil.URL (retryablehttp.Request), so req.String() is the
-			// promoted request URL — rawhttp dials its host while RawRequestTarget
-			// overrides the on-the-wire request-line target.
-			connURL := req.String()
-			resp, err = rawClient.DoRawWithOptions(
-				req.Method, connURL, opts.RawRequestTarget,
-				req.Header, req.Body, &rawOpts,
-			)
-		} else {
-			rawOpts := *rawClient.Options
-			rawOpts.FollowRedirects = false
-			resp, err = rawClient.DoRawWithOptions(
-				req.Method, req.String(), "", req.Header, req.Body, &rawOpts,
-			)
+			target = opts.RawRequestTarget
 		}
+		// req embeds *urlutil.URL (retryablehttp.Request), so req.String() is
+		// the request URL rawhttp dials.
+		resp, err = r.rawClient.DoRawWithOptions(req.Method, req.String(), target, req.Header, body, &rawOpts)
 	} else {
 		if !opts.PreserveConnection {
 			dropConnectionClose(req.Header)

@@ -484,6 +484,38 @@ func MergeCookieHeaders(existing, carried string) string {
 	return strings.TrimRight(existing, "; ") + "; " + strings.Join(additions, "; ")
 }
 
+// OverrideCookieHeaders is MergeCookieHeaders with the opposite precedence:
+// each cookie in override replaces the same-named cookie in existing (names
+// compared case-insensitively) in place, or is appended when absent. The
+// result is re-joined with "; ".
+func OverrideCookieHeaders(existing, override string) string {
+	var parts []string
+	for _, kv := range strings.Split(existing, ";") {
+		if kv = strings.TrimSpace(kv); kv != "" {
+			parts = append(parts, kv)
+		}
+	}
+	for _, kv := range strings.Split(override, ";") {
+		kv = strings.TrimSpace(kv)
+		name := cookieName(kv)
+		if name == "" {
+			continue
+		}
+		replaced := false
+		for i, have := range parts {
+			if strings.EqualFold(cookieName(have), name) {
+				parts[i] = kv
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			parts = append(parts, kv)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
 // cookieName extracts the cookie name (portion before "=") from a "name=value"
 // fragment, trimming surrounding whitespace.
 func cookieName(kv string) string {

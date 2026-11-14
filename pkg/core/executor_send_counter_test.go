@@ -66,19 +66,16 @@ func TestRunActiveWithTimeout_CountsModuleRequests(t *testing.T) {
 
 // A view's counter is private to that view: the parent requester and sibling
 // views keep their own tallies.
-func TestRequesterWithSendCounter_IsPerView(t *testing.T) {
+func TestRequesterWithCall_SendCounterIsPerView(t *testing.T) {
 	srv := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, _ *nethttp.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer srv.Close()
 
 	base := newAbandonTestRequester(t)
-	if base.WithSendCounter(nil) != base {
-		t.Fatal("WithSendCounter(nil) must return the receiver")
-	}
 	var a, b atomic.Int64
-	va := base.WithSendCounter(&a)
-	_ = base.WithSendCounter(&b) // a sibling view that never sends
+	va := base.WithCall(nil, &a)
+	_ = base.WithCall(nil, &b) // a sibling view that never sends
 
 	item, err := httpmsg.GetRawRequestFromURL(srv.URL + "/")
 	if err != nil {
