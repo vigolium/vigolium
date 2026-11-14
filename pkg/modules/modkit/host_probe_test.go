@@ -5,6 +5,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
 func newProbeSet(t *testing.T) *dedup.DiskSet {
@@ -80,5 +81,32 @@ func TestBeginHostProbe_DeferredSettle(t *testing.T) {
 	}
 	if n := sc.hostProbesPending.Load(); n != 0 {
 		t.Fatalf("pending = %d after every call settled, want 0", n)
+	}
+}
+
+// BeginHostProbeFor resolves the module's lazy set against the scan's dedup
+// manager and keys on the record's service host, so two records of one host
+// (different paths and ports) share one claim.
+func TestBeginHostProbeFor(t *testing.T) {
+	mgr := dedup.NewManager()
+	t.Cleanup(mgr.Close)
+	sc := &ScanContext{DedupManager: mgr}
+	lazy := dedup.LazyDiskSet("host_probe_for_test")
+	c := &http.Requester{}
+	item := func(port int, path string) *httpmsg.HttpRequestResponse {
+		return httpmsg.NewRequestResponseRaw([]byte("GET "+path+" HTTP/1.1\r\nHost: h.test\r\n\r\n"),
+			httpmsg.NewServiceSecure("h.test", port, port == 443))
+	}
+	if !BeginHostProbeFor(sc, c, &lazy, item(443, "/a")) {
+		t.Fatal("first probe of the host must run")
+	}
+	if BeginHostProbeFor(sc, c, &lazy, item(8443, "/b")) {
+		t.Fatal("a second record of the same host must not probe again")
+	}
+	if BeginHostProbeFor(sc, c, &lazy, &httpmsg.HttpRequestResponse{}) {
+		t.Fatal("a record without a service has no host to probe")
+	}
+	if !BeginHostProbeFor(nil, c, &lazy, item(443, "/a")) {
+		t.Fatal("without a scan context (no dedup manager) the probe always runs")
 	}
 }

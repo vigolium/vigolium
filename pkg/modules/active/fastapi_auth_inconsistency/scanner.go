@@ -86,8 +86,7 @@ func (m *Module) ScanPerRequest(
 	if service == nil {
 		return nil, nil
 	}
-	host := service.Host()
-	if !modkit.BeginHostProbe(scanCtx, httpClient, m.ds.Get(scanCtx.DedupMgr()), host) {
+	if !modkit.BeginHostProbeFor(scanCtx, httpClient, &m.ds, ctx) {
 		return nil, nil
 	}
 

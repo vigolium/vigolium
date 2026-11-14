@@ -73,7 +73,7 @@ func (m *Module) ScanPerHost(
 	if !jsframework.LooksLikeNextJS(host, ctx.Response().BodyToString()) {
 		return nil, nil
 	}
-	if !modkit.BeginHostProbe(scanCtx, httpClient, m.ds.Get(scanCtx.DedupMgr()), host) {
+	if !modkit.BeginHostProbeFor(scanCtx, httpClient, &m.ds, ctx) {
 		return nil, nil
 	}
 

@@ -107,11 +107,7 @@ func (m *Module) ScanPerRequest(
 	}
 
 	// Host-level deduplication
-	var diskSet *dedup.DiskSet
-	if scanCtx != nil {
-		diskSet = m.ds.Get(scanCtx.DedupMgr())
-	}
-	if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, urlx.Host) {
+	if !modkit.BeginHostProbeKey(scanCtx, httpClient, &m.ds, urlx.Host) {
 		return nil, nil
 	}
 

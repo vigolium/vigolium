@@ -58,11 +58,8 @@ func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, httpClient *http.
 	if provider == "" {
 		return nil, nil
 	}
-	if scanCtx != nil {
-		diskSet := m.ds.Get(scanCtx.DedupMgr())
-		if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, host) {
-			return nil, nil
-		}
+	if !modkit.BeginHostProbeFor(scanCtx, httpClient, &m.ds, ctx) {
+		return nil, nil
 	}
 
 	modifiedRaw, err := httpmsg.SetMethod(ctx.Request().Raw(), "GET")

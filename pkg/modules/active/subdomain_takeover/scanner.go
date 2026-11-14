@@ -215,11 +215,8 @@ func (m *Module) ScanPerHost(
 	host := service.Host()
 
 	// Dedup by host
-	if scanCtx != nil {
-		diskSet := m.ds.Get(scanCtx.DedupMgr())
-		if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, host) {
-			return nil, nil
-		}
+	if !modkit.BeginHostProbeFor(scanCtx, httpClient, &m.ds, ctx) {
+		return nil, nil
 	}
 
 	// Send GET / to get the default page
