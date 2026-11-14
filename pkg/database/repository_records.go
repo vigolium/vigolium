@@ -1050,6 +1050,18 @@ func (r *Repository) OverwriteRecordResponseBody(ctx context.Context, uuid strin
 	return nil
 }
 
+// HasRecordsFromSources reports whether projectUUID holds any record whose
+// source is one of sources (an index probe on (project_uuid, source)).
+func (r *Repository) HasRecordsFromSources(ctx context.Context, projectUUID string, sources []string) (bool, error) {
+	if len(sources) == 0 {
+		return false, nil
+	}
+	return r.db.NewSelect().Model((*HTTPRecord)(nil)).
+		Where("project_uuid = ?", defaultProjectUUID(projectUUID)).
+		Where("source IN (?)", bun.List(sources)).
+		Exists(ctx)
+}
+
 // GetRecordsWithResponseBody returns HTTP records that have a non-empty response body,
 // using UUID-based cursor pagination. Only columns needed for batch secret scanning are selected.
 func (r *Repository) GetRecordsWithResponseBody(ctx context.Context, projectUUID, afterUUID string, limit int, hosts ...HostTarget) ([]*HTTPRecord, error) {

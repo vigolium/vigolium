@@ -13,7 +13,7 @@ import (
 )
 
 // projectReceiverInterval is how often a scan-on-receive server looks for
-// projects that have no receiver yet.
+// projects that received traffic and have no receiver yet.
 const projectReceiverInterval = 30 * time.Second
 
 // newScanOnReceiveRow builds the persistent scan row one scan-on-receive
@@ -39,9 +39,11 @@ type receiver interface {
 	Close()
 }
 
-// projectReceivers keeps one scan-on-receive receiver per project. A server
-// used to watch only the default project, so records ingested into any other
-// project were stored and never scanned.
+// projectReceivers keeps one scan-on-receive receiver per project that has
+// received traffic, so records ingested into any project are scanned. A
+// receiver is a full runner, so a project gets one only once it holds an
+// ingested record (IngestRecordSources); the default project's is started
+// with the server.
 type projectReceivers struct {
 	mu        sync.Mutex
 	receivers map[string]receiver
@@ -76,7 +78,16 @@ func (p *projectReceivers) ensure(projectUUID string) {
 	zap.L().Info("scan-on-receive: watching project", zap.String("project", projectUUID))
 }
 
-// sync starts receivers for every project the store knows.
+// has reports whether projectUUID already has a receiver.
+func (p *projectReceivers) has(projectUUID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.receivers[projectUUID]
+	return ok
+}
+
+// sync starts a receiver for every project that holds ingested traffic and
+// has none yet.
 func (p *projectReceivers) sync(ctx context.Context, repo *database.Repository) {
 	if repo == nil {
 		return
@@ -87,7 +98,15 @@ func (p *projectReceivers) sync(ctx context.Context, repo *database.Repository) 
 		return
 	}
 	for _, proj := range projects {
-		if strings.TrimSpace(proj.UUID) != "" {
+		if strings.TrimSpace(proj.UUID) == "" || p.has(proj.UUID) {
+			continue
+		}
+		ingested, err := repo.HasRecordsFromSources(ctx, proj.UUID, database.IngestRecordSources)
+		if err != nil {
+			zap.L().Debug("scan-on-receive: cannot check project for ingested records", zap.String("project", proj.UUID), zap.Error(err))
+			continue
+		}
+		if ingested {
 			p.ensure(proj.UUID)
 		}
 	}
