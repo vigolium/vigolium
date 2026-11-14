@@ -62,3 +62,26 @@ func TestFeedbackWith_RetryAfterAndPlain503(t *testing.T) {
 		t.Error("acquire on a paused host must honour ctx")
 	}
 }
+
+// A host that throttles everything without Retry-After stops stalling the
+// scan after maxPausedThrottles pauses (MISS-22).
+func TestFeedbackWith_PersistentThrottleStopsPausing(t *testing.T) {
+	h := NewHostRateLimiter(HostRateLimiterConfig{MaxPerHost: 4})
+	defer func() { _ = h.Close() }()
+	const host = "d.test"
+	for i := 0; i < maxPausedThrottles; i++ {
+		h.FeedbackWith(host, FeedbackOutcome{Status: 429})
+	}
+	until := h.PausedUntil(host)
+	h.FeedbackWith(host, FeedbackOutcome{Status: 429})
+	if got := h.PausedUntil(host); got.After(until) {
+		t.Errorf("pause extended past the streak bound: %v -> %v", until, got)
+	}
+	if h.ThrottleStreak(host) != maxPausedThrottles+1 {
+		t.Errorf("streak = %d", h.ThrottleStreak(host))
+	}
+	h.FeedbackWith(host, FeedbackOutcome{Status: 200})
+	if h.ThrottleStreak(host) != 0 {
+		t.Error("a healthy response resets the streak")
+	}
+}

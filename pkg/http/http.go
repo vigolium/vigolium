@@ -1520,7 +1520,7 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		// Raw requests are one round trip by contract; a Retry-After past 30s is
 		// longer than a module call should silently stall.
 		if throttled && !opts.RawRequest && retryAfter <= maxThrottleRetryAfter &&
-			throttleRetry < maxThrottleRetries && ctx.Err() == nil {
+			throttleRetry < maxThrottleRetries && !r.persistentlyThrottled(host) && ctx.Err() == nil {
 			resp.Close()
 			resp = nil
 			if err := r.waitThrottleWithoutLimiter(ctx, retryAfter); err != nil {
@@ -1576,6 +1576,15 @@ func (r *Requester) sendBaselineProbe(ctx context.Context, host string, opts Opt
 	r.reportHostFeedback(host, status, nil, classifyWAFBlock(resp) != nil)
 	resp.Close()
 	return nil
+}
+
+// persistentlyThrottled reports a host that has answered several throttles
+// in a row: retrying transparently would only multiply its 429s.
+func (r *Requester) persistentlyThrottled(host string) bool {
+	if r.services == nil || r.services.HostLimiter == nil {
+		return false
+	}
+	return r.services.HostLimiter.ThrottleStreak(host) > maxThrottleRetries+1
 }
 
 // Transparent throttle retry bounds (MISS-22).

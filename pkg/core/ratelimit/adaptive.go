@@ -189,7 +189,26 @@ func (o FeedbackOutcome) Throttled() bool {
 const (
 	minThrottlePause = 1 * time.Second
 	maxThrottlePause = 60 * time.Second
+	// maxPausedThrottles is how many consecutive Retry-After-less throttles
+	// pause the host before it is treated as persistently throttling.
+	maxPausedThrottles = 4
 )
+
+// ThrottleStreak is the number of consecutive throttles host has answered
+// since its last healthy response.
+func (h *HostRateLimiter) ThrottleStreak(host string) int {
+	if h == nil || host == "" || !h.anyPaused.Load() {
+		return 0
+	}
+	shard := h.shardFor(host)
+	shard.mu.RLock()
+	entry, ok := shard.hosts[host]
+	shard.mu.RUnlock()
+	if !ok {
+		return 0
+	}
+	return int(entry.throttles.Load())
+}
 
 // FeedbackWith is Feedback with the Retry-After the server sent. A throttle
 // (429, or 503 + Retry-After) pauses the host in every mode — new acquires
@@ -365,7 +384,14 @@ func (h *HostRateLimiter) pauseHost(host string, retryAfter time.Duration) {
 	n := entry.throttles.Add(1) - 1
 	d := retryAfter
 	if d <= 0 {
-		d = minThrottlePause << min(n, 6)
+		// A host that throttles every request with no Retry-After is not
+		// asking for a specific wait: back off 1s, 2s, 4s, 4s, then stop
+		// stalling the scan on it — its concurrency is already at the floor
+		// and callers see the 429 marked as throttled (CallStats).
+		if n >= maxPausedThrottles {
+			return
+		}
+		d = min(minThrottlePause<<min(n, 2), 4*time.Second)
 	}
 	d = min(max(d, minThrottlePause), maxThrottlePause)
 	until := time.Now().Add(d).UnixNano()

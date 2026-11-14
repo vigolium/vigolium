@@ -3616,6 +3616,12 @@
             "format": "int64",
             "type": "integer"
           },
+          "methods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "path": {
             "$ref": "#/components/schemas/ScopeRule"
           },
