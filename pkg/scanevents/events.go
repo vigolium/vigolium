@@ -220,6 +220,9 @@ type Event struct {
 	// scan did not cover and why, derived from the phase outcomes and module
 	// errors (database.CoverageCaveats).
 	Caveats []Caveat `json:"caveats,omitempty"`
+	// Flushed is false on the scan.finished a forced exit writes (second or
+	// third Ctrl-C) when the findings and reports may not have been written.
+	Flushed *bool `json:"flushed,omitempty"`
 	// Egress lists which outbound paths go through the shared rate/host gate and
 	// which do not, with the reason (scan.started).
 	Egress *Egress `json:"egress,omitempty"`

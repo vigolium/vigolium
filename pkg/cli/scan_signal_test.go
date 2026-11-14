@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -98,10 +99,11 @@ func newTestCoordinator(t *testing.T) (*scanSignalCoordinator, chan int) {
 	t.Helper()
 	exited := make(chan int, 1)
 	c := &scanSignalCoordinator{
-		ch:    make(chan os.Signal, 2),
-		done:  make(chan struct{}),
-		start: time.Now(),
-		exit:  func(code int) { exited <- code },
+		ch:            make(chan os.Signal, 3),
+		done:          make(chan struct{}),
+		start:         time.Now(),
+		exit:          func(code int) { exited <- code },
+		flushDeadline: 200 * time.Millisecond,
 	}
 	go c.watch()
 	t.Cleanup(c.stop)
@@ -168,10 +170,14 @@ func TestCoordinatorInterruptBeforeAttach(t *testing.T) {
 // wait out a graceful close that is taking its time.
 func TestCoordinatorSecondSignalForcesExit(t *testing.T) {
 	c, exited := newTestCoordinator(t)
+	var notices []string
+	var mu sync.Mutex
+	c.notice = func(m string) { mu.Lock(); notices = append(notices, m); mu.Unlock() }
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
 
-	c.attach(&blockingShutdownTarget{release: release})
+	target := &blockingShutdownTarget{release: release}
+	c.attach(target)
 	c.markRunStarted()
 
 	c.ch <- os.Interrupt
@@ -179,21 +185,79 @@ func TestCoordinatorSecondSignalForcesExit(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	c.ch <- os.Interrupt
 
+	// The second signal hurries the runner and waits up to the flush deadline
+	// for the normal exit path to write results, then exits 5 (incomplete).
 	select {
 	case code := <-exited:
-		if code != 1 {
-			t.Fatalf("forced exit code %d, want 1", code)
+		if code != ExitIncomplete {
+			t.Fatalf("forced exit code %d, want %d", code, ExitIncomplete)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("a second signal did not force an exit")
+		t.Fatal("a second signal did not force an exit after the flush deadline")
+	}
+	if !target.hurried.Load() {
+		t.Error("the second signal did not hurry the runner")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(notices) < 2 {
+		t.Errorf("acknowledgements = %v, want one per signal on the terminal", notices)
+	}
+}
+
+// TestCoordinatorSecondSignalWaitsForFlush: when the scan finishes flushing
+// inside the deadline, the second signal does not force an exit.
+func TestCoordinatorSecondSignalWaitsForFlush(t *testing.T) {
+	c, exited := newTestCoordinator(t)
+	c.flushDeadline = 2 * time.Second
+	release := make(chan struct{})
+	c.attach(&blockingShutdownTarget{release: release})
+	c.markRunStarted()
+	c.ch <- os.Interrupt
+	time.Sleep(20 * time.Millisecond)
+	c.ch <- os.Interrupt
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	c.stop() // the normal exit path finished
+	select {
+	case code := <-exited:
+		t.Fatalf("forced exit %d although the flush completed", code)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// TestCoordinatorThirdSignalExitsImmediately: a third signal does not wait for
+// the flush deadline.
+func TestCoordinatorThirdSignalExitsImmediately(t *testing.T) {
+	c, exited := newTestCoordinator(t)
+	c.flushDeadline = time.Hour
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	c.attach(&blockingShutdownTarget{release: release})
+	c.markRunStarted()
+	for i := 0; i < 3; i++ {
+		c.ch <- os.Interrupt
+		time.Sleep(20 * time.Millisecond)
+	}
+	select {
+	case code := <-exited:
+		if code != ExitIncomplete {
+			t.Fatalf("exit code %d, want %d", code, ExitIncomplete)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a third signal did not exit immediately")
 	}
 }
 
 // blockingShutdownTarget never finishes its close on its own.
-type blockingShutdownTarget struct{ release chan struct{} }
+type blockingShutdownTarget struct {
+	release chan struct{}
+	hurried atomic.Bool
+}
 
 func (b *blockingShutdownTarget) Close()   { <-b.release }
 func (b *blockingShutdownTarget) Discard() { <-b.release }
+func (b *blockingShutdownTarget) Hurry()   { b.hurried.Store(true) }
 
 // TestCoordinatorStopIsIdempotent: stop is deferred on every scan path and may
 // run twice (a nested helper plus the outer defer).

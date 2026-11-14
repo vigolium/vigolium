@@ -82,6 +82,10 @@ type Runner struct {
 	// within one RunNativeScan; see takeHarvestStubs.
 	harvestStubs []harvestStub
 
+	// hurry is closed by Hurry (second Ctrl-C): Close stops waiting.
+	hurry     chan struct{}
+	hurryInit sync.Once
+	hurryOnce sync.Once
 	ctx       context.Context       // cancellable context for graceful shutdown
 	cancel    context.CancelFunc    // cancels ctx to signal workers to stop
 	done      chan struct{}         // closed when RunNativeScan finishes
@@ -417,6 +421,8 @@ func (r *Runner) Close() {
 		}
 		select {
 		case <-r.done:
+		case <-r.hurryChan():
+			zap.L().Warn("Shutdown hurried: not waiting for the scan to unwind")
 		case <-time.After(shutdownTimeout):
 			zap.L().Warn("Graceful shutdown timed out, forcing cleanup",
 				zap.Duration("timeout", shutdownTimeout))
@@ -424,6 +430,20 @@ func (r *Runner) Close() {
 	}
 
 	r.closeOnce.Do(r.releaseResources)
+}
+
+// Hurry drops the runner's shutdown graces: a Close in progress (or a later
+// one) stops waiting for RunNativeScan to unwind. The second Ctrl-C calls it so
+// the findings already stored can be exported within a short deadline instead
+// of after the full shutdown timeout. Idempotent.
+func (r *Runner) Hurry() {
+	r.hurryOnce.Do(func() { close(r.hurryChan()) })
+}
+
+// hurryChan returns the channel Hurry closes, creating it on first use.
+func (r *Runner) hurryChan() chan struct{} {
+	r.hurryInit.Do(func() { r.hurry = make(chan struct{}) })
+	return r.hurry
 }
 
 // Discard releases a runner's resources without waiting for RunNativeScan.

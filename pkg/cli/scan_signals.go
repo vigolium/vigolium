@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/scanevents"
+	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
 // A scan had two independent signal handlers, installed at different times, and
@@ -49,7 +51,20 @@ type scanSignalCoordinator struct {
 	// exit is os.Exit in production, injected in tests so the escalation path can
 	// be driven without ending the test process.
 	exit func(int)
+	// flushDeadline bounds how long a second signal waits for the partial
+	// results to flush before exiting 5 (forcedFlushDeadline in production).
+	flushDeadline time.Duration
+	// notice writes the operator-facing acknowledgements (stderr in
+	// production; nil under --silent).
+	notice func(string)
 }
+
+// forcedFlushDeadline is how long the second Ctrl-C waits for findings and the
+// partial report to be written before exiting anyway.
+const forcedFlushDeadline = 10 * time.Second
+
+// hurrier is a shutdown target that can drop its shutdown graces (Runner.Hurry).
+type hurrier interface{ Hurry() }
 
 // scanShutdownTarget is what a coordinator can stop.
 //
@@ -82,10 +97,14 @@ func startScanSignals(start time.Time) *scanSignalCoordinator {
 		// unbuffered channel would let the runtime drop the second while the
 		// watcher is busy emitting the first, which is the one case where being
 		// dropped is most visible to the operator holding Ctrl+C down.
-		ch:    make(chan os.Signal, 2),
-		done:  make(chan struct{}),
-		start: start,
-		exit:  os.Exit,
+		ch:            make(chan os.Signal, 3),
+		done:          make(chan struct{}),
+		start:         start,
+		exit:          os.Exit,
+		flushDeadline: forcedFlushDeadline,
+	}
+	if !globalSilent {
+		c.notice = func(msg string) { fmt.Fprintln(os.Stderr, msg) }
 	}
 	signal.Notify(c.ch, scanShutdownSignals...)
 	go c.watch()
@@ -144,6 +163,9 @@ func (c *scanSignalCoordinator) watch() {
 	c.interrupted.Store(true)
 	zap.L().Info("Shutdown signal received: Exiting", zap.String("signal", sig.String()))
 	zap.L().Info("Attempting graceful shutdown...")
+	// Straight to the terminal, whatever the log level: an Info line was
+	// hidden at the default level and the stop can take half a minute.
+	c.say(terminal.WarnPrefix() + " stopping — finishing in-flight work and writing partial results (Ctrl-C again to stop faster)")
 
 	// Nonterminal, and emitted BEFORE the graceful stop rather than after it: a
 	// stop can take the full shutdown timeout, and a consumer watching a silent
@@ -163,17 +185,50 @@ func (c *scanSignalCoordinator) watch() {
 	// entirely rather than dying on.
 	select {
 	case <-c.ch:
-		zap.L().Warn("Second shutdown signal received, forcing exit")
-		// The last chance to tell the stream anything: os.Exit runs no defers,
-		// so the normal terminal event never happens on this path. Totals are
-		// unavailable here (the database write path is mid-teardown), which is
-		// why the graceful path remains the one that reports them.
-		scanevents.Finish(scanevents.Event{
-			Status:     scanevents.StatusInterrupted,
-			DurationMS: time.Since(c.start).Milliseconds(),
-		})
-		c.exit(1)
 	case <-c.done:
+		return
+	}
+
+	// Second signal: stop waiting on graces, but still flush. The runner drops
+	// its shutdown waits and the normal exit path writes the findings and the
+	// partial report; if that has not finished within flushDeadline, exit 5
+	// with a terminal event that says the flush did not complete.
+	zap.L().Warn("Second shutdown signal received, flushing partial results before exit")
+	c.say(terminal.WarnPrefix() + fmt.Sprintf(" stopping now — flushing findings and the partial report (up to %s; Ctrl-C again to exit immediately)", c.flushDeadline))
+	c.mu.Lock()
+	target := c.target
+	c.mu.Unlock()
+	if h, ok := target.(hurrier); ok {
+		h.Hurry()
+	}
+	forced := time.AfterFunc(c.flushDeadline, func() { c.forceExit() })
+	select {
+	case <-c.ch:
+		// Third signal: no more waiting.
+		forced.Stop()
+		c.forceExit()
+	case <-c.done:
+		forced.Stop()
+	}
+}
+
+// forceExit ends the process with exit 5 (incomplete) after a terminal event
+// saying the run was interrupted and its results may not be flushed. os.Exit
+// runs no defers, so this is the stream's only terminal line on this path.
+func (c *scanSignalCoordinator) forceExit() {
+	flushed := false
+	scanevents.Finish(scanevents.Event{
+		Status:     scanevents.StatusInterrupted,
+		DurationMS: time.Since(c.start).Milliseconds(),
+		Flushed:    &flushed,
+	})
+	c.exit(ExitIncomplete)
+}
+
+// say writes an operator acknowledgement (no-op under --silent).
+func (c *scanSignalCoordinator) say(msg string) {
+	if c.notice != nil {
+		c.notice(msg)
 	}
 }
 
@@ -220,7 +275,9 @@ func runNativeScanPass(r *runner.Runner) error {
 		return nil
 	}
 	activeScanSignals.markRunStarted()
+	stopProgress := startProgressLine(r, time.Now())
 	err := r.RunNativeScan()
+	stopProgress()
 	// Close before the caller's export defers read the database, so buffered
 	// records land first.
 	r.Close()

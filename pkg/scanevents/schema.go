@@ -30,7 +30,7 @@ var eventFields = map[string]contract.EventFields{
 		Optional: []string{"duration_ms", "message", "stop_reason", "reasons", "limits",
 			"requests_sent", "findings", "records_written", "records_basis", "findings_by_severity",
 			"targets_admitted", "targets_rejected", "targets_reached", "targets_unreachable",
-			"budget_exhausted_hosts", "exports", "module_errors", "extensions_failed", "findings_capped", "caveats"},
+			"budget_exhausted_hosts", "exports", "module_errors", "extensions_failed", "findings_capped", "caveats", "flushed"},
 	},
 	TypePhaseStarted: {
 		Description: "A phase began.",
