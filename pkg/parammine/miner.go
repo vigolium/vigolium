@@ -149,6 +149,11 @@ type Result struct {
 	Method   string   `json:"method"`
 	Location Location `json:"location"`
 	Hits     []Hit    `json:"params"`
+	// Unconfirmed are names the scan isolated but mining could not confirm
+	// because it was cut short (block burst, transport errors, cancellation,
+	// budget) — leads, not proven parameters. Their Exchange is the probe that
+	// singled them out.
+	Unconfirmed []Hit `json:"unconfirmed,omitempty"`
 	// Tested is how many candidate names were sent at least once.
 	Tested int `json:"names_tested"`
 	// Requests is how many requests mining sent for this endpoint.
@@ -181,15 +186,42 @@ func Mine(ctx context.Context, base *httpmsg.HttpRequestResponse, words []string
 	defer func() { res.Requests = m.requests }()
 
 	names := b.filterExisting(words)
+	// The scan stops short of the budget so the candidates it isolates can
+	// still be confirmed: a budget spent entirely on bisection used to discard
+	// every candidate.
+	m.limit = cfg.MaxRequests - confirmReserve(cfg)
 	if !m.baseline(ctx) {
 		res.Aborted = m.aborted
 		return res, nil
 	}
 
 	cands := m.scan(ctx, names, &res.Tested)
-	res.Hits = m.confirm(ctx, cands)
+	scanAbort := m.aborted
+	switch scanAbort {
+	case "", AbortBudget:
+		// Out of scan budget is no reason not to confirm: the reserve is for it.
+		m.aborted = ""
+		m.limit = cfg.MaxRequests
+		res.Hits, res.Unconfirmed = m.confirm(ctx, cands)
+	default:
+		// Blocked, erroring or canceled: confirming would keep feeding the
+		// block. Report what the scan isolated as unconfirmed leads.
+		for _, c := range cands {
+			res.Unconfirmed = append(res.Unconfirmed, m.unconfirmed(c, scanAbort))
+		}
+	}
 	res.Aborted = m.aborted
+	if res.Aborted == "" {
+		res.Aborted = scanAbort
+	}
 	return res, nil
+}
+
+// confirmReserve is the part of the budget the scan leaves for confirmation:
+// ConfirmRounds re-sends for up to three candidates, at most a third of the
+// budget.
+func confirmReserve(cfg Config) int {
+	return min(cfg.ConfirmRounds*3, cfg.MaxRequests/3)
 }
 
 // pair is one parameter as sent: a name and the canary value it carried.
@@ -200,6 +232,8 @@ type candidate struct {
 	name   string
 	signal Signal
 	detail string
+	// src is the probe that singled the name out (may carry other names).
+	src *probe
 }
 
 type miner struct {
@@ -209,6 +243,9 @@ type miner struct {
 	prof *profile
 
 	requests int
+	// limit is the request ceiling of the current stage: the scan stops short
+	// of MaxRequests to leave the confirmation reserve.
+	limit    int
 	blockRun int
 	errRun   int
 	aborted  string
@@ -238,7 +275,11 @@ func (m *miner) sendPairs(ctx context.Context, pairs []pair) (p *probe, ok bool)
 		m.aborted = AbortCanceled
 		return nil, false
 	}
-	if m.requests >= m.cfg.MaxRequests {
+	limit := m.limit
+	if limit <= 0 || limit > m.cfg.MaxRequests {
+		limit = m.cfg.MaxRequests
+	}
+	if m.requests >= limit {
 		m.aborted = AbortBudget
 		return nil, false
 	}
@@ -370,8 +411,9 @@ func (m *miner) evaluate(ctx context.Context, p *probe, names []string, add func
 		if sig, detail, diff = m.prof.differs(q); !diff {
 			return
 		}
+		p = q
 	}
-	m.bisect(ctx, rest, sig, detail, add)
+	m.bisect(ctx, rest, sig, detail, p, add)
 }
 
 // splitReflected adds every name whose canary p reflected as a reflect
@@ -384,7 +426,7 @@ func (m *miner) splitReflected(p *probe, names []string, add func(candidate)) []
 	var rest []string
 	for _, n := range names {
 		if p.reflected[n] {
-			add(candidate{name: n, signal: SignalReflect, detail: "canary value reflected in the response"})
+			add(candidate{name: n, signal: SignalReflect, detail: "canary value reflected in the response", src: p})
 		} else {
 			rest = append(rest, n)
 		}
@@ -396,9 +438,9 @@ func (m *miner) splitReflected(p *probe, names []string, add func(candidate)) []
 // names responsible. Both halves are sent before either is recursed into, so a
 // lone 403 culprit alternates with a clean half instead of building a block
 // burst along one branch.
-func (m *miner) bisect(ctx context.Context, names []string, sig Signal, detail string, add func(candidate)) {
+func (m *miner) bisect(ctx context.Context, names []string, sig Signal, detail string, src *probe, add func(candidate)) {
 	if len(names) == 1 {
-		add(candidate{name: names[0], signal: sig, detail: detail})
+		add(candidate{name: names[0], signal: sig, detail: detail, src: src})
 		return
 	}
 	mid := len(names) / 2
@@ -419,7 +461,7 @@ func (m *miner) bisect(ctx context.Context, names []string, sig Signal, detail s
 		rest := m.splitReflected(p, h, add)
 		s, d, diff := m.prof.differs(p)
 		if diff && len(rest) > 0 {
-			m.bisect(ctx, rest, s, d, add)
+			m.bisect(ctx, rest, s, d, p, add)
 		}
 		if m.aborted != "" {
 			return
@@ -428,25 +470,34 @@ func (m *miner) bisect(ctx context.Context, names []string, sig Signal, detail s
 }
 
 // confirm re-sends each candidate alone ConfirmRounds times with fresh
-// canaries and keeps the ones whose signal reproduced every time.
-func (m *miner) confirm(ctx context.Context, cands []candidate) []Hit {
-	var hits []Hit
-	for _, c := range cands {
+// canaries and keeps the ones whose signal reproduced every time. A candidate
+// whose re-send was blocked, errored or never went out (mining cut short) is
+// returned as unconfirmed rather than dropped; one that answered cleanly
+// without the signal is dropped.
+func (m *miner) confirm(ctx context.Context, cands []candidate) (hits, unconfirmed []Hit) {
+	for i, c := range cands {
+		if m.aborted != "" {
+			for _, rest := range cands[i:] {
+				unconfirmed = append(unconfirmed, m.unconfirmed(rest, m.aborted))
+			}
+			return hits, unconfirmed
+		}
 		var last *probe
-		confirmed := true
+		verdict := "confirmed"
 		for range m.cfg.ConfirmRounds {
 			p, ok := m.sendPairs(ctx, []pair{{name: c.name, value: randomToken()}})
-			if !ok || p == nil || p.resp == nil || p.edgeBlocked {
-				confirmed = false
+			if !ok || p == nil || p.resp == nil || p.edgeBlocked || m.blockLike(p) {
+				verdict = "cut"
 				break
 			}
 			if !m.reproduces(c, p) {
-				confirmed = false
+				verdict = "refuted"
 				break
 			}
 			last = p
 		}
-		if confirmed && last != nil {
+		switch {
+		case verdict == "confirmed" && last != nil:
 			hits = append(hits, Hit{
 				Name:     c.name,
 				Signal:   c.signal,
@@ -454,12 +505,29 @@ func (m *miner) confirm(ctx context.Context, cands []candidate) []Hit {
 				Detail:   c.detail,
 				Exchange: httpmsg.NewHttpRequestResponse(last.req.Request(), last.resp),
 			})
-		}
-		if m.aborted != "" {
-			break
+		case verdict == "cut":
+			reason := m.aborted
+			if reason == "" {
+				reason = AbortBlocked
+			}
+			unconfirmed = append(unconfirmed, m.unconfirmed(c, reason))
 		}
 	}
-	return hits
+	return hits, unconfirmed
+}
+
+// unconfirmed reports a candidate mining could not confirm, with why.
+func (m *miner) unconfirmed(c candidate, reason string) Hit {
+	h := Hit{
+		Name:     c.name,
+		Signal:   c.signal,
+		Location: m.b.loc,
+		Detail:   c.detail + " (unconfirmed: " + reason + ")",
+	}
+	if c.src != nil && c.src.req != nil && c.src.resp != nil {
+		h.Exchange = httpmsg.NewHttpRequestResponse(c.src.req.Request(), c.src.resp)
+	}
+	return h
 }
 
 // reproduces reports whether a single-name re-send shows the candidate's

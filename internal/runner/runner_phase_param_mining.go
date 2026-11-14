@@ -16,24 +16,27 @@ import (
 	"go.uber.org/zap"
 )
 
-// paramMiningCandidateScan bounds how many of this scan's records candidate
-// selection reads. Rows carry the raw request but no response body.
-const paramMiningCandidateScan = 5000
+// paramMiningCandidatesPerHost bounds how many of this scan's records
+// candidate selection reads PER ORIGIN (risk-ordered). A global cap let one
+// large host fill it and starve every other host. Rows carry the raw request
+// but no response body.
+const paramMiningCandidatesPerHost = 1000
 
 // Keys of PhaseOutcome.Counts for the param-mining phase. Stable names: they
 // are persisted on the scan row and read by consumers.
 const (
-	paramMiningCountCandidates  = "candidates"       // records read for selection
-	paramMiningCountEndpoints   = "endpoints"        // endpoints chosen for mining
-	paramMiningCountMined       = "mined"            // endpoints whose whole wordlist was tested
-	paramMiningCountUnstable    = "unstable"         // endpoints abandoned: baselines disagreed
-	paramMiningCountBlocked     = "blocked"          // endpoints stopped by a 403/429/edge-block burst
-	paramMiningCountBudget      = "budget_exhausted" // endpoints that used max_requests_per_endpoint
-	paramMiningCountFailed      = "failed"           // endpoints that errored (no baseline, transport)
-	paramMiningCountNames       = "names_tested"     // candidate names sent, summed over endpoints
-	paramMiningCountFound       = "params_found"     // confirmed hidden parameters
-	paramMiningCountRecords     = "records_written"  // new param-mining records stored
-	paramMiningCountWriteFailed = "write_failed"     // confirmed parameters whose record could not be stored
+	paramMiningCountCandidates  = "candidates"         // records read for selection
+	paramMiningCountEndpoints   = "endpoints"          // endpoints chosen for mining
+	paramMiningCountMined       = "mined"              // endpoints whose whole wordlist was tested
+	paramMiningCountUnstable    = "unstable"           // endpoints abandoned: baselines disagreed
+	paramMiningCountBlocked     = "blocked"            // endpoints stopped by a 403/429/edge-block burst
+	paramMiningCountBudget      = "budget_exhausted"   // endpoints that used max_requests_per_endpoint
+	paramMiningCountFailed      = "failed"             // endpoints that errored (no baseline, transport)
+	paramMiningCountNames       = "names_tested"       // candidate names sent, summed over endpoints
+	paramMiningCountFound       = "params_found"       // confirmed hidden parameters
+	paramMiningCountUnconfirmed = "params_unconfirmed" // isolated names mining was cut short before confirming
+	paramMiningCountRecords     = "records_written"    // new param-mining records stored
+	paramMiningCountWriteFailed = "write_failed"       // confirmed parameters whose record could not be stored
 )
 
 // paramMineEndpoint is one endpoint chosen for mining: the record it is
@@ -69,7 +72,7 @@ func (r *Runner) runParamMiningPhase(ctx context.Context, infra *phaseInfra) err
 		cfg = r.settings.DynamicAssessment.ParamMining
 	}
 
-	rows, err := r.repository.ParamMiningCandidates(ctx, infra.scanUUID, r.getInScopeDBHosts(ctx), paramMiningCandidateScan)
+	rows, err := r.repository.ParamMiningCandidates(ctx, infra.scanUUID, r.getInScopeDBHosts(ctx), paramMiningCandidatesPerHost)
 	if err != nil {
 		return fmt.Errorf("param-mining: read candidates: %w", err)
 	}
@@ -204,8 +207,8 @@ type paramMiner struct {
 	wordsMu sync.Mutex
 	words   map[string]*hostWords // hostname -> merged wordlist
 
-	done, mined, unstable, blocked, budget, failed atomic.Int64
-	names, found, records, writeFailed             atomic.Int64
+	done, mined, unstable, blocked, budget, failed  atomic.Int64
+	names, found, unconfirmed, records, writeFailed atomic.Int64
 }
 
 func (m *paramMiner) counts() map[string]int64 {
@@ -217,6 +220,7 @@ func (m *paramMiner) counts() map[string]int64 {
 		paramMiningCountFailed:      m.failed.Load(),
 		paramMiningCountNames:       m.names.Load(),
 		paramMiningCountFound:       m.found.Load(),
+		paramMiningCountUnconfirmed: m.unconfirmed.Load(),
 		paramMiningCountRecords:     m.records.Load(),
 		paramMiningCountWriteFailed: m.writeFailed.Load(),
 	}
@@ -287,6 +291,14 @@ func (m *paramMiner) mineOne(ctx context.Context, ep paramMineEndpoint) {
 	for _, hit := range res.Hits {
 		m.found.Add(1)
 		m.persist(ctx, res, hit)
+	}
+	// Leads the scan isolated but could not confirm (blocked, errors, budget):
+	// reported, not stored as hidden parameters.
+	for _, hit := range res.Unconfirmed {
+		m.unconfirmed.Add(1)
+		zap.L().Info("ParamMining: unconfirmed hidden-parameter lead",
+			zap.String("param", hit.Name), zap.String("url", res.URL),
+			zap.String("signal", string(hit.Signal)), zap.String("detail", hit.Detail))
 	}
 }
 
