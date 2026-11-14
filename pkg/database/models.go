@@ -243,6 +243,10 @@ type Scan struct {
 	ModuleErrors     map[string]int64 `bun:"module_errors,type:jsonb,nullzero" json:"module_errors,omitempty"`
 	ExtensionsFailed []string         `bun:"extensions_failed,type:jsonb,nullzero" json:"extensions_failed,omitempty"`
 
+	// CoverageModules is the module ordinal order scan_record_progress.done_bits
+	// refers to (ECON-4).
+	CoverageModules []string `bun:"coverage_modules,type:jsonb,nullzero" json:"coverage_modules,omitempty"`
+
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 }

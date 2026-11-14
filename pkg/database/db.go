@@ -915,7 +915,11 @@ func (db *DB) renderDDL(tmpl string) string {
 //	   not_found (the fingerprint phase).
 //	5  host_observations.favicon (the probe phase's --favicon), additive (min
 //	   reader stays 1).
-const currentSchemaVersion = 5
+//	6  (Track B part) dynamic-assessment coverage ledger: table
+//	   scan_record_progress and scans.coverage_modules, additive (min reader
+//	   stays 1). Shares the v6 bump with Track C's identity/module-stats
+//	   changes — the integrator merges the two v6 histories.
+const currentSchemaVersion = 6
 
 // legacyBackfillsVersion is the version that gated the pre-versioning backfills
 // and index reshaping in CreateSchema. A store at or past it has had them.

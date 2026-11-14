@@ -21,7 +21,7 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 	origin := originKeyFromItem(item)
 
 	for _, module := range e.perHostActive {
-		if !filter.allows(module.ID()) {
+		if !filter.allows(module.ID()) || e.moduleDone(t.item, module.ID()) {
 			continue
 		}
 		if !e.passesTechFilter(module, item) {
@@ -43,7 +43,7 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 		}
 
 		mod := module // capture loop variable
-		e.goActiveTask(ctx, t, hostKey, func(releaseSlot func()) {
+		e.goModuleTask(ctx, t, hostKey, mod.ID(), func(releaseSlot func()) callOutcome {
 			o := e.runActiveCall(ctx,
 				func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
@@ -56,6 +56,7 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 				e.releaseHostClaim(e.caches.perHostActiveClaimed, claimKey)
 			}
 			e.deliverCall(ctx, o, mod, item, nil)
+			return o
 		})
 	}
 }
@@ -77,7 +78,7 @@ func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requ
 	workUnits := e.itemInsertionPointCount(item)
 
 	for _, module := range e.perRequestActive {
-		if !filter.allows(module.ID()) {
+		if !filter.allows(module.ID()) || e.moduleDone(t.item, module.ID()) {
 			continue
 		}
 		if !e.passesTechFilter(module, item) {
@@ -91,7 +92,7 @@ func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requ
 		}
 
 		mod := module // capture loop variable
-		e.goActiveTask(ctx, t, hostKey, func(releaseSlot func()) {
+		e.goModuleTask(ctx, t, hostKey, mod.ID(), func(releaseSlot func()) callOutcome {
 			o := e.runActiveCall(ctx,
 				func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
@@ -101,6 +102,7 @@ func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requ
 				},
 				mod, item, reqClient, releaseSlot, workUnits)
 			e.deliverCall(ctx, o, mod, item, nil)
+			return o
 		})
 	}
 }
@@ -156,7 +158,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 	// (module × insertion-point). Only the type check and the cross-module
 	// vuln-class dedup are point-dependent and stay in the inner loop.
 	for _, module := range e.perIPActive {
-		if !filter.allows(module.ID()) {
+		if !filter.allows(module.ID()) || e.moduleDone(t.item, module.ID()) {
 			continue
 		}
 		if !e.passesTechFilter(module, item) {
@@ -205,14 +207,14 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 			claimed := gate.Claimed
 
 			mod, pt := module, ip // capture loop variables
-			e.goActiveTask(ctx, t, hostKey, func(releaseSlot func()) {
+			e.goModuleTask(ctx, t, hostKey, mod.ID(), func(releaseSlot func()) callOutcome {
 				// Re-check when the task actually runs: it may have waited on the
 				// scheduler queue while a same-class module confirmed this
 				// param, and the dispatch-time check above could not see that.
 				if vulnClass != "" && e.scanCtx.ParamFindings.HasFinding(itemKey, pt.Name(), vulnClass) {
 					e.noteModuleSkip(mod.ID(), SkipReasonParamAlreadyFound)
 					releaseSlot()
-					return
+					return callOutcome{completed: true}
 				}
 				o := e.runActiveCall(ctx,
 					func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
@@ -228,6 +230,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 					e.scanCtx.ReleaseHeaderClaim(origin, mod.ID(), pt.Name())
 				}
 				e.deliverCall(ctx, o, mod, item, pt)
+				return o
 			})
 		}
 	}
@@ -258,12 +261,21 @@ func (e *Executor) goActiveTask(ctx context.Context, t *itemTracker, hostKey str
 	if ctx.Err() != nil {
 		return
 	}
+	e.enqueueTask(ctx, t, hostKey, fn, nil)
+}
+
+// enqueueTask is goActiveTask's body. onAbort, when set, runs if the task is
+// dropped before it ran or panicked (its work did not complete).
+func (e *Executor) enqueueTask(ctx context.Context, t *itemTracker, hostKey string, fn func(releaseSlot func()), onAbort func()) {
 	t.acquire()
 	e.pool.taskWG.Add(1)
 	e.pool.sched.enqueue(&schedTask{
 		ctx:  ctx,
 		host: hostKey,
 		drop: func() {
+			if onAbort != nil {
+				onAbort()
+			}
 			e.pool.taskWG.Done()
 			t.done()
 		},
@@ -276,6 +288,9 @@ func (e *Executor) goActiveTask(ctx context.Context, t *itemTracker, hostKey str
 					if panicked {
 						t.panicked.Store(true)
 						releaseSlot()
+						if onAbort != nil {
+							onAbort()
+						}
 					}
 				}()
 				defer e.recoverFromPanicInto("activeTask", &panicked)
@@ -305,6 +320,11 @@ func (e *Executor) runActiveStage(ctx context.Context, t *itemTracker, req *http
 	}
 
 	hostKey := schedHostKey(req)
+	if t.prog != nil {
+		t.prog.mu.Lock()
+		t.prog.dispatched = true
+		t.prog.mu.Unlock()
+	}
 	e.runActivePerHost(ctx, reqClient, req, filter, elig, t, hostKey)
 	e.runActivePerRequest(ctx, reqClient, req, filter, elig, t, hostKey)
 	e.runActivePerInsertionPoint(ctx, reqClient, req, filter, elig, t, hostKey)

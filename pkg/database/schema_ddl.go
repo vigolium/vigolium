@@ -351,6 +351,20 @@ var schemaTables = []string{
 	// across merged stores. Rows from before schema v3 are a one-time backfill
 	// of (scan_uuid, found_at); schema_meta.observation_history_since marks
 	// where complete history starts.
+	// Dynamic-assessment coverage ledger (ECON-4): one row per (scan, record)
+	// saying which module tiers / modules finished on it, so a curtailed scan
+	// resumes and tiered passes skip finished records.
+	`CREATE TABLE IF NOT EXISTS scan_record_progress (
+		scan_uuid TEXT NOT NULL,
+		record_uuid TEXT NOT NULL,
+		project_uuid TEXT NOT NULL,
+		tier_done SMALLINT NOT NULL DEFAULT -1,
+		passive_done {{BOOL}} NOT NULL DEFAULT {{FALSE}},
+		timed_out INTEGER NOT NULL DEFAULT 0,
+		done_bits {{BLOB}},
+		updated_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (scan_uuid, record_uuid)
+	)`,
 	`CREATE TABLE IF NOT EXISTS finding_observations (
 		project_uuid TEXT NOT NULL,
 		finding_id INTEGER NOT NULL,
@@ -604,6 +618,7 @@ var schemaTables = []string{
 // schemaIndexes is every index this binary expects. Applied after the column
 // migrations, since some of them reference columns added there.
 var schemaIndexes = []string{
+	"CREATE INDEX IF NOT EXISTS idx_scan_record_progress_project_scan ON scan_record_progress(project_uuid, scan_uuid)",
 	"CREATE INDEX IF NOT EXISTS idx_analysis_artifacts_project_record ON analysis_artifacts(project_uuid, http_record_uuid)",
 	"CREATE INDEX IF NOT EXISTS idx_analysis_artifacts_scan ON analysis_artifacts(scan_uuid)",
 	"CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_artifacts_record_kind_hash ON analysis_artifacts(http_record_uuid, kind, sha256)",
@@ -780,6 +795,7 @@ type columnMigration struct{ Table, Column, Def string }
 //     newer project-scoped tables declare the column in their own CREATE TABLE
 //     and need neither the ALTER nor the O(rows) backfill.
 var columnMigrations = []columnMigration{
+	{"scans", "coverage_modules", "{{JSON}}"},
 	{"findings", "request", "TEXT"},
 	{"findings", "response", "TEXT"},
 	{"http_records", "request_authorization", "TEXT"},

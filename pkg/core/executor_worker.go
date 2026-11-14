@@ -450,7 +450,16 @@ func (e *Executor) processItemDetached(t *itemTracker) {
 		)
 	}
 
-	e.runPassiveStage(ctx, req, &filter, inScope)
+	// The passive stage already ran on this record in an earlier pass or run
+	// (coverage ledger, ECON-4): skip it.
+	if item.Coverage == nil || !item.Coverage.PassiveDone {
+		e.runPassiveStage(ctx, req, &filter, inScope)
+		if t.prog != nil {
+			t.prog.mu.Lock()
+			t.prog.passiveRan = true
+			t.prog.mu.Unlock()
+		}
+	}
 
 	// Body size gate — drop/skip only affects active modules
 	if bodySizeAction == config.BodySizeDrop {

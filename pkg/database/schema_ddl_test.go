@@ -141,7 +141,7 @@ func TestSchemaDDL_PostgresRender(t *testing.T) {
 // isCounterColumn names the INTEGER NOT NULL DEFAULT 0 columns that are counts,
 // not flags, so the bool-shape check above can tell them apart.
 func isCounterColumn(col string) bool {
-	return col == "port" || col == "seq" || col == "promoted_finding_id" || strings.HasSuffix(col, "version") ||
+	return col == "port" || col == "seq" || col == "promoted_finding_id" || col == "timed_out" || strings.HasSuffix(col, "version") ||
 		strings.HasSuffix(col, "_count") || strings.HasSuffix(col, "_tokens")
 }
 

@@ -478,6 +478,11 @@ type Options struct {
 	// another one reported it. For audit runs that want every technique's hit.
 	NoParamDedup bool
 
+	// ResumeScanUUID is --resume-scan: re-run the scan with this UUID on its
+	// existing row, keeping its cursor and skipping what its coverage ledger
+	// records as done (ECON-4). Distinct from --resume (parallel manifest).
+	ResumeScanUUID string
+
 	// HeaderFuzz is --header-fuzz: "all" tests every header insertion point
 	// with every module, per path (no header gate); "gated" forces the gate;
 	// empty follows config dynamic_assessment.header_points (default gated).

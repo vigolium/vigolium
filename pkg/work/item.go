@@ -40,7 +40,28 @@ type WorkItem struct {
 	// a later read can tell it from the application's own answer.
 	Remarks []string
 
+	// Coverage, when set, is this record's stored progress in the coverage
+	// ledger (ECON-4): the executor skips the modules whose bit is set and the
+	// passive stage when it already ran. nil = nothing recorded yet.
+	Coverage *Coverage
+
 	onComplete func()
+}
+
+// Coverage is a record's coverage-ledger state (see database.ScanRecordProgress).
+type Coverage struct {
+	TierDone    int
+	PassiveDone bool
+	DoneBits    []byte
+}
+
+// ModuleDone reports whether the module at ordinal finished on this record.
+func (c *Coverage) ModuleDone(ordinal int) bool {
+	if c == nil || ordinal < 0 {
+		return false
+	}
+	i := ordinal / 8
+	return i < len(c.DoneBits) && c.DoneBits[i]&(1<<uint(ordinal%8)) != 0
 }
 
 // NewWithModules creates a WorkItem with EnableModules but no callback.

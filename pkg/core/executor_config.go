@@ -217,6 +217,11 @@ type ExecutorConfig struct {
 	// HeaderClaims holds the once-per-host header-point claims (ECON-1).
 	HeaderClaims *modkit.HeaderClaims
 
+	// Ledger, when set, records per-record coverage in the scan's coverage
+	// ledger and skips modules / the passive stage a record already finished
+	// (WorkItem.Coverage). See LedgerSpec (ECON-4).
+	Ledger *LedgerSpec
+
 	// HeaderPointsAll turns the header insertion-point gate off
 	// (dynamic_assessment.header_points: all, --header-fuzz=all): every header
 	// point reaches every module that accepts headers, per path.
