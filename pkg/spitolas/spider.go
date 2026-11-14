@@ -99,6 +99,12 @@ type SpiderConfig struct {
 	// applied (see EffectivePolicy). The runner sets both, consistently.
 	Policy *InteractionPolicy
 
+	// DenyClickPattern overrides the destructive-click guard's regex (SAFE-9):
+	// nil keeps the built-in destructive pattern, a pointer to "" disables it.
+	DenyClickPattern *string
+	// ExcludeSelectors are CSS selectors the crawl never clicks.
+	ExcludeSelectors []string
+
 	// BrowserCompat, when set, is the set of browser security exceptions the
 	// crawl launches with; nil means DefaultBrowserCompat.
 	BrowserCompat *BrowserCompat
@@ -360,6 +366,10 @@ func buildCrawlerConfig(cfg SpiderConfig) (*config.Config, error) {
 	// The policy sets form filling, GET/POST form submission, self-registration
 	// and credential attempts in one place; see config.ApplyPolicy.
 	crawlerCfg.ApplyPolicy(config.InteractionPolicy(cfg.EffectivePolicy()))
+	if cfg.DenyClickPattern != nil {
+		crawlerCfg.DenyClickPattern = *cfg.DenyClickPattern
+	}
+	crawlerCfg.ExcludeSelectors = append(crawlerCfg.ExcludeSelectors, cfg.ExcludeSelectors...)
 	crawlerCfg.BrowserCompat = config.BrowserCompat(cfg.EffectiveCompat())
 	crawlerCfg.LoginCredentialFullList = cfg.LoginCredentialFullList
 	if cfg.IdentityEmailDomain != "" {

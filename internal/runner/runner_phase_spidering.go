@@ -455,6 +455,8 @@ func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringCo
 		// (full list), off at quick/lite; registration is off unless configured
 		// at any intensity. See resolveAccountActions.
 		Policy:                  &policy,
+		DenyClickPattern:        settingsCfg.Interaction.DenyClickPattern,
+		ExcludeSelectors:        settingsCfg.ExcludeSelectors,
 		BrowserCompat:           &compat,
 		NoForms:                 !policy.EditFields && !policy.SubmitForms,
 		LoginCredentialAttempts: policy.LoginAttempts,

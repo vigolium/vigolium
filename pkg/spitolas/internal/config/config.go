@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/safety"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -197,8 +198,14 @@ type Config struct {
 	ElementTimeout  time.Duration // Default timeout for finding elements (prevents infinite wait)
 
 	// Clickable Detection
-	ClickSelectors               []string // CSS selectors for clickables
-	ExcludeSelectors             []string // CSS selectors to exclude
+	ClickSelectors   []string // CSS selectors for clickables
+	ExcludeSelectors []string // CSS selectors to exclude
+	// DenyClickPattern is a case-insensitive regex; a click candidate whose
+	// text, href, aria-label, title or value matches it is never clicked
+	// (SAFE-9). Hover candidates are exempt. Empty disables the guard. The
+	// default is pkg/safety's destructive pattern (log out, delete, remove,
+	// deactivate, unsubscribe, close account, …).
+	DenyClickPattern             string
 	DontClickSelectors           []string
 	DontClickChildrenOfSelectors []string
 	UseCDPDetection              bool     // Enable CDP event listener detection
@@ -555,6 +562,7 @@ func New(targetURL string) (*Config, error) {
 
 		ClickSelectors:               DefaultClickSelectors(),
 		ExcludeSelectors:             []string{},
+		DenyClickPattern:             safety.DestructivePattern,
 		DontClickSelectors:           []string{},
 		DontClickChildrenOfSelectors: []string{},
 		// On by default, matching the product runs (spidering.no_cdp: false):

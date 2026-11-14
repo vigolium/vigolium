@@ -231,6 +231,9 @@ type Stats struct {
 	FormsSubmitted       int
 	FormSubmitsPrevented int
 	FormSubmitsUncertain int
+	// SkippedDestructive counts click candidates the destructive-click guard
+	// dropped (spidering.interaction.deny_click_pattern, SAFE-9).
+	SkippedDestructive int64
 	BacktrackCount       int
 	InvariantFails       int
 	StartTime            time.Time
@@ -757,6 +760,9 @@ func (c *Crawler) buildResult(ctx context.Context) *Result {
 	res.Stats = c.stats
 	c.mu.Unlock()
 	res.Stats.ConsecutiveFailures = int(c.consecutiveFails.Load())
+	if c.extractor != nil {
+		res.Stats.SkippedDestructive = c.extractor.SkippedDestructive()
+	}
 
 	return res
 }

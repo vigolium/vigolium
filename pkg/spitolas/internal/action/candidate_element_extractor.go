@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 
@@ -76,6 +77,11 @@ type CandidateElementExtractor struct {
 	clickOnce      bool
 	clickOnceSeen  *clickOnceMemory
 	clickOnceMutex sync.RWMutex
+	// denyClick drops click candidates that read as destructive (SAFE-9);
+	// nil disables. skippedDestructive counts them, shared by ForTab copies.
+	denyClick          *regexp.Regexp
+	skippedDestructive *atomic.Int64
+
 	// currentStateID namespaces clickOnce dedup by the state being extracted, so
 	// the SAME element location in a DIFFERENT state (a multi-step form / wizard
 	// reusing one "Next" button position across steps) is treated as new rather
@@ -116,7 +122,80 @@ func NewCandidateElementExtractor(cfg *config.Config) *CandidateElementExtractor
 		baseURL:             cfg.URL,
 
 		maxListenerProbeNodes: cfg.MaxListenerProbeNodes,
+		denyClick:             compileDenyClick(cfg.DenyClickPattern),
+		skippedDestructive:    &atomic.Int64{},
 	}
+}
+
+// attrNameRe finds each " name=" boundary in the candidate's space-joined,
+// sorted "name=value" attribute string (GetAllAttributes).
+var attrNameRe = regexp.MustCompile(`(?:^| )([A-Za-z_:][-A-Za-z0-9_:.]*)=`)
+
+// denyAttrValues returns the aria-label, title and value attribute values
+// from a GetAllAttributes string; a value runs to the next " name=".
+func denyAttrValues(attrs string) []string {
+	if attrs == "" {
+		return nil
+	}
+	locs := attrNameRe.FindAllStringSubmatchIndex(attrs, -1)
+	var out []string
+	for i, loc := range locs {
+		switch attrs[loc[2]:loc[3]] {
+		case "aria-label", "title", "value":
+		default:
+			continue
+		}
+		end := len(attrs)
+		if i+1 < len(locs) {
+			end = locs[i+1][0]
+		}
+		out = append(out, attrs[loc[1]:end])
+	}
+	return out
+}
+
+// compileDenyClick compiles the deny-click pattern case-insensitively; empty
+// or invalid disables the guard (an invalid operator pattern is logged).
+func compileDenyClick(pattern string) *regexp.Regexp {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return nil
+	}
+	re, err := regexp.Compile("(?i)" + pattern)
+	if err != nil {
+		zap.L().Warn("Invalid spidering.interaction.deny_click_pattern; destructive-click guard disabled",
+			zap.String("pattern", pattern), zap.Error(err))
+		return nil
+	}
+	return re
+}
+
+// deniedByPattern reports whether a click candidate reads as destructive —
+// its text, href, aria-label, title or value matches the deny pattern — and
+// counts it (SAFE-9). Hover candidates only reveal menus and are exempt.
+func (e *CandidateElementExtractor) deniedByPattern(c *CandidateElement) bool {
+	if e.denyClick == nil || c == nil || c.EventType == EventTypeHover {
+		return false
+	}
+	fields := []string{c.Text, c.Href}
+	fields = append(fields, denyAttrValues(c.Attributes)...)
+	for _, f := range fields {
+		if f != "" && e.denyClick.MatchString(f) {
+			if e.skippedDestructive != nil {
+				e.skippedDestructive.Add(1)
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// SkippedDestructive is how many click candidates the deny pattern dropped.
+func (e *CandidateElementExtractor) SkippedDestructive() int64 {
+	if e == nil || e.skippedDestructive == nil {
+		return 0
+	}
+	return e.skippedDestructive.Load()
 }
 
 // NewCandidateElementExtractorDefault creates an extractor with default settings.
@@ -225,6 +304,8 @@ func (e *CandidateElementExtractor) ForTab() *CandidateElementExtractor {
 		checkedElements:       e.checkedElements,
 		clickOnce:             e.clickOnce,
 		clickOnceSeen:         e.clickOnceSeen,
+		denyClick:             e.denyClick,
+		skippedDestructive:    e.skippedDestructive,
 	}
 }
 
@@ -490,6 +571,9 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, snap 
 			}
 
 			candidate := e.createCandidateElement(elem, xpath, framePath, href, EventTypeClick)
+			if e.deniedByPattern(candidate) {
+				continue
+			}
 
 			if e.markChecked(candidate) {
 				candidates = append(candidates, candidate)
@@ -539,6 +623,9 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, snap 
 
 		candidate := e.createCandidateElement(elem, idValue, framePath, href, EventTypeClick)
 		candidate.Identification = NewIdentification(HowLocator, idValue)
+		if e.deniedByPattern(candidate) {
+			continue
+		}
 
 		if e.markChecked(candidate) {
 			candidates = append(candidates, candidate)
@@ -701,6 +788,9 @@ func (e *CandidateElementExtractor) buildCandidatesFromResults(page *browser.Pag
 		candidate := e.createCandidateElement(elem, xpath, framePath, href, eventType)
 		if how != HowXPath {
 			candidate.Identification = NewIdentification(how, xpath)
+		}
+		if e.deniedByPattern(candidate) {
+			continue
 		}
 
 		if e.markChecked(candidate) {
