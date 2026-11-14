@@ -6,6 +6,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/spitolas"
+	"github.com/vigolium/vigolium/pkg/types"
 )
 
 // Policy value sources, reported next to a category when its value did not come
@@ -17,7 +18,33 @@ const (
 	policySourceIntensity    = "intensity"     // the intensity default (login attempts only)
 	policySourceSubmitForms  = "submit_forms"  // login default withdrawn because submits are denied
 	policySourceEditFields   = "edit_fields"   // upload withdrawn because field edits are denied
+	policySourceMethods      = "scope.methods" // withdrawn by the traffic policy (SAFE-8)
 )
+
+// applyTrafficPolicy withdraws what the scan's traffic policy forbids (SAFE-8):
+// a read-only scope.methods means no form submission, account creation,
+// crawler login attempts or uploads, whatever spidering.interaction says.
+func (rp *resolvedBrowserPolicy) applyTrafficPolicy(tp *types.TrafficPolicy) {
+	if tp == nil {
+		return
+	}
+	withdraw := func(category string, dst *bool) {
+		if *dst {
+			*dst = false
+			rp.sources[category] = policySourceMethods
+		}
+	}
+	if !tp.AllowsSubmitForms() {
+		withdraw("submit_forms", &rp.policy.SubmitForms)
+		withdraw("register_account", &rp.policy.RegisterAccount)
+	}
+	if !tp.AllowsLoginAttempts() {
+		withdraw("login_attempts", &rp.policy.LoginAttempts)
+	}
+	if !tp.AllowsUploads() {
+		withdraw("upload_files", &rp.policy.UploadFiles)
+	}
+}
 
 // resolvedBrowserPolicy is a resolved interaction policy plus what the spidering
 // report needs to explain it.

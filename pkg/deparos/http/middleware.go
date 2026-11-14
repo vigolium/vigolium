@@ -6,7 +6,6 @@ import (
 	"io"
 	"math"
 	nethttp "net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,15 +25,15 @@ var ErrRequestFiltered = errors.New("request filtered by scope policy")
 
 // FilterMiddleware refuses a request before it reaches the transport.
 //
-// allow is consulted with the outgoing request's URL and must return true for the
-// request to proceed. This is the egress seam: an operator's explicit exclusion
+// allow is consulted with the outgoing request (URL and method, SAFE-8) and must
+// return true for the request to proceed. This is the egress seam: an operator's explicit exclusion
 // has to be enforced HERE rather than by discarding the response, because by then
 // the excluded host has already been contacted — which is the whole thing the
 // exclusion was asking not to happen.
 //
 // A nil allow returns next unwrapped, so a run without a policy pays nothing.
 // Place it OUTERMOST, ahead of retry: a refused request must not be reattempted.
-func FilterMiddleware(allow func(*url.URL) bool) Middleware {
+func FilterMiddleware(allow func(*nethttp.Request) bool) Middleware {
 	return func(next nethttp.RoundTripper) nethttp.RoundTripper {
 		if allow == nil {
 			return next
@@ -45,7 +44,7 @@ func FilterMiddleware(allow func(*url.URL) bool) Middleware {
 
 type filterRoundTripper struct {
 	next  nethttp.RoundTripper
-	allow func(*url.URL) bool
+	allow func(*nethttp.Request) bool
 }
 
 // CloseIdleConnections forwards the idle-close to the wrapped transport.
@@ -53,7 +52,7 @@ type filterRoundTripper struct {
 func (f *filterRoundTripper) CloseIdleConnections() { forwardCloseIdle(f.next) }
 
 func (f *filterRoundTripper) RoundTrip(req *nethttp.Request) (*nethttp.Response, error) {
-	if !f.allow(req.URL) {
+	if !f.allow(req) {
 		// Returned bare rather than wrapped in RequestError: there was no attempt
 		// to attribute. net/http wraps it in a *url.Error on the way out, which
 		// keeps errors.Is working for the caller.

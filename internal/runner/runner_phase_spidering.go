@@ -418,6 +418,7 @@ func groupByHost[T any](items []T, host func(T) string) [][]T {
 // goes missing from the other.
 func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringConfig, maxDuration time.Duration, infra *phaseInfra) spitolas.SpiderConfig {
 	rp := resolveBrowserPolicy(settingsCfg, r.options.Intensity)
+	rp.applyTrafficPolicy(r.options.TrafficPolicy)
 	policy := rp.policy
 	compat := resolveBrowserCompat(settingsCfg)
 	// Bridge the operator's session/custom headers into the browser so the crawl
@@ -667,6 +668,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	// config resolves the same policy from the same settings (buildSpiderConfig),
 	// so this line and the conflict warnings describe all of them.
 	policy := resolveBrowserPolicy(settingsCfg, r.options.Intensity)
+	policy.applyTrafficPolicy(r.options.TrafficPolicy)
 	for _, c := range policy.conflicts {
 		zap.L().Warn("Spidering: interaction policy key overrides a legacy key", zap.String("override", c))
 	}

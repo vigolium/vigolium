@@ -64,6 +64,9 @@ type Options struct {
 	// ScopeCensus is the per-host record count of the input file ScopeTargets
 	// were derived from, for the banner and the plan. Nil when not derived.
 	ScopeCensus map[string]int `json:"-" yaml:"-"`
+	// TrafficPolicy is the per-method traffic policy resolved once by the
+	// runner from scope.methods (SAFE-8). Nil allows everything.
+	TrafficPolicy *TrafficPolicy `json:"-" yaml:"-"`
 
 	Silent bool
 	// ScanConfigPrinted indicates the scan configuration summary has already been

@@ -279,6 +279,13 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		knownIssueScanCfg := &r.settings.KnownIssueScan
 		cfg.Tags = knownIssueScanCfg.Tags
 		cfg.ExcludeTags = knownIssueScanCfg.ExcludeTags
+		// A read-only traffic policy (SAFE-8) keeps nuclei off its
+		// state-changing and disruptive templates. Templates are not filtered
+		// per HTTP method: the nuclei template API exposes no per-request
+		// method filter, so the tag exclusion is the enforcement here.
+		if r.options.TrafficPolicy.ReadOnly() {
+			cfg.ExcludeTags = appendMissingTags(cfg.ExcludeTags, readOnlyExcludedTemplateTags...)
+		}
 		cfg.Severities = knownIssueScanCfg.Severities
 		cfg.SeverityOverrides = knownIssueScanCfg.SeverityOverrides
 		if knownIssueScanCfg.TemplatesDir != "" {
@@ -300,4 +307,27 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 	}
 
 	return knownissuescan.Run(ctx, cfg)
+}
+
+// readOnlyExcludedTemplateTags are the nuclei template tags excluded under a
+// read-only traffic policy (SAFE-8).
+var readOnlyExcludedTemplateTags = []string{"intrusive", "fuzz", "dos"}
+
+// appendMissingTags appends each of add not already in tags (case-insensitive),
+// never mutating the caller's slice.
+func appendMissingTags(tags []string, add ...string) []string {
+	out := append([]string(nil), tags...)
+	for _, a := range add {
+		found := false
+		for _, t := range out {
+			if strings.EqualFold(t, a) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			out = append(out, a)
+		}
+	}
+	return out
 }

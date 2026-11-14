@@ -21,6 +21,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/types"
 	"go.uber.org/zap"
 )
 
@@ -126,6 +127,11 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 	if r.settings != nil {
 		infra.scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.scopeTargets()...)
 		svc.HopScope = infra.scopeMatcher.HostInScope
+		// The traffic policy is resolved once, here, before any sender exists
+		// (SAFE-8); every sender reads it from the shared options.
+		if r.options.TrafficPolicy == nil {
+			r.options.TrafficPolicy = types.NewTrafficPolicy(r.settings.Scope.Methods)
+		}
 	}
 
 	httpRequester, err := http.NewRequester(r.options, svc)

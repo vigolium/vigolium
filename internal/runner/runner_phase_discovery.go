@@ -148,6 +148,9 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 				return !matcher.ExplicitlyExcluded(u.Hostname(), u.Path)
 			}
 		}
+		if pol := r.options.TrafficPolicy; pol != nil {
+			deparosCfg.MethodFilter = pol.AllowsMethod
+		}
 		deparosCfg.Egress = discoveryEgress(infra, deparosCfg.RateLimit)
 		src, srcErr := source.NewDeparosDiscoverySource(phaseCtx, deparosCfg)
 		if srcErr != nil {

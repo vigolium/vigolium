@@ -440,6 +440,9 @@ func (e *Executor) processItemDetached(t *itemTracker) {
 
 	elig := computeEligibility(req)
 
+	if !skipActive && !e.methodPolicyAllows(req) {
+		skipActive = true
+	}
 	if !skipActive {
 		e.runActiveStage(ctx, t, req, &filter, &elig)
 	}

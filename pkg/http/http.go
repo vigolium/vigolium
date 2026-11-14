@@ -508,6 +508,47 @@ func (r *Requester) WithContext(ctx context.Context) *Requester {
 	return &clone
 }
 
+// ErrMethodDenied is returned by Execute for a request whose method (or
+// method-override header value) the scan's traffic policy does not allow
+// (scope.methods, SAFE-8). Nothing is sent, nothing is retried, and the
+// breaker never sees it.
+var ErrMethodDenied = errors.New("request refused: method not allowed by the scan's traffic policy (scope.methods)")
+
+// methodDenied reports whether policy refuses input: its method, or a
+// method-override header naming a disallowed method.
+func methodDenied(policy *types.TrafficPolicy, input *httpmsg.HttpRequestResponse, opts Options) bool {
+	if policy == nil || len(policy.AllowedMethods) == 0 || input == nil {
+		return false
+	}
+	method := ""
+	if len(opts.RawBytes) > 0 {
+		if i := bytes.IndexByte(opts.RawBytes, ' '); i > 0 {
+			method = string(opts.RawBytes[:i])
+		}
+	} else if req := input.Request(); req != nil {
+		method = req.Method()
+	}
+	if method != "" && !policy.AllowsMethod(method) {
+		return true
+	}
+	if req := input.Request(); req != nil {
+		for _, h := range types.MethodOverrideHeaders {
+			if v := strings.TrimSpace(req.Header(h)); v != "" && !policy.AllowsMethod(v) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// trafficPolicy is the scan's traffic policy, nil when unrestricted.
+func (r *Requester) trafficPolicy() *types.TrafficPolicy {
+	if r == nil || r.services == nil || r.services.Options == nil {
+		return nil
+	}
+	return r.services.Options.TrafficPolicy
+}
+
 // ErrRequestAbandoned is returned by Execute when the calling module has already
 // been abandoned by the executor (its per-module timeout fired, or the phase was
 // cancelled), so any result it produces will be discarded.
@@ -1237,6 +1278,13 @@ func (r *Requester) ExecuteContext(ctx context.Context, input *httpmsg.HttpReque
 		r.refused.Add(1)
 		r.noteStat(func(c *CallStats) { c.Refused.Add(1) })
 		return nil, 0, r.offline
+	}
+	// Traffic policy chokepoint (SAFE-8). The priority lane (login, re-login,
+	// reachability preflight) is exempt: it is the operator's own session
+	// setup, not scan traffic.
+	if r.lane != egress.LanePriority && methodDenied(r.trafficPolicy(), input, opts) {
+		r.noteStat(func(c *CallStats) { c.Refused.Add(1) })
+		return nil, 0, ErrMethodDenied
 	}
 	// Verbatim bytes bypass the parsed request entirely, so the cluster key --
 	// computed from that request -- no longer describes what goes on the wire.

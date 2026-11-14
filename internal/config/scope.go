@@ -82,6 +82,12 @@ type ScopeConfig struct {
 	// out-of-scope records are skipped during scanning.
 	AppliedOnIngest bool `yaml:"applied_on_ingest" json:"applied_on_ingest"`
 
+	// Methods is the HTTP method allow-list for scan traffic (SAFE-8). Empty
+	// means every method. [GET, HEAD] (what --safe writes) is read-only: module
+	// traffic, discovery and the browser crawl send nothing else, and the
+	// crawler submits no forms, attempts no logins and uploads nothing.
+	Methods []string `yaml:"methods,omitempty" json:"methods,omitempty"`
+
 	// CLIOriginMode restricts which hosts are in scope based on CLI target origins.
 	// Modes:
 	//   "balanced" — host must share the target's eTLD+1 (e.g. *.example.com) (default)

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,7 +28,7 @@ func TestFilterMiddleware(t *testing.T) {
 
 		client := NewClient(&ClientConfig{
 			Middleware: []Middleware{
-				FilterMiddleware(func(u *url.URL) bool { return u.Path != "/admin" }),
+				FilterMiddleware(func(r *http.Request) bool { return r.URL.Path != "/admin" }),
 				RetryMiddleware(DefaultRetryConfig()),
 			},
 		})
@@ -62,7 +61,7 @@ func TestFilterMiddleware(t *testing.T) {
 
 		client := NewClient(&ClientConfig{
 			Middleware: []Middleware{
-				FilterMiddleware(func(u *url.URL) bool { return u.Path != "/admin" }),
+				FilterMiddleware(func(r *http.Request) bool { return r.URL.Path != "/admin" }),
 			},
 		})
 
@@ -90,7 +89,7 @@ func TestFilterMiddleware(t *testing.T) {
 		var reached atomic.Int64
 		client := NewClient(&ClientConfig{
 			Middleware: []Middleware{
-				FilterMiddleware(func(*url.URL) bool { return false }),
+				FilterMiddleware(func(*http.Request) bool { return false }),
 				CountingMiddleware(&reached),
 				RetryMiddleware(&RetryConfig{MaxAttempts: 3, InitialBackoff: time.Millisecond}),
 			},
@@ -214,7 +213,7 @@ func TestEgressMiddlewareForwardsCloseIdle(t *testing.T) {
 
 	var counter atomic.Int64
 	for _, mw := range []Middleware{
-		FilterMiddleware(func(*url.URL) bool { return true }),
+		FilterMiddleware(func(*http.Request) bool { return true }),
 		CountingMiddleware(&counter),
 	} {
 		rt := mw(base)
