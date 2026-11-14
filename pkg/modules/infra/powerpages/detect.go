@@ -21,7 +21,7 @@ import (
 )
 
 // Tag / TagDataverse are the tech-stack tags published for Power Pages hosts.
-// Adding "powerpages" to modules.knownTechTags makes every module tagged
+// Adding "powerpages" to modkit.techTagCategories makes every module tagged
 // "powerpages" auto-gate on the fingerprint's MarkTech.
 const (
 	Tag          = "powerpages"

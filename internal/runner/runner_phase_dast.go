@@ -380,6 +380,12 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	// confirmed parameter or a per-host run made in round 1 still holds in
 	// round 2.
 	baseExecutorCfg.SharePhaseState()
+	// Seed the shared tech registry from the stack the fingerprint phase stored
+	// (host_observations), so the tech gate knows each host before round 1
+	// instead of failing open until a passive module re-detects it (MISS-21).
+	if n := r.seedTechRegistry(ctx, baseExecutorCfg.TechRegistry); n > 0 {
+		zap.L().Debug("DynamicAssessment: seeded tech registry from stored host facts", zap.Int("tags", n))
+	}
 	if oastService != nil {
 		baseExecutorCfg.OASTProvider = oastService
 		baseExecutorCfg.OASTService = oastService

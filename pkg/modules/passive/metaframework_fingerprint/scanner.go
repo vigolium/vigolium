@@ -217,7 +217,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		scanCtx.MarkTech(host, "nodejs")
 		// These meta-frameworks all hydrate into a client-routed app; see the
 		// matching MarkTech in js_framework_fingerprint for why "spa" is a
-		// descriptive tag rather than a knownTechTags gate.
+		// descriptive tag rather than a techTagCategories gate.
 		scanCtx.MarkTech(host, "spa")
 
 		// Claim the host only now that it matched (MISS-19): a host whose

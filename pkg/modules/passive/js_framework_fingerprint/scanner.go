@@ -123,16 +123,18 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		if pat.framework == jsframework.NuxtJS {
 			scanCtx.MarkTech(host, "nuxt") // alias used by recon + metaframework_fingerprint
 		}
-		if pat.framework == jsframework.NextJS || pat.framework == jsframework.NuxtJS ||
-			pat.framework == jsframework.Remix || pat.framework == jsframework.SvelteKit ||
-			pat.framework == jsframework.Gatsby || pat.framework == jsframework.ReactCRA {
+		// "javascript" is descriptive. "nodejs" is a backend stack tag, so it is
+		// marked only on evidence the page was rendered by a Node server: a
+		// static export (Gatsby, CRA, next export) runs on any backend, and
+		// marking nodejs there excluded every other backend's modules (MISS-21).
+		scanCtx.MarkTech(host, "javascript")
+		if hasSSREvidence(ctx.Response(), pat.framework) {
 			scanCtx.MarkTech(host, "nodejs")
-			scanCtx.MarkTech(host, "javascript")
 		}
 		// Every framework this module recognises client-side-routes the app, so the
 		// host serves one JS-bootstrapped shell for many routes. Recorded as a
-		// descriptive tag for recon output and TechStack.HostKnown; deliberately
-		// NOT in modules.knownTechTags, which would auto-gate any module tagged
+		// descriptive tag for recon output; deliberately
+		// NOT in modkit.techTagCategories, which would auto-gate any module tagged
 		// "spa" on a detection only this module and metaframework_fingerprint
 		// publish — a gate armed before it has a reader, and half-published.
 		scanCtx.MarkTech(host, "spa")
@@ -178,4 +180,35 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}
 
 	return nil, nil
+}
+
+// hasSSREvidence reports whether resp shows it was rendered by a Node server
+// running framework: a Node/framework X-Powered-By, or a framework's
+// server-only response header. Remix always renders on a server (its
+// __remixContext is the server's hydration payload), so its detection is
+// itself the evidence. Static-only frameworks (Gatsby, CRA) never are.
+func hasSSREvidence(resp *httpmsg.HttpResponse, framework jsframework.FrameworkType) bool {
+	if resp == nil {
+		return false
+	}
+	switch framework {
+	case jsframework.Remix:
+		return true
+	case jsframework.NextJS, jsframework.NuxtJS, jsframework.SvelteKit:
+	default:
+		return false
+	}
+	for _, h := range resp.Headers() {
+		name := strings.ToLower(h.Name)
+		switch {
+		case name == "x-powered-by":
+			v := strings.ToLower(h.Value)
+			if strings.Contains(v, "next.js") || strings.Contains(v, "nuxt") || strings.Contains(v, "express") {
+				return true
+			}
+		case strings.HasPrefix(name, "x-nextjs-"), name == "x-sveltekit-page":
+			return true
+		}
+	}
+	return false
 }
