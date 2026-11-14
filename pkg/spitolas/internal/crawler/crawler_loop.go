@@ -525,8 +525,24 @@ func (c *Crawler) followPath(ctx context.Context, w *tabWorker, path []*action.E
 		return fmt.Errorf("path didn't reach target state %s, at %s", target.Name, currentName)
 	}
 
+	// The state machine only tracks which edges were replayed; the page itself
+	// may have changed server-side, so stored XPaths would now fire against a
+	// different DOM (MISS-28d). Compare the live stripped DOM with the target's.
+	if len(path) > 0 && target.StrippedDOM != "" {
+		if html, err := page.HTMLWithFramesFiltered(c.config.CrawlFrames, c.config.ExcludeFrames); err == nil {
+			if !state.SameStructure(c.comparator.PrepareForComparison(html), target) {
+				return fmt.Errorf("%w: replay reached a page that is not state %s", errPathDiverged, target.Name)
+			}
+		}
+	}
+
 	return nil
 }
+
+// errPathDiverged is followPath's error when the replayed path lands on a DOM
+// that is not the target state's (a server-side state change, MISS-28d).
+var errPathDiverged = errors.New("path diverged")
+
 
 // DUPLICATE_EVENT_SEED is used to encode equivalentAccess in eventable IDs.
 const DUPLICATE_EVENT_SEED = 100000

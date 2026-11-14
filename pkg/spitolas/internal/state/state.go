@@ -21,13 +21,16 @@ type CandidateElementIface interface {
 
 // State represents a crawl state (DOM snapshot).
 type State struct {
-	ID          string    // SHA256(strippedDOM)[:16]
-	Name        string    // "state_001", etc
-	URL         string    // Page URL when captured
-	StrippedDOM string    // Normalized DOM for comparison
-	RawHTML     string    // Original HTML
-	Depth       int       // Crawl depth from index
-	CreatedAt   time.Time // When state was discovered
+	ID          string // SHA256(strippedDOM)[:16]
+	Name        string // "state_001", etc
+	URL         string // Page URL when captured
+	StrippedDOM string // Normalized DOM for comparison
+	// StructID is the SimHash of the DOM's tag-path shingles (MISS-28a):
+	// renderings of one template sit within a few bits of each other.
+	StructID  uint64
+	RawHTML   string    // Original HTML
+	Depth     int       // Crawl depth from index
+	CreatedAt time.Time // When state was discovered
 
 	// Near-duplicate tracking
 	NearestStateID  string  // ID of most similar state
@@ -64,6 +67,7 @@ func New(url, rawHTML, strippedDOM string, depth int) *State {
 		Name:              name,
 		URL:               url,
 		StrippedDOM:       strippedDOM,
+		StructID:          StructSimHash(strippedDOM),
 		RawHTML:           rawHTML,
 		Depth:             depth,
 		CreatedAt:         time.Now(),
@@ -107,6 +111,7 @@ func (s *State) Clone() *State {
 		Name:              s.Name,
 		URL:               s.URL,
 		StrippedDOM:       s.StrippedDOM,
+		StructID:          s.StructID,
 		RawHTML:           s.RawHTML,
 		Depth:             s.Depth,
 		CreatedAt:         s.CreatedAt,
