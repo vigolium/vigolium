@@ -2027,7 +2027,7 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 	// handshake churn (OPT-3). One shared ClientTrace, so this costs a single context
 	// wrap. The rawhttp path bypasses net/http, so it is intentionally not traced.
 	if r.poolStats != nil && !opts.RawRequest {
-		ctx = httptrace.WithClientTrace(ctx, r.poolStats.ct)
+		ctx = r.poolStats.traceContext(ctx)
 		r.poolStats.requests.Add(1)
 	}
 

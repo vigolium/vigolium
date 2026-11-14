@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	httpRequester "github.com/vigolium/vigolium/pkg/http"
 	"maps"
 	"math"
 	"os"
@@ -119,7 +120,15 @@ func runBenignSweep(t *testing.T) map[sweepCell]sweepResult {
 	sweepOnce.Do(func() {
 		sweepResults = make(map[sweepCell]sweepResult)
 		var mu sync.Mutex
-		client := modtest.Requester(t)
+		// One requester (and so one host limiter) per fixture, with the
+		// 429/503 host pause off: every fixture listens on 127.0.0.1, and the
+		// 429 fixture's Retry-After would otherwise pace every module of the
+		// sweep at one request a second. The sweep asserts what modules
+		// conclude, not how the limiter paces.
+		clients := make(map[string]*httpRequester.Requester)
+		for _, fx := range modtest.BenignFixtures() {
+			clients[fx.Name] = modtest.RequesterNoThrottlePause(t)
+		}
 
 		t.Run("sweep", func(t *testing.T) {
 			for _, mod := range DefaultRegistry.GetActiveModules() {
@@ -146,6 +155,13 @@ func runBenignSweep(t *testing.T) map[sweepCell]sweepResult {
 							}
 							// Module errors are not failures here: a benign
 							// fixture may legitimately make a probe error out.
+							client := clients[fx.Name]
+							if fx.Throttles {
+								// The throttle streak is per host: a requester
+								// shared across parallel modules would make each
+								// module's retry count depend on the others.
+								client = modtest.RequesterNoThrottlePause(t)
+							}
 							events, _ := modtest.RunActive(mod, rr, client.WithSendCounter(&sent), scanCtx)
 							res := sweepResult{requests: sent.Load(), deterministic: fx.Deterministic}
 							for _, ev := range events {

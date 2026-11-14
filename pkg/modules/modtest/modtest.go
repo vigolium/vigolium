@@ -69,6 +69,19 @@ func VerifyNoLeaks(m *testing.M) {
 // concurrently running test.
 func Requester(t testing.TB) *httpRequester.Requester {
 	t.Helper()
+	return newRequester(t, false)
+}
+
+// RequesterNoThrottlePause is Requester whose host limiter never pauses a host
+// on 429/503 (MISS-22). For sweeps that fire many modules at a deliberately
+// throttling fixture and only assert what the modules conclude.
+func RequesterNoThrottlePause(t testing.TB) *httpRequester.Requester {
+	t.Helper()
+	return newRequester(t, true)
+}
+
+func newRequester(t testing.TB, noThrottlePause bool) *httpRequester.Requester {
+	t.Helper()
 
 	opts := types.DefaultOptions()
 	// Timeout is a time.Duration: a bare `30` is 30 NANOSECONDS, which the rawhttp
@@ -88,7 +101,7 @@ func Requester(t testing.TB) *httpRequester.Requester {
 		t.Fatal("modtest: network dialer is nil after Init")
 	}
 
-	limiter := hostlimit.NewHostRateLimiter(hostlimit.HostRateLimiterConfig{MaxPerHost: opts.MaxPerHost})
+	limiter := hostlimit.NewHostRateLimiter(hostlimit.HostRateLimiterConfig{MaxPerHost: opts.MaxPerHost, DisableThrottlePause: noThrottlePause})
 	// Stop the limiter's background eviction goroutine when the test finishes so
 	// packages that assert no goroutine leaks (goleak.VerifyTestMain) stay clean.
 	t.Cleanup(func() { _ = limiter.Close() })

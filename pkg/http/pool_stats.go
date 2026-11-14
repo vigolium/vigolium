@@ -160,3 +160,13 @@ func (r *Requester) LogPoolStats() {
 		zap.Float64("round_trips_per_conn", s.RoundTripsPerConnection()),
 	)
 }
+
+// traceContext attaches the pool trace to ctx. httptrace.WithClientTrace
+// composes any trace already on ctx (the per-attempt WroteRequest trace,
+// SAFE-10) INTO the trace it is given, mutating it, so each request gets a
+// shallow copy: the shared trace is never written (a data race, and hooks
+// would otherwise chain onto it on every request).
+func (p *poolStats) traceContext(ctx context.Context) context.Context {
+	ct := *p.ct
+	return httptrace.WithClientTrace(ctx, &ct)
+}

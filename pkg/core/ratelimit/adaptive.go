@@ -382,6 +382,12 @@ func (h *HostRateLimiter) pauseHost(host string, retryAfter time.Duration) {
 	shard := h.shardFor(host)
 	entry := h.getOrCreateEntry(shard, host)
 	n := entry.throttles.Add(1) - 1
+	if h.throttlePauseDisabled {
+		// The streak is still counted (ThrottleStreak stops transparent
+		// retries on a persistently throttling host); only the wait is off.
+		h.anyPaused.Store(true)
+		return
+	}
 	d := retryAfter
 	if d <= 0 {
 		// A host that throttles every request with no Retry-After is not

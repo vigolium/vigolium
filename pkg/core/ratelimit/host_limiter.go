@@ -149,6 +149,11 @@ type HostRateLimiter struct {
 	// HostRateLimiterConfig.DisablePreArm (the --no-waf-pacing flag).
 	preArmDisabled bool
 
+	// throttlePauseDisabled turns off the 429/503 host pause (MISS-22) while
+	// keeping the concurrency back-off. From
+	// HostRateLimiterConfig.DisableThrottlePause.
+	throttlePauseDisabled bool
+
 	// wafAutoArm enables targeted adaptive throttling that stays dormant until a
 	// confirmed WAF/CDN block. With it on (and adaptive off), every host uses the
 	// adaptive token pool pinned at MaxPerHost — identical concurrency to the static
@@ -292,6 +297,12 @@ type HostRateLimiterConfig struct {
 	// `--no-waf-pacing` CLI flag for operators who would rather keep full opening
 	// concurrency and let the reactive path throttle after the first block.
 	DisablePreArm bool
+
+	// DisableThrottlePause turns off the time-based pause a 429 (or 503 with
+	// Retry-After) puts on a host (MISS-22); the concurrency back-off still
+	// applies. For harnesses that send many requests at a deliberately
+	// throttling fixture and only care about what modules conclude from it.
+	DisableThrottlePause bool
 }
 
 // DefaultHostRateLimiterConfig returns sensible defaults.
@@ -378,9 +389,10 @@ func NewHostRateLimiter(cfg HostRateLimiterConfig) *HostRateLimiter {
 		ceilingPerHost: ceilingPerHost,
 		// Mutually exclusive with Adaptive — plain Adaptive already arms every host,
 		// so WAF-auto-arm is only meaningful when Adaptive is off.
-		wafAutoArm:     cfg.WafAutoArm && !cfg.Adaptive,
-		preArmDisabled: cfg.DisablePreArm,
-		stopEvict:      make(chan struct{}),
+		wafAutoArm:            cfg.WafAutoArm && !cfg.Adaptive,
+		preArmDisabled:        cfg.DisablePreArm,
+		throttlePauseDisabled: cfg.DisableThrottlePause,
+		stopEvict:             make(chan struct{}),
 	}
 
 	for i := range h.shards {

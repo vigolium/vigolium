@@ -35,7 +35,11 @@ type Fixture struct {
 	// request count against them is reproducible and can carry a budget.
 	// random_content and slow_host (random latency) vary run to run.
 	Deterministic bool
-	New           func() http.Handler
+	// Throttles marks fixtures that answer 429/503: a harness should give each
+	// module its own requester, since the limiter's throttle streak is per
+	// host and would otherwise couple parallel modules' request counts.
+	Throttles bool
+	New       func() http.Handler
 }
 
 // BenignFixtures lists every benign fixture.
@@ -46,7 +50,7 @@ func BenignFixtures() []Fixture {
 		{Name: "soft_404", Deterministic: true, New: Soft404},
 		{Name: "slow_host", TimingOnly: true, New: func() http.Handler { return SlowHost(300*time.Millisecond, 200*time.Millisecond) }},
 		{Name: "random_content", New: RandomContent},
-		{Name: "rate_limit_429", Deterministic: true, New: func() http.Handler { return RateLimit429(4) }},
+		{Name: "rate_limit_429", Deterministic: true, Throttles: true, New: func() http.Handler { return RateLimit429(4) }},
 	}
 }
 

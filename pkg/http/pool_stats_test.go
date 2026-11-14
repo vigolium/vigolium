@@ -1,6 +1,10 @@
 package http
 
-import "testing"
+import (
+	"context"
+	"net/http/httptrace"
+	"testing"
+)
 
 // ConnDialed (real transport dials) drives the ratio, and RoundTrips — not
 // Requests — is the denominator: one logical request can span many round trips
@@ -63,5 +67,28 @@ func TestPoolStatsTraceCounts(t *testing.T) {
 	// A nil-poolStats requester returns a zero snapshot, not a panic.
 	if (&Requester{}).PoolStats() != (PoolStatsSnapshot{}) {
 		t.Error("nil poolStats should yield a zero snapshot")
+	}
+}
+
+// A trace already on the context is composed into a per-request copy, never
+// into the shared pool trace: composing into the shared one raced across
+// goroutines and chained hooks onto it on every request.
+func TestPoolStatsTraceContextLeavesSharedTraceUntouched(t *testing.T) {
+	ps := newPoolStats()
+	before := ps.ct.WroteRequest
+	outer := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{
+		WroteRequest: func(httptrace.WroteRequestInfo) {},
+	})
+	for range 3 {
+		got := httptrace.ContextClientTrace(ps.traceContext(outer))
+		if got == ps.ct {
+			t.Fatal("traceContext attached the shared trace itself")
+		}
+		if got.WroteRequest == nil {
+			t.Fatal("outer WroteRequest hook lost in composition")
+		}
+	}
+	if (ps.ct.WroteRequest == nil) != (before == nil) {
+		t.Fatal("shared pool trace was mutated by composition")
 	}
 }
