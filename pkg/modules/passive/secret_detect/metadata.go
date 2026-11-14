@@ -9,7 +9,7 @@ const (
 )
 
 var (
-	ModuleDesc = `**What it means:** A secret (API key, access token, password, private key, or DB connection string) was found in an HTTP response, so it is served to anyone who can reach it. The detector does not test the secret against its service, so whether it is live is unverified; a match only on a redirect, header, reflected request value, or pre-auth JWT is downgraded.
+	ModuleDesc = `**What it means:** A secret (API key, token, password, private key, or DB connection string) was found in an HTTP response, served to anyone who can reach it. It is not tested against its service, so whether it is live is unverified; matches only on a redirect, header, reflected value, or pre-auth JWT are downgraded.
 
 **How it's exploited:** An attacker who reads the response harvests the credential and reuses it against the matching service for account takeover or data theft.
 
