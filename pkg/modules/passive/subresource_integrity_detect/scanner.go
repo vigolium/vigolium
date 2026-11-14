@@ -102,14 +102,6 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}}, nil
 }
 
-func resourcesWithoutSRI(body string, pageURL *url.URL) []string {
-	doc, err := html.Parse(strings.NewReader(body))
-	if err != nil {
-		return nil
-	}
-	return resourcesWithoutSRIDoc(doc, pageURL)
-}
-
 // resourcesWithoutSRIDoc walks an already-parsed (read-only) document.
 func resourcesWithoutSRIDoc(doc *html.Node, pageURL *url.URL) []string {
 	if doc == nil {

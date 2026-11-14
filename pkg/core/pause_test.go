@@ -112,7 +112,9 @@ func TestPauseController_PauseReturnsWithStuckWorker(t *testing.T) {
 	if p.Quiesced() {
 		t.Fatal("Quiesced while a worker is still mid-dispatch")
 	}
-	qc := p.QuiescedCh()
+	if p.QuiescedCh() == nil {
+		t.Fatal("QuiescedCh is nil while paused")
+	}
 
 	// Resume and a second Pause must not block either.
 	done := make(chan struct{})
@@ -126,7 +128,7 @@ func TestPauseController_PauseReturnsWithStuckWorker(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Resume/Pause blocked behind a stuck worker")
 	}
-	qc = p.QuiescedCh()
+	qc := p.QuiescedCh()
 
 	p.ReleaseWorker()
 	select {

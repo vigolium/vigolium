@@ -160,14 +160,6 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	return results, nil
 }
 
-func classifyMixedReferences(body string, pageURL *url.URL) mixedReferences {
-	doc, err := html.Parse(strings.NewReader(body))
-	if err != nil {
-		return mixedReferences{}
-	}
-	return classifyMixedReferencesDoc(doc, pageURL)
-}
-
 // classifyMixedReferencesDoc walks an already-parsed (read-only) document.
 func classifyMixedReferencesDoc(doc *html.Node, pageURL *url.URL) mixedReferences {
 	if doc == nil {

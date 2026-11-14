@@ -20,7 +20,7 @@ func TestItemProgressConcurrent(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				p.end(id, !(id == "m3" && i == 7), id == "m5" && i == 0)
+				p.end(id, id != "m3" || i != 7, id == "m5" && i == 0)
 			}(i)
 		}
 	}

@@ -185,11 +185,10 @@ func (m *Module) probePayload(
 	canary string,
 	pattern *regexp.Regexp,
 ) (location, fuzzedRawStr, evidence, contentType string, found bool, err error) {
-	var fuzzedRaw []byte
 	// Pre-encoded payloads (%0d%0a) keep their own encoding through
 	// httpmsg.BuildPreEncoded (MISS-12); the old hand-rolled string splice only
 	// worked for a query value that appeared verbatim in the request line.
-	fuzzedRaw = httpmsg.BuildPayload(ip, []byte(fmt.Sprintf(p.tmpl, ip.BaseValue())), p.preEncoded)
+	fuzzedRaw := httpmsg.BuildPayload(ip, []byte(fmt.Sprintf(p.tmpl, ip.BaseValue())), p.preEncoded)
 	if fuzzedRaw == nil {
 		return "", "", "", "", false, nil
 	}

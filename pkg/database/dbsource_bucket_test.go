@@ -24,7 +24,7 @@ func TestRiskBucketPageQueryUsesIndexOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explain: %v\n%s", err, query)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var plan []string
 	for rows.Next() {
 		var id, parent, notused int

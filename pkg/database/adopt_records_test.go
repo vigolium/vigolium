@@ -26,7 +26,6 @@ func (c *txCounter) AfterQuery(_ context.Context, ev *bun.QueryEvent) {
 // each row's promote-only backfill.
 func TestAdoptRecordsOneTransaction(t *testing.T) {
 	db := newTestDB(t)
-	repo := NewRepository(db)
 	ctx := context.Background()
 	for _, u := range []string{"r1", "r2", "r3"} {
 		if _, err := db.NewInsert().Model(&HTTPRecord{
@@ -37,9 +36,9 @@ func TestAdoptRecordsOneTransaction(t *testing.T) {
 		}
 	}
 	counter := &txCounter{}
-	db.AddQueryHook(counter)
+	hooked := NewRepository(&DB{DB: db.WithQueryHook(counter), driver: db.driver})
 
-	repo.AdoptRecords(ctx, []RecordAdoption{
+	hooked.AdoptRecords(ctx, []RecordAdoption{
 		{UUID: "r1", Lineage: RecordLineage{ParentUUID: "p1"}, Source: "probe"},
 		{UUID: "r2", Lineage: RecordLineage{Target: "https://a.test/"}, Source: "probe"},
 		{UUID: "r3", Source: "probe"},
