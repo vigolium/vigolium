@@ -204,23 +204,23 @@ func (c *Cache) LearnAndCache(ctx context.Context, key CacheKey, baseURL *url.UR
 		return nil, fmt.Errorf("no learner configured")
 	}
 
-	// Learn signature
-	sig, err := learner.Learn(ctx, baseURL)
+	// Learn from children of the key's directory carrying its extension
+	// (LearnKey), not from mutations of the base URL's last segment.
+	sigs, err := learner.LearnKey(ctx, key, baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to learn signature: %w", err)
 	}
 
-	// Debug: Log learned signature details
-	logger.Debug("Learned fingerprint signature",
-		zap.String("key", key.String()),
-		zap.String("url", baseURL.String()),
-		zap.Int("stable_attrs", sig.StableAttributeCount()),
-		zap.String("signature", sig.DebugString()))
+	for _, sig := range sigs {
+		logger.Debug("Learned fingerprint signature",
+			zap.String("key", key.String()),
+			zap.String("url", baseURL.String()),
+			zap.Int("stable_attrs", sig.StableAttributeCount()),
+			zap.String("signature", sig.DebugString()))
+		c.Add(key, sig)
+	}
 
-	// Add to cache
-	c.Add(key, sig)
-
-	return sig, nil
+	return sigs[0], nil
 }
 
 // Size returns the number of cache entries (keys)
@@ -526,8 +526,12 @@ const maxPreWarmConcurrency = 16
 // in-flight load behind the same number, which is not what the flag promises — and
 // would aim a large burst at a host that has not been fingerprinted yet.
 func (c *Cache) PreWarm(ctx context.Context, baseURL *url.URL, concurrency int) int {
+	// The root gets every common extension (each learned with that extension on
+	// the wire); the other common directories only the "" key, which also
+	// learns their directory form. ~12 keys x 4 probes = ~48 requests, where
+	// the old 5 dirs x 8 extensions spent ~160 learning the same root shape.
 	commonPaths := []string{"/", "/api/", "/admin/", "/static/", "/assets/"}
-	commonExts := []string{"", ".html", ".php", ".js", ".json", ".xml", ".asp", ".jsp"}
+	rootExts := []string{"", ".html", ".php", ".js", ".json", ".xml", ".asp", ".jsp"}
 
 	type probeTarget struct {
 		path string
@@ -537,7 +541,11 @@ func (c *Cache) PreWarm(ctx context.Context, baseURL *url.URL, concurrency int) 
 	var targets []probeTarget
 	host := baseURL.Host
 	for _, p := range commonPaths {
-		for _, ext := range commonExts {
+		exts := []string{""}
+		if p == "/" {
+			exts = rootExts
+		}
+		for _, ext := range exts {
 			if c.HasSignaturesForHostPath(host, p) {
 				// Already has some signatures for this path — check specific ext
 				key := CacheKey{Host: host, Path: p, Extension: ext}
@@ -583,6 +591,8 @@ func (c *Cache) PreWarm(ctx context.Context, baseURL *url.URL, concurrency int) 
 
 			dirURL := *baseURL
 			dirURL.Path = p
+			dirURL.RawPath = ""
+			dirURL.RawQuery = ""
 			key := CacheKey{Host: host, Path: p, Extension: ext}
 
 			if _, err := c.LearnAndCache(ctx, key, &dirURL); err != nil {
