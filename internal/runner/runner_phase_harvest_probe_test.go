@@ -48,6 +48,19 @@ func (l *pathLog) count(p string) int {
 	return n
 }
 
+// refusedHost returns the base URL of a port nothing listens on: every dial is
+// refused, the one failure that marks a harvested origin dead.
+func refusedHost(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	return "http://" + addr
+}
+
 // deadHost accepts connections, reads the request line, and hangs up without
 // answering: an origin that resolves and listens but never speaks HTTP.
 func deadHost(t *testing.T) (base string, log *pathLog) {
@@ -139,12 +152,15 @@ func TestHarvestProbe_KeepsLiveDropsDeadAndNotFound(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	dead, deadLog := deadHost(t)
+	dead := refusedHost(t)
+	// A host that accepts and hangs up is reachable: one failed liveness
+	// request is no reason to delete what the archive saw there (MISS-8c).
+	hangup, _ := deadHost(t)
 
 	r, infra, repo, tr := newHarvestProbeRunner(t)
 	ids := queueStubs(t, r, repo,
 		srv.URL+"/keep", srv.URL+"/old-login", srv.URL+"/gone", srv.URL+"/removed", srv.URL+"/soft",
-		dead+"/a", dead+"/b?id=1", dead+"/c")
+		dead+"/a", dead+"/b?id=1", dead+"/c", hangup+"/h1", hangup+"/h2")
 
 	if err := r.runHarvestProbePhase(context.Background(), infra); err != nil {
 		t.Fatalf("runHarvestProbePhase: %v", err)
@@ -163,14 +179,12 @@ func TestHarvestProbe_KeepsLiveDropsDeadAndNotFound(t *testing.T) {
 	if n := live.count("/auth/sign-in"); n != 0 {
 		t.Errorf("redirect target fetched %d times; the probe must record redirects, not follow them", n)
 	}
-	// Dead host: only liveness traffic, never a harvested URL.
-	for _, p := range deadLog.snapshot() {
-		if p == "/a" || p == "/b" || strings.HasPrefix(p, "/b?") || p == "/c" {
-			t.Errorf("dead host was sent harvested URL %s; its URLs must be dropped unfetched", p)
+	ctx := context.Background()
+	for _, u := range []string{hangup + "/h1", hangup + "/h2"} {
+		if rec, err := repo.GetRecordByUUID(ctx, ids[u]); err != nil || rec == nil {
+			t.Errorf("stub %s on a reachable-but-silent host was deleted; it must be kept", u)
 		}
 	}
-
-	ctx := context.Background()
 	for u, want := range map[string]int{srv.URL + "/keep": 200, srv.URL + "/old-login": 302} {
 		rec, err := repo.GetRecordByUUID(ctx, ids[u])
 		if err != nil {
@@ -189,8 +203,9 @@ func TestHarvestProbe_KeepsLiveDropsDeadAndNotFound(t *testing.T) {
 
 	out := tr.finish(ctx, nil)
 	want := map[string]int64{
-		harvestCountStubs:     8,
-		harvestCountHosts:     2,
+		harvestCountStubs:     10,
+		harvestCountHosts:     3,
+		harvestCountUnprobed:  2,
 		harvestCountHostsDead: 1,
 		harvestCountProbed:    5,
 		harvestCountKept:      2,

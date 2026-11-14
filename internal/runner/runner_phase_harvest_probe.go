@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/database"
@@ -245,8 +248,12 @@ func (p *harvestProber) forEach(ctx context.Context, n int, fn func(i int)) int6
 
 // checkLiveness sends one request per origin, to a path that should not exist.
 // Any HTTP answer marks the origin alive and becomes its not-found fingerprint.
-// An origin left unchecked because the phase was cut short stays not alive; its
-// stubs are counted unprobed, not dropped.
+// Only an origin that cannot be reached at all — DNS failure or a refused /
+// failed dial — is dead and loses its stubs. Any other failure (a timeout, a
+// reset, a TLS hiccup) says the host exists but this one request failed, so the
+// origin stays unchecked and its stubs are kept, counted unprobed, for the later
+// phases. An origin left unchecked because the phase was cut short is treated
+// the same way.
 func (p *harvestProber) checkLiveness(ctx context.Context, origins []*harvestOrigin) {
 	p.forEach(ctx, len(origins), func(i int) {
 		o := origins[i]
@@ -258,7 +265,9 @@ func (p *harvestProber) checkLiveness(ctx context.Context, origins []*harvestOri
 		}
 		resp, err := p.fetch(ctx, rr)
 		if err != nil {
-			p.markDead(ctx, o)
+			if isUnreachableError(err) {
+				p.markDead(ctx, o)
+			}
 			zap.L().Debug("HarvestProbe: host did not answer", zap.String("origin", o.base), zap.Error(err))
 			return
 		}
@@ -345,9 +354,10 @@ func (p *harvestProber) fetchStubs(ctx context.Context, origins []*harvestOrigin
 				p.unprobed.Add(1)
 				return
 			}
+			// A failed fetch on a live host says nothing about the URL: keep
+			// the stub for the later phases instead of deleting it.
 			p.probed.Add(1)
 			p.failed.Add(1)
-			drop(j.stub.uuid)
 			return
 		}
 		p.probed.Add(1)
@@ -367,6 +377,30 @@ func (p *harvestProber) fetchStubs(ctx context.Context, origins []*harvestOrigin
 	p.unprobed.Add(skipped)
 	p.done.Add(skipped)
 	return drops
+}
+
+// isUnreachableError reports a failure to reach the origin at all: name
+// resolution failed, or the TCP dial itself failed (refused, no route). These
+// are the only errors that mark a harvested origin dead.
+func isUnreachableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" {
+		return true
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH) {
+		return true
+	}
+	// Some transports flatten the error chain; fall back to the message.
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such host") || strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "dial tcp")
 }
 
 // stats snapshots the tallies as PhaseOutcome.Counts.

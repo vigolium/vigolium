@@ -20,20 +20,24 @@ const (
 	dropStatic  dropReason = "static"
 )
 
-// archiveExtensions are download archives. They are dropped from harvested
-// URLs only — not from mining's junkExtensions, which must still follow a
-// gzipped sitemap (sitemap.xml.gz), so normalizeURL keeps ".xml.gz" too.
+// archiveExtensions are download archives. A harvested archive URL is KEPT:
+// a leftover backup.zip or site.tar.gz the archive saw is worth an existence
+// check, and the harvest probe stores whatever still answers. Dynamic
+// assessment skips them (they are media paths to the executor), so they cost
+// one request and carry no payloads.
 var archiveExtensions = map[string]bool{
 	"zip": true, "gz": true, "tgz": true, "tar": true, "rar": true, "7z": true, "bz2": true,
 }
 
-// isStaticPath reports whether a URL path names a static asset or archive.
+// IsArchivePath reports whether a URL path names a download archive.
+func IsArchivePath(path string) bool {
+	return archiveExtensions[utils.GetExtensionOfPath(path)]
+}
+
+// isStaticPath reports whether a URL path names a static asset (archives are
+// not static here; see archiveExtensions).
 func isStaticPath(path string) bool {
-	ext := utils.GetExtensionOfPath(path)
-	if junkExtensions[ext] {
-		return true
-	}
-	return archiveExtensions[ext] && !strings.HasSuffix(strings.ToLower(path), ".xml.gz")
+	return junkExtensions[utils.GetExtensionOfPath(path)]
 }
 
 // trackingParams are query keys that only carry campaign or click attribution.
@@ -66,8 +70,8 @@ func isTrackingParam(name string) bool {
 // becomes "/".
 //
 // It rejects anything that is not an absolute http(s) URL (dropInvalid) and
-// static assets and archives by extension (dropStatic, isStaticPath;
-// JavaScript and source maps are kept because jstangle reads them).
+// static assets by extension (dropStatic, isStaticPath; JavaScript and source
+// maps are kept because jstangle reads them, archives for an existence check).
 func normalizeURL(raw string) (*url.URL, dropReason) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
