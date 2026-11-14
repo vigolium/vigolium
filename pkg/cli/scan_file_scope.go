@@ -57,30 +57,7 @@ func deriveFileInputScope(settings *config.Settings, opts *types.Options) {
 	if mode == "all" {
 		return
 	}
-	format := resolveScanInputFormat()
-	if format == "urls" && !scanOpts.InputFileModeExplicit {
-		// The parser displaces the URL-list default by content; the scope
-		// rule (target list vs capture) must judge the same format.
-		if det, derr := source.DetectFormat(globalInput); derr == nil && det.Detected() {
-			format = det.Format
-		}
-	}
-	census, primary, err := source.HostCensus(globalInput, format)
-	if err != nil || len(census) == 0 {
-		if err != nil {
-			zap.L().Debug("could not derive scope from input file", zap.String("file", globalInput), zap.Error(err))
-		}
-		return
-	}
-	var scope []string
-	if source.IsTargetListFormat(format) || (isOpenAPIFormat(format) && globalSpecURL) {
-		for host := range census {
-			scope = append(scope, host)
-		}
-		sort.Strings(scope)
-	} else if primary != "" {
-		scope = []string{primary}
-	}
+	scope, census := fileInputScope(globalInput, resolveScanInputFormat(), scanOpts.InputFileModeExplicit, globalSpecURL)
 	if len(scope) == 0 {
 		return
 	}
@@ -117,4 +94,48 @@ func specFetchClient(proxy string) *http.Client {
 		return nil
 	}
 	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u)}}
+}
+
+// fileInputScope is the scope an input file derives (SAFE-4): its primary
+// host for a capture or spec, every host for a target list or a spec scanned
+// with --spec-url. format is the parser's format before content detection;
+// census is the per-host record count. Empty when nothing can be derived.
+func fileInputScope(path, format string, formatExplicit, specURL bool) (scope []string, census map[string]int) {
+	if format == "urls" && !formatExplicit {
+		// The parser displaces the URL-list default by content; the scope
+		// rule (target list vs capture) must judge the same format.
+		if det, derr := source.DetectFormat(path); derr == nil && det.Detected() {
+			format = det.Format
+		}
+	}
+	census, primary, err := source.HostCensus(path, format)
+	if err != nil || len(census) == 0 {
+		if err != nil {
+			zap.L().Debug("could not derive scope from input file", zap.String("file", path), zap.Error(err))
+		}
+		return nil, nil
+	}
+	if source.IsTargetListFormat(format) || (isOpenAPIFormat(format) && specURL) {
+		for host := range census {
+			scope = append(scope, host)
+		}
+		sort.Strings(scope)
+	} else if primary != "" {
+		scope = []string{primary}
+	}
+	return scope, census
+}
+
+// ingestScanScope is the scope `ingest --scan-on-receive` scans under when no
+// -t names one (SAFE-4): derived from the ingested file, unless the origin
+// mode is "all" or the input is stdin / a URL.
+func ingestScanScope(settings *config.Settings) ([]string, map[string]int) {
+	in := ingestOpts.Input
+	if in == "" || in == "-" || len(globalTargets) > 0 || strings.Contains(in, "://") {
+		return nil, nil
+	}
+	if settings != nil && config.ResolveCLIOriginMode(settings.Scope.CLIOriginMode) == "all" {
+		return nil, nil
+	}
+	return fileInputScope(in, ingestOpts.InputFormat, ingestInputFormatExplicit, ingestOpts.UseSpecServers)
 }

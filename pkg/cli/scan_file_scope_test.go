@@ -75,3 +75,21 @@ func TestDeriveFileInputScope_HAR(t *testing.T) {
 		t.Errorf("--scope-origin all must not derive a scope, got %v", o2.ScopeTargets)
 	}
 }
+
+// SAFE-4: `ingest --scan-on-receive` of a capture scans its primary host only.
+func TestIngestScanScope_HAR(t *testing.T) {
+	savedIn, savedFmt, savedTargets := ingestOpts.Input, ingestOpts.InputFormat, globalTargets
+	defer func() { ingestOpts.Input, ingestOpts.InputFormat, globalTargets = savedIn, savedFmt, savedTargets }()
+	ingestOpts.Input = writeScopeHAR(t)
+	ingestOpts.InputFormat = "urls"
+	globalTargets = nil
+	scope, census := ingestScanScope(config.DefaultSettings())
+	if len(scope) != 1 || scope[0] != "app.test" || census["cdn.other"] != 3 {
+		t.Fatalf("scope=%v census=%v, want [app.test] with cdn.other counted", scope, census)
+	}
+	all := config.DefaultSettings()
+	all.Scope.CLIOriginMode = "all"
+	if s, _ := ingestScanScope(all); len(s) != 0 {
+		t.Errorf("--scope-origin all must not derive, got %v", s)
+	}
+}

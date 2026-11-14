@@ -371,6 +371,7 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (ingestOutcome, error) {
 	// --- 1. Auto-detect format ---
 	// -I given: the operator's format stands (no sniffing, even for -I urls).
 	formatExplicit := cmd.Flags().Changed("input-mode")
+	ingestInputFormatExplicit = formatExplicit
 	inputFormat := ingestOpts.InputFormat
 	if inputFormat == "urls" && ingestOpts.Input != "-" && !formatExplicit {
 		if detected := detectInputFormat(ingestOpts.Input); detected != "" {
@@ -907,6 +908,9 @@ func runLocalIngestScan(settings *config.Settings, db *database.DB, repo *databa
 	// feed reads this one — the scan then streams findings that its own project
 	// can never see.
 	opts.ProjectUUID = ingestScanProjectUUID
+	// A capture names many hosts; scan only its primary one unless -t or
+	// --scope-origin all says otherwise (SAFE-4).
+	opts.ScopeTargets, opts.ScopeCensus = ingestScanScope(settings)
 	if scanUUID == "" {
 		scan := &database.Scan{
 			UUID:        fmt.Sprintf("scan-%d", time.Now().UnixNano()),
@@ -948,3 +952,7 @@ func runLocalIngestScan(settings *config.Settings, db *database.DB, repo *databa
 
 	return nil
 }
+
+// ingestInputFormatExplicit records whether -I was typed for the current
+// ingest (the derived scan scope must judge the format the parser used).
+var ingestInputFormatExplicit bool

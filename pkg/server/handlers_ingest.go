@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/vigolium/vigolium/internal/config"
 	"os"
 	"path/filepath"
 	"sort"
@@ -155,6 +156,64 @@ type ingestAccumulator struct {
 	batch       []*httpmsg.HttpRequestResponse
 	imported    int
 	errors      []string
+
+	// derive, when set, scopes a multi-host capture to its primary host
+	// (SAFE-4): the first record's host. Records for other hosts are stored
+	// as context (RecordSourceIngestContext) — kept, never fetched, never
+	// scanned by scan-on-receive.
+	derive       *derivedIngestScope
+	contextBatch []*httpmsg.HttpRequestResponse
+	contextOnly  int
+}
+
+// derivedIngestScope is the scope a REST file ingest derives from its first
+// record when the project names no targets (SAFE-4).
+type derivedIngestScope struct {
+	cfg     config.ScopeConfig
+	primary string
+	matcher *config.ScopeMatcher
+}
+
+// deriveScope turns on primary-host scoping for this accumulator, unless the
+// project's scope origin is "all" (the operator asked for every host).
+func (a *ingestAccumulator) deriveScope() *ingestAccumulator {
+	if a.source != database.RecordSourceIngestServer {
+		return a // bridge pushes (Burp, Caido) are deliberate per record
+	}
+	settings, err := a.h.settingsForProject(a.projectUUID)
+	if err != nil || settings == nil {
+		return a
+	}
+	if config.ResolveCLIOriginMode(settings.Scope.CLIOriginMode) == "all" {
+		return a
+	}
+	a.derive = &derivedIngestScope{cfg: settings.Scope}
+	return a
+}
+
+// inDerivedScope reports whether rr belongs to the capture's derived scope
+// (always true without derivation). The first record fixes the primary host.
+func (a *ingestAccumulator) inDerivedScope(rr *httpmsg.HttpRequestResponse) bool {
+	if a.derive == nil || rr == nil || rr.Service() == nil {
+		return true
+	}
+	host := strings.ToLower(rr.Service().Host())
+	if host == "" {
+		return true
+	}
+	if a.derive.matcher == nil {
+		a.derive.primary = host
+		a.derive.matcher = config.NewScopeMatcher(a.derive.cfg, host)
+	}
+	return a.derive.matcher.HostInScope(host)
+}
+
+// derivedPrimary is the derived scope's primary host ("" without one).
+func (a *ingestAccumulator) derivedPrimary() string {
+	if a.derive == nil {
+		return ""
+	}
+	return a.derive.primary
 }
 
 func (h *Handlers) newIngestAccumulator(ctx context.Context, source, projectUUID string) *ingestAccumulator {
@@ -169,10 +228,29 @@ func (h *Handlers) newIngestAccumulator(ctx context.Context, source, projectUUID
 
 // add queues a record, flushing automatically when a chunk fills.
 func (a *ingestAccumulator) add(rr *httpmsg.HttpRequestResponse) {
+	if !a.inDerivedScope(rr) {
+		a.contextOnly++
+		a.contextBatch = append(a.contextBatch, rr)
+		if len(a.contextBatch) >= ingestBatchChunk {
+			a.flushContext()
+		}
+		return
+	}
 	a.batch = append(a.batch, rr)
 	if len(a.batch) >= ingestBatchChunk {
 		a.flush()
 	}
+}
+
+// flushContext persists queued out-of-derived-scope records as context.
+func (a *ingestAccumulator) flushContext() {
+	if len(a.contextBatch) == 0 {
+		return
+	}
+	n, errs := a.h.saveRecordBatch(a.ctx, a.contextBatch, database.RecordSourceIngestContext, a.projectUUID)
+	a.imported += n
+	a.errors = append(a.errors, errs...)
+	a.contextBatch = a.contextBatch[:0]
 }
 
 // flush persists the currently-queued records.
@@ -190,6 +268,7 @@ func (a *ingestAccumulator) flush() {
 // once parsing completes instead of calling flush + reading the fields directly.
 func (a *ingestAccumulator) finish() (imported int, errs []string) {
 	a.flush()
+	a.flushContext()
 	return a.imported, a.errors
 }
 
@@ -416,6 +495,11 @@ func (h *Handlers) ingestOpenAPI(c fiber.Ctx, ctx context.Context, req *IngestHT
 
 	var skipped int
 	acc := h.newIngestAccumulator(ctx, ingestSource(c), getProjectUUID(c))
+	if req.URL == "" {
+		// No base URL: the spec's servers name the hosts; only the first is
+		// the scan's scope (SAFE-4), the rest are stored as context.
+		acc.deriveScope()
+	}
 	admit := h.ingestAdmitter(getProjectUUID(c))
 
 	var urlOverrideSvc *httpmsg.Service
@@ -438,7 +522,9 @@ func (h *Handlers) ingestOpenAPI(c fiber.Ctx, ctx context.Context, req *IngestHT
 		if urlOverrideSvc != nil {
 			rr = rr.WithService(urlOverrideSvc)
 		}
-		rr = h.fetchResponseIfNeeded(rr)
+		if acc.inDerivedScope(rr) {
+			rr = h.fetchResponseIfNeeded(rr)
+		}
 		if !admit(rr) {
 			skipped++
 			return true
@@ -466,6 +552,8 @@ func (h *Handlers) ingestOpenAPI(c fiber.Ctx, ctx context.Context, req *IngestHT
 		Skipped:        skipped,
 		Format:         "openapi",
 		DetectedFormat: detected,
+		DerivedScope:   acc.derivedPrimary(),
+		ContextOnly:    acc.contextOnly,
 		SkippedReasons: ingestSkipped(map[string]int{
 			"out_of_scope":      skipped,
 			"skipped_operation": stats.SkippedOperations,
@@ -516,12 +604,18 @@ func (h *Handlers) ingestFileFormat(c fiber.Ctx, ctx context.Context, req *Inges
 
 	var skipped int
 	acc := h.newIngestAccumulator(ctx, ingestSource(c), getProjectUUID(c))
+	if urlOverrideSvc == nil && !source.IsTargetListFormat(format) {
+		// A capture names many hosts; scope it to its primary one (SAFE-4).
+		acc.deriveScope()
+	}
 	admit := h.ingestAdmitter(getProjectUUID(c))
 	parseErr := parser.Parse(path, func(rr *httpmsg.HttpRequestResponse) bool {
 		if urlOverrideSvc != nil {
 			rr = rr.WithService(urlOverrideSvc)
 		}
-		rr = h.fetchResponseIfNeeded(rr)
+		if acc.inDerivedScope(rr) {
+			rr = h.fetchResponseIfNeeded(rr)
+		}
 		if !admit(rr) {
 			skipped++
 			return true
@@ -570,6 +664,8 @@ func (h *Handlers) ingestFileFormat(c fiber.Ctx, ctx context.Context, req *Inges
 		Skipped:        skipped,
 		Format:         format,
 		DetectedFormat: detected,
+		DerivedScope:   acc.derivedPrimary(),
+		ContextOnly:    acc.contextOnly,
 		SkippedReasons: ingestSkipped(reasons),
 		Errors:         errs,
 		Message:        msg,
