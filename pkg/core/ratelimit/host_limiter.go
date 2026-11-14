@@ -88,7 +88,7 @@ type hostEntry struct {
 	preArmed atomic.Bool
 
 	// pauseUntil (unix nanos) holds every new acquire for this host until the
-	// server's throttle window has passed (MISS-22): a 429, or a 503 with
+	// server's throttle window has passed: a 429, or a 503 with
 	// Retry-After. throttles counts consecutive throttles for the 1s·2^n
 	// back-off when the server named no Retry-After; a healthy response
 	// resets it.
@@ -149,7 +149,7 @@ type HostRateLimiter struct {
 	// HostRateLimiterConfig.DisablePreArm (the --no-waf-pacing flag).
 	preArmDisabled bool
 
-	// throttlePauseDisabled turns off the 429/503 host pause (MISS-22) while
+	// throttlePauseDisabled turns off the 429/503 host pause while
 	// keeping the concurrency back-off. From
 	// HostRateLimiterConfig.DisableThrottlePause.
 	throttlePauseDisabled bool
@@ -173,7 +173,7 @@ type HostRateLimiter struct {
 
 	// anyPaused is a fast-path flag: false until some host was throttled, so
 	// the acquire hot path skips the pause lookup on a scan that never saw a
-	// 429 (MISS-22).
+	// 429.
 	anyPaused atomic.Bool
 
 	// preArmSink, when set, is invoked once per host the first time PreArm throttles
@@ -190,9 +190,8 @@ type HostRateLimiter struct {
 	// with the limiter's entry lifetime: after an evicted host's entry is recreated
 	// (fresh, at full rate), the requester re-fingerprints and re-arms it instead of
 	// treating it as permanently paced. Every requester that shares this limiter
-	// registers its own dedup, so this is a list (not a single field): the old single
-	// field kept only the last registrant and raced the eviction goroutine that read
-	// it without synchronization. Subscriptions live for the limiter's lifetime.
+	// registers its own dedup, so this is a list (not a single field, which would
+	// keep only the last registrant). Subscriptions live for the limiter's lifetime.
 	// Guarded by evictMu. Each sink must be cheap and must NOT re-enter the limiter
 	// (it runs while a shard lock is held).
 	evictMu    sync.Mutex
@@ -299,7 +298,7 @@ type HostRateLimiterConfig struct {
 	DisablePreArm bool
 
 	// DisableThrottlePause turns off the time-based pause a 429 (or 503 with
-	// Retry-After) puts on a host (MISS-22); the concurrency back-off still
+	// Retry-After) puts on a host; the concurrency back-off still
 	// applies. For harnesses that send many requests at a deliberately
 	// throttling fixture and only care about what modules conclude from it.
 	DisableThrottlePause bool
@@ -427,12 +426,15 @@ func (h *HostRateLimiter) shardFor(host string) *hostShard {
 // Acquire blocks until a slot is available for the given host.
 // Returns context.Canceled/DeadlineExceeded if context is cancelled.
 func (h *HostRateLimiter) Acquire(ctx context.Context, host string) error {
-	if err := h.waitPause(ctx, host); err != nil {
+	entry, err := h.entryAfterPause(ctx, host)
+	if err != nil {
 		return err
 	}
-	shard := h.shardFor(host)
-	entry := h.getOrCreateEntry(shard, host)
+	return acquireEntry(ctx, entry)
+}
 
+// acquireEntry blocks until one of entry's slots is free or ctx ends.
+func acquireEntry(ctx context.Context, entry *hostEntry) error {
 	// Adaptive mode: acquire a token from the resizable pool (receive). Same
 	// lock-free hot path as the static send below, just the opposite channel
 	// direction; the pool's current size is the effective per-host limit.
@@ -488,10 +490,11 @@ func (h *HostRateLimiter) AcquireWithTimeoutContext(ctx context.Context, host st
 	}
 	// A throttled host's pause is waited out BEFORE the acquire timeout
 	// starts: the pause is the server's instruction, not our saturation.
-	if err := h.waitPause(ctx, host); err != nil {
+	entry, err := h.entryAfterPause(ctx, host)
+	if err != nil {
 		return err
 	}
-	if h.tryAcquire(host) {
+	if tryAcquireEntry(entry) {
 		return nil
 	}
 
@@ -499,17 +502,14 @@ func (h *HostRateLimiter) AcquireWithTimeoutContext(ctx context.Context, host st
 	// from ctx so a scan shutdown can unblock the wait promptly).
 	acquireCtx, cancel := context.WithTimeout(ctx, h.acquireTimeout)
 	defer cancel()
-	return h.Acquire(acquireCtx, host)
+	return acquireEntry(acquireCtx, entry)
 }
 
-// tryAcquire attempts a non-blocking slot acquisition. It returns true only if a
-// slot was obtained immediately, and never blocks — callers use it to skip the
-// timeout-context/timer setup on the uncontended hot path. The blocking retry
-// (with the same touch/inflight bookkeeping) lives in Acquire.
-func (h *HostRateLimiter) tryAcquire(host string) bool {
-	shard := h.shardFor(host)
-	entry := h.getOrCreateEntry(shard, host)
-
+// tryAcquireEntry takes one of entry's slots only if one is free right now,
+// and never blocks — callers use it to skip the timeout-context/timer setup on
+// the uncontended hot path. The blocking retry (with the same touch/inflight
+// bookkeeping) is acquireEntry.
+func tryAcquireEntry(entry *hostEntry) bool {
 	if entry.tokens != nil {
 		select {
 		case <-entry.tokens:
@@ -550,11 +550,10 @@ func (h *HostRateLimiter) AcquirePriority(ctx context.Context, host string) (fun
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := h.waitPause(ctx, host); err != nil {
+	entry, err := h.entryAfterPause(ctx, host)
+	if err != nil {
 		return nil, err
 	}
-	shard := h.shardFor(host)
-	entry := h.getOrCreateEntry(shard, host)
 	normal := func() { h.Release(host) }
 	reserved := func() {
 		select {
@@ -564,7 +563,7 @@ func (h *HostRateLimiter) AcquirePriority(ctx context.Context, host string) (fun
 		}
 	}
 
-	if h.tryAcquire(host) {
+	if tryAcquireEntry(entry) {
 		return normal, nil
 	}
 	select {
@@ -604,13 +603,8 @@ func (h *HostRateLimiter) AcquirePriority(ctx context.Context, host string) (fun
 // Release releases a slot for the given host.
 // Must be called after Acquire to free the slot.
 func (h *HostRateLimiter) Release(host string) {
-	shard := h.shardFor(host)
-
-	shard.mu.RLock()
-	entry, exists := shard.hosts[host]
-	shard.mu.RUnlock()
-
-	if !exists {
+	entry := h.existing(host)
+	if entry == nil {
 		// Host was evicted while holding slot - this is fine
 		return
 	}

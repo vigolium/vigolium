@@ -1,8 +1,6 @@
 package modkit
 
 import (
-	"net"
-	"strconv"
 	"strings"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -154,17 +152,6 @@ func moduleVulnClass(m any) string {
 	return ""
 }
 
-// RecordOrigin is the scheme://host:port identity header claims are keyed on.
-func RecordOrigin(item *httpmsg.HttpRequestResponse) string {
-	if item == nil {
-		return ""
-	}
-	if svc := item.Service(); svc != nil && svc.Host() != "" {
-		return svc.Protocol() + "://" + net.JoinHostPort(svc.Host(), strconv.Itoa(svc.Port()))
-	}
-	return RegistryHostKey(item)
-}
-
 // FilterPointsFor applies the header gate to a whole-request module's own
 // point loop (sqli_time_blind, sqli_boolean_blind, command_injection_timing,
 // command_injection_echo, code_exec), so header points are gated the same way
@@ -175,7 +162,7 @@ func FilterPointsFor(sc *ScanContext, module headerGateModule, item *httpmsg.Htt
 		return points
 	}
 	vulnClass := moduleVulnClass(module)
-	origin := RecordOrigin(item)
+	origin := httpmsg.OriginKey(item)
 	out := points[:0:0]
 	for _, ip := range points {
 		if ip == nil || ip.Type() != httpmsg.INS_HEADER {

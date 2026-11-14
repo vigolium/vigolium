@@ -9,10 +9,10 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// TestRawRequest_NeverFollowsRedirect pins SAFE-1: rawhttp's Dor follows one
-// hop even at MaxRedirects 0 and re-sends every header (session, -H) to the
-// Location host. A raw request must be exactly one round trip and return the
-// 3xx, with and without NoRedirects.
+// TestRawRequest_NeverFollowsRedirect: rawhttp's Dor follows one hop even at
+// MaxRedirects 0 and re-sends every header (session, -H) to the Location
+// host. A raw request must be exactly one round trip and return the 3xx, with
+// and without NoRedirects.
 func TestRawRequest_NeverFollowsRedirect(t *testing.T) {
 	var bHits atomic.Int64
 	b := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

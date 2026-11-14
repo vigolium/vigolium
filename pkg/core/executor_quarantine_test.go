@@ -72,7 +72,7 @@ func TestSendItemNeverConsumesProbe(t *testing.T) {
 	if got := cache.State(key); got != hosterrors.StateOpen {
 		t.Fatalf("sendItem changed breaker state to %s; it must stay open until Admit", got)
 	}
-	if !cache.Admit(key) {
+	if ok, _ := cache.Admit(key); !ok {
 		t.Fatal("the probe was consumed by the executor's pre-filter")
 	}
 

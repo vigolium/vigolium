@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -427,19 +426,10 @@ func callHitTransportErrors(cs *http.CallStats) bool {
 	return cs != nil && (cs.TransportErrors.Load() > 0 || cs.Refused.Load() > 0)
 }
 
+// isTransientCallErr is a transient transport failure, or a request refused
+// because the call had already been abandoned.
 func isTransientCallErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, hosterrors.ErrUnresponsiveHost) || errors.Is(err, http.ErrRequestAbandoned) {
-		return true
-	}
-	switch http.ClassifyTransportError(err) {
-	case http.TransportErrDNS, http.TransportErrRefused, http.TransportErrTimeout,
-		http.TransportErrTLS, http.TransportErrReset:
-		return true
-	}
-	return false
+	return errors.Is(err, http.ErrRequestAbandoned) || http.IsTransientTransportError(err)
 }
 
 // runActiveWithTimeout executes an active module scan function under a timeout
@@ -517,20 +507,17 @@ func (e *Executor) runActiveWithTimeout(
 	// Deferring the set is correct on all three exits: on the normal path the
 	// scan goroutine has already delivered its result, and on the timeout /
 	// parent-cancel paths flagging it is precisely the intent.
+	//
+	// sent attributes this call's wire requests to the module. It is flushed by
+	// the scan goroutine once scanFn unwinds, so requests an abandoned call
+	// still sent after its timeout are counted too.
 	var abandoned atomic.Bool
+	var sent atomic.Int64
 	var callStats *http.CallStats
 	if reqClient != nil {
 		defer abandoned.Store(true)
-		reqClient = reqClient.WithAbandonFlag(&abandoned)
+		reqClient = reqClient.WithCall(&abandoned, &sent)
 		callStats = reqClient.CallStats()
-	}
-
-	// MEAS-4: attribute this call's wire requests to the module. Flushed by the
-	// scan goroutine once scanFn unwinds, so requests an abandoned call still
-	// sent after its timeout are counted too.
-	var sent atomic.Int64
-	if reqClient != nil {
-		reqClient = reqClient.WithSendCounter(&sent)
 	}
 
 	// One metrics lookup for everything this call records.

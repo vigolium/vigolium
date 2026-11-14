@@ -110,7 +110,7 @@ func TestFeedbackRoundTripperClassifiesBlocksAndKeepsBody(t *testing.T) {
 }
 
 // A request the caller cancelled says nothing about the host; a client
-// timeout is the host failing to answer and counts as distress (MISS-23).
+// timeout is the host failing to answer and counts as distress.
 func TestFeedbackRoundTripperIgnoresCancelled(t *testing.T) {
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

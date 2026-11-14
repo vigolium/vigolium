@@ -11,7 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// MISS-25: rawhttp gunzips the body but keeps Content-Encoding: gzip, and the
+// Rawhttp gunzips the body but keeps Content-Encoding: gzip, and the
 // response chain decoded it again, losing the first buffer chunk. The raw path
 // must hand back the exact plaintext.
 func TestRawRequest_GzipBodyIntact(t *testing.T) {

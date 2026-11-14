@@ -42,7 +42,7 @@ func TestDo_TokenPerAttempt(t *testing.T) {
 		MaxRetries: 5,
 		Retryable:  alwaysRetry,
 		Backoff:    func(int) time.Duration { return time.Millisecond },
-	}, func(int) error {
+	}, func(int, bool) error {
 		calls++
 		if calls < 3 {
 			return errReset
@@ -74,7 +74,7 @@ func TestDo_SlotReleasedDuringBackoff(t *testing.T) {
 			MaxRetries: 2,
 			Retryable:  alwaysRetry,
 			Backoff:    func(int) time.Duration { return 400 * time.Millisecond },
-		}, func(int) error {
+		}, func(int, bool) error {
 			calls++
 			if calls == 1 {
 				// Released right after this returns; the test acquires during
@@ -194,7 +194,7 @@ func TestCancel(t *testing.T) {
 		MaxRetries: 3,
 		Retryable:  alwaysRetry,
 		Backoff:    func(int) time.Duration { return 10 * time.Second },
-	}, func(int) error { return errReset })
+	}, func(int, bool) error { return errReset })
 	if !errors.Is(err, context.Canceled) || attempts != 1 {
 		t.Fatalf("Do = (%d, %v), want (1, context.Canceled)", attempts, err)
 	}
@@ -214,7 +214,7 @@ func TestAcquire_Quarantine(t *testing.T) {
 		MaxRetries: 5,
 		Retryable:  alwaysRetry,
 		Backoff:    func(int) time.Duration { return time.Millisecond },
-	}, func(int) error { return errReset })
+	}, func(int, bool) error { return errReset })
 	if !errors.Is(err, errReset) || attempts != 2 {
 		t.Fatalf("Do = (%d, %v), want (2, reset): the breaker opens after 2 attempts", attempts, err)
 	}

@@ -27,13 +27,13 @@ func TestAdaptiveActiveTimeout(t *testing.T) {
 	}
 
 	for i := 0; i < 100; i++ {
-		e.moduleMetrics.For("slow").RecordCompletedDuration(40*time.Second)
+		e.moduleMetrics.For("slow").RecordCompletedDuration(40 * time.Second)
 	}
 	if got := e.adaptiveActiveTimeout("slow"); got < 120*time.Second || got > adaptiveTimeoutMax {
 		t.Fatalf("p99≈40s: %v, want ~3x within the 300s cap", got)
 	}
 	for i := 0; i < 100; i++ {
-		e.moduleMetrics.For("slower").RecordCompletedDuration(200*time.Second)
+		e.moduleMetrics.For("slower").RecordCompletedDuration(200 * time.Second)
 	}
 	if got := e.adaptiveActiveTimeout("slower"); got != adaptiveTimeoutMax {
 		t.Fatalf("p99≈200s: %v, want the 300s cap", got)

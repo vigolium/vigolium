@@ -137,3 +137,11 @@ func TestBlockNotifier_NilSafe(t *testing.T) {
 	nilN.report("example.com", c2)
 	c2.Close()
 }
+
+// report classifies resp, then reports it as the hot path does.
+func (n *blockNotifier) report(host string, resp *httpUtils.ResponseChain) {
+	if n == nil || n.sink == nil || host == "" || resp == nil {
+		return
+	}
+	n.reportBlock(host, classifyWAFBlock(resp), responseChainStatus(resp))
+}

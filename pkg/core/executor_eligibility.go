@@ -1,8 +1,6 @@
 package core
 
 import (
-	"net"
-	"strconv"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -183,36 +181,6 @@ func normalizeTechTags(in []string) []string {
 // never matches.
 func hostFromItem(item *httpmsg.HttpRequestResponse) string {
 	return modkit.RegistryHostKey(item)
-}
-
-// originKeyFromItem returns the canonical origin identity — scheme, host, and
-// effective port — used to key per-host module claims. Unlike hostFromItem it
-// includes the scheme and always resolves the port, so the same hostname served
-// on multiple ports or schemes (e.g. https://h:443 public app vs https://h:8443
-// admin app) yields distinct keys. This prevents the first port scanned from
-// claiming the (module, host) pair and suppressing a ScanPerHost module's run
-// against the other origins of the same hostname.
-func originKeyFromItem(item *httpmsg.HttpRequestResponse) string {
-	if item == nil {
-		return ""
-	}
-	if svc := item.Service(); svc != nil {
-		if h := svc.Host(); h != "" {
-			return svc.Protocol() + "://" + net.JoinHostPort(h, strconv.Itoa(svc.Port()))
-		}
-	}
-	if u, err := item.URL(); err == nil && u != nil && u.Hostname() != "" {
-		port := u.Port()
-		if port == "" {
-			if u.Scheme == "https" {
-				port = "443"
-			} else {
-				port = "80"
-			}
-		}
-		return u.Scheme + "://" + net.JoinHostPort(u.Hostname(), port)
-	}
-	return ""
 }
 
 // methodPolicyAllows reports whether item's method may be actively tested

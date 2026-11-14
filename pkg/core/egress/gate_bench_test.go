@@ -40,7 +40,7 @@ func BenchmarkGateAcquire(b *testing.B) {
 func BenchmarkGateDo(b *testing.B) {
 	g := benchGate(b)
 	ctx := context.Background()
-	send := func(int) error { return nil }
+	send := func(int, bool) error { return nil }
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := g.Do(ctx, "a.test:443", LaneNormal, RetryPolicy{}, send); err != nil {

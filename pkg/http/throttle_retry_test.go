@@ -35,7 +35,7 @@ func newLimitedRequester(t *testing.T) *Requester {
 	return r
 }
 
-// MISS-22: a 429 is retried transparently after the host's pause; the module
+// A 429 is retried transparently after the host's pause; the module
 // sees the 200 and the retry lands >= 1s after the throttle.
 func TestThrottle_429ThenOK(t *testing.T) {
 	var mu sync.Mutex
@@ -53,7 +53,7 @@ func TestThrottle_429ThenOK(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r := newLimitedRequester(t).WithAbandonFlag(&atomic.Bool{})
+	r := newLimitedRequester(t).WithCall(&atomic.Bool{}, nil)
 	rr, _ := httpmsg.GetRawRequestFromURL(srv.URL + "/x")
 	resp, _, err := r.Execute(rr, Options{NoClustering: true})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestThrottle_PersistentMarksCall(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
-	r := newLimitedRequester(t).WithAbandonFlag(&atomic.Bool{})
+	r := newLimitedRequester(t).WithCall(&atomic.Bool{}, nil)
 	rr, _ := httpmsg.GetRawRequestFromURL(srv.URL + "/x")
 	resp, _, err := r.Execute(rr, Options{NoClustering: true})
 	if err != nil {
@@ -98,20 +98,5 @@ func TestThrottle_PersistentMarksCall(t *testing.T) {
 	}
 	if n := r.CallStats().Throttled.Load(); n != 1 {
 		t.Errorf("Throttled = %d, want 1", n)
-	}
-}
-
-func TestParseRetryAfter(t *testing.T) {
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	if d := ParseRetryAfter("5", now); d != 5*time.Second {
-		t.Errorf("seconds: %v", d)
-	}
-	if d := ParseRetryAfter(now.Add(10*time.Second).Format(http.TimeFormat), now); d != 10*time.Second {
-		t.Errorf("http-date: %v", d)
-	}
-	for _, v := range []string{"", "-1", "soon"} {
-		if d := ParseRetryAfter(v, now); d != 0 {
-			t.Errorf("%q: %v, want 0", v, d)
-		}
 	}
 }

@@ -80,9 +80,8 @@ type PoolStatsSnapshot struct {
 func (s PoolStatsSnapshot) RoundTrips() int64 { return s.ConnNew + s.ConnReused }
 
 // ReuseRatio is the share of round trips served on an already-open connection:
-// (roundTrips - dialed) / roundTrips. A low value signals connection churn — the
-// class of regression that made anonymous-clone transport fragmentation invisible
-// before this telemetry existed.
+// (roundTrips - dialed) / roundTrips. A low value signals connection churn, such
+// as anonymous clones fragmenting the transport.
 //
 // Derived from ConnDialed (the transport's real dials) rather than the httptrace
 // new/reused split, which systematically misattributes new connections as reuses.
@@ -161,12 +160,21 @@ func (r *Requester) LogPoolStats() {
 	)
 }
 
-// traceContext attaches the pool trace to ctx. httptrace.WithClientTrace
-// composes any trace already on ctx (the per-attempt WroteRequest trace,
-// SAFE-10) INTO the trace it is given, mutating it, so each request gets a
-// shallow copy: the shared trace is never written (a data race, and hooks
-// would otherwise chain onto it on every request).
-func (p *poolStats) traceContext(ctx context.Context) context.Context {
-	ct := *p.ct
+// traceContext attaches one attempt's ClientTrace to ctx: a copy of the
+// shared pool trace (when telemetry is on) with wroteRequest as its
+// WroteRequest hook, so an attempt pays a single context wrap. The shared
+// trace is never written: httptrace.WithClientTrace composes any trace
+// already on ctx INTO the trace it is given, which on the shared one would
+// race across goroutines and chain hooks onto it on every request. A nil
+// receiver with a nil hook returns ctx unchanged.
+func (p *poolStats) traceContext(ctx context.Context, wroteRequest func(httptrace.WroteRequestInfo)) context.Context {
+	var ct httptrace.ClientTrace
+	if p != nil {
+		ct = *p.ct
+		p.requests.Add(1)
+	} else if wroteRequest == nil {
+		return ctx
+	}
+	ct.WroteRequest = wroteRequest
 	return httptrace.WithClientTrace(ctx, &ct)
 }

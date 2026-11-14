@@ -319,3 +319,18 @@ func TestFlattenCookiesForHost_SkipsExpiredAndPrefersBroadestPath(t *testing.T) 
 		t.Errorf("all-expired = %q, want empty", got)
 	}
 }
+
+func TestOverrideCookieHeaders(t *testing.T) {
+	cases := []struct{ existing, override, want string }{
+		{"session=s1; TrackingId=orig", "TrackingId=P", "session=s1; TrackingId=P"},
+		{"session=s1; trackingid=orig", "TrackingId=P", "session=s1; TrackingId=P"},
+		{"session=s1", "a=1; b=2", "session=s1; a=1; b=2"},
+		{"", "a=1", "a=1"},
+		{" a=1 ;; b=2 ", "", "a=1; b=2"},
+	}
+	for _, tc := range cases {
+		if got := OverrideCookieHeaders(tc.existing, tc.override); got != tc.want {
+			t.Errorf("OverrideCookieHeaders(%q, %q) = %q, want %q", tc.existing, tc.override, got, tc.want)
+		}
+	}
+}

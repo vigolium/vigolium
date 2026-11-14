@@ -278,23 +278,18 @@ func (c *Cache) AnyTripped() bool {
 	return c.anyTripped.Load()
 }
 
-// Admit reports whether a request to key may be sent now. Call it immediately
-// before the send. For an Open host whose cooldown has elapsed it performs the
+// Admit reports whether a request to key may be sent now, and whether the
+// admission is the half-open recovery probe. Call it immediately before the
+// send. For an Open host whose cooldown has elapsed it performs the
 // Open→HalfOpen transition, and exactly one concurrent caller gets true — the
 // probe. A half-open probe that has not reported within ProbeTTL is treated as
 // lost, and one more caller is admitted in its place.
-func (c *Cache) Admit(key string) bool {
-	ok, _ := c.AdmitProbe(key)
-	return ok
-}
-
-// AdmitProbe is Admit that also reports whether the admission is the
-// half-open recovery probe (MISS-24). A caller holding the probe can spend it
-// on a request whose outcome actually says whether the host is alive — the
-// record's unmodified baseline — instead of whatever payload happened to
-// arrive: a WAF that silently drops payloads used to fail every probe and get
-// the host declared dead.
-func (c *Cache) AdmitProbe(key string) (ok, isProbe bool) {
+//
+// A caller holding the probe can spend it on a request whose outcome actually
+// says whether the host is alive — the record's unmodified baseline — instead
+// of whatever payload happened to arrive: a WAF that silently drops payloads
+// would otherwise fail every probe and get the host declared dead.
+func (c *Cache) Admit(key string) (ok, isProbe bool) {
 	it := c.trippedItem(key)
 	if it == nil {
 		return true, false

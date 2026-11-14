@@ -769,7 +769,7 @@ rr = fetchBaseline(t, rr, infra)
 //    (per host, per request, per insertion point). Shared with the benign
 //    sweep in pkg/modules.
 var sent atomic.Int64
-findings, scanErr := modtest.RunActive(mod, rr, infra.HTTPClient.WithSendCounter(&sent), infra.ScanCtx)
+findings, scanErr := modtest.RunActive(mod, rr, infra.HTTPClient.WithCall(nil, &sent), infra.ScanCtx)
 
 // 4. Apply the assertion (module errors fail strict/negative cases) and,
 //    when $BENCH_OUT is set, append the result line.

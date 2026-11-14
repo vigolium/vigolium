@@ -14,7 +14,7 @@ import (
 
 // runPassivePerHostFiltered runs pre-filtered passive modules (CanProcess already checked).
 func (e *Executor) runPassivePerHostFiltered(ctx context.Context, item *httpmsg.HttpRequestResponse, eligible []modules.PassiveModule) {
-	origin := originKeyFromItem(item)
+	origin := httpmsg.OriginKey(item)
 
 	for _, module := range eligible {
 		// Claim this (module, origin) pair — skip if another worker already did.

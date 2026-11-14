@@ -80,20 +80,20 @@ func TestAdaptive_BacksOffOnDistress(t *testing.T) {
 	h.Release(host)
 
 	// A 429 halves the limit (16 -> 8).
-	h.Feedback(host, 429, nil, false)
+	h.Feedback(host, FeedbackOutcome{Status: 429})
 	if got := h.currentLimit(host); got != 8 {
 		t.Fatalf("after 429, limit = %d, want 8", got)
 	}
 
 	// A second distress within the cooldown is coalesced (no further drop).
-	h.Feedback(host, 503, nil, false)
+	h.Feedback(host, FeedbackOutcome{Status: 503})
 	if got := h.currentLimit(host); got != 8 {
 		t.Fatalf("distress within cooldown should not drop again, got %d", got)
 	}
 
 	// A transport error (timeout) also counts as distress after the cooldown.
 	time.Sleep(decreaseCooldown + 20*time.Millisecond)
-	h.Feedback(host, 0, errors.New("dial tcp: i/o timeout"), false)
+	h.Feedback(host, FeedbackOutcome{Err: errors.New("dial tcp: i/o timeout")})
 	if got := h.currentLimit(host); got != 4 {
 		t.Fatalf("after timeout, limit = %d, want 4", got)
 	}
@@ -110,7 +110,7 @@ func TestAdaptive_BackoffFlooredAtMin(t *testing.T) {
 	h.Release(host)
 
 	for i := 0; i < 5; i++ {
-		h.Feedback(host, 503, nil, false)
+		h.Feedback(host, FeedbackOutcome{Status: 503})
 		time.Sleep(decreaseCooldown + 10*time.Millisecond)
 	}
 	if got := h.currentLimit(host); got != 2 {
@@ -129,7 +129,7 @@ func TestAdaptive_RecoversWhenHealthy(t *testing.T) {
 	h.Release(host)
 
 	// Drop to 4.
-	h.Feedback(host, 429, nil, false)
+	h.Feedback(host, FeedbackOutcome{Status: 429})
 	if got := h.currentLimit(host); got != 4 {
 		t.Fatalf("setup: expected 4, got %d", got)
 	}
@@ -137,7 +137,7 @@ func TestAdaptive_RecoversWhenHealthy(t *testing.T) {
 	// Feed plenty of healthy completions; the limit ramps back toward the ceiling
 	// (one +1 step per increaseAfterHealthy+limit clean responses).
 	for i := 0; i < 500; i++ {
-		h.Feedback(host, 200, nil, false)
+		h.Feedback(host, FeedbackOutcome{Status: 200})
 	}
 	if got := h.currentLimit(host); got <= 4 {
 		t.Fatalf("expected ramp-up above 4 after healthy traffic, got %d", got)
@@ -159,13 +159,13 @@ func TestAdaptive_ContextCancelNotDistress(t *testing.T) {
 	_ = h.Acquire(context.Background(), host)
 	h.Release(host)
 
-	h.Feedback(host, 0, context.Canceled, false)
+	h.Feedback(host, FeedbackOutcome{Err: context.Canceled})
 	if got := h.currentLimit(host); got != 8 {
 		t.Fatalf("context cancellation must not back off; got %d, want 8", got)
 	}
 	// A deadline is a client timeout — the host failed to answer — and backs
-	// off (MISS-23). A caller whose own context expired does not report.
-	h.Feedback(host, 0, context.DeadlineExceeded, false)
+	// off. A caller whose own context expired does not report.
+	h.Feedback(host, FeedbackOutcome{Err: context.DeadlineExceeded})
 	if got := h.currentLimit(host); got != 4 {
 		t.Fatalf("a client timeout must back off; got %d, want 4", got)
 	}
@@ -210,7 +210,7 @@ func TestAdaptive_ConcurrentAcquireReleaseFeedback(t *testing.T) {
 				return
 			default:
 			}
-			h.Feedback(host, status, nil, false)
+			h.Feedback(host, FeedbackOutcome{Status: status})
 			time.Sleep(time.Millisecond)
 		}
 	}
@@ -251,7 +251,7 @@ func TestStaticMode_NoFeedbackEffect(t *testing.T) {
 	if err := h.Acquire(context.Background(), host); err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	h.Feedback(host, 429, nil, false) // no-op
+	h.Feedback(host, FeedbackOutcome{Status: 429}) // no-op
 	if got := h.currentLimit(host); got != 0 {
 		t.Fatalf("static entry has no adaptive limit, got %d", got)
 	}
@@ -278,13 +278,13 @@ func TestWafAutoArm_StaysPinnedUntilBlock(t *testing.T) {
 	}
 	// A burst of ordinary distress (502/503/timeout) must not change the limit while
 	// the host is unarmed — that's the "no behavior change for non-WAF targets" rule.
-	// (A 429 is a server throttle, not ordinary distress: it arms the host — MISS-22,
-	// see TestFeedbackWith_ThrottlePausesAndHalves.)
+	// (A 429 is a server throttle, not ordinary distress: it arms the host,
+	// see TestFeedback_ThrottlePausesAndHalves.)
 	for i := 0; i < 5; i++ {
 		time.Sleep(decreaseCooldown + 5*time.Millisecond)
-		h.Feedback(host, 502, nil, false)
-		h.Feedback(host, 503, nil, false)
-		h.Feedback(host, 0, errors.New("dial tcp: i/o timeout"), false)
+		h.Feedback(host, FeedbackOutcome{Status: 502})
+		h.Feedback(host, FeedbackOutcome{Status: 503})
+		h.Feedback(host, FeedbackOutcome{Err: errors.New("dial tcp: i/o timeout")})
 	}
 	if got := h.currentLimit(host); got != 16 {
 		t.Fatalf("unarmed host throttled by ordinary distress: limit=%d, want 16", got)
@@ -304,19 +304,19 @@ func TestWafAutoArm_ArmsAndBacksOffOnWAFBlock(t *testing.T) {
 	h.Release(host)
 
 	// A confirmed WAF block (wafBlocked=true) arms the host and halves the limit.
-	h.Feedback(host, 403, nil, true)
+	h.Feedback(host, FeedbackOutcome{Status: 403, WAFBlocked: true})
 	if got := h.currentLimit(host); got != 8 {
 		t.Fatalf("WAF block should arm + halve 16→8, got %d", got)
 	}
 	// Now armed, an ordinary 429 backs off further (past the cooldown).
 	time.Sleep(decreaseCooldown + 5*time.Millisecond)
-	h.Feedback(host, 429, nil, false)
+	h.Feedback(host, FeedbackOutcome{Status: 429})
 	if got := h.currentLimit(host); got != 4 {
 		t.Fatalf("armed host should back off 8→4 on 429, got %d", got)
 	}
 	// Healthy completions ramp it back up toward the MaxPerHost ceiling.
 	for i := 0; i < 200; i++ {
-		h.Feedback(host, 200, nil, false)
+		h.Feedback(host, FeedbackOutcome{Status: 200})
 	}
 	if got := h.currentLimit(host); got <= 4 || got > 16 {
 		t.Fatalf("armed host should recover toward ceiling 16, got %d", got)
@@ -361,7 +361,7 @@ func TestPreArm_DropsToStartThenRamps(t *testing.T) {
 
 	// A healthy run ramps the paced host back up toward the MaxPerHost ceiling.
 	for i := 0; i < 400; i++ {
-		h.Feedback(host, 200, nil, false)
+		h.Feedback(host, FeedbackOutcome{Status: 200})
 	}
 	if got := h.currentLimit(host); got <= 4 || got > 16 {
 		t.Fatalf("pre-armed host should ramp back toward ceiling 16, got %d", got)
@@ -385,7 +385,7 @@ func TestPreArm_LeavesBlockArmedHostAlone(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		time.Sleep(decreaseCooldown + 5*time.Millisecond)
-		h.Feedback(host, 403, nil, true)
+		h.Feedback(host, FeedbackOutcome{Status: 403, WAFBlocked: true})
 	}
 	blocked := h.currentLimit(host)
 	if blocked >= 16 || blocked > 4 {
@@ -428,7 +428,7 @@ func TestPreArm_DisabledKeepsReactiveBackoff(t *testing.T) {
 	}
 
 	// Reactive path still works: a confirmed WAF block arms + halves.
-	h.Feedback(host, 403, nil, true)
+	h.Feedback(host, FeedbackOutcome{Status: 403, WAFBlocked: true})
 	if got := h.currentLimit(host); got != 8 {
 		t.Fatalf("reactive WAF back-off must still apply (16→8), got %d", got)
 	}
@@ -450,7 +450,7 @@ func TestPreArm_NoOpInStaticMode(t *testing.T) {
 
 	// Full static concurrency is still available: MaxPerHost non-blocking acquires.
 	for i := 0; i < 16; i++ {
-		if !h.tryAcquire(host) {
+		if !tryAcquireEntry(h.getOrCreateEntry(h.shardFor(host), host)) {
 			t.Fatalf("static host throttled after PreArm: slot %d unavailable", i)
 		}
 	}
@@ -511,7 +511,7 @@ func TestAdaptive_RampsAboveMaxPerHost(t *testing.T) {
 		t.Fatalf("setup: expected to start at MaxPerHost=8, got %d", got)
 	}
 	for i := 0; i < 2000; i++ {
-		h.Feedback(host, 200, nil, false)
+		h.Feedback(host, FeedbackOutcome{Status: 200})
 	}
 	if got := h.currentLimit(host); got <= 8 {
 		t.Fatalf("healthy host must ramp above MaxPerHost=8, got %d", got)
@@ -539,12 +539,12 @@ func TestWafAutoArm_RecoveryStopsAtMaxPerHost(t *testing.T) {
 	h.Release(host)
 
 	// A confirmed block arms AIMD and backs the host off.
-	h.Feedback(host, 403, nil, true)
+	h.Feedback(host, FeedbackOutcome{Status: 403, WAFBlocked: true})
 	if got := h.currentLimit(host); got >= 8 {
 		t.Fatalf("expected back-off below 8 after a WAF block, got %d", got)
 	}
 	for i := 0; i < 2000; i++ {
-		h.Feedback(host, 200, nil, false)
+		h.Feedback(host, FeedbackOutcome{Status: 200})
 	}
 	if got := h.currentLimit(host); got > 8 {
 		t.Fatalf("waf-armed recovery must stop at MaxPerHost=8, got %d", got)

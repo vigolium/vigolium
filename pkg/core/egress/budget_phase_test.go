@@ -6,7 +6,7 @@ import (
 )
 
 // A phase's request share caps only that phase: discovery gets its share of
-// the unspent --max-requests and the scan keeps the rest (ECON-5).
+// the unspent --max-requests and the scan keeps the rest.
 func TestBudgetLimitPhase(t *testing.T) {
 	var globalHook int
 	b := NewBudget(100, 0)

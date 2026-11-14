@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// MISS-22: a 429 pauses the host (acquires wait ≥ ~1s) and halves its limit,
+// A 429 pauses the host (acquires wait ≥ ~1s) and halves its limit,
 // even in WAF-auto-arm mode before any WAF block.
-func TestFeedbackWith_ThrottlePausesAndHalves(t *testing.T) {
+func TestFeedback_ThrottlePausesAndHalves(t *testing.T) {
 	h := NewHostRateLimiter(HostRateLimiterConfig{MaxPerHost: 8, WafAutoArm: true})
 	defer func() { _ = h.Close() }()
 	ctx := context.Background()
@@ -19,7 +19,7 @@ func TestFeedbackWith_ThrottlePausesAndHalves(t *testing.T) {
 	h.Release(host)
 	before, _ := h.CurrentLimit(host)
 
-	h.FeedbackWith(host, FeedbackOutcome{Status: 429})
+	h.Feedback(host, FeedbackOutcome{Status: 429})
 	if h.PausedUntil(host).IsZero() {
 		t.Fatal("429 did not pause the host")
 	}
@@ -38,20 +38,20 @@ func TestFeedbackWith_ThrottlePausesAndHalves(t *testing.T) {
 }
 
 // A 503 needs a Retry-After to count as a throttle; Retry-After sets the pause.
-func TestFeedbackWith_RetryAfterAndPlain503(t *testing.T) {
+func TestFeedback_RetryAfterAndPlain503(t *testing.T) {
 	h := NewHostRateLimiter(HostRateLimiterConfig{MaxPerHost: 4})
 	defer func() { _ = h.Close() }()
-	h.FeedbackWith("b.test", FeedbackOutcome{Status: 503})
+	h.Feedback("b.test", FeedbackOutcome{Status: 503})
 	if !h.PausedUntil("b.test").IsZero() {
 		t.Error("a plain 503 must not pause")
 	}
-	h.FeedbackWith("b.test", FeedbackOutcome{Status: 503, RetryAfter: 3 * time.Second})
+	h.Feedback("b.test", FeedbackOutcome{Status: 503, RetryAfter: 3 * time.Second})
 	until := h.PausedUntil("b.test")
 	if d := time.Until(until); d < 2500*time.Millisecond || d > 3500*time.Millisecond {
 		t.Errorf("pause = %v, want ~3s", d)
 	}
 	// Clamped to 60s.
-	h.FeedbackWith("c.test", FeedbackOutcome{Status: 429, RetryAfter: time.Hour})
+	h.Feedback("c.test", FeedbackOutcome{Status: 429, RetryAfter: time.Hour})
 	if d := time.Until(h.PausedUntil("c.test")); d > 61*time.Second {
 		t.Errorf("pause = %v, want clamped to 60s", d)
 	}
@@ -64,23 +64,23 @@ func TestFeedbackWith_RetryAfterAndPlain503(t *testing.T) {
 }
 
 // A host that throttles everything without Retry-After stops stalling the
-// scan after maxPausedThrottles pauses (MISS-22).
-func TestFeedbackWith_PersistentThrottleStopsPausing(t *testing.T) {
+// scan after maxPausedThrottles pauses.
+func TestFeedback_PersistentThrottleStopsPausing(t *testing.T) {
 	h := NewHostRateLimiter(HostRateLimiterConfig{MaxPerHost: 4})
 	defer func() { _ = h.Close() }()
 	const host = "d.test"
 	for i := 0; i < maxPausedThrottles; i++ {
-		h.FeedbackWith(host, FeedbackOutcome{Status: 429})
+		h.Feedback(host, FeedbackOutcome{Status: 429})
 	}
 	until := h.PausedUntil(host)
-	h.FeedbackWith(host, FeedbackOutcome{Status: 429})
+	h.Feedback(host, FeedbackOutcome{Status: 429})
 	if got := h.PausedUntil(host); got.After(until) {
 		t.Errorf("pause extended past the streak bound: %v -> %v", until, got)
 	}
 	if h.ThrottleStreak(host) != maxPausedThrottles+1 {
 		t.Errorf("streak = %d", h.ThrottleStreak(host))
 	}
-	h.FeedbackWith(host, FeedbackOutcome{Status: 200})
+	h.Feedback(host, FeedbackOutcome{Status: 200})
 	if h.ThrottleStreak(host) != 0 {
 		t.Error("a healthy response resets the streak")
 	}

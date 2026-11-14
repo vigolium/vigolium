@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"syscall"
+
+	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 )
 
 // Transport error classes returned by ClassifyTransportError. They are stable,
@@ -63,6 +65,25 @@ func ClassifyTransportError(err error) string {
 		return class
 	}
 	return classifyTransportErrorText(strings.ToLower(err.Error()))
+}
+
+// IsTransientTransportError reports a send failure that says nothing about the
+// target's answer: a DNS, refused, timeout, TLS or reset failure, or a host the
+// breaker has quarantined. A request abandoned because its module call timed
+// out is not one (its message reads like a timeout): the caller gave up, the
+// host did not fail.
+func IsTransientTransportError(err error) bool {
+	if err == nil || errors.Is(err, ErrRequestAbandoned) {
+		return false
+	}
+	if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+		return true
+	}
+	switch ClassifyTransportError(err) {
+	case TransportErrDNS, TransportErrRefused, TransportErrTimeout, TransportErrTLS, TransportErrReset:
+		return true
+	}
+	return false
 }
 
 func classifyTypedTransportError(err error) string {

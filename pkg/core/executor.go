@@ -175,7 +175,7 @@ type Executor struct {
 const perHostClaimCacheSize = 16384
 
 // hostClaimKey identifies a (module, origin) per-host claim, where origin is the
-// canonical scheme://host:port identity (see originKeyFromItem) rather than a
+// canonical scheme://host:port identity (see httpmsg.OriginKey) rather than a
 // bare hostname — so the same hostname exposed on multiple ports/schemes doesn't
 // collapse into one claim and suppress a ScanPerHost module on the other origins.
 // Using a struct key instead of a "moduleID:origin" string avoids allocating a

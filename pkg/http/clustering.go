@@ -217,11 +217,6 @@ type ClustererStats struct {
 	SizeRejects   int64 // responses too large to post-cache
 }
 
-// NewRequestClusterer creates a new RequestClusterer with the default LRU size.
-func NewRequestClusterer() *RequestClusterer {
-	return NewRequestClustererWithSize(clusterCacheSize)
-}
-
 // NewRequestClustererWithSize creates a RequestClusterer with an explicit LRU
 // entry cap. Sizes below the floor (clusterCacheSize) are raised to it. Callers
 // typically derive size from scan concurrency via ClustererSizeForConcurrency.

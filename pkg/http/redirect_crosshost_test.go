@@ -34,7 +34,7 @@ func newCrossHostRequester(t *testing.T, mode string, hopScope func(string) bool
 	return r
 }
 
-// SAFE-2: a followed redirect to a different host:port carries none of the
+// A followed redirect to a different host:port carries none of the
 // operator / session headers, in every mode; under in-scope with a scope that
 // excludes the hop host the hop is not sent at all and the caller gets the 3xx.
 func TestRedirect_CrossHostStripsHeadersAndHonoursScope(t *testing.T) {

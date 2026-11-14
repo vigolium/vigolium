@@ -580,3 +580,8 @@ func TestRequestClusterer_NoClustering(t *testing.T) {
 		t.Errorf("expected total=1, got %d", rc.Stats().Total)
 	}
 }
+
+// NewRequestClusterer creates a RequestClusterer with the default LRU size.
+func NewRequestClusterer() *RequestClusterer {
+	return NewRequestClustererWithSize(clusterCacheSize)
+}

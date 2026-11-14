@@ -3,12 +3,10 @@
 // the dead-host breaker and the wire-attempt counter, applied in one order by
 // one type.
 //
-// Before it existed each sender assembled those pieces itself, and most did not:
-// the shared requester took one token per LOGICAL request while its retries and
-// redirect hops went out free and kept the host slot through every backoff
-// sleep; the discovery engine took no host slot and saw no quarantine; the
-// port-sweep confirm step and the login flow took nothing at all. A Gate makes
-// "what does it cost to send one request to the target" a single answer.
+// Every sender — the shared requester (retries and redirect hops included), the
+// discovery engine, the port-sweep confirm step, the login flow — admits its
+// traffic here rather than assembling those pieces itself, so "what does it
+// cost to send one request to the target" has a single answer.
 //
 // Order inside Acquire, and why:
 //
@@ -222,23 +220,20 @@ func noopRelease(Outcome) {}
 // before anything is waited for or sent; a cancelled ctx, the rate wait or the
 // slot wait timing out return that error.
 func (g *Gate) Acquire(ctx context.Context, hostPort string, lane Lane) (Release, error) {
-	return g.acquire(ctx, parseTarget(hostPort), lane)
+	release, _, err := g.acquire(ctx, parseTarget(hostPort), lane)
+	return release, err
 }
 
 // AcquireHost is Acquire for a host and port the caller holds separately, so
 // they are not joined only to be split again.
 func (g *Gate) AcquireHost(ctx context.Context, host string, port int, lane Lane) (Release, error) {
-	return g.acquire(ctx, hostTarget(host, port), lane)
-}
-
-func (g *Gate) acquire(ctx context.Context, t target, lane Lane) (Release, error) {
-	release, _, err := g.acquireProbe(ctx, t, lane)
+	release, _, err := g.acquire(ctx, hostTarget(host, port), lane)
 	return release, err
 }
 
-// acquireProbe is acquire that also reports whether the breaker admitted this
-// attempt as its half-open recovery probe (MISS-24).
-func (g *Gate) acquireProbe(ctx context.Context, t target, lane Lane) (Release, bool, error) {
+// acquire admits one attempt to t, also reporting whether the breaker
+// admitted it as its half-open recovery probe.
+func (g *Gate) acquire(ctx context.Context, t target, lane Lane) (Release, bool, error) {
 	if g == nil {
 		return noopRelease, false, nil
 	}
@@ -285,7 +280,7 @@ func (g *Gate) acquireProbe(ctx context.Context, t target, lane Lane) (Release, 
 	}
 	isProbe := false
 	if a.breaker != nil {
-		ok, probe := a.breaker.AdmitProbe(t.key)
+		ok, probe := a.breaker.Admit(t.key)
 		if !ok {
 			g.budget.refund(hb)
 			a.freeSlot()
@@ -391,8 +386,8 @@ type RetryPolicy struct {
 	IgnoreTimeout bool
 }
 
-// DefaultBackoff doubles from 1s and caps at 10s — the schedule retryablehttp
-// applied before retries moved here (RetryWaitMin 1s, RetryWaitMax 10s).
+// DefaultBackoff doubles from 1s and caps at 10s (retryablehttp's RetryWaitMin
+// 1s, RetryWaitMax 10s).
 func DefaultBackoff(attempt int) time.Duration {
 	const minWait, maxWait = time.Second, 10 * time.Second
 	if attempt >= 4 {
@@ -403,21 +398,17 @@ func DefaultBackoff(attempt int) time.Duration {
 
 // Do runs send under the gate with retries: acquire → send → release, then a
 // backoff sleep WITHOUT the host slot, then a fresh acquire (and so a fresh
-// token) for the next attempt. Holding the slot through a 1–10s backoff used to
+// token) for the next attempt. Holding the slot through a 1–10s backoff would
 // starve every other request to a host that had merely hiccuped.
+//
+// send learns whether the attempt was admitted as the breaker's half-open
+// recovery probe, so it can send the record's baseline instead of a payload.
 //
 // It returns the number of attempts made and the final error. If a retry cannot
 // be admitted because the host was quarantined by the failures so far, the last
 // attempt's own error is returned — it says why the host is down; "skipping"
 // does not. A ctx cancelled during a backoff returns ctx's error.
-func (g *Gate) Do(ctx context.Context, hostPort string, lane Lane, p RetryPolicy, send func(attempt int) error) (int, error) {
-	return g.DoProbeAware(ctx, hostPort, lane, p, func(attempt int, _ bool) error { return send(attempt) })
-}
-
-// DoProbeAware is Do whose send learns whether the attempt was admitted as the
-// breaker's half-open recovery probe (MISS-24), so it can send the record's
-// baseline instead of a payload.
-func (g *Gate) DoProbeAware(ctx context.Context, hostPort string, lane Lane, p RetryPolicy, send func(attempt int, isProbe bool) error) (int, error) {
+func (g *Gate) Do(ctx context.Context, hostPort string, lane Lane, p RetryPolicy, send func(attempt int, isProbe bool) error) (int, error) {
 	backoff := p.Backoff
 	if backoff == nil {
 		backoff = DefaultBackoff
@@ -425,7 +416,7 @@ func (g *Gate) DoProbeAware(ctx context.Context, hostPort string, lane Lane, p R
 	t := parseTarget(hostPort) // once, not per attempt
 	var lastErr error
 	for attempt := 0; ; attempt++ {
-		release, isProbe, err := g.acquireProbe(ctx, t, lane)
+		release, isProbe, err := g.acquire(ctx, t, lane)
 		if err != nil {
 			if lastErr != nil && errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return attempt, lastErr
@@ -546,16 +537,16 @@ func (t *roundTripper) report(req *http.Request, resp *http.Response, err error)
 		return
 	}
 	if err != nil {
-		hosts.Feedback(host, 0, err, false)
+		hosts.Feedback(host, ratelimit.FeedbackOutcome{Err: err})
 		return
 	}
 	if resp == nil {
 		return
 	}
-	hosts.Feedback(host, resp.StatusCode, nil, t.isBlock(resp))
+	hosts.Feedback(host, ratelimit.FeedbackOutcome{Status: resp.StatusCode, WAFBlocked: t.isBlock(resp)})
 }
 
-// requestCancelled reports whether the CALLER gave up on req (MISS-23). A
+// requestCancelled reports whether the CALLER gave up on req. A
 // client timeout is not a caller cancellation: it is the host failing to
 // answer in time, which the limiter must count as distress.
 //

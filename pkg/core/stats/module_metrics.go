@@ -14,7 +14,7 @@ type ModuleStats struct {
 	Errors      atomic.Int64
 	TotalTimeNs atomic.Int64 // nanoseconds spent in module scan functions
 	// Requests counts wire attempts sent by the module's calls (Requester
-	// WithSendCounter); request-cache hits and redirect hops are not counted.
+	// WithCall); request-cache hits and redirect hops are not counted.
 	Requests atomic.Int64
 	// Inconclusive counts calls that completed with no finding while the host
 	// throttled them (429/503): their negatives are not real negatives.
