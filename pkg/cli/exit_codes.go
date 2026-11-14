@@ -25,7 +25,11 @@ import (
 //	2  usage error (bad flag, bad combination)
 //	3  fuzz --fail-on-match matched
 //	4  --fail-on <severity> gate tripped
-//	5  incomplete: the work ran but did not finish (timed_out, budget_exhausted, partial)
+//	5  incomplete: the work ran but did not finish (timed_out, budget_exhausted,
+//	   partial). A scan with --fail-on-partial (implied by --fail-on) exits 5
+//	   when its coverage was partial.
+//
+// When several apply the first wins: error (1) > gate (4) > incomplete (5).
 //
 // --soft-fail still forces 0 everywhere, unchanged: a caller that has opted out
 // of exit-code gating opted out of all of it.

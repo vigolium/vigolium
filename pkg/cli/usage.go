@@ -228,7 +228,7 @@ var scanFlagGroups = []flagGroup{
 	{"Request", []string{"method", "body", "header", "advanced-options", "retries", "stream"}},
 	{"Authentication", []string{"auth", "auth-file"}},
 	{"Speed Control", []string{"timeout", "concurrency", "rate-limit", "max-per-host", "max-requests", "max-requests-per-host", "no-waf-pacing", "max-host-error", "max-findings-per-module", "no-clustering"}},
-	{"Output", []string{"output", "stats", "fail-on", "events", "include-response", "omit-response", "export-only", "report-url", "max-body-bytes", "pdf-timeout", "upload-results", "print-finding", "print-traffic", "print-traffic-tree"}},
+	{"Output", []string{"output", "stats", "fail-on", "fail-on-partial", "events", "include-response", "omit-response", "export-only", "report-url", "max-body-bytes", "pdf-timeout", "upload-results", "print-finding", "print-traffic", "print-traffic-tree"}},
 	{"Scan Document (-j)", []string{"limit", "fields", "compact", "full-body", "max-output-bytes"}},
 	{"Stateless & Parallel", []string{"stateless", "keep-db-on-error", "split-by-host", "db-isolate", "parallel", "resume"}},
 }

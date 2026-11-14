@@ -362,6 +362,11 @@ func (s *directScanSession) complete(ctx context.Context, repo *database.Reposit
 		execErr = s.agg.err
 	}
 	completion = runner.ApplyRequestBudget(completion, s.budget)
+	defer func() {
+		if completion.Completeness == database.CompletenessPartial {
+			notePartialCompletion(scanUUID, unionPhaseReasons(completion.Phases))
+		}
+	}()
 	if reached || (s.pinned != "" && s.agg.reached) {
 		for _, reason := range s.phaseReasons[scanUUID] {
 			completion = runner.ApplyDirectPhaseReason(completion, reason)

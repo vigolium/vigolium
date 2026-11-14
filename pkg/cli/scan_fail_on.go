@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -23,10 +24,51 @@ var scanFailOn string
 // — so a tripped gate never suppresses the very findings the agent asked for.
 var failOnGateTriggered bool
 
+// scanFailOnPartial is --fail-on-partial: exit 5 (incomplete) when the scan's
+// coverage was partial. --fail-on implies it: a CI gate that goes green on a
+// scan that never ran half its phases is not a gate.
+var scanFailOnPartial bool
+
+// partialGateReason is set, per run, when the finished scan's coverage was
+// partial (its reasons, comma-joined); "" when complete or unknown.
+var partialGateReason string
+
+// notePartialCompletion records a partial completion for the partial gate.
+func notePartialCompletion(scanUUID string, reasons []string) {
+	reason := strings.Join(reasons, ", ")
+	if reason == "" {
+		reason = "partial coverage"
+	}
+	if scanUUID != "" {
+		reason = scanUUID + ": " + reason
+	}
+	if partialGateReason == "" {
+		partialGateReason = reason
+	} else if !strings.Contains(partialGateReason, reason) {
+		partialGateReason += "; " + reason
+	}
+}
+
+// partialGateArmed reports whether a partial completion fails the run.
+func partialGateArmed() bool { return scanFailOnPartial || scanFailOn != "" }
+
+// evaluatePartialGate reads the finished scan row's completeness (DB path).
+func evaluatePartialGate(repo *database.Repository, scanUUID string) {
+	if !partialGateArmed() || repo == nil || scanUUID == "" {
+		return
+	}
+	scan, err := repo.GetScanByUUID(context.Background(), scanUUID)
+	if err != nil || scan == nil || scan.Completeness != database.CompletenessPartial {
+		return
+	}
+	notePartialCompletion(scanUUID, unionPhaseReasons(scan.PhaseOutcomes))
+}
+
 // resetFailOnGate clears the per-run gate state and validates the threshold,
 // returning an error for an unknown severity name. Call once at RunE entry.
 func resetFailOnGate() error {
 	failOnGateTriggered = false
+	partialGateReason = ""
 	if scanFailOn == "" {
 		return nil
 	}
@@ -141,10 +183,19 @@ func failOnGateError() error {
 }
 
 // withFailOnGate returns the prior error if non-nil, otherwise the fail-on gate
-// result. Lets a RunE that aggregates per-target errors layer the gate on top.
+// result, otherwise the partial gate's. Lets a RunE that aggregates per-target
+// errors layer the gates on top. Precedence: error (1) > --fail-on gate (4) >
+// incomplete (5): a crash outranks findings, and findings outrank a coverage
+// gap, because each is the more actionable answer.
 func withFailOnGate(prior error) error {
 	if prior != nil {
 		return prior
 	}
-	return failOnGateError()
+	if err := failOnGateError(); err != nil {
+		return err
+	}
+	if partialGateArmed() && partialGateReason != "" {
+		return incompleteErrorf(apicontract.CodePartial, "scan coverage was partial (%s); --fail-on-partial", partialGateReason)
+	}
+	return nil
 }

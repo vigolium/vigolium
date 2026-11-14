@@ -55,7 +55,8 @@ func registerNativeScanFlags(flags *pflag.FlagSet, includeAuth bool) {
 
 	// Output group
 	flags.StringVarP(&scanOpts.Output, "output", "o", "", "Write findings to specified output file")
-	flags.StringVar(&scanFailOn, "fail-on", "", failOnUsage("for CI/agent gating. Scoped to this scan; --soft-fail overrides; with -P it is evaluated per child."))
+	flags.StringVar(&scanFailOn, "fail-on", "", failOnUsage("for CI/agent gating. Scoped to this scan; implies --fail-on-partial; --soft-fail overrides; with -P it is evaluated per child."))
+	flags.BoolVar(&scanFailOnPartial, "fail-on-partial", false, "Exit 5 (incomplete) when the scan's coverage was partial (a phase cut short, blocked, or failed); implied by --fail-on")
 	flags.BoolVar(&scanOpts.ShowStats, "stats", false, "Show live progress stats during scanning")
 	flags.BoolVar(&scanPrintFinding, "print-finding", false, "After the scan, print each finding to stdout as Markdown (description + matched evidence + request/response), like 'vigolium finding --markdown'. Pairs well with -S and --silent for a quick scan.")
 	flags.BoolVar(&scanPrintTrafficTree, "print-traffic-tree", false, "After the scan, print the run's HTTP traffic to stdout as a host/path hierarchy tree, like 'vigolium traffic --tree'. Pairs well with -S and --silent.")
