@@ -33,7 +33,9 @@ func writeScopeHAR(t *testing.T) string {
 // host; the plan lists every input host with its verdict.
 func TestDeriveFileInputScope_HAR(t *testing.T) {
 	savedInput, savedMode, savedTargets, savedJSON := globalInput, globalInputMode, globalTargets, globalJSON
-	defer func() { globalInput, globalInputMode, globalTargets, globalJSON = savedInput, savedMode, savedTargets, savedJSON }()
+	defer func() {
+		globalInput, globalInputMode, globalTargets, globalJSON = savedInput, savedMode, savedTargets, savedJSON
+	}()
 	globalInput = writeScopeHAR(t)
 	globalInputMode = "urls"
 	globalTargets = nil
