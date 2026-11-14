@@ -2,10 +2,10 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
+	"github.com/vigolium/vigolium/internal/redact"
 	"github.com/vigolium/vigolium/pkg/output"
 )
 
@@ -72,21 +72,10 @@ func redactEvidenceDisabledInConfig() bool {
 }
 
 // operatorHeaderNames are the lowercased names of the operator's -H headers,
-// redacted in report evidence on top of
-// the built-in credential table (SAFE-12).
+// redacted in report evidence on top of the built-in credential table.
 func operatorHeaderNames() map[string]struct{} {
-	out := map[string]struct{}{}
-	add := func(h string) {
-		if name, _, ok := strings.Cut(h, ":"); ok {
-			if n := strings.ToLower(strings.TrimSpace(name)); n != "" {
-				out[n] = struct{}{}
-			}
-		}
+	if scanOpts == nil {
+		return redact.HeaderNameSet(nil)
 	}
-	if scanOpts != nil {
-		for _, h := range scanOpts.Headers {
-			add(h)
-		}
-	}
-	return out
+	return redact.HeaderNameSet(scanOpts.Headers)
 }

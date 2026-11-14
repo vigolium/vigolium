@@ -532,7 +532,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 	// production, staging and a vendor sandbox no longer scans all three.
 	useSpecServers := globalSpecURL
 	specBaseURL := ""
-	if isOpenAPIFormat(inputFormat) && len(globalTargets) == 0 && !useSpecServers {
+	if source.IsOpenAPIFormat(inputFormat) && len(globalTargets) == 0 && !useSpecServers {
 		if config.ResolveCLIOriginMode(settings.Scope.CLIOriginMode) == "all" {
 			useSpecServers = true
 			zap.L().Info("Auto-enabled --spec-url (no -t provided, --scope-origin all)")

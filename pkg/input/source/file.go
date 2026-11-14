@@ -203,6 +203,13 @@ func IsTargetListFormat(name string) bool {
 	return ok && e.targetList
 }
 
+// IsOpenAPIFormat reports whether the given -I name or alias selects the
+// OpenAPI/Swagger parser (whose spec carries servers[] and honours --spec-url).
+func IsOpenAPIFormat(name string) bool {
+	e, ok := lookupFormat(name)
+	return ok && e.canonical == "openapi"
+}
+
 // LookupFormat resolves an input-format name or alias (case-insensitive; empty
 // means the "urls" default) to its registry row. Callers outside this package
 // — the REST ingest handler — use it to accept exactly the names -I accepts.

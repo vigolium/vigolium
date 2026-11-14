@@ -27,11 +27,6 @@ func resolveScanInputFormat() string {
 	return inputFormat
 }
 
-// isOpenAPIFormat reports whether format names the OpenAPI parser.
-func isOpenAPIFormat(format string) bool {
-	return format == "openapi" || format == "swagger"
-}
-
 // deriveFileInputScope gives a file-input scan with no -t a host scope
 // (SAFE-4). Without one the scope-origin index was empty, which admits every
 // host: `scan -i capture.har` scanned — and ran nuclei against — every
@@ -115,7 +110,7 @@ func fileInputScope(path, format string, formatExplicit, specURL bool) (scope []
 		}
 		return nil, nil
 	}
-	if source.IsTargetListFormat(format) || (isOpenAPIFormat(format) && specURL) {
+	if source.IsTargetListFormat(format) || (source.IsOpenAPIFormat(format) && specURL) {
 		for host := range census {
 			scope = append(scope, host)
 		}

@@ -89,6 +89,57 @@ type ScanDiff struct {
 	Counts map[string]int
 }
 
+// NewScanDiff returns an empty diff of head against base with every
+// DiffChanges count present at zero.
+func NewScanDiff(base, head *Scan, comparable bool, reasons []string, history string) *ScanDiff {
+	d := &ScanDiff{
+		Base: base, Head: head,
+		Comparable: comparable, ComparabilityReasons: reasons,
+		History: history,
+		Counts:  make(map[string]int, len(DiffChanges)),
+	}
+	for _, c := range DiffChanges {
+		d.Counts[c] = 0
+	}
+	return d
+}
+
+// Classify adds f under the class its observations give it: unchanged when
+// both sides observed it, new when only the head did, and fixed (Comparable)
+// or not_reobserved when only the base did. A finding neither side observed
+// is not added.
+func (d *ScanDiff) Classify(f *Finding, inBase, inHead bool, firstSeen string) {
+	var change string
+	switch {
+	case inBase && inHead:
+		change = DiffUnchanged
+	case inHead:
+		change = DiffNew
+	case inBase && d.Comparable:
+		change = DiffFixed
+	case inBase:
+		change = DiffNotReobserved
+	default:
+		return
+	}
+	d.Entries = append(d.Entries, ScanDiffEntry{Finding: f, Change: change, FirstSeenScan: firstSeen})
+	d.Counts[change]++
+}
+
+// SortEntries orders entries by class (DiffChanges), then severity, then id.
+func (d *ScanDiff) SortEntries() {
+	sort.SliceStable(d.Entries, func(i, j int) bool {
+		a, b := d.Entries[i], d.Entries[j]
+		if ca, cb := slices.Index(DiffChanges, a.Change), slices.Index(DiffChanges, b.Change); ca != cb {
+			return ca < cb
+		}
+		if sa, sb := severityWeight(a.Finding.Severity), severityWeight(b.Finding.Severity); sa != sb {
+			return sa > sb
+		}
+		return a.Finding.ID < b.Finding.ID
+	})
+}
+
 // DiffScans classifies every finding observed by either scan:
 // new = head \ base, unchanged = base ∩ head, and for base \ head fixed when
 // the head is comparable (ScanComparability), not_reobserved otherwise.
@@ -147,42 +198,11 @@ func (r *Repository) DiffScans(ctx context.Context, opts ScanDiffOptions) (*Scan
 		return nil, err
 	}
 
-	diff := &ScanDiff{
-		Base: opts.Base, Head: opts.Head,
-		Comparable: comparable, ComparabilityReasons: reasons,
-		History: history,
-		Counts:  map[string]int{},
-	}
-	for _, c := range DiffChanges {
-		diff.Counts[c] = 0
-	}
+	diff := NewScanDiff(opts.Base, opts.Head, comparable, reasons, history)
 	for _, f := range findings {
-		var change string
-		switch b, h := inBase[f.ID], inHead[f.ID]; {
-		case b && h:
-			change = DiffUnchanged
-		case h:
-			change = DiffNew
-		case b && comparable:
-			change = DiffFixed
-		case b:
-			change = DiffNotReobserved
-		default:
-			continue
-		}
-		diff.Entries = append(diff.Entries, ScanDiffEntry{Finding: f, Change: change, FirstSeenScan: firstSeen[f.ID]})
-		diff.Counts[change]++
+		diff.Classify(f, inBase[f.ID], inHead[f.ID], firstSeen[f.ID])
 	}
-	sort.SliceStable(diff.Entries, func(i, j int) bool {
-		a, b := diff.Entries[i], diff.Entries[j]
-		if ca, cb := slices.Index(DiffChanges, a.Change), slices.Index(DiffChanges, b.Change); ca != cb {
-			return ca < cb
-		}
-		if sa, sb := severityWeight(a.Finding.Severity), severityWeight(b.Finding.Severity); sa != sb {
-			return sa > sb
-		}
-		return a.Finding.ID < b.Finding.ID
-	})
+	diff.SortEntries()
 	return diff, nil
 }
 
