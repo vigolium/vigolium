@@ -626,6 +626,10 @@ func EnsureTemplates(customDir string, onProgress TemplatesProgress) error {
 	if info, err := os.Stat(dir); err == nil && info.IsDir() {
 		return nil
 	}
+	if offlineMode.Load() {
+		return fmt.Errorf("knownissuescan: nuclei templates not found at %s and --offline forbids downloading them; "+
+			"provision them first (vigolium doctor --fix --only nuclei) or point --known-issue-scan-templates-dir at a copy", dir)
+	}
 
 	// A stateless (-S) scan writes nothing to $HOME, and a template clone is
 	// hundreds of MB of state: fail closed with the way out.
@@ -718,3 +722,9 @@ func parseSeverity(s string) severity.Severity {
 		return severity.Undefined
 	}
 }
+
+// offlineMode forbids the template clone (SAFE-11, --offline).
+var offlineMode atomic.Bool
+
+// SetOffline forbids (true) or allows downloading nuclei templates.
+func SetOffline(v bool) { offlineMode.Store(v) }

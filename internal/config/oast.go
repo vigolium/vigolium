@@ -14,14 +14,15 @@ type OASTConfig struct {
 	// FallbackToDefault re-registers against DefaultOASTServer when the
 	// configured server_url does not answer, so one dead or misspelled host
 	// does not silently cost a scan every blind/out-of-band check. Default
-	// true. The token is NOT carried to the fallback - it belongs to the server
+	// false (SAFE-11): turn it on only where a public collector is acceptable.
+	// The token is NOT carried to the fallback - it belongs to the server
 	// the operator named.
 	//
 	// Turn it off where a callback may not reach a third party: an
 	// out-of-band callback carries whatever the payload pulled out of the
 	// target, so on an engagement whose scope names the collector, falling back
 	// to a public server is an egress the operator did not authorize.
-	FallbackToDefault bool `yaml:"fallback_to_default"` // default: true
+	FallbackToDefault bool `yaml:"fallback_to_default"` // default: false (SAFE-11: a private server's callbacks must not silently move to the public one)
 	PollInterval      int  `yaml:"poll_interval"`       // seconds between polls, default: 5
 	GracePeriod       int  `yaml:"grace_period"`        // seconds to wait after scan ends for late callbacks, default: 10
 
@@ -45,7 +46,7 @@ func DefaultOASTConfig() *OASTConfig {
 	return &OASTConfig{
 		Enabled:             true,
 		ServerURL:           DefaultOASTServer,
-		FallbackToDefault:   true,
+		FallbackToDefault:   false,
 		PollInterval:        5,
 		GracePeriod:         10,
 		KeepSession:         true,

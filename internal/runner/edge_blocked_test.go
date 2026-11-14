@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	vighttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/database"
+	vighttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 

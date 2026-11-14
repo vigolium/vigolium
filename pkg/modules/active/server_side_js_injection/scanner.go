@@ -226,9 +226,8 @@ func (m *Module) sendTimed(
 	payload string,
 ) (time.Duration, error) {
 	req := httpmsg.NewRequestResponseRaw(ip.BuildRequest([]byte(payload)), ctx.Service())
-	start := time.Now()
-	resp, _, err := httpClient.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
-	elapsed := time.Since(start)
+	// SendTimed (MISS-14): requester-measured latency, not the queue.
+	resp, elapsed, err := modkit.SendTimed(httpClient, req, http.Options{})
 	if err != nil {
 		return 0, err
 	}

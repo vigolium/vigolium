@@ -245,7 +245,7 @@ func (m *Module) sendObservation(ctx *httpmsg.HttpRequestResponse, client *http.
 		}
 	}
 	req := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
-	resp, _, err := client.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
+	resp, _, err := client.Execute(req, http.Options{NoRedirects: true, NoClustering: true, ExpectThrottle: true})
 	if err != nil {
 		if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 			return responseObservation{}

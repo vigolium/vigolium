@@ -99,6 +99,19 @@ type SpiderConfig struct {
 	// applied (see EffectivePolicy). The runner sets both, consistently.
 	Policy *InteractionPolicy
 
+	// DenyClickPattern overrides the destructive-click guard's regex (SAFE-9):
+	// nil keeps the built-in destructive pattern, a pointer to "" disables it.
+	DenyClickPattern *string
+	// ExcludeSelectors are CSS selectors the crawl never clicks.
+	ExcludeSelectors []string
+	// AuthMonitor is the scan's live session (MISS-26): the crawl re-applies
+	// its credentials after a re-login or when it lands on a login form, and
+	// reports AuthState "lost" when re-applying does not bring it back.
+	AuthMonitor AuthMonitor
+	// MethodAllowed is the scan's traffic policy (scope.methods): requests
+	// with a refused method are failed in the browser. nil = every method.
+	MethodAllowed func(method string) bool
+
 	// BrowserCompat, when set, is the set of browser security exceptions the
 	// crawl launches with; nil means DefaultBrowserCompat.
 	BrowserCompat *BrowserCompat
@@ -303,6 +316,8 @@ const (
 	AuthConfigured   = crawler.AuthConfigured
 	AuthApplied      = crawler.AuthApplied
 	AuthFailed       = crawler.AuthFailed
+	AuthLost         = crawler.AuthLost
+	AuthRestored     = crawler.AuthRestored
 )
 
 // DOMXssFinding is a browser-confirmed DOM-based XSS on a client route: an
@@ -360,6 +375,12 @@ func buildCrawlerConfig(cfg SpiderConfig) (*config.Config, error) {
 	// The policy sets form filling, GET/POST form submission, self-registration
 	// and credential attempts in one place; see config.ApplyPolicy.
 	crawlerCfg.ApplyPolicy(config.InteractionPolicy(cfg.EffectivePolicy()))
+	if cfg.DenyClickPattern != nil {
+		crawlerCfg.DenyClickPattern = *cfg.DenyClickPattern
+	}
+	crawlerCfg.ExcludeSelectors = append(crawlerCfg.ExcludeSelectors, cfg.ExcludeSelectors...)
+	crawlerCfg.MethodAllowed = cfg.MethodAllowed
+	crawlerCfg.AuthMonitor = cfg.AuthMonitor
 	crawlerCfg.BrowserCompat = config.BrowserCompat(cfg.EffectiveCompat())
 	crawlerCfg.LoginCredentialFullList = cfg.LoginCredentialFullList
 	if cfg.IdentityEmailDomain != "" {
@@ -528,6 +549,9 @@ func RunSpider(ctx context.Context, cfg SpiderConfig, repo RecordSaver) (*Spider
 	}
 
 	res := spiderResultFromCrawl(result, writer.Count())
+	if result != nil {
+		receipt.BodiesFailed = result.Stats.BodiesFailed
+	}
 	res.Capture = receipt
 	res.RequestsSent = runCounters.Sent.Load()
 	res.RequestsInScope = runCounters.InScope.Load()

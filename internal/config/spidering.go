@@ -23,6 +23,9 @@ type SpideringConfig struct {
 	BrowserPath         string `yaml:"browser_path"`          // explicit path to browser binary (overrides auto-detection)
 	NoCDP               bool   `yaml:"no_cdp"`                // disable CDP event listener detection
 	NoForms             bool   `yaml:"no_forms"`              // disable automatic form filling
+	// ExcludeSelectors are CSS selectors the crawl never clicks (an element
+	// matching one, or inside one, is dropped from the candidates).
+	ExcludeSelectors []string `yaml:"exclude_selectors,omitempty"`
 
 	// MaxListenerProbeNodes caps, per crawl state, the listener-bearing nodes
 	// the CDP listener pass turns into click candidates (each costs several CDP
@@ -129,6 +132,13 @@ type SpideringInteractionConfig struct {
 	RegisterAccount *bool  `yaml:"register_account,omitempty"` // complete a signup form (default: false at every intensity)
 	LoginAttempts   *bool  `yaml:"login_attempts,omitempty"`   // try default credentials on a confirmed login form (default: by intensity)
 	Dialogs         string `yaml:"dialogs,omitempty"`          // "" or "record-dismiss" (default), "accept-all"
+	// DenyClickPattern is a case-insensitive regex; a click candidate whose
+	// text, href, aria-label, title or value matches it is never clicked
+	// (SAFE-9). Unset = the built-in destructive pattern (log out, sign out,
+	// delete, remove, deactivate, unsubscribe, close/cancel account); "" turns
+	// the guard off. Not a permission category, so it is not in the policy
+	// report.
+	DenyClickPattern *string `yaml:"deny_click_pattern,omitempty"`
 }
 
 // SpideringBrowserCompatConfig is the browser security-exception section.

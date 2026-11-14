@@ -86,6 +86,14 @@ type hostEntry struct {
 	// and (b) a fresh entry created after idle eviction re-arms rather than staying
 	// pinned at full rate.
 	preArmed atomic.Bool
+
+	// pauseUntil (unix nanos) holds every new acquire for this host until the
+	// server's throttle window has passed (MISS-22): a 429, or a 503 with
+	// Retry-After. throttles counts consecutive throttles for the 1s·2^n
+	// back-off when the server named no Retry-After; a healthy response
+	// resets it.
+	pauseUntil atomic.Int64
+	throttles  atomic.Int64
 }
 
 func (e *hostEntry) touch() {
@@ -157,6 +165,11 @@ type HostRateLimiter struct {
 	// wafAutoArm puts all hosts on the adaptive token pool. Monotonic (never reset):
 	// once any WAF block is seen the target is treated as WAF'd for the run.
 	anyArmed atomic.Bool
+
+	// anyPaused is a fast-path flag: false until some host was throttled, so
+	// the acquire hot path skips the pause lookup on a scan that never saw a
+	// 429 (MISS-22).
+	anyPaused atomic.Bool
 
 	// preArmSink, when set, is invoked once per host the first time PreArm throttles
 	// it for a CDN/WAF edge, so a front-end can tell the operator that host's
@@ -402,6 +415,9 @@ func (h *HostRateLimiter) shardFor(host string) *hostShard {
 // Acquire blocks until a slot is available for the given host.
 // Returns context.Canceled/DeadlineExceeded if context is cancelled.
 func (h *HostRateLimiter) Acquire(ctx context.Context, host string) error {
+	if err := h.waitPause(ctx, host); err != nil {
+		return err
+	}
 	shard := h.shardFor(host)
 	entry := h.getOrCreateEntry(shard, host)
 
@@ -456,6 +472,11 @@ func (h *HostRateLimiter) AcquireWithTimeoutContext(ctx context.Context, host st
 	// non-blocking acquire first so we avoid heap-allocating a timeout context
 	// and arming a runtime timer when a slot is immediately available.
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// A throttled host's pause is waited out BEFORE the acquire timeout
+	// starts: the pause is the server's instruction, not our saturation.
+	if err := h.waitPause(ctx, host); err != nil {
 		return err
 	}
 	if h.tryAcquire(host) {
@@ -515,6 +536,9 @@ const reservedPriorityHeadroom = 1
 // Bounded by the limiter's acquire timeout and ctx, like AcquireWithTimeoutContext.
 func (h *HostRateLimiter) AcquirePriority(ctx context.Context, host string) (func(), error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := h.waitPause(ctx, host); err != nil {
 		return nil, err
 	}
 	shard := h.shardFor(host)

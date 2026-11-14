@@ -415,6 +415,8 @@ func (c *Crawler) followPath(ctx context.Context, w *tabWorker, path []*action.E
 	if page == nil {
 		return fmt.Errorf("no page on crawl tab %d", w.id)
 	}
+	// Replaying a path after a re-login must send the new credentials.
+	c.refreshAuthIfChanged(page)
 
 	for _, edge := range path {
 		if c.shouldTerminate(ctx) {
@@ -525,8 +527,23 @@ func (c *Crawler) followPath(ctx context.Context, w *tabWorker, path []*action.E
 		return fmt.Errorf("path didn't reach target state %s, at %s", target.Name, currentName)
 	}
 
+	// The state machine only tracks which edges were replayed; the page itself
+	// may have changed server-side, so stored XPaths would now fire against a
+	// different DOM (MISS-28d). Compare the live stripped DOM with the target's.
+	if len(path) > 0 && target.StrippedDOM != "" {
+		if html, err := page.HTMLWithFramesFiltered(c.config.CrawlFrames, c.config.ExcludeFrames); err == nil {
+			if !state.SameStructure(c.comparator.PrepareForComparison(html), target) {
+				return fmt.Errorf("%w: replay reached a page that is not state %s", errPathDiverged, target.Name)
+			}
+		}
+	}
+
 	return nil
 }
+
+// errPathDiverged is followPath's error when the replayed path lands on a DOM
+// that is not the target state's (a server-side state change, MISS-28d).
+var errPathDiverged = errors.New("path diverged")
 
 // DUPLICATE_EVENT_SEED is used to encode equivalentAccess in eventable IDs.
 const DUPLICATE_EVENT_SEED = 100000
@@ -553,6 +570,10 @@ func (c *Crawler) crawlThroughActions(ctx context.Context, w *tabWorker) {
 		if currentState == nil {
 			return
 		}
+
+		// A re-login elsewhere in the scan minted new credentials: put them on
+		// the page before the next action (MISS-26).
+		c.refreshAuthIfChanged(w.page)
 
 		act := c.candidates.PollByMode(currentState.ID, c.config.CrawlStrategy, afterBacktrack)
 		if act == nil {
@@ -693,6 +714,11 @@ func (c *Crawler) crawlThroughActions(ctx context.Context, w *tabWorker) {
 		c.mu.Unlock()
 		c.consecutiveFails.Store(0) // Reset on success
 
+		// An authenticated crawl that just landed on a login page lost its
+		// session (a logout control, an expired token): re-apply once, then
+		// report honestly (MISS-26).
+		c.checkLoggedOut(ctx, page)
+
 		// Record successful action to metrics (only when benchmark mode)
 		if c.metricsCollector != nil {
 			isFormSubmit := act.GetEventType() == action.EventTypeEnter
@@ -762,6 +788,17 @@ func (c *Crawler) shouldTerminate(ctx context.Context) bool {
 			return true
 		}
 	}
+	// DOM-XSS lead (MISS-29c): the probe runs after the crawl, on what is left
+	// of the deadline — at most the drain grace, often seconds. When the
+	// prefilter already has reflected candidates, stop scheduling states early
+	// enough to leave the probe min(domXssBudget, MaxDuration/10).
+	if deadline, ok := ctx.Deadline(); ok {
+		if lead := c.domXssLead(); lead > 0 && time.Until(deadline) <= c.config.DrainGrace+lead && c.domXssCandidatesPending() {
+			zap.L().Debug("Leaving the DOM-XSS probe its budget, terminating",
+				zap.Duration("lead", lead))
+			return true
+		}
+	}
 
 	// Check max duration. This is a backstop: the caller normally enforces the
 	// budget via a context deadline (which also propagates into browser ops via
@@ -774,7 +811,11 @@ func (c *Crawler) shouldTerminate(ctx context.Context) bool {
 		start := c.stats.StartTime
 		c.mu.Unlock()
 		if !start.IsZero() {
-			if elapsed := time.Since(start); elapsed >= c.config.MaxDuration-c.config.DrainGrace {
+			lead := time.Duration(0)
+			if l := c.domXssLead(); l > 0 && time.Since(start) >= c.config.MaxDuration-c.config.DrainGrace-l && c.domXssCandidatesPending() {
+				lead = l
+			}
+			if elapsed := time.Since(start); elapsed >= c.config.MaxDuration-c.config.DrainGrace-lead {
 				zap.L().Debug("Max duration reached, terminating",
 					zap.Duration("elapsed", elapsed),
 					zap.Duration("max", c.config.MaxDuration))

@@ -42,6 +42,76 @@ type MABExp3Policy struct {
 	eta_r            float64                            // GLOBAL learning rate
 	globalR          float64                            // GLOBAL cumulative effective reward (for round reset)
 	mu               sync.RWMutex
+
+	// Crawl-global reward memory per action signature (MISS-28c): the
+	// default strategy removes an action's stats after its single pull, so
+	// per-arm learning never carried over and selection was effectively
+	// random. A new arm whose signature (tag, text, link shape) was pulled
+	// before starts from that signature's mean reward.
+	sigStats  map[string]*sigStat
+	actionSig map[string]string // stateID\x00actionID -> signature
+}
+
+type sigStat struct {
+	sum float64
+	n   int
+}
+
+// AddActionWithSignature is AddAction for an arm with a known signature: a
+// new arm's weight is seeded from the signature's crawl-wide mean reward.
+func (p *MABExp3Policy) AddActionWithSignature(stateID, actionID, sig string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, exists := p.statesActionsMap[stateID]; !exists {
+		p.statesActionsMap[stateID] = make(map[string]*ActionStats)
+	}
+	if sig != "" {
+		if p.actionSig == nil {
+			p.actionSig = make(map[string]string)
+		}
+		p.actionSig[stateID+"\x00"+actionID] = sig
+	}
+	if _, exists := p.statesActionsMap[stateID][actionID]; exists {
+		return
+	}
+	w := 1.0
+	if st, ok := p.sigStats[sig]; ok && st.n > 0 && p.K > 0 {
+		w = math.Exp(p.eta_r * (st.sum / float64(st.n)) / float64(p.K))
+	}
+	p.statesActionsMap[stateID][actionID] = &ActionStats{R: 0, W: w, P: 0}
+	if !p.stateNeedsProbabilityCalculation(stateID) {
+		p.recalculateProbabilitiesLocked(stateID)
+	}
+}
+
+// recordSignatureLocked folds one pull's reward into its signature's mean.
+func (p *MABExp3Policy) recordSignatureLocked(stateID, actionID string, reward float64) {
+	sig := p.actionSig[stateID+"\x00"+actionID]
+	if sig == "" {
+		return
+	}
+	if p.sigStats == nil {
+		p.sigStats = make(map[string]*sigStat)
+	}
+	st := p.sigStats[sig]
+	if st == nil {
+		st = &sigStat{}
+		p.sigStats[sig] = st
+	}
+	st.sum += reward
+	st.n++
+}
+
+// SignatureMean is the crawl-wide mean reward of sig and how many pulls it
+// has (0, 0 when never pulled).
+func (p *MABExp3Policy) SignatureMean(sig string) (float64, int) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	st, ok := p.sigStats[sig]
+	if !ok || st.n == 0 {
+		return 0, 0
+	}
+	return st.sum / float64(st.n), st.n
 }
 
 // NewMABExp3Policy creates a new policy with GLOBAL K.
@@ -289,6 +359,7 @@ func (p *MABExp3Policy) Update(stateID, actionID string, reward float64) bool {
 	if !exists {
 		return false
 	}
+	p.recordSignatureLocked(stateID, actionID, reward)
 
 	// Prevent division by zero
 	if stats.P <= 0 {

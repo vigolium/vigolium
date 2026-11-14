@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/safety"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -197,8 +198,24 @@ type Config struct {
 	ElementTimeout  time.Duration // Default timeout for finding elements (prevents infinite wait)
 
 	// Clickable Detection
-	ClickSelectors               []string // CSS selectors for clickables
-	ExcludeSelectors             []string // CSS selectors to exclude
+	ClickSelectors   []string // CSS selectors for clickables
+	ExcludeSelectors []string // CSS selectors to exclude
+	// DenyClickPattern is a case-insensitive regex; a click candidate whose
+	// text, href, aria-label, title or value matches it is never clicked
+	// (SAFE-9). Hover candidates are exempt. Empty disables the guard. The
+	// default is pkg/safety's destructive pattern (log out, delete, remove,
+	// deactivate, unsubscribe, close account, …).
+	DenyClickPattern string
+	// MethodAllowed, when set, is the scan's traffic policy (SAFE-8): the
+	// browser fails any request whose method it refuses (BlockedByClient).
+	MethodAllowed func(method string) bool
+	// AuthMonitor, when set, is the scan's live session (MISS-26): the crawl
+	// re-applies its credentials when they change (a re-login) and when a
+	// page lands on a login form after an authenticated start.
+	AuthMonitor AuthMonitor
+	// BlockResources fails font and media requests and third-party images
+	// (ECON-9). First-party images are never blocked. Default true.
+	BlockResources               bool
 	DontClickSelectors           []string
 	DontClickChildrenOfSelectors []string
 	UseCDPDetection              bool     // Enable CDP event listener detection
@@ -555,6 +572,8 @@ func New(targetURL string) (*Config, error) {
 
 		ClickSelectors:               DefaultClickSelectors(),
 		ExcludeSelectors:             []string{},
+		DenyClickPattern:             safety.DestructivePattern,
+		BlockResources:               true,
 		DontClickSelectors:           []string{},
 		DontClickChildrenOfSelectors: []string{},
 		// On by default, matching the product runs (spidering.no_cdp: false):
@@ -1094,4 +1113,15 @@ func (c *Config) SetLoginCredentialAttempts(enabled, fullList bool) *Config {
 	c.Policy.LoginAttempts = enabled
 	c.LoginCredentialFullList = fullList
 	return c
+}
+
+// AuthMonitor is the crawl's view of the scan's live session (MISS-26).
+type AuthMonitor interface {
+	// Observe feeds a response the session's logged-out detector.
+	Observe(gen uint64, status int, h http.Header, body []byte)
+	// Credentials are the session's current credentials and generation.
+	Credentials() (gen uint64, headers map[string]string, cookies []*http.Cookie)
+	// Changed fires (best effort, coalesced) when the session re-logged in;
+	// the crawler re-applies Credentials before its next action. May be nil.
+	Changed() <-chan struct{}
 }

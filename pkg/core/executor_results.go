@@ -294,6 +294,7 @@ func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent, b
 		clampTentativeSeverity(result)
 	}
 	duplicateFinding := false
+	insertedNew := false // the direct save wrote a NEW finding row (SAFE-12)
 	if result.IsFinding() {
 		first, allowed := e.admitFinding(result.ID(), result.ModuleID)
 		duplicateFinding = !first
@@ -373,9 +374,12 @@ func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent, b
 		// races ahead of its http_record.
 		var saveErr error
 		if e.findingWriter != nil {
+			// New-finding notifications come from the writer once the row is
+			// known to be new (SAFE-12); see notifyNewFindings.
+			e.notifyNewFindings()
 			saveErr = e.findingWriter.Save(ctx, result, recordUUIDs, e.scanUUID, e.projectUUID)
 		} else {
-			saveErr = e.repo.SaveFinding(ctx, result, recordUUIDs, e.scanUUID, e.projectUUID)
+			insertedNew, saveErr = e.repo.SaveFindingInserted(ctx, result, recordUUIDs, e.scanUUID, e.projectUUID)
 		}
 		if saveErr != nil {
 			// A dropped finding is a data-loss event for the operator, not a debug
@@ -405,11 +409,12 @@ func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent, b
 		if e.cfg.OnResult != nil {
 			e.cfg.OnResult(result)
 		}
-		if e.cfg.Services != nil && e.cfg.Services.Notifier != nil && !result.DisableNotify {
-			if err := e.cfg.Services.Notifier.Send(result); err != nil {
-				zap.L().Debug("notifier send failed for finding",
-					zap.String("module", result.ModuleID), zap.Error(err))
-			}
+		// Notify only on NEW findings (SAFE-12): a re-scan used to re-notify
+		// every known and dismissed finding. With a database the decision is
+		// the save's: the writer path notifies from its insert callback, the
+		// direct path when the row was inserted. Without one, every finding.
+		if e.repo == nil || (e.findingWriter == nil && insertedNew) {
+			e.sendFindingNotification(result)
 		}
 		return emissionResult{outcome: emissionFinding, event: result}
 	}
@@ -597,4 +602,27 @@ func clampTentativeSeverity(result *output.ResultEvent) {
 		result.Metadata["claimed_severity"] = result.Info.Severity.String()
 	}
 	result.Info.Severity = severity.Suspect
+}
+
+// sendFindingNotification forwards a finding to the operator notifier.
+func (e *Executor) sendFindingNotification(result *output.ResultEvent) {
+	if result == nil || result.DisableNotify || e.cfg.Services == nil || e.cfg.Services.Notifier == nil {
+		return
+	}
+	if err := e.cfg.Services.Notifier.Send(result); err != nil {
+		zap.L().Debug("notifier send failed for finding",
+			zap.String("module", result.ModuleID), zap.Error(err))
+	}
+}
+
+// notifyNewFindings points the finding writer's new-row callback at this
+// executor's notifier (idempotent; every executor of a phase shares the
+// writer and the notifier).
+func (e *Executor) notifyNewFindings() {
+	if e.findingWriter == nil || e.cfg.Services == nil || e.cfg.Services.Notifier == nil {
+		return
+	}
+	e.notifyOnce.Do(func() {
+		e.findingWriter.SetOnInserted(e.sendFindingNotification)
+	})
 }

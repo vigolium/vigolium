@@ -222,6 +222,14 @@ type DeparosDiscoveryConfig struct {
 	// nil = no denials.
 	RequestFilter func(*url.URL) bool
 
+	// MethodFilter refuses requests whose method the traffic policy does not
+	// allow (SAFE-8). nil = every method.
+	MethodFilter func(method string) bool
+
+	// FormSafety overrides the replay-safety policy for HTML form submission
+	// (SAFE-7); empty = the JS replay policy.
+	FormSafety string
+
 	// DB import: if set, results are saved to vigolium's http_records table
 	Repository  RecordSaver
 	ProjectUUID string
@@ -919,6 +927,8 @@ func (d *DeparosDiscoverySource) buildDeparosConfig(target string) *deparosconfi
 	// every per-target engine, so RequestsSent reports the phase's whole crawl
 	// rather than whichever target happens to be running.
 	cfg.Engine.RequestFilter = d.cfg.RequestFilter
+	cfg.Engine.MethodFilter = d.cfg.MethodFilter
+	cfg.Engine.FormSafety = d.cfg.FormSafety
 	cfg.Engine.RequestCounter = &d.requestsSent
 	if d.cfg.ObservedMaxItems > 0 {
 		cfg.Engine.ObservedMaxItems = d.cfg.ObservedMaxItems

@@ -3,8 +3,13 @@ package runner
 import (
 	"context"
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/knownissuescan"
 	"github.com/vigolium/vigolium/pkg/modules/passive/surface_scoring"
+	"github.com/vigolium/vigolium/pkg/spitolas"
+	nethttp "net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +27,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/types"
 	"go.uber.org/zap"
 )
 
@@ -86,6 +92,8 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 			infra.notifier = notify.New(notify.Config{
 				Backends:          backends,
 				AllowedSeverities: notifyCfg.Severities,
+				RedactHeaders:     headerNameSet(r.options.Headers),
+				NoRedact:          r.settings.Output.RedactEvidence != nil && !*r.settings.Output.RedactEvidence,
 			})
 		}
 	}
@@ -121,17 +129,29 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 		WithBudget(r.requestBudget)
 	infra.svc = svc
 
+	// Create scope matcher from settings, passing CLI targets for cli_origin_mode
+	// filtering. Built before the requester so the in-scope redirect mode (the
+	// default) can judge every hop against it from the first request (SAFE-2).
+	if r.settings != nil {
+		infra.scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.scopeTargets()...)
+		svc.HopScope = infra.scopeMatcher.HostInScope
+		// The traffic policy is resolved once, here, before any sender exists
+		// (SAFE-8); every sender reads it from the shared options.
+		if r.options.TrafficPolicy == nil {
+			r.options.TrafficPolicy = types.NewTrafficPolicy(r.settings.Scope.Methods)
+		}
+	}
+	// --offline (SAFE-11): nothing leaves for a non-target network path.
+	if r.offline() {
+		r.applyOffline()
+	}
+
 	httpRequester, err := http.NewRequester(r.options, svc)
 	if err != nil {
 		infra.Close()
 		return nil, errors.Wrap(err, "could not create http requester")
 	}
 	infra.httpRequester = httpRequester
-
-	// Create scope matcher from settings, passing CLI targets for cli_origin_mode filtering
-	if r.settings != nil {
-		infra.scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.options.Targets...)
-	}
 
 	// Phases that never contact the target are unaffected by session headers and
 	// request hooks, so neither is built for them. See SendsTargetTraffic for why
@@ -372,4 +392,55 @@ func (r *Runner) newScanRecordWriter() *database.RecordWriter {
 		// (risk, surface) order means something on a fresh scan (ECON-5).
 		SurfaceScorer: surface_scoring.IngestScore,
 	})
+}
+
+// offline reports whether this run is --offline (flag or settings key).
+func (r *Runner) offline() bool {
+	return r.options.Offline || (r.settings != nil && r.settings.Offline)
+}
+
+// applyOffline turns off every non-target network path for the run
+// (SAFE-11): OAST registration, third-party lookups (externalFetcher returns
+// nil), nuclei template clones and browser downloads.
+func (r *Runner) applyOffline() {
+	r.options.Offline = true
+	if r.settings != nil {
+		r.settings.OAST.Enabled = false
+		r.settings.DynamicAssessment.ExternalLookups = false
+	}
+	spitolas.SetOffline(true)
+	knownissuescan.SetOffline(true)
+}
+
+// externalFetcher is the client modules use for third-party lookups that are
+// not the target (SAFE-11), built from the scan's proxy and timeout. nil
+// unless dynamic_assessment.external_lookups is on and the run is not offline.
+func (r *Runner) externalFetcher() *nethttp.Client {
+	if r.offline() || r.settings == nil || !r.settings.DynamicAssessment.ExternalLookups {
+		return nil
+	}
+	transport := &nethttp.Transport{Proxy: nethttp.ProxyFromEnvironment}
+	if r.options.ProxyURL != "" {
+		if u, err := url.Parse(r.options.ProxyURL); err == nil {
+			transport.Proxy = nethttp.ProxyURL(u)
+		}
+	}
+	timeout := r.options.Timeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	return &nethttp.Client{Timeout: timeout, Transport: transport}
+}
+
+// headerNameSet is the lowercased name set of "Name: value" header strings.
+func headerNameSet(headers []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(headers))
+	for _, h := range headers {
+		if name, _, ok := strings.Cut(h, ":"); ok {
+			if n := strings.ToLower(strings.TrimSpace(name)); n != "" {
+				out[n] = struct{}{}
+			}
+		}
+	}
+	return out
 }

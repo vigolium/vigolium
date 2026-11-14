@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/deparos/internal/dedup"
+	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/deparos/responsechain"
 	"github.com/vigolium/vigolium/pkg/deparos/spider"
 	"github.com/vigolium/vigolium/pkg/deparos/wordlist"
@@ -437,6 +438,13 @@ func (e *Engine) queueFormSubmission(forms []*spider.FormRequest, sourceURL *url
 			continue
 		}
 
+		// Replay safety (SAFE-7): a form the policy refuses is never sent; it
+		// survives as a request-only stub (TemplateWithheldPolicy).
+		if reason := e.formSafety().FormWithheldReason(form.Method, form); reason != "" {
+			e.noteWithheldForm(sourceURL, form, reason)
+			continue
+		}
+
 		// Compute structural hash from sorted input field names (not values).
 		// This groups forms with same endpoint + same fields, regardless of option values.
 		inputNames := make([]string, 0, len(form.Inputs))
@@ -531,5 +539,51 @@ func (e *Engine) extractWordsFromResponse(rc *responsechain.ResponseChain) {
 		logger.Debug("Words extracted from response body",
 			zap.String("content_type", contentType),
 			zap.Int("count", extractedCount))
+	}
+}
+
+// formSafety is the replay-safety policy for form submission: the engine's
+// FormSafety, else the JS replay policy.
+func (e *Engine) formSafety() ReplaySafety {
+	if v := strings.TrimSpace(e.config.Engine.FormSafety); v != "" {
+		return ParseReplaySafety(v)
+	}
+	return ParseReplaySafety(e.config.JSTangle.ReplaySafety)
+}
+
+// noteWithheldForm records a refused form as a withheld request template so
+// RequestTemplateOutcomes persists it as a stub.
+func (e *Engine) noteWithheldForm(sourceURL *url.URL, form *spider.FormRequest, reason string) {
+	if form == nil || form.URL == nil {
+		return
+	}
+	src := ""
+	if sourceURL != nil {
+		src = sourceURL.String()
+	}
+	method := strings.ToUpper(strings.TrimSpace(form.Method))
+	if method == "" {
+		method = "GET"
+	}
+	fact := jstangle.HTTPRequestFact{
+		URL:        jstangle.ValueTemplate{Rendered: form.URL.String(), Static: true},
+		Method:     jstangle.ValueTemplate{Rendered: method, Static: true},
+		Client:     "html-form",
+		Provenance: jstangle.Provenance{Extractor: "html-form", Confidence: "high"},
+	}
+	if form.Body != "" {
+		fact.Body = &jstangle.BodyTemplate{Kind: "form", ContentType: form.ContentType,
+			Value: jstangle.ValueTemplate{Rendered: form.Body, Static: true}}
+	}
+	if form.ContentType != "" {
+		fact.Headers = append(fact.Headers, jstangle.HeaderTemplate{
+			Name:  jstangle.ValueTemplate{Rendered: "Content-Type", Static: true},
+			Value: jstangle.ValueTemplate{Rendered: form.ContentType, Static: true},
+		})
+	}
+	fact.ID = stableTemplateID(src, fact.URL.Rendered, method, form.Body)
+	if e.templateRegistry().AddWithheld(src, fact, ReplayNote{Outcome: TemplateWithheldPolicy, Reason: reason, Method: method, URL: form.URL.String()}) {
+		logger.Debug("Form withheld by replay safety policy",
+			zap.String("action", form.URL.String()), zap.String("method", method), zap.String("reason", reason))
 	}
 }

@@ -226,6 +226,7 @@ func renderPlan(w io.Writer, p *scanplan.Plan) {
 	}
 	_, _ = fmt.Fprintf(w, "  Scope: origin=%s ignore-static=%v host+=%s host-=%s\n",
 		p.Scope.OriginMode, p.Scope.IgnoreStatic, joinOrDash(p.Scope.HostInclude), joinOrDash(p.Scope.HostExclude))
+	renderDerivedScope(w, p.Scope)
 	b := p.Budgets
 	_, _ = fmt.Fprintf(w, "  Budgets: max-duration=%s max-requests=%s max-requests-per-host=%s rate-limit=%s concurrency=%d max-per-host=%d\n",
 		formatMS(b.ScanMaxDurationMS), zeroUnlimited(b.MaxRequests), zeroUnlimited(b.MaxRequestsPerHost), zeroUnlimited(int64(b.RateLimit)), b.Concurrency, b.MaxPerHost)
@@ -434,4 +435,21 @@ func init() {
 		Description: "The resolved scan plan: phases with disabled_by, budgets, modules, scope, auth names, target admission and a rough request estimate. Printed by scan --dry-run, carried by the scan.plan event, stored on scans.plan."})
 	contract.RegisterDocument(contract.Document{Name: schemaDocScanDryRun, Value: scanDryRunDocSchema{},
 		Description: "The scan --dry-run / run <phase> --dry-run -j document: items are the plan's phases, plan the full plan, dry_run true."})
+}
+
+// renderDerivedScope prints the scope a file-input scan derived from its
+// input (SAFE-4): the scope targets, then every input host with its record
+// count, excluded hosts marked.
+func renderDerivedScope(w io.Writer, sc scanplan.Scope) {
+	if len(sc.ScopeTargets) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "  Scope derived from input: %s (use -t or --scope-origin all to widen)\n", strings.Join(sc.ScopeTargets, ", "))
+	for _, h := range sc.InputHosts {
+		verdict := "in scope"
+		if !h.InScope {
+			verdict = "excluded"
+		}
+		_, _ = fmt.Fprintf(w, "    %-40s %6d records  %s\n", h.Host, h.Records, verdict)
+	}
 }

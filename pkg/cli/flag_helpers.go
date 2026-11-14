@@ -66,7 +66,7 @@ func registerHTTPClientFlags(flags *pflag.FlagSet) {
 // (scan/run here, ingest in ingest.go). The default is spelled in the text
 // because the flag's zero value has to stay "" to distinguish "not passed" from
 // an explicit choice, so pflag cannot print it.
-const scopeOriginFlagUsage = "Host scope strictness: all, relaxed, balanced, strict (default balanced; balanced admits any host sharing the target's eTLD+1, including subdomains already in the database from earlier scans). Bounds which STORED records a phase works, and is not consulted when a response redirects: a followed hop can reach a host no mode here admits — use --redirect-mode to bound that"
+const scopeOriginFlagUsage = "Host scope strictness: all, relaxed, balanced, strict (default balanced; balanced admits any host sharing the target's eTLD+1, including subdomains already in the database from earlier scans). Bounds which STORED records a phase works and, under the default --redirect-mode in-scope, which hosts a redirect may follow to"
 
 // registerScanPipelineFlags registers the phase/strategy/profile knobs that
 // only make sense for the full native scan pipeline (scan + run).

@@ -26,8 +26,16 @@ type FindingWrite struct {
 // SaveFinding stores a vulnerability finding linked to HTTP records by UUIDs.
 // Uses INSERT ON CONFLICT for atomic dedup when finding_hash is non-empty.
 func (r *Repository) SaveFinding(ctx context.Context, event *output.ResultEvent, httpRecordUUIDs []string, scanUUID string, projectUUID string) error {
+	_, err := r.SaveFindingInserted(ctx, event, httpRecordUUIDs, scanUUID, projectUUID)
+	return err
+}
+
+// SaveFindingInserted is SaveFinding reporting whether a NEW finding row was
+// written (false on a dedup-append to an existing finding), so a caller can
+// notify only on genuinely new findings (SAFE-12).
+func (r *Repository) SaveFindingInserted(ctx context.Context, event *output.ResultEvent, httpRecordUUIDs []string, scanUUID string, projectUUID string) (bool, error) {
 	if event == nil {
-		return fmt.Errorf("invalid ResultEvent")
+		return false, fmt.Errorf("invalid ResultEvent")
 	}
 
 	finding := &Finding{
@@ -36,17 +44,17 @@ func (r *Repository) SaveFinding(ctx context.Context, event *output.ResultEvent,
 		ProjectUUID:     defaultProjectUUID(projectUUID),
 	}
 	if err := finding.FromResultEvent(event); err != nil {
-		return fmt.Errorf("failed to convert finding: %w", err)
+		return false, fmt.Errorf("failed to convert finding: %w", err)
 	}
 
 	inserted, err := r.saveFindingTx(ctx, finding, httpRecordUUIDs)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if inserted {
 		r.emitFindingSaved(finding)
 	}
-	return nil
+	return inserted, nil
 }
 
 // SaveFindingsBatch persists a batch of findings in a single transaction,

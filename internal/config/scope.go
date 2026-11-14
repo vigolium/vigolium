@@ -1,6 +1,11 @@
 package config
 
-import "strings"
+import (
+	"strings"
+	"sync"
+
+	"go.uber.org/zap"
+)
 
 // DefaultCLIOriginMode is the origin-scope mode a scan uses when nothing sets
 // one. Referenced by the config default, the matcher's empty-string fallback,
@@ -29,9 +34,42 @@ const DefaultCLIOriginMode = "balanced"
 // default, so a scan that ran in "balanced" was recorded as having run in "".
 func ResolveCLIOriginMode(configured string) string {
 	if m := strings.ToLower(strings.TrimSpace(configured)); m != "" {
-		return m
+		if ValidCLIOriginMode(m) {
+			return m
+		}
+		// An unknown mode used to admit every host (SAFE-5). The CLI and the
+		// REST API reject one up front; a value that still reaches here (a
+		// config file, a library caller) runs as the default, loudly.
+		warnUnknownOriginMode(m)
+		return DefaultCLIOriginMode
 	}
 	return DefaultCLIOriginMode
+}
+
+// CLIOriginModes lists every accepted scope.cli_origin_mode / --scope-origin
+// value, most permissive first. Error messages derive from it.
+var CLIOriginModes = []string{"all", "relaxed", "balanced", "strict"}
+
+// ValidCLIOriginMode reports whether s names an origin mode (case-insensitive).
+func ValidCLIOriginMode(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	for _, m := range CLIOriginModes {
+		if s == m {
+			return true
+		}
+	}
+	return false
+}
+
+var unknownOriginModeWarned sync.Map
+
+func warnUnknownOriginMode(m string) {
+	if _, dup := unknownOriginModeWarned.LoadOrStore(m, struct{}{}); dup {
+		return
+	}
+	zap.L().Warn("Unknown scope.cli_origin_mode; using the default",
+		zap.String("mode", m), zap.String("default", DefaultCLIOriginMode),
+		zap.Strings("valid", CLIOriginModes))
 }
 
 // ScopeConfig defines which HTTP records are in scope for scanning.
@@ -43,6 +81,12 @@ type ScopeConfig struct {
 	// saved to the database. When false (default), all requests are saved but
 	// out-of-scope records are skipped during scanning.
 	AppliedOnIngest bool `yaml:"applied_on_ingest" json:"applied_on_ingest"`
+
+	// Methods is the HTTP method allow-list for scan traffic (SAFE-8). Empty
+	// means every method. [GET, HEAD] (what --safe writes) is read-only: module
+	// traffic, discovery and the browser crawl send nothing else, and the
+	// crawler submits no forms, attempts no logins and uploads nothing.
+	Methods []string `yaml:"methods,omitempty" json:"methods,omitempty"`
 
 	// CLIOriginMode restricts which hosts are in scope based on CLI target origins.
 	// Modes:
@@ -60,10 +104,6 @@ type ScopeConfig struct {
 	// marketing estate — someone else's infrastructure, never the thing under
 	// test. Relaxed stays available for deliberate brand-wide recon.
 	CLIOriginMode       string    `yaml:"cli_origin_mode" json:"cli_origin_mode"`
-	// Methods limits module, discovery and browser traffic to these HTTP
-	// methods (empty = all). `--safe` sets [GET, HEAD]. Read by the traffic
-	// policy (types.TrafficPolicy).
-	Methods []string `yaml:"methods,omitempty" json:"methods,omitempty"`
 	Host                ScopeRule `yaml:"host" json:"host"`
 	Path                ScopeRule `yaml:"path" json:"path"`
 	StatusCode          ScopeRule `yaml:"status_code" json:"status_code"`

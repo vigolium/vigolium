@@ -322,6 +322,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		// it a no-op elsewhere, so subdomain_harvest stays recon-only in other phases.
 		FollowSubdomains:     r.options.FollowSubdomains || strings.EqualFold(r.options.Intensity, "deep"),
 		DeepScan:             strings.EqualFold(r.options.Intensity, "deep"),
+		ExternalFetcher:      r.externalFetcher(),
 		AllowRiskyPayloads:   r.riskyPayloadsAllowed(),
 		NoParamDedup:         r.options.NoParamDedup,
 		HeaderPointsAll:      r.headerPointsAll(),

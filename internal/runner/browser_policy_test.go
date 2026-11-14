@@ -220,6 +220,9 @@ func TestPolicyCategoriesDriftGuard(t *testing.T) {
 	rt := reflect.TypeOf(config.SpideringInteractionConfig{})
 	for i := 0; i < rt.NumField(); i++ {
 		name, _, _ := strings.Cut(rt.Field(i).Tag.Get("yaml"), ",")
+		if name == "deny_click_pattern" {
+			continue // a click guard (SAFE-9), not a permission category
+		}
 		yamlKeys = append(yamlKeys, name)
 	}
 	sort.Strings(yamlKeys)

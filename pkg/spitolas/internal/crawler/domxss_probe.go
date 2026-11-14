@@ -445,3 +445,40 @@ func pctEncodeComponent(s string) string {
 	}
 	return b.String()
 }
+
+// domXssLead is how much of the crawl's end the DOM-XSS probe is given when
+// it has work: min(domXssBudget, MaxDuration/10) (MISS-29c).
+func (c *Crawler) domXssLead() time.Duration {
+	if c.config == nil {
+		return 0
+	}
+	if c.config.MaxDuration <= 0 {
+		return domXssBudget
+	}
+	return min(domXssBudget, c.config.MaxDuration/10)
+}
+
+// domXssPrefilterEvery bounds how often the drain check re-runs the prefilter.
+const domXssPrefilterEvery = 2 * time.Second
+
+// domXssCandidatesPending runs the no-navigation prefilter (memoized: once
+// true it stays true; a negative answer is re-checked at most every 2s as
+// the crawl adds states).
+func (c *Crawler) domXssCandidatesPending() bool {
+	if c.domXssHasCandidates.Load() {
+		return true
+	}
+	now := time.Now().UnixNano()
+	last := c.domXssCheckedAt.Load()
+	if last != 0 && now-last < int64(domXssPrefilterEvery) {
+		return false
+	}
+	if !c.domXssCheckedAt.CompareAndSwap(last, now) {
+		return false
+	}
+	if len(c.collectReflectedCandidates()) > 0 {
+		c.domXssHasCandidates.Store(true)
+		return true
+	}
+	return false
+}

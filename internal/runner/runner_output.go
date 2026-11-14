@@ -545,6 +545,17 @@ func (r *Runner) printScanConfig() {
 		terminal.HiPurple(scopeOrigin),
 		terminal.HiPurple(fmt.Sprintf("%v", settings.Scope.IgnoreStaticFile)),
 		originDescStr)
+	if pol := opts.TrafficPolicy; pol != nil && len(pol.AllowedMethods) > 0 {
+		fmt.Fprintf(os.Stderr, "  %s Methods: %s%s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.HiPurple(strings.Join(settings.Scope.Methods, ",")),
+			terminal.Gray(map[bool]string{true: " (read-only: no form submission, logins or uploads)", false: ""}[pol.ReadOnly()]))
+	}
+	if r.offline() {
+		fmt.Fprintf(os.Stderr, "  %s Offline: %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.Gray("no OAST, external lookups, template or browser downloads, or update checks"))
+	}
 
 	// Modules
 	var activeMods []modules.ActiveModule

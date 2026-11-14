@@ -4,6 +4,9 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
+	"github.com/vigolium/vigolium/pkg/deparos/spider"
+	"github.com/vigolium/vigolium/pkg/deparos/spider/formparser"
+	"github.com/vigolium/vigolium/pkg/safety"
 )
 
 // ReplaySafety is the method-level safety ladder for JS-extracted request replay.
@@ -78,4 +81,75 @@ func (p ReplaySafety) AllowsFact(fact *jstangle.HTTPRequestFact) bool {
 	default: // POST, PATCH, and any other write verb
 		return p >= ReplaySafetyStateChanging
 	}
+}
+
+// AllowsForm reports whether the policy permits submitting form during
+// discovery (SAFE-7). Forms used to be sent with only scope and dedup checks,
+// with session headers attached. A GET form needs read-only or above; any
+// other method needs state-changing. Never, under any policy: a form with a
+// password input (authentication is the login flow's job), a form whose
+// _method override names DELETE/PUT/PATCH, or one whose action, name, id,
+// class or submit label reads as destructive (pkg/safety).
+func (p ReplaySafety) AllowsForm(method string, form *spider.FormRequest) bool {
+	return p.FormWithheldReason(method, form) == ""
+}
+
+// FormWithheldReason is AllowsForm's reason when it refuses ("" = allowed):
+// metadata-only, form:password, form:method-override, form:destructive or
+// method:<M>.
+func (p ReplaySafety) FormWithheldReason(method string, form *spider.FormRequest) string {
+	if form == nil {
+		return "form:invalid"
+	}
+	if p == ReplaySafetyMetadataOnly {
+		return "metadata-only"
+	}
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if method == "" {
+		method = "GET"
+	}
+	names := []string{}
+	if form.URL != nil {
+		names = append(names, form.URL.Path)
+	}
+	for _, in := range form.Inputs {
+		if in == nil {
+			continue
+		}
+		if in.Type == formparser.InputTypePassword {
+			return "form:password"
+		}
+		switch strings.ToLower(in.Name) {
+		case "_method", "_httpmethod", "x-http-method-override":
+			switch strings.ToUpper(strings.TrimSpace(in.Value)) {
+			case "DELETE", "PUT", "PATCH":
+				return "form:method-override"
+			}
+		}
+		if in.Type == formparser.InputTypeSubmit || in.Type == formparser.InputTypeButton {
+			names = append(names, in.Value)
+		}
+	}
+	if form.SourceForm != nil && form.SourceForm.FormElement != nil {
+		for _, a := range form.SourceForm.FormElement.Attr {
+			switch strings.ToLower(a.Key) {
+			case "id", "name", "class", "action":
+				names = append(names, a.Val)
+			}
+		}
+	}
+	if safety.IsDestructiveName(names...) {
+		return "form:destructive"
+	}
+	switch method {
+	case "GET":
+		if p >= ReplaySafetyReadOnly {
+			return ""
+		}
+	default:
+		if p >= ReplaySafetyStateChanging {
+			return ""
+		}
+	}
+	return "method:" + method
 }

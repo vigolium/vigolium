@@ -32,7 +32,18 @@ func (r *Runner) getInScopeDBHosts(ctx context.Context) []database.HostTarget {
 	if r.repository == nil || r.settings == nil {
 		return nil
 	}
-	return r.repository.InScopeHosts(ctx, r.settings.Scope, r.options.Targets, r.options.ProjectUUID, r.options.ScanUUID)
+	return r.repository.InScopeHosts(ctx, r.settings.Scope, r.scopeTargets(), r.options.ProjectUUID, r.options.ScanUUID)
+}
+
+// scopeTargets is every target the scope-origin index is built from: the
+// seeds (Targets) plus scope-only targets (ScopeTargets, SAFE-4).
+func (r *Runner) scopeTargets() []string {
+	if len(r.options.ScopeTargets) == 0 {
+		return r.options.Targets
+	}
+	out := make([]string, 0, len(r.options.Targets)+len(r.options.ScopeTargets))
+	out = append(out, r.options.Targets...)
+	return append(out, r.options.ScopeTargets...)
 }
 
 // resolvedScopeOriginMode is the origin-scope mode this run actually applies —

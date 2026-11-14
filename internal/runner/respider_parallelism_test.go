@@ -9,12 +9,13 @@ func TestReSpiderHostParallelism(t *testing.T) {
 		numGroups int
 		want      int
 	}{
-		{"default sequential", "", 5, 1},
+		{"default 2 (ECON-9)", "", 5, 2},
+		{"explicit sequential", "1", 5, 1},
 		{"opt-in 2", "2", 5, 2},
 		{"clamped to hosts", "8", 3, 3},
 		{"clamped to cap", "99", 20, reSpiderHostParallelismCap},
-		{"zero falls back to 1", "0", 5, 1},
-		{"garbage falls back to 1", "abc", 5, 1},
+		{"zero falls back to the default", "0", 5, defaultSpiderHostParallelism},
+		{"garbage falls back to the default", "abc", 5, defaultSpiderHostParallelism},
 		{"never exceeds groups", "4", 1, 1},
 	}
 	for _, c := range cases {

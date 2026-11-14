@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/authentication"
+	nethttp "net/http"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -80,7 +83,7 @@ func (r *Runner) emitSpiderDOMXssFindings(ctx context.Context, scanUUID string, 
 // many in-scope DB hosts) can't blow the phase out to len(targets) × max-duration.
 //
 // Exported because it is the number the CLI's fan-out hint quotes: the phase
-// crawls hosts one at a time, so on a target list larger than this the cap — not
+// crawls a bounded number of hosts at a time (VIGOLIUM_SPIDER_HOST_PARALLELISM, default 2), so on a target list larger than this the cap — not
 // the pace flags — is what decides how much of the list is reached, and the
 // operator has to be told the figure to act on it. One constant, so the hint and
 // the ceiling it describes cannot drift apart.
@@ -419,6 +422,7 @@ func groupByHost[T any](items []T, host func(T) string) [][]T {
 // goes missing from the other.
 func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringConfig, maxDuration time.Duration, infra *phaseInfra) spitolas.SpiderConfig {
 	rp := resolveBrowserPolicy(settingsCfg, r.options.Intensity)
+	rp.applyTrafficPolicy(r.options.TrafficPolicy)
 	policy := rp.policy
 	compat := resolveBrowserCompat(settingsCfg)
 	// Bridge the operator's session/custom headers into the browser so the crawl
@@ -455,6 +459,10 @@ func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringCo
 		// (full list), off at quick/lite; registration is off unless configured
 		// at any intensity. See resolveAccountActions.
 		Policy:                  &policy,
+		DenyClickPattern:        settingsCfg.Interaction.DenyClickPattern,
+		ExcludeSelectors:        settingsCfg.ExcludeSelectors,
+		MethodAllowed:           r.browserMethodFilter(),
+		AuthMonitor:             r.liveSessionMonitor(infra),
 		BrowserCompat:           &compat,
 		NoForms:                 !policy.EditFields && !policy.SubmitForms,
 		LoginCredentialAttempts: policy.LoginAttempts,
@@ -668,6 +676,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	// config resolves the same policy from the same settings (buildSpiderConfig),
 	// so this line and the conflict warnings describe all of them.
 	policy := resolveBrowserPolicy(settingsCfg, r.options.Intensity)
+	policy.applyTrafficPolicy(r.options.TrafficPolicy)
 	for _, c := range policy.conflicts {
 		zap.L().Warn("Spidering: interaction policy key overrides a legacy key", zap.String("override", c))
 	}
@@ -753,27 +762,34 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	// launched only to stop at once.
 	grace := SpideringGrace(maxDuration)
 
+	// Host groups are independent (each crawls in its own browser context), so
+	// up to reSpiderHostParallelism of them run at once (ECON-9: hosts used to
+	// be crawled strictly one at a time). Everything a group shares with the
+	// phase — the totals, the harvested sessions, the SSO hosts, the capture
+	// receipt, progress — is touched only while holding accMu; the lock is
+	// released around the browser work itself.
+	var accMu sync.Mutex
 	var launchErr error
 	failedTargets := 0
-	for _, group := range groups {
+	runGroup := func(group []string) {
+		accMu.Lock()
+		defer accMu.Unlock()
+		// A browser that cannot launch fails every group the same way.
 		if launchErr != nil {
-			break
+			return
 		}
 		// Overall ceiling exhausted — skip the remaining targets rather than
-		// launching crawls against an already-expired context.
+		// launching crawls against an already-expired context. They are counted
+		// as skipped once every group has returned.
 		if deadlineWithin(phaseCtx, grace) {
-			skippedTargets = len(targets) - processed
-			zap.L().Warn("Spidering: phase budget ceiling reached, skipping remaining targets",
-				zap.Int("skipped", skippedTargets),
-				zap.Int("total", len(targets)),
-				zap.Duration("max_duration", maxDuration),
-				zap.Int("budget_cap", spideringPhaseBudgetCap))
-			break
+			return
 		}
 
 		// A shared session only pays for itself across several seeds; for a lone
 		// target it is machinery around the proven single-crawl path.
+		accMu.Unlock()
 		sess, sessRW := r.openSpiderSession(phaseCtx, group, settingsCfg, maxDuration, infra, requests)
+		accMu.Lock()
 		abandoned := false
 
 		for gi, target := range group {
@@ -789,6 +805,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			// browser/teardown wedges, so a single target can never hang the scan.
 			timeoutCtx, cancel := context.WithTimeout(phaseCtx, maxDuration)
 			var oc crawlOutcome
+			accMu.Unlock()
 			if sess != nil {
 				oc = runReSpiderSessionCrawl(timeoutCtx, sess, target, maxDuration)
 			} else {
@@ -796,6 +813,9 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 				requests.wire(&cfg)
 				rw := r.newScanRecordWriter()
 				oc = runSpiderWatchdog(timeoutCtx, cfg, rw, maxDuration, target)
+			}
+			accMu.Lock()
+			if sess == nil {
 				phaseCapture.Merge(oc.capture())
 			}
 			// Asked BEFORE cancel(): cancelling a context whose deadline had not
@@ -943,6 +963,15 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 				// failed to log in, not on whether the login failed.
 				r.currentPhase.Load().markPartial(database.ReasonAuthUnavailable)
 			}
+			// The crawl was logged out (a logout control, an expired session)
+			// and re-applying credentials did not bring it back: the rest of
+			// this target was crawled anonymously (MISS-26).
+			if result.AuthState == spitolas.AuthLost {
+				r.printPhaseDetail(fmt.Sprintf("%s %s: the browser session was lost mid-crawl and could not be restored — the rest of this target was crawled unauthenticated.",
+					terminal.Yellow(terminal.SymbolWarning),
+					terminal.Gray(target)))
+				r.currentPhase.Load().markPartial(database.ReasonAuthLost)
+			}
 			if len(result.CredentialHostsDenied) > 0 {
 				r.printPhaseDetail(fmt.Sprintf("%s %s: credential headers withheld from %s (outside the operator scope).",
 					terminal.Gray(terminal.SymbolArrow),
@@ -1014,8 +1043,29 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 		progress.Set(processed)
 
 		if sess != nil {
-			phaseCapture.Merge(sessionCapture(sess, sessRW, abandoned))
+			accMu.Unlock()
+			receipt := sessionCapture(sess, sessRW, abandoned)
+			accMu.Lock()
+			phaseCapture.Merge(receipt)
 		}
+	}
+
+	runHostGroups(groups, reSpiderHostParallelism(len(groups)),
+		func() bool {
+			accMu.Lock()
+			defer accMu.Unlock()
+			return launchErr != nil || deadlineWithin(phaseCtx, grace)
+		}, runGroup)
+	if processed > len(targets) {
+		processed = len(targets)
+	}
+	if processed < len(targets) && deadlineWithin(phaseCtx, grace) {
+		skippedTargets = len(targets) - processed
+		zap.L().Warn("Spidering: phase budget ceiling reached, skipping remaining targets",
+			zap.Int("skipped", skippedTargets),
+			zap.Int("total", len(targets)),
+			zap.Duration("max_duration", maxDuration),
+			zap.Int("budget_cap", spideringPhaseBudgetCap))
 	}
 
 	// Carry the harvested per-host sessions forward: store them for the Discovery
@@ -1098,7 +1148,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	// HTTP phases get from shutdownWriters.
 	recordCapture(tracker, phaseCapture)
 	// Name the way out at the moment it bit. The ceiling is not a pace the flags
-	// can widen — the phase crawls one host at a time — so an operator told only
+	// can widen — the phase crawls a bounded number of hosts at a time — so an operator told only
 	// that N targets were dropped has no move to make from that line alone. The
 	// flags come from SpiderFanOutSuggestion, the same resolver the pre-scan hint
 	// uses, so both the advice and its preconditions match this run.
@@ -1129,4 +1179,108 @@ func (r *Runner) noteSpideringFailures(failed int, launchErr error) {
 		r.printPhaseDetail(fmt.Sprintf("%s Spidering failed — the browser could not be launched (%s); run %s",
 			terminal.Red(terminal.SymbolWarning), launchErr.Error(), terminal.HiCyan("vigolium doctor --for scan")))
 	}
+}
+
+// browserMethodFilter is the traffic policy's method check for the browser
+// crawl (SAFE-8), nil when every method is allowed.
+func (r *Runner) browserMethodFilter() func(string) bool {
+	if pol := r.options.TrafficPolicy; pol != nil && len(pol.AllowedMethods) > 0 {
+		return pol.AllowsMethod
+	}
+	return nil
+}
+
+// liveSessionAuthMonitor adapts the scan's primary live session to the
+// crawler's AuthMonitor (MISS-26): the browser re-applies the session's
+// current credentials after a re-login and feeds responses back.
+type liveSessionAuthMonitor struct {
+	s       *authentication.LiveSession
+	changed chan struct{}
+}
+
+func (m liveSessionAuthMonitor) Changed() <-chan struct{} { return m.changed }
+
+func (m liveSessionAuthMonitor) Observe(gen uint64, status int, h nethttp.Header, body []byte) {
+	m.s.Observe(gen, status, h, body)
+}
+
+func (m liveSessionAuthMonitor) Credentials() (uint64, map[string]string, []*nethttp.Cookie) {
+	creds := m.s.Credentials()
+	if creds == nil {
+		return 0, nil, nil
+	}
+	return creds.Gen, creds.Headers, nil
+}
+
+// liveSessionMonitor is the AuthMonitor for infra's primary live session, or
+// nil when the scan has none.
+func (r *Runner) liveSessionMonitor(infra *phaseInfra) spitolas.AuthMonitor {
+	if infra == nil || infra.sessions == nil {
+		return nil
+	}
+	live := infra.sessions.primaryLive()
+	if live == nil {
+		return nil
+	}
+	return liveSessionAuthMonitor{s: live, changed: r.relogins.subscribe()}
+}
+
+// reloginBroadcast fans a successful live-session re-login out to every
+// browser crawl watching it (AuthMonitor.Changed, MISS-26).
+type reloginBroadcast struct {
+	mu   sync.Mutex
+	subs []chan struct{}
+}
+
+// subscribe returns a coalescing channel that fires on each re-login.
+func (b *reloginBroadcast) subscribe() chan struct{} {
+	ch := make(chan struct{}, 1)
+	b.mu.Lock()
+	b.subs = append(b.subs, ch)
+	b.mu.Unlock()
+	return ch
+}
+
+// notify signals every subscriber without blocking.
+func (b *reloginBroadcast) notify() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, ch := range b.subs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// runHostGroups runs run once per host group, up to par at a time (ECON-9),
+// stopping before a group once stop reports the phase budget is spent. par<=1
+// is the sequential crawl.
+func runHostGroups[T any](groups [][]T, par int, stop func() bool, run func([]T)) {
+	if par <= 1 {
+		for _, group := range groups {
+			if stop() {
+				return
+			}
+			run(group)
+		}
+		return
+	}
+	zap.L().Info("Spidering: crawling independent hosts concurrently",
+		zap.Int("hosts", len(groups)), zap.Int("parallelism", par))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, par)
+	for _, group := range groups {
+		if stop() {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(group []T) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			run(group)
+		}(group)
+	}
+	wg.Wait()
 }

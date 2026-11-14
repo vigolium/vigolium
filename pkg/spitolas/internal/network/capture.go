@@ -51,11 +51,14 @@ var authHeaders = map[string]struct{}{
 // Capture handles HTTP traffic capture using Chrome DevTools Protocol.
 // Uses browser-level event subscription to capture traffic from ALL pages.
 type Capture struct {
-	mu         sync.Mutex
-	writer     Writer
-	pending    map[proto.NetworkRequestID]*pendingEntry
-	logged     map[string]struct{} // Track logged entries by hash to prevent stderr duplicates
-	seenHashes map[string]bool     // Track written hashes to prevent file duplicates
+	mu      sync.Mutex
+	writer  Writer
+	pending map[proto.NetworkRequestID]*pendingEntry
+	logged  map[string]struct{} // Track logged entries by hash to prevent stderr duplicates
+	// seenHashes tracks written request hashes. true = written with its
+	// response body; false = PROVISIONAL, written while the body fetch failed,
+	// so a later complete copy of the same request is still written (MISS-29b).
+	seenHashes map[string]bool
 	// loginHosts records the hosts observed serving an authentication endpoint
 	// during document navigation and redirects. The crawler reads it to deny a
 	// whole SSO redirect chain, not just the host the browser finished on.
@@ -65,6 +68,10 @@ type Capture struct {
 	// ScopeFilter, when set, suppresses out-of-scope entries from the stderr log
 	// (records are filtered separately by the writer). Set once before Start.
 	ScopeFilter func(host, path string) bool
+	// OnResponse, when set, sees every completed in-scope document / XHR /
+	// fetch response before dedup (MISS-26: the crawl's live-session
+	// logged-out detector). Runs on the capture goroutine; must be cheap.
+	OnResponse func(entry *TrafficEntry)
 	// workerSessions holds the CDP sessionIDs of attached service-worker targets.
 	// Worker sessions are not page targets, so they never appear in Browser.Pages();
 	// tracking them lets isSessionValid accept them and fetchResponseBody pull their
@@ -91,6 +98,8 @@ type Capture struct {
 	maxBodyBytes int64
 	// bodiesTooLarge counts responses whose body was skipped by that cap.
 	bodiesTooLarge int
+	// bodiesFailed counts responses whose body fetch failed (MISS-29b).
+	bodiesFailed int
 	// targetHost is the hostname used by the cross-origin stderr-log filter.
 	// It starts as the input URL's host but is re-pointed via SetTargetHost when
 	// the crawler adopts an off-host redirect target into scope, so the adopted
@@ -111,6 +120,7 @@ type Capture struct {
 	extraParked extraPark
 	// Lazy request-body fetches (capture_extrainfo.go).
 	postDataState
+	bodyPoolState
 }
 
 // pendingEntry tracks an in-flight request waiting for response.
@@ -230,6 +240,7 @@ func (c *Capture) Start(browser *rod.Browser) error {
 		zap.Bool("include_headers", c.includeResponseHeaders))
 
 	c.startPostDataWorkers()
+	c.startBodyWorkers()
 	go c.subscribeEvents(browser)
 	go c.cleanupLoop()
 
@@ -612,7 +623,6 @@ func (c *Capture) onLoadingFinished(e *proto.NetworkLoadingFinished, sessionID p
 		// Skipping a static body we'd discard also skips this response's page
 		// enumeration + CDP body transfer — the dominant per-response cost —
 		// instead of fetching every image/font/media body just to throw it away.
-		var bodyFetch time.Duration
 		if fetch, skipped := shouldFetchResponseBody(pending.entry, includeBody, e.EncodedDataLength, maxBody); !fetch {
 			pending.entry.BodySource = skipped
 			if skipped == BodySourceTooLarge {
@@ -636,53 +646,85 @@ func (c *Capture) onLoadingFinished(e *proto.NetworkLoadingFinished, sessionID p
 				zap.String("url", pending.entry.Request.URL),
 				zap.Duration("age", time.Since(pending.startTime)))
 		} else {
-			fetchStart := time.Now()
-			body, err := c.fetchResponseBody(pending.sessionID, e.RequestID)
-			bodyFetch = time.Since(fetchStart)
-			if err != nil {
-				pending.entry.BodySource = BodySourceFailed
-				// Categorize error types for better debugging
-				if errors.Is(err, context.DeadlineExceeded) {
-					zap.L().Warn("Response body fetch timed out",
-						zap.String("url", pending.entry.Request.URL),
-						zap.Duration("timeout", 5*time.Second))
-				} else if strings.Contains(err.Error(), "page not found") {
-					zap.L().Debug("Page no longer exists for session",
-						zap.String("sessionID", string(pending.sessionID)))
-				} else {
-					zap.L().Debug("Could not fetch body",
-						zap.String("url", pending.entry.Request.URL),
-						zap.Error(err))
-				}
-			} else {
-				pending.entry.Response.Body = body
-				pending.entry.BodySource = BodySourceCDP
+			// The CDP body fetch runs on the bounded body worker pool, off the
+			// event goroutine (MISS-29b): one slow body used to hold every
+			// other event of the browser behind it.
+			job := bodyJob{pending: pending, requestID: e.RequestID, includeBody: includeBody, includeHeaders: includeHeaders}
+			if c.enqueueBody(job) {
+				return
 			}
+			c.runBodyJob(job)
+			return
 		}
 
-		finalizeTimings(pending, bodyFetch)
-
-		// Compute httpx fields BEFORE potentially discarding data
-		computeHTTPXFields(pending.entry)
-
-		// Now apply flags to control what gets saved to parquet
-		if !includeBody {
-			if pending.entry.BodySource == BodySourceCDP {
-				// Fetched for the metrics above, not kept.
-				pending.entry.BodySource = BodySourceOmittedPolicy
-			}
-			pending.entry.Response.Body = nil
-		}
-		if !includeHeaders {
-			pending.entry.Response.Headers = nil
-		}
+		c.finishResponse(pending, e.RequestID, 0, includeBody, includeHeaders)
+		return
 	}
 
+	c.finishEntry(pending, e.RequestID)
+}
+
+// runBodyJob fetches one response body over CDP and finishes the entry.
+func (c *Capture) runBodyJob(job bodyJob) {
+	pending := job.pending
+	fetchStart := time.Now()
+	body, err := c.responseBody(pending.sessionID, job.requestID)
+	bodyFetch := time.Since(fetchStart)
+	if err != nil {
+		pending.entry.BodySource = BodySourceFailed
+		c.mu.Lock()
+		c.bodiesFailed++
+		c.mu.Unlock()
+		// Categorize error types for better debugging
+		if errors.Is(err, context.DeadlineExceeded) {
+			zap.L().Warn("Response body fetch timed out",
+				zap.String("url", pending.entry.Request.URL),
+				zap.Duration("timeout", 5*time.Second))
+		} else if strings.Contains(err.Error(), "page not found") {
+			zap.L().Debug("Page no longer exists for session",
+				zap.String("sessionID", string(pending.sessionID)))
+		} else {
+			zap.L().Debug("Could not fetch body",
+				zap.String("url", pending.entry.Request.URL),
+				zap.Error(err))
+		}
+	} else {
+		pending.entry.Response.Body = body
+		pending.entry.BodySource = BodySourceCDP
+	}
+	c.finishResponse(pending, job.requestID, bodyFetch, job.includeBody, job.includeHeaders)
+}
+
+// finishResponse completes a response entry once its body is settled:
+// timings, httpx fields, the retention flags, then the store path.
+func (c *Capture) finishResponse(pending *pendingEntry, requestID proto.NetworkRequestID, bodyFetch time.Duration, includeBody, includeHeaders bool) {
+	finalizeTimings(pending, bodyFetch)
+
+	// Compute httpx fields BEFORE potentially discarding data
+	computeHTTPXFields(pending.entry)
+
+	// Now apply flags to control what gets saved to parquet
+	if !includeBody {
+		if pending.entry.BodySource == BodySourceCDP {
+			// Fetched for the metrics above, not kept.
+			pending.entry.BodySource = BodySourceOmittedPolicy
+		}
+		pending.entry.Response.Body = nil
+	}
+	if !includeHeaders {
+		pending.entry.Response.Headers = nil
+	}
+	c.finishEntry(pending, requestID)
+}
+
+// finishEntry stores a finished entry, after its request body when
+// requestWillBeSent left one out.
+func (c *Capture) finishEntry(pending *pendingEntry, requestID proto.NetworkRequestID) {
 	// A body requestWillBeSent left out is fetched off the event loop, and only
 	// for an entry that will be stored: in scope and not a static asset.
 	if pending.needPostData && pending.inScope &&
 		!hasStaticExtension(pending.entry.Request.URL) && !isBinaryStaticContentType(pending.entry.ContentType) {
-		c.enqueuePostData(postDataJob{entry: pending.entry, sessionID: pending.sessionID, requestID: e.RequestID})
+		c.enqueuePostData(postDataJob{entry: pending.entry, sessionID: pending.sessionID, requestID: requestID})
 		return
 	}
 	c.writeEntry(pending.entry)
@@ -1035,6 +1077,7 @@ func isCatchAllAssetShell(entry *TrafficEntry) bool {
 // writeEntry writes a traffic entry via the Writer interface and prints log to stderr.
 // Skips writing to file if hash already exists (deduplication).
 func (c *Capture) writeEntry(entry *TrafficEntry) {
+	c.observeResponse(entry)
 	// Drop catch-all soft-404 asset shells: JS/JSON asset paths that come back as
 	// the SPA index.html (a catch-all host serving its shell for unknown routes).
 	// They are not real endpoints, so keep them out of the DB (and thus out of
@@ -1087,14 +1130,17 @@ func (c *Capture) writeEntry(entry *TrafficEntry) {
 		return
 	}
 
-	// Check if this exact request (shape + values) was already written.
-	_, alreadyWritten := c.seenHashes[entry.Hash]
+	// Check if this exact request (shape + values) was already written. A
+	// provisional write (body fetch failed) is upgraded by a later copy that
+	// carries its body instead of being dropped as a duplicate (MISS-29b).
+	complete, seen := c.seenHashes[entry.Hash]
+	alreadyWritten := seen && (complete || entry.BodySource == BodySourceFailed || entry.BodySource == BodySourceUnavailable)
 
 	// For a parameterized request that is a NEW value-variant, enforce the
 	// per-shape cap: once maxParamVariants distinct variants of this shape have
 	// been kept, further variants collapse back onto the shape (dropped as dups).
 	shapeCapExceeded := false
-	if !alreadyWritten && hasQuery {
+	if !seen && hasQuery {
 		limit := c.maxParamVariants
 		if limit < 1 {
 			limit = 1
@@ -1130,9 +1176,11 @@ func (c *Capture) writeEntry(entry *TrafficEntry) {
 		return
 	}
 
-	// Hash is NEW - mark as seen and write to file
-	c.seenHashes[entry.Hash] = true
-	if hasQuery {
+	// Hash is NEW (or a provisional write being upgraded) - mark as seen and
+	// write to file. Provisional when this copy has no body.
+	upgrade := seen
+	c.seenHashes[entry.Hash] = entry.BodySource != BodySourceFailed && entry.BodySource != BodySourceUnavailable
+	if hasQuery && !upgrade {
 		// Lazy-init guards the write: New() always makes this map, but tests
 		// construct Capture{} via struct literal without it. (Nil-map reads above
 		// are safe — they return 0 — so only this write needs the guard.)
@@ -1358,6 +1406,9 @@ func convertHeaders(headers proto.NetworkHeaders) map[string]string {
 // Note: The capture goroutine exits automatically when browser closes.
 func (c *Capture) Close() error {
 	// Write what the body-fetch workers still hold while the writer is open.
+	// Response bodies first: a finished body may still queue a request-body
+	// fetch.
+	c.stopBodyWorkers()
 	c.stopPostDataWorkers()
 
 	c.mu.Lock()
@@ -1398,4 +1449,32 @@ func elapsedMs(start time.Time) int64 {
 		return 0
 	}
 	return httpmsg.MeasuredMillis(time.Since(start))
+}
+
+// BodiesFailed is how many captured responses lost their body to a failed
+// fetch (MISS-29b).
+func (c *Capture) BodiesFailed() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bodiesFailed
+}
+
+// observeResponse hands a completed in-scope document/XHR/fetch response to
+// OnResponse (MISS-26).
+func (c *Capture) observeResponse(entry *TrafficEntry) {
+	if c.OnResponse == nil || entry == nil || entry.Response == nil {
+		return
+	}
+	switch strings.ToLower(entry.ResourceType) {
+	case "document", "xhr", "fetch":
+	default:
+		return
+	}
+	if c.ScopeFilter != nil {
+		u, err := url.Parse(entry.Request.URL)
+		if err != nil || !c.ScopeFilter(u.Hostname(), u.Path) {
+			return
+		}
+	}
+	c.OnResponse(entry)
 }

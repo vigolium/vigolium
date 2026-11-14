@@ -333,8 +333,14 @@ type EngineMetrics struct {
 // with a no-op, so a run that uses none has the exact chain it had before.
 func engineMiddleware(eng *config.EngineConfig) []pkghttp.Middleware {
 	mw := make([]pkghttp.Middleware, 0, 5)
-	if eng.RequestFilter != nil {
-		mw = append(mw, pkghttp.FilterMiddleware(eng.RequestFilter))
+	if eng.RequestFilter != nil || eng.MethodFilter != nil {
+		urlAllow, methodAllow := eng.RequestFilter, eng.MethodFilter
+		mw = append(mw, pkghttp.FilterMiddleware(func(req *nethttp.Request) bool {
+			if urlAllow != nil && !urlAllow(req.URL) {
+				return false
+			}
+			return methodAllow == nil || methodAllow(req.Method)
+		}))
 	}
 	if eng.RequestsPerSecond > 0 {
 		// BurstSize = the rate: one second's worth of credit, so a crawl starting

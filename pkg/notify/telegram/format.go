@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/output"
-	"github.com/vigolium/vigolium/pkg/utils"
 )
 
 // FormatResult formats a ResultEvent for Telegram MarkdownV2.
@@ -18,14 +17,10 @@ func FormatResult(result *output.ResultEvent) string {
 	fmt.Fprintf(&sb, "Severity: *%s*\n",
 		EscapeMarkdown(strings.TrimSpace(strings.ToTitle(result.Info.Severity.String()))))
 
-	// Host with certificates
-	certs := utils.GetCertificateFromHostname(result.Host)
-	certStr := ""
-	if len(certs) > 0 {
-		certStr = " \\(" + EscapeMarkdown(strings.Join(certs, ", ")) + "\\)"
-	}
-	fmt.Fprintf(&sb, "Host: *%s*%s\n",
-		EscapeMarkdown(result.Host), certStr)
+	// Host. Formatting never touches the network (SAFE-11): it used to open a
+	// TLS connection to the finding's host per notification, with no timeout,
+	// outside the scan's proxy and rate limit, to list certificate names.
+	fmt.Fprintf(&sb, "Host: *%s*\n", EscapeMarkdown(result.Host))
 
 	fmt.Fprintf(&sb, "Date: *%s*\n",
 		EscapeMarkdown(time.Now().Format("01/02/2006 15:04:05")))

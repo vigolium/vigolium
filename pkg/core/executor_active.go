@@ -207,6 +207,9 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 			claimed := gate.Claimed
 
 			mod, pt := module, ip // capture loop variables
+			// A point that lives in a header (or one cookie) keeps the module's
+			// value over the session's / -H copy (MISS-11).
+			ptClient := reqClient.WithPreservedHeaders(httpmsg.OwnedHeaderKeysOf(pt))
 			e.goModuleTask(ctx, t, hostKey, mod.ID(), func(releaseSlot func()) callOutcome {
 				// Re-check when the task actually runs: it may have waited on the
 				// scheduler queue while a same-class module confirmed this
@@ -232,7 +235,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 						}
 						return mod.ScanPerInsertionPoint(item, pt, client, e.scanCtx)
 					},
-					mod, item, reqClient, releaseSlot, 0)
+					mod, item, ptClient, releaseSlot, 0)
 				// A once-per-host header claim taken for a call that did not
 				// complete goes back, so the header is tested on a later record.
 				if claimed && !o.completed {

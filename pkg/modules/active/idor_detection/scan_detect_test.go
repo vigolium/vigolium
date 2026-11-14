@@ -9,13 +9,18 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/core/network"
+	"github.com/vigolium/vigolium/pkg/core/services"
+	vighttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
+	"github.com/vigolium/vigolium/pkg/types"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -263,4 +268,36 @@ func TestScanPerInsertionPoint_NonDeterministicEndpoint(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "a non-deterministic endpoint (same id → different content) must not be reported as IDOR")
+}
+
+// SAFE-8: under a read-only traffic policy, idor_detection on a DELETE record
+// sends nothing (the requester refuses every neighbour-ID DELETE).
+func TestScanPerInsertionPoint_ReadOnlyPolicySendsNoDelete(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(objectBody(r.URL.Query().Get("user_id"))))
+	}))
+	defer srv.Close()
+
+	opts := types.DefaultOptions()
+	opts.Timeout = 5 * time.Second
+	opts.TrafficPolicy = types.NewTrafficPolicy([]string{"GET", "HEAD"})
+	require.NoError(t, network.Init(opts))
+	svc := &services.Services{Options: opts}
+	client, err := vighttp.NewRequester(opts, svc)
+	require.NoError(t, err)
+
+	rr := modtest.Response(
+		modtest.RequestMethod(t, http.MethodDelete, srv.URL+"/api/profile?user_id=12345", ""),
+		"application/json",
+		objectBody("12345"),
+	)
+	ip := modtest.InsertionPoint(t, rr, "user_id")
+	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
+	require.NoError(t, err)
+	assert.Empty(t, res)
+	assert.Equal(t, int64(0), hits.Load(), "no DELETE may reach the server under a read-only policy")
 }

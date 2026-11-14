@@ -208,7 +208,20 @@ type Crawler struct {
 	// authOps installs credentials on a page (zero value: the page's own
 	// methods). credentialHeadersWithdrawn is set once the crawl leaves the
 	// credential scope; later pages do not get the headers back (guarded by mu).
-	authOps                    pageAuthOps
+	authOps pageAuthOps
+	// authGen is the live-session credential generation last applied
+	// (MISS-26); guarded by mu.
+	authGen uint64
+	// domXssHasCandidates / domXssCheckedAt memoize the DOM-XSS prefilter for
+	// the drain check (MISS-29c).
+	domXssHasCandidates atomic.Bool
+	domXssCheckedAt     atomic.Int64
+	// popupSeeded is how many of Stats.PopupURLs have been browsed as
+	// frontier seeds (guarded by mu).
+	popupSeeded int
+	// authDirty is set by the AuthMonitor's Changed channel; the next action
+	// re-applies the session's credentials.
+	authDirty                  atomic.Bool
 	credentialHeadersWithdrawn bool
 }
 
@@ -231,10 +244,21 @@ type Stats struct {
 	FormsSubmitted       int
 	FormSubmitsPrevented int
 	FormSubmitsUncertain int
-	BacktrackCount       int
-	InvariantFails       int
-	StartTime            time.Time
-	EndTime              time.Time
+	// SkippedDestructive counts click candidates the destructive-click guard
+	// dropped (spidering.interaction.deny_click_pattern, SAFE-9).
+	SkippedDestructive int64
+	// BodiesFailed counts captured responses whose body fetch failed
+	// (MISS-29b); they were stored provisionally, upgradeable by a later copy.
+	BodiesFailed int
+	// PopupSeedsCrawled counts popup URLs browsed into the frontier.
+	PopupSeedsCrawled int
+	// PopupURLs are in-scope URLs opened in popups by crawl actions
+	// (MISS-29a); their traffic is captured and the runner can seed them.
+	PopupURLs      []string
+	BacktrackCount int
+	InvariantFails int
+	StartTime      time.Time
+	EndTime        time.Time
 
 	// Start-redirect observations (default host-scope rule only).
 	// OffHostLanding is true when the start URL redirected the browser to a host
@@ -522,6 +546,12 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 	// Keep out-of-scope subresources (a login page's CAPTCHA widget, analytics
 	// beacons) out of the live log — they are dropped before storage anyway.
 	capture.ScopeFilter = c.config.ScopeFilter
+	// Feed in-scope document/XHR responses to the live session's logged-out
+	// detector, and re-apply its credentials when it re-logs in (MISS-26).
+	if mon := c.config.AuthMonitor; mon != nil {
+		capture.OnResponse = c.observeAuthResponse
+		c.watchAuthChanges(ctx, mon)
+	}
 	// A finished crawl is not failed over a flush error: the capture close
 	// error is the writer's drop tally, which the caller reads from the
 	// writer's receipt. Logged so it is never silent.
@@ -529,6 +559,9 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 		if err := capture.Close(); err != nil {
 			zap.L().Warn("Traffic capture closed with lost records", zap.Error(err))
 		}
+		c.mu.Lock()
+		c.stats.BodiesFailed = capture.BodiesFailed()
+		c.mu.Unlock()
 	}()
 
 	// Start capture at BROWSER level (captures ALL pages, every tab included).
@@ -651,6 +684,20 @@ func (c *Crawler) crawlWithBrowser(ctx context.Context, br *browser.Browser, cap
 		zap.L().Debug("Crawl loop ended", zap.Error(err))
 	}
 
+	// Popups the crawl opened (window.open, target=_blank) were closed after
+	// their traffic was captured; their in-scope URLs are frontier seeds:
+	// browse them into the graph and explore what they offer (MISS-29a).
+	// Bounded rounds: exploring a popup's page can open more popups.
+	for round := 0; round < maxPopupSeedRounds; round++ {
+		page := br.CurrentPage()
+		if page == nil || c.crawlPopupSeeds(ctx, page) == 0 {
+			break
+		}
+		if err := c.crawlLoop(ctx); err != nil {
+			zap.L().Debug("Popup-seed crawl loop ended", zap.Error(err))
+		}
+	}
+
 	// Re-walk for actions that only became available partway through the pass
 	// (an authenticated menu, a section unlocked by an earlier action), then
 	// re-attempt the actions that failed on transient page conditions. Both are
@@ -757,6 +804,9 @@ func (c *Crawler) buildResult(ctx context.Context) *Result {
 	res.Stats = c.stats
 	c.mu.Unlock()
 	res.Stats.ConsecutiveFailures = int(c.consecutiveFails.Load())
+	if c.extractor != nil {
+		res.Stats.SkippedDestructive = c.extractor.SkippedDestructive()
+	}
 
 	return res
 }

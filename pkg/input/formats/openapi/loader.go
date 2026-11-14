@@ -13,11 +13,26 @@ import (
 
 const specLoadTimeout = 30 * time.Second
 
+// MaxSpecBytes bounds a spec fetched from a URL (SAFE-11): the read used to be
+// unbounded, so a hostile or broken endpoint could stream until memory ran out.
+const MaxSpecBytes = 50 << 20
+
+// defaultSpecClient honours the proxy environment; callers with a scan proxy
+// pass their own client (LoadSpecWithClient / Options.HTTPClient).
+var defaultSpecClient = &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment}}
+
 // LoadSpec loads an OpenAPI/Swagger spec from a file path or URL.
 // Returns the content bytes and detected format extension (.json, .yaml, .yml).
 func LoadSpec(input string) ([]byte, string, error) {
+	return LoadSpecWithClient(input, nil)
+}
+
+// LoadSpecWithClient is LoadSpec fetching a URL through client (nil = a
+// client honouring the proxy environment). It used http.DefaultClient, which
+// ignored --proxy (SAFE-11).
+func LoadSpecWithClient(input string, client *http.Client) ([]byte, string, error) {
 	if isURL(input) {
-		return loadFromURL(input)
+		return loadFromURL(input, client)
 	}
 	return loadFromFile(input)
 }
@@ -43,7 +58,7 @@ func loadFromFile(path string) ([]byte, string, error) {
 }
 
 // loadFromURL downloads spec from a URL.
-func loadFromURL(url string) ([]byte, string, error) {
+func loadFromURL(url string, client *http.Client) ([]byte, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), specLoadTimeout)
 	defer cancel()
 
@@ -54,7 +69,10 @@ func loadFromURL(url string) ([]byte, string, error) {
 
 	req.Header.Set("Accept", "application/json, application/yaml, text/yaml, */*")
 
-	resp, err := http.DefaultClient.Do(req)
+	if client == nil {
+		client = defaultSpecClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to fetch URL: %w", err)
 	}
@@ -64,9 +82,12 @@ func loadFromURL(url string) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxSpecBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read response body: %w", err)
+	}
+	if len(data) > MaxSpecBytes {
+		return nil, "", fmt.Errorf("spec at %s exceeds %d MiB", url, MaxSpecBytes>>20)
 	}
 
 	// Try to detect format from URL path

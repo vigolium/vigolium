@@ -16,8 +16,8 @@ func TestResolveRedirectMode(t *testing.T) {
 		opts *types.Options
 		want string
 	}{
-		{"nil options", nil, RedirectModeAny},
-		{"nothing set keeps the historical follow-everything default", &types.Options{}, RedirectModeAny},
+		{"nil options", nil, RedirectModeInScope},
+		{"nothing set defaults to in-scope", &types.Options{}, RedirectModeInScope},
 		{"explicit mode wins", &types.Options{RedirectMode: "same-apex"}, RedirectModeSameApex},
 		{"explicit mode is case-insensitive", &types.Options{RedirectMode: "Same-Host"}, RedirectModeSameHost},
 		{"legacy DisableRedirects maps to off", &types.Options{DisableRedirects: true}, RedirectModeOff},
@@ -25,7 +25,7 @@ func TestResolveRedirectMode(t *testing.T) {
 		{"explicit mode overrides the legacy bools", &types.Options{DisableRedirects: true, RedirectMode: "any"}, RedirectModeAny},
 		// A library caller that hand-set a bad value must not silently get
 		// "follow nothing"; the CLI rejects it up front instead.
-		{"unknown value falls back to any", &types.Options{RedirectMode: "sometimes"}, RedirectModeAny},
+		{"unknown value falls back to in-scope", &types.Options{RedirectMode: "sometimes"}, RedirectModeInScope},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

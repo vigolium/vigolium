@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -400,11 +401,23 @@ func ProbeURL(ctx context.Context, cfg ProbeConfig) (res *ProbeResult, err error
 		}
 	}
 	if len(cfg.Headers) > 0 {
-		// Not rod's Page.SetExtraHeaders: its "cleanup" restores the Network
-		// domain's enabled state, so deferring it disabled network events on the
-		// page before the capture had drained.
-		if herr := page.SetExtraHeaders(cfg.Headers); herr != nil {
-			zap.L().Debug("ProbeURL: set extra headers failed", zap.Error(herr))
+		// Per-request credential routing (SAFE-3): the headers ride only on
+		// requests to the probed host and its subdomains, never on the
+		// third-party subresources the page loads.
+		probeHost := ""
+		if u, perr := url.Parse(cfg.URL); perr == nil {
+			probeHost = strings.ToLower(u.Hostname())
+		}
+		allow := func(raw string) bool {
+			u, perr := url.Parse(raw)
+			if perr != nil || probeHost == "" {
+				return false
+			}
+			h := strings.ToLower(u.Hostname())
+			return h == probeHost || strings.HasSuffix(h, "."+probeHost)
+		}
+		if herr := page.InstallCredentialRouter(cfg.Headers, allow, nil, browser.CredentialHostPatterns(probeHost)); herr != nil {
+			zap.L().Debug("ProbeURL: install credential router failed", zap.Error(herr))
 		}
 	}
 

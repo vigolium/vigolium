@@ -20,6 +20,7 @@ import (
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/input/formats/detect"
+	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -520,20 +521,30 @@ func skipDeferredJSONLExport(err error, stateless bool, statelessOutputPath stri
 func runScanWithIngest(settings *config.Settings, db *database.DB, repo *database.Repository, scanStart time.Time) error {
 	// Auto-detect format from file extension
 	// -I given: the operator's format stands (no sniffing, even for -I urls).
-	inputFormat := globalInputMode
-	if inputFormat == "urls" && !scanOpts.InputFileModeExplicit {
-		if detected := detectInputFormat(globalInput); detected != "" {
-			inputFormat = detected
-			zap.L().Info("Auto-detected input format", zap.String("format", inputFormat))
-		}
+	inputFormat := resolveScanInputFormat()
+	if inputFormat != globalInputMode {
+		zap.L().Info("Auto-detected input format", zap.String("format", inputFormat))
 	}
 
-	// OpenAPI defaults: auto-enable UseSpecServers when no -t given
+	// OpenAPI with no -t: the spec's servers name the hosts. Every server is
+	// used only with an explicit --spec-url or --scope-origin all; otherwise
+	// the first absolute server is the base URL (SAFE-4) — a spec that lists
+	// production, staging and a vendor sandbox no longer scans all three.
 	useSpecServers := globalSpecURL
-	if (inputFormat == "openapi" || inputFormat == "swagger") &&
-		len(globalTargets) == 0 && !useSpecServers {
-		useSpecServers = true
-		zap.L().Info("Auto-enabled --spec-url (no -t provided)")
+	specBaseURL := ""
+	if isOpenAPIFormat(inputFormat) && len(globalTargets) == 0 && !useSpecServers {
+		if config.ResolveCLIOriginMode(settings.Scope.CLIOriginMode) == "all" {
+			useSpecServers = true
+			zap.L().Info("Auto-enabled --spec-url (no -t provided, --scope-origin all)")
+		} else if servers, err := openapi.SpecServerURLs(globalInput); err == nil && len(servers) > 0 {
+			specBaseURL = servers[0]
+			zap.L().Info("Using the spec's first server as base URL (no -t; pass --spec-url to use every server)",
+				zap.String("server", specBaseURL))
+		} else {
+			// No absolute server to pick: keep the old behaviour so the parser
+			// can report what it found.
+			useSpecServers = true
+		}
 	}
 
 	// Create InputSource from the input file
@@ -553,7 +564,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 	// parser, even when -t is combined with -i. The -t target is the OpenAPI
 	// BaseURL / WSDL endpoint host override / Postman {{baseUrl}}; the shared
 	// --spec-header / --spec-var flags carry headers and field values.
-	var targetURL string
+	targetURL := specBaseURL
 	if len(globalTargets) > 0 {
 		targetURL = globalTargets[0]
 	}
@@ -563,6 +574,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 		Headers:              ingestParseHeaders(globalSpecHeader),
 		Variables:            ingestParseVariables(globalSpecVar),
 		DefaultFallbackValue: globalSpecDefault,
+		HTTPClient:           specFetchClient(globalProxy),
 	})
 
 	// Create Runner with the input source — RunNativeScan handles all 3 phases

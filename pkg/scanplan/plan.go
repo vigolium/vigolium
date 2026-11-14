@@ -190,6 +190,20 @@ type Scope struct {
 	HostExclude  []string `json:"host_exclude"`
 	PathInclude  []string `json:"path_include"`
 	PathExclude  []string `json:"path_exclude"`
+	// ScopeTargets are scope-only targets derived from a file input with no
+	// -t (SAFE-4): the scope-origin index is built from them, but they seed
+	// nothing.
+	ScopeTargets []string `json:"scope_targets,omitempty"`
+	// InputHosts is the input file's per-host record census, each host with
+	// whether the derived scope admits it. Sorted by records, descending.
+	InputHosts []InputHost `json:"input_hosts,omitempty"`
+}
+
+// InputHost is one row of Scope.InputHosts.
+type InputHost struct {
+	Host    string `json:"host"`
+	Records int    `json:"records"`
+	InScope bool   `json:"in_scope"`
 }
 
 // AuthSession names one session the scan will use. Never carries a secret.

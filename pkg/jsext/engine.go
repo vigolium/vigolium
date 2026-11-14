@@ -31,13 +31,28 @@ func NewEngine(cfg *config.ExtensionsConfig, httpClient *http.Requester, engineO
 
 	scripts, failures := LoadScriptsReport(cfg)
 
+	// Extension HTTP is scope-checked like module traffic unless
+	// extensions.allow_out_of_scope (SAFE-14): every vigolium.http.* path —
+	// plain, session, batch — goes through this requester view.
+	if engineOpts != nil && engineOpts.ScopeMatcher != nil && !cfg.AllowOutOfScope && httpClient != nil {
+		httpClient = httpClient.WithHostFilter(engineOpts.ScopeMatcher.HostInScope)
+	}
+
 	// Build base APIOptions from config + engine options
 	opts := APIOptions{
-		HTTPClient:  httpClient,
-		ConfigVars:  cfg.Variables,
-		AllowExec:   cfg.AllowExec,
-		SandboxDir:  cfg.SandboxDir,
-		ExecTimeout: cfg.ExecTimeout(),
+		HTTPClient:      httpClient,
+		ConfigVars:      cfg.Variables,
+		AllowExec:       cfg.AllowExec,
+		SandboxDir:      cfg.SandboxDir,
+		ExecTimeout:     cfg.ExecTimeout(),
+		AllowOutOfScope: cfg.AllowOutOfScope,
+	}
+	// One extension call is bounded by extensions.limits.timeout (SAFE-14);
+	// it used to be a hard-coded 60s whatever the config said.
+	SetCallTimeout(cfg.Limits.TimeoutDuration())
+	if cfg.Limits.MaxMemoryMB > 0 {
+		zap.L().Warn("extensions.limits.max_memory_mb is not enforced (the JS VM has no memory limit); ignoring it",
+			zap.Int("max_memory_mb", cfg.Limits.MaxMemoryMB))
 	}
 	if engineOpts != nil {
 		opts.ScopeMatcher = engineOpts.ScopeMatcher

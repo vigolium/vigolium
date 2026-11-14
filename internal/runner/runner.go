@@ -136,6 +136,9 @@ type Runner struct {
 	// phaseRunners replaces defaultPhaseRunners when non-nil (tests stub
 	// phases through it); see phaseRunnerFor.
 	phaseRunners map[NativePhase]phaseRunner
+
+	// relogins fans live-session re-logins out to browser crawls (MISS-26).
+	relogins reloginBroadcast
 }
 
 // Finalized reports whether RunNativeScan already wrote the scan's terminal
@@ -151,15 +154,15 @@ func (r *Runner) Finalized() bool {
 // auto-fuzz decision: when spidering finds little (or bounces off-host to an
 // SSO/login wall), Discovery auto-enables FUZZ fuzzing on the original target.
 type spideringOutcome struct {
-	ran      bool     // spidering actually executed (vs skipped / not in plan)
-	records  int      // total records saved across all spidered targets
-	lost     int      // records the capture admitted but failed to persist
-	complete bool     // every capture receipt was complete (nothing lost, drains finished)
-	sawSSO   bool     // at least one target redirected off-host to a login wall
+	ran      bool // spidering actually executed (vs skipped / not in plan)
+	records  int  // total records saved across all spidered targets
+	lost     int  // records the capture admitted but failed to persist
+	complete bool // every capture receipt was complete (nothing lost, drains finished)
+	sawSSO   bool // at least one target redirected off-host to a login wall
 	// browserFailed: the crawl browser could not be launched, so the phase
 	// crawled nothing for a reason that says nothing about the target.
 	browserFailed bool
-	ssoHosts []string // the off-host login/SSO hosts (excluded from fuzzing scope)
+	ssoHosts      []string // the off-host login/SSO hosts (excluded from fuzzing scope)
 
 	// routeSeeds are the client routes the running spidering phase hands each
 	// target's crawl as ExtraSeeds (see loadSpiderRouteSeeds); nil outside it.

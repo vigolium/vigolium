@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/vigolium/vigolium/pkg/pathglob"
+	"go.uber.org/zap"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -150,12 +152,32 @@ func buildOriginIndex(targets []originTarget, mode string) originIndex {
 		if !wantKeywords || ot.keyword == "" {
 			continue
 		}
+		// A short label substring-matches unrelated domains ("a.io" admits
+		// banana.com), so relaxed mode keeps only the exact host for it.
+		if len(ot.keyword) < minRelaxedKeywordLen {
+			warnShortRelaxedKeyword(ot.keyword)
+			continue
+		}
 		if _, dup := seenKeyword[ot.keyword]; !dup {
 			seenKeyword[ot.keyword] = struct{}{}
 			idx.keywords = append(idx.keywords, ot.keyword)
 		}
 	}
 	return idx
+}
+
+// minRelaxedKeywordLen is the shortest registrable label relaxed mode will
+// substring-match (SAFE-5).
+const minRelaxedKeywordLen = 4
+
+var shortKeywordWarned sync.Map
+
+func warnShortRelaxedKeyword(keyword string) {
+	if _, dup := shortKeywordWarned.LoadOrStore(keyword, struct{}{}); dup {
+		return
+	}
+	zap.L().Warn("Relaxed scope: target label too short to match as a keyword; only its exact host is in scope",
+		zap.String("keyword", keyword), zap.Int("min_length", minRelaxedKeywordLen))
 }
 
 // InvalidateCache clears the cached host scope results.
@@ -242,7 +264,7 @@ func (m *ScopeMatcher) RejectReason(host, path string) string {
 			return ScopeRuleCLIOriginMode
 		}
 	}
-	switch evalGlob(path, m.cfg.Path) {
+	switch evalPathGlob(path, m.cfg.Path) {
 	case globExcluded:
 		return ScopeRulePathExclude
 	case globNotIncluded:
@@ -281,7 +303,8 @@ func (m *ScopeMatcher) ExplicitlyExcluded(host, path string) bool {
 	if m == nil {
 		return false
 	}
-	return matchesExcludeRule(host, m.cfg.Host) || matchesExcludeRule(path, m.cfg.Path)
+	return matchesExcludeRule(host, m.cfg.Host) ||
+		matchesExcludeRuleWith(pathglob.ScopePath(path), m.cfg.Path, pathGlobMatch)
 }
 
 // matchesExcludeRule reports whether value matches one of rule's exclude globs.
@@ -289,12 +312,16 @@ func (m *ScopeMatcher) ExplicitlyExcluded(host, path string) bool {
 // isDefaultPassAll, because a rule with excludes is not pass-all and a rule
 // without them is not an exclusion.
 func matchesExcludeRule(value string, rule ScopeRule) bool {
+	return matchesExcludeRuleWith(value, rule, globMatch)
+}
+
+func matchesExcludeRuleWith(value string, rule ScopeRule, match func(value, pattern string) bool) bool {
 	if len(rule.Exclude) == 0 {
 		return false
 	}
 	valueLower := strings.ToLower(value)
 	for _, pattern := range rule.Exclude {
-		if globMatch(valueLower, strings.ToLower(pattern)) {
+		if match(valueLower, strings.ToLower(pattern)) {
 			return true
 		}
 	}
@@ -306,7 +333,7 @@ func (m *ScopeMatcher) IsStaticFile(path string) bool {
 	if len(m.staticExts) == 0 {
 		return false
 	}
-	ext := strings.ToLower(filepath.Ext(path))
+	ext := strings.ToLower(filepath.Ext(pathglob.ScopePath(path)))
 	if ext == "" {
 		return false
 	}
@@ -354,7 +381,7 @@ func (m *ScopeMatcher) InScope(input ScopeMatchInput) bool {
 	if !m.hostInScope(input.Host) {
 		return false
 	}
-	if !matchGlob(input.Path, m.cfg.Path) {
+	if !matchPathGlob(input.Path, m.cfg.Path) {
 		return false
 	}
 	if m.IsStaticFile(input.Path) {
@@ -387,7 +414,7 @@ func (m *ScopeMatcher) InScopeBytes(host, path string, statusCode int,
 	if !m.hostInScope(host) {
 		return false
 	}
-	if !matchGlob(path, m.cfg.Path) {
+	if !matchPathGlob(path, m.cfg.Path) {
 		return false
 	}
 	if m.IsStaticFile(path) {
@@ -417,7 +444,7 @@ func (m *ScopeMatcher) InScopeRequest(host, path, reqContentType, reqRaw string)
 	if !m.hostInScope(host) {
 		return false
 	}
-	if !matchGlob(path, m.cfg.Path) {
+	if !matchPathGlob(path, m.cfg.Path) {
 		return false
 	}
 	if m.IsStaticFile(path) {
@@ -437,7 +464,7 @@ func (m *ScopeMatcher) InScopeRequest(host, path, reqContentType, reqRaw string)
 // (the fingerprint phase's favicon), where the carve-out's "never worth a
 // request" does not hold.
 func (m *ScopeMatcher) InScopeTarget(host, path string) bool {
-	return m.hostInScope(host) && matchGlob(path, m.cfg.Path)
+	return m.hostInScope(host) && matchPathGlob(path, m.cfg.Path)
 }
 
 // IsPassAll returns true if all rules are at their default pass-all state.
@@ -477,10 +504,30 @@ func matchGlob(value string, rule ScopeRule) bool {
 	return evalGlob(value, rule) == globPass
 }
 
+// matchPathGlob is matchGlob for the path rule: the query and fragment are
+// cut off and "*" crosses "/" (pathglob, SAFE-6).
+func matchPathGlob(path string, rule ScopeRule) bool {
+	return evalPathGlob(path, rule) == globPass
+}
+
+// pathGlobMatch adapts pathglob.Match to the (value, pattern) order the rule
+// evaluators use.
+func pathGlobMatch(value, pattern string) bool { return pathglob.Match(pattern, value) }
+
+func evalPathGlob(path string, rule ScopeRule) globVerdict {
+	return evalGlobWith(pathglob.ScopePath(path), rule, pathGlobMatch)
+}
+
 // evalGlob is matchGlob with the reason kept: RejectReason needs to know which
 // side of the rule refused, and deriving both from one function is what keeps
 // the explanation and the verdict from drifting.
 func evalGlob(value string, rule ScopeRule) globVerdict {
+	return evalGlobWith(value, rule, globMatch)
+}
+
+// evalGlobWith is evalGlob with the pattern matcher supplied (match(value,
+// pattern), both lowercased).
+func evalGlobWith(value string, rule ScopeRule, match func(value, pattern string) bool) globVerdict {
 	if isDefaultPassAll(rule) {
 		return globPass
 	}
@@ -488,7 +535,7 @@ func evalGlob(value string, rule ScopeRule) globVerdict {
 	// Check excludes first (higher priority). Through the same helper
 	// ExplicitlyExcluded uses, so the pre-send exclusion check and the full scope
 	// decision cannot disagree about what an exclude pattern matches.
-	if matchesExcludeRule(value, rule) {
+	if matchesExcludeRuleWith(value, rule, match) {
 		return globExcluded
 	}
 
@@ -500,7 +547,7 @@ func evalGlob(value string, rule ScopeRule) globVerdict {
 	// Check includes
 	valueLower := strings.ToLower(value)
 	for _, pattern := range rule.Include {
-		if globMatch(valueLower, strings.ToLower(pattern)) {
+		if match(valueLower, strings.ToLower(pattern)) {
 			return globPass
 		}
 	}
@@ -748,14 +795,13 @@ func (m *ScopeMatcher) hostMatchesOrigin(host string) bool {
 	}
 
 	switch m.originMode {
-	case "strict":
-		return false
 	case "balanced", "relaxed":
 	default:
-		// An unrecognized mode admits everything, which is what the per-target
-		// switch did through its default arm. Preserved deliberately: a typo in
-		// cli_origin_mode should not quietly narrow a scan's scope.
-		return true
+		// strict, and anything unrecognised: only the exact-host set above
+		// admits. ResolveCLIOriginMode never yields an unknown mode; failing
+		// closed here keeps a hand-built matcher from admitting every host the
+		// way the old default arm did (SAFE-5).
+		return false
 	}
 
 	// A host with no registrable domain (a single-label internal name, say) is

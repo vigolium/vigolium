@@ -120,6 +120,7 @@ func ResolvePlan(ctx context.Context, in PlanInput) (*scanplan.Plan, error) {
 		},
 		Scope: planScope(settings.Scope),
 	}
+	planScopeTargets(&p.Scope, settings.Scope, opts)
 
 	// Targets and scope admission (the same AdmitTargets the runner enforces).
 	adm := TargetAdmission{Admitted: targets}
@@ -283,6 +284,29 @@ func planScope(s config.ScopeConfig) scanplan.Scope {
 		PathInclude:  nonNil(s.Path.Include),
 		PathExclude:  nonNil(s.Path.Exclude),
 	}
+}
+
+// planScopeTargets adds the derived file-input scope (SAFE-4) to the plan:
+// the scope-only targets and the input's host census with each verdict.
+func planScopeTargets(out *scanplan.Scope, s config.ScopeConfig, opts *types.Options) {
+	if opts == nil || len(opts.ScopeTargets) == 0 {
+		return
+	}
+	out.ScopeTargets = append([]string(nil), opts.ScopeTargets...)
+	if len(opts.ScopeCensus) == 0 {
+		return
+	}
+	matcher := config.NewScopeMatcher(s, append(append([]string(nil), opts.Targets...), opts.ScopeTargets...)...)
+	for host, n := range opts.ScopeCensus {
+		out.InputHosts = append(out.InputHosts, scanplan.InputHost{Host: host, Records: n, InScope: matcher.HostInScope(host)})
+	}
+	sort.Slice(out.InputHosts, func(i, j int) bool {
+		a, b := out.InputHosts[i], out.InputHosts[j]
+		if a.Records != b.Records {
+			return a.Records > b.Records
+		}
+		return a.Host < b.Host
+	})
 }
 
 func planEgress(e *scanevents.Egress) *scanplan.Egress {

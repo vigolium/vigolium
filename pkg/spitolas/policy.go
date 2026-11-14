@@ -192,3 +192,12 @@ func (s BrowserSecurity) Fields() map[string]any {
 
 // SecurityFieldOrder is the order report lines render Fields() in.
 var SecurityFieldOrder = []string{"sandbox", "tls", "mixed_content", "web_security"}
+
+// SetOffline disables every browser download fallback for the process
+// (--offline, SAFE-11): a missing browser fails with the install hint.
+func SetOffline(v bool) { browser.SetOffline(v) }
+
+// AuthMonitor is the crawl's view of the scan's live session (MISS-26):
+// Credentials returns the current generation, headers and cookies; Observe
+// feeds a response to the session's logged-out detector.
+type AuthMonitor = config.AuthMonitor

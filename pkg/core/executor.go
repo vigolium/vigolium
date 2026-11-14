@@ -32,7 +32,12 @@ const (
 
 // Executor orchestrates scanning with worker pool.
 type Executor struct {
-	cfg            ExecutorConfig
+	cfg ExecutorConfig
+	// methodPolicySkips counts records kept out of the active stage by the
+	// traffic policy (SAFE-8, skip reason method_policy).
+	methodPolicySkips atomic.Int64
+	// notifyOnce installs the finding writer's new-finding callback once.
+	notifyOnce     sync.Once
 	source         source.InputSource
 	activeModules  []modules.ActiveModule
 	passiveModules []modules.PassiveModule
@@ -417,6 +422,7 @@ func NewExecutor(
 		e.scanCtx.FollowSubdomains = true
 	}
 	e.scanCtx.DeepScan = cfg.DeepScan
+	e.scanCtx.ExternalFetcher = cfg.ExternalFetcher
 	e.scanCtx.AllowRiskyPayloads = cfg.AllowRiskyPayloads
 	e.scanCtx.NoParamDedup = cfg.NoParamDedup
 	// Header insertion-point gate (ECON-1).

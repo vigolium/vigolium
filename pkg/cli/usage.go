@@ -110,7 +110,7 @@ type flagGroup struct {
 // in exactly one group so no persistent flag falls into an "Other:" section.
 var globalFlagGroups = []flagGroup{
 	{"Output", []string{"verbose", "silent", "debug", "dump-traffic", "log-file", "json", "pretty", "format", "ci-output-format", "color", "no-color", "width"}},
-	{"Network", []string{"proxy"}},
+	{"Network", []string{"proxy", "offline"}},
 	{"Extensions", []string{"ext", "ext-dir", "ext-allow-failures"}},
 	{"Project", []string{"project-uuid", "project-name"}},
 	{"Info", []string{"list-modules", "list-input-mode", "full-example", "usage"}},
@@ -229,7 +229,7 @@ var scanFlagGroups = []flagGroup{
 	{"Request", []string{"method", "body", "header", "advanced-options", "retries", "stream"}},
 	{"Authentication", []string{"auth", "auth-file"}},
 	{"Speed Control", []string{"timeout", "concurrency", "rate-limit", "max-per-host", "max-requests", "max-requests-per-host", "no-waf-pacing", "max-host-error", "max-findings-per-module", "no-clustering"}},
-	{"Output", []string{"output", "stats", "fail-on", "fail-on-partial", "baseline", "ignore-file", "events", "include-response", "omit-response", "export-only", "report-url", "max-body-bytes", "pdf-timeout", "upload-results", "print-finding", "print-traffic", "print-traffic-tree"}},
+	{"Output", []string{"output", "stats", "fail-on", "fail-on-partial", "baseline", "ignore-file", "events", "include-response", "omit-response", "export-only", "report-url", "max-body-bytes", "pdf-timeout", "no-redact", "upload-results", "print-finding", "print-traffic", "print-traffic-tree"}},
 	{"Scan Document (-j)", []string{"limit", "fields", "compact", "full-body", "max-output-bytes"}},
 	{"Stateless & Parallel", []string{"stateless", "keep-db-on-error", "split-by-host", "db-isolate", "parallel", "resume"}},
 }
@@ -410,7 +410,7 @@ var serverFlagGroups = []flagGroup{
 var exportFlagGroups = []flagGroup{
 	{"Output Format", []string{"format", "output", "omit-response", "no-url-dedup"}},
 	{"Filter", []string{"search", "exclude", "severity", "scan-uuid", "only", "limit"}},
-	{"Report Metadata", []string{"report-title", "report-target", "report-duration", "report-generated-at", "report-url", "max-body-bytes", "pdf-timeout"}},
+	{"Report Metadata", []string{"report-title", "report-target", "report-duration", "report-generated-at", "report-url", "max-body-bytes", "pdf-timeout", "no-redact"}},
 	{"Data Source", []string{"db", "stateless", "glob-db", "glob-strict"}},
 }
 
@@ -418,7 +418,7 @@ var exportFlagGroups = []flagGroup{
 var importFlagGroups = []flagGroup{
 	{"Output Format", []string{"format", "output"}},
 	{"Filter", []string{"search", "severity"}},
-	{"Report Metadata", []string{"report-title", "report-target", "report-duration", "report-generated-at", "report-url", "max-body-bytes", "pdf-timeout"}},
+	{"Report Metadata", []string{"report-title", "report-target", "report-duration", "report-generated-at", "report-url", "max-body-bytes", "pdf-timeout", "no-redact"}},
 	{"Source & Upload", []string{"glob-db", "upload", "upload-key", "burp-bridge-url"}},
 	// Bridge-pull narrowing. An unfiltered -B pull copies the operator's entire
 	// proxy history — every host they have browsed, with its cookies — so these

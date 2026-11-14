@@ -2,12 +2,14 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -51,6 +53,12 @@ type Page struct {
 
 	dialogMu sync.Mutex
 	dialogs  []DialogEvent
+
+	// credRouter is the Fetch-interception credential policy
+	// (InstallCredentialRouter, SAFE-3); credRouterOnce starts its event loop.
+	credRouter     atomic.Pointer[credentialRouter]
+	credRouterOnce sync.Once
+	routerMu       sync.Mutex
 }
 
 // crawlCtxDone reports whether the crawl context bound to this page (via
@@ -190,12 +198,37 @@ func (p *Page) HTML() (string, error) {
 	return html, nil
 }
 
-// WaitStable waits for the page to be stable.
+// settleCap bounds how long WaitStable waits for a DOM that never stops
+// changing (ECON-9).
+const settleCap = 3 * time.Second
+
+// stableCapHits counts WaitStable calls that hit settleCap (process-wide).
+var stableCapHits atomic.Int64
+
+// StableCapHits is how many WaitStable calls ended at the settle cap.
+func StableCapHits() int64 { return stableCapHits.Load() }
+
+// WaitStable waits for the page to be stable, at most min(PageLoadTimeout,
+// 3s) (ECON-9). A page whose DOM changes every window (a ticker, a carousel)
+// used to cost the whole 30s page timeout per action; reaching the cap is
+// treated as settled — the DOM is as stable as it will get — and counted.
 func (p *Page) WaitStable(d time.Duration) error {
 	if d == 0 {
 		d = 500 * time.Millisecond
 	}
-	return p.rodPage.Timeout(p.config.PageLoadTimeout).WaitStable(d)
+	limit := settleCap
+	if p.config != nil && p.config.PageLoadTimeout > 0 && p.config.PageLoadTimeout < limit {
+		limit = p.config.PageLoadTimeout
+	}
+	start := time.Now()
+	err := p.rodPage.Timeout(limit).WaitStable(d)
+	// rod reports reaching the bound either as a deadline error or as a nil
+	// return at the bound, depending on which internal wait it was in.
+	if (err == nil || errors.Is(err, context.DeadlineExceeded)) && time.Since(start) >= limit-50*time.Millisecond && !p.crawlCtxDone() {
+		stableCapHits.Add(1)
+		return nil
+	}
+	return err
 }
 
 // WaitLoad waits for the page to finish loading with timeout.

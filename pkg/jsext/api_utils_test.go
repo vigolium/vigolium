@@ -45,7 +45,7 @@ func TestGlob(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0644))
 
-	vm := setupTestVM(t, APIOptions{})
+	vm := setupTestVM(t, APIOptions{SandboxDir: dir})
 	pattern := filepath.Join(dir, "*.txt")
 	val, err := vm.RunString(`vigolium.utils.glob("` + pattern + `")`)
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestReadFile(t *testing.T) {
 	testFile := filepath.Join(dir, "test.txt")
 	require.NoError(t, os.WriteFile(testFile, []byte("hello world"), 0644))
 
-	vm := setupTestVM(t, APIOptions{})
+	vm := setupTestVM(t, APIOptions{SandboxDir: dir})
 	val, err := vm.RunString(`vigolium.utils.readFile("` + testFile + `")`)
 	require.NoError(t, err)
 	assert.Equal(t, "hello world", val.String())
@@ -71,7 +71,7 @@ func TestReadLines(t *testing.T) {
 	testFile := filepath.Join(dir, "lines.txt")
 	require.NoError(t, os.WriteFile(testFile, []byte("line1\nline2\nline3"), 0644))
 
-	vm := setupTestVM(t, APIOptions{})
+	vm := setupTestVM(t, APIOptions{SandboxDir: dir})
 	val, err := vm.RunString(`vigolium.utils.readLines("` + testFile + `")`)
 	require.NoError(t, err)
 
@@ -84,7 +84,7 @@ func TestWriteFile(t *testing.T) {
 	dir := t.TempDir()
 	testFile := filepath.Join(dir, "out.txt")
 
-	vm := setupTestVM(t, APIOptions{})
+	vm := setupTestVM(t, APIOptions{SandboxDir: dir})
 	val, err := vm.RunString(`vigolium.utils.writeFile("` + testFile + `", "test data")`)
 	require.NoError(t, err)
 	assert.True(t, val.ToBoolean())
@@ -98,7 +98,7 @@ func TestMkdir(t *testing.T) {
 	dir := t.TempDir()
 	newDir := filepath.Join(dir, "sub", "dir")
 
-	vm := setupTestVM(t, APIOptions{})
+	vm := setupTestVM(t, APIOptions{SandboxDir: dir})
 	val, err := vm.RunString(`vigolium.utils.mkdir("` + newDir + `")`)
 	require.NoError(t, err)
 	assert.True(t, val.ToBoolean())
@@ -253,10 +253,9 @@ func TestResolveSandboxPath(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "outside sandbox")
 
-	// No sandbox: everything allowed
-	resolved, err = resolveSandboxPath("/etc/passwd", "")
-	require.NoError(t, err)
-	assert.Equal(t, "/etc/passwd", resolved)
+	// No sandbox: the working directory (SAFE-14), so /etc/passwd is out.
+	_, err = resolveSandboxPath("/etc/passwd", "")
+	assert.Error(t, err)
 }
 
 func TestParseURL(t *testing.T) {
@@ -302,7 +301,7 @@ func TestParseURLFile(t *testing.T) {
 	input := "https://sub.example.com/path1\nhttps://other.example.org/path2\nhttps://sub.example.com/path3\nhttps://test.net/path4\n"
 	require.NoError(t, os.WriteFile(inputFile, []byte(input), 0644))
 
-	vm := setupTestVM(t, APIOptions{})
+	vm := setupTestVM(t, APIOptions{SandboxDir: dir})
 	val, err := vm.RunString(`vigolium.utils.parse_url_file("` + inputFile + `", "%d", "` + outputFile + `")`)
 	require.NoError(t, err)
 	assert.True(t, val.ToBoolean())

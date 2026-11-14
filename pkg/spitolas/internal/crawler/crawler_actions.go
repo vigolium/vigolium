@@ -3,7 +3,9 @@ package crawler
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -214,6 +216,11 @@ func (c *Crawler) executeActionWithEventable(ctx context.Context, w *tabWorker, 
 	}
 
 	_ = page.HandlePopups()
+
+	// Popups opened by this action get a bounded moment to load — their
+	// requests are captured browser-wide — and their in-scope URLs are kept
+	// for the caller to crawl, before CloseOtherWindows closes them (MISS-29a).
+	c.recordPopups(c.browser.PopupURLs(page, popupLoadWait))
 
 	// This is CRITICAL for target="_blank" and window.open() links. The crawl's
 	// other tabs are not popups: they are kept.
@@ -615,5 +622,26 @@ func (c *Crawler) recordMetrics(w *tabWorker, crawlAction *action.CandidateCrawl
 	// Record to collector
 	if err := c.metricsCollector.OnStepComplete(ctx); err != nil {
 		zap.L().Warn("Failed to record metrics", zap.Error(err))
+	}
+}
+
+// popupLoadWait bounds how long a popup may load before it is closed.
+const popupLoadWait = 2 * time.Second
+
+// maxPopupURLs caps Stats.PopupURLs.
+const maxPopupURLs = 200
+
+// recordPopups keeps in-scope popup URLs (deduped, capped) in Stats.PopupURLs.
+func (c *Crawler) recordPopups(urls []string) {
+	if len(urls) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, u := range urls {
+		if !c.inScopeURL(u) || len(c.stats.PopupURLs) >= maxPopupURLs || slices.Contains(c.stats.PopupURLs, u) {
+			continue
+		}
+		c.stats.PopupURLs = append(c.stats.PopupURLs, u)
 	}
 }

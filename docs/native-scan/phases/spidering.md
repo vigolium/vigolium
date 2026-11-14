@@ -44,7 +44,7 @@ RunSpider(config, recordSaver)
 
 A **State** is a DOM snapshot identified by `SHA256(strippedDOM)[:16]`. The **State Graph** is a directed graph where nodes are states and edges are actions that caused transitions. Navigation between states uses Dijkstra's shortest path (with Yen's K-shortest as fallback).
 
-**Near-duplicate detection** uses normalized Levenshtein distance (threshold: 10%). For large DOMs (>10K chars), a sampling-based distance is used for performance.
+**Near-duplicate detection** is structural: each state carries a `StructID`, a 64-bit SimHash over its DOM's tag-path shingles. A newly captured state on the same URL template (id-like path segments collapsed, query dropped) whose SimHash is within 3 bits of an existing state's is treated as that state — a counter, a timestamp or one changed list item no longer makes a new state to explore. States are otherwise identified exactly by their stripped-DOM hash.
 
 ### Actions and Candidate Elements
 

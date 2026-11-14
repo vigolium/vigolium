@@ -29,9 +29,15 @@ const (
 	// RedirectModeSameApex follows while the registrable domain (eTLD+1) is
 	// unchanged. Cross-scheme and cross-port hops within that domain follow.
 	RedirectModeSameApex = "same-apex"
-	// RedirectModeAny follows every redirect up to the hop cap. This is the
-	// historical default and stays the default, so no existing scan changes
-	// behaviour by upgrading.
+	// RedirectModeInScope follows a hop only when its host is inside the scan's
+	// scope (Services.HopScope, installed by the runner from the scope
+	// matcher). With no scope installed (a library caller, a bare requester)
+	// it behaves as same-apex. This is the default (SAFE-2): a redirect is a
+	// request to a new destination, and "any" sent scan traffic — payloads
+	// included — to whatever host a target named.
+	RedirectModeInScope = "in-scope"
+	// RedirectModeAny follows every redirect up to the hop cap. It was the
+	// historical default.
 	RedirectModeAny = "any"
 )
 
@@ -42,6 +48,7 @@ var RedirectModes = []string{
 	RedirectModeOff,
 	RedirectModeSameHost,
 	RedirectModeSameApex,
+	RedirectModeInScope,
 	RedirectModeAny,
 }
 
@@ -59,16 +66,16 @@ func ValidRedirectMode(s string) bool {
 // refused on the hop cap.
 func ResolveRedirectMode(options *types.Options) string {
 	if options == nil {
-		return RedirectModeAny
+		return RedirectModeInScope
 	}
 	if m := strings.ToLower(strings.TrimSpace(options.RedirectMode)); m != "" {
 		if ValidRedirectMode(m) {
 			return m
 		}
 		// An unrecognised value is caught at flag-validation time; falling back
-		// to the historical default here keeps a library caller that set it by
-		// hand from silently getting "follow nothing".
-		return RedirectModeAny
+		// to the default here keeps a library caller that set it by hand from
+		// silently getting "follow nothing".
+		return RedirectModeInScope
 	}
 	switch {
 	case options.DisableRedirects:
@@ -76,8 +83,44 @@ func ResolveRedirectMode(options *types.Options) string {
 	case options.FollowHostRedirects:
 		return RedirectModeSameHost
 	default:
-		return RedirectModeAny
+		return RedirectModeInScope
 	}
+}
+
+// crossHostKeepHeaders are the only request headers that survive a redirect
+// hop to a different host:port (SAFE-2). Everything else — session and -H
+// credentials, API keys, module-owned headers, tracing ids — stays with the
+// host it was meant for. Go itself strips only Authorization and Cookie, and
+// only across domains, so `-H "X-API-Key: …"` used to reach any Location.
+var crossHostKeepHeaders = map[string]bool{
+	"User-Agent":     true,
+	"Content-Type":   true,
+	"Content-Length": true,
+}
+
+// stripCrossHostHeaders drops every header except crossHostKeepHeaders and
+// Accept* from a hop request.
+func stripCrossHostHeaders(h http.Header) {
+	for name := range h {
+		canon := http.CanonicalHeaderKey(name)
+		if crossHostKeepHeaders[canon] || strings.HasPrefix(canon, "Accept") {
+			continue
+		}
+		delete(h, name)
+	}
+}
+
+// hostPortKey is the default-port-normalised host:port identity of u, so
+// http://a and http://a:80 are the same host and http://a vs https://a are not.
+func hostPortKey(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	port := u.Port()
+	if port == "" {
+		port = strconv.Itoa(httpmsg.GetDefaultPort(strings.ToLower(u.Scheme)))
+	}
+	return strings.ToLower(u.Hostname()) + ":" + port
 }
 
 // makeRedirectFunc builds the http.Client CheckRedirect policy for mode.
@@ -88,6 +131,15 @@ func ResolveRedirectMode(options *types.Options) string {
 // its starting domain one hop at a time, each hop looking legitimate relative
 // to the one before it.
 func makeRedirectFunc(mode string, maxRedirects int) func(*http.Request, []*http.Request) error {
+	return makeScopedRedirectFunc(mode, maxRedirects, nil)
+}
+
+// makeScopedRedirectFunc is makeRedirectFunc with the scan's hop scope. scope
+// is read per hop (the runner installs it on Services after the requester is
+// built); a nil getter or a nil result means "no scope known", under which
+// in-scope degrades to same-apex. A followed hop to a different host:port has
+// its headers stripped to crossHostKeepHeaders in every mode.
+func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(host string) bool) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= maxRedirects {
 			return http.ErrUseLastResponse
@@ -109,6 +161,21 @@ func makeRedirectFunc(mode string, maxRedirects int) func(*http.Request, []*http
 			if !sameRegistrableDomain(via[0].URL.Host, req.URL.Host) {
 				return http.ErrUseLastResponse
 			}
+		case RedirectModeInScope:
+			var inScope func(string) bool
+			if scope != nil {
+				inScope = scope()
+			}
+			if inScope != nil {
+				if !inScope(req.URL.Hostname()) {
+					return http.ErrUseLastResponse
+				}
+			} else if !sameRegistrableDomain(via[0].URL.Host, req.URL.Host) {
+				return http.ErrUseLastResponse
+			}
+		}
+		if hostPortKey(req.URL) != hostPortKey(via[0].URL) {
+			stripCrossHostHeaders(req.Header)
 		}
 		return nil
 	}

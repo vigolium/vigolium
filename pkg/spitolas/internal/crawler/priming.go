@@ -5,17 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"regexp"
 
+	"github.com/vigolium/vigolium/pkg/safety"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/browser"
 	"go.uber.org/zap"
 )
 
 // destructivePathRe matches URL paths that commonly end a session or mutate state
-// (logout, delete, unsubscribe, close-account). It mirrors the DESTRUCTIVE guard the
-// DOM-side POST-form enumeration applies to form controls, so no in-page primer
-// fetches such an endpoint with the browser's live credentials.
-var destructivePathRe = regexp.MustCompile(`(?i)log\s*out|sign\s*out|logout|signout|delete|destroy|(?:^|[^a-z])remove|deactivate|unsubscribe|close[-_]?account|cancel[-_]?account`)
+// (logout, delete, unsubscribe, close-account). It is the shared pkg/safety
+// pattern, the same one the DOM-side POST-form enumeration applies to form
+// controls, so no in-page primer fetches such an endpoint with the browser's live
+// credentials.
+var destructivePathRe = safety.DestructiveNameRe
 
 // filterDestructiveURLs returns urls with any whose path reads as destructive
 // removed. A URL that fails to parse is kept — it was already same-origin-validated

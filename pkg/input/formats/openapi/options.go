@@ -1,5 +1,7 @@
 package openapi
 
+import "net/http"
+
 // Options contains options for parsing OpenAPI specs.
 type Options struct {
 	// BaseURL overrides servers in spec (e.g., https://api.example.com)
@@ -7,6 +9,9 @@ type Options struct {
 
 	// UseSpecServers allows using servers defined in spec when BaseURL is not provided
 	UseSpecServers bool
+	// HTTPClient fetches a spec given as a URL (nil = proxy-environment
+	// client). Callers pass one built from the scan's --proxy (SAFE-11).
+	HTTPClient *http.Client
 
 	// PreserveSpecServerPath, when BaseURL is set, keeps the scheme/host from BaseURL
 	// (so the in-scope target host is enforced) but uses the path prefix declared by

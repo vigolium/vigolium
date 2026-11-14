@@ -160,6 +160,73 @@ func (h *HostRateLimiter) newEntry() *hostEntry {
 // control (before which the host stays pinned at MaxPerHost, unaffected by ordinary
 // 429/5xx so a non-WAF scan is never throttled by this path).
 func (h *HostRateLimiter) Feedback(host string, statusCode int, err error, wafBlocked bool) {
+	h.FeedbackWith(host, FeedbackOutcome{Status: statusCode, Err: err, WAFBlocked: wafBlocked})
+}
+
+// FeedbackOutcome is one request's outcome for FeedbackWith.
+type FeedbackOutcome struct {
+	Status     int
+	Err        error
+	WAFBlocked bool
+	// RetryAfter is the server's Retry-After, parsed (0 when absent).
+	RetryAfter time.Duration
+	// ExpectedThrottle marks a 429 the sender provoked on purpose (a
+	// rate-limit bypass probe exhausting a bucket): it is ordinary distress,
+	// not a pause instruction.
+	ExpectedThrottle bool
+}
+
+// Throttled reports whether the outcome is the server asking us to slow
+// down: a 429, or a 503 that names a Retry-After (MISS-22).
+func (o FeedbackOutcome) Throttled() bool {
+	if o.ExpectedThrottle {
+		return false
+	}
+	return o.Status == 429 || (o.Status == 503 && o.RetryAfter > 0)
+}
+
+// Throttle pause bounds (MISS-22).
+const (
+	minThrottlePause = 1 * time.Second
+	maxThrottlePause = 60 * time.Second
+	// maxPausedThrottles is how many consecutive Retry-After-less throttles
+	// pause the host before it is treated as persistently throttling.
+	maxPausedThrottles = 4
+)
+
+// ThrottleStreak is the number of consecutive throttles host has answered
+// since its last healthy response.
+func (h *HostRateLimiter) ThrottleStreak(host string) int {
+	if h == nil || host == "" || !h.anyPaused.Load() {
+		return 0
+	}
+	shard := h.shardFor(host)
+	shard.mu.RLock()
+	entry, ok := shard.hosts[host]
+	shard.mu.RUnlock()
+	if !ok {
+		return 0
+	}
+	return int(entry.throttles.Load())
+}
+
+// FeedbackWith is Feedback with the Retry-After the server sent. A throttle
+// (429, or 503 + Retry-After) pauses the host in every mode — new acquires
+// wait until now+clamp(RetryAfter or 1s·2^n, 1s, 60s) — and, where hosts use
+// adaptive pools, arms AIMD like a WAF block and halves the limit. A plain
+// 429 used to change nothing until a WAF block had armed the host, so modules
+// read an application rate limiter's 429s as negatives.
+func (h *HostRateLimiter) FeedbackWith(host string, o FeedbackOutcome) {
+	if h == nil || host == "" {
+		return
+	}
+	throttled := o.Throttled()
+	if throttled {
+		h.pauseHost(host, o.RetryAfter)
+	} else if h.anyPaused.Load() && o.Err == nil && o.Status > 0 && o.Status < 500 {
+		h.resetThrottles(host)
+	}
+	statusCode, err, wafBlocked := o.Status, o.Err, o.WAFBlocked || throttled
 	if !h.usesAdaptiveEntries() {
 		return
 	}
@@ -178,14 +245,21 @@ func (h *HostRateLimiter) Feedback(host string, statusCode int, err error, wafBl
 		return
 	}
 
-	// A confirmed WAF block arms this host's AIMD control (adaptive hosts are armed at
-	// birth in newEntry). Until armed, the host stays pinned at MaxPerHost.
+	// A confirmed WAF block (or a server throttle) arms this host's AIMD control
+	// (adaptive hosts are armed at birth in newEntry). Until armed, the host stays
+	// pinned at MaxPerHost.
 	if wafBlocked && entry.armed.CompareAndSwap(false, true) {
 		h.anyArmed.Store(true)
-		zap.L().Info("HostRateLimiter: WAF/CDN block detected — arming adaptive back-off",
-			zap.String("host", host))
+		zap.L().Info("HostRateLimiter: WAF/CDN block or throttle detected — arming adaptive back-off",
+			zap.String("host", host), zap.Int("status", statusCode))
 	}
 	if !entry.armed.Load() {
+		return
+	}
+
+	// A failure that is not distress (the caller cancelled) says nothing about
+	// the host: it must not count toward the healthy ramp either (MISS-23).
+	if err != nil && !wafBlocked && !isDistress(statusCode, err) {
 		return
 	}
 
@@ -291,8 +365,91 @@ func isDistress(statusCode int, err error) bool {
 	return false
 }
 
-// isContextCanceled reports whether err is a context cancellation/deadline, which
-// reflects scan shutdown rather than host distress and must not trigger back-off.
+// isContextCanceled reports whether err is a caller cancellation, which
+// reflects scan shutdown or an abandoned call rather than host distress and
+// must not trigger back-off. A deadline is NOT a cancellation (MISS-23): a
+// client timeout surfaces as context.DeadlineExceeded / a net.Error whose
+// Timeout() is true, and a host that stops answering is exactly the distress
+// back-off exists for. Callers that know their own context expired (a phase
+// deadline) do not report at all.
 func isContextCanceled(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	return errors.Is(err, context.Canceled)
+}
+
+// pauseHost holds host's new acquires for clamp(retryAfter or 1s·2^n, 1s,
+// 60s) from now, never shortening a pause already in force.
+func (h *HostRateLimiter) pauseHost(host string, retryAfter time.Duration) {
+	shard := h.shardFor(host)
+	entry := h.getOrCreateEntry(shard, host)
+	n := entry.throttles.Add(1) - 1
+	d := retryAfter
+	if d <= 0 {
+		// A host that throttles every request with no Retry-After is not
+		// asking for a specific wait: back off 1s, 2s, 4s, 4s, then stop
+		// stalling the scan on it — its concurrency is already at the floor
+		// and callers see the 429 marked as throttled (CallStats).
+		if n >= maxPausedThrottles {
+			return
+		}
+		d = min(minThrottlePause<<min(n, 2), 4*time.Second)
+	}
+	d = min(max(d, minThrottlePause), maxThrottlePause)
+	until := time.Now().Add(d).UnixNano()
+	for {
+		cur := entry.pauseUntil.Load()
+		if cur >= until || entry.pauseUntil.CompareAndSwap(cur, until) {
+			break
+		}
+	}
+	h.anyPaused.Store(true)
+	zap.L().Debug("HostRateLimiter: server throttle — pausing host",
+		zap.String("host", host), zap.Duration("pause", d))
+}
+
+func (h *HostRateLimiter) resetThrottles(host string) {
+	shard := h.shardFor(host)
+	shard.mu.RLock()
+	entry, ok := shard.hosts[host]
+	shard.mu.RUnlock()
+	if ok && entry.throttles.Load() != 0 {
+		entry.throttles.Store(0)
+	}
+}
+
+// PausedUntil reports when host's throttle pause ends (zero time when none
+// is in force).
+func (h *HostRateLimiter) PausedUntil(host string) time.Time {
+	if h == nil || host == "" || !h.anyPaused.Load() {
+		return time.Time{}
+	}
+	shard := h.shardFor(host)
+	shard.mu.RLock()
+	entry, ok := shard.hosts[host]
+	shard.mu.RUnlock()
+	if !ok {
+		return time.Time{}
+	}
+	until := entry.pauseUntil.Load()
+	if until <= time.Now().UnixNano() {
+		return time.Time{}
+	}
+	return time.Unix(0, until)
+}
+
+// waitPause blocks (ctx-aware) until host's throttle pause has passed. Free
+// when no host was ever throttled.
+func (h *HostRateLimiter) waitPause(ctx context.Context, host string) error {
+	for {
+		until := h.PausedUntil(host)
+		if until.IsZero() {
+			return nil
+		}
+		timer := time.NewTimer(time.Until(until))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

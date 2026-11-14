@@ -2,6 +2,7 @@ package modkit
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"sync/atomic"
 
@@ -192,6 +193,11 @@ type ScanContext struct {
 	TechStack           *TechRegistry             // Per-host tech-stack detections (populated by *_fingerprint passive modules)
 	WAFStack            *WAFRegistry              // Per-host WAF/CDN detections (populated by XSS modules on block responses)
 	ContentClass        *ContentClassRegistry     // Per-host content-class hint (seeded from the heuristics root probe; fallback for content-class module gating)
+	// ExternalFetcher is the client for third-party lookups that are not the
+	// scan target (a public package registry), built from the scan's proxy and
+	// timeout. nil — the default, and always under --offline — means modules
+	// must not make such lookups (SAFE-11; dynamic_assessment.external_lookups).
+	ExternalFetcher *http.Client
 
 	cookiePolicyOnce sync.Once
 	cookiePolicy     *CookiePolicyRegistry

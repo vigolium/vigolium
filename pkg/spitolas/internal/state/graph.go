@@ -28,6 +28,12 @@ type Graph struct {
 	// Only HybridStateVertexImpl computes real distances.
 	// When compareMode == CompareModeExact, skip near-dup computation.
 	compareMode CompareMode
+
+	// structIndex buckets state IDs by URL template + top SimHash bits for
+	// structural clone detection (MISS-28a).
+	structIndex map[string][]string
+	// structClones counts captured states folded into an existing one.
+	structClones int
 }
 
 // NewGraph creates a new state graph.
@@ -64,6 +70,23 @@ func (g *Graph) PutIfAbsent(s *State) (*State, bool) {
 	if existing, exists := g.states[s.ID]; exists {
 		zap.L().Debug("State already exists in graph", zap.String("state_id", s.ID))
 		return existing.Clone(), false
+	}
+	// A structural clone (same URL template, SimHash within structMaxHamming)
+	// is the existing state with different content, not a new state to
+	// explore (MISS-28a). The index state is always kept.
+	if !s.IsIndex() && s.StructID != 0 {
+		key := structBucket(s.URL, s.StructID)
+		for _, id := range g.structIndex[key] {
+			if existing, ok := g.states[id]; ok && StructHamming(existing.StructID, s.StructID) <= structMaxHamming {
+				g.structClones++
+				zap.L().Debug("State is a structural clone", zap.String("state_id", s.ID), zap.String("clone_of", id))
+				return existing.Clone(), false
+			}
+		}
+		if g.structIndex == nil {
+			g.structIndex = make(map[string][]string)
+		}
+		g.structIndex[key] = append(g.structIndex[key], s.ID)
 	}
 
 	g.setNearDuplicateLocked(s)
@@ -1050,4 +1073,12 @@ func pathExists(candidates *pathCandidateHeap, path []*action.Eventable) bool {
 		}
 	}
 	return false
+}
+
+// StructClones is how many captured states were folded into an existing state
+// as structural clones (MISS-28a).
+func (g *Graph) StructClones() int {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.structClones
 }

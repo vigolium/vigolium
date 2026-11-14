@@ -1,6 +1,7 @@
 package egress
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -108,11 +109,15 @@ func TestFeedbackRoundTripperClassifiesBlocksAndKeepsBody(t *testing.T) {
 	}
 }
 
-// A request the caller cancelled says nothing about the host.
+// A request the caller cancelled says nothing about the host; a client
+// timeout is the host failing to answer and counts as distress (MISS-23).
 func TestFeedbackRoundTripperIgnoresCancelled(t *testing.T) {
 	release := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		<-release
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
 	}))
 	defer srv.Close()
 	defer close(release)
@@ -120,11 +125,22 @@ func TestFeedbackRoundTripperIgnoresCancelled(t *testing.T) {
 
 	hosts := newAdaptiveHosts(t, 20, false)
 	g := New(Config{Hosts: hosts})
-	client := &http.Client{Transport: g.FeedbackRoundTripper(nil, LaneNormal, nil), Timeout: 50 * time.Millisecond}
-	if _, err := client.Get(srv.URL); err == nil {
-		t.Fatal("expected the client timeout")
+	client := &http.Client{Transport: g.FeedbackRoundTripper(nil, LaneNormal, nil)}
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	time.AfterFunc(50*time.Millisecond, cancel)
+	if _, err := client.Do(req); err == nil {
+		t.Fatal("expected the cancellation")
 	}
 	if limit, _ := hosts.CurrentLimit(host); limit != 20 {
 		t.Errorf("limit after a cancelled request = %d, want 20 (not distress)", limit)
+	}
+
+	timeoutClient := &http.Client{Transport: g.FeedbackRoundTripper(nil, LaneNormal, nil), Timeout: 50 * time.Millisecond}
+	if _, err := timeoutClient.Get(srv.URL); err == nil {
+		t.Fatal("expected the client timeout")
+	}
+	if limit, _ := hosts.CurrentLimit(host); limit >= 20 {
+		t.Errorf("limit after a client timeout = %d, want backed off (distress)", limit)
 	}
 }

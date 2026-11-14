@@ -1,6 +1,8 @@
 package source
 
 import (
+	"net/http"
+
 	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
 	"github.com/vigolium/vigolium/pkg/input/formats/postman"
 	"github.com/vigolium/vigolium/pkg/input/formats/wsdl"
@@ -28,6 +30,9 @@ type SpecOptions struct {
 	DefaultFallbackValue string
 	// FieldTypeDefaults are OpenAPI per-type defaults from the config.
 	FieldTypeDefaults map[string][]string
+	// HTTPClient fetches an OpenAPI spec given as a URL; build it from the
+	// scan's --proxy (SAFE-11). nil = proxy-environment client.
+	HTTPClient *http.Client
 }
 
 // ApplySpecOptions configures the spec parser behind src, if any. It unwraps a
@@ -48,6 +53,7 @@ func ApplySpecOptions(src InputSource, o SpecOptions) {
 			Variables:            o.Variables,
 			DefaultFallbackValue: o.DefaultFallbackValue,
 			FieldTypeDefaults:    o.FieldTypeDefaults,
+			HTTPClient:           o.HTTPClient,
 		})
 	case *wsdl.Format:
 		parser.SetWSDLOptions(wsdl.Options{

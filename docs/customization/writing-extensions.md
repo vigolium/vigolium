@@ -60,7 +60,6 @@ dynamic-assessment:
       auth_token: "Bearer eyJ..."            # accessible as vigolium.config.auth_token
     limits:
       timeout: 30s
-      max_memory_mb: 128
 ```
 
 ### 2. Place your extension file
@@ -1234,7 +1233,6 @@ dynamic-assessment:
     # Resource limits per VM invocation
     limits:
       timeout: 30s         # Maximum execution time
-      max_memory_mb: 128   # Memory cap per VM
 
     # Allow extensions to run shell commands (exec) and set env vars
     # Default: false — enable only for trusted extensions

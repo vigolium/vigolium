@@ -17,6 +17,7 @@ func globalFlagsToOptions(opts *types.Options) {
 	opts.MaxPerHost = globalMaxPerHost
 	opts.NoWafPacing = globalNoWafPacing
 	opts.MaxHostError = globalMaxHostError
+	opts.Offline = globalOffline
 }
 
 // globalScanFlagsToOptions is globalFlagsToOptions plus the global flags a

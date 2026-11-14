@@ -24,7 +24,27 @@ import (
 // infinite loop would otherwise pin a worker goroutine and a CPU core forever —
 // even after the executor's per-module watchdog abandons the goroutine. The
 // watchdog below interrupts the VM at this deadline.
-const jsCallTimeout = 60 * time.Second
+const defaultJSCallTimeout = 60 * time.Second
+
+// jsCallTimeoutNanos is the bound in force; NewEngine sets it from
+// extensions.limits.timeout (SAFE-14).
+var jsCallTimeoutNanos atomic.Int64
+
+// SetCallTimeout sets the per-call JS timeout; d <= 0 restores the default.
+func SetCallTimeout(d time.Duration) {
+	if d <= 0 {
+		d = defaultJSCallTimeout
+	}
+	jsCallTimeoutNanos.Store(int64(d))
+}
+
+// jsCallTimeout is the per-call bound in force.
+func jsCallTimeout() time.Duration {
+	if n := jsCallTimeoutNanos.Load(); n > 0 {
+		return time.Duration(n)
+	}
+	return defaultJSCallTimeout
+}
 
 // callJSWithTimeout invokes a JS extension callable under jsCallTimeout. A timer
 // goroutine calls vm.Interrupt (safe to call from another goroutine) when the
@@ -34,7 +54,8 @@ const jsCallTimeout = 60 * time.Second
 // pool (the pool then builds a fresh VM on the next Get).
 func callJSWithTimeout(vm *sobek.Runtime, callable sobek.Callable, this sobek.Value, args ...sobek.Value) (val sobek.Value, err error, poisoned bool) {
 	var interrupted atomic.Bool
-	timer := time.AfterFunc(jsCallTimeout, func() {
+	limit := jsCallTimeout()
+	timer := time.AfterFunc(limit, func() {
 		interrupted.Store(true)
 		vm.Interrupt("vigolium: JS extension exceeded execution timeout")
 	})
@@ -42,7 +63,7 @@ func callJSWithTimeout(vm *sobek.Runtime, callable sobek.Callable, this sobek.Va
 	timer.Stop()
 	if interrupted.Load() {
 		if err != nil {
-			return nil, fmt.Errorf("JS extension exceeded %s execution timeout: %w", jsCallTimeout, err), true
+			return nil, fmt.Errorf("JS extension exceeded %s execution timeout: %w", limit, err), true
 		}
 		// Completed right at the deadline: the result is usable, but the VM was
 		// still interrupted, so discard it.

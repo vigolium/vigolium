@@ -214,3 +214,29 @@ func originKeyFromItem(item *httpmsg.HttpRequestResponse) string {
 	}
 	return ""
 }
+
+// methodPolicyAllows reports whether item's method may be actively tested
+// under the scan's traffic policy, counting a refusal as a method_policy
+// skip. The requester refuses such a request anyway (ErrMethodDenied); this
+// is the earlier, counted gate, so no module runs against a DELETE record
+// only to have every probe refused.
+func (e *Executor) methodPolicyAllows(item *httpmsg.HttpRequestResponse) bool {
+	if e == nil || item == nil || item.Request() == nil || e.cfg.Services == nil || e.cfg.Services.Options == nil {
+		return true
+	}
+	pol := e.cfg.Services.Options.TrafficPolicy
+	if pol.AllowsMethod(item.Request().Method()) {
+		return true
+	}
+	e.methodPolicySkips.Add(1)
+	return false
+}
+
+// MethodPolicySkips is how many records this executor kept out of the active
+// stage because the traffic policy refused their method.
+func (e *Executor) MethodPolicySkips() int64 {
+	if e == nil {
+		return 0
+	}
+	return e.methodPolicySkips.Load()
+}

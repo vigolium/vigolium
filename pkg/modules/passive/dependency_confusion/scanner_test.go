@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -73,7 +74,7 @@ func scanCT(t *testing.T, m *Module, path, ct, body string) []*output.ResultEven
 	if _, err := m.ScanPerRequest(resp, &modkit.ScanContext{}); err != nil {
 		t.Fatalf("ScanPerRequest: %v", err)
 	}
-	res, err := m.FlushFindings(&modkit.ScanContext{})
+	res, err := m.FlushFindings(&modkit.ScanContext{ExternalFetcher: http.DefaultClient})
 	if err != nil {
 		t.Fatalf("FlushFindings: %v", err)
 	}
@@ -192,7 +193,7 @@ func TestScan_DedupAcrossResponses(t *testing.T) {
 	if _, err := m.ScanPerRequest(rr2, &modkit.ScanContext{}); err != nil {
 		t.Fatal(err)
 	}
-	res, err := m.FlushFindings(&modkit.ScanContext{})
+	res, err := m.FlushFindings(&modkit.ScanContext{ExternalFetcher: http.DefaultClient})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,5 +229,30 @@ func TestCanProcess(t *testing.T) {
 		if got := m.CanProcess(rr); got != c.want {
 			t.Errorf("CanProcess(%s,%q) = %v, want %v", c.path, c.ct, got, c.want)
 		}
+	}
+}
+
+// SAFE-11: with external lookups disabled (no ExternalFetcher — the default,
+// and always under --offline) the registry receives nothing.
+func TestFlushFindings_ExternalLookupsDisabledSendsNothing(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	m := New()
+	m.registry = newRegistryClient(srv.URL, 5*time.Second)
+	resp := modtest.Response(modtest.Request(t, "http://app.example.com/app.js"), "application/javascript",
+		`import x from "@acme-internal/secret-lib";`)
+	if _, err := m.ScanPerRequest(resp, &modkit.ScanContext{}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := m.FlushFindings(&modkit.ScanContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 0 || hits.Load() != 0 {
+		t.Errorf("findings=%d registry hits=%d, want 0/0 with external lookups off", len(res), hits.Load())
 	}
 }

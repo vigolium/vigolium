@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	chromium "github.com/vigolium/vigolium/internal/resources/spitolas"
@@ -411,6 +412,12 @@ func buildBrowserCandidates(ctx context.Context, goos, goarch, configPath string
 
 	// 4. Chrome for Testing — a previously cached copy (no network).
 	add("Chrome for Testing (cached)", cftCandidate(cftbrowser.FindCachedBrowser))
+
+	// --offline (SAFE-11): no download rungs at all — a missing browser fails
+	// with the install hint instead of fetching one.
+	if offlineMode.Load() {
+		return cands
+	}
 
 	// 5. Chrome for Testing — download on the fly (network, last real resort).
 	//    This is what recovers a host whose only system browser is broken.
@@ -1339,4 +1346,45 @@ func WaitContext(ctx context.Context, timeout time.Duration) (context.Context, c
 		return context.WithTimeout(ctx, timeout)
 	}
 	return ctx, func() {}
+}
+
+// offlineMode drops the browser download rungs (SAFE-11, --offline).
+var offlineMode atomic.Bool
+
+// SetOffline turns the browser download fallbacks off (true) or on.
+func SetOffline(v bool) { offlineMode.Store(v) }
+
+// Offline reports whether browser downloads are disabled.
+func Offline() bool { return offlineMode.Load() }
+
+// PopupURLs lists the URLs of page targets opened by p (window.open /
+// target=_blank) and still open, after giving each up to wait to load so its
+// traffic is captured before CloseOtherWindows closes it (MISS-29a). Popups
+// used to be closed ~200ms after the click, their traffic lost.
+func (b *Browser) PopupURLs(p *Page, wait time.Duration) []string {
+	if b == nil || p == nil || p.rodPage == nil {
+		return nil
+	}
+	res, err := proto.TargetGetTargets{}.Call(b.boundedBrowser())
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, info := range res.TargetInfos {
+		if info == nil || info.Type != proto.TargetTargetInfoTypePage || info.OpenerID != p.rodPage.TargetID {
+			continue
+		}
+		if wait > 0 {
+			if pg, perr := b.boundedBrowser().PageFromTarget(info.TargetID); perr == nil {
+				_ = pg.Timeout(wait).WaitLoad()
+				if u, uerr := pg.Info(); uerr == nil && u != nil && u.URL != "" {
+					info.URL = u.URL
+				}
+			}
+		}
+		if info.URL != "" && info.URL != "about:blank" {
+			out = append(out, info.URL)
+		}
+	}
+	return out
 }

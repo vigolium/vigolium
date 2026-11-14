@@ -22,9 +22,12 @@ type APIOptions struct {
 	ProjectUUID  string
 
 	// Security controls (from extensions config)
-	AllowExec   bool   // gate for exec() and setEnv(); default false
-	SandboxDir  string // base path for file ops; empty = cwd
-	ExecTimeout int    // max seconds for exec(); default 30, cap 120
+	AllowExec  bool   // gate for exec() and setEnv(); default false
+	SandboxDir string // base path for file ops; empty = cwd
+	// AllowOutOfScope lets vigolium.http.* reach hosts the scope matcher
+	// refuses (extensions.allow_out_of_scope, SAFE-14).
+	AllowOutOfScope bool
+	ExecTimeout     int // max seconds for exec(); default 30, cap 120
 
 	// Finding emitter for hooks that want to create findings
 	FindingEmitter func(*output.ResultEvent)

@@ -22,16 +22,20 @@ import (
 // ingest writers agree on a single set of labels.
 const (
 	RecordSourceIngestServer = "ingest-server" // POST /api/ingest-http
-	RecordSourceIngestProxy  = "ingest-proxy"  // transparent ingest proxy capture
-	RecordSourceIngestCLI    = "ingest-cli"    // `vigolium ingest ...` command
-	RecordSourceScanner      = "scanner"       // executor feedback re-injection
-	RecordSourceProbe        = "probe"         // `vigolium run probe` host sweep (one request per target, no fuzzing)
-	RecordSourceFingerprint  = "fingerprint"   // `vigolium fingerprint`: the per-origin reads the fingerprint phase sent
-	RecordSourceHarvest      = "harvest"       // external-harvest archive URL; request-only until harvest-probe completes it
-	RecordSourceFinding      = "finding"       // request/response attached to a finding (native modules and known-issue scan)
-	RecordSourceBurp         = "burp"          // Burp Suite, via the loopback bridge or a push to /api/ingest-http
-	RecordSourceCaido        = "caido"         // Caido, via the loopback bridge or a push to /api/ingest-http
-	RecordSourceParamMining  = "param-mining"  // request carrying a hidden parameter the param-mining phase confirmed
+	// RecordSourceIngestContext marks ingested traffic for a host outside the
+	// scope derived from its capture (SAFE-4): stored as context, never fed
+	// to scan-on-receive (not in IngestRecordSources).
+	RecordSourceIngestContext = "ingest-context"
+	RecordSourceIngestProxy   = "ingest-proxy" // transparent ingest proxy capture
+	RecordSourceIngestCLI     = "ingest-cli"   // `vigolium ingest ...` command
+	RecordSourceScanner       = "scanner"      // executor feedback re-injection
+	RecordSourceProbe         = "probe"        // `vigolium run probe` host sweep (one request per target, no fuzzing)
+	RecordSourceFingerprint   = "fingerprint"  // `vigolium fingerprint`: the per-origin reads the fingerprint phase sent
+	RecordSourceHarvest       = "harvest"      // external-harvest archive URL; request-only until harvest-probe completes it
+	RecordSourceFinding       = "finding"      // request/response attached to a finding (native modules and known-issue scan)
+	RecordSourceBurp          = "burp"         // Burp Suite, via the loopback bridge or a push to /api/ingest-http
+	RecordSourceCaido         = "caido"        // Caido, via the loopback bridge or a push to /api/ingest-http
+	RecordSourceParamMining   = "param-mining" // request carrying a hidden parameter the param-mining phase confirmed
 )
 
 // legacyKISEvidenceSource is the label known-issue-scan evidence was stored

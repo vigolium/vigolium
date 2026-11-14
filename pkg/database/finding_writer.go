@@ -122,6 +122,11 @@ type FindingWriter struct {
 	// batch save; replaced in tests to drive the failure and stall paths.
 	saveBatch func(context.Context, []FindingWrite) []FindingSaveResult
 
+	// onInserted, when set, is called for every finding persisted as a NEW
+	// row (not a dedup-append), so notifications fire only for new findings
+	// (SAFE-12). Called from the writer goroutine (or the inline saver).
+	onInserted atomic.Pointer[func(*output.ResultEvent)]
+
 	enqueued     atomic.Int64
 	written      atomic.Int64
 	inline       atomic.Int64
@@ -189,11 +194,34 @@ func (w *FindingWriter) Save(ctx context.Context, event *output.ResultEvent, rec
 // though the finding is just as lost as one dropped by a flush.
 func (w *FindingWriter) saveInline(ctx context.Context, event *output.ResultEvent, recordUUIDs []string, scanUUID, projectUUID string) error {
 	w.inline.Add(1)
-	err := w.repo.SaveFinding(ctx, event, recordUUIDs, scanUUID, projectUUID)
+	inserted, err := w.repo.SaveFindingInserted(ctx, event, recordUUIDs, scanUUID, projectUUID)
 	if err != nil {
 		w.inlineFailed.Add(1)
+		return err
 	}
-	return err
+	if inserted {
+		w.notifyInserted(event)
+	}
+	return nil
+}
+
+// SetOnInserted installs the new-finding callback (nil clears it). Safe to
+// call while the writer runs.
+func (w *FindingWriter) SetOnInserted(fn func(*output.ResultEvent)) {
+	if w == nil {
+		return
+	}
+	if fn == nil {
+		w.onInserted.Store(nil)
+		return
+	}
+	w.onInserted.Store(&fn)
+}
+
+func (w *FindingWriter) notifyInserted(event *output.ResultEvent) {
+	if fn := w.onInserted.Load(); fn != nil && event != nil {
+		(*fn)(event)
+	}
 }
 
 // Metrics returns a snapshot of the writer's counters.
@@ -382,6 +410,9 @@ func (w *FindingWriter) flush(ctx context.Context, batch []findingWrite) {
 			continue
 		}
 		ok++
+		if results[i].Inserted {
+			w.notifyInserted(writes[i].Event)
+		}
 	}
 
 	w.written.Add(ok)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/safety"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/browser"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
 	"go.uber.org/zap"
@@ -142,11 +143,14 @@ func (c *Crawler) selectUnsubmittedForms(in []string, max int) []string {
 // is the resolved action plus the sorted names of the form's serialized controls, so
 // the same structural form recurring across pages dedups to one submission. No
 // backticks: this is embedded as a Go raw string.
-const enumeratePostFormsScript = `(() => {
+var enumeratePostFormsScript = strings.Replace(enumeratePostFormsScriptSrc,
+	"__DESTRUCTIVE_RE__", safety.JSRegexLiteral(safety.DestructivePattern), 1)
+
+const enumeratePostFormsScriptSrc = `(() => {
   const out = [];
   let forms;
   try { forms = document.querySelectorAll('form'); } catch (e) { forms = []; }
-  const DESTRUCTIVE = /log\s*out|sign\s*out|logout|signout|delete|destroy|(?:^|[^a-z])remove|deactivate|unsubscribe|close[-_]?account|cancel[-_]?account/i;
+  const DESTRUCTIVE = __DESTRUCTIVE_RE__;
   const METHOD_OVERRIDE = /^(_method|_HttpMethod|X-HTTP-Method-Override)$/i;
   const DESTRUCTIVE_VERB = /^(delete|put|patch)$/i;
   let i = 0;

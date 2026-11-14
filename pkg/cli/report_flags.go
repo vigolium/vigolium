@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -17,6 +18,9 @@ import (
 var (
 	reportMaxBodyBytes = output.DefaultMarkdownMaxBodyBytes
 	reportPDFTimeout   time.Duration
+	// reportNoRedact is --no-redact (SAFE-12): keep credentials in shareable
+	// report evidence.
+	reportNoRedact bool
 )
 
 // registerReportFlags declares --max-body-bytes and --pdf-timeout.
@@ -25,6 +29,8 @@ func registerReportFlags(flags *pflag.FlagSet) {
 		"Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap")
 	flags.DurationVar(&reportPDFTimeout, "pdf-timeout", 0,
 		fmt.Sprintf("Bound the headless-Chrome PDF render (0 = $VIGOLIUM_PDF_TIMEOUT, else %s)", output.DefaultPDFTimeout))
+	flags.BoolVar(&reportNoRedact, "no-redact", false,
+		"Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange")
 }
 
 // validateReportFlags rejects knob values no renderer can honour.
@@ -49,9 +55,38 @@ func applyReportFlags(meta *output.HTMLReportMeta, discardedStore bool) {
 		meta.MaxBodyBytes = -1
 	}
 	meta.PDFTimeout = reportPDFTimeout
+	meta.NoRedact = reportNoRedact || redactEvidenceDisabledInConfig()
+	meta.RedactHeaders = operatorHeaderNames()
 	meta.FailOn = scanFailOn
 	meta.FollowUp = followUpQuery
 	if discardedStore {
 		meta.FollowUp = func(...string) string { return "" }
 	}
+}
+
+// redactEvidenceDisabledInConfig reads output.redact_evidence from the
+// effective config; only an explicit false disables report redaction.
+func redactEvidenceDisabledInConfig() bool {
+	settings := settingsOrDefaults()
+	return settings != nil && settings.Output.RedactEvidence != nil && !*settings.Output.RedactEvidence
+}
+
+// operatorHeaderNames are the lowercased names of the operator's -H headers,
+// redacted in report evidence on top of
+// the built-in credential table (SAFE-12).
+func operatorHeaderNames() map[string]struct{} {
+	out := map[string]struct{}{}
+	add := func(h string) {
+		if name, _, ok := strings.Cut(h, ":"); ok {
+			if n := strings.ToLower(strings.TrimSpace(name)); n != "" {
+				out[n] = struct{}{}
+			}
+		}
+	}
+	if scanOpts != nil {
+		for _, h := range scanOpts.Headers {
+			add(h)
+		}
+	}
+	return out
 }

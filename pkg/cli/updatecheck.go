@@ -115,6 +115,10 @@ func updateCheckHardDisabled(cmd *cobra.Command, current string) bool {
 	if utils.EnvTruthy(envDisableUpdateCheck) {
 		return true
 	}
+	// --offline (SAFE-11): no update check reaches the network.
+	if globalOffline {
+		return true
+	}
 	if utils.EnvTruthy(envAutoUpdateReexeced) {
 		// We just re-exec'd a freshly installed binary; don't check again.
 		return true

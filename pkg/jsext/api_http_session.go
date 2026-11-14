@@ -214,7 +214,7 @@ func (s *jsSession) doSessionHTTP(method, urlStr, body string, perRequestHeaders
 		sb.WriteString(body)
 	}
 
-	resp := doRawRequest(s.vm, s.httpClient, sb.String())
+	resp := doRawRequestTo(s.vm, s.httpClient, sb.String(), urlStr)
 
 	// Update cookie jar from Set-Cookie headers in response
 	s.updateJarFromResponse(urlStr, resp)
@@ -1091,12 +1091,9 @@ type respSlot struct {
 func doRawRequestBytes(httpClient *gohttp.Requester, rawReq string) respSlot {
 	req := httpmsg.NewHttpRequest([]byte(rawReq))
 
-	// Infer service from Host header
-	if host := req.Header("Host"); host != "" {
-		svc, err := httpmsg.ParseService("http://" + host)
-		if err == nil {
-			req = httpmsg.NewHttpRequestWithService(svc, []byte(rawReq))
-		}
+	// Infer service from Host header (https for port 443, NEW-3)
+	if svc := serviceForRequest("", req.Header("Host")); svc != nil {
+		req = httpmsg.NewHttpRequestWithService(svc, []byte(rawReq))
 	}
 
 	hrr := httpmsg.NewHttpRequestResponse(req, nil)

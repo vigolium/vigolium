@@ -2675,6 +2675,12 @@
       },
       "IngestHTTPResponse": {
         "properties": {
+          "context_only": {
+            "type": "integer"
+          },
+          "derived_scope": {
+            "type": "string"
+          },
           "detected_format": {
             "description": "Format detected from content (input_mode auto only)",
             "example": "har",

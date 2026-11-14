@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -112,4 +113,33 @@ func TestNoSession_NotDetected(t *testing.T) {
 	res, err := New().ScanPerRequest(rr, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	assert.Empty(t, res, "a host without session cookies must not be flagged")
+}
+
+// TestSessionAdoptionOnRawRedirect_IsFinding pins SAFE-1 for this module: the
+// login answers 302 → /dashboard and carries the Set-Cookie on the 302. The
+// raw transport used to follow that hop, so the module read the bodyless
+// /dashboard response, saw no session cookie and failed closed.
+func TestSessionAdoptionOnRawRedirect_IsFinding(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/dashboard" {
+			_, _ = w.Write([]byte("welcome"))
+			return
+		}
+		if c, err := r.Cookie("SESSIONID"); err == nil && c.Value != "" {
+			http.SetCookie(w, &http.Cookie{Name: "SESSIONID", Value: c.Value})
+		} else {
+			http.SetCookie(w, &http.Cookie{Name: "SESSIONID", Value: "server-generated-123"})
+		}
+		http.Redirect(w, r, "/dashboard", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	rr := modtest.RequestMethod(t, http.MethodPost, srv.URL+"/login", "username=alice&password=secret")
+	resp := httpmsg.NewHttpResponse([]byte("HTTP/1.1 302 Found\r\nLocation: /dashboard\r\nContent-Length: 0\r\n\r\n"))
+	rr = httpmsg.NewHttpRequestResponse(rr.Request(), resp)
+	res, err := New().ScanPerRequest(rr, modtest.Requester(t), &modkit.ScanContext{})
+	require.NoError(t, err)
+	require.Len(t, res, 1, "the Set-Cookie on the raw 302 must be read, not the followed hop")
+	assert.Equal(t, output.RecordKindFinding, res[0].RecordKind)
 }
