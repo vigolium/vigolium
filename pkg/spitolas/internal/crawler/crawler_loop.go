@@ -415,6 +415,8 @@ func (c *Crawler) followPath(ctx context.Context, w *tabWorker, path []*action.E
 	if page == nil {
 		return fmt.Errorf("no page on crawl tab %d", w.id)
 	}
+	// Replaying a path after a re-login must send the new credentials.
+	c.refreshAuthIfChanged(page)
 
 	for _, edge := range path {
 		if c.shouldTerminate(ctx) {

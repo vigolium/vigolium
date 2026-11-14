@@ -120,6 +120,9 @@ type Runner struct {
 	// phaseRunners replaces defaultPhaseRunners when non-nil (tests stub
 	// phases through it); see phaseRunnerFor.
 	phaseRunners map[NativePhase]phaseRunner
+
+	// relogins fans live-session re-logins out to browser crawls (MISS-26).
+	relogins reloginBroadcast
 }
 
 // Finalized reports whether RunNativeScan already wrote the scan's terminal

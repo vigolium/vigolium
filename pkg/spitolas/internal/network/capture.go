@@ -68,6 +68,10 @@ type Capture struct {
 	// ScopeFilter, when set, suppresses out-of-scope entries from the stderr log
 	// (records are filtered separately by the writer). Set once before Start.
 	ScopeFilter func(host, path string) bool
+	// OnResponse, when set, sees every completed in-scope document / XHR /
+	// fetch response before dedup (MISS-26: the crawl's live-session
+	// logged-out detector). Runs on the capture goroutine; must be cheap.
+	OnResponse func(entry *TrafficEntry)
 	// workerSessions holds the CDP sessionIDs of attached service-worker targets.
 	// Worker sessions are not page targets, so they never appear in Browser.Pages();
 	// tracking them lets isSessionValid accept them and fetchResponseBody pull their
@@ -1043,6 +1047,7 @@ func isCatchAllAssetShell(entry *TrafficEntry) bool {
 // writeEntry writes a traffic entry via the Writer interface and prints log to stderr.
 // Skips writing to file if hash already exists (deduplication).
 func (c *Capture) writeEntry(entry *TrafficEntry) {
+	c.observeResponse(entry)
 	// Drop catch-all soft-404 asset shells: JS/JSON asset paths that come back as
 	// the SPA index.html (a catch-all host serving its shell for unknown routes).
 	// They are not real endpoints, so keep them out of the DB (and thus out of
@@ -1419,4 +1424,24 @@ func (c *Capture) BodiesFailed() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.bodiesFailed
+}
+
+// observeResponse hands a completed in-scope document/XHR/fetch response to
+// OnResponse (MISS-26).
+func (c *Capture) observeResponse(entry *TrafficEntry) {
+	if c.OnResponse == nil || entry == nil || entry.Response == nil {
+		return
+	}
+	switch strings.ToLower(entry.ResourceType) {
+	case "document", "xhr", "fetch":
+	default:
+		return
+	}
+	if c.ScopeFilter != nil {
+		u, err := url.Parse(entry.Request.URL)
+		if err != nil || !c.ScopeFilter(u.Hostname(), u.Path) {
+			return
+		}
+	}
+	c.OnResponse(entry)
 }

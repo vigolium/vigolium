@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/vigolium/vigolium/pkg/authsig"
+	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
+	"github.com/vigolium/vigolium/pkg/spitolas/internal/network"
 	"net/http"
 	"net/url"
 	"slices"
@@ -252,8 +254,9 @@ func (c *Crawler) refreshAuthIfChanged(page *browser.Page) {
 		return
 	}
 	gen, headers, cookies := mon.Credentials()
+	dirty := c.authDirty.Swap(false)
 	c.mu.Lock()
-	changed := gen != 0 && gen != c.authGen
+	changed := gen != 0 && (gen != c.authGen || dirty)
 	if changed {
 		c.authGen = gen
 	}
@@ -335,4 +338,43 @@ func (c *Crawler) pageLooksLoggedOut(page *browser.Page) bool {
 	}
 	html, err := page.HTML()
 	return err == nil && authsig.BodyLooksLikeLogin([]byte(html))
+}
+
+// observeAuthResponse feeds one captured response to the live session's
+// logged-out detector (MISS-26).
+func (c *Crawler) observeAuthResponse(e *network.TrafficEntry) {
+	mon := c.config.AuthMonitor
+	if mon == nil || e == nil || e.Response == nil {
+		return
+	}
+	c.mu.Lock()
+	gen := c.authGen
+	c.mu.Unlock()
+	h := make(http.Header, len(e.Response.Headers))
+	for k, v := range e.Response.Headers {
+		h.Set(k, v)
+	}
+	mon.Observe(gen, e.Response.Status, h, e.Response.Body)
+}
+
+// watchAuthChanges marks the crawl auth-dirty whenever the monitor signals a
+// re-login, until ctx ends.
+func (c *Crawler) watchAuthChanges(ctx context.Context, mon config.AuthMonitor) {
+	ch := mon.Changed()
+	if ch == nil {
+		return
+	}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-ch:
+				if !ok {
+					return
+				}
+				c.authDirty.Store(true)
+			}
+		}
+	}()
 }

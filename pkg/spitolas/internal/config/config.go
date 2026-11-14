@@ -1121,4 +1121,7 @@ type AuthMonitor interface {
 	Observe(gen uint64, status int, h http.Header, body []byte)
 	// Credentials are the session's current credentials and generation.
 	Credentials() (gen uint64, headers map[string]string, cookies []*http.Cookie)
+	// Changed fires (best effort, coalesced) when the session re-logged in;
+	// the crawler re-applies Credentials before its next action. May be nil.
+	Changed() <-chan struct{}
 }

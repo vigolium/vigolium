@@ -7,6 +7,7 @@ import (
 	nethttp "net/http"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -460,7 +461,7 @@ func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringCo
 		DenyClickPattern:        settingsCfg.Interaction.DenyClickPattern,
 		ExcludeSelectors:        settingsCfg.ExcludeSelectors,
 		MethodAllowed:           r.browserMethodFilter(),
-		AuthMonitor:             liveSessionMonitor(infra),
+		AuthMonitor:             r.liveSessionMonitor(infra),
 		BrowserCompat:           &compat,
 		NoForms:                 !policy.EditFields && !policy.SubmitForms,
 		LoginCredentialAttempts: policy.LoginAttempts,
@@ -1120,8 +1121,11 @@ func (r *Runner) browserMethodFilter() func(string) bool {
 // crawler's AuthMonitor (MISS-26): the browser re-applies the session's
 // current credentials after a re-login and feeds responses back.
 type liveSessionAuthMonitor struct {
-	s *authentication.LiveSession
+	s       *authentication.LiveSession
+	changed chan struct{}
 }
+
+func (m liveSessionAuthMonitor) Changed() <-chan struct{} { return m.changed }
 
 func (m liveSessionAuthMonitor) Observe(gen uint64, status int, h nethttp.Header, body []byte) {
 	m.s.Observe(gen, status, h, body)
@@ -1137,7 +1141,7 @@ func (m liveSessionAuthMonitor) Credentials() (uint64, map[string]string, []*net
 
 // liveSessionMonitor is the AuthMonitor for infra's primary live session, or
 // nil when the scan has none.
-func liveSessionMonitor(infra *phaseInfra) spitolas.AuthMonitor {
+func (r *Runner) liveSessionMonitor(infra *phaseInfra) spitolas.AuthMonitor {
 	if infra == nil || infra.sessions == nil {
 		return nil
 	}
@@ -1145,5 +1149,33 @@ func liveSessionMonitor(infra *phaseInfra) spitolas.AuthMonitor {
 	if live == nil {
 		return nil
 	}
-	return liveSessionAuthMonitor{s: live}
+	return liveSessionAuthMonitor{s: live, changed: r.relogins.subscribe()}
+}
+
+// reloginBroadcast fans a successful live-session re-login out to every
+// browser crawl watching it (AuthMonitor.Changed, MISS-26).
+type reloginBroadcast struct {
+	mu   sync.Mutex
+	subs []chan struct{}
+}
+
+// subscribe returns a coalescing channel that fires on each re-login.
+func (b *reloginBroadcast) subscribe() chan struct{} {
+	ch := make(chan struct{}, 1)
+	b.mu.Lock()
+	b.subs = append(b.subs, ch)
+	b.mu.Unlock()
+	return ch
+}
+
+// notify signals every subscriber without blocking.
+func (b *reloginBroadcast) notify() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, ch := range b.subs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 }

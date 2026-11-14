@@ -211,7 +211,10 @@ type Crawler struct {
 	authOps pageAuthOps
 	// authGen is the live-session credential generation last applied
 	// (MISS-26); guarded by mu.
-	authGen                    uint64
+	authGen uint64
+	// authDirty is set by the AuthMonitor's Changed channel; the next action
+	// re-applies the session's credentials.
+	authDirty                  atomic.Bool
 	credentialHeadersWithdrawn bool
 }
 
@@ -534,6 +537,12 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 	// Keep out-of-scope subresources (a login page's CAPTCHA widget, analytics
 	// beacons) out of the live log — they are dropped before storage anyway.
 	capture.ScopeFilter = c.config.ScopeFilter
+	// Feed in-scope document/XHR responses to the live session's logged-out
+	// detector, and re-apply its credentials when it re-logs in (MISS-26).
+	if mon := c.config.AuthMonitor; mon != nil {
+		capture.OnResponse = c.observeAuthResponse
+		c.watchAuthChanges(ctx, mon)
+	}
 	// A finished crawl is not failed over a flush error: the capture close
 	// error is the writer's drop tally, which the caller reads from the
 	// writer's receipt. Logged so it is never silent.
