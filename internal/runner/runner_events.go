@@ -885,3 +885,14 @@ func probeEdgeThroughRequester(ctx context.Context, requester *http.Requester, r
 	}
 	return http.IsBlockedResponse(chain), nil
 }
+
+// LiveProgress reports the running phase, its work-item progress (nil when
+// the phase has no count) and the findings it recorded so far. phase is ""
+// between phases. For the CLI's foreground progress line.
+func (r *Runner) LiveProgress() (phase string, progress *SessionProgress, findings int64) {
+	t := r.currentPhase.Load()
+	if t == nil {
+		return "", nil, 0
+	}
+	return t.phase, t.progressSnapshot(), t.findings.Load()
+}

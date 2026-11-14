@@ -31,6 +31,7 @@ import (
 // scanOpts. In stateless mode it allocates a fresh temporary SQLite database
 // and tears it down on return so callers can invoke it once per target.
 func executeNativeScan(cmd *cobra.Command, settings *config.Settings, strategyName string) error {
+	resetScanArtifacts()
 	// -j: the single scan document, read from this pass's scan row and
 	// findings. It writes on every exit that got as far as an open database:
 	// success, curtailment, interrupt and failure (status "failed" with

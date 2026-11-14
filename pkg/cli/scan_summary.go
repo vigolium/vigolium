@@ -435,12 +435,14 @@ func printScanCompletionSummary(repo *database.Repository, projectUUID, scanUUID
 		return
 	}
 
+	defer printSummaryTail(scanUUID, resolvedSummaryDBPath(), totalFindings, !globalStateless)
 	if totalFindings == 0 {
 		fmt.Fprintf(os.Stderr, "  %s Findings: %s\n",
 			terminal.Purple(terminal.SymbolInfo),
 			terminal.Gray("no issues found"))
 		return
 	}
+	defer printSummaryFindingsTable(ctx, repo, projectUUID, scanUUID, totalFindings)
 
 	// Build severity breakdown
 	var parts []string
@@ -491,4 +493,10 @@ func summaryFindingCounts(ctx context.Context, repo *database.Repository, projec
 		total += c
 	}
 	return total, counts, nil
+}
+
+// resolvedSummaryDBPath is the store the completion summary names under
+// "Stored:" ("" when it cannot be named, e.g. a non-SQLite driver).
+func resolvedSummaryDBPath() string {
+	return resolvedReadDBPath()
 }

@@ -983,6 +983,8 @@ func (b *scanDocBuilder) envelope() *agentEnvelope {
 		With("targets_not_scanned", notScanned).
 		With("phase_outcomes", phases).
 		With("caveats", caveats).
+		With("artifacts", collectedScanArtifacts()).
+		With("next", scanDocNextSteps(uuids, dbPath, total, persisted && !stateless)).
 		With("modules", modules).
 		With("counts_by_severity", counts).
 		With("candidates", candidates).
@@ -1041,4 +1043,14 @@ func (b *scanDocBuilder) Emit() error {
 	}
 	b.emitted = true
 	return writeAgentJSON(b.envelope())
+}
+
+// scanDocNextSteps is the document's `next`: the follow-up commands for a
+// single persisted scan (empty for a batch, which names its scans instead).
+func scanDocNextSteps(uuids []string, dbPath string, total int64, persisted bool) []scanNextStep {
+	uuid := ""
+	if len(uuids) == 1 {
+		uuid = uuids[0]
+	}
+	return scanNextSteps(uuid, dbPath, total, persisted)
 }

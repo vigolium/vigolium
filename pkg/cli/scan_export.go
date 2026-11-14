@@ -94,6 +94,7 @@ func printExportSummary(outputs []exportedFile) {
 	}
 	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.InfoSymbol(), terminal.BoldAqua("Exports"))
 	for _, o := range outputs {
+		noteScanArtifact(o.label, o.path)
 		line := fmt.Sprintf("  %-*s  %s", labelW, o.label, terminal.Cyan(displayExportPath(o.path)))
 		if o.detail != "" {
 			line += "  " + terminal.Gray("("+o.detail+")")
@@ -419,6 +420,7 @@ func finishScanJSONLExport(db *database.DB, opts *types.Options) error {
 	}
 	fmt.Fprintf(os.Stderr, "%s Results exported to %s (%d records)\n",
 		terminal.InfoSymbol(), terminal.Cyan(outPath), n)
+	noteScanArtifact("jsonl", outPath)
 	return nil
 }
 

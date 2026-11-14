@@ -255,6 +255,7 @@ func maybeGenerateReports(db *database.DB, opts *types.Options) error {
 			continue
 		}
 		fmt.Fprintf(os.Stderr, "%s %s: %s\n", terminal.InfoSymbol(), rf.label, terminal.Cyan(reportDestination(outPath)))
+		noteScanArtifact(rf.format, outPath)
 	}
 	return errors.Join(failures...)
 }
