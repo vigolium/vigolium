@@ -28,6 +28,13 @@ type KnownIssueScanConfig struct {
 	//	    config-json-exposure-fuzz: medium
 	SeverityOverrides map[string]string `yaml:"severity_overrides"`
 	EnrichTargets     bool              `yaml:"enrich_targets"` // enrich known-issue scan targets with paths discovered in previous phases (increases coverage but can slow down scans)
+	// TechSelection narrows templates by the stack the fingerprint phase
+	// recorded: "auto" (default) excludes templates tagged for a product no
+	// in-scope origin runs, and only when every origin has a stored
+	// fingerprint; templates with no product tag always run. "off" runs every
+	// template regardless. Ignored when Tags is set (an explicit include list
+	// is the operator's selection).
+	TechSelection string `yaml:"tech_selection,omitempty"`
 	// GroupByValue collapses findings that repeat the same extracted value across
 	// many URLs (e.g. one leaked secret reported once per page) into a single
 	// finding. It applies both to the stored/reported findings (a post-phase
@@ -407,5 +414,23 @@ func (c *KnownIssueScanConfig) Validate() error {
 		return fmt.Errorf("known_issue_scan.group_by_value.max_urls: must be >= 0, got %d", c.GroupByValue.MaxURLs)
 	}
 
+	switch strings.ToLower(strings.TrimSpace(c.TechSelection)) {
+	case "", TechSelectionAuto, TechSelectionOff:
+	default:
+		return fmt.Errorf("known_issue_scan.tech_selection: invalid value %q (want %s|%s)", c.TechSelection, TechSelectionAuto, TechSelectionOff)
+	}
+
 	return nil
+}
+
+// known_issue_scan.tech_selection values.
+const (
+	TechSelectionAuto = "auto"
+	TechSelectionOff  = "off"
+)
+
+// TechSelectionEnabled reports whether stack-driven template narrowing
+// applies ("" means the default, auto).
+func (c *KnownIssueScanConfig) TechSelectionEnabled() bool {
+	return !strings.EqualFold(strings.TrimSpace(c.TechSelection), TechSelectionOff)
 }

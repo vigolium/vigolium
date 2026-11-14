@@ -120,7 +120,8 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 		if len(paths) > 0 {
 			var knownIssueScanTargets []string
 			if enrichTargets {
-				knownIssueScanTargets = buildKnownIssueScanTargetsFromPaths(paths)
+				origins, prefixes := buildKnownIssueScanTargetSets(paths, kisMaxPrefixesPerHost)
+				knownIssueScanTargets = append(origins, prefixes...)
 			} else {
 				knownIssueScanTargets = buildKnownIssueScanHostTargets(paths)
 			}
@@ -258,24 +259,32 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		enrichTargets = r.settings.KnownIssueScan.EnrichTargets
 	}
 
-	var targets []string
+	// Origins get every template; with enrich_targets the ranked directory
+	// prefixes (<= kisMaxPrefixesPerHost per origin) get only the templates
+	// whose requests depend on the path (knownissuescan.planPasses).
+	var targets, prefixes []string
 	if enrichTargets {
-		targets = buildKnownIssueScanTargetsFromPaths(paths)
+		targets, prefixes = buildKnownIssueScanTargetSets(paths, kisMaxPrefixesPerHost)
 	} else {
 		targets = buildKnownIssueScanHostTargets(paths)
 	}
 
 	zap.L().Info("KnownIssueScan: targets from database",
-		zap.Int("count", len(targets)),
+		zap.Int("origins", len(targets)),
+		zap.Int("prefixes", len(prefixes)),
 		zap.Int("in_scope_origins", len(inScopeHosts)))
+
+	duplicate, suppressed := r.knownIssueScanDuplicateFilter(ctx, infra.scanUUID)
 
 	// Build KnownIssueScan config from settings
 	cfg := knownissuescan.Config{
-		Targets:     targets,
-		Concurrency: r.options.Concurrency,
-		ScanUUID:    r.options.ScanUUID,
-		ProjectUUID: r.options.ProjectUUID,
-		ProxyURL:    r.options.ProxyURL,
+		Targets:       targets,
+		PrefixTargets: prefixes,
+		Duplicate:     duplicate,
+		Concurrency:   r.options.Concurrency,
+		ScanUUID:      r.options.ScanUUID,
+		ProjectUUID:   r.options.ProjectUUID,
+		ProxyURL:      r.options.ProxyURL,
 		// nuclei runs its own HTTP stack, so it cannot use the assessment
 		// requester's view — it needs the headers themselves. Under
 		// use_in_discovery: false this is the only way the primary session
@@ -314,7 +323,21 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		if knownIssueScanPace.MaxDuration > 0 {
 			cfg.Timeout = knownIssueScanPace.MaxDuration
 		}
+
+		// Stack-driven narrowing: exclude product-tagged templates for products
+		// no origin runs (only on complete fingerprint knowledge; untagged
+		// templates always run). known_issue_scan.tech_selection: off disables.
+		if excl := r.knownIssueScanTechExcludes(ctx, infra.scanUUID, targets); len(excl) > 0 {
+			cfg.ExcludeTags = append(append([]string(nil), cfg.ExcludeTags...), excl...)
+			r.printPhaseDetail(fmt.Sprintf("Tech selection: %s product tags excluded (no origin runs them; %s to disable)",
+				terminal.Orange(strconv.Itoa(len(excl))), terminal.HiCyan("vigolium config set known_issue_scan.tech_selection off")))
+		}
 	}
 
-	return knownissuescan.Run(ctx, cfg)
+	err = knownissuescan.Run(ctx, cfg)
+	if suppressed != nil && suppressed.Load() > 0 {
+		r.printPhaseDetail(fmt.Sprintf("%s nuclei matches suppressed as duplicates of native findings",
+			terminal.Orange(strconv.FormatInt(suppressed.Load(), 10))))
+	}
+	return err
 }
