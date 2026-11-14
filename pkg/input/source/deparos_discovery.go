@@ -144,6 +144,9 @@ type DeparosDiscoveryConfig struct {
 	UseObservedPaths     bool
 	UseObservedFiles     bool
 	EnableNumericFuzzing bool
+	// ExtractWords turns on response-body word harvesting into the observed
+	// wordlist (deparos Filenames.WordlistExtraction).
+	ExtractWords bool
 
 	// Extensions
 	TestCustom           bool
@@ -861,6 +864,7 @@ func (d *DeparosDiscoverySource) buildDeparosConfig(target string) *deparosconfi
 	cfg.Filenames.UseObservedPaths = d.cfg.UseObservedPaths
 	cfg.Filenames.UseObservedFiles = d.cfg.UseObservedFiles
 	cfg.Filenames.EnableNumericFuzzing = d.cfg.EnableNumericFuzzing
+	cfg.Filenames.WordlistExtraction.Enabled = d.cfg.ExtractWords
 
 	// Extensions
 	cfg.Extensions.TestCustom = d.cfg.TestCustom

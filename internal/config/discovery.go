@@ -28,6 +28,10 @@ type DiscoveryConfig struct {
 	PassiveModuleTags        []string                 `yaml:"passive_module_tags"` // run passive modules matching these tags during discovery (e.g., ["fingerprint"])
 	ReSpider                 DiscoveryReSpiderConfig  `yaml:"respider"`            // targeted re-spider of rich/SPA routes found after discovery dedup
 	DeparosDedup             DeparosDedupConfig       `yaml:"deparos_dedup"`       // post-discovery status-retention + reflected-URL-robust record dedup
+	// ExtractWords harvests words from response bodies into the observed-name
+	// wordlist (deparos WordlistExtraction). nil = auto: on at --intensity deep,
+	// off otherwise; true/false force it.
+	ExtractWords *bool `yaml:"extract_words"`
 
 	// TargetConcurrency is how many targets are discovered at once; targets on
 	// the same host:port never overlap and the engine threads are split across

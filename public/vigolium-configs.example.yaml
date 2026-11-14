@@ -900,6 +900,11 @@ discovery:
   # Default: false
   enrich_targets: false
 
+  # Harvest words from response bodies into the observed-name wordlist so they
+  # are brute-forced as path names. Unset = on at --intensity deep, off
+  # otherwise; true/false force it.
+  # extract_words: true
+
   # Enable malformed path probing during directory discovery.
   # When true, uses the fuzz wordlist (fuzz_wordlist_path) to test directories
   # with path traversal and malformed path payloads (e.g., ..;/, .%00/, %2e%2e/).

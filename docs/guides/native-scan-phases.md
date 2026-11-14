@@ -384,7 +384,7 @@ vigolium run discover -T hosts.txt --no-fuzz            # content discovery with
 vigolium scan -t https://example.com --intensity deep --no-fuzz
 ```
 
-The rest of discovery is untouched — link extraction, robots.txt, JS parsing (jstangle, Next.js/Angular/CRA manifests, source maps), response-word harvesting into the observed wordlists, form submission, and the short `dir-short.txt`/`file-short.txt` dictionaries all still run. `--intensity deep` still loads the large dictionaries (`discovery.wordlists.tier`); only the `/FUZZ` task is removed.
+The rest of discovery is untouched — link extraction, robots.txt, JS parsing (jstangle, Next.js/Angular/CRA manifests, source maps), observed path/file names, form submission, response-word harvesting when it is on (`discovery.extract_words`; by default only at `--intensity deep`), and the short `dir-short.txt`/`file-short.txt` dictionaries all still run. `--intensity deep` still loads the large dictionaries (`discovery.wordlists.tier`); only the `/FUZZ` task is removed.
 
 Passing `--no-discovery-fuzz` together with `--discovery-wordlist` is an error rather than a precedence rule — the two state opposite intents, and the outcomes differ by thousands of requests per host.
 
