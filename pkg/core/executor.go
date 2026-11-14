@@ -397,6 +397,9 @@ func NewExecutor(
 	if e.scanCtx == nil {
 		e.scanCtx = &modules.ScanContext{}
 	}
+	// Run-once host probes commit their claim only after the call settles
+	// (runActiveCall), so a transient failure leaves the host to be retried.
+	e.scanCtx.DeferHostClaims = true
 	if cfg.DisableFeedback {
 		// Shallow mode: modules can still call Feed() but it's a no-op. The
 		// feedback channel is still allocated (cheap) but stays empty, so the

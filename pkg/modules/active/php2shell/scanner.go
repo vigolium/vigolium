@@ -95,7 +95,7 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 	origin := u.Scheme + "://" + u.Host
-	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil && ds.IsSeen(origin) {
+	if !modkit.BeginHostProbe(scanCtx, httpClient, m.ds.Get(scanCtx.DedupMgr()), origin) {
 		return nil, nil
 	}
 

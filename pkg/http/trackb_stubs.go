@@ -7,7 +7,10 @@ package http
 // WithAbandonFlag.
 
 import (
+	"errors"
 	"sync/atomic"
+
+	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
@@ -19,6 +22,29 @@ type CallStats struct {
 	Throttled atomic.Int64
 	Abandoned atomic.Int64
 	Refused   atomic.Int64
+	// TransportErrors (TRACK-B ADDITION to the contract struct — keep it when
+	// reconciling): requests of this call that failed transiently (DNS,
+	// refused, timeout, TLS, reset, quarantined host). The executor settles
+	// run-once host probes on it (MISS-19).
+	TransportErrors atomic.Int64
+}
+
+// noteCallError counts a transient send failure on this per-call clone.
+func (r *Requester) noteCallError(err error) {
+	if err == nil || r == nil || r.callStats == nil {
+		return
+	}
+	if errors.Is(err, ErrRequestAbandoned) {
+		return // the call was given up on; the executor already knows
+	}
+	if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+		r.callStats.TransportErrors.Add(1)
+		return
+	}
+	switch ClassifyTransportError(err) {
+	case TransportErrDNS, TransportErrRefused, TransportErrTimeout, TransportErrTLS, TransportErrReset:
+		r.callStats.TransportErrors.Add(1)
+	}
 }
 
 // CallStats returns this per-call clone's stats, or nil on a requester that is

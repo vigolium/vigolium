@@ -3,6 +3,7 @@ package modkit
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/pkg/dedup"
@@ -209,6 +210,16 @@ type ScanContext struct {
 	// (dynamic_assessment.header_points: all / --header-fuzz=all): every header
 	// point reaches every module that accepts headers. See GateHeaderPoint.
 	HeaderPointsAll bool
+	// DeferHostClaims: the executor settles run-once host claims after each
+	// module call (BeginHostProbe / SettleHostProbes, MISS-19). Off outside the
+	// executor, where BeginHostProbe claims immediately.
+	DeferHostClaims bool
+	hostProbeOnce   sync.Once
+	hostProbeState  *hostProbeState
+	// hostProbesPending counts unsettled claims so the per-call settle is a
+	// single atomic load for the many calls that registered none.
+	hostProbesPending atomic.Int64
+
 	// HeaderClaims holds the once-per-host header claims (shared per phase).
 	HeaderClaims *HeaderClaims
 	// OnHeaderGated, when set, counts one header point a module skipped

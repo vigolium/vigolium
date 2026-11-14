@@ -455,7 +455,15 @@ func (o callOutcome) failedTransiently() bool {
 	if !o.completed {
 		return true
 	}
-	return isTransientCallErr(o.err)
+	return isTransientCallErr(o.err) || callHitTransportErrors(o.stats)
+}
+
+// callHitTransportErrors reports whether any request of the call failed
+// transiently or was refused by a gate. Modules routinely swallow a send error
+// and return a clean nil, so the module's error alone cannot tell a probe that
+// was answered from one that never reached the host.
+func callHitTransportErrors(cs *http.CallStats) bool {
+	return cs != nil && (cs.TransportErrors.Load() > 0 || cs.Refused.Load() > 0)
 }
 
 func isTransientCallErr(err error) bool {
@@ -525,10 +533,12 @@ func (e *Executor) runActiveCall(
 	// Deferring the set is correct on all three exits: on the normal path the
 	// scan goroutine has already delivered its result, and on the timeout /
 	// parent-cancel paths flagging it is precisely the intent.
+	var abandoned atomic.Bool
+	var callStats *http.CallStats
 	if reqClient != nil {
-		var abandoned atomic.Bool
 		defer abandoned.Store(true)
 		reqClient = reqClient.WithAbandonFlag(&abandoned)
+		callStats = reqClient.CallStats()
 	}
 
 	start := time.Now()
@@ -546,6 +556,13 @@ func (e *Executor) runActiveCall(
 		events, err := e.runScanFnGuarded(callCtx, module.ID(), func(c context.Context) ([]*output.ResultEvent, error) {
 			return scanFn(c, reqClient)
 		})
+		// Settle the run-once host probes the module registered on this call's
+		// requester (MISS-19) before handing the result over: a claim commits
+		// only when the call finished inside its bound with every request
+		// answered. Settling after the send would race the next item of the
+		// same host, which could then see the claim still pending.
+		e.scanCtx.SettleHostProbes(reqClient, !abandoned.Load() &&
+			!isTransientCallErr(err) && !callHitTransportErrors(callStats))
 		ch <- moduleCallResult{events, err}
 	}()
 
@@ -566,10 +583,10 @@ func (e *Executor) runActiveCall(
 				e.noteModuleError(module, item, r.err, moduleErrorKind(r.err))
 			}
 			// Keep whatever the module confirmed before it failed (MISS-20).
-			return callOutcome{events: r.events, completed: true, err: r.err}
+			return callOutcome{events: r.events, completed: true, err: r.err, stats: callStats}
 		}
 		e.noteThrottledCall(module, reqClient, r.events)
-		return callOutcome{events: r.events, completed: true}
+		return callOutcome{events: r.events, completed: true, stats: callStats}
 	case <-timeoutC:
 		// The scan goroutine outlives this wrapper and still holds item, whose
 		// response is built over the item's pooled buffer — keep that buffer out of

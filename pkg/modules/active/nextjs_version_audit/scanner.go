@@ -73,7 +73,7 @@ func (m *Module) ScanPerHost(
 	if !jsframework.LooksLikeNextJS(host, ctx.Response().BodyToString()) {
 		return nil, nil
 	}
-	if diskSet := m.ds.Get(scanCtx.DedupMgr()); diskSet != nil && diskSet.IsSeen(host) {
+	if !modkit.BeginHostProbe(scanCtx, httpClient, m.ds.Get(scanCtx.DedupMgr()), host) {
 		return nil, nil
 	}
 
