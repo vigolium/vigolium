@@ -576,6 +576,7 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 			TripRatio:      cfg.Engine.PrefixBreaker.TripRatio,
 			PrefixSegments: cfg.Engine.PrefixBreaker.PrefixSegments,
 			LengthBucket:   cfg.Engine.PrefixBreaker.LengthBucket,
+			BasePath:       startURLPath(cfg.Target.StartURL),
 		}),
 		taskHashes:           taskHashesDS,
 		seenExtensions:       seenExtensionsDS,
@@ -1968,4 +1969,14 @@ func (e *Engine) FlushSecretFindings() {
 	logger.Info("Secret scan completed",
 		zap.Int("findings", totalFindings),
 		zap.Int("urls_with_findings", len(urlFindings)))
+}
+
+// startURLPath is the decoded path of the start URL ("" when it does not
+// parse); the prefix breaker buckets relative to its directory.
+func startURLPath(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Path
 }

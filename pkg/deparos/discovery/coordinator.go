@@ -11,6 +11,7 @@ import (
 
 	"github.com/sourcegraph/conc"
 	"github.com/vigolium/vigolium/pkg/deparos/discovery/queue"
+	"github.com/vigolium/vigolium/pkg/deparos/discovery/tracker"
 	pkghttp "github.com/vigolium/vigolium/pkg/deparos/http"
 	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
 	"github.com/vigolium/vigolium/pkg/deparos/jstangle/sourcemap"
@@ -265,21 +266,7 @@ func (c *PayloadCoordinator) executeWorkItem(ctx context.Context, item *WorkItem
 	// Feed prefix breaker with this probe outcome. Done before any analyzer
 	// gating so soft-200 / soft-403 traps still register signal even when the
 	// fingerprinter classifies them out.
-	if cb.PrefixBreaker != nil {
-		resp := rc.Response()
-		body := rc.BodyBytes()
-		reason, tripped := cb.PrefixBreaker.Observe(req.URL, resp.StatusCode, resp.Header.Get("Content-Type"), int64(len(body)))
-		if tripped {
-			logger.Info("Prefix breaker tripped — stopping further probes under this prefix",
-				zap.String("host", reason.Host),
-				zap.String("prefix", reason.Prefix),
-				zap.Int("samples", reason.Samples),
-				zap.Int("dominant_status", reason.DominantStatus),
-				zap.String("dominant_content_type", reason.DominantCT),
-				zap.Int64("dominant_length_bucket_lower", reason.DominantLenLower),
-				zap.Int("dominant_count", reason.DominantCount))
-		}
-	}
+	observePrefixBreaker(cb.PrefixBreaker, req.URL, rc)
 
 	// Source maps are handled here, above the task-type dispatch, because which
 	// fetch path sees a given asset is incidental: the asset graph queues a
@@ -1335,4 +1322,31 @@ func (c *PayloadCoordinator) CurrentTask() Task {
 func parseURL(urlStr string) *url.URL {
 	u, _ := url.Parse(urlStr)
 	return u
+}
+
+// observePrefixBreaker feeds one probe outcome to the prefix breaker. Statuses
+// the analyzer already treats as hard misses (404/400/414/421/431) are skipped:
+// a directory whose misses are ordinary 404s is not a trap, and counting them
+// made any subtree with a hit rate under 10% trip eventually (MISS-1). The
+// breaker exists for soft-200/soft-403 black holes the fingerprinter misses.
+func observePrefixBreaker(b *tracker.PrefixBreaker, u *url.URL, rc *responsechain.ResponseChain) {
+	if b == nil || rc == nil || !rc.Has() {
+		return
+	}
+	resp := rc.Response()
+	if pkghttp.IsHardNotFound(resp.StatusCode) {
+		return
+	}
+	body := rc.BodyBytes()
+	reason, tripped := b.Observe(u, resp.StatusCode, resp.Header.Get("Content-Type"), int64(len(body)))
+	if tripped {
+		logger.Info("Prefix breaker tripped — stopping further probes under this prefix",
+			zap.String("host", reason.Host),
+			zap.String("prefix", reason.Prefix),
+			zap.Int("samples", reason.Samples),
+			zap.Int("dominant_status", reason.DominantStatus),
+			zap.String("dominant_content_type", reason.DominantCT),
+			zap.Int64("dominant_length_bucket_lower", reason.DominantLenLower),
+			zap.Int("dominant_count", reason.DominantCount))
+	}
 }

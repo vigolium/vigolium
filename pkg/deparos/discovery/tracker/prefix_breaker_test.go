@@ -243,9 +243,11 @@ func TestPrefixBreaker_BypassTemplateDoesNotCollapse(t *testing.T) {
 	}
 
 	// A genuine catch-all subtree under a bypass prefix must still trip: many
-	// distinct words that all resolve under "/actuator/*" returning uniform 404s.
+	// distinct words that all resolve under "/actuator/*" returning a uniform
+	// soft-403 page. (Hard-miss 404s never reach the breaker: the coordinator
+	// skips them, see observePrefixBreaker.)
 	for _, w := range []string{"actuator/a", "actuator/b", "actuator/c", "actuator/d", "actuator/e"} {
-		b.Observe(u(w), 404, "", 0)
+		b.Observe(u(w), 403, "text/html", 120)
 	}
 	if !b.IsDead(u("actuator/health")) {
 		t.Fatal("a uniform /actuator/* subtree should still trip after cleaning")
