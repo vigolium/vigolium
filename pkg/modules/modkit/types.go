@@ -53,9 +53,20 @@ func (s ScanScope) Has(check ScanScope) bool {
 // non-fuzzable markers — user/extension/unknown — and remain unrepresentable.)
 type InsertionPointTypeSet uint64
 
-// AllInsertionPointTypes includes all representable insertion point types
-// (bits 0-63, which covers every fuzzable type httpmsg defines).
-const AllInsertionPointTypes InsertionPointTypeSet = 0xFFFFFFFFFFFFFFFF
+// extraTypeBits are the opt-in types: parameter NAMES (INS_PARAM_NAME_URL=34,
+// INS_PARAM_NAME_BODY=35) and the entire body (INS_ENTIRE_BODY=36).
+const extraTypeBits InsertionPointTypeSet = 1<<34 | 1<<35 | 1<<36
+
+// AllInsertionPointTypes includes every representable insertion point type
+// EXCEPT the opt-in extras (ExtraInsertionPointTypes): renaming a parameter or
+// replacing the whole body is a different test from fuzzing a value, and
+// adding those points to every module that accepts "all" types would roughly
+// double per-insertion-point work. A module opts in with
+// AllInsertionPointTypes | ParamNameTypes (or EntireBodyTypes) — MISS-15.
+const AllInsertionPointTypes InsertionPointTypeSet = 0xFFFFFFFFFFFFFFFF &^ extraTypeBits
+
+// ExtraInsertionPointTypes are the opt-in types no preset includes.
+const ExtraInsertionPointTypes InsertionPointTypeSet = extraTypeBits
 
 // typeBit returns the bitmask for a type, or 0 for types that don't fit in the
 // 64-bit set (the non-fuzzable markers >= 64). Guarding the shift keeps the
@@ -87,7 +98,6 @@ var (
 	// URLParamTypes includes URL-related parameter types.
 	URLParamTypes = NewInsertionPointTypeSet(
 		httpmsg.INS_PARAM_URL,
-		httpmsg.INS_PARAM_NAME_URL,
 		httpmsg.INS_URL_PATH_FOLDER,
 		httpmsg.INS_URL_PATH_FILENAME,
 	)
@@ -95,11 +105,24 @@ var (
 	// BodyParamTypes includes body-related parameter types.
 	BodyParamTypes = NewInsertionPointTypeSet(
 		httpmsg.INS_PARAM_BODY,
-		httpmsg.INS_PARAM_NAME_BODY,
 		httpmsg.INS_PARAM_JSON,
 		httpmsg.INS_PARAM_XML,
 		httpmsg.INS_PARAM_XML_ATTR,
 		httpmsg.INS_PARAM_MULTIPART_ATTR,
+	)
+
+	// ParamNameTypes are the parameter-NAME points (rename ?id=1 → ?<payload>=1),
+	// opt-in: modules whose payload means something as a name (reflected
+	// XSS/SSTI, error-based SQLi) add it to their set.
+	ParamNameTypes = NewInsertionPointTypeSet(
+		httpmsg.INS_PARAM_NAME_URL,
+		httpmsg.INS_PARAM_NAME_BODY,
+	)
+
+	// EntireBodyTypes is the whole-body point (the body replaced by the
+	// payload), opt-in: document-level injections (XXE, deserialization,
+	// prototype pollution) add it to their set.
+	EntireBodyTypes = NewInsertionPointTypeSet(
 		httpmsg.INS_ENTIRE_BODY,
 	)
 

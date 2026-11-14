@@ -201,12 +201,14 @@ func (m *URLParamsModule) scanURLParameters(
 	// re-run AnalyzeRequest and re-copy the whole request buffer — the module's
 	// primary entry already enumerated the identical (raw, includeNested=true)
 	// set, so this hits a warm cache.
-	points, err := scanCtx.GetInsertionPoints(ctx.Request().Raw(), ctx.Request().ID(), true)
+	// The full set: this module also tests URL parameter NAMES, an opt-in
+	// point type (MISS-15).
+	points, err := scanCtx.GetAllInsertionPoints(ctx.Request().Raw(), ctx.Request().ID(), true)
 	if err != nil {
 		return nil, err
 	}
 
-	// Filter to only URL parameters
+	// Filter to only URL parameters (values and names)
 	urlPoints := filterURLParamPoints(points)
 	if len(urlPoints) == 0 {
 		return nil, nil

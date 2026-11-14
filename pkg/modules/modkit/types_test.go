@@ -25,9 +25,20 @@ func TestInsertionPointTypeSet_HighNumberedTypes(t *testing.T) {
 		if got := NewInsertionPointTypeSet(ty); !got.Contains(ty) {
 			t.Errorf("NewInsertionPointTypeSet(%d) does not Contain %d", ty, ty)
 		}
-		if !AllInsertionPointTypes.Contains(ty) {
-			t.Errorf("AllInsertionPointTypes does not Contain type %d", ty)
+		// The opt-in extras (names, entire body) are representable but not in
+		// AllInsertionPointTypes (MISS-15).
+		inAll := (AllInsertionPointTypes | ExtraInsertionPointTypes).Contains(ty)
+		if !inAll {
+			t.Errorf("AllInsertionPointTypes|ExtraInsertionPointTypes does not Contain type %d", ty)
 		}
+	}
+	for _, ty := range []httpmsg.InsertionPointType{httpmsg.INS_PARAM_NAME_URL, httpmsg.INS_PARAM_NAME_BODY, httpmsg.INS_ENTIRE_BODY} {
+		if AllInsertionPointTypes.Contains(ty) || URLParamTypes.Contains(ty) || BodyParamTypes.Contains(ty) {
+			t.Errorf("opt-in type %d must not be in the default presets", ty)
+		}
+	}
+	if !ParamNameTypes.Contains(httpmsg.INS_PARAM_NAME_URL) || !EntireBodyTypes.Contains(httpmsg.INS_ENTIRE_BODY) {
+		t.Error("opt-in presets must contain their types")
 	}
 
 	// Presets must actually contain the types they declare.

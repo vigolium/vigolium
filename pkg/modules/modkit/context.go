@@ -353,6 +353,24 @@ func (sc *ScanContext) IPProvider() InsertionPointProvider {
 	return sc.InsertionPoints
 }
 
+// AllInsertionPointProvider is the optional extension of InsertionPointProvider
+// that also returns the opt-in parameter-name and entire-body points.
+type AllInsertionPointProvider interface {
+	GetAllInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error)
+}
+
+// GetAllInsertionPoints is GetInsertionPoints plus the opt-in parameter-name
+// and entire-body points (MISS-15), for a whole-request module that tests
+// those itself.
+func (sc *ScanContext) GetAllInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {
+	if p, ok := sc.IPProvider().(AllInsertionPointProvider); ok {
+		return p.GetAllInsertionPoints(raw, requestID, includeNested)
+	}
+	return httpmsg.CreateInsertionPoints(raw, httpmsg.InsertionPointOptions{
+		IncludeNested: includeNested, ParamNames: true, EntireBody: true,
+	})
+}
+
 // GetInsertionPoints returns insertion points for a request, using the cached
 // provider if available and falling back to direct parsing otherwise.
 func (sc *ScanContext) GetInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {

@@ -107,7 +107,8 @@ func New() *Module {
 			ModuleSeverity,
 			ModuleConfidence,
 			modkit.ScanScopeInsertionPoint,
-			modkit.BodyParamTypes,
+			// The whole body can be the serialized object (opt-in, MISS-15).
+			modkit.BodyParamTypes|modkit.EntireBodyTypes,
 		),
 		rhm: dedup.LazyDefaultRHM("insecure_deserialization"),
 	}

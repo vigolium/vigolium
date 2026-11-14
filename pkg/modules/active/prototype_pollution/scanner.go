@@ -60,7 +60,8 @@ func New() *Module {
 		BaseActiveModule: modkit.NewBaseActiveModule(
 			ModuleID, ModuleName, ModuleDesc, ModuleShort, ModuleConfirmation,
 			ModuleSeverity, ModuleConfidence,
-			modkit.ScanScopeRequest, modkit.AllInsertionPointTypes,
+			// Document-level: declares the entire-body point it works on (MISS-15).
+			modkit.ScanScopeRequest, modkit.AllInsertionPointTypes|modkit.EntireBodyTypes,
 		),
 		rhm: dedup.LazyDefaultRHM("prototype_pollution"),
 	}

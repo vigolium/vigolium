@@ -136,7 +136,9 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 
 	// Cache lookup by request hash (same SHA-256 used by HttpRequest.ID()), through
 	// the same accessor the module-facing provider uses so both agree on the key.
-	allPoints, err := e.caches.ipCache.GetOrCompute(item.Request().Raw(), item.Request().ID(), true)
+	// The full set, opt-in name/entire-body points included: each module's
+	// allowed types decide (AllInsertionPointTypes excludes them — MISS-15).
+	allPoints, err := e.caches.ipCache.GetOrComputeAll(item.Request().Raw(), item.Request().ID(), true)
 	if err != nil {
 		zap.L().Debug("Failed to create insertion points", zap.Error(err))
 		return
@@ -177,7 +179,9 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 
 		for _, ip := range allPoints {
 			if !allowedTypes.Contains(ip.Type()) {
-				e.noteModuleSkip(module.ID(), SkipReasonIPType)
+				if !httpmsg.IsExtraInsertionPointType(ip.Type()) {
+					e.noteModuleSkip(module.ID(), SkipReasonIPType)
+				}
 				continue
 			}
 			if ipFilter := e.cfg.InsertionPointFilter; ipFilter != nil && !ipFilter(ip) {

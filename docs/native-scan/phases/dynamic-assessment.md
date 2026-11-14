@@ -45,8 +45,10 @@ Active modules inject payloads at specific locations in the request:
 | JSON values | Values within JSON request bodies |
 | XML values/attributes | Values and attributes in XML bodies |
 | URL path components | Folder and filename segments |
-| Parameter names | Parameter key names (URL and body) |
-| Entire body | Full request body replacement |
+| Parameter names | Parameter key names (URL and body) — opt-in, see below |
+| Entire body | Full request body replacement — opt-in, see below |
+
+Parameter-name and entire-body points are built for every request but handed only to modules that ask for them (`modkit.ParamNameTypes`, `modkit.EntireBodyTypes`); `AllInsertionPointTypes`, `URLParamTypes` and `BodyParamTypes` exclude them. Today the reflected XSS URL scanner, reflected SSTI and error-based SQLi test parameter names, and insecure deserialization, XXE and prototype pollution declare the entire body.
 
 Each insertion point provides `BuildRequest(payload)` to construct the modified request and `PayloadOffsets(payload)` to locate where the payload appears in the response.
 

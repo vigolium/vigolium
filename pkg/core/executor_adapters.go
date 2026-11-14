@@ -175,6 +175,11 @@ type executorIPProvider struct {
 	cache *InsertionPointCache
 }
 
+// GetAllInsertionPoints implements modkit.AllInsertionPointProvider.
+func (p *executorIPProvider) GetAllInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {
+	return p.cache.GetOrComputeAll(raw, requestID, includeNested)
+}
+
 func (p *executorIPProvider) GetInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {
 	// A nil cache is handled by GetOrCompute's nil receiver.
 	return p.cache.GetOrCompute(raw, requestID, includeNested)

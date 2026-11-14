@@ -48,7 +48,8 @@ func New() *Module {
 			ModuleSeverity,
 			ModuleConfidence,
 			modkit.ScanScopeInsertionPoint,
-			modkit.AllParamTypes,
+			// Parameter names reflect into templates too (opt-in, MISS-15).
+			modkit.AllParamTypes|modkit.ParamNameTypes,
 		),
 		result:   strconv.Itoa(primaryFirst * primaryLast),
 		payloads: buildPayloads(primaryFirst, primaryLast),
