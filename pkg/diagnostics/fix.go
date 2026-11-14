@@ -14,6 +14,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/audit/bin"
 	"github.com/vigolium/vigolium/pkg/cftbrowser"
+	"github.com/vigolium/vigolium/pkg/nucleitemplates"
 	"github.com/vigolium/vigolium/pkg/piolium"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -70,6 +71,9 @@ type fixableItem struct {
 	// script piped into a shell, or installs global agent tooling. It runs
 	// only with consent: named in --only, --yes, or a TTY confirmation.
 	VendorScript bool
+	// Refreshable items re-install when named in --only even if their check
+	// passes (`doctor --fix --only nuclei` refreshes the templates).
+	Refreshable bool
 }
 
 // FixOptions governs consent for VendorScript installs.
@@ -130,9 +134,10 @@ func ResolveFixKey(name string) string {
 func fixRegistry() []fixableItem {
 	return []fixableItem{
 		{
-			Key:    "nuclei-templates",
-			Label:  "Nuclei Templates",
-			Source: "git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git ~/nuclei-templates",
+			Key:         "nuclei-templates",
+			Label:       "Nuclei Templates",
+			Source:      "release archive from github.com/projectdiscovery/nuclei-templates (pinned by known_issue_scan.templates_version)",
+			Refreshable: true,
 			IsFailing: func(r *Report) bool {
 				return r.NucleiTemplates != nil && r.NucleiTemplates.Status != StatusOK
 			},
@@ -321,7 +326,7 @@ func RunFixesWith(ctx context.Context, report *Report, settings *config.Settings
 			key := item.ToolKey
 			isFailing = func(r *Report) bool { return toolFailing(r, key) }
 		}
-		if isFailing != nil && !isFailing(report) {
+		if isFailing != nil && !isFailing(report) && !(item.Refreshable && onlySet[item.Key]) {
 			continue
 		}
 
@@ -457,19 +462,20 @@ func fixChromium(ctx context.Context, _ *config.Settings) error {
 
 func fixNucleiTemplates(ctx context.Context, settings *config.Settings) error {
 	dir := nucleiTemplatesDir(settings)
-	// --quiet suppresses the "Cloning into…", "remote: …", and
-	// "Receiving/Resolving" progress chatter so `vigolium doctor --fix` and
-	// the first-run setup show a single success line. Real errors still go
-	// to stderr.
-	cmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--depth", "1",
-		"https://github.com/projectdiscovery/nuclei-templates.git", dir)
-	cmd.Stdout = fixOut
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git clone failed: %w", err)
+	pin := nucleitemplates.Pin{}
+	if settings != nil {
+		pin = nucleitemplates.Pin{Version: settings.KnownIssueScan.TemplatesVersion, SHA256: settings.KnownIssueScan.TemplatesSHA256}
 	}
+	m, err := installTemplates(ctx, dir, pin)
+	if err != nil {
+		return err
+	}
+	fixf("    nuclei-templates %s installed at %s (sha256 %s)\n", m.Version, config.ContractPath(dir), shortDigest(m.SHA256))
 	return nil
 }
+
+// installTemplates is nucleitemplates.Install, replaceable in tests.
+var installTemplates = nucleitemplates.Install
 
 // findNpm locates the npm binary on PATH. npm ships with Node, so unlike
 // bun there's no well-known fixed install location to fall back to.

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -21,6 +20,7 @@ import (
 	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/nucleitemplates"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 	"go.uber.org/zap"
@@ -561,11 +561,23 @@ const (
 // target; err is set on TemplatesFailed.
 type TemplatesProgress func(state, dir string, err error)
 
-// cloneTemplates runs the nuclei-templates git clone. A variable so tests can
-// exercise EnsureTemplates without a network fetch.
+// templatesPin is the release EnsureTemplates installs (SetTemplatesPin).
+var templatesPin nucleitemplates.Pin
+
+// SetTemplatesPin sets the nuclei-templates release (and archive digest) the
+// first-run install fetches; the runner sets it from known_issue_scan.
+func SetTemplatesPin(version, sha256 string) {
+	templatesPin = nucleitemplates.Pin{Version: version, SHA256: sha256}
+}
+
+// cloneTemplates installs nuclei-templates from the (pinned) release archive
+// over HTTPS — no git. A variable so tests can exercise EnsureTemplates
+// without a network fetch. The name predates the archive install.
 var cloneTemplates = func(ctx context.Context, dir string) ([]byte, error) {
-	return exec.CommandContext(ctx, "git", "clone", "--depth", "1",
-		"https://github.com/projectdiscovery/nuclei-templates.git", dir).CombinedOutput()
+	if _, err := nucleitemplates.Install(ctx, dir, templatesPin); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 // TemplatesDir resolves the directory nuclei templates load from: customDir
@@ -658,8 +670,8 @@ func EnsureTemplates(customDir string, onProgress TemplatesProgress) error {
 			detail = err.Error()
 		}
 		failure := fmt.Errorf("knownissuescan: nuclei templates not found at %s and auto-download failed: %s\n"+
-			"Install with: vigolium doctor --fix --only nuclei (or git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates.git %s)",
-			dir, detail, dir)
+			"Install with: vigolium doctor --fix --only nuclei (or unpack %s into %s)",
+			dir, detail, nucleitemplates.ArchiveURL(templatesPin.Version), dir)
 		report(TemplatesFailed, failure)
 		return failure
 	}

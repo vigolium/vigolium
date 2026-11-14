@@ -1,0 +1,85 @@
+name: vigolium scan
+description: Run a bounded, stateless vigolium native scan and upload SARIF to code scanning.
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  target:
+    description: URL to scan
+    required: true
+  fail-on:
+    description: Fail the job on a finding at or above this severity (info|low|medium|high|critical); also fails on partial coverage. Empty disables the gate.
+    required: false
+    default: high
+  max-time:
+    description: Total scan time budget (e.g. 15m)
+    required: false
+    default: 15m
+  args:
+    description: Extra arguments passed to `vigolium scan`
+    required: false
+    default: ""
+  templates-version:
+    description: nuclei-templates release to install (empty = latest)
+    required: false
+    default: ""
+  upload-sarif:
+    description: Upload the SARIF report to GitHub code scanning
+    required: false
+    default: "true"
+
+outputs:
+  sarif:
+    description: Path to the SARIF report
+    value: ${{ steps.scan.outputs.sarif }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install vigolium
+      shell: bash
+      run: |
+        curl -fsSL https://www.vigolium.com/install.sh | bash
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Install scan dependencies
+      shell: bash
+      env:
+        TEMPLATES_VERSION: ${{ inputs.templates-version }}
+      run: |
+        if [ -n "$TEMPLATES_VERSION" ]; then
+          vigolium config set known_issue_scan.templates_version "$TEMPLATES_VERSION"
+        fi
+        vigolium doctor --fix --only chrome,nuclei
+        vigolium doctor --for scan -S -t "${{ inputs.target }}"
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        XDG_CONFIG_HOME: ${{ runner.temp }}/vigolium-xdg
+        NUCLEI_CONFIG_DIR: ${{ runner.temp }}/vigolium-xdg/nuclei
+      run: |
+        out="${{ runner.temp }}/vigolium-report"
+        echo "sarif=${out}.sarif" >> "$GITHUB_OUTPUT"
+        gate=()
+        if [ -n "${{ inputs.fail-on }}" ]; then gate=(--fail-on "${{ inputs.fail-on }}"); fi
+        set +e
+        vigolium scan -S -t "${{ inputs.target }}" --scanning-max-duration "${{ inputs.max-time }}" \
+          --format sarif,jsonl -o "$out" "${gate[@]}" ${{ inputs.args }}
+        code=$?
+        set -e
+        echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+        exit 0
+
+    - name: Upload SARIF
+      if: ${{ inputs.upload-sarif == 'true' && always() }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif }}
+        category: vigolium
+
+    - name: Apply the gate
+      shell: bash
+      run: exit ${{ steps.scan.outputs.exit_code }}

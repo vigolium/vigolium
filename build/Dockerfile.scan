@@ -1,0 +1,55 @@
+# Scan image: the released vigolium CLI, Chromium and pinned nuclei-templates —
+# everything a one-off native scan needs, nothing an agent mode needs. Runs as
+# a non-root user, and keeps every writable path out of $HOME so a read-only
+# root filesystem works with `vigolium scan -S`.
+#
+#   docker build -f build/Dockerfile.scan \
+#     --build-arg TEMPLATES_VERSION=v10.2.4 --build-arg TEMPLATES_SHA256=<sha> \
+#     -t vigolium-scan .
+#   docker run --rm --read-only --tmpfs /tmp vigolium-scan \
+#     scan -S -t https://app.example --format sarif -o /tmp/out --fail-on high
+FROM debian:bookworm-slim
+
+ARG TEMPLATES_VERSION=""
+ARG TEMPLATES_SHA256=""
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl bash chromium dumb-init fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://www.vigolium.com/install.sh | bash \
+    && install -m 0755 /root/.local/bin/vigolium /usr/local/bin/vigolium
+
+RUN useradd --create-home --uid 10001 scanner
+
+# Templates are baked at a fixed path from the pinned release archive (no
+# git); scans read them in place.
+# The install stages next to the target and swaps it in, so the parent must
+# be writable by the build user.
+RUN mkdir -p /opt/vigolium && chown scanner /opt/vigolium
+
+USER scanner
+WORKDIR /home/scanner
+
+# Config the image ships: system Chromium, the baked templates, and the pin.
+RUN mkdir -p /home/scanner/.vigolium && printf '%s\n' \
+      'spidering:' \
+      '  browser_path: /usr/bin/chromium' \
+      'known_issue_scan:' \
+      "  templates_dir: /opt/vigolium/nuclei-templates" \
+      "  templates_version: \"${TEMPLATES_VERSION}\"" \
+      "  templates_sha256: \"${TEMPLATES_SHA256}\"" \
+      > /home/scanner/.vigolium/vigolium-configs.yaml \
+    && vigolium doctor --fix --only nuclei
+
+# Writable state goes to /tmp: the embedded nuclei/uncover libraries create
+# their config dirs at startup, and -S keeps everything else in scratch.
+ENV XDG_CONFIG_HOME=/tmp \
+    NUCLEI_CONFIG_DIR=/tmp/nuclei \
+    TMPDIR=/tmp \
+    CHROME_NO_SANDBOX=true \
+    CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage"
+
+ENTRYPOINT ["dumb-init", "--", "vigolium"]
+CMD ["doctor", "--for", "scan", "-S"]

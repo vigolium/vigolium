@@ -801,11 +801,21 @@ func checkSessionsDir(settings *config.Settings) *CheckResult {
 			Tip:     "Fix directory permissions on " + dir + " or set agent.sessions_dir to a writable path.",
 		}
 	}
-	return &CheckResult{
+	res := &CheckResult{
 		Status:  StatusOK,
 		Message: fmt.Sprintf("path=%s", config.ContractPath(dir)),
 		Details: details,
 	}
+	if m, err := ReadTemplatesMarker(dir); err == nil {
+		res.Message += fmt.Sprintf(", version=%s", m.Version)
+		if want := settings.KnownIssueScan.TemplatesVersion; want != "" && want != m.Version {
+			res.Tip = fmt.Sprintf("installed %s but known_issue_scan.templates_version pins %s — run `vigolium doctor --fix --only nuclei`", m.Version, want)
+		}
+	}
+	if age, ok := TemplatesAge(dir); ok && age > templatesStaleAge && res.Tip == "" {
+		res.Tip = fmt.Sprintf("templates are %d days old — refresh with `vigolium doctor --fix --only nuclei`", int(age.Hours()/24))
+	}
+	return res
 }
 
 // probeWritable verifies the given directory accepts a temp file. The probe is
