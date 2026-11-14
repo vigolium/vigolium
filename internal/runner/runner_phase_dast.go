@@ -375,6 +375,11 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		},
 		StatusInterval: 1 * time.Minute,
 	}
+	// One set of tech/WAF/content-class registries, param-finding registry and
+	// per-host claims for every round's executor (NEW-8): a detection, a
+	// confirmed parameter or a per-host run made in round 1 still holds in
+	// round 2.
+	baseExecutorCfg.SharePhaseState()
 	if oastService != nil {
 		baseExecutorCfg.OASTProvider = oastService
 		baseExecutorCfg.OASTService = oastService

@@ -303,11 +303,12 @@ func NewExecutor(
 		ipCache = NewInsertionPointCache(ipCacheSize)
 	}
 
-	// Bounded LRUs for the per-host run-once claims (size <= 0 is the only error
-	// lru.New returns, and perHostClaimCacheSize is a positive constant, so the
-	// ignored error is provably nil).
-	perHostActiveClaimed, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
-	perHostPassiveClaimed, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
+	// Bounded LRUs for the per-host run-once claims — the phase's shared ones
+	// when supplied (NEW-8), else this executor's own.
+	claims := cfg.HostClaims
+	if claims == nil {
+		claims = NewHostClaims()
+	}
 	storageHosts, _ := lru.New[string, struct{}](perHostClaimCacheSize)
 
 	e := &Executor{
@@ -328,8 +329,8 @@ func NewExecutor(
 		caches: scanCaches{
 			requestUUIDs:          newShardedMap(cfg.Workers),
 			ipCache:               ipCache,
-			perHostActiveClaimed:  perHostActiveClaimed,
-			perHostPassiveClaimed: perHostPassiveClaimed,
+			perHostActiveClaimed:  claims.active,
+			perHostPassiveClaimed: claims.passive,
 		},
 		pool: workerPool{
 			feedbackCh: make(chan *work.WorkItem, cfg.Workers*16),
@@ -411,13 +412,26 @@ func NewExecutor(
 	e.scanCtx.DeepScan = cfg.DeepScan
 	e.scanCtx.AllowRiskyPayloads = cfg.AllowRiskyPayloads
 	e.scanCtx.NoParamDedup = cfg.NoParamDedup
-	e.scanCtx.ParamFindings = &modkit.ParameterFindingRegistry{}
-	e.scanCtx.TechStack = modkit.NewTechRegistry()
-	e.scanCtx.TechStack.OnDetect = cfg.OnTechDetected
-	e.scanCtx.WAFStack = modkit.NewWAFRegistry()
-	e.scanCtx.ContentClass = modkit.NewContentClassRegistry()
-	for host, class := range cfg.ContentClassByHost {
-		e.scanCtx.ContentClass.Set(host, modkit.ContentClass(class))
+	// Registries: the phase-shared ones when supplied (NEW-8), else fresh.
+	e.scanCtx.ParamFindings = cfg.ParamFindings
+	if e.scanCtx.ParamFindings == nil {
+		e.scanCtx.ParamFindings = &modkit.ParameterFindingRegistry{}
+	}
+	e.scanCtx.TechStack = cfg.TechRegistry
+	if e.scanCtx.TechStack == nil {
+		e.scanCtx.TechStack = modkit.NewTechRegistry()
+		e.scanCtx.TechStack.OnDetect = cfg.OnTechDetected
+	}
+	e.scanCtx.WAFStack = cfg.WAFStack
+	if e.scanCtx.WAFStack == nil {
+		e.scanCtx.WAFStack = modkit.NewWAFRegistry()
+	}
+	e.scanCtx.ContentClass = cfg.ContentClass
+	if e.scanCtx.ContentClass == nil {
+		e.scanCtx.ContentClass = modkit.NewContentClassRegistry()
+		for host, class := range cfg.ContentClassByHost {
+			e.scanCtx.ContentClass.Set(host, modkit.ContentClass(class))
+		}
 	}
 
 	// Wire insertion point provider for module reuse of cached IPs

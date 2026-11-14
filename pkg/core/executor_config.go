@@ -2,6 +2,8 @@ package core
 
 import (
 	goruntime "runtime"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 	"sync/atomic"
 	"time"
 
@@ -193,6 +195,69 @@ type ExecutorConfig struct {
 	// fallback consulted by the content-class gate when a record's own
 	// Content-Type is indeterminate. Honors the same TechFilterDisabled switch.
 	ContentClassByHost map[string]string
+
+	// Phase-shared state (NEW-8). A multi-round phase builds one executor per
+	// feedback round; each used to start with empty registries, so round 2 had
+	// forgotten every tech-stack detection (and the tech gate let every gated
+	// module run everywhere), every confirmed parameter (param dedup restarted)
+	// and every per-host claim (per-host modules re-fired each round). When a
+	// field is non-nil the executor uses it instead of creating its own; the
+	// phase creates them once (see NewPhaseState). nil = executor-local, which
+	// is right for a single-Execute phase.
+	//
+	// A supplied TechRegistry keeps its own OnDetect (OnTechDetected is not
+	// applied to it), and a supplied ContentClass is not re-seeded from
+	// ContentClassByHost — the phase does both once when it creates them.
+	TechRegistry  *modkit.TechRegistry
+	WAFStack      *modkit.WAFRegistry
+	ParamFindings *modkit.ParameterFindingRegistry
+	ContentClass  *modkit.ContentClassRegistry
+	HostClaims    *HostClaims
+}
+
+// HostClaims holds the per-host run-once claims of ScanPerHost modules — one
+// (module, origin) entry per claimed pair, bounded LRUs. Shared across a
+// phase's executors via ExecutorConfig.HostClaims.
+type HostClaims struct {
+	active  *lru.Cache[hostClaimKey, struct{}]
+	passive *lru.Cache[hostClaimKey, struct{}]
+}
+
+// SharePhaseState fills every nil phase-shared field (TechRegistry, WAFStack,
+// ParamFindings, ContentClass, HostClaims) with a fresh instance, so every
+// executor built from copies of this config shares them. The tech registry
+// gets OnTechDetected as its OnDetect and the content-class registry is seeded
+// from ContentClassByHost, once, here. Call it on the phase's base config
+// before the first round.
+func (c *ExecutorConfig) SharePhaseState() {
+	if c.TechRegistry == nil {
+		c.TechRegistry = modkit.NewTechRegistry()
+		c.TechRegistry.OnDetect = c.OnTechDetected
+	}
+	if c.WAFStack == nil {
+		c.WAFStack = modkit.NewWAFRegistry()
+	}
+	if c.ParamFindings == nil {
+		c.ParamFindings = &modkit.ParameterFindingRegistry{}
+	}
+	if c.ContentClass == nil {
+		c.ContentClass = modkit.NewContentClassRegistry()
+		for host, class := range c.ContentClassByHost {
+			c.ContentClass.Set(host, modkit.ContentClass(class))
+		}
+	}
+	if c.HostClaims == nil {
+		c.HostClaims = NewHostClaims()
+	}
+}
+
+// NewHostClaims returns empty claim caches.
+func NewHostClaims() *HostClaims {
+	// size <= 0 is the only error lru.New returns; perHostClaimCacheSize is a
+	// positive constant.
+	a, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
+	p, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
+	return &HostClaims{active: a, passive: p}
 }
 
 // defaultOutstandingItemsPerWorker sizes MaxOutstandingItems when unset.
