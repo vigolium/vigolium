@@ -89,7 +89,8 @@ func (e *Executor) feedItems(ctx context.Context, itemCh chan<- *work.WorkItem) 
 	}
 }
 
-// drainFeedback non-blocking drains all pending feedback items into itemCh.
+// drainFeedback non-blocking drains all pending feedback items into itemCh,
+// then a batch of the feeder's overflow list.
 func (e *Executor) drainFeedback(ctx context.Context, itemCh chan<- *work.WorkItem) {
 	for {
 		select {
@@ -98,9 +99,27 @@ func (e *Executor) drainFeedback(ctx context.Context, itemCh chan<- *work.WorkIt
 				return
 			}
 		default:
+			e.drainFeedbackOverflow(ctx, itemCh)
 			return
 		}
 	}
+}
+
+// feedbackOverflowBatch is how many overflow items one drain pass moves, so
+// the source pump keeps interleaving its own items with discovered ones.
+const feedbackOverflowBatch = 256
+
+// drainFeedbackOverflow sends one batch of overflow items to itemCh. Items a
+// cancelled send leaves behind are counted unacked.
+func (e *Executor) drainFeedbackOverflow(ctx context.Context, itemCh chan<- *work.WorkItem) bool {
+	batch := e.pool.feeder.takeOverflow(feedbackOverflowBatch)
+	for i, it := range batch {
+		if !e.sendItem(ctx, it, itemCh) {
+			e.unacked.Add(int64(len(batch) - i - 1))
+			return false
+		}
+	}
+	return true
 }
 
 // sendItem applies scope/static filters and sends the item to itemCh.

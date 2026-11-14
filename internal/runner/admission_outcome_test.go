@@ -139,3 +139,14 @@ func TestNoteExecutionAllScopeRejected(t *testing.T) {
 		t.Errorf("Reasons = %v: a run that reached something is not out of scope", out.Reasons)
 	}
 }
+
+// Discovered requests dropped past the feedback overflow cap are a coverage
+// gap: the phase is partial with feedback_dropped (MISS-32).
+func TestNoteExecutionFeedbackDropped(t *testing.T) {
+	tr := newLedger(string(PhaseDynamicAssessment))
+	tr.noteExecution(core.ExecutionReport{Responded: 1, FeedbackDropped: 2})
+	out := tr.finish(context.Background(), nil)
+	if !reflect.DeepEqual(out.Reasons, []string{database.ReasonFeedbackDropped}) {
+		t.Errorf("Reasons = %v, want [feedback_dropped]", out.Reasons)
+	}
+}

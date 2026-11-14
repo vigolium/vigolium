@@ -493,6 +493,9 @@ func (t *phaseTracker) noteExecution(rep core.ExecutionReport) {
 	if rep.DeferredFlushSkipped {
 		t.markPartial(database.ReasonDeferredFlushSkipped)
 	}
+	if rep.FeedbackDropped > 0 {
+		t.markPartial(database.ReasonFeedbackDropped)
+	}
 	t.noteQuarantineSkips(rep)
 	// Every item scope looked at was refused and none got an answer: the
 	// executor ran and covered nothing. For CLI targets the preflight admission

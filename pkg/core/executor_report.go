@@ -48,6 +48,10 @@ type ExecutionReport struct {
 	// QuarantinedHosts breaks SkippedQuarantined down per host:port, sorted
 	// by host and capped.
 	QuarantinedHosts []QuarantinedHost
+	// FeedbackDropped counts discovered requests modules fed back that were
+	// dropped because the feedback overflow list was full. A coverage gap the
+	// runner reports as feedback_dropped.
+	FeedbackDropped int64
 }
 
 // Clean reports whether the run covered its whole input with nothing abandoned.
@@ -68,6 +72,7 @@ func (e *Executor) Report() ExecutionReport {
 	rep.Unacked = e.unacked.Load()
 	rep.ScopeRejected = e.scopeRejected.Load() - e.reportBase.scopeRejected
 	rep.Responded = e.responded.Load() - e.reportBase.responded
+	rep.FeedbackDropped = e.FeedbackDropped() - e.reportBase.feedbackDropped
 	e.quarantineReport(&rep)
 	return rep
 }

@@ -108,6 +108,7 @@ const (
 	ReasonPhaseError           = "phase_error"            // a phase failed and the scan carried on without it
 	ReasonExtensionsAllFailed  = "extensions_all_failed"  // every requested extension failed to load or run
 	ReasonAbandoned            = "abandoned"              // the scan's process died without finalizing; set by `log ls --reap`
+	ReasonFeedbackDropped      = "feedback_dropped"       // discovered requests were dropped past the feedback overflow cap
 
 	// Stop reasons: the scan did nothing useful and ends with exit 1.
 	ReasonNoTargetsInScope   = "no_targets_in_scope"  // scope admitted zero targets
@@ -121,6 +122,7 @@ const (
 	LimitCDXMaxRows              = "cdx_max_rows"               // an archive (CDX) query hit its row cap
 	LimitSitemapCap              = "sitemap_cap"                // sitemap expansion hit its URL cap
 	LimitResponsesWhileLoggedOut = "responses_while_logged_out" // responses observed while the session was logged out
+	LimitThrottled               = "throttled"                  // module calls ran while the host throttled them (429/503) and found nothing
 )
 
 // OutcomeCodes lists every reason and limit code exactly once. It exists so a
@@ -152,6 +154,7 @@ var OutcomeCodes = []string{
 	ReasonPhaseError,
 	ReasonExtensionsAllFailed,
 	ReasonAbandoned,
+	ReasonFeedbackDropped,
 	ReasonNoTargetsInScope,
 	ReasonNoTargetsReachable,
 	LimitTargetBudget,
@@ -162,6 +165,7 @@ var OutcomeCodes = []string{
 	LimitCDXMaxRows,
 	LimitSitemapCap,
 	LimitResponsesWhileLoggedOut,
+	LimitThrottled,
 }
 
 // ResolvePhaseState turns the three things a phase tracker observes into a state.

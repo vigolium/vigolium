@@ -197,6 +197,8 @@ func TestOutcomeCodeValuesAreStable(t *testing.T) {
 		"cdx_max_rows":               LimitCDXMaxRows,
 		"sitemap_cap":                LimitSitemapCap,
 		"responses_while_logged_out": LimitResponsesWhileLoggedOut,
+		"feedback_dropped":           ReasonFeedbackDropped,
+		"throttled":                  LimitThrottled,
 	}
 	for literal, constant := range want {
 		if literal != constant {

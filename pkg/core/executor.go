@@ -122,7 +122,7 @@ type Executor struct {
 
 	// reportBase holds the cumulative counters' values at the start of the
 	// current Execute, so Report() describes this run only (see Execute).
-	reportBase struct{ responded, scopeRejected int64 }
+	reportBase struct{ responded, scopeRejected, feedbackDropped int64 }
 
 	// Database storage (optional)
 	repo          *database.Repository
@@ -460,6 +460,7 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 	// executor's lifetime; the report's copies are this run's share.
 	e.reportBase.responded = e.responded.Load()
 	e.reportBase.scopeRejected = e.scopeRejected.Load()
+	e.reportBase.feedbackDropped = e.FeedbackDropped()
 	e.quarantine.reset()
 
 	// Observe server-error probe responses so a leaked database error surfaced by
@@ -618,6 +619,15 @@ drainLoop:
 				lastProgress = time.Now() // a worker completed an item
 			}
 			prevInFlight = cur
+			// Overflowed feedback waits behind the channel; move a batch.
+			if e.pool.feeder.overflowLen() > 0 {
+				idleSince = time.Time{}
+				lastProgress = time.Now()
+				if !e.drainFeedbackOverflow(ctx, itemCh) {
+					break drainLoop
+				}
+				continue
+			}
 			// Parked items go back once their host drains; with nothing in
 			// flight no host can drain further, so send them all.
 			if e.pool.deferred.len() > 0 {

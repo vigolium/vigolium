@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -32,20 +33,25 @@ func (u *repoSurfaceScoreUpdater) UpdateSurfaceScores(ctx context.Context, score
 	return u.repo.UpdateSurfaceScores(ctx, scores)
 }
 
-// feedbackBlockTimeout bounds how long Feed will wait for room in a full feedback
-// channel before dropping. Kept short so a producer (a worker mid-processResults)
-// can never stall the pipeline for long — even in the pathological case where
-// every worker feeds at once, the timeout guarantees forward progress — while
-// still absorbing normal discovery bursts that a purely non-blocking send would
-// drop outright.
-const feedbackBlockTimeout = 100 * time.Millisecond
+// defaultFeedbackOverflowCap bounds the feeder's overflow list. Discovered
+// requests past the channel wait there instead of being dropped; only past this
+// many are they dropped (and the phase is marked partial: feedback_dropped).
+const defaultFeedbackOverflowCap = 50000
 
-// executorFeeder implements modkit.RequestFeeder via a bounded-blocking send:
-// discovered work is enqueued immediately when there's room, waited on briefly
-// when the channel is momentarily full, and only dropped (counted + rate-limited
-// warned) under sustained saturation.
+// executorFeeder implements modkit.RequestFeeder. Discovered work goes to the
+// feedback channel when there is room, otherwise to a bounded overflow list
+// (deduplicated by request id) that the executor drains after the channel. A
+// producer never waits: the old 100ms bounded-blocking send dropped discovered
+// URLs whenever a burst outlasted it, and nothing reported the loss (MISS-32).
 type executorFeeder struct {
-	ch       chan *work.WorkItem
+	ch chan *work.WorkItem
+	// overflowCap overrides defaultFeedbackOverflowCap (tests).
+	overflowCap int
+
+	mu       sync.Mutex
+	overflow []*work.WorkItem
+	ids      map[string]struct{}
+
 	dropped  atomic.Int64
 	lastWarn atomic.Int64
 }
@@ -59,29 +65,83 @@ func (f *executorFeeder) Feed(rr *httpmsg.HttpRequestResponse) bool {
 	default:
 	}
 
-	// Channel momentarily full: wait briefly for the feeder to drain rather than
-	// dropping discovered URLs outright. Bounded by feedbackBlockTimeout so this
-	// can never wedge the pipeline.
-	timer := time.NewTimer(feedbackBlockTimeout)
-	defer timer.Stop()
-	select {
-	case f.ch <- item:
-		return true
-	case <-timer.C:
-		f.dropped.Add(1)
-		// Rate-limited warning: log at most once every 5 seconds.
-		now := time.Now().Unix()
-		if last := f.lastWarn.Load(); now-last >= 5 {
-			if f.lastWarn.CompareAndSwap(last, now) {
-				zap.L().Warn("Feedback channel saturated, discovered URLs dropped",
-					zap.Int64("total_dropped", f.dropped.Load()))
-			}
-		}
-		return false
+	id := ""
+	if rr != nil && rr.Request() != nil {
+		id = rr.Request().ID()
 	}
+	limit := f.overflowCap
+	if limit <= 0 {
+		limit = defaultFeedbackOverflowCap
+	}
+	f.mu.Lock()
+	if id != "" {
+		if _, dup := f.ids[id]; dup {
+			f.mu.Unlock()
+			return true // already waiting in the overflow list
+		}
+	}
+	if len(f.overflow) < limit {
+		f.overflow = append(f.overflow, item)
+		if id != "" {
+			if f.ids == nil {
+				f.ids = make(map[string]struct{})
+			}
+			f.ids[id] = struct{}{}
+		}
+		f.mu.Unlock()
+		return true
+	}
+	f.mu.Unlock()
+
+	f.dropped.Add(1)
+	// Rate-limited warning: log at most once every 5 seconds.
+	now := time.Now().Unix()
+	if last := f.lastWarn.Load(); now-last >= 5 {
+		if f.lastWarn.CompareAndSwap(last, now) {
+			zap.L().Warn("Feedback overflow full, discovered URLs dropped",
+				zap.Int64("total_dropped", f.dropped.Load()))
+		}
+	}
+	return false
 }
 
-// Dropped returns the total number of feedback items dropped due to channel capacity.
+// takeOverflow removes and returns up to n overflow items (all when n <= 0).
+func (f *executorFeeder) takeOverflow(n int) []*work.WorkItem {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.overflow) == 0 {
+		return nil
+	}
+	if n <= 0 || n > len(f.overflow) {
+		n = len(f.overflow)
+	}
+	out := make([]*work.WorkItem, n)
+	copy(out, f.overflow[:n])
+	rest := copy(f.overflow, f.overflow[n:])
+	clear(f.overflow[rest:])
+	f.overflow = f.overflow[:rest]
+	for _, it := range out {
+		if it.Request != nil && it.Request.Request() != nil {
+			delete(f.ids, it.Request.Request().ID())
+		}
+	}
+	return out
+}
+
+// overflowLen reports how many items wait in the overflow list.
+func (f *executorFeeder) overflowLen() int {
+	if f == nil {
+		return 0
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.overflow)
+}
+
+// Dropped returns the total number of feedback items dropped past the overflow cap.
 func (f *executorFeeder) Dropped() int64 {
 	return f.dropped.Load()
 }
