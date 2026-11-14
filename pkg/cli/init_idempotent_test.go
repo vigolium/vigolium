@@ -12,7 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/diagnostics"
 )
 
-// TestInstallCoreDeps_FailsNotReady is RUN-7: an init whose downloads failed
+// TestInstallCoreDeps_FailsNotReady: an init whose downloads failed
 // must not report success.
 func TestInstallCoreDeps_FailsNotReady(t *testing.T) {
 	marker := stageCoreDeps(t, coreDepState{chromeMissing: true, nucleiMissing: true})

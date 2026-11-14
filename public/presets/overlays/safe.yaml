@@ -9,7 +9,7 @@ scanning_pace:
 
 scope:
   cli_origin_mode: strict
-  # Read-only traffic policy (Track A's types.TrafficPolicy reads it): module,
+  # Read-only traffic policy (types.TrafficPolicy reads it): module,
   # discovery and browser traffic limited to these methods.
   methods:
     - GET

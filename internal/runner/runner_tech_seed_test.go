@@ -12,7 +12,7 @@ import (
 
 // The DA tech registry is seeded from the fingerprint phase's stored host
 // facts: newest observation per endpoint, medium confidence or better, this
-// project only, keyed like RegistryHostKey (MISS-21 (e)).
+// project only, keyed like RegistryHostKey.
 func TestSeedTechRegistryFromStoredFacts(t *testing.T) {
 	repo, _ := newHarvestTestRepo(t)
 	ctx := context.Background()

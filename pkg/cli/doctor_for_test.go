@@ -8,7 +8,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/diagnostics"
 )
 
-// TestDoctorFor is RUN-5: --for scopes the verdict and its exit code; an
+// TestDoctorFor: --for scopes the verdict and its exit code; an
 // unknown purpose is a usage error (exit 2).
 func TestDoctorFor(t *testing.T) {
 	home := t.TempDir()

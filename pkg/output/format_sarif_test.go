@@ -207,8 +207,8 @@ func TestSARIFWebRequestAndResponseParsed(t *testing.T) {
 	assert.Equal(t, 500, res.WebResponse.StatusCode)
 	assert.Equal(t, "Internal Server Error", res.WebResponse.ReasonPhrase)
 	// Repeated headers are joined, not last-wins: dropping a Set-Cookie loses
-	// evidence the finding may rest on. Values are redacted by default
-	// (SAFE-12); names survive.
+	// evidence the finding may rest on. Values are redacted by default;
+	// names survive.
 	assert.Equal(t, "a=<redacted>, b=<redacted>", res.WebResponse.Headers["Set-Cookie"])
 	assert.Equal(t, "SQL syntax error", res.WebResponse.Body.Text)
 }

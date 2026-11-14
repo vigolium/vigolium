@@ -11,20 +11,20 @@ import (
 	"github.com/vigolium/vigolium/pkg/nucleitemplates"
 )
 
-// fakeClone replaces the git clone for one test; mkdir decides whether the
+// fakeClone replaces the templates install for one test; mkdir decides whether the
 // "clone" creates the directory (success) or fails.
 func fakeClone(t *testing.T, mkdir bool) *int {
 	t.Helper()
 	calls := 0
-	orig := cloneTemplates
-	cloneTemplates = func(_ context.Context, dir string, _ nucleitemplates.Pin) ([]byte, error) {
+	orig := installTemplates
+	installTemplates = func(_ context.Context, dir string, _ nucleitemplates.Pin) ([]byte, error) {
 		calls++
 		if !mkdir {
 			return []byte("fatal: unable to access"), errors.New("exit status 128")
 		}
 		return nil, os.MkdirAll(dir, 0o755)
 	}
-	t.Cleanup(func() { cloneTemplates = orig })
+	t.Cleanup(func() { installTemplates = orig })
 	return &calls
 }
 

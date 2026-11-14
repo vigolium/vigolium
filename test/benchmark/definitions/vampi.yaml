@@ -135,7 +135,7 @@ test_cases:
     modules: ["xss-light-url-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
-    soft_reason: "JSON body points get plain XSS payloads only once the xss_light body scanner lands (MISS-17)"
+    soft_reason: "JSON body points get plain XSS payloads only once the xss_light body scanner lands"
     min_findings: 1
     scan_mode: active
     description: "XSS in user registration endpoint JSON parameters"

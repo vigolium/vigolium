@@ -27,8 +27,8 @@ func resolveScanInputFormat() string {
 	return inputFormat
 }
 
-// deriveFileInputScope gives a file-input scan with no -t a host scope
-// (SAFE-4). Without one the scope-origin index was empty, which admits every
+// deriveFileInputScope gives a file-input scan with no -t a host scope.
+// Without one the scope-origin index was empty, which admits every
 // host: `scan -i capture.har` scanned — and ran nuclei against — every
 // third-party host in the capture, session headers attached.
 //
@@ -79,7 +79,7 @@ func deriveFileInputScope(settings *config.Settings, opts *types.Options) {
 }
 
 // specFetchClient is the client a spec URL is fetched with: through --proxy
-// when one is set (SAFE-11), else nil (the loader's proxy-environment client).
+// when one is set, else nil (the loader's proxy-environment client).
 func specFetchClient(proxy string) *http.Client {
 	if proxy == "" {
 		return nil
@@ -91,7 +91,7 @@ func specFetchClient(proxy string) *http.Client {
 	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(u)}}
 }
 
-// fileInputScope is the scope an input file derives (SAFE-4): its primary
+// fileInputScope is the scope an input file derives: its primary
 // host for a capture or spec, every host for a target list or a spec scanned
 // with --spec-url. format is the parser's format before content detection;
 // census is the per-host record count. Empty when nothing can be derived.
@@ -122,7 +122,7 @@ func fileInputScope(path, format string, formatExplicit, specURL bool) (scope []
 }
 
 // ingestScanScope is the scope `ingest --scan-on-receive` scans under when no
-// -t names one (SAFE-4): derived from the ingested file, unless the origin
+// -t names one: derived from the ingested file, unless the origin
 // mode is "all" or the input is stdin / a URL.
 func ingestScanScope(settings *config.Settings) ([]string, map[string]int) {
 	in := ingestOpts.Input

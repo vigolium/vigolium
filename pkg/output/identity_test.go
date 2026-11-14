@@ -21,7 +21,7 @@ func timingEvent(desc, url string) *ResultEvent {
 	}
 }
 
-// TestIdentity_ProseDoesNotChangeIdentity is RES-2b: a re-detection whose
+// TestIdentity_ProseDoesNotChangeIdentity: a re-detection whose
 // description carries a different measured delay is the same finding.
 func TestIdentity_ProseDoesNotChangeIdentity(t *testing.T) {
 	a := timingEvent("delayed 5012ms", "https://app.test/run?cmd=sleep%205")

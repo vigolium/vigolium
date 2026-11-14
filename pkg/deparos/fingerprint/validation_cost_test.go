@@ -15,7 +15,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/deparos/responsechain"
 )
 
-// ECON-8: an unmatched hit on a clean directory costs the two decisive probes
+// An unmatched hit on a clean directory costs the two decisive probes
 // (Prefix, Middle), not four; the next hit in the same directory and extension
 // within the TTL costs one.
 func TestValidationProbeBudget(t *testing.T) {

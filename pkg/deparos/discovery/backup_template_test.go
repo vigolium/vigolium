@@ -26,7 +26,7 @@ func TestExpandBackupTemplate(t *testing.T) {
 	}
 }
 
-// MISS-6: the default variant set reaches x.php~ and x.bak, which appending
+// The default variant set reaches x.php~ and x.bak, which appending
 // every variant after a dot never produced.
 func TestExtensionVariantTask_DefaultTemplates(t *testing.T) {
 	cfg := factoryTestConfig()

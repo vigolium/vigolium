@@ -18,10 +18,10 @@ const (
 	policySourceIntensity    = "intensity"     // the intensity default (login attempts only)
 	policySourceSubmitForms  = "submit_forms"  // login default withdrawn because submits are denied
 	policySourceEditFields   = "edit_fields"   // upload withdrawn because field edits are denied
-	policySourceMethods      = "scope.methods" // withdrawn by the traffic policy (SAFE-8)
+	policySourceMethods      = "scope.methods" // withdrawn by the traffic policy
 )
 
-// applyTrafficPolicy withdraws what the scan's traffic policy forbids (SAFE-8):
+// applyTrafficPolicy withdraws what the scan's traffic policy forbids:
 // a read-only scope.methods means no form submission, account creation,
 // crawler login attempts or uploads, whatever spidering.interaction says.
 func (rp *resolvedBrowserPolicy) applyTrafficPolicy(tp *types.TrafficPolicy) {

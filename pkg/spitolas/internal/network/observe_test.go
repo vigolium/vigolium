@@ -2,7 +2,7 @@ package network
 
 import "testing"
 
-// MISS-26: only in-scope document/XHR/fetch responses reach OnResponse.
+// Only in-scope document/XHR/fetch responses reach OnResponse.
 func TestObserveResponseFilter(t *testing.T) {
 	var seen []string
 	c := &Capture{

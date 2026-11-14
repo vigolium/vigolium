@@ -18,7 +18,7 @@ import (
 var (
 	reportMaxBodyBytes = output.DefaultMarkdownMaxBodyBytes
 	reportPDFTimeout   time.Duration
-	// reportNoRedact is --no-redact (SAFE-12): keep credentials in shareable
+	// reportNoRedact is --no-redact: keep credentials in shareable
 	// report evidence.
 	reportNoRedact bool
 )

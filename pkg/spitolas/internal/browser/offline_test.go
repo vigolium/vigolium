@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// SAFE-11: --offline drops every download rung (Chrome for Testing download,
+// --offline drops every download rung (Chrome for Testing download,
 // rod auto-download); cached and system browsers stay.
 func TestOfflineDropsDownloadCandidates(t *testing.T) {
 	SetOffline(true)

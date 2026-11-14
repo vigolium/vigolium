@@ -192,7 +192,7 @@ func TestResolvedPaceTableOmitsUnenforcedFields(t *testing.T) {
 	if entry.Concurrency != 3 {
 		t.Errorf("concurrency = %d, want 3", entry.Concurrency)
 	}
-	// MISS-35: the known-issue scan honours only an EXPLICIT rate (section or
+	// The known-issue scan honours only an EXPLICIT rate (section or
 	// typed --rate-limit); the untyped global default no longer overrides its
 	// own conservative 20 rps.
 	if entry.RateLimit != config.KnownIssueScanDefaultRateLimit {

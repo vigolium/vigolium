@@ -191,7 +191,7 @@ type Scope struct {
 	PathInclude  []string `json:"path_include"`
 	PathExclude  []string `json:"path_exclude"`
 	// ScopeTargets are scope-only targets derived from a file input with no
-	// -t (SAFE-4): the scope-origin index is built from them, but they seed
+	// -t: the scope-origin index is built from them, but they seed
 	// nothing.
 	ScopeTargets []string `json:"scope_targets,omitempty"`
 	// InputHosts is the input file's per-host record census, each host with

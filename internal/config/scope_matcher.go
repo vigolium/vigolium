@@ -167,7 +167,7 @@ func buildOriginIndex(targets []originTarget, mode string) originIndex {
 }
 
 // minRelaxedKeywordLen is the shortest registrable label relaxed mode will
-// substring-match (SAFE-5).
+// substring-match.
 const minRelaxedKeywordLen = 4
 
 var shortKeywordWarned sync.Map
@@ -505,7 +505,7 @@ func matchGlob(value string, rule ScopeRule) bool {
 }
 
 // matchPathGlob is matchGlob for the path rule: the query and fragment are
-// cut off and "*" crosses "/" (pathglob, SAFE-6).
+// cut off and "*" crosses "/" (pathglob).
 func matchPathGlob(path string, rule ScopeRule) bool {
 	return evalPathGlob(path, rule) == globPass
 }
@@ -800,7 +800,7 @@ func (m *ScopeMatcher) hostMatchesOrigin(host string) bool {
 		// strict, and anything unrecognised: only the exact-host set above
 		// admits. ResolveCLIOriginMode never yields an unknown mode; failing
 		// closed here keeps a hand-built matcher from admitting every host the
-		// way the old default arm did (SAFE-5).
+		// way the old default arm did.
 		return false
 	}
 

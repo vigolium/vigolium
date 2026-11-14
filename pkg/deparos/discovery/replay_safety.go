@@ -85,11 +85,10 @@ func (p ReplaySafety) AllowsFact(fact *jstangle.HTTPRequestFact) bool {
 }
 
 // AllowsForm reports whether the policy permits submitting form during
-// discovery (SAFE-7). Forms used to be sent with only scope and dedup checks,
-// with session headers attached. A GET form needs read-only or above; any
+// discovery, where it is sent with session headers attached. A GET form needs read-only or above; any
 // other method needs state-changing. Never, under any policy: a form with a
 // password input (authentication is the login flow's job), a form whose
-// _method override names DELETE/PUT/PATCH, or one whose action, name, id,
+// method override field names DELETE/PUT/PATCH, or one whose action, name, id,
 // class or submit label reads as destructive (pkg/safety).
 func (p ReplaySafety) AllowsForm(method string, form *spider.FormRequest) bool {
 	return p.FormWithheldReason(method, form) == ""

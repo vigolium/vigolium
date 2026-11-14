@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestScanSummaryTail is RUN-10: the human summary names what the scan wrote
+// TestScanSummaryTail: the human summary names what the scan wrote
 // (Report:, with the file), where it stored results (Stored:) and what to run
 // next (Next:), and the -j fields carry the same artifacts and argv.
 func TestScanSummaryTail(t *testing.T) {

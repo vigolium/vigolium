@@ -77,7 +77,7 @@ func tierRunner(t *testing.T, repo *database.Repository, scanUUID string) (*Runn
 	return r, infra, cfg
 }
 
-// Tiered passes (ECON-4): under a deadline the slow tier cannot meet, the
+// Tiered passes: under a deadline the slow tier cannot meet, the
 // cheap tier still covers every record, because it runs across all records
 // first instead of record-major alongside the slow module.
 func TestTieredRoundCoversCheapTierFirst(t *testing.T) {
@@ -106,7 +106,7 @@ func TestTieredRoundCoversCheapTierFirst(t *testing.T) {
 	}
 }
 
-// Resume (ECON-4): a second run of the same scan skips every record whose
+// Resume: a second run of the same scan skips every record whose
 // tier-0 work the ledger records as done — the cheap module runs 0 times.
 func TestTieredRoundResumeSkipsDoneWork(t *testing.T) {
 	repo, _ := newHarvestTestRepo(t)

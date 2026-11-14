@@ -23,7 +23,7 @@ func breakerRC(t *testing.T, status int, ct, body string) *responsechain.Respons
 	return rc
 }
 
-// MISS-1: ordinary 404s under /api must not trip the prefix breaker — brute-
+// Ordinary 404s under /api must not trip the prefix breaker — brute-
 // forcing /api/ on a server that answers 404 for misses sends the whole list.
 // A uniform soft-403 subtree still trips.
 func TestObservePrefixBreakerSkipsHardMisses(t *testing.T) {

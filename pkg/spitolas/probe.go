@@ -401,7 +401,7 @@ func ProbeURL(ctx context.Context, cfg ProbeConfig) (res *ProbeResult, err error
 		}
 	}
 	if len(cfg.Headers) > 0 {
-		// Per-request credential routing (SAFE-3): the headers ride only on
+		// Per-request credential routing: the headers ride only on
 		// requests to the probed host and its subdomains, never on the
 		// third-party subresources the page loads.
 		probeHost := ""

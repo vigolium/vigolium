@@ -2,7 +2,7 @@ package database
 
 import "testing"
 
-// SAFE-6: database scope path rules ignore the query and "*" crosses "/".
+// Database scope path rules ignore the query and "*" crosses "/".
 func TestScopeEvaluator_PathGlob(t *testing.T) {
 	e := NewScopeEvaluator([]*Scope{
 		{Enabled: true, RuleType: "exclude", PathPattern: "/logout"},

@@ -10,7 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
-// SAFE-12: the same finding saved by two scans fires the new-finding callback
+// The same finding saved by two scans fires the new-finding callback
 // once — a re-scan no longer re-notifies known findings.
 func TestFindingWriter_OnInsertedOnlyForNewFindings(t *testing.T) {
 	db := newTestDB(t)

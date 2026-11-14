@@ -277,7 +277,7 @@ func TestApplyIntensityAndProfile(t *testing.T) {
 	})
 
 	t.Run("built-in profile falls back to the embedded copy", func(t *testing.T) {
-		// RUN-7: a home whose profiles directory is empty (a mounted config,
+		// A home whose profiles directory is empty (a mounted config,
 		// no init) still resolves --intensity quick from the embed.
 		s, opts := config.DefaultSettings(), types.DefaultOptions()
 		s.ScanningStrategy.ProfilesDir = t.TempDir()

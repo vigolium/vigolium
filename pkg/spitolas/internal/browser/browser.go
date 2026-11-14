@@ -413,7 +413,7 @@ func buildBrowserCandidates(ctx context.Context, goos, goarch, configPath string
 	// 4. Chrome for Testing — a previously cached copy (no network).
 	add("Chrome for Testing (cached)", cftCandidate(cftbrowser.FindCachedBrowser))
 
-	// --offline (SAFE-11): no download rungs at all — a missing browser fails
+	// --offline: no download rungs at all — a missing browser fails
 	// with the install hint instead of fetching one.
 	if offlineMode.Load() {
 		return cands
@@ -1348,7 +1348,7 @@ func WaitContext(ctx context.Context, timeout time.Duration) (context.Context, c
 	return ctx, func() {}
 }
 
-// offlineMode drops the browser download rungs (SAFE-11, --offline).
+// offlineMode drops the browser download rungs (--offline).
 var offlineMode atomic.Bool
 
 // SetOffline turns the browser download fallbacks off (true) or on.
@@ -1359,7 +1359,7 @@ func Offline() bool { return offlineMode.Load() }
 
 // PopupURLs lists the URLs of page targets opened by p (window.open /
 // target=_blank) and still open, after giving each up to wait to load so its
-// traffic is captured before CloseOtherWindows closes it (MISS-29a). Popups
+// traffic is captured before CloseOtherWindows closes it. Popups
 // used to be closed ~200ms after the click, their traffic lost.
 func (b *Browser) PopupURLs(p *Page, wait time.Duration) []string {
 	if b == nil || p == nil || p.rodPage == nil {

@@ -35,7 +35,7 @@ func snapshotTree(t *testing.T, root string) map[string]bool {
 	return out
 }
 
-// TestStatelessScanWritesNothingToHome is RUN-3: a -S scan adds nothing under
+// TestStatelessScanWritesNothingToHome: a -S scan adds nothing under
 // HOME but the nuclei/uncover package-init directories, and still completes
 // when HOME is read-only.
 func TestStatelessScanWritesNothingToHome(t *testing.T) {

@@ -2,7 +2,7 @@ package network
 
 import "testing"
 
-// MISS-29b: a request written while its body fetch failed is provisional: a
+// A request written while its body fetch failed is provisional: a
 // later copy with its body is still written; a further complete copy is a
 // duplicate.
 func TestWriteEntryProvisionalUpgrade(t *testing.T) {

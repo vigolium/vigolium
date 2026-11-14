@@ -31,7 +31,7 @@ func tarball(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
-// TestInstall is RUN-11: the pinned release archive is fetched over HTTP (no
+// TestInstall: the pinned release archive is fetched over HTTP (no
 // git), verified, unpacked without its top-level directory, marked, and a
 // digest mismatch leaves the existing install untouched.
 func TestInstall(t *testing.T) {

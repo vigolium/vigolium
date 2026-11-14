@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// MISS-8a: a non-trailing-slash redirect is recorded under the SOURCE URL with
+// A non-trailing-slash redirect is recorded under the SOURCE URL with
 // its own 3xx response, and the Location is queued as a referenced task to be
 // fetched (and recorded) with its own response.
 func TestHandleRedirect_RecordsSourceAndQueuesLocation(t *testing.T) {

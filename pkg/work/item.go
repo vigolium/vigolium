@@ -41,7 +41,7 @@ type WorkItem struct {
 	Remarks []string
 
 	// Coverage, when set, is this record's stored progress in the coverage
-	// ledger (ECON-4): the executor skips the modules whose bit is set and the
+	// ledger: the executor skips the modules whose bit is set and the
 	// passive stage when it already ran. nil = nothing recorded yet.
 	Coverage *Coverage
 

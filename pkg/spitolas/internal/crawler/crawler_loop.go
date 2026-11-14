@@ -529,7 +529,7 @@ func (c *Crawler) followPath(ctx context.Context, w *tabWorker, path []*action.E
 
 	// The state machine only tracks which edges were replayed; the page itself
 	// may have changed server-side, so stored XPaths would now fire against a
-	// different DOM (MISS-28d). Compare the live stripped DOM with the target's.
+	// different DOM. Compare the live stripped DOM with the target's.
 	if len(path) > 0 && target.StrippedDOM != "" {
 		if html, err := page.HTMLWithFramesFiltered(c.config.CrawlFrames, c.config.ExcludeFrames); err == nil {
 			if !state.SameStructure(c.comparator.PrepareForComparison(html), target) {
@@ -542,7 +542,7 @@ func (c *Crawler) followPath(ctx context.Context, w *tabWorker, path []*action.E
 }
 
 // errPathDiverged is followPath's error when the replayed path lands on a DOM
-// that is not the target state's (a server-side state change, MISS-28d).
+// that is not the target state's (a server-side state change).
 var errPathDiverged = errors.New("path diverged")
 
 // DUPLICATE_EVENT_SEED is used to encode equivalentAccess in eventable IDs.
@@ -572,7 +572,7 @@ func (c *Crawler) crawlThroughActions(ctx context.Context, w *tabWorker) {
 		}
 
 		// A re-login elsewhere in the scan minted new credentials: put them on
-		// the page before the next action (MISS-26).
+		// the page before the next action.
 		c.refreshAuthIfChanged(w.page)
 
 		act := c.candidates.PollByMode(currentState.ID, c.config.CrawlStrategy, afterBacktrack)
@@ -716,7 +716,7 @@ func (c *Crawler) crawlThroughActions(ctx context.Context, w *tabWorker) {
 
 		// An authenticated crawl that just landed on a login page lost its
 		// session (a logout control, an expired token): re-apply once, then
-		// report honestly (MISS-26).
+		// report honestly.
 		c.checkLoggedOut(ctx, page)
 
 		// Record successful action to metrics (only when benchmark mode)
@@ -788,7 +788,7 @@ func (c *Crawler) shouldTerminate(ctx context.Context) bool {
 			return true
 		}
 	}
-	// DOM-XSS lead (MISS-29c): the probe runs after the crawl, on what is left
+	// DOM-XSS lead: the probe runs after the crawl, on what is left
 	// of the deadline — at most the drain grace, often seconds. When the
 	// prefilter already has reflected candidates, stop scheduling states early
 	// enough to leave the probe min(domXssBudget, MaxDuration/10).

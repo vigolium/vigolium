@@ -37,7 +37,7 @@ func ResolveCLIOriginMode(configured string) string {
 		if ValidCLIOriginMode(m) {
 			return m
 		}
-		// An unknown mode used to admit every host (SAFE-5). The CLI and the
+		// An unknown mode used to admit every host. The CLI and the
 		// REST API reject one up front; a value that still reaches here (a
 		// config file, a library caller) runs as the default, loudly.
 		warnUnknownOriginMode(m)
@@ -82,7 +82,7 @@ type ScopeConfig struct {
 	// out-of-scope records are skipped during scanning.
 	AppliedOnIngest bool `yaml:"applied_on_ingest" json:"applied_on_ingest"`
 
-	// Methods is the HTTP method allow-list for scan traffic (SAFE-8). Empty
+	// Methods is the HTTP method allow-list for scan traffic. Empty
 	// means every method. [GET, HEAD] (what --safe writes) is read-only: module
 	// traffic, discovery and the browser crawl send nothing else, and the
 	// crawler submits no forms, attempts no logins and uploads nothing.

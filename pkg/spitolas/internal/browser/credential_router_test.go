@@ -30,7 +30,7 @@ func TestMergeFetchHeaders(t *testing.T) {
 	}
 }
 
-// SAFE-3 (real browser; skipped under -short or without one): the document
+// The document
 // request carries the credential header, a third-party script it loads does
 // not.
 func TestCredentialRouter_ThirdPartyGetsNoHeader(t *testing.T) {

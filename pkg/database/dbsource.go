@@ -23,7 +23,7 @@ import (
 const (
 	RecordSourceIngestServer = "ingest-server" // POST /api/ingest-http
 	// RecordSourceIngestContext marks ingested traffic for a host outside the
-	// scope derived from its capture (SAFE-4): stored as context, never fed
+	// scope derived from its capture: stored as context, never fed
 	// to scan-on-receive (not in IngestRecordSources).
 	RecordSourceIngestContext = "ingest-context"
 	RecordSourceIngestProxy   = "ingest-proxy" // transparent ingest proxy capture
@@ -714,10 +714,9 @@ type RiskPrioritizedDBInputSource struct {
 	// BUCKET at a time: inside a bucket the page query is an equality on both
 	// scores plus a (created_at, uuid) range, which the
 	// idx_records_project_risk_order index serves in order with no sort; when a
-	// bucket runs dry the cursor steps to the next lower bucket (ECON-10). The
-	// old single query `risk_score < ? OR (risk_score = ? AND …)` could not use
-	// an index for its order, so every 128-row page re-sorted the whole
-	// equal-score block.
+	// bucket runs dry the cursor steps to the next lower bucket. A single
+	// query `risk_score < ? OR (risk_score = ? AND …)` cannot use an index for
+	// its order, so every page would re-sort the whole equal-score block.
 	bucketSet     bool // a bucket is selected
 	bucketRisk    int
 	bucketSurface int
@@ -744,7 +743,7 @@ type RiskPrioritizedDBInputSource struct {
 	// count is the snapshot window's size, taken once with the bound; see Count.
 	count atomic.Int64
 
-	// Coverage-ledger options (ECON-4). noCommit: never advance the durable
+	// Coverage-ledger options. noCommit: never advance the durable
 	// cursor (a tier pass before the last one). coverage: load each page's
 	// stored progress; records whose tier_done >= coverageMinTier are resolved
 	// without being served, the rest carry their coverage on the item.
@@ -778,7 +777,7 @@ func NewRiskPrioritizedDBInputSource(db *DB, repo *Repository, scanUUID string) 
 	}
 }
 
-// WithoutCursorCommit keeps the durable scan cursor where it is (ECON-4): a
+// WithoutCursorCommit keeps the durable scan cursor where it is: a
 // tier pass that is not the round's last must not move the cursor past
 // records the later passes still have to cover.
 func (s *RiskPrioritizedDBInputSource) WithoutCursorCommit() *RiskPrioritizedDBInputSource {
@@ -786,7 +785,7 @@ func (s *RiskPrioritizedDBInputSource) WithoutCursorCommit() *RiskPrioritizedDBI
 	return s
 }
 
-// WithCoverage reads the coverage ledger for every page (ECON-4): a record
+// WithCoverage reads the coverage ledger for every page: a record
 // whose tier_done >= minTier is resolved without being served; any other
 // record is served with its stored coverage on WorkItem.Coverage so the
 // executor skips the modules and passive stage it already finished.
@@ -1259,11 +1258,11 @@ func (s *RiskPrioritizedDBInputSource) ackSnapshotItem() {
 // early acked+skipped == total (before the last page is pulled) must NOT commit.
 // One-shot (guarded by s.committed). Caller holds s.mu.
 //
-// committed is set only AFTER the write succeeds. It used to be set before, so a
-// failed checkpoint latched the source shut and reported nothing: the scan went
-// on to record a clean completion while its durable cursor still sat at the
-// start of the round, and the whole round's work was silently re-served (or, with
-// a cursor inherited by a later scan, silently skipped). A failure now leaves the
+// committed is set only AFTER the write succeeds. Set before, a failed
+// checkpoint would latch the source shut and report nothing: the scan would
+// record a clean completion while its durable cursor still sat at the start of
+// the round, and the whole round's work would be silently re-served (or, with a
+// cursor inherited by a later scan, silently skipped). A failure leaves the
 // commit pending and keeps the error for FlushCursor to retry and report.
 func (s *RiskPrioritizedDBInputSource) maybeCommitCursorLocked() {
 	if s.committed || !s.streamsExhausted || s.noCommit {

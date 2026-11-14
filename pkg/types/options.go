@@ -57,7 +57,7 @@ type Options struct {
 	Targets        []string
 	ExcludeTargets []string
 	// ScopeTargets widen the scope-origin index without becoming crawl,
-	// discovery or admission seeds (SAFE-4). A file-input scan with no -t
+	// discovery or admission seeds. A file-input scan with no -t
 	// derives them from the file's primary host (source.HostCensus), so its
 	// scope is that host's origin rather than every host the file names.
 	ScopeTargets []string
@@ -65,10 +65,10 @@ type Options struct {
 	// were derived from, for the banner and the plan. Nil when not derived.
 	ScopeCensus map[string]int `json:"-" yaml:"-"`
 	// TrafficPolicy is the per-method traffic policy resolved once by the
-	// runner from scope.methods (SAFE-8). Nil allows everything.
+	// runner from scope.methods. Nil allows everything.
 	TrafficPolicy *TrafficPolicy `json:"-" yaml:"-"`
 	// Offline (--offline / settings key offline) keeps the scan off every
-	// network path that is not the target (SAFE-11): third-party lookups,
+	// network path that is not the target: third-party lookups,
 	// OAST, nuclei template clones, browser downloads and update checks.
 	Offline bool
 
@@ -163,7 +163,7 @@ type Options struct {
 	SystemResolvers bool
 	// Resolvers are explicit DNS resolvers for the scan dialer. Empty: the
 	// system resolvers (resolv.conf), with public resolvers only as a fallback
-	// when the system names none (SAFE-11).
+	// when the system names none.
 	Resolvers []string
 	// MaxRedirects is the maximum numbers of redirects to be followed.
 	MaxRedirects int
@@ -509,7 +509,7 @@ type Options struct {
 
 	// ResumeScanUUID is --resume-scan: re-run the scan with this UUID on its
 	// existing row, keeping its cursor and skipping what its coverage ledger
-	// records as done (ECON-4). Distinct from --resume (parallel manifest).
+	// records as done. Distinct from --resume (parallel manifest).
 	ResumeScanUUID string
 
 	// HeaderFuzz is --header-fuzz: "all" tests every header insertion point

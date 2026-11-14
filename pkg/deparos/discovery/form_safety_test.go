@@ -17,7 +17,7 @@ func mustURL(t *testing.T, raw string) *url.URL {
 	return u
 }
 
-// SAFE-7: under the default read-only replay safety a POST form is withheld
+// Under the default read-only replay safety a POST form is withheld
 // and kept as a request stub; a GET search form is queued for submission.
 func TestQueueFormSubmission_ReplaySafetyGate(t *testing.T) {
 	srv, _ := pathLoggingServer(t)

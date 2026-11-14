@@ -27,7 +27,7 @@ import (
 const defaultJSCallTimeout = 60 * time.Second
 
 // jsCallTimeoutNanos is the bound in force; NewEngine sets it from
-// extensions.limits.timeout (SAFE-14).
+// extensions.limits.timeout.
 var jsCallTimeoutNanos atomic.Int64
 
 // SetCallTimeout sets the per-call JS timeout; d <= 0 restores the default.

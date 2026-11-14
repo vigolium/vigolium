@@ -37,7 +37,7 @@ type RequestTemplateRegistry interface {
 	// never noted is classified by whether it was ever claimed for replay.
 	Outcomes() []TemplateOutcome
 	// AddWithheld records a request that was never eligible for sending (a
-	// form the replay safety policy refused, SAFE-7): it is stored with note
+	// form the replay safety policy refused): it is stored with note
 	// as its outcome and never enters the pending replay set, so it survives
 	// as a request stub without ever being sent.
 	AddWithheld(sourceURL string, fact jstangle.HTTPRequestFact, note ReplayNote) bool

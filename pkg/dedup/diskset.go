@@ -313,7 +313,7 @@ func (d *DiskSet) evictLocked() {
 //
 // Calling IsSeen before matching marked a host "done" on its first response
 // whether or not anything was found there, so a fingerprint visible only on a
-// later response (an error page, a login form) was never reported (MISS-19).
+// later response (an error page, a login form) was never reported.
 func (d *DiskSet) ClaimOnMatch(key string) bool {
 	return !d.IsSeen(key)
 }

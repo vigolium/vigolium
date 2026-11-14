@@ -8,7 +8,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
-// TestObservedInScan_DedupKeepsReDetectionInGate reproduces RES-2a: a timing
+// TestObservedInScan_DedupKeepsReDetectionInGate: a timing
 // module puts the measured delay in its description, so a re-detection in scan
 // S2 hashes differently from S1's row. The URL dedup merges the two and keeps
 // the oldest row; the S2 --fail-on gate must still count it.

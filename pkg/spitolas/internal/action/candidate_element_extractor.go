@@ -78,7 +78,7 @@ type CandidateElementExtractor struct {
 	clickOnce      bool
 	clickOnceSeen  *clickOnceMemory
 	clickOnceMutex sync.RWMutex
-	// denyClick drops click candidates that read as destructive (SAFE-9);
+	// denyClick drops click candidates that read as destructive;
 	// nil disables. skippedDestructive counts them, shared by ForTab copies.
 	denyClick          *regexp.Regexp
 	skippedDestructive *atomic.Int64
@@ -128,7 +128,7 @@ func NewCandidateElementExtractor(cfg *config.Config) *CandidateElementExtractor
 		denyClick:             compileDenyClick(cfg.DenyClickPattern),
 		skippedDestructive:    &atomic.Int64{},
 		// An authenticated crawl never clicks a logout control, whatever
-		// deny_click_pattern says (MISS-26).
+		// deny_click_pattern says.
 		denyLogout: len(cfg.ExtraHeaders) > 0 || len(cfg.InitialCookies) > 0 || cfg.AuthMonitor != nil,
 	}
 }
@@ -178,7 +178,7 @@ func compileDenyClick(pattern string) *regexp.Regexp {
 
 // deniedByPattern reports whether a click candidate reads as destructive —
 // its text, href, aria-label, title or value matches the deny pattern — and
-// counts it (SAFE-9). Hover candidates only reveal menus and are exempt.
+// counts it. Hover candidates only reveal menus and are exempt.
 func (e *CandidateElementExtractor) deniedByPattern(c *CandidateElement) bool {
 	if (e.denyClick == nil && !e.denyLogout) || c == nil || c.EventType == EventTypeHover {
 		return false
@@ -264,8 +264,8 @@ func (e *CandidateElementExtractor) markChecked(candidate *CandidateElement) boo
 	// trigger that both clicks through and opens a submenu on hover).
 	key := stateID + "\x00" + string(candidate.EventType) + "\x00" + candidate.GetUniqueString()
 	// A navigable link goes to the same URL whatever state shows it, so it is
-	// clicked once per crawl, keyed by its resolved href without the state
-	// (MISS-28b): a 60-link navigation bar used to be re-fired from every state.
+	// clicked once per crawl, keyed by its resolved href without the state:
+	// a 60-link navigation bar used to be re-fired from every state.
 	if href := e.navigableHrefKey(candidate); href != "" {
 		key = "href\x00" + href
 	}

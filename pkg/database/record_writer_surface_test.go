@@ -7,8 +7,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// The writer stamps surface_score at ingest through the injected scorer
-// (ECON-5), so a fresh scan's assessment order is not chronological.
+// The writer stamps surface_score at ingest through the injected scorer,
+// so a fresh scan's assessment order is not chronological.
 func TestRecordWriterStampsIngestSurfaceScore(t *testing.T) {
 	db := newTestDB(t)
 	repo := NewRepository(db)

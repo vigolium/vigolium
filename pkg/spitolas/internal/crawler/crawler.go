@@ -209,11 +209,11 @@ type Crawler struct {
 	// methods). credentialHeadersWithdrawn is set once the crawl leaves the
 	// credential scope; later pages do not get the headers back (guarded by mu).
 	authOps pageAuthOps
-	// authGen is the live-session credential generation last applied
-	// (MISS-26); guarded by mu.
+	// authGen is the live-session credential generation last applied;
+	// guarded by mu.
 	authGen uint64
 	// domXssHasCandidates / domXssCheckedAt memoize the DOM-XSS prefilter for
-	// the drain check (MISS-29c).
+	// the drain check.
 	domXssHasCandidates atomic.Bool
 	domXssCheckedAt     atomic.Int64
 	// popupSeeded is how many of Stats.PopupURLs have been browsed as
@@ -245,15 +245,15 @@ type Stats struct {
 	FormSubmitsPrevented int
 	FormSubmitsUncertain int
 	// SkippedDestructive counts click candidates the destructive-click guard
-	// dropped (spidering.interaction.deny_click_pattern, SAFE-9).
+	// dropped (spidering.interaction.deny_click_pattern).
 	SkippedDestructive int64
-	// BodiesFailed counts captured responses whose body fetch failed
-	// (MISS-29b); they were stored provisionally, upgradeable by a later copy.
+	// BodiesFailed counts captured responses whose body fetch failed;
+	// they were stored provisionally, upgradeable by a later copy.
 	BodiesFailed int
 	// PopupSeedsCrawled counts popup URLs browsed into the frontier.
 	PopupSeedsCrawled int
-	// PopupURLs are in-scope URLs opened in popups by crawl actions
-	// (MISS-29a); their traffic is captured and the runner can seed them.
+	// PopupURLs are in-scope URLs opened in popups by crawl actions;
+	// their traffic is captured and the runner can seed them.
 	PopupURLs      []string
 	BacktrackCount int
 	InvariantFails int
@@ -547,7 +547,7 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 	// beacons) out of the live log — they are dropped before storage anyway.
 	capture.ScopeFilter = c.config.ScopeFilter
 	// Feed in-scope document/XHR responses to the live session's logged-out
-	// detector, and re-apply its credentials when it re-logs in (MISS-26).
+	// detector, and re-apply its credentials when it re-logs in.
 	if mon := c.config.AuthMonitor; mon != nil {
 		capture.OnResponse = c.observeAuthResponse
 		c.watchAuthChanges(ctx, mon)
@@ -686,7 +686,7 @@ func (c *Crawler) crawlWithBrowser(ctx context.Context, br *browser.Browser, cap
 
 	// Popups the crawl opened (window.open, target=_blank) were closed after
 	// their traffic was captured; their in-scope URLs are frontier seeds:
-	// browse them into the graph and explore what they offer (MISS-29a).
+	// browse them into the graph and explore what they offer.
 	// Bounded rounds: exploring a popup's page can open more popups.
 	for round := 0; round < maxPopupSeedRounds; round++ {
 		page := br.CurrentPage()

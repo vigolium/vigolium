@@ -82,7 +82,7 @@ var (
 	// {e} = extension ("php"). An entry without a placeholder is a legacy bare
 	// suffix and means "{f}.<suffix>" (admin.php.bak). Editor/VCS leftovers such
 	// as admin.php~ and .admin.php.swp were unreachable when every variant was
-	// appended after a dot (MISS-6).
+	// appended after a dot.
 	DefaultBackupExtensions = []string{
 		"{f}~", "{f}.bak", "{f}.old", "{f}.orig", "{f}.save", "{f}.swp", ".{f}.swp", "{f}.swo",
 		"{n}.bak", "{n}.old", "{n}.txt", "{n}.orig", "{n}.save",

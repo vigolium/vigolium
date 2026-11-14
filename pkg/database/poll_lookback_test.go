@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// TestDBInputSource_ServesSameSecondSmallerUUID is MISS-34: on SQLite the
+// TestDBInputSource_ServesSameSecondSmallerUUID: on SQLite the
 // cursor compares one-second created_at values and tie-breaks on a random
 // UUID, so a record committed in the cursor's second with a smaller UUID used
 // to be skipped forever. The polling source re-reads a short window behind its

@@ -141,7 +141,7 @@ func TestNoteExecutionAllScopeRejected(t *testing.T) {
 }
 
 // Discovered requests dropped past the feedback overflow cap are a coverage
-// gap: the phase is partial with feedback_dropped (MISS-32).
+// gap: the phase is partial with feedback_dropped.
 func TestNoteExecutionFeedbackDropped(t *testing.T) {
 	tr := newLedger(string(PhaseDynamicAssessment))
 	tr.noteExecution(core.ExecutionReport{Responded: 1, FeedbackDropped: 2})

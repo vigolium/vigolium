@@ -570,7 +570,7 @@ func NewEngineWithContext(parentCtx context.Context, cfg *config.Config, st stor
 		redirectDetector:  redirectDetector,
 		storage:           st,
 		// Observed names/files keep their case unless the host is configured
-		// case-insensitive (MISS-4): an undetected host may well be sensitive.
+		// case-insensitive: an undetected host may well be sensitive.
 		observedNames:       payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity != config.CaseInsensitive, cfg.Engine.ObservedMaxItems),
 		observedExtensions:  payload.NewObservedProviderWithLimit(cfg.Engine.CaseSensitivity == config.CaseSensitive, cfg.Engine.ObservedMaxItems),
 		confirmedExtensions: make(map[string]struct{}),

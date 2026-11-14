@@ -2,7 +2,7 @@ package discovery
 
 import "testing"
 
-// MISS-8f: an extensionless 200 (/api) gets one directory-form probe (/api/).
+// An extensionless 200 (/api) gets one directory-form probe (/api/).
 func TestDirFormProbeURL(t *testing.T) {
 	cases := []struct {
 		in, want string

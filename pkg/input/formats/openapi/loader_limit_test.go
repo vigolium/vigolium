@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// SAFE-11: a spec URL that streams past MaxSpecBytes is refused, and the
+// A spec URL that streams past MaxSpecBytes is refused, and the
 // caller's client is the one used.
 func TestLoadSpecWithClient_LimitAndClient(t *testing.T) {
 	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

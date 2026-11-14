@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// MISS-7: /admin, /backup and /.git at 403 survive as three records (each is
+// /admin, /backup and /.git at 403 survive as three records (each is
 // a forbidden-bypass target), auth walls are capped at AuthWallCap per host,
 // 429 still collapses to one per host, and the reflected-URL collapse leaves
 // per-path statuses alone.

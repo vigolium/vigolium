@@ -30,7 +30,7 @@ type Graph struct {
 	compareMode CompareMode
 
 	// structIndex buckets state IDs by URL template + top SimHash bits for
-	// structural clone detection (MISS-28a).
+	// structural clone detection.
 	structIndex map[string][]string
 	// structClones counts captured states folded into an existing one.
 	structClones int
@@ -73,7 +73,7 @@ func (g *Graph) PutIfAbsent(s *State) (*State, bool) {
 	}
 	// A structural clone (same URL template, SimHash within structMaxHamming)
 	// is the existing state with different content, not a new state to
-	// explore (MISS-28a). The index state is always kept.
+	// explore. The index state is always kept.
 	if !s.IsIndex() && s.StructID != 0 {
 		key := structBucket(s.URL, s.StructID)
 		for _, id := range g.structIndex[key] {
@@ -1076,7 +1076,7 @@ func pathExists(candidates *pathCandidateHeap, path []*action.Eventable) bool {
 }
 
 // StructClones is how many captured states were folded into an existing state
-// as structural clones (MISS-28a).
+// as structural clones.
 func (g *Graph) StructClones() int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()

@@ -7,7 +7,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// SAFE-8: a read-only traffic policy withdraws submits, signups, crawler
+// A read-only traffic policy withdraws submits, signups, crawler
 // logins and uploads from the browser crawl whatever spidering.interaction says.
 func TestApplyTrafficPolicy_ReadOnlyWithdrawsInteractions(t *testing.T) {
 	yes := true

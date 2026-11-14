@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// Template targeting (ECON-12).
+// Template targeting.
 //
 // With enrich_targets on, nuclei ran every template against the origin AND
 // every discovered directory prefix. A template whose requests are anchored at

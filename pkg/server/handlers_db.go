@@ -64,7 +64,7 @@ func (h *Handlers) HandleListDBRecords(c fiber.Ctx) error {
 		return respondError(c, fiber.StatusBadRequest, err)
 	}
 
-	// Project scoping (SAFE-13): a table with a project_uuid column is filtered
+	// Project scoping: a table with a project_uuid column is filtered
 	// to the request's project; all_projects=true lifts that for admins only.
 	// A table without one (users, projects, finding_records, …) is admin-only.
 	scoped, err := h.tableProjectScoped(c, tableName)
@@ -144,7 +144,7 @@ func (h *Handlers) HandleGetDBRecord(c fiber.Ctx) error {
 		return respondError(c, status, err)
 	}
 	// A record from another project is "not found", never 403: cross-project
-	// existence must not leak (SAFE-13).
+	// existence must not leak.
 	if scoped && !inRequestProject(c, fmt.Sprint(record["project_uuid"])) {
 		return respondErrorMsg(c, fiber.StatusNotFound, "record not found")
 	}
@@ -322,7 +322,7 @@ func parseGenericQueryOptions(c fiber.Ctx) (database.GenericQueryOptions, error)
 }
 
 // tableProjectScoped reports whether tableName has a project_uuid column, by
-// introspection rather than a hand-kept list (SAFE-13): the list missed every
+// introspection rather than a hand-kept list: the list missed every
 // table added after it (host_observations, …), and those were served across
 // projects. An unknown table is an error.
 func (h *Handlers) tableProjectScoped(c fiber.Ctx, tableName string) (bool, error) {

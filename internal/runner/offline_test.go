@@ -8,7 +8,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// SAFE-11: third-party lookups are off by default, on only with
+// Third-party lookups are off by default, on only with
 // dynamic_assessment.external_lookups, and never under --offline, which also
 // turns OAST off.
 func TestExternalFetcherAndOffline(t *testing.T) {

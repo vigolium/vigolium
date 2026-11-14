@@ -2,7 +2,7 @@ package cli
 
 import "testing"
 
-// SAFE-5: an unknown --scope-origin is a usage error (exit 2), not a scan in
+// An unknown --scope-origin is a usage error (exit 2), not a scan in
 // an admit-everything mode.
 func TestValidateScopeOrigin(t *testing.T) {
 	err := validateScopeOrigin("bogus")

@@ -860,7 +860,7 @@ func resolveSandboxPath(path, sandboxDir string) (string, error) {
 		return "", err
 	}
 	// An empty sandbox_dir means the working directory, as documented — it
-	// used to mean "anywhere" (SAFE-14).
+	// used to mean "anywhere".
 	if sandboxDir == "" {
 		wd, werr := os.Getwd()
 		if werr != nil {

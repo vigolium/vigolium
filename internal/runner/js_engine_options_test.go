@@ -7,7 +7,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// NEW-1: the extension engine gets the scan's project, so what an extension
+// The extension engine gets the scan's project, so what an extension
 // stores (vigolium.ingest → SaveRecord) lands in that project.
 func TestJSEngineOptionsCarryProject(t *testing.T) {
 	opts := types.DefaultOptions()

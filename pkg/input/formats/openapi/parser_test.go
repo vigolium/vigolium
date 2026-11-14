@@ -584,7 +584,7 @@ paths:
 		opts := Options{UseSpecServers: true}
 		err := ParseOpenAPI(spec, opts, callback)
 		require.NoError(t, err)
-		// An ID-named string path param gets "1" (MISS-40), not the literal
+		// An ID-named string path param gets "1", not the literal
 		// "string" that sends every by-ID operation to a 404.
 		require.Len(t, requests, 1)
 		assert.Contains(t, requests[0].Target(), "/items/1")

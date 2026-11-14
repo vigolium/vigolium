@@ -22,7 +22,7 @@ type Factory struct {
 	caseMode func(dir bool) config.CaseSensitivityMode
 }
 
-// SetCaseModeSource injects the detected case-sensitivity mode (MISS-4).
+// SetCaseModeSource injects the detected case-sensitivity mode.
 func (f *Factory) SetCaseModeSource(fn func(dir bool) config.CaseSensitivityMode) {
 	f.caseMode = fn
 }
@@ -432,7 +432,7 @@ func (f *Factory) CreateDynamicExtensionTasks(
 	// Priority 6: Short wordlist + this extension, for EVERY known directory
 	// (the start path is in directoryURLs). Recursion under ConfirmRequired
 	// otherwise only ever tried extensionless names, so /admin/upload.php was
-	// never guessed (MISS-5).
+	// never guessed.
 	if f.config.Extensions.TestObserved {
 		for _, dirURL := range directoryURLs {
 			tasks = append(tasks, f.CreateShortFileExtensionTasks(

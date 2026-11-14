@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// SAFE-12: SARIF (and every report built on buildReportData) carries
+// SARIF (and every report built on buildReportData) carries
 // <redacted> instead of credentials by default; NoRedact keeps them.
 func TestSARIFRedactsEvidence(t *testing.T) {
 	items := []any{findingEnvelope(map[string]any{

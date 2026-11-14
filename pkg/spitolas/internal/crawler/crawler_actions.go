@@ -219,7 +219,7 @@ func (c *Crawler) executeActionWithEventable(ctx context.Context, w *tabWorker, 
 
 	// Popups opened by this action get a bounded moment to load — their
 	// requests are captured browser-wide — and their in-scope URLs are kept
-	// for the caller to crawl, before CloseOtherWindows closes them (MISS-29a).
+	// for the caller to crawl, before CloseOtherWindows closes them.
 	c.recordPopups(c.browser.PopupURLs(page, popupLoadWait))
 
 	// This is CRITICAL for target="_blank" and window.open() links. The crawl's

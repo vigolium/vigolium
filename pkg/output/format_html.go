@@ -20,8 +20,8 @@ import (
 type HTMLReportMeta struct {
 	// NoRedact keeps credential headers, cookie values and sensitive query
 	// parameters in the request/response evidence of HTML, PDF, SARIF and
-	// Markdown reports. Off by default: those artifacts are made to be shared
-	// (SAFE-12). --no-redact / output.redact_evidence: false set it. JSONL and
+	// Markdown reports. Off by default: those artifacts are made to be shared.
+	// --no-redact / output.redact_evidence: false set it. JSONL and
 	// the database always keep the raw exchange.
 	NoRedact bool
 	// RedactHeaders are extra lowercased header names to redact (operator -H

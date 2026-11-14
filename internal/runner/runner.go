@@ -57,11 +57,11 @@ type Runner struct {
 	browserSessions   map[string]httpmsg.CarriedSession
 	autoFuzzDiscovery bool // set by runDiscoveryPhase when low-yield/SSO auto-enables FUZZ fuzzing
 	// secretCoverage records the records dynamic assessment's secret_detect
-	// pass analysed, so the known-issue secret batch scans only the rest
-	// (MISS-33). Nil when assessment did not run.
+	// pass analysed, so the known-issue secret batch scans only the rest.
+	// Nil when assessment did not run.
 	secretCoverage *secretCoverage
 	// harvestPrefetch is the background external-harvest drain started at
-	// scan start (ECON-11), consumed by the harvest phase.
+	// scan start, consumed by the harvest phase.
 	harvestPrefetchMu sync.Mutex
 	harvestPrefetch   *harvestPrefetch
 	scanLogger        *database.ScanLogger // Optional: structured scan logging
@@ -133,7 +133,7 @@ type Runner struct {
 	// phases through it); see phaseRunnerFor.
 	phaseRunners map[NativePhase]phaseRunner
 
-	// relogins fans live-session re-logins out to browser crawls (MISS-26).
+	// relogins fans live-session re-logins out to browser crawls.
 	relogins reloginBroadcast
 }
 
@@ -207,8 +207,8 @@ type phaseInfra struct {
 	// another name for this field being set.
 	authFailureReason string
 	// authUnverified names the sessions whose login ran but could not be
-	// verified, or whose credentials did not change the target's answer
-	// (MISS-41). The assessment phase reports it as auth_unverified.
+	// verified, or whose credentials did not change the target's answer.
+	// The assessment phase reports it as auth_unverified.
 	authUnverified []string
 
 	// sessions keeps the live sessions (and their Manager) alive for the scan, so
@@ -251,10 +251,9 @@ func (p *phaseInfra) Close() {
 // value. Both the limiter that enforces the cap and every surface that reports it
 // (the Speed banner line, the config snapshot) must read it from here.
 //
-// They used to disagree. The limiter was built from Options.RateLimit while the
-// banner and the snapshot printed settings.ScanningPace.RateLimit, so a scan
-// could advertise one rate and run at another — most visibly when a scanning
-// profile set a pace the CLI flag had already overridden.
+// Reading settings.ScanningPace.RateLimit for the banner instead would let a
+// scan advertise one rate and run at another — most visibly when a scanning
+// profile sets a pace the CLI flag already overrode.
 func effectiveRateLimit(opts *types.Options) int {
 	if opts == nil || opts.RateLimit < 0 {
 		return 0

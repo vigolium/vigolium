@@ -362,7 +362,7 @@ var schemaTables = []string{
 	// across merged stores. Rows from before schema v3 are a one-time backfill
 	// of (scan_uuid, found_at); schema_meta.observation_history_since marks
 	// where complete history starts.
-	// Dynamic-assessment coverage ledger (ECON-4): one row per (scan, record)
+	// Dynamic-assessment coverage ledger: one row per (scan, record)
 	// saying which module tiers / modules finished on it, so a curtailed scan
 	// resumes and tiered passes skip finished records.
 	`CREATE TABLE IF NOT EXISTS scan_record_progress (

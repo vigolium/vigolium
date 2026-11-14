@@ -438,7 +438,7 @@ func (e *Engine) queueFormSubmission(forms []*spider.FormRequest, sourceURL *url
 			continue
 		}
 
-		// Replay safety (SAFE-7): a form the policy refuses is never sent; it
+		// Replay safety: a form the policy refuses is never sent; it
 		// survives as a request-only stub (TemplateWithheldPolicy).
 		if reason := e.formSafety().FormWithheldReason(form.Method, form); reason != "" {
 			e.noteWithheldForm(sourceURL, form, reason)

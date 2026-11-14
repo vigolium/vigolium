@@ -47,7 +47,7 @@ func compareHit(t *testing.T, sibling http.HandlerFunc) MatchResult {
 	return got
 }
 
-// MISS-2: a sibling answering a genuine 404 whose shape is not cached is a
+// A sibling answering a genuine 404 whose shape is not cached is a
 // miss, not "content" — it must not drop the hit.
 func TestSiblingHardMissKeepsHit(t *testing.T) {
 	got := compareHit(t, func(w http.ResponseWriter, r *http.Request) {

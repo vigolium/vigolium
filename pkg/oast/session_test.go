@@ -14,7 +14,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/oast/oastclass"
 )
 
-// TestKeepSession_LateCallbackCorrelates is MISS-37: an interactsh payload's
+// TestKeepSession_LateCallbackCorrelates: an interactsh payload's
 // context is persisted, the session is kept (not deregistered) when the scan
 // closes, a callback arriving after the process's tracker is gone still
 // correlates from oast_payloads, and a later poll resumes the stored session

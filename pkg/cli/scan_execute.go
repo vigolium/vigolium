@@ -528,7 +528,7 @@ func runScanWithIngest(settings *config.Settings, db *database.DB, repo *databas
 
 	// OpenAPI with no -t: the spec's servers name the hosts. Every server is
 	// used only with an explicit --spec-url or --scope-origin all; otherwise
-	// the first absolute server is the base URL (SAFE-4) — a spec that lists
+	// the first absolute server is the base URL — a spec that lists
 	// production, staging and a vendor sandbox no longer scans all three.
 	useSpecServers := globalSpecURL
 	specBaseURL := ""

@@ -15,12 +15,12 @@ import (
 func TestEnsureTemplatesStatelessFailsClosed(t *testing.T) {
 	paths.EnableStateless(t.TempDir())
 	t.Cleanup(func() { paths.EnableStateless("") })
-	orig := cloneTemplates
-	cloneTemplates = func(context.Context, string, nucleitemplates.Pin) ([]byte, error) {
+	orig := installTemplates
+	installTemplates = func(context.Context, string, nucleitemplates.Pin) ([]byte, error) {
 		t.Fatal("stateless scan cloned templates")
 		return nil, nil
 	}
-	t.Cleanup(func() { cloneTemplates = orig })
+	t.Cleanup(func() { installTemplates = orig })
 
 	err := EnsureTemplates(Config{TemplatesDir: filepath.Join(t.TempDir(), "absent")}, nil)
 	if err == nil || !strings.Contains(err.Error(), "doctor --fix --only nuclei") {

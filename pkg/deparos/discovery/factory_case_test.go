@@ -24,7 +24,7 @@ func shortFileURLs(t *testing.T, f *Factory) []string {
 	return nil
 }
 
-// MISS-4: wordlists keep their case until the host is known case-insensitive,
+// Wordlists keep their case until the host is known case-insensitive,
 // so WEB-INF is actually sent; a case-insensitive host gets the folded list.
 func TestFactory_WordlistCaseFollowsDetection(t *testing.T) {
 	list := filepath.Join(t.TempDir(), "files.txt")

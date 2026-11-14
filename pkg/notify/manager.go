@@ -36,7 +36,7 @@ type Config struct {
 
 	// RedactHeaders are extra lowercased header names (operator -H, live
 	// session) whose values are scrubbed from notifications on top of the
-	// built-in credential table (SAFE-12).
+	// built-in credential table.
 	RedactHeaders map[string]struct{}
 	// NoRedact sends the raw evidence (output.redact_evidence: false).
 	NoRedact bool
@@ -114,7 +114,7 @@ func (m *Manager) Send(result *output.ResultEvent) error {
 	}
 
 	// Notifications leave for a chat backend: send a scrubbed clone, never
-	// the caller's event (SAFE-12).
+	// the caller's event.
 	if !m.noRedact {
 		result = redactedClone(result, m.redactHeaders)
 	}

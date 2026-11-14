@@ -386,7 +386,7 @@ func (r *Runner) feedReSpiderSSOHosts(hosts []string) {
 }
 
 // reSpiderHostParallelism returns how many independent host sessions to crawl
-// concurrently. Default 2 (ECON-9: hosts used to be crawled strictly one at a
+// concurrently. Default 2 (hosts used to be crawled strictly one at a
 // time); VIGOLIUM_SPIDER_HOST_PARALLELISM=N overrides (1 = sequential), capped
 // so concurrent-browser memory stays bounded and never exceeding the number of
 // hosts.
@@ -414,7 +414,7 @@ func reSpiderHostParallelism(numGroups int) int {
 const reSpiderHostParallelismCap = 4
 
 // defaultSpiderHostParallelism is the host-session concurrency without the
-// environment override (ECON-9).
+// environment override.
 const defaultSpiderHostParallelism = 2
 
 // respiderEvaluated is the body-free reduction of a candidate row. Reducing each

@@ -223,11 +223,11 @@ type DeparosDiscoveryConfig struct {
 	RequestFilter func(*url.URL) bool
 
 	// MethodFilter refuses requests whose method the traffic policy does not
-	// allow (SAFE-8). nil = every method.
+	// allow. nil = every method.
 	MethodFilter func(method string) bool
 
-	// FormSafety overrides the replay-safety policy for HTML form submission
-	// (SAFE-7); empty = the JS replay policy.
+	// FormSafety overrides the replay-safety policy for HTML form submission;
+	// empty = the JS replay policy.
 	FormSafety string
 
 	// DB import: if set, results are saved to vigolium's http_records table

@@ -26,7 +26,7 @@ func writeCensusHAR(t *testing.T) string {
 	return p
 }
 
-// SAFE-4: the census counts records per host and names the first record's
+// The census counts records per host and names the first record's
 // host as primary.
 func TestHostCensus_HAR(t *testing.T) {
 	census, primary, err := HostCensus(writeCensusHAR(t), "har")

@@ -34,8 +34,8 @@ type Settings struct {
 	Agent             AgentConfig             `yaml:"agent"`
 	OAST              OASTConfig              `yaml:"oast"`
 	Storage           StorageConfig           `yaml:"storage"`
-	// Offline keeps scans off every network path that is not the target
-	// (SAFE-11): third-party lookups, OAST, template clones, browser downloads
+	// Offline keeps scans off every network path that is not the target:
+	// third-party lookups, OAST, template clones, browser downloads
 	// and update checks. --offline sets it for one run.
 	Offline bool `yaml:"offline,omitempty"`
 	// Output tunes the shareable artifacts a scan writes.
@@ -46,7 +46,7 @@ type Settings struct {
 // notifications).
 type OutputConfig struct {
 	// RedactEvidence scrubs credential headers, cookie values and sensitive
-	// query parameters from report evidence (SAFE-12). Unset = true; false
+	// query parameters from report evidence. Unset = true; false
 	// keeps the raw exchange (same as --no-redact). JSONL exports and the
 	// database are never redacted.
 	RedactEvidence *bool `yaml:"redact_evidence,omitempty"`

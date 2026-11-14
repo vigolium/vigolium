@@ -92,7 +92,7 @@ func nginxLikeTLSPort(t *testing.T) int {
 	return port
 }
 
-// MISS-8d: a TLS port that answers plain HTTP with a 400 "plain HTTP request
+// A TLS port that answers plain HTTP with a 400 "plain HTTP request
 // was sent to HTTPS port" is recorded as https, not http.
 func TestConfirmHTTP_PlainToTLSPortIsHTTPS(t *testing.T) {
 	port := nginxLikeTLSPort(t)

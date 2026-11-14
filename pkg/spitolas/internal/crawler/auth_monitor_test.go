@@ -24,7 +24,7 @@ func (f *fakeMonitor) Credentials() (uint64, map[string]string, []*http.Cookie) 
 	return f.gen, f.headers, nil
 }
 
-// MISS-26: a re-login elsewhere in the scan (new credential generation) is
+// A re-login elsewhere in the scan (new credential generation) is
 // re-applied to the browser once per generation.
 func TestRefreshAuthIfChanged(t *testing.T) {
 	rec := &authRecorder{}
@@ -44,7 +44,7 @@ func TestRefreshAuthIfChanged(t *testing.T) {
 	}
 }
 
-// MISS-26: a re-login signal (Changed) makes the next action re-apply the
+// A re-login signal (Changed) makes the next action re-apply the
 // credentials even when the generation number is unchanged, and captured
 // in-scope responses reach the session's logged-out detector.
 func TestAuthChangedAndObserve(t *testing.T) {

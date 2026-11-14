@@ -403,7 +403,7 @@ func intToStr(n int64) string {
 	return string(b)
 }
 
-// SAFE-13: the generic DB API scopes by introspected project_uuid columns,
+// The generic DB API scopes by introspected project_uuid columns,
 // all_projects is admin-only, a cross-project get is 404, and tables without a
 // project column are admin-only.
 func TestGenericDBAPI_ProjectScoping(t *testing.T) {

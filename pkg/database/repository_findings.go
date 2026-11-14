@@ -32,7 +32,7 @@ func (r *Repository) SaveFinding(ctx context.Context, event *output.ResultEvent,
 
 // SaveFindingInserted is SaveFinding reporting whether a NEW finding row was
 // written (false on a dedup-append to an existing finding), so a caller can
-// notify only on genuinely new findings (SAFE-12).
+// notify only on genuinely new findings.
 func (r *Repository) SaveFindingInserted(ctx context.Context, event *output.ResultEvent, httpRecordUUIDs []string, scanUUID string, projectUUID string) (bool, error) {
 	if event == nil {
 		return false, fmt.Errorf("invalid ResultEvent")

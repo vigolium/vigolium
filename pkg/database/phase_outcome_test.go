@@ -350,7 +350,7 @@ func TestPhaseOutcomeBenignSkip(t *testing.T) {
 	}
 }
 
-// TestPhaseOutcomeMerge_SumsFindingsCapped: RES-1's per-module drop counts sum
+// TestPhaseOutcomeMerge_SumsFindingsCapped: the per-module drop counts sum
 // across merged outcomes of one phase and across phases.
 func TestPhaseOutcomeMerge_SumsFindingsCapped(t *testing.T) {
 	a := PhaseOutcome{Phase: "dynamic-assessment", FindingsCapped: map[string]int64{"m1": 2}}

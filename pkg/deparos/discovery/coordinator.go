@@ -1341,7 +1341,7 @@ func parseURL(urlStr string) *url.URL {
 // observePrefixBreaker feeds one probe outcome to the prefix breaker. Statuses
 // the analyzer already treats as hard misses (404/400/414/421/431) are skipped:
 // a directory whose misses are ordinary 404s is not a trap, and counting them
-// made any subtree with a hit rate under 10% trip eventually (MISS-1). The
+// made any subtree with a hit rate under 10% trip eventually. The
 // breaker exists for soft-200/soft-403 black holes the fingerprinter misses.
 func observePrefixBreaker(b *tracker.PrefixBreaker, u *url.URL, rc *responsechain.ResponseChain) {
 	if b == nil || rc == nil || !rc.Has() {

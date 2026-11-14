@@ -562,10 +562,10 @@ const (
 // target; err is set on TemplatesFailed.
 type TemplatesProgress func(state, dir string, err error)
 
-// cloneTemplates installs nuclei-templates from the (pinned) release archive
+// installTemplates installs nuclei-templates from the (pinned) release archive
 // over HTTPS — no git. A variable so tests can exercise EnsureTemplates
-// without a network fetch. The name predates the archive install.
-var cloneTemplates = func(ctx context.Context, dir string, pin nucleitemplates.Pin) ([]byte, error) {
+// without a network fetch.
+var installTemplates = func(ctx context.Context, dir string, pin nucleitemplates.Pin) ([]byte, error) {
 	if _, err := nucleitemplates.Install(ctx, dir, pin); err != nil {
 		return nil, err
 	}
@@ -656,7 +656,7 @@ func EnsureTemplates(cfg Config, onProgress TemplatesProgress) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	if out, err := cloneTemplates(ctx, dir, cfg.TemplatesPin); err != nil {
+	if out, err := installTemplates(ctx, dir, cfg.TemplatesPin); err != nil {
 		detail := strings.TrimSpace(string(out))
 		if detail == "" {
 			detail = err.Error()

@@ -16,7 +16,7 @@ func listPage(items int, text string) string {
 	return b.String()
 }
 
-// MISS-28a: renderings of one template are structural clones; a different
+// Renderings of one template are structural clones; a different
 // template is not.
 func TestStructSimHash(t *testing.T) {
 	a := StructSimHash(listPage(20, "alpha"))

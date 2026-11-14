@@ -182,7 +182,7 @@ func TestValidateParallelScanSingleTargetDegrades(t *testing.T) {
 
 // parallelBatchError: every target failing (or a stop before any success) is
 // an error (1); a partial failure or partial interrupt is incomplete (5), so 99
-// failed targets out of 100 no longer exit 0 (RES-4).
+// failed targets out of 100 no longer exit 0.
 func TestParallelBatchError(t *testing.T) {
 	assert.NoError(t, parallelBatchError(0, 0, 0, 0), "empty batch is not a failure")
 	assert.NoError(t, parallelBatchError(0, 0, 0, 5), "all succeeded")

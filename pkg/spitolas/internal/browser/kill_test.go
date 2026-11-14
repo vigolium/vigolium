@@ -1,9 +1,9 @@
 package browser
 
 import (
-	"fmt"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -220,7 +220,7 @@ func TestLaunchBoundedUsesItsOwnDeadline(t *testing.T) {
 	}
 }
 
-// TestLaunchFromMarksLaunchFailure is MISS-27: a browser that cannot be
+// TestLaunchFromMarksLaunchFailure: a browser that cannot be
 // started is reported as ErrLaunch (through every wrapper up to the runner),
 // and a launch the caller cancelled is not.
 func TestLaunchFromMarksLaunchFailure(t *testing.T) {

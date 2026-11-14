@@ -314,8 +314,8 @@ func truncateStr(s string, maxLen int) string {
 	return textutil.TruncateUTF8(s, maxLen) + "..."
 }
 
-// redactReportFinding scrubs credentials from a finding's shareable evidence
-// (SAFE-12): request/response headers and cookie values, sensitive query
+// redactReportFinding scrubs credentials from a finding's shareable evidence:
+// request/response headers and cookie values, sensitive query
 // parameters in the request line and the URLs.
 func redactReportFinding(rf *ReportFinding, extra map[string]struct{}) {
 	rf.Request = redact.HTTPMessage(rf.Request, extra)

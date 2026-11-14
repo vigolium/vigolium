@@ -10,7 +10,7 @@ import (
 )
 
 // With a total scan budget, an early phase's deadline leaves the reserves of
-// the phases after it unspent (ECON-5).
+// the phases after it unspent.
 func TestPhaseDeadlineReserved(t *testing.T) {
 	parent, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

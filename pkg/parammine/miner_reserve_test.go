@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// MISS-8b: the scan leaves a confirmation reserve, so a candidate isolated
+// The scan leaves a confirmation reserve, so a candidate isolated
 // before the budget runs out is still confirmed instead of discarded.
 func TestMine_BudgetReserveConfirmsCandidate(t *testing.T) {
 	srv, _ := hiddenApp(t)
@@ -30,7 +30,7 @@ func TestMine_BudgetReserveConfirmsCandidate(t *testing.T) {
 	}
 }
 
-// MISS-8b: a block burst during confirmation reports the isolated names as
+// A block burst during confirmation reports the isolated names as
 // unconfirmed leads rather than dropping them.
 func TestMine_BlockedCandidateReportedUnconfirmed(t *testing.T) {
 	var n atomic.Int64

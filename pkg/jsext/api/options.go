@@ -25,7 +25,7 @@ type APIOptions struct {
 	AllowExec  bool   // gate for exec() and setEnv(); default false
 	SandboxDir string // base path for file ops; empty = cwd
 	// AllowOutOfScope lets vigolium.http.* reach hosts the scope matcher
-	// refuses (extensions.allow_out_of_scope, SAFE-14).
+	// refuses (extensions.allow_out_of_scope).
 	AllowOutOfScope bool
 	ExecTimeout     int // max seconds for exec(); default 30, cap 120
 

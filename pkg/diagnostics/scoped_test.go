@@ -42,7 +42,7 @@ func checkByID(r *ScopedReport, id string) *ScopedCheck {
 	return nil
 }
 
-// TestScoped_Verdicts is RUN-5: the scoped verdict is the worst counted
+// TestScoped_Verdicts: the scoped verdict is the worst counted
 // check; uncounted checks are reported only.
 func TestScoped_Verdicts(t *testing.T) {
 	settings := config.DefaultSettings()

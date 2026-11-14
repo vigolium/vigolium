@@ -9,7 +9,7 @@ type DynamicAssessmentConfig struct {
 
 	// ExternalLookups lets modules query third-party services that are not
 	// the scan target (dependency_confusion's npm registry lookups) through
-	// the scan's proxy and timeout (SAFE-11). Off by default: the lookups
+	// the scan's proxy and timeout. Off by default: the lookups
 	// disclose the target's internal package names to a public registry.
 	// --offline forces it off.
 	ExternalLookups bool                 `yaml:"external_lookups"`

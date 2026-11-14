@@ -10,7 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
-// TestNoteLoginVerification is MISS-41: a login that ran but could not be
+// TestNoteLoginVerification: a login that ran but could not be
 // verified is warned about and recorded (auth_unverified), and under
 // reauth.on_failure: abort it stops the scan.
 func TestNoteLoginVerification(t *testing.T) {

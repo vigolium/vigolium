@@ -142,7 +142,7 @@ func TestAllRecordsWithATargetIsAUsageError(t *testing.T) {
 	}
 }
 
-// RUN-13: a bare `vigolium scan` is a usage error on a terminal too — the
+// A bare `vigolium scan` is a usage error on a terminal too — the
 // deprecated TTY fallback that rescanned every stored record is gone. The error
 // names the store and project, and -j/--events keep the same exit 2.
 func TestBareScanIsAUsageErrorEverywhere(t *testing.T) {

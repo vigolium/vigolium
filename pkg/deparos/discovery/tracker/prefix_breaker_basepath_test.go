@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// MISS-1: on a base-path target (https://host/app/) segments count relative to
+// On a base-path target (https://host/app/) segments count relative to
 // the start directory, so the primary wordlist does not share one "/app"
 // bucket, and the base path itself never trips.
 func TestPrefixBreaker_BasePathRelative(t *testing.T) {

@@ -394,7 +394,7 @@ func TestReapAbandonedScans(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestAbandonedScanReaper is RES-8: the server's periodic reaper finalizes
+// TestAbandonedScanReaper: the server's periodic reaper finalizes
 // abandoned rows in every project (not just the default), and leaves live ones.
 func TestAbandonedScanReaper(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)

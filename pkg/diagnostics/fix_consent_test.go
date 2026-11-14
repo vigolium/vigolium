@@ -19,7 +19,7 @@ func claudeMissingReport() *Report {
 	}
 }
 
-// TestRunFixes_VendorScriptNeedsConsent is RUN-6: a bare `doctor --fix` no
+// TestRunFixes_VendorScriptNeedsConsent: a bare `doctor --fix` no
 // longer pipes the Claude Code installer into a shell; --only claude, --yes
 // or a confirmation does.
 func TestRunFixes_VendorScriptNeedsConsent(t *testing.T) {

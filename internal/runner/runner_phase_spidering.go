@@ -1189,7 +1189,7 @@ func (r *Runner) noteSpideringFailures(failed int, launchErr error) {
 }
 
 // browserMethodFilter is the traffic policy's method check for the browser
-// crawl (SAFE-8), nil when every method is allowed.
+// crawl, nil when every method is allowed.
 func (r *Runner) browserMethodFilter() func(string) bool {
 	if pol := r.options.TrafficPolicy; pol != nil && len(pol.AllowedMethods) > 0 {
 		return pol.AllowsMethod
@@ -1198,7 +1198,7 @@ func (r *Runner) browserMethodFilter() func(string) bool {
 }
 
 // liveSessionAuthMonitor adapts the scan's primary live session to the
-// crawler's AuthMonitor (MISS-26): the browser re-applies the session's
+// crawler's AuthMonitor: the browser re-applies the session's
 // current credentials after a re-login and feeds responses back.
 type liveSessionAuthMonitor struct {
 	s       *authentication.LiveSession
@@ -1233,7 +1233,7 @@ func (r *Runner) liveSessionMonitor(infra *phaseInfra) spitolas.AuthMonitor {
 }
 
 // reloginBroadcast fans a successful live-session re-login out to every
-// browser crawl watching it (AuthMonitor.Changed, MISS-26).
+// browser crawl watching it (AuthMonitor.Changed).
 type reloginBroadcast struct {
 	mu   sync.Mutex
 	subs []chan struct{}

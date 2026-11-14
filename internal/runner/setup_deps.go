@@ -17,9 +17,9 @@ import (
 
 // Lazy first-run dependencies.
 //
-// The CLI no longer installs Chrome or nuclei-templates before a scan (the old
-// eager first-run step could stall a scan-url for minutes before its first
-// request). Instead the phase that needs a dependency provisions it when it
+// The CLI does not install Chrome or nuclei-templates before a scan (an eager
+// first-run step could stall a scan-url for minutes before its first request).
+// Instead the phase that needs a dependency provisions it when it
 // runs, announces the step on stderr with an ETA, and emits scan.setup
 // {component, state, bytes, duration_ms} so a machine reader can tell a setup
 // pause from a hung scan. Provisioning happens BEFORE the phase starts its own

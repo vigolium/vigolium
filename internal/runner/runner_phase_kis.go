@@ -164,8 +164,8 @@ func (r *Runner) runKnownIssueScanPhase(ctx context.Context, infra *phaseInfra) 
 	// Secret scan, concurrently with nuclei: it reads stored response bodies
 	// locally (no network, nothing sent to the target), covers only the records
 	// dynamic assessment's secret_detect did not reach (r.secretCoverage), and
-	// used to wait behind the whole nuclei leg — so a scan cut short there lost
-	// it. It starts first and gets its own max_duration budget (derived from the
+	// must not wait behind the whole nuclei leg, where a scan cut short would
+	// lose it. It starts first and gets its own max_duration budget (derived from the
 	// parent ctx, so still bounded by the overall scan budget). A ctx error is a
 	// curtailment, distinct from a scanner failure.
 	secretScanCtx, secretScanCancel := r.trackedPhaseDeadline(ctx, kisMaxDuration)
@@ -308,7 +308,7 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		// nuclei runs its own HTTP stack, so it cannot use the assessment
 		// requester's view — it needs the headers themselves. Under
 		// use_in_discovery: false this is the only way the primary session
-		// reaches this phase; it previously ran unauthenticated.
+		// reaches this phase.
 		Headers:    r.assessmentHeaderSlice(infra),
 		OnResult:   onResult,
 		Repository: r.repository,
@@ -328,7 +328,7 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		knownIssueScanCfg := &r.settings.KnownIssueScan
 		cfg.Tags = knownIssueScanCfg.Tags
 		cfg.ExcludeTags = knownIssueScanCfg.ExcludeTags
-		// A read-only traffic policy (SAFE-8) keeps nuclei off its
+		// A read-only traffic policy keeps nuclei off its
 		// state-changing and disruptive templates. Templates are not filtered
 		// per HTTP method: the nuclei template API exposes no per-request
 		// method filter, so the tag exclusion is the enforcement here.
@@ -371,7 +371,7 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 }
 
 // readOnlyExcludedTemplateTags are the nuclei template tags excluded under a
-// read-only traffic policy (SAFE-8).
+// read-only traffic policy.
 var readOnlyExcludedTemplateTags = []string{"intrusive", "fuzz", "dos"}
 
 // appendMissingTags appends each of add not already in tags (case-insensitive),

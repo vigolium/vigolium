@@ -126,7 +126,7 @@ func ApplyRequestBudget(c database.ScanCompletion, b *egress.Budget) database.Sc
 }
 
 // discoveryRequestShare is discovery's share of the unspent --max-requests
-// budget (ECON-5): scanning_pace.discovery.request_share when set (1 = no
+// budget: scanning_pace.discovery.request_share when set (1 = no
 // cap), else config.DefaultDiscoveryRequestShare.
 func (r *Runner) discoveryRequestShare() float64 {
 	if r.settings != nil {

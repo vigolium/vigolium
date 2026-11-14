@@ -132,7 +132,7 @@ func (r *Runner) RunNativeScan() (err error) {
 	// scan record and owns its pending/queued/running transitions.
 	if r.repository != nil && r.options.ResumeScanUUID != "" {
 		// --resume-scan: the row exists; mark it running again rather than
-		// creating a new one (ECON-4).
+		// creating a new one.
 		if err := r.resumeScanRow(ctx, infra.scanUUID); err != nil {
 			return err
 		}
@@ -370,7 +370,7 @@ func (r *Runner) RunNativeScan() (err error) {
 
 	// External harvest sends nothing to the target, so its archive queries
 	// start now and overlap preflight, heuristics and the port sweep; the
-	// harvest phase joins them at its plan position (ECON-11).
+	// harvest phase joins them at its plan position.
 	if !r.options.FullNativeScanOnReceive && len(r.options.Targets) > 0 && r.settings != nil && plan.enables(PhaseExternalHarvest) {
 		p := startHarvestPrefetch(ctx, r.buildExternalHarvesterSource)
 		r.harvestPrefetchMu.Lock()

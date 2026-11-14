@@ -25,7 +25,7 @@ type State struct {
 	Name        string // "state_001", etc
 	URL         string // Page URL when captured
 	StrippedDOM string // Normalized DOM for comparison
-	// StructID is the SimHash of the DOM's tag-path shingles (MISS-28a):
+	// StructID is the SimHash of the DOM's tag-path shingles:
 	// renderings of one template sit within a few bits of each other.
 	StructID  uint64
 	RawHTML   string    // Original HTML

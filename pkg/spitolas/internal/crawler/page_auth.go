@@ -25,7 +25,7 @@ const (
 	AuthConfigured   = "configured"    // configured, not yet applied to a page
 	AuthApplied      = "applied"       // installed on the start page (and later pages)
 	AuthFailed       = "failed"        // configured but not (fully) applied
-	AuthLost         = "lost"          // the crawl was logged out and re-applying did not restore it (MISS-26)
+	AuthLost         = "lost"          // the crawl was logged out and re-applying did not restore it
 	AuthRestored     = "restored"      // logged out once and restored by re-applying credentials
 )
 
@@ -50,7 +50,7 @@ func (o pageAuthOps) cookies(page *browser.Page, cookies []*http.Cookie) error {
 }
 
 // installHeaders puts the operator's credential headers on page. By default
-// that is the per-request credential router (SAFE-3): headers ride only on
+// that is the per-request credential router: headers ride only on
 // requests the credential scope admits, never on third-party subresources,
 // and the scan's method policy blocks disallowed XHR/fetch methods.
 // Network.setExtraHTTPHeaders, which put them on every request, is not used.
@@ -119,7 +119,7 @@ func (c *Crawler) credentialOriginAllowed(rawURL string) bool {
 // the credentials. The error is returned for RequireAuth to act on.
 func (c *Crawler) applyPageAuth(page *browser.Page) error {
 	// Fonts, media and third-party images carry no crawlable surface and cost
-	// time on every page (ECON-9). Installed here because this runs for every
+	// time on every page. Installed here because this runs for every
 	// fresh page.
 	if c.config.BlockResources && page != nil && c.authOps.setHeaders == nil {
 		if err := page.SetResourceBlocking(c.firstPartyResource); err != nil {
@@ -127,7 +127,7 @@ func (c *Crawler) applyPageAuth(page *browser.Page) error {
 		}
 	}
 	// A method policy with no credential headers still needs the router: it
-	// is what blocks a read-only crawl's XHR/fetch writes (SAFE-8/SAFE-3).
+	// is what blocks a read-only crawl's XHR/fetch writes.
 	if c.config.MethodAllowed != nil && len(c.config.ExtraHeaders) == 0 && page != nil && c.authOps.setHeaders == nil {
 		if err := page.InstallCredentialRouter(nil, nil, c.config.MethodAllowed, nil); err != nil {
 			zap.L().Debug("Spidering: could not install the method-policy router", zap.Error(err))
@@ -247,7 +247,7 @@ func (c *Crawler) authConfigured() bool {
 }
 
 // refreshAuthIfChanged re-applies the live session's credentials when their
-// generation moved (a re-login happened elsewhere in the scan) (MISS-26).
+// generation moved (a re-login happened elsewhere in the scan).
 func (c *Crawler) refreshAuthIfChanged(page *browser.Page) {
 	mon := c.config.AuthMonitor
 	if mon == nil || (page == nil && c.authOps.setHeaders == nil) {
@@ -282,7 +282,7 @@ func (c *Crawler) reapplyCredentials(page *browser.Page, headers map[string]stri
 	}
 }
 
-// checkLoggedOut detects a crawl that lost its session (MISS-26): after an
+// checkLoggedOut detects a crawl that lost its session: after an
 // authenticated start, a page landing on a login form/URL. It re-applies the
 // credentials once and reloads; if the page is still a login page the crawl
 // is marked AuthLost (and keeps going anonymously, now honestly reported),
@@ -341,7 +341,7 @@ func (c *Crawler) pageLooksLoggedOut(page *browser.Page) bool {
 }
 
 // observeAuthResponse feeds one captured response to the live session's
-// logged-out detector (MISS-26).
+// logged-out detector.
 func (c *Crawler) observeAuthResponse(e *network.TrafficEntry) {
 	mon := c.config.AuthMonitor
 	if mon == nil || e == nil || e.Response == nil {

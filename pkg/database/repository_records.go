@@ -198,7 +198,7 @@ type RecordAdoption struct {
 	Source  string
 }
 
-// AdoptRecords applies a batch of adoptions in ONE transaction (ECON-10): the
+// AdoptRecords applies a batch of adoptions in ONE transaction: the
 // record writer used to issue one autocommit UPDATE per deduplicated record,
 // so a duplicate-heavy batch paid a commit (and on SQLite an fsync) per row.
 // Best-effort like AdoptRecord: a failed batch is logged, never returned.
@@ -1420,7 +1420,7 @@ func parseTargetOrigins(targets []string) map[string]struct{} {
 // while {Scheme,Hostname,Port} matches the exact origin.
 //
 // The origins are grouped by which fields they constrain into at most four
-// row-value IN terms under one hostname IN prefilter (MISS-36). One OR term
+// row-value IN terms under one hostname IN prefilter. One OR term
 // per origin nested the expression past SQLite's depth limit (1000) on a
 // large host list, and assessment paging failed outright.
 func applyHostScopeFilter(q *bun.SelectQuery, hosts []HostTarget) *bun.SelectQuery {

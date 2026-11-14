@@ -66,7 +66,7 @@ func TestResponseTimeRecordedOnResponse(t *testing.T) {
 	if !strings.Contains(fn("onResponseReceived"), "pending.responseAt = time.Now()") {
 		t.Error("onResponseReceived must stamp pending.responseAt")
 	}
-	// The body fetch moved to the worker pool (MISS-29b): onLoadingFinished
+	// The body fetch moved to the worker pool: onLoadingFinished
 	// hands off, runBodyJob times the fetch, finishResponse finalises.
 	finished := fn("onLoadingFinished")
 	if !strings.Contains(fn("finishResponse"), "finalizeTimings(pending, bodyFetch)") {

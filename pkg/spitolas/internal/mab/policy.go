@@ -43,7 +43,7 @@ type MABExp3Policy struct {
 	globalR          float64                            // GLOBAL cumulative effective reward (for round reset)
 	mu               sync.RWMutex
 
-	// Crawl-global reward memory per action signature (MISS-28c): the
+	// Crawl-global reward memory per action signature: the
 	// default strategy removes an action's stats after its single pull, so
 	// per-arm learning never carried over and selection was effectively
 	// random. A new arm whose signature (tag, text, link shape) was pulled

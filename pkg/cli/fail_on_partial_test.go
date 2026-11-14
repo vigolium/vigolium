@@ -11,7 +11,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
-// TestFailOnPartial is RES-3: a scan whose phase deadline fired (partial
+// TestFailOnPartial: a scan whose phase deadline fired (partial
 // coverage) exits 5 under --fail-on-partial, and --fail-on implies it; a gate
 // trip (4) and an error (1) outrank it.
 func TestFailOnPartial(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// MISS-8b: candidate selection caps rows per origin, not globally, so a large
+// Candidate selection caps rows per origin, not globally, so a large
 // high-risk host cannot crowd every other host out.
 func TestParamMiningCandidatesPerHost(t *testing.T) {
 	db := newTestDB(t)

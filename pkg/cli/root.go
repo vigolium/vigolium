@@ -180,7 +180,7 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		}
 
 		// --scope-origin is bound on several commands (scan, scan-url, ingest,
-		// …); an unknown value used to admit every host (SAFE-5).
+		// …); an unknown value used to admit every host.
 		if err := validateScopeOrigin(globalScopeOrigin); err != nil {
 			return err
 		}

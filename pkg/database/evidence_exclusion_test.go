@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TestRiskPrioritizedDBInputSource_SkipsFindingEvidence is MISS-31: the
+// TestRiskPrioritizedDBInputSource_SkipsFindingEvidence: the
 // payload-bearing request a finding stored as its evidence (source finding /
 // candidate / observation, or the legacy known-issue "spa") is not served to
 // the next assessment as input, and the round's count excludes it too.

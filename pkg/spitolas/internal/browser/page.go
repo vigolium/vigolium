@@ -55,7 +55,7 @@ type Page struct {
 	dialogs  []DialogEvent
 
 	// credRouter is the Fetch-interception credential policy
-	// (InstallCredentialRouter, SAFE-3); credRouterOnce starts its event loop.
+	// (InstallCredentialRouter); credRouterOnce starts its event loop.
 	credRouter     atomic.Pointer[credentialRouter]
 	credRouterOnce sync.Once
 	routerMu       sync.Mutex
@@ -199,7 +199,7 @@ func (p *Page) HTML() (string, error) {
 }
 
 // settleCap bounds how long WaitStable waits for a DOM that never stops
-// changing (ECON-9).
+// changing.
 const settleCap = 3 * time.Second
 
 // stableCapHits counts WaitStable calls that hit settleCap (process-wide).
@@ -209,7 +209,7 @@ var stableCapHits atomic.Int64
 func StableCapHits() int64 { return stableCapHits.Load() }
 
 // WaitStable waits for the page to be stable, at most min(PageLoadTimeout,
-// 3s) (ECON-9). A page whose DOM changes every window (a ticker, a carousel)
+// 3s). A page whose DOM changes every window (a ticker, a carousel)
 // used to cost the whole 30s page timeout per action; reaching the cap is
 // treated as settled — the DOM is as stable as it will get — and counted.
 func (p *Page) WaitStable(d time.Duration) error {

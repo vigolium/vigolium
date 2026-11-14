@@ -438,7 +438,7 @@ func init() {
 }
 
 // renderDerivedScope prints the scope a file-input scan derived from its
-// input (SAFE-4): the scope targets, then every input host with its record
+// input: the scope targets, then every input host with its record
 // count, excluded hosts marked.
 func renderDerivedScope(w io.Writer, sc scanplan.Scope) {
 	if len(sc.ScopeTargets) == 0 {

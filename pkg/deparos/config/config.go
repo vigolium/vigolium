@@ -275,12 +275,12 @@ type EngineConfig struct {
 	RequestFilter func(*url.URL) bool `json:"-"`
 
 	// MethodFilter, when set, refuses a request whose method the scan's traffic
-	// policy does not allow (scope.methods, SAFE-8) the same way RequestFilter
+	// policy does not allow (scope.methods) the same way RequestFilter
 	// refuses an excluded URL. nil = every method.
 	MethodFilter func(method string) bool `json:"-"`
 
 	// FormSafety is the replay-safety policy for HTML form submission during
-	// discovery (SAFE-7): metadata-only, read-only, safe-baseline or
+	// discovery: metadata-only, read-only, safe-baseline or
 	// state-changing. Empty uses jstangle.replay_safety. The runner sets
 	// metadata-only when the browser policy denies form submission.
 	FormSafety string `json:"form_safety,omitempty" yaml:"form_safety,omitempty"`

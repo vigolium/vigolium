@@ -39,7 +39,7 @@ func TestLoadSettingsExplicitBrokenFails(t *testing.T) {
 	}
 }
 
-// RUN-8: a DISCOVERED broken config is fatal (config_invalid, naming the path
+// A DISCOVERED broken config is fatal (config_invalid, naming the path
 // and the validate command) on every command the root marks; it used to
 // degrade silently to built-in defaults, dropping scope excludes and rate
 // limits.

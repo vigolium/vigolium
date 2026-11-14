@@ -99,12 +99,12 @@ type SpiderConfig struct {
 	// applied (see EffectivePolicy). The runner sets both, consistently.
 	Policy *InteractionPolicy
 
-	// DenyClickPattern overrides the destructive-click guard's regex (SAFE-9):
+	// DenyClickPattern overrides the destructive-click guard's regex:
 	// nil keeps the built-in destructive pattern, a pointer to "" disables it.
 	DenyClickPattern *string
 	// ExcludeSelectors are CSS selectors the crawl never clicks.
 	ExcludeSelectors []string
-	// AuthMonitor is the scan's live session (MISS-26): the crawl re-applies
+	// AuthMonitor is the scan's live session: the crawl re-applies
 	// its credentials after a re-login or when it lands on a login form, and
 	// reports AuthState "lost" when re-applying does not bring it back.
 	AuthMonitor AuthMonitor

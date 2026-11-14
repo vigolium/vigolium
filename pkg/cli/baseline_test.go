@@ -41,7 +41,7 @@ func writeBaselineStore(t *testing.T, scanUUID string, events ...*output.ResultE
 	return path, repo
 }
 
-// TestBaselineAndIgnoreGate is RUN-4: with --baseline only findings not in the
+// TestBaselineAndIgnoreGate: with --baseline only findings not in the
 // previous run count toward --fail-on; ignore-file hashes never count (expired
 // entries do); the -j counts say new/unchanged/fixed/ignored.
 func TestBaselineAndIgnoreGate(t *testing.T) {

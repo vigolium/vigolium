@@ -13,7 +13,7 @@ import (
 )
 
 // ScanRecordProgress is one record's dynamic-assessment coverage in one scan
-// (ECON-4, the light coverage ledger): which tiers of modules finished on it,
+// (the light coverage ledger): which tiers of modules finished on it,
 // which individual modules did (done_bits, by the module ordinals stored in
 // scans.coverage_modules), whether the passive stage ran, and how many module
 // calls timed out. It is what lets a curtailed scan resume without redoing the

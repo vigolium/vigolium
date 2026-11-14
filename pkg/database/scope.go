@@ -50,7 +50,7 @@ func (e *ScopeEvaluator) ruleMatches(rule *Scope, scheme, hostname string, port 
 
 	// Path pattern check
 	// Path globs mean URL paths: the query is not part of the subject and "*"
-	// crosses "/" (SAFE-6).
+	// crosses "/".
 	if rule.PathPattern != "" && !pathglob.Match(rule.PathPattern, pathglob.ScopePath(path)) {
 		return false
 	}

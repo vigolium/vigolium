@@ -10,7 +10,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-// TestOASTSessions_RedactedInGenericAPIAndExports is MISS-37: a kept OAST
+// TestOASTSessions_RedactedInGenericAPIAndExports: a kept OAST
 // session's key material never leaves the store — not through the generic
 // table API and not in an exported SQLite copy — and closing drops it.
 func TestOASTSessions_RedactedInGenericAPIAndExports(t *testing.T) {
