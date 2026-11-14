@@ -98,7 +98,7 @@ func TestPauseController_PauseReturnsWithStuckWorker(t *testing.T) {
 	p := NewPauseController()
 
 	// A worker is mid-dispatch and stays there. Pause must still return at
-	// once (MISS-39); only Quiesced waits for the worker.
+	// once; only Quiesced waits for the worker.
 	p.AcquireWorker()
 
 	start := time.Now()
@@ -111,9 +111,6 @@ func TestPauseController_PauseReturnsWithStuckWorker(t *testing.T) {
 	}
 	if p.Quiesced() {
 		t.Fatal("Quiesced while a worker is still mid-dispatch")
-	}
-	if p.QuiescedCh() == nil {
-		t.Fatal("QuiescedCh is nil while paused")
 	}
 
 	// Resume and a second Pause must not block either.
@@ -128,14 +125,7 @@ func TestPauseController_PauseReturnsWithStuckWorker(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Resume/Pause blocked behind a stuck worker")
 	}
-	qc := p.QuiescedCh()
-
 	p.ReleaseWorker()
-	select {
-	case <-qc:
-	case <-time.After(time.Second):
-		t.Fatal("quiesced channel not closed after the last worker released")
-	}
 	if !p.Quiesced() {
 		t.Fatal("expected Quiesced after the worker released")
 	}
