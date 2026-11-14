@@ -139,7 +139,7 @@ func newTestExecutor(cfg ExecutorConfig, passiveMods []modules.PassiveModule) (*
 		perRequestPassive: filterPassiveModulesByScanScope(passiveMods, modules.ScanScopeRequest),
 		perHostPassive:    filterPassiveModulesByScanScope(passiveMods, modules.ScanScopeHost),
 		caches:            scanCaches{requestUUIDs: newShardedMap(1)},
-		pool:              workerPool{itemSlots: make(chan struct{}, 4)},
+		pool:              workerPool{itemSlots: make(chan struct{}, 4), sched: newActiveScheduler(32, nil)},
 	}
 	return e, &resultCount
 }

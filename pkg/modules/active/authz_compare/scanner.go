@@ -126,13 +126,11 @@ func (m *Module) ScanPerRequest(
 		}
 	}
 
-	// Per-host rate limit
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil {
-		hostKey := utils.Sha1(urlx.Host)
-		if _, ok := diskSet.IncrementAndCheck(hostKey, maxProbesPerHost); !ok {
-			return nil, nil
-		}
+	// Classify first: a request that is not an authorization target costs
+	// nothing (MISS-18).
+	target, ok := classifyAuthorizationTarget(ctx, scanCtx, urlx.Path)
+	if !ok {
+		return nil, nil
 	}
 
 	// Get primary session's response (baseline)
@@ -149,13 +147,19 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
+	// Per-host budget, charged only once the request is a classified target
+	// with a usable baseline — it is about to be probed. Charging up front spent
+	// the budget on requests that were never compared (MISS-18).
+	if diskSet := m.ds.Get(scanCtx.DedupMgr()); diskSet != nil {
+		hostKey := utils.Sha1(urlx.Host)
+		if _, ok := diskSet.IncrementAndCheck(hostKey, maxProbesPerHost); !ok {
+			return nil, nil
+		}
+	}
+
 	host := urlx.Host
 	urlStr := urlx.String()
 	compareOpts := authzutil.DefaultCompareOptions()
-	target, ok := classifyAuthorizationTarget(ctx, scanCtx, urlx.Path)
-	if !ok {
-		return nil, nil
-	}
 
 	// Strip port from host for hostname matching (e.g. "example.com:8080" → "example.com").
 	// Uses net.SplitHostPort to correctly handle IPv6 addresses like [::1]:8080.

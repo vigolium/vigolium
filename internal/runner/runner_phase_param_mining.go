@@ -10,6 +10,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/parammine"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -191,8 +192,14 @@ func paramMiningDynamicContent(ct string) bool {
 // paramMiningBodyUsable reports a POST body mining can add names to: form,
 // JSON, multipart (names go on the query string) or none.
 func paramMiningBodyUsable(ct string) bool {
-	ct = strings.ToLower(ct)
-	return ct == "" || strings.Contains(ct, "x-www-form-urlencoded") || strings.Contains(ct, "json") || strings.Contains(ct, "multipart/")
+	if strings.TrimSpace(ct) == "" {
+		return true
+	}
+	switch _, class := httpmsg.ClassifyMediaType(ct, nil); class {
+	case httpmsg.ContentTypeURLEncoded, httpmsg.ContentTypeJSON, httpmsg.ContentTypeMultipart:
+		return true
+	}
+	return false
 }
 
 // paramMiner runs the endpoints and keeps the phase's tallies.

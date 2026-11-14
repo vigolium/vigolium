@@ -16,7 +16,7 @@ var (
 **Fix:** Enforce object-level authorization on every request by verifying the session may access the referenced object, and prefer unpredictable identifiers.`
 
 	ModuleConfirmation = "Indicated when a probe request with a neighbor object ID returns a structurally similar response with different content, suggesting missing authorization enforcement"
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"idor", "auth-bypass", "moderate"}
 )

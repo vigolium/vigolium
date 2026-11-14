@@ -700,18 +700,19 @@ func (h *Handlers) HandleScanStatus(c fiber.Ctx) error {
 	st := h.scanStates[projectUUID]
 	var running bool
 	var scanID string
-	var paused bool
+	var r *runner.Runner
 	if st != nil && st.running {
 		running = true
 		scanID = st.scanID
-		paused = st.runner != nil && st.runner.IsPaused()
+		r = st.runner
 	}
 	h.scanMu.Unlock()
 
 	if running {
-		status := "running"
-		if paused {
-			status = "paused"
+		// "pausing" until the workers have quiesced, then "paused".
+		status := runner.PauseStateRunning
+		if r != nil {
+			status = r.PauseState()
 		}
 		return c.JSON(ScanStatusResponse{
 			ProjectUUID: projectUUID,
@@ -738,16 +739,21 @@ func (h *Handlers) HandlePauseScan(c fiber.Ctx) error {
 	// Scope to the request's active project (see HandleStopScan).
 	projectUUID := getProjectUUID(c)
 	h.scanMu.Lock()
-	defer h.scanMu.Unlock()
-
 	st, ok := h.scanStates[projectUUID]
 	if !ok || !st.running || st.scanID != scanUUID || st.runner == nil {
+		h.scanMu.Unlock()
 		return respondErrorMsg(c, fiber.StatusConflict, "scan "+scanUUID+" is not running")
 	}
-	if st.runner.IsPaused() {
+	r := st.runner
+	if r.IsPaused() {
+		h.scanMu.Unlock()
 		return respondErrorMsg(c, fiber.StatusConflict, "scan is already paused")
 	}
-	st.runner.Pause()
+	// Pause never blocks (it only stops dispatch/admission), but release the
+	// server-wide scan lock before the DB write anyway: stop and status for
+	// every project wait on it.
+	r.Pause()
+	h.scanMu.Unlock()
 	if h.repo != nil {
 		_ = h.repo.PauseScan(c.Context(), scanUUID)
 	}
@@ -755,8 +761,8 @@ func (h *Handlers) HandlePauseScan(c fiber.Ctx) error {
 		ProjectUUID: projectUUID,
 		ScanUUID:    scanUUID,
 		Running:     true,
-		Status:      "paused",
-		Message:     "scan paused, workers finishing current items",
+		Status:      r.PauseState(),
+		Message:     "scan pausing: no new work is dispatched; in-flight items finish first (status reports paused once they have)",
 	})
 }
 

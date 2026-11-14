@@ -154,6 +154,8 @@ var projectOwnedTables = []string{
 	"finding_hash_aliases",
 	"oast_payloads",
 	"oast_sessions",
+	// The coverage ledger is per (scan, record) of the project (ECON-4).
+	"scan_record_progress",
 }
 
 // ReassignProjectData moves all data owned by sourceUUID to targetUUID.

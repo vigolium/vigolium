@@ -196,8 +196,32 @@ func (p *ParameterInsertionPoint) BuildRequest(payload []byte) []byte {
 	}
 
 	// Encode payload based on parameter type
-	encoded := p.encodePayload(payload)
+	return p.buildEncoded(p.encodePayload(payload))
+}
 
+// BuildRequestPreEncoded injects a payload that is ALREADY percent-encoded the
+// way it must reach the server ("%00", "%252e%252e%252f", "%0d%0a"): only the
+// bytes that cannot appear literally in a request line or body are escaped
+// (control bytes, space, '#', bytes >= 0x80) and '%' is kept, so the module's
+// encoding arrives as written. BuildRequest escapes '%' itself, which turned
+// every such payload into a double-encoded no-op (MISS-12).
+//
+// Applies to URL-encoded parameters (query, path, form body, cookie); other
+// parameter types (JSON, XML) have no percent layer and fall back to
+// BuildRequest.
+func (p *ParameterInsertionPoint) BuildRequestPreEncoded(payload []byte) []byte {
+	if payload == nil {
+		panic("Payload cannot be nil")
+	}
+	t := p.parameter.Type()
+	if t != ParamPathFolder && t != ParamPathFilename && !p.parameter.CanURLEncode() {
+		return p.BuildRequest(payload)
+	}
+	return p.buildEncoded(appendMinimalEncoded(make([]byte, 0, len(payload)+8), payload))
+}
+
+// buildEncoded splices an already-encoded value into the base request.
+func (p *ParameterInsertionPoint) buildEncoded(encoded []byte) []byte {
 	startOffset := p.parameter.ValueStart()
 	endOffset := p.parameter.ValueEnd()
 
@@ -658,6 +682,10 @@ type NestedInsertionPoint struct {
 	childParam   InsertionPoint        // n: inner insertion point
 	buildState   int                   // o: depth counter for nested traversal
 	baseRequest  []byte                // base request bytes
+	// layers are the encodings wrapped around the child document inside the
+	// parent value (e.g. base64), applied innermost-first to the child's built
+	// document before the parent encodes it. Set at discovery.
+	layers []Encoder
 }
 
 // NewNestedInsertionPoint creates a new nested insertion point.
@@ -730,9 +758,14 @@ func (n *NestedInsertionPoint) PayloadOffsets(payload []byte) []int {
 	return n.parentParam.PayloadOffsets(childEncodedValue)
 }
 
-// getChildEncodedValue gets the encoded value from the child insertion point.
+// getChildEncodedValue gets the encoded value from the child insertion point,
+// re-wrapped in the layers the parent value carried it in (innermost first).
 func (n *NestedInsertionPoint) getChildEncodedValue(payload []byte) []byte {
-	return n.childParam.BuildRequest(payload)
+	v := n.childParam.BuildRequest(payload)
+	for _, layer := range n.layers {
+		v = layer.Encode(v, []int{0, len(v)})
+	}
+	return v
 }
 
 // EncodingChain returns the list of encoding transformations applied.
@@ -1036,10 +1069,9 @@ func getInsertionPointOffsets(ip InsertionPoint) (start, end int) {
 func encodePayloadForIP(ip InsertionPoint, payload []byte) []byte {
 	switch v := ip.(type) {
 	case *ParameterInsertionPoint:
-		if v.parameter.CanURLEncode() {
-			return EncodeQueryValueBytes(payload)
-		}
-		return payload
+		// The same encoder BuildRequest uses (path, query, JSON-aware), so a
+		// batch build matches a single build (NEW-14).
+		return v.encodePayload(payload)
 	case *EncodedInsertionPoint:
 		payloadWithPrefix := payload
 		if len(v.prefix) > 0 {

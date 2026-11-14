@@ -228,3 +228,35 @@ func TestDefaultRegistry_CanProcessNoPanic(t *testing.T) {
 		}()
 	}
 }
+
+// TestDefaultRegistry_TentativeImpliesSuspect: a module whose default
+// confidence is Tentative declares an unproven oracle, so its default severity
+// must be Suspect or below — unless it is on TentativeSeverityWaivers with a
+// reason (RES-7).
+func TestDefaultRegistry_TentativeImpliesSuspect(t *testing.T) {
+	for _, entry := range allDefaultModules() {
+		m := entry.mod
+		if m.Confidence() == severity.Tentative && m.Severity() > severity.Suspect && !TentativeSeverityWaived(m.ID()) {
+			t.Errorf("%s module %q is Tentative but %s: an unproven oracle files Suspect "+
+				"(fix the metadata, or add a reasoned entry to TentativeSeverityWaivers)",
+				entry.kind, m.ID(), m.Severity())
+		}
+	}
+}
+
+// TestTentativeSeverityWaiversCurrent keeps the waiver list honest: every entry
+// names a registered module and carries a reason.
+func TestTentativeSeverityWaiversCurrent(t *testing.T) {
+	registered := map[string]bool{}
+	for _, entry := range allDefaultModules() {
+		registered[entry.mod.ID()] = true
+	}
+	for id, reason := range TentativeSeverityWaivers {
+		if !registered[id] {
+			t.Errorf("waiver %q names no registered module (stale entry)", id)
+		}
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("waiver %q has no reason", id)
+		}
+	}
+}

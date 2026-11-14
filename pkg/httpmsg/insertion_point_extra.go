@@ -19,6 +19,13 @@ import (
 	"strings"
 )
 
+// IsExtraInsertionPointType reports whether t is one of the opt-in types the
+// scanner builds but no module receives unless it asks: parameter names and
+// the entire body.
+func IsExtraInsertionPointType(t InsertionPointType) bool {
+	return t == INS_PARAM_NAME_URL || t == INS_PARAM_NAME_BODY || t == INS_ENTIRE_BODY
+}
+
 // NewParamLocation says where a NewParamInsertionPoint adds its parameter.
 type NewParamLocation string
 

@@ -56,7 +56,7 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 	host := ctx.Service().Host()
-	if ds := m.ds.Get(scanCtx.DedupMgr()); ds != nil && ds.IsSeen(host) {
+	if !modkit.BeginHostProbe(scanCtx, httpClient, m.ds.Get(scanCtx.DedupMgr()), host) {
 		return nil, nil
 	}
 

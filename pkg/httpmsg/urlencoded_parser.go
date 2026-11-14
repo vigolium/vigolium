@@ -224,35 +224,12 @@ func GetBodyContentType(headers []string, request []byte, bodyOffset int) Conten
 		return ContentTypeNone
 	}
 
-	// Parse Content-Type header
+	// Classify the header (sniffing the body when it is missing or text/plain);
+	// anything undetermined keeps the historical URL_ENCODED default.
 	contentTypeStr, _ := ParseContentType(headers)
-
-	// If no Content-Type header, default to URL_ENCODED
-	if contentTypeStr == "" {
-		return ContentTypeURLEncoded
+	if _, ct := ClassifyMediaType(contentTypeStr, request[bodyOffset:]); ct != ContentTypeUnknown {
+		return ct
 	}
-
-	// Map MIME type to ContentType enum
-	if containsSubstring(contentTypeStr, "multipart") {
-		return ContentTypeMultipart
-	}
-
-	// Check for XML
-	if containsSubstring(contentTypeStr, "xml") {
-		return ContentTypeXML
-	}
-
-	// Check for JSON
-	if containsSubstring(contentTypeStr, "json") {
-		return ContentTypeJSON
-	}
-
-	// Check for AMF
-	if containsSubstring(contentTypeStr, "application/x-amf") {
-		return ContentTypeAMF
-	}
-
-	// Default to URL_ENCODED
 	return ContentTypeURLEncoded
 }
 

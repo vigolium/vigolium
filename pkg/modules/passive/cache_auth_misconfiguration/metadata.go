@@ -16,7 +16,7 @@ var (
 **Fix:** Mark per-user responses private or no-store, or key the cache by Cookie and Authorization.`
 
 	ModuleConfirmation = "Candidate only after an actual cache HIT plus live credential/session evidence and missing Vary token; cross-user replay is required for a finding"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"misconfiguration", "cache-poisoning", "session", "light"}
 )

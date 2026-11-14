@@ -57,7 +57,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	host := urlx.Host
 	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	if diskSet != nil && diskSet.Contains(host) {
 		return nil, nil
 	}
 
@@ -167,7 +167,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			Info: output.Info{
 				Name:        "ASP.NET Anti-CSRF Token Missing",
 				Description: "The page has a postback form but lacks __RequestVerificationToken, indicating the anti-forgery token is not implemented.",
-				Severity:    severity.Low,
+				Severity:    severity.Suspect,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"aspnet", "csrf", "anti-forgery"},
 				Reference:   []string{"https://learn.microsoft.com/en-us/aspnet/web-api/overview/security/preventing-cross-site-request-forgery-csrf-attacks"},
@@ -175,5 +175,10 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		})
 	}
 
+	// Claim the host only now that it matched (MISS-19): a host whose
+	// first response showed nothing stays open for later responses.
+	if len(results) > 0 && diskSet != nil && !diskSet.ClaimOnMatch(host) {
+		return nil, nil
+	}
 	return results, nil
 }

@@ -141,7 +141,7 @@ func (m *Module) testPayload(
 	baselineLen int,
 	baselineStatus int,
 ) (*output.ResultEvent, bool, error) {
-	fuzzedRaw := ip.BuildRequest([]byte(p.payload))
+	fuzzedRaw := httpmsg.BuildPayload(ip, []byte(p.payload), p.preEncoded)
 
 	// BuildRequest produces well-formed raw, so wrap directly instead
 	// of re-parsing on this hot path.

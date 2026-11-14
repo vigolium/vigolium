@@ -16,18 +16,8 @@ import (
 )
 
 const (
-	// baselineSamples is how many unmodified requests model the target's normal
-	// response-time distribution before any sleep payload is tested.
-	baselineSamples = 4
-	// timeStdevCoeff multiplies the baseline standard deviation when deriving the
-	// delay threshold (mirrors sqli_time_blind: sensitive but clear of jitter).
-	timeStdevCoeff = 5
-	// minSleepMargin is the minimum absolute delay above the baseline mean a sleep
-	// payload must add before it is believed (guards low-variance hosts).
-	minSleepMargin = 3 * time.Second
-	// absoluteFloor is a hard lower bound on the threshold so a near-instant
-	// baseline can never let trivial jitter masquerade as an injection.
-	absoluteFloor = 2 * time.Second
+	// The baseline sampling and threshold formula live in
+	// modkit.TimingThreshold, shared with the other time-based module.
 	// maxThreshold caps the derived threshold: a host so slow/jittery that the
 	// threshold exceeds this can't be tested reliably with the sleepHigh payload.
 	maxThreshold = 9 * time.Second
@@ -106,6 +96,10 @@ func (m *Module) ScanPerRequest(
 	if err != nil {
 		return results, errors.Wrap(err, "failed to create insertion points")
 	}
+	// Header points: same class gate the executor applies to per-point
+	// modules (ECON-1) — noise headers never, logged/negotiation/routing
+	// headers once per host.
+	points = modkit.FilterPointsFor(scanCtx, m, ctx, points)
 
 	rhm := m.rhm.Get(scanCtx.DedupMgr())
 	if rhm != nil {
@@ -125,7 +119,7 @@ ipScan:
 		}
 		baseValue := ip.BaseValue()
 
-		threshold, err := m.deriveThreshold(ctx, httpClient, ip)
+		threshold, err := m.deriveThreshold(ctx, httpClient, scanCtx)
 		if err != nil {
 			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
 				return results, nil
@@ -156,34 +150,25 @@ ipScan:
 	return results, nil
 }
 
-// deriveThreshold samples the insertion point's unmodified latency and returns
-// the delay a sleep payload must exceed to be believed:
-// max(absoluteFloor, mean + max(coeff·stdev, minSleepMargin)).
+// errBaselineBlocked: the record's unmodified request is answered by a block
+// (WAF/CDN, auth gate, rate limit); there is no latency to model.
+var errBaselineBlocked = errors.New("command_injection_timing: baseline response is blocked")
+
+// deriveThreshold returns the record's timing threshold through the shared
+// per-record memo (modkit.TimingThreshold): one latency model per record,
+// shared by every insertion point and by the other time-based module, instead
+// of modkit.TimingBaselineSamples unmodified requests per point per module (ECON-6). A
+// blocked baseline (WAF/auth/rate-limit) is errBaselineBlocked.
 func (m *Module) deriveThreshold(
 	ctx *httpmsg.HttpRequestResponse,
 	httpClient *http.Requester,
-	ip httpmsg.InsertionPoint,
+	scanCtx *modkit.ScanContext,
 ) (time.Duration, error) {
-	base := ip.BaseValue()
-	samples := make([]time.Duration, 0, baselineSamples)
-	for i := 0; i < baselineSamples; i++ {
-		d, err := m.sendTimedPayload(ctx, httpClient, ip, base, false)
-		if err != nil {
-			return 0, err
-		}
-		samples = append(samples, d.elapsed)
+	threshold, err := scanCtx.TimingThreshold(ctx, modkit.UnmodifiedTimingSample(ctx, httpClient))
+	if errors.Is(err, modkit.ErrTimingBaselineBlocked) {
+		return 0, errBaselineBlocked
 	}
-
-	mean, stdev := infra.MeanStdev(samples)
-	margin := time.Duration(timeStdevCoeff) * stdev
-	if margin < minSleepMargin {
-		margin = minSleepMargin
-	}
-	threshold := mean + margin
-	if threshold < absoluteFloor {
-		threshold = absoluteFloor
-	}
-	return threshold, nil
+	return threshold, err
 }
 
 // confirmTiming confirms time-based command injection across multiple rounds and
@@ -290,9 +275,10 @@ func (m *Module) confirmTiming(
 					"or out-of-band (command-injection-oast) modules where possible.",
 				ip.Name(), timeRounds, tmpl.Label, last.noSleep.Milliseconds(),
 				sleepLow, last.low.Milliseconds(), sleepHigh, last.high.Milliseconds()),
-			// Impact is Critical, but the oracle is timing-only and network-sensitive,
-			// so the finding is reported as Tentative pending corroboration.
-			Severity:   severity.Critical,
+			// Impact would be Critical, but the oracle is timing-only and
+			// network-sensitive: an unproven oracle files Suspect/Tentative pending
+			// corroboration by the echo or OAST modules (RES-7).
+			Severity:   severity.Suspect,
 			Confidence: severity.Tentative,
 		},
 		// Per-round timings live in ExtractedResults (every round) and the

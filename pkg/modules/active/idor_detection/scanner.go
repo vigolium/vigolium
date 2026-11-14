@@ -79,15 +79,6 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 	}
 
-	// Per-host rate limit
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil {
-		hostKey := utils.Sha1(urlx.Host)
-		if _, ok := diskSet.IncrementAndCheck(hostKey, maxProbesPerHost); !ok {
-			return nil, nil
-		}
-	}
-
 	// Classify the parameter
 	isPathParam := ip.Type() == httpmsg.INS_URL_PATH_FOLDER || ip.Type() == httpmsg.INS_URL_PATH_FILENAME
 	pathSegments := strings.Split(urlx.Path, "/")
@@ -101,6 +92,17 @@ func (m *Module) ScanPerInsertionPoint(
 	neighbors := authzutil.GenerateNeighborIDs(ip.BaseValue(), classification.IDType, 3)
 	if len(neighbors) == 0 {
 		return nil, nil
+	}
+
+	// Per-host budget, charged only for a point that is actually going to be
+	// probed: an object ID with neighbours. Charging before classification spent
+	// the whole budget on the first maxProbesPerHost parameters of any kind, and
+	// the real id parameters after them were never tested (MISS-18).
+	if diskSet := m.ds.Get(scanCtx.DedupMgr()); diskSet != nil {
+		hostKey := utils.Sha1(urlx.Host)
+		if _, ok := diskSet.IncrementAndCheck(hostKey, maxProbesPerHost); !ok {
+			return nil, nil
+		}
 	}
 
 	// Get baseline response
@@ -338,22 +340,17 @@ func (m *Module) probeNeighbor(
 		return nil, nil
 	}
 
-	// Structurally similar + content differs → potential IDOR
-	confidence := severity.Tentative
-	if comparison.UserFieldsDiffer {
-		confidence = severity.Firm
-	}
-
-	// Authorization-boundary gate: IDOR/BOLA is an authorization flaw, so it is
-	// only provable when the ORIGINAL request actually carried a credential whose
-	// per-user boundary the neighbor id crossed. With no Authorization / Cookie /
-	// token the differential is just public content served per-id (blogs,
-	// catalogs, docs) — keep it as a Medium/Tentative lead, not a High/Firm
-	// authorization bypass.
-	sev := severity.High
-	if !authzutil.RequestCarriesCredential(ctx.Request()) {
-		sev = severity.Medium
-		confidence = severity.Tentative
+	// Structurally similar + content differs → potential IDOR.
+	//
+	// High/Firm only when BOTH hold: the original request carried a credential
+	// (so there is a per-user boundary to cross) AND user-specific fields differ
+	// between the two objects (so the neighbor really is another user's data).
+	// Anything less — public per-id content, or a credentialed differential with
+	// no user fields — is a single-session neighbour diff, an unproven oracle:
+	// a Suspect/Tentative lead (RES-7).
+	sev, confidence := severity.Suspect, severity.Tentative
+	if comparison.UserFieldsDiffer && authzutil.RequestCarriesCredential(ctx.Request()) {
+		sev, confidence = severity.High, severity.Firm
 	}
 
 	desc := fmt.Sprintf(

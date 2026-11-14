@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	nethttp "net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,7 +99,8 @@ func (m *Module) ScanPerInsertionPoint(
 	// Write → retrieve → browser-confirm. confirmStored tries the universal
 	// HTML-breakout payload first and, only if the value persists and reflects but
 	// doesn't execute, retries with operator-chaining JS-string breakouts.
-	dialog, probeURL, bodyUsed := m.confirmStored(ctx, ip, httpClient, payload)
+	targets := retrieveCandidates(ctx, scanCtx.IsScanTarget)
+	dialog, probeURL, bodyUsed := m.confirmStored(ctx, ip, httpClient, payload, targets)
 	if dialog == nil {
 		return nil, nil
 	}
@@ -124,8 +127,9 @@ func (m *Module) confirmStored(
 	ip httpmsg.InsertionPoint,
 	httpClient *http.Requester,
 	payload *Payload,
+	targets []string,
 ) (*spitolas.DialogEvent, string, string) {
-	dialog, probeURL, stored := m.injectAndConfirm(ctx, ip, httpClient, payload.Body, payload.Canary)
+	dialog, probeURL, stored := m.injectAndConfirm(ctx, ip, httpClient, payload.Body, payload.Canary, targets)
 	if !stored {
 		return nil, "", "" // nothing persisted/reflected — stop before extra writes
 	}
@@ -136,7 +140,7 @@ func (m *Module) confirmStored(
 	alert := "alert(`" + payload.Canary + "`)"
 	for _, q := range []byte{'\'', '"'} {
 		for _, body := range xssbreakout.JSStringPayloads(q, alert) {
-			d, pu, ok := m.injectAndConfirm(ctx, ip, httpClient, body, payload.Canary)
+			d, pu, ok := m.injectAndConfirm(ctx, ip, httpClient, body, payload.Canary, targets)
 			if ok && d != nil {
 				return d, pu, body
 			}
@@ -154,17 +158,72 @@ func (m *Module) injectAndConfirm(
 	ip httpmsg.InsertionPoint,
 	httpClient *http.Requester,
 	bodyPayload, canary string,
+	targets []string,
 ) (*spitolas.DialogEvent, string, bool) {
 	if err := m.inject(ctx, ip, bodyPayload, httpClient); err != nil {
 		return nil, "", false
 	}
-	body, err := m.retrieve(ctx, httpClient)
-	if err != nil || !strings.Contains(body, canary) {
-		return nil, "", false
+	// The stored value may render on a page other than the one that took the
+	// write: the referring form page or the collection the item joined. Read
+	// each candidate (at most maxRetrieveCandidates) and confirm on the first
+	// that carries the canary (MISS-17).
+	for _, target := range targets {
+		body, err := m.retrieve(ctx, httpClient, target)
+		if err != nil || !strings.Contains(body, canary) {
+			continue
+		}
+		dialog, probeURL := m.confirm(ctx, target, canary)
+		return dialog, probeURL, true
 	}
-	urlx, _ := ctx.URL()
-	dialog, probeURL := m.confirm(ctx, urlx.String(), canary)
-	return dialog, probeURL, true
+	return nil, "", false
+}
+
+// maxRetrieveCandidates caps the pages read back after each write.
+const maxRetrieveCandidates = 3
+
+// retrieveCandidates lists where a stored value may render, in order: the URL
+// that took the write, the request's Referer when it is in scope (the form
+// page that submitted it), and the collection URL (the path without its last
+// segment — /posts/new → /posts, /api/comments/17 → /api/comments). Capped at
+// maxRetrieveCandidates, deduplicated. Before, only the submitting URL was
+// re-read, so a comment that renders on the article page was never seen.
+func retrieveCandidates(ctx *httpmsg.HttpRequestResponse, inScope func(host string) bool) []string {
+	urlx, err := ctx.URL()
+	if err != nil || urlx == nil {
+		return nil
+	}
+	submit := *urlx.URL
+	var out []string
+	seen := map[string]bool{}
+	add := func(u string) {
+		if u != "" && !seen[u] && len(out) < maxRetrieveCandidates {
+			seen[u] = true
+			out = append(out, u)
+		}
+	}
+	add(submit.String())
+
+	if ref := ctx.Request().Header("Referer"); ref != "" {
+		if ru, err := url.Parse(ref); err == nil && (ru.Scheme == "http" || ru.Scheme == "https") && ru.Host != "" {
+			sameOrigin := strings.EqualFold(ru.Host, submit.Host) && ru.Scheme == submit.Scheme
+			if sameOrigin || (inScope != nil && inScope(ru.Hostname())) {
+				ru.Fragment = ""
+				add(ru.String())
+			}
+		}
+	}
+
+	if p := strings.TrimRight(submit.Path, "/"); p != "" {
+		if i := strings.LastIndexByte(p, '/'); i >= 0 {
+			coll := submit
+			coll.Path = p[:i+1]
+			coll.RawPath = ""
+			coll.RawQuery = ""
+			coll.Fragment = ""
+			add(coll.String())
+		}
+	}
+	return out
 }
 
 // inject sends the write request that stores the payload.
@@ -188,15 +247,31 @@ func (m *Module) inject(
 	return nil
 }
 
-// retrieve performs a clean GET of the original URL, reusing the original
-// request's auth headers, and returns the response body.
-func (m *Module) retrieve(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester) (string, error) {
+// retrieve performs a clean GET of target (an absolute URL), reusing the
+// original request's auth headers, and returns the response body.
+func (m *Module) retrieve(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, target string) (string, error) {
 	req := ctx.Request().Clone().
 		WithMethod("GET").
 		WithBody(nil).
 		WithRemovedHeader("Content-Length").
 		WithRemovedHeader("Content-Type").
 		WithService(ctx.Service())
+	if tu, err := url.Parse(target); err == nil && tu.Host != "" {
+		req = req.WithPath(tu.RequestURI())
+		if orig, err := ctx.URL(); err == nil && orig != nil && !strings.EqualFold(orig.Host, tu.Host) {
+			port := 80
+			if tu.Scheme == "https" {
+				port = 443
+			}
+			if p := tu.Port(); p != "" {
+				if n, err := strconv.Atoi(p); err == nil {
+					port = n
+				}
+			}
+			req = req.WithService(httpmsg.NewServiceSecure(tu.Hostname(), port, tu.Scheme == "https")).
+				WithHeader("Host", tu.Host)
+		}
+	}
 
 	resp, _, err := httpClient.Execute(httpmsg.NewHttpRequestResponse(req, nil), http.Options{})
 	if err != nil || resp == nil {

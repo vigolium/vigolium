@@ -247,6 +247,10 @@ type Scan struct {
 	// cost" has an answer on the row.
 	ModuleStats map[string]ModuleStat `bun:"module_stats,type:jsonb,nullzero" json:"module_stats,omitempty"`
 
+	// CoverageModules is the module ordinal order scan_record_progress.done_bits
+	// refers to (ECON-4).
+	CoverageModules []string `bun:"coverage_modules,type:jsonb,nullzero" json:"coverage_modules,omitempty"`
+
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 }

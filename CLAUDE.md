@@ -25,7 +25,7 @@ For a focused change: `go test -short -run TestName ./pkg/path/...`. Run relevan
 | --- | --- |
 | `cmd/vigolium/`, `pkg/cli/` | Entry point and Cobra commands |
 | `internal/runner/`, `pkg/core/` | Native scan phases, executor, worker pool, rate limiting |
-| `pkg/modules/` | Scanner modules - 216 active + 119 passive; shared helpers in `modkit/` and `infra/` |
+| `pkg/modules/` | Scanner modules - 218 active + 119 passive; shared helpers in `modkit/` and `infra/` |
 | `pkg/deparos/`, `pkg/spitolas/`, `pkg/harvester/` | Discovery, browser crawling, archive URL collection |
 | `pkg/http/`, `pkg/httpmsg/`, `pkg/input/` | HTTP transport, request/response models, input adapters |
 | `pkg/database/`, `pkg/server/` | SQLite/PostgreSQL via Bun; Fiber REST API |

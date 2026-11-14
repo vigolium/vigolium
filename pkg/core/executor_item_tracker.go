@@ -49,6 +49,8 @@ type itemTracker struct {
 	holdsSlot bool
 	// finished is closed by complete(); processItem waits on it.
 	finished chan struct{}
+	// prog is the item's coverage-ledger bookkeeping (nil without a ledger).
+	prog *itemProgress
 }
 
 // newItemTracker opens an item: it counts the item in flight and returns a
@@ -64,6 +66,9 @@ func (e *Executor) newItemTracker(ctx context.Context, item *work.WorkItem, hold
 		finished:   make(chan struct{}),
 	}
 	t.ctx = withResponseBufferGuard(ctx, &t.guard)
+	if e.cfg.Ledger != nil && item != nil && item.RecordUUID != "" {
+		t.prog = newItemProgress()
+	}
 	t.pending.Store(1)
 	e.pool.inFlight.Add(1)
 	return t
@@ -86,6 +91,7 @@ func (t *itemTracker) complete() {
 			t.releaseBuf(t.pooledBuf)
 		}
 		t.pooledBuf = nil
+		e.writeProgress(t)
 		e.finishItem(t.ctx, t.item, t.panicked.Load())
 		if e.statsTracker != nil {
 			e.statsTracker.Increment()

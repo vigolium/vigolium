@@ -70,6 +70,11 @@ type RecordWriterConfig struct {
 	MaxSubmitRecords int
 	MaxSubmitBytes   int64
 
+	// SurfaceScorer, when set, computes surface_score for a record at ingest
+	// (when the record carries none). Injected so this package stays free of
+	// module code; the runner wires surface_scoring.IngestScore (ECON-5).
+	SurfaceScorer func(*httpmsg.HttpRequestResponse) int
+
 	// ScanUUID, when set, is stamped on every row this writer INSERTS, unless
 	// the write's own lineage names a scan. A dedup hit (cache or batched lookup)
 	// keeps the existing row's scan_uuid: the column records the first scan to
@@ -335,6 +340,9 @@ func (w *RecordWriter) admit(ctx context.Context, rr *httpmsg.HttpRequestRespons
 	// call. See HTTPRecord.FromHttpRequestResponse.
 	if err := record.EnrichFromHttpRequestResponse(rr); err != nil {
 		return pendingWrite{err: fmt.Errorf("failed to convert request: %w", err), resolved: true}
+	}
+	if record.SurfaceScore == 0 && w.cfg.SurfaceScorer != nil {
+		record.SurfaceScore = w.cfg.SurfaceScorer(rr)
 	}
 
 	// Admission gate: once admitted, Close() waits for this enqueue to finish
@@ -837,6 +845,8 @@ func (w *RecordWriter) flush(ctx context.Context, batch []writeRequest) {
 		}
 	}
 
+	// All of the batch's adoptions go in one transaction (ECON-10).
+	batchAdoptions := make([]RecordAdoption, 0, len(adoptions))
 	for _, i := range adoptions {
 		// RootUUID is only real lineage when it names a DIFFERENT row. A
 		// standalone record self-roots during enrichment, and that uuid belongs
@@ -846,13 +856,18 @@ func (w *RecordWriter) flush(ctx context.Context, batch []writeRequest) {
 		if root == records[i].UUID {
 			root = ""
 		}
-		w.repo.AdoptRecord(ctx, existing[i], RecordLineage{
-			ParentUUID:     records[i].ParentUUID,
-			RootUUID:       root,
-			Target:         records[i].Target,
-			ChainTruncated: records[i].ChainTruncated,
-		}, records[i].Source)
+		batchAdoptions = append(batchAdoptions, RecordAdoption{
+			UUID: existing[i],
+			Lineage: RecordLineage{
+				ParentUUID:     records[i].ParentUUID,
+				RootUUID:       root,
+				Target:         records[i].Target,
+				ChainTruncated: records[i].ChainTruncated,
+			},
+			Source: records[i].Source,
+		})
 	}
+	w.repo.AdoptRecords(ctx, batchAdoptions)
 
 	w.flushed.Add(okCount)
 	w.flushFailed.Add(failCount)

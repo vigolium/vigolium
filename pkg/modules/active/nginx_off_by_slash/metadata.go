@@ -16,7 +16,7 @@ var (
 **Fix:** Ensure every alias directive ends with a trailing slash matching its location prefix, or replace alias with root.`
 
 	ModuleConfirmation = "Confirmed when an off-by-slash traversal path returns a stable, non-wildcard 200 whose body differs from both the in-alias equivalent path and a random-suffix traversal — proving the response depends on the escaped path rather than a prefix-wide generic handler"
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nginx", "misconfiguration", "lfi", "moderate"}
 )

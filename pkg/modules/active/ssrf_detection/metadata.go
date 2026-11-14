@@ -16,7 +16,7 @@ var (
 **Fix:** Allowlist URL hosts and schemes, block loopback/link-local/private ranges (including encoded forms), and require IMDSv2 on cloud metadata.`
 
 	ModuleConfirmation = "Confirmed when injected internal URLs or metadata endpoints cause different response content or timing compared to baseline"
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Suspect
 	// In-band only: this module has no out-of-band oracle, so an in-response marker
 	// can at most be Tentative. A Firm/Certain SSRF requires an OAST callback, which
 	// the OAST-driven modules (ssrf-blind, routing-ssrf, …) supply.

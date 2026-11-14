@@ -1,6 +1,7 @@
 package xss_light_scanner
 
 import (
+	"context"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -201,12 +202,14 @@ func (m *URLParamsModule) scanURLParameters(
 	// re-run AnalyzeRequest and re-copy the whole request buffer — the module's
 	// primary entry already enumerated the identical (raw, includeNested=true)
 	// set, so this hits a warm cache.
-	points, err := scanCtx.GetInsertionPoints(ctx.Request().Raw(), ctx.Request().ID(), true)
+	// The full set: this module also tests URL parameter NAMES, an opt-in
+	// point type (MISS-15).
+	points, err := scanCtx.GetAllInsertionPoints(ctx.Request().Raw(), ctx.Request().ID(), true)
 	if err != nil {
 		return nil, err
 	}
 
-	// Filter to only URL parameters
+	// Filter to only URL parameters (values and names)
 	urlPoints := filterURLParamPoints(points)
 	if len(urlPoints) == 0 {
 		return nil, nil
@@ -232,6 +235,15 @@ func (m *URLParamsModule) scanURLParameters(
 	for _, ip := range urlPoints {
 		if scanCtx.ParamAlreadyFound(ctx, ip.Name(), m.VulnClass()) {
 			continue // another xss module already reported this param here
+		}
+		// An empty base value cannot be checked against the stored page; the
+		// shared reflection probe (ECON-2) settles "not reflected anywhere"
+		// with one request the other reflection modules reuse. Fails open.
+		if ip.BaseValue() == "" {
+			if prof, err := scanCtx.ReflectionProfile(context.Background(), ctx, ip, httpClient); err == nil &&
+				prof != nil && !prof.Blocked && !prof.Reflected() {
+				continue
+			}
 		}
 		result, err := m.scanInsertionPointWithPrefixes(ctx, ip, baseBody, httpClient)
 		if err != nil {

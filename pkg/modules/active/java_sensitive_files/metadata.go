@@ -16,7 +16,7 @@ var (
 **Fix:** Block these paths at the web server and keep WEB-INF/META-INF and config files out of any public document root.`
 
 	ModuleConfirmation = "Confirmed when Java-specific sensitive files return expected structural content markers and survive a same-extension catch-all check"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"java", "sensitive-file", "probe", "light"}
 )

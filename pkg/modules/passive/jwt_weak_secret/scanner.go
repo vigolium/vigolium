@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -73,13 +74,18 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		diskSet = m.ds.Get(scanCtx.DedupMgr())
 	}
 	hash := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
-	if diskSet != nil && diskSet.IsSeen(hash) {
+	if diskSet != nil && diskSet.Contains(hash) {
 		return nil, nil
 	}
 
 	// Find JWTs in request and response
 	tokens := findLocatedJWTs(ctx)
 	if len(tokens) == 0 {
+		return nil, nil
+	}
+	// Claim the location only once it carries a token (MISS-19): a first
+	// response without one must not hide a later one that has it.
+	if diskSet != nil && !diskSet.ClaimOnMatch(hash) {
 		return nil, nil
 	}
 
@@ -94,8 +100,18 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	var asymmetricAlgSeen string
 	for _, located := range tokens {
 		token := located.token
-		weakSecret, alg := tryBruteForce(token, secrets)
+		tokenKey := "tok:" + tokenDigest(token)
+		// One finding per token per scan (ECON-14): the same session token is
+		// carried by every request of a browse, and each used to file its own
+		// copy. Skip a token already reported anywhere.
+		if diskSet != nil && diskSet.Contains(tokenKey) {
+			continue
+		}
+		weakSecret, alg := crackMemo(scanCtx, token, secrets)
 		if weakSecret != "" {
+			if diskSet != nil && !diskSet.ClaimOnMatch(tokenKey) {
+				continue
+			}
 			kind := output.RecordKindCandidate
 			grade := output.EvidenceGradeCandidate
 			description := fmt.Sprintf("JWT signature matches a known weak secret under %s, but the token was not observed in a strong server-issuance location; server trust and authorization impact remain unconfirmed.", alg)
@@ -138,6 +154,9 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		// Check for non-cryptographic (plaintext) signature
 		declaredAlg := getJWTAlgorithm(token)
 		if plaintext := getPlaintextSignature(token); plaintext != "" {
+			if diskSet != nil && !diskSet.ClaimOnMatch(tokenKey) {
+				continue
+			}
 			kind := output.RecordKindCandidate
 			grade := output.EvidenceGradeCandidate
 			description := fmt.Sprintf("JWT declares %s but its signature decodes entirely to printable text. This is a strong candidate, but server trust was not established for the observed location.", declaredAlg)
@@ -229,6 +248,24 @@ func (m *Module) loadSecrets() ([][]byte, error) {
 		m.secretsErr = scanner.Err()
 	})
 	return m.secrets, m.secretsErr
+}
+
+// tokenDigest is the hex SHA-256 of a token (memo and dedup key; the token
+// itself is a credential and is never used as a key).
+func tokenDigest(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// crackMemo is tryBruteForce memoised per token per scan (keyed by the token's
+// SHA-256): a token seen on many URLs is cracked once (ECON-14).
+func crackMemo(scanCtx *modkit.ScanContext, token string, secrets [][]byte) (string, string) {
+	v := scanCtx.HostMemo("jwt-crack-v1", tokenDigest(token), func() any {
+		s, a := tryBruteForce(token, secrets)
+		return [2]string{s, a}
+	})
+	r, _ := v.([2]string)
+	return r[0], r[1]
 }
 
 // tryBruteForce attempts to find a weak HMAC secret for the given JWT.

@@ -27,8 +27,9 @@ func TestDerivedRequiredTechs(t *testing.T) {
 		},
 		{
 			name: "mixed casing and whitespace",
+			// "javascript" is descriptive, not a gating stack tag (MISS-21).
 			in:   []string{" NextJS ", "JAVASCRIPT", "session"},
-			want: []string{"nextjs", "javascript"},
+			want: []string{"nextjs"},
 		},
 	}
 	for _, c := range cases {

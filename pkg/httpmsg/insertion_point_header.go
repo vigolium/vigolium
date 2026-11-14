@@ -113,6 +113,17 @@ func (h *HeaderInsertionPoint) BuildRequest(payload []byte) []byte {
 	return result
 }
 
+// BuildRequestPreEncoded injects a pre-encoded payload as the header value.
+// A header has no percent layer, so the payload goes in as written; only raw
+// control bytes are escaped, so a literal "%0d%0a" reaches the server intact
+// while a raw CR/LF can never split the request itself.
+func (h *HeaderInsertionPoint) BuildRequestPreEncoded(payload []byte) []byte {
+	if payload == nil {
+		panic("Payload cannot be nil")
+	}
+	return h.BuildRequest(appendCTLEscaped(make([]byte, 0, len(payload)+8), payload))
+}
+
 // PayloadOffsets returns the byte offsets of the payload in the built request.
 // Builds the request first, then uses GetHeaderOffsets to locate the value.
 func (h *HeaderInsertionPoint) PayloadOffsets(payload []byte) []int {

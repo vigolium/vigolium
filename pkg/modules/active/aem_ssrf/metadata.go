@@ -16,7 +16,7 @@ var (
 **Fix:** Block these proxy servlets at the dispatcher, apply Adobe's patches, and restrict the destinations they may fetch.`
 
 	ModuleConfirmation = "Confirmed when a known SSRF-capable AEM servlet responds as a specific mount (a random sibling 404s) and reproduces, without any SSRF request being sent"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"aem", "adobe", "ssrf", "exposure", "cms", "moderate"}
 )

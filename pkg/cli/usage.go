@@ -218,7 +218,7 @@ var scanFlagGroups = []flagGroup{
 	{"Target & Input", []string{"target", "target-file", "all-records", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
 	{"Input Format", []string{"required-only", "skip-format-validation"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
-	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter", "allow-risky-payloads", "no-param-dedup"}},
+	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter", "allow-risky-payloads", "no-param-dedup", "header-fuzz", "resume-scan"}},
 	{"Scanning", []string{"only", "skip", "dry-run", "intensity", "safe", "max-time", "scope-origin", "ignore-scope", "heuristics-check", "skip-heuristics", "oast-url"}},
 	{"Advanced presets (prefer --intensity)", []string{"strategy", "scanning-profile"}},
 	{"Discovery", []string{"discover", "discover-max-time", "discovery-wordlist", "discovery-extensions", "discovery-max-depth", "no-discovery-fuzz", "no-prefix-breaker", "follow-subdomains", "port-sweep-ports", "param-mining"}},

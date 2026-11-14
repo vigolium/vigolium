@@ -16,7 +16,7 @@ var (
 **Fix:** Use an HTML-safe serializer that escapes less-than characters, preventing user content from forming a script end-tag.`
 
 	ModuleConfirmation = "Candidate when a hydration serialization is structurally truncated at a script boundary and executable markup follows; confirmed only by controlled reflection and browser execution"
-	ModuleSeverity     = severity.High
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"xss", "javascript", "light"}
 )

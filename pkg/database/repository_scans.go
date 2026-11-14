@@ -612,6 +612,10 @@ func (r *Repository) ListScanLogs(ctx context.Context, scanUUID string, level, p
 
 // DeleteScan deletes a scan record by UUID.
 func (r *Repository) DeleteScan(ctx context.Context, uuid string) error {
+	// The scan's coverage ledger goes with it (ECON-4).
+	if err := r.DeleteScanProgress(ctx, uuid); err != nil {
+		return fmt.Errorf("failed to delete scan progress: %w", err)
+	}
 	_, err := r.db.NewDelete().
 		Model((*Scan)(nil)).
 		Where("uuid = ?", uuid).

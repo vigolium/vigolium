@@ -1,8 +1,10 @@
 package httpmsg
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"golang.org/x/net/html"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +47,13 @@ type HttpResponse struct {
 	// baseline per probe. Guarded by mu; invalidated by TruncateBody.
 	ratioSig   any
 	ratioSigOK bool
+
+	// Memoized parsed HTML document (HTMLDocument). Parsed once per response
+	// and shared, read-only, by the anomaly fingerprint and the HTML-walking
+	// passive modules (ECON-14). Guarded by mu; invalidated by TruncateBody.
+	htmlDoc   *html.Node
+	htmlErr   error
+	htmlDocOK bool
 
 	// duration is how long this response took to arrive, measured by whoever
 	// sent the request. Zero means NOT MEASURED, not "took no time": most
@@ -363,6 +372,7 @@ func (r *HttpResponse) TruncateBody(maxSize int) {
 	r.raw = r.raw[:r.bodyOffset+maxSize]
 	// The body shrank — drop the memoized derivations so later reads recompute
 	// against the truncated body instead of returning the pre-truncation copy.
+	r.htmlDoc, r.htmlErr, r.htmlDocOK = nil, nil, false
 	r.bodyString, r.bodyStringOK = "", false
 	r.bodyLowerString, r.bodyLowerStrOK = "", false
 	r.ratioSig, r.ratioSigOK = nil, false
@@ -540,4 +550,30 @@ func BuildRawResponse(statusCode int, headers map[string]string, body string) []
 	}
 
 	return BuildHttpMessage(headerLines, []byte(body))
+}
+
+// HTMLDocument returns the response body parsed as HTML (golang.org/x/net/html),
+// parsed on first use and memoised for the life of the response. The node tree
+// is SHARED: callers must treat it as read-only. Several passive modules and
+// the anomaly fingerprint parse the same response; this turns N parses into one.
+func (r *HttpResponse) HTMLDocument() (*html.Node, error) {
+	if r == nil {
+		return nil, nil
+	}
+	r.mu.RLock()
+	if r.htmlDocOK {
+		doc, err := r.htmlDoc, r.htmlErr
+		r.mu.RUnlock()
+		return doc, err
+	}
+	r.mu.RUnlock()
+
+	doc, err := html.Parse(bytes.NewReader(r.Body()))
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.htmlDocOK {
+		r.htmlDoc, r.htmlErr, r.htmlDocOK = doc, err, true
+	}
+	return r.htmlDoc, r.htmlErr
 }

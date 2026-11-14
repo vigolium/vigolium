@@ -10,7 +10,7 @@ import (
 )
 
 // Tag / TagAdobe are the tech-stack tags published for AEM hosts. Adding "aem"
-// to modules.knownTechTags makes every module tagged "aem" auto-gate on the
+// to modkit.techTagCategories makes every module tagged "aem" auto-gate on the
 // fingerprint's MarkTech (see pkg/modules/tech_tags.go).
 const (
 	Tag      = "aem"

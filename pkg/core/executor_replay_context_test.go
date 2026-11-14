@@ -44,7 +44,7 @@ func TestRunActivePerIP_InsertionPointFilter(t *testing.T) {
 	_, item := makeTestItem("example.com", "/x?a=1&b=2", "<html></html>")
 	elig := computeEligibility(item)
 	tr := e.newItemTracker(context.Background(), work.NewWithModules(item, nil), false)
-	e.runActivePerInsertionPoint(context.Background(), nil, item, &allModulesFilter, &elig, tr)
+	e.runActivePerInsertionPoint(context.Background(), nil, item, &allModulesFilter, &elig, tr, "")
 	tr.done()
 	<-tr.finished
 

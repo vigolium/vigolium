@@ -48,7 +48,8 @@ func New() *Module {
 			ModuleSeverity,
 			ModuleConfidence,
 			modkit.ScanScopeInsertionPoint,
-			modkit.AllParamTypes,
+			// Parameter names reflect into templates too (opt-in, MISS-15).
+			modkit.AllParamTypes|modkit.ParamNameTypes,
 		),
 		result:   strconv.Itoa(primaryFirst * primaryLast),
 		payloads: buildPayloads(primaryFirst, primaryLast),
@@ -202,7 +203,6 @@ func buildPayloads(firstNum, lastNum int) []string {
 		fmt.Sprintf("<%%=%d*%d%%>", firstNum, lastNum),
 		fmt.Sprintf("{%d*%d}", firstNum, lastNum),
 		fmt.Sprintf("{{{%d*%d}}}", firstNum, lastNum),
-		fmt.Sprintf("${{%d*%d}}", firstNum, lastNum),
 		fmt.Sprintf("#{%d*%d}", firstNum, lastNum),
 		fmt.Sprintf("[[%d*%d]]", firstNum, lastNum),
 		fmt.Sprintf("{{=%d*%d}}", firstNum, lastNum),
@@ -214,3 +214,8 @@ func buildPayloads(firstNum, lastNum int) []string {
 		fmt.Sprintf("${%d*%d}", firstNum, lastNum),
 	}
 }
+
+// RequiresReflection opts into the executor's shared reflection probe
+// (modkit.ReflectionAware, ECON-2): the oracle reads the payload back, so a
+// point whose value does not come back is skipped.
+func (m *Module) RequiresReflection() modkit.ReflectionNeed { return modkit.ReflectBody }

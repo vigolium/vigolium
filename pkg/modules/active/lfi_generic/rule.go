@@ -16,7 +16,7 @@ import (
 const injectionMarker = "vigolium-test"
 
 type rule struct {
-	payloads []string
+	payloads []rulePayload
 	regex    []*regexp.Regexp
 	words    []string
 	// confirm is an optional, payload-specific corroboration step run in
@@ -31,11 +31,28 @@ type rule struct {
 }
 
 func newRule(payloads []string, regex []*regexp.Regexp, words []string) *rule {
-	return &rule{
-		payloads: payloads,
-		regex:    regex,
-		words:    words,
+	r := &rule{regex: regex, words: words}
+	for _, p := range payloads {
+		r.payloads = append(r.payloads, rulePayload{value: p})
 	}
+	return r
+}
+
+// rulePayload is one payload and whether it is already percent-encoded the
+// way it must reach the server (built through httpmsg.BuildPreEncoded so its
+// own encoding is not double-encoded — MISS-12).
+type rulePayload struct {
+	value      string
+	preEncoded bool
+}
+
+// withPreEncoded appends payloads that carry their own percent-encoding
+// (%00, %252e, overlong %C0%AE, %u002e).
+func (r *rule) withPreEncoded(payloads ...string) *rule {
+	for _, p := range payloads {
+		r.payloads = append(r.payloads, rulePayload{value: p, preEncoded: true})
+	}
+	return r
 }
 
 // withConfirm attaches a payload-specific corroboration step to the rule.
@@ -103,6 +120,6 @@ func (r *rule) Match(data string) bool {
 	return false
 }
 
-func (r *rule) Payloads() []string {
+func (r *rule) Payloads() []rulePayload {
 	return r.payloads
 }

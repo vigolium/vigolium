@@ -111,7 +111,7 @@ func (m *Module) ScanPerRequest(
 	if scanCtx != nil {
 		diskSet = m.ds.Get(scanCtx.DedupMgr())
 	}
-	if diskSet != nil && diskSet.IsSeen(urlx.Host) {
+	if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, urlx.Host) {
 		return nil, nil
 	}
 
@@ -250,7 +250,7 @@ func (m *Module) ScanPerRequest(
 		Info: output.Info{
 			Name:        "Client-Side Prototype Pollution Flow Candidate",
 			Description: description,
-			Severity:    severity.Medium,
+			Severity:    severity.Suspect,
 			Confidence:  severity.Tentative,
 			Reference: []string{
 				"https://portswigger.net/web-security/prototype-pollution",

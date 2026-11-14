@@ -184,18 +184,25 @@ func TestNewExecutor_QuiescentGetters(t *testing.T) {
 // --- executor_adapters.go ----------------------------------------------------
 
 func TestExecutorFeeder_FeedAndDrop(t *testing.T) {
-	f := &executorFeeder{ch: make(chan *work.WorkItem, 1)}
+	f := &executorFeeder{ch: make(chan *work.WorkItem, 1), overflowCap: 1}
 	rr := &httpmsg.HttpRequestResponse{}
 
 	if !f.Feed(rr) {
 		t.Error("first Feed into empty channel should succeed")
 	}
-	// channel now full (cap 1) -> next Feed is dropped
+	// channel now full (cap 1) -> next Feed waits in the overflow list
+	if !f.Feed(rr) {
+		t.Error("Feed into full channel should overflow, not drop")
+	}
+	// overflow full (cap 1) -> dropped
 	if f.Feed(rr) {
-		t.Error("Feed into full channel should be dropped (return false)")
+		t.Error("Feed past the overflow cap should be dropped (return false)")
 	}
 	if got := f.Dropped(); got != 1 {
 		t.Errorf("Dropped() = %d, want 1", got)
+	}
+	if got := len(f.takeOverflow(0)); got != 1 {
+		t.Errorf("takeOverflow = %d items, want 1", got)
 	}
 }
 

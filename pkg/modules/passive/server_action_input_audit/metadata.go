@@ -16,7 +16,7 @@ var (
 **Fix:** Validate and coerce every Server Action input at runtime with a schema library before any database operation.`
 
 	ModuleConfirmation = "Candidate when source-like code co-locates action, input, and write patterns without recognized validation; connected flow or dynamic impact is required"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "injection", "light"}
 )

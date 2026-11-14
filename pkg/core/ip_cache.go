@@ -36,7 +36,13 @@ const (
 // accounting can never drift from what admission charged, even if the estimator
 // changes behaviour between the two calls.
 type ipCacheEntry struct {
+	// points is the standard set (no opt-in extras) — what the module-facing
+	// provider and the per-request timeout scaling see.
 	points []httpmsg.InsertionPoint
+	// all adds the opt-in parameter-name and entire-body points (MISS-15); the
+	// per-insertion-point stage dispatches from it and each module's allowed
+	// types decide. nil for an entry stored through Add.
+	all    []httpmsg.InsertionPoint
 	weight int
 }
 
@@ -112,11 +118,20 @@ func (c *InsertionPointCache) Get(key string) ([]httpmsg.InsertionPoint, bool) {
 // Oversized sets are counted as rejections and left uncached — the caller's copy
 // is unaffected either way, so a rejection costs only a later re-derivation.
 func (c *InsertionPointCache) Add(key string, points []httpmsg.InsertionPoint) {
-	if c == nil || len(points) == 0 {
+	c.add(key, points, nil)
+}
+
+// add stores the standard set and (optionally) the full set under key.
+func (c *InsertionPointCache) add(key string, points, all []httpmsg.InsertionPoint) {
+	if c == nil || (len(points) == 0 && len(all) == 0) {
 		return
 	}
 
-	weight := httpmsg.EstimateRetainedBytes(points)
+	weighed := points
+	if len(all) > len(weighed) {
+		weighed = all
+	}
+	weight := httpmsg.EstimateRetainedBytes(weighed)
 	if weight > ipCacheMaxEntryBytes {
 		c.rejected.Add(1)
 		return
@@ -133,7 +148,7 @@ func (c *InsertionPointCache) Add(key string, points []httpmsg.InsertionPoint) {
 	// everything. Remove is a no-op when the key is absent.
 	c.lru.Remove(key)
 
-	c.lru.Add(key, ipCacheEntry{points: points, weight: weight})
+	c.lru.Add(key, ipCacheEntry{points: points, all: all, weight: weight})
 	c.bytes += int64(weight)
 
 	// Trim back under the byte budget. Keeping one entry unconditionally means a
@@ -154,25 +169,50 @@ func (c *InsertionPointCache) Add(key string, points []httpmsg.InsertionPoint) {
 // stage and the module-facing provider go through here; deriving a key inline
 // instead is how the two ends up disagreeing about which variant they stored.
 func (c *InsertionPointCache) GetOrCompute(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {
-	if c == nil {
-		return httpmsg.CreateAllInsertionPoints(raw, includeNested)
-	}
+	std, _, err := c.getOrCompute(raw, requestID, includeNested)
+	return std, err
+}
 
+// GetOrComputeAll is GetOrCompute including the opt-in parameter-name and
+// entire-body points (ParamNames + EntireBody). Both views come from one parse
+// and one cache entry.
+func (c *InsertionPointCache) GetOrComputeAll(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {
+	_, all, err := c.getOrCompute(raw, requestID, includeNested)
+	return all, err
+}
+
+func (c *InsertionPointCache) getOrCompute(raw []byte, requestID string, includeNested bool) (std, all []httpmsg.InsertionPoint, err error) {
 	key := requestID
 	if !includeNested {
 		key += ":shallow"
 	}
-
-	if points, ok := c.Get(key); ok {
-		return points, nil
+	if c != nil {
+		c.mu.Lock()
+		entry, ok := c.lru.Get(key)
+		c.mu.Unlock()
+		if ok && entry.all != nil {
+			c.hits.Add(1)
+			return entry.points, entry.all, nil
+		}
+		c.misses.Add(1)
 	}
 
-	points, err := httpmsg.CreateAllInsertionPoints(raw, includeNested)
+	all, err = httpmsg.CreateInsertionPoints(raw, httpmsg.InsertionPointOptions{
+		IncludeNested: includeNested,
+		ParamNames:    true,
+		EntireBody:    true,
+	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	c.Add(key, points)
-	return points, nil
+	std = make([]httpmsg.InsertionPoint, 0, len(all))
+	for _, p := range all {
+		if !httpmsg.IsExtraInsertionPointType(p.Type()) {
+			std = append(std, p)
+		}
+	}
+	c.add(key, std, all)
+	return std, all, nil
 }
 
 // InsertionPointCacheStats is a point-in-time snapshot of cache behaviour, for

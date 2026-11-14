@@ -63,7 +63,12 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	missing := resourcesWithoutSRI(ctx.Response().BodyToString(), pageURL)
+	// The response's shared parsed document (one parse per response, ECON-14).
+	doc, err := ctx.Response().HTMLDocument()
+	if err != nil {
+		return nil, nil
+	}
+	missing := resourcesWithoutSRIDoc(doc, pageURL)
 	if len(missing) == 0 {
 		return nil, nil
 	}
@@ -97,9 +102,9 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}}, nil
 }
 
-func resourcesWithoutSRI(body string, pageURL *url.URL) []string {
-	doc, err := html.Parse(strings.NewReader(body))
-	if err != nil {
+// resourcesWithoutSRIDoc walks an already-parsed (read-only) document.
+func resourcesWithoutSRIDoc(doc *html.Node, pageURL *url.URL) []string {
+	if doc == nil {
 		return nil
 	}
 	baseURL := documentBaseURL(doc, pageURL)

@@ -87,6 +87,12 @@ func (r *Runner) RunNativeScan() (err error) {
 
 	plan := BuildNativeScanPlan(r.options)
 
+	// --resume-scan reuses the earlier scan's UUID (and so its row, cursor and
+	// coverage ledger); buildInfrastructure adopts options.ScanUUID.
+	if r.options.ResumeScanUUID != "" {
+		r.options.ScanUUID = r.options.ResumeScanUUID
+	}
+
 	// Scope admission over the CLI targets, before anything is built: when
 	// scope refuses every target the run sends nothing, so it must not build
 	// the infrastructure that does (session logins, OAST registration). An
@@ -124,7 +130,13 @@ func (r *Runner) RunNativeScan() (err error) {
 	// Create scan record in the database so every scan is tracked with its lifecycle.
 	// Skip when ScanOnReceive or ManagedScanRecord — the server already created the
 	// scan record and owns its pending/queued/running transitions.
-	if r.repository != nil && !r.options.ScanOnReceive && !r.options.ManagedScanRecord {
+	if r.repository != nil && r.options.ResumeScanUUID != "" {
+		// --resume-scan: the row exists; mark it running again rather than
+		// creating a new one (ECON-4).
+		if err := r.resumeScanRow(ctx, infra.scanUUID); err != nil {
+			return err
+		}
+	} else if r.repository != nil && !r.options.ScanOnReceive && !r.options.ManagedScanRecord {
 		target := strings.Join(r.options.Targets, ", ")
 		scan := &database.Scan{
 			UUID:            infra.scanUUID,

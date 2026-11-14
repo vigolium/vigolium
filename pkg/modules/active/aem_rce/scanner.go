@@ -57,7 +57,7 @@ func (m *Module) ScanPerHost(
 	host := urlx.Host
 
 	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, host) {
 		return nil, nil
 	}
 
@@ -206,7 +206,7 @@ func (m *Module) probeGetDocument(ctx *httpmsg.HttpRequestResponse, client *http
 				"The AEM Forms GetDocumentServlet is reachable at %s (status %d, a specific mount). It is the CVE-2025-49533 insecure-deserialization endpoint. Detection-only: no serialized gadget was sent, so RCE was not confirmed by design.",
 				path, res.Status,
 			),
-			Severity:   severity.High,
+			Severity:   severity.Suspect,
 			Confidence: severity.Tentative,
 			Tags:       []string{"aem", "adobe", "rce", "deserialization", "cve", "cve2025"},
 		},
@@ -243,7 +243,7 @@ func (m *Module) probePutAdvertised(ctx *httpmsg.HttpRequestResponse, client *ht
 					"OPTIONS %s advertises the PUT method (Allow: %s), indicating a Sling/WebDAV write surface. Detection-only: no write was attempted, so anonymous-write is not confirmed (Tentative).",
 					path, res.Header.Get("Allow"),
 				),
-				Severity:   severity.High,
+				Severity:   severity.Suspect,
 				Confidence: severity.Tentative,
 				Tags:       []string{"aem", "adobe", "webdav", "write"},
 			},

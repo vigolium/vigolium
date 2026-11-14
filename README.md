@@ -94,7 +94,7 @@ Requires **Go 1.27+** and **bun 1.3.11+**. See [HACKING.md](HACKING.md#build-and
 
 ### Native Scan
 
-- **335 scanner modules**: 217 active (fuzzing) + 119 passive (pattern matching), covering OWASP Top 10 and beyond
+- **337 scanner modules**: 218 active (fuzzing) + 119 passive (pattern matching), covering OWASP Top 10 and beyond
 - **Out-of-band testing (OAST)**: blind XSS/SSRF/command injection via interactsh callbacks with automatic payload correlation
 - **Value-aware mutation**: classifies parameters by semantic type (integer, UUID, JWT, email) and mutates per intent
 - **Multi-phase pipeline**: external harvesting, content discovery (Deparos), browser/SPA spidering (Spitolas), and audit, controlled by strategy presets and scanning profiles
@@ -244,7 +244,7 @@ The native scan pipeline is composed of modular layers, each documented separate
 | **Content Discovery (Deparos)** | Adaptive directory/file enumeration with fingerprint-based soft-404 detection | [docs.vigolium.com/native-scan/phases/discovery](https://docs.vigolium.com/native-scan/phases/discovery) |
 | **Browser Spider (Spitolas)** | Chromium-driven state-machine crawler with CDP traffic capture | [docs.vigolium.com/native-scan/phases/spidering](https://docs.vigolium.com/native-scan/phases/spidering) |
 | **Audit** | Active/passive vulnerability scanning with insertion point extraction and DiffScan framework | [docs.vigolium.com/native-scan/phases/audit](https://docs.vigolium.com/native-scan/phases/audit) |
-| **Scanner Modules** | 217 active and 119 passive modules covering OWASP Top 10 and beyond | [docs.vigolium.com/native-scan/modules-reference](https://docs.vigolium.com/native-scan/modules-reference) |
+| **Scanner Modules** | 218 active and 119 passive modules covering OWASP Top 10 and beyond | [docs.vigolium.com/native-scan/modules-reference](https://docs.vigolium.com/native-scan/modules-reference) |
 
 ## Documentation
 

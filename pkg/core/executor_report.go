@@ -56,9 +56,13 @@ type ExecutionReport struct {
 	// ModuleStats is this executor's per-module metrics (calls, requests,
 	// findings, errors) at report time.
 	ModuleStats map[string]stats.ModuleStatsSnapshot
-	// ModuleSkips counts, per module, calls not made by reason
-	// (database.ModuleSkipReasons). Filled by the executor's dispatch gates
-	// (Track B contract); nil when nothing was skipped.
+	// FeedbackDropped counts discovered requests modules fed back that were
+	// dropped because the feedback overflow list was full. A coverage gap the
+	// runner reports as feedback_dropped.
+	FeedbackDropped int64
+	// ModuleSkips is module id → skip reason → count (reasons: SkipReason*
+	// constants). Cumulative over the executor's lifetime; an executor normally
+	// runs one Execute. Track C persists it to scans.module_stats.
 	ModuleSkips map[string]map[string]int64
 }
 
@@ -80,6 +84,8 @@ func (e *Executor) Report() ExecutionReport {
 	rep.Unacked = e.unacked.Load()
 	rep.ScopeRejected = e.scopeRejected.Load() - e.reportBase.scopeRejected
 	rep.Responded = e.responded.Load() - e.reportBase.responded
+	rep.FeedbackDropped = e.FeedbackDropped() - e.reportBase.feedbackDropped
+	rep.ModuleSkips = e.ModuleSkips()
 	e.quarantineReport(&rep)
 	rep.FindingsCapped = e.admission().Capped()
 	rep.ModuleStats = e.ModuleMetrics()

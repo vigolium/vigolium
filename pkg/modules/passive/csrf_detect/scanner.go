@@ -177,7 +177,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			Info: output.Info{
 				Name:        "Missing CSRF Protection",
 				Description: fmt.Sprintf("State-changing %s request to %s lacks anti-CSRF token, custom header, and SameSite cookie protection", method, urlx.Path),
-				Severity:    severity.Medium,
+				Severity:    severity.Suspect,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"csrf", "session", "web-security"},
 				Reference:   []string{"https://owasp.org/www-community/attacks/csrf"},

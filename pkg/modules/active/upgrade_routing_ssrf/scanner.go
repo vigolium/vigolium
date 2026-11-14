@@ -137,7 +137,7 @@ func (m *Module) ScanPerRequest(
 			Info: output.Info{
 				Name:        "WebSocket-Upgrade SSRF Filter Bypass",
 				Description: desc,
-				Severity:    severity.High,
+				Severity:    severity.Suspect,
 				Confidence:  severity.Tentative,
 			},
 		}}, nil

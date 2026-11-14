@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"go.uber.org/zap"
+	"golang.org/x/net/html"
 
 	"github.com/vigolium/vigolium/pkg/anomaly"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -82,7 +83,14 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	body := ctx.Response().BodyToString()
 	headers := headersToMap(ctx.Response().Headers())
 
-	attrs, err := anomaly.ExtractAttributesFromRaw(statusCode, body, headers)
+	// Reuse the response's shared parsed HTML document instead of parsing the
+	// body again (ECON-14); only for a declared HTML response, so a JSON or
+	// JS body is never parsed as HTML just to be ignored.
+	var doc *html.Node
+	if strings.Contains(strings.ToLower(ctx.Response().Header("Content-Type")), "html") {
+		doc, _ = ctx.Response().HTMLDocument()
+	}
+	attrs, err := anomaly.ExtractAttributesFromRawDoc(statusCode, body, headers, doc)
 	if err != nil {
 		return nil, nil // silently skip extraction failures
 	}

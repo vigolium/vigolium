@@ -68,11 +68,49 @@ func TestPassesTechFilter(t *testing.T) {
 		}
 	})
 
-	t.Run("gated when host known and no match", func(t *testing.T) {
-		e := makeExecutor(false, map[string]string{"example.com": "nextjs"})
+	t.Run("gated when host known in the same category and no match", func(t *testing.T) {
+		e := makeExecutor(false, map[string]string{"example.com": "django"})
 		m := &techStub{id: "spring-test", tags: []string{"spring", "java"}}
 		if e.passesTechFilter(m, rr) {
-			t.Fatal("Spring module must be gated on Next.js host")
+			t.Fatal("Spring module must be gated on a Django host")
+		}
+	})
+
+	// MISS-21 (a): a front-end-only identification says nothing about the
+	// backend. {angular, spa} are descriptive; nextjs is a meta-framework.
+	t.Run("descriptive tags never gate", func(t *testing.T) {
+		e := makeExecutor(false, nil)
+		e.scanCtx.TechStack.Mark("example.com", "angular")
+		e.scanCtx.TechStack.Mark("example.com", "spa")
+		m := &techStub{id: "spring-test", tags: []string{"spring", "java"}}
+		if !e.passesTechFilter(m, rr) {
+			t.Fatal("Spring module skipped on an Angular front end: descriptive tags must not gate")
+		}
+		if e.scanCtx.TechStack.HostKnown("example.com") {
+			t.Fatal("a host known only by descriptive tags must not be HostKnown")
+		}
+	})
+	t.Run("other category does not exclude", func(t *testing.T) {
+		e := makeExecutor(false, map[string]string{"example.com": "nextjs"})
+		m := &techStub{id: "spring-test", tags: []string{"spring", "java"}}
+		if !e.passesTechFilter(m, rr) {
+			t.Fatal("a Next.js front end must not exclude backend modules")
+		}
+	})
+	// MISS-21 (b): "javascript" no longer gates.
+	t.Run("javascript tag does not gate", func(t *testing.T) {
+		e := makeExecutor(false, map[string]string{"example.com": "django"})
+		m := &techStub{id: "js-secrets", tags: []string{"javascript", "passive"}}
+		if !e.passesTechFilter(m, rr) {
+			t.Fatal("javascript-tagged module must run on any host")
+		}
+	})
+	// MISS-21 (c): a reverse proxy banner never excludes the app behind it.
+	t.Run("server tags never exclude", func(t *testing.T) {
+		e := makeExecutor(false, map[string]string{"example.com": "nginx"})
+		m := &techStub{id: "tomcat-mgr", tags: []string{"tomcat"}}
+		if !e.passesTechFilter(m, rr) {
+			t.Fatal("nginx in front must not exclude a Tomcat module")
 		}
 	})
 

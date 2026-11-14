@@ -96,7 +96,7 @@ func (m *Module) ScanPerInsertionPoint(
 		}
 		payload := mk.prefix + host
 		oast.RecordPayload(host, payload)
-		req := httpmsg.NewRequestResponseRaw(ip.BuildRequest([]byte(payload)), ctx.Service())
+		req := httpmsg.NewRequestResponseRaw(httpmsg.BuildPayload(ip, []byte(payload), mk.preEncoded), ctx.Service())
 		resp, _, execErr := httpClient.Execute(req, http.Options{})
 		if execErr != nil {
 			if errors.Is(execErr, hosterrors.ErrUnresponsiveHost) {
@@ -115,6 +115,9 @@ func (m *Module) ScanPerInsertionPoint(
 type payloadMaker struct {
 	injectionType string
 	prefix        string
+	// preEncoded: the prefix carries its own %-encoding and is built through
+	// httpmsg.BuildPreEncoded so "%0d%0a" is not double-encoded (MISS-12).
+	preEncoded bool
 }
 
 // payloadMakers returns the recipient and Bcc-graft payloads for base. The graft is
@@ -123,7 +126,7 @@ type payloadMaker struct {
 func payloadMakers(base string) []payloadMaker {
 	return []payloadMaker{
 		{injectionType: "smtp email-sending capability", prefix: "vigolium-poc@"},
-		{injectionType: "smtp-header-injection bcc graft", prefix: base + "%0d%0aBcc:%20vigolium-poc@"},
+		{injectionType: "smtp-header-injection bcc graft", prefix: base + "%0d%0aBcc:%20vigolium-poc@", preEncoded: true},
 		{injectionType: "smtp-header-injection bcc graft", prefix: base + "\r\nBcc: vigolium-poc@"},
 	}
 }

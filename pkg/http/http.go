@@ -127,6 +127,10 @@ type Requester struct {
 	// sendCounter, when non-nil, is incremented once per wire attempt this view
 	// sends (retries included; request-cache hits excluded). See WithSendCounter.
 	sendCounter *atomic.Int64
+	// TRACK-B STUB (Track A owns; integrator reconciles): per-call stats and
+	// baseline, see trackb_stubs.go.
+	callStats *CallStats
+	baseline  *httpmsg.HttpRequestResponse
 	// carried holds browser-harvested per-host sessions (cookies + optional
 	// pinned User-Agent) carried forward from the spidering phase. It is a
 	// pointer to an atomic-published store so WithContext's shallow copy shares
@@ -534,6 +538,7 @@ func (r *Requester) WithAbandonFlag(flag *atomic.Bool) *Requester {
 	}
 	clone := *r
 	clone.abandonFlag = flag
+	clone.callStats = &CallStats{} // TRACK-B STUB: one CallStats per module call
 	return &clone
 }
 
@@ -1191,6 +1196,12 @@ func (r *Requester) Execute(input *httpmsg.HttpRequestResponse, opts Options) (*
 // the goroutine to drain on its own. A context.Background() ctx is equivalent to
 // the legacy non-cancellable Execute.
 func (r *Requester) ExecuteContext(ctx context.Context, input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, time.Duration, error) {
+	resp, d, err := r.executeContext(ctx, input, opts)
+	r.noteCallError(err) // TRACK-B STUB: per-call transient-failure count (trackb_stubs.go)
+	return resp, d, err
+}
+
+func (r *Requester) executeContext(ctx context.Context, input *httpmsg.HttpRequestResponse, opts Options) (*httpUtils.ResponseChain, time.Duration, error) {
 	// Refuse new work for a module the executor has already given up on. Checked
 	// before the clusterer so an abandoned caller neither starts a request nor
 	// joins a singleflight group it would only abandon again.

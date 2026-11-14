@@ -136,3 +136,8 @@ func hostOf(ctx *httpmsg.HttpRequestResponse) string {
 	}
 	return ""
 }
+
+// BodyOnly opts into once-per-distinct-body dispatch (modules.BodyOnlyPassive):
+// the verdict is a function of the response body, so an identical body served
+// at another URL is not re-analysed (ECON-14).
+func (m *Module) BodyOnly() bool { return true }

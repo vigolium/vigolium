@@ -19,7 +19,7 @@ var (
 	// Precondition/lead only ("not confirmed exploitable"); the scanner tiers each
 	// finding (Info for a leaked deser error, Low for @class/@type polymorphic
 	// typing). Low is the ceiling — never Medium.
-	ModuleSeverity   = severity.Low
+	ModuleSeverity   = severity.Suspect
 	ModuleConfidence = severity.Tentative
 	ModuleTags       = []string{"java", "deserialization", "light"}
 )

@@ -91,6 +91,10 @@ type Runner struct {
 	done      chan struct{}         // closed when RunNativeScan finishes
 	pauseCtrl *core.PauseController // cooperative pause/resume for workers
 
+	// daLedger is the dynamic-assessment phase's coverage ledger (ECON-4);
+	// set for the phase's duration only.
+	daLedger *daLedger
+
 	closeOnce sync.Once   // guards one-time resource release (Close/Discard may race)
 	finalized atomic.Bool // set once RunNativeScan has written the terminal scan status
 
@@ -515,6 +519,8 @@ func (r *Runner) writeSessionLog(line string) {
 	_, _ = f.WriteString("[" + ts + "] " + plain)
 }
 
+// Pause stops dispatch and task admission and returns at once (it never waits
+// for in-flight work); see PauseState for when the pause has taken hold.
 func (r *Runner) Pause() {
 	if r.pauseCtrl != nil {
 		r.pauseCtrl.Pause()
@@ -532,6 +538,26 @@ func (r *Runner) Resume() {
 			r.scanLogger.Info("", "scan resumed")
 		}
 	}
+}
+
+// Pause states reported by PauseState.
+const (
+	PauseStateRunning = "running"
+	PauseStatePausing = "pausing"
+	PauseStatePaused  = "paused"
+)
+
+// PauseState reports "running", "pausing" (pause requested, a worker is still
+// finishing its current item's dispatch) or "paused" (quiesced). Pause itself
+// returns at once; callers that display state use this to tell the two apart.
+func (r *Runner) PauseState() string {
+	if r.pauseCtrl == nil || !r.pauseCtrl.IsPaused() {
+		return PauseStateRunning
+	}
+	if r.pauseCtrl.Quiesced() {
+		return PauseStatePaused
+	}
+	return PauseStatePausing
 }
 
 // IsPaused returns whether the scan is currently paused.

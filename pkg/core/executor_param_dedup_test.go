@@ -74,7 +74,7 @@ func runQueuedSameClass(t *testing.T, noParamDedup bool) int32 {
 	tr := e.newItemTracker(context.Background(), work.NewWithModules(item, nil), false)
 	dispatched := make(chan struct{})
 	go func() {
-		e.runActivePerInsertionPoint(context.Background(), nil, item, &allModulesFilter, &elig, tr)
+		e.runActivePerInsertionPoint(context.Background(), nil, item, &allModulesFilter, &elig, tr, "")
 		close(dispatched)
 	}()
 
@@ -114,7 +114,7 @@ func TestRunActivePerIP_DispatchSkipsMarkedParam(t *testing.T) {
 
 	elig := computeEligibility(item)
 	tr := e.newItemTracker(context.Background(), work.NewWithModules(item, nil), false)
-	e.runActivePerInsertionPoint(context.Background(), nil, item, &allModulesFilter, &elig, tr)
+	e.runActivePerInsertionPoint(context.Background(), nil, item, &allModulesFilter, &elig, tr, "")
 	tr.done()
 	<-tr.finished
 	assert.Equal(t, int32(0), mod.calls.Load())

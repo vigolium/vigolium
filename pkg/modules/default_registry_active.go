@@ -223,6 +223,7 @@ import (
 func registerActiveModules(r *Registry) {
 	// Active modules - XSS Light (4 specialized scanners)
 	r.RegisterActive(xsslightscanner.NewURLParamsScanner())
+	r.RegisterActive(xsslightscanner.NewBodyParamsScanner())
 	r.RegisterActive(xsslightscanner.NewPathScanner())
 	r.RegisterActive(xsslightscanner.NewParamDiscoveryScanner())
 	r.RegisterActive(xsslightscanner.NewEncodedScanner())

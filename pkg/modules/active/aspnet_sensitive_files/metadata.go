@@ -16,7 +16,7 @@ var (
 **Fix:** Block direct access to these paths and store configuration secrets outside the web root or in a secret manager.`
 
 	ModuleConfirmation = "Confirmed when sensitive file paths return 200 with expected content markers"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"aspnet", "sensitive-file", "probe", "light"}
 )

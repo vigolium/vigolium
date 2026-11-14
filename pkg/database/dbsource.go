@@ -684,16 +684,23 @@ type RiskPrioritizedDBInputSource struct {
 	resumeAt time.Time
 	resumeID string
 
-	// Single keyset cursor, ordered (risk_score DESC, created_at ASC, uuid ASC).
-	// That one ordering reproduces the old snapshot's effective set — high-risk
-	// records first (risk_score>0, score-descending), then the risk_score=0 tail in
-	// chronological order — without materializing every UUID in memory, because
-	// risk_score=0 sorts last and within any score the (created_at, uuid) order is
-	// the same. started is false until the first page fixes the cursor.
-	keyScore int
-	keyAt    time.Time
-	keyID    string
-	started  bool
+	// Keyset cursor, ordered (risk_score DESC, surface_score DESC, created_at
+	// ASC, uuid ASC): high-risk records first, then — within a risk score — the
+	// larger attack surface, then chronological. It walks one (risk, surface)
+	// BUCKET at a time: inside a bucket the page query is an equality on both
+	// scores plus a (created_at, uuid) range, which the
+	// idx_records_project_risk_order index serves in order with no sort; when a
+	// bucket runs dry the cursor steps to the next lower bucket (ECON-10). The
+	// old single query `risk_score < ? OR (risk_score = ? AND …)` could not use
+	// an index for its order, so every 128-row page re-sorted the whole
+	// equal-score block.
+	bucketSet     bool // a bucket is selected
+	bucketRisk    int
+	bucketSurface int
+	keyAt         time.Time // last served (created_at, uuid) inside the bucket
+	keyID         string
+	started       bool // keyAt/keyID valid for the current bucket
+	everStarted   bool // any page has been served
 
 	buffer  []*HTTPRecord // full records for the current page's coalescing survivors
 	bufHead int           // read cursor into buffer; lets refill reuse the backing array
@@ -710,6 +717,21 @@ type RiskPrioritizedDBInputSource struct {
 	// count is the snapshot window's size, taken once with the bound; see Count.
 	count atomic.Int64
 
+	// Coverage-ledger options (ECON-4). noCommit: never advance the durable
+	// cursor (a tier pass before the last one). coverage: load each page's
+	// stored progress; records whose tier_done >= coverageMinTier are resolved
+	// without being served, the rest carry their coverage on the item.
+	// presetBound: use the given snapshot bound instead of capturing one, so a
+	// later pass covers exactly the earlier pass's window.
+	noCommit        bool
+	coverage        bool
+	coverageMinTier int
+	presetBound     bool
+	presetAt        time.Time
+	presetID        string
+	coverageByUUID  map[string]RecordCoverage
+	coverageSkipped int
+
 	// advanceCursor is the durable checkpoint write, injectable so the failure
 	// path is testable without a broken database. Defaults to the repository's
 	// AdvanceScanCursorBy.
@@ -725,6 +747,46 @@ func NewRiskPrioritizedDBInputSource(db *DB, repo *Repository, scanUUID string) 
 		repo:     repo,
 		scanUUID: scanUUID,
 	}
+}
+
+// WithoutCursorCommit keeps the durable scan cursor where it is (ECON-4): a
+// tier pass that is not the round's last must not move the cursor past
+// records the later passes still have to cover.
+func (s *RiskPrioritizedDBInputSource) WithoutCursorCommit() *RiskPrioritizedDBInputSource {
+	s.noCommit = true
+	return s
+}
+
+// WithCoverage reads the coverage ledger for every page (ECON-4): a record
+// whose tier_done >= minTier is resolved without being served; any other
+// record is served with its stored coverage on WorkItem.Coverage so the
+// executor skips the modules and passive stage it already finished.
+func (s *RiskPrioritizedDBInputSource) WithCoverage(minTier int) *RiskPrioritizedDBInputSource {
+	s.coverage, s.coverageMinTier = true, minTier
+	return s
+}
+
+// WithBound fixes the snapshot's upper bound instead of capturing it, so a
+// later tier pass serves exactly the window an earlier pass did.
+func (s *RiskPrioritizedDBInputSource) WithBound(at time.Time, id string) *RiskPrioritizedDBInputSource {
+	s.presetBound, s.presetAt, s.presetID = true, at, id
+	return s
+}
+
+// Bound reports the snapshot bound this source captured (valid after the
+// first Next); ok is false for an empty snapshot.
+func (s *RiskPrioritizedDBInputSource) Bound() (at time.Time, id string, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.boundAt, s.boundID, s.hasBound
+}
+
+// CoverageSkipped reports how many records the ledger showed already finished
+// for this pass's tier.
+func (s *RiskPrioritizedDBInputSource) CoverageSkipped() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.coverageSkipped
 }
 
 // WithHostScopes sets an in-scope origin filter so only records matching these
@@ -766,6 +828,7 @@ type riskPageRow struct {
 	UUID                 string          `bun:"uuid"`
 	CreatedAt            time.Time       `bun:"created_at"`
 	RiskScore            int             `bun:"risk_score"`
+	SurfaceScore         int             `bun:"surface_score"`
 	Method               string          `bun:"method"`
 	URL                  string          `bun:"url"`
 	RequestContentType   string          `bun:"request_content_type"`
@@ -829,6 +892,14 @@ func (s *RiskPrioritizedDBInputSource) Next(ctx context.Context) (*work.WorkItem
 				})
 			})
 			item.RecordUUID = record.UUID
+			if s.coverage {
+				s.mu.Lock()
+				if c, ok := s.coverageByUUID[record.UUID]; ok {
+					item.Coverage = &work.Coverage{TierDone: c.TierDone, PassiveDone: c.PassiveDone, DoneBits: c.DoneBits}
+					delete(s.coverageByUUID, record.UUID)
+				}
+				s.mu.Unlock()
+			}
 			return item, nil
 		}
 
@@ -878,7 +949,9 @@ func (s *RiskPrioritizedDBInputSource) captureBoundLocked(ctx context.Context) e
 	q = applyEvidenceExclusion(q)
 
 	var rows []boundRow
-	if err := q.OrderExpr("created_at DESC, uuid DESC").Limit(1).Scan(ctx, &rows); err != nil {
+	if s.presetBound {
+		rows = []boundRow{{CreatedAt: s.presetAt, UUID: s.presetID}}
+	} else if err := q.OrderExpr("created_at DESC, uuid DESC").Limit(1).Scan(ctx, &rows); err != nil {
 		return err
 	}
 	if len(rows) == 0 {
@@ -912,7 +985,7 @@ func (s *RiskPrioritizedDBInputSource) Count() int64 {
 // pageColumns is the projection each lane page selects — coalescing columns are
 // included only when coalescing is enabled (they cost a JSONB decode per row).
 func (s *RiskPrioritizedDBInputSource) pageColumns() []string {
-	cols := []string{"uuid", "created_at", "risk_score", "method", "url"}
+	cols := []string{"uuid", "created_at", "risk_score", "surface_score", "method", "url"}
 	if s.coalescer != nil {
 		cols = append(cols, "request_content_type", "request_content_length", "parameters")
 	}
@@ -932,44 +1005,84 @@ func (s *RiskPrioritizedDBInputSource) applyResumeAndBound(q *bun.SelectQuery) *
 }
 
 // nextPageRowsLocked returns the next keyset page of eligible rows, ordered
-// risk_score DESC then (created_at, uuid) ASC — high-risk first, then the
-// chronological risk_score=0 tail. Returns (nil, nil) once the stream is drained.
-// Caller holds s.mu.
+// (risk_score DESC, surface_score DESC, created_at ASC, uuid ASC), one
+// (risk, surface) bucket at a time. Returns (nil, nil) once the stream is
+// drained. Caller holds s.mu.
 func (s *RiskPrioritizedDBInputSource) nextPageRowsLocked(ctx context.Context) ([]riskPageRow, error) {
 	if s.streamsExhausted {
 		return nil, nil
 	}
+	for {
+		if !s.bucketSet {
+			ok, err := s.nextBucketLocked(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				return nil, nil // caller marks the stream exhausted
+			}
+		}
 
+		var rows []riskPageRow
+		if err := s.bucketPageQueryLocked().Scan(ctx, &rows); err != nil {
+			return nil, err
+		}
+		if len(rows) > 0 {
+			// Do NOT advance the keyset here. The caller advances it
+			// (advanceKeyLocked) only after the page's records are either
+			// coalesced away or successfully fetched, so a transient bulk-fetch
+			// failure re-pulls THIS exact page instead of stepping past it.
+			return rows, nil
+		}
+		// Bucket drained: step to the next lower one.
+		s.bucketSet = false
+	}
+}
+
+// bucketPageQueryLocked is the page query inside the current bucket.
+func (s *RiskPrioritizedDBInputSource) bucketPageQueryLocked() *bun.SelectQuery {
 	q := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column(s.pageColumns()...)
 	q = s.applyResumeAndBound(q)
+	q = q.Where("risk_score = ?", s.bucketRisk).Where("surface_score = ?", s.bucketSurface)
 	if s.started {
-		// Keyset for (risk_score DESC, created_at ASC, uuid ASC): rows after the
-		// last one are lower-risk, or same-risk with a later (created_at, uuid).
 		at := dbTimestampString(s.db.Driver(), s.keyAt)
-		q = q.Where("(risk_score < ? OR (risk_score = ? AND (created_at > ? OR (created_at = ? AND uuid > ?))))",
-			s.keyScore, s.keyScore, at, at, s.keyID)
+		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, s.keyID)
 	}
 	q = applyHostScopeFilter(q, s.hostScopes)
-	q = q.OrderExpr("risk_score DESC, created_at ASC, uuid ASC").Limit(riskPrefetchBatchSize)
+	return q.OrderExpr("created_at ASC, uuid ASC").Limit(riskPrefetchBatchSize)
+}
 
-	var rows []riskPageRow
+// nextBucketLocked selects the highest (risk_score, surface_score) bucket in
+// the window strictly below the current one (or the top bucket on the first
+// call). Returns false when no bucket remains. Caller holds s.mu.
+func (s *RiskPrioritizedDBInputSource) nextBucketLocked(ctx context.Context) (bool, error) {
+	type bucketRow struct {
+		RiskScore    int `bun:"risk_score"`
+		SurfaceScore int `bun:"surface_score"`
+	}
+	q := s.db.NewSelect().Model((*HTTPRecord)(nil)).Column("risk_score", "surface_score")
+	q = s.applyResumeAndBound(q)
+	if s.everStarted {
+		q = q.Where("(risk_score < ? OR (risk_score = ? AND surface_score < ?))",
+			s.bucketRisk, s.bucketRisk, s.bucketSurface)
+	}
+	q = applyHostScopeFilter(q, s.hostScopes)
+	q = q.OrderExpr("risk_score DESC, surface_score DESC").Limit(1)
+	var rows []bucketRow
 	if err := q.Scan(ctx, &rows); err != nil {
-		return nil, err
+		return false, err
 	}
 	if len(rows) == 0 {
-		return nil, nil // caller marks the stream exhausted
+		return false, nil
 	}
-
-	// Do NOT advance the keyset here. The caller advances it (advanceKeyLocked)
-	// only after the page's records are either coalesced away or successfully
-	// fetched, so a transient bulk-fetch failure re-pulls THIS exact page instead
-	// of stepping past it and leaving a permanent coverage hole.
-	return rows, nil
+	s.bucketRisk, s.bucketSurface = rows[0].RiskScore, rows[0].SurfaceScore
+	s.bucketSet, s.started, s.everStarted = true, false, true
+	return true, nil
 }
 
 // advanceKeyLocked steps the keyset past the given page's last row. Caller holds s.mu.
 func (s *RiskPrioritizedDBInputSource) advanceKeyLocked(last riskPageRow) {
-	s.keyScore, s.keyAt, s.keyID, s.started = last.RiskScore, last.CreatedAt, last.UUID, true
+	s.keyAt, s.keyID, s.started = last.CreatedAt, last.UUID, true
 }
 
 // fillNextPageLocked pulls keyset pages (applying coalescing) until it has a
@@ -1035,6 +1148,34 @@ func (s *RiskPrioritizedDBInputSource) fillNextPageLocked(ctx context.Context) (
 		for _, rec := range records {
 			byUUID[rec.UUID] = rec
 		}
+		ledgerSkipped := 0
+		if s.coverage {
+			// One ledger read per page (ECON-4). A failed read serves the page
+			// without coverage — the work is redone, never skipped.
+			var cov map[string]RecordCoverage
+			_ = RetryBusy(ctx, func() error {
+				s.mu.Unlock()
+				defer s.mu.Lock()
+				var err error
+				cov, err = s.repo.LoadRecordProgress(ctx, s.projectUUID, s.scanUUID, surviving)
+				return err
+			}, s.pageRetryPolicy(ctx, "coverage ledger read"))
+			if s.coverageByUUID == nil {
+				s.coverageByUUID = make(map[string]RecordCoverage)
+			}
+			for uuid, c := range cov {
+				if c.TierDone >= s.coverageMinTier {
+					if _, ok := byUUID[uuid]; ok {
+						delete(byUUID, uuid)
+						s.coverageSkipped++
+						s.skipped++
+						ledgerSkipped++
+					}
+					continue
+				}
+				s.coverageByUUID[uuid] = c
+			}
+		}
 		if s.buffer == nil {
 			s.buffer = make([]*HTTPRecord, 0, riskPrefetchBatchSize)
 		} else {
@@ -1048,7 +1189,8 @@ func (s *RiskPrioritizedDBInputSource) fillNextPageLocked(ctx context.Context) (
 		}
 		// UUIDs the DB no longer returns (deleted between listing and fetch) are
 		// never served; resolve them so they can't stall the cursor commit.
-		if missing := len(surviving) - len(s.buffer); missing > 0 {
+		// (Ledger-finished records were already counted as skipped above.)
+		if missing := len(surviving) - len(s.buffer) - ledgerSkipped; missing > 0 {
 			s.skipped += missing
 			s.maybeCommitCursorLocked()
 		}
@@ -1080,7 +1222,7 @@ func (s *RiskPrioritizedDBInputSource) ackSnapshotItem() {
 // a cursor inherited by a later scan, silently skipped). A failure now leaves the
 // commit pending and keeps the error for FlushCursor to retry and report.
 func (s *RiskPrioritizedDBInputSource) maybeCommitCursorLocked() {
-	if s.committed || !s.streamsExhausted {
+	if s.committed || !s.streamsExhausted || s.noCommit {
 		return
 	}
 	if s.acked+s.skipped < s.total {
@@ -1133,7 +1275,7 @@ func (s *RiskPrioritizedDBInputSource) FlushCursor(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.committed || !s.hasBound {
+	if s.committed || !s.hasBound || s.noCommit {
 		return nil
 	}
 	if !s.streamsExhausted || s.acked+s.skipped < s.total {

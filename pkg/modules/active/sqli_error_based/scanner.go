@@ -31,7 +31,8 @@ func New() *Module {
 			ModuleSeverity,
 			ModuleConfidence,
 			modkit.ScanScopeInsertionPoint,
-			modkit.AllParamTypes,
+			// Parameter names reach dynamic column/ORDER BY clauses (opt-in, MISS-15).
+			modkit.AllParamTypes|modkit.ParamNameTypes,
 		),
 		rhm: dedup.LazyDefaultRHM("sqli_error_based"),
 	}

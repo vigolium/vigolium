@@ -46,6 +46,9 @@ func (e *Executor) feedItems(ctx context.Context, itemCh chan<- *work.WorkItem) 
 
 		// Drain any pending feedback items (non-blocking) before pulling from source
 		e.drainFeedback(ctx, itemCh)
+		if !e.requeueDeferred(ctx, itemCh, false) {
+			return false
+		}
 
 		// Block feeding while paused
 		if e.cfg.PauseCtrl != nil {
@@ -86,7 +89,8 @@ func (e *Executor) feedItems(ctx context.Context, itemCh chan<- *work.WorkItem) 
 	}
 }
 
-// drainFeedback non-blocking drains all pending feedback items into itemCh.
+// drainFeedback non-blocking drains all pending feedback items into itemCh,
+// then a batch of the feeder's overflow list.
 func (e *Executor) drainFeedback(ctx context.Context, itemCh chan<- *work.WorkItem) {
 	for {
 		select {
@@ -95,9 +99,27 @@ func (e *Executor) drainFeedback(ctx context.Context, itemCh chan<- *work.WorkIt
 				return
 			}
 		default:
+			e.drainFeedbackOverflow(ctx, itemCh)
 			return
 		}
 	}
+}
+
+// feedbackOverflowBatch is how many overflow items one drain pass moves, so
+// the source pump keeps interleaving its own items with discovered ones.
+const feedbackOverflowBatch = 256
+
+// drainFeedbackOverflow sends one batch of overflow items to itemCh. Items a
+// cancelled send leaves behind are counted unacked.
+func (e *Executor) drainFeedbackOverflow(ctx context.Context, itemCh chan<- *work.WorkItem) bool {
+	batch := e.pool.feeder.takeOverflow(feedbackOverflowBatch)
+	for i, it := range batch {
+		if !e.sendItem(ctx, it, itemCh) {
+			e.unacked.Add(int64(len(batch) - i - 1))
+			return false
+		}
+	}
+	return true
 }
 
 // sendItem applies scope/static filters and sends the item to itemCh.
@@ -190,6 +212,14 @@ func (e *Executor) worker(ctx context.Context, _ int, itemCh <-chan *work.WorkIt
 			if !ok {
 				<-e.pool.itemSlots
 				return
+			}
+			// Item fairness: an item for a host whose task backlog is already
+			// far over its cap would only queue more tasks behind it; park it
+			// and let this worker dispatch another host's item instead. The
+			// feeder re-sends it once the host drains (requeueDeferred).
+			if e.parkIfOverloaded(item) {
+				<-e.pool.itemSlots
+				continue
 			}
 			t := e.newItemTracker(ctx, item, true)
 			// PauseCtrl covers the worker's own part only. Tasks already
@@ -420,7 +450,16 @@ func (e *Executor) processItemDetached(t *itemTracker) {
 		)
 	}
 
-	e.runPassiveStage(ctx, req, &filter, inScope)
+	// The passive stage already ran on this record in an earlier pass or run
+	// (coverage ledger, ECON-4): skip it.
+	if item.Coverage == nil || !item.Coverage.PassiveDone {
+		e.runPassiveStage(ctx, req, &filter, inScope)
+		if t.prog != nil {
+			t.prog.mu.Lock()
+			t.prog.passiveRan = true
+			t.prog.mu.Unlock()
+		}
+	}
 
 	// Body size gate — drop/skip only affects active modules
 	if bodySizeAction == config.BodySizeDrop {

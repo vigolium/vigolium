@@ -219,3 +219,8 @@ func isHTMLEncoded(body, marker string) bool {
 	altEncoded := left + "&lcub;&lcub;"
 	return strings.Contains(body, encoded) || strings.Contains(body, altEncoded)
 }
+
+// RequiresReflection opts into the executor's shared reflection probe
+// (modkit.ReflectionAware, ECON-2): the oracle reads the payload back, so a
+// point whose value does not come back is skipped.
+func (m *Module) RequiresReflection() modkit.ReflectionNeed { return modkit.ReflectBody }

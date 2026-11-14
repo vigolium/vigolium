@@ -54,6 +54,9 @@ type Executor struct {
 	// moduleErrs counts this executor's failed module calls per module id
 	// (see noteModuleError).
 	moduleErrs moduleErrorCounts
+	// moduleSkips counts, per module, why it did not test something it was
+	// considered for (see SkipReason*). Exposed through Report().ModuleSkips.
+	moduleSkips *moduleSkipLedger
 
 	// moduleTimeouts counts active-module invocations that hit the per-module
 	// timeout and were skipped. Surfaced via the OnStatus callback so the status
@@ -122,7 +125,7 @@ type Executor struct {
 
 	// reportBase holds the cumulative counters' values at the start of the
 	// current Execute, so Report() describes this run only (see Execute).
-	reportBase struct{ responded, scopeRejected int64 }
+	reportBase struct{ responded, scopeRejected, feedbackDropped int64 }
 
 	// Database storage (optional)
 	repo          *database.Repository
@@ -205,6 +208,9 @@ type scanCaches struct {
 	// ago.
 	perHostActiveClaimed  *lru.Cache[hostClaimKey, struct{}]
 	perHostPassiveClaimed *lru.Cache[hostClaimKey, struct{}]
+	// hostClaims owns the two caches above plus the per-pair retry count
+	// (MISS-19); nil on literal test executors.
+	hostClaims *HostClaims
 
 	// moduleTechReq is a per-module required-tech cache. Populated lazily by
 	// passesTechFilter since module tags are immutable for the scan's lifetime.
@@ -240,11 +246,15 @@ type workerPool struct {
 	taskWG sync.WaitGroup
 
 	// feedbackCh lets modules inject discovered requests back into the pipeline;
-	// feeder wraps it to track drop metrics. activeTaskSem bounds concurrent
-	// active-module tasks.
-	feedbackCh    chan *work.WorkItem
-	feeder        *executorFeeder
-	activeTaskSem chan struct{}
+	// feeder wraps it to track drop metrics.
+	feedbackCh chan *work.WorkItem
+	feeder     *executorFeeder
+	// sched admits active-module tasks under the global and per-host caps
+	// (see activeScheduler).
+	sched *activeScheduler
+	// deferred parks items whose host is already far over its task cap so
+	// workers keep dispatching other hosts' items (ECON-3 item fairness).
+	deferred deferredItems
 	// passiveTaskSem bounds concurrent parallel-passive goroutines GLOBALLY across
 	// all record workers. Without it, ParallelPassive spawns one goroutine per
 	// eligible passive module for every in-flight record (workers × modules), which
@@ -296,11 +306,12 @@ func NewExecutor(
 		ipCache = NewInsertionPointCache(ipCacheSize)
 	}
 
-	// Bounded LRUs for the per-host run-once claims (size <= 0 is the only error
-	// lru.New returns, and perHostClaimCacheSize is a positive constant, so the
-	// ignored error is provably nil).
-	perHostActiveClaimed, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
-	perHostPassiveClaimed, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
+	// Bounded LRUs for the per-host run-once claims — the phase's shared ones
+	// when supplied (NEW-8), else this executor's own.
+	claims := cfg.HostClaims
+	if claims == nil {
+		claims = NewHostClaims()
+	}
 	storageHosts, _ := lru.New[string, struct{}](perHostClaimCacheSize)
 
 	e := &Executor{
@@ -321,8 +332,9 @@ func NewExecutor(
 		caches: scanCaches{
 			requestUUIDs:          newShardedMap(cfg.Workers),
 			ipCache:               ipCache,
-			perHostActiveClaimed:  perHostActiveClaimed,
-			perHostPassiveClaimed: perHostPassiveClaimed,
+			perHostActiveClaimed:  claims.active,
+			perHostPassiveClaimed: claims.passive,
+			hostClaims:            claims,
 		},
 		pool: workerPool{
 			feedbackCh: make(chan *work.WorkItem, cfg.Workers*16),
@@ -336,7 +348,8 @@ func NewExecutor(
 			activeTaskLimit = 32
 		}
 	}
-	e.pool.activeTaskSem = make(chan struct{}, activeTaskLimit)
+	e.pool.sched = newActiveScheduler(activeTaskLimit, e.hostTaskCapFunc(activeTaskLimit))
+	e.pool.sched.pause = cfg.PauseCtrl
 
 	maxOutstanding := cfg.MaxOutstandingItems
 	if maxOutstanding <= 0 {
@@ -384,6 +397,9 @@ func NewExecutor(
 	if e.scanCtx == nil {
 		e.scanCtx = &modules.ScanContext{}
 	}
+	// Run-once host probes commit their claim only after the call settles
+	// (runActiveCall), so a transient failure leaves the host to be retried.
+	e.scanCtx.DeferHostClaims = true
 	if cfg.DisableFeedback {
 		// Shallow mode: modules can still call Feed() but it's a no-op. The
 		// feedback channel is still allocated (cheap) but stays empty, so the
@@ -403,13 +419,33 @@ func NewExecutor(
 	e.scanCtx.DeepScan = cfg.DeepScan
 	e.scanCtx.AllowRiskyPayloads = cfg.AllowRiskyPayloads
 	e.scanCtx.NoParamDedup = cfg.NoParamDedup
-	e.scanCtx.ParamFindings = &modkit.ParameterFindingRegistry{}
-	e.scanCtx.TechStack = modkit.NewTechRegistry()
-	e.scanCtx.TechStack.OnDetect = cfg.OnTechDetected
-	e.scanCtx.WAFStack = modkit.NewWAFRegistry()
-	e.scanCtx.ContentClass = modkit.NewContentClassRegistry()
-	for host, class := range cfg.ContentClassByHost {
-		e.scanCtx.ContentClass.Set(host, modkit.ContentClass(class))
+	// Header insertion-point gate (ECON-1).
+	e.scanCtx.HeaderPointsAll = cfg.HeaderPointsAll
+	e.scanCtx.HeaderClaims = cfg.HeaderClaims
+	if e.scanCtx.HeaderClaims == nil {
+		e.scanCtx.HeaderClaims = modkit.NewHeaderClaims()
+	}
+	e.scanCtx.OnHeaderGated = func(moduleID string) { e.noteModuleSkip(moduleID, SkipReasonHeaderGated) }
+	// Registries: the phase-shared ones when supplied (NEW-8), else fresh.
+	e.scanCtx.ParamFindings = cfg.ParamFindings
+	if e.scanCtx.ParamFindings == nil {
+		e.scanCtx.ParamFindings = &modkit.ParameterFindingRegistry{}
+	}
+	e.scanCtx.TechStack = cfg.TechRegistry
+	if e.scanCtx.TechStack == nil {
+		e.scanCtx.TechStack = modkit.NewTechRegistry()
+		e.scanCtx.TechStack.OnDetect = cfg.OnTechDetected
+	}
+	e.scanCtx.WAFStack = cfg.WAFStack
+	if e.scanCtx.WAFStack == nil {
+		e.scanCtx.WAFStack = modkit.NewWAFRegistry()
+	}
+	e.scanCtx.ContentClass = cfg.ContentClass
+	if e.scanCtx.ContentClass == nil {
+		e.scanCtx.ContentClass = modkit.NewContentClassRegistry()
+		for host, class := range cfg.ContentClassByHost {
+			e.scanCtx.ContentClass.Set(host, modkit.ContentClass(class))
+		}
 	}
 
 	// Wire insertion point provider for module reuse of cached IPs
@@ -434,6 +470,7 @@ func NewExecutor(
 	total := getKnownTotal(src)
 	e.statsTracker = stats.New(total, false)
 	e.moduleMetrics = &stats.ModuleMetrics{}
+	e.moduleSkips = newModuleSkipLedger(activeModules, passiveModules)
 
 	return e
 }
@@ -455,6 +492,7 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 	// executor's lifetime; the report's copies are this run's share.
 	e.reportBase.responded = e.responded.Load()
 	e.reportBase.scopeRejected = e.scopeRejected.Load()
+	e.reportBase.feedbackDropped = e.FeedbackDropped()
 	e.quarantine.reset()
 
 	// Observe server-error probe responses so a leaked database error surfaced by
@@ -548,6 +586,11 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 		}()
 	}
 
+	// A cancelled run drops the scheduler's queued tasks at once, instead of
+	// waiting for a running (possibly stuck) task's release to pump them out.
+	stopSchedWatch := context.AfterFunc(ctx, e.pool.sched.drainCancelled)
+	defer stopSchedWatch()
+
 	var wg conc.WaitGroup
 	itemCh := make(chan *work.WorkItem, e.cfg.Workers*2)
 
@@ -608,6 +651,24 @@ drainLoop:
 				lastProgress = time.Now() // a worker completed an item
 			}
 			prevInFlight = cur
+			// Overflowed feedback waits behind the channel; move a batch.
+			if e.pool.feeder.overflowLen() > 0 {
+				idleSince = time.Time{}
+				lastProgress = time.Now()
+				if !e.drainFeedbackOverflow(ctx, itemCh) {
+					break drainLoop
+				}
+				continue
+			}
+			// Parked items go back once their host drains; with nothing in
+			// flight no host can drain further, so send them all.
+			if e.pool.deferred.len() > 0 {
+				if !e.requeueDeferred(ctx, itemCh, cur == 0) {
+					break drainLoop
+				}
+				idleSince = time.Time{}
+				continue
+			}
 			if cur != 0 || len(e.pool.feedbackCh) != 0 {
 				idleSince = time.Time{}
 				if stallTimeout > 0 && time.Since(lastProgress) >= stallTimeout {
@@ -635,6 +696,11 @@ drainLoop:
 
 	close(itemCh)
 	close(stopWorkers)
+	// Items still parked at shutdown were never processed: keep them unacked so
+	// a durable cursor re-serves them.
+	if n := len(e.pool.deferred.takeReady(nil, true)); n > 0 {
+		e.unacked.Add(int64(n))
+	}
 
 	// Bound the wait for workers, then their detached tasks, to exit. Healthy
 	// workers return immediately once itemCh is closed, and on a clean drain

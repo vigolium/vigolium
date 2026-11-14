@@ -15,7 +15,7 @@ var (
 
 **Fix:** Never cache authenticated dynamic paths, and key caching on the origin's real route and content type.`
 	ModuleConfirmation = "Candidate on protected same-session cache hit; confirmed only when two credential-free attacker replays receive the protected cached content"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"cache-poisoning", "auth-bypass", "moderate"}
 )

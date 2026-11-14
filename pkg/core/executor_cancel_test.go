@@ -12,8 +12,6 @@ import (
 // the task instead of blocking the dispatcher on semaphore acquisition.
 func TestGoActiveTask_ContextCancellationSkipsTask(t *testing.T) {
 	e, _ := newTestExecutor(ExecutorConfig{}, nil)
-	e.pool.activeTaskSem = make(chan struct{}, 1)
-	e.pool.activeTaskSem <- struct{}{} // occupy the only slot
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled
@@ -21,7 +19,7 @@ func TestGoActiveTask_ContextCancellationSkipsTask(t *testing.T) {
 	var ran atomic.Bool
 	item, _ := makeTestItem("example.com", "/", "ok")
 	tr := e.newItemTracker(ctx, item, false)
-	e.goActiveTask(ctx, tr, func(releaseSlot func()) { ran.Store(true); releaseSlot() })
+	e.goActiveTask(ctx, tr, "example.com:80", func(releaseSlot func()) { ran.Store(true); releaseSlot() })
 	tr.done()
 	<-tr.finished
 
@@ -34,12 +32,11 @@ func TestGoActiveTask_ContextCancellationSkipsTask(t *testing.T) {
 // and runs the task when a slot is free.
 func TestGoActiveTask_RunsWhenSlotAvailable(t *testing.T) {
 	e, _ := newTestExecutor(ExecutorConfig{}, nil)
-	e.pool.activeTaskSem = make(chan struct{}, 1)
 
 	done := make(chan struct{})
 	item, _ := makeTestItem("example.com", "/", "ok")
 	tr := e.newItemTracker(context.Background(), item, false)
-	e.goActiveTask(context.Background(), tr, func(releaseSlot func()) { close(done); releaseSlot() })
+	e.goActiveTask(context.Background(), tr, "example.com:80", func(releaseSlot func()) { close(done); releaseSlot() })
 	tr.done()
 	<-tr.finished
 

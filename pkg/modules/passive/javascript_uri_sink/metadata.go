@@ -16,7 +16,7 @@ var (
 **Fix:** Reject non-http schemes and allow-list safe protocols (http/https/mailto).`
 
 	ModuleConfirmation = "Confirmed when a request parameter value is reflected into a javascript: URI in a URL-based HTML attribute (Medium/Firm); a static javascript: URI with no reflected input is an Info observation"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"xss", "javascript", "light"}
 )

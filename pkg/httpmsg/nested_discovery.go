@@ -7,8 +7,8 @@ package httpmsg
 
 import (
 	"bytes"
-	"encoding/base64"
 	"net/url"
+	"strings"
 )
 
 // DiscoverNestedInsertionPoints analyzes parameters for nested structures and creates
@@ -82,20 +82,24 @@ func parseNested(buf []byte, format ParameterFormat) []*Param {
 // parameter value itself.
 func createNestedShared(shared *sharedBaseRequest, parentParam *Param, format ParameterFormat) []*NestedInsertionPoint {
 	var childBuf []byte
+	var layers []Encoder
 
 	switch format {
 	case FormatNone:
 		return nil
 
 	case FormatBase64:
-		decoded, err := base64.StdEncoding.DecodeString(parentParam.Value())
-		if err != nil {
+		decoded, variant, ok := decodeBase64Variant(strings.TrimSpace(parentParam.Value()))
+		if !ok {
 			return nil
 		}
 		if format = DetectParameterFormat(string(decoded)); format == FormatNone {
 			return nil
 		}
 		childBuf = decoded
+		// Re-apply the base64 layer — in the variant it was found in — on the
+		// way out; without it the child document went back raw (MISS-13).
+		layers = []Encoder{variant.encoder()}
 
 	case FormatURLEncoded:
 		decoded, err := url.QueryUnescape(parentParam.Value())
@@ -109,7 +113,11 @@ func createNestedShared(shared *sharedBaseRequest, parentParam *Param, format Pa
 	}
 
 	encoder, ipType := encoderForFormat(format)
-	return nestedFromParsed(shared, parentParam, childBuf, parseNested(childBuf, format), encoder, ipType)
+	nested := nestedFromParsed(shared, parentParam, childBuf, parseNested(childBuf, format), encoder, ipType)
+	for _, n := range nested {
+		n.layers = layers
+	}
+	return nested
 }
 
 // nestedFromParsed pairs each parsed child with its parent into a nested

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/modules/passive/surface_scoring"
 	"os"
 	"time"
 
@@ -333,6 +334,22 @@ func (r *Runner) reportOASTUnavailable(err error) {
 // (e.g. the overall scan budget), context.WithTimeout keeps that earlier
 // deadline, so a phase can never extend the scan.
 func phaseDeadline(ctx context.Context, maxDuration time.Duration) (context.Context, context.CancelFunc) {
+	return phaseDeadlineReserved(ctx, maxDuration, 0)
+}
+
+// phaseDeadlineReserved is phaseDeadline that also keeps reserveAfter (0..1)
+// of the time the parent context has left for the phases that come after this
+// one (ECON-5): when ctx carries the scan's total budget, the phase's deadline
+// is capped at (1 - reserveAfter) of what remains. Without a parent deadline,
+// or with reserveAfter 0, it is phaseDeadline.
+func phaseDeadlineReserved(ctx context.Context, maxDuration time.Duration, reserveAfter float64) (context.Context, context.CancelFunc) {
+	if reserveAfter > 0 && reserveAfter < 1 {
+		if dl, ok := ctx.Deadline(); ok {
+			if limit := time.Duration(float64(time.Until(dl)) * (1 - reserveAfter)); limit > 0 && (maxDuration <= 0 || limit < maxDuration) {
+				maxDuration = limit
+			}
+		}
+	}
 	if maxDuration <= 0 {
 		return ctx, func() {}
 	}
@@ -349,5 +366,10 @@ func phaseDeadline(ctx context.Context, maxDuration time.Duration) (context.Cont
 // minted UUID back into the options before any phase runs, and the re-spider
 // helpers that need a writer are not handed the infra.
 func (r *Runner) newScanRecordWriter() *database.RecordWriter {
-	return database.NewRecordWriter(r.repository, database.RecordWriterConfig{ScanUUID: r.options.ScanUUID})
+	return database.NewRecordWriter(r.repository, database.RecordWriterConfig{
+		ScanUUID: r.options.ScanUUID,
+		// Score each record's attack surface at ingest so the assessment's
+		// (risk, surface) order means something on a fresh scan (ECON-5).
+		SurfaceScorer: surface_scoring.IngestScore,
+	})
 }

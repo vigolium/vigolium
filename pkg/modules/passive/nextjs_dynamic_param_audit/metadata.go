@@ -16,7 +16,7 @@ var (
 **Fix:** Validate and coerce every param and searchParam (Zod, parseInt, or UUID parser) before using it in queries, auth logic, or redirects.`
 
 	ModuleConfirmation = "Candidate when source-like code co-locates param and sensitive-sink patterns without recognized validation; taint tracing or dynamic impact is required"
-	ModuleSeverity     = severity.Medium
+	ModuleSeverity     = severity.Suspect
 	ModuleConfidence   = severity.Tentative
 	ModuleTags         = []string{"nextjs", "javascript", "injection", "light"}
 )

@@ -2,6 +2,9 @@ package core
 
 import (
 	goruntime "runtime"
+	"sync"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 	"sync/atomic"
 	"time"
 
@@ -126,6 +129,10 @@ type ExecutorConfig struct {
 	PassiveModuleTimeout  time.Duration        // Timeout per passive module call (default: 5s). 0 uses default.
 	ActiveModuleTimeout   time.Duration        // Timeout per active module call (default: 300s). 0 uses default. Modules may raise via TimeoutHinter.
 	ActiveTaskLimit       int                  // Max concurrent active module tasks across host/request/IP scopes
+	// HostTaskCap, when non-nil, overrides the per-host active-task cap the
+	// scheduler admits under (default: the host limiter's current per-host
+	// limit). Tests inject it; a value < 1 is treated as 1.
+	HostTaskCap func(hostPort string) int
 	// MaxOutstandingItems caps items that are dequeued but not yet finished —
 	// a worker dispatches an item's active tasks and moves on, and the item
 	// stays outstanding until its last task returns. Each one holds its live
@@ -189,6 +196,132 @@ type ExecutorConfig struct {
 	// fallback consulted by the content-class gate when a record's own
 	// Content-Type is indeterminate. Honors the same TechFilterDisabled switch.
 	ContentClassByHost map[string]string
+
+	// Phase-shared state (NEW-8). A multi-round phase builds one executor per
+	// feedback round; each used to start with empty registries, so round 2 had
+	// forgotten every tech-stack detection (and the tech gate let every gated
+	// module run everywhere), every confirmed parameter (param dedup restarted)
+	// and every per-host claim (per-host modules re-fired each round). When a
+	// field is non-nil the executor uses it instead of creating its own; the
+	// phase creates them once (see NewPhaseState). nil = executor-local, which
+	// is right for a single-Execute phase.
+	//
+	// A supplied TechRegistry keeps its own OnDetect (OnTechDetected is not
+	// applied to it), and a supplied ContentClass is not re-seeded from
+	// ContentClassByHost — the phase does both once when it creates them.
+	TechRegistry  *modkit.TechRegistry
+	WAFStack      *modkit.WAFRegistry
+	ParamFindings *modkit.ParameterFindingRegistry
+	ContentClass  *modkit.ContentClassRegistry
+	HostClaims    *HostClaims
+	// HeaderClaims holds the once-per-host header-point claims (ECON-1).
+	HeaderClaims *modkit.HeaderClaims
+
+	// Ledger, when set, records per-record coverage in the scan's coverage
+	// ledger and skips modules / the passive stage a record already finished
+	// (WorkItem.Coverage). See LedgerSpec (ECON-4).
+	Ledger *LedgerSpec
+
+	// HeaderPointsAll turns the header insertion-point gate off
+	// (dynamic_assessment.header_points: all, --header-fuzz=all): every header
+	// point reaches every module that accepts headers, per path.
+	HeaderPointsAll bool
+}
+
+// HostClaims holds the per-host run-once claims of ScanPerHost modules — one
+// (module, origin) entry per claimed pair, bounded LRUs. Shared across a
+// phase's executors via ExecutorConfig.HostClaims.
+type HostClaims struct {
+	active  *lru.Cache[hostClaimKey, struct{}]
+	passive *lru.Cache[hostClaimKey, struct{}]
+
+	// attempts counts per-host runs that failed transiently and released their
+	// claim (perHostClaimAttempts), so a host that keeps failing is not retried
+	// on every item.
+	mu       sync.Mutex
+	attempts *lru.Cache[hostClaimKey, int]
+
+	// bodies holds (module, response body) pairs a BodyOnlyPassive module has
+	// already analysed (ECON-14).
+	bodies *lru.Cache[string, struct{}]
+}
+
+// bodySeenCacheSize bounds the BodyOnlyPassive dedup set.
+const bodySeenCacheSize = 65536
+
+// seenBody reports whether moduleID already ran on this body, recording it if
+// not. Nil-safe (always false).
+func (h *HostClaims) seenBody(moduleID, bodyKey string) bool {
+	if h == nil || h.bodies == nil {
+		return false
+	}
+	seen, _ := h.bodies.ContainsOrAdd(moduleID+"\x00"+bodyKey, struct{}{})
+	return seen
+}
+
+// maxPerHostClaimAttempts bounds how many times a (module, origin) per-host
+// run is attempted when earlier attempts failed transiently.
+const maxPerHostClaimAttempts = 2
+
+// release gives back claim key in cache after a transient failure so a later
+// item for the same origin retries the run — unless the pair already used
+// its attempts. Returns whether the claim was released. Nil-safe.
+func (h *HostClaims) release(cache *lru.Cache[hostClaimKey, struct{}], key hostClaimKey) bool {
+	if h == nil || cache == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n, _ := h.attempts.Get(key)
+	n++
+	h.attempts.Add(key, n)
+	if n >= maxPerHostClaimAttempts {
+		return false
+	}
+	cache.Remove(key)
+	return true
+}
+
+// SharePhaseState fills every nil phase-shared field (TechRegistry, WAFStack,
+// ParamFindings, ContentClass, HostClaims) with a fresh instance, so every
+// executor built from copies of this config shares them. The tech registry
+// gets OnTechDetected as its OnDetect and the content-class registry is seeded
+// from ContentClassByHost, once, here. Call it on the phase's base config
+// before the first round.
+func (c *ExecutorConfig) SharePhaseState() {
+	if c.TechRegistry == nil {
+		c.TechRegistry = modkit.NewTechRegistry()
+		c.TechRegistry.OnDetect = c.OnTechDetected
+	}
+	if c.WAFStack == nil {
+		c.WAFStack = modkit.NewWAFRegistry()
+	}
+	if c.ParamFindings == nil {
+		c.ParamFindings = &modkit.ParameterFindingRegistry{}
+	}
+	if c.ContentClass == nil {
+		c.ContentClass = modkit.NewContentClassRegistry()
+		for host, class := range c.ContentClassByHost {
+			c.ContentClass.Set(host, modkit.ContentClass(class))
+		}
+	}
+	if c.HostClaims == nil {
+		c.HostClaims = NewHostClaims()
+	}
+	if c.HeaderClaims == nil {
+		c.HeaderClaims = modkit.NewHeaderClaims()
+	}
+}
+
+// NewHostClaims returns empty claim caches.
+func NewHostClaims() *HostClaims {
+	// size <= 0 is the only error lru.New returns; perHostClaimCacheSize is a
+	// positive constant.
+	a, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
+	p, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
+	n, _ := lru.New[hostClaimKey, int](perHostClaimCacheSize)
+	b, _ := lru.New[string, struct{}](bodySeenCacheSize)
+	return &HostClaims{active: a, passive: p, attempts: n, bodies: b}
 }
 
 // defaultOutstandingItemsPerWorker sizes MaxOutstandingItems when unset.

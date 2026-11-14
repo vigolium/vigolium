@@ -166,7 +166,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			Info: output.Info{
 				Name:        "Server Action Bound-Identifier Candidate",
 				Description: fmt.Sprintf("Source-like code at %s binds %d identifier-shaped argument(s) and lacks a recognized authorization token in the file. The action body, ownership check, and cross-user reachability were not traced.", urlx.Path, len(sensitiveBinds)),
-				Severity:    severity.Medium,
+				Severity:    severity.Suspect,
 				Confidence:  severity.Tentative,
 				Tags:        []string{"idor", "server-action", "nextjs", "source-analysis"},
 				Reference:   []string{"https://cwe.mitre.org/data/definitions/639.html"},

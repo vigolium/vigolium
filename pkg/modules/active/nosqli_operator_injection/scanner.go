@@ -219,12 +219,13 @@ func (m *Module) testPayload(
 	var detected bool
 	var detectionDesc string
 	var detection string
-	// These paths are behavioral inferences, not direct proof of query control.
-	// Auth bypass (a re-confirmed 401/403→2xx transition) is the strongest signal,
-	// reported High/Tentative. The size-increase path only INFERS exfiltration
-	// from response growth — never proving leaked data is in the body — so it is
-	// the weakest and stays Suspect/Tentative, matching the time-based path.
-	findingSeverity := severity.High
+	// These paths are behavioral inferences, not direct proof of query control,
+	// so they default to Suspect/Tentative (RES-7). The one exception is an auth
+	// bypass that confirmAuthBypass re-confirmed (a reproducible 401/403→2xx
+	// transition under the operator payload): that is a demonstrated bypass,
+	// High/Firm. The size-increase path only INFERS exfiltration from response
+	// growth and stays Suspect/Tentative, matching the time-based path.
+	findingSeverity := severity.Suspect
 	findingConfidence := severity.Tentative
 
 	switch payload.detectType {
@@ -234,6 +235,8 @@ func (m *Module) testPayload(
 			detected = true
 			detection = detectionAuthBypass
 			detectionDesc = fmt.Sprintf("Auth bypass: status changed from %d to %d", baselineStatus, probeStatus)
+			findingSeverity = severity.High
+			findingConfidence = severity.Firm
 		}
 	case detectSizeChange:
 		findingSeverity = severity.Suspect
@@ -739,7 +742,8 @@ func (m *Module) testBooleanDiff(
 					"Boolean differential reproduced across %d always-true and %d always-false probes against a benign same-cadence control, then reconfirmed with independent constants (%s vs %s): each condition stays self-consistent across repeats while the true/false clusters diverge beyond the endpoint's own per-request variance — via parameter %q — %s",
 					len(trueBodies), len(falseBodies), pair.secTruePayload, pair.secFalsePayload, ip.Name(), pair.desc,
 				),
-				Severity:   severity.High,
+				// A boolean differential is an inferred oracle (RES-7).
+				Severity:   severity.Suspect,
 				Confidence: severity.Tentative,
 				Tags:       []string{"nosqli", "boolean-injection", "mongodb"},
 				Reference:  []string{"https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection"},

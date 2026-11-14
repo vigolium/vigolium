@@ -255,10 +255,18 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 	// Reset cursor so dynamic-assessment reads all records from the beginning
 	// (seed phase advances the cursor past all records when saving them).
 	// Skip reset for scan-on-receive — the cursor tracks which records have been scanned.
-	if !r.options.ScanOnReceive {
+	// A resumed scan (--resume-scan) keeps its cursor: the ledger already says
+	// which records are done, and resetting would re-serve the whole window.
+	if !r.options.ScanOnReceive && r.options.ResumeScanUUID == "" {
 		if err := r.repository.ResetScanCursor(ctx, infra.scanUUID); err != nil {
 			zap.L().Warn("DynamicAssessment: failed to reset scan cursor", zap.Error(err))
 		}
+	}
+	// Coverage ledger + tier passes (ECON-4). Not for scan-on-receive, whose
+	// continuous source has no round snapshot to tier.
+	if !r.options.ScanOnReceive {
+		r.daLedger = r.prepareDALedger(ctx, infra.scanUUID, activeModules, passiveModules)
+		defer r.closeDALedger()
 	}
 
 	var recordWriter *database.RecordWriter
@@ -316,6 +324,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		DeepScan:             strings.EqualFold(r.options.Intensity, "deep"),
 		AllowRiskyPayloads:   r.riskyPayloadsAllowed(),
 		NoParamDedup:         r.options.NoParamDedup,
+		HeaderPointsAll:      r.headerPointsAll(),
 		ModuleTimeouts:       &phaseModuleTimeouts,
 		SkipBaseline:         true,
 		PauseCtrl:            r.pauseCtrl,
@@ -380,6 +389,17 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 				terminal.Gray(fmtDuration(elapsed)))
 		},
 		StatusInterval: 1 * time.Minute,
+	}
+	// One set of tech/WAF/content-class registries, param-finding registry and
+	// per-host claims for every round's executor (NEW-8): a detection, a
+	// confirmed parameter or a per-host run made in round 1 still holds in
+	// round 2.
+	baseExecutorCfg.SharePhaseState()
+	// Seed the shared tech registry from the stack the fingerprint phase stored
+	// (host_observations), so the tech gate knows each host before round 1
+	// instead of failing open until a passive module re-detects it (MISS-21).
+	if n := r.seedTechRegistry(ctx, baseExecutorCfg.TechRegistry); n > 0 {
+		zap.L().Debug("DynamicAssessment: seeded tech registry from stored host facts", zap.Int("tags", n))
 	}
 	if oastService != nil {
 		baseExecutorCfg.OASTProvider = oastService
@@ -739,11 +759,34 @@ func (r *Runner) runDynamicAssessmentRound(
 	baseCfg core.ExecutorConfig,
 	oastService *oast.Service,
 ) (daRoundResult, error) {
-	var res daRoundResult
-	roundStart := time.Now()
-	dbSource := database.NewRiskPrioritizedDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
+	if l := r.daLedger; l != nil {
+		return r.runTieredRound(ctx, infra, round, inScopeHosts, activeModules, passiveModules, baseCfg, oastService, l)
+	}
+	dbSource := r.newDASource(infra, inScopeHosts)
+	return r.runDAPass(ctx, infra, round, activeModules, passiveModules, baseCfg, oastService, dbSource)
+}
+
+// newDASource is the round's risk-prioritized record source.
+func (r *Runner) newDASource(infra *phaseInfra, inScopeHosts []database.HostTarget) *database.RiskPrioritizedDBInputSource {
+	return database.NewRiskPrioritizedDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
 		WithHostScopes(inScopeHosts).
 		WithParamShapeCoalescing(r.resolveMaxParamShapeSamples())
+}
+
+// runDAPass runs one executor over dbSource: one feedback round, or one tier
+// pass of a round (ECON-4).
+func (r *Runner) runDAPass(
+	ctx context.Context,
+	infra *phaseInfra,
+	round int,
+	activeModules []modules.ActiveModule,
+	passiveModules []modules.PassiveModule,
+	baseCfg core.ExecutorConfig,
+	oastService *oast.Service,
+	dbSource *database.RiskPrioritizedDBInputSource,
+) (daRoundResult, error) {
+	var res daRoundResult
+	roundStart := time.Now()
 
 	executor := core.NewExecutor(baseCfg, dbSource, activeModules, passiveModules)
 	if oastService != nil {
@@ -785,10 +828,12 @@ func (r *Runner) runDynamicAssessmentRound(
 	if metrics := executor.ModuleMetrics(); len(metrics) > 0 {
 		logModuleMetrics(metrics)
 	}
-	if c := infra.httpRequester.Clusterer(); c != nil {
-		c.LogStats()
+	if infra.httpRequester != nil {
+		if c := infra.httpRequester.Clusterer(); c != nil {
+			c.LogStats()
+		}
+		infra.httpRequester.LogPoolStats()
 	}
-	infra.httpRequester.LogPoolStats()
 	if err != nil {
 		return res, err
 	}
@@ -870,4 +915,17 @@ func (r *Runner) waitForNewRecords(ctx context.Context, scanUUID string, pollInt
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// headerPointsAll resolves the header insertion-point gate (ECON-1):
+// --header-fuzz wins, else config dynamic_assessment.header_points; default
+// gated.
+func (r *Runner) headerPointsAll() bool {
+	switch strings.ToLower(strings.TrimSpace(r.options.HeaderFuzz)) {
+	case "all":
+		return true
+	case "gated":
+		return false
+	}
+	return r.settings != nil && r.settings.DynamicAssessment.HeaderPointsAll()
 }

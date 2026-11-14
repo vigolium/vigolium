@@ -25,7 +25,9 @@ func probeParamFuzz(
 
 	for _, char := range paramFuzzChars {
 		payload := ip.BaseValue() + char
-		fuzzedRaw := ip.BuildRequest([]byte(payload))
+		// paramFuzzChars are written as they must arrive ("%00", "..%2f"):
+		// pre-encoded, so their own %-encoding is not double-encoded (MISS-12).
+		fuzzedRaw := httpmsg.BuildPreEncoded(ip, []byte(payload))
 
 		// fuzzedRaw is well-formed raw, so wrap directly instead of re-parsing on this hot path.
 		req := httpmsg.NewRequestResponseRaw(fuzzedRaw, ctx.Service())

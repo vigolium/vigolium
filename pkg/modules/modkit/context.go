@@ -3,6 +3,7 @@ package modkit
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/vigolium/vigolium/pkg/dedup"
@@ -205,6 +206,26 @@ type ScanContext struct {
 	// audit run gets every (param, technique) hit. See ParamDedupEnabled.
 	NoParamDedup bool
 
+	// HeaderPointsAll turns the header insertion-point gate off
+	// (dynamic_assessment.header_points: all / --header-fuzz=all): every header
+	// point reaches every module that accepts headers. See GateHeaderPoint.
+	HeaderPointsAll bool
+	// DeferHostClaims: the executor settles run-once host claims after each
+	// module call (BeginHostProbe / SettleHostProbes, MISS-19). Off outside the
+	// executor, where BeginHostProbe claims immediately.
+	DeferHostClaims bool
+	hostProbeOnce   sync.Once
+	hostProbeState  *hostProbeState
+	// hostProbesPending counts unsettled claims so the per-call settle is a
+	// single atomic load for the many calls that registered none.
+	hostProbesPending atomic.Int64
+
+	// HeaderClaims holds the once-per-host header claims (shared per phase).
+	HeaderClaims *HeaderClaims
+	// OnHeaderGated, when set, counts one header point a module skipped
+	// through FilterPointsFor (the executor maps it to the header_gated skip).
+	OnHeaderGated func(moduleID string)
+
 	// DeepScan mirrors --intensity=deep: modules may use it to unlock heavier,
 	// broader probing (e.g. dashboard_exposure's full mount-path sweep). Off by
 	// default so normal scans stay bounded.
@@ -254,6 +275,12 @@ type ScanContext struct {
 	hostMemoOnce   sync.Once
 	hostMemoCache  *lru.Cache[string, any]
 	hostMemoFlight singleflight.Group
+
+	// Named per-endpoint values of any type with an optional TTL (timing
+	// baselines, boolean-blind step-1 baselines). See EndpointMemo.
+	endpointMemoOnce   sync.Once
+	endpointMemoCache  *lru.Cache[string, memoEntry]
+	endpointMemoFlight singleflight.Group
 }
 
 func (sc *ScanContext) cookiePolicies() *CookiePolicyRegistry {
@@ -351,6 +378,24 @@ func (sc *ScanContext) IPProvider() InsertionPointProvider {
 		return nil
 	}
 	return sc.InsertionPoints
+}
+
+// AllInsertionPointProvider is the optional extension of InsertionPointProvider
+// that also returns the opt-in parameter-name and entire-body points.
+type AllInsertionPointProvider interface {
+	GetAllInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error)
+}
+
+// GetAllInsertionPoints is GetInsertionPoints plus the opt-in parameter-name
+// and entire-body points (MISS-15), for a whole-request module that tests
+// those itself.
+func (sc *ScanContext) GetAllInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {
+	if p, ok := sc.IPProvider().(AllInsertionPointProvider); ok {
+		return p.GetAllInsertionPoints(raw, requestID, includeNested)
+	}
+	return httpmsg.CreateInsertionPoints(raw, httpmsg.InsertionPointOptions{
+		IncludeNested: includeNested, ParamNames: true, EntireBody: true,
+	})
 }
 
 // GetInsertionPoints returns insertion points for a request, using the cached
