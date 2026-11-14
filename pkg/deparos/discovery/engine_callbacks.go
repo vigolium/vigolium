@@ -443,6 +443,16 @@ func (e *Engine) createDirectoryTasks(parsedURL *url.URL, cleanedPath string, de
 		return
 	}
 
+	// Under ConfirmRequired the static custom-extension list is empty, so the
+	// recursed directory also gets the short file list × every extension
+	// confirmed so far (extensions confirmed later reach it through
+	// CreateDynamicExtensionTasks).
+	if e.config.Extensions.ConfirmRequired && e.config.Extensions.TestObserved {
+		tasks = append(tasks, e.factory.CreateShortFileExtensionTasks(
+			[]byte(extractSchemeHost(pathOnlyStr)), []byte(extractPathFromURL(pathOnlyStr)),
+			nextDepth, e.confirmedExtensionsSnapshot())...)
+	}
+
 	added := e.addTasks(tasks)
 	if added > 0 {
 		logger.Debug("Added recursive wordlist tasks for directory",

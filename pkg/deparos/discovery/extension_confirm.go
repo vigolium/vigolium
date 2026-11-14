@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 
@@ -417,6 +418,18 @@ func (e *Engine) isExtensionConfirmed(ext string) bool {
 	defer e.confirmedExtMu.Unlock()
 	_, ok := e.confirmedExtensions[ext]
 	return ok
+}
+
+// confirmedExtensionsSnapshot returns the confirmed extensions, sorted.
+func (e *Engine) confirmedExtensionsSnapshot() []string {
+	e.confirmedExtMu.Lock()
+	out := make([]string, 0, len(e.confirmedExtensions))
+	for ext := range e.confirmedExtensions {
+		out = append(out, ext)
+	}
+	e.confirmedExtMu.Unlock()
+	sort.Strings(out)
+	return out
 }
 
 // candidateExtensions returns the configured candidate set, falling back to the

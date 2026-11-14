@@ -406,21 +406,14 @@ func (f *Factory) CreateDynamicExtensionTasks(
 	startSchemeHost := []byte(extractSchemeHost(f.config.Target.StartURL))
 	startPath := []byte(extractPathFromURL(f.config.Target.StartURL))
 
-	// Priority 6: Short wordlist + this extension (base path only)
-	if f.config.Filenames.Wordlists.HasShortFiles() && f.config.Extensions.TestObserved {
-		shortProvider, err := f.getBuiltInProvider(
-			payload.ShortFileList,
-			f.config.Filenames.Wordlists.ShortFilePath,
-			f.isFileCaseSensitive())
-		if err == nil {
-			tasks = append(tasks, NewWordlistTask(&WordlistTaskConfig{
-				TaskType:   ShortFilesObservedExt,
-				Provider:   shortProvider,
-				Extension:  extension,
-				SchemeHost: startSchemeHost,
-				Path:       startPath,
-				Depth:      depth,
-			}))
+	// Priority 6: Short wordlist + this extension, for EVERY known directory
+	// (the start path is in directoryURLs). Recursion under ConfirmRequired
+	// otherwise only ever tried extensionless names, so /admin/upload.php was
+	// never guessed (MISS-5).
+	if f.config.Extensions.TestObserved {
+		for _, dirURL := range directoryURLs {
+			tasks = append(tasks, f.CreateShortFileExtensionTasks(
+				[]byte(extractSchemeHost(dirURL)), []byte(extractPathFromURL(dirURL)), depth, []string{extension})...)
 		}
 	}
 
@@ -450,6 +443,38 @@ func (f *Factory) CreateDynamicExtensionTasks(
 		zap.Int("task_count", len(tasks)),
 		zap.Int("directories_tested", len(directoryURLs)))
 
+	return tasks
+}
+
+// CreateShortFileExtensionTasks creates short-file-list × extension tasks for
+// one directory (one task per extension). The long list × extension stays at
+// the start path only (CreateDynamicExtensionTasks). The task type and fields
+// match CreateDynamicExtensionTasks' so the queue dedups the two paths.
+func (f *Factory) CreateShortFileExtensionTasks(schemeHost, dirPath []byte, depth uint16, extensions []string) []Task {
+	if !f.config.Filenames.Wordlists.HasShortFiles() || len(extensions) == 0 {
+		return nil
+	}
+	tasks := make([]Task, 0, len(extensions))
+	for _, ext := range extensions {
+		if ext == "" {
+			continue
+		}
+		provider, err := f.getBuiltInProvider(
+			payload.ShortFileList,
+			f.config.Filenames.Wordlists.ShortFilePath,
+			f.isFileCaseSensitive())
+		if err != nil {
+			return tasks
+		}
+		tasks = append(tasks, NewWordlistTask(&WordlistTaskConfig{
+			TaskType:   ShortFilesObservedExt,
+			Provider:   provider,
+			Extension:  ext,
+			SchemeHost: schemeHost,
+			Path:       dirPath,
+			Depth:      depth,
+		}))
+	}
 	return tasks
 }
 
