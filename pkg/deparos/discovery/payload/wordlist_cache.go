@@ -65,9 +65,12 @@ func (c *WordlistCache) Get(listType BuiltInListType, filePath string, caseSensi
 		return nil, fmt.Errorf("failed to load %s wordlist from %s: %w", listType, filePath, err)
 	}
 
-	// Apply case normalization if needed
+	// Case-insensitive: fold to lowercase and dedup. Case-sensitive: keep the
+	// entries as written, dropping only exact duplicates.
 	if !caseSensitive {
 		payloads = normalizeAndDedup(payloads)
+	} else {
+		payloads = dedupExact(payloads)
 	}
 
 	cached := &CachedWordlist{
