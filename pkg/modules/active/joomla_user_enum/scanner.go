@@ -51,13 +51,9 @@ func (m *Module) ScanPerRequest(
 	if service == nil {
 		return nil, nil
 	}
-	host := service.Host()
 
-	if scanCtx != nil {
-		diskSet := m.ds.Get(scanCtx.DedupMgr())
-		if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, host) {
-			return nil, nil
-		}
+	if !modkit.BeginHostProbeFor(scanCtx, httpClient, &m.ds, ctx) {
+		return nil, nil
 	}
 	cleanRaw, err := modkit.StripCredentialHeaders(ctx.Request().Raw())
 	if err != nil {

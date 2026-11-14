@@ -115,10 +115,10 @@ func TestNoSession_NotDetected(t *testing.T) {
 	assert.Empty(t, res, "a host without session cookies must not be flagged")
 }
 
-// TestSessionAdoptionOnRawRedirect_IsFinding pins SAFE-1 for this module: the
-// login answers 302 → /dashboard and carries the Set-Cookie on the 302. The
-// raw transport used to follow that hop, so the module read the bodyless
-// /dashboard response, saw no session cookie and failed closed.
+// TestSessionAdoptionOnRawRedirect_IsFinding: the login answers 302 →
+// /dashboard and carries the Set-Cookie on the 302. A raw transport that
+// followed that hop would hand the module the bodyless /dashboard response,
+// with no session cookie, and the module would fail closed.
 func TestSessionAdoptionOnRawRedirect_IsFinding(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

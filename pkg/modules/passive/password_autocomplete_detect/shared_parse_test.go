@@ -12,7 +12,7 @@ import (
 )
 
 // The module reads the response's shared, memoised HTML parse instead of
-// tokenizing the body again (ECON-14). Proven by planting the password field
+// tokenizing the body again. Proven by planting the password field
 // in the already-parsed tree only: a module re-reading the raw body misses it.
 func TestUsesSharedHTMLDocument(t *testing.T) {
 	t.Parallel()

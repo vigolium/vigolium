@@ -968,7 +968,7 @@ func TestPathOrHeaderInsertionTypes(t *testing.T) {
 	}
 }
 
-// MISS-14: two identical timing probes must both reach the server. The probe
+// Two identical timing probes must both reach the server. The probe
 // used to omit NoClustering, so the request cache answered the second in ~0ms.
 func TestMeasureDuration_IdenticalProbesBothSent(t *testing.T) {
 	var hits atomic.Int64

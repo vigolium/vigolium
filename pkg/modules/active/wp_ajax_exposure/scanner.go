@@ -85,9 +85,7 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
-	host := service.Host()
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, host) {
+	if !modkit.BeginHostProbeFor(scanCtx, httpClient, &m.ds, ctx) {
 		return nil, nil
 	}
 
@@ -299,8 +297,8 @@ func (m *Module) probeAction(
 	// Content-Length:0 transport quirk only a reflecting tail fragment is captured,
 	// so the control-probe and wildcard-shell guards above — which key on the body
 	// head/length — miss it, and the reflected action name forges a plugin token.
-	// Strip the echoed action name before marker matching so a bare reflection can
-	// no longer satisfy a marker; a genuine nopriv handler emits its OWN plugin/
+	// Strip the echoed action name before marker matching so a bare reflection
+	// cannot satisfy a marker; a genuine nopriv handler emits its OWN plugin/
 	// error tokens (plugin name, error code), which are not part of the action name
 	// and survive the strip.
 	markerBody := modkit.StripReflected(lowerBody, strings.ToLower(action.name))

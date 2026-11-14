@@ -171,15 +171,14 @@ func TestScanPerInsertionPoint_NoCredentialDowngrade(t *testing.T) {
 	res, err := New().ScanPerInsertionPoint(rr, ip, client, &modkit.ScanContext{})
 	require.NoError(t, err)
 	require.NotEmpty(t, res, "a distinct neighbor object is still a lead, just a weaker one without credentials")
-	assert.Equal(t, severity.Suspect, res[0].Info.Severity, "no credential crosses no authorization boundary — a Suspect lead (RES-7)")
+	assert.Equal(t, severity.Suspect, res[0].Info.Severity, "no credential crosses no authorization boundary — a Suspect lead")
 	assert.Equal(t, severity.Tentative, res[0].Info.Confidence)
 }
 
 // TestScanPerInsertionPoint_CredentialedStaysHigh verifies the converse: when the
 // original request carries a session Cookie AND the neighbor object carries
 // different user fields, it is a genuine authorization bypass: High/Firm. The
-// same differential without differing user fields is a Suspect/Tentative lead
-// (RES-7).
+// same differential without differing user fields is a Suspect/Tentative lead.
 func TestScanPerInsertionPoint_CredentialedStaysHigh(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +269,7 @@ func TestScanPerInsertionPoint_NonDeterministicEndpoint(t *testing.T) {
 	assert.Empty(t, res, "a non-deterministic endpoint (same id → different content) must not be reported as IDOR")
 }
 
-// SAFE-8: under a read-only traffic policy, idor_detection on a DELETE record
+// Under a read-only traffic policy, idor_detection on a DELETE record
 // sends nothing (the requester refuses every neighbour-ID DELETE).
 func TestScanPerInsertionPoint_ReadOnlyPolicySendsNoDelete(t *testing.T) {
 	t.Parallel()

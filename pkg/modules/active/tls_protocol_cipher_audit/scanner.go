@@ -161,9 +161,8 @@ func (m *Module) ScanPerHost(
 	}
 
 	// One audit per host:port for the whole scan.
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
 	dedupKey := net.JoinHostPort(host, strconv.Itoa(port))
-	if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, dedupKey) {
+	if !modkit.BeginHostProbeKey(scanCtx, httpClient, &m.ds, dedupKey) {
 		return nil, nil
 	}
 

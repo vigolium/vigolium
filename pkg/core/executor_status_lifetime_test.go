@@ -21,7 +21,7 @@ func TestStatusCallbackStopsAtExecutionEnd(t *testing.T) {
 	parent, cancelParent := context.WithCancel(context.Background())
 	defer cancelParent()
 
-	cfg := DefaultExecutorConfig()
+	cfg := ExecutorConfig{}
 	cfg.Workers = 1
 	cfg.MaxDuration = 0 // the runner's value: no per-phase timeout
 	cfg.StatusInterval = 10 * time.Millisecond
@@ -51,7 +51,7 @@ func TestRepeatedExecutionsLeaveNoStatusGoroutines(t *testing.T) {
 	defer cancelParent()
 
 	run := func() {
-		cfg := DefaultExecutorConfig()
+		cfg := ExecutorConfig{}
 		cfg.Workers = 1
 		cfg.MaxDuration = 0
 		cfg.StatusInterval = 5 * time.Millisecond

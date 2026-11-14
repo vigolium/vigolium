@@ -282,7 +282,7 @@ func TestPanicInDetachedTaskForcesAck(t *testing.T) {
 	cancel()
 	tr := e.newItemTracker(cancelled, item, false)
 	// The task panics before handing its slot to a module wrapper.
-	e.goActiveTask(context.Background(), tr, "h:80", func(func()) { panic("boom") })
+	e.goActiveTask(context.Background(), tr, "h:80", func(func()) { panic("boom") }, nil)
 	tr.done()
 	waitClosed(t, tr.finished, "the item to complete")
 
@@ -383,7 +383,7 @@ func TestBufferNotReturnedWhileTaskRunning(t *testing.T) {
 		e.goActiveTask(context.Background(), tr, "h:80", func(releaseSlot func()) {
 			defer releaseSlot()
 			<-rel
-		})
+		}, nil)
 	}
 	tr.done() // dispatcher done; two tasks still hold the item
 	close(release1)
@@ -412,8 +412,8 @@ func TestBufferNotReturnedWhileTaskRunning(t *testing.T) {
 
 // TestSlowHostDoesNotStarveOthers: with a global cap of 4 and a per-host cap of
 // 2, ten items whose tasks block on host A must not keep host B's tasks from
-// running (MISS-30 / ECON-3). Under the old global semaphore A's blocked tasks
-// held all four slots and B waited until A drained.
+// running: A's blocked tasks must not hold all four global slots while B
+// waits for A to drain.
 func TestSlowHostDoesNotStarveOthers(t *testing.T) {
 	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 

@@ -149,7 +149,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, _ *modkit.Scan
 // internal package names, so they run only through scanCtx.ExternalFetcher —
 // the scan's proxy and timeout — and only when the operator enabled
 // dynamic_assessment.external_lookups (and not under --offline). Without it
-// the buffered names are dropped and nothing is sent (SAFE-11).
+// the buffered names are dropped and nothing is sent.
 func (m *Module) FlushFindings(scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	m.mu.Lock()
 	observed := m.observed

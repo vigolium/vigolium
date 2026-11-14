@@ -2,8 +2,8 @@ package infra
 
 import "strings"
 
-// HeaderClass sorts request headers by what injecting into them can reach
-// (ECON-1). Header insertion points are the largest single source of active
+// HeaderClass sorts request headers by what injecting into them can reach.
+// Header insertion points are the largest single source of active
 // requests on browser-captured traffic; the class decides which vulnerability
 // classes test a header at all and whether once per host is enough.
 type HeaderClass int

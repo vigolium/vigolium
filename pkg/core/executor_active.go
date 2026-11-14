@@ -3,11 +3,10 @@ package core
 import (
 	"context"
 
-	lru "github.com/hashicorp/golang-lru/v2"
-
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
+	"github.com/vigolium/vigolium/pkg/modules/infra"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"go.uber.org/zap"
@@ -21,30 +20,18 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 	origin := originKeyFromItem(item)
 
 	for _, module := range e.perHostActive {
-		if !filter.allows(module.ID()) || e.moduleDone(t.item, module.ID()) {
+		if !e.activeEligible(module, item, filter, elig, t) {
 			continue
 		}
-		if !e.passesTechFilter(module, item) {
-			e.noteModuleSkip(module.ID(), SkipReasonTechFilter)
-			continue
-		}
-		e.moduleMetrics.MarkConsidered(module.ID())
-		if !activeModuleCanProcess(module, item, elig) {
-			e.noteModuleSkip(module.ID(), SkipReasonCannotProcess)
-			continue
-		}
-
-		// Claim this (module, origin) pair — skip if another worker already claimed
-		// it. ContainsOrAdd is atomic (single lock) so two concurrent workers
-		// can't both win the claim; ok==true means the pair was already claimed.
+		// Claim this (module, origin) pair — skip if another worker already did.
 		claimKey := hostClaimKey{moduleID: module.ID(), origin: origin}
-		if ok, _ := e.caches.perHostActiveClaimed.ContainsOrAdd(claimKey, struct{}{}); ok {
+		if !e.caches.hostClaims.claimActive(claimKey) {
 			continue
 		}
 
 		mod := module // capture loop variable
 		e.goModuleTask(ctx, t, hostKey, mod.ID(), func(releaseSlot func()) callOutcome {
-			o := e.runActiveCall(ctx,
+			o := e.runActiveWithTimeout(ctx,
 				func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
 						return contextual.ScanPerHostContext(runCtx, item, client, e.scanCtx)
@@ -53,7 +40,7 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 				},
 				mod, item, reqClient, releaseSlot, 0)
 			if o.failedTransiently() && ctx.Err() == nil {
-				e.releaseHostClaim(e.caches.perHostActiveClaimed, claimKey)
+				e.caches.hostClaims.releaseActive(claimKey)
 			}
 			e.deliverCall(ctx, o, mod, item, nil)
 			return o
@@ -61,10 +48,24 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 	}
 }
 
-// releaseHostClaim gives a per-host claim back after a transient failure so a
-// later item for the same origin retries the run (bounded, see HostClaims).
-func (e *Executor) releaseHostClaim(cache *lru.Cache[hostClaimKey, struct{}], key hostClaimKey) {
-	e.caches.hostClaims.release(cache, key)
+// activeEligible applies the module-level gates every active stage shares —
+// the module filter and the record's stored coverage, the tech filter and
+// CanProcess — marking the module considered and counting the skip reason.
+func (e *Executor) activeEligible(module modules.ActiveModule, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, t *itemTracker) bool {
+	id := module.ID()
+	if !filter.allows(id) || e.moduleDone(t.item, id) {
+		return false
+	}
+	if !e.passesTechFilter(module, item) {
+		e.noteModuleSkip(id, SkipReasonTechFilter)
+		return false
+	}
+	e.moduleMetrics.MarkConsidered(id)
+	if !activeModuleCanProcess(module, item, elig) {
+		e.noteModuleSkip(id, SkipReasonCannotProcess)
+		return false
+	}
+	return true
 }
 
 func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requester, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, t *itemTracker, hostKey string) {
@@ -78,22 +79,13 @@ func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requ
 	workUnits := e.itemInsertionPointCount(item)
 
 	for _, module := range e.perRequestActive {
-		if !filter.allows(module.ID()) || e.moduleDone(t.item, module.ID()) {
-			continue
-		}
-		if !e.passesTechFilter(module, item) {
-			e.noteModuleSkip(module.ID(), SkipReasonTechFilter)
-			continue
-		}
-		e.moduleMetrics.MarkConsidered(module.ID())
-		if !activeModuleCanProcess(module, item, elig) {
-			e.noteModuleSkip(module.ID(), SkipReasonCannotProcess)
+		if !e.activeEligible(module, item, filter, elig, t) {
 			continue
 		}
 
 		mod := module // capture loop variable
 		e.goModuleTask(ctx, t, hostKey, mod.ID(), func(releaseSlot func()) callOutcome {
-			o := e.runActiveCall(ctx,
+			o := e.runActiveWithTimeout(ctx,
 				func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
 						return contextual.ScanPerRequestContext(runCtx, item, client, e.scanCtx)
@@ -135,7 +127,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 	// Cache lookup by request hash (same SHA-256 used by HttpRequest.ID()), through
 	// the same accessor the module-facing provider uses so both agree on the key.
 	// The full set, opt-in name/entire-body points included: each module's
-	// allowed types decide (AllInsertionPointTypes excludes them — MISS-15).
+	// allowed types decide (AllInsertionPointTypes excludes them).
 	allPoints, err := e.caches.ipCache.GetOrComputeAll(item.Request().Raw(), item.Request().ID(), true)
 	if err != nil {
 		zap.L().Debug("Failed to create insertion points", zap.Error(err))
@@ -152,22 +144,30 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 		itemKey = modkit.ParamFindingKey(item)
 	}
 
-	// Module-outer, insertion-point-inner: the module-level gates
-	// (filter / tech-filter / MarkConsidered / CanProcess) don't depend on the
-	// insertion point, so evaluate them once per module rather than once per
-	// (module × insertion-point). Only the type check and the cross-module
-	// vuln-class dedup are point-dependent and stay in the inner loop.
+	// Per-point state shared by every module: the header class the gate reads
+	// (classified once per point, not per module × point) and the requester
+	// that keeps a header / cookie point's value over the session's / -H copy
+	// (built on first use).
+	headerClasses := make([]infra.HeaderClass, len(allPoints))
+	for i, ip := range allPoints {
+		if ip.Type() == httpmsg.INS_HEADER {
+			headerClasses[i] = infra.ClassifyHeader(ip.Name())
+		}
+	}
+	ptClients := make([]*http.Requester, len(allPoints))
+	pointClient := func(i int) *http.Requester {
+		if ptClients[i] == nil {
+			ptClients[i] = reqClient.WithPreservedHeaders(httpmsg.OwnedHeaderKeysOf(allPoints[i]))
+		}
+		return ptClients[i]
+	}
+
+	// Module-outer, insertion-point-inner: the module-level gates don't depend
+	// on the insertion point, so evaluate them once per module rather than once
+	// per (module × insertion-point). Only the type check, the cross-module
+	// vuln-class dedup and the header gate are point-dependent.
 	for _, module := range e.perIPActive {
-		if !filter.allows(module.ID()) || e.moduleDone(t.item, module.ID()) {
-			continue
-		}
-		if !e.passesTechFilter(module, item) {
-			e.noteModuleSkip(module.ID(), SkipReasonTechFilter)
-			continue
-		}
-		e.moduleMetrics.MarkConsidered(module.ID())
-		if !activeModuleCanProcess(module, item, elig) {
-			e.noteModuleSkip(module.ID(), SkipReasonCannotProcess)
+		if !e.activeEligible(module, item, filter, elig, t) {
 			continue
 		}
 
@@ -178,10 +178,11 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 			vulnClass = gateClass
 		}
 
-		for _, ip := range allPoints {
+		var ipTypeSkips int64
+		for i, ip := range allPoints {
 			if !allowedTypes.Contains(ip.Type()) {
 				if !httpmsg.IsExtraInsertionPointType(ip.Type()) {
-					e.noteModuleSkip(module.ID(), SkipReasonIPType)
+					ipTypeSkips++
 				}
 				continue
 			}
@@ -196,20 +197,17 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 				continue
 			}
 
-			// Header gate (ECON-1): noise headers never, headers outside the
-			// module's class interest never, logged/negotiation/routing headers
-			// once per (origin, module, header).
-			gate := modkit.GateHeaderPoint(e.scanCtx, module, gateClass, origin, ip)
+			// Header gate: noise headers never, headers outside the module's
+			// class interest never, logged/negotiation/routing headers once per
+			// (origin, module, header).
+			gate := modkit.GateHeaderPoint(e.scanCtx, module, gateClass, origin, ip, headerClasses[i])
 			if !gate.Allow {
 				e.noteModuleSkip(module.ID(), SkipReasonHeaderGated)
 				continue
 			}
 			claimed := gate.Claimed
 
-			mod, pt := module, ip // capture loop variables
-			// A point that lives in a header (or one cookie) keeps the module's
-			// value over the session's / -H copy (MISS-11).
-			ptClient := reqClient.WithPreservedHeaders(httpmsg.OwnedHeaderKeysOf(pt))
+			mod, pt, ptClient := module, ip, pointClient(i) // capture loop variables
 			e.goModuleTask(ctx, t, hostKey, mod.ID(), func(releaseSlot func()) callOutcome {
 				// Re-check when the task actually runs: it may have waited on the
 				// scheduler queue while a same-class module confirmed this
@@ -219,7 +217,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 					releaseSlot()
 					return callOutcome{completed: true}
 				}
-				// Reflection gate (ECON-2): a module whose oracle needs the value
+				// Reflection gate: a module whose oracle needs the value
 				// reflected runs only when the point's shared canary probe saw it
 				// come back. Fails open on a probe error, a blocked probe or a
 				// WAF-fronted host.
@@ -228,7 +226,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 					releaseSlot()
 					return callOutcome{completed: true}
 				}
-				o := e.runActiveCall(ctx,
+				o := e.runActiveWithTimeout(ctx,
 					func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 						if contextual, ok := mod.(modules.ContextualActiveModule); ok {
 							return contextual.ScanPerInsertionPointContext(runCtx, item, pt, client, e.scanCtx)
@@ -245,6 +243,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 				return o
 			})
 		}
+		e.moduleSkips.add(module.ID(), SkipReasonIPType, ipTypeSkips)
 	}
 }
 
@@ -252,7 +251,8 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 // scheduler (see activeScheduler) and returns without blocking. hostKey is the
 // item's host:port; the task is admitted once both the global cap and that
 // host's cap have room. A task still queued when ctx is cancelled is dropped
-// without running.
+// without running. onAbort, when set, runs if the task is dropped before it
+// ran or panicked (its work did not complete).
 //
 // The task holds a reference on t (and on the scan-level taskWG) from the
 // moment it is queued, so the item is acknowledged only after its last task
@@ -269,16 +269,7 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 // A panic in fn is recovered here (a detached goroutine has no caller to unwind
 // to): it is reported, the slot is released if fn had not handed it off yet,
 // and the item is marked so it is acknowledged anyway — the poison-item rule.
-func (e *Executor) goActiveTask(ctx context.Context, t *itemTracker, hostKey string, fn func(releaseSlot func())) {
-	if ctx.Err() != nil {
-		return
-	}
-	e.enqueueTask(ctx, t, hostKey, fn, nil)
-}
-
-// enqueueTask is goActiveTask's body. onAbort, when set, runs if the task is
-// dropped before it ran or panicked (its work did not complete).
-func (e *Executor) enqueueTask(ctx context.Context, t *itemTracker, hostKey string, fn func(releaseSlot func()), onAbort func()) {
+func (e *Executor) goActiveTask(ctx context.Context, t *itemTracker, hostKey string, fn func(releaseSlot func()), onAbort func()) {
 	t.acquire()
 	e.pool.taskWG.Add(1)
 	e.pool.sched.enqueue(&schedTask{
@@ -326,8 +317,8 @@ func (e *Executor) runActiveStage(ctx context.Context, t *itemTracker, req *http
 	var reqClient *http.Requester
 	if e.httpClient != nil {
 		// The record's unmodified request is the breaker's recovery probe for
-		// this item's payload traffic (MISS-24): a host that silently drops
-		// payloads is then probed with something it answers.
+		// this item's payload traffic: a host that silently drops payloads is
+		// then probed with something it answers.
 		reqClient = e.httpClient.WithContext(ctx).WithBaseline(req)
 	}
 
@@ -344,7 +335,7 @@ func (e *Executor) runActiveStage(ctx context.Context, t *itemTracker, req *http
 
 // reflectionGateSkips reports whether mod (a modkit.ReflectionAware module)
 // should skip point pt because the shared canary probe showed no reflection of
-// the kind it needs (ECON-2). Fails open: no requester, a probe error, a
+// the kind it needs. Fails open: no requester, a probe error, a
 // blocked probe or a host with a detected WAF all run the module.
 func (e *Executor) reflectionGateSkips(ctx context.Context, mod modules.ActiveModule, item *httpmsg.HttpRequestResponse, pt httpmsg.InsertionPoint, client *http.Requester) bool {
 	ra, ok := mod.(modkit.ReflectionAware)

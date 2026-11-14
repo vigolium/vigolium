@@ -21,9 +21,9 @@ import (
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
-// The benign sweep (MEAS-3 + MEAS-4) runs every registered active module
-// against every benign fixture (pkg/modules/modtest/fixtures.go) with a query
-// record and a JSON-body record, and asserts:
+// The benign sweep runs every registered active module against every benign
+// fixture (pkg/modules/modtest/fixtures.go) with a query record and a
+// JSON-body record, and asserts:
 //
 //  1. no finding above Info - a false positive on a server with no
 //     vulnerability - unless the module/fixture pair is allow-listed below;
@@ -69,12 +69,12 @@ var benignSweepSkip = map[string]string{
 // fails when an entry stops firing.
 var benignSweepAllowList = map[string]string{
 	// Single-session neighbour-ID diff: the fixture echoes the JSON body, so
-	// id=12 and id=13 differ and the module files Medium/Tentative IDOR. RES-7
-	// (Track B) moves it to Suspect/Tentative, which is still above Info; the
-	// real fix is requiring a second principal or object-shaped user fields.
-	"idor-detection/safe_echo":      "single-session neighbour-ID diff fires on an echoing JSON endpoint (RES-7 follow-up)",
-	"idor-detection/soft_404":       "single-session neighbour-ID diff fires on an echoing JSON endpoint (RES-7 follow-up)",
-	"idor-detection/rate_limit_429": "single-session neighbour-ID diff fires on an echoing JSON endpoint before the limiter engages (RES-7 follow-up)",
+	// id=12 and id=13 differ and the module files a Suspect/Tentative IDOR lead,
+	// which is still above Info; the real fix is requiring a second principal
+	// or object-shaped user fields.
+	"idor-detection/safe_echo":      "single-session neighbour-ID diff fires on an echoing JSON endpoint",
+	"idor-detection/soft_404":       "single-session neighbour-ID diff fires on an echoing JSON endpoint",
+	"idor-detection/rate_limit_429": "single-session neighbour-ID diff fires on an echoing JSON endpoint before the limiter engages",
 }
 
 // sweepShapes are the request shapes each module sees per fixture.

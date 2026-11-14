@@ -249,7 +249,7 @@ func recordSignals(item *httpmsg.HttpRequestResponse, host string, scanCtx *modk
 }
 
 // IngestScore is the record-scoped surface score computed at ingest, before
-// any module ran (ECON-5): the record writer stamps it so a fresh scan's
+// any module ran: the record writer stamps it so a fresh scan's
 // assessment order (risk_score DESC, surface_score DESC) is not merely
 // chronological. The passive module re-scores at flush with the host-scoped
 // tech signal added, which can only raise it.

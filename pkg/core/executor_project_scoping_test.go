@@ -127,7 +127,7 @@ func TestExecutorConfigAlwaysSetsProjectUUID(t *testing.T) {
 				// Only a config that can WRITE needs to declare its project.
 				// Repository / RecordWriter / FindingWriter are the executor's
 				// only persistence paths and all three are nil-guarded, so a
-				// literal carrying none of them (e.g. DefaultExecutorConfig)
+				// literal carrying none of them (e.g. ExecutorConfig{})
 				// has nothing to misfile. Adding any of them to a literal
 				// brings it under this check.
 				if !fields["Repository"] && !fields["RecordWriter"] && !fields["FindingWriter"] {

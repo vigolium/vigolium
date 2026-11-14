@@ -20,7 +20,7 @@ import (
 type payload struct {
 	name       string
 	tmpl       string // %s = canary token
-	preEncoded bool   // payload carries its own %-encoding: built via httpmsg.BuildPreEncoded (MISS-12)
+	preEncoded bool   // payload carries its own %-encoding: built via httpmsg.BuildPreEncoded
 }
 
 // Detection-location kinds returned by probePayload, ordered from the strongest
@@ -186,7 +186,7 @@ func (m *Module) probePayload(
 	pattern *regexp.Regexp,
 ) (location, fuzzedRawStr, evidence, contentType string, found bool, err error) {
 	// Pre-encoded payloads (%0d%0a) keep their own encoding through
-	// httpmsg.BuildPreEncoded (MISS-12); the old hand-rolled string splice only
+	// httpmsg.BuildPreEncoded; the old hand-rolled string splice only
 	// worked for a query value that appeared verbatim in the request line.
 	fuzzedRaw := httpmsg.BuildPayload(ip, []byte(fmt.Sprintf(p.tmpl, ip.BaseValue())), p.preEncoded)
 	if fuzzedRaw == nil {
@@ -383,6 +383,6 @@ func (m *Module) buildResult(url, paramName, payloadName, location, contentType,
 }
 
 // RequiresReflection opts into the executor's shared reflection probe
-// (modkit.ReflectionAware, ECON-2): the oracle reads the payload back, so a
+// (modkit.ReflectionAware): the oracle reads the payload back, so a
 // point whose value does not come back is skipped.
 func (m *Module) RequiresReflection() modkit.ReflectionNeed { return modkit.ReflectAny }

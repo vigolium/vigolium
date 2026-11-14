@@ -23,9 +23,8 @@ func (sc *ScanContext) getEndpointMemoCache() *lru.Cache[string, memoEntry] {
 	return sc.endpointMemoCache
 }
 
-// EndpointMemo is EndpointMeasurement for a non-int value with an optional
-// TTL: a property derived by probing the record's UNMODIFIED request, shared by
-// every insertion point (and every module that asks under the same name) of
+// EndpointMemo memoises any value, with an optional TTL: a property derived
+// by probing the record's UNMODIFIED request, shared by every insertion point (and every module that asks under the same name) of
 // that record, with concurrent first callers collapsed into one compute.
 //
 // compute returns the value and whether to cache it: a transient failure
@@ -101,7 +100,7 @@ type TimingSample func() (elapsed time.Duration, blocked bool, err error)
 // requests. It is measured lazily, once per record across insertion points and
 // across timing modules (memo key TimingBaselineKey, value threshold ns or -1
 // when blocked) instead of four baseline requests per point per module
-// (ECON-6). A transport error is returned and not cached.
+// A transport error is returned and not cached.
 func (sc *ScanContext) TimingThreshold(ctx *httpmsg.HttpRequestResponse, sample TimingSample) (time.Duration, error) {
 	var sampleErr error
 	v := sc.EndpointMemo(TimingBaselineKey, ctx, timingBaselineTTL, func() (any, bool) {
@@ -143,14 +142,14 @@ func (sc *ScanContext) TimingThreshold(ctx *httpmsg.HttpRequestResponse, sample 
 	return time.Duration(ns), nil
 }
 
-// UnmodifiedTimingSample sends the record's own request (unmodified) once —
-// no redirects, no response clustering (a cached copy would collapse the
-// jitter estimate) — and reports the requester-measured elapsed time and
-// whether the answer was a block.
+// UnmodifiedTimingSample sends the record's own request (unmodified) once
+// through SendTimed — no redirects, no response clustering (a cached copy
+// would collapse the jitter estimate), no retry — and reports the
+// requester-measured elapsed time and whether the answer was a block.
 func UnmodifiedTimingSample(ctx *httpmsg.HttpRequestResponse, client *http.Requester) TimingSample {
 	return func() (time.Duration, bool, error) {
 		req := httpmsg.NewRequestResponseRaw(ctx.Request().Raw(), ctx.Service())
-		resp, elapsed, err := client.Execute(req, http.Options{NoRedirects: true, NoClustering: true})
+		resp, elapsed, err := SendTimed(client, req, http.Options{})
 		if err != nil {
 			return 0, false, err
 		}

@@ -451,7 +451,7 @@ func (e *Executor) processItemDetached(t *itemTracker) {
 	}
 
 	// The passive stage already ran on this record in an earlier pass or run
-	// (coverage ledger, ECON-4): skip it.
+	// (coverage ledger): skip it.
 	if item.Coverage == nil || !item.Coverage.PassiveDone {
 		e.runPassiveStage(ctx, req, &filter, inScope)
 		if t.prog != nil {

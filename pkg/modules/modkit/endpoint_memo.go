@@ -7,19 +7,13 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// measurementCacheSize bounds the per-scan endpoint-measurement cache.
-const measurementCacheSize = 512
-
-func (sc *ScanContext) getMeasurementCache() *lru.Cache[string, int] {
-	sc.measurementOnce.Do(func() {
-		sc.measurementCache, _ = lru.New[string, int](measurementCacheSize)
-	})
-	return sc.measurementCache
-}
+// measurementCacheSize bounds the per-scan endpoint memo cache (shared by
+// EndpointMeasurement and EndpointMemo values).
+const measurementCacheSize = 1024
 
 // EndpointMeasurement memoizes a numeric property a module derives by probing the
 // UNMODIFIED request, so it is measured once per record instead of once per
-// insertion point.
+// insertion point. It is EndpointMemo for an int that is always cached.
 //
 // It exists because the executor dispatches every insertion point of a record as
 // a separate concurrent task, while calibration probes (page jitter, control
@@ -40,28 +34,7 @@ func (sc *ScanContext) EndpointMeasurement(name string, ctx *httpmsg.HttpRequest
 	if measure == nil {
 		return 0
 	}
-	if sc == nil || ctx == nil || ctx.Request() == nil {
-		return measure()
-	}
-
-	// The unmodified raw request is what gets replayed, so its hash is exactly the
-	// right identity: every insertion point on a record shares it, and two records
-	// differing in any request byte do not.
-	key := name + "\x00" + ctx.Request().ID()
-	cache := sc.getMeasurementCache()
-	if v, ok := cache.Get(key); ok {
-		return v
-	}
-	res, _, _ := sc.measurementFlight.Do(key, func() (interface{}, error) {
-		// Re-check inside the group: a concurrent caller may have just populated it.
-		if v, ok := cache.Get(key); ok {
-			return v, nil
-		}
-		v := measure()
-		cache.Add(key, v)
-		return v, nil
-	})
-	v, _ := res.(int)
+	v, _ := sc.EndpointMemo(name, ctx, 0, func() (any, bool) { return measure(), true }).(int)
 	return v
 }
 

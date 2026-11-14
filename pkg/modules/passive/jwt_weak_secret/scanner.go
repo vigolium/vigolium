@@ -83,7 +83,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if len(tokens) == 0 {
 		return nil, nil
 	}
-	// Claim the location only once it carries a token (MISS-19): a first
+	// Claim the location only once it carries a token: a first
 	// response without one must not hide a later one that has it.
 	if diskSet != nil && !diskSet.ClaimOnMatch(hash) {
 		return nil, nil
@@ -101,7 +101,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	for _, located := range tokens {
 		token := located.token
 		tokenKey := "tok:" + tokenDigest(token)
-		// One finding per token per scan (ECON-14): the same session token is
+		// One finding per token per scan: the same session token is
 		// carried by every request of a browse, and each used to file its own
 		// copy. Skip a token already reported anywhere.
 		if diskSet != nil && diskSet.Contains(tokenKey) {
@@ -258,7 +258,7 @@ func tokenDigest(token string) string {
 }
 
 // crackMemo is tryBruteForce memoised per token per scan (keyed by the token's
-// SHA-256): a token seen on many URLs is cracked once (ECON-14).
+// SHA-256): a token seen on many URLs is cracked once.
 func crackMemo(scanCtx *modkit.ScanContext, token string, secrets [][]byte) (string, string) {
 	v := scanCtx.HostMemo("jwt-crack-v1", tokenDigest(token), func() any {
 		s, a := tryBruteForce(token, secrets)

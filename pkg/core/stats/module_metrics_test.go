@@ -95,3 +95,25 @@ func TestModuleMetrics_NilReceiver(t *testing.T) {
 		t.Errorf("Snapshot() on nil = %v, want nil", snap)
 	}
 }
+
+func TestModuleStatsSnapshot_Add(t *testing.T) {
+	a := ModuleStatsSnapshot{Invocations: 1, Findings: 2, Errors: 3, TotalTime: time.Second, Requests: 4, Inconclusive: 5}
+	got := a.Add(a)
+	want := ModuleStatsSnapshot{Invocations: 2, Findings: 4, Errors: 6, TotalTime: 2 * time.Second, Requests: 8, Inconclusive: 10}
+	if got != want {
+		t.Fatalf("Add = %+v, want %+v", got, want)
+	}
+}
+
+func TestModuleMetrics_ForSharesStats(t *testing.T) {
+	mm := &ModuleMetrics{}
+	ms := mm.For("m")
+	ms.Record(time.Millisecond, 1, nil)
+	ms.AddRequests(3)
+	ms.RecordCompletedDuration(time.Millisecond)
+	if snap := mm.Snapshot()["m"]; snap.Invocations != 1 || snap.Requests != 3 || mm.ConsideredCount() != 1 {
+		t.Fatalf("snapshot = %+v, considered = %d", snap, mm.ConsideredCount())
+	}
+	var nilMM *ModuleMetrics
+	nilMM.For("m").Record(time.Millisecond, 1, nil) // nil-safe
+}

@@ -56,8 +56,7 @@ func (m *Module) ScanPerHost(
 	if ctx.Service() == nil {
 		return nil, nil
 	}
-	host := ctx.Service().Host()
-	if !modkit.BeginHostProbe(scanCtx, httpClient, m.ds.Get(scanCtx.DedupMgr()), host) {
+	if !modkit.BeginHostProbeFor(scanCtx, httpClient, &m.ds, ctx) {
 		return nil, nil
 	}
 
@@ -77,7 +76,7 @@ func (m *Module) ScanPerHost(
 	// private address a victim's browser can be tricked into reaching. A public,
 	// internet-facing MCP server that ignores Origin for non-browser clients is
 	// expected behaviour, not a rebinding sink — so it is reported at low
-	// severity/confidence rather than the over-broad High this used to emit.
+	// severity/confidence rather than High.
 	local := isRebindingRelevantHost(urlx.Host)
 
 	sev, conf := severity.Low, severity.Tentative

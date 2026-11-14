@@ -62,7 +62,7 @@ const extraTypeBits InsertionPointTypeSet = 1<<34 | 1<<35 | 1<<36
 // replacing the whole body is a different test from fuzzing a value, and
 // adding those points to every module that accepts "all" types would roughly
 // double per-insertion-point work. A module opts in with
-// AllInsertionPointTypes | ParamNameTypes (or EntireBodyTypes) — MISS-15.
+// AllInsertionPointTypes | ParamNameTypes (or EntireBodyTypes).
 const AllInsertionPointTypes InsertionPointTypeSet = 0xFFFFFFFFFFFFFFFF &^ extraTypeBits
 
 // ExtraInsertionPointTypes are the opt-in types no preset includes.

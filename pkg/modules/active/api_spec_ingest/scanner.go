@@ -141,8 +141,7 @@ func (m *Module) ScanPerRequest(
 
 	// Host-level dedup: only probe once per host
 	hostKey := urlx.Scheme + "|" + urlx.Host
-	hostDS := m.hostDS.Get(scanCtx.DedupMgr())
-	if !modkit.BeginHostProbe(scanCtx, httpClient, hostDS, hostKey) {
+	if !modkit.BeginHostProbeKey(scanCtx, httpClient, &m.hostDS, hostKey) {
 		return nil, nil
 	}
 

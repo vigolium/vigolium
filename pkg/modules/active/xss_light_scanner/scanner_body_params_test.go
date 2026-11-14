@@ -16,7 +16,7 @@ import (
 )
 
 // A POST handler that reflects a form field unescaped is found by the body
-// scanner (MISS-17) — the URL scanner only reached it through POST→GET, which
+// scanner — the URL scanner only reached it through POST→GET, which
 // this handler (POST only) rejects. Not navigable, so the finding is a lead.
 func TestBodyParams_ReflectedFormField(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -102,7 +102,7 @@ func (p *Prober) exec(raw []byte, requestEvidence string) (Exchange, bool) {
 	// Redirects are not followed and the response cache is bypassed: probes
 	// differ only in a header or a byte, and every one must reach the decoder.
 	// PreserveConnection: SendStream's deliberate "Connection: close" must
-	// reach the wire (the requester drops a stored one by default, ECON-13).
+	// reach the wire (the requester drops a stored one by default).
 	resp, _, err := p.client.Execute(req, http.Options{NoRedirects: true, NoClustering: true, PreserveConnection: true})
 	if err != nil {
 		return Exchange{}, false

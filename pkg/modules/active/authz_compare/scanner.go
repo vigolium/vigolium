@@ -127,7 +127,7 @@ func (m *Module) ScanPerRequest(
 	}
 
 	// Classify first: a request that is not an authorization target costs
-	// nothing (MISS-18).
+	// nothing.
 	target, ok := classifyAuthorizationTarget(ctx, scanCtx, urlx.Path)
 	if !ok {
 		return nil, nil
@@ -149,7 +149,7 @@ func (m *Module) ScanPerRequest(
 
 	// Per-host budget, charged only once the request is a classified target
 	// with a usable baseline — it is about to be probed. Charging up front spent
-	// the budget on requests that were never compared (MISS-18).
+	// the budget on requests that were never compared.
 	if diskSet := m.ds.Get(scanCtx.DedupMgr()); diskSet != nil {
 		hostKey := utils.Sha1(urlx.Host)
 		if _, ok := diskSet.IncrementAndCheck(hostKey, maxProbesPerHost); !ok {

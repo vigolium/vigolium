@@ -81,13 +81,7 @@ func (m *Module) ScanPerHost(
 		return nil, nil
 	}
 
-	host := service.Host()
-
-	var diskSet *dedup.DiskSet
-	if scanCtx != nil {
-		diskSet = m.ds.Get(scanCtx.DedupMgr())
-	}
-	if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, host) {
+	if !modkit.BeginHostProbeFor(scanCtx, httpClient, &m.ds, ctx) {
 		return nil, nil
 	}
 

@@ -14,7 +14,7 @@ func TestNew(t *testing.T) {
 	m := New()
 	assert.Equal(t, ModuleID, m.ID())
 	assert.Equal(t, ModuleName, m.Name())
-	assert.Equal(t, severity.Suspect, m.Severity(), "Tentative implies Suspect (RES-7)")
+	assert.Equal(t, severity.Suspect, m.Severity(), "Tentative implies Suspect")
 	assert.Equal(t, severity.Tentative, m.Confidence())
 	assert.Equal(t, modkit.ScanScopeInsertionPoint, m.ScanScopes())
 }

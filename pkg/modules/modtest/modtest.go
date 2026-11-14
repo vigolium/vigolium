@@ -73,7 +73,7 @@ func Requester(t testing.TB) *httpRequester.Requester {
 }
 
 // RequesterNoThrottlePause is Requester whose host limiter never pauses a host
-// on 429/503 (MISS-22). For sweeps that fire many modules at a deliberately
+// on 429/503. For sweeps that fire many modules at a deliberately
 // throttling fixture and only assert what the modules conclude.
 func RequesterNoThrottlePause(t testing.TB) *httpRequester.Requester {
 	t.Helper()

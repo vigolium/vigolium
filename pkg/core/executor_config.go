@@ -2,7 +2,6 @@ package core
 
 import (
 	nethttp "net/http"
-	goruntime "runtime"
 	"sync"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -180,7 +179,7 @@ type ExecutorConfig struct {
 	// heavier probing (e.g. dashboard_exposure's full mount-path sweep).
 	DeepScan bool
 
-	// ExternalFetcher is copied into ScanContext.ExternalFetcher (SAFE-11);
+	// ExternalFetcher is copied into ScanContext.ExternalFetcher;
 	// nil disables third-party lookups.
 	ExternalFetcher *nethttp.Client
 	// AllowRiskyPayloads mirrors --allow-risky-payloads (or config
@@ -202,14 +201,14 @@ type ExecutorConfig struct {
 	// Content-Type is indeterminate. Honors the same TechFilterDisabled switch.
 	ContentClassByHost map[string]string
 
-	// Phase-shared state (NEW-8). A multi-round phase builds one executor per
-	// feedback round; each used to start with empty registries, so round 2 had
-	// forgotten every tech-stack detection (and the tech gate let every gated
-	// module run everywhere), every confirmed parameter (param dedup restarted)
-	// and every per-host claim (per-host modules re-fired each round). When a
-	// field is non-nil the executor uses it instead of creating its own; the
-	// phase creates them once (see NewPhaseState). nil = executor-local, which
-	// is right for a single-Execute phase.
+	// Phase-shared state. A multi-round phase builds one executor per feedback
+	// round; with per-executor registries round 2 would forget every tech-stack
+	// detection (and the tech gate would let every gated module run
+	// everywhere), every confirmed parameter (param dedup restarts) and every
+	// per-host claim (per-host modules re-fire each round). When a field is
+	// non-nil the executor uses it instead of creating its own; the phase
+	// creates them once (see SharePhaseState). nil = executor-local, which is
+	// right for a single-Execute phase.
 	//
 	// A supplied TechRegistry keeps its own OnDetect (OnTechDetected is not
 	// applied to it), and a supplied ContentClass is not re-seeded from
@@ -219,12 +218,12 @@ type ExecutorConfig struct {
 	ParamFindings *modkit.ParameterFindingRegistry
 	ContentClass  *modkit.ContentClassRegistry
 	HostClaims    *HostClaims
-	// HeaderClaims holds the once-per-host header-point claims (ECON-1).
+	// HeaderClaims holds the once-per-host header-point claims.
 	HeaderClaims *modkit.HeaderClaims
 
 	// Ledger, when set, records per-record coverage in the scan's coverage
 	// ledger and skips modules / the passive stage a record already finished
-	// (WorkItem.Coverage). See LedgerSpec (ECON-4).
+	// (WorkItem.Coverage). See LedgerSpec.
 	Ledger *LedgerSpec
 
 	// HeaderPointsAll turns the header insertion-point gate off
@@ -234,8 +233,14 @@ type ExecutorConfig struct {
 }
 
 // HostClaims holds the per-host run-once claims of ScanPerHost modules — one
-// (module, origin) entry per claimed pair, bounded LRUs. Shared across a
-// phase's executors via ExecutorConfig.HostClaims.
+// (module, origin) entry per claimed pair. Shared across a phase's executors
+// via ExecutorConfig.HostClaims.
+//
+// The caches are bounded LRUs rather than unbounded maps: in a long-lived
+// scan-on-receive executor the (module, host) key space grows with every
+// distinct host ingested. The LRU caps that growth and, by evicting the
+// least-recently-claimed pairs, lets per-host modules re-fire for a host whose
+// claim has aged out.
 type HostClaims struct {
 	active  *lru.Cache[hostClaimKey, struct{}]
 	passive *lru.Cache[hostClaimKey, struct{}]
@@ -247,7 +252,7 @@ type HostClaims struct {
 	attempts *lru.Cache[hostClaimKey, int]
 
 	// bodies holds (module, response body) pairs a BodyOnlyPassive module has
-	// already analysed (ECON-14).
+	// already analysed.
 	bodies *lru.Cache[string, struct{}]
 }
 
@@ -268,11 +273,27 @@ func (h *HostClaims) seenBody(moduleID, bodyKey string) bool {
 // run is attempted when earlier attempts failed transiently.
 const maxPerHostClaimAttempts = 2
 
+// claimActive / claimPassive take the (module, origin) claim of a per-host
+// active / passive module; true when this caller won it. ContainsOrAdd is
+// atomic, so two concurrent workers cannot both win.
+func (h *HostClaims) claimActive(key hostClaimKey) bool  { return claim(h.active, key) }
+func (h *HostClaims) claimPassive(key hostClaimKey) bool { return claim(h.passive, key) }
+
+func claim(cache *lru.Cache[hostClaimKey, struct{}], key hostClaimKey) bool {
+	seen, _ := cache.ContainsOrAdd(key, struct{}{})
+	return !seen
+}
+
+// releaseActive / releasePassive give a claim back after a transient failure
+// (see release).
+func (h *HostClaims) releaseActive(key hostClaimKey) bool  { return h.release(h.active, key) }
+func (h *HostClaims) releasePassive(key hostClaimKey) bool { return h.release(h.passive, key) }
+
 // release gives back claim key in cache after a transient failure so a later
 // item for the same origin retries the run — unless the pair already used
 // its attempts. Returns whether the claim was released. Nil-safe.
 func (h *HostClaims) release(cache *lru.Cache[hostClaimKey, struct{}], key hostClaimKey) bool {
-	if h == nil || cache == nil {
+	if h == nil {
 		return false
 	}
 	h.mu.Lock()
@@ -331,24 +352,3 @@ func NewHostClaims() *HostClaims {
 
 // defaultOutstandingItemsPerWorker sizes MaxOutstandingItems when unset.
 const defaultOutstandingItemsPerWorker = 4
-
-// DefaultExecutorConfig returns sensible defaults.
-func DefaultExecutorConfig() ExecutorConfig {
-	return ExecutorConfig{
-		Workers: goruntime.NumCPU(),
-	}
-}
-
-// SuggestWorkerCount returns a heuristic worker count for rescans.
-// It scales with the number of active modules but caps at maxWorkers.
-// The floor is 2 to ensure at least minimal parallelism.
-func SuggestWorkerCount(moduleCount, maxWorkers int) int {
-	suggested := moduleCount * 2
-	if suggested < 2 {
-		suggested = 2
-	}
-	if suggested > maxWorkers {
-		suggested = maxWorkers
-	}
-	return suggested
-}

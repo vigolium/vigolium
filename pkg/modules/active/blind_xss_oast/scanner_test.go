@@ -56,7 +56,7 @@ func bodyRecorder(t *testing.T) (*httptest.Server, func() []string) {
 	return srv, func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), bodies...) }
 }
 
-// TestPlantsCorrelatedScript is MISS-37's blind XSS consumer: with blind XSS
+// TestPlantsCorrelatedScript covers the blind XSS consumer: with blind XSS
 // enabled, a stored body value gets a script tag pointing at a minted
 // oastclass.BlindXSS host, recorded for the finding.
 func TestPlantsCorrelatedScript(t *testing.T) {

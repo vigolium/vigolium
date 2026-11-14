@@ -82,10 +82,7 @@ func (m *Module) ScanPerRequest(
 		return nil, nil
 	}
 
-	host := service.Host()
-
-	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if !modkit.BeginHostProbe(scanCtx, httpClient, diskSet, host) {
+	if !modkit.BeginHostProbeFor(scanCtx, httpClient, &m.ds, ctx) {
 		return nil, nil
 	}
 
@@ -309,7 +306,7 @@ func (m *Module) probeYSoD(
 
 	// AND-of-OR co-occurrence: require the "Server Error in" YSoD page anchor AND a
 	// stack-trace / .NET version corroborator. A lone weak marker surviving in a
-	// truncated catch-all/echo tail can no longer forge the finding.
+	// truncated catch-all/echo tail cannot forge the finding.
 	matchedMarkers, ok := modkit.MatchAllGroups(matchBody, ysodMarkerGroups)
 	if !ok {
 		return nil

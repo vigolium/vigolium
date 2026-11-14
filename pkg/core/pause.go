@@ -18,20 +18,18 @@ import (
 // still send probe traffic, emit findings and acknowledge their item after
 // Pause returns.
 //
-// It used to make Pause wait on an RWMutex every worker held across a whole
-// item's dispatch. The server handler called it while holding the server-wide
-// scan lock, so one stuck dispatch hung stop and status for every project
-// (MISS-39).
+// Pause must not wait for in-flight dispatch: the server handler calls it
+// while holding the server-wide scan lock, so one stuck dispatch would hang
+// stop and status for every project.
 //
-// stateMu serializes the Pause/Resume transitions and guards the channels, so
+// stateMu serializes the Pause/Resume transitions and guards pausedCh, so
 // concurrent Pause+Resume — reachable, e.g. a stop-triggered Runner.Close
 // resuming while an API pause request is in flight — can never close a nil or
 // already-closed channel or leave pausedCh stale relative to the paused flag.
 type PauseController struct {
-	stateMu    sync.Mutex    // serializes Pause/Resume transitions and guards the channels
+	stateMu    sync.Mutex    // serializes Pause/Resume transitions and guards pausedCh
 	paused     atomic.Bool   // fast-path snapshot for WaitIfPaused/IsPaused
 	pausedCh   chan struct{} // non-nil and open while paused; closed on resume
-	quiescedCh chan struct{} // non-nil while paused; closed once inDispatch reaches 0
 	inDispatch atomic.Int64  // workers currently mid-dispatch
 }
 
@@ -48,14 +46,10 @@ func (p *PauseController) Pause() {
 	if p.paused.Load() {
 		return
 	}
-	// Create the channels BEFORE flipping the flag so a reader that observes
-	// paused==true always sees fresh, open channels.
+	// Create the channel BEFORE flipping the flag so a reader that observes
+	// paused==true always sees a fresh, open channel.
 	p.pausedCh = make(chan struct{})
-	p.quiescedCh = make(chan struct{})
 	p.paused.Store(true)
-	if p.inDispatch.Load() == 0 {
-		close(p.quiescedCh)
-	}
 }
 
 // Resume unblocks paused workers and admission. Safe to call when not paused
@@ -77,28 +71,7 @@ func (p *PauseController) IsPaused() bool {
 // Quiesced reports whether the controller is paused AND no worker is still
 // mid-dispatch.
 func (p *PauseController) Quiesced() bool {
-	p.stateMu.Lock()
-	defer p.stateMu.Unlock()
-	if !p.paused.Load() || p.quiescedCh == nil {
-		return false
-	}
-	select {
-	case <-p.quiescedCh:
-		return true
-	default:
-		return false
-	}
-}
-
-// QuiescedCh returns a channel closed once the current pause is quiesced, or
-// nil when not paused.
-func (p *PauseController) QuiescedCh() <-chan struct{} {
-	p.stateMu.Lock()
-	defer p.stateMu.Unlock()
-	if !p.paused.Load() {
-		return nil
-	}
-	return p.quiescedCh
+	return p.paused.Load() && p.inDispatch.Load() == 0
 }
 
 // WaitIfPaused blocks the caller if the controller is paused.
@@ -131,19 +104,7 @@ func (p *PauseController) AcquireWorker() {
 	p.inDispatch.Add(1)
 }
 
-// ReleaseWorker ends a worker's dispatch; the last one out of a pause closes
-// the quiesced channel.
+// ReleaseWorker ends a worker's dispatch.
 func (p *PauseController) ReleaseWorker() {
-	if p.inDispatch.Add(-1) != 0 || !p.paused.Load() {
-		return
-	}
-	p.stateMu.Lock()
-	defer p.stateMu.Unlock()
-	if p.paused.Load() && p.quiescedCh != nil && p.inDispatch.Load() == 0 {
-		select {
-		case <-p.quiescedCh:
-		default:
-			close(p.quiescedCh)
-		}
-	}
+	p.inDispatch.Add(-1)
 }

@@ -35,7 +35,7 @@ func TestRetrieveCandidates(t *testing.T) {
 }
 
 // A comment posted to /comments/new renders on the collection page /comments/
-// only; the old submit-URL-only retrieval never saw it (MISS-17).
+// only; the old submit-URL-only retrieval never saw it.
 func TestStoredXSS_RendersOnCollectionPage(t *testing.T) {
 	var mu sync.Mutex
 	var stored string

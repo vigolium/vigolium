@@ -31,7 +31,7 @@ func (queryOnlyProvider) GetInsertionPoints(raw []byte, _ string, nested bool) (
 }
 
 // The timing baseline is measured once per record and shared by every
-// insertion point and by both time-based modules (ECON-6): 3 points × 2
+// insertion point and by both time-based modules: 3 points × 2
 // modules used to cost 24 unmodified requests; now TimingBaselineSamples.
 func TestTimingBaselineSharedAcrossPointsAndModules(t *testing.T) {
 	const original = "a=1&b=2&c=3"

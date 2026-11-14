@@ -21,7 +21,7 @@ func TestNew(t *testing.T) {
 	m := New()
 	assert.Equal(t, "nginx-off-by-slash", m.ID())
 	assert.Equal(t, "Nginx Off-by-Slash", m.Name())
-	assert.Equal(t, severity.Suspect, m.Severity(), "Tentative implies Suspect (RES-7)")
+	assert.Equal(t, severity.Suspect, m.Severity(), "Tentative implies Suspect")
 	assert.Equal(t, severity.Tentative, m.Confidence())
 	assert.Equal(t, modkit.ScanScopeRequest, m.ScanScopes())
 }

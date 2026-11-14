@@ -39,9 +39,9 @@ func RegistryHostKey(item *httpmsg.HttpRequestResponse) string {
 // platforms, servers — what the gate reasons about) and DESCRIPTIVE tags
 // (spa, angular, javascript, … — recorded, never gating). Mark routes a tag to
 // the right set. A host is "known" only once it has a stack tag: an Angular
-// front end publishing {angular, spa} says nothing about the backend, and
-// gating on it used to skip every Spring/Java module on an Angular-on-Spring
-// host (MISS-21).
+// front end publishing {angular, spa} says nothing about the backend, so
+// gating on it would skip every Spring/Java module on an Angular-on-Spring
+// host.
 //
 // Thread-safe for concurrent reads and writes.
 type TechRegistry struct {
@@ -54,10 +54,12 @@ type TechRegistry struct {
 	OnDetect func(host, tag string)
 }
 
-// hostTech is one host's detections.
+// hostTech is one host's detections. cats holds the TechCategoryOf of every
+// stack tag, kept by Mark so Allows does not re-derive it per query.
 type hostTech struct {
 	stack map[string]struct{}
 	desc  map[string]struct{}
+	cats  map[TechCategory]struct{}
 }
 
 func (h *hostTech) has(tag string) bool {
@@ -90,16 +92,20 @@ func (r *TechRegistry) Mark(host, tag string) {
 	r.mu.Lock()
 	ht, ok := r.byHost.Get(host)
 	if !ok {
-		ht = &hostTech{stack: make(map[string]struct{}), desc: make(map[string]struct{})}
+		ht = &hostTech{stack: map[string]struct{}{}, desc: map[string]struct{}{}, cats: map[TechCategory]struct{}{}}
 		r.byHost.Add(host, ht)
 	}
+	stack := IsStackTag(tag)
 	set := ht.desc
-	if IsStackTag(tag) {
+	if stack {
 		set = ht.stack
 	}
 	_, already := set[tag]
 	if !already {
 		set[tag] = struct{}{}
+		if cat := TechCategoryOf(tag); stack && cat != "" {
+			ht.cats[cat] = struct{}{}
+		}
 	}
 	r.mu.Unlock()
 	if !already && r.OnDetect != nil {
@@ -191,10 +197,8 @@ func (r *TechRegistry) Allows(host string, candidates []string) bool {
 		if cat == "" || cat == TechCategoryServer {
 			continue
 		}
-		for have := range ht.stack {
-			if TechCategoryOf(have) == cat {
-				return false
-			}
+		if _, known := ht.cats[cat]; known {
+			return false
 		}
 	}
 	return true

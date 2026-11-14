@@ -132,10 +132,10 @@ test_cases:
     headers:
       Content-Type: "application/json"
     body: '{"username":"xsstest","password":"xsspass123","email":"xss@test.com"}'
-    modules: ["xss-light-url-params"]
+    modules: ["xss-light-url-params", "xss-light-body-params"]
     vuln_types: ["xss-reflected"]
     assertion: soft
-    soft_reason: "JSON body points get plain XSS payloads only once the xss_light body scanner lands (MISS-17)"
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "XSS in user registration endpoint JSON parameters"

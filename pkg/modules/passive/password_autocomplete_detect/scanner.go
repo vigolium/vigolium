@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/vigolium/vigolium/pkg/anomaly/htmlutils"
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
@@ -44,9 +45,10 @@ func New() *Module {
 func (m *Module) RequiredContentClasses() []string { return []string{"html"} }
 
 // ScanPerRequest records a markup-quality observation when a likely account
-// password input lacks the semantic current-password/new-password token. It no
-// longer treats autocomplete=off as the secure state: disabling autofill is not
-// an authentication control, and user agents may override it for credentials.
+// password input lacks the semantic current-password/new-password token.
+// autocomplete=off is not treated as the secure state: disabling autofill is
+// not an authentication control, and user agents may override it for
+// credentials.
 func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	urlx, err := ctx.URL()
 	if err != nil {
@@ -59,7 +61,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
-	// The shared, memoised parse (ECON-14): the other HTML passives reuse it.
+	// The shared, memoised parse: the other HTML passives reuse it.
 	doc, err := ctx.Response().HTMLDocument()
 	if err != nil || doc == nil {
 		return nil, nil
@@ -98,68 +100,44 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	}}, nil
 }
 
-// passwordFieldsWithoutSemanticAutocomplete walks the (shared, read-only)
-// document for account-password inputs lacking a semantic autocomplete token.
+// passwordFieldsWithoutSemanticAutocomplete lists the account-password inputs
+// of the (shared, read-only) document lacking a semantic autocomplete token.
 func passwordFieldsWithoutSemanticAutocomplete(doc *html.Node) []string {
 	var observations []string
-
-	var walk func(*html.Node) bool
-	walk = func(node *html.Node) bool {
-		if node.Type == html.ElementNode && node.Data == "input" {
-			if obs, ok := passwordFieldObservation(node); ok {
-				observations = append(observations, obs)
-				if len(observations) == maxExamples {
-					return false
-				}
+	for _, node := range htmlutils.GetElementsByTagName(doc, "input") {
+		if obs, ok := passwordFieldObservation(node); ok {
+			observations = append(observations, obs)
+			if len(observations) == maxExamples {
+				break
 			}
 		}
-		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			if !walk(child) {
-				return false
-			}
-		}
-		return true
 	}
-	walk(doc)
 	return observations
 }
 
 // passwordFieldObservation describes one enabled, editable password input
 // without a semantic autocomplete token, or reports false.
 func passwordFieldObservation(node *html.Node) (string, bool) {
-	attrs := autocompleteAttributeMap(node.Attr)
-	if !strings.EqualFold(strings.TrimSpace(attrs["type"]), "password") || attrs["disabled"] != "" || attrs["readonly"] != "" {
+	if !strings.EqualFold(htmlutils.GetAttributeTrimSpace(node, "type"), "password") ||
+		htmlutils.HasAttribute(node, "disabled") || htmlutils.HasAttribute(node, "readonly") {
 		return "", false
 	}
 
-	autocomplete := autocompleteTokenSet(attrs["autocomplete"])
+	rawHint := htmlutils.GetAttribute(node, "autocomplete")
+	autocomplete := autocompleteTokenSet(rawHint)
 	if autocomplete["current-password"] || autocomplete["new-password"] || autocomplete["one-time-code"] || autocomplete["cc-csc"] {
 		return "", false
 	}
-	if likelyNonPasswordSecretField(attrs) {
+	name, id := htmlutils.GetAttribute(node, "name"), htmlutils.GetAttribute(node, "id")
+	if likelyNonPasswordSecretField(name, id) {
 		return "", false
 	}
 
-	name := firstNonEmpty(attrs["name"], attrs["id"], "(unnamed)")
-	hint := strings.TrimSpace(attrs["autocomplete"])
+	hint := strings.TrimSpace(rawHint)
 	if hint == "" {
 		hint = "(missing)"
 	}
-	return fmt.Sprintf("field=%s autocomplete=%s", name, hint), true
-}
-
-func autocompleteAttributeMap(attrs []html.Attribute) map[string]string {
-	result := make(map[string]string, len(attrs))
-	for _, attr := range attrs {
-		key := strings.ToLower(attr.Key)
-		// Boolean attributes have an empty value, so store a sentinel for presence.
-		if (key == "disabled" || key == "readonly") && attr.Val == "" {
-			result[key] = "present"
-		} else {
-			result[key] = attr.Val
-		}
-	}
-	return result
+	return fmt.Sprintf("field=%s autocomplete=%s", firstNonEmpty(name, id, "(unnamed)"), hint), true
 }
 
 func autocompleteTokenSet(raw string) map[string]bool {
@@ -170,8 +148,8 @@ func autocompleteTokenSet(raw string) map[string]bool {
 	return result
 }
 
-func likelyNonPasswordSecretField(attrs map[string]string) bool {
-	identity := strings.ToLower(attrs["name"] + " " + attrs["id"])
+func likelyNonPasswordSecretField(name, id string) bool {
+	identity := strings.ToLower(name + " " + id)
 	for _, marker := range []string{"otp", "one-time", "one_time", "pin", "cvv", "cvc", "security-code", "security_code"} {
 		if strings.Contains(identity, marker) {
 			return true

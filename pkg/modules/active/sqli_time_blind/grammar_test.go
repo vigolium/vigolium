@@ -16,7 +16,7 @@ import (
 )
 
 // MySQL treats "--" as a comment only when whitespace follows; a template
-// ending in a bare "--" is a syntax error on MySQL (MISS-16). Every MySQL
+// ending in a bare "--" is a syntax error on MySQL. Every MySQL
 // comment-terminated template must end "-- -", and the default (non-risky)
 // tier must cover each backend in both contexts it can reach without a comment.
 func TestTemplateGrammar(t *testing.T) {

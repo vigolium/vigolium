@@ -166,7 +166,7 @@ func (m *Module) injectAndConfirm(
 	// The stored value may render on a page other than the one that took the
 	// write: the referring form page or the collection the item joined. Read
 	// each candidate (at most maxRetrieveCandidates) and confirm on the first
-	// that carries the canary (MISS-17).
+	// that carries the canary.
 	for _, target := range targets {
 		body, err := m.retrieve(ctx, httpClient, target)
 		if err != nil || !strings.Contains(body, canary) {

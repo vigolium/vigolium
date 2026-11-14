@@ -17,8 +17,7 @@ import (
 
 // BodyParamsModule tests reflected XSS in request BODY parameters (form, JSON,
 // XML, multipart). The URL scanner reaches body parameters only through its
-// POST→GET conversion, which misses every handler that reads the body alone
-// (MISS-17).
+// POST→GET conversion, which misses every handler that reads the body alone.
 //
 // A body parameter is only probed when its base value already reflects in the
 // stored response (a passive reflection prefilter): it is the cheap signal that

@@ -30,7 +30,7 @@ type rawBaseline struct {
 }
 
 // recordBaseline fetches the record's unmodified response once per record
-// (memoised across insertion points, ECON-6). A transport error is returned and
+// (memoised across insertion points). A transport error is returned and
 // not cached.
 func (m *Module) recordBaseline(ctx *httpmsg.HttpRequestResponse, httpClient *http.Requester, scanCtx *modkit.ScanContext) (rawBaseline, error) {
 	var fetchErr error

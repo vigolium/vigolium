@@ -80,7 +80,7 @@ func (m *Module) ScanPerRequest(
 		return results, errors.Wrap(err, "failed to create insertion points")
 	}
 	// Header points: same class gate the executor applies to per-point
-	// modules (ECON-1) — noise headers never, logged/negotiation/routing
+	// modules — noise headers never, logged/negotiation/routing
 	// headers once per host.
 	points = modkit.FilterPointsFor(scanCtx, m, ctx, points)
 
@@ -150,7 +150,7 @@ var errBaselineBlocked = errors.New("sqli_time_blind: baseline response is block
 // deriveThreshold returns the record's timing threshold through the shared
 // per-record memo (modkit.TimingThreshold): one latency model per record,
 // shared by every insertion point and by the other time-based module, instead
-// of modkit.TimingBaselineSamples unmodified requests per point per module (ECON-6). A
+// of modkit.TimingBaselineSamples unmodified requests per point per module. A
 // blocked baseline (WAF/auth/rate-limit) is errBaselineBlocked.
 func (m *Module) deriveThreshold(
 	ctx *httpmsg.HttpRequestResponse,
@@ -347,7 +347,7 @@ func (m *Module) sendTimedPayload(
 	// of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(fuzzedRaw, ctx.Service())
 
-	// SendTimed (MISS-14) forces NoClustering and times the send itself, not
+	// SendTimed forces NoClustering and times the send itself, not
 	// the rate/slot queue in front of it. NoClustering: this is a timing oracle. The baseline loop sends the original
 	// (no-sleep) value several times back-to-back to model latency/jitter, and the
 	// confirmation re-sends the same payload. The 500ms request-cluster cache keys on

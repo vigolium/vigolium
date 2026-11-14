@@ -115,40 +115,10 @@ func TestResponseBufferPool_Reuse(t *testing.T) {
 	}
 }
 
-// --- executor config helpers -------------------------------------------------
-
-func TestDefaultExecutorConfig(t *testing.T) {
-	cfg := DefaultExecutorConfig()
-	if cfg.Workers != goruntime.NumCPU() {
-		t.Errorf("Workers = %d, want NumCPU=%d", cfg.Workers, goruntime.NumCPU())
-	}
-}
-
-func TestSuggestWorkerCount(t *testing.T) {
-	tests := []struct {
-		name        string
-		moduleCount int
-		maxWorkers  int
-		want        int
-	}{
-		{"floor at 2", 0, 100, 2},
-		{"scales 2x modules", 5, 100, 10},
-		{"capped at maxWorkers", 50, 16, 16},
-		{"single module floored", 0, 1, 1}, // suggested 2 but cap 1
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := SuggestWorkerCount(tt.moduleCount, tt.maxWorkers); got != tt.want {
-				t.Errorf("SuggestWorkerCount(%d,%d) = %d, want %d", tt.moduleCount, tt.maxWorkers, got, tt.want)
-			}
-		})
-	}
-}
-
 // --- NewExecutor + stats getters ---------------------------------------------
 
 func TestNewExecutor_QuiescentGetters(t *testing.T) {
-	e := NewExecutor(DefaultExecutorConfig(), &sliceSource{}, nil, nil)
+	e := NewExecutor(ExecutorConfig{}, &sliceSource{}, nil, nil)
 
 	if got := e.Processed(); got != 0 {
 		t.Errorf("Processed() = %d, want 0", got)

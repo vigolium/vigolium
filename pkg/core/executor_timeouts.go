@@ -75,7 +75,7 @@ func (e *Executor) activeModuleTimeout() time.Duration {
 	return defaultActiveModuleTimeout
 }
 
-// Adaptive per-module timeout bounds (ECON-7).
+// Adaptive per-module timeout bounds.
 const (
 	adaptiveTimeoutMinSamples = 50
 	adaptiveTimeoutFactor     = 3
@@ -88,8 +88,8 @@ const (
 // once the module has at least adaptiveTimeoutMinSamples completed calls in
 // this executor, the timeout follows its own observed latency — p99 × 3,
 // clamped to [30s, 300s] — instead of a flat 300s, so a stuck call on a module
-// that normally takes 2s is given up on in 30s rather than five minutes
-// (ECON-7). A module's TimeoutHint still raises it (see runActiveCall).
+// that normally takes 2s is given up on in 30s rather than five minutes.
+// A module's TimeoutHint still raises it (see runActiveWithTimeout).
 func (e *Executor) adaptiveActiveTimeout(moduleID string) time.Duration {
 	if e.cfg.ActiveModuleTimeout > 0 {
 		return e.cfg.ActiveModuleTimeout
@@ -388,44 +388,6 @@ func (e *Executor) runPassiveCall(
 	}
 }
 
-// runActiveWithTimeout executes an active module scan function under a timeout
-// derived from the phase context. It returns the module's results and whether
-// the call completed within the bound. When the per-module timeout fires OR the
-// phase deadline (ctx) is reached, it returns (nil, false) immediately so the
-// task returns, its item can complete, and the phase ends on time. The scan function
-// receives callCtx for explicit use. The executor also hands the module a
-// requester bound to the PHASE context (http.Requester.WithContext), so
-// context-less Execute calls abort in-flight requests on scan shutdown / phase
-// deadline. It deliberately is NOT bound to callCtx: the request clusterer
-// shares one in-flight request across modules, so a single module's per-module
-// timeout must not cancel a request other modules deduped onto. The per-module
-// timeout is still enforced here — a timed-out call returns (nil, false) and the
-// caller skips processResults — it just doesn't sever the shared socket early.
-// releaseSlot frees the active-task semaphore slot goActiveTask acquired for this
-// call. runActiveWithTimeout owns it and MUST call it exactly once: from the
-// background scan goroutine's defer (so the slot is held for as long as the real
-// work runs, even past a per-module timeout) or directly on the pre-spawn early
-// return. Releasing it when the wrapper merely *gives up waiting* would let the
-// executor admit replacement work while abandoned scans still hold connections,
-// so the active-task cap would understate true concurrency (a hot/slow target
-// could then be hit far harder than --concurrency allows).
-// workUnits estimates how much a whole-request/host module must cover in one call
-// (its insertion-point count) so the per-module timeout can scale with it; pass 0
-// to leave the base timeout untouched (per-insertion-point calls, which are already
-// bounded and processed incrementally).
-func (e *Executor) runActiveWithTimeout(
-	ctx context.Context,
-	scanFn func(context.Context, *http.Requester) ([]*output.ResultEvent, error),
-	module modules.Module,
-	item *httpmsg.HttpRequestResponse,
-	reqClient *http.Requester,
-	releaseSlot func(),
-	workUnits int,
-) ([]*output.ResultEvent, bool) {
-	o := e.runActiveCall(ctx, scanFn, module, item, reqClient, releaseSlot, workUnits)
-	return o.events, o.completed
-}
-
 // callOutcome is what one active-module call came to: its events, whether it
 // completed inside its bound (false on a per-module timeout or a parent
 // cancellation), and the module's returned error.
@@ -449,8 +411,7 @@ const maxLateHarvestWait = 30 * time.Second
 // failedTransiently reports whether the call failed for a reason that says
 // nothing about the target's answer — it did not complete, or its error is a
 // transport failure, a quarantined host or an abandoned request. A per-host
-// claim taken for such a call is released so a later item retries it
-// (MISS-19).
+// claim taken for such a call is released so a later item retries it.
 func (o callOutcome) failedTransiently() bool {
 	if !o.completed {
 		return true
@@ -481,8 +442,31 @@ func isTransientCallErr(err error) bool {
 	return false
 }
 
-// runActiveCall is runActiveWithTimeout returning the full callOutcome.
-func (e *Executor) runActiveCall(
+// runActiveWithTimeout executes an active module scan function under a timeout
+// derived from the phase context and returns what the call came to (see
+// callOutcome). When the per-module timeout fires OR the phase deadline (ctx)
+// is reached, it returns an incomplete outcome immediately so the task returns, its item can complete, and the phase ends on time. The scan function
+// receives callCtx for explicit use. The executor also hands the module a
+// requester bound to the PHASE context (http.Requester.WithContext), so
+// context-less Execute calls abort in-flight requests on scan shutdown / phase
+// deadline. It deliberately is NOT bound to callCtx: the request clusterer
+// shares one in-flight request across modules, so a single module's per-module
+// timeout must not cancel a request other modules deduped onto. The per-module
+// timeout is still enforced here — a timed-out call returns incomplete and the
+// caller skips processResults — it just doesn't sever the shared socket early.
+// releaseSlot frees the active-task semaphore slot goActiveTask acquired for this
+// call. runActiveWithTimeout owns it and MUST call it exactly once: from the
+// background scan goroutine's defer (so the slot is held for as long as the real
+// work runs, even past a per-module timeout) or directly on the pre-spawn early
+// return. Releasing it when the wrapper merely *gives up waiting* would let the
+// executor admit replacement work while abandoned scans still hold connections,
+// so the active-task cap would understate true concurrency (a hot/slow target
+// could then be hit far harder than --concurrency allows).
+// workUnits estimates how much a whole-request/host module must cover in one call
+// (its insertion-point count) so the per-module timeout can scale with it; pass 0
+// to leave the base timeout untouched (per-insertion-point calls, which are already
+// bounded and processed incrementally).
+func (e *Executor) runActiveWithTimeout(
 	ctx context.Context,
 	scanFn func(context.Context, *http.Requester) ([]*output.ResultEvent, error),
 	module modules.Module,
@@ -549,6 +533,8 @@ func (e *Executor) runActiveCall(
 		reqClient = reqClient.WithSendCounter(&sent)
 	}
 
+	// One metrics lookup for everything this call records.
+	ms := e.moduleMetrics.For(module.ID())
 	start := time.Now()
 	ch := moduleResultChanPool.Get().(chan moduleCallResult)
 	go func() {
@@ -566,14 +552,14 @@ func (e *Executor) runActiveCall(
 		})
 		// Before the send: on the normal path the wrapper's caller must see the
 		// count as soon as it has the result.
-		e.moduleMetrics.AddRequests(module.ID(), sent.Load())
+		ms.AddRequests(sent.Load())
 		// Settle the run-once host probes the module registered on this call's
-		// requester (MISS-19) before handing the result over: a claim commits
-		// only when the call finished inside its bound with every request
-		// answered. Settling after the send would race the next item of the
-		// same host, which could then see the claim still pending.
-		e.scanCtx.SettleHostProbes(reqClient, !abandoned.Load() &&
-			!isTransientCallErr(err) && !callHitTransportErrors(callStats))
+		// requester before handing the result over: a claim commits only when
+		// the call finished inside its bound with every request answered.
+		// Settling after the send would race the next item of the same host,
+		// which could then see the claim still pending.
+		settled := callOutcome{completed: !abandoned.Load(), err: err, stats: callStats}
+		e.scanCtx.SettleHostProbes(reqClient, !settled.failedTransiently())
 		ch <- moduleCallResult{events, err}
 	}()
 
@@ -581,8 +567,8 @@ func (e *Executor) runActiveCall(
 	case r := <-ch:
 		moduleResultChanPool.Put(ch) // goroutine done; channel drained and safe to reuse
 		elapsed := time.Since(start)
-		e.moduleMetrics.Record(module.ID(), elapsed, len(r.events), r.err)
-		e.moduleMetrics.RecordCompletedDuration(module.ID(), elapsed)
+		ms.Record(elapsed, len(r.events), r.err)
+		ms.RecordCompletedDuration(elapsed)
 		if r.err != nil {
 			if IsLevelDBClosed(r.err) {
 				// A store closed under a module at shutdown is not the module's
@@ -593,7 +579,7 @@ func (e *Executor) runActiveCall(
 			} else {
 				e.noteModuleError(module, item, r.err, moduleErrorKind(r.err))
 			}
-			// Keep whatever the module confirmed before it failed (MISS-20).
+			// Keep whatever the module confirmed before it failed.
 			return callOutcome{events: r.events, completed: true, err: r.err, stats: callStats}
 		}
 		e.noteThrottledCall(module, reqClient, r.events)
@@ -607,7 +593,7 @@ func (e *Executor) runActiveCall(
 		// so cancelling a scan with many modules in flight doesn't inflate the
 		// status-line count with modules that were merely interrupted at the same
 		// instant.
-		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
+		ms.Record(time.Since(start), 0, nil)
 		if ctx.Err() == nil {
 			e.recordModuleTimeout()
 			e.noteModuleSkip(module.ID(), SkipReasonTimeout)
@@ -624,13 +610,13 @@ func (e *Executor) runActiveCall(
 		}
 		// The module keeps running and is told to stop sending (abandon flag);
 		// whatever it confirmed is still worth having. Hand the result channel to
-		// a bounded harvester (see harvestLate) instead of dropping it (MISS-20).
-		return callOutcome{late: ch, lateWait: min(timeout, maxLateHarvestWait), stats: reqClient.CallStats()}
+		// a bounded harvester (see harvestLate) instead of dropping it.
+		return callOutcome{late: ch, lateWait: min(timeout, maxLateHarvestWait), stats: callStats}
 	case <-ctx.Done():
 		// Parent cancellation (Ctrl-C, --scanning-max-duration, phase deadline) —
 		// an interruption, not a timed-out module, so it is not counted.
 		markResponseBufferEscaped(ctx)
-		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
+		ms.Record(time.Since(start), 0, nil)
 		return callOutcome{}
 	}
 }

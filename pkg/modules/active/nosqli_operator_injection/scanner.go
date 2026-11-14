@@ -220,7 +220,7 @@ func (m *Module) testPayload(
 	var detectionDesc string
 	var detection string
 	// These paths are behavioral inferences, not direct proof of query control,
-	// so they default to Suspect/Tentative (RES-7). The one exception is an auth
+	// so they default to Suspect/Tentative. The one exception is an auth
 	// bypass that confirmAuthBypass re-confirmed (a reproducible 401/403→2xx
 	// transition under the operator payload): that is a demonstrated bypass,
 	// High/Firm. The size-increase path only INFERS exfiltration from response
@@ -613,7 +613,7 @@ func (m *Module) measureDuration(
 	// of re-parsing on this hot path.
 	req := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
 
-	// SendTimed (MISS-14): requester-measured latency, and NoClustering so two
+	// SendTimed: requester-measured latency, and NoClustering so two
 	// identical timing probes both reach the server.
 	resp, duration, err := modkit.SendTimed(httpClient, req, http.Options{})
 	if err != nil {
@@ -742,7 +742,7 @@ func (m *Module) testBooleanDiff(
 					"Boolean differential reproduced across %d always-true and %d always-false probes against a benign same-cadence control, then reconfirmed with independent constants (%s vs %s): each condition stays self-consistent across repeats while the true/false clusters diverge beyond the endpoint's own per-request variance — via parameter %q — %s",
 					len(trueBodies), len(falseBodies), pair.secTruePayload, pair.secFalsePayload, ip.Name(), pair.desc,
 				),
-				// A boolean differential is an inferred oracle (RES-7).
+				// A boolean differential is an inferred oracle.
 				Severity:   severity.Suspect,
 				Confidence: severity.Tentative,
 				Tags:       []string{"nosqli", "boolean-injection", "mongodb"},

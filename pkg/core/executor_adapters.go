@@ -41,8 +41,8 @@ const defaultFeedbackOverflowCap = 50000
 // executorFeeder implements modkit.RequestFeeder. Discovered work goes to the
 // feedback channel when there is room, otherwise to a bounded overflow list
 // (deduplicated by request id) that the executor drains after the channel. A
-// producer never waits: the old 100ms bounded-blocking send dropped discovered
-// URLs whenever a burst outlasted it, and nothing reported the loss (MISS-32).
+// producer never waits: a bounded-blocking send would drop discovered URLs
+// whenever a burst outlasted it, without reporting the loss.
 type executorFeeder struct {
 	ch chan *work.WorkItem
 	// overflowCap overrides defaultFeedbackOverflowCap (tests).

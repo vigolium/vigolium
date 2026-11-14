@@ -88,7 +88,7 @@ func (m *Module) ScanPerInsertionPoint(
 		for _, rp := range rule.Payloads() {
 			payload := rp.value
 			// Build fuzzed request with payload; pre-encoded payloads keep their
-			// own percent-encoding (MISS-12).
+			// own percent-encoding.
 			fuzzedRaw := httpmsg.BuildPayload(ip, []byte(payload), rp.preEncoded)
 
 			// BuildRequest produces well-formed raw, so wrap directly instead

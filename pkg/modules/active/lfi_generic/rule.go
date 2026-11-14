@@ -40,7 +40,7 @@ func newRule(payloads []string, regex []*regexp.Regexp, words []string) *rule {
 
 // rulePayload is one payload and whether it is already percent-encoded the
 // way it must reach the server (built through httpmsg.BuildPreEncoded so its
-// own encoding is not double-encoded — MISS-12).
+// own encoding is not double-encoded).
 type rulePayload struct {
 	value      string
 	preEncoded bool

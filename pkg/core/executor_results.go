@@ -294,7 +294,7 @@ func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent, b
 		clampTentativeSeverity(result)
 	}
 	duplicateFinding := false
-	insertedNew := false // the direct save wrote a NEW finding row (SAFE-12)
+	insertedNew := false // the direct save wrote a NEW finding row
 	if result.IsFinding() {
 		first, allowed := e.admitFinding(result.ID(), result.ModuleID)
 		duplicateFinding = !first
@@ -375,7 +375,7 @@ func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent, b
 		var saveErr error
 		if e.findingWriter != nil {
 			// New-finding notifications come from the writer once the row is
-			// known to be new (SAFE-12); see notifyNewFindings.
+			// known to be new; see notifyNewFindings.
 			e.notifyNewFindings()
 			saveErr = e.findingWriter.Save(ctx, result, recordUUIDs, e.scanUUID, e.projectUUID)
 		} else {
@@ -409,8 +409,8 @@ func (e *Executor) emitResult(ctx context.Context, result *output.ResultEvent, b
 		if e.cfg.OnResult != nil {
 			e.cfg.OnResult(result)
 		}
-		// Notify only on NEW findings (SAFE-12): a re-scan used to re-notify
-		// every known and dismissed finding. With a database the decision is
+		// Notify only on NEW findings, so a re-scan does not re-notify every
+		// known and dismissed finding. With a database the decision is
 		// the save's: the writer path notifies from its insert callback, the
 		// direct path when the row was inserted. Without one, every finding.
 		if e.repo == nil || (e.findingWriter == nil && insertedNew) {
@@ -587,7 +587,7 @@ func findingResponse(raw string, baseline *httpmsg.HttpResponse) *httpmsg.HttpRe
 // clampTentativeSeverity enforces the severity rule at emit time: a Tentative
 // finding is an unproven oracle and files at Suspect at most. The module's
 // requested severity is kept as Metadata["claimed_severity"]. Modules on
-// modules.TentativeSeverityWaivers are exempt (RES-7).
+// modules.TentativeSeverityWaivers are exempt.
 func clampTentativeSeverity(result *output.ResultEvent) {
 	if result == nil || result.Info.Confidence != severity.Tentative || result.Info.Severity <= severity.Suspect {
 		return

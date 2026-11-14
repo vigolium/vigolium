@@ -9,7 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 )
 
-// The host is claimed only once a version header matched (MISS-19): a first
+// The host is claimed only once a version header matched: a first
 // response without one must not hide a later response that discloses it, and
 // a host already reported stays reported once.
 func TestScanPerRequest_ClaimsHostOnlyOnMatch(t *testing.T) {

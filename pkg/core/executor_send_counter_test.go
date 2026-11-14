@@ -14,7 +14,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/output"
 )
 
-// MEAS-4: every wire request a module call sends is attributed to that module
+// Every wire request a module call sends is attributed to that module
 // in ModuleStatsSnapshot.Requests, so request budgets can be measured and
 // regressions caught.
 func TestRunActiveWithTimeout_CountsModuleRequests(t *testing.T) {
@@ -38,7 +38,7 @@ func TestRunActiveWithTimeout_CountsModuleRequests(t *testing.T) {
 
 	const sends = 3
 	for i := range 2 { // two calls of the same module accumulate
-		_, completed := e.runActiveWithTimeout(context.Background(),
+		res := e.runActiveWithTimeout(context.Background(),
 			func(_ context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 				for range sends {
 					chain, _, err := client.Execute(item, http.Options{NoClustering: true})
@@ -50,6 +50,7 @@ func TestRunActiveWithTimeout_CountsModuleRequests(t *testing.T) {
 				return nil, nil
 			},
 			&fakeActiveModule{id: "counted"}, item, reqClient, func() {}, 0)
+		completed := res.completed
 		if !completed {
 			t.Fatalf("call %d did not complete", i)
 		}

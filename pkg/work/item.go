@@ -41,7 +41,7 @@ type WorkItem struct {
 	Remarks []string
 
 	// Coverage, when set, is this record's stored progress in the coverage
-	// ledger (ECON-4): the executor skips the modules whose bit is set and the
+	// ledger: the executor skips the modules whose bit is set and the
 	// passive stage when it already ran. nil = nothing recorded yet.
 	Coverage *Coverage
 
@@ -62,6 +62,18 @@ func (c *Coverage) ModuleDone(ordinal int) bool {
 	}
 	i := ordinal / 8
 	return i < len(c.DoneBits) && c.DoneBits[i]&(1<<uint(ordinal%8)) != 0
+}
+
+// SetModuleDone marks the module at ordinal finished on this record, growing
+// DoneBits as needed. A negative ordinal is a no-op.
+func (c *Coverage) SetModuleDone(ordinal int) {
+	if c == nil || ordinal < 0 {
+		return
+	}
+	for len(c.DoneBits) <= ordinal/8 {
+		c.DoneBits = append(c.DoneBits, 0)
+	}
+	c.DoneBits[ordinal/8] |= 1 << uint(ordinal%8)
 }
 
 // NewWithModules creates a WorkItem with EnableModules but no callback.

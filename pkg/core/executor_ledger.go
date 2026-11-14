@@ -2,14 +2,16 @@ package core
 
 import (
 	"context"
+	"slices"
 	"sync"
 
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/work"
 )
 
-// LedgerSpec wires an executor into the coverage ledger (ECON-4). The phase
-// builds one per tier pass.
+// LedgerSpec wires an executor into the coverage ledger. The phase builds one
+// per tier pass.
 type LedgerSpec struct {
 	// Writer persists the per-record rows (shared by the phase's passes).
 	Writer *database.ProgressWriter
@@ -26,41 +28,100 @@ type LedgerSpec struct {
 	RunsPassives bool
 }
 
-// itemProgress is one item's ledger bookkeeping while its tasks run.
+// ledgerPlan is a LedgerSpec resolved once per executor, so writeProgress
+// does no map iteration per item.
+type ledgerPlan struct {
+	// size is one past the highest ordinal (itemProgress length).
+	size int
+	// ownOrdinals are the ordinals of this executor's active modules.
+	ownOrdinals []int
+	// tierOrdinals[t] are the ordinals of the phase's tier-t modules.
+	tierOrdinals [][]int
+}
+
+func newLedgerPlan(spec *LedgerSpec, active []modules.ActiveModule) *ledgerPlan {
+	if spec == nil {
+		return nil
+	}
+	p := &ledgerPlan{tierOrdinals: make([][]int, spec.MaxTier+1)}
+	for _, ord := range spec.Ordinals {
+		p.size = max(p.size, ord+1)
+	}
+	for _, m := range active {
+		if ord, ok := spec.Ordinals[m.ID()]; ok {
+			p.ownOrdinals = append(p.ownOrdinals, ord)
+		}
+	}
+	for id, tier := range spec.Tiers {
+		ord, ok := spec.Ordinals[id]
+		if ok && tier >= 0 && tier <= spec.MaxTier {
+			p.tierOrdinals[tier] = append(p.tierOrdinals[tier], ord)
+		}
+	}
+	return p
+}
+
+// tierDone returns cov's tier_done: the highest tier whose modules (and every
+// lower tier's) are all done, never below the stored cov.TierDone. Tier 0 also
+// needs the passive stage, so passivePending holds it back when cov had no
+// tier yet.
+func (p *ledgerPlan) tierDone(cov *work.Coverage, passivePending bool) int {
+	done := cov.TierDone
+	notDone := func(ord int) bool { return !cov.ModuleDone(ord) }
+	for tier, ords := range p.tierOrdinals {
+		if slices.ContainsFunc(ords, notDone) {
+			break
+		}
+		if tier <= cov.TierDone {
+			continue
+		}
+		if tier == 0 && passivePending {
+			break
+		}
+		done = tier
+	}
+	return done
+}
+
+// itemProgress is one item's ledger bookkeeping while its tasks run, indexed
+// by module ordinal (LedgerSpec.Ordinals). Methods ignore an ordinal < 0 (a
+// module the ledger does not track) and are nil-safe.
 type itemProgress struct {
 	mu         sync.Mutex
-	pending    map[string]int
-	failed     map[string]bool
+	pending    []int
+	failed     []bool
 	timedOut   int
 	dispatched bool
 	passiveRan bool
 }
 
-func newItemProgress() *itemProgress {
-	return &itemProgress{pending: map[string]int{}, failed: map[string]bool{}}
+func newItemProgress(modules int) *itemProgress {
+	return &itemProgress{pending: make([]int, modules), failed: make([]bool, modules)}
 }
 
-// begin counts a task of moduleID about to be queued.
-func (p *itemProgress) begin(moduleID string) {
-	if p == nil {
+func (p *itemProgress) tracks(ord int) bool { return p != nil && ord >= 0 && ord < len(p.pending) }
+
+// begin counts a task of the module at ord about to be queued.
+func (p *itemProgress) begin(ord int) {
+	if !p.tracks(ord) {
 		return
 	}
 	p.mu.Lock()
-	p.pending[moduleID]++
+	p.pending[ord]++
 	p.mu.Unlock()
 }
 
-// end resolves one task of moduleID; ok=false marks the module not done on
-// this record (timeout, cancellation, transient transport failure, gate
-// refusal), and timedOut counts a per-module timeout.
-func (p *itemProgress) end(moduleID string, ok, timedOut bool) {
-	if p == nil {
+// end resolves one task of the module at ord; ok=false marks the module not
+// done on this record (timeout, cancellation, transient transport failure,
+// gate refusal), and timedOut counts a per-module timeout.
+func (p *itemProgress) end(ord int, ok, timedOut bool) {
+	if !p.tracks(ord) {
 		return
 	}
 	p.mu.Lock()
-	p.pending[moduleID]--
+	p.pending[ord]--
 	if !ok {
-		p.failed[moduleID] = true
+		p.failed[ord] = true
 	}
 	if timedOut {
 		p.timedOut++
@@ -68,25 +129,36 @@ func (p *itemProgress) end(moduleID string, ok, timedOut bool) {
 	p.mu.Unlock()
 }
 
-// fail marks moduleID not done without a task having run (dropped or never
-// queued because the phase was cancelled).
-func (p *itemProgress) fail(moduleID string) {
-	if p == nil {
+// fail marks the module at ord not done without a task having run (dropped
+// or never queued because the phase was cancelled).
+func (p *itemProgress) fail(ord int) {
+	if !p.tracks(ord) {
 		return
 	}
 	p.mu.Lock()
-	p.failed[moduleID] = true
+	p.failed[ord] = true
 	p.mu.Unlock()
+}
+
+// ledgerOrdinal is moduleID's coverage ordinal, or -1 when the executor has
+// no ledger or the ledger does not track the module.
+func (e *Executor) ledgerOrdinal(moduleID string) int {
+	if e.cfg.Ledger == nil {
+		return -1
+	}
+	if ord, ok := e.cfg.Ledger.Ordinals[moduleID]; ok {
+		return ord
+	}
+	return -1
 }
 
 // moduleDone reports whether item's stored coverage says moduleID already
 // finished on it (the executor skips it).
 func (e *Executor) moduleDone(item *work.WorkItem, moduleID string) bool {
-	if e.cfg.Ledger == nil || item == nil || item.Coverage == nil {
+	if item == nil || item.Coverage == nil {
 		return false
 	}
-	ord, ok := e.cfg.Ledger.Ordinals[moduleID]
-	return ok && item.Coverage.ModuleDone(ord)
+	return item.Coverage.ModuleDone(e.ledgerOrdinal(moduleID))
 }
 
 // writeProgress records t's coverage when its item completes. Only items that
@@ -95,9 +167,9 @@ func (e *Executor) moduleDone(item *work.WorkItem, moduleID string) bool {
 // without a failure are done (including modules that had nothing to do on the
 // record); prior bits from item.Coverage are kept.
 func (e *Executor) writeProgress(t *itemTracker) {
-	spec := e.cfg.Ledger
+	spec, plan := e.cfg.Ledger, e.ledger
 	p := t.prog
-	if spec == nil || spec.Writer == nil || p == nil || t.item == nil || t.item.RecordUUID == "" {
+	if spec == nil || spec.Writer == nil || plan == nil || p == nil || t.item == nil || t.item.RecordUUID == "" {
 		return
 	}
 	p.mu.Lock()
@@ -107,64 +179,30 @@ func (e *Executor) writeProgress(t *itemTracker) {
 	}
 	cancelled := t.ctx.Err() != nil
 
-	prev := t.item.Coverage
-	var bits []byte
-	prevTier := -1
-	passiveDone := false
-	if prev != nil {
-		bits = append(bits, prev.DoneBits...)
-		prevTier = prev.TierDone
-		passiveDone = prev.PassiveDone
+	cov := work.Coverage{TierDone: -1}
+	if prev := t.item.Coverage; prev != nil {
+		cov = work.Coverage{TierDone: prev.TierDone, PassiveDone: prev.PassiveDone, DoneBits: append([]byte(nil), prev.DoneBits...)}
 	}
-	set := func(ord int) {
-		for len(bits) <= ord/8 {
-			bits = append(bits, 0)
-		}
-		bits[ord/8] |= 1 << uint(ord%8)
-	}
-	isSet := func(ord int) bool {
-		return ord/8 < len(bits) && bits[ord/8]&(1<<uint(ord%8)) != 0
-	}
-	for _, m := range e.activeModules {
-		id := m.ID()
-		ord, ok := spec.Ordinals[id]
-		if !ok || p.failed[id] || (cancelled && p.pending[id] > 0) {
+	for _, ord := range plan.ownOrdinals {
+		if !p.tracks(ord) || p.failed[ord] || (cancelled && p.pending[ord] > 0) {
 			continue
 		}
-		set(ord)
+		cov.SetModuleDone(ord)
 	}
 	if spec.RunsPassives && p.passiveRan {
-		passiveDone = true
+		cov.PassiveDone = true
 	}
 
-	// tier_done: the highest tier whose modules (and every lower tier's) are
-	// all done on this record.
-	tierDone := prevTier
-	for tier := prevTier + 1; tier <= spec.MaxTier; tier++ {
-		complete := true
-		for id, mt := range spec.Tiers {
-			if mt > tier {
-				continue
-			}
-			if ord, ok := spec.Ordinals[id]; ok && !isSet(ord) {
-				complete = false
-				break
-			}
-		}
-		if !complete || (tier == 0 && !passiveDone && len(e.passiveModules) > 0) {
-			break
-		}
-		tierDone = tier
-	}
+	cov.TierDone = plan.tierDone(&cov, !cov.PassiveDone && len(e.passiveModules) > 0)
 
 	spec.Writer.Write(database.ScanRecordProgress{
 		ScanUUID:    e.scanUUID,
 		RecordUUID:  t.item.RecordUUID,
 		ProjectUUID: e.projectUUID,
-		TierDone:    tierDone,
-		PassiveDone: passiveDone,
+		TierDone:    cov.TierDone,
+		PassiveDone: cov.PassiveDone,
 		TimedOut:    p.timedOut,
-		DoneBits:    bits,
+		DoneBits:    cov.DoneBits,
 	})
 }
 
@@ -172,13 +210,17 @@ func (e *Executor) writeProgress(t *itemTracker) {
 // bookkeeping: the task's outcome decides whether the module counts as done
 // on this record; a task dropped before it ran (cancellation) does not.
 func (e *Executor) goModuleTask(ctx context.Context, t *itemTracker, hostKey, moduleID string, fn func(releaseSlot func()) callOutcome) {
+	ord := -1
+	if t.prog != nil {
+		ord = e.ledgerOrdinal(moduleID)
+	}
 	if ctx.Err() != nil {
-		t.prog.fail(moduleID)
+		t.prog.fail(ord)
 		return
 	}
-	t.prog.begin(moduleID)
-	e.enqueueTask(ctx, t, hostKey, func(releaseSlot func()) {
+	t.prog.begin(ord)
+	e.goActiveTask(ctx, t, hostKey, func(releaseSlot func()) {
 		o := fn(releaseSlot)
-		t.prog.end(moduleID, !o.failedTransiently(), !o.completed && ctx.Err() == nil)
-	}, func() { t.prog.end(moduleID, false, false) })
+		t.prog.end(ord, !o.failedTransiently(), !o.completed && ctx.Err() == nil)
+	}, func() { t.prog.end(ord, false, false) })
 }

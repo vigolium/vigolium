@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Benign fixtures (MEAS-3): servers with no vulnerability that nonetheless
+// Benign fixtures: servers with no vulnerability that nonetheless
 // behave the ways real targets do and that a careless oracle mistakes for one -
 // reflection that is escaped, a WAF answering payloads, a catch-all 200, latency,
 // content that changes per request, a rate limiter. Every registered active

@@ -196,7 +196,7 @@ type ScanContext struct {
 	// ExternalFetcher is the client for third-party lookups that are not the
 	// scan target (a public package registry), built from the scan's proxy and
 	// timeout. nil — the default, and always under --offline — means modules
-	// must not make such lookups (SAFE-11; dynamic_assessment.external_lookups).
+	// must not make such lookups (dynamic_assessment.external_lookups).
 	ExternalFetcher *http.Client
 
 	cookiePolicyOnce sync.Once
@@ -217,7 +217,7 @@ type ScanContext struct {
 	// point reaches every module that accepts headers. See GateHeaderPoint.
 	HeaderPointsAll bool
 	// DeferHostClaims: the executor settles run-once host claims after each
-	// module call (BeginHostProbe / SettleHostProbes, MISS-19). Off outside the
+	// module call (BeginHostProbe / SettleHostProbes). Off outside the
 	// executor, where BeginHostProbe claims immediately.
 	DeferHostClaims bool
 	hostProbeOnce   sync.Once
@@ -267,23 +267,18 @@ type ScanContext struct {
 	stabilityCache  *lru.Cache[string, bool]
 	stabilityFlight singleflight.Group
 
-	// Named per-endpoint numeric measurements a module derives from the
-	// UNMODIFIED request (page jitter, sample counts, calibration constants).
-	// Same rationale as the volatility cache above: it is a property of the
-	// record, so the round-trips are paid once and reused across every insertion
-	// point the executor dispatches concurrently. See EndpointMeasurement.
-	measurementOnce   sync.Once
-	measurementCache  *lru.Cache[string, int]
-	measurementFlight singleflight.Group
-
 	// Named per-host artifacts a module derives once per host (a JWKS key set,
 	// a discovered metadata document). See HostMemo.
 	hostMemoOnce   sync.Once
 	hostMemoCache  *lru.Cache[string, any]
 	hostMemoFlight singleflight.Group
 
-	// Named per-endpoint values of any type with an optional TTL (timing
-	// baselines, boolean-blind step-1 baselines). See EndpointMemo.
+	// Named per-endpoint values a module derives from the UNMODIFIED request
+	// (page jitter, calibration constants, timing baselines, boolean-blind
+	// step-1 baselines), with an optional TTL. Same rationale as the volatility
+	// cache above: it is a property of the record, so the round-trips are paid
+	// once and reused across every insertion point the executor dispatches
+	// concurrently. See EndpointMemo and EndpointMeasurement.
 	endpointMemoOnce   sync.Once
 	endpointMemoCache  *lru.Cache[string, memoEntry]
 	endpointMemoFlight singleflight.Group
@@ -393,7 +388,7 @@ type AllInsertionPointProvider interface {
 }
 
 // GetAllInsertionPoints is GetInsertionPoints plus the opt-in parameter-name
-// and entire-body points (MISS-15), for a whole-request module that tests
+// and entire-body points, for a whole-request module that tests
 // those itself.
 func (sc *ScanContext) GetAllInsertionPoints(raw []byte, requestID string, includeNested bool) ([]httpmsg.InsertionPoint, error) {
 	if p, ok := sc.IPProvider().(AllInsertionPointProvider); ok {

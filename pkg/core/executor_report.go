@@ -62,7 +62,7 @@ type ExecutionReport struct {
 	FeedbackDropped int64
 	// ModuleSkips is module id → skip reason → count (reasons: SkipReason*
 	// constants). Cumulative over the executor's lifetime; an executor normally
-	// runs one Execute. Track C persists it to scans.module_stats.
+	// runs one Execute. The runner persists it to scans.module_stats.
 	ModuleSkips map[string]map[string]int64
 }
 

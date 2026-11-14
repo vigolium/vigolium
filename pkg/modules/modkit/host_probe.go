@@ -5,24 +5,25 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// Run-once-per-host probes and transient failures (MISS-19).
+// Run-once-per-host probes and transient failures.
 //
 // An active module that probes a host once (a sensitive-file sweep, a
-// debug-endpoint check) used to mark the host seen in its DiskSet BEFORE
-// probing. When the probe then failed transiently — the host timed out, the
-// breaker refused it, the call overran its timeout — the host stayed marked
-// and the module never ran there again, so the executor's release-and-retry
-// of its per-host claim re-ran a module that immediately returned.
+// debug-endpoint check) must not mark the host seen before probing: when the
+// probe fails transiently — the host timed out, the breaker refused it, the
+// call overran its timeout — the host would stay marked and the module would
+// never run there again, so the executor's release-and-retry of its per-host
+// claim would re-run a module that immediately returns.
 //
-// BeginHostProbe replaces that up-front IsSeen. Under the executor the claim
-// is held PENDING on the call's requester and committed only once the call
-// completes cleanly (no timeout, no transient transport error, no gate
-// refusal); a failed call drops it, so the next record of the host probes
-// again. A host whose probe failed maxHostProbeAttempts times is claimed
-// anyway, so a dead host is not re-probed on every record. Outside the
-// executor (module unit tests) the claim is taken immediately, as before.
+// So under the executor BeginHostProbe holds the claim PENDING on the call's
+// requester and commits it only once the call completes cleanly (no timeout,
+// no transient transport error, no gate refusal); a failed call drops it, so
+// the next record of the host probes again. A host whose probe failed
+// maxHostProbeAttempts times is claimed anyway, so a dead host is not
+// re-probed on every record. Outside the executor (module unit tests) the
+// claim is taken immediately.
 
 // maxHostProbeAttempts bounds how many failed probes of one key are retried.
 const maxHostProbeAttempts = 2
@@ -57,7 +58,7 @@ func (sc *ScanContext) hostProbes() *hostProbeState {
 // which must be the requester the executor handed the module — and settled by
 // SettleHostProbes; otherwise it is taken at once. A claim registered on any
 // other requester is never settled and keeps the key in flight, which degrades
-// to the old claim-up-front behaviour rather than re-probing every record.
+// to claiming up front rather than re-probing every record.
 func BeginHostProbe(sc *ScanContext, client *http.Requester, ds *dedup.DiskSet, key string) bool {
 	if ds == nil {
 		return true
@@ -79,6 +80,23 @@ func BeginHostProbe(sc *ScanContext, client *http.Requester, ds *dedup.DiskSet, 
 	st.pending[client] = append(st.pending[client], c)
 	sc.hostProbesPending.Add(1)
 	return true
+}
+
+// BeginHostProbeKey is BeginHostProbe with the module's lazily created
+// DiskSet resolved against the scan's dedup manager (nil without one, which
+// always probes).
+func BeginHostProbeKey(sc *ScanContext, client *http.Requester, ds *dedup.Lazy[dedup.DiskSet], key string) bool {
+	return BeginHostProbe(sc, client, ds.Get(sc.DedupMgr()), key)
+}
+
+// BeginHostProbeFor is BeginHostProbeKey keyed on item's service host — the
+// run-once-per-host preamble of a ScanPerHost module. False when item has no
+// service.
+func BeginHostProbeFor(sc *ScanContext, client *http.Requester, ds *dedup.Lazy[dedup.DiskSet], item *httpmsg.HttpRequestResponse) bool {
+	if item == nil || item.Service() == nil {
+		return false
+	}
+	return BeginHostProbeKey(sc, client, ds, item.Service().Host())
 }
 
 // SettleHostProbes commits (ok) or drops the pending host claims the module

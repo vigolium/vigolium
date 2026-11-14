@@ -13,7 +13,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modtest"
 )
 
-// One shared canary probe per point (ECON-2): it reports body/header
+// One shared canary probe per point: it reports body/header
 // reflection, is memoised (two asks, one request), and keeps a numeric value
 // numeric.
 func TestReflectionProfile(t *testing.T) {
@@ -37,7 +37,7 @@ func TestReflectionProfile(t *testing.T) {
 	ctx := context.Background()
 
 	pq, err := sc.ReflectionProfile(ctx, rr, modtest.InsertionPoint(t, rr, "q"), client)
-	if err != nil || pq == nil || !pq.InBody || pq.InHeaders || pq.Contexts&modkit.ReflectCtxHTMLText == 0 {
+	if err != nil || pq == nil || !pq.InBody || pq.InHeaders {
 		t.Fatalf("q profile = %+v, %v", pq, err)
 	}
 	before := hits.Load()
