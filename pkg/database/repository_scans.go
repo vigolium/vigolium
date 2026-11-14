@@ -487,6 +487,9 @@ func (r *Repository) countRecordsAfterCursor(ctx context.Context, projectUUID st
 
 	if len(sources) > 0 {
 		q = q.Where("source IN (?)", bun.List(sources))
+	} else {
+		// The assessment's own count: finding evidence is not input.
+		q = applyEvidenceExclusion(q)
 	}
 
 	count, err := q.Count(ctx)

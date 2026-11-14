@@ -9,13 +9,6 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// EvidenceRecordSources are the http_records.source values the executor stamps
-// on a finding's own evidence row (the record kind of the result that saved
-// it), as opposed to a record that was scanned. `finding verify` uses the
-// difference to tell a finding's baseline from its payload request on rows
-// written before findings.origin_record_uuid existed.
-var EvidenceRecordSources = []string{RecordKindFinding, RecordKindCandidate, RecordKindObservation}
-
 // IsEvidenceRecordSource reports whether source marks a finding-evidence record.
 func IsEvidenceRecordSource(source string) bool {
 	return slices.Contains(EvidenceRecordSources, source)

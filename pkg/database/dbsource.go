@@ -62,6 +62,20 @@ func IsBridgeRecordSource(source string) bool {
 	return utils.StringSliceContains(BridgeRecordSources, source)
 }
 
+// EvidenceRecordSources are the http_records.source values stamped on a
+// finding's own evidence row (the record kind of the result that saved it, and
+// the legacy known-issue-scan label), as opposed to a record that was scanned.
+// `finding verify` uses the difference to tell a finding's baseline from its
+// payload request on rows written before findings.origin_record_uuid existed,
+// and the assessment sources exclude them so a finding's payload-bearing
+// request is never rescanned as input on the next run.
+var EvidenceRecordSources = []string{RecordKindFinding, RecordKindCandidate, RecordKindObservation, legacyKISEvidenceSource}
+
+// applyEvidenceExclusion drops finding-evidence rows (EvidenceRecordSources).
+func applyEvidenceExclusion(q *bun.SelectQuery) *bun.SelectQuery {
+	return q.Where("COALESCE(source, '') NOT IN (?)", bun.List(EvidenceRecordSources))
+}
+
 // IngestRecordSources lists the http_records.source values that represent
 // user-ingested traffic. Scan-on-receive filters the DBInputSource by this
 // list so it only processes traffic the user actually ingested — excluding
@@ -767,6 +781,7 @@ func (s *RiskPrioritizedDBInputSource) captureBoundLocked(ctx context.Context) e
 	}
 	q = applyHostScopeFilter(q, s.hostScopes)
 	q = applyProjectFilter(q, s.projectUUID)
+	q = applyEvidenceExclusion(q)
 
 	var rows []boundRow
 	if err := q.OrderExpr("created_at DESC, uuid DESC").Limit(1).Scan(ctx, &rows); err != nil {
@@ -819,7 +834,7 @@ func (s *RiskPrioritizedDBInputSource) applyResumeAndBound(q *bun.SelectQuery) *
 	}
 	boundAt := dbTimestampString(s.db.Driver(), s.boundAt)
 	q = q.Where("(created_at < ? OR (created_at = ? AND uuid <= ?))", boundAt, boundAt, s.boundID)
-	return applyProjectFilter(q, s.projectUUID)
+	return applyEvidenceExclusion(applyProjectFilter(q, s.projectUUID))
 }
 
 // nextPageRowsLocked returns the next keyset page of eligible rows, ordered
