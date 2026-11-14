@@ -494,7 +494,9 @@ func (r *Runner) shouldAutoFuzzDiscovery() bool {
 	if on, _ := r.discoveryFuzzingState(); on {
 		return false
 	}
-	if !r.spidering.ran {
+	if !r.spidering.ran || r.spidering.browserFailed {
+		// A browser that never started found nothing because it never looked:
+		// not a low-yield target.
 		return false
 	}
 	// Records the capture lost still count as found: a crawl that reached plenty

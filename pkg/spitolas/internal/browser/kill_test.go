@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"fmt"
 	"context"
 	"errors"
 	"os"
@@ -216,5 +217,25 @@ func TestCloseDoesNotKillOnACleanClose(t *testing.T) {
 func TestLaunchBoundedUsesItsOwnDeadline(t *testing.T) {
 	if browserLaunchTimeout <= 0 {
 		t.Fatal("browserLaunchTimeout must be positive or every launch expires at once")
+	}
+}
+
+// TestLaunchFromMarksLaunchFailure is MISS-27: a browser that cannot be
+// started is reported as ErrLaunch (through every wrapper up to the runner),
+// and a launch the caller cancelled is not.
+func TestLaunchFromMarksLaunchFailure(t *testing.T) {
+	cfg, err := config.New("https://example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Browser{config: cfg}
+	launchErr := b.launchFrom(context.Background(), nil)
+	if !errors.Is(fmt.Errorf("failed to create browser pool: %w", launchErr), ErrLaunch) {
+		t.Fatalf("no candidate: %v, want ErrLaunch", launchErr)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := b.launchFrom(ctx, nil); errors.Is(err, ErrLaunch) {
+		t.Fatalf("a cancelled launch is not a launch failure: %v", err)
 	}
 }

@@ -21,3 +21,9 @@ func BrowserNeedsDownload(engine, browserPath string) bool {
 	}
 	return browser.NeedsDownload(&config.Config{BrowserEngine: engine, BrowserPath: browserPath})
 }
+
+// ErrBrowserLaunch is wrapped by every error that means no browser could be
+// started (no binary, or every candidate failed to launch). A caller that sees
+// it should stop crawling — every further target would fail the same way —
+// and report the phase as failed, not as a crawl that found nothing.
+var ErrBrowserLaunch = browser.ErrLaunch

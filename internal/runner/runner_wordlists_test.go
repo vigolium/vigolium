@@ -153,6 +153,7 @@ func TestShouldAutoFuzzDiscovery(t *testing.T) {
 		{"rich yield does not trigger", discoverOpts(nil), nil, richYield, false},
 		{"records lost to capture do not read as low yield", discoverOpts(nil), nil, lostYield, false},
 		{"spidering did not run", discoverOpts(nil), nil, spideringOutcome{ran: false, records: 0}, false},
+		{"browser failed to launch does not read as low yield", discoverOpts(nil), nil, spideringOutcome{ran: true, browserFailed: true}, false},
 		{"already fuzzing (deep) does not re-trigger", discoverOpts(func(o *types.Options) { o.Intensity = "deep" }), nil, lowYield, false},
 		{"discover disabled does not trigger", discoverOpts(func(o *types.Options) { o.DiscoverEnabled = false }), nil, lowYield, false},
 		{"no CLI targets does not trigger", discoverOpts(func(o *types.Options) { o.Targets = nil }), nil, lowYield, false},

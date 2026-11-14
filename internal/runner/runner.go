@@ -152,6 +152,9 @@ type spideringOutcome struct {
 	lost     int      // records the capture admitted but failed to persist
 	complete bool     // every capture receipt was complete (nothing lost, drains finished)
 	sawSSO   bool     // at least one target redirected off-host to a login wall
+	// browserFailed: the crawl browser could not be launched, so the phase
+	// crawled nothing for a reason that says nothing about the target.
+	browserFailed bool
 	ssoHosts []string // the off-host login/SSO hosts (excluded from fuzzing scope)
 
 	// routeSeeds are the client routes the running spidering phase hands each

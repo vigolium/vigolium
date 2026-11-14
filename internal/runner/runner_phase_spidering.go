@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -752,7 +753,12 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	// launched only to stop at once.
 	grace := SpideringGrace(maxDuration)
 
+	var launchErr error
+	failedTargets := 0
 	for _, group := range groups {
+		if launchErr != nil {
+			break
+		}
 		// Overall ceiling exhausted — skip the remaining targets rather than
 		// launching crawls against an already-expired context.
 		if deadlineWithin(phaseCtx, grace) {
@@ -801,7 +807,19 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			cancel()
 			progress.Set(processed)
 
+			if oc.err != nil && errors.Is(oc.err, spitolas.ErrBrowserLaunch) {
+				// No browser: every remaining target would fail the same way.
+				// Stop the phase and say why, rather than ending "completed, 0
+				// records" and letting discovery read it as a low-yield target.
+				zap.L().Error("Spidering: browser could not be launched; stopping the phase",
+					zap.String("target", target), zap.Error(oc.err))
+				launchErr = oc.err
+				failedTargets += len(targets) - processed + 1
+				processed = len(targets)
+				break
+			}
 			if oc.err != nil {
+				failedTargets++
 				zap.L().Error("Spidering failed",
 					zap.String("target", target), zap.Error(oc.err))
 				if sess != nil {
@@ -1028,13 +1046,15 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 
 	// Record the outcome for the Discovery phase's low-yield auto-fuzz decision.
 	r.spidering = spideringOutcome{
-		ran:      true,
-		records:  totalRecords,
-		lost:     phaseCapture.Lost(),
-		complete: phaseCapture.Clean(),
-		sawSSO:   len(ssoHosts) > 0,
-		ssoHosts: ssoHosts,
+		ran:           true,
+		records:       totalRecords,
+		lost:          phaseCapture.Lost(),
+		complete:      phaseCapture.Clean(),
+		sawSSO:        len(ssoHosts) > 0,
+		ssoHosts:      ssoHosts,
+		browserFailed: launchErr != nil,
 	}
+	r.noteSpideringFailures(failedTargets, launchErr)
 
 	if r.repository != nil && totalRecords > 0 {
 		if err := r.repository.IncrementProcessedCount(ctx, infra.scanUUID, int64(totalRecords)); err != nil {
@@ -1088,4 +1108,25 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			terminal.HiCyan(flags)))
 	}
 	return nil
+}
+
+// noteSpideringFailures records the phase's failed targets on its outcome and,
+// when the browser never started, says so on the terminal with the command
+// that diagnoses it. A crawl that could not start is a failed phase, not a
+// target with nothing to find.
+func (r *Runner) noteSpideringFailures(failed int, launchErr error) {
+	tracker := r.currentPhase.Load()
+	if failed > 0 {
+		tracker.setCount("targets_failed", int64(failed))
+		tracker.markPartial(database.ReasonTargetsFailed)
+	}
+	if launchErr == nil {
+		return
+	}
+	tracker.markPartial(database.ReasonBrowserUnavailable)
+	r.scanLogger.Error("spidering", "browser could not be launched: "+launchErr.Error())
+	if !r.options.Silent {
+		r.printPhaseDetail(fmt.Sprintf("%s Spidering failed — the browser could not be launched (%s); run %s",
+			terminal.Red(terminal.SymbolWarning), launchErr.Error(), terminal.HiCyan("vigolium doctor --for scan")))
+	}
 }

@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -145,6 +146,10 @@ func (b *Browser) launch(ctx context.Context) error {
 // would never be tried. A variable so tests can shrink it.
 var browserLaunchTimeout = 60 * time.Second
 
+// ErrLaunch marks a browser that could not be started (no binary, or every
+// candidate failed to launch), as opposed to a launch the caller cancelled.
+var ErrLaunch = errors.New("browser launch failed")
+
 // launchFrom walks candidates in order. Split out of launch so the candidate list
 // is injectable: the failure paths below are the whole point of this function and
 // a test must be able to drive them without a real browser on the host.
@@ -228,15 +233,19 @@ func (b *Browser) launchFrom(ctx context.Context, candidates []browserCandidate)
 		return nil
 	}
 
+	// A walk the caller cancelled is not a browser that cannot start.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("failed to launch browser: %w", err)
+	}
 	if len(attempts) == 0 {
 		hint := ""
 		if isLinuxARM64For(runtime.GOOS, runtime.GOARCH) {
 			hint = " — install one with: sudo apt-get install -y chromium"
 		}
-		return fmt.Errorf("failed to launch browser: no browser binary found%s", hint)
+		return fmt.Errorf("%w: failed to launch browser: no browser binary found%s", ErrLaunch, hint)
 	}
-	return fmt.Errorf("failed to launch browser: all %d candidate(s) failed: %s",
-		len(attempts), strings.Join(attempts, "; "))
+	return fmt.Errorf("%w: failed to launch browser: all %d candidate(s) failed: %s",
+		ErrLaunch, len(attempts), strings.Join(attempts, "; "))
 }
 
 // launchBounded runs one launcher.Launch under browserLaunchTimeout.
