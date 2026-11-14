@@ -51,10 +51,10 @@ var authHeaders = map[string]struct{}{
 // Capture handles HTTP traffic capture using Chrome DevTools Protocol.
 // Uses browser-level event subscription to capture traffic from ALL pages.
 type Capture struct {
-	mu         sync.Mutex
-	writer     Writer
-	pending    map[proto.NetworkRequestID]*pendingEntry
-	logged     map[string]struct{} // Track logged entries by hash to prevent stderr duplicates
+	mu      sync.Mutex
+	writer  Writer
+	pending map[proto.NetworkRequestID]*pendingEntry
+	logged  map[string]struct{} // Track logged entries by hash to prevent stderr duplicates
 	// seenHashes tracks written request hashes. true = written with its
 	// response body; false = PROVISIONAL, written while the body fetch failed,
 	// so a later complete copy of the same request is still written (MISS-29b).
