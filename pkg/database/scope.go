@@ -3,6 +3,8 @@ package database
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/vigolium/vigolium/pkg/pathglob"
 )
 
 // ScopeEvaluator evaluates URLs against scope rules (firewall-style: first match wins, default=exclude)
@@ -47,11 +49,10 @@ func (e *ScopeEvaluator) ruleMatches(rule *Scope, scheme, hostname string, port 
 	}
 
 	// Path pattern check
-	if rule.PathPattern != "" {
-		matched, err := filepath.Match(rule.PathPattern, path)
-		if err != nil || !matched {
-			return false
-		}
+	// Path globs mean URL paths: the query is not part of the subject and "*"
+	// crosses "/" (SAFE-6).
+	if rule.PathPattern != "" && !pathglob.Match(rule.PathPattern, pathglob.ScopePath(path)) {
+		return false
 	}
 
 	// Methods check
