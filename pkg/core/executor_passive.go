@@ -22,7 +22,7 @@ func (e *Executor) runPassivePerHostFiltered(ctx context.Context, item *httpmsg.
 			continue
 		}
 
-		results := e.runPassiveWithTimeout(
+		o := e.runPassiveCall(
 			ctx,
 			func(runCtx context.Context) ([]*output.ResultEvent, error) {
 				if contextual, ok := module.(modules.ContextualPassiveModule); ok {
@@ -32,7 +32,10 @@ func (e *Executor) runPassivePerHostFiltered(ctx context.Context, item *httpmsg.
 			},
 			module, item,
 		)
-		e.processResults(ctx, results, module, item, nil)
+		if o.failedTransiently() && ctx.Err() == nil {
+			e.releaseHostClaim(e.caches.perHostPassiveClaimed, claimKey)
+		}
+		e.processResults(ctx, o.events, module, item, nil)
 	}
 }
 

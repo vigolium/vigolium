@@ -73,13 +73,18 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		diskSet = m.ds.Get(scanCtx.DedupMgr())
 	}
 	hash := utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
-	if diskSet != nil && diskSet.IsSeen(hash) {
+	if diskSet != nil && diskSet.Contains(hash) {
 		return nil, nil
 	}
 
 	// Find JWTs in request and response
 	tokens := findLocatedJWTs(ctx)
 	if len(tokens) == 0 {
+		return nil, nil
+	}
+	// Claim the location only once it carries a token (MISS-19): a first
+	// response without one must not hide a later one that has it.
+	if diskSet != nil && !diskSet.ClaimOnMatch(hash) {
 		return nil, nil
 	}
 

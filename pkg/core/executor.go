@@ -208,6 +208,9 @@ type scanCaches struct {
 	// ago.
 	perHostActiveClaimed  *lru.Cache[hostClaimKey, struct{}]
 	perHostPassiveClaimed *lru.Cache[hostClaimKey, struct{}]
+	// hostClaims owns the two caches above plus the per-pair retry count
+	// (MISS-19); nil on literal test executors.
+	hostClaims *HostClaims
 
 	// moduleTechReq is a per-module required-tech cache. Populated lazily by
 	// passesTechFilter since module tags are immutable for the scan's lifetime.
@@ -331,6 +334,7 @@ func NewExecutor(
 			ipCache:               ipCache,
 			perHostActiveClaimed:  claims.active,
 			perHostPassiveClaimed: claims.passive,
+			hostClaims:            claims,
 		},
 		pool: workerPool{
 			feedbackCh: make(chan *work.WorkItem, cfg.Workers*16),

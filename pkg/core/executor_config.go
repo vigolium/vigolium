@@ -2,6 +2,7 @@ package core
 
 import (
 	goruntime "runtime"
+	"sync"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"sync/atomic"
@@ -221,6 +222,35 @@ type ExecutorConfig struct {
 type HostClaims struct {
 	active  *lru.Cache[hostClaimKey, struct{}]
 	passive *lru.Cache[hostClaimKey, struct{}]
+
+	// attempts counts per-host runs that failed transiently and released their
+	// claim (perHostClaimAttempts), so a host that keeps failing is not retried
+	// on every item.
+	mu       sync.Mutex
+	attempts *lru.Cache[hostClaimKey, int]
+}
+
+// maxPerHostClaimAttempts bounds how many times a (module, origin) per-host
+// run is attempted when earlier attempts failed transiently.
+const maxPerHostClaimAttempts = 2
+
+// release gives back claim key in cache after a transient failure so a later
+// item for the same origin retries the run — unless the pair already used
+// its attempts. Returns whether the claim was released. Nil-safe.
+func (h *HostClaims) release(cache *lru.Cache[hostClaimKey, struct{}], key hostClaimKey) bool {
+	if h == nil || cache == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n, _ := h.attempts.Get(key)
+	n++
+	h.attempts.Add(key, n)
+	if n >= maxPerHostClaimAttempts {
+		return false
+	}
+	cache.Remove(key)
+	return true
 }
 
 // SharePhaseState fills every nil phase-shared field (TechRegistry, WAFStack,
@@ -257,7 +287,8 @@ func NewHostClaims() *HostClaims {
 	// positive constant.
 	a, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
 	p, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
-	return &HostClaims{active: a, passive: p}
+	n, _ := lru.New[hostClaimKey, int](perHostClaimCacheSize)
+	return &HostClaims{active: a, passive: p, attempts: n}
 }
 
 // defaultOutstandingItemsPerWorker sizes MaxOutstandingItems when unset.

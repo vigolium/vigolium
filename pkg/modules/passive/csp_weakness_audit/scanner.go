@@ -65,7 +65,7 @@ func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.S
 	host := service.Host()
 
 	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.IsSeen(host) {
+	if diskSet != nil && diskSet.Contains(host) {
 		return nil, nil
 	}
 
@@ -122,6 +122,11 @@ func (m *Module) ScanPerHost(ctx *httpmsg.HttpRequestResponse, scanCtx *modkit.S
 		})
 	}
 
+	// Claim the host only now that it matched (MISS-19): a host whose
+	// first response showed nothing stays open for later responses.
+	if len(results) > 0 && diskSet != nil && !diskSet.ClaimOnMatch(host) {
+		return nil, nil
+	}
 	return results, nil
 }
 

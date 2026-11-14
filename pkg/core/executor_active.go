@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 
+	lru "github.com/hashicorp/golang-lru/v2"
+
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -42,7 +44,7 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 
 		mod := module // capture loop variable
 		e.goActiveTask(ctx, t, hostKey, func(releaseSlot func()) {
-			results, completed := e.runActiveWithTimeout(ctx,
+			o := e.runActiveCall(ctx,
 				func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 					if contextual, ok := mod.(modules.ContextualActiveModule); ok {
 						return contextual.ScanPerHostContext(runCtx, item, client, e.scanCtx)
@@ -50,11 +52,20 @@ func (e *Executor) runActivePerHost(ctx context.Context, reqClient *http.Request
 					return mod.ScanPerHost(item, client, e.scanCtx)
 				},
 				mod, item, reqClient, releaseSlot, 0)
-			if completed && len(results) > 0 {
-				e.processResults(ctx, results, mod, item, nil)
+			if o.failedTransiently() && ctx.Err() == nil {
+				e.releaseHostClaim(e.caches.perHostActiveClaimed, claimKey)
+			}
+			if o.completed && len(o.events) > 0 {
+				e.processResults(ctx, o.events, mod, item, nil)
 			}
 		})
 	}
+}
+
+// releaseHostClaim gives a per-host claim back after a transient failure so a
+// later item for the same origin retries the run (bounded, see HostClaims).
+func (e *Executor) releaseHostClaim(cache *lru.Cache[hostClaimKey, struct{}], key hostClaimKey) {
+	e.caches.hostClaims.release(cache, key)
 }
 
 func (e *Executor) runActivePerRequest(ctx context.Context, reqClient *http.Requester, item *httpmsg.HttpRequestResponse, filter *moduleFilter, elig *requestEligibility, t *itemTracker, hostKey string) {

@@ -304,6 +304,20 @@ func (d *DiskSet) evictLocked() {
 	}
 }
 
+// ClaimOnMatch is the second half of match-first dedup: a module checks
+// Contains(key) up front (cheap, read-only skip of an already-reported key),
+// analyses the response, and only once it has actually MATCHED calls
+// ClaimOnMatch(key). It returns true when this call won the claim (the key was
+// new) and the caller should report; false when a concurrent caller claimed it
+// first (or the set is closed).
+//
+// Calling IsSeen before matching marked a host "done" on its first response
+// whether or not anything was found there, so a fingerprint visible only on a
+// later response (an error page, a login form) was never reported (MISS-19).
+func (d *DiskSet) ClaimOnMatch(key string) bool {
+	return !d.IsSeen(key)
+}
+
 // Contains returns true if key exists (read-only check).
 // Does not mark the key as seen if not present.
 //

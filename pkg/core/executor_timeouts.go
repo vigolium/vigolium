@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -260,12 +261,22 @@ func (e *Executor) runPassiveWithTimeout(
 	module modules.PassiveModule,
 	item *httpmsg.HttpRequestResponse,
 ) []*output.ResultEvent {
+	return e.runPassiveCall(ctx, scanFn, module, item).events
+}
+
+// runPassiveCall is runPassiveWithTimeout returning the full callOutcome.
+func (e *Executor) runPassiveCall(
+	ctx context.Context,
+	scanFn func(context.Context) ([]*output.ResultEvent, error),
+	module modules.PassiveModule,
+	item *httpmsg.HttpRequestResponse,
+) callOutcome {
 	// Fast exit when the scan/phase context is already cancelled: skip the
 	// watchdog goroutine + pooled timer + result channel entirely. During
 	// shutdown or after a phase deadline, many modules are still dispatched and
 	// would each otherwise spawn a doomed goroutine.
 	if ctx.Err() != nil {
-		return nil
+		return callOutcome{}
 	}
 
 	// Only contextual passive modules observe the handed context.
@@ -298,7 +309,7 @@ func (e *Executor) runPassiveWithTimeout(
 	if runInline {
 		start := time.Now()
 		events, err := e.runScanFnGuarded(ctx, module.ID(), scanFn)
-		return e.recordPassiveResult(module, item, start, events, err)
+		return callOutcome{events: e.recordPassiveResult(module, item, start, events, err), completed: true, err: err}
 	}
 
 	// Enforced-timeout path: contextual modules need a cancellable child (see
@@ -319,7 +330,7 @@ func (e *Executor) runPassiveWithTimeout(
 	select {
 	case r := <-ch:
 		moduleResultChanPool.Put(ch) // goroutine done; channel drained and safe to reuse
-		return e.recordPassiveResult(module, item, start, r.events, r.err)
+		return callOutcome{events: e.recordPassiveResult(module, item, start, r.events, r.err), completed: true, err: r.err}
 	case <-timeoutC:
 		// The scan goroutine is still running and still holds item, whose response
 		// is built over the item's pooled buffer. Withhold that buffer from the
@@ -333,13 +344,13 @@ func (e *Executor) runPassiveWithTimeout(
 			zap.String("module", module.ID()),
 			zap.String("url", item.Target()),
 			zap.Duration("timeout", timeout))
-		return nil
+		return callOutcome{}
 	case <-ctx.Done():
 		// Parent cancellation (scan shutdown / phase deadline) — not a per-module
 		// timeout, so stay quiet; the scan is ending.
 		markResponseBufferEscaped(ctx)
 		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
-		return nil
+		return callOutcome{}
 	}
 }
 
@@ -377,6 +388,56 @@ func (e *Executor) runActiveWithTimeout(
 	releaseSlot func(),
 	workUnits int,
 ) ([]*output.ResultEvent, bool) {
+	o := e.runActiveCall(ctx, scanFn, module, item, reqClient, releaseSlot, workUnits)
+	return o.events, o.completed
+}
+
+// callOutcome is what one active-module call came to: its events, whether it
+// completed inside its bound (false on a per-module timeout or a parent
+// cancellation), and the module's returned error.
+type callOutcome struct {
+	events    []*output.ResultEvent
+	completed bool
+	err       error
+}
+
+// failedTransiently reports whether the call failed for a reason that says
+// nothing about the target's answer — it did not complete, or its error is a
+// transport failure, a quarantined host or an abandoned request. A per-host
+// claim taken for such a call is released so a later item retries it
+// (MISS-19).
+func (o callOutcome) failedTransiently() bool {
+	if !o.completed {
+		return true
+	}
+	return isTransientCallErr(o.err)
+}
+
+func isTransientCallErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, hosterrors.ErrUnresponsiveHost) || errors.Is(err, http.ErrRequestAbandoned) {
+		return true
+	}
+	switch http.ClassifyTransportError(err) {
+	case http.TransportErrDNS, http.TransportErrRefused, http.TransportErrTimeout,
+		http.TransportErrTLS, http.TransportErrReset:
+		return true
+	}
+	return false
+}
+
+// runActiveCall is runActiveWithTimeout returning the full callOutcome.
+func (e *Executor) runActiveCall(
+	ctx context.Context,
+	scanFn func(context.Context, *http.Requester) ([]*output.ResultEvent, error),
+	module modules.Module,
+	item *httpmsg.HttpRequestResponse,
+	reqClient *http.Requester,
+	releaseSlot func(),
+	workUnits int,
+) callOutcome {
 	// Fast exit when the scan/phase context is already cancelled: skip the
 	// watchdog goroutine + pooled timer + result channel entirely (mirrors the
 	// <-ctx.Done() arm below). Avoids spawning doomed goroutines for the many
@@ -384,7 +445,7 @@ func (e *Executor) runActiveWithTimeout(
 	// background goroutine is spawned here, so release the slot directly.
 	if ctx.Err() != nil {
 		releaseSlot()
-		return nil, false
+		return callOutcome{}
 	}
 
 	// Scale the timeout with the request's insertion-point count for whole-request
@@ -457,10 +518,10 @@ func (e *Executor) runActiveWithTimeout(
 			} else {
 				e.noteModuleError(module, item, r.err, moduleErrorKind(r.err))
 			}
-			return nil, true
+			return callOutcome{completed: true, err: r.err}
 		}
 		e.noteThrottledCall(module, reqClient, r.events)
-		return r.events, true
+		return callOutcome{events: r.events, completed: true}
 	case <-timeoutC:
 		// The scan goroutine outlives this wrapper and still holds item, whose
 		// response is built over the item's pooled buffer — keep that buffer out of
@@ -482,13 +543,13 @@ func (e *Executor) runActiveWithTimeout(
 			zap.String("module", module.ID()),
 			zap.String("url", item.Target()),
 			zap.Duration("timeout", timeout))
-		return nil, false
+		return callOutcome{}
 	case <-ctx.Done():
 		// Parent cancellation (Ctrl-C, --scanning-max-duration, phase deadline) —
 		// an interruption, not a timed-out module, so it is not counted.
 		markResponseBufferEscaped(ctx)
 		e.moduleMetrics.Record(module.ID(), time.Since(start), 0, nil)
-		return nil, false
+		return callOutcome{}
 	}
 }
 
