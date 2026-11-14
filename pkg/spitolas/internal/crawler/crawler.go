@@ -212,6 +212,10 @@ type Crawler struct {
 	// authGen is the live-session credential generation last applied
 	// (MISS-26); guarded by mu.
 	authGen uint64
+	// domXssHasCandidates / domXssCheckedAt memoize the DOM-XSS prefilter for
+	// the drain check (MISS-29c).
+	domXssHasCandidates atomic.Bool
+	domXssCheckedAt     atomic.Int64
 	// popupSeeded is how many of Stats.PopupURLs have been browsed as
 	// frontier seeds (guarded by mu).
 	popupSeeded int

@@ -788,6 +788,17 @@ func (c *Crawler) shouldTerminate(ctx context.Context) bool {
 			return true
 		}
 	}
+	// DOM-XSS lead (MISS-29c): the probe runs after the crawl, on what is left
+	// of the deadline — at most the drain grace, often seconds. When the
+	// prefilter already has reflected candidates, stop scheduling states early
+	// enough to leave the probe min(domXssBudget, MaxDuration/10).
+	if deadline, ok := ctx.Deadline(); ok {
+		if lead := c.domXssLead(); lead > 0 && time.Until(deadline) <= c.config.DrainGrace+lead && c.domXssCandidatesPending() {
+			zap.L().Debug("Leaving the DOM-XSS probe its budget, terminating",
+				zap.Duration("lead", lead))
+			return true
+		}
+	}
 
 	// Check max duration. This is a backstop: the caller normally enforces the
 	// budget via a context deadline (which also propagates into browser ops via
@@ -800,7 +811,11 @@ func (c *Crawler) shouldTerminate(ctx context.Context) bool {
 		start := c.stats.StartTime
 		c.mu.Unlock()
 		if !start.IsZero() {
-			if elapsed := time.Since(start); elapsed >= c.config.MaxDuration-c.config.DrainGrace {
+			lead := time.Duration(0)
+			if l := c.domXssLead(); l > 0 && time.Since(start) >= c.config.MaxDuration-c.config.DrainGrace-l && c.domXssCandidatesPending() {
+				lead = l
+			}
+			if elapsed := time.Since(start); elapsed >= c.config.MaxDuration-c.config.DrainGrace-lead {
 				zap.L().Debug("Max duration reached, terminating",
 					zap.Duration("elapsed", elapsed),
 					zap.Duration("max", c.config.MaxDuration))
