@@ -104,7 +104,7 @@ func (m *coverageRecordingPassive) ScanPerHostContext(ctx context.Context, item 
 	if cm, ok := m.PassiveModule.(modules.ContextualPassiveModule); ok {
 		return cm.ScanPerHostContext(ctx, item, scanCtx)
 	}
-	return m.PassiveModule.ScanPerHost(item, scanCtx)
+	return m.ScanPerHost(item, scanCtx)
 }
 
 // wrapSecretCoverage replaces secret_detect in mods with a coverage-recording
