@@ -1334,27 +1334,84 @@ func parseTargetOrigins(targets []string) map[string]struct{} {
 // applyHostScopeFilter restricts q to the given in-scope origins when the list is
 // non-empty; an empty list is a no-op. Each HostTarget is a flexible predicate: an empty
 // Scheme or zero Port is left unconstrained, so {Hostname} matches any origin on that host
-// while {Scheme,Hostname,Port} matches the exact origin. Origins are OR-ed together.
+// while {Scheme,Hostname,Port} matches the exact origin.
+//
+// The origins are grouped by which fields they constrain into at most four
+// row-value IN terms under one hostname IN prefilter (MISS-36). One OR term
+// per origin nested the expression past SQLite's depth limit (1000) on a
+// large host list, and assessment paging failed outright.
 func applyHostScopeFilter(q *bun.SelectQuery, hosts []HostTarget) *bun.SelectQuery {
 	if len(hosts) == 0 {
 		return q
 	}
-	var conds []string
-	var args []interface{}
-	for _, h := range hosts {
-		parts := []string{"hostname = ?"}
-		args = append(args, h.Hostname)
-		if h.Scheme != "" {
-			parts = append(parts, "scheme = ?")
-			args = append(args, h.Scheme)
-		}
-		if h.Port != 0 {
-			parts = append(parts, "port = ?")
-			args = append(args, h.Port)
-		}
-		conds = append(conds, "("+strings.Join(parts, " AND ")+")")
+	type shp struct {
+		scheme, host string
+		port         int
 	}
-	return q.Where("("+strings.Join(conds, " OR ")+")", args...)
+	seen := make(map[shp]struct{}, len(hosts))
+	hostSet := make(map[string]struct{}, len(hosts))
+	var allHosts []string
+	var full, schemeHost, hostPort, hostOnly []shp
+	for _, h := range hosts {
+		k := shp{h.Scheme, h.Hostname, h.Port}
+		if _, dup := seen[k]; dup {
+			continue
+		}
+		seen[k] = struct{}{}
+		if _, ok := hostSet[h.Hostname]; !ok {
+			hostSet[h.Hostname] = struct{}{}
+			allHosts = append(allHosts, h.Hostname)
+		}
+		switch {
+		case h.Scheme != "" && h.Port != 0:
+			full = append(full, k)
+		case h.Scheme != "":
+			schemeHost = append(schemeHost, k)
+		case h.Port != 0:
+			hostPort = append(hostPort, k)
+		default:
+			hostOnly = append(hostOnly, k)
+		}
+	}
+
+	var terms []string
+	var args []interface{}
+	values := func(n, width int) string {
+		row := "(" + strings.TrimSuffix(strings.Repeat("?, ", width), ", ") + ")"
+		rows := make([]string, n)
+		for i := range rows {
+			rows[i] = row
+		}
+		return strings.Join(rows, ", ")
+	}
+	if len(full) > 0 {
+		terms = append(terms, "(scheme, hostname, port) IN (VALUES "+values(len(full), 3)+")")
+		for _, k := range full {
+			args = append(args, k.scheme, k.host, k.port)
+		}
+	}
+	if len(schemeHost) > 0 {
+		terms = append(terms, "(scheme, hostname) IN (VALUES "+values(len(schemeHost), 2)+")")
+		for _, k := range schemeHost {
+			args = append(args, k.scheme, k.host)
+		}
+	}
+	if len(hostPort) > 0 {
+		terms = append(terms, "(hostname, port) IN (VALUES "+values(len(hostPort), 2)+")")
+		for _, k := range hostPort {
+			args = append(args, k.host, k.port)
+		}
+	}
+	if len(hostOnly) > 0 {
+		names := make([]string, len(hostOnly))
+		for i, k := range hostOnly {
+			names[i] = k.host
+		}
+		terms = append(terms, "hostname IN (?)")
+		args = append(args, bun.In(names))
+	}
+	q = q.Where("hostname IN (?)", bun.In(allHosts))
+	return q.Where("("+strings.Join(terms, " OR ")+")", args...)
 }
 
 // PathTarget represents a distinct scheme+hostname+port+path combination from HTTP records.
