@@ -141,6 +141,9 @@ func fetchPreflight(ctx context.Context, requester *http.Requester, target strin
 	chain, _, err := requester.ExecuteContext(ctx, rr, http.Options{
 		DisableCompression: true,
 		NoRedirects:        true,
+		// A plain GET learning whether the host answers: a timed-out attempt
+		// is safe to retry (SAFE-10 keeps timeouts unretried by default).
+		RetryTimeouts: true,
 	})
 	if err != nil {
 		p.class, p.detail = http.ClassifyTransportError(err), err.Error()

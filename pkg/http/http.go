@@ -55,6 +55,16 @@ type Options struct {
 	IgnoreTimeoutTracking bool
 	NoClustering          bool
 	DisableCompression    bool // skip Accept-Encoding header so Go auto-decompresses
+	// NoRetry sends the request exactly once whatever --retries says. Timing
+	// probes use it (modkit.SendTimed): a retried sleep payload doubles the
+	// server-side delay and the measured attempt is not the one that slept.
+	NoRetry bool
+	// RetryTimeouts lets a request that was written and then timed out be
+	// retried. Off by default (SAFE-10): a written request that timed out may
+	// have been processed, and re-sending a payload or a write duplicates it.
+	// Preflight and probe baselines — plain GETs whose only job is to learn
+	// whether the host answers — set it.
+	RetryTimeouts bool
 	// RawRequestTarget, when non-empty, is written verbatim as the HTTP
 	// request-line target (request-URI) while the TCP/TLS connection still goes
 	// to the request's real host. It enables routing-based SSRF / "Cracking the
@@ -1230,12 +1240,23 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		hostPort = net.JoinHostPort(host, strconv.Itoa(svc.Port()))
 	}
 
+	// wrote is set by the per-attempt WroteRequest trace hook, so the retry
+	// decision knows whether the failed attempt reached the server (SAFE-10).
+	// Do calls send and then Retryable sequentially on this goroutine, so the
+	// flag always describes the attempt being judged.
+	var wrote atomic.Bool
+	method := ""
+	if req := input.Request(); req != nil {
+		method = req.Method()
+	}
 	policy := egress.RetryPolicy{
-		Retryable:     retryableTransportError,
+		Retryable: func(ctx context.Context, err error) bool {
+			return safeToRetry(ctx, err, wrote.Load(), method, opts.RetryTimeouts)
+		},
 		Backoff:       r.retryBackoff,
 		IgnoreTimeout: opts.IgnoreTimeoutTracking,
 	}
-	if !opts.RawRequest {
+	if !opts.RawRequest && !opts.NoRetry {
 		policy.MaxRetries = r.retries
 	}
 
@@ -1265,8 +1286,15 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 		// Read per attempt, so a retry after a re-login sends the new
 		// credentials and its response is attributed to their generation.
 		creds = r.live.Credentials()
+		wrote.Store(false)
+		attemptCtx := ctx
+		if !opts.RawRequest {
+			attemptCtx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+				WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) },
+			})
+		}
 		var sendErr error
-		resp, sendErr = r.doRequest(ctx, input, opts, creds)
+		resp, sendErr = r.doRequest(attemptCtx, input, opts, creds)
 		elapsed = time.Since(start)
 		if sendErr != nil {
 			// Feed transport failures (timeout/reset/refused) to the adaptive
@@ -1363,6 +1391,46 @@ func retryableTransportError(ctx context.Context, err error) bool {
 	}
 	ok, _ := retryablehttp.CheckRecoverableErrors(ctx, nil, err)
 	return ok
+}
+
+// safeToRetry is the retry decision for one failed attempt (SAFE-10). The
+// base rule (retryableTransportError) still has to allow it; on top of that:
+//
+//   - nothing was written (dial, DNS, TLS, connection refused): the server
+//     never saw the request, so any method may be re-sent;
+//   - written and then timed out: never, unless retryTimeouts — the server may
+//     be processing it (a sleep payload, a slow write), and a second copy
+//     doubles the effect;
+//   - written and then reset / EOF / anything else: only GET, HEAD and
+//     OPTIONS, whose repetition is harmless.
+func safeToRetry(ctx context.Context, err error, wrote bool, method string, retryTimeouts bool) bool {
+	if !retryableTransportError(ctx, err) {
+		return false
+	}
+	if !wrote {
+		return true
+	}
+	if isTimeoutError(err) {
+		return retryTimeouts
+	}
+	switch strings.ToUpper(method) {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	return false
+}
+
+// isTimeoutError reports a client/transport timeout (as opposed to a caller
+// cancellation): a net.Error that says Timeout, or a deadline exceeded.
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // scanRetryOptions are the retryablehttp options every scan client uses. Its
