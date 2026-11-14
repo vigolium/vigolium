@@ -450,9 +450,34 @@ func (e *URLEncoderExtended) percentEncodeExt(output *bytes.Buffer, b byte) {
 // Base64Encoder - Base64 encoding with offset tracking
 // =============================================================================
 
-// Base64Encoder implements standard Base64 encoding with offset tracking.
+// Base64Encoder implements Base64 encoding with offset tracking. The zero
+// value (and NewBase64Encoder) is the standard padded alphabet; urlAlphabet
+// selects the RFC 4648 URL-safe alphabet ('-', '_') and unpadded drops the
+// '=' padding, so a nested value is re-encoded exactly the way it was found.
 type Base64Encoder struct {
-	mimeMode bool
+	mimeMode    bool
+	urlAlphabet bool
+	unpadded    bool
+}
+
+// NewBase64EncoderVariant returns a Base64 encoder for one of the four RFC 4648
+// variants: standard or URL-safe alphabet, padded or not.
+func NewBase64EncoderVariant(urlAlphabet, padded bool) *Base64Encoder {
+	return &Base64Encoder{urlAlphabet: urlAlphabet, unpadded: !padded}
+}
+
+// encoding returns the base64.Encoding this encoder writes.
+func (e *Base64Encoder) encoding() *base64.Encoding {
+	switch {
+	case e.urlAlphabet && e.unpadded:
+		return base64.RawURLEncoding
+	case e.urlAlphabet:
+		return base64.URLEncoding
+	case e.unpadded:
+		return base64.RawStdEncoding
+	default:
+		return base64.StdEncoding
+	}
 }
 
 // NewBase64Encoder creates a new Base64 encoder in standard mode.
@@ -478,12 +503,9 @@ func (e *Base64Encoder) Encode(input []byte, offsets []int) []byte {
 	origStart := offsets[0]
 	origEnd := offsets[1]
 
-	var encoded string
+	encoded := e.encoding().EncodeToString(input)
 	if e.mimeMode {
-		encoded = base64.StdEncoding.EncodeToString(input)
 		encoded = addMIMELineBreaks(encoded)
-	} else {
-		encoded = base64.StdEncoding.EncodeToString(input)
 	}
 
 	// Track offsets proportionally
@@ -513,6 +535,13 @@ func (e *Base64Encoder) Decode(input []byte) []byte {
 		return input
 	}
 
+	if e.urlAlphabet || e.unpadded {
+		decoded, err := e.encoding().DecodeString(string(bytes.TrimSpace(input)))
+		if err != nil {
+			return input
+		}
+		return decoded
+	}
 	cleaned := removeNonBase64(input)
 	decoded, err := base64.StdEncoding.DecodeString(string(cleaned))
 	if err != nil {

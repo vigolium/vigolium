@@ -682,6 +682,10 @@ type NestedInsertionPoint struct {
 	childParam   InsertionPoint        // n: inner insertion point
 	buildState   int                   // o: depth counter for nested traversal
 	baseRequest  []byte                // base request bytes
+	// layers are the encodings wrapped around the child document inside the
+	// parent value (e.g. base64), applied innermost-first to the child's built
+	// document before the parent encodes it. Set at discovery.
+	layers []Encoder
 }
 
 // NewNestedInsertionPoint creates a new nested insertion point.
@@ -754,9 +758,14 @@ func (n *NestedInsertionPoint) PayloadOffsets(payload []byte) []int {
 	return n.parentParam.PayloadOffsets(childEncodedValue)
 }
 
-// getChildEncodedValue gets the encoded value from the child insertion point.
+// getChildEncodedValue gets the encoded value from the child insertion point,
+// re-wrapped in the layers the parent value carried it in (innermost first).
 func (n *NestedInsertionPoint) getChildEncodedValue(payload []byte) []byte {
-	return n.childParam.BuildRequest(payload)
+	v := n.childParam.BuildRequest(payload)
+	for _, layer := range n.layers {
+		v = layer.Encode(v, []int{0, len(v)})
+	}
+	return v
 }
 
 // EncodingChain returns the list of encoding transformations applied.
@@ -1060,10 +1069,9 @@ func getInsertionPointOffsets(ip InsertionPoint) (start, end int) {
 func encodePayloadForIP(ip InsertionPoint, payload []byte) []byte {
 	switch v := ip.(type) {
 	case *ParameterInsertionPoint:
-		if v.parameter.CanURLEncode() {
-			return EncodeQueryValueBytes(payload)
-		}
-		return payload
+		// The same encoder BuildRequest uses (path, query, JSON-aware), so a
+		// batch build matches a single build (NEW-14).
+		return v.encodePayload(payload)
 	case *EncodedInsertionPoint:
 		payloadWithPrefix := payload
 		if len(v.prefix) > 0 {

@@ -88,9 +88,17 @@ func DetectParameterFormat(value string) ParameterFormat {
 		}
 	}
 
-	// Check for Base64 encoding
+	// Check for Base64 encoding: the standard padded form as before, and the
+	// URL-safe / unpadded variants when their decoded payload is itself a
+	// structured document (MISS-13) — the raw variants accept too many plain
+	// words to flag on alphabet alone.
 	if isValidBase64(trimmed) {
 		return FormatBase64
+	}
+	if decoded, v, ok := decodeBase64Variant(trimmed); ok && v != base64VariantStd {
+		if DetectParameterFormat(string(decoded)) != FormatNone {
+			return FormatBase64
+		}
 	}
 
 	// Check for URL-encoded data
@@ -197,4 +205,55 @@ func isHexDigit(c byte) bool {
 	return (c >= '0' && c <= '9') ||
 		(c >= 'A' && c <= 'F') ||
 		(c >= 'a' && c <= 'f')
+}
+
+// base64Variant identifies one RFC 4648 base64 encoding.
+type base64Variant int
+
+const (
+	base64VariantStd    base64Variant = iota // standard alphabet, padded
+	base64VariantURL                         // URL-safe alphabet, padded
+	base64VariantRawStd                      // standard alphabet, unpadded
+	base64VariantRawURL                      // URL-safe alphabet, unpadded
+)
+
+// encoder returns the Base64Encoder that re-encodes this variant.
+func (v base64Variant) encoder() *Base64Encoder {
+	return NewBase64EncoderVariant(v == base64VariantURL || v == base64VariantRawURL,
+		v == base64VariantStd || v == base64VariantURL)
+}
+
+// decodeBase64Variant decodes s with the base64 variant it was written in. The
+// value itself says which: '=' padding means a padded variant (no '=' means
+// unpadded — a length that happens to need no padding is ambiguous, and the
+// unpadded reading re-encodes it identically while keeping a modified payload
+// unpadded), and '-'/'_' mean the URL-safe alphabet. A JWT-shaped value
+// (a.b.c) is never treated as one base64 document.
+func decodeBase64Variant(s string) ([]byte, base64Variant, bool) {
+	if len(s) < 4 || strings.Count(s, ".") == 2 {
+		return nil, 0, false
+	}
+	type cand struct {
+		enc     *base64.Encoding
+		variant base64Variant
+	}
+	std := cand{base64.StdEncoding, base64VariantStd}
+	url := cand{base64.URLEncoding, base64VariantURL}
+	rawStd := cand{base64.RawStdEncoding, base64VariantRawStd}
+	rawURL := cand{base64.RawURLEncoding, base64VariantRawURL}
+	order := []cand{std, url, rawStd, rawURL}
+	if !strings.Contains(s, "=") {
+		order = []cand{rawStd, rawURL, std, url}
+		if strings.ContainsAny(s, "-_") {
+			order = []cand{rawURL, url, rawStd, std}
+		}
+	} else if strings.ContainsAny(s, "-_") {
+		order = []cand{url, std, rawURL, rawStd}
+	}
+	for _, v := range order {
+		if decoded, err := v.enc.DecodeString(s); err == nil {
+			return decoded, v.variant, true
+		}
+	}
+	return nil, 0, false
 }
