@@ -114,7 +114,11 @@ func runBlackboxActive(t *testing.T, def *harness.BenchmarkDefinition) {
 			select {
 			case <-done:
 			case <-time.After(timeout):
-				t.Logf("[%s] Test timed out after %v", tc.ID, timeout)
+				// A timeout is a failure, not a log line. The goroutine still
+				// holds t, so wait for it: returning first would let it call t
+				// after the subtest completed (a panic in the testing package).
+				t.Errorf("[%s] Test timed out after %v", tc.ID, timeout)
+				<-done
 			}
 		})
 

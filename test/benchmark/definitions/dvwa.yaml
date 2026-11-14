@@ -27,6 +27,7 @@ test_cases:
     modules: ["xss-light-url-params"]
     vuln_types: ["xss-dom"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "DOM-based XSS in default parameter (soft: scanner may not detect client-side DOM sinks)"
@@ -60,6 +61,7 @@ test_cases:
     modules: ["code-exec"]
     vuln_types: ["code-exec"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Command injection in ip parameter (soft: DVWA exec uses POST form, time-based detection may need tuning)"
@@ -71,6 +73,7 @@ test_cases:
     modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CRLF injection attempt on reflected XSS endpoint"
@@ -84,6 +87,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection via cookie parameter insertion points"
@@ -106,6 +110,7 @@ test_cases:
     method: GET
     modules: ["cookie-security-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "DVWA cookies should lack Secure/HttpOnly flags"
@@ -116,6 +121,7 @@ test_cases:
     method: GET
     modules: ["sql-syntax-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "SQL error messages visible in response when injecting single quote"
@@ -126,6 +132,7 @@ test_cases:
     method: GET
     modules: ["dom-xss-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "DOM XSS sinks in stored XSS page JavaScript"
@@ -136,6 +143,7 @@ test_cases:
     method: GET
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "PHP info disclosure page"

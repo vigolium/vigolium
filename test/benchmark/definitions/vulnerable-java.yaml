@@ -20,6 +20,7 @@ test_cases:
     modules: ["code-exec"]
     vuln_types: ["code-exec"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Command injection via form input on index page"
@@ -34,6 +35,7 @@ test_cases:
     modules: ["ssrf-detection"]
     vuln_types: ["ssrf"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SSRF via form input on website page"
@@ -48,6 +50,7 @@ test_cases:
     modules: ["lfi-generic"]
     vuln_types: ["lfi"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Path traversal via form input on file page"
@@ -62,6 +65,7 @@ test_cases:
     modules: ["oast-probe"]
     vuln_types: ["oast"]
     assertion: soft
+    soft_reason: "needs a reachable OAST collector from the container; not available in every run"
     min_findings: 0
     requires_oast: true
     scan_mode: active
@@ -74,6 +78,7 @@ test_cases:
     modules: ["host-header-injection"]
     vuln_types: ["host-header-injection"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Host header injection on Java application"
@@ -88,6 +93,7 @@ test_cases:
     modules: ["crlf-injection"]
     vuln_types: ["crlf-injection"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CRLF injection via form input"
@@ -99,6 +105,7 @@ test_cases:
     modules: ["proxy-pingback"]
     vuln_types: ["proxy-pingback"]
     assertion: soft
+    soft_reason: "needs a reachable OAST collector from the container; not available in every run"
     min_findings: 0
     requires_oast: true
     scan_mode: active
@@ -112,6 +119,7 @@ test_cases:
     method: GET
     modules: ["security-headers-missing"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Missing security headers on Java application"
@@ -122,6 +130,7 @@ test_cases:
     method: GET
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 0
     scan_mode: passive
     description: "Information disclosure check on Java application"

@@ -425,6 +425,14 @@ func (e *Executor) runActiveWithTimeout(
 		reqClient = reqClient.WithAbandonFlag(&abandoned)
 	}
 
+	// MEAS-4: attribute this call's wire requests to the module. Flushed by the
+	// scan goroutine once scanFn unwinds, so requests an abandoned call still
+	// sent after its timeout are counted too.
+	var sent atomic.Int64
+	if reqClient != nil {
+		reqClient = reqClient.WithSendCounter(&sent)
+	}
+
 	start := time.Now()
 	ch := moduleResultChanPool.Get().(chan moduleCallResult)
 	go func() {
@@ -440,6 +448,9 @@ func (e *Executor) runActiveWithTimeout(
 		events, err := e.runScanFnGuarded(callCtx, module.ID(), func(c context.Context) ([]*output.ResultEvent, error) {
 			return scanFn(c, reqClient)
 		})
+		// Before the send: on the normal path the wrapper's caller must see the
+		// count as soon as it has the result.
+		e.moduleMetrics.AddRequests(module.ID(), sent.Load())
 		ch <- moduleCallResult{events, err}
 	}()
 

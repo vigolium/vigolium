@@ -83,7 +83,9 @@ func runBlackboxPassive(t *testing.T, def *harness.BenchmarkDefinition) {
 			select {
 			case <-done:
 			case <-time.After(timeout):
-				t.Logf("[%s] Test timed out after %v", tc.ID, timeout)
+				// Fail, then wait: the goroutine still holds t (see active_test.go).
+				t.Errorf("[%s] Test timed out after %v", tc.ID, timeout)
+				<-done
 			}
 		})
 

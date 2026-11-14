@@ -22,6 +22,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection in orders search status parameter"
@@ -33,6 +34,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection in products search query parameter"
@@ -48,6 +50,7 @@ test_cases:
     modules: ["sqli-error-based"]
     vuln_types: ["sqli-error-based"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SQL injection via X-Forwarded-For header in tracking endpoint"
@@ -62,6 +65,7 @@ test_cases:
     modules: ["ssrf-detection"]
     vuln_types: ["ssrf"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SSRF via screenshotUrl parameter in support endpoint"
@@ -73,6 +77,7 @@ test_cases:
     modules: ["lfi-path-traversal"]
     vuln_types: ["lfi"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Path traversal in file download endpoint"
@@ -84,6 +89,7 @@ test_cases:
     modules: ["open-redirect"]
     vuln_types: ["open-redirect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Open redirect via login redirect parameter"
@@ -98,6 +104,7 @@ test_cases:
     modules: ["xxe-generic"]
     vuln_types: ["xxe"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "XXE in supplier XML import endpoint"
@@ -112,6 +119,7 @@ test_cases:
     modules: ["xss-light-url-params"]
     vuln_types: ["xss-stored"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Stored XSS in product reviews content field"
@@ -123,6 +131,7 @@ test_cases:
     modules: ["idor-detection"]
     vuln_types: ["idor"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "IDOR on order endpoint - accessing other users' orders"
@@ -137,6 +146,7 @@ test_cases:
     modules: ["mass-assignment"]
     vuln_types: ["mass-assignment"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Mass assignment adding role field on signup"
@@ -148,6 +158,7 @@ test_cases:
     modules: ["cors-misconfiguration"]
     vuln_types: ["cors-misconfiguration"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CORS misconfiguration on products API endpoint"
@@ -159,6 +170,7 @@ test_cases:
     modules: ["nextjs-image-ssrf"]
     vuln_types: ["ssrf"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Next.js /_next/image SSRF via image optimization endpoint"
@@ -170,6 +182,7 @@ test_cases:
     modules: ["nextjs-middleware-bypass"]
     vuln_types: ["auth-bypass"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Next.js middleware bypass on protected admin route"
@@ -181,6 +194,7 @@ test_cases:
     modules: ["nextjs-data-leakage"]
     vuln_types: ["data-leakage"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "Next.js data route leakage on protected admin page"
@@ -192,6 +206,7 @@ test_cases:
     modules: ["js-devserver-exposure"]
     vuln_types: ["devserver-exposure"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "JavaScript dev server endpoint detection"
@@ -203,6 +218,7 @@ test_cases:
     modules: ["sensitive-file-discovery"]
     vuln_types: ["sensitive-file"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "JS framework sensitive file discovery (.env, next.config.js, etc.)"
@@ -216,6 +232,7 @@ test_cases:
     modules: ["file-upload-scan"]
     vuln_types: ["file-upload"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "SVG file upload with XSS payload"
@@ -230,6 +247,7 @@ test_cases:
     modules: ["csrf-verify"]
     vuln_types: ["csrf"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: active
     description: "CSRF on order status update endpoint"
@@ -252,6 +270,7 @@ test_cases:
     method: GET
     modules: ["ssr-data-exposure"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "SSR state blob inspection for sensitive data exposure"
@@ -272,6 +291,7 @@ test_cases:
     method: GET
     modules: ["cookie-security-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Cookie security flags check (HttpOnly, Secure, SameSite)"
@@ -285,6 +305,7 @@ test_cases:
     body: '{"email":"bench@test.com","password":"benchmark123"}'
     modules: ["jwt-weak-secret"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Weak JWT secret detection in login response"
@@ -298,6 +319,7 @@ test_cases:
     body: '{"status":"shipped"}'
     modules: ["csrf-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Missing CSRF protection on state-changing endpoint"
@@ -311,6 +333,7 @@ test_cases:
     body: '{}'
     modules: ["info-disclosure-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Information disclosure in user data export"
@@ -321,6 +344,7 @@ test_cases:
     method: GET
     modules: ["error-message-detect"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Error message leakage on nonexistent endpoint"
@@ -331,6 +355,7 @@ test_cases:
     method: GET
     modules: ["cache-auth-misconfiguration"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Cache-auth misconfiguration detection"
@@ -341,6 +366,7 @@ test_cases:
     method: GET
     modules: ["nextjs-config-audit"]
     assertion: soft
+    soft_reason: "expected count not yet recorded against the live Docker app; convert to strict with expected_findings once recorded"
     min_findings: 1
     scan_mode: passive
     description: "Next.js configuration audit for security issues"

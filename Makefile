@@ -1,4 +1,4 @@
-.PHONY: build build-prof build-embedded build-all snapshot release public public-release github-release prepare-public-scripts clean test test-unit test-integration test-spitolas-browser test-browser-conformance test-e2e test-e2e-api test-e2e-agent test-e2e-rest-scan test-e2e-postgres test-canary sanity-check test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jstangle ensure-jstangle sync-audit update-audit ensure-audit ensure-audit-dist restage-host-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts release-verify release-sign release-prune cdn-sync bump-version npm-build npm-pack npm-publish
+.PHONY: build build-prof build-embedded build-all snapshot release public public-release github-release prepare-public-scripts clean test test-unit test-integration test-spitolas-browser test-browser-conformance test-e2e test-e2e-api test-e2e-agent test-e2e-rest-scan test-e2e-postgres test-canary sanity-check test-e2e-vampi test-e2e-dvwa test-e2e-juiceshop test-e2e-browser-fallback test-e2e-piolium test-benchmark test-benchmark-whitebox test-benchmark-blackbox test-benchmark-all test-benchmark-crapi test-benchmark-vuln-java test-benchmark-vuln-nginx test-benchmark-coverage bench-diff test-agent-benchmark test-agent-parsing test-agent-quality test-agent-handoff test-agent-benchmark-e2e benchmark-agent-generate test-coverage coverage-gate coverage-combined test-coverage-check test-race test-ci test-xbow test-xbow-ssti test-xbow-xss test-xbow-sqli test-xbow-lfi test-xbow-cmdi test-xbow-ssrf test-xbow-xxe xbow-build lint verify-generated fmt tidy deps deps-chrome deps-chrome-update install install-gotestsum swagger help postgres-up postgres-down postgres-logs postgres-status crapi-up crapi-down crapi-logs crapi-status juiceshop-up juiceshop-down juiceshop-logs juiceshop-status vampi-up vampi-down vampi-logs vampi-status vulnerable-java-up vulnerable-java-down vulnerable-java-logs vulnerable-java-status vulnerable-nginx-up vulnerable-nginx-down vulnerable-nginx-logs vulnerable-nginx-status apps-up apps-down docker docker-build docker-build-prod docker-run docker-push docker-buildx-setup docker-publish update-jstangle ensure-jstangle sync-audit update-audit ensure-audit ensure-audit-dist restage-host-audit build-audit update-ui ssh-testbed-keygen ssh-testbed-up ssh-testbed-down ssh-testbed-status ssh-testbed-logs generate-metadata prepare-release-scripts release-verify release-sign release-prune cdn-sync bump-version npm-build npm-pack npm-publish
 # Phony targets defined in their own sections below (declared here so a stray
 # same-named file can never shadow them).
 .PHONY: all build-linux build-darwin build-windows deps-chrome-cft sync-platform sync-skills \
@@ -359,6 +359,14 @@ test-benchmark-vuln-nginx: install-gotestsum
 test-benchmark-coverage: install-gotestsum
 	@echo "$(PREFIX) Generating benchmark coverage report..."
 	$(TESTCMD) $(TESTFLAGS) -tags=canary -run TestBenchmark_CoverageReport ./test/benchmark/coverage/...
+
+# Compare two benchmark result files (BENCH_OUT JSON lines, e.g. the nightly
+# `benchmark-results` artifacts of two commits). Exits 1 on a regression:
+# passed -> failed, fewer findings, or a case missing from HEAD.
+#   make bench-diff BASE=old.jsonl HEAD=new.jsonl [BENCH_DIFF_FLAGS=-strict-requests]
+bench-diff:
+	@test -n "$(BASE)" -a -n "$(HEAD)" || { echo "usage: make bench-diff BASE=old.jsonl HEAD=new.jsonl"; exit 2; }
+	go run ./test/tools/benchdiff -base "$(BASE)" -head "$(HEAD)" $(BENCH_DIFF_FLAGS)
 
 # XBOW validation benchmarks (requires XBOW_SOURCE_DIR, Docker)
 XBOW_SOURCE_DIR ?= /Users/j3ssie/Desktop/research/validation-benchmarks
@@ -1362,8 +1370,9 @@ release-prune:
 # LAST, then prune old archives. Installers resolve the version from
 # metadata.json first, so until the pointer flips they keep resolving the
 # previous version, whose archives are still in place. Old archives are only
-# pruned after the new release is fully live.
-release: prepare-release-scripts ensure-audit-dist ensure-jstangle-dist
+# pruned after the new release is fully live. The unit suite (incl. the static
+# benchmark-definition lint) runs first: a red tree never ships.
+release: test-unit prepare-release-scripts ensure-audit-dist ensure-jstangle-dist
 	@echo "$(PREFIX) Building release..."
 	VIGOLIUM_VERSION=$(GORELEASER_VERSION) goreleaser --verbose release --snapshot --clean --parallelism 1
 	@$(MAKE) restage-host-audit
