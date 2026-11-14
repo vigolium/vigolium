@@ -41,6 +41,27 @@ var (
 	URLParamsModuleConfidence   = severity.Firm
 )
 
+// XSS Light - Body Parameters
+const (
+	BodyParamsModuleID    = "xss-light-body-params"
+	BodyParamsModuleName  = "XSS Light - Body Parameters"
+	BodyParamsModuleShort = "Detects XSS in form, JSON, XML and multipart body parameters that reflect into the response"
+)
+
+var (
+	BodyParamsModuleDesc = `**What it means:** A request body parameter (form, JSON, XML or multipart) is reflected into the response without context-aware encoding. The handler reads the body only, so URL-based testing never reaches it.
+
+**How it's exploited:** An attacker delivers the payload through a cross-site auto-submitting form, and the reflected script runs in the victim's browser. Only parameters whose value already reflects are probed; a GET is browser-confirmed, any other method is reported as a lead.
+
+**Fix:** Apply context-correct output encoding to every reflected body value and enforce a restrictive Content-Security-Policy.`
+
+	// Per-finding severity/confidence are set by the confirmation step; a
+	// non-navigable request is capped at Suspect/Tentative.
+	BodyParamsModuleConfirmation = "Confirmed when a reflecting body parameter's executable XSS payload breaks out unescaped; browser-confirmed (High) only for navigable GET requests, otherwise filed as Suspect/Tentative"
+	BodyParamsModuleSeverity     = severity.High
+	BodyParamsModuleConfidence   = severity.Firm
+)
+
 // XSS Light - Path Injection
 const (
 	PathModuleID    = "xss-light-path"

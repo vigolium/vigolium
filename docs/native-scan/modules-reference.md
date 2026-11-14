@@ -1,6 +1,6 @@
 # Scanner Modules Reference
 
-Vigolium ships with **335 scanner modules** — 216 active and 119 passive — covering the OWASP Top 10 and beyond. The categorized tables below are a curated selection synchronized with the current registry. Run `vigolium module ls` (or call `GET /api/modules`) for all modules and the authoritative live metadata.
+Vigolium ships with **335 scanner modules** — 217 active and 119 passive — covering the OWASP Top 10 and beyond. The categorized tables below are a curated selection synchronized with the current registry. Run `vigolium module ls` (or call `GET /api/modules`) for all modules and the authoritative live metadata.
 
 ## Severity Scale
 
@@ -67,6 +67,7 @@ Active modules send modified requests to detect vulnerabilities via fuzzing, inj
 | Module ID | Name | Description | Severity | Confidence | Tags |
 |---|---|---|---|---|---|
 | `xss-light-url-params` | XSS Light - URL Parameters | Detects XSS in URL parameters (POST→GET conversion when applicable) | High | Firm | `injection`, `xss`, `light` |
+| `xss-light-body-params` | XSS Light - Body Parameters | Detects XSS in form, JSON, XML and multipart body parameters that reflect into the response | High | Firm | `injection`, `xss`, `light` |
 | `xss-light-path` | XSS Light - Path Injection | Detects XSS via path manipulation (recursive, cut, append) | High | Firm | `injection`, `xss`, `light` |
 | `xss-light-param-discovery` | XSS Light - Parameter Discovery | Detects XSS via echo parameter discovery | High | Firm | `injection`, `xss`, `light` |
 
