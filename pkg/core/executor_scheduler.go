@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/vigolium/vigolium/pkg/core/network"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -16,11 +17,11 @@ import (
 // host limiter's current verdict. Tasks queue per host in FIFO order and are
 // admitted round-robin across hosts, one per host per turn.
 //
-// It replaces a plain global semaphore that a task took BEFORE it reached the
-// host gate: a slow or paced host then held every global slot with tasks that
-// were merely waiting for that host's gate, and every other host starved behind
-// it (MISS-30). Here a task only takes a global slot once its own host has room,
-// so a saturated host keeps its backlog in its queue, holding nothing.
+// A task only takes a global slot once its own host has room, so a saturated
+// host keeps its backlog in its queue, holding nothing. (A plain global
+// semaphore taken BEFORE the host gate would let a slow or paced host hold
+// every global slot with tasks merely waiting for that host's gate, starving
+// every other host behind it.)
 //
 // There is no dedicated admission goroutine. Admission is a "pump" run by
 // whoever changes the scheduler's state: enqueue (a task arrives), release (a
@@ -31,13 +32,13 @@ type activeScheduler struct {
 	mu sync.Mutex
 
 	// global is G. lowMemory halves it while the memory guardian reports
-	// pressure (RES-10 hook).
+	// pressure.
 	global    int
 	lowMemory func() bool
 	// capFor is the per-host task cap. Never returns < 1.
 	capFor func(host string) int
-	// pause, when non-nil, holds admission while paused (MISS-39). Queued
-	// tasks stay queued; running ones are untouched.
+	// pause, when non-nil, holds admission while paused. Queued tasks stay
+	// queued; running ones are untouched.
 	pause *PauseController
 
 	queues         map[string]*taskQueue
@@ -45,6 +46,9 @@ type activeScheduler struct {
 	next           int      // ring index the next pump starts from
 	running        int
 	runningPerHost map[string]int
+	// pumps counts pumpLocked runs; a queue's cached host cap is valid for
+	// the pump that computed it (taskQueue.capPump).
+	pumps uint64
 
 	// resumeWaiter is true while a goroutine waits on the pause controller to
 	// re-pump after resume.
@@ -55,15 +59,31 @@ type activeScheduler struct {
 type schedTask struct {
 	ctx  context.Context
 	host string
-	run  func(release func())
+	// run starts the admitted task; it must eventually call release (once is
+	// enough: further calls are no-ops).
+	run func(release func())
 	// drop finalises a task that will never run (its context was cancelled
 	// while it was queued): it releases the item reference and taskWG.
 	drop func()
+
+	sched    *activeScheduler
+	released atomic.Bool
+}
+
+// release frees the task's running slot. Idempotent, so a stray double call
+// can never over-drain the caps.
+func (t *schedTask) release() {
+	if t.released.CompareAndSwap(false, true) {
+		t.sched.release(t.host)
+	}
 }
 
 type taskQueue struct {
 	tasks []*schedTask
 	head  int
+	// cap / capPump cache the host's cap for one pump (see pumpLocked).
+	cap     int
+	capPump uint64
 }
 
 func (q *taskQueue) len() int { return len(q.tasks) - q.head }
@@ -123,9 +143,24 @@ func (s *activeScheduler) hostCap(host string) int {
 }
 
 // enqueue adds a task to its host's queue and pumps. Never blocks.
+//
+// Fast path: a live task whose host has nothing queued, under both caps and
+// not paused, is admitted at once without the round-robin walk. Any other
+// host's queued task is waiting on its own cap or G, which this admission
+// does not loosen; a cap that has since grown is picked up by the next pump
+// (every admitted task's release pumps).
 func (s *activeScheduler) enqueue(t *schedTask) {
+	t.sched = s
 	s.mu.Lock()
 	q := s.queues[t.host]
+	if (q == nil || q.len() == 0) && t.ctx.Err() == nil && !s.pausedLocked() &&
+		s.running < s.effectiveGlobal() && s.runningPerHost[t.host] < s.hostCap(t.host) {
+		s.running++
+		s.runningPerHost[t.host]++
+		s.mu.Unlock()
+		t.run(t.release)
+		return
+	}
 	if q == nil {
 		q = &taskQueue{}
 		s.queues[t.host] = q
@@ -138,6 +173,8 @@ func (s *activeScheduler) enqueue(t *schedTask) {
 	s.mu.Unlock()
 	s.finish(start, dropped)
 }
+
+func (s *activeScheduler) pausedLocked() bool { return s.pause != nil && s.pause.IsPaused() }
 
 // release frees one running slot of host and pumps.
 func (s *activeScheduler) release(host string) {
@@ -167,9 +204,7 @@ func (s *activeScheduler) finish(start, dropped []*schedTask) {
 		t.drop()
 	}
 	for _, t := range start {
-		host := t.host
-		var once sync.Once
-		t.run(func() { once.Do(func() { s.release(host) }) })
+		t.run(t.release)
 	}
 }
 
@@ -177,8 +212,7 @@ func (s *activeScheduler) finish(start, dropped []*schedTask) {
 // round-robin turn, and collects queued tasks whose context is already
 // cancelled. Caller holds s.mu.
 func (s *activeScheduler) pumpLocked() (start, dropped []*schedTask) {
-	paused := s.pause != nil && s.pause.IsPaused()
-	if paused {
+	if s.pausedLocked() {
 		// Admission waits on the pause; cancelled tasks are still dropped so a
 		// stop during a pause never waits on them.
 		dropped = s.dropCancelledLocked()
@@ -186,6 +220,7 @@ func (s *activeScheduler) pumpLocked() (start, dropped []*schedTask) {
 		return nil, dropped
 	}
 	g := s.effectiveGlobal()
+	s.pumps++
 	idle := 0 // consecutive hosts visited without an admission
 	for len(s.ring) > 0 && idle < len(s.ring) {
 		if s.next >= len(s.ring) {
@@ -205,7 +240,10 @@ func (s *activeScheduler) pumpLocked() (start, dropped []*schedTask) {
 		if s.running >= g {
 			break
 		}
-		if s.runningPerHost[host] >= s.hostCap(host) {
+		if q.capPump != s.pumps {
+			q.cap, q.capPump = s.hostCap(host), s.pumps
+		}
+		if s.runningPerHost[host] >= q.cap {
 			s.next++
 			idle++
 			continue
@@ -328,7 +366,7 @@ func schedHostKey(item *httpmsg.HttpRequestResponse) string {
 }
 
 // itemFairnessFactor: a worker parks a newly dequeued item whose host already
-// has more than this many × its cap tasks queued or running (ECON-3).
+// has more than this many × its cap tasks queued or running.
 const itemFairnessFactor = 4
 
 // maxDeferredItems bounds the parked-item list; past it, items dispatch
@@ -372,8 +410,13 @@ func (e *Executor) hostTaskCapFunc(global int) func(string) int {
 // deferredItems is the bounded parked-item list (item fairness).
 type deferredItems struct {
 	mu    sync.Mutex
-	items []*work.WorkItem
-	hosts []string
+	items []deferredItem
+}
+
+// deferredItem is a parked item and its scheduler host key.
+type deferredItem struct {
+	item *work.WorkItem
+	host string
 }
 
 func (d *deferredItems) park(item *work.WorkItem, host string) bool {
@@ -382,8 +425,7 @@ func (d *deferredItems) park(item *work.WorkItem, host string) bool {
 	if len(d.items) >= maxDeferredItems {
 		return false
 	}
-	d.items = append(d.items, item)
-	d.hosts = append(d.hosts, host)
+	d.items = append(d.items, deferredItem{item, host})
 	return true
 }
 
@@ -402,17 +444,16 @@ func (d *deferredItems) takeReady(overloaded func(host string) bool, force bool)
 		return nil
 	}
 	var ready []*work.WorkItem
-	keptItems, keptHosts := d.items[:0], d.hosts[:0]
-	for i, it := range d.items {
-		if force || !overloaded(d.hosts[i]) {
-			ready = append(ready, it)
+	kept := d.items[:0]
+	for _, it := range d.items {
+		if force || !overloaded(it.host) {
+			ready = append(ready, it.item)
 			continue
 		}
-		keptItems = append(keptItems, it)
-		keptHosts = append(keptHosts, d.hosts[i])
+		kept = append(kept, it)
 	}
-	clear(d.items[len(keptItems):])
-	d.items, d.hosts = keptItems, keptHosts
+	clear(d.items[len(kept):])
+	d.items = kept
 	return ready
 }
 
@@ -433,8 +474,18 @@ func (e *Executor) parkIfOverloaded(item *work.WorkItem) bool {
 // force sends every parked item (no host left to wait for). Returns false if
 // ctx was cancelled mid-send; the unsent items are counted unacked.
 func (e *Executor) requeueDeferred(ctx context.Context, itemCh chan<- *work.WorkItem, force bool) bool {
+	// Many parked items share a host: ask the scheduler once per host.
+	var seen map[string]bool
 	ready := e.pool.deferred.takeReady(func(h string) bool {
-		return e.pool.sched.overloaded(h, itemFairnessFactor)
+		over, ok := seen[h]
+		if !ok {
+			over = e.pool.sched.overloaded(h, itemFairnessFactor)
+			if seen == nil {
+				seen = make(map[string]bool)
+			}
+			seen[h] = over
+		}
+		return over
 	}, force)
 	for i, it := range ready {
 		select {
