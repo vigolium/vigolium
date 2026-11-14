@@ -66,18 +66,19 @@ var (
 	fuzzAnomalyMinPop    int
 
 	// Behaviour / output.
-	fuzzDryRun      bool
-	fuzzIgnoreScope bool
-	fuzzNoCalibrate bool
-	fuzzConcurrency int
-	fuzzDelayMs     int
-	fuzzRateLimit   float64
-	fuzzSuffixes    []string
-	fuzzTimeout     time.Duration
-	fuzzNoRedirects bool
-	fuzzOutputPath  string
-	fuzzAllResults  bool
-	fuzzFailOnMatch bool
+	fuzzDryRun             bool
+	fuzzIgnoreScope        bool
+	fuzzAllowBaselineError bool
+	fuzzNoCalibrate        bool
+	fuzzConcurrency        int
+	fuzzDelayMs            int
+	fuzzRateLimit          float64
+	fuzzSuffixes           []string
+	fuzzTimeout            time.Duration
+	fuzzNoRedirects        bool
+	fuzzOutputPath         string
+	fuzzAllResults         bool
+	fuzzFailOnMatch        bool
 
 	// Burp bridge.
 	fuzzSendViaBurp        bool
@@ -218,6 +219,7 @@ func init() {
 	f.BoolVar(&fuzzDryRun, "dry-run", false, "Resolve positions and payloads, print what would be sent, and exit without any network traffic")
 	f.BoolVar(&fuzzIgnoreScope, "ignore-scope", false, "Fuzz a host outside the project's configured scope")
 	f.BoolVar(&fuzzNoCalibrate, "no-calibrate", false, "Disable auto-calibration of the target's catch-all response")
+	f.BoolVar(&fuzzAllowBaselineError, "allow-baseline-error", false, "Run even when every baseline send fails (deltas, calibration and anomaly scoring then compare against an empty response)")
 	f.IntVarP(&fuzzConcurrency, "concurrency", "c", 10, "Concurrent requests")
 	f.IntVar(&fuzzDelayMs, "delay", 0, "Delay in ms before each request (per worker)")
 	f.Float64VarP(&fuzzRateLimit, "rate-limit", "r", 0, "Max requests/second across all workers, counting baseline and calibration sends (0 = unlimited; fractions allowed, e.g. 0.5). Not taken from scanning config")
@@ -322,7 +324,7 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	cases, err := fuzz.BuildCases(mode, positions, sets, payloads)
+	cases, err := fuzz.BuildPlan(mode, positions, sets, payloads)
 	if err != nil {
 		return err
 	}
@@ -402,24 +404,25 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "%s fuzzing %s (%d position(s), %s, %d sends, pace: %s)\n",
-		terminal.InfoSymbol(), fuzzTargetLabel(src), len(positions), mode, len(cases), pace)
+		terminal.InfoSymbol(), fuzzTargetLabel(src), len(positions), mode, cases.Len(), pace)
 
 	// OnResult is called serially by the engine, so no extra locking is needed
 	// to accumulate the ranked top anomalies for the -j summary.
 	var topResults []fuzz.Result
 	job := fuzz.Job{
-		Raw:             src.BaselineRequest,
-		Scheme:          src.Scheme,
-		Hostname:        src.Hostname,
-		Port:            src.Port,
-		Positions:       positions,
-		Payloads:        payloads,
-		Cases:           cases,
-		Matchers:        matchers,
-		Filters:         filters,
-		Anomaly:         anomalyCfg,
-		BaselineSamples: resolveBaselineSamples(anomalyCfg != nil),
-		AutoCalibrate:   !fuzzNoCalibrate,
+		Raw:                src.BaselineRequest,
+		Scheme:             src.Scheme,
+		Hostname:           src.Hostname,
+		Port:               src.Port,
+		Positions:          positions,
+		Payloads:           payloads,
+		Plan:               cases,
+		AllowBaselineError: fuzzAllowBaselineError,
+		Matchers:           matchers,
+		Filters:            filters,
+		Anomaly:            anomalyCfg,
+		BaselineSamples:    resolveBaselineSamples(anomalyCfg != nil),
+		AutoCalibrate:      !fuzzNoCalibrate,
 		// buildFuzzClient (not replay.NewDefaultClient) so the global --proxy
 		// flag actually routes fuzz traffic — it was accepted and silently
 		// ignored here — and so the curl TLS/redirect/resolve options apply.
@@ -751,7 +754,7 @@ type fuzzDryRunPayloads struct {
 // fuzzDryRunSample bounds how many payloads the report echoes back.
 const fuzzDryRunSample = 10
 
-func emitFuzzDryRun(cmd *cobra.Command, src *replaySource, positions []fuzz.Position, payloads []string, cases []fuzz.Case) error {
+func emitFuzzDryRun(cmd *cobra.Command, src *replaySource, positions []fuzz.Position, payloads []string, cases fuzz.CasePlan) error {
 	probe := "FUZZED"
 	if len(payloads) > 0 {
 		probe = payloads[0]
@@ -760,7 +763,7 @@ func emitFuzzDryRun(cmd *cobra.Command, src *replaySource, positions []fuzz.Posi
 		Target:  replaySourceURL(src),
 		Method:  requestMethodOf(src.BaselineRequest),
 		Mode:    fuzzMode,
-		Sends:   len(cases),
+		Sends:   cases.Len(),
 		Request: string(src.BaselineRequest),
 		Pace:    currentFuzzPace(fuzzWire{}),
 		Payloads: fuzzDryRunPayloads{
@@ -779,8 +782,8 @@ func emitFuzzDryRun(cmd *cobra.Command, src *replaySource, positions []fuzz.Posi
 	}
 	// Under a multi-position mode the per-position example understates what
 	// actually goes on the wire, so show the first real case too.
-	if len(cases) > 0 && len(cases[0].Assignments) > 1 {
-		report.ExampleCase = string(fuzz.BuildCase(cases[0], src.BaselineRequest))
+	if cases.Len() > 0 && len(cases.At(0).Assignments) > 1 {
+		report.ExampleCase = string(fuzz.BuildCase(cases.At(0), src.BaselineRequest))
 	}
 
 	if globalJSON {
