@@ -204,6 +204,9 @@ func runNativeScanLifecycle(p nativeScanPass) (err error) {
 	repo := database.NewRepository(db)
 	zap.L().Debug("Database initialized successfully",
 		zap.String("driver", db.Driver()))
+	if !opts.Stateless {
+		reapOwnProjectAtScanStart(repo, settings, opts.ProjectUUID)
+	}
 
 	// Stateless + -o + default console format: capture the full verbose
 	// console session (banner, scan summary, phase progress, result lines)

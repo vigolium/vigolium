@@ -126,3 +126,85 @@ func reapAbandonedScans(ctx context.Context, repo *database.Repository, projectU
 	}
 	return reaped, nil
 }
+
+// abandonedReapInterval is how often a running server reaps abandoned scan
+// rows. A crashed scan otherwise stays "running" in every project listing
+// until someone runs `log ls --reap`.
+const abandonedReapInterval = 5 * time.Minute
+
+// reapAllProjects reaps abandoned scans in every project (the same verdict as
+// `log ls --reap`) and returns how many rows it finalized.
+func reapAllProjects(ctx context.Context, repo *database.Repository, sessionsDir string) int {
+	if repo == nil {
+		return 0
+	}
+	projects, err := repo.ListProjects(ctx, "")
+	if err != nil {
+		zap.L().Debug("abandoned-scan reaper: cannot list projects", zap.Error(err))
+		return 0
+	}
+	// The default project always: scans land in it even on a store whose
+	// projects table was never seeded.
+	uuids := []string{database.DefaultProjectUUID}
+	for _, p := range projects {
+		if p.UUID != database.DefaultProjectUUID {
+			uuids = append(uuids, p.UUID)
+		}
+	}
+	total := 0
+	for _, uuid := range uuids {
+		reaped, err := reapAbandonedScans(ctx, repo, uuid, sessionsDir)
+		if err != nil {
+			zap.L().Debug("abandoned-scan reaper: project failed", zap.String("project", uuid), zap.Error(err))
+		}
+		if len(reaped) > 0 {
+			zap.L().Info("Reaped abandoned scans", zap.String("project", uuid), zap.Strings("scans", reaped))
+		}
+		total += len(reaped)
+	}
+	return total
+}
+
+// startAbandonedScanReaper runs reapAllProjects now and every interval until
+// stop is called. Each pass is bounded so a slow store cannot pile passes up.
+func startAbandonedScanReaper(repo *database.Repository, sessionsDir string, interval time.Duration) (stop func()) {
+	if repo == nil {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			passCtx, passCancel := context.WithTimeout(ctx, time.Minute)
+			reapAllProjects(passCtx, repo, sessionsDir)
+			passCancel()
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+// reapOwnProjectAtScanStart finalizes the abandoned scans of the project a new
+// scan is about to write into, so the new run's listings and diffs do not sit
+// next to a crashed predecessor still claiming to run. Best-effort and bounded.
+func reapOwnProjectAtScanStart(repo *database.Repository, settings *config.Settings, projectUUID string) {
+	if repo == nil || settings == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sessionsDir := settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir()
+	if reaped, err := reapAbandonedScans(ctx, repo, projectUUID, sessionsDir); err == nil && len(reaped) > 0 {
+		zap.L().Info("Reaped abandoned scans before starting", zap.Strings("scans", reaped))
+	}
+}

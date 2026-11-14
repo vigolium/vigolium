@@ -393,3 +393,40 @@ func TestReapAbandonedScans(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
+
+// TestAbandonedScanReaper is RES-8: the server's periodic reaper finalizes
+// abandoned rows in every project (not just the default), and leaves live ones.
+func TestAbandonedScanReaper(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	stubLiveness(t, now, "here", func(int) bool { return true })
+	repo := newC2bTestRepo(t)
+	ctx := context.Background()
+	other := "11111111-2222-3333-4444-555555555555"
+	require.NoError(t, repo.CreateProject(ctx, &database.Project{UUID: other, Name: "other", OwnerUUID: database.DefaultUserUUID}))
+	deadBeat := now.Add(-time.Hour)
+	liveBeat := now.Add(-5 * time.Second)
+	for uuid, spec := range map[string]struct {
+		project string
+		beat    time.Time
+	}{
+		"dead-default": {database.DefaultProjectUUID, deadBeat},
+		"dead-other":   {other, deadBeat},
+		"live-other":   {other, liveBeat},
+	} {
+		start := now.Add(-3 * time.Hour)
+		require.NoError(t, repo.CreateScan(ctx, &database.Scan{UUID: uuid, ProjectUUID: spec.project, Status: "running", StartedAt: start, CreatedAt: start, UpdatedAt: start}))
+		_, err := repo.UpdateScanHeartbeat(ctx, uuid, database.ScanHeartbeat{At: spec.beat, Phase: "discovery"})
+		require.NoError(t, err)
+	}
+
+	stop := startAbandonedScanReaper(repo, t.TempDir(), time.Hour)
+	require.Eventually(t, func() bool {
+		a, _ := repo.GetScanByUUID(ctx, "dead-default")
+		b, _ := repo.GetScanByUUID(ctx, "dead-other")
+		return a != nil && b != nil && a.Status == "failed" && b.Status == "failed"
+	}, 5*time.Second, 20*time.Millisecond)
+	stop()
+	live, err := repo.GetScanByUUID(ctx, "live-other")
+	require.NoError(t, err)
+	assert.Equal(t, "running", live.Status)
+}

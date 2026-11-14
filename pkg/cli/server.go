@@ -446,6 +446,11 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	// (scanning_strategy.scan_logs.status_retention_days), off the start path.
 	pruneSessionStatusInBackground(settings)
 
+	// Reap scans whose process died without finalizing their row, now and
+	// every few minutes, in every project.
+	stopReaper := startAbandonedScanReaper(repo, settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir(), abandonedReapInterval)
+	defer stopReaper()
+
 	// Load file-based users for role-based access control.
 	// Bootstrap from embedded default template on first run.
 	var userStore *server.UserStore
