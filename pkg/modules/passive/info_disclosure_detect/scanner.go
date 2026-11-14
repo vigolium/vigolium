@@ -44,6 +44,9 @@ type disclosureMatch struct {
 	kind        output.RecordKind
 	grade       output.EvidenceGrade
 	severity    severity.Severity
+	// dedupKey, when set, collapses the match across URLs: a Server banner
+	// is a property of the host, not of every page that carries it.
+	dedupKey string
 }
 
 // Module implements the Information Disclosure Detect passive scanner.
@@ -105,6 +108,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 				kind:        output.RecordKindObservation,
 				grade:       output.EvidenceGradeObservation,
 				severity:    severity.Info,
+				dedupKey:    headerDedupKey(urlx.Host, check.headerName, val),
 			})
 		}
 	}
@@ -185,6 +189,7 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 			Request:          string(ctx.Request().Raw()),
 			Response:         string(ctx.Response().Raw()),
 			ExtractedResults: []string{match.evidence},
+			DedupKey:         match.dedupKey,
 			Info: output.Info{
 				Name:        match.name,
 				Description: match.description,
@@ -206,4 +211,11 @@ func firstPrivateIPv4(body string) string {
 		}
 	}
 	return ""
+}
+
+// headerDedupKey identifies a header disclosure by host, header and value, so
+// one banner yields one observation per host instead of one per URL (each
+// carrying a full response).
+func headerDedupKey(host, header, value string) string {
+	return "info-disclosure-header|" + strings.ToLower(host) + "|" + strings.ToLower(header) + "|" + value
 }
