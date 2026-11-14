@@ -80,9 +80,8 @@ type PoolStatsSnapshot struct {
 func (s PoolStatsSnapshot) RoundTrips() int64 { return s.ConnNew + s.ConnReused }
 
 // ReuseRatio is the share of round trips served on an already-open connection:
-// (roundTrips - dialed) / roundTrips. A low value signals connection churn — the
-// class of regression that made anonymous-clone transport fragmentation invisible
-// before this telemetry existed.
+// (roundTrips - dialed) / roundTrips. A low value signals connection churn, such
+// as anonymous clones fragmenting the transport.
 //
 // Derived from ConnDialed (the transport's real dials) rather than the httptrace
 // new/reused split, which systematically misattributes new connections as reuses.

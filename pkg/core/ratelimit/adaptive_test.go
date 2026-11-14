@@ -164,7 +164,7 @@ func TestAdaptive_ContextCancelNotDistress(t *testing.T) {
 		t.Fatalf("context cancellation must not back off; got %d, want 8", got)
 	}
 	// A deadline is a client timeout — the host failed to answer — and backs
-	// off (MISS-23). A caller whose own context expired does not report.
+	// off. A caller whose own context expired does not report.
 	h.Feedback(host, FeedbackOutcome{Err: context.DeadlineExceeded})
 	if got := h.currentLimit(host); got != 4 {
 		t.Fatalf("a client timeout must back off; got %d, want 4", got)
@@ -278,7 +278,7 @@ func TestWafAutoArm_StaysPinnedUntilBlock(t *testing.T) {
 	}
 	// A burst of ordinary distress (502/503/timeout) must not change the limit while
 	// the host is unarmed — that's the "no behavior change for non-WAF targets" rule.
-	// (A 429 is a server throttle, not ordinary distress: it arms the host — MISS-22,
+	// (A 429 is a server throttle, not ordinary distress: it arms the host,
 	// see TestFeedback_ThrottlePausesAndHalves.)
 	for i := 0; i < 5; i++ {
 		time.Sleep(decreaseCooldown + 5*time.Millisecond)

@@ -10,7 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// ECON-13: a stored "Connection: close" must not force a new TLS handshake
+// A stored "Connection: close" must not force a new TLS handshake
 // per probe on the net/http path; PreserveConnection keeps it.
 func TestConnectionClose_DroppedSoConnectionsAreReused(t *testing.T) {
 	var conns atomic.Int64

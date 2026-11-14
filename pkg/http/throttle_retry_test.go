@@ -35,7 +35,7 @@ func newLimitedRequester(t *testing.T) *Requester {
 	return r
 }
 
-// MISS-22: a 429 is retried transparently after the host's pause; the module
+// A 429 is retried transparently after the host's pause; the module
 // sees the 200 and the retry lands >= 1s after the throttle.
 func TestThrottle_429ThenOK(t *testing.T) {
 	var mu sync.Mutex

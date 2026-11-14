@@ -17,7 +17,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// MISS-24: a host that silently drops payloads (a WAF) trips the breaker.
+// A host that silently drops payloads (a WAF) trips the breaker.
 // The recovery probe used to be whichever payload arrived, so it failed too
 // and the host stayed quarantined; with a baseline the probe is the record's
 // own request, which the host answers, and the breaker closes.

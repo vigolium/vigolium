@@ -37,7 +37,7 @@ func newRetryRequester(t *testing.T, retries int, timeout time.Duration) *Reques
 	return r
 }
 
-// A written request that timed out is never re-sent (SAFE-10): a sleep
+// A written request that timed out is never re-sent: a sleep
 // payload or a slow POST would otherwise run twice server-side.
 func TestRetry_WrittenTimeoutNotRetried(t *testing.T) {
 	var hits atomic.Int64

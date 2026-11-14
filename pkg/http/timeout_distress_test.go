@@ -15,7 +15,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// MISS-23: a client timeout is host distress. A host that stops answering
+// A client timeout is host distress. A host that stops answering
 // used to read as "scan shutdown" (context.DeadlineExceeded) and never backed
 // off; the limit must fall to the floor.
 func TestTimeoutsCountAsDistress(t *testing.T) {

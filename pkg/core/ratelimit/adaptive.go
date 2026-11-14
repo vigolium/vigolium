@@ -161,7 +161,7 @@ type FeedbackOutcome struct {
 }
 
 // Throttled reports whether the outcome is the server asking us to slow
-// down: a 429, or a 503 that names a Retry-After (MISS-22).
+// down: a 429, or a 503 that names a Retry-After.
 func (o FeedbackOutcome) Throttled() bool {
 	if o.ExpectedThrottle {
 		return false
@@ -169,7 +169,7 @@ func (o FeedbackOutcome) Throttled() bool {
 	return o.Status == 429 || (o.Status == 503 && o.RetryAfter > 0)
 }
 
-// Throttle pause bounds (MISS-22).
+// Throttle pause bounds.
 const (
 	minThrottlePause = 1 * time.Second
 	maxThrottlePause = 60 * time.Second
@@ -251,7 +251,7 @@ func (h *HostRateLimiter) Feedback(host string, o FeedbackOutcome) {
 	}
 
 	// A failure that is not distress (the caller cancelled) says nothing about
-	// the host: it must not count toward the healthy ramp either (MISS-23).
+	// the host: it must not count toward the healthy ramp either.
 	if err != nil && !wafBlocked && !isDistress(statusCode, err) {
 		return
 	}
@@ -360,7 +360,7 @@ func isDistress(statusCode int, err error) bool {
 
 // isContextCanceled reports whether err is a caller cancellation, which
 // reflects scan shutdown or an abandoned call rather than host distress and
-// must not trigger back-off. A deadline is NOT a cancellation (MISS-23): a
+// must not trigger back-off. A deadline is NOT a cancellation: a
 // client timeout surfaces as context.DeadlineExceeded / a net.Error whose
 // Timeout() is true, and a host that stops answering is exactly the distress
 // back-off exists for. Callers that know their own context expired (a phase

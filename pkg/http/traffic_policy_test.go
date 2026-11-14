@@ -15,7 +15,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-// SAFE-8: a read-only policy refuses DELETE (and a smuggled override) before
+// A read-only policy refuses DELETE (and a smuggled override) before
 // anything is sent; the priority lane (login) is exempt.
 func TestTrafficPolicy_RequesterChokepoint(t *testing.T) {
 	var hits atomic.Int64

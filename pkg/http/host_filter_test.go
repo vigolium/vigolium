@@ -10,7 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
-// SAFE-14: a WithHostFilter view (the JS extension requester) refuses
+// A WithHostFilter view (the JS extension requester) refuses
 // out-of-scope hosts before anything is sent.
 func TestWithHostFilter(t *testing.T) {
 	var hits atomic.Int64

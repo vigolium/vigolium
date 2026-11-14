@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// MISS-22: a 429 pauses the host (acquires wait ≥ ~1s) and halves its limit,
+// A 429 pauses the host (acquires wait ≥ ~1s) and halves its limit,
 // even in WAF-auto-arm mode before any WAF block.
 func TestFeedback_ThrottlePausesAndHalves(t *testing.T) {
 	h := NewHostRateLimiter(HostRateLimiterConfig{MaxPerHost: 8, WafAutoArm: true})
@@ -64,7 +64,7 @@ func TestFeedback_RetryAfterAndPlain503(t *testing.T) {
 }
 
 // A host that throttles everything without Retry-After stops stalling the
-// scan after maxPausedThrottles pauses (MISS-22).
+// scan after maxPausedThrottles pauses.
 func TestFeedback_PersistentThrottleStopsPausing(t *testing.T) {
 	h := NewHostRateLimiter(HostRateLimiterConfig{MaxPerHost: 4})
 	defer func() { _ = h.Close() }()

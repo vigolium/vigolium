@@ -88,7 +88,7 @@ type hostEntry struct {
 	preArmed atomic.Bool
 
 	// pauseUntil (unix nanos) holds every new acquire for this host until the
-	// server's throttle window has passed (MISS-22): a 429, or a 503 with
+	// server's throttle window has passed: a 429, or a 503 with
 	// Retry-After. throttles counts consecutive throttles for the 1s·2^n
 	// back-off when the server named no Retry-After; a healthy response
 	// resets it.
@@ -149,7 +149,7 @@ type HostRateLimiter struct {
 	// HostRateLimiterConfig.DisablePreArm (the --no-waf-pacing flag).
 	preArmDisabled bool
 
-	// throttlePauseDisabled turns off the 429/503 host pause (MISS-22) while
+	// throttlePauseDisabled turns off the 429/503 host pause while
 	// keeping the concurrency back-off. From
 	// HostRateLimiterConfig.DisableThrottlePause.
 	throttlePauseDisabled bool
@@ -173,7 +173,7 @@ type HostRateLimiter struct {
 
 	// anyPaused is a fast-path flag: false until some host was throttled, so
 	// the acquire hot path skips the pause lookup on a scan that never saw a
-	// 429 (MISS-22).
+	// 429.
 	anyPaused atomic.Bool
 
 	// preArmSink, when set, is invoked once per host the first time PreArm throttles
@@ -190,9 +190,8 @@ type HostRateLimiter struct {
 	// with the limiter's entry lifetime: after an evicted host's entry is recreated
 	// (fresh, at full rate), the requester re-fingerprints and re-arms it instead of
 	// treating it as permanently paced. Every requester that shares this limiter
-	// registers its own dedup, so this is a list (not a single field): the old single
-	// field kept only the last registrant and raced the eviction goroutine that read
-	// it without synchronization. Subscriptions live for the limiter's lifetime.
+	// registers its own dedup, so this is a list (not a single field, which would
+	// keep only the last registrant). Subscriptions live for the limiter's lifetime.
 	// Guarded by evictMu. Each sink must be cheap and must NOT re-enter the limiter
 	// (it runs while a shard lock is held).
 	evictMu    sync.Mutex
@@ -299,7 +298,7 @@ type HostRateLimiterConfig struct {
 	DisablePreArm bool
 
 	// DisableThrottlePause turns off the time-based pause a 429 (or 503 with
-	// Retry-After) puts on a host (MISS-22); the concurrency back-off still
+	// Retry-After) puts on a host; the concurrency back-off still
 	// applies. For harnesses that send many requests at a deliberately
 	// throttling fixture and only care about what modules conclude from it.
 	DisableThrottlePause bool

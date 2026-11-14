@@ -119,7 +119,7 @@ type Budget struct {
 
 	// phaseLimit, when > 0, is the scan-wide count the running phase may not
 	// pass (LimitPhase) — a share of --max-requests, so discovery wordlists
-	// cannot spend the whole budget before the assessment runs (ECON-5).
+	// cannot spend the whole budget before the assessment runs.
 	// Refusing at it ends only the phase's sends; the scan carries on.
 	phaseLimit atomic.Int64
 	phaseName  atomic.Pointer[string]

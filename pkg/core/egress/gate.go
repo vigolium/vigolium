@@ -3,12 +3,10 @@
 // the dead-host breaker and the wire-attempt counter, applied in one order by
 // one type.
 //
-// Before it existed each sender assembled those pieces itself, and most did not:
-// the shared requester took one token per LOGICAL request while its retries and
-// redirect hops went out free and kept the host slot through every backoff
-// sleep; the discovery engine took no host slot and saw no quarantine; the
-// port-sweep confirm step and the login flow took nothing at all. A Gate makes
-// "what does it cost to send one request to the target" a single answer.
+// Every sender — the shared requester (retries and redirect hops included), the
+// discovery engine, the port-sweep confirm step, the login flow — admits its
+// traffic here rather than assembling those pieces itself, so "what does it
+// cost to send one request to the target" has a single answer.
 //
 // Order inside Acquire, and why:
 //
@@ -388,8 +386,8 @@ type RetryPolicy struct {
 	IgnoreTimeout bool
 }
 
-// DefaultBackoff doubles from 1s and caps at 10s — the schedule retryablehttp
-// applied before retries moved here (RetryWaitMin 1s, RetryWaitMax 10s).
+// DefaultBackoff doubles from 1s and caps at 10s (retryablehttp's RetryWaitMin
+// 1s, RetryWaitMax 10s).
 func DefaultBackoff(attempt int) time.Duration {
 	const minWait, maxWait = time.Second, 10 * time.Second
 	if attempt >= 4 {
@@ -548,7 +546,7 @@ func (t *roundTripper) report(req *http.Request, resp *http.Response, err error)
 	hosts.Feedback(host, ratelimit.FeedbackOutcome{Status: resp.StatusCode, WAFBlocked: t.isBlock(resp)})
 }
 
-// requestCancelled reports whether the CALLER gave up on req (MISS-23). A
+// requestCancelled reports whether the CALLER gave up on req. A
 // client timeout is not a caller cancellation: it is the host failing to
 // answer in time, which the limiter must count as distress.
 //

@@ -387,3 +387,8 @@ func TestAuthWallStopKeepsTheRedirectResponse(t *testing.T) {
 		t.Errorf("StoppedAtAuthWall did not recognise the stop it was built to attribute (location %q)", loc)
 	}
 }
+
+// makeRedirectFunc is makeScopedRedirectFunc with no scope known.
+func makeRedirectFunc(mode string, maxRedirects int) func(*http.Request, []*http.Request) error {
+	return makeScopedRedirectFunc(mode, maxRedirects, nil)
+}

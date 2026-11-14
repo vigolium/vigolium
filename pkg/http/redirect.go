@@ -32,7 +32,7 @@ const (
 	// RedirectModeInScope follows a hop only when its host is inside the scan's
 	// scope (Services.HopScope, installed by the runner from the scope
 	// matcher). With no scope installed (a library caller, a bare requester)
-	// it behaves as same-apex. This is the default (SAFE-2): a redirect is a
+	// it behaves as same-apex. This is the default: a redirect is a
 	// request to a new destination, and "any" sent scan traffic — payloads
 	// included — to whatever host a target named.
 	RedirectModeInScope = "in-scope"
@@ -61,9 +61,7 @@ func ValidRedirectMode(s string) bool {
 //
 // An explicit RedirectMode always wins. Otherwise the legacy bools are mapped
 // so nothing that set them changes behaviour: DisableRedirects means off,
-// FollowHostRedirects means same-host, and anything else means any — which is
-// what the old makeRedirectFunc(false, n) already did, since it only ever
-// refused on the hop cap.
+// FollowHostRedirects means same-host, and anything else means any.
 func ResolveRedirectMode(options *types.Options) string {
 	if options == nil {
 		return RedirectModeInScope
@@ -88,10 +86,10 @@ func ResolveRedirectMode(options *types.Options) string {
 }
 
 // crossHostKeepHeaders are the only request headers that survive a redirect
-// hop to a different host:port (SAFE-2). Everything else — session and -H
+// hop to a different host:port. Everything else — session and -H
 // credentials, API keys, module-owned headers, tracing ids — stays with the
 // host it was meant for. Go itself strips only Authorization and Cookie, and
-// only across domains, so `-H "X-API-Key: …"` used to reach any Location.
+// only across domains, which would let `-H "X-API-Key: …"` reach any Location.
 var crossHostKeepHeaders = map[string]bool{
 	"User-Agent":     true,
 	"Content-Type":   true,
@@ -110,20 +108,17 @@ func stripCrossHostHeaders(h http.Header) {
 	}
 }
 
-// makeRedirectFunc builds the http.Client CheckRedirect policy for mode.
+// makeScopedRedirectFunc builds the http.Client CheckRedirect policy for mode,
+// with the scan's hop scope.
 //
 // via[0] is the ORIGINAL request, not the previous hop: a chain that walks
 // a.example -> b.example -> c.example is judged against a.example at every
 // step. That is deliberate for same-apex — otherwise a chain could walk off
 // its starting domain one hop at a time, each hop looking legitimate relative
 // to the one before it.
-func makeRedirectFunc(mode string, maxRedirects int) func(*http.Request, []*http.Request) error {
-	return makeScopedRedirectFunc(mode, maxRedirects, nil)
-}
-
-// makeScopedRedirectFunc is makeRedirectFunc with the scan's hop scope. scope
-// is read per hop (the runner installs it on Services after the requester is
-// built); a nil getter or a nil result means "no scope known", under which
+//
+// scope is read per hop (the runner installs it on Services after the
+// requester is built); a nil getter or a nil result means "no scope known", under which
 // in-scope degrades to same-apex. A followed hop to a different host:port has
 // its headers stripped to crossHostKeepHeaders in every mode.
 func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(host string) bool) func(*http.Request, []*http.Request) error {
