@@ -590,6 +590,17 @@ oast:
   # Default: 10
   grace_period: 10
 
+  # Keep the interactsh session open when a scan ends (stored in the database,
+  # key material redacted from exports) so callbacks that arrive later - a blind
+  # XSS rendered next week, a queued job - are still collected by
+  # `vigolium oast poll` or the server's periodic poller. Never applies to -S.
+  # Default: true
+  keep_session: true
+
+  # Minutes between `vigolium server` polls of kept sessions (0 disables).
+  # Default: 5
+  session_poll_interval: 5
+
   # Fixed OAST callback URL. When set, all OAST modules use this URL
   # instead of auto-generating unique URLs via interactsh.
   # Useful for custom callback servers or manual testing.

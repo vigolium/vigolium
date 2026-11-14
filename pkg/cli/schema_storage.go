@@ -50,6 +50,7 @@ var storageTablePurpose = map[string]string{
 	"projects":              "Projects; every scan row and record carries a project_uuid",
 	"oast_interactions":     "Out-of-band callbacks received",
 	"oast_payloads":         "Out-of-band payloads issued, for attributing callbacks",
+	"oast_sessions":         "Interactsh sessions kept open after a scan so `vigolium oast poll` collects late callbacks (key columns redacted in exports)",
 	"schema_meta":           "The store's schema version and the binary that wrote it",
 }
 

@@ -28,15 +28,27 @@ type OASTConfig struct {
 	OastURL         string `yaml:"oast_url"`          // fixed callback URL (empty = auto-generate via interactsh)
 	BlindXSSSrc     string `yaml:"blind_xss_src"`     // JS script src for blind XSS payloads
 	EnabledBlindXSS bool   `yaml:"enabled_blind_xss"` // default: false
+
+	// KeepSession keeps the interactsh registration open when a scan ends
+	// (stored in oast_sessions) instead of deregistering, so late callbacks are
+	// collected by `vigolium oast poll` or the server's periodic poller.
+	// Default true; never applies to a stateless (-S) scan, whose store is
+	// discarded.
+	KeepSession bool `yaml:"keep_session"`
+	// SessionPollInterval is how often, in minutes, `vigolium server` polls
+	// kept sessions. Default 5; 0 or negative disables the server poller.
+	SessionPollInterval int `yaml:"session_poll_interval"`
 }
 
 // DefaultOASTConfig returns sensible OAST defaults (enabled by default).
 func DefaultOASTConfig() *OASTConfig {
 	return &OASTConfig{
-		Enabled:           true,
-		ServerURL:         DefaultOASTServer,
-		FallbackToDefault: true,
-		PollInterval:      5,
-		GracePeriod:       10,
+		Enabled:             true,
+		ServerURL:           DefaultOASTServer,
+		FallbackToDefault:   true,
+		PollInterval:        5,
+		GracePeriod:         10,
+		KeepSession:         true,
+		SessionPollInterval: 5,
 	}
 }

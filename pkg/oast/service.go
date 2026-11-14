@@ -101,6 +101,9 @@ type Service struct {
 	blindXSSSrc        string // JS script src for blind XSS payloads
 	enabledBlindXSS    bool   // whether blind XSS probing is active
 	fallbackToDefault  bool   // re-register against config.DefaultOASTServer when serverURL does not answer
+	// keepSession keeps the interactsh registration open on Close, stored in
+	// oast_sessions, for a later poll (see session.go). Requires a store.
+	keepSession bool
 	// onFallback reports that registration reached config.DefaultOASTServer
 	// instead of serverURL. Atomic because register() writes it from its own
 	// goroutine while ServerURL() reads it from the scan's.
@@ -233,7 +236,7 @@ func (s *Service) GenerateURLFor(cls Class, targetURL, paramName, label, moduleI
 	// We use the full subdomain (before first dot) as the tracker key.
 	nonce := extractNonce(url)
 	if nonce != "" {
-		s.trackerCache().Add(nonce, PayloadContext{
+		pctx := PayloadContext{
 			TargetURL:     targetURL,
 			ParameterName: paramName,
 			InjectionType: label,
@@ -241,6 +244,19 @@ func (s *Service) GenerateURLFor(cls Class, targetURL, paramName, label, moduleI
 			ModuleID:      moduleID,
 			RequestHash:   requestHash,
 			CallbackURL:   url,
+		}
+		s.trackerCache().Add(nonce, pctx)
+		// Persisted (batch-written) so a callback that outlives the tracker
+		// or this process still correlates (see session.go).
+		s.queuePayload(&database.OASTPayload{
+			Nonce:       nonce,
+			ProjectUUID: s.projectUUID,
+			ScanUUID:    s.scanUUID,
+			Class:       string(pctx.class()),
+			ModuleID:    moduleID,
+			TargetURL:   targetURL,
+			Param:       paramName,
+			RequestHash: requestHash,
 		})
 	}
 
@@ -269,12 +285,11 @@ func (s *Service) RecordPayload(callbackURL, payload string) {
 		return
 	}
 	cache := s.trackerCache()
-	pctx, ok := cache.Get(nonce)
-	if !ok {
-		return
+	if pctx, ok := cache.Get(nonce); ok {
+		pctx.Payload = payload
+		cache.Add(nonce, pctx)
 	}
-	pctx.Payload = payload
-	cache.Add(nonce, pctx)
+	s.recordStoredPayload(nonce, payload)
 }
 
 // BlindXSSSrc returns the configured blind XSS script src URL.
@@ -304,13 +319,24 @@ func (s *Service) SetRequestUUIDResolver(fn func(string) string) {
 
 // handleInteraction processes a single interaction from the interactsh server.
 func (s *Service) handleInteraction(interaction *server.Interaction) {
+	s.handleInteractionCorrelated(interaction)
+}
+
+// handleInteractionCorrelated is handleInteraction reporting whether the
+// callback correlated to a planted payload.
+func (s *Service) handleInteractionCorrelated(interaction *server.Interaction) bool {
 	if interaction == nil {
-		return
+		return false
 	}
 
-	// Look up payload context using the unique ID
+	// Look up payload context using the unique ID: the in-memory tracker
+	// first, then the persisted payload contexts (evicted, or planted by an
+	// earlier process whose session a poll resumed).
 	nonce := interaction.UniqueID
 	pctx, found := s.trackerCache().Get(nonce)
+	if !found {
+		pctx, found = s.lookupStoredPayload(nonce, interaction.FullId)
+	}
 
 	// Debug, not Info: a single planted payload fans out into ~5-6 callbacks
 	// (DNS A/AAAA, several recursive resolvers, then the HTTP leg), so logging
@@ -325,9 +351,10 @@ func (s *Service) handleInteraction(interaction *server.Interaction) {
 
 	// Only emit finding if we have correlation context
 	if !found {
-		return
+		return false
 	}
 	s.reportCorrelated(interaction, nonce, pctx)
+	return true
 }
 
 // recordInteraction stores one callback in oast_interactions, with the

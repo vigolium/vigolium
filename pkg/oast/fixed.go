@@ -133,20 +133,7 @@ func (s *Service) recordFixedPayload(callbackURL, payload string) {
 		pctx.Payload = payload
 		cache.Add(nonce, pctx)
 	}
-	if s.repo == nil {
-		return
-	}
-	s.payloadMu.Lock()
-	defer s.payloadMu.Unlock()
-	for _, p := range s.pendingPayloads {
-		if p.Nonce == nonce {
-			p.Payload = payload
-			return
-		}
-	}
-	if err := s.repo.SetOASTPayloadValue(context.Background(), nonce, payload); err != nil {
-		zap.L().Warn("OAST: failed to record planted payload", zap.Error(err))
-	}
+	s.recordStoredPayload(nonce, payload)
 }
 
 // queuePayload buffers one payload context and writes the buffer once it holds

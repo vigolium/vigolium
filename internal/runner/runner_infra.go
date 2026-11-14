@@ -137,21 +137,14 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 	// this is not merely about setup cost.
 	reachesTarget := plan.SendsTargetTraffic()
 
+	// OAST registration starts before the extension engine is built, so
+	// extensions get the scan's service (vigolium.oast.*): it used to start
+	// last, and the engine was built with no service at all.
+	r.startOASTRegistration(plan, infra)
+
 	// Initialize JS extension engine
 	if reachesTarget && r.settings != nil && r.settings.DynamicAssessment.Extensions.Enabled {
-		jsEngineOpts := &jsext.EngineOptions{
-			ScanUUID:   r.options.ScanUUID,
-			Repository: r.repository,
-			LLMClient:  extensionLLMClient(r.settings),
-		}
-		if r.settings != nil {
-			scopeCfg := r.settings.Scope
-			jsEngineOpts.ScopeConfig = &scopeCfg
-			// The same matcher, from the same settings and the same targets, as
-			// the one built above - so share it rather than paying for a second.
-			jsEngineOpts.ScopeMatcher = infra.scopeMatcher
-		}
-		jsEngine, err := jsext.NewEngine(&r.settings.DynamicAssessment.Extensions, httpRequester, jsEngineOpts)
+		jsEngine, err := jsext.NewEngine(&r.settings.DynamicAssessment.Extensions, httpRequester, r.jsEngineOptions(infra))
 		if err != nil {
 			zap.L().Warn("Failed to initialize JS extensions", zap.Error(err))
 		} else if loadErr := r.reportExtensionFailures(jsEngine); loadErr != nil {
@@ -198,8 +191,28 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 		}
 	}
 
-	r.startOASTRegistration(plan, infra)
 	return infra, nil
+}
+
+// jsEngineOptions builds the extension engine's options for this scan: its
+// scan and project, the store, the scope matcher built for the scan, and the
+// OAST service when one was started.
+func (r *Runner) jsEngineOptions(infra *phaseInfra) *jsext.EngineOptions {
+	opts := &jsext.EngineOptions{
+		ScanUUID:    r.options.ScanUUID,
+		ProjectUUID: r.options.ProjectUUID,
+		Repository:  r.repository,
+		LLMClient:   extensionLLMClient(r.settings),
+		OASTService: infra.oast,
+	}
+	if r.settings != nil {
+		scopeCfg := r.settings.Scope
+		opts.ScopeConfig = &scopeCfg
+		// The same matcher, from the same settings and the same targets, as
+		// the one built above - so share it rather than paying for a second.
+		opts.ScopeMatcher = infra.scopeMatcher
+	}
+	return opts
 }
 
 // oastReadyWait bounds how long dynamic assessment waits, at its start, for an
@@ -241,7 +254,13 @@ func (r *Runner) newOASTService(infra *phaseInfra) *oast.Service {
 			zap.L().Error("Failed to write OAST result", zap.Error(err))
 		}
 	}
-	svc, err := oast.New(&r.settings.OAST, onOASTResult, r.repository, infra.scanUUID, r.options.ProjectUUID, nil)
+	cfg := r.settings.OAST
+	// A stateless scan's store is discarded with the run: a session kept in
+	// it could never be polled, and its keys would only sit in a temp file.
+	if r.options.Stateless {
+		cfg.KeepSession = false
+	}
+	svc, err := oast.New(&cfg, onOASTResult, r.repository, infra.scanUUID, r.options.ProjectUUID, nil)
 	if err != nil {
 		zap.L().Debug("OAST: service construction failed", zap.Error(err))
 		return nil
