@@ -216,6 +216,15 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 					releaseSlot()
 					return callOutcome{completed: true}
 				}
+				// Reflection gate (ECON-2): a module whose oracle needs the value
+				// reflected runs only when the point's shared canary probe saw it
+				// come back. Fails open on a probe error, a blocked probe or a
+				// WAF-fronted host.
+				if e.reflectionGateSkips(ctx, mod, item, pt, reqClient) {
+					e.noteModuleSkip(mod.ID(), SkipReasonCannotProcess)
+					releaseSlot()
+					return callOutcome{completed: true}
+				}
 				o := e.runActiveCall(ctx,
 					func(runCtx context.Context, client *http.Requester) ([]*output.ResultEvent, error) {
 						if contextual, ok := mod.(modules.ContextualActiveModule); ok {
@@ -328,4 +337,32 @@ func (e *Executor) runActiveStage(ctx context.Context, t *itemTracker, req *http
 	e.runActivePerHost(ctx, reqClient, req, filter, elig, t, hostKey)
 	e.runActivePerRequest(ctx, reqClient, req, filter, elig, t, hostKey)
 	e.runActivePerInsertionPoint(ctx, reqClient, req, filter, elig, t, hostKey)
+}
+
+// reflectionGateSkips reports whether mod (a modkit.ReflectionAware module)
+// should skip point pt because the shared canary probe showed no reflection of
+// the kind it needs (ECON-2). Fails open: no requester, a probe error, a
+// blocked probe or a host with a detected WAF all run the module.
+func (e *Executor) reflectionGateSkips(ctx context.Context, mod modules.ActiveModule, item *httpmsg.HttpRequestResponse, pt httpmsg.InsertionPoint, client *http.Requester) bool {
+	ra, ok := mod.(modkit.ReflectionAware)
+	if !ok || client == nil || e.scanCtx == nil {
+		return false
+	}
+	need := ra.RequiresReflection()
+	if need == 0 {
+		return false
+	}
+	if e.scanCtx.DetectedWAF(modkit.RegistryHostKey(item)) != "" {
+		return false
+	}
+	if oob, ok := mod.(modkit.OutOfBandLeg); ok && oob.HasOutOfBandLeg() {
+		if p := e.scanCtx.OASTProv(); p != nil && p.Enabled() {
+			return false // its blind leg needs no reflection
+		}
+	}
+	prof, err := e.scanCtx.ReflectionProfile(ctx, item, pt, client)
+	if err != nil || prof == nil || prof.Blocked {
+		return false
+	}
+	return !prof.Satisfies(need)
 }

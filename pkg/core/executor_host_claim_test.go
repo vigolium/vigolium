@@ -39,7 +39,7 @@ func runPerHostItems(t *testing.T, mod modules.ActiveModule, n int) {
 	}
 	// processItem waits for the item's tasks, so each item's per-host run has
 	// finished (and released or kept its claim) before the next item.
-	e :=NewExecutor(ExecutorConfig{Workers: 1, SkipBaseline: true}, &sliceSource{}, []modules.ActiveModule{mod}, nil)
+	e := NewExecutor(ExecutorConfig{Workers: 1, SkipBaseline: true}, &sliceSource{}, []modules.ActiveModule{mod}, nil)
 	for _, it := range items {
 		e.processItem(context.Background(), it)
 	}

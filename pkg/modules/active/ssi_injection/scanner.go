@@ -355,3 +355,12 @@ func (m *Module) fireExecOAST(
 		resp.Close()
 	}
 }
+
+// RequiresReflection opts into the executor's shared reflection probe
+// (modkit.ReflectionAware, ECON-2): the oracle reads the payload back, so a
+// point whose value does not come back is skipped.
+func (m *Module) RequiresReflection() modkit.ReflectionNeed { return modkit.ReflectBody }
+
+// HasOutOfBandLeg: the OAST include/exec leg needs no reflection, so the
+// reflection gate applies only while OAST is off (modkit.OutOfBandLeg).
+func (m *Module) HasOutOfBandLeg() bool { return true }
