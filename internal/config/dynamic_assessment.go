@@ -3,16 +3,16 @@ package config
 // DynamicAssessmentConfig holds settings for the dynamic-assessment scan phase:
 // enabled modules and JS extensions.
 type DynamicAssessmentConfig struct {
-	MaxFeedbackRounds int                  `yaml:"max_feedback_rounds"`
+	MaxFeedbackRounds int `yaml:"max_feedback_rounds"`
 
 	// ExternalLookups lets modules query third-party services that are not
 	// the scan target (dependency_confusion's npm registry lookups) through
 	// the scan's proxy and timeout (SAFE-11). Off by default: the lookups
 	// disclose the target's internal package names to a public registry.
 	// --offline forces it off.
-	ExternalLookups bool `yaml:"external_lookups"`
-	EnabledModules    EnabledModulesConfig `yaml:"enabled_modules"`
-	Extensions        ExtensionsConfig     `yaml:"extensions"`
+	ExternalLookups bool                 `yaml:"external_lookups"`
+	EnabledModules  EnabledModulesConfig `yaml:"enabled_modules"`
+	Extensions      ExtensionsConfig     `yaml:"extensions"`
 
 	// MaxParamShapeSamples caps how many value-distinct samples of the same
 	// param shape (host + path shape + method + query/form/JSON param-name-set,

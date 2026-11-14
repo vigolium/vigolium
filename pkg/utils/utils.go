@@ -560,4 +560,3 @@ func MightBeFunction(value string) bool {
 	}
 	return lo.Contains(phpFunctions, value)
 }
-

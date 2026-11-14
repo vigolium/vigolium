@@ -1,8 +1,8 @@
 package modkit
 
 import (
-	"net/http"
 	"context"
+	"net/http"
 	"sync"
 
 	lru "github.com/hashicorp/golang-lru/v2"

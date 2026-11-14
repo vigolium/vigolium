@@ -1,7 +1,6 @@
 package browser
 
 import (
-	"sync/atomic"
 	"context"
 	"fmt"
 	"math/rand"
@@ -12,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	chromium "github.com/vigolium/vigolium/internal/resources/spitolas"
