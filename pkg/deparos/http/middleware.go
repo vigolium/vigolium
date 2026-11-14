@@ -25,7 +25,7 @@ var ErrRequestFiltered = errors.New("request filtered by scope policy")
 
 // FilterMiddleware refuses a request before it reaches the transport.
 //
-// allow is consulted with the outgoing request (URL and method) and must
+// allow is consulted with the outgoing request (URL and method, SAFE-8) and must
 // return true for the request to proceed. This is the egress seam: an operator's explicit exclusion
 // has to be enforced HERE rather than by discarding the response, because by then
 // the excluded host has already been contacted — which is the whole thing the
