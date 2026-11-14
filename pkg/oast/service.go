@@ -1001,6 +1001,8 @@ func classifyInteraction(protocol string, pctx PayloadContext) (severity.Severit
 		return classifyESI(proto, injectionDesc)
 	case oastclass.PasswordResetPoisoning:
 		return classifyResetPoisoning(proto, injectionDesc)
+	case oastclass.BlindXSS:
+		return classifyBlindXSS(proto, injectionDesc)
 	}
 
 	// Host-routing / host-reflection SSRF — request-line manipulation
@@ -1169,6 +1171,11 @@ func refineOASTCallback(interaction *server.Interaction, pctx PayloadContext, se
 	}
 	raw, target := interaction.RawRequest, pctx.TargetURL
 
+	// Blind XSS is the inverse case: its fetcher IS a browser.
+	if pctx.class() == oastclass.BlindXSS {
+		return refineBlindXSS(raw, target, sev, conf, desc)
+	}
+
 	// Classes with a specific, non-browser out-of-band fetcher → aggressive check.
 	if label := harvestableFetchLabel(pctx.class()); label != "" {
 		if harvested, reason := looksLikeHarvestedURLFetch(raw, target); harvested {
@@ -1185,6 +1192,63 @@ func refineOASTCallback(interaction *server.Interaction, pctx PayloadContext, se
 			return severity.Info, severity.Tentative, "Possible blind SSRF, UNCONFIRMED: an out-of-band HTTP request reached the OAST server, but " + reason +
 				". An external site monitor / crawler that harvested the injected URL calls back identically without any server-side request forgery. Confirm the fetch originates from the target's own infrastructure before treating this as SSRF."
 		}
+	}
+	return sev, conf, desc
+}
+
+// classifyBlindXSS rates a callback to a planted blind XSS script host. The
+// HTTP leg is a fetch of the injected <script src>; refineBlindXSS keeps it
+// High only when a browser made it. DNS alone says only that something
+// resolved the host — a log pipeline or URL scanner does that too.
+func classifyBlindXSS(proto, injectionDesc string) (severity.Severity, severity.Confidence, string) {
+	switch proto {
+	case "http", "https":
+		return severity.High, severity.Firm, "Blind XSS: a browser loaded the script injected via " + injectionDesc +
+			", so the stored value is rendered as HTML (unencoded) on a page someone opened — the script runs in that viewer's session."
+	default:
+		return severity.Suspect, severity.Tentative, "Possible blind XSS, UNCONFIRMED: the script host injected via " + injectionDesc +
+			" was resolved (" + proto + " only), but no browser fetched the script. Log pipelines and URL scanners resolve stored hosts too; wait for (or `vigolium oast poll` for) an HTTP fetch from a browser."
+	}
+}
+
+// refineBlindXSS keeps a blind XSS HTTP callback at its rating only when the
+// fetch came from a web browser that is not a self-identifying crawler; any
+// other client (a library, a link-preview bot, a monitor) fetching the script
+// URL harvested it rather than rendering the page, and is Suspect/Tentative.
+// The Referer, when the browser sent one, names the page that rendered it.
+func refineBlindXSS(rawRequest, targetURL string, sev severity.Severity, conf severity.Confidence, desc string) (severity.Severity, severity.Confidence, string) {
+	if sev == severity.Suspect {
+		return sev, conf, desc
+	}
+	h := callbackHeaderMap(rawRequest)
+	ua := strings.ToLower(strings.TrimSpace(h["user-agent"]))
+	browser := false
+	for _, t := range browserUATokens {
+		if strings.Contains(ua, t) {
+			browser = true
+			break
+		}
+	}
+	crawler := uaContactRe.MatchString(ua)
+	for _, t := range crawlerUATokens {
+		if strings.Contains(ua, t) {
+			crawler = true
+			break
+		}
+	}
+	if host := oastHost(targetURL); host != "" && strings.Contains(ua, host) {
+		crawler = true
+	}
+	if !browser || crawler {
+		who := "a non-browser client"
+		if ua != "" {
+			who = "User-Agent \"" + ua + "\""
+		}
+		return severity.Suspect, severity.Tentative, "Possible blind XSS, UNCONFIRMED: the injected script URL was fetched, but by " + who +
+			", not a browser rendering the page — a crawler, preview bot or log pipeline that harvested the stored URL fetches it the same way."
+	}
+	if ref := strings.TrimSpace(h["referer"]); ref != "" {
+		desc += " Rendered on: " + ref + "."
 	}
 	return sev, conf, desc
 }

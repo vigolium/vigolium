@@ -29,6 +29,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/active/backslash_transformation"
 	"github.com/vigolium/vigolium/pkg/modules/active/backup_file_discovery"
 	"github.com/vigolium/vigolium/pkg/modules/active/bfla_detection"
+	"github.com/vigolium/vigolium/pkg/modules/active/blind_xss_oast"
 	"github.com/vigolium/vigolium/pkg/modules/active/brotli_request_decoding_exposure"
 	"github.com/vigolium/vigolium/pkg/modules/active/cache_deception"
 	"github.com/vigolium/vigolium/pkg/modules/active/cdn_object_traversal_listing"
@@ -420,6 +421,7 @@ func registerActiveModules(r *Registry) {
 	r.RegisterActive(struts_ognl_injection.New())
 	r.RegisterActive(log4shell_probe.New())
 	r.RegisterActive(text4shell_probe.New())
+	r.RegisterActive(blind_xss_oast.New())
 	r.RegisterActive(spring4shell_probe.New())
 	// Active modules - LDAP Injection
 	r.RegisterActive(ldap_injection.New())
