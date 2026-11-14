@@ -225,7 +225,7 @@ is rate-limited, metered, or behind a WAF you do not want to trip.
 | `--tls-probe` | bool | `false` | Handshake each HTTPS target; record negotiated version/cipher and the leaf certificate per host:port (read back with `vigolium hosts -j`, and as `tls` on `traffic -j` rows) |
 | `--favicon` | bool | `false` | After the sweep, one icon read per answering origin (the page's `<link rel="icon">`, else `/favicon.ico`; not followed, not stored as a record), hashed like `fingerprint` does. Stored per host:port: `favicon_mmh3` and `favicon` in `vigolium hosts -j`, and `favicon` `{url, mmh3, md5, sha256, size}` on every `traffic -j` row and jsonl `http_record` line of the host. A redirecting target stores the icon of the origin it lands on |
 | `--depth` | string | auto | `fingerprint` only: `light` (~9 reads/origin), `standard` (~60), `full` (adds sensitive paths, OPTIONS on answered paths, source maps). Default standard, light past 50 targets |
-| `--redirect-mode` | string | `any` | `off` \| `same-host` \| `same-apex` \| `any`. `same-apex` follows within the registrable domain (`www.example.com` → `example.com` yes, `example.com` → `tracker.example.net` no). Applies to **every** phase, not just probe |
+| `--redirect-mode` | string | `in-scope` | `off` \| `same-host` \| `same-apex` \| `in-scope` \| `any`. `in-scope` follows only to hosts the scan scope admits; a hop to another host never carries session or `-H` headers. `same-apex` follows within the registrable domain (`www.example.com` → `example.com` yes, `example.com` → `tracker.example.net` no). Applies to **every** phase, not just probe |
 | `--record-redirect-chain` | bool | `false` | Each followed hop becomes its own `http_records` row, chained by `parent_uuid`. Read by the probe phase |
 | `--no-response` | bool | `false` | Drop raw request/response bytes from output, keep every derived field (alias of `--omit-response`) |
 
@@ -985,7 +985,7 @@ against that output reads these unmodified.
 | `--format jsonl` | JSONL on stdout (human progress stays on stderr) |
 | `--no-response` | Drop raw request/response bytes; keep every derived field (alias of `--omit-response`) |
 | `--tls-probe` | Handshake each HTTPS target; record version/cipher + leaf certificate per host:port |
-| `--redirect-mode` | `off` \| `same-host` \| `same-apex` \| `any` — probe defaults to `same-apex` |
+| `--redirect-mode` | `off` \| `same-host` \| `same-apex` \| `in-scope` \| `any` — default `in-scope`; probe defaults to `same-apex` |
 | `--record-redirect-chain` | Each followed hop becomes its own record, chained by `parent_uuid` (on by default here) |
 | `-c/--concurrency` | Request workers; DNS prefetch runs at `min(c*4, 128)` |
 | `-S/--stateless` | Throwaway DB; combine with `--format sqlite -o <base>` to keep it |

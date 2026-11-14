@@ -120,17 +120,20 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 		WithBudget(r.requestBudget)
 	infra.svc = svc
 
+	// Create scope matcher from settings, passing CLI targets for cli_origin_mode
+	// filtering. Built before the requester so the in-scope redirect mode (the
+	// default) can judge every hop against it from the first request (SAFE-2).
+	if r.settings != nil {
+		infra.scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.options.Targets...)
+		svc.HopScope = infra.scopeMatcher.HostInScope
+	}
+
 	httpRequester, err := http.NewRequester(r.options, svc)
 	if err != nil {
 		infra.Close()
 		return nil, errors.Wrap(err, "could not create http requester")
 	}
 	infra.httpRequester = httpRequester
-
-	// Create scope matcher from settings, passing CLI targets for cli_origin_mode filtering
-	if r.settings != nil {
-		infra.scopeMatcher = config.NewScopeMatcher(r.settings.Scope, r.options.Targets...)
-	}
 
 	// Phases that never contact the target are unaffected by session headers and
 	// request hooks, so neither is built for them. See SendsTargetTraffic for why

@@ -792,7 +792,12 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 		Transport:     sharedTransport,
 		Timeout:       timeout,
 		Jar:           jar,
-		CheckRedirect: gateRedirects(makeRedirectFunc(redirectMode, maxRedir), gate, sent),
+		CheckRedirect: gateRedirects(makeScopedRedirectFunc(redirectMode, maxRedir, func() func(string) bool {
+			if services == nil {
+				return nil
+			}
+			return services.HopScopeFunc()
+		}), gate, sent),
 	}, retryOpts)
 
 	// Client without redirects

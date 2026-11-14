@@ -115,7 +115,7 @@ func warnInertProbeFlags(opts *types.Options, cmd *cobra.Command) {
 }
 
 // validateRedirectMode rejects an unknown --redirect-mode up front. The
-// resolver falls back to "any" on an unrecognised value so a library caller
+// resolver falls back to "in-scope" on an unrecognised value so a library caller
 // cannot accidentally get "follow nothing" — which is the right default there
 // and the wrong one here, where a typo must not silently change what the scan
 // follows.

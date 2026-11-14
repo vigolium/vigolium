@@ -45,6 +45,22 @@ type Services struct {
 
 	// DedupManager manages deduplication for modules
 	DedupManager *dedup.Manager
+
+	// HopScope, when non-nil, reports whether a redirect hop's host is inside
+	// the scan's scope. The requester's in-scope redirect mode (the default)
+	// follows a hop only when it returns true; with no HopScope it falls back to
+	// same-apex. Set it before the requester sends its first request (the runner
+	// installs ScopeMatcher.HostInScope right after building the matcher); it is
+	// read, never written, while traffic flows.
+	HopScope func(host string) bool
+}
+
+// HopScopeFunc returns s.HopScope, nil-safe.
+func (s *Services) HopScopeFunc() func(host string) bool {
+	if s == nil {
+		return nil
+	}
+	return s.HopScope
 }
 
 // EgressGate returns the gate that applies these Services' rate limiter, host
