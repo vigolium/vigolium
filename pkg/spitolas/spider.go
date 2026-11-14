@@ -542,6 +542,9 @@ func RunSpider(ctx context.Context, cfg SpiderConfig, repo RecordSaver) (*Spider
 	}
 
 	res := spiderResultFromCrawl(result, writer.Count())
+	if result != nil {
+		receipt.BodiesFailed = result.Stats.BodiesFailed
+	}
 	res.Capture = receipt
 	res.RequestsSent = runCounters.Sent.Load()
 	res.RequestsInScope = runCounters.InScope.Load()

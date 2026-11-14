@@ -14,6 +14,9 @@ type CaptureReceipt struct {
 	Persisted       int  `json:"persisted"`        // rows the repository confirmed (spec-ingested endpoints included)
 	Refused         int  `json:"refused"`          // entries turned away after the writer closed
 	Failed          int  `json:"failed"`           // save failures + entries abandoned by an over-budget drain
+	// BodiesFailed counts responses whose body fetch failed: stored without
+	// their body (provisionally — a later complete copy is still stored).
+	BodiesFailed int `json:"bodies_failed,omitempty"`
 	// DrainComplete: the writer was closed and drained within its budget, so
 	// every accepted entry has an outcome. False while the writer is still open.
 	DrainComplete bool `json:"drain_complete"`
@@ -58,6 +61,7 @@ func (r *CaptureReceipt) Merge(o CaptureReceipt) {
 	r.Persisted += o.Persisted
 	r.Refused += o.Refused
 	r.Failed += o.Failed
+	r.BodiesFailed += o.BodiesFailed
 	r.DrainComplete = r.DrainComplete && o.DrainComplete
 	if r.Err == "" {
 		r.Err = o.Err

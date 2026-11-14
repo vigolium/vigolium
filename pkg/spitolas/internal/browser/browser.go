@@ -1347,3 +1347,35 @@ func SetOffline(v bool) { offlineMode.Store(v) }
 
 // Offline reports whether browser downloads are disabled.
 func Offline() bool { return offlineMode.Load() }
+
+// PopupURLs lists the URLs of page targets opened by p (window.open /
+// target=_blank) and still open, after giving each up to wait to load so its
+// traffic is captured before CloseOtherWindows closes it (MISS-29a). Popups
+// used to be closed ~200ms after the click, their traffic lost.
+func (b *Browser) PopupURLs(p *Page, wait time.Duration) []string {
+	if b == nil || p == nil || p.rodPage == nil {
+		return nil
+	}
+	res, err := proto.TargetGetTargets{}.Call(b.boundedBrowser())
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, info := range res.TargetInfos {
+		if info == nil || info.Type != proto.TargetTargetInfoTypePage || info.OpenerID != p.rodPage.TargetID {
+			continue
+		}
+		if wait > 0 {
+			if pg, perr := b.boundedBrowser().PageFromTarget(info.TargetID); perr == nil {
+				_ = pg.Timeout(wait).WaitLoad()
+				if u, uerr := pg.Info(); uerr == nil && u != nil && u.URL != "" {
+					info.URL = u.URL
+				}
+			}
+		}
+		if info.URL != "" && info.URL != "about:blank" {
+			out = append(out, info.URL)
+		}
+	}
+	return out
+}

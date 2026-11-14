@@ -55,7 +55,10 @@ type Capture struct {
 	writer     Writer
 	pending    map[proto.NetworkRequestID]*pendingEntry
 	logged     map[string]struct{} // Track logged entries by hash to prevent stderr duplicates
-	seenHashes map[string]bool     // Track written hashes to prevent file duplicates
+	// seenHashes tracks written request hashes. true = written with its
+	// response body; false = PROVISIONAL, written while the body fetch failed,
+	// so a later complete copy of the same request is still written (MISS-29b).
+	seenHashes map[string]bool
 	// loginHosts records the hosts observed serving an authentication endpoint
 	// during document navigation and redirects. The crawler reads it to deny a
 	// whole SSO redirect chain, not just the host the browser finished on.
@@ -91,6 +94,8 @@ type Capture struct {
 	maxBodyBytes int64
 	// bodiesTooLarge counts responses whose body was skipped by that cap.
 	bodiesTooLarge int
+	// bodiesFailed counts responses whose body fetch failed (MISS-29b).
+	bodiesFailed int
 	// targetHost is the hostname used by the cross-origin stderr-log filter.
 	// It starts as the input URL's host but is re-pointed via SetTargetHost when
 	// the crawler adopts an off-host redirect target into scope, so the adopted
@@ -641,6 +646,9 @@ func (c *Capture) onLoadingFinished(e *proto.NetworkLoadingFinished, sessionID p
 			bodyFetch = time.Since(fetchStart)
 			if err != nil {
 				pending.entry.BodySource = BodySourceFailed
+				c.mu.Lock()
+				c.bodiesFailed++
+				c.mu.Unlock()
 				// Categorize error types for better debugging
 				if errors.Is(err, context.DeadlineExceeded) {
 					zap.L().Warn("Response body fetch timed out",
@@ -1087,14 +1095,17 @@ func (c *Capture) writeEntry(entry *TrafficEntry) {
 		return
 	}
 
-	// Check if this exact request (shape + values) was already written.
-	_, alreadyWritten := c.seenHashes[entry.Hash]
+	// Check if this exact request (shape + values) was already written. A
+	// provisional write (body fetch failed) is upgraded by a later copy that
+	// carries its body instead of being dropped as a duplicate (MISS-29b).
+	complete, seen := c.seenHashes[entry.Hash]
+	alreadyWritten := seen && (complete || entry.BodySource == BodySourceFailed || entry.BodySource == BodySourceUnavailable)
 
 	// For a parameterized request that is a NEW value-variant, enforce the
 	// per-shape cap: once maxParamVariants distinct variants of this shape have
 	// been kept, further variants collapse back onto the shape (dropped as dups).
 	shapeCapExceeded := false
-	if !alreadyWritten && hasQuery {
+	if !seen && hasQuery {
 		limit := c.maxParamVariants
 		if limit < 1 {
 			limit = 1
@@ -1130,9 +1141,11 @@ func (c *Capture) writeEntry(entry *TrafficEntry) {
 		return
 	}
 
-	// Hash is NEW - mark as seen and write to file
-	c.seenHashes[entry.Hash] = true
-	if hasQuery {
+	// Hash is NEW (or a provisional write being upgraded) - mark as seen and
+	// write to file. Provisional when this copy has no body.
+	upgrade := seen
+	c.seenHashes[entry.Hash] = entry.BodySource != BodySourceFailed && entry.BodySource != BodySourceUnavailable
+	if hasQuery && !upgrade {
 		// Lazy-init guards the write: New() always makes this map, but tests
 		// construct Capture{} via struct literal without it. (Nil-map reads above
 		// are safe — they return 0 — so only this write needs the guard.)
@@ -1398,4 +1411,12 @@ func elapsedMs(start time.Time) int64 {
 		return 0
 	}
 	return httpmsg.MeasuredMillis(time.Since(start))
+}
+
+// BodiesFailed is how many captured responses lost their body to a failed
+// fetch (MISS-29b).
+func (c *Capture) BodiesFailed() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bodiesFailed
 }

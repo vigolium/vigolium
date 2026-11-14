@@ -234,10 +234,16 @@ type Stats struct {
 	// SkippedDestructive counts click candidates the destructive-click guard
 	// dropped (spidering.interaction.deny_click_pattern, SAFE-9).
 	SkippedDestructive int64
-	BacktrackCount     int
-	InvariantFails     int
-	StartTime          time.Time
-	EndTime            time.Time
+	// BodiesFailed counts captured responses whose body fetch failed
+	// (MISS-29b); they were stored provisionally, upgradeable by a later copy.
+	BodiesFailed int
+	// PopupURLs are in-scope URLs opened in popups by crawl actions
+	// (MISS-29a); their traffic is captured and the runner can seed them.
+	PopupURLs      []string
+	BacktrackCount int
+	InvariantFails int
+	StartTime      time.Time
+	EndTime        time.Time
 
 	// Start-redirect observations (default host-scope rule only).
 	// OffHostLanding is true when the start URL redirected the browser to a host
@@ -532,6 +538,9 @@ func (c *Crawler) Run(ctx context.Context) (*Result, error) {
 		if err := capture.Close(); err != nil {
 			zap.L().Warn("Traffic capture closed with lost records", zap.Error(err))
 		}
+		c.mu.Lock()
+		c.stats.BodiesFailed = capture.BodiesFailed()
+		c.mu.Unlock()
 	}()
 
 	// Start capture at BROWSER level (captures ALL pages, every tab included).
