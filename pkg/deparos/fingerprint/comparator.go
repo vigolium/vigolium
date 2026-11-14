@@ -227,8 +227,8 @@ func (c *Comparator) LearnIfNeeded(ctx context.Context, url *url.URL) error {
 // 4. Learn new wildcard patterns if detected
 // 5. Return whether content is valid or wildcard
 func (c *Comparator) CheckWildcardWithValidation(ctx context.Context, targetURL *url.URL, rc *responsechain.ResponseChain, sample *Sample) (MatchResult, error) {
-	// Quick exit: HTTP 404 is always a false positive (wildcard)
-	if rc.Response().StatusCode == 404 {
+	// Quick exit: a hard miss (404, 400, 414, 421, 431) never means content.
+	if IsHardMissStatus(rc.Response().StatusCode) {
 		return FalsePositive, nil
 	}
 
@@ -240,17 +240,12 @@ func (c *Comparator) CheckWildcardWithValidation(ctx context.Context, targetURL 
 
 	// No match in cache - need to validate with wildcard test
 	key := ExtractCacheKey(targetURL)
-	isValid, err := c.validateWithWildcardTest(ctx, targetURL, key)
+	verdict, err := c.validateWithWildcardTest(ctx, targetURL, key, sample)
 	if err != nil {
 		// Failed to validate - return unknown
 		return Unknown, err
 	}
-
-	if isValid {
-		return TruePositive, nil
-	}
-
-	return FalsePositive, nil
+	return verdict, nil
 }
 
 // validateWithWildcardTest performs 4-path wildcard validation.
@@ -276,8 +271,16 @@ func (c *Comparator) CheckWildcardWithValidation(ctx context.Context, targetURL 
 //  2. Fetch each path with delays
 //  3. If NO prefix-breaking probe returns content -> content is VALID (covers both
 //     "all probes 404" unique files and "only prefix-preserving 200" real routes)
-//  4. If a prefix-breaking probe returns content -> learn as wildcard and return FALSE
-func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *url.URL, key CacheKey) (bool, error) {
+//  4. If a prefix-breaking probe returns content that RESEMBLES the hit (same
+//     status and content type, same tag structure or length bucket) -> learn as
+//     wildcard and return FalsePositive. A breaking sibling that answers with a
+//     different page (a 403 next to a 200 hit) is not evidence against the hit.
+//
+// Siblings that answer with a hard-miss status (404/400/414/421/431) are misses
+// whatever the cache knows about their shape. A sibling that was throttled
+// (429/503/edge block) says nothing about the directory; when no resembling
+// breaking sibling was seen the verdict is Unknown, which keeps the hit.
+func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *url.URL, key CacheKey, hit *Sample) (MatchResult, error) {
 	// Escaped (wire) path so a bypass prefix survives into the sibling probes.
 	basePath := targetURL.EscapedPath()
 	if basePath == "" {
@@ -288,7 +291,7 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 	// Detects suffix wildcards like *admin
 	prefix, err := generateRandomHex(6)
 	if err != nil {
-		return false, err
+		return Unknown, err
 	}
 	testPath1 := prependToLastSegment(basePath, prefix)
 
@@ -296,7 +299,7 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 	// Detects prefix wildcards like user*
 	suffix, err := generateRandomHex(6)
 	if err != nil {
-		return false, err
+		return Unknown, err
 	}
 	testPath2 := appendToLastSegment(basePath, suffix)
 
@@ -304,7 +307,7 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 	// Detects extension-based routing
 	fakeExt, err := generateRandomHex(4)
 	if err != nil {
-		return false, err
+		return Unknown, err
 	}
 	testPath3 := addFakeExtension(basePath, fakeExt)
 
@@ -312,7 +315,7 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 	// Most effective - breaks both prefix AND suffix wildcards
 	middle, err := generateRandomHex(9)
 	if err != nil {
-		return false, err
+		return Unknown, err
 	}
 	testPath4 := insertIntoLastSegment(basePath, middle)
 
@@ -335,13 +338,14 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 	// exact target a false positive (see the function doc).
 	wildcardDetections := make([]WildcardDetection, 0, 4)
 	breakingContent := false
+	throttled := false
 
 	for i, config := range testConfigs {
 		// Add delay between requests (except first)
 		if i > 0 {
 			select {
 			case <-ctx.Done():
-				return false, ctx.Err()
+				return Unknown, ctx.Err()
 			case <-time.After(20 * time.Millisecond):
 			}
 		}
@@ -357,6 +361,10 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 			continue
 		}
 
+		if sample.Throttled() {
+			throttled = true
+			continue
+		}
 		if !hasContent {
 			continue
 		}
@@ -367,27 +375,37 @@ func (c *Comparator) validateWithWildcardTest(ctx context.Context, targetURL *ur
 			Strategy: config.strategy,
 		})
 
-		// A prefix-breaking probe returning content means the catch-all does not
-		// require the segment's real leading characters -> genuine wildcard.
+		// A prefix-breaking probe returning the SAME page as the hit means the
+		// catch-all does not require the segment's real leading characters ->
+		// genuine wildcard. A different page (another status, type or shape)
+		// does not make the hit a false positive.
 		switch config.strategy {
 		case VariationPrefix, VariationMiddle:
-			breakingContent = true
+			if hit == nil || hit.Resembles(sample) {
+				breakingContent = true
+			}
 		}
 	}
 
-	// No prefix-breaking probe returned content -> target is VALID. This covers
-	// both the "all probes 404" unique-resource case and the "only
-	// prefix-preserving probes returned 200" real-route-behind-a-prefix-router case.
 	if !breakingContent {
-		return true, nil
+		// A throttled sibling leaves the directory's shape unknown: keep the hit
+		// without claiming it was validated.
+		if throttled {
+			return Unknown, nil
+		}
+		// No prefix-breaking probe returned the hit's page -> target is VALID.
+		// This covers the "all probes 404" unique-resource case and the "only
+		// prefix-preserving probes returned 200" real-route-behind-a-prefix-router
+		// case.
+		return TruePositive, nil
 	}
 
-	// A prefix-breaking probe returned content -> genuine host-wide wildcard.
+	// A prefix-breaking probe returned the hit's page -> genuine wildcard.
 	// Learn these wildcard responses and cache them. wildcardDetections is
 	// non-empty here: breakingContent is only set after appending to it.
 	_ = c.learnWildcardPatterns(ctx, key, targetURL, wildcardDetections)
 
-	return false, nil
+	return FalsePositive, nil
 }
 
 // fetchAndCheckContent fetches a URL and checks if it returns content
@@ -398,6 +416,12 @@ func (c *Comparator) fetchAndCheckContent(ctx context.Context, targetURL *url.UR
 	sample, err := c.learner.RequestAndExtract(ctx, targetURL)
 	if err != nil {
 		return nil, false, err
+	}
+
+	// A hard-miss status is no content whatever shape the cache has seen: an
+	// uncached 404 shape must not count as a sibling "with content".
+	if IsHardMissStatus(sample.Status()) {
+		return sample, false, nil
 	}
 
 	// Use CASCADE check instead of single extension match!
