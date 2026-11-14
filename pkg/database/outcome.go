@@ -226,6 +226,9 @@ type PhaseOutcome struct {
 	// --max-findings-per-module cap dropped during the phase; set alongside the
 	// findings_per_module limit.
 	FindingsCapped map[string]int64 `json:"findings_capped,omitempty"`
+	// BlockedHosts are the hosts a WAF/CDN edge blocked during the phase,
+	// sorted; set alongside the edge_blocked reason.
+	BlockedHosts []string `json:"blocked_hosts,omitempty"`
 }
 
 // BenignSkip reports whether this phase was skipped for having nothing to do,
@@ -309,6 +312,7 @@ func (o *PhaseOutcome) Merge(b PhaseOutcome) {
 		o.Counts[name] += n
 	}
 	o.BudgetExhaustedHosts = mergeCodes(o.BudgetExhaustedHosts, b.BudgetExhaustedHosts)
+	o.BlockedHosts = mergeCodes(o.BlockedHosts, b.BlockedHosts)
 	for module, n := range b.FindingsCapped {
 		if o.FindingsCapped == nil {
 			o.FindingsCapped = make(map[string]int64, len(b.FindingsCapped))

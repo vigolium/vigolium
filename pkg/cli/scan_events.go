@@ -232,6 +232,9 @@ func applyScanCompletion(ev *scanevents.Event, scan *database.Scan) {
 	if len(scan.ModuleErrors) > 0 {
 		ev.ModuleErrors = scan.ModuleErrors
 	}
+	for _, c := range database.CoverageCaveats(database.ScanCompletion{Phases: scan.PhaseOutcomes}, scan.ModuleErrors) {
+		ev.Caveats = append(ev.Caveats, scanevents.Caveat(c))
+	}
 	// An empty Completeness means unknown (a row written by an older binary, or
 	// by a caller with no outcome data) and must never change the status.
 	if ev.Status == scanevents.StatusCompleted && scan.Completeness == database.CompletenessPartial {

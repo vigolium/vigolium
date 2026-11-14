@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,6 +94,36 @@ type phaseTracker struct {
 	// findingsCapped is the per-module capped-finding count (see
 	// setFindingsCapped). Guarded by mu.
 	findingsCapped map[string]int64
+
+	// baseBlocks is the requester's per-host WAF block count when the phase
+	// began; a host whose count grew was blocked during the phase (edge_blocked).
+	baseBlocks map[string]int64
+	// blockedHosts is set at finish from that delta. Guarded by mu.
+	blockedHosts []string
+}
+
+// noteEdgeBlocks compares the requester's per-host block counts with the
+// phase-start snapshot: a host blocked during the phase makes the phase
+// partial with edge_blocked, so a blocked scan never reads "complete, 0
+// findings".
+func (t *phaseTracker) noteEdgeBlocks() {
+	if t == nil || t.requester == nil {
+		return
+	}
+	var hosts []string
+	for host, n := range t.requester.BlockCounts() {
+		if n > t.baseBlocks[host] {
+			hosts = append(hosts, host)
+		}
+	}
+	if len(hosts) == 0 {
+		return
+	}
+	sort.Strings(hosts)
+	t.mu.Lock()
+	t.blockedHosts = hosts
+	t.mu.Unlock()
+	t.markPartial(database.ReasonEdgeBlocked)
 }
 
 // setFindingsCapped records the per-module findings the cap dropped and notes
@@ -168,6 +199,9 @@ func (r *Runner) beginPhase(ctx context.Context, phase string, requester *http.R
 		requester: requester,
 		reasons:   make(map[string]struct{}),
 		limits:    make(map[string]struct{}),
+	}
+	if requester != nil {
+		t.baseBlocks = requester.BlockCounts()
 	}
 	if !scanevents.On() {
 		return t
@@ -572,6 +606,7 @@ func (t *phaseTracker) finish(ctx context.Context, err error) database.PhaseOutc
 	if ctx != nil && ctx.Err() != nil {
 		t.markPartial(contextStopReason(ctx))
 	}
+	t.noteEdgeBlocks()
 	t.mu.Lock()
 	finishers := t.finishers
 	t.mu.Unlock()
@@ -644,6 +679,9 @@ func (t *phaseTracker) outcome() database.PhaseOutcome {
 		for name, n := range t.counts {
 			out.Counts[name] = n
 		}
+	}
+	if len(t.blockedHosts) > 0 {
+		out.BlockedHosts = append([]string(nil), t.blockedHosts...)
 	}
 	if len(t.findingsCapped) > 0 {
 		out.FindingsCapped = make(map[string]int64, len(t.findingsCapped))

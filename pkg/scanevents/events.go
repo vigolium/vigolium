@@ -216,6 +216,10 @@ type Event struct {
 	// --max-findings-per-module cap dropped (phase.finished for the phase,
 	// scan.finished summed over the scan).
 	FindingsCapped map[string]int64 `json:"findings_capped,omitempty"`
+	// Caveats is the end-of-scan coverage statement (scan.finished): what the
+	// scan did not cover and why, derived from the phase outcomes and module
+	// errors (database.CoverageCaveats).
+	Caveats []Caveat `json:"caveats,omitempty"`
 	// Egress lists which outbound paths go through the shared rate/host gate and
 	// which do not, with the reason (scan.started).
 	Egress *Egress `json:"egress,omitempty"`
@@ -509,3 +513,14 @@ func Int64(v int64) *int64 { return &v }
 
 // Int is the *int counterpart of Int64, for the target counters.
 func Int(v int) *int { return &v }
+
+// Caveat is one coverage caveat on scan.finished; the same shape as
+// database.Caveat (kept here so this package stays free of the store).
+type Caveat struct {
+	Code    string   `json:"code"`
+	Phase   string   `json:"phase,omitempty"`
+	Hosts   []string `json:"hosts,omitempty"`
+	Modules []string `json:"modules,omitempty"`
+	Count   int64    `json:"count,omitempty"`
+	Message string   `json:"message"`
+}

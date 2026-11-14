@@ -119,52 +119,13 @@ func formatModuleErrorSummary(counts map[string]int64, scanUUID string) string {
 	return fmt.Sprintf("%d %s errored (%s) — see vigolium log %s", len(ids), noun, strings.Join(parts, ", "), scanUUID)
 }
 
-// formatFindingsCappedSummary renders the findings-per-module drop line, or ""
-// when nothing was capped: modules by drop count, highest first, capped at
-// moduleErrorSummaryLimit names.
-func formatFindingsCappedSummary(capped map[string]int64, limit int) string {
-	if len(capped) == 0 {
-		return ""
+// printCoverageCaveats writes the scan's coverage caveats under the finished
+// banner, one line each: what the run did not cover and why. Module errors
+// are left to printModuleErrorSummary, which names the log to read.
+func (r *Runner) printCoverageCaveats(w io.Writer) {
+	for _, c := range database.CoverageCaveats(r.Completion(), nil) {
+		_, _ = fmt.Fprintf(w, "  %s %s\n", terminal.Yellow(terminal.SymbolWarning), c.Line())
 	}
-	ids := make([]string, 0, len(capped))
-	var total int64
-	for id, n := range capped {
-		ids = append(ids, id)
-		total += n
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		if capped[ids[i]] != capped[ids[j]] {
-			return capped[ids[i]] > capped[ids[j]]
-		}
-		return ids[i] < ids[j]
-	})
-	parts := make([]string, 0, moduleErrorSummaryLimit+1)
-	for i, id := range ids {
-		if i == moduleErrorSummaryLimit {
-			parts = append(parts, "…")
-			break
-		}
-		parts = append(parts, fmt.Sprintf("%s ×%d", id, capped[id]))
-	}
-	return fmt.Sprintf("%d finding(s) not reported: --max-findings-per-module %d reached (%s) — raise it or pass 0 for no cap",
-		total, limit, strings.Join(parts, ", "))
-}
-
-// printFindingsCappedSummary writes the capped-findings line under the
-// finished banner, from the scan's persisted phase outcomes.
-func (r *Runner) printFindingsCappedSummary(ctx context.Context, w io.Writer, scanUUID string) {
-	if r.repository == nil || scanUUID == "" {
-		return
-	}
-	scan, err := r.repository.GetScanByUUID(ctx, scanUUID)
-	if err != nil || scan == nil {
-		return
-	}
-	line := formatFindingsCappedSummary(database.SumFindingsCapped(scan.PhaseOutcomes), r.options.MaxFindingsPerModule)
-	if line == "" {
-		return
-	}
-	_, _ = fmt.Fprintf(w, "  %s %s\n", terminal.Yellow(terminal.SymbolWarning), line)
 }
 
 // printModuleErrorSummary writes the module error line under the finished

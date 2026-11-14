@@ -264,6 +264,9 @@ type blockNotifier struct {
 	sink func(BlockNotice) // installed once at scan setup, before concurrency starts
 	mu   sync.Mutex
 	seen map[string]struct{} // hosts already warned about (lowercased)
+	// counts is every classified block per host (lowercased) → *atomic.Int64,
+	// sink or not, so a phase can tell it was blocked (BlockCounts).
+	counts sync.Map
 }
 
 // report classifies resp and, on the first confirmed block for host, invokes the
@@ -284,13 +287,21 @@ func (n *blockNotifier) report(host string, resp *httpUtils.ResponseChain) {
 // classified the response (the hot path shares one result with the limiter feedback)
 // call this directly; report is the classify-then-dedup convenience wrapper.
 func (n *blockNotifier) reportBlock(host string, block *waf.BlockResult, status int) {
-	if n == nil || n.sink == nil || host == "" || block == nil {
+	if n == nil || host == "" || block == nil {
+		return
+	}
+	key := strings.ToLower(host)
+	c, ok := n.counts.Load(key)
+	if !ok {
+		c, _ = n.counts.LoadOrStore(key, new(atomic.Int64))
+	}
+	c.(*atomic.Int64).Add(1)
+	if n.sink == nil {
 		return
 	}
 
 	// Claim the host under lock so concurrent workers on the same host emit exactly
 	// one warning; the sink runs outside the lock.
-	key := strings.ToLower(host)
 	n.mu.Lock()
 	if _, dup := n.seen[key]; dup {
 		n.mu.Unlock()
@@ -434,6 +445,24 @@ func (r *Requester) RequestsSent() int64 {
 		return 0
 	}
 	return r.sent.Load()
+}
+
+// BlockCounts returns how many responses per host (lowercased, as the requester
+// keys its host feedback) were classified as WAF/CDN blocks so far, across every
+// clone sharing this requester's notifier. A snapshot; nil when none.
+func (r *Requester) BlockCounts() map[string]int64 {
+	if r == nil || r.blockNotifier == nil {
+		return nil
+	}
+	var out map[string]int64
+	r.blockNotifier.counts.Range(func(k, v any) bool {
+		if out == nil {
+			out = make(map[string]int64)
+		}
+		out[k.(string)] = v.(*atomic.Int64).Load()
+		return true
+	})
+	return out
 }
 
 // SetBlockNotifier installs a sink invoked once per host the first time a

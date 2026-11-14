@@ -184,12 +184,15 @@ type scanDocExtras struct {
 	Targets           []scanDocTarget         `json:"targets"`
 	TargetsNotScanned []string                `json:"targets_not_scanned"`
 	PhaseOutcomes     []database.PhaseOutcome `json:"phase_outcomes"`
-	Modules           scanDocModules          `json:"modules"`
-	CountsBySeverity  map[string]int          `json:"counts_by_severity"`
-	Candidates        int64                   `json:"candidates"`
-	Observations      int64                   `json:"observations"`
-	Errors            []scanDocError          `json:"errors"`
-	ItemsTruncated    bool                    `json:"items_truncated"`
+	// Caveats is the coverage statement derived from phase_outcomes and module
+	// errors (database.CoverageCaveats).
+	Caveats          []database.Caveat `json:"caveats"`
+	Modules          scanDocModules    `json:"modules"`
+	CountsBySeverity map[string]int    `json:"counts_by_severity"`
+	Candidates       int64             `json:"candidates"`
+	Observations     int64             `json:"observations"`
+	Errors           []scanDocError    `json:"errors"`
+	ItemsTruncated   bool              `json:"items_truncated"`
 	// Plan is the scan's stored plan (scans.plan, the `schema plan` document),
 	// verbatim; null when the row has none or the document spans several scans.
 	Plan       *scanplan.Plan `json:"plan"`

@@ -169,6 +169,8 @@ type scanDocScan struct {
 	// describes a stored scan rather than this invocation's run.
 	finishedAt time.Time
 	durationMS int64
+	// moduleErrors is the row's per-module error tally (caveats).
+	moduleErrors map[string]int64
 }
 
 // scanDocBuilder accumulates one invocation's scan document. Not safe for
@@ -263,6 +265,7 @@ func (b *scanDocBuilder) fillFromStore(ctx context.Context, repo *database.Repos
 	s.finishedAt = row.FinishedAt
 	s.durationMS = row.DurationMs
 	s.plan = storedScanPlan(row)
+	s.moduleErrors = row.ModuleErrors
 	return row
 }
 
@@ -924,6 +927,16 @@ func (b *scanDocBuilder) envelope() *agentEnvelope {
 	if phases == nil {
 		phases = []database.PhaseOutcome{}
 	}
+	moduleErrs := map[string]int64{}
+	for _, s := range b.scans {
+		for id, n := range s.moduleErrors {
+			moduleErrs[id] += n
+		}
+	}
+	caveats := database.CoverageCaveats(database.ScanCompletion{Phases: phases}, moduleErrs)
+	if caveats == nil {
+		caveats = []database.Caveat{}
+	}
 	if reasons == nil {
 		reasons = []string{}
 	}
@@ -969,6 +982,7 @@ func (b *scanDocBuilder) envelope() *agentEnvelope {
 		With("targets", targets).
 		With("targets_not_scanned", notScanned).
 		With("phase_outcomes", phases).
+		With("caveats", caveats).
 		With("modules", modules).
 		With("counts_by_severity", counts).
 		With("candidates", candidates).
