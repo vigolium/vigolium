@@ -351,3 +351,38 @@ func seedIsDocument(path string) bool {
 	}
 	return false
 }
+
+// maxPopupSeedRounds bounds popup-seed exploration rounds per crawl.
+const maxPopupSeedRounds = 3
+
+// crawlPopupSeeds browses the popup URLs recorded since the last call into the
+// state graph (MISS-29a) and returns how many became reachable states.
+func (c *Crawler) crawlPopupSeeds(ctx context.Context, page *browser.Page) int {
+	c.mu.Lock()
+	pending := append([]string(nil), c.stats.PopupURLs[c.popupSeeded:]...)
+	c.popupSeeded = len(c.stats.PopupURLs)
+	c.mu.Unlock()
+	visited := 0
+	for _, u := range pending {
+		if ctx.Err() != nil || c.shouldTerminate(ctx) {
+			break
+		}
+		previous := c.primary.stateMachine.GetCurrentState()
+		if err := page.NavigateCtx(ctx, u); err != nil {
+			zap.L().Debug("Popup seed navigation failed", zap.String("url", u), zap.Error(err))
+			continue
+		}
+		if !c.isInScope(page) {
+			continue
+		}
+		c.checkOnURLState(ctx, c.primary, page, previous, u)
+		visited++
+	}
+	if visited > 0 {
+		c.mu.Lock()
+		c.stats.PopupSeedsCrawled += visited
+		c.mu.Unlock()
+		zap.L().Info("Popup URLs browsed into the crawl frontier", zap.Int("visited", visited))
+	}
+	return visited
+}

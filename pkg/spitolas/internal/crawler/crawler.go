@@ -212,6 +212,9 @@ type Crawler struct {
 	// authGen is the live-session credential generation last applied
 	// (MISS-26); guarded by mu.
 	authGen uint64
+	// popupSeeded is how many of Stats.PopupURLs have been browsed as
+	// frontier seeds (guarded by mu).
+	popupSeeded int
 	// authDirty is set by the AuthMonitor's Changed channel; the next action
 	// re-applies the session's credentials.
 	authDirty                  atomic.Bool
@@ -243,6 +246,8 @@ type Stats struct {
 	// BodiesFailed counts captured responses whose body fetch failed
 	// (MISS-29b); they were stored provisionally, upgradeable by a later copy.
 	BodiesFailed int
+	// PopupSeedsCrawled counts popup URLs browsed into the frontier.
+	PopupSeedsCrawled int
 	// PopupURLs are in-scope URLs opened in popups by crawl actions
 	// (MISS-29a); their traffic is captured and the runner can seed them.
 	PopupURLs      []string
@@ -673,6 +678,20 @@ func (c *Crawler) crawlWithBrowser(ctx context.Context, br *browser.Browser, cap
 	// Main crawl loop
 	if err := c.crawlLoop(ctx); err != nil {
 		zap.L().Debug("Crawl loop ended", zap.Error(err))
+	}
+
+	// Popups the crawl opened (window.open, target=_blank) were closed after
+	// their traffic was captured; their in-scope URLs are frontier seeds:
+	// browse them into the graph and explore what they offer (MISS-29a).
+	// Bounded rounds: exploring a popup's page can open more popups.
+	for round := 0; round < maxPopupSeedRounds; round++ {
+		page := br.CurrentPage()
+		if page == nil || c.crawlPopupSeeds(ctx, page) == 0 {
+			break
+		}
+		if err := c.crawlLoop(ctx); err != nil {
+			zap.L().Debug("Popup-seed crawl loop ended", zap.Error(err))
+		}
 	}
 
 	// Re-walk for actions that only became available partway through the pass
