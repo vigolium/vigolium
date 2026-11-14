@@ -112,6 +112,14 @@ func (c *Crawler) credentialOriginAllowed(rawURL string) bool {
 // whose start page went out unauthenticated says so even if a later page got
 // the credentials. The error is returned for RequireAuth to act on.
 func (c *Crawler) applyPageAuth(page *browser.Page) error {
+	// Fonts, media and third-party images carry no crawlable surface and cost
+	// time on every page (ECON-9). Installed here because this runs for every
+	// fresh page.
+	if c.config.BlockResources && page != nil && c.authOps.setHeaders == nil {
+		if err := page.SetResourceBlocking(c.firstPartyResource); err != nil {
+			zap.L().Debug("Spidering: could not install resource blocking", zap.Error(err))
+		}
+	}
 	// A method policy with no credential headers still needs the router: it
 	// is what blocks a read-only crawl's XHR/fetch writes (SAFE-8/SAFE-3).
 	if c.config.MethodAllowed != nil && len(c.config.ExtraHeaders) == 0 && page != nil && c.authOps.setHeaders == nil {
@@ -211,4 +219,18 @@ func (c *Crawler) denyCredentialHost(host string) {
 	}
 	c.stats.CredentialOriginsDenied++
 	c.stats.CredentialHostsDenied = append(c.stats.CredentialHostsDenied, host)
+}
+
+// firstPartyResource reports whether a resource URL belongs to the target
+// (its host or a subdomain, or anything the operator scope admits), so its
+// images are never blocked.
+func (c *Crawler) firstPartyResource(rawURL string) bool {
+	if c.config.CrawlScope != nil && c.config.CrawlScope(rawURL) {
+		return true
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || c.config.URL == nil {
+		return true
+	}
+	return sameOrSubdomain(strings.ToLower(u.Hostname()), strings.ToLower(c.config.URL.Hostname()))
 }

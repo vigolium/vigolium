@@ -386,12 +386,12 @@ func (r *Runner) feedReSpiderSSOHosts(hosts []string) {
 }
 
 // reSpiderHostParallelism returns how many independent host sessions to crawl
-// concurrently. Default 1 (sequential — one browser at a time, the proven
-// behavior); opt in for multi-host scans via VIGOLIUM_SPIDER_HOST_PARALLELISM=N,
-// capped so concurrent-browser memory stays bounded and never exceeding the number
-// of hosts.
+// concurrently. Default 2 (ECON-9: hosts used to be crawled strictly one at a
+// time); VIGOLIUM_SPIDER_HOST_PARALLELISM=N overrides (1 = sequential), capped
+// so concurrent-browser memory stays bounded and never exceeding the number of
+// hosts.
 func reSpiderHostParallelism(numGroups int) int {
-	n := 1
+	n := defaultSpiderHostParallelism
 	if v := strings.TrimSpace(os.Getenv("VIGOLIUM_SPIDER_HOST_PARALLELISM")); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
 			n = parsed
@@ -412,6 +412,10 @@ func reSpiderHostParallelism(numGroups int) int {
 // reSpiderHostParallelismCap bounds concurrent browser contexts so an opt-in
 // parallel re-spider cannot exhaust memory on a many-host scan.
 const reSpiderHostParallelismCap = 4
+
+// defaultSpiderHostParallelism is the host-session concurrency without the
+// environment override (ECON-9).
+const defaultSpiderHostParallelism = 2
 
 // respiderEvaluated is the body-free reduction of a candidate row. Reducing each
 // page to this form lets the phase page through candidates without holding every

@@ -208,7 +208,10 @@ type Config struct {
 	DenyClickPattern string
 	// MethodAllowed, when set, is the scan's traffic policy (SAFE-8): the
 	// browser fails any request whose method it refuses (BlockedByClient).
-	MethodAllowed                func(method string) bool
+	MethodAllowed func(method string) bool
+	// BlockResources fails font and media requests and third-party images
+	// (ECON-9). First-party images are never blocked. Default true.
+	BlockResources               bool
 	DontClickSelectors           []string
 	DontClickChildrenOfSelectors []string
 	UseCDPDetection              bool     // Enable CDP event listener detection
@@ -566,6 +569,7 @@ func New(targetURL string) (*Config, error) {
 		ClickSelectors:               DefaultClickSelectors(),
 		ExcludeSelectors:             []string{},
 		DenyClickPattern:             safety.DestructivePattern,
+		BlockResources:               true,
 		DontClickSelectors:           []string{},
 		DontClickChildrenOfSelectors: []string{},
 		// On by default, matching the product runs (spidering.no_cdp: false):
