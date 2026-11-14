@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/helperblob"
+	"github.com/vigolium/vigolium/internal/paths"
 )
 
 const (
@@ -83,7 +84,13 @@ func resolveCacheDir(override string) (string, error) {
 		cacheBase = filepath.Join(home, ".cache")
 	}
 
-	return filepath.Join(cacheBase, DefaultCacheSubdir), nil
+	dir := filepath.Join(cacheBase, DefaultCacheSubdir)
+	// A stateless (-S) scan may reuse the cache but must not depend on
+	// writing under $HOME: an unwritable cache extracts to scratch instead.
+	if paths.Stateless() && !paths.Writable(dir) {
+		return paths.StateDir(DefaultCacheSubdir, dir), nil
+	}
+	return dir, nil
 }
 
 // GetBinary returns the path to the jstangle binary, extracting if necessary.

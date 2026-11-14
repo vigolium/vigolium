@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/memlimit"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/internal/scratch"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -258,9 +259,19 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		// to need it. `version`, `help`, `completion` and the hidden completion
 		// RPCs are excluded: see shouldBootstrap for why a tab-completion must
 		// not create a database.
+		// -S on a scan-driving command: no config/state written to $HOME. The
+		// bootstrap (config, database, presets) is skipped — the scan runs on
+		// embedded defaults and profiles — and every state path redirects to a
+		// per-process scratch directory (internal/paths).
+		if err := applyStatelessHome(cmd); err != nil {
+			return err
+		}
+
 		if shouldBootstrap(cmd) {
-			if err := ensureInitialized(); err != nil {
-				return err
+			if !paths.Stateless() {
+				if err := ensureInitialized(); err != nil {
+					return err
+				}
 			}
 			// --skip-dependency-check opts out of the first-run chromium +
 			// nuclei-templates check entirely: stamp the marker now so this and
@@ -666,4 +677,35 @@ func discoveredConfigFatal(cmd *cobra.Command) bool {
 	}
 	// cobra's hidden completion RPCs.
 	return !strings.HasPrefix(cmd.Name(), "__complete")
+}
+
+// statelessHomeCommands are the scan-driving command paths on which -S means
+// "write nothing to $HOME" (the read commands' -S only switches the store).
+var statelessHomeCommands = map[string]bool{
+	"scan":         true,
+	"run":          true,
+	"scan-url":     true,
+	"scan-request": true,
+}
+
+// applyStatelessHome enables the stateless home (internal/paths) for a -S
+// scan, rooted in this process's scratch directory.
+func applyStatelessHome(cmd *cobra.Command) error {
+	if !globalStateless || cmd == nil {
+		paths.EnableStateless("")
+		return nil
+	}
+	top := cmd
+	for top.Parent() != nil && top.Parent() != cmd.Root() {
+		top = top.Parent()
+	}
+	if !statelessHomeCommands[top.Name()] {
+		return nil
+	}
+	dir, err := scratch.MkdirTemp("stateless-home-*")
+	if err != nil {
+		return fmt.Errorf("stateless (-S): cannot create a scratch home: %w", err)
+	}
+	paths.EnableStateless(dir)
+	return nil
 }

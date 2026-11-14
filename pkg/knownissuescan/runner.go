@@ -18,6 +18,7 @@ import (
 	nuclei "github.com/projectdiscovery/nuclei/v3/lib"
 	nucleiOutput "github.com/projectdiscovery/nuclei/v3/pkg/output"
 
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/output"
@@ -612,6 +613,17 @@ func EnsureTemplates(customDir string, onProgress TemplatesProgress) error {
 
 	if info, err := os.Stat(dir); err == nil && info.IsDir() {
 		return nil
+	}
+
+	// A stateless (-S) scan writes nothing to $HOME, and a template clone is
+	// hundreds of MB of state: fail closed with the way out.
+	if paths.Stateless() {
+		failure := fmt.Errorf("knownissuescan: nuclei templates not installed at %s; a stateless (-S) scan does not download them — "+
+			"install first with `vigolium doctor --fix --only nuclei`, or point --known-issue-scan-templates-dir at a copy", dir)
+		if onProgress != nil {
+			onProgress(TemplatesFailed, dir, failure)
+		}
+		return failure
 	}
 
 	report := func(state string, err error) {

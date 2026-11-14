@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigolium/vigolium/internal/paths"
 	"go.uber.org/zap"
 )
 
@@ -245,6 +246,14 @@ func EnsureBrowser(ctx context.Context, onProgress ProgressFunc) (string, error)
 			"chrome for Testing is not available for %s/%s — install Chromium manually (e.g. apt install chromium)",
 			runtime.GOOS, runtime.GOARCH,
 		)
+	}
+	// A stateless (-S) run may use a cached browser but downloads nothing.
+	if paths.Stateless() {
+		if cached, err := FindCachedBrowser(); err == nil {
+			return cached, nil
+		}
+		return "", fmt.Errorf("no Chrome/Chromium available and a stateless (-S) scan does not download one: " +
+			"install with `vigolium doctor --fix --only chrome`, set spidering.browser_path, or skip the crawl with --skip spidering")
 	}
 	p := provisioner{onProgress: onProgress}
 	p.emit(ProgressEvent{State: StateStarted})

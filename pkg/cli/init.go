@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 	oliumresources "github.com/vigolium/vigolium/internal/resources/olium"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
@@ -34,6 +35,10 @@ const (
 // init only when both are, or by --skip-dependency-check. Once stamped, scan
 // commands fast-path past the dep check on every invocation.
 func writeInitMarker(vigoliumDir string) error {
+	// A stateless (-S) scan writes no state to $HOME (internal/paths).
+	if paths.Stateless() {
+		return nil
+	}
 	path := filepath.Join(vigoliumDir, initMarkerFileName)
 	payload := fmt.Sprintf(`{"version":%q,"initialized_at":%q}`+"\n",
 		Version,
@@ -448,6 +453,9 @@ const coreDepInstallTimeout = 10 * time.Minute
 
 // stampInitMarker writes the marker (best-effort, dir created if needed).
 func stampInitMarker(vigoliumDir string) {
+	if paths.Stateless() {
+		return
+	}
 	if err := os.MkdirAll(vigoliumDir, 0755); err != nil {
 		zap.L().Debug("Failed to create .vigolium dir for init marker", zap.Error(err))
 		return

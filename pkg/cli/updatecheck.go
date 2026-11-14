@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/paths"
 	"github.com/vigolium/vigolium/pkg/selfupdate"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/utils"
@@ -378,6 +379,9 @@ func readUpdateCache() (updateCacheData, bool) {
 
 // writeUpdateCache atomically persists the latest version + the current time.
 func writeUpdateCache(latest string) {
+	if paths.Stateless() {
+		return // -S writes nothing to $HOME
+	}
 	path := config.ExpandPath(updateCheckCachePath)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
