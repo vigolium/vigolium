@@ -310,6 +310,7 @@ func (r *Runner) runDynamicAssessmentPhase(ctx context.Context, infra *phaseInfr
 		DeepScan:             strings.EqualFold(r.options.Intensity, "deep"),
 		AllowRiskyPayloads:   r.riskyPayloadsAllowed(),
 		NoParamDedup:         r.options.NoParamDedup,
+		HeaderPointsAll:      r.headerPointsAll(),
 		ModuleTimeouts:       &phaseModuleTimeouts,
 		SkipBaseline:         true,
 		PauseCtrl:            r.pauseCtrl,
@@ -875,4 +876,17 @@ func (r *Runner) waitForNewRecords(ctx context.Context, scanUUID string, pollInt
 		case <-time.After(pollInterval):
 		}
 	}
+}
+
+// headerPointsAll resolves the header insertion-point gate (ECON-1):
+// --header-fuzz wins, else config dynamic_assessment.header_points; default
+// gated.
+func (r *Runner) headerPointsAll() bool {
+	switch strings.ToLower(strings.TrimSpace(r.options.HeaderFuzz)) {
+	case "all":
+		return true
+	case "gated":
+		return false
+	}
+	return r.settings != nil && r.settings.DynamicAssessment.HeaderPointsAll()
 }

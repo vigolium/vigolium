@@ -81,6 +81,8 @@ func registerScanPipelineFlags(flags *pflag.FlagSet) {
 	flags.BoolVar(&globalSkipHeuristics, "skip-heuristics", false, "Disable pre-scan heuristics (equivalent to --heuristics-check=none)")
 	registerAllowRiskyPayloadsFlag(flags)
 	registerNoParamDedupFlag(flags)
+	flags.StringVar(&scanOpts.HeaderFuzz, "header-fuzz", "",
+		"Header insertion points: gated (default: noise headers skipped, logged/negotiation/routing headers once per host and only for the vuln classes they can sink) or all (every header, every module, per path). Overrides config dynamic-assessment.header_points")
 	registerParamMiningFlag(flags)
 	registerRequestBudgetFlags(flags)
 	registerScanDocumentFlags(flags)

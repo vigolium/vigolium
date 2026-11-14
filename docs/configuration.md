@@ -696,6 +696,7 @@ dynamic-assessment:
 
   # hygiene_modules: true     # unset = follow intensity (see below)
   # allow_risky_payloads: true # risk:high payloads/modules below deep (see below)
+  # header_points: gated      # gated (default) | all — see "Header insertion points" below
 
   param_mining:                 # hidden-parameter mining (deep or --param-mining)
     max_endpoints_per_host: 50  # 0 = default 50
@@ -756,6 +757,18 @@ vigolium config set dynamic-assessment.hygiene_modules true    # every scan
 runs them at every intensity, `false` suppresses them even at deep. Naming them
 explicitly with `--module-tag` or `--module-id` always wins, the same way an
 explicit selection already bypasses the intensity tier ceiling.
+
+**Header insertion points (`header_points`).** By default (`gated`) header
+points are tested by class: browser/protocol noise (`Sec-Fetch-*`, `Sec-CH-*`,
+`Priority`, cache validators, `Range`) is never fuzzed; logged headers
+(`User-Agent`, `Referer`, `X-Forwarded-For`, …) reach SQLi and command
+injection, negotiation headers (`Accept`, `Accept-Language`) reach SQLi and
+traversal, routing headers (`X-Forwarded-Host`, `X-Original-URL`, `Origin`, …)
+reach SSRF — each once per host rather than once per path — and any other
+(application) header reaches every class on every request. `all` restores
+per-path testing of every header by every module; `--header-fuzz=all|gated`
+overrides it for one run. Skipped points are counted as `header_gated` in the
+module ledger.
 
 **Risky payloads (`allow_risky_payloads`).** `OR`-per-row and stacked time-blind
 SQLi payloads, and whole modules tagged `risk:high`, run only at `--intensity

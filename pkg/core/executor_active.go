@@ -140,6 +140,8 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 		return
 	}
 
+	origin := modkit.RecordOrigin(item)
+
 	// Pre-compute the registry location key for cross-module finding dedup
 	// (the same key modules use via ScanContext.ParamAlreadyFound).
 	paramDedup := e.scanCtx.ParamDedupEnabled()
@@ -168,9 +170,10 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 		}
 
 		allowedTypes := module.AllowedInsertionPointTypes()
+		gateClass := modules.ModuleVulnClass(module)
 		vulnClass := ""
 		if paramDedup {
-			vulnClass = modules.ModuleVulnClass(module)
+			vulnClass = gateClass
 		}
 
 		for _, ip := range allPoints {
@@ -191,6 +194,16 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 				continue
 			}
 
+			// Header gate (ECON-1): noise headers never, headers outside the
+			// module's class interest never, logged/negotiation/routing headers
+			// once per (origin, module, header).
+			gate := modkit.GateHeaderPoint(e.scanCtx, module, gateClass, origin, ip)
+			if !gate.Allow {
+				e.noteModuleSkip(module.ID(), SkipReasonHeaderGated)
+				continue
+			}
+			claimed := gate.Claimed
+
 			mod, pt := module, ip // capture loop variables
 			e.goActiveTask(ctx, t, hostKey, func(releaseSlot func()) {
 				// Re-check when the task actually runs: it may have waited on the
@@ -209,6 +222,11 @@ func (e *Executor) runActivePerInsertionPoint(ctx context.Context, reqClient *ht
 						return mod.ScanPerInsertionPoint(item, pt, client, e.scanCtx)
 					},
 					mod, item, reqClient, releaseSlot, 0)
+				// A once-per-host header claim taken for a call that did not
+				// complete goes back, so the header is tested on a later record.
+				if claimed && !o.completed {
+					e.scanCtx.ReleaseHeaderClaim(origin, mod.ID(), pt.Name())
+				}
 				e.deliverCall(ctx, o, mod, item, pt)
 			})
 		}

@@ -478,6 +478,11 @@ type Options struct {
 	// another one reported it. For audit runs that want every technique's hit.
 	NoParamDedup bool
 
+	// HeaderFuzz is --header-fuzz: "all" tests every header insertion point
+	// with every module, per path (no header gate); "gated" forces the gate;
+	// empty follows config dynamic_assessment.header_points (default gated).
+	HeaderFuzz string
+
 	// ParamMining is --param-mining: nil when the flag was not passed (the
 	// phase then follows the intensity: on at deep, off below it), otherwise
 	// the explicit value, which wins in both directions.

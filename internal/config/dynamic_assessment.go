@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // DynamicAssessmentConfig holds settings for the dynamic-assessment scan phase:
 // enabled modules and JS extensions.
 type DynamicAssessmentConfig struct {
@@ -48,6 +50,23 @@ type DynamicAssessmentConfig struct {
 	// which runs before the assessment at --intensity deep or with
 	// --param-mining. See ParamMiningConfig.
 	ParamMining ParamMiningConfig `yaml:"param_mining,omitempty"`
+
+	// HeaderPoints selects how header insertion points are tested:
+	//
+	//	"gated" (default, also "") - noise headers (sec-fetch-*, priority, cache
+	//	    validators, …) are never fuzzed; a header reaches only the vuln
+	//	    classes that can sink it (User-Agent/Referer/X-Forwarded-For → SQLi,
+	//	    cmdi; Accept-Language → SQLi, traversal; X-Forwarded-Host/Origin →
+	//	    SSRF; custom headers → every class), and logged/negotiation/routing
+	//	    headers are tested once per host instead of once per path.
+	//	"all" - every header point reaches every module, per path (the old
+	//	    behaviour). --header-fuzz=all overrides this per run.
+	HeaderPoints string `yaml:"header_points,omitempty"`
+}
+
+// HeaderPointsAll reports whether header_points is "all".
+func (c *DynamicAssessmentConfig) HeaderPointsAll() bool {
+	return c != nil && strings.EqualFold(strings.TrimSpace(c.HeaderPoints), "all")
 }
 
 func DefaultDynamicAssessmentConfig() *DynamicAssessmentConfig {

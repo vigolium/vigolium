@@ -127,6 +127,10 @@ func (m *Module) scanPerRequest(
 	if err != nil {
 		return results, errors.Wrap(err, "failed to create insertion points")
 	}
+	// Header points: same class gate the executor applies to per-point
+	// modules (ECON-1) — noise headers never, logged/negotiation/routing
+	// headers once per host.
+	points = modkit.FilterPointsFor(scanCtx, m, ctx, points)
 
 	if len(points) == 0 {
 		return results, nil

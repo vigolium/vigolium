@@ -416,6 +416,13 @@ func NewExecutor(
 	e.scanCtx.DeepScan = cfg.DeepScan
 	e.scanCtx.AllowRiskyPayloads = cfg.AllowRiskyPayloads
 	e.scanCtx.NoParamDedup = cfg.NoParamDedup
+	// Header insertion-point gate (ECON-1).
+	e.scanCtx.HeaderPointsAll = cfg.HeaderPointsAll
+	e.scanCtx.HeaderClaims = cfg.HeaderClaims
+	if e.scanCtx.HeaderClaims == nil {
+		e.scanCtx.HeaderClaims = modkit.NewHeaderClaims()
+	}
+	e.scanCtx.OnHeaderGated = func(moduleID string) { e.noteModuleSkip(moduleID, SkipReasonHeaderGated) }
 	// Registries: the phase-shared ones when supplied (NEW-8), else fresh.
 	e.scanCtx.ParamFindings = cfg.ParamFindings
 	if e.scanCtx.ParamFindings == nil {

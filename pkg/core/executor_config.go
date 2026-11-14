@@ -214,6 +214,13 @@ type ExecutorConfig struct {
 	ParamFindings *modkit.ParameterFindingRegistry
 	ContentClass  *modkit.ContentClassRegistry
 	HostClaims    *HostClaims
+	// HeaderClaims holds the once-per-host header-point claims (ECON-1).
+	HeaderClaims *modkit.HeaderClaims
+
+	// HeaderPointsAll turns the header insertion-point gate off
+	// (dynamic_assessment.header_points: all, --header-fuzz=all): every header
+	// point reaches every module that accepts headers, per path.
+	HeaderPointsAll bool
 }
 
 // HostClaims holds the per-host run-once claims of ScanPerHost modules — one
@@ -295,6 +302,9 @@ func (c *ExecutorConfig) SharePhaseState() {
 	}
 	if c.HostClaims == nil {
 		c.HostClaims = NewHostClaims()
+	}
+	if c.HeaderClaims == nil {
+		c.HeaderClaims = modkit.NewHeaderClaims()
 	}
 }
 

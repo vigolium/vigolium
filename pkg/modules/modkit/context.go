@@ -205,6 +205,16 @@ type ScanContext struct {
 	// audit run gets every (param, technique) hit. See ParamDedupEnabled.
 	NoParamDedup bool
 
+	// HeaderPointsAll turns the header insertion-point gate off
+	// (dynamic_assessment.header_points: all / --header-fuzz=all): every header
+	// point reaches every module that accepts headers. See GateHeaderPoint.
+	HeaderPointsAll bool
+	// HeaderClaims holds the once-per-host header claims (shared per phase).
+	HeaderClaims *HeaderClaims
+	// OnHeaderGated, when set, counts one header point a module skipped
+	// through FilterPointsFor (the executor maps it to the header_gated skip).
+	OnHeaderGated func(moduleID string)
+
 	// DeepScan mirrors --intensity=deep: modules may use it to unlock heavier,
 	// broader probing (e.g. dashboard_exposure's full mount-path sweep). Off by
 	// default so normal scans stay bounded.
