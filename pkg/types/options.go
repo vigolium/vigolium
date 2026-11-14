@@ -475,6 +475,12 @@ type Options struct {
 	// presets/overlays/safe.yaml, risky payloads off, GET/HEAD-only traffic).
 	Safe bool
 
+	// ConcurrencyCeiling caps every phase's worker count when > 0 and -c was
+	// not typed: a strategy's pace ceiling or --safe. A scanning_pace.<phase>
+	// section (a profile's dynamic-assessment concurrency: 100) used to win
+	// over the narrowed global value.
+	ConcurrencyCeiling int
+
 	AllowRiskyPayloads *bool
 
 	// NoParamDedup is --no-param-dedup: turn off the cross-module (param,

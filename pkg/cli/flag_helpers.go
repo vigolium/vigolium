@@ -73,8 +73,8 @@ const scopeOriginFlagUsage = "Host scope strictness: all, relaxed, balanced, str
 func registerScanPipelineFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&globalOnly, "only", "", "Run only these phases (comma-separated: "+runner.PhaseNamesDesc(false)+"; aliases accepted, see 'vigolium run --help')")
 	flags.StringSliceVar(&globalSkipPhases, "skip", nil, "Skip these phases (repeatable: "+runner.PhaseNamesDesc(true)+"; aliases accepted, see 'vigolium run --help')")
-	flags.StringVar(&globalStrategy, "strategy", "", "Scanning strategy preset (lite, balanced, deep)")
-	flags.StringVar(&globalScanningProfile, "scanning-profile", "", "Scanning profile name or YAML file path")
+	flags.StringVar(&globalStrategy, "strategy", "", "Advanced: which phases run (lite, balanced, deep); --intensity picks this for you")
+	flags.StringVar(&globalScanningProfile, "scanning-profile", "", "Advanced: scanning profile name or YAML file path (pace, discovery depth, templates); --intensity picks this for you")
 	registerIntensityFlag(flags)
 	registerScopeOriginFlag(flags)
 	registerScanningMaxDurationFlag(flags)
@@ -95,7 +95,7 @@ func registerScanPipelineFlags(flags *pflag.FlagSet) {
 // (resolveNativeScanOptions / resolveLightweightScanOptions) reads one value
 // whichever command parsed it.
 func registerIntensityFlag(flags *pflag.FlagSet) {
-	flags.StringVar(&globalIntensity, "intensity", "", "Scan intensity preset: quick, balanced, or deep (maps to scanning profile + strategy)")
+	flags.StringVar(&globalIntensity, "intensity", "", "How hard to scan: quick, balanced (default), or deep — the one dial for phases, pace and module tiers (sets --strategy and --scanning-profile)")
 }
 
 func registerScopeOriginFlag(flags *pflag.FlagSet) {

@@ -80,7 +80,7 @@ func registerNativeScanFlags(flags *pflag.FlagSet, includeAuth bool) {
 	flags.StringToStringVarP(&scanOpts.AdvancedOptions, "advanced-options", "a", nil, "Module-specific options as key=value (e.g. -a xss.dom=true)")
 
 	// Content discovery flags
-	flags.BoolVar(&scanOpts.DiscoverEnabled, "discover", false, "Enable content discovery phase before scanning")
+	flags.BoolVar(&scanOpts.DiscoverEnabled, "discover", false, "Force the content discovery phase on (balanced and deep already run it; --skip discovery turns it off)")
 	flags.DurationVar(&scanOpts.DiscoverMaxDuration, "discover-max-time", 1*time.Hour, "Max time for content discovery per target")
 	// --discovery-wordlist seeds the DISCOVERY phase. It was called
 	// --fuzz-wordlist, which collided in name with `vigolium fuzz -w` — a
@@ -109,7 +109,7 @@ func registerNativeScanFlags(flags *pflag.FlagSet, includeAuth bool) {
 	flags.BoolVar(&scanOpts.RecordRedirectChain, "record-redirect-chain", false, "Store a followed redirect's hops as their own http_records rows, chained by parent_uuid, instead of keeping only the final response. Canonical hops (scheme upgrade, trailing slash, www.) collapse into their destination row, and a chain stores at most 4 rows, keeping the first and the last. Read by the probe phase; on by default under 'run probe'.")
 
 	// Browser-based spidering flags
-	flags.BoolVar(&scanOpts.SpideringEnabled, "spider", false, "Enable browser-based spidering phase before scanning")
+	flags.BoolVar(&scanOpts.SpideringEnabled, "spider", false, "Force the browser spidering phase on (balanced and deep already run it; --skip spidering turns it off)")
 	flags.DurationVar(&scanOpts.SpideringMaxDuration, "spider-max-time", 30*time.Minute, "Max time for spidering per target")
 	flags.StringVarP(&scanOpts.SpideringBrowserEngine, "browser-engine", "E", "chromium", "Browser engine: 'chromium', 'ungoogled', or 'fingerprint'")
 	flags.IntVarP(&scanOpts.SpideringBrowserCount, "browsers", "b", 1, "Browser instances to launch for spidering (clamped to 1; for parallel crawling set spidering.tabs in the config, which runs N tabs of the one browser)")

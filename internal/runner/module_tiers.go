@@ -26,6 +26,24 @@ import (
 // raw --intensity value or a resolved profile name. balanced and deep share the
 // intrusive ceiling — deep still differs via its other deep-only behaviors
 // (scope expansion, full dashboard sweep, ScanContext.DeepScan), not the tier gate.
+// scanTierCeiling is the module tier ceiling for a scan: --safe caps it at
+// moderate; otherwise the typed --intensity decides, else the RESOLVED
+// scanning profile (a config default_profile or --scanning-profile quick is the
+// quick preset too, and used to run intrusive modules because only the
+// --intensity spelling was consulted).
+func scanTierCeiling(opts *types.Options) int {
+	if opts == nil {
+		return intensityTierCeiling("")
+	}
+	if opts.Safe {
+		return modules.TierRankModerate
+	}
+	if opts.Intensity != "" {
+		return intensityTierCeiling(opts.Intensity)
+	}
+	return intensityTierCeiling(opts.ScanningProfile)
+}
+
 func intensityTierCeiling(intensity string) int {
 	switch strings.ToLower(strings.TrimSpace(intensity)) {
 	case "quick", "lite":

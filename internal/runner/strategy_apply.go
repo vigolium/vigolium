@@ -224,6 +224,9 @@ func ApplyScanStrategy(settings *config.Settings, opts *types.Options, req Strat
 			if !req.Explicit.Concurrency {
 				pace.Concurrency = config.NarrowPace(pace.Concurrency, ceiling.Concurrency)
 				opts.Concurrency = pace.Concurrency
+				if ceiling.Concurrency > 0 && (opts.ConcurrencyCeiling == 0 || ceiling.Concurrency < opts.ConcurrencyCeiling) {
+					opts.ConcurrencyCeiling = ceiling.Concurrency
+				}
 			}
 			if !req.Explicit.RateLimit {
 				pace.RateLimit = config.NarrowPace(pace.RateLimit, ceiling.RateLimit)

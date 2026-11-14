@@ -597,6 +597,10 @@ func (r *Runner) phaseConcurrency(phase string) int {
 		if pace := r.settings.ScanningPace.ResolvePhase(phase); pace.Concurrency > 0 {
 			concurrency = pace.Concurrency
 		}
+		// A strategy ceiling / --safe narrows the phase sections too.
+		if c := r.options.ConcurrencyCeiling; c > 0 && concurrency > c {
+			concurrency = c
+		}
 	}
 	return concurrency
 }

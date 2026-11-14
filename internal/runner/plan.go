@@ -460,7 +460,7 @@ func planModules(p *scanplan.Plan, opts *types.Options, settings *config.Setting
 	if !opts.ExtensionsOnly {
 		sel = FilterModulesForRun(opts, settings)
 	} else {
-		sel.TierCeiling = intensityTierCeiling(opts.Intensity)
+		sel.TierCeiling = scanTierCeiling(opts)
 	}
 	riskyAllowed := RiskyPayloadsAllowed(opts, settings)
 	m := scanplan.Modules{

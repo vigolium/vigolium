@@ -37,6 +37,9 @@ func ApplySafePreset(settings *config.Settings, opts *types.Options) error {
 		return fmt.Errorf("--safe: %w", err)
 	}
 	settings.Scope.Methods = append([]string(nil), SafeMethods...)
+	if c := settings.ScanningPace.Concurrency; c > 0 {
+		opts.ConcurrencyCeiling = c
+	}
 	off := false
 	opts.AllowRiskyPayloads = &off
 	settings.DynamicAssessment.AllowRiskyPayloads = false

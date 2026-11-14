@@ -90,7 +90,7 @@ func FilterModulesForRun(opts *types.Options, settings *config.Settings) ModuleS
 	gateActive := activeUsingAll && !sel.ActiveByConfig
 	gatePassive := passiveUsingAll && !sel.PassiveByConfig
 
-	sel.TierCeiling = intensityTierCeiling(opts.Intensity)
+	sel.TierCeiling = scanTierCeiling(opts)
 	if gateActive {
 		sel.Active, sel.activeTier = partitionModules(sel.Active, aboveTier[modules.ActiveModule](sel.TierCeiling))
 	}
