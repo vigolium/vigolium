@@ -213,12 +213,12 @@ func TestMaxPerHostDefaultsAgree(t *testing.T) {
 func TestResolveSafeAndMaxTime(t *testing.T) {
 	profiles := writeIntensityProfiles(t)
 
-	opts, settings, _ := cliResolve(t, profiles)
+	opts, _, _ := cliResolve(t, profiles)
 	if opts.ScanMaxDuration != time.Hour {
 		t.Fatalf("default total budget = %s, want 1h", opts.ScanMaxDuration)
 	}
 
-	opts, settings, _ = cliResolve(t, profiles, "--safe", "--intensity", "deep")
+	opts, settings, _ := cliResolve(t, profiles, "--safe", "--intensity", "deep")
 	if opts.ScanMaxDuration != 15*time.Minute {
 		t.Errorf("--safe budget = %s, want 15m", opts.ScanMaxDuration)
 	}
