@@ -83,7 +83,7 @@ func loadIgnoreFile(path string, now time.Time) (ignoreSet, error) {
 		if !explicit && errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("--ignore-file %s: %w", path, err)
+		return nil, usageErrorf("--ignore-file %s: %w", path, err)
 	}
 	var doc ignoreFileDoc
 	if err := yaml.Unmarshal(data, &doc); err != nil || doc.Ignore == nil {
@@ -92,7 +92,7 @@ func loadIgnoreFile(path string, now time.Time) (ignoreSet, error) {
 			if err == nil {
 				err = lerr
 			}
-			return nil, fmt.Errorf("--ignore-file %s: %w", path, err)
+			return nil, usageErrorf("--ignore-file %s: %w", path, err)
 		}
 		doc.Ignore = list
 	}
@@ -100,12 +100,12 @@ func loadIgnoreFile(path string, now time.Time) (ignoreSet, error) {
 	for i, e := range doc.Ignore {
 		e.Hash = strings.ToLower(strings.TrimSpace(e.Hash))
 		if e.Hash == "" {
-			return nil, fmt.Errorf("--ignore-file %s: entry %d has no hash", path, i+1)
+			return nil, usageErrorf("--ignore-file %s: entry %d has no hash", path, i+1)
 		}
 		if exp := strings.TrimSpace(e.Expires); exp != "" {
 			t, perr := parseIgnoreExpiry(exp)
 			if perr != nil {
-				return nil, fmt.Errorf("--ignore-file %s: entry %d: bad expires %q (want YYYY-MM-DD or RFC 3339)", path, i+1, exp)
+				return nil, usageErrorf("--ignore-file %s: entry %d: bad expires %q (want YYYY-MM-DD or RFC 3339)", path, i+1, exp)
 			}
 			if now.After(t) {
 				if !globalSilent {
@@ -138,7 +138,7 @@ type baselineFinding struct {
 // re-keys a pre-identity-v2 store, so its hashes match this run's).
 func loadBaseline(ctx context.Context, path string) (map[string]baselineFinding, error) {
 	if _, err := os.Stat(path); err != nil {
-		return nil, fmt.Errorf("--baseline %s: %w", path, err)
+		return nil, usageErrorf("--baseline %s: %w", path, err)
 	}
 	var db *database.DB
 	var err error
@@ -159,11 +159,13 @@ func loadBaseline(ctx context.Context, path string) (map[string]baselineFinding,
 		if db != nil {
 			_ = db.Close()
 		}
+		//vigolium:not-usage the baseline store exists but could not be read or merged
 		return nil, fmt.Errorf("--baseline %s: %w", path, err)
 	}
 	defer func() { _ = db.Close() }()
 	findings, err := database.NewFindingsQueryBuilder(db, database.QueryFilters{}).Execute(ctx)
 	if err != nil {
+		//vigolium:not-usage a query failure on the loaded baseline
 		return nil, fmt.Errorf("--baseline %s: read findings: %w", path, err)
 	}
 	out := make(map[string]baselineFinding, len(findings))
