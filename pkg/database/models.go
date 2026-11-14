@@ -242,6 +242,10 @@ type Scan struct {
 	// the row.
 	ModuleErrors     map[string]int64 `bun:"module_errors,type:jsonb,nullzero" json:"module_errors,omitempty"`
 	ExtensionsFailed []string         `bun:"extensions_failed,type:jsonb,nullzero" json:"extensions_failed,omitempty"`
+	// ModuleStats is the per-module ledger (schema v6): calls, wire requests,
+	// errors and skips by reason, so "why was this module not run / what did it
+	// cost" has an answer on the row.
+	ModuleStats map[string]ModuleStat `bun:"module_stats,type:jsonb,nullzero" json:"module_stats,omitempty"`
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
@@ -869,4 +873,35 @@ type Scope struct {
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+}
+
+// ModuleStat is one module's line in scans.module_stats.
+type ModuleStat struct {
+	Invocations int64 `json:"invocations,omitempty"`
+	Requests    int64 `json:"requests,omitempty"`
+	Findings    int64 `json:"findings,omitempty"`
+	Errors      int64 `json:"errors,omitempty"`
+	// Skips counts the module calls not made, by reason. Reasons (stable,
+	// add-only): tech_filter, cannot_process, param_already_found, ip_type,
+	// quarantined, timeout, method_policy, header_gated, inconclusive_throttled.
+	Skips map[string]int64 `json:"skips,omitempty"`
+}
+
+// Module skip reasons recorded in ModuleStat.Skips.
+const (
+	SkipTechFilter            = "tech_filter"
+	SkipCannotProcess         = "cannot_process"
+	SkipParamAlreadyFound     = "param_already_found"
+	SkipIPType                = "ip_type"
+	SkipQuarantined           = "quarantined"
+	SkipTimeout               = "timeout"
+	SkipMethodPolicy          = "method_policy"
+	SkipHeaderGated           = "header_gated"
+	SkipInconclusiveThrottled = "inconclusive_throttled"
+)
+
+// ModuleSkipReasons lists every skip reason once.
+var ModuleSkipReasons = []string{
+	SkipTechFilter, SkipCannotProcess, SkipParamAlreadyFound, SkipIPType, SkipQuarantined,
+	SkipTimeout, SkipMethodPolicy, SkipHeaderGated, SkipInconclusiveThrottled,
 }

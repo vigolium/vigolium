@@ -230,6 +230,7 @@ var schemaTables = []string{
 		runner_host TEXT,
 		module_errors {{JSON}},
 		extensions_failed {{JSON}},
+		module_stats {{JSON}},
 		created_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`,
@@ -922,6 +923,8 @@ var columnMigrations = []columnMigration{
 	// Schema v6: finding identity v2. last_seen_at is set on every re-detection;
 	// NULL means no v6 binary has re-detected the row.
 	{"findings", "last_seen_at", "{{TIMESTAMP}}"},
+	// scans.module_stats: the per-module ledger (database.ModuleStat).
+	{"scans", "module_stats", "{{JSON}}"},
 }
 
 func init() {

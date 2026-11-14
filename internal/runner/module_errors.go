@@ -21,8 +21,100 @@ import (
 // the count on an event is scan-wide rather than per feedback round; the
 // finalizer persists the totals on scans.module_errors, which scan.finished
 // reads back.
+//
+// It is also the scan's module ledger (RES-6): per module, calls, wire
+// requests and findings folded from every executor's report, and calls not
+// made by skip reason (database.ModuleSkipReasons), persisted on
+// scans.module_stats.
 type moduleErrorLedger struct {
 	m sync.Map // module id → *atomic.Int64
+
+	mu    sync.Mutex
+	stats map[string]*database.ModuleStat // guarded by mu
+}
+
+// entryLocked returns moduleID's stat line; mu must be held.
+func (l *moduleErrorLedger) entryLocked(moduleID string) *database.ModuleStat {
+	if l.stats == nil {
+		l.stats = make(map[string]*database.ModuleStat)
+	}
+	e := l.stats[moduleID]
+	if e == nil {
+		e = &database.ModuleStat{}
+		l.stats[moduleID] = e
+	}
+	return e
+}
+
+// noteSkip records n calls of moduleID not made for reason.
+func (l *moduleErrorLedger) noteSkip(moduleID, reason string, n int64) {
+	if l == nil || moduleID == "" || reason == "" || n <= 0 {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e := l.entryLocked(moduleID)
+	if e.Skips == nil {
+		e.Skips = make(map[string]int64)
+	}
+	e.Skips[reason] += n
+}
+
+// addExecution folds one executor's report into the ledger: its per-module
+// metrics and its skip counters. Each executor reports its own metrics, so
+// summing reports across a phase's executors (rounds) is the scan total.
+func (l *moduleErrorLedger) addExecution(rep core.ExecutionReport) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	for id, m := range rep.ModuleStats {
+		e := l.entryLocked(id)
+		e.Invocations += m.Invocations
+		e.Requests += m.Requests
+		e.Findings += m.Findings
+	}
+	l.mu.Unlock()
+	for id, reasons := range rep.ModuleSkips {
+		for reason, n := range reasons {
+			l.noteSkip(id, reason, n)
+		}
+	}
+}
+
+// moduleStats returns the ledger with the error totals folded in, nil when
+// empty.
+func (l *moduleErrorLedger) moduleStats() map[string]database.ModuleStat {
+	if l == nil {
+		return nil
+	}
+	errs := l.snapshot()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out map[string]database.ModuleStat
+	put := func(id string, s database.ModuleStat) {
+		if out == nil {
+			out = make(map[string]database.ModuleStat)
+		}
+		out[id] = s
+	}
+	for id, e := range l.stats {
+		s := *e
+		if len(e.Skips) > 0 {
+			s.Skips = make(map[string]int64, len(e.Skips))
+			for k, v := range e.Skips {
+				s.Skips[k] = v
+			}
+		}
+		s.Errors = errs[id]
+		put(id, s)
+	}
+	for id, n := range errs {
+		if _, ok := l.stats[id]; !ok {
+			put(id, database.ModuleStat{Errors: n})
+		}
+	}
+	return out
 }
 
 func newModuleErrorLedger() *moduleErrorLedger { return &moduleErrorLedger{} }
@@ -30,9 +122,12 @@ func newModuleErrorLedger() *moduleErrorLedger { return &moduleErrorLedger{} }
 // note records one failure and returns the module's running total. Nil-safe:
 // a nil ledger counts nothing and reports 1, so the executor still emits the
 // first event.
-func (l *moduleErrorLedger) note(moduleID, _ string) int64 {
+func (l *moduleErrorLedger) note(moduleID, kind string) int64 {
 	if l == nil {
 		return 1
+	}
+	if kind == "timeout" {
+		l.noteSkip(moduleID, database.SkipTimeout, 1)
 	}
 	v, ok := l.m.Load(moduleID)
 	if !ok {
@@ -66,6 +161,12 @@ func (r *Runner) noteModuleError(moduleID, kind string) int64 {
 	return r.moduleErrors.Load().note(moduleID, kind)
 }
 
+// ModuleStats returns the running scan's module ledger (database.ModuleStat
+// per module id), nil when no module ran.
+func (r *Runner) ModuleStats() map[string]database.ModuleStat {
+	return r.moduleErrors.Load().moduleStats()
+}
+
 // ModuleErrors returns the running scan's per-module error totals.
 func (r *Runner) ModuleErrors() map[string]int64 {
 	return r.moduleErrors.Load().snapshot()
@@ -74,12 +175,15 @@ func (r *Runner) ModuleErrors() map[string]int64 {
 // persistModuleErrors writes the ledger onto scans.module_errors. Called by the
 // finalizer, before the row is completed, so `scan status` and scan.finished
 // (which reads the row) carry the totals.
+//
+// It writes the module ledger onto scans.module_stats in the same update.
 func (r *Runner) persistModuleErrors(ctx context.Context, scanUUID string) {
 	counts := r.ModuleErrors()
-	if r.repository == nil || len(counts) == 0 {
+	ledger := r.ModuleStats()
+	if r.repository == nil || (len(counts) == 0 && len(ledger) == 0) {
 		return
 	}
-	if err := r.repository.UpdateScanPartial(ctx, &database.Scan{UUID: scanUUID, ModuleErrors: counts}); err != nil {
+	if err := r.repository.UpdateScanPartial(ctx, &database.Scan{UUID: scanUUID, ModuleErrors: counts, ModuleStats: ledger}); err != nil {
 		zap.L().Warn("Failed to record module errors on scan", zap.Error(err))
 	}
 }

@@ -53,6 +53,13 @@ type ExecutionReport struct {
 	// across executors (dynamic assessment's rounds) it is the running total of
 	// that shared state, so a caller summing reports must not add rounds.
 	FindingsCapped map[string]int64
+	// ModuleStats is this executor's per-module metrics (calls, requests,
+	// findings, errors) at report time.
+	ModuleStats map[string]stats.ModuleStatsSnapshot
+	// ModuleSkips counts, per module, calls not made by reason
+	// (database.ModuleSkipReasons). Filled by the executor's dispatch gates
+	// (Track B contract); nil when nothing was skipped.
+	ModuleSkips map[string]map[string]int64
 }
 
 // Clean reports whether the run covered its whole input with nothing abandoned.
@@ -75,6 +82,7 @@ func (e *Executor) Report() ExecutionReport {
 	rep.Responded = e.responded.Load() - e.reportBase.responded
 	e.quarantineReport(&rep)
 	rep.FindingsCapped = e.admission().Capped()
+	rep.ModuleStats = e.ModuleMetrics()
 	return rep
 }
 

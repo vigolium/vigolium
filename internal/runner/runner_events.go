@@ -100,6 +100,10 @@ type phaseTracker struct {
 	baseBlocks map[string]int64
 	// blockedHosts is set at finish from that delta. Guarded by mu.
 	blockedHosts []string
+
+	// ledger is the scan's module ledger every executor report folds into
+	// (nil-safe).
+	ledger *moduleErrorLedger
 }
 
 // noteEdgeBlocks compares the requester's per-host block counts with the
@@ -203,6 +207,7 @@ func (r *Runner) beginPhase(ctx context.Context, phase string, requester *http.R
 	if requester != nil {
 		t.baseBlocks = requester.BlockCounts()
 	}
+	t.ledger = r.moduleErrors.Load()
 	if !scanevents.On() {
 		return t
 	}
@@ -565,6 +570,7 @@ func (t *phaseTracker) noteExecution(rep core.ExecutionReport) {
 	// The report carries the running total of the (possibly shared) admission,
 	// so the latest one is the phase's.
 	t.setFindingsCapped(rep.FindingsCapped)
+	t.ledger.addExecution(rep)
 }
 
 // setCount records a phase-specific tally for PhaseOutcome.Counts. The last value
