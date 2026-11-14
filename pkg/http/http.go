@@ -1775,6 +1775,10 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 		return nil, err
 	}
 
+	if opts.RawRequest {
+		stripRawhttpDecodedEncoding(resp)
+	}
+
 	if r.services.Options.DumpTraffic {
 		dumpTraffic(req.Request, resp, time.Since(start))
 	}
@@ -1807,6 +1811,26 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 		return nil, errors.Wrap(err, "could not generate response chain")
 	}
 	return respChain, nil
+}
+
+// stripRawhttpDecodedEncoding removes the content-coding and framing headers
+// from a rawhttp response whose body rawhttp already gunzipped (MISS-25).
+// rawhttp decodes exactly when strings.Join(Header["Content-Encoding"], " ")
+// is "gzip" (its util.go headerValue, an exact-key lookup) but keeps the
+// header, so responsechain.Fill decoded the plaintext a second time and the
+// failed second decode swallowed the first buffer chunk. Same fix as the
+// request cache (clustering.go).
+func stripRawhttpDecodedEncoding(resp *http.Response) {
+	if resp == nil || resp.Header == nil {
+		return
+	}
+	if strings.Join(resp.Header["Content-Encoding"], " ") != "gzip" {
+		return
+	}
+	delete(resp.Header, "Content-Encoding")
+	resp.Header.Del("Content-Length")
+	resp.Header.Del("Transfer-Encoding")
+	resp.ContentLength = -1
 }
 
 const (
