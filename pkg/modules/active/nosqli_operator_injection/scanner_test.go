@@ -967,3 +967,25 @@ func TestPathOrHeaderInsertionTypes(t *testing.T) {
 		}
 	}
 }
+
+// MISS-14: two identical timing probes must both reach the server. The probe
+// used to omit NoClustering, so the request cache answered the second in ~0ms.
+func TestMeasureDuration_IdenticalProbesBothSent(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+	}))
+	defer srv.Close()
+	client := modtest.Requester(t)
+	rr := modtest.Request(t, srv.URL+"/q?user=a")
+	ip := modtest.InsertionPoint(t, rr, "user")
+	m := New()
+	for i := 0; i < 2; i++ {
+		if _, _, _, err := m.measureDuration(rr, ip, client, "same"); err != nil {
+			t.Fatalf("probe %d: %v", i, err)
+		}
+	}
+	if n := hits.Load(); n != 2 {
+		t.Errorf("server hits = %d, want 2", n)
+	}
+}

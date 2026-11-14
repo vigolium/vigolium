@@ -335,9 +335,8 @@ func (m *Module) sendTimedPayload(
 	// original service) instead of re-parsing on this hot path.
 	fuzzedReq := httpmsg.NewRequestResponseRaw(fuzzedRaw, ctx.Service())
 
-	start := time.Now()
-	resp, _, err := httpClient.Execute(fuzzedReq, http.Options{NoRedirects: true, NoClustering: true})
-	elapsed := time.Since(start)
+	// SendTimed (MISS-14): the requester-measured latency, not the queue.
+	resp, elapsed, err := modkit.SendTimed(httpClient, fuzzedReq, http.Options{})
 	if err != nil {
 		return timedResult{}, err
 	}

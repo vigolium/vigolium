@@ -610,12 +610,12 @@ func (m *Module) measureDuration(
 	// of re-parsing on this hot path.
 	req := httpmsg.NewRequestResponseRaw(raw, ctx.Service())
 
-	start := time.Now()
-	resp, _, err := httpClient.Execute(req, http.Options{})
+	// SendTimed (MISS-14): requester-measured latency, and NoClustering so two
+	// identical timing probes both reach the server.
+	resp, duration, err := modkit.SendTimed(httpClient, req, http.Options{})
 	if err != nil {
 		return 0, "", false, err
 	}
-	duration := time.Since(start)
 	body := resp.Body().String()
 	blocked := infra.IsBlockedResponse(resp)
 	resp.Close()

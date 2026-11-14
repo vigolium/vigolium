@@ -1314,7 +1314,11 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 			// and transport-error classification read the same as before.
 			err = fmt.Errorf("%s giving up after %d attempts: %w", requestLabel(input), attempts, err)
 		}
-		return nil, 0, err
+		// elapsed is the last attempt's send-to-failure time (0 when the gate
+		// refused before sending). Timing probes read it on error: a request
+		// that timed out after waiting is the expected outcome of a
+		// catastrophic-backtracking or sleep payload (MISS-14).
+		return nil, elapsed, err
 	}
 
 	// Classify a WAF/CDN block once (cheap status pre-gate; only reads the body on a
