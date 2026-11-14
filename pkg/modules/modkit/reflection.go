@@ -2,17 +2,16 @@ package modkit
 
 import (
 	"context"
-	"crypto/rand"
-	"math/big"
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/infra"
+	"github.com/vigolium/vigolium/pkg/utils"
 )
 
 // ReflectionNeed says where a module needs an insertion point's value to come
-// back for its test to mean anything (ECON-2).
+// back for its test to mean anything.
 type ReflectionNeed uint8
 
 const (
@@ -40,26 +39,10 @@ type OutOfBandLeg interface {
 	HasOutOfBandLeg() bool
 }
 
-// Reflection contexts (ReflectionProfile.Contexts bitmask).
-const (
-	ReflectCtxHTMLText uint16 = 1 << iota
-	ReflectCtxHTMLAttr
-	ReflectCtxScript
-	ReflectCtxComment
-	ReflectCtxJSON
-	ReflectCtxOther
-)
-
 // ReflectionProfile is what one canary probe of an insertion point showed.
 type ReflectionProfile struct {
 	InBody    bool
 	InHeaders bool
-	// Contexts is the bitmask of body contexts the canary appeared in.
-	Contexts uint16
-	// RawEncoded: the canary came back byte-for-byte (an alphanumeric canary
-	// has nothing for an encoder to change, so this is the only encoding the
-	// shared probe can observe; modules probe special characters themselves).
-	RawEncoded bool
 	// Blocked: the probe response was a WAF/auth/rate-limit block, so the
 	// profile says nothing — callers fail open.
 	Blocked bool
@@ -86,61 +69,16 @@ func (p *ReflectionProfile) Reflected() bool { return p != nil && (p.InBody || p
 // numeric value (so a typed parameter still accepts it), lowercase
 // alphanumerics otherwise.
 func reflectionCanary(base string) string {
-	const digits = "0123456789"
-	const alnum = "abcdefghijklmnopqrstuvwxyz0123456789"
-	pick := func(set string, n int) string {
-		var b strings.Builder
-		for i := 0; i < n; i++ {
-			k, err := rand.Int(rand.Reader, big.NewInt(int64(len(set))))
-			if err != nil {
-				b.WriteByte(set[i%len(set)])
-				continue
-			}
-			b.WriteByte(set[k.Int64()])
-		}
-		return b.String()
-	}
 	if base != "" && infra.IsNumericValue(base) {
-		return "7" + pick(digits, 9)
+		return "7" + utils.RandomOf(9, "0123456789")
 	}
-	return "vgl" + pick(alnum, 9)
-}
-
-// classifyReflection finds canary's body contexts.
-func classifyReflection(body, contentType, canary string) uint16 {
-	var ctx uint16
-	if strings.Contains(strings.ToLower(contentType), "json") {
-		ctx |= ReflectCtxJSON
-	}
-	lower := strings.ToLower(body)
-	for from := 0; ; {
-		i := strings.Index(body[from:], canary)
-		if i < 0 {
-			break
-		}
-		pos := from + i
-		before := lower[:pos]
-		switch {
-		case strings.LastIndex(before, "<script") > strings.LastIndex(before, "</script"):
-			ctx |= ReflectCtxScript
-		case strings.LastIndex(before, "<!--") > strings.LastIndex(before, "-->"):
-			ctx |= ReflectCtxComment
-		case strings.LastIndexByte(before, '<') > strings.LastIndexByte(before, '>'):
-			ctx |= ReflectCtxHTMLAttr
-		case strings.Contains(lower, "<html") || strings.Contains(lower, "<body"):
-			ctx |= ReflectCtxHTMLText
-		default:
-			ctx |= ReflectCtxOther
-		}
-		from = pos + len(canary)
-	}
-	return ctx
+	return "vgl" + utils.RandomOf(9, "abcdefghijklmnopqrstuvwxyz0123456789")
 }
 
 // ReflectionProfile probes ip once with a type-preserving canary and reports
 // where it came back. Memoised per (record, point type, point name) for the
 // scan, with concurrent callers collapsed (EndpointMemo), so every
-// reflection-dependent module on the point shares one request (ECON-2). A
+// reflection-dependent module on the point shares one request. A
 // transport error is returned and not cached; a blocked answer is cached as
 // Blocked (callers fail open).
 func (sc *ScanContext) ReflectionProfile(ctx context.Context, item *httpmsg.HttpRequestResponse, ip httpmsg.InsertionPoint, client *http.Requester) (*ReflectionProfile, error) {
@@ -160,15 +98,13 @@ func (sc *ScanContext) ReflectionProfile(ctx context.Context, item *httpmsg.Http
 		defer resp.Close()
 		p := &ReflectionProfile{Blocked: infra.IsBlockedResponse(resp)}
 		if r := resp.Response(); r != nil {
-			body := resp.Body().String()
-			if strings.Contains(body, canary) {
-				p.InBody, p.RawEncoded = true, true
-				p.Contexts = classifyReflection(body, r.Header.Get("Content-Type"), canary)
-			}
+			p.InBody = strings.Contains(resp.Body().String(), canary)
+		headers:
 			for _, vals := range r.Header {
 				for _, hv := range vals {
 					if strings.Contains(hv, canary) {
 						p.InHeaders = true
+						break headers
 					}
 				}
 			}
