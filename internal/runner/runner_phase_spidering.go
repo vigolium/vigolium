@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/vigolium/vigolium/pkg/authentication"
+	"maps"
 	nethttp "net/http"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/vigolium/vigolium/pkg/authentication"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -751,8 +754,8 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	// which a fresh browser per target can do.
 	groups := groupByHost(targets, httpmsg.HostnameFromURL)
 	processed := 0
-	// done/total on phase.progress, in targets. processed counts a target when
-	// its crawl starts, so the reading is taken once the crawl has returned.
+	// done/total on phase.progress, in targets: a target counts once its crawl
+	// has returned (or its group gave up on it).
 	progress := r.currentPhase.Load().trackTargets(len(targets))
 	requests := r.trackBrowserRequests()
 
@@ -763,40 +766,31 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 	grace := SpideringGrace(maxDuration)
 
 	// Host groups are independent (each crawls in its own browser context), so
-	// up to reSpiderHostParallelism of them run at once (ECON-9: hosts used to
-	// be crawled strictly one at a time). Everything a group shares with the
-	// phase — the totals, the harvested sessions, the SSO hosts, the capture
-	// receipt, progress — is touched only while holding accMu; the lock is
-	// released around the browser work itself.
-	var accMu sync.Mutex
-	var launchErr error
-	failedTargets := 0
-	runGroup := func(group []string) {
-		accMu.Lock()
-		defer accMu.Unlock()
-		// A browser that cannot launch fails every group the same way.
-		if launchErr != nil {
-			return
-		}
+	// up to reSpiderHostParallelism of them run at once. Each group builds its
+	// own spiderGroupResult without sharing state with the others; the results
+	// are folded into the phase totals once every group has returned. A browser
+	// that cannot launch fails every group the same way, so the first launch
+	// failure stops every group before its next target.
+	var launchFailed atomic.Bool
+	stopped := func() bool { return launchFailed.Load() || deadlineWithin(phaseCtx, grace) }
+	runGroup := func(group []string) (gr spiderGroupResult) {
 		// Overall ceiling exhausted — skip the remaining targets rather than
 		// launching crawls against an already-expired context. They are counted
 		// as skipped once every group has returned.
-		if deadlineWithin(phaseCtx, grace) {
-			return
+		if stopped() {
+			return gr
 		}
 
 		// A shared session only pays for itself across several seeds; for a lone
 		// target it is machinery around the proven single-crawl path.
-		accMu.Unlock()
 		sess, sessRW := r.openSpiderSession(phaseCtx, group, settingsCfg, maxDuration, infra, requests)
-		accMu.Lock()
 		abandoned := false
 
 		for gi, target := range group {
-			if deadlineWithin(phaseCtx, grace) {
+			if stopped() {
 				break
 			}
-			processed++
+			gr.processed++
 			zap.L().Info("Spidering target", zap.String("target", target))
 
 			// Derive from phaseCtx so the per-target budget is min(max-duration,
@@ -805,7 +799,6 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			// browser/teardown wedges, so a single target can never hang the scan.
 			timeoutCtx, cancel := context.WithTimeout(phaseCtx, maxDuration)
 			var oc crawlOutcome
-			accMu.Unlock()
 			if sess != nil {
 				oc = runReSpiderSessionCrawl(timeoutCtx, sess, target, maxDuration)
 			} else {
@@ -813,19 +806,16 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 				requests.wire(&cfg)
 				rw := r.newScanRecordWriter()
 				oc = runSpiderWatchdog(timeoutCtx, cfg, rw, maxDuration, target)
-			}
-			accMu.Lock()
-			if sess == nil {
-				phaseCapture.Merge(oc.capture())
+				gr.capture.Merge(oc.capture())
 			}
 			// Asked BEFORE cancel(): cancelling a context whose deadline had not
 			// fired overwrites Err with Canceled, and the question "did this target
 			// use its whole budget" then has no answer.
 			if targetBudgetUsed(timeoutCtx, phaseCtx, grace) {
-				budgetExhaustedTargets++
+				gr.budgetExhausted++
 			}
 			cancel()
-			progress.Set(processed)
+			progress.Add(1)
 
 			if oc.err != nil && errors.Is(oc.err, spitolas.ErrBrowserLaunch) {
 				// No browser: every remaining target would fail the same way.
@@ -833,13 +823,13 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 				// records" and letting discovery read it as a low-yield target.
 				zap.L().Error("Spidering: browser could not be launched; stopping the phase",
 					zap.String("target", target), zap.Error(oc.err))
-				launchErr = oc.err
-				failedTargets += len(targets) - processed + 1
-				processed = len(targets)
+				gr.launchErr = oc.err
+				gr.failed++
+				launchFailed.Store(true)
 				break
 			}
 			if oc.err != nil {
-				failedTargets++
+				gr.failed++
 				zap.L().Error("Spidering failed",
 					zap.String("target", target), zap.Error(oc.err))
 				if sess != nil {
@@ -871,18 +861,19 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 					// them as processed — they are abandoned, not waiting on budget,
 					// and reporting them as "skipped by the ceiling" would misattribute
 					// a browser failure to the phase clock.
-					processed += len(group) - gi - 1
+					gr.processed += len(group) - gi - 1
+					progress.Add(len(group) - gi - 1)
 					break
 				}
 				continue
 			}
 			result := oc.res
 
-			totalStates += result.StatesDiscovered
-			totalActions += result.ActionsExecuted
-			totalRecords += result.RecordsSaved
-			totalPrevented += result.FormSubmitsPrevented
-			totalUncertain += result.FormSubmitsUncertain
+			gr.states += result.StatesDiscovered
+			gr.actions += result.ActionsExecuted
+			gr.records += result.RecordsSaved
+			gr.prevented += result.FormSubmitsPrevented
+			gr.uncertain += result.FormSubmitsUncertain
 
 			if carrySession && (len(result.HarvestedCookies) > 0 || result.HarvestedAuthorization != "") {
 				// Scope the session to the host the crawl actually settled on: the
@@ -924,7 +915,10 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 						// service sharing the hostname on another port/scheme.
 						carried.Origin = httpmsg.OriginFromURL(sessionURL)
 					}
-					harvested[sessionHost] = carried
+					if gr.harvested == nil {
+						gr.harvested = make(map[string]httpmsg.CarriedSession)
+					}
+					gr.harvested[sessionHost] = carried
 				}
 			}
 
@@ -965,7 +959,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			}
 			// The crawl was logged out (a logout control, an expired session)
 			// and re-applying credentials did not bring it back: the rest of
-			// this target was crawled anonymously (MISS-26).
+			// this target was crawled anonymously.
 			if result.AuthState == spitolas.AuthLost {
 				r.printPhaseDetail(fmt.Sprintf("%s %s: the browser session was lost mid-crawl and could not be restored — the rest of this target was crawled unauthenticated.",
 					terminal.Yellow(terminal.SymbolWarning),
@@ -1009,7 +1003,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 			// near-empty result otherwise reads like the site has no content.
 			switch {
 			case result.OffHostRedirect && result.LandingIsLogin:
-				ssoHosts = append(ssoHosts, ssoHostsFromSpider(result.WallHosts, result.LandingURL)...)
+				gr.ssoHosts = append(gr.ssoHosts, ssoHostsFromSpider(result.WallHosts, result.LandingURL)...)
 				zap.L().Warn("Spidering: start URL redirected off-host to a login wall",
 					zap.String("target", target),
 					zap.String("landing", result.LandingURL),
@@ -1038,25 +1032,38 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 
 			r.reportSpiderCoverage(result, target)
 		}
-		// Picks up the host's remaining targets when a failed session gave up
-		// on them (they are counted as processed, not left waiting on budget).
-		progress.Set(processed)
-
 		if sess != nil {
-			accMu.Unlock()
-			receipt := sessionCapture(sess, sessRW, abandoned)
-			accMu.Lock()
-			phaseCapture.Merge(receipt)
+			gr.capture.Merge(sessionCapture(sess, sessRW, abandoned))
 		}
+		return gr
 	}
 
-	runHostGroups(groups, reSpiderHostParallelism(len(groups)),
-		func() bool {
-			accMu.Lock()
-			defer accMu.Unlock()
-			return launchErr != nil || deadlineWithin(phaseCtx, grace)
-		}, runGroup)
-	if processed > len(targets) {
+	results := runHostGroups(groups, reSpiderHostParallelism(len(groups)), stopped, runGroup)
+	var launchErr error
+	failedTargets := 0
+	for _, gr := range results {
+		processed += gr.processed
+		failedTargets += gr.failed
+		budgetExhaustedTargets += gr.budgetExhausted
+		totalStates += gr.states
+		totalActions += gr.actions
+		totalRecords += gr.records
+		totalPrevented += gr.prevented
+		totalUncertain += gr.uncertain
+		phaseCapture.Merge(gr.capture)
+		ssoHosts = append(ssoHosts, gr.ssoHosts...)
+		if carrySession {
+			maps.Copy(harvested, gr.harvested)
+		}
+		if launchErr == nil {
+			launchErr = gr.launchErr
+		}
+	}
+	if launchErr != nil {
+		// Every target no group reached failed with the browser.
+		if rest := len(targets) - processed; rest > 0 {
+			failedTargets += rest
+		}
 		processed = len(targets)
 	}
 	if processed < len(targets) && deadlineWithin(phaseCtx, grace) {
@@ -1253,34 +1260,41 @@ func (b *reloginBroadcast) notify() {
 	}
 }
 
-// runHostGroups runs run once per host group, up to par at a time (ECON-9),
-// stopping before a group once stop reports the phase budget is spent. par<=1
-// is the sequential crawl.
-func runHostGroups[T any](groups [][]T, par int, stop func() bool, run func([]T)) {
-	if par <= 1 {
-		for _, group := range groups {
-			if stop() {
-				return
-			}
-			run(group)
-		}
-		return
+// runHostGroups runs run once per host group, up to par at a time, stopping
+// before a group once stop reports the phase should end. It returns each
+// group's result at the group's index (zero for a group never started).
+func runHostGroups(groups [][]string, par int, stop func() bool, run func([]string) spiderGroupResult) []spiderGroupResult {
+	results := make([]spiderGroupResult, len(groups))
+	if par > 1 {
+		zap.L().Info("Spidering: crawling independent hosts concurrently",
+			zap.Int("hosts", len(groups)), zap.Int("parallelism", par))
 	}
-	zap.L().Info("Spidering: crawling independent hosts concurrently",
-		zap.Int("hosts", len(groups)), zap.Int("parallelism", par))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, par)
-	for _, group := range groups {
+	var g errgroup.Group
+	g.SetLimit(max(par, 1))
+	for i, group := range groups {
 		if stop() {
 			break
 		}
-		sem <- struct{}{}
-		wg.Add(1)
-		go func(group []T) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			run(group)
-		}(group)
+		g.Go(func() error {
+			// Asked again once a slot is free: the budget may have run out
+			// while this group waited for one.
+			if !stop() {
+				results[i] = run(group)
+			}
+			return nil
+		})
 	}
-	wg.Wait()
+	_ = g.Wait()
+	return results
+}
+
+// spiderGroupResult is what one host group's crawl contributes to the
+// spidering phase's totals.
+type spiderGroupResult struct {
+	processed, failed, budgetExhausted             int
+	states, actions, records, prevented, uncertain int
+	capture                                        spitolas.CaptureReceipt
+	harvested                                      map[string]httpmsg.CarriedSession
+	ssoHosts                                       []string
+	launchErr                                      error // the browser could not be launched
 }
