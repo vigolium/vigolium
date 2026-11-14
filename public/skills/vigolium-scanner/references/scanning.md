@@ -122,15 +122,16 @@ to read as "what this target looks like".
 | `--auth-file` | []string | — | Path to auth file (YAML/JSON, single session or `sessions:` bundle), or bare name resolved against session_dir. Repeatable. |
 | `--auth` | []string | — | Inline session in `name:Header:value` format. Repeatable. |
 | `--oast-url` | string | — | Fixed out-of-band callback URL instead of interactsh. Put `{nonce}` in it (`https://{nonce}.cb.example.com` or `https://cb.example.com/{nonce}`) so each probe gets its own nonce; then `vigolium oast ingest <log> --format raw-log\|interactsh-json\|collaborator-json` turns the callbacks your endpoint logged into findings of the planting scan. Without `{nonce}` callbacks cannot be attributed (`oast.mode: fixed-uncorrelated`) |
-| `--max-findings-per-module` | int | `10` | Stop reporting after N findings **per module** (`0` = unlimited) |
+| `--max-findings-per-module` | int | `50` | Stop reporting after N distinct findings **per module** (`0` = unlimited) |
 | `--max-host-error` | int | `30` | Skip a host after this many consecutive errors |
 | `--no-clustering` | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
 
 **`--max-findings-per-module` is a reporting cap that is on by default.** A module
-that fires on 400 URLs reports 10 - which is what you want during triage, and is
+that fires on 400 URLs reports 50 - which is what you want during triage, and is
 *not* what you want when you are measuring coverage or exporting a full corpus.
-If a finding count looks suspiciously round, check this before concluding the
-module stopped finding things: `--max-findings-per-module 0` lifts it.
+Drops are reported: `findings_capped` (per module) on `scan.finished` and the
+phase outcome, plus the `findings_per_module` limit. `--max-findings-per-module 0`
+lifts it.
 
 `--max-host-error 30` is why a host that goes down mid-scan does not burn the
 rest of the budget. Lower it for a wide `-T` sweep where a dead host should be

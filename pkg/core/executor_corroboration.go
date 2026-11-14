@@ -117,7 +117,7 @@ func (e *Executor) drainProbeCorroboration(ctx context.Context) {
 	e.corroboration.mu.Unlock()
 
 	for _, r := range hits {
-		if !e.moduleFindingAllowed(corroborationModuleID) {
+		if !e.moduleFindingAllowed(r.ID(), corroborationModuleID) {
 			continue
 		}
 		r.ModuleType = database.ModuleTypePassive

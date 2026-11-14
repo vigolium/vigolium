@@ -9,7 +9,14 @@ import (
 type moduleFindingTracker struct {
 	count  atomic.Int64
 	warned sync.Once
+	// capped counts the distinct identities the cap dropped.
+	capped atomic.Int64
 }
+
+// maxCappedIdentities bounds the identities remembered to count each capped
+// finding once. Past it every capped emission is counted, which can only
+// overstate a count that is already a lower bound of lost work.
+const maxCappedIdentities = 100_000
 
 // findingAdmission coordinates the first cap decision for one post-hook
 // root-cause identity. Duplicate emissions wait for ready before using allowed,
@@ -43,6 +50,41 @@ type FindingAdmission struct {
 	// it, but only the first distinct finding consumes caps, stats, callbacks and
 	// notifications.
 	ids sync.Map
+	// cappedIDs remembers identities the cap dropped (bounded by
+	// maxCappedIdentities via cappedN), so Capped counts each once.
+	cappedIDs sync.Map
+	cappedN   atomic.Int64
+}
+
+// noteCapped counts one capped identity against moduleID's tracker.
+func (a *FindingAdmission) noteCapped(id string, tracker *moduleFindingTracker) {
+	if a.cappedN.Load() < maxCappedIdentities {
+		if _, loaded := a.cappedIDs.LoadOrStore(id, struct{}{}); loaded {
+			return
+		}
+		a.cappedN.Add(1)
+	}
+	tracker.capped.Add(1)
+}
+
+// Capped returns, per module, how many distinct findings the per-module cap
+// dropped (identities, so repeated evidence of one dropped finding counts
+// once). Modules that dropped nothing are absent; nil when none did.
+func (a *FindingAdmission) Capped() map[string]int64 {
+	if a == nil {
+		return nil
+	}
+	var out map[string]int64
+	a.counts.Range(func(k, v any) bool {
+		if n := v.(*moduleFindingTracker).capped.Load(); n > 0 {
+			if out == nil {
+				out = make(map[string]int64)
+			}
+			out[k.(string)] = n
+		}
+		return true
+	})
+	return out
 }
 
 // NewFindingAdmission returns admission state a caller can share across several

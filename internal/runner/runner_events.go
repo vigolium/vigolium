@@ -89,6 +89,27 @@ type phaseTracker struct {
 	// finishers run in finish, before the outcome is read (see onFinish).
 	// Guarded by mu.
 	finishers []func(*phaseTracker)
+
+	// findingsCapped is the per-module capped-finding count (see
+	// setFindingsCapped). Guarded by mu.
+	findingsCapped map[string]int64
+}
+
+// setFindingsCapped records the per-module findings the cap dropped and notes
+// the findings_per_module limit when any were. The latest value wins: the
+// dynamic-assessment phase reads it off its shared FindingAdmission, which is
+// already the phase total.
+func (t *phaseTracker) setFindingsCapped(capped map[string]int64) {
+	if t == nil || len(capped) == 0 {
+		return
+	}
+	t.mu.Lock()
+	t.findingsCapped = make(map[string]int64, len(capped))
+	for module, n := range capped {
+		t.findingsCapped[module] = n
+	}
+	t.mu.Unlock()
+	t.noteLimit(database.LimitFindingsPerModule)
 }
 
 // onFinish registers fn to run when the phase finishes, before its outcome is
@@ -507,6 +528,9 @@ func (t *phaseTracker) noteExecution(rep core.ExecutionReport) {
 		t.unacked += rep.Unacked
 		t.mu.Unlock()
 	}
+	// The report carries the running total of the (possibly shared) admission,
+	// so the latest one is the phase's.
+	t.setFindingsCapped(rep.FindingsCapped)
 }
 
 // setCount records a phase-specific tally for PhaseOutcome.Counts. The last value
@@ -580,6 +604,9 @@ func (t *phaseTracker) finish(ctx context.Context, err error) database.PhaseOutc
 		Reasons:      out.Reasons,
 		Limits:       out.Limits,
 	}
+	if len(out.FindingsCapped) > 0 {
+		ev.FindingsCapped = out.FindingsCapped
+	}
 	if out.Message != "" {
 		ev.Message = out.Message
 	}
@@ -616,6 +643,12 @@ func (t *phaseTracker) outcome() database.PhaseOutcome {
 		out.Counts = make(map[string]int64, len(t.counts))
 		for name, n := range t.counts {
 			out.Counts[name] = n
+		}
+	}
+	if len(t.findingsCapped) > 0 {
+		out.FindingsCapped = make(map[string]int64, len(t.findingsCapped))
+		for module, n := range t.findingsCapped {
+			out.FindingsCapped[module] = n
 		}
 	}
 	return out

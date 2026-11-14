@@ -30,7 +30,7 @@ var eventFields = map[string]contract.EventFields{
 		Optional: []string{"duration_ms", "message", "stop_reason", "reasons", "limits",
 			"requests_sent", "findings", "records_written", "records_basis", "findings_by_severity",
 			"targets_admitted", "targets_rejected", "targets_reached", "targets_unreachable",
-			"budget_exhausted_hosts", "exports", "module_errors", "extensions_failed"},
+			"budget_exhausted_hosts", "exports", "module_errors", "extensions_failed", "findings_capped"},
 	},
 	TypePhaseStarted: {
 		Description: "A phase began.",
@@ -45,7 +45,7 @@ var eventFields = map[string]contract.EventFields{
 		Description: "A phase ended. status: completed, curtailed or failed; reasons are defects, limits configured bounds reached.",
 		Required:    []string{"phase", "status"},
 		Optional: []string{"duration_ms", "requests_sent", "requests_in_scope", "findings", "reasons", "limits",
-			"message", "done", "total", "unit"},
+			"message", "done", "total", "unit", "findings_capped"},
 	},
 	TypeWAFBlock: {
 		Description: "The edge started filtering scan traffic for a host.",

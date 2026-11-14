@@ -57,7 +57,7 @@ func registerHTTPClientFlags(flags *pflag.FlagSet) {
 	registerPaceFlags(flags)
 	flags.BoolVar(&globalNoWafPacing, "no-waf-pacing", false, "Disable proactive CDN/WAF-edge pacing (don't pre-throttle per-host concurrency when a CloudFront/Cloudflare/etc. edge is detected); reactive back-off after a WAF block still applies")
 	flags.IntVar(&globalMaxHostError, "max-host-error", 30, "Skip host after reaching this many consecutive errors")
-	flags.IntVar(&globalMaxFindingsPerModule, "max-findings-per-module", 10, "Stop reporting after N findings per module (0 = unlimited)")
+	flags.IntVar(&globalMaxFindingsPerModule, "max-findings-per-module", 50, "Stop reporting after N distinct findings per module; drops are counted in the summary and events (0 = unlimited)")
 	flags.BoolVar(&globalNoClustering, "no-clustering", false, "Disable deduplication of identical concurrent HTTP requests")
 }
 

@@ -48,6 +48,11 @@ type ExecutionReport struct {
 	// QuarantinedHosts breaks SkippedQuarantined down per host:port, sorted
 	// by host and capped.
 	QuarantinedHosts []QuarantinedHost
+	// FindingsCapped counts, per module, the distinct findings the
+	// --max-findings-per-module cap dropped. With a FindingAdmission shared
+	// across executors (dynamic assessment's rounds) it is the running total of
+	// that shared state, so a caller summing reports must not add rounds.
+	FindingsCapped map[string]int64
 }
 
 // Clean reports whether the run covered its whole input with nothing abandoned.
@@ -69,6 +74,7 @@ func (e *Executor) Report() ExecutionReport {
 	rep.ScopeRejected = e.scopeRejected.Load() - e.reportBase.scopeRejected
 	rep.Responded = e.responded.Load() - e.reportBase.responded
 	e.quarantineReport(&rep)
+	rep.FindingsCapped = e.admission().Capped()
 	return rep
 }
 

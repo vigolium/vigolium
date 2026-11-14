@@ -204,8 +204,10 @@ func injectedValue(rawRequest string, ip httpmsg.InsertionPoint) string {
 	return v[:textutil.CutIndex(v, maxStoredPayload)]
 }
 
-// moduleFindingAllowed returns true if the module has not exceeded its finding cap.
-func (e *Executor) moduleFindingAllowed(moduleID string) bool {
+// moduleFindingAllowed returns true if the module has not exceeded its finding
+// cap. id is the finding's identity (output.ResultEvent.IdentityKey hashed), so
+// the cap and its drop count are per distinct finding, not per emission.
+func (e *Executor) moduleFindingAllowed(id, moduleID string) bool {
 	cap := e.cfg.MaxFindingsPerModule
 	if cap <= 0 {
 		return true
@@ -220,6 +222,7 @@ func (e *Executor) moduleFindingAllowed(moduleID string) bool {
 	tracker := val.(*moduleFindingTracker)
 	n := tracker.count.Add(1)
 	if n > int64(cap) {
+		e.admission().noteCapped(id, tracker)
 		tracker.warned.Do(func() {
 			zap.L().Warn("Module finding cap reached, suppressing further findings",
 				zap.String("module", moduleID),
@@ -243,7 +246,7 @@ func (e *Executor) admitFinding(id, moduleID string) (first, allowed bool) {
 		return false, admission.allowed
 	}
 
-	admission.allowed = e.moduleFindingAllowed(moduleID)
+	admission.allowed = e.moduleFindingAllowed(id, moduleID)
 	close(admission.ready)
 	if !admission.allowed {
 		// Do not retain an unbounded set of capped identities. A later retry may

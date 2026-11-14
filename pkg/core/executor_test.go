@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -48,12 +49,12 @@ func TestModuleFindingAllowed(t *testing.T) {
 	t.Run("cap enforced", func(t *testing.T) {
 		e := &Executor{cfg: ExecutorConfig{MaxFindingsPerModule: 3}}
 		for i := 0; i < 3; i++ {
-			if !e.moduleFindingAllowed("test-mod") {
+			if !e.moduleFindingAllowed("id-"+strconv.Itoa(i), "test-mod") {
 				t.Fatalf("call %d should be allowed", i+1)
 			}
 		}
 		for i := 0; i < 2; i++ {
-			if e.moduleFindingAllowed("test-mod") {
+			if e.moduleFindingAllowed("id-"+strconv.Itoa(i), "test-mod") {
 				t.Fatalf("call %d past cap should be denied", i+4)
 			}
 		}
@@ -61,13 +62,13 @@ func TestModuleFindingAllowed(t *testing.T) {
 
 	t.Run("independent modules", func(t *testing.T) {
 		e := &Executor{cfg: ExecutorConfig{MaxFindingsPerModule: 1}}
-		if !e.moduleFindingAllowed("mod-a") {
+		if !e.moduleFindingAllowed("a1", "mod-a") {
 			t.Fatal("mod-a first call should be allowed")
 		}
-		if e.moduleFindingAllowed("mod-a") {
+		if e.moduleFindingAllowed("a2", "mod-a") {
 			t.Fatal("mod-a second call should be denied")
 		}
-		if !e.moduleFindingAllowed("mod-b") {
+		if !e.moduleFindingAllowed("b1", "mod-b") {
 			t.Fatal("mod-b should be independent and allowed")
 		}
 	})
@@ -75,7 +76,7 @@ func TestModuleFindingAllowed(t *testing.T) {
 	t.Run("cap zero means unlimited", func(t *testing.T) {
 		e := &Executor{cfg: ExecutorConfig{MaxFindingsPerModule: 0}}
 		for i := 0; i < 100; i++ {
-			if !e.moduleFindingAllowed("test-mod") {
+			if !e.moduleFindingAllowed("id-"+strconv.Itoa(i), "test-mod") {
 				t.Fatalf("call %d should be allowed with cap 0", i+1)
 			}
 		}

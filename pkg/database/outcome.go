@@ -108,6 +108,10 @@ const (
 	ReasonPhaseError           = "phase_error"            // a phase failed and the scan carried on without it
 	ReasonExtensionsAllFailed  = "extensions_all_failed"  // every requested extension failed to load or run
 	ReasonAbandoned            = "abandoned"              // the scan's process died without finalizing; set by `log ls --reap`
+	ReasonFeedbackDropped      = "feedback_dropped"       // discovered endpoints were dropped from the feedback queue
+	ReasonEdgeBlocked          = "edge_blocked"           // a WAF/edge blocked requests to one or more hosts during the phase
+	ReasonBrowserUnavailable   = "browser_unavailable"    // the crawl browser failed to launch
+	ReasonAuthUnverified       = "auth_unverified"        // a session's login could not be verified (no check, or the check failed)
 
 	// Stop reasons: the scan did nothing useful and ends with exit 1.
 	ReasonNoTargetsInScope   = "no_targets_in_scope"  // scope admitted zero targets
@@ -121,6 +125,8 @@ const (
 	LimitCDXMaxRows              = "cdx_max_rows"               // an archive (CDX) query hit its row cap
 	LimitSitemapCap              = "sitemap_cap"                // sitemap expansion hit its URL cap
 	LimitResponsesWhileLoggedOut = "responses_while_logged_out" // responses observed while the session was logged out
+	LimitFindingsPerModule       = "findings_per_module"        // --max-findings-per-module dropped findings (see PhaseOutcome.FindingsCapped)
+	LimitThrottled               = "throttled"                  // a host throttled (429/503 Retry-After) module traffic
 )
 
 // OutcomeCodes lists every reason and limit code exactly once. It exists so a
@@ -152,6 +158,10 @@ var OutcomeCodes = []string{
 	ReasonPhaseError,
 	ReasonExtensionsAllFailed,
 	ReasonAbandoned,
+	ReasonFeedbackDropped,
+	ReasonEdgeBlocked,
+	ReasonBrowserUnavailable,
+	ReasonAuthUnverified,
 	ReasonNoTargetsInScope,
 	ReasonNoTargetsReachable,
 	LimitTargetBudget,
@@ -162,6 +172,8 @@ var OutcomeCodes = []string{
 	LimitCDXMaxRows,
 	LimitSitemapCap,
 	LimitResponsesWhileLoggedOut,
+	LimitFindingsPerModule,
+	LimitThrottled,
 }
 
 // ResolvePhaseState turns the three things a phase tracker observes into a state.
@@ -210,6 +222,10 @@ type PhaseOutcome struct {
 	// BudgetExhaustedHosts are the hosts whose --max-requests-per-host ran out
 	// during the phase, sorted; set alongside the host_request_budget limit.
 	BudgetExhaustedHosts []string `json:"budget_exhausted_hosts,omitempty"`
+	// FindingsCapped counts, per module, the distinct findings the
+	// --max-findings-per-module cap dropped during the phase; set alongside the
+	// findings_per_module limit.
+	FindingsCapped map[string]int64 `json:"findings_capped,omitempty"`
 }
 
 // BenignSkip reports whether this phase was skipped for having nothing to do,
@@ -293,6 +309,27 @@ func (o *PhaseOutcome) Merge(b PhaseOutcome) {
 		o.Counts[name] += n
 	}
 	o.BudgetExhaustedHosts = mergeCodes(o.BudgetExhaustedHosts, b.BudgetExhaustedHosts)
+	for module, n := range b.FindingsCapped {
+		if o.FindingsCapped == nil {
+			o.FindingsCapped = make(map[string]int64, len(b.FindingsCapped))
+		}
+		o.FindingsCapped[module] += n
+	}
+}
+
+// SumFindingsCapped adds up the per-module capped counts across phases (nil
+// when nothing was capped).
+func SumFindingsCapped(phases []PhaseOutcome) map[string]int64 {
+	var out map[string]int64
+	for _, p := range phases {
+		for module, n := range p.FindingsCapped {
+			if out == nil {
+				out = make(map[string]int64)
+			}
+			out[module] += n
+		}
+	}
+	return out
 }
 
 // mergeCodes unions two code lists into one sorted, deduplicated list.

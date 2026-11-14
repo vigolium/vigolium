@@ -653,7 +653,7 @@ func (h *Handlers) runBackgroundURLScan(scanID, projectUUID, target string, rr *
 		Repository:           h.repo,
 		ScanUUID:             scanID,
 		ProjectUUID:          projectUUID,
-		MaxFindingsPerModule: 10,
+		MaxFindingsPerModule: 50,
 		// Hard upper bound: a module that hangs forever must not be able to
 		// keep this goroutine alive indefinitely. The executor cancels its
 		// context when MaxDuration elapses and Execute() returns.

@@ -212,6 +212,10 @@ type Event struct {
 	// --max-requests-per-host (scan.finished; the phases carry the
 	// host_request_budget limit).
 	BudgetExhaustedHosts []string `json:"budget_exhausted_hosts,omitempty"`
+	// FindingsCapped counts, per module, the distinct findings the
+	// --max-findings-per-module cap dropped (phase.finished for the phase,
+	// scan.finished summed over the scan).
+	FindingsCapped map[string]int64 `json:"findings_capped,omitempty"`
 	// Egress lists which outbound paths go through the shared rate/host gate and
 	// which do not, with the reason (scan.started).
 	Egress *Egress `json:"egress,omitempty"`

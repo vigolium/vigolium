@@ -112,10 +112,12 @@ A vulnerability is confirmed when injected payloads cause measurable, consistent
 
 To prevent noisy modules from flooding results, the executor caps findings emitted per module. Once a module reaches the limit, additional findings from that module are suppressed for the remainder of the **dynamic-assessment phase** — the cap is shared across every feedback round, not reset per round. Other phases are uncapped.
 
-The count is of distinct finding identities admitted per module: repeated evidence for a root cause already admitted is still persisted (so the repository can merge it) but does not consume cap, and does not re-fire result callbacks or notifications — including when a later feedback round re-finds it.
+The count is of distinct finding identities admitted per module: repeated evidence for a root cause already admitted is still persisted (so the repository can merge it) but does not consume cap, and does not re-fire result callbacks or notifications — including when a later feedback round re-finds it. An insertion-point finding's identity is its module, rule, method, location (no query) and parameter, so payload and value variants of one finding never consume cap.
+
+Dropped findings are never silent: the finished banner prints `N finding(s) not reported: --max-findings-per-module …` with the top modules, the phase outcome carries the `findings_per_module` limit and a `findings_capped` per-module count, and `phase.finished` / `scan.finished` events carry `findings_capped`.
 
 ```bash
-# Override the default cap (default: 10)
+# Override the default cap (default: 50)
 vigolium scan -t https://example.com --max-findings-per-module 25
 
 # Disable the cap (unlimited findings)

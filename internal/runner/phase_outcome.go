@@ -391,6 +391,10 @@ func DirectScanCompletion(rep core.ExecutionReport, reached, interrupted bool, e
 	}
 	da.Reasons = database.SortedCodes(reasons)
 	da.State = database.ResolvePhaseState(da.Errors, da.Reasons, skipped)
+	if len(rep.FindingsCapped) > 0 {
+		da.FindingsCapped = rep.FindingsCapped
+		da.Limits = []string{database.LimitFindingsPerModule}
+	}
 	phases = append(phases, da)
 
 	return completionOf(phases, stopReason)

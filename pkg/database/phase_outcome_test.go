@@ -197,6 +197,12 @@ func TestOutcomeCodeValuesAreStable(t *testing.T) {
 		"cdx_max_rows":               LimitCDXMaxRows,
 		"sitemap_cap":                LimitSitemapCap,
 		"responses_while_logged_out": LimitResponsesWhileLoggedOut,
+		"feedback_dropped":           ReasonFeedbackDropped,
+		"edge_blocked":               ReasonEdgeBlocked,
+		"browser_unavailable":        ReasonBrowserUnavailable,
+		"auth_unverified":            ReasonAuthUnverified,
+		"findings_per_module":        LimitFindingsPerModule,
+		"throttled":                  LimitThrottled,
 	}
 	for literal, constant := range want {
 		if literal != constant {
@@ -341,5 +347,19 @@ func TestPhaseOutcomeBenignSkip(t *testing.T) {
 		if got := tc.o.BenignSkip(); got != tc.want {
 			t.Errorf("%s: BenignSkip() = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestPhaseOutcomeMerge_SumsFindingsCapped: RES-1's per-module drop counts sum
+// across merged outcomes of one phase and across phases.
+func TestPhaseOutcomeMerge_SumsFindingsCapped(t *testing.T) {
+	a := PhaseOutcome{Phase: "dynamic-assessment", FindingsCapped: map[string]int64{"m1": 2}}
+	a.Merge(PhaseOutcome{Phase: "dynamic-assessment", FindingsCapped: map[string]int64{"m1": 1, "m2": 4}})
+	if a.FindingsCapped["m1"] != 3 || a.FindingsCapped["m2"] != 4 {
+		t.Fatalf("merged = %v", a.FindingsCapped)
+	}
+	sum := SumFindingsCapped([]PhaseOutcome{a, {FindingsCapped: map[string]int64{"m2": 1}}})
+	if sum["m1"] != 3 || sum["m2"] != 5 {
+		t.Fatalf("sum = %v", sum)
 	}
 }

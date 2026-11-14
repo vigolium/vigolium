@@ -22,8 +22,8 @@ func TestDefaultOptions(t *testing.T) {
 	if o.MaxHostError != 30 {
 		t.Errorf("MaxHostError = %d, want 30", o.MaxHostError)
 	}
-	if o.MaxFindingsPerModule != 10 {
-		t.Errorf("MaxFindingsPerModule = %d, want 10", o.MaxFindingsPerModule)
+	if o.MaxFindingsPerModule != 50 {
+		t.Errorf("MaxFindingsPerModule = %d, want 50", o.MaxFindingsPerModule)
 	}
 	if !o.ClusterRequests {
 		t.Error("ClusterRequests = false, want true")

@@ -427,6 +427,9 @@ type scanResult struct {
 	// TargetsRejected names the target scope refused and the rule that refused
 	// it (scope.host.include, scope.path.exclude, ...).
 	TargetsRejected []types.TargetVerdict `json:"targets_rejected,omitempty"`
+	// FindingsCapped counts, per module, the distinct findings
+	// --max-findings-per-module dropped from this run.
+	FindingsCapped map[string]int64 `json:"findings_capped,omitempty"`
 
 	// projectUUID and repo are where the run persisted (a nil repo: nowhere).
 	// The scan document reads the stored rows back through them, which is
@@ -923,8 +926,18 @@ func executeDirectScan(ctx context.Context, sess *directScanSession, rr *httpmsg
 
 	// Reachability from the run itself — the baseline fetch is the probe, so
 	// this costs no request.
-	reached := executor.Report().Responded > 0
+	rep := executor.Report()
+	reached := rep.Responded > 0
+	if len(rep.FindingsCapped) > 0 && !globalSilent {
+		var total int64
+		for _, n := range rep.FindingsCapped {
+			total += n
+		}
+		fmt.Fprintf(os.Stderr, "%s %d finding(s) not reported: --max-findings-per-module %d reached; raise it or pass 0 for no cap\n",
+			terminal.WarnPrefix(), total, executorCfg.MaxFindingsPerModule)
+	}
 	result := &scanResult{
+		FindingsCapped: rep.FindingsCapped,
 		Target:         target,
 		Method:         method,
 		ScanUUID:       scanUUID,

@@ -210,6 +210,9 @@ func applyScanCompletion(ev *scanevents.Event, scan *database.Scan) {
 	if hosts := unionBudgetExhaustedHosts(scan.PhaseOutcomes); len(hosts) > 0 {
 		ev.BudgetExhaustedHosts = hosts
 	}
+	if capped := database.SumFindingsCapped(scan.PhaseOutcomes); len(capped) > 0 {
+		ev.FindingsCapped = capped
+	}
 	// The preflight tally, as the runner recorded it (scope admission, and
 	// reachability when the preflight GET ran).
 	for _, p := range scan.PhaseOutcomes {
