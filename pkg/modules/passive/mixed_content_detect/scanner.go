@@ -76,7 +76,12 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	if err != nil {
 		return nil, nil
 	}
-	references := classifyMixedReferences(ctx.Response().BodyToString(), pageURL)
+	// The response's shared parsed document (one parse per response, ECON-14).
+	doc, err := ctx.Response().HTMLDocument()
+	if err != nil {
+		return nil, nil
+	}
+	references := classifyMixedReferencesDoc(doc, pageURL)
 	if len(references.blockable) == 0 && len(references.upgradeable) == 0 && len(references.forms) == 0 {
 		return nil, nil
 	}
@@ -158,6 +163,14 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 func classifyMixedReferences(body string, pageURL *url.URL) mixedReferences {
 	doc, err := html.Parse(strings.NewReader(body))
 	if err != nil {
+		return mixedReferences{}
+	}
+	return classifyMixedReferencesDoc(doc, pageURL)
+}
+
+// classifyMixedReferencesDoc walks an already-parsed (read-only) document.
+func classifyMixedReferencesDoc(doc *html.Node, pageURL *url.URL) mixedReferences {
+	if doc == nil {
 		return mixedReferences{}
 	}
 

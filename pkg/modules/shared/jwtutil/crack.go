@@ -9,7 +9,11 @@ import (
 	"fmt"
 	"hash"
 	"strings"
+	"sync/atomic"
 )
+
+// dictionaryPasses counts full wordlist passes (tests assert the length gate).
+var dictionaryPasses atomic.Int64
 
 // CrackHMAC attempts to recover the HMAC signing secret of a compact JWT by
 // trying each candidate in secrets against the token's signature. It is the
@@ -69,6 +73,15 @@ func CrackHMAC(token string, secrets [][]byte) (secret string, alg string, ok bo
 	signingInput := []byte(parts[0] + "." + parts[1])
 
 	for _, v := range variants {
+		// An HMAC tag is exactly hash.Size() bytes. A signature of any other
+		// length can never match, so the whole dictionary pass is skipped —
+		// which is every genuine RS*/PS* token (256+ byte signatures) and every
+		// ES* token outside the one same-size variant. Before, each such token
+		// cost 3 x the wordlist in HMACs for a guaranteed miss (ECON-14).
+		if v.newHash().Size() != len(signature) {
+			continue
+		}
+		dictionaryPasses.Add(1)
 		for _, cand := range secrets {
 			mac := hmac.New(v.newHash, cand)
 			mac.Write(signingInput)

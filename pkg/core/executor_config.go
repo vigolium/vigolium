@@ -228,6 +228,23 @@ type HostClaims struct {
 	// on every item.
 	mu       sync.Mutex
 	attempts *lru.Cache[hostClaimKey, int]
+
+	// bodies holds (module, response body) pairs a BodyOnlyPassive module has
+	// already analysed (ECON-14).
+	bodies *lru.Cache[string, struct{}]
+}
+
+// bodySeenCacheSize bounds the BodyOnlyPassive dedup set.
+const bodySeenCacheSize = 65536
+
+// seenBody reports whether moduleID already ran on this body, recording it if
+// not. Nil-safe (always false).
+func (h *HostClaims) seenBody(moduleID, bodyKey string) bool {
+	if h == nil || h.bodies == nil {
+		return false
+	}
+	seen, _ := h.bodies.ContainsOrAdd(moduleID+"\x00"+bodyKey, struct{}{})
+	return seen
 }
 
 // maxPerHostClaimAttempts bounds how many times a (module, origin) per-host
@@ -288,7 +305,8 @@ func NewHostClaims() *HostClaims {
 	a, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
 	p, _ := lru.New[hostClaimKey, struct{}](perHostClaimCacheSize)
 	n, _ := lru.New[hostClaimKey, int](perHostClaimCacheSize)
-	return &HostClaims{active: a, passive: p, attempts: n}
+	b, _ := lru.New[string, struct{}](bodySeenCacheSize)
+	return &HostClaims{active: a, passive: p, attempts: n, bodies: b}
 }
 
 // defaultOutstandingItemsPerWorker sizes MaxOutstandingItems when unset.

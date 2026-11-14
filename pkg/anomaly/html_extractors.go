@@ -41,6 +41,12 @@ var byTagWanted = map[string]struct{}{
 	"title": {}, "div": {}, "button": {}, "link": {}, "a": {}, "input": {},
 }
 
+// NewHTMLAnalyzerFromNode wraps an already-parsed document (read-only; the
+// analyzer never mutates the tree), e.g. httpmsg.HttpResponse.HTMLDocument.
+func NewHTMLAnalyzerFromNode(doc *html.Node) *HTMLAnalyzer {
+	return &HTMLAnalyzer{dom: doc}
+}
+
 func NewHTMLAnalyzer(content string) (*HTMLAnalyzer, error) {
 	node, err := htmlutils.FastParse(strings.NewReader(content))
 	if err != nil {

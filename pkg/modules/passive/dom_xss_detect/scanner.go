@@ -116,3 +116,8 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 func (m *Module) getHash(urlx *urlutil.URL) string {
 	return utils.Sha1(fmt.Sprintf("%s%s", urlx.Host, urlx.Path))
 }
+
+// BodyOnly opts into once-per-distinct-body dispatch (modules.BodyOnlyPassive):
+// the verdict is a function of the response body, so an identical body served
+// at another URL is not re-analysed (ECON-14).
+func (m *Module) BodyOnly() bool { return true }

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/samber/lo"
+	"golang.org/x/net/html"
 )
 
 type Fingerprint struct {
@@ -126,6 +127,12 @@ func (f *Fingerprint) UpdateWithFingerprint(updateFingerprint *Fingerprint) {
 	f.updateFromFingerprint(updateFingerprint)
 }
 
+// UpdateWithDocument is UpdateWith reusing an already-parsed HTML document of
+// responseBody (nil parses as usual).
+func (f *Fingerprint) UpdateWithDocument(statusCode int, responseBody string, headers map[string][]string, doc *html.Node) {
+	f.update(f.getFingerprintDoc(statusCode, responseBody, headers, doc))
+}
+
 func (f *Fingerprint) UpdateWith(statusCode int, responseBody string, headers map[string][]string) {
 	f.mux.Lock()
 	defer f.mux.Unlock()
@@ -134,6 +141,10 @@ func (f *Fingerprint) UpdateWith(statusCode int, responseBody string, headers ma
 }
 
 func (f *Fingerprint) getFingerprint(statusCode int, responseBody string, headers map[string][]string) map[Type]uint32 {
+	return f.getFingerprintDoc(statusCode, responseBody, headers, nil)
+}
+
+func (f *Fingerprint) getFingerprintDoc(statusCode int, responseBody string, headers map[string][]string, doc *html.Node) map[Type]uint32 {
 	tempMap := make(map[Type]uint32, len(f.FingerprintTypes))
 
 	for _, attr := range f.FingerprintTypes {
@@ -174,7 +185,13 @@ func (f *Fingerprint) getFingerprint(statusCode int, responseBody string, header
 
 	if responseBody != "" {
 		if detector := NewMimetypeDetector(nil, responseBody); detector.GetInferredMimeType() == ContentTypeHTML || detector.GetStatedMimeType() == ContentTypeHTML {
-			htmlAnalyzer, err := NewHTMLAnalyzer(responseBody)
+			var htmlAnalyzer *HTMLAnalyzer
+			var err error
+			if doc != nil {
+				htmlAnalyzer = NewHTMLAnalyzerFromNode(doc)
+			} else {
+				htmlAnalyzer, err = NewHTMLAnalyzer(responseBody)
+			}
 			if err == nil {
 				for _, attr := range f.FingerprintTypes {
 					if value, err := htmlAnalyzer.GetAttribute(attr); err == nil {

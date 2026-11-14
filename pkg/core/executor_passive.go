@@ -2,6 +2,9 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
 
 	"github.com/sourcegraph/conc"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -118,6 +121,7 @@ func (e *Executor) filterEligiblePassive(mods []modules.PassiveModule, item *htt
 		return nil
 	}
 	eligible := make([]modules.PassiveModule, 0, len(mods))
+	var bodyKey string // computed once, on the first body-only module
 	for _, m := range mods {
 		if !filter.allows(m.ID()) {
 			continue
@@ -131,9 +135,39 @@ func (e *Executor) filterEligiblePassive(mods []modules.PassiveModule, item *htt
 		// Mark considered before CanProcess so modules that always reject this
 		// input shape still count toward the "modules scanned" status counter.
 		e.moduleMetrics.MarkConsidered(m.ID())
-		if m.CanProcess(item) {
-			eligible = append(eligible, m)
+		if !m.CanProcess(item) {
+			continue
 		}
+		if bo, ok := m.(modules.BodyOnlyPassive); ok && bo.BodyOnly() {
+			if bodyKey == "" {
+				bodyKey = responseBodyKey(item)
+			}
+			if bodyKey != "-" && e.caches.hostClaims.seenBody(m.ID(), bodyKey) {
+				continue
+			}
+		}
+		eligible = append(eligible, m)
 	}
 	return eligible
+}
+
+// responseBodyKey identifies a response for BodyOnlyPassive dedup: the hex
+// SHA-256 of its media type and body. "-" means "no body, never dedup".
+func responseBodyKey(item *httpmsg.HttpRequestResponse) string {
+	if item == nil || item.Response() == nil {
+		return "-"
+	}
+	body := item.Response().Body()
+	if len(body) == 0 {
+		return "-"
+	}
+	h := sha256.New()
+	ct := strings.ToLower(item.Response().Header("Content-Type"))
+	if i := strings.IndexByte(ct, ';'); i >= 0 {
+		ct = ct[:i]
+	}
+	h.Write([]byte(strings.TrimSpace(ct)))
+	h.Write([]byte{0})
+	h.Write(body)
+	return hex.EncodeToString(h.Sum(nil))
 }
