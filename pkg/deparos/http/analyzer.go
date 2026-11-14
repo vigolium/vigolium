@@ -74,10 +74,3 @@ func (a *Analyzer) Analyze(ctx context.Context, req *nethttp.Request, rc *respon
 // Not Allowed is deliberately NOT here: it means the path exists but rejects
 // the method, which is a real discovery signal.)
 func IsHardNotFound(status int) bool { return fingerprint.IsHardMissStatus(status) }
-
-// IsThrottled reports a response that says nothing about the probed path
-// because the origin or its edge refused to serve it: 429, 503, or a WAF/CDN
-// block page.
-func IsThrottled(status int, header nethttp.Header, body []byte) bool {
-	return fingerprint.IsThrottledResponse(status, header, body)
-}

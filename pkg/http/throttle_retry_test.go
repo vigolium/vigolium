@@ -100,18 +100,3 @@ func TestThrottle_PersistentMarksCall(t *testing.T) {
 		t.Errorf("Throttled = %d, want 1", n)
 	}
 }
-
-func TestParseRetryAfter(t *testing.T) {
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	if d := ParseRetryAfter("5", now); d != 5*time.Second {
-		t.Errorf("seconds: %v", d)
-	}
-	if d := ParseRetryAfter(now.Add(10*time.Second).Format(http.TimeFormat), now); d != 10*time.Second {
-		t.Errorf("http-date: %v", d)
-	}
-	for _, v := range []string{"", "-1", "soon"} {
-		if d := ParseRetryAfter(v, now); d != 0 {
-			t.Errorf("%q: %v, want 0", v, d)
-		}
-	}
-}

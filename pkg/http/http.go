@@ -688,18 +688,7 @@ type CallStats struct {
 
 // noteCallError counts a transient send failure on this requester's stats.
 func (r *Requester) noteCallError(err error) {
-	if err == nil || r == nil || r.callStats == nil {
-		return
-	}
-	if errors.Is(err, ErrRequestAbandoned) {
-		return // the call was given up on; the executor already knows
-	}
-	if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
-		r.callStats.TransportErrors.Add(1)
-		return
-	}
-	switch ClassifyTransportError(err) {
-	case TransportErrDNS, TransportErrRefused, TransportErrTimeout, TransportErrTLS, TransportErrReset:
+	if r != nil && r.callStats != nil && IsTransientTransportError(err) {
 		r.callStats.TransportErrors.Add(1)
 	}
 }
@@ -1699,28 +1688,8 @@ func responseRetryAfter(resp *httpUtils.ResponseChain) time.Duration {
 	if hr == nil {
 		return 0
 	}
-	return ParseRetryAfter(hr.Header.Get("Retry-After"), time.Now())
-}
-
-// ParseRetryAfter parses a Retry-After value: delta-seconds or an HTTP-date
-// relative to now. 0 for an empty, unparseable or past value.
-func ParseRetryAfter(v string, now time.Time) time.Duration {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return 0
-	}
-	if secs, err := strconv.Atoi(v); err == nil {
-		if secs <= 0 {
-			return 0
-		}
-		return time.Duration(secs) * time.Second
-	}
-	if t, err := http.ParseTime(v); err == nil {
-		if d := t.Sub(now); d > 0 {
-			return d
-		}
-	}
-	return 0
+	d, _ := httpmsg.ParseRetryAfter(hr.Header.Get("Retry-After"), time.Now())
+	return d
 }
 
 // requestLabel is "METHOD url" for error messages.
@@ -1786,7 +1755,7 @@ func safeToRetry(ctx context.Context, err error, wrote bool, method string, retr
 	if !wrote {
 		return true
 	}
-	if isTimeoutError(err) {
+	if ClassifyTransportError(err) == TransportErrTimeout {
 		return retryTimeouts
 	}
 	switch strings.ToUpper(method) {
@@ -1794,19 +1763,6 @@ func safeToRetry(ctx context.Context, err error, wrote bool, method string, retr
 		return true
 	}
 	return false
-}
-
-// isTimeoutError reports a client/transport timeout (as opposed to a caller
-// cancellation): a net.Error that says Timeout, or a deadline exceeded.
-func isTimeoutError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
-		return true
-	}
-	var ne net.Error
-	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // scanRetryOptions are the retryablehttp options every scan client uses. Its

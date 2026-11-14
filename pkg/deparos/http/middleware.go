@@ -6,11 +6,11 @@ import (
 	"io"
 	"math"
 	nethttp "net/http"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
 // ErrRequestFiltered is returned in place of sending a request the caller's
@@ -323,36 +323,13 @@ func (r *retryRoundTripper) calculateBackoff(attempt int) time.Duration {
 // its Retry-After when present, else MinStatusBackoff. ok is false when the
 // server asked for longer than MaxRetryAfter, which is not retried.
 func (r *retryRoundTripper) statusRetryWait(resp *nethttp.Response) (wait time.Duration, ok bool) {
-	if after, found := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()); found {
+	if after, found := httpmsg.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now()); found {
 		if r.config.MaxRetryAfter > 0 && after > r.config.MaxRetryAfter {
 			return 0, false
 		}
 		return after, true
 	}
 	return r.config.MinStatusBackoff, true
-}
-
-// parseRetryAfter reads a Retry-After value (RFC 9110 §10.2.3): delay-seconds
-// or an HTTP-date. A date in the past is a zero wait; an unparseable value is
-// treated as absent.
-func parseRetryAfter(v string, now time.Time) (time.Duration, bool) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return 0, false
-	}
-	if secs, err := strconv.ParseInt(v, 10, 64); err == nil {
-		if secs < 0 {
-			return 0, false
-		}
-		if secs > int64(24*time.Hour/time.Second) {
-			secs = int64(24 * time.Hour / time.Second)
-		}
-		return time.Duration(secs) * time.Second, true
-	}
-	if at, err := nethttp.ParseTime(v); err == nil {
-		return max(at.Sub(now), 0), true
-	}
-	return 0, false
 }
 
 // RateLimitConfig configures rate limiting behavior using token bucket algorithm.

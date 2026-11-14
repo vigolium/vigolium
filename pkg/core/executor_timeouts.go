@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/vigolium/vigolium/pkg/core/hosterrors"
 	"github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -466,19 +465,10 @@ func callHitTransportErrors(cs *http.CallStats) bool {
 	return cs != nil && (cs.TransportErrors.Load() > 0 || cs.Refused.Load() > 0)
 }
 
+// isTransientCallErr is a transient transport failure, or a request refused
+// because the call had already been abandoned.
 func isTransientCallErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, hosterrors.ErrUnresponsiveHost) || errors.Is(err, http.ErrRequestAbandoned) {
-		return true
-	}
-	switch http.ClassifyTransportError(err) {
-	case http.TransportErrDNS, http.TransportErrRefused, http.TransportErrTimeout,
-		http.TransportErrTLS, http.TransportErrReset:
-		return true
-	}
-	return false
+	return errors.Is(err, http.ErrRequestAbandoned) || http.IsTransientTransportError(err)
 }
 
 // runActiveCall is runActiveWithTimeout returning the full callOutcome.

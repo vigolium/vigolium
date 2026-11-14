@@ -8,30 +8,6 @@ import (
 	"time"
 )
 
-func TestParseRetryAfter(t *testing.T) {
-	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	cases := []struct {
-		in    string
-		want  time.Duration
-		found bool
-	}{
-		{"", 0, false},
-		{"5", 5 * time.Second, true},
-		{" 0 ", 0, true},
-		{"-3", 0, false},
-		{"soon", 0, false},
-		{now.Add(7 * time.Second).Format(nethttp.TimeFormat), 7 * time.Second, true},
-		{now.Add(-time.Minute).Format(nethttp.TimeFormat), 0, true},
-		{"99999999999", 24 * time.Hour, true},
-	}
-	for _, tc := range cases {
-		got, found := parseRetryAfter(tc.in, now)
-		if got != tc.want || found != tc.found {
-			t.Errorf("parseRetryAfter(%q) = %v, %v; want %v, %v", tc.in, got, found, tc.want, tc.found)
-		}
-	}
-}
-
 // retryServer answers status (with retryAfter, when set) until the last
 // attempt, then 200, counting the attempts.
 func retryServer(t *testing.T, status int, retryAfter string) (*httptest.Server, *atomic.Int64) {
