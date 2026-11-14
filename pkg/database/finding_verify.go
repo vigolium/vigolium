@@ -44,10 +44,15 @@ func (r *Repository) ResolveFindings(ctx context.Context, projectUUID string, id
 
 // FindingsInScan returns the reportable findings (record_kind finding) a scan
 // produced inside one project, ordered by id. projectUUID == "" drops the
-// project predicate (a standalone `-S --db` store).
-func (r *Repository) FindingsInScan(ctx context.Context, projectUUID, scanUUID string) ([]*Finding, error) {
+// project predicate (a standalone `-S --db` store). With columns, only those
+// finding columns are loaded (the rest stay zero); without, the whole row.
+func (r *Repository) FindingsInScan(ctx context.Context, projectUUID, scanUUID string, columns ...string) ([]*Finding, error) {
 	var out []*Finding
-	q := r.db.NewSelect().Model(&out).
+	q := r.db.NewSelect().Model(&out)
+	if len(columns) > 0 {
+		q = q.Column(columns...)
+	}
+	q = q.
 		Where("(scan_uuid = ? OR EXISTS (SELECT 1 FROM finding_observations o WHERE o.finding_id = f.id AND o.scan_uuid = ?))", scanUUID, scanUUID).
 		Where("COALESCE(record_kind, ?) = ?", RecordKindFinding, RecordKindFinding).
 		OrderExpr("id ASC")

@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -139,10 +140,7 @@ func (t *phaseTracker) setFindingsCapped(capped map[string]int64) {
 		return
 	}
 	t.mu.Lock()
-	t.findingsCapped = make(map[string]int64, len(capped))
-	for module, n := range capped {
-		t.findingsCapped[module] = n
-	}
+	t.findingsCapped = maps.Clone(capped)
 	t.mu.Unlock()
 	t.noteLimit(database.LimitFindingsPerModule)
 }
@@ -690,19 +688,13 @@ func (t *phaseTracker) outcome() database.PhaseOutcome {
 		out.Persistence = &p
 	}
 	if len(t.counts) > 0 {
-		out.Counts = make(map[string]int64, len(t.counts))
-		for name, n := range t.counts {
-			out.Counts[name] = n
-		}
+		out.Counts = maps.Clone(t.counts)
 	}
 	if len(t.blockedHosts) > 0 {
 		out.BlockedHosts = append([]string(nil), t.blockedHosts...)
 	}
 	if len(t.findingsCapped) > 0 {
-		out.FindingsCapped = make(map[string]int64, len(t.findingsCapped))
-		for module, n := range t.findingsCapped {
-			out.FindingsCapped[module] = n
-		}
+		out.FindingsCapped = maps.Clone(t.findingsCapped)
 	}
 	return out
 }

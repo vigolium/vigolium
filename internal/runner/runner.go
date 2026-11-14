@@ -82,9 +82,9 @@ type Runner struct {
 	// within one RunNativeScan; see takeHarvestStubs.
 	harvestStubs []harvestStub
 
-	// hurry is closed by Hurry (second Ctrl-C): Close stops waiting.
+	// hurry is closed by Hurry (second Ctrl-C): Close stops waiting. Made by
+	// New alongside done; nil (Hurry a no-op) on a runner built without it.
 	hurry     chan struct{}
-	hurryInit sync.Once
 	hurryOnce sync.Once
 	ctx       context.Context       // cancellable context for graceful shutdown
 	cancel    context.CancelFunc    // cancels ctx to signal workers to stop
@@ -379,6 +379,7 @@ func NewWithInputSource(options *types.Options, inputSource source.InputSource) 
 		ctx:          ctx,
 		cancel:       cancel,
 		done:         make(chan struct{}),
+		hurry:        make(chan struct{}),
 		pauseCtrl:    core.NewPauseController(),
 	}, nil
 }
@@ -431,7 +432,7 @@ func (r *Runner) Close() {
 		}
 		select {
 		case <-r.done:
-		case <-r.hurryChan():
+		case <-r.hurry:
 			zap.L().Warn("Shutdown hurried: not waiting for the scan to unwind")
 		case <-time.After(shutdownTimeout):
 			zap.L().Warn("Graceful shutdown timed out, forcing cleanup",
@@ -447,13 +448,11 @@ func (r *Runner) Close() {
 // the findings already stored can be exported within a short deadline instead
 // of after the full shutdown timeout. Idempotent.
 func (r *Runner) Hurry() {
-	r.hurryOnce.Do(func() { close(r.hurryChan()) })
-}
-
-// hurryChan returns the channel Hurry closes, creating it on first use.
-func (r *Runner) hurryChan() chan struct{} {
-	r.hurryInit.Do(func() { r.hurry = make(chan struct{}) })
-	return r.hurry
+	r.hurryOnce.Do(func() {
+		if r.hurry != nil {
+			close(r.hurry)
+		}
+	})
 }
 
 // Discard releases a runner's resources without waiting for RunNativeScan.
