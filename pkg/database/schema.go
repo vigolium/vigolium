@@ -222,6 +222,7 @@ func QueryGenericTable(ctx context.Context, db *DB, tableName string, limit, off
 		result = append(result, row)
 	}
 
+	redactGenericRows(tableName, result)
 	return result, colNames, total, rows.Err()
 }
 
@@ -416,6 +417,7 @@ func QueryGenericTableFiltered(ctx context.Context, db *DB, tableName string, op
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	redactGenericRows(tableName, result)
 	return result, colNames, total, nil
 }
 
@@ -457,6 +459,7 @@ func GetGenericRecord(ctx context.Context, db *DB, tableName, pkValue string) (m
 	if len(results) == 0 {
 		return nil, sql.ErrNoRows
 	}
+	redactGenericRows(tableName, results)
 	return results[0], nil
 }
 

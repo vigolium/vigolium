@@ -2,10 +2,12 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
 // OASTSession is an interactsh registration a scan kept open after it
@@ -105,5 +107,37 @@ func (db *DB) RedactOASTSessionKeys(ctx context.Context) error {
 	}
 	_, err := db.ExecContext(ctx,
 		"UPDATE oast_sessions SET secret_key = NULL, private_key = NULL, public_key = NULL, token = NULL")
+	return err
+}
+
+// redactGenericRows blanks secret columns in rows read through the generic
+// table API (`vigolium db`, /api/db): today the oast_sessions key material.
+func redactGenericRows(tableName string, rows []map[string]interface{}) {
+	if tableName != "oast_sessions" {
+		return
+	}
+	for _, row := range rows {
+		for _, col := range RedactedOASTSessionColumns {
+			if v, ok := row[col]; ok && v != nil && v != "" {
+				row[col] = "<redacted>"
+			}
+		}
+	}
+}
+
+// RedactOASTSessionKeysInFile blanks the oast_sessions key material in the
+// SQLite file at path (an export copy). A file without the table is left as
+// it is.
+func RedactOASTSessionKeysInFile(ctx context.Context, path string) error {
+	sqldb, err := sql.Open(sqliteshim.ShimName, path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sqldb.Close() }()
+	var n int
+	if err := sqldb.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'oast_sessions'").Scan(&n); err != nil || n == 0 {
+		return err
+	}
+	_, err = sqldb.ExecContext(ctx, "UPDATE oast_sessions SET secret_key = NULL, private_key = NULL, public_key = NULL, token = NULL")
 	return err
 }

@@ -825,6 +825,11 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Collect late out-of-band callbacks for the sessions scans kept open.
+	if repo != nil && settings.OAST.SessionPollInterval > 0 {
+		go runOASTSessionPoller(ctx, repo, time.Duration(settings.OAST.SessionPollInterval)*time.Minute, pollOASTSessions)
+	}
+
 	// Start workers only when a runner was created (scan-on-receive or
 	// full-native-on-receive). Plain API-only mode has no runner to start.
 	if scanRunner != nil {

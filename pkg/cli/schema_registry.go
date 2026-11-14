@@ -240,6 +240,13 @@ type oastIngestExtras struct {
 	Duplicates int    `json:"duplicates"`
 }
 
+type oastPollExtras struct {
+	// Sessions is how many kept sessions were polled.
+	Sessions   int `json:"sessions"`
+	Correlated int `json:"correlated"`
+	Findings   int `json:"findings"`
+}
+
 type moduleToggleExtras struct {
 	ModulesChanged int    `json:"modules_changed"`
 	ConfigPath     string `json:"config_path"`
@@ -301,6 +308,8 @@ func init() {
 		Description: "The project deleted, with what it held."})
 	registerCommandSchema(contract.Command{Name: "oast ingest", Item: oast.IngestedFinding{}, Extras: oastIngestExtras{},
 		Description: "Findings saved from logged OAST callbacks; the counters say how the callbacks were attributed."})
+	registerCommandSchema(contract.Command{Name: "oast poll", Item: oast.PollResult{}, Extras: oastPollExtras{},
+		Description: "One item per kept OAST session polled: callbacks collected, how many correlated to a planted payload, and whether it was closed."})
 	registerCommandSchema(contract.Command{Name: "extensions lint", Item: extLintFile{}, Extras: extLintExtras{},
 		Description: "One item per linted file with its issues (severity, line, col, message, rule); summary counts them. ok is false exactly when there are errors (exit 1, lint_failed)."})
 	for _, name := range []string{"module enable", "module disable"} {
