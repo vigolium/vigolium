@@ -75,6 +75,39 @@ func (e *Executor) activeModuleTimeout() time.Duration {
 	return defaultActiveModuleTimeout
 }
 
+// Adaptive per-module timeout bounds (ECON-7).
+const (
+	adaptiveTimeoutMinSamples = 50
+	adaptiveTimeoutFactor     = 3
+	adaptiveTimeoutMin        = 30 * time.Second
+	adaptiveTimeoutMax        = 300 * time.Second
+)
+
+// adaptiveActiveTimeout is the base per-call timeout for moduleID. With an
+// operator-configured ActiveModuleTimeout that value is used as-is. Otherwise,
+// once the module has at least adaptiveTimeoutMinSamples completed calls in
+// this executor, the timeout follows its own observed latency — p99 × 3,
+// clamped to [30s, 300s] — instead of a flat 300s, so a stuck call on a module
+// that normally takes 2s is given up on in 30s rather than five minutes
+// (ECON-7). A module's TimeoutHint still raises it (see runActiveCall).
+func (e *Executor) adaptiveActiveTimeout(moduleID string) time.Duration {
+	if e.cfg.ActiveModuleTimeout > 0 {
+		return e.cfg.ActiveModuleTimeout
+	}
+	p99, n := e.moduleMetrics.LatencyQuantile(moduleID, 0.99)
+	if n < adaptiveTimeoutMinSamples {
+		return e.activeModuleTimeout()
+	}
+	t := p99 * adaptiveTimeoutFactor
+	if t < adaptiveTimeoutMin {
+		t = adaptiveTimeoutMin
+	}
+	if t > adaptiveTimeoutMax {
+		t = adaptiveTimeoutMax
+	}
+	return t
+}
+
 // maxModuleTimeout returns the longest a single module call can legitimately
 // run: the larger of the base active/passive timeouts and the largest
 // TimeoutHint any registered module advertises (both scan wrappers raise their
@@ -465,7 +498,7 @@ func (e *Executor) runActiveCall(
 	// the reference count, leaves it unchanged): without this a request with many
 	// cookies/headers exceeds the base timeout mid-loop and its already-confirmed
 	// findings are discarded (capped at maxModuleTimeoutScale x).
-	timeout := scaleModuleTimeout(e.activeModuleTimeout(), workUnits)
+	timeout := scaleModuleTimeout(e.adaptiveActiveTimeout(module.ID()), workUnits)
 	// Allow modules to override with a per-module timeout hint (e.g. diffscan
 	// timing analysis legitimately needs longer than the global default).
 	if hinter, ok := module.(modules.TimeoutHinter); ok {
@@ -519,7 +552,9 @@ func (e *Executor) runActiveCall(
 	select {
 	case r := <-ch:
 		moduleResultChanPool.Put(ch) // goroutine done; channel drained and safe to reuse
-		e.moduleMetrics.Record(module.ID(), time.Since(start), len(r.events), r.err)
+		elapsed := time.Since(start)
+		e.moduleMetrics.Record(module.ID(), elapsed, len(r.events), r.err)
+		e.moduleMetrics.RecordCompletedDuration(module.ID(), elapsed)
 		if r.err != nil {
 			if IsLevelDBClosed(r.err) {
 				// A store closed under a module at shutdown is not the module's

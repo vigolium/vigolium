@@ -16,6 +16,8 @@ type ModuleStats struct {
 	// Inconclusive counts calls that completed with no finding while the host
 	// throttled them (429/503): their negatives are not real negatives.
 	Inconclusive atomic.Int64
+	// latency is the completed-call duration histogram (adaptive timeout).
+	latency latencyBuckets
 }
 
 // ModuleMetrics tracks metrics for all modules in a scan.
