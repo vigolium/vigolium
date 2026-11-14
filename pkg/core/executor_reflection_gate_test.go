@@ -45,7 +45,9 @@ func TestReflectionGate(t *testing.T) {
 		return mod.calls.Load()
 	}
 
-	if n := run(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "<p>"+r.URL.Query().Get("q")+"</p>") }); n != 1 {
+	if n := run(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "<p>"+r.URL.Query().Get("q")+"</p>")
+	}); n != 1 {
 		t.Errorf("reflected point: module ran %d times, want 1", n)
 	}
 	if n := run(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "<p>static</p>") }); n != 0 {

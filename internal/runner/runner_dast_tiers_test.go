@@ -37,7 +37,7 @@ func newTierProbe(id string, class int, delay time.Duration) *tierProbe {
 	}
 }
 
-func (m *tierProbe) ClassPriority() int                          { return m.class }
+func (m *tierProbe) ClassPriority() int                           { return m.class }
 func (m *tierProbe) CanProcess(*httpmsg.HttpRequestResponse) bool { return true }
 func (m *tierProbe) ScanPerRequest(item *httpmsg.HttpRequestResponse, _ *protohttp.Requester, _ *modkit.ScanContext) ([]*output.ResultEvent, error) {
 	m.calls.Add(1)
