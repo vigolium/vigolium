@@ -9,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/cftbrowser"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/knownissuescan"
+	"github.com/vigolium/vigolium/pkg/nucleitemplates"
 	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/spitolas"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -140,11 +141,8 @@ func (r *Runner) provisionSpideringBrowser(ctx context.Context, cfg config.Spide
 // carries on with the secret scan); the caller records the returned error and
 // skips the nuclei leg.
 func (r *Runner) provisionNucleiTemplates(ctx context.Context, inScopeHosts []database.HostTarget) error {
-	dir := ""
-	if r.settings != nil && r.settings.KnownIssueScan.TemplatesDir != "" {
-		dir = config.ExpandPath(r.settings.KnownIssueScan.TemplatesDir)
-	}
-	if knownissuescan.TemplatesPresent(dir) {
+	tc := r.knownIssueTemplatesConfig()
+	if knownissuescan.TemplatesPresent(tc.TemplatesDir) {
 		return nil
 	}
 	// Nothing to scan means nothing to clone: the nuclei leg skips itself.
@@ -154,11 +152,8 @@ func (r *Runner) provisionNucleiTemplates(ctx context.Context, inScopeHosts []da
 			return nil
 		}
 	}
-	if r.settings != nil {
-		knownissuescan.SetTemplatesPin(r.settings.KnownIssueScan.TemplatesVersion, r.settings.KnownIssueScan.TemplatesSHA256)
-	}
 	var step *setupStep
-	err := ensureNucleiTemplates(dir, func(state, _ string, _ error) {
+	err := ensureNucleiTemplates(tc, func(state, _ string, _ error) {
 		if state == knownissuescan.TemplatesStarted {
 			step = r.beginSetup(setupComponentNuclei, "nuclei-templates",
 				"not found, downloading the release archive once (typically under a minute; not counted against the known-issue-scan budget)")
@@ -173,4 +168,19 @@ func (r *Runner) provisionNucleiTemplates(ctx context.Context, inScopeHosts []da
 		return err
 	}
 	return nil
+}
+
+// knownIssueTemplatesConfig is where this scan's nuclei templates live and how
+// a missing copy may be installed: the templates directory, --offline and the
+// pinned release, resolved from the run's options and settings.
+func (r *Runner) knownIssueTemplatesConfig() knownissuescan.Config {
+	tc := knownissuescan.Config{Offline: r.offline()}
+	if r.settings != nil {
+		kis := &r.settings.KnownIssueScan
+		if kis.TemplatesDir != "" {
+			tc.TemplatesDir = config.ExpandPath(kis.TemplatesDir)
+		}
+		tc.TemplatesPin = nucleitemplates.Pin{Version: kis.TemplatesVersion, SHA256: kis.TemplatesSHA256}
+	}
+	return tc
 }

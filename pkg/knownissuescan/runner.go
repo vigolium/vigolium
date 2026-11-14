@@ -36,13 +36,18 @@ const (
 )
 
 type Config struct {
-	Targets      []string      // scheme://host:port URLs to scan
-	Concurrency  int           // nuclei host concurrency (default: 5)
-	RateLimit    int           // requests/sec (default: 150)
-	Tags         []string      // template tags to include (empty = all)
-	ExcludeTags  []string      // template tags to exclude
-	Severities   []string      // filter by severity (empty = all)
-	TemplatesDir string        // custom templates directory
+	Targets      []string // scheme://host:port URLs to scan
+	Concurrency  int      // nuclei host concurrency (default: 5)
+	RateLimit    int      // requests/sec (default: 150)
+	Tags         []string // template tags to include (empty = all)
+	ExcludeTags  []string // template tags to exclude
+	Severities   []string // filter by severity (empty = all)
+	TemplatesDir string   // custom templates directory
+	// Offline forbids downloading missing templates (--offline).
+	Offline bool
+	// TemplatesPin is the nuclei-templates release (and archive digest) a
+	// missing templates directory is installed from.
+	TemplatesPin nucleitemplates.Pin
 	Templates    []string      // when set, the only template sources (see templateSources)
 	Timeout      time.Duration // max known-issue scan duration (default: 30m)
 	// RequestTimeout bounds a single nuclei request (default: 10s). It also caps
@@ -120,7 +125,7 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 
 	// Ensure nuclei templates are available before attempting to scan
-	if err := ensureTemplates(cfg.TemplatesDir); err != nil {
+	if err := EnsureTemplates(cfg, nil); err != nil {
 		return err
 	}
 
@@ -557,20 +562,11 @@ const (
 // target; err is set on TemplatesFailed.
 type TemplatesProgress func(state, dir string, err error)
 
-// templatesPin is the release EnsureTemplates installs (SetTemplatesPin).
-var templatesPin nucleitemplates.Pin
-
-// SetTemplatesPin sets the nuclei-templates release (and archive digest) the
-// first-run install fetches; the runner sets it from known_issue_scan.
-func SetTemplatesPin(version, sha256 string) {
-	templatesPin = nucleitemplates.Pin{Version: version, SHA256: sha256}
-}
-
 // cloneTemplates installs nuclei-templates from the (pinned) release archive
 // over HTTPS — no git. A variable so tests can exercise EnsureTemplates
 // without a network fetch. The name predates the archive install.
-var cloneTemplates = func(ctx context.Context, dir string) ([]byte, error) {
-	if _, err := nucleitemplates.Install(ctx, dir, templatesPin); err != nil {
+var cloneTemplates = func(ctx context.Context, dir string, pin nucleitemplates.Pin) ([]byte, error) {
+	if _, err := nucleitemplates.Install(ctx, dir, pin); err != nil {
 		return nil, err
 	}
 	return nil, nil
@@ -599,22 +595,18 @@ func TemplatesPresent(customDir string) bool {
 	return err == nil && info.IsDir()
 }
 
-// ensureTemplates is Run's own guard: a no-op when the scan runner already
-// provisioned the templates (EnsureTemplates with progress) before the phase.
-func ensureTemplates(customDir string) error {
-	return EnsureTemplates(customDir, nil)
-}
-
-// EnsureTemplates checks that nuclei templates are available and clones them
-// if missing. When Vigolium embeds nuclei as a library, the automatic template
+// EnsureTemplates checks that the nuclei templates in cfg.TemplatesDir (or
+// ~/nuclei-templates) are available and installs cfg.TemplatesPin if missing,
+// unless cfg.Offline. Run calls it as its own guard; it is a no-op when the
+// scan runner already provisioned the templates before the phase. When Vigolium embeds nuclei as a library, the automatic template
 // download that the nuclei CLI performs does not run, so fresh environments
 // (Docker, VPS) may not have templates installed.
 //
 // onProgress may be nil, in which case the clone is announced with text lines
 // on stderr. With it, the caller renders the step (the scan runner turns it
 // into an ETA line and a scan.setup event) and the text is suppressed.
-func EnsureTemplates(customDir string, onProgress TemplatesProgress) error {
-	dir, err := TemplatesDir(customDir)
+func EnsureTemplates(cfg Config, onProgress TemplatesProgress) error {
+	dir, err := TemplatesDir(cfg.TemplatesDir)
 	if err != nil {
 		return err
 	}
@@ -622,7 +614,7 @@ func EnsureTemplates(customDir string, onProgress TemplatesProgress) error {
 	if info, err := os.Stat(dir); err == nil && info.IsDir() {
 		return nil
 	}
-	if offlineMode.Load() {
+	if cfg.Offline {
 		return fmt.Errorf("knownissuescan: nuclei templates not found at %s and --offline forbids downloading them; "+
 			"provision them first (vigolium doctor --fix --only nuclei) or point --known-issue-scan-templates-dir at a copy", dir)
 	}
@@ -664,14 +656,14 @@ func EnsureTemplates(customDir string, onProgress TemplatesProgress) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	if out, err := cloneTemplates(ctx, dir); err != nil {
+	if out, err := cloneTemplates(ctx, dir, cfg.TemplatesPin); err != nil {
 		detail := strings.TrimSpace(string(out))
 		if detail == "" {
 			detail = err.Error()
 		}
 		failure := fmt.Errorf("knownissuescan: nuclei templates not found at %s and auto-download failed: %s\n"+
 			"Install with: vigolium doctor --fix --only nuclei (or unpack %s into %s)",
-			dir, detail, nucleitemplates.ArchiveURL(templatesPin.Version), dir)
+			dir, detail, nucleitemplates.ArchiveURL(cfg.TemplatesPin.Version), dir)
 		report(TemplatesFailed, failure)
 		return failure
 	}
@@ -718,9 +710,3 @@ func parseSeverity(s string) severity.Severity {
 		return severity.Undefined
 	}
 }
-
-// offlineMode forbids the template clone (SAFE-11, --offline).
-var offlineMode atomic.Bool
-
-// SetOffline forbids (true) or allows downloading nuclei templates.
-func SetOffline(v bool) { offlineMode.Store(v) }

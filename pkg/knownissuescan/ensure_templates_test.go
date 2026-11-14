@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vigolium/vigolium/pkg/nucleitemplates"
 )
 
 // fakeClone replaces the git clone for one test; mkdir decides whether the
@@ -15,7 +17,7 @@ func fakeClone(t *testing.T, mkdir bool) *int {
 	t.Helper()
 	calls := 0
 	orig := cloneTemplates
-	cloneTemplates = func(_ context.Context, dir string) ([]byte, error) {
+	cloneTemplates = func(_ context.Context, dir string, _ nucleitemplates.Pin) ([]byte, error) {
 		calls++
 		if !mkdir {
 			return []byte("fatal: unable to access"), errors.New("exit status 128")
@@ -36,7 +38,7 @@ func TestEnsureTemplatesPresentReportsNothing(t *testing.T) {
 	calls := fakeClone(t, true)
 	dir := t.TempDir()
 	var log progressLog
-	if err := EnsureTemplates(dir, log.fn()); err != nil {
+	if err := EnsureTemplates(Config{TemplatesDir: dir}, log.fn()); err != nil {
 		t.Fatal(err)
 	}
 	if *calls != 0 || len(log) != 0 {
@@ -48,7 +50,7 @@ func TestEnsureTemplatesClonesWithProgress(t *testing.T) {
 	calls := fakeClone(t, true)
 	dir := filepath.Join(t.TempDir(), "nuclei-templates")
 	var log progressLog
-	if err := EnsureTemplates(dir, log.fn()); err != nil {
+	if err := EnsureTemplates(Config{TemplatesDir: dir}, log.fn()); err != nil {
 		t.Fatal(err)
 	}
 	if *calls != 1 || strings.Join(log, ",") != "started,finished" {
@@ -63,7 +65,7 @@ func TestEnsureTemplatesFailureNamesDoctorFix(t *testing.T) {
 	fakeClone(t, false)
 	dir := filepath.Join(t.TempDir(), "nuclei-templates")
 	var log progressLog
-	err := EnsureTemplates(dir, log.fn())
+	err := EnsureTemplates(Config{TemplatesDir: dir}, log.fn())
 	if err == nil {
 		t.Fatal("want an error when the clone fails")
 	}

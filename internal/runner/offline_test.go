@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/vigolium/vigolium/internal/config"
-	"github.com/vigolium/vigolium/pkg/knownissuescan"
 	"github.com/vigolium/vigolium/pkg/spitolas"
 	"github.com/vigolium/vigolium/pkg/types"
 )
@@ -25,7 +24,6 @@ func TestExternalFetcherAndOffline(t *testing.T) {
 	settings.OAST.Enabled = true
 	r.options.Offline = true
 	defer spitolas.SetOffline(false)
-	defer knownissuescan.SetOffline(false)
 	r.applyOffline()
 	if r.externalFetcher() != nil {
 		t.Error("--offline must disable external lookups")

@@ -62,4 +62,3 @@ func ApplyDefaultScanBudget(settings *config.Settings, opts *types.Options) {
 		opts.ScanMaxDuration = d
 	}
 }
-

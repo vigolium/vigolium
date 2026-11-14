@@ -3,18 +3,18 @@ package runner
 import (
 	"context"
 	"fmt"
-	"github.com/vigolium/vigolium/pkg/knownissuescan"
-	"github.com/vigolium/vigolium/pkg/modules/passive/surface_scoring"
-	"github.com/vigolium/vigolium/pkg/spitolas"
 	nethttp "net/http"
 	"net/url"
 	"os"
-	"strings"
 	"time"
+
+	"github.com/vigolium/vigolium/pkg/modules/passive/surface_scoring"
+	"github.com/vigolium/vigolium/pkg/spitolas"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/redact"
 	"github.com/vigolium/vigolium/pkg/core/egress"
 	"github.com/vigolium/vigolium/pkg/core/services"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -92,7 +92,7 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 			infra.notifier = notify.New(notify.Config{
 				Backends:          backends,
 				AllowedSeverities: notifyCfg.Severities,
-				RedactHeaders:     headerNameSet(r.options.Headers),
+				RedactHeaders:     redact.HeaderNameSet(r.options.Headers),
 				NoRedact:          r.settings.Output.RedactEvidence != nil && !*r.settings.Output.RedactEvidence,
 			})
 		}
@@ -409,7 +409,6 @@ func (r *Runner) applyOffline() {
 		r.settings.DynamicAssessment.ExternalLookups = false
 	}
 	spitolas.SetOffline(true)
-	knownissuescan.SetOffline(true)
 }
 
 // externalFetcher is the client modules use for third-party lookups that are
@@ -430,17 +429,4 @@ func (r *Runner) externalFetcher() *nethttp.Client {
 		timeout = 10 * time.Second
 	}
 	return &nethttp.Client{Timeout: timeout, Transport: transport}
-}
-
-// headerNameSet is the lowercased name set of "Name: value" header strings.
-func headerNameSet(headers []string) map[string]struct{} {
-	out := make(map[string]struct{}, len(headers))
-	for _, h := range headers {
-		if name, _, ok := strings.Cut(h, ":"); ok {
-			if n := strings.ToLower(strings.TrimSpace(name)); n != "" {
-				out[n] = struct{}{}
-			}
-		}
-	}
-	return out
 }

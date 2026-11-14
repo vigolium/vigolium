@@ -320,6 +320,9 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		Edge: r.knownIssueScanEdge(infra),
 	}
 
+	tc := r.knownIssueTemplatesConfig()
+	cfg.TemplatesDir, cfg.Offline, cfg.TemplatesPin = tc.TemplatesDir, tc.Offline, tc.TemplatesPin
+
 	// Apply YAML settings
 	if r.settings != nil {
 		knownIssueScanCfg := &r.settings.KnownIssueScan
@@ -334,9 +337,6 @@ func (r *Runner) runKnownIssueScan(ctx context.Context, infra *phaseInfra, onRes
 		}
 		cfg.Severities = knownIssueScanCfg.Severities
 		cfg.SeverityOverrides = knownIssueScanCfg.SeverityOverrides
-		if knownIssueScanCfg.TemplatesDir != "" {
-			cfg.TemplatesDir = config.ExpandPath(knownIssueScanCfg.TemplatesDir)
-		}
 		for _, t := range knownIssueScanCfg.Templates {
 			cfg.Templates = append(cfg.Templates, config.ExpandPath(t))
 		}
