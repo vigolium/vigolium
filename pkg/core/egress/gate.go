@@ -536,24 +536,17 @@ func (t *roundTripper) report(req *http.Request, resp *http.Response, err error)
 	hosts.Feedback(host, resp.StatusCode, nil, t.isBlock(resp))
 }
 
-// requestCancelled reports whether the caller gave up on req. An http.Client
-// with a Timeout wrapping a RoundTripper it does not know (this one) arms two
-// timers: one closes req.Cancel, the other expires req's context. When the
-// first wins, the inner transport has already failed with "request canceled"
-// while the context still reads live, so both are checked.
+// requestCancelled reports whether the CALLER gave up on req (MISS-23). A
+// client timeout is not a caller cancellation: it is the host failing to
+// answer in time, which the limiter must count as distress.
+//
+// An http.Client with a Timeout wrapping a RoundTripper it does not know
+// (this one) arms two timers: one closes req.Cancel, the other expires req's
+// context with DeadlineExceeded. Either firing is the client's timeout, so
+// both are treated as distress; only a context that ended with Canceled is
+// the caller stopping.
 func requestCancelled(req *http.Request) bool {
-	if req.Context().Err() != nil {
-		return true
-	}
-	//nolint:staticcheck // SA1019: http.Client still drives Timeout through Request.Cancel for unknown RoundTrippers
-	if req.Cancel != nil {
-		select {
-		case <-req.Cancel: //nolint:staticcheck // SA1019: see above
-			return true
-		default:
-		}
-	}
-	return false
+	return errors.Is(req.Context().Err(), context.Canceled) && !errors.Is(context.Cause(req.Context()), context.DeadlineExceeded)
 }
 
 // isBlock classifies a block-candidate response, reading ahead at most

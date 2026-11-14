@@ -1362,9 +1362,11 @@ func (r *Requester) executeDirectly(ctx context.Context, input *httpmsg.HttpRequ
 			var sendErr error
 			resp, sendErr = r.doRequest(attemptCtx, input, opts, creds)
 			elapsed = time.Since(start)
-			if sendErr != nil {
+			if sendErr != nil && ctx.Err() == nil {
 				// Feed transport failures (timeout/reset/refused) to the adaptive
 				// limiter so it can back the host off; a no-op in static mode.
+				// Skipped when OUR context ended (shutdown, module abandon,
+				// phase deadline): that says nothing about the host (MISS-23).
 				r.reportHostFeedback(host, 0, sendErr, false)
 			}
 			return sendErr

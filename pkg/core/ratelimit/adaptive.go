@@ -238,6 +238,12 @@ func (h *HostRateLimiter) FeedbackWith(host string, o FeedbackOutcome) {
 		return
 	}
 
+	// A failure that is not distress (the caller cancelled) says nothing about
+	// the host: it must not count toward the healthy ramp either (MISS-23).
+	if err != nil && !wafBlocked && !isDistress(statusCode, err) {
+		return
+	}
+
 	if wafBlocked || isDistress(statusCode, err) {
 		entry.healthy.Store(0)
 		// One back-off per cooldown window — coalesce concurrent failures.
@@ -340,10 +346,15 @@ func isDistress(statusCode int, err error) bool {
 	return false
 }
 
-// isContextCanceled reports whether err is a context cancellation/deadline, which
-// reflects scan shutdown rather than host distress and must not trigger back-off.
+// isContextCanceled reports whether err is a caller cancellation, which
+// reflects scan shutdown or an abandoned call rather than host distress and
+// must not trigger back-off. A deadline is NOT a cancellation (MISS-23): a
+// client timeout surfaces as context.DeadlineExceeded / a net.Error whose
+// Timeout() is true, and a host that stops answering is exactly the distress
+// back-off exists for. Callers that know their own context expired (a phase
+// deadline) do not report at all.
 func isContextCanceled(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	return errors.Is(err, context.Canceled)
 }
 
 // pauseHost holds host's new acquires for clamp(retryAfter or 1s·2^n, 1s,
