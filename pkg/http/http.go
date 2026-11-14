@@ -107,13 +107,15 @@ type Options struct {
 
 // Requester executes HTTP requests with rate limiting and host error tracking
 type Requester struct {
-	client           *retryablehttp.Client
-	clientNoRedir    *retryablehttp.Client
-	rawClient        *rawhttp.Client
-	rawClientNoRedir *rawhttp.Client
-	services         *services.Services
-	customHeaders    map[string]string
-	clusterer        *RequestClusterer
+	client        *retryablehttp.Client
+	clientNoRedir *retryablehttp.Client
+	// rawClient never follows redirects (SAFE-1): a raw request is exactly one
+	// round trip, so the response belongs to the bytes that were sent and no
+	// header ever travels to a Location host.
+	rawClient     *rawhttp.Client
+	services      *services.Services
+	customHeaders map[string]string
+	clusterer     *RequestClusterer
 	// clusterScope partitions the shared response cache by credential identity.
 	// Empty on the primary requester; set on credential-stripped views.
 	clusterScope string
@@ -758,11 +760,11 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 		maxRedir = 10
 	}
 
-	// Resolved ONCE and shared by the standard client and both raw clients, so
-	// "which redirects does this scan follow" has a single answer. The raw path
-	// cannot express same-host/same-apex (rawhttp only has a follow/don't bool),
-	// so it follows for any mode except off — documented here rather than
-	// silently diverging.
+	// Resolved ONCE for the standard client. The raw path never follows a
+	// redirect whatever the mode (SAFE-1): rawhttp re-sends every header to the
+	// Location host and follows one hop even at MaxRedirects 0, and the modules
+	// that use it (smuggling, request-line attacks, open-redirect probes) need
+	// the 3xx itself.
 	redirectMode := ResolveRedirectMode(options)
 
 	// Single shared transport — connection pooling is a transport-level concern.
@@ -811,30 +813,24 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 	} else {
 		rawOpts.FastDialer = dialer
 	}
-	rawOpts.FollowRedirects = redirectMode != RedirectModeOff
-	rawOpts.MaxRedirects = maxRedir
+	rawOpts.FollowRedirects = false
+	rawOpts.MaxRedirects = 0
 	rawClient := rawhttp.NewClient(&rawOpts)
 
-	rawOptsNoRedir := rawOpts
-	rawOptsNoRedir.FollowRedirects = false
-	rawOptsNoRedir.MaxRedirects = 0
-	rawClientNoRedir := rawhttp.NewClient(&rawOptsNoRedir)
-
 	r := &Requester{
-		client:           client,
-		clientNoRedir:    clientNoRedir,
-		rawClient:        rawClient,
-		rawClientNoRedir: rawClientNoRedir,
-		services:         services,
-		customHeaders:    parseHeaders(options.Headers),
-		carried:          &carriedSessionStore{},
-		blockNotifier:    &blockNotifier{seen: make(map[string]struct{})},
-		respObserver:     &responseObserver{},
-		edgePacer:        &edgePacer{},
-		poolStats:        poolStats,
-		sent:             sent,
-		gate:             gate,
-		retries:          max(options.Retries, 0),
+		client:        client,
+		clientNoRedir: clientNoRedir,
+		rawClient:     rawClient,
+		services:      services,
+		customHeaders: parseHeaders(options.Headers),
+		carried:       &carriedSessionStore{},
+		blockNotifier: &blockNotifier{seen: make(map[string]struct{})},
+		respObserver:  &responseObserver{},
+		edgePacer:     &edgePacer{},
+		poolStats:     poolStats,
+		sent:          sent,
+		gate:          gate,
+		retries:       max(options.Retries, 0),
 	}
 
 	// Keep the edge-pacer's once-per-host dedup in sync with the limiter's entry
@@ -1641,9 +1637,9 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 	var resp *http.Response
 	if opts.RawRequest {
 		rawClient := r.rawClient
-		if opts.NoRedirects {
-			rawClient = r.rawClientNoRedir
-		}
+		// Every raw send goes through DoRawWithOptions with FollowRedirects
+		// false: rawhttp's Dor hard-codes FollowRedirects true and tests
+		// Current <= MaxRedirects, so it follows one hop even at a limit of 0.
 		if len(opts.RawBytes) > 0 {
 			// Framing-attack path: hand rawhttp the exact bytes and switch off
 			// every automatic header it would otherwise synthesize. With
@@ -1674,6 +1670,7 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 			// left untouched.
 			rawOpts := *rawClient.Options
 			rawOpts.AutomaticHostHeader = false
+			rawOpts.FollowRedirects = false
 			// req embeds *urlutil.URL (retryablehttp.Request), so req.String() is the
 			// promoted request URL — rawhttp dials its host while RawRequestTarget
 			// overrides the on-the-wire request-line target.
@@ -1683,7 +1680,11 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 				req.Header, req.Body, &rawOpts,
 			)
 		} else {
-			resp, err = rawClient.Dor(req)
+			rawOpts := *rawClient.Options
+			rawOpts.FollowRedirects = false
+			resp, err = rawClient.DoRawWithOptions(
+				req.Method, req.URL.String(), "", req.Header, req.Body, &rawOpts,
+			)
 		}
 	} else {
 		if opts.NoRedirects {
