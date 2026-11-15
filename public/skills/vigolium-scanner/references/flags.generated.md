@@ -154,6 +154,7 @@ run `vigolium <command> -h`.
 - [vigolium skills get](#vigolium-skills-get)
 - [vigolium skills install](#vigolium-skills-install)
 - [vigolium skills list](#vigolium-skills-list)
+- [vigolium skills uninstall](#vigolium-skills-uninstall)
 - [vigolium status](#vigolium-status)
 - [vigolium storage](#vigolium-storage)
 - [vigolium storage download](#vigolium-storage-download)
@@ -2966,7 +2967,7 @@ Install skill bundle(s) into a coding agent's skills directory
 |------|-------|------|---------|-------------|
 | `--agent` | - | string | `claude` | Target coding agent: claude, codex, or agents |
 | `--all` | - | bool | `false` | Install every bundled skill |
-| `--dir` | - | string | - | Override the destination directory (skips --agent/--scope resolution) |
+| `--dir` | - | string | - | Override the destination directory (--agent/--scope are still validated, but do not pick the path) |
 | `--dry-run` | - | bool | `false` | Show which skills would be installed or skipped, without writing files |
 | `--scope` | - | string | `project` | Install scope: project (current folder) or global (home dir) |
 
@@ -2983,6 +2984,20 @@ List all bundled skills
 | `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
+
+## vigolium skills uninstall
+
+Usage: `vigolium skills uninstall [name...]`
+
+Remove an installed skill bundle from a coding agent's skills directory
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--agent` | - | string | `claude` | Coding agent the skill was installed for: claude, codex, or agents |
+| `--all` | - | bool | `false` | Remove every bundled skill installed there |
+| `--dir` | - | string | - | Directory the skill was installed into (--agent/--scope are still validated, but do not pick the path) |
+| `--dry-run` | - | bool | `false` | Show what would be removed, without deleting anything |
+| `--scope` | - | string | `project` | Install scope: project (current folder) or global (home dir) |
 
 ## vigolium status
 

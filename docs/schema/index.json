@@ -402,6 +402,18 @@
     "description": "The server stopped (SIGTERM, sent only when /health answered with the recorded pid), and whether it exited in time."
   },
   {
+    "name": "skills install",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "One item per skill bundle: where it went, the state found (status) and the state left (status_after)."
+  },
+  {
+    "name": "skills uninstall",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "One item per skill bundle: what was (or, with --dry-run, would be) removed, what was kept and why."
+  },
+  {
     "name": "status",
     "kind": "command",
     "envelope_kind": "read",
