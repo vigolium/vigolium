@@ -659,7 +659,7 @@ func writeDBBundleMembers(ctx context.Context, db *database.DB, projectUUID stri
 
 	// --- HTML report ---
 	if len(envelopes) > 0 {
-		autoTarget, autoDuration := computeReportMeta(ctx, db)
+		autoTarget, autoDuration := computeReportMeta(ctx, db, projectUUID)
 		meta := output.HTMLReportMeta{
 			Title:           "Vigolium Export Report",
 			Version:         getVersion(),

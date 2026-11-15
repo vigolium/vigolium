@@ -23,7 +23,7 @@ import (
 // findings to a single scan (empty = all of the project's), so a persisted scan's
 // report reflects that run rather than the project's whole history.
 func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, projectUUID, scanUUID string, rf reportFormatEntry, onTrim func(output.ReportTrimInfo)) error {
-	autoTarget, autoDuration := computeReportMeta(ctx, db)
+	autoTarget, autoDuration := computeReportMeta(ctx, db, projectUUID)
 	meta := output.HTMLReportMeta{
 		Title:           "Vigolium Scan Report",
 		Version:         getVersion(),

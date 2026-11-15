@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- `vigolium export` now exports the active project by default, like `traffic`, `finding` and `db export`; pass `--all-projects` for the whole store. Report metadata (target, duration) is scoped the same way.
+
 ## [v0.5.7] - 2026-11-14
 
 ### Added

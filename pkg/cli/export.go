@@ -37,6 +37,10 @@ var (
 	topExportReportURL    string
 	topExportScanUUIDs    []string
 
+	// topExportAllProjects spans every project in the store instead of the
+	// active one.
+	topExportAllProjects bool
+
 	// topExportNoURLDedup belongs to `vigolium export` alone. The post-scan
 	// exporters never set it: their JSONL is the documented per-run artifact and
 	// changing its row count by default would break every consumer counting on
@@ -50,6 +54,8 @@ var exportCmd = &cobra.Command{
 	Long: `Export the contents of one or more database tables (HTTP records, findings, scans, modules, OAST interactions, source repos, scopes) into JSONL, HTML, Markdown, PDF, SARIF, or a bundle archive.
 
 --format sarif writes a SARIF 2.1.0 log of the findings, for ingestion by GitHub code scanning, DefectDojo, the VS Code SARIF Viewer and other aggregators. Code findings anchor to their source file (with line number) so they can be annotated onto a diff; HTTP findings anchor to their URL and carry the proof exchange in the standard webRequest/webResponse fields.
+
+The export covers the active project (--project-uuid, --project-name, $VIGOLIUM_PROJECT_UUID, ` + "`project use`" + `, else the default project); --all-projects exports every project in the store. A standalone source (-S, --glob-db) is exported whole unless a project is named.
 
 Use --only to choose which tables to include, --omit-response to drop raw HTTP request/response bytes (keeps metadata, smaller files), and --search to fuzzy-filter rows before export. HTML and bundle output require -o/--output.
 
@@ -89,6 +95,8 @@ func init() {
 		"URL for the \"Raw Report URL\" button in HTML reports (overrides VIGOLIUM_REPORT_SHARED_URL)")
 	exportCmd.Flags().StringVar(&topExportSeverity, "severity", "",
 		"Filter findings by severity (comma-separated: critical,high,medium,low,info)")
+	exportCmd.Flags().BoolVar(&topExportAllProjects, "all-projects", false,
+		"Export every project in the store; by default the export covers the active project (--project-uuid/--project-name, $VIGOLIUM_PROJECT, or the default project)")
 	exportCmd.Flags().StringSliceVar(&topExportScanUUIDs, "scan-uuid", nil,
 		"Agentic scan UUID(s) whose session directories to include in --format bundle (repeatable)")
 	registerReportFlags(exportCmd.Flags())
@@ -580,11 +588,10 @@ type exportRun struct {
 	// for the whole database. Resolved once in openDB, after the source is open,
 	// so a --project-name lookup hits the source being exported.
 	//
-	// It used to be hardcoded "" at four call sites, so `export --project-uuid X`
-	// exported every project while the {project-uuid} placeholder in -o named X —
-	// a file whose name asserted a scope its contents did not have. The default
-	// is still whole-DB: `vigolium export` with no project flag is the documented
-	// way to dump a store.
+	// The default is the active project, like every sibling read (traffic,
+	// finding, db export); --all-projects asks for the whole store. A standalone
+	// source (-S, --glob-db) is read whole unless a project is named, because
+	// its rows carry the projects they were exported under.
 	projectUUID string
 
 	// multi records that more than one format was requested, which switches the
@@ -612,12 +619,23 @@ func (r *exportRun) openDB() (*database.DB, error) {
 		return nil, err
 	}
 	r.db = db
-	if explicitProjectSelected() {
-		if r.projectUUID, err = resolveProjectUUID(); err != nil {
-			return nil, err
-		}
+	if r.projectUUID, err = exportProjectFilter(); err != nil {
+		return nil, err
 	}
 	return db, nil
+}
+
+// exportProjectFilter is the project `vigolium export` reads: none under
+// --all-projects, otherwise the same effective project every read command
+// uses.
+func exportProjectFilter() (string, error) {
+	if topExportAllProjects {
+		if explicitProjectSelected() {
+			return "", usageErrorf("--all-projects cannot be combined with --project-uuid/--project-name")
+		}
+		return "", nil
+	}
+	return effectiveProjectUUID()
 }
 
 // loadItems materializes the export envelopes once and reuses them for every
@@ -637,7 +655,7 @@ func (r *exportRun) loadItems(ctx context.Context, db *database.DB) ([]any, erro
 // reportMeta auto-detects the report target and duration once per run.
 func (r *exportRun) reportMeta(ctx context.Context, db *database.DB) (target, duration string) {
 	if !r.metaSet {
-		r.metaTarget, r.metaDuration = computeReportMeta(ctx, db)
+		r.metaTarget, r.metaDuration = computeReportMeta(ctx, db, r.projectUUID)
 		r.metaSet = true
 	}
 	return r.metaTarget, r.metaDuration
@@ -659,16 +677,13 @@ func (r *exportRun) printStats(format, outputPath string, counts exportCounts) {
 	printExportTally(counts)
 }
 
-// printProjectScope states which project the counts below it cover. Stated
-// rather than left to be inferred: the default is the whole database, and an
-// operator who expected their active project to apply has no other way to find
-// out that it did not.
+// printProjectScope states which project the counts below it cover.
 func (r *exportRun) printProjectScope() {
 	if r.projectUUID != "" {
 		fmt.Fprintf(os.Stderr, "  Project: %s\n", terminal.Cyan(r.projectUUID))
 		return
 	}
-	fmt.Fprintf(os.Stderr, "  Project: %s\n", terminal.Gray("all (no --project-uuid/--project-name)"))
+	fmt.Fprintf(os.Stderr, "  Project: %s\n", terminal.Gray("all"))
 }
 
 // runFormat materializes one requested format at its resolved path, returning the
@@ -784,10 +799,10 @@ func reportGenerator(format string) (output.OutputFormat, bool) {
 // within projectUUID ("" = every project). It checks agentic_scans first, then
 // falls back to the scans table. When multiple rows exist, target becomes
 // "multiple" and duration "N/A".
-func computeReportMeta(ctx context.Context, db *database.DB) (target, duration string) {
+func computeReportMeta(ctx context.Context, db *database.DB, projectUUID string) (target, duration string) {
 	// Try agentic_scans first.
 	var agenticScans []database.AgenticScan
-	err := db.NewSelect().Model(&agenticScans).
+	err := scopeProjectBun(db.NewSelect().Model(&agenticScans), projectUUID).
 		Column("target_url", "duration_ms", "started_at", "completed_at").
 		Where("status IN (?)", bun.List(database.CompletedAgenticScanStatuses)).
 		OrderExpr("created_at DESC").
@@ -809,7 +824,7 @@ func computeReportMeta(ctx context.Context, db *database.DB) (target, duration s
 
 	// Fall back to native scans.
 	var scans []database.Scan
-	err = db.NewSelect().Model(&scans).
+	err = scopeProjectBun(db.NewSelect().Model(&scans), projectUUID).
 		Column("target", "started_at", "finished_at").
 		Where("status = ?", "completed").
 		OrderExpr("created_at DESC").
