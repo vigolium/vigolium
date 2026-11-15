@@ -234,6 +234,11 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 
 	// Preflight: validate the provider before building prompts. A dry run
 	// renders the prompt only and never calls the provider.
+	if !agentDryRun {
+		if err := agent.ProviderDialCheck(ctx, &settings.Agent.Olium); err != nil {
+			return err
+		}
+	}
 	if !agentDryRun && !agentQueryPreflight.skip {
 		if err := engine.Preflight(ctx); err != nil {
 			return err

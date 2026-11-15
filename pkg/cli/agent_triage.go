@@ -123,6 +123,11 @@ func runAgentTriage(cmd *cobra.Command, args []string) error {
 	records := loadFindingRecords(ctx, repo, finding)
 
 	engine := agent.NewEngine(settings, repo)
+	if !agentTriageDryRun {
+		if err := agent.ProviderDialCheck(ctx, &settings.Agent.Olium); err != nil {
+			return err
+		}
+	}
 	if !agentTriageDryRun && !agentTriagePreflight.skip {
 		if err := engine.Preflight(ctx); err != nil {
 			return err

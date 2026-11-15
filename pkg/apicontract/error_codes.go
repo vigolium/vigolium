@@ -117,6 +117,9 @@ const (
 	CodeProviderMissing ErrorCode = "provider_missing"
 	// CodePreflightFailed: an agent preflight check failed before any work.
 	CodePreflightFailed ErrorCode = "preflight_failed"
+	// CodeProviderUnreachable: the AI provider's endpoint refused the
+	// connection or its name did not resolve.
+	CodeProviderUnreachable ErrorCode = "provider_unreachable"
 	// CodeNotReady: `doctor` found a blocking problem.
 	CodeNotReady ErrorCode = "not_ready"
 	// CodeLintFailed: a lint (extension, auth session, config) reported errors.
@@ -185,6 +188,7 @@ var knownErrorCodes = []ErrorCode{
 	CodeRateLimited, CodeQueueFull, CodeScanNotFound, CodeInternalError,
 	CodeFindingNotFound, CodeMethodNotAllowed, CodePayloadTooLarge,
 	CodeServiceUnavailable, CodeDatabaseUnavailable, CodeUnsupportedAPIVersion,
+	CodeProviderUnreachable,
 }
 
 var knownErrorCodeSet = func() map[ErrorCode]struct{} {

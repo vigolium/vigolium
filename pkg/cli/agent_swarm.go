@@ -602,6 +602,11 @@ func runAgentSwarm(cmd *cobra.Command, args []string) (err error) {
 		MaxCostUSD:         swarmMaxCostUSD,
 		SkipPreflight:      swarmPreflight.skip || swarmDryRun,
 	}
+	if !swarmDryRun {
+		if err := agent.ProviderDialCheck(ctx, &settings.Agent.Olium); err != nil {
+			return err
+		}
+	}
 
 	// Wire the nested audit harness: only an explicit --audit/--piolium (or a
 	// prompt that asks for one) launches it.

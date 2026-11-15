@@ -10,6 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/fuzz"
+	"github.com/vigolium/vigolium/pkg/olium/stream"
 )
 
 // A failed -j command used to print `✖ Error: …` to stderr and nothing at all to
@@ -146,6 +147,13 @@ func classifyErrorCode(err error, exitCode int) apicontract.ErrorCode {
 	// was not reachable.
 	if errors.Is(err, fuzz.ErrBaselineUnreachable) {
 		return apicontract.CodeNoTargetsReachable
+	}
+	// The AI provider refused the connection or did not resolve before any
+	// call to it succeeded. The agent layer passes provider errors on as
+	// text, so the marker is matched on the message too.
+	if errors.Is(err, stream.ErrProviderUnreachable) ||
+		strings.Contains(strings.ToLower(err.Error()), stream.ErrProviderUnreachable.Error()) {
+		return apicontract.CodeProviderUnreachable
 	}
 	// The --read-only evidence open wraps the bare sentinel with its own remedy.
 	if errors.Is(err, database.ErrSchemaOutdated) {
