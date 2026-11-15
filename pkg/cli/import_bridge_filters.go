@@ -61,7 +61,7 @@ func registerImportBridgeFilterFlags(flags *pflag.FlagSet) {
 	flags.IntVarP(&importBridgeLimit, "limit", "n", 0, "Import at most N records (0 = no limit)")
 	flags.BoolVar(&importBridgeAllHosts, "all-hosts", false,
 		"Import the operator's ENTIRE proxy history, unfiltered. Required when no filter is given — an unfiltered pull copies every host ever browsed, with its cookies and tokens, into this database.")
-	flags.BoolVar(&importBridgeYes, "yes", false, "Skip the pre-flight confirmation for a bridge import")
+	flags.BoolVar(&importBridgeYes, "yes", false, "Skip the pre-flight confirmation for a bridge import (the global --force does too)")
 	addFlagAliases(importCmd, timeFilterAliases)
 }
 

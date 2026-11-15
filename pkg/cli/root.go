@@ -474,6 +474,10 @@ func prepareCommandTree(root *cobra.Command) {
 	// (enum_flags.go).
 	applyClosedValueFlags(root)
 
+	// One spelling per idea: the aliases of the vocabulary table
+	// (flag_aliases.go).
+	applyVocabularyAliases(root)
+
 	// Every shaped read gets the -j shaping flags it is missing
 	// (shaping_traits.go, from commandTraits).
 	applyShapingTraits(root)

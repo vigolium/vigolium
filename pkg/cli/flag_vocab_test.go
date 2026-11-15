@@ -234,3 +234,32 @@ func TestListingFiltersAreLocal(t *testing.T) {
 	}
 	findingScanUUID, dbSearch, globalTable, globalWatchRaw = "", "", "", ""
 }
+
+// Every vocabulary alias resolves to a real flag of its command, so the
+// spelling an operator learned on one command works on the next.
+func TestVocabularyAliasesResolve(t *testing.T) {
+	prepareCommandTree(rootCmd)
+	for path, aliases := range vocabularyAliases {
+		c, _, err := rootCmd.Find(strings.Fields(path))
+		require.NoError(t, err, path)
+		require.Equal(t, path, commandPathWithoutRoot(c))
+		for alias, canonical := range aliases {
+			f := c.Flags().Lookup(alias)
+			require.NotNilf(t, f, "%s --%s resolves to nothing", path, alias)
+			require.Equalf(t, canonical, f.Name, "%s --%s", path, alias)
+			require.Containsf(t, f.Usage, "--"+alias, "%s --%s is named in the help of --%s", path, alias, canonical)
+		}
+	}
+	// -u is the stored record wherever the long name is --record-uuid.
+	c, _, err := rootCmd.Find([]string{"extensions", "run"})
+	require.NoError(t, err)
+	require.Equal(t, "u", c.Flags().Lookup("record-uuid").Shorthand)
+
+	// Parsing an alias sets the canonical flag.
+	c, _, err = rootCmd.Find([]string{"traffic"})
+	require.NoError(t, err)
+	t.Cleanup(func() { c.Flags().VisitAll(resetFlagToDefault) })
+	require.NoError(t, c.ParseFlags([]string{"--header-search", "X-Api", "--body-search", "token"}))
+	require.Equal(t, "X-Api", trafficHeader)
+	require.Equal(t, "token", trafficBody)
+}

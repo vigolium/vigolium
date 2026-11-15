@@ -75,7 +75,7 @@ func init() {
 
 func registerExtRunFlags(c *cobra.Command) {
 	f := c.Flags()
-	f.StringVar(&extRunRecordUUID, "record-uuid", "", "Stored HTTP record to run the extension against (UUID or unique prefix; see vigolium traffic)")
+	f.StringVarP(&extRunRecordUUID, "record-uuid", "u", "", "Stored HTTP record to run the extension against (UUID or unique prefix; see vigolium traffic)")
 	f.StringVar(&extRunHandler, "handler", "", "Handler to call: scanPerRequest, scanPerHost or scanPerInsertionPoint (default: every handler the module declares)")
 	f.StringVar(&extRunInsertion, "insertion", "", "Insertion point for scanPerInsertionPoint as TYPE:name, e.g. URL_PARAM:id (default: every point)")
 	f.BoolVar(&extRunAllowNetwork, "allow-network", false, "Let the extension send requests (default: every request fails and is counted)")

@@ -101,9 +101,16 @@ func addFlagAliases(cmd *cobra.Command, aliases map[string]string) {
 	if installed {
 		return
 	}
-	cmd.SetGlobalNormalizationFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+	// Installing replaces the normalizer the flag set already had: one set by
+	// registerNativeScanFlags/registerAuthFlags (--session) or inherited from
+	// an aliased ancestor. Chain to it so those spellings keep working.
+	prior := cmd.Flags().GetNormalizeFunc()
+	cmd.SetGlobalNormalizationFunc(func(f *pflag.FlagSet, name string) pflag.NormalizedName {
 		if canonical, ok := merged[name]; ok {
-			name = canonical
+			return pflag.NormalizedName(canonical)
+		}
+		if prior != nil {
+			return prior(f, name)
 		}
 		return pflag.NormalizedName(name)
 	})
