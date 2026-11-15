@@ -29,13 +29,36 @@ extensions, prompts, skills) and the core dependency check — so a deleted
 profile or a missing database is restored and existing edits are kept.
 --force backs up the config and preset directories to
 ~/.vigolium/backup-<timestamp>/ before regenerating them (with a new API key).
-Fails (not_ready) when chromium or nuclei-templates cannot be installed;
---offline skips those downloads.`,
+Downloads: init also installs the two core scan dependencies — Chrome for
+Testing (~150 MB, for spidering and DOM checks) and the nuclei-templates
+release (~100 MB unpacked, for the known-issue scan) — and fails (not_ready)
+when they cannot be installed. Without a terminal (a script, CI, a coding
+agent) it skips them and prints the command that fetches them; --with-deps
+downloads anyway, --offline never does. Agent runtimes (bun, claude, pi) are
+never installed by init: ` + "`vigolium doctor --fix --yes`" + ` does that.`,
 	RunE: runInitCmd,
 }
 
+// initWithDeps makes init download the core dependencies without a terminal.
+var initWithDeps bool
+
 func init() {
 	rootCmd.AddCommand(initCmd)
+	initCmd.Flags().BoolVar(&initWithDeps, "with-deps", false,
+		"Download chromium (~150 MB) and nuclei-templates (~100 MB) even without a terminal (the default only when interactive)")
+}
+
+// initSkipsDownloads reports why init leaves the core downloads out, or "".
+func initSkipsDownloads() string {
+	switch {
+	case globalOffline:
+		return "--offline"
+	case initWithDeps:
+		return ""
+	case !stdinIsTerminal():
+		return "no terminal (pass --with-deps to download)"
+	}
+	return ""
 }
 
 func runInitCmd(cmd *cobra.Command, args []string) error {
@@ -119,7 +142,9 @@ func runInitCmd(cmd *cobra.Command, args []string) error {
 	if globalForce {
 		_ = os.Remove(filepath.Join(vigoliumDir, initMarkerFileName))
 	}
-	if err := installCoreDeps(); err != nil {
+	if reason := initSkipsDownloads(); reason != "" {
+		noteCoreDepsSkipped(reason)
+	} else if err := installCoreDeps(); err != nil {
 		return err
 	}
 

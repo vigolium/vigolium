@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - `config ls` shows the settings of the active project (global config plus its overlay), lists every settable key including ones set to `false` or empty, and `-j` values are typed (`value`; the old text is `display`) with `default`, `type` and `source` (`default`, `file`, `env:NAME`, `project`, `flag`). Redaction applies to string credentials only (any key under `api_keys`, tokens, passwords), not to booleans like `disable_secret_scan`. `config ls --effective` lists only the keys a layer set. New `vigolium config env` lists every `VIGOLIUM_*` variable the binary reads.
 - `scope view` reads the active project's overlay and labels each value with its source; `scope set` honours the global `--project-uuid`/`--project-name` like `--project`.
 - `project use` accepts a name or a unique 8+ character UUID prefix; an unknown one is `project_not_found` (was `not_found`) with a `project create <name>` hint. New `project use --print-env` prints the export line and writes no `active-project` file, pinning one shell.
+- `vigolium init` help states its downloads (Chrome for Testing ~150 MB, nuclei-templates ~100 MB); without a terminal it skips them and prints the command that fetches them (`--with-deps` downloads anyway).
 
 ## [v0.5.7] - 2026-11-14
 

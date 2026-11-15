@@ -1471,7 +1471,9 @@ Ingest HTTP requests into database (locally or via server)
 
 Initialize Vigolium with default configuration and preset data
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--with-deps` | - | bool | `false` | Download chromium (~150 MB) and nuclei-templates (~100 MB) even without a terminal (the default only when interactive) |
 
 ## vigolium js
 

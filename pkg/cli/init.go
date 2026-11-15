@@ -605,3 +605,18 @@ func shouldBootstrap(cmd *cobra.Command) bool {
 	}
 	return true
 }
+
+// noteCoreDepsSkipped tells an init that left the downloads out which are
+// still missing and the command that fetches them.
+func noteCoreDepsSkipped(reason string) {
+	settings, err := clicommon.LoadSettings(globalConfig)
+	if err != nil {
+		return
+	}
+	st := checkCoreDeps(settings)
+	if !st.missing() {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "%s %s: not downloading %s (chromium ~150 MB, nuclei-templates ~100 MB); fetch them with %s\n",
+		terminal.WarnPrefix(), reason, st.missingNames(), terminal.Cyan("vigolium doctor --fix --only chrome,nuclei"))
+}
