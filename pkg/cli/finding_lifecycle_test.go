@@ -427,10 +427,10 @@ func TestScanRejectsVerbTargets(t *testing.T) {
 		t.Errorf("a URL or plain host was rejected: %v", err)
 	}
 	st := seedC6Store(t)
-	if code, out, errOut := st.run(t, "scan", "ls", "-j"); code != 2 || !strings.Contains(out, "log ls") {
-		t.Errorf("scan ls: exit %d\n%s\n%s", code, out, errOut)
+	if code, out, errOut := st.run(t, "scan", "ps", "-j"); code != 2 || !strings.Contains(out, "scan ls") {
+		t.Errorf("scan ps: exit %d\n%s\n%s", code, out, errOut)
 	}
-	if code, out, _ := st.run(t, "scan", "stop", "123e4567-e89b-12d3-a456-426614174000", "-j"); code != 2 || !strings.Contains(out, "/stop") {
-		t.Errorf("scan stop <uuid>: exit %d\n%s", code, out)
+	if code, out, _ := st.run(t, "scan", "123e4567-e89b-12d3-a456-426614174000", "-j"); code != 2 || !strings.Contains(out, "scan stop") {
+		t.Errorf("scan <uuid>: exit %d\n%s", code, out)
 	}
 }

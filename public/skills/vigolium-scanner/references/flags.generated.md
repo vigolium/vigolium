@@ -111,7 +111,9 @@ run `vigolium <command> -h`.
 - [vigolium run](#vigolium-run)
 - [vigolium scan](#vigolium-scan)
 - [vigolium scan diff](#vigolium-scan-diff)
+- [vigolium scan ls](#vigolium-scan-ls)
 - [vigolium scan status](#vigolium-scan-status)
+- [vigolium scan stop](#vigolium-scan-stop)
 - [vigolium scan wait](#vigolium-scan-wait)
 - [vigolium scan-request](#vigolium-scan-request)
 - [vigolium scan-url](#vigolium-scan-url)
@@ -2174,6 +2176,22 @@ Compare two scans' findings: new, fixed, not re-observed, unchanged
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--target` | - | string | - | Compare the scans of this target (with --last) instead of naming two scans |
 
+## vigolium scan ls
+
+Aliases: `list`
+
+List scan sessions (alias of 'vigolium log ls')
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
+| `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
+| `--offset` | - | int | `0` | Skip the first N rows (follow output_budget.next_offset) |
+| `--reap` | - | bool | `false` | Finalize abandoned running scan rows as failed (stop_reason abandoned) and prune expired status.json files; writes the store |
+| `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
+
 ## vigolium scan status
 
 Usage: `vigolium scan status <scan-uuid>`
@@ -2184,6 +2202,17 @@ Show a scan's live status: phase, progress, liveness and ETA
 |------|-------|------|---------|-------------|
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off |
+
+## vigolium scan stop
+
+Usage: `vigolium scan stop <scan-uuid|prefix>`
+
+Ask a running scan to stop, or finalize one whose process is gone
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--timeout` | - | duration | `1m0s` | With --wait, how long to wait before giving up and naming the pid |
+| `--wait` | - | bool | `false` | Wait until the scan has finished (acknowledged the stop) |
 
 ## vigolium scan wait
 

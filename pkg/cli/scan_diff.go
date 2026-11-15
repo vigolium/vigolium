@@ -358,24 +358,22 @@ func rejectUUIDScanTargets(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// scanUUIDVerbsHint names what can be done with a scan UUID, including the
-// stop that `scan` has no subcommand for.
+// scanUUIDVerbsHint names what can be done with a scan UUID.
 const scanUUIDVerbsHint = "Read it: vigolium scan status <uuid>; wait for it: vigolium scan wait <uuid>; " +
-	"compare two: vigolium scan diff <a> <b>; its log: vigolium log <uuid>. " +
-	"To stop a running scan, interrupt its process (Ctrl-C / SIGINT), or POST /api/scans/<uuid>/stop on the server that runs it."
+	"compare two: vigolium scan diff <a> <b>; its log: vigolium log <uuid>; stop it: vigolium scan stop <uuid>."
 
 // scanVerbTargets maps a bare word that is a verb, typed where `scan` expects a
 // target, to the command the caller meant. `vigolium scan ls` used to start a
 // real scan of http://ls.
 var scanVerbTargets = map[string]string{
-	"ls":     "vigolium log ls",
-	"list":   "vigolium log ls",
-	"ps":     "vigolium log ls",
+	"ls":     "vigolium scan ls",
+	"list":   "vigolium scan ls",
+	"ps":     "vigolium scan ls",
 	"show":   "vigolium scan status <uuid>",
 	"logs":   "vigolium log <uuid>",
-	"stop":   "interrupt the scan process (Ctrl-C / SIGINT), or POST /api/scans/<uuid>/stop on the server that runs it",
-	"cancel": "interrupt the scan process (Ctrl-C / SIGINT), or POST /api/scans/<uuid>/stop on the server that runs it",
-	"kill":   "interrupt the scan process (Ctrl-C / SIGINT), or POST /api/scans/<uuid>/stop on the server that runs it",
+	"stop":   "vigolium scan stop <uuid>",
+	"cancel": "vigolium scan stop <uuid>",
+	"kill":   "vigolium scan stop <uuid>",
 	"pause":  "POST /api/scans/<uuid>/pause on the server that runs the scan (pause is server-only)",
 	"resume": "POST /api/scans/<uuid>/resume on the server that runs the scan (resume is server-only)",
 	"rm":     "vigolium db clean --scan-uuid <uuid>",
