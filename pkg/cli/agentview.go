@@ -216,19 +216,21 @@ func writeResultDocument(v any) error {
 	if err != nil {
 		return err
 	}
+	if jsonResultDeferred && !jsonStreamMode {
+		// Execute publishes it once the exit code is known (json_outcome.go),
+		// to stdout or to the -o file, and encodes it then. A budgeted
+		// document is kept as measured: it is no larger than the budget.
+		held := &heldJSONResult{v: v, dest: jsonOutputDestination()}
+		if maxOutputBytes > 0 {
+			held.doc, held.items, held.budgeted = doc, fullItems, true
+		}
+		holdJSONResult(held)
+		return nil
+	}
 	if doc == nil {
 		if doc, err = encodeAgentJSON(v); err != nil {
 			return err
 		}
-	}
-	if jsonResultDeferred && !jsonStreamMode {
-		// Execute publishes it once the exit code is known (json_outcome.go),
-		// to stdout or to the -o file.
-		holdJSONResult(&heldJSONResult{
-			v: v, doc: doc, items: fullItems, budgeted: maxOutputBytes > 0,
-			dest: jsonOutputDestination(),
-		})
-		return nil
 	}
 	if dest := jsonOutputDestination(); dest != "" {
 		// Deliberately NOT latching here: nothing has reached stdout yet. The latch
@@ -261,13 +263,13 @@ func writeReceiptFrame(receipt any) error {
 // Unexported to the frame writers above, so the only ways onto stdout are a
 // result envelope, an error, or a receipt.
 func writeStdoutFrame(v any) error {
+	if jsonResultDeferred && !jsonStreamMode {
+		holdJSONResult(&heldJSONResult{v: v})
+		return nil
+	}
 	doc, err := encodeAgentJSON(v)
 	if err != nil {
 		return err
-	}
-	if jsonResultDeferred && !jsonStreamMode {
-		holdJSONResult(&heldJSONResult{v: v, doc: doc})
-		return nil
 	}
 	return writeAgentJSONDoc(doc)
 }
