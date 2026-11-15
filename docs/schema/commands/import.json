@@ -257,6 +257,9 @@
     "output_budget": {
       "$ref": "#/$defs/contract.OutputBudget"
     },
+    "sends_traffic": {
+      "type": "boolean"
+    },
     "agentic_scan_uuid": {
       "type": "string"
     },

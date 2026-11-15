@@ -482,6 +482,9 @@
     "output_budget": {
       "$ref": "#/$defs/contract.OutputBudget"
     },
+    "sends_traffic": {
+      "type": "boolean"
+    },
     "failed": {
       "type": "integer"
     }

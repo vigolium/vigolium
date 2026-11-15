@@ -27,6 +27,35 @@
         "delay_ms"
       ]
     },
+    "cli.scanNextStep": {
+      "properties": {
+        "argv": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "why": {
+          "type": "string"
+        },
+        "sends_traffic": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "argv",
+        "why"
+      ]
+    },
     "contract.ErrorBody": {
       "properties": {
         "code": {
@@ -428,6 +457,9 @@
     "output_budget": {
       "$ref": "#/$defs/contract.OutputBudget"
     },
+    "sends_traffic": {
+      "type": "boolean"
+    },
     "target": {
       "type": "string"
     },
@@ -469,6 +501,12 @@
     },
     "pace": {
       "$ref": "#/$defs/cli.fuzzPace"
+    },
+    "next": {
+      "items": {
+        "$ref": "#/$defs/cli.scanNextStep"
+      },
+      "type": "array"
     }
   },
   "additionalProperties": false,

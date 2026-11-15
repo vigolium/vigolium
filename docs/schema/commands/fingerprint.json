@@ -333,6 +333,9 @@
         },
         "why": {
           "type": "string"
+        },
+        "sends_traffic": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -2190,6 +2193,9 @@
     },
     "output_budget": {
       "$ref": "#/$defs/contract.OutputBudget"
+    },
+    "sends_traffic": {
+      "type": "boolean"
     },
     "scan_uuid": {
       "type": "string"

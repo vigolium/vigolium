@@ -639,6 +639,9 @@
     "output_budget": {
       "$ref": "#/$defs/contract.OutputBudget"
     },
+    "sends_traffic": {
+      "type": "boolean"
+    },
     "provenance_warning": {
       "type": "string"
     },

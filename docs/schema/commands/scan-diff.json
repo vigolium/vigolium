@@ -818,6 +818,9 @@
     "output_budget": {
       "$ref": "#/$defs/contract.OutputBudget"
     },
+    "sends_traffic": {
+      "type": "boolean"
+    },
     "base": {
       "$ref": "#/$defs/cli.scanDiffSideView"
     },

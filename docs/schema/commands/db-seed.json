@@ -276,6 +276,9 @@
     "output_budget": {
       "$ref": "#/$defs/contract.OutputBudget"
     },
+    "sends_traffic": {
+      "type": "boolean"
+    },
     "rows_inserted": {
       "type": "integer"
     }
