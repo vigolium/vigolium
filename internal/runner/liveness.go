@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vigolium/vigolium/internal/atomicfile"
@@ -135,6 +136,10 @@ type HeartbeatConfig struct {
 	// terminal status in status.json. For callers that finalize the row
 	// without a handle on the heartbeat (the direct scan-url path).
 	StopWhenRowDone bool
+	// OnStopRequest is called once, from the heartbeat goroutine, when a stop
+	// request arrives: the row's stop_requested_at or the session's stop
+	// sentinel. nil ignores stop requests.
+	OnStopRequest func(StopRequest)
 
 	// Interval and Now are for tests; zero values mean HeartbeatInterval and
 	// time.Now.
@@ -170,6 +175,8 @@ type Heartbeat struct {
 	stopCh   chan struct{}
 	done     chan struct{}
 	stopOnce sync.Once
+	// stopDelivered latches once OnStopRequest has been called.
+	stopDelivered atomic.Bool
 }
 
 // StartHeartbeat writes the first beat synchronously, so a reader that looks
@@ -237,6 +244,7 @@ func (h *Heartbeat) loop() {
 			h.adoptRowStatus()
 			return
 		}
+		h.pollStopRequest()
 	}
 }
 
@@ -426,6 +434,7 @@ func (h *Heartbeat) Finish(status string) {
 	h.st.Status = status
 	h.mu.Unlock()
 	h.beat(context.Background(), true)
+	h.removeStopSentinel()
 }
 
 // sessionsDirFor is the native sessions root from settings, "" without them.
@@ -475,6 +484,7 @@ func (r *Runner) startLiveness(infra *phaseInfra, plan NativeScanPlan) *Heartbea
 		Progress: func() *SessionProgress {
 			return r.currentPhase.Load().progressSnapshot()
 		},
+		OnStopRequest: r.handleStopRequest,
 	})
 	r.liveness.Store(h)
 	return h

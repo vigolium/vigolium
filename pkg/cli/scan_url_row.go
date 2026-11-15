@@ -283,6 +283,7 @@ func (s *directScanSession) startHeartbeat(repo *database.Repository, projectUUI
 		Phase:           string(runner.PhaseDynamicAssessment),
 		PhasesPlanned:   []string{string(runner.PhaseDynamicAssessment)},
 		StopWhenRowDone: true,
+		OnStopRequest:   interruptSelfOnStopRequest,
 	})
 }
 

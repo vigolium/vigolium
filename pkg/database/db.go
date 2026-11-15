@@ -924,6 +924,9 @@ func (db *DB) renderDDL(tmpl string) string {
 //	   scan_record_progress / scans.coverage_modules, scans.module_stats,
 //	   oast_sessions and the drop of idx_records_project_risk_score (covered
 //	   by idx_records_project_risk_order) ride the same version.
+//	   Later additive, nullable columns arrived without a bump (column
+//	   migrations run on every open): scans.stop_requested_at/by and
+//	   agentic_scans.cancel_requested_at (stop requests, stop_requests.go).
 const currentSchemaVersion = 6
 
 // legacyBackfillsVersion is the version that gated the pre-versioning backfills
