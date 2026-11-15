@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - `ingest` reports the format it detected (`input_format: har`, not `urls`), labels the records it fetches `ingest-cli` like the ones it saves directly, keeps a HAR entry's `time` as `response_time_ms`, and sets `changed` from the rows it actually wrote (new `records_written`); re-ingesting the same input is `changed: false`.
 - `traffic -j` rows carry `sent_at` (RFC 3339, UTC). `hosts`, `log ls`, `db stats` and `export` accept `--from/--to` (`--since/--until`). Time-filter help states that a time without a zone is local and results print in UTC.
 - `--host` on `traffic`, `finding`, `db list|export|stats|clean`, `inventory`, `hosts` and bulk `replay` accepts a bare host, `host:port`, an origin (`https://host[:port]`, as `traffic -j` prints it) or a bracketed IPv6 address.
+- `--glob-db` reads and multi-source `import` no longer leave `-wal`/`-shm` files beside their sources (a source with no live WAL is read immutable; one with a live WAL is read in place and the created sidecars removed, or through a scratch copy in a read-only directory), and a glob never matches a sidecar as a source.
 
 ## [v0.5.7] - 2026-11-14
 

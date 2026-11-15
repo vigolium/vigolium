@@ -537,9 +537,9 @@ func gatherImportSources(args []string, globDB string) ([]string, error) {
 		raw = append(raw, storage.NormalizeGCSURI(a))
 	}
 	if globDB != "" {
-		matches, err := filepath.Glob(expandUserHome(globDB))
+		matches, err := globSourceFiles(globDB)
 		if err != nil {
-			return nil, usageErrorf("invalid --glob-db pattern %q: %w", globDB, err)
+			return nil, err
 		}
 		if len(matches) == 0 {
 			fmt.Fprintf(os.Stderr, "%s --glob-db %q matched no files\n", terminal.WarningSymbol(), globDB)

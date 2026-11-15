@@ -5,9 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/vigolium/vigolium/pkg/apicontract"
+	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/vigolium/vigolium/pkg/apicontract"
 )
 
 // MergeOptions tunes what a SQLite-to-SQLite merge copies.
@@ -205,18 +209,11 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 	}
 	defer func() { _ = conn.Close() }()
 
-	// ATTACH must run outside a transaction. Escape single quotes defensively;
-	// temp paths never contain them, but a quoted literal is safer than relying
-	// on driver parameter support for ATTACH filenames.
-	spec, err := attachSpec(srcPath)
+	release, err := attachMergeSource(ctx, conn, srcPath)
 	if err != nil {
 		return nil, err
 	}
-	escaped := strings.ReplaceAll(spec, "'", "''")
-	if _, err := conn.ExecContext(ctx, fmt.Sprintf("ATTACH DATABASE '%s' AS src", escaped)); err != nil {
-		return nil, fmt.Errorf("attach source database: %w", err)
-	}
-	defer func() { _, _ = conn.ExecContext(ctx, "DETACH DATABASE src") }()
+	defer release()
 
 	// A SQLite file with none of vigolium's tables merges as zeros, which read
 	// as a clean import of an empty store; it is refused instead.
@@ -812,3 +809,123 @@ func (e *ForeignStoreError) Error() string {
 
 // Code classifies the refusal for the CLI's error envelope.
 func (e *ForeignStoreError) Code() apicontract.ErrorCode { return apicontract.CodeSourceIncompatible }
+
+// sqliteSidecars are the files SQLite keeps beside a database.
+var sqliteSidecars = []string{"-wal", "-shm", "-journal"}
+
+// IsSQLiteSidecar reports whether path names a SQLite sidecar file (-wal,
+// -shm, -journal) rather than a database.
+func IsSQLiteSidecar(path string) bool {
+	for _, suf := range sqliteSidecars {
+		if strings.HasSuffix(path, suf) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasLiveWAL reports whether path has a non-empty -wal sidecar: committed
+// pages that are not yet in the main file.
+func hasLiveWAL(path string) bool {
+	st, err := os.Stat(path + "-wal")
+	return err == nil && st.Size() > 0
+}
+
+// attachMergeSource attaches srcPath as "src" on conn without leaving
+// anything beside it, and returns the function that detaches it and cleans
+// up.
+//
+// A source with no live WAL is attached immutable: SQLite then reads the main
+// file alone and creates no -shm or -wal next to it. immutable=1 ignores an
+// uncheckpointed WAL, so a source that has one is attached mode=ro instead,
+// which reads the WAL but needs a -shm; the sidecars that attach created are
+// removed after the detach. When that cannot work (the directory is not
+// writable, so no -shm can be made) the source and its WAL are copied to a
+// scratch directory and the copy is attached.
+func attachMergeSource(ctx context.Context, conn *sql.Conn, srcPath string) (func(), error) {
+	attach := func(path string, immutable bool) error {
+		spec, err := attachSpec(path)
+		if err != nil {
+			return err
+		}
+		if immutable {
+			spec += "&immutable=1"
+		}
+		// ATTACH must run outside a transaction. Single quotes are escaped
+		// rather than bound: driver parameter support for ATTACH filenames is
+		// not something to rely on.
+		spec = strings.ReplaceAll(spec, "'", "''")
+		if _, err := conn.ExecContext(ctx, fmt.Sprintf("ATTACH DATABASE '%s' AS src", spec)); err != nil {
+			return fmt.Errorf("attach source database: %w", err)
+		}
+		// The first read is where a mode=ro attach that cannot create its -shm
+		// fails, so it is probed here rather than mid-merge.
+		var n int
+		if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM src.sqlite_master").Scan(&n); err != nil {
+			_, _ = conn.ExecContext(ctx, "DETACH DATABASE src")
+			return fmt.Errorf("read source database: %w", err)
+		}
+		return nil
+	}
+	detach := func() { _, _ = conn.ExecContext(ctx, "DETACH DATABASE src") }
+
+	if !hasLiveWAL(srcPath) {
+		if err := attach(srcPath, true); err != nil {
+			return nil, err
+		}
+		return detach, nil
+	}
+
+	existed := map[string]bool{}
+	for _, suf := range sqliteSidecars {
+		if _, err := os.Stat(srcPath + suf); err == nil {
+			existed[suf] = true
+		}
+	}
+	removeCreated := func() {
+		for _, suf := range sqliteSidecars {
+			if !existed[suf] {
+				_ = os.Remove(srcPath + suf)
+			}
+		}
+	}
+	if err := attach(srcPath, false); err == nil {
+		return func() { detach(); removeCreated() }, nil
+	}
+	removeCreated()
+
+	dir, err := os.MkdirTemp("", "vigolium-merge-src-*")
+	if err != nil {
+		return nil, fmt.Errorf("copy source with a live WAL: %w", err)
+	}
+	cleanupDir := func() { _ = os.RemoveAll(dir) }
+	copyPath := filepath.Join(dir, filepath.Base(srcPath))
+	for _, suf := range []string{"", "-wal"} {
+		if err := copyFile(srcPath+suf, copyPath+suf); err != nil {
+			cleanupDir()
+			return nil, fmt.Errorf("copy source with a live WAL: %w", err)
+		}
+	}
+	if err := attach(copyPath, false); err != nil {
+		cleanupDir()
+		return nil, err
+	}
+	return func() { detach(); cleanupDir() }, nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}

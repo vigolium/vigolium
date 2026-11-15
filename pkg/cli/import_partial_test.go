@@ -62,3 +62,14 @@ func TestImportRefusesForeignSQLite(t *testing.T) {
 	require.ErrorAs(t, err, &fe)
 	require.Equal(t, apicontract.CodeSourceIncompatible, classifyErrorCode(err, 1))
 }
+
+// A glob never treats a SQLite sidecar as a source.
+func TestGlobSourceFilesDropSidecars(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"a.sqlite", "a.sqlite-wal", "a.sqlite-shm", "b.sqlite"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o600))
+	}
+	got, err := globSourceFiles(filepath.Join(dir, "*.sqlite*"))
+	require.NoError(t, err)
+	require.Equal(t, []string{filepath.Join(dir, "a.sqlite"), filepath.Join(dir, "b.sqlite")}, got)
+}
