@@ -36,14 +36,21 @@ func SessionStopPath(sessionsDir, scanUUID string) string {
 // directory must already exist (the heartbeat created it): a sentinel for a
 // scan that never ran on this host would stop nothing.
 func WriteStopSentinel(sessionsDir, scanUUID, by string) (string, error) {
-	path := SessionStopPath(sessionsDir, scanUUID)
-	if _, err := os.Stat(filepath.Dir(path)); err != nil {
+	return WriteSentinel(filepath.Join(sessionsDir, scanUUID), SessionStopFilename, by)
+}
+
+// WriteSentinel writes a StopRequest from by as filename inside the existing
+// directory dir (a scan's or agent run's session directory) and returns its
+// path.
+func WriteSentinel(dir, filename, by string) (string, error) {
+	if _, err := os.Stat(dir); err != nil {
 		return "", err
 	}
 	data, err := json.Marshal(StopRequest{By: by, At: time.Now().UTC()})
 	if err != nil {
 		return "", err
 	}
+	path := filepath.Join(dir, filename)
 	return path, atomicfile.WriteBytes(path, data)
 }
 

@@ -91,8 +91,8 @@ func resolveScanRecordRefs(ctx context.Context, repo *database.Repository, proje
 			}
 			full := ref
 			if !scanUUIDShape.MatchString(ref) {
-				if len(ref) < database.MinRecordUUIDPrefix {
-					return nil, usageErrorf("--%s %q: a prefix needs at least %d characters", recordUUIDFlag, ref, database.MinRecordUUIDPrefix)
+				if len(ref) < database.MinUUIDPrefix {
+					return nil, usageErrorf("--%s %q: a prefix needs at least %d characters", recordUUIDFlag, ref, database.MinUUIDPrefix)
 				}
 				uuid, candidates, err := repo.ResolveRecordUUIDInProject(ctx, ref, projectUUID)
 				switch {

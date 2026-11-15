@@ -194,7 +194,7 @@ func showAgentSessionDetail(cmd *cobra.Command, ctx context.Context, repo *datab
 				return err
 			}
 		}
-		full, refErr := resolveRunRef(ctx, repo.DB(), "agentic_scans", projectUUID, uuid, nil)
+		full, refErr := resolveRunRef(ctx, repo.DB(), projectUUID, uuid, nil, "agentic_scans")
 		if refErr != nil {
 			return refErr
 		}

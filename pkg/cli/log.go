@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -1019,17 +1018,13 @@ func filterSessionRowsByTime(rows []sessionRow, from, to *time.Time) []sessionRo
 	return kept
 }
 
-// logRefMinPrefix is the shortest UUID prefix `log <ref>` resolves, the same
-// floor record references use.
-const logRefMinPrefix = 8
-
-// resolveLogRef turns a session UUID prefix of 8+ characters into the full
-// UUID of the one native scan or agent run it names, in the project the read
-// is scoped to. A full UUID, a shorter value, or a store that cannot be
-// opened passes through unchanged for resolveLogSource to look up. No match
-// also passes through: a session directory can exist without a row.
+// resolveLogRef turns a session UUID prefix into the full UUID of the one
+// native scan or agent run it names, in the project the read is scoped to. A
+// full UUID, a value that is not a long enough prefix, a store that cannot be
+// opened, or no match passes through unchanged for resolveLogSource to look
+// up: a session directory can exist without a row.
 func resolveLogRef(ref string) (string, error) {
-	if len(ref) >= 36 || len(ref) < logRefMinPrefix {
+	if len(ref) >= 36 || len(ref) < database.MinUUIDPrefix {
 		return ref, nil
 	}
 	db, err := openReadDB(globDBSkipSet{Records: true})
@@ -1040,31 +1035,13 @@ func resolveLogRef(ref string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	repo := database.NewRepository(db)
-	ctx := context.Background()
-	var matches []string
-	for _, table := range []string{"scans", "agentic_scans"} {
-		full, candidates, rerr := repo.ResolveUUIDPrefix(ctx, table, projectUUID, ref)
-		switch {
-		case errors.Is(rerr, sql.ErrNoRows):
-		case rerr != nil:
-			// A store without the agentic table still resolves native scans.
-			continue
-		case full != "":
-			matches = append(matches, full)
-		default:
-			matches = append(matches, candidates...)
-		}
+	full, err := matchRunPrefix(context.Background(), db, projectUUID, ref, nil, "scans", "agentic_scans")
+	var ambiguous clicommon.CLIError
+	switch {
+	case err == nil:
+		return full, nil
+	case errors.As(err, &ambiguous) && ambiguous.Code == apicontract.CodeAmbiguousID:
+		return "", err
 	}
-	switch len(matches) {
-	case 0:
-		return ref, nil
-	case 1:
-		return matches[0], nil
-	}
-	return "", clicommon.CLIError{
-		Err:  fmt.Errorf("session reference %q is ambiguous: it prefixes %s", ref, strings.Join(matches, ", ")),
-		Code: apicontract.CodeAmbiguousID,
-		Hint: "Give more characters of the UUID (vigolium log ls lists them)",
-	}
+	return ref, nil
 }

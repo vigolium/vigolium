@@ -126,16 +126,16 @@ type scanWaiter struct {
 func (w *scanWaiter) wait(ctx context.Context) (*scanStatusView, error) {
 	start := w.clock.Now()
 	var last *scanStatusView
-	for {
+	done, err := pollUntil(ctx, w.clock, w.timeout, w.poll, func(ctx context.Context) (bool, error) {
 		v, err := w.probe(ctx)
 		switch {
 		case err == nil:
 			last = v
 			if isTerminalEffectiveStatus(v.EffectiveStatus) {
-				return v, nil
+				return true, nil
 			}
 			if v.EffectiveStatus == effStatusAbandoned {
-				return v, codedErrorf(apicontract.CodeScanAbandoned,
+				return false, codedErrorf(apicontract.CodeScanAbandoned,
 					"scan %s is abandoned: its row says running but nothing has written since %s%s",
 					w.uuid, lastWriteLabel(v), processGoneSuffix(v))
 			}
@@ -147,20 +147,41 @@ func (w *scanWaiter) wait(ctx context.Context) (*scanStatusView, error) {
 		case isNotFoundError(err) && w.clock.Now().Sub(start) < w.notFoundGrace:
 			// Not written yet; see scanWaitNotFoundGrace.
 		default:
-			return nil, err
+			last = nil
+			return false, err
 		}
+		return false, nil
+	})
+	switch {
+	case err != nil:
+		return last, err
+	case !done:
+		return last, codedErrorf(apicontract.CodeWaitTimeout,
+			"scan %s did not finish within --timeout %s%s", w.uuid, w.timeout, lastStateSuffix(last))
+	}
+	return last, nil
+}
 
-		elapsed := w.clock.Now().Sub(start)
-		if w.timeout > 0 && elapsed >= w.timeout {
-			return last, codedErrorf(apicontract.CodeWaitTimeout,
-				"scan %s did not finish within --timeout %s%s", w.uuid, w.timeout, lastStateSuffix(last))
+// pollUntil calls probe every `every` until it reports done (true, nil),
+// returns an error, timeout elapses (false, nil; 0 waits indefinitely), or
+// ctx ends (false, ctx's error). The last sleep is cut short to end at the
+// timeout.
+func pollUntil(ctx context.Context, clock waitClock, timeout, every time.Duration, probe func(context.Context) (bool, error)) (bool, error) {
+	start := clock.Now()
+	for {
+		if done, err := probe(ctx); done || err != nil {
+			return done, err
 		}
-		sleep := w.poll
-		if w.timeout > 0 && w.timeout-elapsed < sleep {
-			sleep = w.timeout - elapsed
+		elapsed := clock.Now().Sub(start)
+		if timeout > 0 && elapsed >= timeout {
+			return false, nil
 		}
-		if err := w.clock.Sleep(ctx, sleep); err != nil {
-			return last, err
+		sleep := every
+		if timeout > 0 && timeout-elapsed < sleep {
+			sleep = timeout - elapsed
+		}
+		if err := clock.Sleep(ctx, sleep); err != nil {
+			return false, err
 		}
 	}
 }

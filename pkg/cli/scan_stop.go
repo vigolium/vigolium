@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -147,9 +148,10 @@ type scanStopView struct {
 	Hint string `json:"hint,omitempty"`
 }
 
-// Stop actions.
+// Control actions `scan stop` and `agent cancel` report.
 const (
 	stopActionRequested       = "stop_requested"
+	cancelActionRequested     = "cancel_requested"
 	stopActionReaped          = "reaped"
 	stopActionAlreadyFinished = "already_finished"
 )
@@ -183,38 +185,19 @@ func runScanStop(cmd *cobra.Command, args []string) error {
 	}
 	sessionsDir := settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir()
 	ctx := context.Background()
-
-	// The shared store, write intent: the request is a write. A store that
-	// cannot be opened still leaves the sentinel for a scan running on this
-	// host.
-	var repo *database.Repository
-	var db *database.DB
-	if d, err := getDB(); err == nil {
-		db, repo = d, database.NewRepository(d)
-	} else {
-		zap.L().Debug("scan stop: database unavailable; only the stop sentinel can be written", zap.Error(err))
-	}
-	projectUUID := ""
-	if repo != nil && !statelessReadRequested() {
-		if projectUUID, err = resolveProjectUUID(); err != nil {
-			return err
-		}
-	}
-
-	uuid, err := resolveRunRef(ctx, db, "scans", projectUUID, ref, func(prefix string) []string {
-		return sessionDirsWithPrefix(sessionsDir, prefix)
-	})
+	t, err := openRunTarget(ctx, "scans", sessionsDir, ref)
 	if err != nil {
 		return err
 	}
+	uuid, repo := t.uuid, t.repo
 
 	reader := &scanStatusReader{repo: repo, sessionsDir: sessionsDir}
 	view, err := reader.read(ctx, uuid)
 	if err != nil {
 		return err
 	}
-	if view.ProjectUUID != "" && projectUUID != "" && view.ProjectUUID != projectUUID {
-		return codedErrorf(apicontract.CodeScanNotFound, "no scan %s in this project (it belongs to project %s; pass --project-uuid to act on it)", uuid, view.ProjectUUID)
+	if err := t.inProject(view.ProjectUUID, apicontract.CodeScanNotFound, "scan"); err != nil {
+		return err
 	}
 
 	out := scanStopView{ScanUUID: uuid, Via: []string{}, PID: view.PID, RunnerHost: view.RunnerHost}
@@ -223,7 +206,7 @@ func runScanStop(cmd *cobra.Command, args []string) error {
 	case effStatusRunning:
 		by := stopRequester()
 		out.Action, out.RequestedBy = stopActionRequested, by
-		if repo != nil && hasSource(view.Source, "db") {
+		if repo != nil && slices.Contains(view.Source, "db") {
 			ok, err := repo.RequestScanStop(ctx, uuid, by)
 			if err != nil {
 				return fmt.Errorf("record the stop request on scan %s: %w", uuid, err)
@@ -241,7 +224,7 @@ func runScanStop(cmd *cobra.Command, args []string) error {
 		changed = true
 	case effStatusAbandoned:
 		out.Action = stopActionReaped
-		if repo == nil || !hasSource(view.Source, "db") {
+		if repo == nil || !slices.Contains(view.Source, "db") {
 			out.Action = stopActionAlreadyFinished
 			out.Hint = "the scan's process is gone and its row is not in this store; nothing to stop"
 			break
@@ -351,28 +334,60 @@ func printScanStopHuman(v scanStopView) {
 	}
 }
 
-func hasSource(sources []string, s string) bool {
-	for _, x := range sources {
-		if x == s {
-			return true
+// runTarget is the run a control verb (scan stop, agent cancel) acts on.
+type runTarget struct {
+	uuid string
+	// repo is nil when the shared store cannot be opened: only the session
+	// sentinel can carry the request then.
+	repo        *database.Repository
+	projectUUID string
+}
+
+// openRunTarget opens the shared store with write intent (the request is a
+// write) and resolves ref against table and the session directories under
+// sessionsDir, within the active project.
+func openRunTarget(ctx context.Context, table, sessionsDir, ref string) (runTarget, error) {
+	var t runTarget
+	var db *database.DB
+	if d, err := getDB(); err == nil {
+		db, t.repo = d, database.NewRepository(d)
+	} else {
+		zap.L().Debug("database unavailable; only the session sentinel can be written", zap.String("table", table), zap.Error(err))
+	}
+	if t.repo != nil && !statelessReadRequested() {
+		var err error
+		if t.projectUUID, err = resolveProjectUUID(); err != nil {
+			return t, err
 		}
 	}
-	return false
+	var err error
+	t.uuid, err = resolveRunRef(ctx, db, t.projectUUID, ref, func(prefix string) []string {
+		return sessionDirsWithPrefix(sessionsDir, prefix)
+	}, table)
+	return t, err
+}
+
+// inProject is the not-found error (code) for a run whose row belongs to
+// another project than the one the command is scoped to; nil otherwise.
+func (t runTarget) inProject(runProject string, code apicontract.ErrorCode, noun string) error {
+	if runProject == "" || t.projectUUID == "" || runProject == t.projectUUID {
+		return nil
+	}
+	return codedErrorf(code, "no %s %s in this project (it belongs to project %s; pass --project-uuid to act on it)", noun, t.uuid, runProject)
 }
 
 // runRefShape is what a run reference may contain: a UUID or a prefix of one.
 var runRefShape = regexp.MustCompile(`^[0-9a-fA-F-]+$`)
 
-// minRunRefPrefix is the shortest prefix a run reference may be.
-const minRunRefPrefix = 8
-
 // resolveRunRef resolves a run reference — a full UUID, or a unique prefix of
-// at least minRunRefPrefix characters — against table ("scans" or
+// at least database.MinUUIDPrefix characters — against tables ("scans" and/or
 // "agentic_scans") within projectUUID ("" reads across projects). extra lists
 // further candidates for a prefix from outside the store (session directories
 // of scratch-database runs). A full UUID is returned as is: whether it exists
-// is the caller's question.
-func resolveRunRef(ctx context.Context, db *database.DB, table, projectUUID, ref string, extra func(prefix string) []string) (string, error) {
+// is the caller's question. A table whose lookup fails is skipped while
+// another one answers (a store without the agentic table still resolves
+// native scans).
+func resolveRunRef(ctx context.Context, db *database.DB, projectUUID, ref string, extra func(prefix string) []string, tables ...string) (string, error) {
 	ref = strings.ToLower(strings.TrimSpace(ref))
 	if scanUUIDShape.MatchString(ref) {
 		return ref, nil
@@ -380,9 +395,14 @@ func resolveRunRef(ctx context.Context, db *database.DB, table, projectUUID, ref
 	if !runRefShape.MatchString(ref) {
 		return "", usageErrorf("%q is not a run UUID or a UUID prefix", ref)
 	}
-	if len(ref) < minRunRefPrefix {
-		return "", usageErrorf("UUID prefix %q is too short: give at least %d characters", ref, minRunRefPrefix)
+	if len(ref) < database.MinUUIDPrefix {
+		return "", usageErrorf("UUID prefix %q is too short: give at least %d characters", ref, database.MinUUIDPrefix)
 	}
+	return matchRunPrefix(ctx, db, projectUUID, ref, extra, tables...)
+}
+
+// matchRunPrefix is resolveRunRef's lookup of an already validated prefix.
+func matchRunPrefix(ctx context.Context, db *database.DB, projectUUID, ref string, extra func(prefix string) []string, tables ...string) (string, error) {
 	seen := map[string]bool{}
 	var matches []string
 	add := func(u string) {
@@ -392,17 +412,27 @@ func resolveRunRef(ctx context.Context, db *database.DB, table, projectUUID, ref
 		}
 	}
 	if db != nil {
-		full, candidates, err := database.NewRepository(db).ResolveUUIDPrefix(ctx, table, projectUUID, ref)
-		switch {
-		case errors.Is(err, sql.ErrNoRows):
-		case err != nil:
-			return "", fmt.Errorf("look up %q: %w", ref, err)
-		case full != "":
-			add(full)
-		default:
-			for _, u := range candidates {
-				add(u)
+		repo := database.NewRepository(db)
+		var lookupErr error
+		answered := false
+		for _, table := range tables {
+			full, candidates, err := repo.ResolveUUIDPrefix(ctx, table, projectUUID, ref)
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
+			case err != nil:
+				lookupErr = err
+				continue
+			case full != "":
+				add(full)
+			default:
+				for _, u := range candidates {
+					add(u)
+				}
 			}
+			answered = true
+		}
+		if !answered && lookupErr != nil {
+			return "", fmt.Errorf("look up %q: %w", ref, lookupErr)
 		}
 	}
 	if extra != nil {
@@ -413,7 +443,7 @@ func resolveRunRef(ctx context.Context, db *database.DB, table, projectUUID, ref
 	switch len(matches) {
 	case 0:
 		code := apicontract.CodeScanNotFound
-		if table == "agentic_scans" {
+		if slices.Contains(tables, "agentic_scans") {
 			code = apicontract.CodeNotFound
 		}
 		return "", codedErrorf(code, "no run matches %q", ref)
