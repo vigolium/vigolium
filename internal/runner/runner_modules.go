@@ -415,7 +415,7 @@ func (r *Runner) validateModuleSelection(plan NativeScanPlan, engine *jsext.Engi
 // explicitIDs reports whether a module ID list names specific modules (not
 // nil = none, not ["all"]).
 func explicitIDs(ids []string) bool {
-	return len(ids) > 0 && !(len(ids) == 1 && ids[0] == "all")
+	return len(ids) > 1 || (len(ids) == 1 && ids[0] != "all")
 }
 
 // countExtensionModules counts the JS/YAML extension modules in a module set.

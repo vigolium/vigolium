@@ -68,16 +68,16 @@ func holdJSONResult(r *heldJSONResult) {
 
 // finishJSONOutcome publishes the -j outcome of the invocation: the held result
 // document with ok and error decided from the exit code, or, when the command
-// produced no document, the error envelope. It returns the error and exit code
+// produced no document, the error envelope. It returns the exit code and error
 // the process should end with, which differ from the inputs only when writing
 // the held -o file failed.
-func finishJSONOutcome(err error, code int, cmd *cobra.Command) (error, int) {
+func finishJSONOutcome(err error, code int, cmd *cobra.Command) (int, error) {
 	held := heldResult
 	heldResult = nil
 	jsonResultDeferred = false
 	if held == nil || !globalJSON {
 		emitJSONError(err, code, cmd)
-		return err, code
+		return code, err
 	}
 	if pubErr := publishHeldResult(held, err, code); pubErr != nil {
 		// Nothing reached stdout: the -o file could not be written. That is the
@@ -87,9 +87,9 @@ func finishJSONOutcome(err error, code int, cmd *cobra.Command) (error, int) {
 		err = pubErr
 		code = classifyExitCode(err)
 		emitJSONError(err, code, cmd)
-		return err, code
+		return code, err
 	}
-	return err, code
+	return code, err
 }
 
 // publishHeldResult writes held to its destination, with the error attached

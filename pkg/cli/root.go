@@ -520,7 +520,7 @@ func Execute() {
 	if err == nil {
 		// The held -j result (json_outcome.go). Its -o write can still fail,
 		// which turns a success into export_failed.
-		if err, code := finishJSONOutcome(nil, ExitSuccess, cmd); err != nil {
+		if code, err := finishJSONOutcome(nil, ExitSuccess, cmd); err != nil {
 			os.Exit(processExitCode(code, globalSoftFail))
 		}
 		return
@@ -556,7 +556,7 @@ func Execute() {
 		// failed, which is the one outcome a machine caller cannot recover from.
 		// The held result document (ok:false plus error beside it), or the
 		// error envelope when the command wrote no result.
-		_, code = finishJSONOutcome(err, code, cmd)
+		code, _ = finishJSONOutcome(err, code, cmd)
 
 		// --soft-fail forces a successful exit code so wrapping scripts and CI
 		// pipelines are not aborted by errors the operator considers expected.

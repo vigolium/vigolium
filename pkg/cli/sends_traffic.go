@@ -47,7 +47,7 @@ func CheckFollowUpArgv(root *cobra.Command, argv []string, sourceDB string) erro
 	}
 	cmd, rest, err := root.Find(argv[1:])
 	if err != nil || cmd == nil || cmd == root {
-		return fmt.Errorf("query_argv names no command: %q (%v)", argv, err)
+		return fmt.Errorf("query_argv names no command: %q: %w", argv, err)
 	}
 	if err := cmd.ParseFlags(rest); err != nil {
 		return fmt.Errorf("query_argv does not parse: %q: %w", argv, err)

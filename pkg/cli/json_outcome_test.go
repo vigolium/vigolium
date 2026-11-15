@@ -59,7 +59,7 @@ func TestJSONOutcomeOKMatchesExitCode(t *testing.T) {
 			cmd := withDeferredJSON(t)
 			out := captureStdout(t, func() {
 				require.NoError(t, writeAgentJSON(newAgentEnvelope("traffic", "", []map[string]any{{"uuid": "a"}}, 1, 0, 10)))
-				_, code := finishJSONOutcome(tc.err, tc.code, cmd)
+				code, _ := finishJSONOutcome(tc.err, tc.code, cmd)
 				require.Equal(t, tc.code, code)
 			})
 			doc := outcomeDoc(t, out)
@@ -80,7 +80,7 @@ func TestJSONOutcomeOKMatchesExitCode(t *testing.T) {
 // the error envelope, as before.
 func TestJSONOutcomeNoResultIsErrorEnvelope(t *testing.T) {
 	cmd := withDeferredJSON(t)
-	out := captureStdout(t, func() { finishJSONOutcome(errors.New("boom"), ExitError, cmd) })
+	out := captureStdout(t, func() { _, _ = finishJSONOutcome(errors.New("boom"), ExitError, cmd) })
 	doc := outcomeDoc(t, out)
 	require.Equal(t, false, doc["ok"])
 	require.Equal(t, "traffic", doc["command"])
@@ -96,7 +96,7 @@ func TestJSONOutcomeOutputFileCarriesOutcome(t *testing.T) {
 	out := captureStdout(t, func() {
 		require.NoError(t, writeAgentJSON(newAgentEnvelope("traffic", "", []map[string]any{{"uuid": "a"}}, 1, 0, 10)))
 		require.Empty(t, mustReadFileOrEmpty(dest), "the -o file is written once the outcome is known")
-		finishJSONOutcome(errors.New("late failure"), ExitError, cmd)
+		_, _ = finishJSONOutcome(errors.New("late failure"), ExitError, cmd)
 	})
 	receipt := outcomeDoc(t, out)
 	require.Equal(t, false, receipt["ok"])
@@ -116,7 +116,7 @@ func TestJSONOutcomeOutputFileFailureIsExportFailed(t *testing.T) {
 	var code int
 	out := captureStdout(t, func() {
 		require.NoError(t, writeAgentJSON(newAgentEnvelope("traffic", "", []map[string]any{}, 0, 0, 10)))
-		_ = captureStderr(t, func() { _, code = finishJSONOutcome(nil, ExitSuccess, cmd) })
+		_ = captureStderr(t, func() { code, _ = finishJSONOutcome(nil, ExitSuccess, cmd) })
 	})
 	require.Equal(t, ExitError, code)
 	doc := outcomeDoc(t, out)
@@ -135,7 +135,7 @@ func TestJSONOutcomeBudgetIncludesError(t *testing.T) {
 	maxOutputBytes = 1500
 	out := captureStdout(t, func() {
 		require.NoError(t, writeAgentJSON(newAgentEnvelope("traffic", "", rows, 40, 0, 40)))
-		finishJSONOutcome(errors.New("failed after the page was built"), ExitError, cmd)
+		_, _ = finishJSONOutcome(errors.New("failed after the page was built"), ExitError, cmd)
 	})
 	require.LessOrEqual(t, len(out), 1500, "the budget holds with the error attached")
 	doc := outcomeDoc(t, out)
