@@ -176,6 +176,9 @@ func normalizeFieldList(in []string) []string {
 // object under `"artifact": "json_result"` would be a lie, and a receipt that
 // could itself be redirected has nowhere left to report.
 func writeAgentJSON(env *agentEnvelope) error {
+	if err := applyGenericShaping(env); err != nil {
+		return err
+	}
 	if readTSV {
 		return writeEnvelopeTSV(env)
 	}

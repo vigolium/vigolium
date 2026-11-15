@@ -11,7 +11,7 @@ import (
 )
 
 // schema_registry.go declares the -j document shapes `vigolium schema`
-// publishes, one table like machine_kinds.go: the item type and the
+// publishes, one table like command_traits.go: the item type and the
 // command-specific top-level keys of each registered command.
 //
 // Several views are built as maps (compactFindingView, compactRecordView,

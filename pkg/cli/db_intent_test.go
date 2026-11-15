@@ -31,7 +31,7 @@ func TestDBIntentCoverage(t *testing.T) {
 		}
 		v, ok := c.Annotations[dbIntentAnnotation]
 		if !ok {
-			t.Errorf("command %q has no %s annotation: add it to dbIntents (db_intent.go) as read, write or none",
+			t.Errorf("command %q has no %s annotation: add it to commandTraits (command_traits.go) with DB read, write or none",
 				path, dbIntentAnnotation)
 			return
 		}

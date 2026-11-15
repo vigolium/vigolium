@@ -12,7 +12,7 @@ import (
 // machine.go holds the constructors a command uses for its -j result document.
 //
 // Every runnable command declares what kind of machine output it produces
-// (machine_kinds.go), and every result document is an agentEnvelope built by
+// (command_traits.go), and every result document is an agentEnvelope built by
 // one of the emitters below. The command name always comes from the cobra path
 // (commandPathWithoutRoot), never a hand-typed string, so `command` cannot drift
 // from what the caller typed.

@@ -164,6 +164,12 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 			return err
 		}
 
+		// Generic -j shaping flags (shaping_traits.go) are checked before the
+		// command opens a store or sends a request.
+		if err := validateGenericShaping(cmd); err != nil {
+			return err
+		}
+
 		// A broken default config stops every command that would act on it;
 		// only the commands that inspect or repair it keep running on defaults.
 		clicommon.DiscoveredConfigFatal = discoveredConfigFatal(cmd)
@@ -451,7 +457,7 @@ func prepareCommandTree(root *cobra.Command) {
 	deriveKitShort()
 
 	// Stamp each command's declared -j output kind from the central table
-	// (machine_kinds.go); machine_contract_test.go checks the result.
+	// (command_traits.go); machine_contract_test.go checks the result.
 	applyMachineKinds(root)
 
 	// Stamp each command's declared database intent (db_intent.go): read
@@ -467,6 +473,10 @@ func prepareCommandTree(root *cobra.Command) {
 	// Flags with a closed value set reject a typo while flags parse
 	// (enum_flags.go).
 	applyClosedValueFlags(root)
+
+	// Every shaped read gets the -j shaping flags it is missing
+	// (shaping_traits.go, from commandTraits).
+	applyShapingTraits(root)
 }
 
 func Execute() {

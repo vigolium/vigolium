@@ -349,6 +349,9 @@
         "$ref": "#/$defs/contract.ReceiptArtifact"
       },
       "type": "array"
+    },
+    "running": {
+      "type": "boolean"
     }
   },
   "additionalProperties": false,
@@ -362,6 +365,7 @@
     "limit",
     "items",
     "project_source",
+    "running",
     "kind"
   ],
   "title": "vigolium server status -j",

@@ -309,7 +309,7 @@ var agentTriageFlagGroups = []flagGroup{
 // agentSessionFlagGroups categorizes `vigolium agent session`.
 var agentSessionFlagGroups = []flagGroup{
 	{"Filter", []string{"mode", "limit", "offset"}},
-	{"Output", []string{"tail", "full", "tui", "no-tui"}},
+	{"Output", []string{"tail", "full", "tui", "no-tui", "fields", "compact", "max-output-bytes"}},
 }
 
 // --- Data-command flag groups ---

@@ -108,6 +108,9 @@ type agentEnvelope struct {
 	// record boundary, so the output budget leaves it whole and a page is never
 	// described; and its legacy alias renders the object, not the one-row array.
 	objectResult bool
+	// shaped marks a document applyGenericShaping already narrowed, so a
+	// document written twice is never paged or projected twice.
+	shaped bool
 }
 
 // newAgentEnvelope builds the standard envelope with no kind; a command emits

@@ -89,7 +89,7 @@ func TestMachineContractCobraTree(t *testing.T) {
 		c := runnable[path]
 		kind, ok := c.Annotations[machineAnnotation]
 		if !ok {
-			t.Errorf("%q declares no machine kind: add it to machineKinds (machine_kinds.go)", path)
+			t.Errorf("%q declares no machine kind: add it to commandTraits (command_traits.go)", path)
 			continue
 		}
 		switch machineKind(kind) {

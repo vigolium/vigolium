@@ -262,8 +262,26 @@ var machineContractRows = map[string]contractRow{
 	"schema storage": {},
 
 	"strategy": {},
-	"update":   {skip: "needs the network: checks the release server"},
-	"version":  {},
+	// Verbs added beside the existing commands.
+	"agent cancel":    {skip: "the seeded run ids are not hex UUIDs, which the run resolver requires; covered by agent_cancel_test.go"},
+	"scan stop":       {skip: "the seeded scan ids are not hex UUIDs, which the run resolver requires; covered by scan_stop_test.go"},
+	"server stop":     {skip: "needs a running server (its pidfile)"},
+	"server status":   {},
+	"status":          {},
+	"scan ls":         {},
+	"auth show":       {args: []string{"admin"}},
+	"auth rm":         {args: []string{"admin", "--dry-run"}},
+	"config get":      {args: []string{"oast.enabled"}},
+	"config unset":    {args: []string{"oast.enabled"}},
+	"finding show":    {args: []string{seedFinding}},
+	"module show":     {args: []string{"xss-light-url-params"}},
+	"project current": {},
+	"project rename":  {args: []string{seedProject, "b8-renamed"}},
+	"scope add":       {args: []string{"host", "b8.example"}},
+	"scope rm":        {args: []string{"host", "b8.example"}},
+	"scope check":     {args: []string{"{T}/"}},
+	"update":          {skip: "needs the network: checks the release server"},
+	"version":         {},
 }
 
 // TestMachineContractMatrixCoversEveryLeaf: the table and the command tree
@@ -296,6 +314,7 @@ func TestMachineContractMatrixCoversEveryLeaf(t *testing.T) {
 func TestMachineContractMatrix(t *testing.T) {
 	fx := newContractFixture(t)
 	declared := cli.MachineContractCommands()
+	shaped := cli.ShapedCommands()
 
 	paths := make([]string, 0, len(machineContractRows))
 	for path := range machineContractRows {
@@ -323,6 +342,23 @@ func TestMachineContractMatrix(t *testing.T) {
 				require.Equalf(t, path, doc["command"], "%s", r)
 				errObj, _ := doc["error"].(map[string]any)
 				require.NotNilf(t, errObj, "the error envelope carries error{}\n%s", r)
+				require.Equalf(t, "usage_error", errObj["code"], "%s", r)
+			})
+			// The shaping guardrail: every shaped read refuses an unknown
+			// --fields name with a usage error, before it sends anything.
+			t.Run("bogus fields", func(t *testing.T) {
+				if _, ok := shaped[path]; !ok {
+					t.Skip("not a shaped command")
+				}
+				if row.skip != "" {
+					t.Skip(row.skip)
+				}
+				args := append(slices.Clone(row.args), "--fields", "b8-bogus-field")
+				r := fx.run(t, path, row, args, true)
+				require.Equalf(t, apicontract.ExitUsageError, r.code, "an unknown --fields name is a usage error (exit 2)\n%s", r)
+				doc := oneContractDocument(t, r)
+				errObj, _ := doc["error"].(map[string]any)
+				require.NotNilf(t, errObj, "%s", r)
 				require.Equalf(t, "usage_error", errObj["code"], "%s", r)
 			})
 			t.Run("happy path", func(t *testing.T) {

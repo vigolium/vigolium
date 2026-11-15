@@ -43,10 +43,16 @@ func init() {
 	serverStopCmd.Flags().IntVar(&serverCtlPort, "port", 0, "The server's port (required when more than one is running)")
 	serverStopCmd.Flags().DurationVar(&serverStopTimeout, "timeout", 40*time.Second, "How long to wait for the server to exit")
 
-	registerCommandSchema(contract.Command{Name: "server status", Item: serverStatusView{},
+	registerCommandSchema(contract.Command{Name: "server status", Item: serverStatusView{}, Extras: serverStatusExtras{},
 		Description: "One row per server pidfile: the recorded pid and address, whether the process is alive and /health answers."})
 	registerCommandSchema(contract.Command{Name: "server stop", Item: serverStatusView{},
 		Description: "The server stopped (SIGTERM, sent only when /health answered with the recorded pid), and whether it exited in time."})
+}
+
+// serverStatusExtras are the top-level keys `server status -j` adds.
+type serverStatusExtras struct {
+	// Running is true when at least one listed server is alive.
+	Running bool `json:"running"`
 }
 
 // serverMachineMode reports whether stdout is reserved for server.ready.

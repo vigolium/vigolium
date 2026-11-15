@@ -9,18 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// sendsTrafficCommands are the commands whose job is to send requests to a
-// target. Their -j document says so with `sends_traffic: true` (beside `kind`,
-// which consumers already switch on), and a follow-up `query` never names one:
-// a hint is something to run without thinking, and re-sending is not that.
-var sendsTrafficCommands = map[string]bool{
-	"scan": true, "run": true, "scan-url": true, "scan-request": true,
-	"fuzz": true, "replay": true, "fingerprint": true,
-	"kit param-mine": true, "kit harvest": true,
-	"agent autopilot": true, "agent swarm": true, "agent triage": true,
-	"finding verify": true, "auth check": true,
-}
-
 // stampSendsTraffic marks a sending command's document.
 func stampSendsTraffic(env *agentEnvelope) {
 	if env != nil && sendsTrafficCommands[env.Command] {

@@ -126,7 +126,7 @@ Each caller blocks until its row is flushed and gets a `WriteResult{UUID, Err}` 
 
 ### Open intent: readers never take the write lock
 
-Every CLI command declares what it does with the store (`dbIntents` in `pkg/cli/db_intent.go`, stamped on each cobra command as the `vigolium.io/db-intent` annotation; a test fails on an undeclared command). The shared opener (`clicommon.GetDBFor`) opens the store according to that intent:
+Every CLI command declares what it does with the store (the `DB` column of `commandTraits` in `pkg/cli/command_traits.go`, stamped on each cobra command as the `vigolium.io/db-intent` annotation; a test fails on an undeclared command). The shared opener (`clicommon.GetDBFor`) opens the store according to that intent:
 
 | Intent | Commands | How the store is opened |
 |---|---|---|

@@ -402,8 +402,11 @@ List agent run sessions or show session details
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--full` | - | bool | `false` | Show full raw output (shortcut for --tail -1) |
 | `--limit` | `-n` | int | `50` | Maximum number of records to display |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--mode` | - | string | - | Filter by mode (query, autopilot, pipeline, swarm) |
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
 | `--offset` | - | int | `0` | Number of records to skip |
@@ -576,7 +579,12 @@ Check that a session is really logged in on a protected URL
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--method` | - | string | - | HTTP method for the check request (default: check.method, then GET) |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--session` | - | string | - | Check only this session from a multi-session file |
 | `--timeout` | - | duration | `30s` | Timeout for each login and check request |
 | `--url` | - | string | - | Protected URL to check (default: the session's check.url, then scanning_strategy.session.validate_url) |
@@ -589,6 +597,11 @@ Validate session auth config files for errors and warnings
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--stdin` | - | bool | `false` | Read session config from stdin |
 
 ## vigolium auth list
@@ -599,7 +612,12 @@ List session authentication configs
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--host` | - | string | - | Filter by hostname |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--show-secrets` | - | bool | `false` | Reveal session tokens, auth headers, and login request/body values in plaintext instead of [redacted]; prints a warning to stderr |
 
 ## vigolium auth load
@@ -640,7 +658,12 @@ Show one stored session (tokens and credentials redacted)
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--host` | - | string | - | Only the session stored for this hostname |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--show-secrets` | - | bool | `false` | Reveal tokens and credentials in plaintext; prints a warning to stderr |
 
 ## vigolium auth totp
@@ -673,6 +696,11 @@ List the VIGOLIUM_* environment variables the binary reads
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--set` | - | bool | `false` | List only the variables set in this environment |
 | `--show-secrets` | - | bool | `false` | Reveal sensitive values in plaintext instead of [redacted] |
 
@@ -684,6 +712,11 @@ Print one configuration value
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--show-secrets` | - | bool | `false` | Reveal a sensitive value in plaintext instead of [redacted]; prints a warning to stderr |
 
 ## vigolium config ls
@@ -696,7 +729,12 @@ Display current configuration
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
 | `--effective` | - | bool | `false` | List only the keys a layer set (file, env:NAME, project, flag), each with its source |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--show-secrets` | - | bool | `false` | Reveal sensitive values (API keys, tokens, credentials) in plaintext instead of [redacted]; prints a warning to stderr |
 
 ## vigolium config set
@@ -725,6 +763,11 @@ Check the configuration for values that break or silently weaken scans
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--project` | - | string | - | Also validate this project's config overlay, checking the merged global → project settings |
 | `--recent` | - | int | `5` | Check a wildcard-free scope.host.include against the targets of the last N scans (0 disables) |
 | `--strict` | - | bool | `false` | Exit 1 on warnings as well as errors |
@@ -867,6 +910,7 @@ Show database statistics
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--detailed` | - | bool | `false` | Show per-host and per-module breakdown |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--from` | - | string | - | Only records sent, findings found and scans started at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--host` | - | string | - | Show statistics for one host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
@@ -910,9 +954,14 @@ Check system readiness and diagnose configuration issues
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
 | `--dry-run` | - | bool | `false` | With --fix: list each install (method, destination, approximate size) without running it |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--fix` | - | bool | `false` | Auto-install/fix failing checks |
 | `--for` | - | string | - | Scope the verdict to one purpose: scan\|agent\|server (checks that do not affect it are reported but not counted) |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--only` | - | stringSlice | - | Show (and with --fix, repair) only these checks: a check id or fix key (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill,oast,agent,proxy,…) |
 | `--stateless` | `-S` | bool | `false` | With --for scan: the scan will use a temporary database, so the database check is skipped |
 | `--strict` | - | bool | `false` | Exit 1 when the verdict is degraded, not only when it is not_ready |
@@ -991,7 +1040,13 @@ Aliases: `ext`
 
 Manage JavaScript extensions
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium extensions docs
 
@@ -1003,7 +1058,12 @@ Show extension API reference with examples
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
 | `--example` | - | bool | `false` | Show usage examples for each function |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium extensions eval
 
@@ -1033,8 +1093,13 @@ Print copy-pasteable example extensions in every supported format
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--lang` | - | string | - | Restrict to one language: javascript (js), yaml, or json |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--list` | `-l` | bool | `false` | Print only the catalog index (keys + titles), no code |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium extensions lint
 
@@ -1044,6 +1109,11 @@ Validate extension files for syntax errors and unknown API calls
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--stdin` | - | bool | `false` | Read extension source from stdin |
 | `--stdin-kind` | - | string | - | Language of --stdin source: js, ts or yaml (default: sniffed — a top-level id:/type: YAML map without module.exports is yaml) |
 | `--strict` | - | bool | `false` | Treat warnings as errors (exit 1 on any issue) |
@@ -1058,6 +1128,11 @@ List loaded extensions
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--type` | - | string | `all` | Filter by type: all, active, passive, pre_hook, post_hook |
 | `--verbose` | `-v` | bool | `false` | **(overrides the global `--verbose`)** Show long description and confirmation criteria per extension |
 
@@ -1080,8 +1155,13 @@ Run one extension against a stored record (offline unless --allow-network)
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--allow-network` | - | bool | `false` | Let the extension send requests (default: every request fails and is counted) |
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--handler` | - | string | - | Handler to call: scanPerRequest, scanPerHost or scanPerInsertionPoint (default: every handler the module declares) |
 | `--insertion` | - | string | - | Insertion point for scanPerInsertionPoint as TYPE:name, e.g. URL_PARAM:id (default: every point) |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--record-uuid` | - | string | - | Stored HTTP record to run the extension against (UUID or unique prefix; see vigolium traffic) |
 
 ## vigolium extensions test
@@ -1090,7 +1170,13 @@ Usage: `vigolium extensions test <dir|file>`
 
 Run extensions against their fixture cases (offline; active ones against a local mock)
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium extensions types
 
@@ -1098,6 +1184,7 @@ Print or write vigolium.d.ts, the extension API type declarations
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--output` | `-o` | string | - | Write the declarations to this file, or to <dir>/vigolium.d.ts when it is a directory (default: stdout) |
 
 ## vigolium ffuf
@@ -1211,7 +1298,9 @@ Usage: `vigolium finding show <id|hash-prefix>...`
 
 Show findings by id or finding-hash prefix, with their evidence records
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 
 ## vigolium finding verify
 
@@ -1677,13 +1766,18 @@ Discover hidden parameters an endpoint accepts (Arjun-style)
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
 | `--data` | `-d` | string | - | Request body (form or JSON); names are added to it |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--header` | `-H` | stringArray | - | Request header 'Name: value' (repeatable) |
 | `--ignore-scope` | - | bool | `false` | Mine an endpoint outside the configured host scope |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--location` | - | string | `auto` | Where names go: auto, query, form, json |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--max-requests` | - | int | `60` | Request budget, baselines and confirmations included |
 | `--method` | `-X` | string | `GET` | HTTP method |
 | `--no-builtin` | - | bool | `false` | Use only the -w wordlists, not the built-in list |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--rate-limit` | - | int | `20` | Maximum requests per second (0 = unlimited) |
 | `--target` | `-t` | string | - | Endpoint URL to mine (or pass it as the argument) |
 | `--timeout` | - | duration | `15s` | Per-request timeout |
@@ -1706,10 +1800,15 @@ Scan files or stdin for leaked credentials using the built-in secret catalog
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
 | `--exclude-rule` | - | stringSlice | - | Skip these rule IDs (comma-separated / repeatable) |
 | `--fail-on-match` | - | bool | `false` | Exit 3 when at least one secret is found (for CI/agent gating) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--max-file-size` | - | int64 | `16777216` | Skip files larger than this many bytes |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--min-confidence` | - | string | `low` | Minimum confidence to report: low, medium, high |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--redact` | - | bool | `false` | Mask the secret value in output (show only a prefix/suffix) |
 | `--rule` | - | stringSlice | - | Only report these rule IDs (comma-separated / repeatable) |
 
@@ -1737,9 +1836,14 @@ View raw logs for a native scan or agentic scan
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--follow` | `-f` | bool | `false` | Follow log output as it is written (tail -f) |
 | `--full` | - | bool | `false` | Show the full log (shortcut for --tail -1) |
+| `--limit` | - | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--raw` | - | bool | `false` | For agentic sessions, print the raw transcript JSONL verbatim instead of the rendered replay |
 | `--strip-ansi` | - | bool | `false` | Strip ANSI color codes from output |
 | `--tail` | `-n` | int | `200` | Show the last N lines (0 = none, -1 = all) |
@@ -1754,6 +1858,7 @@ List native scan and agentic scan sessions
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
 | `--from` | - | string | - | Only sessions started at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
@@ -1784,7 +1889,12 @@ Manage scanner modules
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--list-enabled` | - | bool | `false` | Show only enabled modules |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--tags` | - | bool | `false` | Show only unique module tags |
 | `--type` | - | string | `all` | Filter modules by type: all, active, or passive |
 | `--verbose` | `-v` | bool | `false` | **(overrides the global `--verbose`)** Show long description and confirmation criteria |
@@ -1825,7 +1935,12 @@ List available modules
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--list-enabled` | - | bool | `false` | Show only enabled modules |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--tags` | - | bool | `false` | Show only unique module tags |
 | `--type` | - | string | `all` | Filter modules by type: all, active, or passive |
 | `--verbose` | `-v` | bool | `false` | **(overrides the global `--verbose`)** Show long description and confirmation criteria |
@@ -1836,7 +1951,9 @@ Usage: `vigolium module show <module-id>`
 
 Show one module: description, confirmation criteria, severity, scope, tags, enabled
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 
 ## vigolium nuclei
 
@@ -1947,7 +2064,9 @@ Usage: `vigolium project config [uuid]`
 
 Show or edit a project's config file path
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 
 ## vigolium project create
 
@@ -1963,7 +2082,9 @@ Create a new project
 
 Show the project commands run against, and where that choice came from
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 
 ## vigolium project delete
 
@@ -1986,7 +2107,12 @@ List all projects
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
 
 ## vigolium project rename
@@ -2333,6 +2459,7 @@ Compare two scans' findings: new, fixed, not re-observed, unchanged
 | `--ignore-file` | - | string | - | YAML list of finding hashes to leave out of `new` ({hash, reason, expires}); default .vigolium-ignore.yaml when present |
 | `--include-dismissed` | - | bool | `false` | Keep findings marked false_positive or accepted_risk |
 | `--last` | - | int | `2` | With --target: compare the N-th most recent scan of the target against the most recent (N >= 2) |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--offset` | - | int | `0` | Skip the first N rows (follow output_budget.next_offset) |
@@ -2351,6 +2478,7 @@ List scan sessions (alias of 'vigolium log ls')
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
 | `--from` | - | string | - | Only sessions started at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
@@ -2367,6 +2495,7 @@ Show a scan's live status: phase, progress, liveness and ETA
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off |
 
@@ -2537,7 +2666,13 @@ Scan a single URL for vulnerabilities
 
 Print the JSON Schema of -j documents, --events lines and the error envelope
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium schema all
 
@@ -2573,7 +2708,13 @@ Usage: `vigolium schema flags <command>`
 
 List one command's flags, one entry per flag (the --usage view as data)
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium schema list
 
@@ -2581,7 +2722,13 @@ Aliases: `ls`
 
 List the commands, event types and documents that have a schema
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium schema plan
 
@@ -2595,7 +2742,13 @@ Usage: `vigolium schema storage [table]`
 
 Describe the database: tables, columns, and the -j field each column surfaces as
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium scope
 
@@ -2603,7 +2756,13 @@ Aliases: `sc`
 
 Manage scan scope rules
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium scope add
 
@@ -2625,6 +2784,7 @@ Say whether a URL is in scope, and which rule and pattern refuse it
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--project` | - | string | - | Apply this project's scope overlay (UUID, name or unique 8+ char UUID prefix) |
 
 ## vigolium scope rm
@@ -2660,7 +2820,13 @@ Aliases: `ls`, `list`
 
 Display current scope configuration
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium server
 
@@ -2739,6 +2905,11 @@ Show running servers: pidfile, process liveness and /health
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--port` | - | int | `0` | Only the server on this port (default: every server with a pidfile) |
 
 ## vigolium server stop
@@ -2758,7 +2929,13 @@ Aliases: `skill`
 
 List, inspect, and install bundled coding-agent skills
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium skills get
 
@@ -2791,13 +2968,21 @@ Aliases: `ls`
 
 List all bundled skills
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium status
 
 One-screen orientation: database, project, scope, running scans, counts, proxy
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 
 ## vigolium storage
 
@@ -2825,6 +3010,11 @@ List objects in cloud storage for the active project
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--prefix` | - | string | - | Limit results to keys under this prefix |
 | `--tree` | - | bool | `false` | Render objects as a directory tree |
 
@@ -2875,7 +3065,13 @@ Aliases: `st`, `phase`
 
 Show scanning strategies, phases, intensities, and agent modes
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium traffic
 
@@ -2949,6 +3145,7 @@ Extract one stored request or response body
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--allow-incomplete` | - | bool | `false` | Write the body even when the capture is known to be incomplete (the receipt still reports complete: false) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--output` | `-o` | string | - | Write to this file instead of stdout; '-' forces stdout |
 | `--representation` | - | string | `decoded` | Body representation: 'decoded' removes supported content encodings (gzip); 'stored' returns the bytes exactly as captured |
 | `--request` | - | bool | `false` | Read the request side |
@@ -2964,6 +3161,7 @@ Read one stored message's headers without its body
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--name` | - | string | - | Return only entries with this header name (case-insensitive); every matching entry is returned, not just the first |
 | `--output` | `-o` | string | - | Write to this file instead of stdout; '-' forces stdout |
 | `--request` | - | bool | `false` | Read the request side |
@@ -2987,4 +3185,6 @@ Update Vigolium and its nuclei templates to the latest version
 
 Show version information
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
