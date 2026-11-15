@@ -222,6 +222,22 @@ func (c ErrorCode) IsIncomplete() bool {
 	return false
 }
 
+// Exit is the process exit status of a CLI failure that carries c:
+// usage_error and out_of_scope are a misuse of the command line (nothing ran,
+// the fix is a flag), gate_tripped is the --fail-on gate, the incomplete codes
+// are a completed-but-incomplete result, and every other code is a failure.
+func (c ErrorCode) Exit() int {
+	switch {
+	case c == CodeUsageError, c == CodeOutOfScope:
+		return ExitUsageError
+	case c == CodeGateTripped:
+		return ExitFailOnGate
+	case c.IsIncomplete():
+		return ExitIncomplete
+	}
+	return ExitError
+}
+
 // ErrorCodes returns every known code, sorted, as a fresh slice.
 func ErrorCodes() []ErrorCode {
 	out := append([]ErrorCode(nil), knownErrorCodes...)
