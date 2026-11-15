@@ -22,7 +22,7 @@ func (f *RunRecordFilter) Apply(q *bun.SelectQuery) *bun.SelectQuery {
 	return q.WhereGroup(" AND ", func(g *bun.SelectQuery) *bun.SelectQuery {
 		g = g.Where("scan_uuid = ?", f.ScanUUID)
 		if len(f.Seeds) > 0 {
-			g = g.WhereOr("uuid IN (?)", bun.In(f.Seeds))
+			g = g.WhereOr("uuid IN (?)", bun.List(f.Seeds))
 		}
 		return g
 	})
@@ -40,7 +40,7 @@ func (r *Repository) RecordsFromOtherScans(ctx context.Context, scanUUID string,
 		chunk := uuids[start:min(start+runSeedChunk, len(uuids))]
 		var rows []string
 		err := r.db.NewSelect().Model((*HTTPRecord)(nil)).Column("uuid").
-			Where("uuid IN (?)", bun.In(chunk)).
+			Where("uuid IN (?)", bun.List(chunk)).
 			Where("(scan_uuid IS NULL OR scan_uuid != ?)", scanUUID).
 			Scan(ctx, &rows)
 		if err != nil {

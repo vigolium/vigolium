@@ -1279,7 +1279,7 @@ func outputScanResult(result *scanResult) error {
 	// --silent: one plain line per finding on stdout, and nothing else.
 	if globalSilent && !globalJSON {
 		for _, f := range result.Findings {
-			fmt.Fprintln(os.Stdout, output.FormatFindingLine(f))
+			_, _ = fmt.Fprintln(os.Stdout, output.FormatFindingLine(f))
 		}
 		return nil
 	}

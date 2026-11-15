@@ -2,6 +2,7 @@ package requestinput
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -58,7 +59,7 @@ func TestParseScheme(t *testing.T) {
 		t.Errorf("no probe = %q (%s)", res.Request.Target(), res.SchemeSource)
 	}
 
-	if _, err := Parse(ctx, "  \n", Options{}); err != ErrEmpty {
+	if _, err := Parse(ctx, "  \n", Options{}); !errors.Is(err, ErrEmpty) {
 		t.Errorf("empty input: %v", err)
 	}
 }

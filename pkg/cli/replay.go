@@ -864,7 +864,7 @@ func sourceFromRawText(ctx context.Context, data, label string, raw rawInputOpti
 	}
 	if res.SchemeSource == requestscheme.SourceProbe && !globalSilent && !globalJSON {
 		fmt.Fprintf(os.Stderr, "%s request line has no scheme — probed the target: %s\n",
-			terminal.InfoSymbol(), terminal.Cyan(u.URL.Scheme+"://"+u.Host))
+			terminal.InfoSymbol(), terminal.Cyan(u.Scheme+"://"+u.Host))
 	}
 	return src, nil
 }
