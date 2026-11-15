@@ -228,7 +228,7 @@ func scenarioScanRow(t *testing.T, db *DB) {
 		t.Fatalf("CreateScan: %v", err)
 	}
 	sent := int64(42)
-	if ok, err := repo.UpdateScanHeartbeat(ctx, scan.UUID, ScanHeartbeat{Phase: "dast", RequestsSent: &sent, PID: 7, Host: "h"}); err != nil || !ok {
+	if ok, _, err := repo.UpdateScanHeartbeat(ctx, scan.UUID, ScanHeartbeat{Phase: "dast", RequestsSent: &sent, PID: 7, Host: "h"}); err != nil || !ok {
 		t.Fatalf("UpdateScanHeartbeat = %v, %v", ok, err)
 	}
 	scan.Status = "completed"

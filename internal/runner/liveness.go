@@ -240,11 +240,12 @@ func (h *Heartbeat) loop() {
 		case <-h.stopCh:
 			return
 		}
-		if rowDone := h.beat(context.Background(), false); rowDone && h.cfg.StopWhenRowDone {
+		rowDone, stop := h.beat(context.Background(), false)
+		if rowDone && h.cfg.StopWhenRowDone {
 			h.adoptRowStatus()
 			return
 		}
-		h.pollStopRequest()
+		h.pollStopRequest(stop)
 	}
 }
 
@@ -339,14 +340,15 @@ func (h *Heartbeat) snapshot() SessionStatus {
 
 // beat writes one liveness record: the file always, the row unless fileOnly.
 // rowDone reports that the row is no longer running, so the beat touched
-// nothing (see UpdateScanHeartbeat).
-func (h *Heartbeat) beat(ctx context.Context, fileOnly bool) (rowDone bool) {
+// nothing (see UpdateScanHeartbeat); stop is the stop request the row
+// carries, read by the same statement.
+func (h *Heartbeat) beat(ctx context.Context, fileOnly bool) (rowDone bool, stop *StopRequest) {
 	h.writeMu.Lock()
 	defer h.writeMu.Unlock()
 	st := h.snapshot()
 	h.writeFile(st)
 	if fileOnly || h.cfg.Repo == nil || h.cfg.ScanUUID == "" {
-		return false
+		return false, nil
 	}
 	hb := database.ScanHeartbeat{
 		At:    st.HeartbeatAt,
@@ -360,12 +362,15 @@ func (h *Heartbeat) beat(ctx context.Context, fileOnly bool) (rowDone bool) {
 	}
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), heartbeatWriteBudget)
 	defer cancel()
-	updated, err := h.cfg.Repo.UpdateScanHeartbeat(writeCtx, h.cfg.ScanUUID, hb)
+	updated, req, err := h.cfg.Repo.UpdateScanHeartbeat(writeCtx, h.cfg.ScanUUID, hb)
 	if err != nil {
 		zap.L().Debug("heartbeat: scan row update failed", zap.String("scan_uuid", h.cfg.ScanUUID), zap.Error(err))
-		return false
+		return false, nil
 	}
-	return !updated
+	if req != nil {
+		stop = &StopRequest{By: req.By, At: req.At}
+	}
+	return !updated, stop
 }
 
 // adoptRowStatus records the finalized row's status in status.json, for a
@@ -416,7 +421,7 @@ func (h *Heartbeat) Stop(ctx context.Context) {
 		h.st.PhaseStartedAt = nil
 		h.st.Progress = nil
 		h.mu.Unlock()
-		if rowDone := h.beat(ctx, false); rowDone && h.cfg.StopWhenRowDone {
+		if rowDone, _ := h.beat(ctx, false); rowDone && h.cfg.StopWhenRowDone {
 			h.adoptRowStatus()
 		}
 	})
