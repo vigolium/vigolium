@@ -197,7 +197,7 @@ func printExtensionExamples(cmd *cobra.Command, filter string) error {
 	fmt.Printf("%s API reference: %s   Validate: %s\n",
 		terminal.InfoSymbol(),
 		terminal.Gray("vigolium ext docs --example"),
-		terminal.Gray("vigolium ext lint <file>"))
+		terminal.Gray(strings.Join(exampleValidateCommands(matched), " / ")))
 	fmt.Printf("%s Install bundled presets: %s\n",
 		terminal.InfoSymbol(),
 		terminal.Gray("vigolium ext preset"))
@@ -783,4 +783,26 @@ sessions:
     validate_url: ""`,
 		},
 	}
+}
+
+// exampleValidateCommands names the linter for the shown examples: a session
+// bundle is an auth file, which `auth lint` checks; everything else is an
+// extension, which `ext lint` checks.
+func exampleValidateCommands(shown []extExample) []string {
+	var session, ext bool
+	for _, ex := range shown {
+		if ex.Type == "session" {
+			session = true
+		} else {
+			ext = true
+		}
+	}
+	var out []string
+	if ext || !session {
+		out = append(out, "vigolium ext lint <file>")
+	}
+	if session {
+		out = append(out, "vigolium auth lint <file>")
+	}
+	return out
 }

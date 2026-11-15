@@ -282,10 +282,10 @@ is stored on the scan row (`scans.plan`), and drives the pre-scan banner.
   or a direct run with no store) has none — `finding_hash` is its identity.
 - **`status`**: `completed`, `curtailed` (finished but partial: see `reasons`),
   `failed` or `interrupted`. A scan that fails still prints its document, with
-  `status: "failed"` and `errors: [{code, message, target?}]`; `ok` stays `true`
-  (it is a result document) and the exit code carries the failure. Only a
-  failure before any scan existed (bad config, an unopenable `--db`) prints the
-  error envelope instead.
+  `status: "failed"`, `errors: [{code, message, target?}]`, `ok: false` and the
+  `error` object of the exit code beside it (`interrupted` is exit 5 with
+  `error.code: "interrupted"`). Only a failure before any scan existed (bad
+  config, an unopenable `--db`) prints the bare error envelope instead.
 - **`targets[]`**: `admitted`, `reached` (`null` when reachability was not
   checked), `reason` (`out_of_scope` / `unreachable`) with `code` and `detail`;
   direct-path inputs also carry `resolved_target`, `scheme_source`, `findings`
@@ -396,8 +396,12 @@ duplicates the rows on the wire and exists only for consumers still migrating.
 - `schema_version` is the contract version — gate on it. It is bumped on any
   breaking field change; it is `2` since v0.6 (see
   [Schema version 2](#schema-version-2-v1--v2)).
-- `ok` is `true` on every result document. The error object carries
-  `"ok": false`, so `.ok` is a valid branch on anything `-j` prints.
+- `ok` is `true` exactly when the process exits `0`, `3` or `4`. On exit `1`,
+  `2` or `5` it is `false` and `error: {code, message, exit_code, hint?,
+  did_you_mean?, usage_argv?}` is present — on the result document when the
+  command produced one (a failed or interrupted scan, a `finding mark` that
+  missed), else on the error envelope. One document either way, and `.ok`
+  never disagrees with the exit code.
 - `kind` names the document's shape: `read` (a row list, or a one-object answer
   wrapped as `items: [obj]` with `total: 1`, as `db stats` and `doctor` do), `mutation`, or
   `scan`. A `mutation` document adds `changed` (always present; `false` on a dry

@@ -36,15 +36,18 @@ Shows it: `vigolium db stats -j | jq '{db_path, project_scoped, project_source}'
   `$VIGOLIUM_PROJECT_UUID` / `$VIGOLIUM_PROJECT_NAME` → the active-project
   file → the default project. `project_source` on every envelope says which
   one won: `flag`, `env`, `active_file` or `default`.
-- `vigolium project use <uuid>` writes `~/.vigolium/active-project`, which is
+- `vigolium project use <project>` writes `~/.vigolium/active-project`, which is
   **global to the user**: it re-scopes every other shell and agent that has
   not pinned a project. An envelope scoped by that file carries a `warnings[]`
   entry saying so. Pin `--project-uuid` or `$VIGOLIUM_PROJECT_UUID` in
-  anything that runs in parallel.
-- `project use` takes a UUID, never a name. An unknown UUID is `not_found`
-  unless you pass `--create`.
+  anything that runs in parallel; `project use <project> --print-env` prints
+  the export line and writes no file, so it pins one shell only.
+- `project use`, `--project-uuid` and `--project-name` take a UUID, an exact
+  name or a unique 8+ character UUID prefix. An unknown one is exit 1
+  `project_not_found` (hint: `project create <name>`); `project use --create`
+  creates it instead. `project current -j` says which project applies and why.
 
-Shows it: `eval "$(vigolium project use <uuid>)"` then `vigolium finding -j | jq .project_source`
+Shows it: `eval "$(vigolium project use <project> --print-env)"` then `vigolium finding -j | jq .project_source`
 
 ## Stateless runs, isolation and fan-out
 
@@ -68,12 +71,15 @@ Shows it: `eval "$(vigolium project use <uuid>)"` then `vigolium finding -j | jq
 
 Shows it: `vigolium scan -S -T targets.txt --split-by-host -P 4 --format sqlite -o run --dry-run`
 
-## Opening a database writes to it
+## Opening a database
 
-- By default an open runs `mkdir -p`, a journal-mode PRAGMA and a WAL
-  checkpoint, so a plain read changes the file's SHA-256. `-S` is a scoping
-  mode, not a read-only one.
-- `--read-only` leaves the file byte-identical: no directory creation, no
+- A command that writes (a scan, `ingest`, `import`, `finding mark`, `replay`
+  saving its exchange, a read given `--save-to-vigolium-db`/`--in-replace`)
+  opens the store read-write: `mkdir -p`, a journal-mode PRAGMA and a WAL
+  checkpoint. A read (`kind: read`, the `query` hints) opens it `query_only`
+  with no journal change and no checkpoint, so its bytes stay the same, but it
+  may leave a `-shm` sibling. `-S` is a scoping mode, not a read-only one.
+- `--read-only` is the guarantee for evidence: no directory creation, no
   journal change, no checkpoint, no `-wal`/`-shm` siblings, and it reads a
   `chmod 444` file. Commands that write refuse it (exit 2). It cannot migrate
   an old store; that fails with a schema error instead of upgrading in place.
@@ -93,14 +99,18 @@ Shows it: `vigolium finding --read-only --db evidence.sqlite -j`
   every target, nothing sent) or `no_targets_reachable` (no admitted target
   answered the preflight). Partial versions of the same facts
   (`targets_out_of_scope`, `targets_unreachable`) leave the exit at `0`.
-- Exit `5` (`timed_out`, `budget_exhausted`, `partial`) is what agent runs
-  return when they stopped early. A native partial scan still exits `0`;
-  `vigolium scan wait <uuid> --fail-on-partial` turns it into `5`.
+- Exit `5` is "ran, but incomplete": `interrupted` (SIGINT/SIGTERM or `scan
+  stop`; results cover what ran first), `timed_out`/`budget_exhausted` (agent
+  runs) and `partial`. A native partial scan exits `0` unless `--fail-on`
+  (which implies it) or `--fail-on-partial` is given; `vigolium scan wait
+  <uuid> --fail-on-partial` does the same for a scan you did not start. `ok`
+  is `false` on `5`; the document is still printed.
 - `oast_unavailable` (no interactsh registration, e.g. offline) makes the run
   partial without stopping it: blind/out-of-band checks did not run.
-- Chrome and nuclei templates install lazily, never before the scan starts: a
-  cold machine's first spidering phase downloads Chrome (~150 MB) and its first
-  known-issue scan clones the templates, each announced by `scan.setup`
+- `vigolium init` downloads Chrome and the templates only on a terminal (or
+  with `--with-deps`). Otherwise they install lazily, never before the scan
+  starts: a cold machine's first spidering phase downloads Chrome (~150 MB) and
+  its first known-issue scan clones the templates, each announced by `scan.setup`
   (`component` `chrome`/`nuclei`, `state` `started`/`finished`/`failed`) and kept
   out of the phase's time budget. A failed install fails only that phase; its
   message names `vigolium doctor --fix --only chrome|nuclei`.
@@ -133,8 +143,15 @@ Shows it: `vigolium scan -t https://target.example --fail-on high; echo $?`
   `-j`/`--events`/non-TTY and a deprecation warning on a terminal.
 - A UUID in the target position of `scan` is refused (exit 2): it is a
   mistyped subcommand (`scan staus <uuid>`).
-- Scope admission applies on every scan path. `scan-url`, `scan-request` and
-  `fuzz` take `--ignore-scope` to opt out for one run.
+- Scope admission applies on every scan path and to every hand send:
+  `replay`, `traffic --replay`, `fuzz`, `dns`, `kit param-mine` and `finding
+  verify` refuse an out-of-scope host before the first request (exit 2
+  `out_of_scope`; a bulk replay refuses the whole batch). `--ignore-scope` opts
+  out for one run; `vigolium scope check <url>` says which rule decides.
+- `scan-url`, `scan-request` and `run -t` attack only their input; stored
+  records of the same host join only with `--include-stored`. `scan -t` keeps
+  including them (`--input-only` turns that off). The plan's
+  `targets.stored_records` says which.
 - `scan-request` without a scheme probes the target (connect + TLS) instead of
   assuming `https://`; `--no-scheme-probe` keeps the old default.
 - `-T` and `-i` accept process substitution and pipes (`-T <(printf 'https://a\n')`):
@@ -175,8 +192,11 @@ Shows it: `vigolium scan -t https://target.example -m xss --module-tag spring --
   and `vigolium fingerprint` send (DNS to the resolver; reads to the origin).
 - A UUID as the positional term of `traffic` searches text, not identity.
   `--url` is exact equality; the positional term is a substring search.
-- The `query` / `query_argv` hint in a `-j` envelope is always a read-only
-  command. Re-sending is never suggested; ask for `replay`/`fuzz` explicitly.
+- The `query` / `query_argv` hint in a `-j` envelope is always a read that
+  sends nothing and repeats the source's `--db`. A follow-up that sends (fuzz's
+  confirmation scan, a scan's next step) is in `next[]` with
+  `sends_traffic: true`; a sending command's own document says
+  `sends_traffic: true` too.
 - `finding --id` takes the findings table's integer. A UUID there is a usage
   error naming the flag that reads it (`traffic --uuid` for a record,
   `--scan-uuid` / `--agentic-scan` for a run). A UUID from another tool is not
@@ -184,7 +204,8 @@ Shows it: `vigolium scan -t https://target.example -m xss --module-tag spring --
 - `traffic --replay` is a shortcut for bulk `replay`. Only `replay` can change
   the request (`-H`, `--auth-session`, `--target`, `--session-id`).
 - On `replay`, `-H` **overrides** a header and `--header-search` **filters**
-  records. On `traffic`, `--header` is the filter.
+  records. On `traffic`/`finding`, `--header` is the filter (`--header-search`
+  is its alias there too).
 - `traffic body` / `traffic headers` are subcommands that extract one message.
   `--body` / `--header` are search flags over the whole corpus.
 - Every search term is literal: `%` and `_` are ordinary characters.
@@ -239,7 +260,7 @@ Shows it: `vigolium scan -t https://target.example --rate-limit known-issue-scan
 - Whitebox scanning is an agent feature: `--source <path|git-url|archive|gs://>`
   on `agent autopilot` / `swarm` / `audit` / `query`, not on `scan`.
 
-Shows it: `vigolium doctor -j | jq '.items[0].status'`
+Shows it: `vigolium doctor -j | jq '{status, capabilities}'`
 
 ## Debugging
 
@@ -248,7 +269,9 @@ Shows it: `vigolium doctor -j | jq '.items[0].status'`
   the same bytes in log lines.
 - `--log-file <path>` writes the run's logs as JSON: attach it to a bug report.
 - `doctor` exits `1` when `not_ready` (`--strict` also on `degraded`), so it can
-  gate a script; `doctor --fix` installs what is missing.
+  gate a script; `doctor --fix` installs what is missing (`--dry-run` lists it
+  first; `--yes` also runs vendor installers for agent tooling) and `--for
+  scan|agent|server` scopes the verdict.
 - Never `2>&1` into a JSON parser. The machine document is on stdout, the human
   line on stderr.
 

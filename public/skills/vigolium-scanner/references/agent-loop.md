@@ -317,7 +317,9 @@ stores). What to read in it:
 ## Step 2 — Scan and gate
 
 ```bash
-# Stateless single-shot, JSON findings to stdout, non-zero exit on high+.
+# One URL, JSON scan document to stdout, exit 4 on high+. It attacks only this
+# input (stored records of the host need --include-stored) but still writes to
+# the active database; add -S to keep nothing.
 vigolium scan-url https://target.example --json --fail-on high
 
 # Full pipeline into the DB, gated for CI.
@@ -870,7 +872,7 @@ custom payloads, an exact position, wordlist-scale discovery.
 # Start here: let anomaly detection find what's interesting — no matchers needed.
 vigolium fuzz -u <record-uuid> --point URL_PARAM:id --class sqli -a
 
-# A literal FUZZ marker anywhere in the request wins over --fuzz/--point.
+# A literal FUZZ marker anywhere in the request is the position (no --fuzz/--point with it).
 echo -e "GET /api/FUZZ HTTP/1.1\r\nHost: target.example\r\n" | vigolium fuzz -w dir-short
 
 # Wordlist discovery + matcher gating (keep 200/301, drop the calibrated catch-all).
@@ -895,10 +897,11 @@ vigolium fuzz -u <uuid> --fuzz params --class xss,sqli -a -j --fail-on-match
 base64 / URL / `-`), `--input-file`, `-u/--record-uuid`, or a piped request on
 stdin. `-t/--target` overrides scheme/host/port without touching the bytes.
 
-**Positions** (first match wins): a literal `FUZZ` marker anywhere →
-`--point TYPE:name` → `--fuzz-header` →
-`--fuzz method|path|params|param-name|headers|cookies|all` (default: all
-insertion points).
+**Positions** (exactly one way, required): a literal `FUZZ` marker anywhere, or
+`--point TYPE:name`, `--fuzz-header Name`, or
+`--fuzz method|path|params|param-name|headers|cookies|all`. A request with
+neither is exit 2, and so is a marker combined with a position flag. Headers the
+request does not carry are skipped unless `--fuzz headers:synthetic`.
 
 **Payloads** combine `--class` (`cmdi,crlf,lfi,open_redirect,path_traversal,sqli,
 ssrf,ssti,xss,xxe`) + `-w/--wordlist` (builtin `dir-long`, `dir-short`,
@@ -915,8 +918,11 @@ look, never a verdict.
 `--format jsonl` for the per-payload stream on stdout; `-o` writes that stream to
 a file. Under `-j`, ONE envelope goes to stdout — the ranked top results in
 `items`, plus `target, sent, matched, calibrated, baseline, anomalies` at the top
-level — and `query`/`query_argv` is a ready `scan-request` confirmation command.
-`--fail-on-match` exits 3 for CI/agent gating.
+level. `query`/`query_argv` is a read; the confirmation command (a
+`scan-request`/`scan-url` that sends traffic) is in `next[]` with
+`sends_traffic: true`. `--fail-on-match` exits 3 for CI/agent gating (`ok`
+stays true). Defaults: `--rate-limit 100`, `--max-requests 10000` (a bigger
+plan is exit 2; `0` lifts either); `--save` stores the matched exchanges.
 
 Always `--dry-run` a large run first: it resolves positions and payloads and
 prints the exact bytes each would send, with **zero** network traffic.
@@ -1110,8 +1116,13 @@ scrape prose:
   "error": { "code": "source_missing", "message": "…", "exit_code": 1 } }
 ```
 
-`error.code` is the stable branch point. A successful envelope has no `error`
-key. Still check the exit code — a parseable error is still an error.
+When the command had already produced its document (a scan that failed, a
+`finding mark` that missed an id, an interrupted scan), that document is
+printed with `ok: false` and the same `error` object beside its fields; there
+is never a second document. `error` may also carry `hint` (the next thing to
+try), `did_you_mean` (a near-miss subcommand, flag or value) and `usage_argv`
+(the `--usage` command for the flags). `error.code` is the stable branch
+point; `error.exit_code` is the process exit code.
 
 **Source codes** — three different next moves:
 
@@ -1172,7 +1183,7 @@ captured (`body_unavailable`).
 | Field | Why it is there |
 |---|---|
 | `schema_version` | Gate on it. Bumped on any breaking field change; `2` since v0.5.3 (scan document, every `-j` an envelope; `--json-legacy-keys` renders old row names for one release). |
-| `ok` | `true` on every result document; the error object carries `"ok": false`, so `.ok` is a valid branch on anything `-j` prints. |
+| `ok` | `true` exactly when the exit code is `0`, `3` (`--fail-on-match`) or `4` (a gate tripped: the run finished). On `1`, `2` and `5` it is `false` and `error` is present, on the result document too. `.ok` and the exit code never disagree. |
 | `kind` | The document's shape: `read` (rows, or one object as `items: [obj]`), `mutation` (adds `changed`, `action`, and `dry_run` on a dry run) or `scan`. `changed` is always present on a mutation and is `false` on a dry run. |
 | `finding_hash` | (on finding rows) The finding's stable identity — the dedup key and what SARIF fingerprints use. Selectable with `--fields`. |
 | `items` | **The** row array, and the only one — always an array, `[]` when empty. The pre-envelope names (`records`, `findings`, `scans`, `rows`, `stats`) are not emitted by default: they duplicated every row on the wire. `--json-legacy-keys` (or `VIGOLIUM_JSON_LEGACY_KEYS=1`) brings the alias back for a caller still migrating, at that cost; for a one-object result the alias renders the object itself (`stats: {…}`). |
@@ -1180,21 +1191,25 @@ captured (`body_unavailable`).
 | `project_uuid` | The project filter that was **actually applied**, or absent when none was (a `-S` read spanning every project names none). |
 | `project_source` | Where the project selection came from: `flag`, `env`, `active_file` (the global file `project use` writes; the envelope then also carries a `warnings[]` entry) or `default`. |
 | `project_scoped` | Whether a project filter was applied at all, so "unscoped" is explicit rather than inferred from a missing `project_uuid`. `false` on a plain `-S` read; `true` once you pass `--project-uuid`. |
-| `query` | A suggested follow-up. **Read it before running it** — see below. |
+| `query` | A suggested follow-up read — see below. |
+| `next` | Further steps `{argv, why, sends_traffic}`; a step with `sends_traffic: true` puts requests on the wire. |
+| `sends_traffic` | `true` on the document of a command that sends requests (scans, `replay`, `fuzz`, `dns`, `fingerprint`, `auth check`, …). |
 | `query_argv` | The same follow-up as an argv vector. Prefer it from code: `query` is shell-quoted for a human, and re-splitting it is where the quoting breaks the parse. The two are always present or absent together — both are absent under `--glob-db`, whose merged source no argument list can reopen. |
 | `output_budget` | Present only when `--max-output-bytes` truncated the page: `{max_bytes, returned, omitted, next_offset}`. `total` still describes the whole result set. |
 | `generated_at` / `_ms` | RFC3339 with **exactly 3** fractional digits, plus an epoch-millisecond sibling. Both are safe to compare against a JS `toISOString()`. |
 
 ### The `query` hint
 
-Every hint is a valid, **read-only** command — running one never puts traffic on
-the wire. `traffic`/`db ls` hand back `traffic --uuid <uuid> --json --full-body`
-(inspect the record), `finding` hands back `finding --id <int> --json
---with-records` (the evidence bundle), `ingest` hands back a plain recency
-listing.
+Every hint is a valid read that sends nothing and repeats the source's `--db`
+(a test enforces it). `traffic`/`db ls` hand back `traffic --uuid <uuid> --json
+--full-body` (inspect the record), `finding` hands back `finding --id <int>
+--json --with-records` (the evidence bundle), `ingest` hands back a plain
+recency listing.
 
-To re-send a request you must ask for it explicitly — `replay -u <uuid>` or
-`fuzz -u <uuid>`. Those are never suggested by a read.
+A follow-up that sends — fuzz's confirmation scan, a scan document's next
+step — is in `next[]` with `sends_traffic: true`, never in `query`. Re-sending a
+stored request is always your explicit choice (`replay -u <uuid>`, `fuzz -u
+<uuid>`).
 
 Check the contract once at startup:
 
@@ -1211,7 +1226,7 @@ vigolium version --json   # envelope: schema_version (the -j contract); items[0]
 | `2` | usage error — bad flag, bad value, rejected combination |
 | `3` | `fuzz --fail-on-match` matched |
 | `4` | `--fail-on <sev>` / `scan diff --fail-on-new <sev>` gate tripped |
-| `5` | incomplete — ran but did not finish; `error.code` is `timed_out`, `budget_exhausted` or `partial` (agent runs; native partial scans still exit 0) |
+| `5` | incomplete — ran but did not finish; `error.code` is `interrupted` (SIGINT/SIGTERM, `scan stop`), `timed_out`, `budget_exhausted` or `partial` (native scans only under `--fail-on`/`--fail-on-partial`) |
 
 **`4` is not a failure.** The scan ran to completion, wrote its output, and found
 something at or above the threshold — the opposite outcome from `1`, where it
@@ -1238,8 +1253,10 @@ On the read commands:
 | `finding --id <a UUID>` | `2` | `usage_error` (names the flag that reads that namespace) |
 | `traffic --group-by <unknown field>` | `2` | `usage_error` (lists the groupable fields) |
 | `traffic body --uuid <no such record>` | `1` | `record_not_found` |
-| `finding mark <id/hash that matches nothing>` | `1` | `not_found` — after the mutation envelope, which lists it in `not_found` |
-| `finding verify … --fail-if not_reproduced` (a finding did not reproduce) | `4` | `gate_tripped` — after the envelope |
+| `finding mark <id/hash that matches nothing>` | `1` | `finding_not_found` — on the mutation document, which lists it in `not_found` |
+| `finding <int>` / `finding show <id>` (no such finding) | `1` | `finding_not_found` (hint: `finding --search <n>`) |
+| `replay`/`fuzz` at a host the scope refuses | `2` | `out_of_scope` — nothing sent; `--ignore-scope` overrides |
+| `finding verify … --fail-if not_reproduced` (a finding did not reproduce) | `4` | none: `ok: true`, the document is the answer |
 | `scan diff <unknown scan>` / `finding --new-since <unknown scan>` | `1` | `scan_not_found` |
 | `traffic body --uuid <request with no response>` | `1` | `body_unavailable` |
 | `scan -S -o <unwritable path>` | `1` | `export_failed` — the scan ran; the artifact did not land |
@@ -1289,11 +1306,12 @@ failed.
   pagination, so `-n`/`--offset` can never hide a match. A UUID passed as the
   *positional* term still matches 0 rows — that searches URL/path/body, not
   identity, so use the flag.
-- **`-S`/`--stateless` is a scoping mode, not a read-only one.** By default,
-  opening any database writes to it: `mkdir -p` on the parent, a `journal_mode`
-  PRAGMA (a header rewrite) and a WAL checkpoint. A pure read never *creates*
-  a store at a pinned path that has none (see the exit-code table), but it does
-  still touch one that is there. Pass **`--read-only`** when the source is
+- **`-S`/`--stateless` is a scoping mode, not a read-only one.** A command that
+  writes opens the database read-write: `mkdir -p` on the parent, a
+  `journal_mode` PRAGMA (a header rewrite) and a WAL checkpoint. A pure read
+  opens it `query_only` and never *creates* a store at a pinned path that has
+  none (see the exit-code table), but it may leave a `-shm` sibling beside
+  one that is there. Pass **`--read-only`** when the source is
   evidence — it skips all three, leaves the file's SHA-256 unchanged, leaves no
   `-wal`/`-shm` siblings behind, and reads a `chmod 444` file fine. It is
   accepted on the read commands and refused (exit 2) on anything that writes, and

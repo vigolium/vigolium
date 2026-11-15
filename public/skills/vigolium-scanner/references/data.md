@@ -1512,7 +1512,7 @@ vigolium ext docs
 vigolium ext docs http             # filter API docs by namespace
 vigolium ext docs --example        # with code examples
 vigolium ext preset                # install all presets
-vigolium ext preset my-scanner     # install specific preset
+vigolium ext preset idor           # install the presets whose name contains "idor"
 vigolium ext eval 'vigolium.log.info("hello")'
 vigolium ext eval --ext-file script.js
 echo 'vigolium.utils.md5("hello")' | vigolium ext eval --stdin
@@ -1749,7 +1749,7 @@ Manage projects for multi-tenancy scan data scoping.
 | `project config` | — | Show the project's config overlay path (`-j`: `items:[{project_uuid, path, exists}]`) |
 | `project create <name>` | — | Create a new project (positional name; `--description` optional). `-j`: `items[0].uuid` is the new UUID |
 | `project list` | `ls` | List all projects |
-| `project use <uuid>` | — | Write the global `~/.vigolium/active-project` file. Takes a UUID, not a name. An unknown UUID exits 1 with `not_found` and creates nothing, unless `--create` (then `--name`/`--description` apply). Prints `export VIGOLIUM_PROJECT_UUID=…` only when stdout is not a terminal (for `eval`); never under `-j` |
+| `project use <project>` | — | Write the global `~/.vigolium/active-project` file. Takes a UUID, an exact name or a unique 8+ char UUID prefix. An unknown one exits 1 with `project_not_found` (hint: `project create <name>`) and creates nothing, unless `--create` (then `--name`/`--description` apply). Prints `export VIGOLIUM_PROJECT_UUID=…` only when stdout is not a terminal (for `eval`); never under `-j`. `--print-env` prints the export line and writes no file: it pins one shell |
 | `project delete <uuid>` | `rm`, `remove` | Delete a project and its data (`--keep-config` retains `~/.vigolium/projects/<uuid>`). An absent project is `changed:false`, not an error |
 
 ### Examples
@@ -1758,7 +1758,7 @@ Manage projects for multi-tenancy scan data scoping.
 vigolium project list
 vigolium project create my-project                 # positional name (no --name flag on create)
 vigolium project create my-project --description "Q4 engagement"
-eval "$(vigolium project use <project-uuid>)"   # takes a UUID; get it from `project list`
+eval "$(vigolium project use acme --print-env)"   # this shell only; writes no file
 vigolium project use <uuid> --create --name acme -j   # create-and-activate; never implicit
 vigolium project config
 vigolium project delete <project-uuid>             # aliases: rm, remove

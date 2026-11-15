@@ -160,7 +160,8 @@ OUTPUT (matched results only unless --all-results):
                    top results in items, anomalies, a ready follow-up query)
   --format jsonl   the per-payload stream, one JSON object per send, to stdout
   -o <file>        the per-payload stream to a file (stdout keeps the table or -j)
-Honors HTTP_PROXY / HTTPS_PROXY for Burp inspection.
+Honors --proxy, and HTTP_PROXY / HTTPS_PROXY (by target scheme), ALL_PROXY and NO_PROXY,
+for Burp inspection.
 
 BURP ENGINE (needs --burp-bridge-url, the extension's loopback listener):
   --send-via-burp         send every payload through Burp's own HTTP stack so exact bytes

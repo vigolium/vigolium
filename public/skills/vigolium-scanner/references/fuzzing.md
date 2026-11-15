@@ -342,21 +342,26 @@ never parse the stream. The ranked top results are `items`; the run summary sits
 beside them, and `total` is the full matched count:
 
 ```json
-{ "schema_version":1, "command":"fuzz", "kind":"read", "ok":true,
-  "target":"https://acme.test", "positions":1, "payloads":13,
-  "sent":13, "matched":1, "calibrated":8, "errors":0,
-  "baseline":{"status":200,"length":25,"words":4,"lines":0},
-  "pace":{"rate_limit":0,"concurrency":10,"delay_ms":0},
+{ "schema_version":2, "command":"fuzz", "kind":"read", "ok":true,
+  "sends_traffic":true, "target":"https://acme.test", "positions":1,
+  "payloads":13, "sent":13, "sent_total":19, "matched":1, "calibrated":8,
+  "errors":0, "baseline":{"status":200,"length":25,"words":4,"lines":0,…},
+  "pace":{"rate_limit":100,"concurrency":10,"delay_ms":0,"protocol":"http/1.1"},
   "total":1, "items":[…], "anomalies":[…],
-  "query":"vigolium scan-request -i '…' -m sqli -j", "query_argv":[…] }
+  "next":[{"argv":["vigolium","scan-url","-t","…","-m","sqli","-j"],
+           "why":"confirm the anomalies with the hardened modules",
+           "sends_traffic":true}] }
 ```
 
 The per-payload stream is not written under `-j` unless `-o` names a file
 (`-j --format jsonl` without `-o` is a usage error: two documents on one stdout).
 
 `items` are ranked most-interesting first (status-changed → reflected →
-largest size delta → slowest). **Run the `query`** (or exec `query_argv`) — it
-is a ready confirmation command against the hardened module scanner.
+largest size delta → slowest) and capped by `-n` (default 20, `0` = all).
+`sent` counts payload sends; `sent_total` every request on the wire (baseline
+samples and calibration probes included). The confirmation command against the
+hardened module scanner is `next[0].argv`: it **sends traffic**
+(`sends_traffic: true`), so it is not the read-only `query`.
 
 `--fail-on-match` exits **3** when any result matched, for CI/agent gating.
 

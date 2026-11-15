@@ -531,9 +531,9 @@ var trafficExamples = FormatExamples(
 	"vigolium traffic --replay --host example.com --in-replace",
 	"",
 	"# --- Send a stored request to Burp's Repeater / Organizer ---",
-	"# traffic locates the record; grab its full UUID (TUI 'c' to copy, or -j '.records[].uuid'),",
+	"# traffic locates the record; grab its full UUID (TUI 'c' to copy, or -j '.items[].uuid'),",
 	"# then hand it to replay --to-repeater / --to-organizer (needs --burp-bridge-url, not --proxy):",
-	`vigolium traffic --host api.example.com --status 200 -j | jq -r '.records[].uuid'`,
+	`vigolium traffic --host api.example.com --status 200 -j | jq -r '.items[].uuid'`,
 	"# Stage that request in a Burp Repeater tab for manual testing",
 	"vigolium replay -u <record-uuid> --to-repeater -B http://127.0.0.1:9009",
 	"# ...into a named Repeater tab",
@@ -848,8 +848,8 @@ var extensionsDocsExamples = FormatExamples(
 var extensionsPresetExamples = FormatExamples(
 	"# Install all starter presets",
 	"vigolium extensions preset",
-	"# Install only a single named preset",
-	"vigolium extensions preset jwt-none",
+	"# Install only the presets whose file name contains a word",
+	"vigolium extensions preset idor",
 )
 
 var findingExamples = FormatExamples(

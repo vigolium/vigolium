@@ -47,22 +47,24 @@ these notes: trust `-h` and run `vigolium skills install --force`.
 - **One `-j` document per command**, compact (`--pretty` to read it by eye):
   `schema_version: 2`, `command`, `kind` (`read`/`mutation`/`scan`), `ok`,
   `project_source` (`flag`/`env`/`active_file`/`default`), `db_path`,
-  `project_scoped`, `total`, `items` (always an array), and `query`/`query_argv`
-  (a safe read-only follow-up). Exact shapes: `vigolium schema command <name>`.
-- **Errors share the spine:** `{ok:false, error:{code, message, exit_code}}` on
-  stdout, prose on stderr. Branch on `error.code` (`usage_error`,
-  `source_missing`, `no_targets_in_scope`, `provider_missing`, `export_failed`,
+  `project_scoped`, `total`, `items` (always an array), `query`/`query_argv`
+  (a read that sends nothing) and `next[]` (follow-ups; `sends_traffic` marks
+  the ones that send). Exact shapes: `vigolium schema command <name>`.
+- **`ok` is the exit code:** `true` exactly on exit `0`, `3`, `4`. Otherwise
+  `error:{code, message, exit_code, hint?, did_you_mean?}` sits beside the
+  document on stdout, prose on stderr. Branch on `error.code` (`usage_error`,
+  `out_of_scope`, `no_targets_reachable`, `provider_missing`, `interrupted`,
   `partial`, …; `vigolium schema error` lists them all).
 - **Three output channels, never mixed on stdout:** the `-j` document;
   `--events ndjson`, live while a scan runs; `--format jsonl -o <file>` or
   `export`, the bulk archival stream. `--events` with `-j` is exit 2.
 - **Exit codes:** `0` ok · `1` error · `2` usage · `3` `fuzz --fail-on-match` ·
   `4` gate tripped (`--fail-on`, `--fail-on-new`, `--fail-if`; not a failure) ·
-  `5` ran but incomplete (agent runs; `scan wait --fail-on-partial`).
-  `--soft-fail` forces `0`.
+  `5` ran but incomplete (`interrupted`, `partial` under `--fail-on`, agent
+  budgets). `--soft-fail` forces `0`.
 - **Pin the store and the project:** `--db` or `$VIGOLIUM_DB_PATH`, and
-  `--project-uuid` or `$VIGOLIUM_PROJECT_UUID` (`project use` is global to every
-  shell). Assert `db_path` and `project_source` rather than trusting a pin.
+  `--project-uuid` or `$VIGOLIUM_PROJECT_UUID` (`project use` without
+  `--print-env` is global to every shell). Assert `db_path` and `project_source`.
   Nothing prompts: destructive commands need `--force`, TUI is `--tui`.
 
 ## The loop
@@ -83,9 +85,9 @@ Walkthrough with output shapes: **`references/agent-loop.md`** (read it first).
 
 ## Before the first scan
 
-- Nothing installs up front. The first `--spider` run downloads Chrome (~150 MB)
-  and the first known-issue scan clones nuclei templates, inside that phase but
-  outside its budget (`scan.setup` events). Pre-install: `vigolium doctor --fix`.
+- Without a terminal `init` skips Chrome (~150 MB) and nuclei templates; the
+  first spidering / known-issue scan fetches them inside that phase (`scan.setup`
+  events). Pre-install: `vigolium init --with-deps` or `vigolium doctor --fix`.
 - A scan that did nothing exits `1`: `no_targets_in_scope` (`--dry-run` shows it
   first) or `no_targets_reachable`. Rescanning the DB needs `--all-records`.
 - A full `scan` can run past 30 minutes per target (discovery 1h, spidering
@@ -166,7 +168,7 @@ gone. Event table: **`references/agent-loop.md`**.
 | Autonomous AI scan | `vigolium agent autopilot -t https://target.example` |
 | Full-scope AI scan | `vigolium agent swarm -t https://target.example --discover` |
 | Whitebox source audit | `vigolium agent audit --source .` |
-| Pin a project in this shell | `eval "$(vigolium project use <uuid>)"` |
+| Pin a project in this shell | `eval "$(vigolium project use <name> --print-env)"` |
 | Set config (lists as JSON) | `vigolium config set scope.host.include '["*.example.com"]'` |
 | Test a login session | `vigolium auth check sessions.yaml` |
 | Merge result databases | `vigolium import --db combined.sqlite --glob-db 'run-*.sqlite'` |
@@ -210,16 +212,16 @@ keeps it out of context. Shaping flags and traps: **`references/agent-loop.md`**
 
 - Exit `0` is not full coverage: read `completeness` and `reasons[]` ([coverage](references/invariants.md#coverage-is-not-success)).
 - A positional on a scan command is a target URL, never a file: `-T` lists, `-i` specs ([inputs](references/invariants.md#targets-and-inputs)).
-- `project use` re-scopes every shell; pin `--project-uuid` and check `project_source` ([projects](references/invariants.md#projects-and-pinning)).
+- `project use` re-scopes every shell (`--print-env` pins one); check `project_source` ([projects](references/invariants.md#projects-and-pinning)).
 - `$VIGOLIUM_DB_PATH` turns reads unscoped once the store exists; assert `db_path` ([database](references/invariants.md#which-database-a-command-opens)).
 - `--passive-only` sends no attack traffic, and is not on `run` ([modules](references/invariants.md#module-selection)).
 - `replay -u`, `fuzz -u` and `traffic --replay` send traffic; `traffic --uuid` reads ([reads vs sends](references/invariants.md#reads-versus-sends)).
-- A `query` hint is always read-only and safe to run ([reads vs sends](references/invariants.md#reads-versus-sends)).
+- A `query` hint is a read and safe to run; senders are in `next[]` ([reads vs sends](references/invariants.md#reads-versus-sends)).
 - `finding --id` is the integer id; a UUID belongs to `traffic --uuid` or `--scan-uuid` ([identifiers](references/invariants.md#reads-versus-sends)).
 - Every record UUID flag takes a unique 8+ character prefix (`uuid_short`); an ambiguous one fails `ambiguous_id` naming the candidates.
 - `replay -i`/`fuzz -i` take request text or a path to a file holding it.
 - `fingerprint` sends only reads (GET, OPTIONS, one GraphQL introspection); it never follows redirects.
-- Opening a DB writes to it; pass `--read-only` for evidence ([read-only](references/invariants.md#opening-a-database-writes-to-it)).
+- Writes open the DB read-write; pass `--read-only` for evidence ([read-only](references/invariants.md#opening-a-database)).
 - `--fail-on` writes output first, skips dismissed findings, and is per child under `-P` ([gates](references/invariants.md#gates)).
 - Agent commands need a provider (`provider_missing`); whitebox is `--source` on agents, not `scan` ([agents](references/invariants.md#burp-server-and-agents)).
 - Debug with `--dump-traffic` (stderr), not `--debug` ([debugging](references/invariants.md#debugging)).
