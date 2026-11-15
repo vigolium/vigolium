@@ -127,6 +127,7 @@
             "source_incompatible",
             "source_missing",
             "source_unreadable",
+            "storage_disabled",
             "timed_out",
             "unauthorized",
             "unsupported_api_version",
