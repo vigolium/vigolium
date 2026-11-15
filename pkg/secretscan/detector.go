@@ -371,6 +371,15 @@ func (d *Detector) detect(data []byte) []Match {
 // RuleCount returns the number of active compiled rules.
 func (d *Detector) RuleCount() int { return len(d.rules) }
 
+// RuleIDs returns the IDs of the active compiled rules, in catalog order.
+func (d *Detector) RuleIDs() []string {
+	ids := make([]string, 0, len(d.rules))
+	for _, r := range d.rules {
+		ids = append(ids, r.rule.ID)
+	}
+	return ids
+}
+
 func groupSpan(loc []int, group int) (int, int) {
 	i := 2 * group
 	if i+1 >= len(loc) {

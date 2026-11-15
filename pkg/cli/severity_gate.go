@@ -1,6 +1,11 @@
 package cli
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
+)
 
 // severityRanks orders severities from least to most severe, mirroring
 // pkg/types/severity (Info < Suspect < Low < Medium < High < Critical).
@@ -79,7 +84,10 @@ func severityByPrefix(s string) (string, bool) {
 // parseSeverityList splits a comma-separated severity filter (e.g.
 // "high,critical" or "h,c") into canonical severity names, expanding shorthands,
 // dropping blanks, and de-duplicating while preserving first-seen order.
-func parseSeverityList(raw string) []string {
+//
+// An item that names no severity is a usage error: dropped silently, it turned
+// the filter into one that matches nothing and answered "total: 0".
+func parseSeverityList(raw string) ([]string, error) {
 	var out []string
 	seen := make(map[string]bool)
 	for _, tok := range strings.Split(raw, ",") {
@@ -87,10 +95,16 @@ func parseSeverityList(raw string) []string {
 		if s == "" || seen[s] {
 			continue
 		}
+		if severityRank(s) == 0 {
+			return nil, clicommon.CLIError{
+				Err:        fmt.Errorf("unknown severity %q: must be one of: %s", strings.TrimSpace(tok), strings.Join(severityOrder, ", ")),
+				DidYouMean: closestName(s, severityOrder),
+			}
+		}
 		seen[s] = true
 		out = append(out, s)
 	}
-	return out
+	return out, nil
 }
 
 // severityRank returns the numeric rank of a severity name (0 if unknown).

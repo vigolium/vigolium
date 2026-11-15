@@ -193,6 +193,10 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 		infra.Close()
 		return nil, err
 	}
+	if err := r.validateModuleSelection(plan, infra.jsEngine); err != nil {
+		infra.Close()
+		return nil, err
+	}
 
 	// Initialize multi-session support for IDOR/BOLA testing. Skipped when no
 	// enabled phase will reach the target: see reachesTarget above.

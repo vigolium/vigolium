@@ -458,6 +458,10 @@ func prepareCommandTree(root *cobra.Command) {
 	// runs first so its validators are wrapped too.
 	enforceGroupSubcommands(root)
 	wrapArgsValidators(root)
+
+	// Flags with a closed value set reject a typo while flags parse
+	// (enum_flags.go).
+	applyClosedValueFlags(root)
 }
 
 func Execute() {
@@ -658,6 +662,15 @@ func resolveModules() []string {
 		if len(tagResolved) == 0 {
 			zap.L().Warn("no modules matched the given tags",
 				zap.Strings("tags", globalModuleTags))
+			// Carried through verbatim, like an unmatched -m pattern: the
+			// selection then names no built-in module, and the runner (after
+			// matching extensions) or the direct path rejects it. Falling back
+			// to every module turned a typo into a full scan.
+			unmatched := make([]string, 0, len(globalModuleTags))
+			for _, t := range globalModuleTags {
+				unmatched = append(unmatched, "tag:"+t)
+			}
+			addUnique(unmatched)
 		} else {
 			zap.L().Debug("resolved module tags",
 				zap.Strings("tags", globalModuleTags),

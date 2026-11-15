@@ -56,8 +56,12 @@ func TestParseSeverityListFuzzy(t *testing.T) {
 		{" , ", nil},
 	}
 	for _, tc := range cases {
-		if got := parseSeverityList(tc.raw); !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("parseSeverityList(%q) = %v, want %v", tc.raw, got, tc.want)
+		if got, err := parseSeverityList(tc.raw); err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("parseSeverityList(%q) = %v, %v, want %v", tc.raw, got, err, tc.want)
 		}
+	}
+	// An unknown item is a usage error, not a filter that matches nothing.
+	if _, err := parseSeverityList("high,bogus"); err == nil || classifyExitCode(err) != ExitUsageError {
+		t.Errorf("parseSeverityList(high,bogus) = %v, want a usage error", err)
 	}
 }

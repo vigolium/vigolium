@@ -284,7 +284,9 @@ func runListHTTPRecords(ctx context.Context, cmd *cobra.Command, db *database.DB
 
 	var severities []string
 	if listSeverity != "" {
-		severities = parseSeverityList(listSeverity)
+		if severities, err = parseSeverityList(listSeverity); err != nil {
+			return err
+		}
 	}
 
 	projectUUID, err := effectiveProjectUUID()
@@ -353,7 +355,9 @@ func runListFindings(ctx context.Context, cmd *cobra.Command, db *database.DB) e
 
 	var severities []string
 	if listSeverity != "" {
-		severities = parseSeverityList(listSeverity)
+		if severities, err = parseSeverityList(listSeverity); err != nil {
+			return err
+		}
 	}
 
 	projectUUID, err := effectiveProjectUUID()

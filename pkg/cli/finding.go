@@ -552,7 +552,9 @@ func buildFindingFilters(fuzzyTerm string) (database.QueryFilters, error) {
 
 	var severities []string
 	if findingSeverity != "" {
-		severities = parseSeverityList(findingSeverity)
+		if severities, err = parseSeverityList(findingSeverity); err != nil {
+			return database.QueryFilters{}, err
+		}
 	} else if findingMinSeverity != "" {
 		severities = severitiesAtOrAbove(normalizeSeverity(findingMinSeverity))
 		if severities == nil {

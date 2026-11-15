@@ -513,7 +513,7 @@ func getFilteredModules(moduleIDs []string, noPassive bool) ([]modules.ActiveMod
 	resolved := modules.ResolveModulePatterns(moduleIDs)
 	activeIDs := resolved
 	passiveIDs := resolved
-	if len(resolved) == 0 {
+	if len(resolved) == 0 && len(moduleIDs) == 0 {
 		activeIDs = []string{"all"}
 		passiveIDs = []string{"all"}
 	}
@@ -769,6 +769,11 @@ func executeDirectScan(ctx context.Context, sess *directScanSession, rr *httpmsg
 
 	// Get modules
 	active, passive := getFilteredModules(resolvedModules, scanURLNoPassive)
+	if len(active)+len(passive) == 0 {
+		if err := emptyModuleSelectionError(); err != nil {
+			return nil, err
+		}
+	}
 
 	// Storage. Acquired BEFORE any request goes out, so a pinned store that
 	// cannot be opened fails the command instead of costing a whole scan.

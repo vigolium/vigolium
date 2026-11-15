@@ -141,7 +141,12 @@ func TestEnumFlagsRejectUnknownValues(t *testing.T) {
 // requiredEnumFlags are flags whose value set is closed: each must be an enum
 // flag. "<path> --<name>"; a persistent flag is listed under the command that
 // declares it.
-var requiredEnumFlags = []string{}
+var requiredEnumFlags = []string{
+	"finding --severity", "finding --sort", "traffic --sort", "db list --severity", "db list --sort",
+	"db export --severity", "db clean --severity", "export --severity", "import --severity",
+	"replay --sort", "module --type", "module ls --type", "fuzz --mode",
+	"agent query --provider", "agent autopilot --provider",
+}
 
 // cobra's root-level unknown command becomes the structured error: the fact as
 // message, the suggestion as did_you_mean.

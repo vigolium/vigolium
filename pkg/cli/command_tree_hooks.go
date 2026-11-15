@@ -229,6 +229,12 @@ type enumValue struct {
 	fold bool
 	// allowEmpty accepts "" (a flag whose empty value means "no filter").
 	allowEmpty bool
+	// commaList checks a plain string flag's comma-separated items one by one.
+	commaList bool
+	// accept, when set, decides membership instead of an exact match against
+	// allowed (aliases, shorthands, prefixes); allowed is still what the error
+	// and the schema list.
+	accept func(string) bool
 }
 
 func (e *enumValue) String() string { return e.inner.String() }
@@ -236,7 +242,7 @@ func (e *enumValue) Type() string   { return e.inner.Type() }
 
 func (e *enumValue) Set(s string) error {
 	values := []string{s}
-	if strings.HasSuffix(e.inner.Type(), "Slice") || strings.HasSuffix(e.inner.Type(), "Array") {
+	if e.commaList || strings.HasSuffix(e.inner.Type(), "Slice") || strings.HasSuffix(e.inner.Type(), "Array") {
 		values = strings.Split(s, ",")
 	}
 	for _, v := range values {
@@ -252,6 +258,9 @@ func (e *enumValue) Set(s string) error {
 }
 
 func (e *enumValue) accepts(v string) bool {
+	if e.accept != nil {
+		return e.accept(v)
+	}
 	for _, a := range e.allowed {
 		if a == v || (e.fold && strings.EqualFold(a, v)) {
 			return true
@@ -321,6 +330,12 @@ type enumOpt func(*enumValue)
 
 // enumAllowEmpty accepts "" as "no filter".
 func enumAllowEmpty() enumOpt { return func(e *enumValue) { e.allowEmpty = true } }
+
+// enumCommaList validates each comma-separated item of a plain string flag.
+func enumCommaList() enumOpt { return func(e *enumValue) { e.commaList = true } }
+
+// enumAccept decides membership with fn (aliases, shorthands).
+func enumAccept(fn func(string) bool) enumOpt { return func(e *enumValue) { e.accept = fn } }
 
 // enumCaseSensitive matches values exactly.
 func enumCaseSensitive() enumOpt { return func(e *enumValue) { e.fold = false } }

@@ -10,8 +10,10 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/secretscan"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 var (
@@ -85,6 +87,9 @@ func runKitSecretScan(cmd *cobra.Command, args []string) error {
 	detector, err := secretscan.Default()
 	if err != nil {
 		return fmt.Errorf("loading secret catalog: %w", err)
+	}
+	if err := checkSecretRuleIDs(detector.RuleIDs(), kitSecretRules, kitSecretExcludeRules); err != nil {
+		return err
 	}
 
 	// Expand the positional args into concrete file paths (dirs walked). No
@@ -273,4 +278,33 @@ func toSet(items []string) map[string]bool {
 		}
 	}
 	return m
+}
+
+// checkSecretRuleIDs rejects a --rule/--exclude-rule ID the catalog does not
+// carry: an unknown --rule used to report nothing, which reads as "no secret".
+func checkSecretRuleIDs(known []string, lists ...[]string) error {
+	set := toSet(known)
+	for _, list := range lists {
+		for _, id := range list {
+			if _, ok := set[id]; ok || strings.TrimSpace(id) == "" {
+				continue
+			}
+			e := clicommon.CLIError{
+				Err:  fmt.Errorf("unknown secret rule %q", id),
+				Hint: "Rule IDs are the rule_id values a match reports (kit secret-scan -j), e.g. kingfisher.aws.1",
+			}
+			// A near miss is the common case: a typo in a long, namespaced ID.
+			best, bestDist := "", -1
+			for _, k := range known {
+				if d := textutil.Levenshtein(id, k); bestDist == -1 || d < bestDist {
+					best, bestDist = k, d
+				}
+			}
+			if bestDist >= 0 && bestDist <= max(2, len(id)/4) {
+				e.DidYouMean = best
+			}
+			return e
+		}
+	}
+	return nil
 }

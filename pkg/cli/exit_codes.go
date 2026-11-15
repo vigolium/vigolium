@@ -229,7 +229,7 @@ func classifyExitCode(err error) int {
 		return ExitUsageError
 	}
 	// A rejected --only/--skip (an unknown phase, both flags at once).
-	if errors.Is(err, runner.ErrPhaseSelection) {
+	if errors.Is(err, runner.ErrPhaseSelection) || errors.Is(err, runner.ErrEmptyModuleSelection) {
 		return ExitUsageError
 	}
 	// -I naming no input format; a fuzz run with no payload source.
