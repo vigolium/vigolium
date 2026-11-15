@@ -50,6 +50,7 @@ var machineKinds = map[string]machineKind{
 	"scan status":     kindRead,
 	"scan ls":         kindRead,
 	"scan stop":       kindMutation,
+	"agent cancel":    kindMutation,
 	"scan wait":       kindScan, // the finished scan's scan document; --events streams instead
 	"run":             kindScan,
 	"scan-url":        kindScan,

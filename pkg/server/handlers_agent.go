@@ -429,12 +429,37 @@ func (h *Handlers) HandleAgentCancel(c fiber.Ctx) error {
 		return notFound()
 	}
 	if !h.cancelRun(agenticScanUUID) {
-		return notFound()
+		return h.requestForeignAgentCancel(c, agenticScanUUID, notFound)
 	}
 	return c.JSON(AgenticScanResponse{
 		AgenticScanUUID: agenticScanUUID,
 		Status:          "cancelling",
 		Message:         "cancellation requested",
+	})
+}
+
+// requestForeignAgentCancel cancels an agent run this server does not run — a
+// CLI run on the same store — by writing a cancel request on its row, which
+// that run polls every few seconds. 202: recorded, not yet stopped.
+func (h *Handlers) requestForeignAgentCancel(c fiber.Ctx, runUUID string, notFound func() error) error {
+	if h.repo == nil {
+		return notFound()
+	}
+	run, err := h.repo.GetAgenticScan(c.Context(), runUUID)
+	if err != nil || run == nil || !inRequestProject(c, run.ProjectUUID) {
+		return notFound()
+	}
+	ok, _, err := h.repo.RequestAgenticScanCancel(c.Context(), runUUID)
+	if err != nil {
+		return respondError(c, fiber.StatusInternalServerError, fmt.Errorf("record cancel request: %w", err))
+	}
+	if !ok {
+		return notFound()
+	}
+	return c.Status(fiber.StatusAccepted).JSON(AgenticScanResponse{
+		AgenticScanUUID: runUUID,
+		Status:          "cancel_requested",
+		Message:         "cancel requested: the run is in another process and stops within a few seconds",
 	})
 }
 

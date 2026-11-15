@@ -350,6 +350,9 @@ func resolveAgenticScanTree(ctx context.Context, db *database.DB, root string) [
 // UUID is a no-op; a failed insert is logged, never fatal — the run itself
 // does not depend on its bookkeeping row.
 func startAgenticScanRow(ctx context.Context, repo *database.Repository, row *database.AgenticScan) {
+	if row != nil {
+		noteAgentRun(row.UUID)
+	}
 	if repo == nil || row == nil || row.UUID == "" {
 		return
 	}

@@ -154,6 +154,8 @@ func init() {
 
 	registerAuditFlags(agentAuditCmd)
 	registerAuditFlags(auditCmd)
+	registerAuditControlFlags(agentAuditCmd)
+	registerAuditControlFlags(auditCmd)
 }
 
 // registerAuditFlags wires the shared audit flag set onto a cobra command.
@@ -255,6 +257,12 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 
 	if !agent.IsValidAuditDriver(auditDriver) {
 		return usageErrorf("invalid --driver %q (must be: auto, both, audit, or piolium)", auditDriver)
+	}
+	if err := rejectAuditBudgetFlags(cmd); err != nil {
+		return err
+	}
+	if auditMaxDuration < 0 {
+		return usageErrorf("--max-duration must not be negative (got %s)", auditMaxDuration)
 	}
 
 	// --agent is a pure agent selector for the audit leg. Reject bad
@@ -410,6 +418,9 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 	// unavailable; skipping piolium" message — are deferred to the
 	// orchestration step so they only surface when piolium is actually
 	// chosen or about to run, not on every audit invocation.
+	if auditDryRun {
+		return printAuditDryRun(cmd, settings, authOverride)
+	}
 	if err := ensureAuditDriversFeasible(auditDriver); err != nil {
 		return err
 	}
@@ -527,6 +538,13 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if auditMaxDuration > 0 {
+		var cancelDeadline context.CancelFunc
+		ctx, cancelDeadline = context.WithTimeout(ctx, auditMaxDuration)
+		defer cancelDeadline()
+	}
+	ctx, stopCancelWatch := watchAgentCancel(ctx, repo, parentSessionDir, parentUUID)
+	defer stopCancelWatch()
 
 	plans := orchestrateAuditDrivers(ctx, auditDriver, parentSessionDir, parentUUID, projectUUID,
 		absTarget, settings, repo, streamToConsole, authOverride)
@@ -561,6 +579,7 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 		}
 	}
 	auditEnd := database.AgenticRunEnd{FailedDrivers: failed, TotalDrivers: len(plans)}
+	auditRunEndFromContext(ctx, &auditEnd)
 	auditDBStatus, _ := agentRunStatus(auditEnd)
 	if repo != nil {
 		now := time.Now()
@@ -609,7 +628,11 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 		End:             auditEnd,
 		FindingCount:    int64(totalSaved),
 		Usage:           agentRunUsage{CostUSD: costUSD},
+		Budget:          agentRunBudget{MaxDurationMS: auditMaxDuration.Milliseconds(), Exhausted: auditEnd.TimedOut},
 		StartedAt:       startedAt,
+	}
+	if auditEnd.TimedOut {
+		outcome.Budget.Stop = "wall_time"
 	}
 	if cmd != nil {
 		outcome.Command = commandPathWithoutRoot(cmd)
@@ -628,7 +651,10 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 	// in which every driver failed still exits 1, one in which some did exits
 	// 5 (partial), after the document.
 	docErr := emitAgentRunDocument(outcome)
-	if allFailedErr != nil {
+	if auditEnd.Cancelled {
+		return agentRunFailure(ctx, ctx.Err())
+	}
+	if allFailedErr != nil && !auditEnd.TimedOut {
 		return allFailedErr
 	}
 	return docErr

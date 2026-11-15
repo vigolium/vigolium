@@ -295,7 +295,7 @@ var agentAuditFlagGroups = []flagGroup{
 	{"Piolium Leg", []string{"pi-provider", "pi-model", "plm-scan-limit", "plm-scan-since", "plm-phase-retries", "plm-command-retries", "plm-longshot-limit", "plm-longshot-timeout", "plm-longshot-langs"}},
 	{"Authentication (BYOK)", []string{"api-key", "oauth-token", "oauth-cred-file"}},
 	{"Preflight", []string{"no-preflight", "preflight-timeout"}},
-	{"Execution", []string{"interactive", "no-stream", "show-thinking", "no-dedup", "keep-raw", "clean-raw"}},
+	{"Execution", []string{"interactive", "no-stream", "show-thinking", "no-dedup", "keep-raw", "clean-raw", "dry-run", "max-duration"}},
 	{"Output", []string{"stateless", "output", "output-dir", "upload-results"}},
 }
 

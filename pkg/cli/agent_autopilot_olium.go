@@ -186,6 +186,9 @@ func runAutopilotOlium(parentCtx context.Context, settings *config.Settings, rep
 		SessionDir:  sessionDir,
 		StartedAt:   startedAt,
 	})
+	var stopCancelWatch func()
+	ctx, stopCancelWatch = watchAgentCancel(ctx, repo, sessionDir, parentAgenticScanUUID)
+	defer stopCancelWatch()
 
 	// Tee streamed text into {sessionDir}/runtime.log so `vigolium log <uuid>`
 	// can replay the run later, regardless of whether the operator is watching.

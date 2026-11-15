@@ -87,12 +87,6 @@ func (r *Repository) scanStopState(ctx context.Context, scanUUID string) (*ScanS
 	return req, row.Status, nil
 }
 
-// agenticScanTerminalStatuses lists the agentic run statuses a cancel request
-// can no longer affect.
-var agenticScanTerminalStatuses = []string{
-	"completed", "failed", AgenticScanStatusCancelled, AgenticScanStatusTimeout, AgenticScanStatusBudgetExhausted,
-}
-
 // RequestAgenticScanCancel records a cancel request on an agent run that has
 // not finished. requested reports whether the run is still live and now
 // carries a request (this one or an earlier one); status is the run's stored
@@ -102,7 +96,7 @@ func (r *Repository) RequestAgenticScanCancel(ctx context.Context, runUUID strin
 		TableExpr("agentic_scans").
 		Set("cancel_requested_at = ?", time.Now().UTC()).
 		Where("uuid = ?", runUUID).
-		Where("status NOT IN (?)", bun.List(agenticScanTerminalStatuses)).
+		Where("status NOT IN (?)", bun.List(TerminalAgenticScanStatuses)).
 		Where("cancel_requested_at IS NULL").
 		Exec(ctx); err != nil {
 		return false, "", err
@@ -124,7 +118,7 @@ func (r *Repository) RequestAgenticScanCancel(ctx context.Context, runUUID strin
 		return false, "", err
 	}
 	live := true
-	for _, s := range agenticScanTerminalStatuses {
+	for _, s := range TerminalAgenticScanStatuses {
 		if row.Status == s {
 			live = false
 		}

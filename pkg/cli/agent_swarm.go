@@ -682,6 +682,9 @@ func runAgentSwarm(cmd *cobra.Command, args []string) (err error) {
 		ctx, cancel = context.WithTimeout(ctx, swarmMaxDuration)
 		defer cancel()
 	}
+	var stopCancelWatch func()
+	ctx, stopCancelWatch = watchAgentCancel(ctx, repo, sessionDir, swarmAgenticScanUUID)
+	defer stopCancelWatch()
 
 	// Resolve effective agent name for display
 	effectiveAgent := cfg.AgentName

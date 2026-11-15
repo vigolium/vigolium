@@ -31,9 +31,13 @@ type agentErrorEnvelope struct {
 	// consumer reading exit_code: 2 alongside a process that exited 0 has no way
 	// to tell which number is the truth. Both are: exit_code is what the command
 	// concluded, the process status is what the caller asked to be told.
-	SoftFail      bool   `json:"soft_fail,omitempty"`
-	GeneratedAt   string `json:"generated_at"`
-	GeneratedAtMS int64  `json:"generated_at_ms"`
+	SoftFail bool `json:"soft_fail,omitempty"`
+	// AgenticScanUUID names the agent run this invocation started, when the
+	// failure came after one did, so it can be found again (`agent session`,
+	// `log`).
+	AgenticScanUUID string `json:"agentic_scan_uuid,omitempty"`
+	GeneratedAt     string `json:"generated_at"`
+	GeneratedAtMS   int64  `json:"generated_at_ms"`
 }
 
 type agentError struct {

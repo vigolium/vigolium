@@ -44,3 +44,32 @@ func TestHandleStopScan_ForeignScanGetsStopRequest(t *testing.T) {
 		t.Fatal("a scan of another project got a stop request")
 	}
 }
+
+// An agent run the server does not run gets a cancel request on its row.
+func TestHandleAgentCancel_ForeignRunGetsCancelRequest(t *testing.T) {
+	db, repo := newPinnedTestDB(t)
+	ctx := context.Background()
+	if err := repo.CreateAgenticScan(ctx, &database.AgenticScan{UUID: "cli-agent-run", ProjectUUID: database.DefaultProjectUUID,
+		Mode: "autopilot", AgentName: "olium", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.CreateAgenticScan(ctx, &database.AgenticScan{UUID: "cli-agent-done", ProjectUUID: database.DefaultProjectUUID,
+		Mode: "autopilot", AgentName: "olium", Status: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	h := newBasicHandlers(t, ServerConfig{}, &fakeQueue{}, db, repo, nil)
+	app := fiber.New()
+	app.Post("/api/agent/scans/:uuid/cancel", h.HandleAgentCancel)
+
+	if status, body := doReq(t, app, http.MethodPost, "/api/agent/scans/cli-agent-run/cancel", "", nil); status != http.StatusAccepted {
+		t.Fatalf("status %d, want 202\n%s", status, body)
+	}
+	if ok, _ := repo.AgenticScanCancelRequested(ctx, "cli-agent-run"); !ok {
+		t.Fatal("cancel request not recorded")
+	}
+	for _, id := range []string{"cli-agent-done", "nope"} {
+		if status, _ := doReq(t, app, http.MethodPost, "/api/agent/scans/"+id+"/cancel", "", nil); status != http.StatusNotFound {
+			t.Errorf("%s: status %d, want 404", id, status)
+		}
+	}
+}
