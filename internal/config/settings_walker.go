@@ -21,7 +21,8 @@ type SettingEntry struct {
 	Default any
 	// Type is bool, int, float, string, duration, list or map.
 	Type string
-	// Sensitive marks a string credential: redact its value for display.
+	// Sensitive marks a string credential (see IsSensitiveEntry): redact its
+	// value for display.
 	Sensitive bool
 }
 
@@ -44,7 +45,9 @@ func SettingEntries(settings *Settings) []SettingEntry {
 		if d, ok := defaults[key]; ok {
 			e.Default = plainValue(d)
 		}
-		e.Sensitive = e.Type == "string" && IsCredentialKey(key)
+		if str, ok := e.Value.(string); ok && e.Type == "string" {
+			e.Sensitive = IsSensitiveEntry(key, str)
+		}
 		entries = append(entries, e)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
@@ -204,63 +207,6 @@ func plainValue(v reflect.Value) any {
 		return out
 	}
 	return v.Interface()
-}
-
-// credentialLeafWords are leaf-name words that make a string setting a
-// credential. A whole word of the leaf, split on "_" and "-": "token" matches
-// bot_token but not max_tokens, and "secret" matches secret_key but a
-// boolean like disable_secret_scan is never a string.
-var credentialLeafWords = map[string]bool{
-	"password": true, "passwd": true, "secret": true, "token": true, "apikey": true,
-	"credential": true, "credentials": true, "authorization": true, "cookie": true,
-}
-
-// credentialLeafPairs are two-word leaf names that are credentials as a pair.
-var credentialLeafPairs = []string{"api_key", "access_key", "secret_key", "private_key", "auth_header", "chat_id", "webhook_url"}
-
-// IsCredentialKey reports whether a dotted settings key names a credential:
-// any key under a parent named api_keys, a leaf whose words include a
-// credential word, or a webhook URL. It classifies the key alone; callers
-// apply it to string settings only.
-func IsCredentialKey(key string) bool {
-	lower := strings.ToLower(key)
-	parts := strings.Split(lower, ".")
-	for _, p := range parts[:len(parts)-1] {
-		if p == "api_keys" {
-			return true
-		}
-	}
-	leaf := parts[len(parts)-1]
-	for _, pair := range credentialLeafPairs {
-		if leaf == pair || strings.HasSuffix(leaf, "_"+pair) || strings.HasPrefix(leaf, pair+"_") {
-			return true
-		}
-	}
-	for _, w := range strings.FieldsFunc(leaf, func(r rune) bool { return r == '_' || r == '-' }) {
-		if credentialLeafWords[w] {
-			return true
-		}
-	}
-	// A webhook URL carries its token in the path (Slack, Discord, Teams).
-	if leaf == "url" {
-		for _, p := range parts[:len(parts)-1] {
-			if p == "webhook" || p == "hook" || strings.HasSuffix(p, "_webhook") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// LookupSetting returns the entry for one key (exact match), for a reader
-// that wants a single typed value (`config get`).
-func LookupSetting(settings *Settings, key string) (SettingEntry, bool) {
-	for _, e := range SettingEntries(settings) {
-		if e.Key == key {
-			return e, true
-		}
-	}
-	return SettingEntry{}, false
 }
 
 // DisplaySettingValue renders a SettingEntry value as one line of text: lists

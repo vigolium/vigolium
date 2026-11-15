@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -33,9 +32,6 @@ type TraceOptions struct {
 	// FlagKeys are keys a command-line flag set for this run.
 	FlagKeys []string
 }
-
-// envRefInValue matches ${NAME}, ${NAME:-default} and $NAME references.
-var envRefInValue = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-[^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 
 // TraceSources reports, for every key a layer set, the layer that decided its
 // effective value: the config file (or env:NAME when the file's value is a

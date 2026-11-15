@@ -104,7 +104,7 @@ func runConfigSet(cmd *cobra.Command, deps Deps, args []string, dryRun bool) err
 	// `config set agent.api_key sk-...` printed the key straight back to stdout
 	// — into the shell history, the CI log, and the agent transcript. `config ls`
 	// redacts the same value; the write path has to agree with the read path.
-	sensitive := config.IsSensitiveEntry(settingKey, value) || config.IsSensitiveEntry(settingKey, stored)
+	sensitive := config.IsSensitiveSetting(settings, settingKey, value, stored)
 	shown := stored
 	if sensitive {
 		shown = clicommon.SecretPlaceholder
@@ -144,7 +144,7 @@ func reportConfigSetDryRun(cmd *cobra.Command, deps Deps, settings *config.Setti
 	if !ok {
 		after = value
 	}
-	sensitive := config.IsSensitiveEntry(settingKey, value) || config.IsSensitiveEntry(settingKey, after)
+	sensitive := config.IsSensitiveSetting(settings, settingKey, value, after)
 	shown := after
 	if sensitive {
 		shown = clicommon.SecretPlaceholder

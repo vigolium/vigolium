@@ -15,38 +15,22 @@ type ConfigEntry struct {
 	Sensitive bool
 }
 
-// sensitiveKeysSuffixes are key suffixes that should be masked in display
-var sensitiveKeysSuffixes = []string{"password", "bot_token", "webhook_url", "chat_id", "api_key"}
-
-// sensitiveKeyWords match a whole token of a (lowercased) key after splitting
-// on ".", "_", and "-". Whole-word matching avoids false positives like
-// "max_tokens" (a count) being treated as a credential.
-var sensitiveKeyWords = map[string]struct{}{
-	"key":           {},
-	"token":         {},
-	"secret":        {},
-	"authorization": {},
+// credentialLeafWords are leaf-name words that make a string setting a
+// credential. A whole word of the leaf, split on "_" and "-": "token" matches
+// bot_token but not max_tokens, and "secret" matches secret_key. A boolean like
+// disable_secret_scan matches too, which is why callers classify string
+// settings only.
+var credentialLeafWords = map[string]bool{
+	"password": true, "passwd": true, "secret": true, "token": true, "key": true, "apikey": true,
+	"credential": true, "credentials": true, "authorization": true, "cookie": true,
 }
 
-// sensitiveKeyPathContains marks an entry sensitive when one of the listed
-// parent path tokens appears AND the leaf is `url`. This catches webhook
-// URLs whose key path is `notify.webhook.url` — the suffix-based list
-// can't match because plain `.url` would over-redact every config field
-// that happens to end in `url` (e.g. `oast.server.url`, `storage.gcs.url`).
-var sensitiveKeyPathContains = map[string]struct{}{
-	"webhook": {},
-	"hook":    {},
-}
+// credentialLeafPairs are two-word leaf names that are credentials as a pair.
+var credentialLeafPairs = []string{"auth_header", "chat_id", "webhook_url"}
 
-// keyWordSeparators splits dot-notation keys into atomic words.
-var keyWordSeparators = func(r rune) bool {
-	return r == '.' || r == '_' || r == '-'
-}
-
-// envRefPattern matches values that interpolate an environment variable, e.g.
-// "${API_KEY}" or "${HOME}/path". Such values are treated as sensitive because
-// they typically resolve to credentials at runtime.
-var envRefPattern = regexp.MustCompile(`\$\{[^}]+\}`)
+// envRefInValue matches ${NAME}, ${NAME:-default} and $NAME references, the
+// forms ExpandEnvVars fills in.
+var envRefInValue = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-[^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 
 // FlattenSettings converts a Settings struct into a flat list of dot-notation key-value pairs
 func FlattenSettings(settings *Settings) []ConfigEntry {
@@ -82,64 +66,51 @@ func flattenMap(prefix string, m map[string]any, entries *[]ConfigEntry) {
 			for _, item := range val {
 				parts = append(parts, fmt.Sprintf("%v", item))
 			}
-			value := "[" + strings.Join(parts, ", ") + "]"
-			*entries = append(*entries, ConfigEntry{
-				Key:       key,
-				Value:     value,
-				Sensitive: isSensitiveEntry(key, value),
-			})
+			*entries = append(*entries, ConfigEntry{Key: key, Value: "[" + strings.Join(parts, ", ") + "]"})
+		case string:
+			*entries = append(*entries, ConfigEntry{Key: key, Value: val, Sensitive: IsSensitiveEntry(key, val)})
 		default:
-			value := fmt.Sprintf("%v", val)
-			*entries = append(*entries, ConfigEntry{
-				Key:       key,
-				Value:     value,
-				Sensitive: isSensitiveEntry(key, value),
-			})
+			*entries = append(*entries, ConfigEntry{Key: key, Value: fmt.Sprintf("%v", val)})
 		}
 	}
 }
 
-// isSensitiveEntry reports whether a config entry should be redacted in
-// human-readable output. A key is sensitive if it ends with a known
-// credential-shaped suffix, contains "key" / "token" / "secret" anywhere, or
-// if the value interpolates an environment variable (e.g. "${API_KEY}").
-func isSensitiveEntry(key, value string) bool {
-	return IsSensitiveEntry(key, value)
-}
-
-// IsSensitiveEntry is the exported form, for a caller that holds one key and
-// value and must not flatten the whole settings struct to classify them.
-// `config set` did exactly that: FlattenSettings marshals and re-parses the
-// entire config (~350 entries, ~1.5 MB of garbage) to read one boolean. Sharing
-// this predicate is what keeps the write path's redaction identical to the read
-// path's rather than approximately so.
+// IsSensitiveEntry reports whether a string setting's value must be redacted
+// for display: its key names a credential, or the value interpolates an
+// environment variable ("${API_KEY}"), which typically resolves to one. It is
+// the one classifier behind `config ls`, `config set` and GET /api/config; a
+// caller applies it to string settings only, so a boolean such as
+// disable_secret_scan is never withheld.
 func IsSensitiveEntry(key, value string) bool {
-	if isSensitiveKey(key) {
-		return true
-	}
-	return envRefPattern.MatchString(value)
+	return isCredentialKey(key) || envRefInValue.MatchString(value)
 }
 
-func isSensitiveKey(key string) bool {
-	lower := strings.ToLower(key)
-	for _, suffix := range sensitiveKeysSuffixes {
-		if strings.HasSuffix(lower, suffix) {
+// isCredentialKey reports whether a dotted settings key names a credential:
+// any key under a parent named api_keys, a leaf whose words include a
+// credential word, or a webhook URL.
+func isCredentialKey(key string) bool {
+	parts := strings.Split(strings.ToLower(key), ".")
+	parents, leaf := parts[:len(parts)-1], parts[len(parts)-1]
+	for _, p := range parents {
+		if p == "api_keys" {
 			return true
 		}
 	}
-	words := strings.FieldsFunc(lower, keyWordSeparators)
-	for _, word := range words {
-		if _, ok := sensitiveKeyWords[word]; ok {
+	for _, pair := range credentialLeafPairs {
+		if leaf == pair || strings.HasSuffix(leaf, "_"+pair) || strings.HasPrefix(leaf, pair+"_") {
 			return true
 		}
 	}
-	// "webhook.*.url" / "*.hook.*.url" pattern — the leaf is `url` AND a
-	// hook-shaped token appears earlier in the path. Catches per-channel
-	// webhook URLs whose tokens often live in the URL itself (Slack,
-	// Discord, Teams) without over-redacting unrelated `*.url` entries.
-	if len(words) >= 2 && words[len(words)-1] == "url" {
-		for _, w := range words[:len(words)-1] {
-			if _, ok := sensitiveKeyPathContains[w]; ok {
+	for _, w := range strings.FieldsFunc(leaf, func(r rune) bool { return r == '_' || r == '-' }) {
+		if credentialLeafWords[w] {
+			return true
+		}
+	}
+	// A webhook URL carries its token in the path (Slack, Discord, Teams);
+	// other *.url settings (oast.server_url, storage.gcs.url) are not secret.
+	if leaf == "url" {
+		for _, p := range parents {
+			if p == "webhook" || p == "hook" || strings.HasSuffix(p, "_webhook") {
 				return true
 			}
 		}

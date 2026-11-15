@@ -173,37 +173,31 @@ func SettingValue(settings *Settings, key string) (any, bool) {
 	return v.Interface(), true
 }
 
-// SettingDisplay renders the value at key on one line: a scalar as itself, a
-// list or map in YAML flow style. ok is false for a key that names no setting.
+// SettingDisplay renders the value at key on one line, the way `config ls`
+// shows it (DisplaySettingValue). ok is false for a key that names no setting.
 func SettingDisplay(settings *Settings, key string) (string, bool) {
 	v, ok := settingValue(settings, key)
 	if !ok {
 		return "", false
 	}
-	switch v.Kind() {
-	case reflect.Slice, reflect.Map, reflect.Struct:
-		var n yaml.Node
-		if err := n.Encode(v.Interface()); err != nil {
-			return fmt.Sprint(v.Interface()), true
-		}
-		setFlow(&n)
-		out, err := yaml.Marshal(&n)
-		if err != nil {
-			return fmt.Sprint(v.Interface()), true
-		}
-		return strings.TrimSpace(string(out)), true
-	default:
-		return fmt.Sprint(v.Interface()), true
-	}
+	return DisplaySettingValue(plainValue(v)), true
 }
 
-func setFlow(n *yaml.Node) {
-	if n.Kind == yaml.SequenceNode || n.Kind == yaml.MappingNode {
-		n.Style |= yaml.FlowStyle
+// IsSensitiveSetting is IsSensitiveEntry for the setting at key: a string
+// setting is withheld when its key names a credential or one of values (the
+// supplied and the stored text) interpolates an environment variable; any
+// other type never is.
+func IsSensitiveSetting(settings *Settings, key string, values ...string) bool {
+	v, ok := settingValue(settings, key)
+	if !ok || v.Kind() != reflect.String {
+		return false
 	}
-	for _, c := range n.Content {
-		setFlow(c)
+	for _, val := range values {
+		if IsSensitiveEntry(key, val) {
+			return true
+		}
 	}
+	return false
 }
 
 // settingValue walks settings along the dot-notation key by yaml tag names. A
