@@ -63,6 +63,7 @@ var dbIntents = map[string]string{
 	"scan ls":         "read",
 	"scan stop":       "write",
 	"agent cancel":    "write",
+	"status":          "read",
 	"scan wait":       "read", // polls during a scan: must never take the write lock
 	"run":             "write",
 	"scan-url":        "write",

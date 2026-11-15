@@ -40,7 +40,7 @@ var readOnlyCapableCommands = []string{
 	"db list", "db stats", "db export",
 	"log", "log ls", "export", "replay", "fuzz", "scan diff", "schema storage", "hosts",
 	"match-not-found",
-	"scan ls",
+	"scan ls", "status",
 }
 
 // registerReadOnlyFlag adds the persistent --read-only flag to the root command.
