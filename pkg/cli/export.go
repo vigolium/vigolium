@@ -172,12 +172,6 @@ func (s exportScope) includes(dataType string) bool {
 	return !ok || !t.ImplicitlyExcluded
 }
 
-// validate rejects unknown type names, naming the flag that supplied them.
-func (s exportScope) validate(flagName string) error {
-	_, err := canonicalExportTypes(flagName, s.only)
-	return err
-}
-
 // topExportScope is the scope the `vigolium export` command's --only and
 // --exclude build. Unknown names were rejected by validateExportOnly.
 func topExportScope() exportScope {

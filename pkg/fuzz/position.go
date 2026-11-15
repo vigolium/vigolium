@@ -178,7 +178,7 @@ func NearestMarker(raw []byte, keyword string) string {
 	}
 	best, bestDist := "", 3
 	for _, tok := range bytes.FieldsFunc(raw, func(r rune) bool {
-		return !(r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z')
+		return r != '_' && (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
 	}) {
 		t := string(tok)
 		if t == keyword || len(t) > 2*len(keyword) {

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -41,7 +42,8 @@ func (e *b5Env) runChildWithin(t *testing.T, d time.Duration, args ...string) (i
 		t.Fatalf("%v did not finish within %s:\n%s", args, d, errb.String())
 	}
 	code := 0
-	if ee, ok := err.(*exec.ExitError); ok {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
 		code = ee.ExitCode()
 	} else if err != nil {
 		t.Fatal(err)
