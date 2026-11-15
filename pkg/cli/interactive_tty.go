@@ -6,9 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"golang.org/x/term"
-
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
+	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
 // ttyProbe reports whether an interactive terminal is available: /dev/tty
@@ -20,7 +19,7 @@ var ttyProbe = func() bool {
 		return false
 	}
 	_ = f.Close()
-	return term.IsTerminal(int(os.Stdout.Fd()))
+	return terminal.IsTerminal()
 }
 
 // requireInteractiveTTY refuses to start a terminal UI where there is no
