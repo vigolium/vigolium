@@ -852,7 +852,7 @@ List database records (default: http_records)
 | `--asc` | - | bool | `false` | Sort in ascending order instead of descending |
 | `--body` | - | string | - | Search only the HTTP request/response body (not headers); use --search to span the whole exchange |
 | `--columns` | - | stringSlice | - | Columns to include in output, comma-separated |
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--fields` | - | stringSlice | - | Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url). An unknown name is an error, not a silent drop |
 | `--finding-source` | - | string | - | Filter findings by source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
 | `--from` | - | string | - | Show records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
@@ -1213,7 +1213,7 @@ Browse vulnerability findings with fuzzy search and filtering
 | `--burp` | - | bool | `false` | Display in Burp Suite-style format (colored request/response) |
 | `--burp-bridge-url` | `-B` | string | - | Loopback Burp/Caido bridge URL used by --push-to-burp / --to-repeater (alias: --caido-bridge-url) |
 | `--columns` | - | stringSlice | - | Columns to show (comma-separated, e.g. ID,SEVERITY,MODULE) |
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--confidence` | - | string | - | Filter by confidence: certain,firm,tentative (comma-separated) |
 | `--curl` | - | bool | `false` | Render each selected finding's proving request (its stored evidence, else its first linked record) as a curl command; -j gives {id, finding_hash, record_uuid, curl, argv} |
 | `--curl-all` | - | bool | `false` | Like --curl, but render every HTTP record linked to each finding |
@@ -1336,7 +1336,7 @@ Fingerprint origins with a bounded set of reads and store the result as host fac
 | `--browser-engine` | `-E` | string | `chromium` | Browser engine: 'chromium', 'ungoogled', or 'fingerprint' |
 | `--browser-insecure` | - | bool | `false` | Spider with every browser security exception on: no sandbox, TLS errors ignored, mixed content allowed, same-origin policy off. For local test apps only |
 | `--browsers` | `-b` | int | `1` | Browser instances to launch for spidering (clamped to 1; for parallel crawling set spidering.tabs in the config, which runs N tabs of the one browser) |
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
 | `--db-isolate` | - | bool | `false` | Scan into a private temporary database, then merge results into --db (or the default DB) at the end — lets many parallel scans share one --db without write contention (SQLite only; ignored under --stateless, which keeps nothing to merge; combine with -P -T to fan out targets and export one unified output from the merged DB) |
 | `--depth` | - | string | - | Reads per origin: light, standard or full (default standard, light past 50 targets) |
@@ -2221,7 +2221,7 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--browser-engine` | `-E` | string | `chromium` | Browser engine: 'chromium', 'ungoogled', or 'fingerprint' |
 | `--browser-insecure` | - | bool | `false` | Spider with every browser security exception on: no sandbox, TLS errors ignored, mixed content allowed, same-origin policy off. For local test apps only |
 | `--browsers` | `-b` | int | `1` | Browser instances to launch for spidering (clamped to 1; for parallel crawling set spidering.tabs in the config, which runs N tabs of the one browser) |
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
 | `--db-isolate` | - | bool | `false` | Scan into a private temporary database, then merge results into --db (or the default DB) at the end — lets many parallel scans share one --db without write contention (SQLite only; ignored under --stateless, which keeps nothing to merge; combine with -P -T to fan out targets and export one unified output from the merged DB) |
 | `--discover` | - | bool | `false` | Force the content discovery phase on (balanced and deep already run it; --skip discovery turns it off) |
@@ -2337,7 +2337,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--browser-engine` | `-E` | string | `chromium` | Browser engine: 'chromium', 'ungoogled', or 'fingerprint' |
 | `--browser-insecure` | - | bool | `false` | Spider with every browser security exception on: no sandbox, TLS errors ignored, mixed content allowed, same-origin policy off. For local test apps only |
 | `--browsers` | `-b` | int | `1` | Browser instances to launch for spidering (clamped to 1; for parallel crawling set spidering.tabs in the config, which runs N tabs of the one browser) |
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
 | `--db-isolate` | - | bool | `false` | Scan into a private temporary database, then merge results into --db (or the default DB) at the end — lets many parallel scans share one --db without write contention (SQLite only; ignored under --stateless, which keeps nothing to merge; combine with -P -T to fan out targets and export one unified output from the merged DB) |
 | `--discover` | - | bool | `false` | Force the content discovery phase on (balanced and deep already run it; --skip discovery turns it off) |
@@ -2451,7 +2451,7 @@ Compare two scans' findings: new, fixed, not re-observed, unchanged
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--fail-on-new` | - | string | - | Exit 4 when a NEW finding is at or above this severity (info\|suspect\|low\|medium\|high\|critical) |
 | `--fields` | - | stringSlice | - | Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url). An unknown name is an error, not a silent drop |
 | `--full-body` | - | bool | `false` | Render complete request/response bodies (no truncation/stubbing) with --json, and whole (uncompacted) bodies with --markdown |
@@ -2519,7 +2519,7 @@ Block until a scan finishes, then print its summary and exit with its outcome
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--events` | - | string | - | Stream progress as NDJSON on stdout (value: ndjson): phase.progress lines, then scan.finished |
 | `--fail-on` | - | string | - | Exit non-zero if a finding at or above this severity is present (info\|suspect\|low\|medium\|high\|critical); findings marked false_positive/accepted_risk do not count — evaluated on the finished scan (exit 4); --soft-fail overrides. |
 | `--fail-on-partial` | - | bool | `false` | Exit 5 (error.code partial) when the scan completed with partial coverage |
@@ -2541,7 +2541,7 @@ Scan a raw HTTP request for vulnerabilities
 | `--auth` | - | stringArray | - | Inline session in 'name:Header:value' format. Repeatable; commas are literal (header values may contain commas). |
 | `--auth-file` | - | stringArray | - | Path to auth file (YAML/JSON, single session or sessions: bundle), or bare name resolved against scanning_strategy.session.session_dir. Repeatable; commas are literal. |
 | `--baseline` | - | string | - | Previous run's findings (.jsonl export or .sqlite store): --fail-on counts only findings not in it; -j adds baseline{new,unchanged,fixed,ignored} |
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
 | `--discover` | - | bool | `false` | Run content discovery before scanning |
 | `--dry-run` | - | bool | `false` | Resolve and print the scan plan — phases (with why each disabled one is off), budgets, pace, modules, scope, auth session names, scope admission and a rough request estimate — then exit without scanning. Mints no scan UUID, writes no output file or scan row, materializes no wordlist, runs no login and registers no OAST; an existing database is only read. -j prints it as a document (items = phases, plan = the full plan, dry_run: true). Names the path the scan would take (execution_path: runner or direct); the scheme is not probed |
@@ -2609,7 +2609,7 @@ Scan a single URL for vulnerabilities
 | `--auth-file` | - | stringArray | - | Path to auth file (YAML/JSON, single session or sessions: bundle), or bare name resolved against scanning_strategy.session.session_dir. Repeatable; commas are literal. |
 | `--baseline` | - | string | - | Previous run's findings (.jsonl export or .sqlite store): --fail-on counts only findings not in it; -j adds baseline{new,unchanged,fixed,ignored} |
 | `--body` | - | string | - | Request body |
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
 | `--discover` | - | bool | `false` | Run content discovery before scanning |
 | `--dry-run` | - | bool | `false` | Resolve and print the scan plan — phases (with why each disabled one is off), budgets, pace, modules, scope, auth session names, scope admission and a rough request estimate — then exit without scanning. Mints no scan UUID, writes no output file or scan row, materializes no wordlist, runs no login and registers no OAST; an existing database is only read. -j prints it as a document (items = phases, plan = the full plan, dry_run: true). Names the path the scan would take (execution_path: runner or direct) |
@@ -3090,7 +3090,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--burp` | - | bool | `false` | Display in Burp Suite-style format (colored request/response) |
 | `--burp-bridge-url` | `-B` | string | - | Merge live traffic from this loopback Burp/Caido bridge URL with local database records (alias: --caido-bridge-url) |
 | `--columns` | - | stringSlice | - | Columns to show (comma-separated, e.g. HOST,METHOD,PATH,STATUS) |
-| `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
+| `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int | `10` | Concurrent replays (--replay); keep low to avoid overwhelming an intercepting proxy like Burp |
 | `--curl` | - | bool | `false` | Render each matched record as a curl command (URL from the stored scheme/host/port; renders at most 20 without -a); -j gives {uuid, url, curl, argv} |
 | `--exclude-body` | - | string | - | Exclude records whose request/response body contains the term (inverse of --body; bodies only, not headers) |
