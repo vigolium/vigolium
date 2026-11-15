@@ -60,12 +60,16 @@ const recordUnreferencedSQL = `NOT EXISTS (
 // discovery-cleanup passes use deleteUnreferencedRecords instead.
 func deleteRecordsByUUIDsTx(ctx context.Context, tx bun.Tx, uuids []string) error {
 	for chunk := range slices.Chunk(uuids, SQLChunkSize) {
-		if _, err := tx.NewRaw("DELETE FROM finding_records WHERE record_uuid IN (?)", bun.List(chunk)).Exec(ctx); err != nil {
+		res, err := tx.NewRaw("DELETE FROM finding_records WHERE record_uuid IN (?)", bun.List(chunk)).Exec(ctx)
+		if err != nil {
 			return fmt.Errorf("failed to delete finding_records: %w", err)
 		}
-		if _, err := tx.NewDelete().Model((*HTTPRecord)(nil)).Where("uuid IN (?)", bun.List(chunk)).Exec(ctx); err != nil {
+		noteDeleted(ctx, "finding_records", res)
+		res, err = tx.NewDelete().Model((*HTTPRecord)(nil)).Where("uuid IN (?)", bun.List(chunk)).Exec(ctx)
+		if err != nil {
 			return fmt.Errorf("failed to delete records: %w", err)
 		}
+		noteDeleted(ctx, "http_records", res)
 	}
 	return nil
 }
@@ -113,9 +117,11 @@ func deleteFindingsByIDsTx(ctx context.Context, tx bun.Tx, ids []int64) error {
 		return err
 	}
 	for chunk := range slices.Chunk(ids, SQLChunkSize) {
-		if _, err := tx.NewDelete().Model((*Finding)(nil)).Where("id IN (?)", bun.List(chunk)).Exec(ctx); err != nil {
+		res, err := tx.NewDelete().Model((*Finding)(nil)).Where("id IN (?)", bun.List(chunk)).Exec(ctx)
+		if err != nil {
 			return fmt.Errorf("failed to delete findings: %w", err)
 		}
+		noteDeleted(ctx, "findings", res)
 	}
 	return nil
 }

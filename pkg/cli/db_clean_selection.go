@@ -89,6 +89,12 @@ func resolveCleanSelection(projectUUID string) (*cleanSelection, error) {
 			mode = m.mode
 		}
 	}
+	// --severity names findings, so on its own it deletes findings: as a
+	// record filter it removed every HTTP record carrying a finding of that
+	// severity, and with them every other finding those records proved.
+	if len(chosen) == 0 && cleanSeverity != "" {
+		mode = cleanModeFindings
+	}
 	if len(chosen) > 1 {
 		return nil, usageErrorf(
 			"%s select different sets of rows and cannot be combined; run one mode at a time",
@@ -148,8 +154,9 @@ func resolveStoreWideSelection(mode cleanMode, supplied []string) (*cleanSelecti
 		}
 		sel.Table = cleanTable
 	}
-	if mode == cleanModeAll && !globalForce {
-		return nil, usageErrorf("--all deletes every row in the database and requires --force")
+	// A dry run deletes nothing, so it needs no confirmation.
+	if mode == cleanModeAll && !globalForce && !cleanDryRun {
+		return nil, usageErrorf("--all deletes every row in the database and requires --force (or --dry-run to preview)")
 	}
 	return sel, nil
 }

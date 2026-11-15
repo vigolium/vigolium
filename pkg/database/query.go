@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -688,6 +687,15 @@ func NewDeleteBuilder(db *DB, filters QueryFilters) *DeleteBuilder {
 // than bound parameters — so an unchunked delete builds one statement holding
 // every uuid as text, tens of megabytes of it on a large corpus.
 func (db *DeleteBuilder) DeleteRecords(ctx context.Context, dryRun bool) (int64, error) {
+	counts, err := db.DeleteRecordsByTable(ctx, dryRun)
+	return counts["http_records"], err
+}
+
+// DeleteRecordsByTable is DeleteRecords reporting the rows removed from every
+// table it touches: the records, their evidence links, and the findings left
+// without evidence (with those findings' own child rows). A dry run executes
+// the same transaction and rolls it back, so its counts are exact.
+func (db *DeleteBuilder) DeleteRecordsByTable(ctx context.Context, dryRun bool) (DeleteCounts, error) {
 	qb := NewQueryBuilder(db.db, db.filters)
 	query := qb.BuildRecordsQuery().Column("uuid")
 
@@ -696,23 +704,19 @@ func (db *DeleteBuilder) DeleteRecords(ctx context.Context, dryRun bool) (int64,
 	// would remove) every match rather than the page the caller asked for.
 	var uuids []string
 	if err := query.Scan(ctx, &uuids); err != nil {
-		return 0, fmt.Errorf("failed to get record UUIDs: %w", err)
+		return nil, fmt.Errorf("failed to get record UUIDs: %w", err)
 	}
 
+	counts := DeleteCounts{}
 	if len(uuids) == 0 {
-		return 0, nil
-	}
-
-	if dryRun {
-		return int64(len(uuids)), nil
+		return counts, nil
 	}
 
 	// One transaction: the intermediate states below are inconsistent by
 	// construction (records gone, their findings not yet reconsidered), and a
 	// reader or a crash must not observe one. It also collapses what would
 	// otherwise be one auto-commit per chunk into a single commit.
-	var rowsAffected int64
-	err := db.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
+	err := db.countedTx(ctx, counts, dryRun, func(ctx context.Context, tx bun.Tx) error {
 		// (1) Findings that cite any of the doomed records, collected before the
 		// junction is touched. DISTINCT is per chunk, so the same finding can be
 		// reported by several chunks — sort and compact, or step (3) re-deletes it
@@ -735,104 +739,116 @@ func (db *DeleteBuilder) DeleteRecords(ctx context.Context, dryRun bool) (int64,
 		if err := deleteRecordsByUUIDsTx(ctx, tx, uuids); err != nil {
 			return err
 		}
-		// The selection and the delete share this transaction, so every selected
-		// uuid was deleted — which also makes the reported count agree with the
-		// number --dry-run promised.
-		rowsAffected = int64(len(uuids))
 
 		// (3) Candidates left with no surviving evidence. The junction is already
 		// narrowed, so NOT EXISTS asks exactly "is anything still citing this".
+		// They go through deleteFindingsByIDsTx so their history rows go too.
+		var doomed []int64
 		for chunk := range slices.Chunk(candidateFindings, SQLChunkSize) {
-			if _, err := tx.NewDelete().
+			var ids []int64
+			if err := tx.NewSelect().
 				Model((*Finding)(nil)).
+				Column("id").
 				Where("id IN (?)", bun.List(chunk)).
 				Where("NOT EXISTS (SELECT 1 FROM finding_records fr WHERE fr.finding_id = f.id)").
-				Exec(ctx); err != nil {
-				return fmt.Errorf("failed to delete findings left without evidence: %w", err)
+				Scan(ctx, &ids); err != nil {
+				return fmt.Errorf("failed to find findings left without evidence: %w", err)
 			}
+			doomed = append(doomed, ids...)
+		}
+		if err := deleteFindingsByIDsTx(ctx, tx, doomed); err != nil {
+			return fmt.Errorf("failed to delete findings left without evidence: %w", err)
 		}
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-
-	return rowsAffected, nil
+	return counts, nil
 }
 
 // DeleteOrphans deletes orphaned findings (findings where none of the
 // http_record_uuids exist in http_records).
+func (db *DeleteBuilder) DeleteOrphans(ctx context.Context, dryRun bool) (int64, error) {
+	counts, err := db.DeleteOrphansByTable(ctx, dryRun)
+	return counts["findings"], err
+}
+
+// DeleteOrphansByTable is DeleteOrphans reporting the rows removed per table.
 //
 // It honors filters.ProjectUUID. Orphan cleanup reads as store maintenance, but
 // the rows it removes belong to projects: an unscoped sweep run from one
 // engagement deleted another engagement's findings, which is the same
 // cross-project leak the scoped delete paths exist to prevent. With no project
 // filter set the behavior is unchanged and the whole store is swept.
-func (db *DeleteBuilder) DeleteOrphans(ctx context.Context, dryRun bool) (int64, error) {
+func (db *DeleteBuilder) DeleteOrphansByTable(ctx context.Context, dryRun bool) (DeleteCounts, error) {
 	orphanCondition := "NOT EXISTS (SELECT 1 FROM finding_records fr INNER JOIN http_records r ON r.uuid = fr.record_uuid WHERE fr.finding_id = f.id)"
 
-	if dryRun {
-		q := db.db.NewSelect().Model((*Finding)(nil)).Where(orphanCondition)
+	counts := DeleteCounts{}
+	err := db.countedTx(ctx, counts, dryRun, func(ctx context.Context, tx bun.Tx) error {
+		del := tx.NewDelete().Model((*Finding)(nil)).Where(orphanCondition)
 		if db.filters.ProjectUUID != "" {
-			q = q.Where("f.project_uuid = ?", db.filters.ProjectUUID)
+			del = del.Where("f.project_uuid = ?", db.filters.ProjectUUID)
 		}
-		count, err := q.Count(ctx)
-		return int64(count), err
-	}
+		res, err := del.Exec(ctx)
+		if err != nil {
+			return err
+		}
+		noteDeleted(ctx, "findings", res)
 
-	del := db.db.NewDelete().Model((*Finding)(nil)).Where(orphanCondition)
-	if db.filters.ProjectUUID != "" {
-		del = del.Where("f.project_uuid = ?", db.filters.ProjectUUID)
-	}
-	result, err := del.Exec(ctx)
+		// Clean up junction rows whose finding is now gone. This is keyed on the
+		// findings table rather than on the project, so it stays correct whether
+		// or not the delete above was scoped.
+		for _, table := range findingChildTables {
+			res, err := tx.NewRaw("DELETE FROM " + table + " WHERE finding_id NOT IN (SELECT id FROM findings)").Exec(ctx)
+			if err != nil {
+				zap.L().Debug("failed to clean up orphaned finding child rows", zap.String("table", table), zap.Error(err))
+				continue
+			}
+			noteDeleted(ctx, table, res)
+		}
+		return nil
+	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-
-	rows, _ := result.RowsAffected()
-
-	// Clean up junction rows whose finding is now gone. This is keyed on the
-	// findings table rather than on the project, so it stays correct whether or
-	// not the delete above was scoped.
-	for _, table := range findingChildTables {
-		if _, err := db.db.NewRaw("DELETE FROM " + table + " WHERE finding_id NOT IN (SELECT id FROM findings)").Exec(ctx); err != nil {
-			zap.L().Debug("failed to clean up orphaned finding child rows", zap.String("table", table), zap.Error(err))
-		}
-	}
-
-	return rows, nil
+	return counts, nil
 }
 
 // DeleteFindings deletes findings matching the configured filters.
 // If dryRun is true, returns the count without deleting.
 func (db *DeleteBuilder) DeleteFindings(ctx context.Context, dryRun bool) (int64, error) {
+	counts, err := db.DeleteFindingsByTable(ctx, dryRun)
+	return counts["findings"], err
+}
+
+// DeleteFindingsByTable is DeleteFindings reporting the rows removed per table
+// (the findings and their evidence links and history). HTTP records are never
+// touched. A dry run executes the delete and rolls it back.
+func (db *DeleteBuilder) DeleteFindingsByTable(ctx context.Context, dryRun bool) (DeleteCounts, error) {
 	fqb := NewFindingsQueryBuilder(db.db, db.filters)
 
-	// Count matching findings
 	query := db.db.NewSelect().Model((*Finding)(nil))
 	fqb.applyFindingFilters(query)
 
 	var ids []int64
 	if err := query.Column("id").Scan(ctx, &ids); err != nil {
-		return 0, fmt.Errorf("failed to get finding IDs: %w", err)
+		return nil, fmt.Errorf("failed to get finding IDs: %w", err)
 	}
 
+	counts := DeleteCounts{}
 	if len(ids) == 0 {
-		return 0, nil
-	}
-
-	if dryRun {
-		return int64(len(ids)), nil
+		return counts, nil
 	}
 
 	// Shared with the finding-dedup passes: one owner for "delete these findings
 	// and their evidence links", chunked, in one transaction.
-	if err := db.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
+	if err := db.countedTx(ctx, counts, dryRun, func(ctx context.Context, tx bun.Tx) error {
 		return deleteFindingsByIDsTx(ctx, tx, ids)
 	}); err != nil {
-		return 0, fmt.Errorf("failed to delete findings: %w", err)
+		return nil, fmt.Errorf("failed to delete findings: %w", err)
 	}
-	return int64(len(ids)), nil
+	return counts, nil
 }
 
 // cleanableTable defines a table that can be cleaned via `db clean --table`.
@@ -868,27 +884,40 @@ func (db *DeleteBuilder) DeleteTable(ctx context.Context, tableName string, dryR
 	if !ok {
 		return 0, fmt.Errorf("table %q is not allowed for cleaning", tableName)
 	}
+	counts, err := db.DeleteTableByTable(ctx, tableName, dryRun)
+	return counts[entry.SQLName], err
+}
 
-	var count int64
-	if err := db.db.NewRaw("SELECT COUNT(*) FROM "+entry.SQLName).Scan(ctx, &count); err != nil {
-		return 0, fmt.Errorf("failed to count rows in %s: %w", entry.SQLName, err)
+// DeleteTableByTable is DeleteTable reporting the rows removed from the table
+// and from each dependent table it clears first.
+func (db *DeleteBuilder) DeleteTableByTable(ctx context.Context, tableName string, dryRun bool) (DeleteCounts, error) {
+	entry, ok := AllowedCleanTables[tableName]
+	if !ok {
+		return nil, fmt.Errorf("table %q is not allowed for cleaning", tableName)
 	}
-
-	if dryRun || count == 0 {
-		return count, nil
-	}
-
-	for _, dep := range entry.CascadeFirst {
-		if _, err := db.db.ExecContext(ctx, "DELETE FROM "+dep); err != nil {
-			return 0, fmt.Errorf("failed to clean cascade table %s: %w", dep, err)
+	counts := DeleteCounts{}
+	err := db.countedTx(ctx, counts, dryRun, func(ctx context.Context, tx bun.Tx) error {
+		for _, dep := range entry.CascadeFirst {
+			res, err := tx.ExecContext(ctx, "DELETE FROM "+dep)
+			if err != nil {
+				return fmt.Errorf("failed to clean cascade table %s: %w", dep, err)
+			}
+			noteDeleted(ctx, dep, res)
 		}
+		res, err := tx.ExecContext(ctx, "DELETE FROM "+entry.SQLName)
+		if err != nil {
+			return fmt.Errorf("failed to delete from %s: %w", entry.SQLName, err)
+		}
+		noteDeleted(ctx, entry.SQLName, res)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	if _, err := db.db.ExecContext(ctx, "DELETE FROM "+entry.SQLName); err != nil {
-		return 0, fmt.Errorf("failed to delete from %s: %w", entry.SQLName, err)
+	if _, ok := counts[entry.SQLName]; !ok {
+		counts[entry.SQLName] = 0
 	}
-
-	return count, nil
+	return counts, nil
 }
 
 // allTablesDeleteOrder is the deletion order respecting dependencies.

@@ -274,3 +274,30 @@ func TestDescribeActionPluralizesTheNounNotThePhrase(t *testing.T) {
 		})
 	}
 }
+
+// --severity on its own deletes findings, not the records that carry them.
+func TestSeverityAloneSelectsFindings(t *testing.T) {
+	resetCleanFlags(t)
+	cleanSeverity = "high"
+	sel, err := resolveCleanSelection(testProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sel.Mode != cleanModeFindings {
+		t.Fatalf("mode = %q, want findings", sel.Mode)
+	}
+}
+
+// --all --dry-run deletes nothing, so it needs no --force.
+func TestAllDryRunNeedsNoForce(t *testing.T) {
+	resetCleanFlags(t)
+	cleanAll, cleanDryRun = true, true
+	t.Cleanup(func() { cleanDryRun = false })
+	if _, err := resolveCleanSelection(testProject); err != nil {
+		t.Fatalf("--all --dry-run: %v", err)
+	}
+	cleanDryRun = false
+	if _, err := resolveCleanSelection(testProject); err == nil {
+		t.Fatal("--all without --force or --dry-run accepted")
+	}
+}

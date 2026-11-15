@@ -654,14 +654,14 @@ Clean database records
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--all` | - | bool | `false` | Delete every row from all data tables (requires --force) |
+| `--all` | - | bool | `false` | Delete every row from all data tables (requires --force unless --dry-run) |
 | `--before` | - | string | - | Delete records created strictly before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (the named day itself is kept) |
 | `--dry-run` | - | bool | `false` | Show what would be deleted without deleting |
 | `--findings-only` | - | bool | `false` | Delete findings only, keep HTTP records |
 | `--host` | - | string | - | Delete records matching the specified hostname |
 | `--orphans` | - | bool | `false` | Delete findings with no matching HTTP record |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Delete records belonging to the specified scan UUID |
-| `--severity` | - | string | - | Delete findings matching the specified severity level |
+| `--severity` | - | string | - | Delete findings matching the specified severity level (findings only; HTTP records are kept) |
 | `--status` | - | intSlice | - | Delete records with matching HTTP status codes |
 | `--table` | - | string | - | Delete all rows from a specific table (e.g., http_records, findings, scans) |
 

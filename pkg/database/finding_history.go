@@ -170,9 +170,11 @@ func migrateFindingHistoryTx(ctx context.Context, tx bun.Tx, survivorID int64, d
 func deleteFindingChildrenTx(ctx context.Context, tx bun.Tx, ids []int64) error {
 	for chunk := range slices.Chunk(ids, SQLChunkSize) {
 		for _, table := range findingChildTables {
-			if _, err := tx.NewRaw("DELETE FROM "+table+" WHERE finding_id IN (?)", bun.List(chunk)).Exec(ctx); err != nil {
+			res, err := tx.NewRaw("DELETE FROM "+table+" WHERE finding_id IN (?)", bun.List(chunk)).Exec(ctx)
+			if err != nil {
 				return fmt.Errorf("failed to delete %s: %w", table, err)
 			}
+			noteDeleted(ctx, table, res)
 		}
 	}
 	return nil

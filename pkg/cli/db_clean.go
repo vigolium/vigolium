@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -53,12 +55,12 @@ func init() {
 	dbCmd.AddCommand(dbCleanCmd)
 	dbCmd.AddCommand(dbResetCmd)
 
-	dbCleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete every row from all data tables (requires --force)")
+	dbCleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete every row from all data tables (requires --force unless --dry-run)")
 	dbCleanCmd.Flags().StringVar(&cleanHost, "host", "", "Delete records matching the specified hostname")
 	dbCleanCmd.Flags().StringVar(&cleanScanUUID, "scan-uuid", "", "Delete records belonging to the specified scan UUID")
 	dbCleanCmd.Flags().StringVar(&cleanBefore, "before", "", fmt.Sprintf("Delete records created strictly before this time — %s (the named day itself is kept)", clicommon.TimeFilterSyntax))
 	dbCleanCmd.Flags().IntSliceVar(&cleanStatus, "status", nil, "Delete records with matching HTTP status codes")
-	dbCleanCmd.Flags().StringVar(&cleanSeverity, "severity", "", "Delete findings matching the specified severity level")
+	dbCleanCmd.Flags().StringVar(&cleanSeverity, "severity", "", "Delete findings matching the specified severity level (findings only; HTTP records are kept)")
 
 	dbCleanCmd.Flags().BoolVar(&cleanDryRun, "dry-run", false, "Show what would be deleted without deleting")
 
@@ -121,6 +123,33 @@ func cleanModeTableName(sel *cleanSelection) string {
 	default:
 		return "http_records"
 	}
+}
+
+// cleanCountsView orders per-table counts for output: the mode's own table
+// first (always present, even at 0), then every other table the delete
+// touched in dependency order.
+func cleanCountsView(sel *cleanSelection, counts database.DeleteCounts) []dbCleanView {
+	primary := cleanModeTableName(sel)
+	items := []dbCleanView{{Table: primary, Rows: counts[primary]}}
+	seen := map[string]bool{primary: true}
+	for _, tbl := range database.AllTablesDeleteOrder() {
+		if seen[tbl] || counts[tbl] == 0 {
+			continue
+		}
+		seen[tbl] = true
+		items = append(items, dbCleanView{Table: tbl, Rows: counts[tbl]})
+	}
+	var rest []string
+	for tbl, n := range counts {
+		if !seen[tbl] && n > 0 {
+			rest = append(rest, tbl)
+		}
+	}
+	sort.Strings(rest)
+	for _, tbl := range rest {
+		items = append(items, dbCleanView{Table: tbl, Rows: counts[tbl]})
+	}
+	return items
 }
 
 // emitDBClean writes the `db clean -j` document. deleted is the total actually
@@ -195,20 +224,21 @@ func runDBClean(cmd *cobra.Command, args []string) error {
 	return runScopedClean(ctx, cmd, db, sel)
 }
 
-// applySelection performs the selection, or counts it without deleting when
-// dryRun is set. Count and delete go through ONE switch so a mode added later
-// cannot be wired into the preview and forgotten in the delete — which is the
-// class of divergence this whole file exists to prevent.
-func applySelection(ctx context.Context, del *database.DeleteBuilder, sel *cleanSelection, dryRun bool) (int64, error) {
+// applySelection performs the selection, or runs it and rolls it back when
+// dryRun is set, and returns the rows per table. Count and delete go through
+// ONE switch so a mode added later cannot be wired into the preview and
+// forgotten in the delete — which is the class of divergence this whole file
+// exists to prevent.
+func applySelection(ctx context.Context, del *database.DeleteBuilder, sel *cleanSelection, dryRun bool) (database.DeleteCounts, error) {
 	switch sel.Mode {
 	case cleanModeOrphans:
-		return del.DeleteOrphans(ctx, dryRun)
+		return del.DeleteOrphansByTable(ctx, dryRun)
 	case cleanModeFindings:
-		return del.DeleteFindings(ctx, dryRun)
+		return del.DeleteFindingsByTable(ctx, dryRun)
 	case cleanModeTable:
-		return del.DeleteTable(ctx, sel.Table, dryRun)
+		return del.DeleteTableByTable(ctx, sel.Table, dryRun)
 	default:
-		return del.DeleteRecords(ctx, dryRun)
+		return del.DeleteRecordsByTable(ctx, dryRun)
 	}
 }
 
@@ -218,37 +248,37 @@ func applySelection(ctx context.Context, del *database.DeleteBuilder, sel *clean
 func runScopedClean(ctx context.Context, cmd *cobra.Command, db *database.DB, sel *cleanSelection) error {
 	del := database.NewDeleteBuilder(db, sel.Filters)
 
-	count, err := applySelection(ctx, del, sel, true)
+	// The preview runs the delete and rolls it back, so the per-table counts
+	// it shows are exactly what the real run removes.
+	preview, err := applySelection(ctx, del, sel, true)
 	if err != nil {
 		return fmt.Errorf("failed to count rows to delete: %w", err)
 	}
+	count := preview[cleanModeTableName(sel)]
+	total := preview.Total()
 
-	rows := func(n int64) []dbCleanView {
-		return []dbCleanView{{Table: cleanModeTableName(sel), Rows: n}}
-	}
-
-	if count == 0 {
+	if count == 0 && total == 0 {
 		fmt.Fprintf(os.Stderr, "%s No rows match the selection (%s).\n",
 			terminal.InfoSymbol(), sel.describeScope())
 		if globalJSON {
-			return emitDBClean(cmd, sel, rows(0), 0, 0, false)
+			return emitDBClean(cmd, sel, cleanCountsView(sel, preview), 0, 0, false)
 		}
 		return nil
 	}
 
-	printCleanPreview(sel, count)
+	printCleanPreview(sel, preview)
 
 	if cleanDryRun {
 		fmt.Fprintf(os.Stderr, "\n%s Dry-run: nothing was deleted.\n", terminal.InfoSymbol())
 		if globalJSON {
-			return emitDBClean(cmd, sel, rows(count), count, 0, false)
+			return emitDBClean(cmd, sel, cleanCountsView(sel, preview), total, 0, false)
 		}
 		return nil
 	}
 
 	if done, err := handleConfirmation(sel.describeAction(count)); done {
 		if err == nil && globalJSON {
-			return emitDBClean(cmd, sel, rows(count), count, 0, true)
+			return emitDBClean(cmd, sel, cleanCountsView(sel, preview), total, 0, true)
 		}
 		return err
 	}
@@ -259,7 +289,7 @@ func runScopedClean(ctx context.Context, cmd *cobra.Command, db *database.DB, se
 	}
 
 	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.SuccessSymbol(),
-		terminal.Green(fmt.Sprintf("Deleted %d row(s).", deleted)))
+		terminal.Green(fmt.Sprintf("Deleted %d row(s): %s.", deleted.Total(), describeCounts(sel, deleted))))
 
 	// Orphan cleanup removes rows the file had already stopped indexing; a
 	// VACUUM there rewrites the whole database for very little reclaimed space,
@@ -268,17 +298,30 @@ func runScopedClean(ctx context.Context, cmd *cobra.Command, db *database.DB, se
 		runVacuum(ctx, db)
 	}
 	if globalJSON {
-		return emitDBClean(cmd, sel, rows(deleted), count, deleted, false)
+		return emitDBClean(cmd, sel, cleanCountsView(sel, deleted), total, deleted.Total(), false)
 	}
 	return nil
+}
+
+// describeCounts renders per-table counts on one line ("12 http_records, 22
+// findings").
+func describeCounts(sel *cleanSelection, counts database.DeleteCounts) string {
+	parts := []string{}
+	for _, it := range cleanCountsView(sel, counts) {
+		parts = append(parts, fmt.Sprintf("%d %s", it.Rows, it.Table))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // printCleanPreview states what will be deleted and, crucially, the scope it
 // will be deleted from. The scope line is unconditional: a store-wide mode that
 // looks narrow on the command line is exactly the case this command got wrong.
-func printCleanPreview(sel *cleanSelection, count int64) {
+func printCleanPreview(sel *cleanSelection, counts database.DeleteCounts) {
 	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.WarningSymbol(),
-		terminal.Yellow(fmt.Sprintf("This will delete %d row(s) from %s.", count, sel.describeScope())))
+		terminal.Yellow(fmt.Sprintf("This will delete %d row(s) from %s:", counts.Total(), sel.describeScope())))
+	for _, it := range cleanCountsView(sel, counts) {
+		fmt.Fprintf(os.Stderr, "  - %-24s %d row(s)\n", it.Table, it.Rows)
+	}
 
 	switch sel.Mode {
 	case cleanModeRecords:

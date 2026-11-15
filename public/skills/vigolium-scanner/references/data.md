@@ -558,9 +558,10 @@ Delete database records with filtering. Destructive operations require `--force`
 
 - VACUUM runs automatically after every delete to reclaim disk space (SQLite).
 - `db clean` with **no selector** is rejected (it never implicitly wipes the DB). Use `--all --force` to delete every row, or `db reset --force` to delete and recreate the database file.
-- `--all` without `--force`: error.
+- `--all` without `--force`: error (`--all --dry-run` needs no `--force`).
+- `--severity` with no mode flag deletes findings only; HTTP records stay.
 - Without `--force`: interactive confirmation prompt.
-- `-j`: one mutation document, `items:[{table, rows}]` plus `rows_matched`/`rows_deleted`, `mode`, `scope`; `--dry-run` gives `dry_run:true, changed:false`.
+- `-j`: one mutation document, `items:[{table, rows}]` with one row per table touched (the mode's own table first), plus `rows_matched`/`rows_deleted` (totals over every table), `mode`, `scope`; `--dry-run` runs the delete and rolls it back, so its counts are exact, and gives `dry_run:true, changed:false`.
 
 ### Examples
 
