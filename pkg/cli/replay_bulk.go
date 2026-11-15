@@ -206,7 +206,7 @@ func (rr *replayRun) recordEntry(ctx context.Context, rec *database.HTTPRecord, 
 	}
 
 	if replayTargetURL != "" {
-		if err := applyTargetOverride(src, replayTargetURL); err != nil {
+		if err := applyTargetOverride(src, replayTargetURL, replayKeepHost); err != nil {
 			return bulkErrorEntry(src, err)
 		}
 	}

@@ -2098,6 +2098,19 @@ const (
 	dumpColorGreen = "\033[32m"
 )
 
+// DumpExchange prints one exchange in --dump-traffic's format for a sender
+// outside the Requester (replay): reqDump is the request as sent, resp's body
+// is dumped and left readable. err stands in for a missing response.
+func DumpExchange(method, fullURL string, reqDump []byte, resp *http.Response, err error, elapsed time.Duration) {
+	var respDump []byte
+	if resp != nil {
+		respDump, _ = httputil.DumpResponse(resp, true)
+	} else if err != nil {
+		respDump = []byte(err.Error())
+	}
+	printDump(method, fullURL, reqDump, respDump, resp, elapsed)
+}
+
 // dumpTraffic prints an HTTP request/response pair to stderr in a Burp-style format.
 func dumpTraffic(req *http.Request, resp *http.Response, elapsed time.Duration) {
 	var reqDump, respDump []byte
@@ -2115,7 +2128,10 @@ func dumpTraffic(req *http.Request, resp *http.Response, elapsed time.Duration) 
 		method = req.Method
 		fullURL = req.URL.String()
 	}
+	printDump(method, fullURL, reqDump, respDump, resp, elapsed)
+}
 
+func printDump(method, fullURL string, reqDump, respDump []byte, resp *http.Response, elapsed time.Duration) {
 	status := ""
 	if resp != nil {
 		status = resp.Status

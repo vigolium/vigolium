@@ -410,6 +410,12 @@
         },
         "error": {
           "type": "string"
+        },
+        "final_url": {
+          "type": "string"
+        },
+        "redirects": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,

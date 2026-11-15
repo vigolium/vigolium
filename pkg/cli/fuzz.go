@@ -67,6 +67,7 @@ var (
 	// Behaviour / output.
 	fuzzDryRun             bool
 	fuzzIgnoreScope        bool
+	fuzzKeepHost           bool
 	fuzzAllowBaselineError bool
 	fuzzNoCalibrate        bool
 	fuzzConcurrency        int
@@ -182,7 +183,8 @@ func init() {
 	f.StringVarP(&fuzzInput, "input", "i", "", "Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin")
 	f.StringVar(&fuzzInputFile, "input-file", "", "Read --input value from a file")
 	f.StringVarP(&fuzzRecordUUID, "record-uuid", "u", "", "Use a stored HTTP record (UUID or unique 8+ char prefix) as the request to fuzz")
-	f.StringVarP(&fuzzTargetURL, "target", "t", "", "Override scheme/host/port the request is sent to (e.g. https://staging.acme.test)")
+	f.StringVarP(&fuzzTargetURL, "target", "t", "", "Override scheme/host/port the request is sent to (e.g. https://staging.acme.test); a Host header naming the old destination follows it unless --keep-host")
+	f.BoolVar(&fuzzKeepHost, "keep-host", false, "With -t: send the request's Host header unchanged even when it names the old destination")
 
 	// Curl-style builder — applied to whatever source resolved the request.
 	f.StringVarP(&fuzzMethod, "request", "X", "", "HTTP method override (default: the source request's, or GET)")
@@ -309,6 +311,7 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	if err := validateFuzzNetFlags(); err != nil {
 		return err
 	}
+	installReplayTrafficDump()
 	if err := fuzzShaping.validate(); err != nil {
 		return err
 	}
@@ -332,7 +335,7 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if fuzzTargetURL != "" {
-		if err := applyTargetOverride(src, fuzzTargetURL); err != nil {
+		if err := applyTargetOverride(src, fuzzTargetURL, fuzzKeepHost); err != nil {
 			return err
 		}
 	}

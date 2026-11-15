@@ -96,3 +96,24 @@ func TestReplayPositionalAndAllMatches(t *testing.T) {
 	require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
 	assert.Equal(t, before+2, hits.Load())
 }
+
+// -t rewrites a Host header that named the old destination; any other Host,
+// or --keep-host, is sent as written.
+func TestApplyTargetOverrideHost(t *testing.T) {
+	mk := func(host string) *replaySource {
+		return &replaySource{Scheme: "https", Hostname: "prod.example.com", Port: 443,
+			BaselineRequest: []byte("GET /x HTTP/1.1\r\nHost: " + host + "\r\n\r\n")}
+	}
+	src := mk("prod.example.com")
+	require.NoError(t, applyTargetOverride(src, "http://127.0.0.1:8080", false))
+	assert.Equal(t, "127.0.0.1:8080", rawHostHeader(src.BaselineRequest))
+	assert.Equal(t, "http", src.Scheme)
+
+	src = mk("prod.example.com")
+	require.NoError(t, applyTargetOverride(src, "http://127.0.0.1:8080", true))
+	assert.Equal(t, "prod.example.com", rawHostHeader(src.BaselineRequest), "--keep-host")
+
+	src = mk("internal.vhost")
+	require.NoError(t, applyTargetOverride(src, "http://127.0.0.1:8080", false))
+	assert.Equal(t, "internal.vhost", rawHostHeader(src.BaselineRequest), "a deliberate vhost is kept")
+}

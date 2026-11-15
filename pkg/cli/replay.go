@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/burpbridge"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
+	vighttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/replay"
 	"github.com/vigolium/vigolium/pkg/replay/jar"
@@ -32,6 +34,7 @@ var (
 	// replayIgnoreScope is replay's --ignore-scope (traffic --replay maps its
 	// own onto it).
 	replayIgnoreScope    bool
+	replayKeepHost       bool
 	replayRecordUUID     string
 	replayFindingID      int64
 	replayInput          string
@@ -181,7 +184,8 @@ func init() {
 	f.BoolVar(&replayNoRedirects, "no-redirects", false, "Don't follow 30x redirects")
 	f.BoolVar(&replaySendBaseline, "baseline", false,
 		"Also send the un-mutated request first and diff the two. A supplied request (-i, --raw-request) is otherwise sent once with no diff; a stored record diffs against its stored response either way")
-	f.StringVarP(&replayTargetURL, "target", "t", "", "Override scheme/host/port (e.g. https://staging.example.com)")
+	f.StringVarP(&replayTargetURL, "target", "t", "", "Override scheme/host/port (e.g. https://staging.example.com); a Host header naming the old destination follows it unless --keep-host")
+	f.BoolVar(&replayKeepHost, "keep-host", false, "With -t: send the request's Host header unchanged even when it names the old destination")
 	f.DurationVar(&replayTimeout, "timeout", replay.DefaultTimeout, "Per-request timeout (e.g. 30s, 1m)")
 
 	// Result handling.
@@ -332,7 +336,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	}
 
 	if replayTargetURL != "" {
-		if err := applyTargetOverride(src, replayTargetURL); err != nil {
+		if err := applyTargetOverride(src, replayTargetURL, replayKeepHost); err != nil {
 			return err
 		}
 	}
@@ -451,6 +455,7 @@ func newReplayRun() (*replayRun, error) {
 	if err != nil {
 		return nil, err
 	}
+	installReplayTrafficDump()
 	pj, jarLoaded, jarErr := openReplayJar()
 	if jarErr != nil {
 		fmt.Fprintf(os.Stderr, "%s replay: cookie jar disabled (%v)\n", terminal.WarningSymbol(), jarErr)
@@ -528,6 +533,7 @@ func (rr *replayRun) one(ctx context.Context, src *replaySource, overlay map[str
 		NoRedirects:          replayNoRedirects,
 		Client:               rr.client,
 		SendBaseline:         replaySendBaseline,
+		BaselineIsEvidence:   src.FindingID != 0 && len(src.BaselineResponse) > 0,
 	}
 	// --send-via-burp routes the actual send through Burp's engine so the exact bytes
 	// (deliberate Content-Length, smuggling, unusual methods) reach the wire; the
@@ -884,21 +890,47 @@ func sourceFromRawRequest(rawReq, rawResp []byte, urlStr string) (*replaySource,
 	}, nil
 }
 
-// applyTargetOverride rewrites src's destination. The baseline request
-// bytes (Host header, path) are left verbatim; only the socket we aim
-// at changes — that's how an operator confirms a finding against a
-// different env without re-deriving the request. replay.SendRaw sends that
-// Host header as written and, through an HTTP proxy, still names the new
-// destination's host:port in the request target.
-func applyTargetOverride(src *replaySource, target string) error {
+// applyTargetOverride rewrites src's destination. A Host header that named the
+// old destination follows it (keepHost off), so the request reaches the new
+// environment's virtual host; any other Host (a deliberate vhost, a
+// Host-header probe) is sent as written. replay.SendRaw sends the Host header
+// as written and, through an HTTP proxy, still names the new destination's
+// host:port in the request target.
+func applyTargetOverride(src *replaySource, target string, keepHost bool) error {
 	u, err := url.Parse(target)
 	if err != nil || u == nil || u.Hostname() == "" {
 		return usageErrorf("invalid --target %q: %w", target, err)
 	}
+	oldAuthority := strings.ToLower(replay.Authority(src.Scheme, src.Hostname, src.Port))
 	src.Scheme = u.Scheme
 	src.Hostname = u.Hostname()
 	src.Port = portFromURL(u)
+	if keepHost || len(src.BaselineRequest) == 0 {
+		return nil
+	}
+	if host := rawHostHeader(src.BaselineRequest); host != "" && strings.EqualFold(host, oldAuthority) {
+		if rewritten, err := httpmsg.AddOrReplaceHeader(src.BaselineRequest, "Host", replay.Authority(src.Scheme, src.Hostname, src.Port)); err == nil {
+			src.BaselineRequest = rewritten
+		}
+	}
 	return nil
+}
+
+// rawHostHeader is the Host header of a raw request ("" when it has none).
+func rawHostHeader(raw []byte) string {
+	head := raw
+	if i := bytes.Index(head, []byte("\r\n\r\n")); i >= 0 {
+		head = head[:i]
+	} else if i := bytes.Index(head, []byte("\n\n")); i >= 0 {
+		head = head[:i]
+	}
+	for _, line := range strings.Split(string(head), "\n") {
+		name, value, ok := strings.Cut(strings.TrimRight(line, "\r"), ":")
+		if ok && strings.EqualFold(strings.TrimSpace(name), "host") {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func portFromURL(u *url.URL) int {
@@ -1310,4 +1342,13 @@ func urlShapedPositional(v string) bool {
 		return !strings.ContainsAny(v, " \t")
 	}
 	return false
+}
+
+// installReplayTrafficDump routes replay's sends through --dump-traffic.
+func installReplayTrafficDump() {
+	if globalDumpTraffic {
+		replay.TrafficDump = vighttp.DumpExchange
+	} else {
+		replay.TrafficDump = nil
+	}
 }

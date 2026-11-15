@@ -1290,6 +1290,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--input` | `-i` | string | - | Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin |
 | `--input-file` | - | string | - | Read --input value from a file |
 | `--insecure` | - | bool | `false` | Skip TLS verification (already the default; accepted for curl compatibility) |
+| `--keep-host` | - | bool | `false` | With -t: send the request's Host header unchanged even when it names the old destination |
 | `--key` | - | string | - | Client certificate private key file (PEM) |
 | `--keyword` | - | string | `FUZZ` | Marker keyword replaced by each payload when present in the request |
 | `--location` | - | bool | `false` | Follow 30x redirects (already the default; use --no-redirects to stop) — accepted for curl compatibility |
@@ -1324,7 +1325,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--send-via-burp` | - | bool | `false` | Send each payload through Burp's own HTTP stack (exact bytes — malformed/smuggling preserved) instead of Go's client; requires --burp-bridge-url |
 | `--session-id` | - | string | - | Persist cookies across runs under ~/.vigolium/replay-jars/<id>.json |
 | `--suffix` | - | stringSlice | - | Also send each payload with each of these suffixes appended, literally (comma-list, e.g. .php,.bak — ffuf's -e) |
-| `--target` | `-t` | string | - | Override scheme/host/port the request is sent to (e.g. https://staging.acme.test) |
+| `--target` | `-t` | string | - | Override scheme/host/port the request is sent to (e.g. https://staging.acme.test); a Host header naming the old destination follows it unless --keep-host |
 | `--timeout` | - | duration | `25s` | Per-request timeout (e.g. 30s) |
 | `--user` | - | string | - | Basic auth 'user:password', curl's -u |
 | `--user-agent` | - | string | - | User-Agent header, curl's -A |
@@ -1891,6 +1892,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--in-replace` | - | bool | `false` | When the source is a stored record, update its stored response with the replay |
 | `--input` | `-i` | string | - | Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin |
 | `--input-file` | - | string | - | Read --input value from a file |
+| `--keep-host` | - | bool | `false` | With -t: send the request's Host header unchanged even when it names the old destination |
 | `--limit` | `-n` | int | `100` | Bulk: max records to replay (use --all to lift the cap) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--method` | - | stringSlice | - | Bulk: filter records by HTTP method (repeatable) |
@@ -1913,7 +1915,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--source` | - | string | - | Bulk: filter records by source (burp, caido, scanner, probe, ingest-cli, ingest-proxy, seed, ...) |
 | `--stateless` | `-S` | bool | `false` | Read records from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--status` | - | intSlice | - | Bulk: filter records by stored status code (repeatable) |
-| `--target` | `-t` | string | - | Override scheme/host/port (e.g. https://staging.example.com) |
+| `--target` | `-t` | string | - | Override scheme/host/port (e.g. https://staging.example.com); a Host header naming the old destination follows it unless --keep-host |
 | `--timeout` | - | duration | `25s` | Per-request timeout (e.g. 30s, 1m) |
 | `--to` | - | string | - | Bulk: only records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a bare date covers the whole day (alias: --until) |
 | `--to-organizer` | - | bool | `false` | Store the replayed request + response in Burp's Organizer for manual follow-up; requires --burp-bridge-url |

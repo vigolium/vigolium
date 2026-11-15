@@ -169,6 +169,14 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
   missing final blank line is repaired, from a file or stdin), and probe only
   an in-scope host. `ingest -I burpraw -t <base>` rebases the captured request
   onto `<base>` instead of storing `<base>` as a record of its own.
+- **`replay`/`fuzz -t <origin>`** move the destination; a `Host` header that
+  named the old destination follows it, any other `Host` is sent as written,
+  and `--keep-host` keeps it. A replay that followed redirects reports
+  `final_url` and `redirects` on its `replay` summary. `--raw-request` sends
+  its bytes exactly (no added `User-Agent` or `Accept-Encoding`).
+  `replay --finding-id` reads an answer identical to the finding's evidence as
+  "reproduced". `--dump-traffic` prints replay and fuzz exchanges too.
+  `--read-only` protects the database file, not the target: sends still go out.
 - **Both commands enforce the config scope**, with or without `-S` (see
   [Scope admission](#scope-admission)). A refused input is not sent; its target
   entry says `admitted: false`, `reason: "out_of_scope"`, `code: <rule>`, and
