@@ -59,7 +59,7 @@ func init() {
 	dbExportCmd.Flags().StringVarP(&exportFormat, "format", "f", "jsonl", "Export format: "+output.FormatsHelp(output.SurfaceDBExport))
 	dbExportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file path, defaults to stdout")
 
-	dbExportCmd.Flags().StringVar(&exportHost, "host", "", "Filter records by hostname pattern")
+	dbExportCmd.Flags().StringVar(&exportHost, "host", "", "Filter records by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	dbExportCmd.Flags().StringSliceVar(&exportMethods, "method", nil, "Filter records by HTTP method (can be specified multiple times)")
 	dbExportCmd.Flags().IntSliceVar(&exportStatus, "status", nil, "Filter records by HTTP status code (can be specified multiple times)")
 	dbExportCmd.Flags().StringVar(&exportPath, "path", "", "Filter records by URL path pattern")

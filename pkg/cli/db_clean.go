@@ -56,7 +56,7 @@ func init() {
 	dbCmd.AddCommand(dbResetCmd)
 
 	dbCleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete every row from all data tables (requires --force unless --dry-run)")
-	dbCleanCmd.Flags().StringVar(&cleanHost, "host", "", "Delete records matching the specified hostname")
+	dbCleanCmd.Flags().StringVar(&cleanHost, "host", "", "Delete records on this host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	dbCleanCmd.Flags().StringVar(&cleanScanUUID, "scan-uuid", "", "Delete records belonging to the specified scan UUID")
 	dbCleanCmd.Flags().StringVar(&cleanBefore, "before", "", fmt.Sprintf("Delete records created strictly before this time — %s (the named day itself is kept)", clicommon.TimeFilterSyntax))
 	dbCleanCmd.Flags().IntSliceVar(&cleanStatus, "status", nil, "Delete records with matching HTTP status codes")

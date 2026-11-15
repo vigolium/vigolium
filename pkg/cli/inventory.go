@@ -39,7 +39,7 @@ type inventoryFlags struct {
 // counts ("endpoints", "parameters").
 func (f *inventoryFlags) register(cmd *cobra.Command, noun string) {
 	fl := cmd.Flags()
-	fl.StringVar(&f.host, "host", "", "Filter by hostname pattern (wildcard supported)")
+	fl.StringVar(&f.host, "host", "", "Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	fl.StringSliceVar(&f.methods, "method", nil, "Filter by HTTP method (repeatable)")
 	fl.IntSliceVar(&f.status, "status", nil, "Filter by HTTP status code (repeatable)")
 	fl.StringVar(&f.path, "path", "", "Filter by URL path pattern (wildcard supported)")

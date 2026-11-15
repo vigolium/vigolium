@@ -126,7 +126,7 @@ func init() {
 
 	// Filter flags
 	pf := findingCmd.PersistentFlags()
-	pf.StringVar(&findingHost, "host", "", "Filter by hostname pattern (wildcard supported)")
+	pf.StringVar(&findingHost, "host", "", "Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	pf.StringSliceVar(&findingMethods, "method", nil, "Filter by HTTP method (repeatable)")
 	pf.IntSliceVar(&findingStatus, "status", nil, "Filter by HTTP status code (repeatable)")
 	pf.StringVar(&findingPath, "path", "", "Filter by URL path pattern")

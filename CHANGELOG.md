@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - A multi-source `import` (several paths or `--glob-db`) continues past a source that fails, lists each source with its status in `-j` `sources[]`, and exits 1 naming the failures; `--glob-strict` stops at the first. A SQLite file that is not a vigolium store is refused (`source_incompatible`) instead of merging as zeros.
 - `ingest` reports the format it detected (`input_format: har`, not `urls`), labels the records it fetches `ingest-cli` like the ones it saves directly, keeps a HAR entry's `time` as `response_time_ms`, and sets `changed` from the rows it actually wrote (new `records_written`); re-ingesting the same input is `changed: false`.
 - `traffic -j` rows carry `sent_at` (RFC 3339, UTC). `hosts`, `log ls`, `db stats` and `export` accept `--from/--to` (`--since/--until`). Time-filter help states that a time without a zone is local and results print in UTC.
+- `--host` on `traffic`, `finding`, `db list|export|stats|clean`, `inventory`, `hosts` and bulk `replay` accepts a bare host, `host:port`, an origin (`https://host[:port]`, as `traffic -j` prints it) or a bracketed IPv6 address.
 
 ## [v0.5.7] - 2026-11-14
 

@@ -116,7 +116,7 @@ func registerListFlags(cmd *cobra.Command) {
 		"Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination")
 	cmd.Flags().StringArrayVar(&listURLs, "url", nil,
 		"Select records whose URL matches EXACTLY (repeatable; OR-ed). Compared against the stored URL with no normalization — use --path or --search for substring matching")
-	cmd.Flags().StringVar(&listHost, "host", "", "Filter records by hostname pattern (wildcard supported)")
+	cmd.Flags().StringVar(&listHost, "host", "", "Filter records by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	cmd.Flags().StringSliceVar(&listMethods, "method", nil, "Filter records by HTTP method (can be specified multiple times)")
 	cmd.Flags().IntSliceVar(&listStatus, "status", nil, "Filter records by HTTP status code (can be specified multiple times)")
 	cmd.Flags().StringVar(&listPath, "path", "", "Filter records by URL path pattern")

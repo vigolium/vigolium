@@ -227,6 +227,24 @@ type HostObservationQuery struct {
 	Offset       int
 }
 
+// hostPredicate applies HostPattern in any form ParseHostFilter accepts; a
+// port narrows to that endpoint (observations carry no scheme).
+func (q HostObservationQuery) hostPredicate(sel *bun.SelectQuery) *bun.SelectQuery {
+	h := ParseHostFilter(q.HostPattern)
+	if h.Host == "" {
+		return sel
+	}
+	if h.Glob() {
+		sel = sel.Where(WithLikeEscape("ho.hostname LIKE ?"), LikeGlob(strings.ToLower(h.Host)))
+	} else {
+		sel = sel.Where("ho.hostname = ?", dnsKey(h.Host))
+	}
+	if h.Port != 0 {
+		sel = sel.Where("ho.port = ?", h.Port)
+	}
+	return sel
+}
+
 // observedRange applies the observed_at bounds.
 func (q HostObservationQuery) observedRange(sel *bun.SelectQuery) *bun.SelectQuery {
 	if q.ObservedFrom != nil {
@@ -262,13 +280,7 @@ func (r *Repository) hostObservationQuery(q HostObservationQuery) (*bun.SelectQu
 		sel = sel.Where("ho.scan_uuid = ?", q.ScanUUID)
 	}
 	sel = q.observedRange(sel)
-	if p := strings.TrimSpace(q.HostPattern); p != "" {
-		if strings.Contains(p, "*") {
-			sel = sel.Where(WithLikeEscape("ho.hostname LIKE ?"), LikeGlob(strings.ToLower(p)))
-		} else {
-			sel = sel.Where("ho.hostname = ?", dnsKey(p))
-		}
-	}
+	sel = q.hostPredicate(sel)
 	if q.Has != "" {
 		pred, ok := hostObservationHas[q.Has]
 		if !ok {
@@ -291,15 +303,9 @@ func (r *Repository) hostObservationQuery(q HostObservationQuery) (*bun.SelectQu
 		if q.ProjectUUID != "" {
 			latest = latest.Where("ho.project_uuid = ?", q.ProjectUUID)
 		}
-		if p := strings.TrimSpace(q.HostPattern); p != "" {
-			// The same host filter as the outer query, so one host's lookup does
-			// not group the whole project's history.
-			if strings.Contains(p, "*") {
-				latest = latest.Where(WithLikeEscape("ho.hostname LIKE ?"), LikeGlob(strings.ToLower(p)))
-			} else {
-				latest = latest.Where("ho.hostname = ?", dnsKey(p))
-			}
-		}
+		// The same host filter as the outer query, so one host's lookup does
+		// not group the whole project's history.
+		latest = q.hostPredicate(latest)
 		if q.ScanUUID != "" {
 			latest = latest.Where("ho.scan_uuid = ?", q.ScanUUID)
 		}

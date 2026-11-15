@@ -29,7 +29,7 @@ func init() {
 
 	dbStatsCmd.Flags().BoolVar(&statsDetailed, "detailed", false, "Show per-host and per-module breakdown")
 	dbStatsCmd.Flags().StringVar(&statsScanUUID, "scan-uuid", "", "Show statistics for a specific scan UUID")
-	dbStatsCmd.Flags().StringVar(&statsHost, "host", "", "Show statistics for a specific hostname")
+	dbStatsCmd.Flags().StringVar(&statsHost, "host", "", "Show statistics for one host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	registerTimeRangeFlags(dbStatsCmd, &statsFrom, &statsTo, "records sent, findings found and scans started")
 }
 
