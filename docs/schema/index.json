@@ -312,6 +312,12 @@
     "description": "The database's tables with columns, row counts, purpose, and the -j field a column surfaces as."
   },
   {
+    "name": "status",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Orientation: database path, project and its source, scope rule counts per component, up to 5 running scans with liveness, record/finding/scan counts, the effective proxy and its source, skill staleness. No network calls."
+  },
+  {
     "name": "traffic",
     "kind": "command",
     "envelope_kind": "read",

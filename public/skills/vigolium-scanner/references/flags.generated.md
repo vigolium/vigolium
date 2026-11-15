@@ -140,6 +140,7 @@ run `vigolium <command> -h`.
 - [vigolium skills get](#vigolium-skills-get)
 - [vigolium skills install](#vigolium-skills-install)
 - [vigolium skills list](#vigolium-skills-list)
+- [vigolium status](#vigolium-status)
 - [vigolium storage](#vigolium-storage)
 - [vigolium storage download](#vigolium-storage-download)
 - [vigolium storage ls](#vigolium-storage-ls)
@@ -2577,6 +2578,12 @@ Install skill bundle(s) into a coding agent's skills directory
 Aliases: `ls`
 
 List all bundled skills
+
+_No command-specific flags._
+
+## vigolium status
+
+One-screen orientation: database, project, scope, running scans, counts, proxy
 
 _No command-specific flags._
 
