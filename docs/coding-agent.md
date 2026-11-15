@@ -164,7 +164,11 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
   connect, plus a TLS handshake on an explicit non-standard port — and scans over
   the scheme that answered; `resolved_target` is the result. Nothing answered
   keeps `https://` (`default`), and the unreachable error suggests
-  `-t http://host:port`. `--no-scheme-probe` skips the probe.
+  `-t http://host:port`. `--no-scheme-probe` skips the probe. `replay -i` and
+  `fuzz -i` parse raw request text the same way (`-t` pins the scheme; a
+  missing final blank line is repaired, from a file or stdin), and probe only
+  an in-scope host. `ingest -I burpraw -t <base>` rebases the captured request
+  onto `<base>` instead of storing `<base>` as a record of its own.
 - **Both commands enforce the config scope**, with or without `-S` (see
   [Scope admission](#scope-admission)). A refused input is not sent; its target
   entry says `admitted: false`, `reason: "out_of_scope"`, `code: <rule>`, and

@@ -1027,7 +1027,7 @@ func resolveFuzzSource(ctx context.Context, args []string) (*replaySource, error
 		}, nil
 
 	case fuzzInput != "" || fuzzInputFile != "":
-		return sourceFromInput(ctx, repo, fuzzInput, fuzzInputFile)
+		return sourceFromInput(ctx, repo, fuzzInput, fuzzInputFile, rawInputOptions{pin: fuzzTargetURL, ignoreScope: fuzzIgnoreScope})
 
 	case fuzzRecordUUID != "":
 		if repo == nil {
@@ -1042,7 +1042,7 @@ func resolveFuzzSource(ctx context.Context, args []string) (*replaySource, error
 			return nil, err
 		}
 		if ok {
-			return sourceFromInputString(ctx, repo, data, "")
+			return sourceFromInputString(ctx, repo, data, "", rawInputOptions{pin: fuzzTargetURL, ignoreScope: fuzzIgnoreScope})
 		}
 		return nil, usageErrorf("no source: pass a URL, --input, --record-uuid, or pipe a request on stdin")
 	}

@@ -39,12 +39,25 @@ func SplitBurpPair(content string) (request, response string, hasResponse bool) 
 // present, it returns a request-only HttpRequestResponse — equivalent to
 // parseRawRequestWithInferredURL.
 func ParseBurpPair(content string) (*httpmsg.HttpRequestResponse, error) {
+	return ParseBurpPairAt(content, "")
+}
+
+// ParseBurpPairAt is ParseBurpPair with the request rebased onto baseURL
+// (scheme, host and port; the request line and headers are kept). An empty
+// baseURL infers the URL from the request, as ParseBurpPair does.
+func ParseBurpPairAt(content, baseURL string) (*httpmsg.HttpRequestResponse, error) {
 	reqRaw, respRaw, hasResp := SplitBurpPair(content)
 	if reqRaw == "" {
 		return nil, fmt.Errorf("empty request in burp-style content")
 	}
 
-	rr, err := parseRawRequestWithInferredURL(reqRaw)
+	var rr *httpmsg.HttpRequestResponse
+	var err error
+	if baseURL != "" {
+		rr, err = httpmsg.ParseRawRequestWithURL(reqRaw, baseURL)
+	} else {
+		rr, err = parseRawRequestWithInferredURL(reqRaw)
+	}
 	if err != nil {
 		return nil, err
 	}

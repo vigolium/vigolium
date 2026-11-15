@@ -23,6 +23,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/replay"
 	"github.com/vigolium/vigolium/pkg/replay/jar"
+	"github.com/vigolium/vigolium/pkg/requestinput"
+	"github.com/vigolium/vigolium/pkg/requestscheme"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
@@ -621,7 +623,7 @@ func resolveReplaySource(ctx context.Context) (*replaySource, error) {
 		return sourceFromFinding(ctx, repo, replayFindingID)
 
 	case replayInput != "" || replayInputFile != "":
-		return sourceFromInput(ctx, repo, replayInput, replayInputFile)
+		return sourceFromInput(ctx, repo, replayInput, replayInputFile, replayRawInputOptions())
 
 	case replayRawRequest != "" || replayRawRequestFile != "":
 		// The raw request is the whole request already, so with nothing else
@@ -631,7 +633,7 @@ func resolveReplaySource(ctx context.Context) (*replaySource, error) {
 		if err != nil {
 			return nil, err
 		}
-		return sourceFromInputString(ctx, repo, string(raw), replayRawRequestFile)
+		return sourceFromInputString(ctx, repo, string(raw), replayRawRequestFile, replayRawInputOptions())
 
 	default:
 		data, ok, err := readStdinIfPiped()
@@ -639,7 +641,7 @@ func resolveReplaySource(ctx context.Context) (*replaySource, error) {
 			return nil, err
 		}
 		if ok {
-			return sourceFromInputString(ctx, repo, data, "")
+			return sourceFromInputString(ctx, repo, data, "", replayRawInputOptions())
 		}
 		return nil, usageErrorf("no source specified: pass one of --record-uuid, --finding-id, --input/--input-file, --raw-request/--raw-request-file, or pipe a request on stdin")
 	}
@@ -692,7 +694,7 @@ func sourceFromFinding(ctx context.Context, repo *database.Repository, id int64)
 	return src, nil
 }
 
-func sourceFromInput(ctx context.Context, repo *database.Repository, inline, file string) (*replaySource, error) {
+func sourceFromInput(ctx context.Context, repo *database.Repository, inline, file string, raw rawInputOptions) (*replaySource, error) {
 	var data string
 	switch {
 	case file != "":
@@ -724,7 +726,7 @@ func sourceFromInput(ctx context.Context, repo *database.Repository, inline, fil
 	default:
 		data = inline
 	}
-	return sourceFromInputString(ctx, repo, data, file)
+	return sourceFromInputString(ctx, repo, data, file, raw)
 }
 
 // inlineNamesFile reports whether an -i value is a file path rather than a
@@ -744,10 +746,20 @@ func inlineNamesFile(inline string) bool {
 
 // sourceFromInputString delegates to the agent input normalizer so a
 // curl/raw/burp string from an external driver parses the same way it
-// would in autopilot.
-func sourceFromInputString(ctx context.Context, repo *database.Repository, data, label string) (*replaySource, error) {
+// would in autopilot. Raw HTTP text goes through requestinput instead, the
+// parser scan-request uses: a missing final blank line is repaired, and the
+// scheme comes from the command's -t, the request's own signals or a
+// probe of the target, not an https assumption.
+func sourceFromInputString(ctx context.Context, repo *database.Repository, data, label string, raw rawInputOptions) (*replaySource, error) {
 	if strings.TrimSpace(data) == "" {
 		return nil, fmt.Errorf("input is empty")
+	}
+	if input.DetectInputType(data) == agenttypes.InputTypeRaw {
+		if src, err := sourceFromRawText(ctx, data, label, raw); err == nil {
+			return src, nil
+		}
+		// Not parseable as one raw request (a Burp pair, a capture with a
+		// response): the general normalizer below decides.
 	}
 	records, err := input.NormalizeInput(ctx, data, "", repo)
 	if errors.Is(err, input.ErrUnknownInputFormat) {
@@ -786,6 +798,59 @@ func sourceFromInputString(ctx context.Context, repo *database.Repository, data,
 	}
 	if label != "" {
 		src.OriginLabel = fmt.Sprintf("file %s", label)
+	}
+	return src, nil
+}
+
+// rawInputOptions is what parsing raw request text needs from the command:
+// its -t (pins the scheme) and its --ignore-scope (lets the scheme probe
+// contact an out-of-scope host).
+type rawInputOptions struct {
+	pin         string
+	ignoreScope bool
+}
+
+func replayRawInputOptions() rawInputOptions {
+	return rawInputOptions{pin: replayTargetURL, ignoreScope: replayIgnoreScope}
+}
+
+// sourceFromRawText is a raw HTTP request typed or piped to -i, parsed by
+// requestinput.Parse. The baseline bytes are the normalized text, header
+// terminator included, so the send path parses what the operator pasted.
+func sourceFromRawText(ctx context.Context, data, label string, raw rawInputOptions) (*replaySource, error) {
+	opts := requestinput.Options{Target: raw.pin, Resolver: requestSchemeResolver, NoProbe: true}
+	res, err := requestinput.Parse(ctx, data, opts)
+	if err != nil {
+		return nil, err
+	}
+	// The probe contacts the target, so it waits for the scope gate: an
+	// out-of-scope host keeps the default and is refused before any send.
+	if raw.pin == "" && res.SchemeSource == requestscheme.SourceDefault &&
+		newSendScopeGate(raw.ignoreScope).check(res.Request.Target()) == nil {
+		opts.NoProbe = false
+		if res, err = requestinput.Parse(ctx, data, opts); err != nil {
+			return nil, err
+		}
+	}
+	u, err := res.Request.URL()
+	if err != nil || u == nil || u.URL == nil {
+		return nil, fmt.Errorf("could not extract URL from input")
+	}
+	src := &replaySource{
+		BaselineRequest: []byte(res.Raw),
+		Scheme:          u.Scheme,
+		Hostname:        u.Hostname(),
+		Port:            portFromURL(u.URL),
+		URL:             u.URL.String(),
+		InputType:       string(agenttypes.InputTypeRaw),
+		OriginLabel:     fmt.Sprintf("input (%s)", agenttypes.InputTypeRaw),
+	}
+	if label != "" {
+		src.OriginLabel = fmt.Sprintf("file %s", label)
+	}
+	if res.SchemeSource == requestscheme.SourceProbe && !globalSilent && !globalJSON {
+		fmt.Fprintf(os.Stderr, "%s request line has no scheme — probed the target: %s\n",
+			terminal.InfoSymbol(), terminal.Cyan(u.URL.Scheme+"://"+u.Host))
 	}
 	return src, nil
 }

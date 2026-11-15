@@ -27,6 +27,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/input/formats/detect"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/notify/webhook"
+	"github.com/vigolium/vigolium/pkg/requestinput"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
 	"github.com/vigolium/vigolium/pkg/work"
@@ -501,6 +502,16 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (ingestOutcome, error) {
 		outcome.Formats = []string{string(detectedFormat)}
 	}
 
+	// A raw request (or Burp pair) with -t is rebased onto -t: the -t names
+	// where the captured request goes, not a second input.
+	if len(globalTargets) > 0 && (detectedFormat == detect.FormatRawHTTP || detectedFormat == detect.FormatBurpPair) {
+		items, err := rebaseRawRequests(preloadedItems, globalTargets[0])
+		if err != nil {
+			return outcome, err
+		}
+		preloadedItems = items
+	}
+
 	if len(preloadedItems) > 0 && detectedFormat != detect.FormatURLs {
 		printIngestPreview(detectedFormat, preloadedItems)
 	}
@@ -517,8 +528,14 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (ingestOutcome, error) {
 		// directly below so the response the user pasted is preserved.
 		inputSource = source.NewSliceSource(preloadedNeedFetch, ingestOpts.EnableModules)
 	} else {
+		targets := globalTargets
+		if rawRequestFormat(inputFormat) && (filePath != "" || useStdin) {
+			// -t is the base the raw request is rebased onto (burpraw
+			// SetBaseURL via ApplySpecOptions), not a target of its own.
+			targets = nil
+		}
 		built, err := source.NewInputSource(source.SourceConfig{
-			Targets:        globalTargets,
+			Targets:        targets,
 			FilePath:       filePath,
 			FilePaths:      globalTargetFiles,
 			Format:         inputFormat,
@@ -1069,3 +1086,32 @@ func runLocalIngestScan(settings *config.Settings, db *database.DB, repo *databa
 // ingestInputFormatExplicit records whether -I was typed for the current
 // ingest (the derived scan scope must judge the format the parser used).
 var ingestInputFormatExplicit bool
+
+// rawRequestFormat reports whether format names a single captured request
+// (burpraw and its aliases), which -t rebases rather than adds to.
+func rawRequestFormat(format string) bool {
+	info, ok := source.LookupFormat(format)
+	return ok && info.Name == "burpraw"
+}
+
+// rebaseRawRequests re-parses each captured request against target (scheme,
+// host and port from target; request line and headers kept), keeping any
+// captured response.
+func rebaseRawRequests(items []*httpmsg.HttpRequestResponse, target string) ([]*httpmsg.HttpRequestResponse, error) {
+	out := make([]*httpmsg.HttpRequestResponse, 0, len(items))
+	for _, rr := range items {
+		if rr == nil || rr.Request() == nil {
+			continue
+		}
+		parsed, _ := requestinput.Normalize(string(rr.Request().Raw()))
+		next, err := httpmsg.ParseRawRequestWithURL(parsed, target)
+		if err != nil {
+			return nil, usageErrorf("-t %s: cannot rebase the captured request: %v", target, err)
+		}
+		if rr.Response() != nil {
+			next = next.WithResponse(rr.Response())
+		}
+		out = append(out, next)
+	}
+	return out, nil
+}
