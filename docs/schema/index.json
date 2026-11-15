@@ -6,6 +6,30 @@
     "description": "The agent run a cancel was asked of: action cancel_requested (the request was written on its row and/or session sentinel) or already_finished (changed false). --wait adds acknowledged."
   },
   {
+    "name": "auth rm",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The session rows deleted (redacted)."
+  },
+  {
+    "name": "auth show",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "The stored session rows with that name (one per host), redacted unless --show-secrets."
+  },
+  {
+    "name": "config get",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One configuration key (or every key under a section), redacted unless --show-secrets."
+  },
+  {
+    "name": "config unset",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The key removed from the config file (removed false when the file did not set it)."
+  },
+  {
     "name": "db clean",
     "kind": "command",
     "envelope_kind": "mutation",
@@ -132,6 +156,12 @@
     "description": "Findings whose status changed; unchanged and not_found list the rest."
   },
   {
+    "name": "finding show",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "The named findings as finding views with their records; not_found lists the selectors that matched nothing."
+  },
+  {
     "name": "fingerprint",
     "kind": "command",
     "envelope_kind": "scan",
@@ -198,6 +228,12 @@
     "description": "Every module the search matched, each saying whether this run flipped it."
   },
   {
+    "name": "module show",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One module's full description."
+  },
+  {
     "name": "oast ingest",
     "kind": "command",
     "envelope_kind": "mutation",
@@ -222,6 +258,12 @@
     "description": "The project created."
   },
   {
+    "name": "project current",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "The project this invocation resolves to, and where the selection came from (flag, env, active_file, default)."
+  },
+  {
     "name": "project delete",
     "kind": "command",
     "envelope_kind": "mutation",
@@ -232,6 +274,12 @@
     "kind": "command",
     "envelope_kind": "read",
     "description": "Every project in the store, marking the active one."
+  },
+  {
+    "name": "project rename",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The project renamed, with its previous name."
   },
   {
     "name": "project use",
@@ -310,6 +358,24 @@
     "kind": "command",
     "envelope_kind": "read",
     "description": "The database's tables with columns, row counts, purpose, and the -j field a column surfaces as."
+  },
+  {
+    "name": "scope add",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The scope rule edited: its value before and after, and which config layer was written."
+  },
+  {
+    "name": "scope check",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Whether a URL is in scope; for a refused one, the rule and the pattern responsible."
+  },
+  {
+    "name": "scope rm",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The scope rule edited: its value before and after, and which config layer was written."
   },
   {
     "name": "status",

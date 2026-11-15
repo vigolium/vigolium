@@ -32,11 +32,15 @@ run `vigolium <command> -h`.
 - [vigolium auth lint](#vigolium-auth-lint)
 - [vigolium auth list](#vigolium-auth-list)
 - [vigolium auth load](#vigolium-auth-load)
+- [vigolium auth rm](#vigolium-auth-rm)
+- [vigolium auth show](#vigolium-auth-show)
 - [vigolium auth totp](#vigolium-auth-totp)
 - [vigolium config](#vigolium-config)
 - [vigolium config clean](#vigolium-config-clean)
+- [vigolium config get](#vigolium-config-get)
 - [vigolium config ls](#vigolium-config-ls)
 - [vigolium config set](#vigolium-config-set)
+- [vigolium config unset](#vigolium-config-unset)
 - [vigolium config validate](#vigolium-config-validate)
 - [vigolium db](#vigolium-db)
 - [vigolium db clean](#vigolium-db-clean)
@@ -66,6 +70,7 @@ run `vigolium <command> -h`.
 - [vigolium finding](#vigolium-finding)
 - [vigolium finding load](#vigolium-finding-load)
 - [vigolium finding mark](#vigolium-finding-mark)
+- [vigolium finding show](#vigolium-finding-show)
 - [vigolium finding verify](#vigolium-finding-verify)
 - [vigolium fingerprint](#vigolium-fingerprint)
 - [vigolium fuzz](#vigolium-fuzz)
@@ -96,6 +101,7 @@ run `vigolium <command> -h`.
 - [vigolium module disable](#vigolium-module-disable)
 - [vigolium module enable](#vigolium-module-enable)
 - [vigolium module ls](#vigolium-module-ls)
+- [vigolium module show](#vigolium-module-show)
 - [vigolium nuclei](#vigolium-nuclei)
 - [vigolium oast](#vigolium-oast)
 - [vigolium oast ingest](#vigolium-oast-ingest)
@@ -105,8 +111,10 @@ run `vigolium <command> -h`.
 - [vigolium project](#vigolium-project)
 - [vigolium project config](#vigolium-project-config)
 - [vigolium project create](#vigolium-project-create)
+- [vigolium project current](#vigolium-project-current)
 - [vigolium project delete](#vigolium-project-delete)
 - [vigolium project list](#vigolium-project-list)
+- [vigolium project rename](#vigolium-project-rename)
 - [vigolium project use](#vigolium-project-use)
 - [vigolium replay](#vigolium-replay)
 - [vigolium run](#vigolium-run)
@@ -128,6 +136,9 @@ run `vigolium <command> -h`.
 - [vigolium schema plan](#vigolium-schema-plan)
 - [vigolium schema storage](#vigolium-schema-storage)
 - [vigolium scope](#vigolium-scope)
+- [vigolium scope add](#vigolium-scope-add)
+- [vigolium scope check](#vigolium-scope-check)
+- [vigolium scope rm](#vigolium-scope-rm)
 - [vigolium scope set](#vigolium-scope-set)
 - [vigolium scope view](#vigolium-scope-view)
 - [vigolium server](#vigolium-server)
@@ -606,6 +617,30 @@ Load session auth configs from a file or stdin into the database
 | `--source` | - | string | `cli` | Source label for the session rows |
 | `--timeout` | - | duration | `30s` | Timeout for each login request |
 
+## vigolium auth rm
+
+Usage: `vigolium auth rm <session-name>`
+
+Aliases: `remove`, `delete`
+
+Delete a stored session
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show what would be deleted, without deleting |
+| `--host` | - | string | - | Only delete the session stored for this hostname |
+
+## vigolium auth show
+
+Usage: `vigolium auth show <session-name>`
+
+Show one stored session (tokens and credentials redacted)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--host` | - | string | - | Only the session stored for this hostname |
+| `--show-secrets` | - | bool | `false` | Reveal tokens and credentials in plaintext; prints a warning to stderr |
+
 ## vigolium auth totp
 
 Generate a TOTP code from a base32 secret
@@ -628,6 +663,16 @@ Reset Vigolium to a clean state
 
 _No command-specific flags._
 
+## vigolium config get
+
+Usage: `vigolium config get <key>`
+
+Print one configuration value
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--show-secrets` | - | bool | `false` | Reveal a sensitive value in plaintext instead of [redacted]; prints a warning to stderr |
+
 ## vigolium config ls
 
 Usage: `vigolium config ls [filter]`
@@ -649,6 +694,16 @@ Set a configuration value
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--dry-run` | - | bool | `false` | Show the value the key would get, without editing the config file |
+
+## vigolium config unset
+
+Usage: `vigolium config unset <key>`
+
+Remove a key from the config file so its default applies
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Report whether the file sets the key, without editing it |
 
 ## vigolium config validate
 
@@ -1127,6 +1182,14 @@ Record a verdict on findings (false_positive, confirmed, accepted_risk, fixed, t
 | `--dry-run` | - | bool | `false` | Show which findings would change status, without writing |
 | `--note` | - | string | - | Why: stored with the verdict and in the finding's status history |
 | `--stateless` | `-S` | bool | `false` | Write to the standalone .sqlite named by --db with project scoping off |
+
+## vigolium finding show
+
+Usage: `vigolium finding show <id|hash-prefix>...`
+
+Show findings by id or finding-hash prefix, with their evidence records
+
+_No command-specific flags._
 
 ## vigolium finding verify
 
@@ -1732,6 +1795,14 @@ List available modules
 | `--type` | - | string | `all` | Filter modules by type: all, active, or passive |
 | `--verbose` | `-v` | bool | `false` | **(overrides the global `--verbose`)** Show long description and confirmation criteria |
 
+## vigolium module show
+
+Usage: `vigolium module show <module-id>`
+
+Show one module: description, confirmation criteria, severity, scope, tags, enabled
+
+_No command-specific flags._
+
 ## vigolium nuclei
 
 Usage: `vigolium nuclei [vigolium globals] [--] [nuclei flags]`
@@ -1853,6 +1924,12 @@ Create a new project
 |------|-------|------|---------|-------------|
 | `--description` | - | string | - | Project description |
 
+## vigolium project current
+
+Show the project commands run against, and where that choice came from
+
+_No command-specific flags._
+
 ## vigolium project delete
 
 Usage: `vigolium project delete <project-uuid>`
@@ -1876,6 +1953,14 @@ List all projects
 |------|-------|------|---------|-------------|
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
 | `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
+
+## vigolium project rename
+
+Usage: `vigolium project rename <project> <new-name>`
+
+Rename a project
+
+_No command-specific flags._
 
 ## vigolium project use
 
@@ -2466,6 +2551,42 @@ Aliases: `sc`
 Manage scan scope rules
 
 _No command-specific flags._
+
+## vigolium scope add
+
+Usage: `vigolium scope add <component> <pattern>...`
+
+Append patterns to a scope rule's include list (or --exclude list)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the rule's old and new value, without editing the config |
+| `--exclude` | - | bool | `false` | Edit the exclude list instead of the include list |
+| `--project` | - | string | - | Write the project's config overlay instead of the global config |
+
+## vigolium scope check
+
+Usage: `vigolium scope check <url>`
+
+Say whether a URL is in scope, and which rule and pattern refuse it
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--project` | - | string | - | Apply this project's scope overlay (UUID, name or unique 8+ char UUID prefix) |
+
+## vigolium scope rm
+
+Usage: `vigolium scope rm <component> <pattern>...`
+
+Aliases: `remove`
+
+Remove patterns from a scope rule's include list (or --exclude list)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the rule's old and new value, without editing the config |
+| `--exclude` | - | bool | `false` | Edit the exclude list instead of the include list |
+| `--project` | - | string | - | Write the project's config overlay instead of the global config |
 
 ## vigolium scope set
 
