@@ -1349,8 +1349,8 @@ Top-level export command. Exports database tables and module registry as JSONL, 
 |------|-------|------|---------|-------------|
 | `--format` | — | string | `jsonl` | Format(s), comma-separated: `html`, `report`, `pdf`, `jsonl`, `markdown` (alias `md`), `bundle` (alias `gz`), `fs` (flat request/response + finding tree). Multiple formats read the DB once; `-o` becomes the shared base path and each format appends its own extension |
 | `--output` | `-o` | string | — | Output file or `gs://<project>/<key>` URL (required for html); supports `{ts}`/`{project-uuid}` placeholders |
-| `--only` | — | []string | all | Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes) |
-| `--exclude` | — | []string | `[module]` | Exclude items by type (comma-separated, e.g. `module,scan`) |
+| `--only` | — | []string | all but modules | Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes; aliases such as `http_record`, `finding`, `scan` accepted). Applies to every format, jsonl included |
+| `--exclude` | — | []string | — | Drop these tables (same names and aliases as `--only`; an unknown name is exit 2). The module registry is left out unless `--only` names `modules`, whatever `--exclude` says. `--format csv`/`sarif` with no findings left is exit 2 |
 | `--omit-response` | — | bool | `false` | Omit raw HTTP request/response bytes from output (keeps metadata, smaller files) |
 | `--search` | — | string | — | Fuzzy search filter across URLs, paths, hostnames, methods, content types, and sources |
 | `--severity` | — | string | — | Filter findings by severity (comma-separated) |

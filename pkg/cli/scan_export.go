@@ -251,8 +251,11 @@ func encodeJSONL(w io.Writer, items []any) (int, error) {
 //
 // SetEscapeHTML(false) is load-bearing and shared with encodeJSONL: payload
 // evidence is full of & < >, which Go escapes by default.
+//
+// It is the `vigolium export` path, so its --only/--exclude apply here as they
+// do to every other format.
 func streamJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitResponse bool, projectUUID string) (exportCounts, error) {
-	return streamScopedJSONLExport(ctx, db, w, omitResponse, projectUUID, "")
+	return streamJSONLWithScope(ctx, db, w, topExportScope(), omitResponse, projectUUID, "")
 }
 
 // streamScopedJSONLExport is streamJSONLExport narrowed to one scan when
@@ -261,10 +264,15 @@ func streamJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitRe
 // The post-scan `--format jsonl` stream passes the scan's UUID; `vigolium
 // export` passes "" and stays the whole-project path.
 func streamScopedJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitResponse bool, projectUUID, scanUUID string) (exportCounts, error) {
+	return streamJSONLWithScope(ctx, db, w, scanExportScope, omitResponse, projectUUID, scanUUID)
+}
+
+// streamJSONLWithScope is the JSONL envelope stream for one record-type scope.
+func streamJSONLWithScope(ctx context.Context, db *database.DB, w io.Writer, scope exportScope, omitResponse bool, projectUUID, scanUUID string) (exportCounts, error) {
 	counts := newExportCounts()
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
-	err := streamExportData(ctx, db, scanExportScope, omitResponse, projectUUID, scanUUID, func(item any) error {
+	err := streamExportData(ctx, db, scope, omitResponse, projectUUID, scanUUID, func(item any) error {
 		if err := enc.Encode(item); err != nil {
 			return err
 		}

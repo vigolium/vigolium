@@ -66,8 +66,8 @@ var scanExportScope = fullExportScope
 // Called AFTER phase selection, which is what resolves ProbeEnabled.
 func applyExportScope(opts *types.Options) error {
 	if len(scanExportOnly) > 0 {
-		scope := newExportScope(scanExportOnly)
-		if err := scope.validate("--export-only"); err != nil {
+		scope, err := parseExportScope("--export-only", scanExportOnly, "", nil)
+		if err != nil {
 			return asUsageError(err)
 		}
 		scanExportScope = scope

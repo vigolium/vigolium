@@ -44,9 +44,6 @@ var (
 	topExportNoURLDedup bool
 )
 
-// validExportTypes lists all accepted --only values.
-var validExportTypes = []string{"http", "findings", "scans", "modules", "oast", "source-repos", "scopes"}
-
 var exportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "Export database tables and module registry",
@@ -69,7 +66,7 @@ func init() {
 	exportCmd.Flags().StringVar(&topExportFormat, "format", "jsonl", "Export format(s), comma-separated: "+output.FormatsHelp(output.SurfaceExport))
 	exportCmd.Flags().StringVarP(&topExportOutput, "output", "o", "", "Output file path or gs://<project>/<key> URL (required for html; base path when multiple formats are given); supports {ts} and {project-uuid} placeholders")
 	exportCmd.Flags().StringSliceVar(&topExportOnly, "only", nil,
-		"Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes)")
+		"Export only these tables (repeatable: "+strings.Join(exportTypeNames(), ", ")+"; aliases like http_record, finding, scan accepted). Applies to every format")
 	exportCmd.Flags().BoolVar(&topExportOmitResponse, "omit-response", false,
 		"Omit raw HTTP request/response bytes (keeps metadata, smaller files)")
 	exportCmd.Flags().BoolVar(&topExportNoURLDedup, "no-url-dedup", false,
@@ -78,8 +75,8 @@ func init() {
 		"Fuzzy search filter across URLs, paths, hostnames, methods, content types, and sources")
 	exportCmd.Flags().IntVar(&topExportLimit, "limit", 0,
 		"Maximum number of records to export per table (0 = unlimited)")
-	exportCmd.Flags().StringSliceVar(&topExportExclude, "exclude", []string{"module"},
-		"Exclude items by type (comma-separated, e.g. module,scan)")
+	exportCmd.Flags().StringSliceVar(&topExportExclude, "exclude", nil,
+		"Exclude these tables (comma-separated, same names as --only, e.g. scans,oast). The module registry is left out unless --only names modules")
 	exportCmd.Flags().StringVar(&topExportTitle, "report-title", "",
 		"Custom title for the HTML report (default: \"Vigolium Static Report\")")
 	exportCmd.Flags().StringVar(&topExportTarget, "report-target", "",
@@ -116,49 +113,80 @@ func init() {
 // The zero value means "everything", so a caller with no opinion passes
 // fullExportScope and reads as such.
 type exportScope struct {
-	// only lists the types to keep, already trimmed and lowercased. Empty keeps
-	// every type. Normalizing at construction is what lets includes() compare
-	// directly - the previous EqualFold-without-trim comparison silently matched
-	// nothing for `--only " findings"`, which pflag's CSV parser hands through
-	// with its leading space intact.
+	// only lists the canonical types to keep (exportRecordTypes). Empty keeps
+	// every type that is not implicitly excluded.
 	only []string
+	// exclude lists canonical types to drop.
+	exclude []string
 }
 
-// fullExportScope emits every envelope type.
+// fullExportScope emits every envelope type except the implicitly excluded
+// ones (the module registry).
 var fullExportScope = exportScope{}
 
-// newExportScope normalizes the raw flag values into a scope.
+// newExportScope builds a scope from already-validated --only values (see
+// parseExportScope); an unknown name is kept verbatim and so matches nothing.
 func newExportScope(only []string) exportScope {
-	if len(only) == 0 {
-		return fullExportScope
-	}
-	norm := make([]string, 0, len(only))
-	for _, t := range only {
-		if t = strings.ToLower(strings.TrimSpace(t)); t != "" {
-			norm = append(norm, t)
+	scope := fullExportScope
+	for _, v := range only {
+		if t, ok := lookupExportType(v); ok {
+			if !slices.Contains(scope.only, t.Name) {
+				scope.only = append(scope.only, t.Name)
+			}
+		} else if v = strings.ToLower(strings.TrimSpace(v)); v != "" {
+			scope.only = append(scope.only, v)
 		}
 	}
-	return exportScope{only: norm}
+	return scope
 }
 
-// includes reports whether the given data type should be included.
+// parseExportScope validates --only and --exclude against the record-type
+// table (aliases accepted) and builds the scope. A type in both is a usage
+// error: the two flags would contradict each other.
+func parseExportScope(onlyFlag string, only []string, excludeFlag string, exclude []string) (exportScope, error) {
+	o, err := canonicalExportTypes(onlyFlag, only)
+	if err != nil {
+		return exportScope{}, err
+	}
+	x, err := canonicalExportTypes(excludeFlag, exclude)
+	if err != nil {
+		return exportScope{}, err
+	}
+	for _, t := range o {
+		if slices.Contains(x, t) {
+			return exportScope{}, usageErrorf("%s and %s both name %q", onlyFlag, excludeFlag, t)
+		}
+	}
+	return exportScope{only: o, exclude: x}, nil
+}
+
+// includes reports whether the given canonical type should be included.
 func (s exportScope) includes(dataType string) bool {
-	return len(s.only) == 0 || slices.Contains(s.only, dataType)
+	if slices.Contains(s.exclude, dataType) {
+		return false
+	}
+	if len(s.only) > 0 {
+		return slices.Contains(s.only, dataType)
+	}
+	t, ok := lookupExportType(dataType)
+	return !ok || !t.ImplicitlyExcluded
 }
 
 // validate rejects unknown type names, naming the flag that supplied them.
 func (s exportScope) validate(flagName string) error {
-	for _, t := range s.only {
-		if !slices.Contains(validExportTypes, t) {
-			return usageErrorf("invalid %s value %q; valid values: %s",
-				flagName, t, strings.Join(validExportTypes, ", "))
-		}
-	}
-	return nil
+	_, err := canonicalExportTypes(flagName, s.only)
+	return err
 }
 
-// topExportScope is the scope the `vigolium export` command's --only builds.
-func topExportScope() exportScope { return newExportScope(topExportOnly) }
+// topExportScope is the scope the `vigolium export` command's --only and
+// --exclude build. Unknown names were rejected by validateExportOnly.
+func topExportScope() exportScope {
+	scope, err := parseExportScope("--only", topExportOnly, "--exclude", topExportExclude)
+	if err != nil {
+		return newExportScope(topExportOnly)
+	}
+	return scope
+}
 
 // shouldExport returns true if the given data type should be included in the
 // `vigolium export` command's own pre-flight checks (exportNeedsDB). The
@@ -259,9 +287,25 @@ func validateExportFormatPath(s exportFormatSpec) error {
 	return nil
 }
 
-// validateExportOnly rejects unknown --only table names.
+// validateExportOnly rejects unknown --only/--exclude table names.
 func validateExportOnly() error {
-	return topExportScope().validate("--only")
+	_, err := parseExportScope("--only", topExportOnly, "--exclude", topExportExclude)
+	return err
+}
+
+// validateExportFormatsScope refuses a findings-only format (csv, sarif)
+// whose --only/--exclude leave no findings: it would write a header-only
+// file while the receipt counted the records it never wrote.
+func validateExportFormatsScope(specs []exportFormatSpec) error {
+	if topExportScope().includes("findings") {
+		return nil
+	}
+	for _, s := range specs {
+		if s.format == "csv" || s.format == "sarif" {
+			return usageErrorf("--format %s exports findings, but --only/--exclude leave none; add findings to --only or drop it", s.raw)
+		}
+	}
+	return nil
 }
 
 // exportNeedsDB reports whether any requested table lives in the database.
@@ -307,6 +351,9 @@ func runExportCmd(cmd *cobra.Command, args []string) error {
 		if err := validateExportFormatPath(s); err != nil {
 			return err
 		}
+	}
+	if err := validateExportFormatsScope(specs); err != nil {
+		return err
 	}
 	if err := validateExportJSON(specs); err != nil {
 		return err
@@ -899,21 +946,6 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, pr
 	return items, err
 }
 
-// exportExcludeSet builds the lowercased set of envelope types to drop, derived
-// from the --exclude flag (topExportExclude). Returns nil when nothing is
-// excluded. Keys are envelope type names (scan, http_record, finding, module,
-// oast_interaction, scope).
-func exportExcludeSet() map[string]bool {
-	if len(topExportExclude) == 0 {
-		return nil
-	}
-	set := make(map[string]bool, len(topExportExclude))
-	for _, e := range topExportExclude {
-		set[strings.ToLower(strings.TrimSpace(e))] = true
-	}
-	return set
-}
-
 // streamExportData emits every export envelope to emit() as soon as it is read
 // from the database, so the full result set never lives in memory at once.
 // queryExportData is now a thin collector over this, so streamed output is
@@ -942,16 +974,12 @@ func exportExcludeSet() map[string]bool {
 // bodies from the raw bytes via HTTPRecord.MarshalJSON before trimming the
 // redundant raw copies, so excluding the columns blanks the report body.
 func streamExportData(ctx context.Context, db *database.DB, scope exportScope, omitResponse bool, projectUUID, scanUUID string, emit func(any) error) error {
-	excluded := exportExcludeSet()
 	emitItem := func(typ string, data any) error {
-		if excluded[typ] {
-			return nil
-		}
 		return emit(exportEnvelope{Type: typ, Data: data})
 	}
 
 	// --- Scans ---
-	if scope.includes("scans") && db != nil && !excluded["scan"] {
+	if scope.includes("scans") && db != nil {
 		var scans []*database.Scan
 		q := scopeProjectBun(db.NewSelect().Model(&scans).OrderExpr("created_at DESC"), projectUUID)
 		// A scan-scoped export (the post-scan report/jsonl of one run) carries
@@ -977,21 +1005,21 @@ func streamExportData(ctx context.Context, db *database.DB, scope exportScope, o
 	}
 
 	// --- HTTP Records (cursor-streamed) ---
-	if scope.includes("http") && db != nil && !excluded["http_record"] {
+	if scope.includes("http") && db != nil {
 		if err := streamHTTPRecords(ctx, db, omitResponse, projectUUID, scanUUID, emitItem); err != nil {
 			return err
 		}
 	}
 
 	// --- Findings (cursor-streamed) ---
-	if scope.includes("findings") && db != nil && !excluded["finding"] {
+	if scope.includes("findings") && db != nil {
 		if err := streamFindings(ctx, db, projectUUID, scanUUID, emitItem); err != nil {
 			return err
 		}
 	}
 
 	// --- Modules (in-memory registry, no DB needed) ---
-	if scope.includes("modules") && !excluded["module"] {
+	if scope.includes("modules") {
 		emCfg := loadEnabledModulesConfig()
 
 		for _, m := range modules.GetActiveModules() {
@@ -1031,7 +1059,7 @@ func streamExportData(ctx context.Context, db *database.DB, scope exportScope, o
 	}
 
 	// --- OAST Interactions ---
-	if scope.includes("oast") && db != nil && !excluded["oast_interaction"] {
+	if scope.includes("oast") && db != nil {
 		var interactions []*database.OASTInteraction
 		q := scopeProjectBun(db.NewSelect().Model(&interactions).OrderExpr("interacted_at DESC"), projectUUID)
 		if topExportSearch != "" {
@@ -1052,7 +1080,7 @@ func streamExportData(ctx context.Context, db *database.DB, scope exportScope, o
 	}
 
 	// --- Scopes ---
-	if scope.includes("scopes") && db != nil && !excluded["scope"] {
+	if scope.includes("scopes") && db != nil {
 		var scopes []*database.Scope
 		q := scopeProjectBun(db.NewSelect().Model(&scopes).Where("enabled = ?", true).OrderExpr("priority ASC"), projectUUID)
 		if topExportSearch != "" {

@@ -860,7 +860,7 @@ Export database tables and module registry
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--exclude` | - | stringSlice | `[module]` | Exclude items by type (comma-separated, e.g. module,scan) |
+| `--exclude` | - | stringSlice | - | Exclude these tables (comma-separated, same names as --only, e.g. scans,oast). The module registry is left out unless --only names modules |
 | `--format` | - | string | `jsonl` | **(overrides the global `--format`)** Export format(s), comma-separated: jsonl, html, report, pdf (headless Chrome), markdown (alias: md), sarif (SARIF 2.1.0), csv, junit (failures at/above --fail-on), github (workflow commands; stdout without -o), bundle (alias: gz), fs (alias: file-system; flat traffic/finding tree) |
 | `--glob-db` | - | string | - | Export across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
@@ -869,7 +869,7 @@ Export database tables and module registry
 | `--no-redact` | - | bool | `false` | Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
 | `--no-url-dedup` | - | bool | `false` | Emit every stored HTTP exchange; by default exchanges sharing a URL collapse to the first one (plus any a finding links to) |
 | `--omit-response` | - | bool | `false` | Omit raw HTTP request/response bytes (keeps metadata, smaller files) |
-| `--only` | - | stringSlice | - | Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes) |
+| `--only` | - | stringSlice | - | Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes; aliases like http_record, finding, scan accepted). Applies to every format |
 | `--output` | `-o` | string | - | Output file path or gs://<project>/<key> URL (required for html; base path when multiple formats are given); supports {ts} and {project-uuid} placeholders |
 | `--pdf-timeout` | - | duration | `0s` | Bound the headless-Chrome PDF render (0 = $VIGOLIUM_PDF_TIMEOUT, else 1m30s) |
 | `--report-duration` | - | string | - | Human-readable scan duration for the report (e.g. "10h42m5s") |
