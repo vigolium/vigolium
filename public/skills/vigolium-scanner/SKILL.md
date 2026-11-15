@@ -81,7 +81,9 @@ these notes: trust `-h` and run `vigolium skills install --force`.
 | **Diff** | `vigolium scan diff previous latest -j` | `finding --new-since previous` |
 | **Hand off** | `vigolium finding --id 42 --markdown` | `--push-to-burp`, `export --format html` |
 
-Walkthrough with output shapes: **`references/agent-loop.md`** (read it first).
+Walkthrough: **`references/agent-loop.md`** (read it first), then a file per step:
+`references/loop-scan.md`, `references/loop-watch.md`, `references/loop-read.md`,
+`references/loop-confirm.md`, `references/loop-handoff.md`.
 
 ## Before the first scan
 
@@ -105,7 +107,7 @@ vigolium scan wait "$ID" -j        # block, then print the scan document
 `scan.plan` comes second; `phase.progress.requests_sent` every 5s is the
 liveness signal; `scan.finished` is always last (its absence means a hard
 kill). `effective_status: abandoned` from `scan status` means the process is
-gone. Event table: **`references/agent-loop.md`**.
+gone. Event table: **`references/loop-watch.md`**.
 
 ## Command router
 
@@ -230,8 +232,8 @@ keeps it out of context. Shaping flags and traps: **`references/agent-loop.md`**
 
 | Topic | Reference | Load when |
 |---|---|---|
-| **Driving vigolium from an agent** | `references/agent-loop.md` | triage, `-j` shapes, events, verify, mark, diff, exit codes |
-| Invariants | `references/invariants.md` | a rule above needs its detail, or behaviour surprises you |
+| **Driving vigolium from an agent** | `references/agent-loop.md` → `loop-*.md` | token discipline, then plan/scan, watch, read, confirm/mark/diff, hand off |
+| Invariants | `references/invariants.md` | a rule above needs detail; the `-j` envelope, `error.code`, exit codes |
 | Recipes | `references/recipes.md` | plan → wait → new-since, spec scan, whitebox, proxy capture, JS extension |
 | Scanning | `references/scanning.md` | scan / scan-url / scan-request / run flags, strategies, formats, tool shims |
 | Fuzzing | `references/fuzzing.md` | `vigolium fuzz` positions, attack modes, payloads, anomaly scoring |

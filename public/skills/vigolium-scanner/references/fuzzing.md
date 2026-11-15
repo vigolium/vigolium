@@ -471,4 +471,4 @@ Exit 3 on a hit; the summary object lands on stdout either way.
   is deliberate.
 - Exit **3** means `--fail-on-match` matched. Exit **1** is an error and exit
   **2** is a usage error (bad flag or value) — three distinct outcomes, not one.
-  Full table: [agent-loop.md → Exit codes](agent-loop.md#exit-codes).
+  Full table: [invariants.md → Exit codes](invariants.md#exit-codes).

@@ -1,6 +1,6 @@
 # AI Agent Modes
 
-> **Related:** [agent-loop.md](agent-loop.md) for parsing agent-run output · [auth.md](auth.md) for authenticated scans
+> **Related:** [loop-handoff.md](loop-handoff.md#agentic-scans) for parsing agent-run output · [auth.md](auth.md) for authenticated scans
 
 Flags, phases, and examples for every `vigolium agent` subcommand.
 

@@ -47,8 +47,9 @@ The skill uses lazy-loaded references: the main `SKILL.md` stays small, and deta
 public/skills/vigolium-scanner/
 ├── SKILL.md                      # always loaded: router, mental model, invariants
 └── references/                   # loaded on demand, one hop from SKILL.md
-    ├── agent-loop.md             # driving vigolium from an agent: -j contracts,
-    │                             # triage, replay, fuzz, Burp handoff, exports
+    ├── agent-loop.md             # driving vigolium from an agent: start here
+    ├── loop-*.md                 # one file per step: scan, watch, read, confirm, hand off
+    ├── invariants.md             # cross-command rules, the -j envelope, exit codes
     ├── scanning.md               # scan, scan-url, scan-request, run, phases, strategies
     ├── agent-modes.md            # agent query/autopilot/swarm/audit/olium/triage/session
     ├── auth.md                   # --auth-file / --auth, YAML format, extract rules
@@ -64,9 +65,10 @@ task. `flags.generated.md` is produced by `make skill-flags` (which shells out t
 `vigolium skills gen-flags`), so its flag data always matches the binary.
 
 If you are building an agent integration rather than reading interactively,
-start with `references/agent-loop.md` — it documents the
-`scope → scan → read → confirm → hand off` loop, the two JSON contracts, and the
-token-bounding flags.
+start with `references/agent-loop.md` — it routes the
+`scope → scan → read → confirm → hand off` loop to one `loop-*.md` file per step
+and states the token-bounding flags; `references/invariants.md` holds the `-j`
+contract and exit codes.
 
 ---
 

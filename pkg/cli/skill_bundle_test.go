@@ -96,7 +96,7 @@ func TestSkillReferenceRouter(t *testing.T) {
 		// -h, `vigolium strategy -j` or `vigolium schema` can print.
 		lines := strings.Count(string(skill), "\n")
 		if lines > skillLineBudget {
-			t.Errorf("SKILL.md is %d lines; budget is %d. Move detail into a reference (invariants.md, recipes.md, agent-loop.md)", lines, skillLineBudget)
+			t.Errorf("SKILL.md is %d lines; budget is %d. Move detail into a reference (invariants.md, recipes.md, a loop-*.md step file)", lines, skillLineBudget)
 		}
 	})
 
@@ -122,6 +122,58 @@ func TestSkillReferenceRouter(t *testing.T) {
 			return nil
 		})
 	})
+}
+
+// referenceLineBudget caps a reference an agent loads in full. A reference
+// is fetched one at a time (`skills get --ref`), so its size is what one hop
+// costs. agent-loop.md is the one SKILL.md says to read first, so it gets
+// less. The larger budgets are today's sizes of the per-command manuals: lower
+// them when a file shrinks or splits, never raise them.
+const referenceLineBudget = 500
+
+var referenceLineBudgets = map[string]int{
+	"agent-loop.md":  300,
+	"invariants.md":  600,
+	"auth.md":        600,
+	"agent-modes.md": 1160,
+	"extensions.md":  1080,
+	"scanning.md":    1090,
+	"data.md":        1980,
+	// flags.generated.md is generated from the command tree and grepped, not read.
+	"flags.generated.md": -1,
+}
+
+func TestSkillReferenceLineBudgets(t *testing.T) {
+	entries, err := fs.ReadDir(public.StaticFS, skillBundleDir+"/references")
+	if err != nil {
+		t.Fatalf("read references: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		seen[e.Name()] = true
+		budget, ok := referenceLineBudgets[e.Name()]
+		if !ok {
+			budget = referenceLineBudget
+		}
+		if budget < 0 {
+			continue
+		}
+		data, err := public.StaticFS.ReadFile(skillBundleDir + "/references/" + e.Name())
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		if lines := strings.Count(string(data), "\n"); lines > budget {
+			t.Errorf("references/%s is %d lines; its budget is %d. Split it by topic and route to the parts from SKILL.md", e.Name(), lines, budget)
+		}
+	}
+	for name := range referenceLineBudgets {
+		if !seen[name] {
+			t.Errorf("referenceLineBudgets names references/%s, which does not ship", name)
+		}
+	}
 }
 
 // presetConsumers says who reads each directory under public/presets/. A

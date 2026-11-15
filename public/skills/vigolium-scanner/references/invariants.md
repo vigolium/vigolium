@@ -3,7 +3,9 @@
 > **Related:** [agent-loop.md](agent-loop.md) · [scanning.md](scanning.md) · [data.md](data.md) · [flags.generated.md](flags.generated.md)
 
 Rules that hold across commands and that no single command's help states.
-Each section ends with a command that shows the rule on your own install.
+Each rule section ends with a command that shows the rule on your own install;
+[The `-j` envelope](#the--j-envelope) and [Exit codes](#exit-codes) are the
+machine contract in full.
 Anything a flag's own help or a usage error already tells you (mutually
 exclusive flags, a format that needs `-o`, a selector `db clean` requires) is
 not repeated here: the CLI says it, with exit `2`.
@@ -276,6 +278,206 @@ Shows it: `vigolium doctor -j | jq '{status, capabilities}'`
   line on stderr.
 
 Shows it: `vigolium replay -u <uuid> --dump-traffic -j 2>traffic.txt`
+
+## The `-j` envelope
+
+Every command prints **one envelope document** under `-j/--json`, so one
+parser handles them all: reads, mutations (`finding mark`, `project use`,
+`module enable`), scans (`scan`, `run`, `scan wait`, the agent runs), `kit *`,
+`fuzz`, `doctor` and `version` included. Parse `items`; do not write key
+fallbacks. `vigolium schema command <name>` prints the exact JSON Schema of a
+command's document; `vigolium schema list` names every covered command.
+
+Two shape notes that are not exceptions to the envelope, just to `items`:
+
+- `items` is **always an array**, never `null` and never an object. A command
+  whose answer is one object (`db stats`, `db compact`, `traffic body`/`headers`
+  receipts) wraps it as `items: [obj]` with `total: 1`, so `.items[0]` reads it.
+- `ingest -j` has an empty `items` (`[]`); its payload is the sibling fields
+  `records_ingested`, `records_failed`, `records_skipped`, `input_format`,
+  `record_source`, `duration_ms`. `records_ingested` is rows the database
+  HOLDS — it equals a `count(*)` on `http_records` for the run — and a non-zero
+  `records_failed` exits `1` with `error.code: "ingest_incomplete"`.
+
+**Errors are JSON too.** A failed `-j` command writes a parseable error object to
+**stdout** and the human `✖ Error:` line to stderr, so a consumer never has to
+scrape prose:
+
+```jsonc
+{ "schema_version": 2, "command": "traffic", "ok": false,
+  "error": { "code": "source_missing", "message": "…", "exit_code": 1 } }
+```
+
+When the command had already produced its document (a scan that failed, a
+`finding mark` that missed an id, an interrupted scan), that document is
+printed with `ok: false` and the same `error` object beside its fields; there
+is never a second document. `error` may also carry `hint` (the next thing to
+try), `did_you_mean` (a near-miss subcommand, flag or value) and `usage_argv`
+(the `--usage` command for the flags). `error.code` is the stable branch
+point; `error.exit_code` is the process exit code.
+
+**Source codes** — three different next moves:
+
+| `error.code` | What the file is | What to do |
+|---|---|---|
+| `source_missing` | nothing at that path | fix the path |
+| `source_unreadable` | not a database, or corrupt | treat it as damaged evidence; do not "recover" it by reading somewhere else |
+| `source_incompatible` | **valid SQLite that is not a vigolium store** — it opens and passes an integrity check, but has none of vigolium's tables | you are pointed at the wrong file (a zero-byte stub, another tool's database) |
+| *(no error, `total: 0`)* | a real vigolium store with no matching rows | nothing has scanned this yet — go scan it |
+
+Those four are distinct on a read. **A pure read command
+(`traffic`, `finding`, `db ls`, `db stats`, `db export`, `export`, `log`,
+`traffic body`, `traffic headers`) against an explicitly pinned `--db` or
+`$VIGOLIUM_DB_PATH` never creates a store**: a path that is not there fails
+`source_missing`, and one that is there but is not a vigolium database fails
+`source_incompatible`. Neither needs `--read-only`; that flag is about leaving
+the file byte-identical (below).
+
+The built-in default database is still created on first use, because a fresh
+install's first `vigolium traffic` legitimately has nothing to read yet. It is
+**not** created when `--db` (or `$VIGOLIUM_DB_PATH`) pins a different store.
+`version`, `help` and `completion` never create `~/.vigolium`.
+
+**Single-message extraction codes** (`traffic body`, `traffic headers`):
+
+| `error.code` | Meaning |
+|---|---|
+| `record_not_found` | no record carries that `--uuid` |
+| `body_unavailable` | the record exists, but the requested side was never captured |
+| `body_decode_failed` | the body announces an encoding that could not be undone (try `--representation stored`) |
+| `body_incomplete` | only a prefix is available; pass `--allow-incomplete` to take it anyway |
+
+A body that *was* captured and is genuinely zero-length **succeeds**, with
+`empty: true` in the receipt. That is not the same as never having been
+captured (`body_unavailable`).
+
+```jsonc
+{
+  "schema_version": 2,
+  "command": "traffic",
+  "kind": "read",
+  "ok": true,
+  "project_uuid": "…",
+  "project_scoped": true,
+  "project_source": "env",
+  "db_path": "/home/me/.vigolium/database-vgnm.sqlite",
+  "total": 39,
+  "offset": 0,
+  "limit": 100,
+  "items": [ … ],
+  "query": "vigolium traffic --uuid <uuid> --json --full-body",
+  "query_argv": ["vigolium", "traffic", "--uuid", "<uuid>", "--json", "--full-body"],
+  "generated_at": "2026-09-04T10:11:12.345Z",
+  "generated_at_ms": 1788453072345
+}
+```
+
+| Field | Why it is there |
+|---|---|
+| `schema_version` | Gate on it. Bumped on any breaking field change; `2` since v0.5.3 (scan document, every `-j` an envelope; `--json-legacy-keys` renders old row names for one release). |
+| `ok` | `true` exactly when the exit code is `0`, `3` (`--fail-on-match`) or `4` (a gate tripped: the run finished). On `1`, `2` and `5` it is `false` and `error` is present, on the result document too. `.ok` and the exit code never disagree. |
+| `kind` | The document's shape: `read` (rows, or one object as `items: [obj]`), `mutation` (adds `changed`, `action`, and `dry_run` on a dry run) or `scan`. `changed` is always present on a mutation and is `false` on a dry run. |
+| `finding_hash` | (on finding rows) The finding's stable identity — the dedup key and what SARIF fingerprints use. Selectable with `--fields`. |
+| `items` | **The** row array, and the only one — always an array, `[]` when empty. The pre-envelope names (`records`, `findings`, `scans`, `rows`, `stats`) are not emitted by default: they duplicated every row on the wire. `--json-legacy-keys` (or `VIGOLIUM_JSON_LEGACY_KEYS=1`) brings the alias back for a caller still migrating, at that cost; for a one-object result the alias renders the object itself (`stats: {…}`). |
+| `db_path` | The database this command actually opened. Assert it; the open order ends at one shared default file, so a fall-through silently mixes engagements. |
+| `project_uuid` | The project filter that was **actually applied**, or absent when none was (a `-S` read spanning every project names none). |
+| `project_source` | Where the project selection came from: `flag`, `env`, `active_file` (the global file `project use` writes; the envelope then also carries a `warnings[]` entry) or `default`. |
+| `project_scoped` | Whether a project filter was applied at all, so "unscoped" is explicit rather than inferred from a missing `project_uuid`. `false` on a plain `-S` read; `true` once you pass `--project-uuid`. |
+| `query` | A suggested follow-up read — see below. |
+| `next` | Further steps `{argv, why, sends_traffic}`; a step with `sends_traffic: true` puts requests on the wire. |
+| `sends_traffic` | `true` on the document of a command that sends requests (scans, `replay`, `fuzz`, `dns`, `fingerprint`, `auth check`, …). |
+| `query_argv` | The same follow-up as an argv vector. Prefer it from code: `query` is shell-quoted for a human, and re-splitting it is where the quoting breaks the parse. The two are always present or absent together — both are absent under `--glob-db`, whose merged source no argument list can reopen. |
+| `output_budget` | Present only when `--max-output-bytes` truncated the page: `{max_bytes, returned, omitted, next_offset}`. `total` still describes the whole result set. |
+| `generated_at` / `_ms` | RFC3339 with **exactly 3** fractional digits, plus an epoch-millisecond sibling. Both are safe to compare against a JS `toISOString()`. |
+
+### The `query` hint
+
+Every hint is a valid read that sends nothing and repeats the source's `--db`
+(a test enforces it). `traffic`/`db ls` hand back `traffic --uuid <uuid> --json
+--full-body` (inspect the record), `finding` hands back `finding --id <int>
+--json --with-records` (the evidence bundle), `ingest` hands back a plain
+recency listing.
+
+A follow-up that sends — fuzz's confirmation scan, a scan document's next
+step — is in `next[]` with `sends_traffic: true`, never in `query`. Re-sending a
+stored request is always your explicit choice (`replay -u <uuid>`, `fuzz -u
+<uuid>`).
+
+Check the contract once at startup:
+
+```bash
+vigolium version --json   # envelope: schema_version (the -j contract); items[0] = {version, commit, db_schema_version, db_min_reader_version}
+```
+
+## Exit codes
+
+| Code | Meaning |
+|-----:|---------|
+| `0` | success (or `--soft-fail` forced it) |
+| `1` | error — the command failed to do its job |
+| `2` | usage error — bad flag, bad value, rejected combination |
+| `3` | `fuzz --fail-on-match` matched |
+| `4` | `--fail-on <sev>` / `scan diff --fail-on-new <sev>` gate tripped |
+| `5` | incomplete — ran but did not finish; `error.code` is `interrupted` (SIGINT/SIGTERM, `scan stop`), `timed_out`, `budget_exhausted` or `partial` (native scans only under `--fail-on`/`--fail-on-partial`) |
+
+**`4` is not a failure.** The scan ran to completion, wrote its output, and found
+something at or above the threshold — the opposite outcome from `1`, where it
+never got that far. Branch on them separately; treating every non-zero as
+breakage either ignores real outages or reports every finding as one.
+
+**A requested artifact that was not written is exit `1`, code `export_failed`** —
+even when the scan itself ran clean, and even when it would otherwise have
+tripped the `--fail-on` gate. The gate's whole premise is that the output was
+written before the code was chosen; when it wasn't, exit `4` would send you to
+read a file that does not exist. Retry the export, not the scan: the findings
+reached the database, they just did not reach your `-o`. Formats are attempted
+independently, so with `--format jsonl,sqlite` one of them may well be on disk —
+the "Exports" summary on stderr lists what actually landed.
+
+On the read commands:
+
+| Read | Exit | `error.code` |
+|---|---:|---|
+| `--fields bogus` | `2` | `usage_error` (lists the valid names) |
+| `--db <not a sqlite file>` | `1` | `source_unreadable` |
+| `--db <missing file>` | `1` | `source_missing` — **nothing is created** |
+| `--db <sqlite, but not a vigolium store>` | `1` | `source_incompatible` — **no tables are added to it** |
+| `finding --id <a UUID>` | `2` | `usage_error` (names the flag that reads that namespace) |
+| `traffic --group-by <unknown field>` | `2` | `usage_error` (lists the groupable fields) |
+| `traffic body --uuid <no such record>` | `1` | `record_not_found` |
+| `finding mark <id/hash that matches nothing>` | `1` | `finding_not_found` — on the mutation document, which lists it in `not_found` |
+| `finding <int>` / `finding show <id>` (no such finding) | `1` | `finding_not_found` (hint: `finding --search <n>`) |
+| `replay`/`fuzz` at a host the scope refuses | `2` | `out_of_scope` — nothing sent; `--ignore-scope` overrides |
+| `finding verify … --fail-if not_reproduced` (a finding did not reproduce) | `4` | none: `ok: true`, the document is the answer |
+| `scan diff <unknown scan>` / `finding --new-since <unknown scan>` | `1` | `scan_not_found` |
+| `traffic body --uuid <request with no response>` | `1` | `body_unavailable` |
+| `scan -S -o <unwritable path>` | `1` | `export_failed` — the scan ran; the artifact did not land |
+| `--id 999999` (no such finding) | `0` | —, `{"total":0,"items":[]}` |
+| `--search zzzznomatch` (genuine zero hits) | `0` | —, `{"total":0,"items":[]}` |
+
+The last two rows are still one answer each way, so to tell "no such finding"
+from "`--search` legitimately matched nothing", assert the envelope's `db_path`
+and check `total` against a second query you know matches.
+
+`--read-only` is a *different* guarantee: the source file survives the
+read **byte-identical**, with no journal-mode flip, no WAL checkpoint, and no
+`-wal`/`-shm` siblings left beside it. Use it when the store is evidence or under
+chain of custody. It costs nothing on a current store, but it cannot migrate an
+old one — a store on an earlier schema fails with a schema error instead of
+being upgraded in place, which is the point.
+
+Always check the exit code before parsing — and never `2>&1` into a JSON parser:
+the machine object is on stdout, the human line on stderr, and merging them
+corrupts the stream.
+
+`--fail-on <info\|suspect\|low\|medium\|high\|critical>` on `scan`/`run`/
+`scan-url`/`scan-request` exits `4` when a finding at or above that severity is
+present. Findings marked `false_positive` or `accepted_risk` ([`finding mark`](loop-confirm.md#recording-a-verdict))
+do not count. **Output is always written first** — the gate only changes the exit
+code. `--soft-fail` (global) forces exit 0 even on error and overrides
+`--fail-on`. Under `-P/--parallel` the gate is evaluated **per child**: the
+batch exits `4` when any child tripped it, and `1` only when every target
+failed.
 
 ## History
 

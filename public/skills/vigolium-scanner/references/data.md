@@ -218,7 +218,7 @@ A scan reaped by a deadline or SIGKILL leaves its row saying `running`
 
 So `vigolium log <uuid> | cat` terminates promptly. For live progress from a
 program, prefer `--events ndjson` on the scan itself (see
-[agent-loop.md](agent-loop.md)) — it is a structured stream rather than a
+[loop-watch.md](loop-watch.md)) — it is a structured stream rather than a
 rendered log.
 
 ### `--full` is not needed to see WAF notices
@@ -378,7 +378,7 @@ List database records with filtering, sorting, and display options. The target t
 
 ### Agent JSON output flags
 
-With `-j`/`--json`, `db ls` emits the same compact, token-aware object as `finding`/`traffic` and accepts the shared shaping flags: `--compact` (metadata only), `--fields a,b,c` (project top-level keys), `--full-body` (complete bodies), `--max-output-bytes N` (cap the whole document at N bytes, dropping whole trailing items). `--with-records` is finding-only. Most `-j` commands (including `db stats`) use the **same envelope** — `{schema_version, command, kind, ok, project_uuid, project_scoped, db_path, total, offset, limit, items, query, query_argv, generated_at, generated_at_ms}`, with `items` canonical and always an array. The old row key (`records`/`findings`/`scans`/`rows`) is no longer emitted by default — it shipped a **second full copy of the array** on the wire; `--json-legacy-keys` (or `VIGOLIUM_JSON_LEGACY_KEYS=1`) restores it at that cost. See [agent-loop.md → The `-j` envelope](agent-loop.md#the--j-envelope).
+With `-j`/`--json`, `db ls` emits the same compact, token-aware object as `finding`/`traffic` and accepts the shared shaping flags: `--compact` (metadata only), `--fields a,b,c` (project top-level keys), `--full-body` (complete bodies), `--max-output-bytes N` (cap the whole document at N bytes, dropping whole trailing items). `--with-records` is finding-only. Most `-j` commands (including `db stats`) use the **same envelope** — `{schema_version, command, kind, ok, project_uuid, project_scoped, db_path, total, offset, limit, items, query, query_argv, generated_at, generated_at_ms}`, with `items` canonical and always an array. The old row key (`records`/`findings`/`scans`/`rows`) is no longer emitted by default — it shipped a **second full copy of the array** on the wire; `--json-legacy-keys` (or `VIGOLIUM_JSON_LEGACY_KEYS=1`) restores it at that cost. See [invariants.md → The `-j` envelope](invariants.md#the--j-envelope).
 
 Notes on this command:
 
@@ -919,7 +919,7 @@ vigolium finding verify 3f9a0c2b71de --dry-run
 
 Browse stored HTTP traffic. Shortcut for `vigolium db ls http_records`. To load
 traffic in, see [ingest.md](ingest.md) / [server.md](server.md); to re-send it,
-see [agent-loop.md](agent-loop.md) → *Bulk replay*.
+see [loop-confirm.md](loop-confirm.md#bulk-replay).
 
 **Host facts are output-only, not stored.** A `run probe` sweep reports `a`,
 `aaaa`, `cname` and `tls` inline in its own `--json` stream, but the schema keeps
@@ -1135,7 +1135,7 @@ one counts, the other prints.
 Re-sending stored traffic — both `traffic --replay` (human comparison table,
 `--with-browser`) and the top-level `vigolium replay` (structured JSONL diffs) —
 is documented with the rest of the confirm/hand-off workflow in
-**[agent-loop.md](agent-loop.md)** → *Bulk replay*.
+**[loop-confirm.md](loop-confirm.md#bulk-replay)**.
 
 Burp-bridge **listing** sync flags stay here because they operate on the
 `traffic` listing, not on replay:

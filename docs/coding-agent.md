@@ -6,7 +6,8 @@ default human output is unchanged; you opt into machine output with `-j/--json`.
 
 > **Using an agent skill instead?** The same material — plus the replay/fuzz
 > confirm chain and the Burp handoff — ships inside the binary as
-> `references/agent-loop.md` in the `vigolium-scanner` skill. Install it with
+> `references/agent-loop.md` (and its `loop-*.md` step files) in the
+> `vigolium-scanner` skill. Install it with
 > `vigolium skills install --agent claude` and your agent gets a version-matched
 > copy without reading this page. See
 > [`public/skills/README.md`](../public/skills/README.md).
@@ -1276,7 +1277,7 @@ after `scan.started` and before any request; its `plan` is the object
 [`--dry-run`](#plan-first---dry-run) prints, with `scan_uuid` set. Some types
 and fields (`host.*`, `auth.*`,
 `targets_reached`, …) are already reserved in the vocabulary before anything
-emits them; the skill's `references/agent-loop.md` lists each with the release
+emits them; the skill's `references/loop-watch.md` lists each with the release
 expected to start emitting it.
 
 ### Watching a scan from another process (`scan status`, `scan wait`)

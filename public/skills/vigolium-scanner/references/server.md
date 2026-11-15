@@ -1,7 +1,7 @@
 # Server Reference
 
 > **Related:** [ingest.md](ingest.md) for feeding traffic into the server ·
-> [agent-loop.md](agent-loop.md) for `--mirror-fs` consumption and bulk replay ·
+> [loop-read.md](loop-read.md) for `--mirror-fs` consumption, [loop-confirm.md](loop-confirm.md) for bulk replay ·
 > [burp.md](burp.md) for the Burp bridge · [data.md](data.md) for browsing what landed
 
 Complete flag reference for `vigolium server` — the REST API server with Swagger
@@ -192,7 +192,7 @@ record and finding to `<dir>/traffic/` + `<dir>/findings/` as they are persisted
 — in addition to the database — so an external agent can read ingested
 Burp/proxy traffic as files in real time (`ls`/`grep`/`jq`).
 
-- **Same layout as `--format fs`**: per-host subdirs with `0001.req` (a leading `@target <scheme>://<authority>` line then the raw request), `0001.resp.headers`, `0001.resp.body` (gzip-decoded), and `0001.md` for findings cross-linked to their `.req`. Full layout + consumption walkthrough: [agent-loop.md → Filesystem tree output](agent-loop.md#filesystem-tree-output).
+- **Same layout as `--format fs`**: per-host subdirs with `0001.req` (a leading `@target <scheme>://<authority>` line then the raw request), `0001.resp.headers`, `0001.resp.body` (gzip-decoded), and `0001.md` for findings cross-linked to their `.req`. Full layout + consumption walkthrough: [loop-read.md → Filesystem tree output](loop-read.md#filesystem-tree-output).
 - **Append-only index**: writes `<root>/traffic/index.jsonl` + `<root>/findings/index.jsonl` (one JSON object per line), vs the one-shot export's single `index.json` array — so you can `tail -f` it while traffic lands.
 - **Owner-only, atomic**: files are written 0600 through a temp file and rename (a reader never sees a half-written file), directories 0700.
 - **Bounded, never silent**: a background goroutine does all disk I/O. When its buffer is full a save waits up to 2s, then the job is dropped (the database is unaffected), counted in `/server-info` as `mirror_dropped`, and logged at most once a minute.

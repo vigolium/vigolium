@@ -776,7 +776,7 @@ Postman: `-t` fills `{{baseUrl}}` / `{{url}}` and `--spec-var` fills other
 | JUnit | `--format junit -o f.junit.xml` | suite per module, failure per finding at/above `--fail-on` (default `low`) |
 | GitHub annotations | `--format github` | `::error`/`::warning`/`::notice` on stdout (or `-o FILE`); not with `-j`; appends to `$GITHUB_STEP_SUMMARY` |
 | SQLite | `--format sqlite -S -o run.sqlite` | standalone per-run DB via `VACUUM INTO`; requires `-S` + `-o`; aliases `sqlite3`, `db` |
-| Filesystem tree | `--format fs -o run` | browsable `run-traffic/` + `run-findings/`; see [agent-loop.md](agent-loop.md) |
+| Filesystem tree | `--format fs -o run` | browsable `run-traffic/` + `run-findings/`; see [loop-read.md](loop-read.md#filesystem-tree-output) |
 
 Combine with commas: `--format jsonl,html -o report.html`.
 

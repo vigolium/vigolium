@@ -32,7 +32,7 @@ and takes `-j/--json` for one envelope document on stdout (human notes go
 to stderr, so a pipe stays clean).
 
 Under `-j` every kit command prints the standard envelope (`schema_version`,
-`command`, `kind`, `ok`, `total`, `items`, …; see `agent-loop.md`). The rows
+`command`, `kind`, `ok`, `total`, `items`, …; see `invariants.md`). The rows
 are always in `items`; every other field the command reports (`count`,
 `files_scanned`, `server`, …) stays at the top level under its old name. A
 single-object result (`js-beautify`, `jwt-crack`, `tmp-clean`) is
@@ -373,4 +373,4 @@ a long-running scan is safe even at `--max-age 0`.
   silently ignored. Raise `jstangle.hard_input_mb` in config instead.
 - **Exit 3 gates.** `secret-scan --fail-on-match` and `jwt-crack --fail-on-crack`
   exit 3 on a hit. Otherwise 0 success, 1 error, 2 usage error — see
-  [agent-loop.md → Exit codes](agent-loop.md#exit-codes).
+  [invariants.md → Exit codes](invariants.md#exit-codes).

@@ -2,7 +2,7 @@
 
 > **Related:** [server.md](server.md) for the receiving server & recording proxy ·
 > [scanning.md](scanning.md) for `-I`/`-i`/`-T` and the full input-format matrix ·
-> [data.md](data.md) for browsing what landed · [agent-loop.md](agent-loop.md) for the fs mirror
+> [data.md](data.md) for browsing what landed · [loop-read.md](loop-read.md) for the fs mirror
 
 Complete flag reference for `vigolium ingest` — parse traffic from a file, spec,
 or stdin and store it as HTTP records, either into the local database or into a

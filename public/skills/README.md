@@ -62,9 +62,15 @@ vigolium-scanner --agent <name> --yes`, or clone
 vigolium-scanner/
 ├── SKILL.md                      # always loaded: contract, loop, router, rules
 └── references/                   # loaded on demand, one hop from SKILL.md
-    ├── agent-loop.md             # ★ driving vigolium from an agent: the -j envelope,
-    │                             #   --events stream, verify/mark/diff, exports, exit codes
-    ├── invariants.md             # cross-command rules -h won't tell you, by topic
+    ├── agent-loop.md             # ★ driving vigolium from an agent: start here (token
+    │                             #   discipline, gotchas, which loop-*.md has each step)
+    ├── loop-scan.md              # scope, host-list sweep, --dry-run plan, scan document, gates
+    ├── loop-watch.md             # --events stream, statuses, coverage, scan status/wait/stop
+    ├── loop-read.md              # finding/traffic triage, exports, --format fs trees
+    ├── loop-confirm.md           # verify, replay, mark, diff, bulk replay, fuzz
+    ├── loop-handoff.md           # Burp/Caido, curl, reports, agent-run documents
+    ├── invariants.md             # cross-command rules -h won't tell you, the -j envelope,
+    │                             #   error codes and exit codes
     ├── recipes.md                # multi-step workflows (plan → wait → new-since, …)
     ├── scanning.md               # scan, scan-url, scan-request, run, phases, strategies,
     │                             #   pace + per-phase dials, tool shims (ffuf/nuclei/…)
@@ -82,10 +88,11 @@ vigolium-scanner/
 
 `SKILL.md` is the only file always in context; it routes to at most one reference
 per task. If you are building an agent integration, start with
-`references/agent-loop.md` — it documents the `scope → plan → scan → watch →
-read → confirm → mark → diff → hand off` loop, the three output channels (`-j`
-document, bulk `jsonl`, live `--events` stream), the exit-code table, and the
-token-bounding flags.
+`references/agent-loop.md` — it maps the `scope → plan → scan → watch → read →
+confirm → mark → diff → hand off` loop onto one `loop-*.md` file per step and
+states the token-bounding flags; `references/invariants.md` holds the `-j`
+envelope, the `error.code` table and the exit codes. Without the skill on disk,
+`vigolium skills get vigolium-scanner --ref <file>` prints one reference.
 
 ## Maintaining
 
