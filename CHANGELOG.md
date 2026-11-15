@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - `db ls`, `log ls`, `scan diff` and `db stats` honour `--format tsv` (with `--no-header`) and refuse other formats; `log <prefix>` resolves an 8+ character session UUID prefix; `db reset --dry-run` lists the files it would delete; `db stats` reads like `traffic` (standalone sources whole, `project_uuid` in `-j`); `--db` naming a non-SQLite file (a JSONL export) fails with a hint to pass `-S`.
 - `config ls` shows the settings of the active project (global config plus its overlay), lists every settable key including ones set to `false` or empty, and `-j` values are typed (`value`; the old text is `display`) with `default`, `type` and `source` (`default`, `file`, `env:NAME`, `project`, `flag`). Redaction applies to string credentials only (any key under `api_keys`, tokens, passwords), not to booleans like `disable_secret_scan`. `config ls --effective` lists only the keys a layer set. New `vigolium config env` lists every `VIGOLIUM_*` variable the binary reads.
 - `scope view` reads the active project's overlay and labels each value with its source; `scope set` honours the global `--project-uuid`/`--project-name` like `--project`.
+- `project use` accepts a name or a unique 8+ character UUID prefix; an unknown one is `project_not_found` (was `not_found`) with a `project create <name>` hint. New `project use --print-env` prints the export line and writes no `active-project` file, pinning one shell.
 
 ## [v0.5.7] - 2026-11-14
 

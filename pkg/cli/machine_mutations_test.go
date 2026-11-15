@@ -116,7 +116,7 @@ func TestProjectUseUnknownUUIDIsNotFound(t *testing.T) {
 	doc := oneDoc(t, stdout, stderr)
 	require.Equal(t, false, doc["ok"])
 	errObj, _ := doc["error"].(map[string]any)
-	require.Equal(t, "not_found", errObj["code"], "error: %v", doc["error"])
+	require.Equal(t, "project_not_found", errObj["code"], "error: %v", doc["error"])
 	assert.NotContains(t, stdout, "export ", "no export line under -j")
 
 	// Nothing was created, and nothing was activated.

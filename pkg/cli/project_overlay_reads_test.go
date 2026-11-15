@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,4 +69,26 @@ func TestConfigLsTypedAndSourced(t *testing.T) {
 	code, stdout, stderr = e.run(t, nil, "config", "env", "-j")
 	require.Equal(t, 0, code, stderr)
 	require.Contains(t, stdout, `"name":"VIGOLIUM_DB_PATH"`)
+}
+
+// project use --print-env pins a shell only: it writes no active-project
+// file, and it takes a name or a UUID prefix.
+func TestProjectUsePrintEnv(t *testing.T) {
+	e := newB5Env(t)
+	code, stdout, stderr := e.run(t, nil, "project", "create", "pinned-proj", "-j")
+	require.Equal(t, 0, code, stderr)
+	proj := oneDoc(t, stdout, stderr)["items"].([]any)[0].(map[string]any)["uuid"].(string)
+
+	for _, ref := range []string{"pinned-proj", proj[:8]} {
+		code, stdout, stderr = e.run(t, nil, "project", "use", ref, "--print-env")
+		require.Equal(t, 0, code, stderr)
+		require.Equal(t, "export VIGOLIUM_PROJECT_UUID="+proj+"\n", stdout)
+	}
+	_, err := os.Stat(filepath.Join(e.home, ".vigolium", "active-project"))
+	require.True(t, os.IsNotExist(err), "--print-env must write no active-project file")
+
+	code, stdout, stderr = e.run(t, nil, "project", "use", "no-such-proj", "-j")
+	require.Equal(t, 1, code, stderr)
+	require.Contains(t, stdout, "project_not_found")
+	require.Contains(t, stdout, "project create <name>")
 }
