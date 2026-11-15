@@ -527,6 +527,13 @@ type importExtras struct {
 	SessionDir              string         `json:"session_dir,omitempty"`
 	StorageURL              string         `json:"storage_url,omitempty"`
 
+	// Per envelope type (http_record, finding, scan, oast_interaction, scope,
+	// agentic_scan): rows written, rows already present, rows of a type this
+	// import does not store (module, scope without --include-scopes).
+	ImportedByType   map[string]int `json:"imported_by_type,omitempty"`
+	DuplicatesByType map[string]int `json:"duplicates_by_type,omitempty"`
+	SkippedTypes     map[string]int `json:"skipped_types,omitempty"`
+
 	// A SQLite merge.
 	MergedFrom           string `json:"merged_from,omitempty"`
 	RecordsMerged        int    `json:"records_merged,omitempty"`

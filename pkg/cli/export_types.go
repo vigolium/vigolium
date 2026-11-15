@@ -39,13 +39,15 @@ var exportRecordTypes = []exportRecordType{
 	{Name: "http", Envelope: "http_record", Aliases: []string{"http_record", "http_records", "record", "records", "traffic"}, Importable: true,
 		Formats: append(slices.Clone(exportFormatsDocument), "fs")},
 	{Name: "findings", Envelope: "finding", Aliases: []string{"finding"}, Importable: true},
-	{Name: "scans", Envelope: "scan", Aliases: []string{"scan"}, Formats: exportFormatsDocument},
+	{Name: "scans", Envelope: "scan", Aliases: []string{"scan"}, Importable: true, Formats: exportFormatsDocument},
 	// The module registry is the binary's, not the store's; it rides along
 	// only when asked for.
 	{Name: "modules", Envelope: "module", Aliases: []string{"module"}, ImplicitlyExcluded: true, Formats: exportFormatsDocument},
-	{Name: "oast", Envelope: "oast_interaction", Aliases: []string{"oast_interaction", "oast_interactions", "oast-interactions"}, Formats: exportFormatsArchive},
+	{Name: "oast", Envelope: "oast_interaction", Aliases: []string{"oast_interaction", "oast_interactions", "oast-interactions"}, Importable: true, Formats: exportFormatsArchive},
 	{Name: "source-repos", Envelope: "source_repo", Aliases: []string{"source_repo", "source_repos", "source-repo"}, Formats: exportFormatsArchive},
-	{Name: "scopes", Envelope: "scope", Aliases: []string{"scope"}, Formats: exportFormatsArchive},
+	// Scope rows are enabled scan rules: import stores them only into a
+	// stateless database or under --include-scopes.
+	{Name: "scopes", Envelope: "scope", Aliases: []string{"scope"}, Importable: true, Formats: exportFormatsArchive},
 }
 
 // supportsFormat reports whether the given canonical export format renders

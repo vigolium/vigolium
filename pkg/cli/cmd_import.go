@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 var (
 	importBurpBridgeURL string
 	importSearchFilter  string
+	importIncludeScopes bool
 )
 
 var importCmd = &cobra.Command{
@@ -37,7 +40,10 @@ Supported inputs:
     --caido-bridge-url; no path argument)
   - Audit output folder: contains audit-state.json and findings-draft/
   - JSONL file: exported data with {"type": "...", "data": {...}} envelopes
-    Supports http_record and finding types (e.g. from 'vigolium export --format jsonl')
+    (e.g. from 'vigolium export --format jsonl'): http_record, finding, scan
+    and oast_interaction rows are stored, re-homed into the active project.
+    scope rows are enabled scan rules, so they are stored only with
+    --include-scopes; otherwise they are counted under skipped_types
   - Vigolium SQLite database (.sqlite/.sqlite3/.db, detected by header): merged
     into the destination database — HTTP records, findings, scans, agentic scans
     and OAST interactions, deduped on their natural keys (re-importing the same
@@ -84,6 +90,8 @@ func init() {
 	registerBridgeURLFlag(importCmd, &importBurpBridgeURL,
 		"Import live Burp/Caido proxy history from this loopback bridge URL into the database")
 	registerImportBridgeFilterFlags(importCmd.Flags())
+	importCmd.Flags().BoolVar(&importIncludeScopes, "include-scopes", false,
+		"Store the scope rules of a JSONL source in the active project (they change what later scans may reach); skipped by default")
 	importCmd.Flags().Bool("upload", false, "Upload the local import source to cloud storage after import")
 	importCmd.Flags().String("upload-key", "", "Explicit storage key for --upload (default: imports/<basename>-<ts>.<ext>)")
 	importCmd.Flags().StringVar(&globalGlobDB, "glob-db", "", "Glob of local files to import alongside any positional paths (use one format per run), e.g. --glob-db 'prefix-*.sqlite' or '*.jsonl'")
@@ -421,7 +429,15 @@ func importChanged(r *dbimport.Result) bool {
 		return m.ProjectsMerged+m.ScansMerged+m.AgenticScansMerged+m.RecordsMerged+m.FindingsMerged+
 			m.FindingRecordsMerged+m.OASTMerged+m.ObservationsMerged+m.StatusEventsMerged > 0
 	}
-	return r.AgenticScanUUID() != "" || r.RecordsImported > 0 || r.FindingsSaved > 0
+	if r.AgenticScanUUID() != "" || r.RecordsImported > 0 || r.FindingsSaved > 0 {
+		return true
+	}
+	for _, n := range r.ImportedByType {
+		if n > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // importIncompleteError reports a lossy import, or nil when nothing was lost.
@@ -537,6 +553,7 @@ func importOneSource(ctx context.Context, repo *database.Repository, src, projec
 	opts := dbimport.Options{
 		OriginalSource:     src,
 		SessionDirArchiver: cliSessionDirArchiver,
+		ImportScopes:       importIncludeScopes,
 	}
 	return dbimport.ImportPath(ctx, repo, localPath, projectUUID, opts)
 }
@@ -610,9 +627,12 @@ func importResultJSON(localPath string, r *dbimport.Result) map[string]any {
 	// A SQLite-database import is a merge, not a parse — summarize the merged
 	// tables (records/findings/scans/oast) rather than the JSONL/audit shape.
 	if r.MergeStats != nil {
-		return mergeResultJSON(localPath, r.MergeStats)
+		out := mergeResultJSON(localPath, r.MergeStats)
+		addImportTypeCounts(out, r)
+		return out
 	}
 	out := map[string]any{}
+	addImportTypeCounts(out, r)
 	if uuid := r.AgenticScanUUID(); uuid != "" {
 		out["agentic_scan_uuid"] = uuid
 	}
@@ -640,6 +660,26 @@ func importResultJSON(localPath string, r *dbimport.Result) map[string]any {
 	}
 	if r.StorageURL != "" {
 		out["storage_url"] = r.StorageURL
+	}
+	return out
+}
+
+// addImportTypeCounts adds the per-type counters: imported_by_type (rows
+// written), duplicates_by_type (rows already present) and skipped_types (rows
+// of a type this import does not store). All three are always present so an
+// empty object reads as "none", not as an older vigolium.
+func addImportTypeCounts(out map[string]any, r *dbimport.Result) {
+	out["imported_by_type"] = nonNilCounts(r.ImportedByType)
+	out["duplicates_by_type"] = nonNilCounts(r.DuplicatesByType)
+	out["skipped_types"] = nonNilCounts(r.SkippedTypes)
+}
+
+func nonNilCounts(m map[string]int) map[string]int {
+	out := map[string]int{}
+	for k, v := range m {
+		if v > 0 {
+			out[k] = v
+		}
 	}
 	return out
 }
@@ -699,6 +739,13 @@ func printImportResult(localPath string, r *dbimport.Result) {
 			fmt.Printf("  Findings: %d total (%d new, %d duplicates skipped%s)\n",
 				r.FindingsTotal, r.FindingsSaved, r.FindingsSkipped, importFailedSuffix(r.FindingsFailed))
 		}
+		for _, t := range []struct{ key, label string }{
+			{"scan", "Scans"}, {"oast_interaction", "OAST"}, {"scope", "Scopes"},
+		} {
+			if n, d := r.ImportedByType[t.key], r.DuplicatesByType[t.key]; n+d > 0 {
+				fmt.Printf("  %s: %d imported, %d already present\n", t.label, n, d)
+			}
+		}
 	}
 
 	if sev := r.SeverityCounts; sev["high"] > 0 || sev["critical"] > 0 || sev["medium"] > 0 || sev["low"] > 0 {
@@ -718,8 +765,12 @@ func printImportResult(localPath string, r *dbimport.Result) {
 	if r.ParseErrors > 0 {
 		fmt.Printf("  %s %d lines could not be parsed\n", terminal.WarningSymbol(), r.ParseErrors)
 	}
-	for typ, count := range r.SkippedTypes {
-		fmt.Printf("  Skipped %d %q entries\n", count, typ)
+	for _, typ := range slices.Sorted(maps.Keys(r.SkippedTypes)) {
+		hint := ""
+		if typ == "scope" {
+			hint = " (scan rules; pass --include-scopes to store them)"
+		}
+		fmt.Printf("  %s Skipped %d %q entries%s\n", terminal.WarningSymbol(), r.SkippedTypes[typ], typ, hint)
 	}
 }
 

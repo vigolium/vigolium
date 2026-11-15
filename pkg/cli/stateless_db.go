@@ -712,6 +712,7 @@ func loadStatelessJSONL(path string) (*database.DB, error) {
 	// carried no project of its own.
 	res, err := dbimport.ImportJSONL(ctx, database.NewRepository(db), f, "", dbimport.Options{
 		PreserveProjectUUID: true,
+		ImportScopes:        true,
 	})
 	if err != nil {
 		_ = db.Close()
@@ -794,6 +795,7 @@ func openGlobDB(pattern string, skip globDBSkipSet) (*database.DB, error) {
 			SkipRecordBodies:    skip.RecordBodies,
 			SkipFindings:        skip.Findings,
 			PreserveProjectUUID: true,
+			ImportScopes:        true,
 		})
 		// A source whose findings the scratch store refused is a source that did
 		// not fully load, even though ImportPath returns no error for it. Counting
