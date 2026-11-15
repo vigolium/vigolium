@@ -453,6 +453,9 @@ func (r *Runner) RunNativeScan() (err error) {
 	if lost := authLostCause(ctx); lost != nil {
 		return lost
 	}
+	if err := r.allTargetsQuarantined(infra.hostErrors(), admission.Admitted); err != nil {
+		return err
+	}
 	if r.options.SkipIngestion && !r.options.KnownIssueScanEnabled && r.options.SkipDynamicAssessment {
 		zap.L().Info("Discovery skipped, no downstream phases need DB records")
 		r.scanLogger.Info("discovery", "skipped, no downstream phases need DB records")
@@ -615,7 +618,12 @@ func (r *Runner) executeNativePhase(ctx context.Context, infra *phaseInfra, phas
 	}
 	liveness := r.liveness.Load()
 	liveness.PhaseStarted(string(phase))
+	breaker := infra.hostErrors()
+	refusedBefore := breaker.Refusals()
 	defer func() {
+		// Probes the breaker refused never reach the executor's own skip
+		// count; without this a phase whose host went down mid-way read clean.
+		tracker.noteGateRefusals(breaker, refusedBefore)
 		r.currentPhase.Store((*phaseTracker)(nil))
 		r.scanOutcome.append(tracker.finish(ctx, err))
 		liveness.PhaseEnded(string(phase), tracker.extraSentSoFar())
