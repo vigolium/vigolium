@@ -219,7 +219,10 @@ func (r *replayRequestTool) Execute(ctx context.Context, args map[string]any, _ 
 	}
 
 	opts := replay.Options{
-		BaselineRequest:      rec.RawRequest,
+		BaselineRequest: rec.RawRequest,
+		// The tool's output always carries a diff, so a record stored without
+		// a response is re-sent as the baseline.
+		SendBaseline:         true,
 		BaselineResponse:     rec.RawResponse,
 		BaselineStatus:       rec.StatusCode,
 		BaselineResponseTime: rec.ResponseTimeMs,

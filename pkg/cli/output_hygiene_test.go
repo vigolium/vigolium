@@ -318,7 +318,7 @@ func TestReplayAndFuzzPolarity(t *testing.T) {
 	t.Run("replay default is human", func(t *testing.T) {
 		code, stdout, stderr := runB3(t, nil, replayArgs()...)
 		require.Equal(t, 0, code, "stderr:\n%s", stderr)
-		assert.Contains(t, stdout, "Baseline")
+		assert.Contains(t, stdout, "Status") // a supplied request is sent once: no Baseline column
 		assert.False(t, json.Valid([]byte(strings.TrimSpace(stdout))), "default output is not JSON:\n%s", stdout)
 	})
 	t.Run("replay -j is one envelope", func(t *testing.T) {
@@ -347,7 +347,7 @@ func TestReplayAndFuzzPolarity(t *testing.T) {
 	t.Run("replay --pretty warns and stays human", func(t *testing.T) {
 		code, stdout, stderr := runB3(t, nil, replayArgs("--pretty")...)
 		require.Equal(t, 0, code, "stderr:\n%s", stderr)
-		assert.Contains(t, stdout, "Baseline")
+		assert.Contains(t, stdout, "Status") // a supplied request is sent once: no Baseline column
 		assert.Contains(t, stderr, "--pretty is deprecated")
 	})
 	t.Run("replay -j --pretty indents", func(t *testing.T) {

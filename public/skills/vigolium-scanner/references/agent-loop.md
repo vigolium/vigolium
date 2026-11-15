@@ -633,7 +633,9 @@ vigolium replay --raw-request-file ./request.txt
 
 Output is a human summary by default. Under `-j` it is one envelope whose
 `items[0]` is the result: `result.baseline`, `result.replay`, `result.diff`
-(status delta, length delta, content hash, interpretation). `--format jsonl`
+(status delta, length delta, content hash, interpretation). A supplied request
+(`-i`, `--raw-request`) is sent **once**, with `baseline` and `diff` null; add
+`--baseline` to send it a second time as a baseline and diff the two. `--format jsonl`
 prints the same object bare, on one line; `-o <file>` writes that line to a file.
 
 **Persist auth across calls.** Multi-step flows (login → CSRF → action) need

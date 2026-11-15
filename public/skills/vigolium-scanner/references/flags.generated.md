@@ -1867,6 +1867,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--all` | `-a` | bool | `false` | Bulk: replay every matched stored record (lifts the -n/--limit cap); re-send all stored traffic |
 | `--asc` | - | bool | `false` | Bulk: sort ascending (default: descending) |
 | `--auth-session` | - | string | - | Auth session name to merge headers from (from 'vigolium auth list') |
+| `--baseline` | - | bool | `false` | Also send the un-mutated request first and diff the two. A supplied request (-i, --raw-request) is otherwise sent once with no diff; a stored record diffs against its stored response either way |
 | `--body` | - | string | - | Bulk: filter records whose request/response body contains this text |
 | `--burp-bridge-url` | `-B` | string | - | Loopback Burp/Caido bridge URL used by --save-to-burp / --send-via-burp / --to-repeater / --to-organizer (alias: --caido-bridge-url) |
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |

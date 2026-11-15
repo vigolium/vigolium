@@ -281,19 +281,30 @@ func Do(ctx context.Context, opts Options) (*Result, error) {
 		return sendRawHTTP(ctx, opts.Client, raw, opts.Scheme, opts.Hostname, opts.Port, opts.NoRedirects, excerptCap)
 	}
 
+	sentReq, sentTrunc := clipBytes(mutated, excerptCap)
+
 	var baseline *Summary
-	if len(opts.BaselineResponse) > 0 {
+	switch {
+	case len(opts.BaselineResponse) > 0:
 		baseline = baselineFromResponse(opts.BaselineResponse, opts.BaselineStatus, opts.BaselineResponseTime, excerptCap)
-	} else if len(opts.BaselineRequest) > 0 {
+	case len(opts.BaselineRequest) > 0 && !opts.SendBaseline && bytes.Equal(mutated, opts.BaselineRequest):
+		// The request is its own baseline: send it once, with nothing to diff.
+		return &Result{
+			MutatedRequest:      sentReq,
+			MutatedRequestTrunc: sentTrunc,
+			Replay:              send(mutated),
+			AdditionalGroups:    additionalGroups,
+			Unmatched:           unmatched,
+			RawMutatedRequest:   append([]byte(nil), mutated...),
+		}, nil
+	case len(opts.BaselineRequest) > 0:
 		baseline = send(opts.BaselineRequest)
-	} else {
+	default:
 		baseline = &Summary{}
 	}
 
 	replay := send(mutated)
 	diff := computeDiff(baseline, replay, payloads)
-
-	sentReq, sentTrunc := clipBytes(mutated, excerptCap)
 
 	return &Result{
 		MutatedRequest:      sentReq,

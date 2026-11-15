@@ -38,6 +38,7 @@ var (
 	replaySessionID      string
 	replayNoCookies      bool
 	replayNoRedirects    bool
+	replaySendBaseline   bool
 	replayTargetURL      string
 	replayTimeout        time.Duration
 	replayOutputPath     string
@@ -171,6 +172,8 @@ func init() {
 
 	// Network behaviour.
 	f.BoolVar(&replayNoRedirects, "no-redirects", false, "Don't follow 30x redirects")
+	f.BoolVar(&replaySendBaseline, "baseline", false,
+		"Also send the un-mutated request first and diff the two. A supplied request (-i, --raw-request) is otherwise sent once with no diff; a stored record diffs against its stored response either way")
 	f.StringVarP(&replayTargetURL, "target", "t", "", "Override scheme/host/port (e.g. https://staging.example.com)")
 	f.DurationVar(&replayTimeout, "timeout", replay.DefaultTimeout, "Per-request timeout (e.g. 30s, 1m)")
 
@@ -488,6 +491,7 @@ func (rr *replayRun) one(ctx context.Context, src *replaySource, overlay map[str
 		HeaderOverlay:        overlay,
 		NoRedirects:          replayNoRedirects,
 		Client:               rr.client,
+		SendBaseline:         replaySendBaseline,
 	}
 	// --send-via-burp routes the actual send through Burp's engine so the exact bytes
 	// (deliberate Content-Length, smuggling, unusual methods) reach the wire; the
@@ -1109,8 +1113,11 @@ func emitReplayPretty(w io.Writer, out *replayOutput) error {
 	if out.Browser != nil {
 		return emitBrowserReplayPretty(w, out)
 	}
-	if out.Result == nil || out.Result.Replay == nil || out.Result.Baseline == nil {
+	if out.Result == nil || out.Result.Replay == nil {
 		return fmt.Errorf("no result")
+	}
+	if out.Result.Baseline == nil || out.Result.Diff == nil {
+		return emitReplaySinglePretty(w, out)
 	}
 	b, r, d := out.Result.Baseline, out.Result.Replay, out.Result.Diff
 	tbl := terminal.NewTableWithMaxWidth(globalWidth, "", "BASELINE", "REPLAY")
@@ -1142,6 +1149,23 @@ func emitReplayPretty(w io.Writer, out *replayOutput) error {
 		_, _ = fmt.Fprintf(w, "  %s %d additional payload group(s) not sent — re-run to fire them\n",
 			terminal.InfoSymbol(), out.Result.AdditionalGroups)
 	}
+	return nil
+}
+
+// emitReplaySinglePretty renders a replay that was sent once, with no
+// baseline to compare against.
+func emitReplaySinglePretty(w io.Writer, out *replayOutput) error {
+	r := out.Result.Replay
+	tbl := terminal.NewTableWithMaxWidth(globalWidth, "", "RESPONSE")
+	tbl.AddRow("Status", colorStatus(fmt.Sprintf("%d", r.Status), r.Status))
+	tbl.AddRow("Length", fmt.Sprintf("%d", r.ResponseLen))
+	tbl.AddRow("Hash", clicommon.Truncate(r.ContentHash, 16))
+	tbl.AddRow("Time (ms)", fmt.Sprintf("%d", r.ResponseTimeMs))
+	_, _ = fmt.Fprint(w, tbl.Render())
+	if r.Error != "" {
+		_, _ = fmt.Fprintf(w, "  %s replay error: %s\n", terminal.ErrorPrefix(), r.Error)
+	}
+	_, _ = fmt.Fprintf(w, "  %s sent once; pass --baseline to also send a baseline and diff\n", terminal.InfoSymbol())
 	return nil
 }
 

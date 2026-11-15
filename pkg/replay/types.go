@@ -30,6 +30,13 @@ type Options struct {
 	// are applied to and that the diff is computed against. Required.
 	BaselineRequest []byte
 
+	// SendBaseline sends BaselineRequest as a baseline even when it is the
+	// very request being replayed. Without it such a replay (a supplied
+	// request, no mutations, no stored response) is sent once and the result
+	// carries no baseline and no diff: sending the same request twice doubled
+	// every POST for a diff of a request against itself.
+	SendBaseline bool
+
 	// BaselineResponse is the original raw HTTP response, used to
 	// compute the baseline summary. When empty and BaselineRequest is
 	// set, Do() synthesizes a baseline by sending the un-mutated
@@ -111,13 +118,15 @@ type Diff struct {
 // multiple non-conflicting mutation groups and we only sent the first.
 // Unmatched lists insertion-point names that didn't resolve.
 type Result struct {
-	MutatedRequest      string   `json:"mutated_request"`
-	MutatedRequestTrunc bool     `json:"mutated_request_truncated,omitempty"`
-	Baseline            *Summary `json:"baseline"`
-	Replay              *Summary `json:"replay"`
-	Diff                *Diff    `json:"diff"`
-	AdditionalGroups    int      `json:"additional_payload_groups,omitempty"`
-	Unmatched           []string `json:"unmatched_mutations,omitempty"`
+	MutatedRequest      string `json:"mutated_request"`
+	MutatedRequestTrunc bool   `json:"mutated_request_truncated,omitempty"`
+	// Baseline and Diff are nil when the replayed request was its own
+	// baseline and was sent once (see Options.SendBaseline).
+	Baseline         *Summary `json:"baseline"`
+	Replay           *Summary `json:"replay"`
+	Diff             *Diff    `json:"diff"`
+	AdditionalGroups int      `json:"additional_payload_groups,omitempty"`
+	Unmatched        []string `json:"unmatched_mutations,omitempty"`
 	// RawMutatedRequest is the complete request actually sent. It is retained
 	// for local integrations such as saving the exchange to Burp, but omitted
 	// from JSON where MutatedRequest remains the bounded preview.
