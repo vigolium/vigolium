@@ -107,14 +107,14 @@ func TestGenerateHTMLReportStreamingParity(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 
-			legacyItems, err := queryExportData(ctx, db, omit, "", "")
+			legacyItems, err := queryExportData(ctx, db, exportQuery{scope: topExportScope(), omitResponse: omit})
 			require.NoError(t, err)
 			legacyPath := filepath.Join(dir, "legacy.html")
 			require.NoError(t, output.GenerateHTMLReport(legacyItems, legacyPath, meta))
 
 			streamPath := filepath.Join(dir, "stream.html")
 			produce := func(emit func(any) error) error {
-				return streamExportData(ctx, db, topExportScope(), omit, "", "", emit)
+				return streamExportData(ctx, db, exportQuery{scope: topExportScope(), omitResponse: omit}, emit)
 			}
 			require.NoError(t, output.GenerateHTMLReportStreaming(produce, streamPath, meta))
 
@@ -185,7 +185,7 @@ func TestGenerateHTMLReportStreamingAtomic(t *testing.T) {
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "report.html")
 	produce := func(emit func(any) error) error {
-		return streamExportData(ctx, db, topExportScope(), true, "", "", emit)
+		return streamExportData(ctx, db, exportQuery{scope: topExportScope(), omitResponse: true}, emit)
 	}
 	require.NoError(t, output.GenerateHTMLReportStreaming(produce, outPath, output.HTMLReportMeta{
 		GeneratedAt: "2026-06-15T00:00:00.000Z",
@@ -379,7 +379,7 @@ func TestExportBundleKeepsPreviousOnSessionFailure(t *testing.T) {
 	require.NoError(t, os.WriteFile(out, []byte("previous-archive"), 0o644))
 
 	topExportScanUUIDs = []string{"sess-1"}
-	items, err := queryExportData(ctx, db, false, "", "")
+	items, err := queryExportData(ctx, db, topExportQuery(""))
 	require.NoError(t, err)
 
 	_, err = writeBundleStream(io.Discard, "bundle", items, output.HTMLReportMeta{
@@ -423,7 +423,7 @@ func TestStreamHTTPRecordsNoURLDedup(t *testing.T) {
 
 	count := func() int {
 		n := 0
-		require.NoError(t, streamHTTPRecords(ctx, db, false, "", "", func(string, any) error {
+		require.NoError(t, streamHTTPRecords(ctx, db, topExportQuery(""), func(string, any) error {
 			n++
 			return nil
 		}))
