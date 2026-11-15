@@ -86,6 +86,10 @@ const (
 	CodeNoTargetsInScope ErrorCode = "no_targets_in_scope"
 	// CodeNoTargetsReachable: no admitted target answered; nothing ran.
 	CodeNoTargetsReachable ErrorCode = "no_targets_reachable"
+	// CodeOutOfScope: a command that sends requests was pointed at a host the
+	// configured scope refuses; nothing was sent (exit 2). --ignore-scope
+	// overrides it.
+	CodeOutOfScope ErrorCode = "out_of_scope"
 	// CodeScanAbandoned: the scan's process stopped heartbeating.
 	CodeScanAbandoned ErrorCode = "scan_abandoned"
 	// CodeWaitTimeout: `scan wait` gave up before the scan finished.
@@ -175,7 +179,7 @@ var knownErrorCodes = []ErrorCode{
 	CodeRecordNotFound, CodeAmbiguousID, CodeBodyUnavailable, CodeBodyDecodeFailed, CodeBodyIncomplete,
 	CodeExportFailed, CodePDFFailed, CodeIngestIncomplete, CodeOutputTooLarge,
 	CodeUnsupportedInputMode, CodeInputUnparsed,
-	CodeNoTargetsInScope, CodeNoTargetsReachable, CodeScanAbandoned, CodeWaitTimeout,
+	CodeNoTargetsInScope, CodeNoTargetsReachable, CodeOutOfScope, CodeScanAbandoned, CodeWaitTimeout,
 	CodeLoginFailed, CodeNotAuthenticated, CodeProxyAuthRequired,
 	CodeTimedOut, CodeBudgetExhausted, CodePartial,
 	CodeProviderMissing, CodePreflightFailed, CodeNotReady, CodeLintFailed,

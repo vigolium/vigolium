@@ -14,7 +14,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/burpbridge"
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -773,20 +772,10 @@ func plural(n int, one, many string) string {
 // the cheap guard is worth it. A project with no host scope configured passes
 // everything, and --ignore-scope is the deliberate override.
 func checkFuzzScope(hostname string) error {
-	if fuzzIgnoreScope || hostname == "" {
+	if hostname == "" {
 		return nil
 	}
-	// Scope is a guard rail, not a gate: an unreadable config must not stop an
-	// operator who asked for a specific target. It must not do so SILENTLY
-	// either — the fallback scope is "everything in the config's scope section",
-	// which an empty default makes vacuous, so the warning is the only sign the
-	// guard rail is not the one that was configured.
-	settings := settingsOrDefaults()
-	matcher := config.NewScopeMatcher(settings.Scope, globalTargets...)
-	if matcher.HostInScope(hostname) {
-		return nil
-	}
-	return fmt.Errorf("%s is outside the project's configured scope; pass --ignore-scope to fuzz it anyway", hostname)
+	return newSendScopeGate(fuzzIgnoreScope).check(hostname)
 }
 
 // fuzzDryRun is the --dry-run report: what fuzz resolved, and the exact bytes

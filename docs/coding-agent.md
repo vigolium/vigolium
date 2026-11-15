@@ -176,7 +176,7 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
 `vigolium scan … --dry-run` (and `run <phase> --dry-run`, `scan-url
 --dry-run`, `scan-request --dry-run`) resolves the scan and prints its plan
 without running it. On scan-url/scan-request the plan carries
-`execution_path`: `runner` (the plan as described) or `direct` (one in-memory
+`execution_path`: `runner` (the plan as described) or `direct` (one single
 pass of the modules over the request, with a `direct_path` warning);
 scan-request does not probe the scheme under `--dry-run`. In every case: no scan UUID, no scan row, no output file,
 no wordlist materialized, no login, no OAST registration, no request; an
@@ -1014,7 +1014,7 @@ Exit codes:
 |------|---------|
 | `0` | success |
 | `1` | the work failed; `error.code` says how (`source_missing`, `export_failed`, `no_targets_in_scope`, `no_targets_reachable`, …) |
-| `2` | usage error — bad flag, bad value, rejected combination, a search that matched nothing (`module enable`), or a mutation that needed `--force` and had no terminal to ask. `error.code: "usage_error"`, except a scan whose `--ext` extension failed to load before any request: `extension_load_failed` (`--ext-allow-failures` to scan without it) |
+| `2` | usage error — bad flag, bad value, rejected combination, a search that matched nothing (`module enable`), or a mutation that needed `--force` and had no terminal to ask. `error.code: "usage_error"`, except a scan whose `--ext` extension failed to load before any request: `extension_load_failed` (`--ext-allow-failures` to scan without it), and a send to a host the configured scope refuses: `out_of_scope` (`fuzz`, `dns`, `replay` single and bulk, `traffic --replay`, `kit param-mine`, `finding verify`; nothing is sent, `--ignore-scope` on each overrides it) |
 | `3` | `--fail-on-match` / `--fail-on-crack` matched (`fuzz`, `kit secret-scan`, `kit jwt-crack`) |
 | `4` | the `--fail-on <severity>` (or `scan diff --fail-on-new <severity>`) gate tripped |
 | `5` | incomplete — the work ran but did not finish. `error.code` is `timed_out`, `budget_exhausted` or `partial`. The default for agent runs (`agent autopilot`/`swarm`/`audit`: a `--max-duration` stop, a `--max-commands`/`--token-budget`/`--max-cost-usd` stop, an audit in which some drivers failed; `agent query`/`triage` past `--max-duration`) — see [AI / agentic scans](#ai--agentic-scans); a native scan that is merely partial still exits `0` (see [Partial scans](#partial-scans)), with an opt-in `--fail-on-partial` planned for a later release |

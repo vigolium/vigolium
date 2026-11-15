@@ -101,6 +101,11 @@ func classifyErrorCode(err error, exitCode int) apicontract.ErrorCode {
 				return coded.Code()
 			}
 		}
+		// A structured error with a code of its own that exits 2 (out_of_scope).
+		var cli clicommon.CLIError
+		if errors.As(err, &cli) && !cli.IsUsage() {
+			return cli.ErrorCode()
+		}
 		return apicontract.CodeUsageError
 	case ExitFailOnGate:
 		return apicontract.CodeGateTripped

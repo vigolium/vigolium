@@ -70,6 +70,12 @@ func runReplayBulk(ctx context.Context, cmd *cobra.Command, rr *replayRun, filte
 		return nil
 	}
 
+	// Every destination is checked before the first send: one record outside
+	// the scope refuses the batch (--ignore-scope sends anyway).
+	if err := checkBulkReplayScope(records); err != nil {
+		return err
+	}
+
 	// The static --header overlay is host-independent, so parse it once here
 	// rather than per record. When --auth-session is set the overlay also needs
 	// a per-host auth merge, which recordEntry resolves per record.
@@ -273,4 +279,18 @@ func sourceFromDBRecord(rec *database.HTTPRecord) *replaySource {
 		RecordUUID:           rec.UUID,
 		OriginLabel:          fmt.Sprintf("record %s", rec.UUID),
 	}
+}
+
+// checkBulkReplayScope runs the send scope gate over every record a bulk
+// replay would send to (after a -t override, which replaces the destination).
+func checkBulkReplayScope(records []*database.HTTPRecord) error {
+	gate := newSendScopeGate(replayIgnoreScope)
+	if replayTargetURL != "" {
+		return gate.check(replayTargetURL)
+	}
+	hosts := make([]string, 0, len(records))
+	for _, rec := range records {
+		hosts = append(hosts, rec.Hostname)
+	}
+	return gate.check(hosts...)
 }

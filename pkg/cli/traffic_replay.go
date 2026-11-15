@@ -57,6 +57,7 @@ func runTrafficReplayShim(ctx context.Context, cmd *cobra.Command, fuzzyTerm str
 func applyTrafficReplayFlags() {
 	replayConcurrency = trafficReplayConcurrency
 	replayWithBrowser = trafficReplayBrowser
+	replayIgnoreScope = trafficIgnoreScope
 	replayTimeout = globalTimeout
 	replayBurpBridgeURL = trafficBurpBridgeURL
 	// traffic --replay has never followed redirects; preserve that so the

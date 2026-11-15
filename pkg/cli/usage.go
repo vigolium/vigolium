@@ -334,7 +334,7 @@ var listQueryFlagGroups = []flagGroup{
 	{"Output", []string{"fields", "compact", "full-body", "max-output-bytes", "output", "with-records", "record-fields", "record-limit", "no-header"}},
 	{"Pagination & Sort", []string{"limit", "offset", "sort", "asc", "pick", "all"}},
 	{"Data Source", []string{"stateless", "glob-db", "glob-strict", "table", "list-tables", "list-columns"}},
-	{"Replay", []string{"replay", "concurrency", "with-browser", "burp-bridge-url", "save-to-vigolium-db", "save-to-burp", "in-replace", "timeout"}},
+	{"Replay", []string{"replay", "ignore-scope", "concurrency", "with-browser", "burp-bridge-url", "save-to-vigolium-db", "save-to-burp", "in-replace", "timeout"}},
 	{"Burp Push", []string{"push-to-burp", "to-repeater", "send-via-burp", "http-mode"}},
 	{"Curl", []string{"curl", "curl-all", "redact-auth"}},
 }
@@ -383,7 +383,7 @@ var fuzzFlagGroups = []flagGroup{
 var replayFlagGroups = []flagGroup{
 	{"Input & Selection", []string{"input", "input-file", "raw-request", "raw-request-file", "record-uuid", "finding-id", "target"}},
 	{"Bulk Filter", []string{"host", "method", "status", "path", "source", "search", "header-search", "body", "exclude-search", "exclude-header-search", "exclude-body", "from", "to", "sort", "asc", "offset", "limit", "all"}},
-	{"Request Options", []string{"header", "auth-session", "session-id", "no-cookies", "no-redirects", "baseline", "timeout", "concurrency", "with-browser"}},
+	{"Request Options", []string{"header", "ignore-scope", "auth-session", "session-id", "no-cookies", "no-redirects", "baseline", "timeout", "concurrency", "with-browser"}},
 	{"Output", []string{"output", "in-replace", "stateless", "fields", "compact", "max-output-bytes"}},
 	{"Burp Bridge", []string{"burp-bridge-url", "save-to-burp", "send-via-burp", "http-mode", "send-timeout", "to-repeater", "repeater-tab", "to-organizer", "notes", "highlight"}},
 }

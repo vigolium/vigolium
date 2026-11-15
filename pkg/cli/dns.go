@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/dnsresolve"
@@ -125,18 +124,8 @@ func runDNS(cmd *cobra.Command, args []string) error {
 	if len(names) == 0 {
 		return usageErrorf("no names to resolve: pass names, -t, or -T <file>")
 	}
-	if !dnsIgnoreScope {
-		matcher := config.NewScopeMatcher(settingsOrDefaults().Scope, globalTargets...)
-		var refused []string
-		for _, n := range names {
-			if !matcher.HostInScope(n) {
-				refused = append(refused, n)
-			}
-		}
-		if len(refused) > 0 {
-			return usageErrorf("outside the configured host scope: %s; pass --ignore-scope to resolve them anyway",
-				strings.Join(refused, ", "))
-		}
+	if err := newSendScopeGate(dnsIgnoreScope).check(names...); err != nil {
+		return err
 	}
 	resolver, err := dnsresolve.New(dnsResolvers, dnsTimeout)
 	if err != nil {

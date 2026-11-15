@@ -1111,6 +1111,7 @@ Re-run a finding's module against its target and record whether it reproduces
 |------|-------|------|---------|-------------|
 | `--dry-run` | - | bool | `false` | Print the reconstructed module, baseline request and insertion point; send nothing and write nothing |
 | `--fail-if` | - | string | - | Exit 4 when any finding gets one of these verdicts: confirmed,not_reproduced,inconclusive,unsupported (comma-separated) |
+| `--ignore-scope` | - | bool | `false` | Verify findings on hosts outside the configured host scope |
 | `--mark` | - | bool | `false` | Also set the status: not_reproduced → false_positive, confirmed → confirmed |
 | `--no-write` | - | bool | `false` | Run the verification but do not store the verdict |
 | `--rate-limit` | - | float64 | `0` | Max requests/second across the verification (0 = unlimited; fractions allowed) |
@@ -1555,6 +1556,7 @@ Discover hidden parameters an endpoint accepts (Arjun-style)
 |------|-------|------|---------|-------------|
 | `--data` | `-d` | string | - | Request body (form or JSON); names are added to it |
 | `--header` | `-H` | stringArray | - | Request header 'Name: value' (repeatable) |
+| `--ignore-scope` | - | bool | `false` | Mine an endpoint outside the configured host scope |
 | `--location` | - | string | `auto` | Where names go: auto, query, form, json |
 | `--max-requests` | - | int | `60` | Request budget, baselines and confirmations included |
 | `--method` | `-X` | string | `GET` | HTTP method |
@@ -1883,6 +1885,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--highlight` | - | string | - | Highlight colour for the --to-organizer item: none\|red\|orange\|yellow\|green\|cyan\|blue\|pink\|magenta\|gray |
 | `--host` | - | string | - | Bulk: filter records by hostname pattern (wildcard supported) |
 | `--http-mode` | - | string | - | With --send-via-burp: wire protocol — auto\|http1\|http2\|http2_ignore_alpn (default auto; use http1 for request smuggling/desync) |
+| `--ignore-scope` | - | bool | `false` | Send to hosts outside the configured host scope |
 | `--in-replace` | - | bool | `false` | When the source is a stored record, update its stored response with the replay |
 | `--input` | `-i` | string | - | Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin |
 | `--input-file` | - | string | - | Read --input value from a file |
@@ -2651,6 +2654,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--group-limit` | - | int | `20` | With --group-by: maximum groups to show, largest first (0 = every group). The tail is reported as a count, never dropped |
 | `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange |
 | `--host` | - | string | - | Filter by hostname pattern (wildcard supported) |
+| `--ignore-scope` | - | bool | `false` | With --replay: send to hosts outside the configured host scope |
 | `--in-replace` | - | bool | `false` | With --replay: overwrite each stored response with the new replay response |
 | `--limit` | `-n` | int | `100` | Maximum records to display |
 | `--markdown` | - | bool | `false` | Render the matched records as Markdown (request/response in fenced http blocks) to stdout; response bodies are compacted to a preview by default (use --full-body for whole bodies) |

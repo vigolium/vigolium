@@ -210,7 +210,9 @@ func classifyExitCode(err error) int {
 	}
 	var cli clicommon.CLIError
 	if errors.As(err, &cli) {
-		if cli.IsUsage() {
+		// A refused send is a usage error with its own code: nothing was sent
+		// and the fix is a flag (--ignore-scope) or the scope.
+		if cli.IsUsage() || cli.ErrorCode() == apicontract.CodeOutOfScope {
 			return ExitUsageError
 		}
 		return ExitError

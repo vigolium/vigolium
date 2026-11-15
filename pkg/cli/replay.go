@@ -27,6 +27,9 @@ import (
 )
 
 var (
+	// replayIgnoreScope is replay's --ignore-scope (traffic --replay maps its
+	// own onto it).
+	replayIgnoreScope    bool
 	replayRecordUUID     string
 	replayFindingID      int64
 	replayInput          string
@@ -152,6 +155,7 @@ func init() {
 
 	// Source flags — exactly one of these resolves the baseline.
 	f.StringVarP(&replayRecordUUID, "record-uuid", "u", "", "Stored HTTP record UUID (or unique 8+ char prefix) to use as baseline")
+	f.BoolVar(&replayIgnoreScope, "ignore-scope", false, "Send to hosts outside the configured host scope")
 	f.Int64Var(&replayFindingID, "finding-id", 0, "Finding ID — replay the finding's linked record (or its stored evidence)")
 	f.StringVarP(&replayInput, "input", "i", "", "Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin")
 	f.StringVar(&replayInputFile, "input-file", "", "Read --input value from a file")
@@ -321,6 +325,9 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		if err := applyTargetOverride(src, replayTargetURL); err != nil {
 			return err
 		}
+	}
+	if err := newSendScopeGate(replayIgnoreScope).check(src.Hostname); err != nil {
+		return err
 	}
 
 	out, err := rr.one(ctx, src, overlay)
