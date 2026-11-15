@@ -1632,3 +1632,16 @@ func extractNonce(url string) string {
 	}
 	return url[:dot]
 }
+
+// UsesDefaultServer reports whether this service registers with the public
+// default interactsh server (config.DefaultOASTServer) because nothing else was
+// configured: no fixed --oast-url and no server of the operator's own.
+// Out-of-band checks lost to that server being unreachable are a caveat of the
+// environment; a configured server that is down is real coverage loss.
+func (s *Service) UsesDefaultServer() bool {
+	if s == nil || s.fixedURL != "" {
+		return false
+	}
+	host := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(s.serverURL, "https://"), "http://"), "/")
+	return host == "" || host == config.DefaultOASTServer
+}

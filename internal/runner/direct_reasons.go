@@ -40,3 +40,18 @@ func mergeDirectNote(c database.ScanCompletion, note database.PhaseOutcome, stop
 	}
 	return completionOf(phases, stop)
 }
+
+// ApplyDirectPhaseNote records a caveat code on the direct scan's
+// dynamic-assessment outcome without changing its coverage verdict (see
+// PhaseOutcome.Notes).
+func ApplyDirectPhaseNote(c database.ScanCompletion, code string) database.ScanCompletion {
+	if code == "" {
+		return c
+	}
+	note := database.PhaseOutcome{
+		Phase: string(PhaseDynamicAssessment),
+		State: database.PhaseCompleted,
+		Notes: []string{code},
+	}
+	return mergeDirectNote(c, note, c.StopReason)
+}

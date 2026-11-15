@@ -75,6 +75,9 @@ func CoverageCaveats(c ScanCompletion, moduleErrors map[string]int64) []Caveat {
 			cv.Message = caveatMessage(reason)
 			out = append(out, cv)
 		}
+		for _, note := range p.Notes {
+			out = append(out, Caveat{Code: note, Phase: p.Phase, Message: caveatMessage(note)})
+		}
 		if len(p.FindingsCapped) > 0 {
 			cv := Caveat{Code: LimitFindingsPerModule, Phase: p.Phase, Message: caveatMessage(LimitFindingsPerModule)}
 			cv.Modules, cv.Count = rankModules(p.FindingsCapped)

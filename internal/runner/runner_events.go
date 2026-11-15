@@ -57,6 +57,7 @@ type phaseTracker struct {
 	mu         sync.Mutex
 	reasons    map[string]struct{}
 	limits     map[string]struct{}
+	notes      map[string]struct{}
 	errs       int
 	firstErr   string
 	skipped    bool
@@ -491,6 +492,17 @@ func (t *phaseTracker) markPartial(code string) {
 	addCode(&t.reasons, code)
 }
 
+// noteCaveat records a caveat about the environment that does not reduce the
+// phase's coverage verdict (PhaseOutcome.Notes).
+func (t *phaseTracker) noteCaveat(code string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	addCode(&t.notes, code)
+}
+
 // noteLimit records that a configured bound was reached. Separate from a reason
 // on purpose: a target that used its whole time budget behaved exactly as
 // configured, and folding that into "partial" would mark every properly
@@ -675,6 +687,7 @@ func (t *phaseTracker) outcome() database.PhaseOutcome {
 		Phase:       t.phase,
 		Reasons:     database.SortedCodes(t.reasons),
 		Limits:      database.SortedCodes(t.limits),
+		Notes:       database.SortedCodes(t.notes),
 		Errors:      t.errs,
 		Message:     t.firstErr,
 		Unprocessed: t.unacked,
