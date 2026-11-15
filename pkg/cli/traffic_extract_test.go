@@ -1,9 +1,10 @@
 package cli
 
 import (
-	"github.com/vigolium/vigolium/pkg/apicontract"
 	"strings"
 	"testing"
+
+	"github.com/vigolium/vigolium/pkg/apicontract"
 )
 
 func TestParseHeaderEntriesPreservesOrderAndDuplicates(t *testing.T) {

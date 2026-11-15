@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+
 	"github.com/vigolium/vigolium/pkg/apicontract"
 
 	"github.com/spf13/cobra"

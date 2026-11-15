@@ -338,7 +338,11 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		return runReplayBulk(ctx, cmd, rr, filters, plan)
 	}
 
-	src, err := resolveReplaySource(ctx)
+	gate, err := newSendScopeGate(replayIgnoreScope)
+	if err != nil {
+		return err
+	}
+	src, err := resolveReplaySource(ctx, gate)
 	if err != nil {
 		return err
 	}
@@ -353,7 +357,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
-	if err := newSendScopeGate(replayIgnoreScope).check(src.Hostname); err != nil {
+	if err := gate.check(src.Hostname); err != nil {
 		return err
 	}
 	if replayDryRun {
@@ -620,7 +624,8 @@ type replaySource struct {
 	OriginLabel string
 }
 
-func resolveReplaySource(ctx context.Context) (*replaySource, error) {
+func resolveReplaySource(ctx context.Context, gate sendScopeGate) (*replaySource, error) {
+	raw := rawInputOptions{pin: replayTargetURL, gate: gate}
 	set := 0
 	if replayRecordUUID != "" {
 		set++
@@ -660,17 +665,17 @@ func resolveReplaySource(ctx context.Context) (*replaySource, error) {
 		return sourceFromFinding(ctx, repo, replayFindingID)
 
 	case replayInput != "" || replayInputFile != "":
-		return sourceFromInput(ctx, repo, replayInput, replayInputFile, replayRawInputOptions())
+		return sourceFromInput(ctx, repo, replayInput, replayInputFile, raw)
 
 	case replayRawRequest != "" || replayRawRequestFile != "":
 		// The raw request is the whole request already, so with nothing else
 		// named it is the source too: the baseline is those bytes re-sent, and
 		// -t supplies the scheme and port a raw request cannot carry.
-		raw, err := loadReplayRawOverride()
+		data, err := loadReplayRawOverride()
 		if err != nil {
 			return nil, err
 		}
-		return sourceFromInputString(ctx, repo, string(raw), replayRawRequestFile, replayRawInputOptions())
+		return sourceFromInputString(ctx, repo, string(data), replayRawRequestFile, raw)
 
 	default:
 		data, ok, err := readStdinIfPiped()
@@ -678,7 +683,7 @@ func resolveReplaySource(ctx context.Context) (*replaySource, error) {
 			return nil, err
 		}
 		if ok {
-			return sourceFromInputString(ctx, repo, data, "", replayRawInputOptions())
+			return sourceFromInputString(ctx, repo, data, "", raw)
 		}
 		return nil, usageErrorf("no source specified: pass one of --record-uuid, --finding-id, --input/--input-file, --raw-request/--raw-request-file, or pipe a request on stdin")
 	}
@@ -792,8 +797,9 @@ func sourceFromInputString(ctx context.Context, repo *database.Repository, data,
 		return nil, fmt.Errorf("input is empty")
 	}
 	if input.DetectInputType(data) == agenttypes.InputTypeRaw {
-		if src, err := sourceFromRawText(ctx, data, label, raw); err == nil {
-			return src, nil
+		src, err := sourceFromRawText(ctx, data, label, raw)
+		if err == nil || isOutOfScope(err) {
+			return src, err
 		}
 		// Not parseable as one raw request (a Burp pair, a capture with a
 		// response): the general normalizer below decides.
@@ -840,34 +846,20 @@ func sourceFromInputString(ctx context.Context, repo *database.Repository, data,
 }
 
 // rawInputOptions is what parsing raw request text needs from the command:
-// its -t (pins the scheme) and its --ignore-scope (lets the scheme probe
-// contact an out-of-scope host).
+// its -t (pins the scheme) and its send scope gate (refuses an out-of-scope
+// target before the scheme probe contacts it).
 type rawInputOptions struct {
-	pin         string
-	ignoreScope bool
-}
-
-func replayRawInputOptions() rawInputOptions {
-	return rawInputOptions{pin: replayTargetURL, ignoreScope: replayIgnoreScope}
+	pin  string
+	gate sendScopeGate
 }
 
 // sourceFromRawText is a raw HTTP request typed or piped to -i, parsed by
 // requestinput.Parse. The baseline bytes are the normalized text, header
 // terminator included, so the send path parses what the operator pasted.
 func sourceFromRawText(ctx context.Context, data, label string, raw rawInputOptions) (*replaySource, error) {
-	opts := requestinput.Options{Target: raw.pin, Resolver: requestSchemeResolver, NoProbe: true}
-	res, err := requestinput.Parse(ctx, data, opts)
+	res, err := requestinput.Parse(ctx, data, requestinput.Options{Target: raw.pin, Resolver: requestSchemeResolver, Admit: raw.gate.admit})
 	if err != nil {
 		return nil, err
-	}
-	// The probe contacts the target, so it waits for the scope gate: an
-	// out-of-scope host keeps the default and is refused before any send.
-	if raw.pin == "" && res.SchemeSource == requestscheme.SourceDefault &&
-		newSendScopeGate(raw.ignoreScope).check(res.Request.Target()) == nil {
-		opts.NoProbe = false
-		if res, err = requestinput.Parse(ctx, data, opts); err != nil {
-			return nil, err
-		}
 	}
 	u, err := res.Request.URL()
 	if err != nil || u == nil || u.URL == nil {

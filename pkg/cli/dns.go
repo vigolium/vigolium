@@ -124,7 +124,11 @@ func runDNS(cmd *cobra.Command, args []string) error {
 	if len(names) == 0 {
 		return usageErrorf("no names to resolve: pass names, -t, or -T <file>")
 	}
-	if err := newSendScopeGate(dnsIgnoreScope).check(names...); err != nil {
+	gate, err := newSendScopeGate(dnsIgnoreScope)
+	if err != nil {
+		return err
+	}
+	if err := gate.check(names...); err != nil {
 		return err
 	}
 	resolver, err := dnsresolve.New(dnsResolvers, dnsTimeout)

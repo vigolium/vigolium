@@ -295,7 +295,10 @@ func sourceFromDBRecord(rec *database.HTTPRecord) *replaySource {
 // checkBulkReplayScope runs the send scope gate over every record a bulk
 // replay would send to (after a -t override, which replaces the destination).
 func checkBulkReplayScope(records []*database.HTTPRecord) error {
-	gate := newSendScopeGate(replayIgnoreScope)
+	gate, err := newSendScopeGate(replayIgnoreScope)
+	if err != nil {
+		return err
+	}
 	if replayTargetURL != "" {
 		return gate.check(replayTargetURL)
 	}

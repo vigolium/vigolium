@@ -77,7 +77,7 @@ var commandTraits = map[string]commandTrait{
 	"db seed":            {Kind: kindMutation, DB: dbWrite},
 	"db stats":           {Kind: kindRead, DB: dbRead, Shape: objectShape()},
 	"dig":                {Kind: kindInteractive, DB: dbNone},
-	"dns":                {Kind: kindRead, DB: dbWrite, Shape: rowsShape().owned().unpaged("sends DNS queries: a second page would resolve again")},
+	"dns":                {Kind: kindRead, DB: dbWrite, SendsTraffic: true, Shape: rowsShape().owned().unpaged("sends DNS queries: a second page would resolve again")},
 	"doctor":             {Kind: kindRead, DB: dbRead, Shape: rowsShape()},
 	"endpoints":          {Kind: kindRead, DB: dbRead, Shape: rowsShape().owned().pagedByQuery()},
 	"export":             {Kind: kindStream, DB: dbRead, Shape: noShape("records stream to a file or stdout; the -j document is a receipt")},

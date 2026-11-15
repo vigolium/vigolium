@@ -176,7 +176,11 @@ func runFindingVerify(cmd *cobra.Command, args []string) error {
 		for _, f := range findings {
 			hosts = append(hosts, cmp.Or(f.Hostname, f.URL))
 		}
-		if err := newSendScopeGate(findingVerifyIgnoreScope).check(hosts...); err != nil {
+		gate, err := newSendScopeGate(findingVerifyIgnoreScope)
+		if err != nil {
+			return err
+		}
+		if err := gate.check(hosts...); err != nil {
 			return err
 		}
 	}
