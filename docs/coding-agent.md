@@ -471,7 +471,7 @@ row name, or flattens a single object back to the top level, for one release.
 | `doctor` | read | `[report]` | `status` (copied up; the re-checked verdict under `--fix`), `fixes`, `updated` | `.` (`report` under `--fix`) |
 | `version` | read | `[{version, commit, db_schema_version, …}]` | — | `.` |
 | `skills list` | read | skills | `installed`: `[{name, agent, scope, path, version, status}]` per install location (`./.claude/skills`, `~/.claude/skills`, `./.agents/skills`, `~/.agents/skills`), `status` one of `current`, `stale`, `modified`, `missing` | `skills` |
-| `skills get` | read | `[{name, description, embed_path, content, references?}]` | — | — (was raw markdown; still is without `-j`) |
+| `skills get` | read | `[{name, description, embed_path, content, references?}]`; `--ref <file>` (or `<skill>/references/<file>.md`): `[{name, path, content}]` per reference; `--list-refs`: `[{name, path, bytes, lines}]` | — | — (was raw markdown; still is without `-j`) |
 | `kit secret-scan` | read | matches | `files_scanned`, `count` | `matches` |
 | `kit harvest` | read | urls | `domains`, `sources`, `count`, `stats`, `limits` | `urls` |
 | `kit oast new` / `poll` | read | urls / interactions | `server`, `session`, `count` | `urls` / `interactions` |

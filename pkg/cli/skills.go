@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -29,11 +31,13 @@ const defaultInstallSkill = "vigolium-scanner"
 var skillsOpts = &skillsOptions{}
 
 type skillsOptions struct {
-	Full  bool
-	All   bool
-	Agent string
-	Scope string
-	Dir   string
+	Full     bool
+	All      bool
+	Agent    string
+	Scope    string
+	Dir      string
+	Refs     []string
+	ListRefs bool
 }
 
 // bundledSkill is a parsed skill bundle shipped inside the binary.
@@ -82,9 +86,22 @@ var skillsGetCmd = &cobra.Command{
 	Long: `Print a skill's SKILL.md to stdout. Pass --full to also include its
 reference files, or --all to output every bundled skill.
 
+One reference file: --ref <name> (recipes, recipes.md or references/recipes.md;
+repeatable), or the path form <skill>/references/<file>.md. --list-refs lists
+the skill's files with their sizes instead of printing them, so an agent can
+fetch only the reference it needs.
+
 With -j the content comes back in the envelope instead: one item per skill,
 with its markdown in "content" and, under --full, each reference file as
-{"path","content"} in "references".`,
+{"path","content"} in "references". With --ref, one item per reference
+({name, path, content}); with --list-refs, one item per file
+({name, path, bytes, lines}).`,
+	Example: `  # The router, then one reference
+  vigolium skills get vigolium-scanner
+  vigolium skills get vigolium-scanner --ref recipes
+  vigolium skills get vigolium-scanner/references/invariants.md
+  # What there is to read, with sizes
+  vigolium skills get vigolium-scanner --list-refs -j`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runSkillsGet(cmd, args)
@@ -129,6 +146,11 @@ func init() {
 
 	skillsGetCmd.Flags().BoolVar(&skillsOpts.Full, "full", false, "Include reference files, not just SKILL.md")
 	skillsGetCmd.Flags().BoolVar(&skillsOpts.All, "all", false, "Output every bundled skill")
+	skillsGetCmd.Flags().StringArrayVar(&skillsOpts.Refs, "ref", nil, "Print only this reference file: recipes, recipes.md or references/recipes.md (repeatable)")
+	skillsGetCmd.Flags().BoolVar(&skillsOpts.ListRefs, "list-refs", false, "List the skill's files (SKILL.md and references) with byte and line counts instead of printing them")
+	registerCommandSchema(contract.Command{Name: "skills get", Item: skillGetItem{},
+		Variants:    []contract.Variant{{Flag: "--list-refs", Item: skillFileView{}}},
+		Description: "One item per skill (its SKILL.md in content, references under --full), per reference with --ref, or per file with --list-refs."})
 
 	skillsInstallCmd.Flags().StringVar(&skillsOpts.Agent, "agent", "claude", "Target coding agent: claude, codex, or agents")
 	skillsInstallCmd.Flags().StringVar(&skillsOpts.Scope, "scope", "project", "Install scope: project (current folder) or global (home dir)")
@@ -279,7 +301,7 @@ func runSkillsList(cmd *cobra.Command) error {
 	tbl.Print()
 	printInstalledSkills(scanInstalledSkills(skills))
 
-	fmt.Printf("\n%s Read a skill:    %s\n", terminal.InfoSymbol(), terminal.Gray("vigolium skills get "+skills[0].Name+" --full"))
+	fmt.Printf("\n%s Read a skill:    %s\n", terminal.InfoSymbol(), terminal.Gray("vigolium skills get "+skills[0].Name+" (then --list-refs, --ref <file>)"))
 	fmt.Printf("%s Install a skill: %s\n", terminal.InfoSymbol(), terminal.Gray("vigolium skills install --agent claude --scope project"))
 	return nil
 }
@@ -318,11 +340,21 @@ func printInstalledSkills(views []skillInstalledView) {
 
 // skillGetItem is one skill under `skills get -j`.
 type skillGetItem struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	EmbedPath   string           `json:"embed_path"`
-	Content     string           `json:"content"`
-	References  []skillReference `json:"references,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	EmbedPath   string `json:"embed_path"`
+	// Path is the reference file this item holds, under --ref.
+	Path       string           `json:"path,omitempty"`
+	Content    string           `json:"content"`
+	References []skillReference `json:"references,omitempty"`
+}
+
+// skillFileView is one file of a skill under `skills get --list-refs`.
+type skillFileView struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Bytes int    `json:"bytes"`
+	Lines int    `json:"lines"`
 }
 
 // skillReference is one reference file of a skill, included under --full.
@@ -337,18 +369,45 @@ func runSkillsGet(cmd *cobra.Command, names []string) error {
 		return err
 	}
 
+	// The path form names one file: <skill>/references/<file>.md.
+	refs := append([]string(nil), skillsOpts.Refs...)
+	bare := make([]string, 0, len(names))
+	for _, n := range names {
+		skillName, file, isPath := strings.Cut(n, "/")
+		if isPath {
+			refs = append(refs, file)
+		}
+		bare = append(bare, skillName)
+	}
+	modes := 0
+	for _, on := range []bool{skillsOpts.Full, len(refs) > 0, skillsOpts.ListRefs} {
+		if on {
+			modes++
+		}
+	}
+	if modes > 1 {
+		return usageErrorf("skills get: --full, --ref (or a <skill>/<file> path) and --list-refs are mutually exclusive")
+	}
+
 	var targets []bundledSkill
 	switch {
 	case skillsOpts.All:
 		targets = skills
-	case len(names) == 0:
+	case len(bare) == 0:
 		return usageErrorf("skills get: provide a skill name or --all (available: %s)", bundleNames(skills))
 	default:
-		if targets, err = resolveNamedTargets(skills, names); err != nil {
+		if targets, err = resolveNamedTargets(skills, bare); err != nil {
 			return err
 		}
+		targets = uniqueBundles(targets)
 	}
 
+	if skillsOpts.ListRefs {
+		return emitSkillFiles(cmd, targets)
+	}
+	if len(refs) > 0 {
+		return emitSkillRefs(cmd, targets, refs)
+	}
 	if globalJSON {
 		return emitSkillsGetJSON(cmd, targets)
 	}
@@ -657,4 +716,105 @@ func copyEmbeddedSkillBundle(embedDir, destRoot string) error {
 		}
 		return os.WriteFile(dest, data, 0o644)
 	})
+}
+
+// uniqueBundles drops repeats, keeping the first: `get x/references/a.md
+// x/references/b.md` names one skill twice.
+func uniqueBundles(in []bundledSkill) []bundledSkill {
+	seen := map[string]bool{}
+	out := in[:0:0]
+	for _, b := range in {
+		if !seen[b.Name] {
+			seen[b.Name] = true
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// bundleFiles is SKILL.md followed by the reference files, as paths relative
+// to the bundle directory.
+func bundleFiles(b bundledSkill) []string {
+	return append([]string{"SKILL.md"}, b.References...)
+}
+
+// resolveSkillRef maps what was typed (recipes, recipes.md,
+// references/recipes.md, SKILL.md) to one of the bundle's files.
+func resolveSkillRef(b bundledSkill, typed string) (string, error) {
+	want := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(typed), "./"))
+	files := bundleFiles(b)
+	var stems []string
+	for _, f := range files {
+		lf := strings.ToLower(f)
+		base := strings.TrimPrefix(lf, "references/")
+		stem := strings.TrimSuffix(base, ".md")
+		if want == lf || want == base || want == stem || want == "references/"+stem {
+			return f, nil
+		}
+		stems = append(stems, strings.TrimSuffix(strings.TrimPrefix(f, "references/"), ".md"))
+	}
+	return "", clicommon.CLIError{
+		Err:        fmt.Errorf("skill %s has no reference %q (references: %s)", b.Name, typed, strings.Join(stems, ", ")),
+		DidYouMean: closestName(strings.TrimSuffix(strings.TrimPrefix(want, "references/"), ".md"), stems),
+		Hint:       "vigolium skills get " + b.Name + " --list-refs",
+	}
+}
+
+// emitSkillRefs prints the requested reference files of each target: raw
+// markdown (separated when there is more than one), or one item per file
+// under -j.
+func emitSkillRefs(cmd *cobra.Command, targets []bundledSkill, refs []string) error {
+	var items []skillGetItem
+	for _, b := range targets {
+		for _, r := range refs {
+			path, err := resolveSkillRef(b, r)
+			if err != nil {
+				return err
+			}
+			body, err := public.StaticFS.ReadFile(b.EmbedDir + "/" + path)
+			if err != nil {
+				return fmt.Errorf("read %s/%s: %w", b.Name, path, err)
+			}
+			items = append(items, skillGetItem{Name: b.Name, Description: b.Description, EmbedPath: b.EmbedDir, Path: path, Content: string(body)})
+		}
+	}
+	if globalJSON {
+		return emitRead(cmd, "", items, int64(len(items)), 0, len(items))
+	}
+	for i, it := range items {
+		if len(items) > 1 {
+			if i > 0 {
+				fmt.Println()
+			}
+			fmt.Printf("----- %s/%s -----\n\n", it.Name, it.Path)
+		}
+		writeBody([]byte(it.Content))
+	}
+	return nil
+}
+
+// emitSkillFiles lists each target's files with their sizes.
+func emitSkillFiles(cmd *cobra.Command, targets []bundledSkill) error {
+	items := []skillFileView{}
+	for _, b := range targets {
+		for _, f := range bundleFiles(b) {
+			body, err := public.StaticFS.ReadFile(b.EmbedDir + "/" + f)
+			if err != nil {
+				continue
+			}
+			items = append(items, skillFileView{Name: b.Name, Path: f, Bytes: len(body), Lines: bytes.Count(body, []byte("\n"))})
+		}
+	}
+	if globalJSON {
+		return emitRead(cmd, "", items, int64(len(items)), 0, len(items))
+	}
+	tbl := terminal.NewTableWithMaxWidth(globalWidth, "SKILL", "FILE", "LINES", "BYTES")
+	for _, it := range items {
+		tbl.AddRow(terminal.Cyan(it.Name), it.Path, fmt.Sprintf("%d", it.Lines), fmt.Sprintf("%d", it.Bytes))
+	}
+	tbl.Print()
+	if len(targets) > 0 {
+		fmt.Printf("\n%s Read one: %s\n", terminal.InfoSymbol(), terminal.Gray("vigolium skills get "+targets[0].Name+" --ref <file>"))
+	}
+	return nil
 }

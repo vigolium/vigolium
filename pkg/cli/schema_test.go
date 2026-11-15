@@ -375,7 +375,7 @@ var schemaPending = map[string]string{
 	"scope":          pendingTypedItems, "scope set": pendingTypedItems, "scope view": pendingTypedItems,
 	"server ca install": pendingTypedItems, "server ca path": pendingTypedItems,
 	"server ca print": pendingTypedItems, "server ca uninstall": pendingTypedItems,
-	"skills": pendingTypedItems, "skills get": pendingTypedItems,
+	"skills":      pendingTypedItems,
 	"skills list": pendingTypedItems,
 	"storage ls":  pendingTypedItems, "storage presign": pendingTypedItems, "storage results": pendingTypedItems,
 	"storage rm": pendingTypedItems, "storage upload": pendingTypedItems,
@@ -387,7 +387,7 @@ var schemaPending = map[string]string{
 
 // schemaPendingCeiling pins the ratchet's size: lower it when a command gets
 // a schema; never raise it.
-const schemaPendingCeiling = 61
+const schemaPendingCeiling = 60
 
 // TestSchemaCoverageRatchet: every runnable non-interactive command either has
 // a registered schema or a reason in schemaPending, never both.

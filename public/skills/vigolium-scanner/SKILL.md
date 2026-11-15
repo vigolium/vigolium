@@ -278,5 +278,5 @@ vigolium <command> -h                       # authoritative flags for this versi
 vigolium schema command finding             # JSON Schema of a -j document (also: event, error)
 vigolium --full-example                     # worked examples by section
 vigolium doctor -j                          # readiness: binaries, provider, templates, skill
-vigolium skills get vigolium-scanner --full # this skill and every reference
+vigolium skills get vigolium-scanner --ref recipes  # one reference (--list-refs: sizes)
 ```
