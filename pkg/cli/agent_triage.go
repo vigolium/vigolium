@@ -90,8 +90,10 @@ func runAgentTriage(cmd *cobra.Command, args []string) error {
 	defer closeDatabaseOnExit()
 
 	// The picker is a TUI; a machine caller names the finding.
-	if len(args) == 0 && globalJSON {
-		return usageErrorf("a finding id is required with -j (agent triage <finding-id>); the interactive picker needs a terminal")
+	if len(args) == 0 {
+		if err := requireInteractiveTTY("the agent triage finding picker", "vigolium agent triage <finding-id>"); err != nil {
+			return err
+		}
 	}
 
 	settings, err := clicommon.LoadSettings(globalConfig)
@@ -123,6 +125,11 @@ func runAgentTriage(cmd *cobra.Command, args []string) error {
 	records := loadFindingRecords(ctx, repo, finding)
 
 	engine := agent.NewEngine(settings, repo)
+	if !agentTriageDryRun {
+		if err := agent.ProviderDialCheck(ctx, &settings.Agent.Olium); err != nil {
+			return err
+		}
+	}
 	if !agentTriageDryRun && !agentTriagePreflight.skip {
 		if err := engine.Preflight(ctx); err != nil {
 			return err
@@ -179,6 +186,9 @@ func runAgentTriage(cmd *cobra.Command, args []string) error {
 			StartedAt:   startedAt,
 		})
 		printAgentRunHandle(runUUID, sessionDir)
+		var stopCancelWatch func()
+		ctx, stopCancelWatch = watchAgentCancel(ctx, repo, sessionDir, runUUID)
+		defer stopCancelWatch()
 	}
 
 	runCtx := ctx
@@ -191,11 +201,11 @@ func runAgentTriage(cmd *cobra.Command, args []string) error {
 	result, err := engine.Run(runCtx, opts)
 	if err != nil {
 		timedOut := errors.Is(err, context.DeadlineExceeded) || errors.Is(runCtx.Err(), context.DeadlineExceeded)
-		finishTriageRow(repo, runUUID, startedAt, result, err, timedOut, 0)
+		finishTriageRow(repo, runUUID, startedAt, result, err, timedOut, 0, errors.Is(runCtx.Err(), context.Canceled))
 		if timedOut {
 			return incompleteErrorf(apicontract.CodeTimedOut, "agent timed out after %s (use --max-duration to adjust or set to 0 to disable)", agentTriageMaxDuration)
 		}
-		return fmt.Errorf("agent run failed: %w", err)
+		return agentRunFailure(runCtx, err)
 	}
 
 	if sessionDir != "" && result.RawOutput != "" {
@@ -296,11 +306,11 @@ func planTriageWrite(finding *database.Finding, verdict *agent.TriageConfirmResu
 }
 
 // finishTriageRow closes the triage run's agentic_scans row.
-func finishTriageRow(repo *database.Repository, uuid string, startedAt time.Time, result *agent.Result, runErr error, timedOut bool, findings int) {
+func finishTriageRow(repo *database.Repository, uuid string, startedAt time.Time, result *agent.Result, runErr error, timedOut bool, findings int, cancelled ...bool) {
 	if uuid == "" {
 		return
 	}
-	end := database.AgenticRunEnd{Err: runErr, TimedOut: timedOut}
+	end := database.AgenticRunEnd{Err: runErr, TimedOut: timedOut, Cancelled: len(cancelled) > 0 && cancelled[0] && runErr != nil && !timedOut}
 	if timedOut {
 		end.Err = nil
 	}

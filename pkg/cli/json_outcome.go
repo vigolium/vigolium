@@ -161,13 +161,14 @@ func outcomeErrorEnvelope(err error, exitCode int, cmd *cobra.Command) agentErro
 	}
 	now := time.Now()
 	return agentErrorEnvelope{
-		SchemaVersion: AgentSchemaVersion,
-		Command:       name,
-		OK:            false,
-		Error:         newAgentErrorBody(err, exitCode),
-		DBPath:        resolvedReadDBPath(),
-		SoftFail:      globalSoftFail,
-		GeneratedAt:   agentTimestamp(now),
-		GeneratedAtMS: scanevents.EpochMillis(now),
+		SchemaVersion:   AgentSchemaVersion,
+		Command:         name,
+		OK:              false,
+		Error:           newAgentErrorBody(err, exitCode),
+		DBPath:          resolvedReadDBPath(),
+		SoftFail:        globalSoftFail,
+		AgenticScanUUID: activeAgentRunUUID(),
+		GeneratedAt:     agentTimestamp(now),
+		GeneratedAtMS:   scanevents.EpochMillis(now),
 	}
 }

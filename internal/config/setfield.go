@@ -56,7 +56,7 @@ func SetField(settings *Settings, key string, value string) error {
 	// scalar field literally named `add` or `clear` still works.
 	if len(parts) >= 2 {
 		last := parts[len(parts)-1]
-		if last == "add" || last == "clear" {
+		if last == "add" || last == "clear" || last == "remove" {
 			parentPath := parts[:len(parts)-1]
 			listPath := strings.Join(parentPath, ".")
 			parentMap, listKey, err := navigateToParent(raw, parentPath)
@@ -73,6 +73,12 @@ func SetField(settings *Settings, key string, value string) error {
 						parentMap[listKey] = append(list, items...)
 					case "clear":
 						parentMap[listKey] = []any{}
+					case "remove":
+						drop, err := parseListAddition(listPath, value, declared)
+						if err != nil {
+							return err
+						}
+						parentMap[listKey] = removeListItems(list, drop)
 					}
 					return commitRaw(raw, settings, listPath)
 				}

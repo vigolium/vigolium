@@ -473,7 +473,11 @@ func runSkillsInstall(cmd *cobra.Command, names []string) error {
 	now := time.Now()
 	for _, b := range targets {
 		dest := filepath.Join(baseDir, b.Name)
-		res, instErr := installSkillBundle(b, dest, globalForce, Version, Commit, now)
+		install := installSkillBundle
+		if skillsInstallDryRun {
+			install = previewSkillInstall
+		}
+		res, instErr := install(b, dest, globalForce, Version, Commit, now)
 		if instErr != nil {
 			return fmt.Errorf("install %s: %w", b.Name, instErr)
 		}
@@ -494,8 +498,12 @@ func runSkillsInstall(cmd *cobra.Command, names []string) error {
 			_, _ = fmt.Fprintf(out, "%s Removed %d file(s) the bundle no longer ships: %s\n",
 				terminal.InfoSymbol(), len(res.Pruned), terminal.Gray(strings.Join(res.Pruned, ", ")))
 		}
-		_, _ = fmt.Fprintf(out, "%s Installed %s → %s\n",
-			terminal.SuccessSymbol(), terminal.Cyan(b.Name), terminal.Gray(dest))
+		verbDone := "Installed"
+		if skillsInstallDryRun {
+			verbDone = "Dry run: would install"
+		}
+		_, _ = fmt.Fprintf(out, "%s %s %s → %s\n",
+			terminal.SuccessSymbol(), verbDone, terminal.Cyan(b.Name), terminal.Gray(dest))
 		installed++
 		items = append(items, view)
 	}
@@ -508,6 +516,7 @@ func runSkillsInstall(cmd *cobra.Command, names []string) error {
 		return emitMutation(cmd, "", mutationResult{
 			Changed: installed > 0,
 			Action:  action,
+			DryRun:  skillsInstallDryRun,
 			Items:   items,
 			Extra:   map[string]any{"installed": installed, "skipped": skipped, "dir": baseDir},
 		})

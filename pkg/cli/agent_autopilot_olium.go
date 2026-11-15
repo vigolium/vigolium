@@ -186,6 +186,9 @@ func runAutopilotOlium(parentCtx context.Context, settings *config.Settings, rep
 		SessionDir:  sessionDir,
 		StartedAt:   startedAt,
 	})
+	var stopCancelWatch func()
+	ctx, stopCancelWatch = watchAgentCancel(ctx, repo, sessionDir, parentAgenticScanUUID)
+	defer stopCancelWatch()
 
 	// Tee streamed text into {sessionDir}/runtime.log so `vigolium log <uuid>`
 	// can replay the run later, regardless of whether the operator is watching.
@@ -280,6 +283,14 @@ func runAutopilotOlium(parentCtx context.Context, settings *config.Settings, rep
 	// Preflight the provider before the pre-scan spends minutes of native
 	// scanning on a run whose first model call would fail. (The pipeline path
 	// above runs its own, degrading to a blackbox scan on failure.)
+	if !autopilotDryRun {
+		if perr := agent.ProviderDialCheck(ctx, &settings.Agent.Olium); perr != nil {
+			end := database.AgenticRunEnd{Err: perr}
+			dbStatus, _ := agentRunStatus(end)
+			finishAgenticScanRow(repo, parentAgenticScanUUID, startedAt, agenticScanRowFinish{Status: dbStatus, ErrorMessage: perr.Error()})
+			return perr
+		}
+	}
 	if !autopilotPreflight.skip && !autopilotDryRun {
 		if perr := agent.NewEngine(settings, repo).Preflight(ctx); perr != nil {
 			end := database.AgenticRunEnd{Err: perr}

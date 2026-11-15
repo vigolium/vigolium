@@ -186,6 +186,21 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 
 func showAgentSessionDetail(cmd *cobra.Command, ctx context.Context, repo *database.Repository, uuid string) error {
 	run, err := repo.GetAgenticScan(ctx, uuid)
+	if err != nil && runRefShape.MatchString(uuid) && !scanUUIDShape.MatchString(uuid) {
+		// A prefix of a run UUID (8+ characters), resolved within the project.
+		projectUUID := ""
+		if !statelessReadRequested() {
+			if projectUUID, err = resolveProjectUUID(); err != nil {
+				return err
+			}
+		}
+		full, refErr := resolveRunRef(ctx, repo.DB(), "agentic_scans", projectUUID, uuid, nil)
+		if refErr != nil {
+			return refErr
+		}
+		uuid = full
+		run, err = repo.GetAgenticScan(ctx, uuid)
+	}
 	if err != nil {
 		return codedErrorf(apicontract.CodeNotFound, "session %s not found: %w", uuid, err)
 	}

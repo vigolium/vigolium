@@ -374,6 +374,11 @@ type Options struct {
 	SkipDynamicAssessment bool
 	// SkipIngestion disables the discovery/ingestion phase when set by --only
 	SkipIngestion bool
+	// RecordUUIDs restricts the dynamic assessment to these stored HTTP
+	// records (full UUIDs, already resolved and checked against the project).
+	// Empty means every eligible record.
+	RecordUUIDs []string
+
 	// OnlyPhase isolates a single scanning phase (discover, external-harvest, dynamic-assessment)
 	OnlyPhase string
 	// SkipPhases disables one or more phases while keeping all others enabled

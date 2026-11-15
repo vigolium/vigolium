@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/olium/provider"
@@ -209,6 +210,9 @@ const defaultNudgeOnEmptyMessage = "No tool was called and no halt was requested
 // Engine is the multi-turn agent runtime. One Engine handles one
 // conversation; call Run per user prompt.
 type Engine struct {
+	// connected latches once a provider call has succeeded; until then a
+	// dial failure is terminal (see streamOnceWithRetry).
+	connected        atomic.Bool
 	cfg              Config
 	maxT             int
 	toolTimeout      time.Duration
@@ -753,9 +757,16 @@ func (e *Engine) streamOnceWithRetry(
 	for attempt := 0; attempt < maxStreamAttempts; attempt++ {
 		stopReason, usage, toolCalls, text, err := e.streamOnce(ctx, req, out)
 		if err == nil {
+			e.connected.Store(true)
 			return stopReason, usage, toolCalls, text, nil
 		}
 		lastErr = err
+		// A provider that has never answered and now refuses the connection
+		// (or does not resolve) is not having a blip: fail at once instead of
+		// retrying until the deadline.
+		if !e.connected.Load() && stream.IsDialErr(err) && ctx.Err() == nil {
+			return stopReason, usage, toolCalls, text, fmt.Errorf("%w: %w", stream.ErrProviderUnreachable, err)
+		}
 		if !stream.IsTransientErr(err) || ctx.Err() != nil {
 			return stopReason, usage, toolCalls, text, err
 		}

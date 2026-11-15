@@ -664,7 +664,7 @@ func (h *Handlers) HandleStopScan(c fiber.Ctx) error {
 	st, ok := h.scanStates[projectUUID]
 	if !ok || !st.running || st.scanID != scanUUID {
 		h.scanMu.Unlock()
-		return respondErrorMsg(c, fiber.StatusConflict, "scan "+scanUUID+" is not running")
+		return h.requestForeignScanStop(c, projectUUID, scanUUID)
 	}
 	scanRunner := st.runner
 	h.scanMu.Unlock()
@@ -680,6 +680,37 @@ func (h *Handlers) HandleStopScan(c fiber.Ctx) error {
 		Running:     true,
 		Status:      "cancelling",
 		Message:     "scan stop requested, workers finishing current tasks",
+	})
+}
+
+// requestForeignScanStop stops a scan this server does not run — a CLI scan
+// writing the same store, or one another server runs — by writing a stop
+// request on its row, which that scan's heartbeat picks up within one beat.
+// 202: the request is recorded, the scan has not stopped yet.
+func (h *Handlers) requestForeignScanStop(c fiber.Ctx, projectUUID, scanUUID string) error {
+	notRunning := func() error {
+		return respondErrorMsg(c, fiber.StatusConflict, "scan "+scanUUID+" is not running")
+	}
+	if h.repo == nil {
+		return notRunning()
+	}
+	scan, err := h.repo.GetScanByUUID(c.Context(), scanUUID)
+	if err != nil || scan == nil || !inRequestProject(c, scan.ProjectUUID) || scan.Status != "running" {
+		return notRunning()
+	}
+	ok, err := h.repo.RequestScanStop(c.Context(), scanUUID, "rest api")
+	if err != nil {
+		return respondError(c, fiber.StatusInternalServerError, fmt.Errorf("record stop request: %w", err))
+	}
+	if !ok {
+		return notRunning()
+	}
+	return c.Status(fiber.StatusAccepted).JSON(ScanStatusResponse{
+		ProjectUUID: projectUUID,
+		ScanUUID:    scanUUID,
+		Running:     true,
+		Status:      "stop_requested",
+		Message:     "stop requested: the scan runs in another process and stops at its next heartbeat (within ~10s)",
 	})
 }
 

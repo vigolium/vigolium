@@ -181,7 +181,8 @@ func TestDirectScanDeadTargetRow(t *testing.T) {
 }
 
 // An interrupted run still gets a finalized row, judged the way the runner
-// judges one: failed "cancelled", partial, stop reason cancelled.
+// judges one: status cancelled (error_message "cancelled"), partial, stop
+// reason cancelled.
 func TestDirectScanInterruptedRow(t *testing.T) {
 	directRowFixture(t)
 	srv := bareServer(t)
@@ -195,7 +196,7 @@ func TestDirectScanInterruptedRow(t *testing.T) {
 	assert.True(t, result.Interrupted)
 
 	row := scanRow(t, result.ScanUUID)
-	assert.Equal(t, "failed", row.Status)
+	assert.Equal(t, "cancelled", row.Status)
 	assert.Equal(t, "cancelled", row.ErrorMessage)
 	assert.Equal(t, database.CompletenessPartial, row.Completeness)
 	assert.Equal(t, database.ReasonCancelled, row.StopReason)

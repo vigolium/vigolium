@@ -28,6 +28,109 @@
         "requested_url"
       ]
     },
+    "cli.replayDryRunView": {
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "request": {
+          "type": "string"
+        },
+        "overlay_headers": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "raw_override": {
+          "type": "boolean"
+        },
+        "would_save": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "method",
+        "url",
+        "source",
+        "request",
+        "overlay_headers",
+        "raw_override",
+        "would_save"
+      ]
+    },
+    "cli.replayOnceView": {
+      "properties": {
+        "record_uuid": {
+          "type": "string"
+        },
+        "saved": {
+          "type": "boolean"
+        },
+        "save_skipped": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "final_url": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer"
+        },
+        "response_time_ms": {
+          "type": "integer"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "response_length": {
+          "type": "integer"
+        },
+        "body": {
+          "type": "string"
+        },
+        "body_truncated": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "record_uuid",
+        "saved",
+        "method",
+        "url",
+        "final_url",
+        "status",
+        "response_time_ms",
+        "response_length",
+        "body",
+        "body_truncated"
+      ]
+    },
     "cli.replayOutput": {
       "properties": {
         "source": {
@@ -78,6 +181,9 @@
         },
         "saved_to_organizer": {
           "type": "boolean"
+        },
+        "saved_record_uuid": {
+          "type": "string"
         },
         "error": {
           "type": "string"
@@ -132,6 +238,7 @@
             "preflight_failed",
             "project_not_found",
             "provider_missing",
+            "provider_unreachable",
             "proxy_auth_required",
             "queue_full",
             "rate_limited",
@@ -409,6 +516,9 @@
         },
         "error": {
           "type": "string"
+        },
+        "final_url": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -460,7 +570,18 @@
     },
     "items": {
       "items": {
-        "$ref": "#/$defs/cli.replayOutput"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/cli.replayOutput"
+          },
+          {
+            "$ref": "#/$defs/cli.replayOnceView"
+          },
+          {
+            "$ref": "#/$defs/cli.replayDryRunView"
+          }
+        ],
+        "description": "The default row, or the row shape selected by: --once --dry-run"
       },
       "type": "array"
     },
@@ -548,5 +669,5 @@
     "kind"
   ],
   "title": "vigolium replay -j",
-  "description": "One row per replayed record: the baseline, the replay and their diff. A single source is one item; a bulk run counts failed rows."
+  "description": "One row per replayed record: the baseline, the replay and their diff, and saved_record_uuid when the exchange was stored. A single source is one item; a bulk run counts failed rows. --once prints one compact item instead."
 }

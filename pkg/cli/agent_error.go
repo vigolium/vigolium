@@ -10,6 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/fuzz"
+	"github.com/vigolium/vigolium/pkg/olium/stream"
 )
 
 // A failed -j command used to print `✖ Error: …` to stderr and nothing at all to
@@ -31,9 +32,13 @@ type agentErrorEnvelope struct {
 	// consumer reading exit_code: 2 alongside a process that exited 0 has no way
 	// to tell which number is the truth. Both are: exit_code is what the command
 	// concluded, the process status is what the caller asked to be told.
-	SoftFail      bool   `json:"soft_fail,omitempty"`
-	GeneratedAt   string `json:"generated_at"`
-	GeneratedAtMS int64  `json:"generated_at_ms"`
+	SoftFail bool `json:"soft_fail,omitempty"`
+	// AgenticScanUUID names the agent run this invocation started, when the
+	// failure came after one did, so it can be found again (`agent session`,
+	// `log`).
+	AgenticScanUUID string `json:"agentic_scan_uuid,omitempty"`
+	GeneratedAt     string `json:"generated_at"`
+	GeneratedAtMS   int64  `json:"generated_at_ms"`
 }
 
 type agentError struct {
@@ -142,6 +147,13 @@ func classifyErrorCode(err error, exitCode int) apicontract.ErrorCode {
 	// was not reachable.
 	if errors.Is(err, fuzz.ErrBaselineUnreachable) {
 		return apicontract.CodeNoTargetsReachable
+	}
+	// The AI provider refused the connection or did not resolve before any
+	// call to it succeeded. The agent layer passes provider errors on as
+	// text, so the marker is matched on the message too.
+	if errors.Is(err, stream.ErrProviderUnreachable) ||
+		strings.Contains(strings.ToLower(err.Error()), stream.ErrProviderUnreachable.Error()) {
+		return apicontract.CodeProviderUnreachable
 	}
 	// The --read-only evidence open wraps the bare sentinel with its own remedy.
 	if errors.Is(err, database.ErrSchemaOutdated) {

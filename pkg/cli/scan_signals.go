@@ -278,6 +278,9 @@ func runNativeScanPass(r *runner.Runner) error {
 	stopProgress := startProgressLine(r, time.Now())
 	err := r.RunNativeScan()
 	stopProgress()
+	if by := r.StopRequestedBy(); by != "" {
+		noteScanStopRequest(by)
+	}
 	// Close before the caller's export defers read the database, so buffered
 	// records land first.
 	r.Close()

@@ -770,7 +770,8 @@ func (r *Runner) runDynamicAssessmentRound(
 func (r *Runner) newDASource(infra *phaseInfra, inScopeHosts []database.HostTarget) *database.RiskPrioritizedDBInputSource {
 	return database.NewRiskPrioritizedDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
 		WithHostScopes(inScopeHosts).
-		WithParamShapeCoalescing(r.resolveMaxParamShapeSamples())
+		WithRecordUUIDs(r.options.RecordUUIDs).
+		WithParamShapeCoalescing(r.daParamShapeSamples())
 }
 
 // runDAPass runs one executor over dbSource: one feedback round, or one tier
@@ -928,4 +929,14 @@ func (r *Runner) headerPointsAll() bool {
 		return false
 	}
 	return r.settings != nil && r.settings.DynamicAssessment.HeaderPointsAll()
+}
+
+// daParamShapeSamples is the param-shape coalescing cap for the round's
+// source: off when the scan names its records, since each named record was
+// asked for and must not be coalesced away.
+func (r *Runner) daParamShapeSamples() int {
+	if len(r.options.RecordUUIDs) > 0 {
+		return 0
+	}
+	return r.resolveMaxParamShapeSamples()
 }

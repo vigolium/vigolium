@@ -52,4 +52,6 @@ func TestNewServerRunnerOptions_BasicFields(t *testing.T) {
 	assert.Equal(t, "http://proxy:8080", opts.ProxyURL)
 	assert.True(t, opts.Verbose)
 	assert.True(t, opts.Silent, "server mode always suppresses phase banners")
+	assert.Equal(t, []string{"jsonl"}, opts.OutputFormats, "-o streams findings as JSON lines")
+	assert.Empty(t, newServerRunnerOptions(&serverOptions{}, 1, 1, 1, "", false).OutputFormats)
 }

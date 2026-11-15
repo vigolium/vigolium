@@ -201,6 +201,7 @@ func TestOutcomeCodeValuesAreStable(t *testing.T) {
 		"edge_blocked":               ReasonEdgeBlocked,
 		"browser_unavailable":        ReasonBrowserUnavailable,
 		"auth_unverified":            ReasonAuthUnverified,
+		"user_stopped":               ReasonUserStopped,
 		"findings_per_module":        LimitFindingsPerModule,
 		"throttled":                  LimitThrottled,
 	}

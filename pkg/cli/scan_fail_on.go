@@ -69,6 +69,7 @@ func evaluatePartialGate(repo *database.Repository, scanUUID string) {
 // returning an error for an unknown severity name. Call once at RunE entry.
 func resetFailOnGate() error {
 	failOnGateTriggered = false
+	noteScanStopRequest("")
 	partialGateReason = ""
 	baselineGate.baseline, baselineGate.ignore, baselineGate.counts = nil, nil, nil
 	if err := prepareBaselineGate(context.Background()); err != nil {
@@ -250,6 +251,12 @@ func withFailOnGate(prior error) error {
 	}
 	if err := failOnGateError(); err != nil {
 		return err
+	}
+	// A stop request (`scan stop`, REST stop) is an interrupt someone else
+	// asked for; say who, so the outcome is not mistaken for a stray signal.
+	if by := scanStopRequestedBy(); by != "" {
+		return incompleteErrorf(apicontract.CodeInterrupted,
+			"the scan was stopped on request (%s); results cover what ran before it", by)
 	}
 	// A graceful interrupt flushed partial results; it is not a success.
 	// Exit 5 with its own code, so the outcome says why the work is short.

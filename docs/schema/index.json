@@ -1,15 +1,45 @@
 [
   {
+    "name": "agent cancel",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The agent run a cancel was asked of: action cancel_requested (the request was written on its row and/or session sentinel) or already_finished (changed false). --wait adds acknowledged."
+  },
+  {
+    "name": "auth rm",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The session rows deleted (redacted)."
+  },
+  {
+    "name": "auth show",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "The stored session rows with that name (one per host), redacted unless --show-secrets."
+  },
+  {
     "name": "config env",
     "kind": "command",
     "envelope_kind": "read",
     "description": "Every VIGOLIUM_* variable the binary reads: set or not, value (credentials redacted), the settings key it overrides."
   },
   {
+    "name": "config get",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One configuration key (or every key under a section), redacted unless --show-secrets."
+  },
+  {
     "name": "config ls",
     "kind": "command",
     "envelope_kind": "read",
     "description": "Every settable key with its typed value (string credentials redacted), default, type and source layer (default, file, env:NAME, project, flag)."
+  },
+  {
+    "name": "config unset",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The key removed from the config file (removed false when the file did not set it)."
   },
   {
     "name": "db clean",
@@ -138,6 +168,12 @@
     "description": "Findings whose status changed; unchanged and not_found list the rest."
   },
   {
+    "name": "finding show",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "The named findings as finding views with their records; not_found lists the selectors that matched nothing."
+  },
+  {
     "name": "fingerprint",
     "kind": "command",
     "envelope_kind": "scan",
@@ -204,6 +240,12 @@
     "description": "Every module the search matched, each saying whether this run flipped it."
   },
   {
+    "name": "module show",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One module's full description."
+  },
+  {
     "name": "oast ingest",
     "kind": "command",
     "envelope_kind": "mutation",
@@ -228,6 +270,12 @@
     "description": "The project created."
   },
   {
+    "name": "project current",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "The project this invocation resolves to, and where the selection came from (flag, env, active_file, default)."
+  },
+  {
     "name": "project delete",
     "kind": "command",
     "envelope_kind": "mutation",
@@ -240,6 +288,12 @@
     "description": "Every project in the store, marking the active one."
   },
   {
+    "name": "project rename",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The project renamed, with its previous name."
+  },
+  {
     "name": "project use",
     "kind": "command",
     "envelope_kind": "mutation",
@@ -249,7 +303,7 @@
     "name": "replay",
     "kind": "command",
     "envelope_kind": "read",
-    "description": "One row per replayed record: the baseline, the replay and their diff. A single source is one item; a bulk run counts failed rows."
+    "description": "One row per replayed record: the baseline, the replay and their diff, and saved_record_uuid when the exchange was stored. A single source is one item; a bulk run counts failed rows. --once prints one compact item instead."
   },
   {
     "name": "run",
@@ -270,10 +324,22 @@
     "description": "Findings classified new / unchanged / fixed / not_reobserved between two scans."
   },
   {
+    "name": "scan ls",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Alias of log ls: native and agentic scan sessions with liveness; --reap adds reaped and status_files_removed."
+  },
+  {
     "name": "scan status",
     "kind": "command",
     "envelope_kind": "read",
     "description": "One scan's live status: phase, progress, liveness, ETA and the stored plan."
+  },
+  {
+    "name": "scan stop",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The scan a stop was asked of: action stop_requested (the request was written on its row and/or session sentinel), reaped (its process was gone; finalized as abandoned) or already_finished (changed false). --wait adds acknowledged; a scan that does not stop in time is exit 1 wait_timeout with a manual kill hint."
   },
   {
     "name": "scan wait",
@@ -304,6 +370,42 @@
     "kind": "command",
     "envelope_kind": "read",
     "description": "The database's tables with columns, row counts, purpose, and the -j field a column surfaces as."
+  },
+  {
+    "name": "scope add",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The scope rule edited: its value before and after, and which config layer was written."
+  },
+  {
+    "name": "scope check",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Whether a URL is in scope; for a refused one, the rule and the pattern responsible."
+  },
+  {
+    "name": "scope rm",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The scope rule edited: its value before and after, and which config layer was written."
+  },
+  {
+    "name": "server status",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One row per server pidfile: the recorded pid and address, whether the process is alive and /health answers."
+  },
+  {
+    "name": "server stop",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The server stopped (SIGTERM, sent only when /health answered with the recorded pid), and whether it exited in time."
+  },
+  {
+    "name": "status",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Orientation: database path, project and its source, scope rule counts per component, up to 5 running scans with liveness, record/finding/scan counts, the effective proxy and its source, skill staleness. No network calls."
   },
   {
     "name": "traffic",

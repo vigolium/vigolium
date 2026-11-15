@@ -215,7 +215,7 @@ func terseGlobalFlags(fs *pflag.FlagSet) string {
 // all four. Every non-hidden local flag should live in exactly one group here so
 // the "Other:" section only ever holds cobra's auto-added --help.
 var scanFlagGroups = []flagGroup{
-	{"Target & Input", []string{"target", "target-file", "all-records", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
+	{"Target & Input", []string{"target", "target-file", "all-records", "record-uuid", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
 	{"Input Format", []string{"required-only", "skip-format-validation"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
 	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter", "allow-risky-payloads", "no-param-dedup", "header-fuzz", "resume-scan"}},
@@ -295,7 +295,7 @@ var agentAuditFlagGroups = []flagGroup{
 	{"Piolium Leg", []string{"pi-provider", "pi-model", "plm-scan-limit", "plm-scan-since", "plm-phase-retries", "plm-command-retries", "plm-longshot-limit", "plm-longshot-timeout", "plm-longshot-langs"}},
 	{"Authentication (BYOK)", []string{"api-key", "oauth-token", "oauth-cred-file"}},
 	{"Preflight", []string{"no-preflight", "preflight-timeout"}},
-	{"Execution", []string{"interactive", "no-stream", "show-thinking", "no-dedup", "keep-raw", "clean-raw"}},
+	{"Execution", []string{"interactive", "no-stream", "show-thinking", "no-dedup", "keep-raw", "clean-raw", "dry-run", "max-duration"}},
 	{"Output", []string{"stateless", "output", "output-dir", "upload-results"}},
 }
 
@@ -375,7 +375,7 @@ var fuzzFlagGroups = []flagGroup{
 	{"Speed & Behaviour", []string{
 		"no-calibrate", "allow-baseline-error", "concurrency", "rate-limit", "max-requests", "delay", "timeout", "no-redirects",
 		"dry-run", "ignore-scope"}},
-	{"Output", []string{"output", "all-results", "fail-on-match", "fields", "compact", "max-output-bytes"}},
+	{"Output", []string{"output", "all-results", "fail-on-match", "save", "fields", "compact", "max-output-bytes"}},
 	{"Burp Bridge", []string{"send-via-burp", "burp-bridge-url", "http-mode", "send-timeout", "matches-to-organizer"}},
 }
 
@@ -384,7 +384,7 @@ var replayFlagGroups = []flagGroup{
 	{"Input & Selection", []string{"input", "input-file", "raw-request", "raw-request-file", "record-uuid", "finding-id", "target"}},
 	{"Bulk Filter", []string{"host", "method", "status", "path", "source", "search", "header-search", "body", "exclude-search", "exclude-header-search", "exclude-body", "from", "to", "sort", "asc", "offset", "limit", "all"}},
 	{"Request Options", []string{"header", "auth-session", "session-id", "no-cookies", "no-redirects", "baseline", "timeout", "concurrency", "with-browser"}},
-	{"Output", []string{"output", "in-replace", "stateless", "fields", "compact", "max-output-bytes"}},
+	{"Output", []string{"output", "once", "save", "no-save", "dry-run", "in-replace", "stateless", "fields", "compact", "max-output-bytes"}},
 	{"Burp Bridge", []string{"burp-bridge-url", "save-to-burp", "send-via-burp", "http-mode", "send-timeout", "to-repeater", "repeater-tab", "to-organizer", "notes", "highlight"}},
 }
 
@@ -393,7 +393,7 @@ var ingestFlagGroups = []flagGroup{
 	{"Target & Input", []string{"target", "target-file", "input", "input-mode", "input-read-timeout"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
 	{"Module Selection", []string{"modules", "module-tag", "no-tech-filter"}},
-	{"Ingestion", []string{"server", "scan-on-receive", "full-native-scan-on-receive", "disable-fetch-response", "keep-blocked", "scope-origin", "intensity", "dir", "dir-glob"}},
+	{"Ingestion", []string{"server", "scan-on-receive", "full-native-scan-on-receive", "disable-fetch-response", "keep-blocked", "scope-origin", "intensity", "dir", "dir-glob", "dry-run"}},
 	{"Speed Control", []string{"timeout", "concurrency", "rate-limit", "max-per-host", "max-host-error", "max-findings-per-module", "no-clustering", "no-waf-pacing"}},
 }
 
@@ -403,7 +403,7 @@ var serverFlagGroups = []flagGroup{
 	{"Ingestion", []string{"scan-on-receive", "full-native-scan-on-receive", "passive-only", "mem-buffer", "discard-queued", "catchup-threads", "disable-catchup", "disable-warm-session"}},
 	{"Proxy & Bridge", []string{"burp-bridge-url", "proxy-token", "proxy-allow", "proxy-insecure", "proxy-mitm"}},
 	{"Access Control", []string{"no-auth", "allow-unauthenticated-bind", "alternative-ingest-key", "view-only", "demo-only", "no-agent", "no-swagger"}},
-	{"Output", []string{"output", "mirror-fs"}},
+	{"Output", []string{"output", "mirror-fs", "events"}},
 }
 
 // exportFlagGroups categorizes `vigolium export`.
@@ -419,7 +419,7 @@ var importFlagGroups = []flagGroup{
 	{"Output Format", []string{"format", "output"}},
 	{"Filter", []string{"search", "severity"}},
 	{"Report Metadata", []string{"report-title", "report-target", "report-duration", "report-generated-at", "report-url", "max-body-bytes", "pdf-timeout", "no-redact"}},
-	{"Source & Upload", []string{"glob-db", "upload", "upload-key", "burp-bridge-url", "include-scopes", "glob-strict"}},
+	{"Source & Upload", []string{"glob-db", "upload", "upload-key", "burp-bridge-url", "include-scopes", "glob-strict", "dry-run"}},
 	// Bridge-pull narrowing. An unfiltered -B pull copies the operator's entire
 	// proxy history — every host they have browsed, with its cookies — so these
 	// get their own titled block rather than being buried under "Filter".

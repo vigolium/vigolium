@@ -20,9 +20,12 @@ type ErrorEnvelope struct {
 	// DBPath names the store the command had opened, when it got that far.
 	DBPath string `json:"db_path,omitempty"`
 	// SoftFail states that --soft-fail forced the process exit status to 0.
-	SoftFail      bool   `json:"soft_fail,omitempty"`
-	GeneratedAt   string `json:"generated_at"`
-	GeneratedAtMS int64  `json:"generated_at_ms"`
+	SoftFail bool `json:"soft_fail,omitempty"`
+	// AgenticScanUUID names the agent run the command had started, when the
+	// failure came after it did.
+	AgenticScanUUID string `json:"agentic_scan_uuid,omitempty"`
+	GeneratedAt     string `json:"generated_at"`
+	GeneratedAtMS   int64  `json:"generated_at_ms"`
 }
 
 // ErrorBody is the error object: a stable code to branch on, a message for a

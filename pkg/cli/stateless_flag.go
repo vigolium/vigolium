@@ -163,6 +163,7 @@ var statelessInjected = map[*cobra.Command]bool{}
 // never registered -S themselves, so the injected flag is live on them.
 var statelessReaderCommands = []string{
 	"log", "log ls", "fuzz", "db list",
+	"scan ls", "status", "finding show",
 }
 
 // warnNoOpStateless tells the operator when -S/--stateless was accepted and

@@ -36,6 +36,8 @@ const (
 	RecordSourceBurp          = "burp"         // Burp Suite, via the loopback bridge or a push to /api/ingest-http
 	RecordSourceCaido         = "caido"        // Caido, via the loopback bridge or a push to /api/ingest-http
 	RecordSourceParamMining   = "param-mining" // request carrying a hidden parameter the param-mining phase confirmed
+	RecordSourceReplay        = "replay"       // an exchange sent by hand with `vigolium replay` (saved by default)
+	RecordSourceFuzz          = "fuzz"         // a payload exchange `vigolium fuzz --save` kept
 )
 
 // legacyKISEvidenceSource is the label known-issue-scan evidence was stored
@@ -60,6 +62,7 @@ var KnownRecordSources = []string{
 	RecordSourceIngestServer, RecordSourceIngestContext, RecordSourceIngestProxy, RecordSourceIngestCLI,
 	RecordSourceScanner, RecordSourceProbe, RecordSourceFingerprint, RecordSourceHarvest,
 	RecordSourceFinding, RecordSourceBurp, RecordSourceCaido, RecordSourceParamMining,
+	RecordSourceReplay, RecordSourceFuzz,
 	RecordKindCandidate, RecordKindObservation, legacyKISEvidenceSource, "seed",
 }
 
@@ -96,8 +99,11 @@ func IsBridgeRecordSource(source string) bool {
 // `finding verify` uses the difference to tell a finding's baseline from its
 // payload request on rows written before findings.origin_record_uuid existed,
 // and the assessment sources exclude them so a finding's payload-bearing
-// request is never rescanned as input on the next run.
-var EvidenceRecordSources = []string{RecordKindFinding, RecordKindCandidate, RecordKindObservation, legacyKISEvidenceSource}
+// request is never rescanned as input on the next run. Hand-sent exchanges
+// (replay, fuzz) are evidence too: they carry payloads a scan must not
+// re-attack.
+var EvidenceRecordSources = []string{RecordKindFinding, RecordKindCandidate, RecordKindObservation, legacyKISEvidenceSource,
+	RecordSourceReplay, RecordSourceFuzz}
 
 // applyEvidenceExclusion drops finding-evidence rows (EvidenceRecordSources).
 func applyEvidenceExclusion(q *bun.SelectQuery) *bun.SelectQuery {
@@ -718,6 +724,7 @@ type RiskPrioritizedDBInputSource struct {
 	repo                 *Repository
 	scanUUID             string
 	hostScopes           []HostTarget // when non-empty, only records matching these in-scope origins (scheme/host/port) are returned
+	recordUUIDs          []string     // when non-empty, only these records are returned
 	maxParamShapeSamples int          // when > 0, coalesce same-shape GET records to this many value-distinct samples
 	closed               atomic.Bool
 	mu                   sync.Mutex
@@ -831,6 +838,21 @@ func (s *RiskPrioritizedDBInputSource) Bound() (at time.Time, id string, ok bool
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.boundAt, s.boundID, s.hasBound
+}
+
+// WithRecordUUIDs restricts the source to these records. Empty (the
+// default) leaves it unrestricted.
+func (s *RiskPrioritizedDBInputSource) WithRecordUUIDs(uuids []string) *RiskPrioritizedDBInputSource {
+	s.recordUUIDs = uuids
+	return s
+}
+
+// applyRecordFilter narrows q to the WithRecordUUIDs set, if any.
+func (s *RiskPrioritizedDBInputSource) applyRecordFilter(q *bun.SelectQuery) *bun.SelectQuery {
+	if len(s.recordUUIDs) == 0 {
+		return q
+	}
+	return q.Where("uuid IN (?)", bun.List(s.recordUUIDs))
 }
 
 // WithHostScopes sets an in-scope origin filter so only records matching these
@@ -996,6 +1018,7 @@ func (s *RiskPrioritizedDBInputSource) captureBoundLocked(ctx context.Context) e
 	q = applyHostScopeFilter(q, s.hostScopes)
 	q = applyProjectFilter(q, s.projectUUID)
 	q = applyEvidenceExclusion(q)
+	q = s.applyRecordFilter(q)
 
 	var rows []boundRow
 	if s.presetBound {
@@ -1050,7 +1073,7 @@ func (s *RiskPrioritizedDBInputSource) applyResumeAndBound(q *bun.SelectQuery) *
 	}
 	boundAt := dbTimestampString(s.db.Driver(), s.boundAt)
 	q = q.Where("(created_at < ? OR (created_at = ? AND uuid <= ?))", boundAt, boundAt, s.boundID)
-	return applyEvidenceExclusion(applyProjectFilter(q, s.projectUUID))
+	return s.applyRecordFilter(applyEvidenceExclusion(applyProjectFilter(q, s.projectUUID)))
 }
 
 // nextPageRowsLocked returns the next keyset page of eligible rows, ordered

@@ -174,6 +174,15 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 	if !hasTemplate && !hasInline {
 		return usageErrorf("either a prompt (argument, --prompt/-p, --stdin) or a template (--prompt-template, --prompt-file) is required")
 	}
+	// --stdin is read here, so an empty pipe is refused before anything
+	// is built or sent; the engine then takes it as an inline prompt.
+	if agentStdin && agentPromptInline == "" {
+		text, err := readNonEmptyStdin("--stdin")
+		if err != nil {
+			return err
+		}
+		agentPromptInline, agentStdin = text, false
+	}
 
 	settings, err := clicommon.LoadSettings(globalConfig)
 	if err != nil {
@@ -234,6 +243,11 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 
 	// Preflight: validate the provider before building prompts. A dry run
 	// renders the prompt only and never calls the provider.
+	if !agentDryRun {
+		if err := agent.ProviderDialCheck(ctx, &settings.Agent.Olium); err != nil {
+			return err
+		}
+	}
 	if !agentDryRun && !agentQueryPreflight.skip {
 		if err := engine.Preflight(ctx); err != nil {
 			return err
@@ -306,13 +320,17 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 			StartedAt:   startedAt,
 		})
 		printAgentRunHandle(queryAgenticScanUUID, sessionDir)
+		var stopCancelWatch func()
+		ctx, stopCancelWatch = watchAgentCancel(ctx, repo, sessionDir, queryAgenticScanUUID)
+		defer stopCancelWatch()
 	}
 
 	result, err := engine.Run(ctx, opts)
 	if !agentDryRun {
 		end := database.AgenticRunEnd{
-			Err:      err,
-			TimedOut: err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded),
+			Err:       err,
+			TimedOut:  err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded),
+			Cancelled: err != nil && errors.Is(ctx.Err(), context.Canceled),
 		}
 		if end.TimedOut {
 			end.Err = nil
@@ -333,7 +351,7 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return incompleteErrorf(apicontract.CodeTimedOut, "agent timed out after %s (use --max-duration to adjust or set to 0 to disable)", agentMaxDuration)
 		}
-		return fmt.Errorf("agent run failed: %w", err)
+		return agentRunFailure(ctx, err)
 	}
 
 	// Save raw output to session directory

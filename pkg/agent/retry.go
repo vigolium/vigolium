@@ -49,6 +49,12 @@ var (
 func classifyOliumError(msg string) error {
 	lower := strings.ToLower(msg)
 
+	// The engine already decided this provider is not there (a refused or
+	// unresolvable endpoint before any call succeeded): terminal, not a blip.
+	if strings.Contains(lower, stream.ErrProviderUnreachable.Error()) {
+		return fmt.Errorf("%s: %w", msg, stream.ErrProviderUnreachable)
+	}
+
 	// Status-carrying errors classify off the status itself. The numeric
 	// table lives in pkg/olium/stream so this cross-call classifier and the
 	// engine's in-flight one can't drift - they used to keep separate lists,

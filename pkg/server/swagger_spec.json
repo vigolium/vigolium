@@ -1919,6 +1919,7 @@
               "preflight_failed",
               "project_not_found",
               "provider_missing",
+              "provider_unreachable",
               "proxy_auth_required",
               "queue_full",
               "rate_limited",
@@ -1992,6 +1993,7 @@
               "preflight_failed",
               "project_not_found",
               "provider_missing",
+              "provider_unreachable",
               "proxy_auth_required",
               "queue_full",
               "rate_limited",
@@ -2637,6 +2639,9 @@
       },
       "HealthResponse": {
         "properties": {
+          "pid": {
+            "type": "integer"
+          },
           "status": {
             "example": "ok",
             "type": "string"
@@ -2724,6 +2729,25 @@
           "project_uuid": {
             "format": "uuid",
             "type": "string"
+          },
+          "scan_on_receive": {
+            "nullable": true,
+            "properties": {
+              "cursor_at": {
+                "type": "string"
+              },
+              "cursor_uuid": {
+                "type": "string"
+              },
+              "processed_count": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "scan_uuid": {
+                "type": "string"
+              }
+            },
+            "type": "object"
           },
           "skipped": {
             "description": "Records filtered by scope",

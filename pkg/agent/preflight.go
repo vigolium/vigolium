@@ -9,6 +9,7 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/olium"
+	"github.com/vigolium/vigolium/pkg/olium/stream"
 )
 
 // ProviderSetupHint is the one sentence every "no usable provider" message
@@ -77,7 +78,11 @@ func (e *Engine) Preflight(ctx context.Context) error {
 				err: fmt.Errorf("agent preflight: provider %q (model=%q) did not answer within %s — raise --preflight-timeout or agent.olium.preflight_timeout, or skip the check with --no-preflight",
 					providerName, cfg.Model, timeout.Round(time.Millisecond))}
 		}
-		return &PreflightError{code: apicontract.CodePreflightFailed,
+		code := apicontract.CodePreflightFailed
+		if stream.IsDialErr(err) {
+			code = apicontract.CodeProviderUnreachable
+		}
+		return &PreflightError{code: code,
 			err: fmt.Errorf("agent preflight: provider %q (model=%q) failed: %w", providerName, cfg.Model, err)}
 	}
 	if strings.TrimSpace(out.Text) == "" {

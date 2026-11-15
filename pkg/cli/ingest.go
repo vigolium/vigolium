@@ -180,7 +180,7 @@ func runIngestCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	// Branch: remote vs local mode
-	remote := ingestOpts.ServerURL != ""
+	remote := ingestOpts.ServerURL != "" && !ingestDryRun // a dry run only parses, locally
 	run := runLocalIngest
 	if remote {
 		if globalScanOnReceive {
@@ -317,7 +317,10 @@ func reportIngest(out ingestOutcome, remote bool, failedSources, totalSources in
 			changed = out.Written > 0
 		}
 		env := newAgentEnvelope("ingest", "", items, out.Stored, 0, 0).
-			asMutation(changed, "ingest", false)
+			asMutation(changed, "ingest", ingestDryRun)
+		if ingestDryRun {
+			env.With("would_ingest", ingestDryRunItems)
+		}
 		env.DBPath = resolvedReadDBPath()
 		env.With("records_ingested", out.Stored).
 			With("records_failed", out.Failed).
@@ -336,7 +339,11 @@ func reportIngest(out ingestOutcome, remote bool, failedSources, totalSources in
 			return err
 		}
 	} else if !globalSilent {
-		fmt.Fprintf(os.Stderr, "\n%s\n", ingestSummaryLine(out, elapsed))
+		if ingestDryRun {
+			fmt.Fprintf(os.Stderr, "\n%s Dry run: %d request(s) parsed; nothing was sent or stored\n", terminal.InfoSymbol(), ingestDryRunItems)
+		} else {
+			fmt.Fprintf(os.Stderr, "\n%s\n", ingestSummaryLine(out, elapsed))
+		}
 	}
 
 	if out.Failed > 0 {
@@ -568,6 +575,9 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (outcome ingestOutcome, err 
 	// apart from one whose records were all filtered.
 	ingestItemsRead.Add(int64(len(preloadedWithResp)))
 	inputSource = countingInputSource{InputSource: inputSource}
+	if ingestDryRun {
+		return outcome, drainIngestDryRun(inputSource, len(preloadedWithResp))
+	}
 
 	// --- 4. Initialize database ---
 	// Global → the resolved project's overlay: the scope judged below (static

@@ -19,6 +19,7 @@ run `vigolium <command> -h`.
 - [vigolium agent](#vigolium-agent)
 - [vigolium agent audit](#vigolium-agent-audit)
 - [vigolium agent autopilot](#vigolium-agent-autopilot)
+- [vigolium agent cancel](#vigolium-agent-cancel)
 - [vigolium agent olium](#vigolium-agent-olium)
 - [vigolium agent query](#vigolium-agent-query)
 - [vigolium agent session](#vigolium-agent-session)
@@ -31,12 +32,16 @@ run `vigolium <command> -h`.
 - [vigolium auth lint](#vigolium-auth-lint)
 - [vigolium auth list](#vigolium-auth-list)
 - [vigolium auth load](#vigolium-auth-load)
+- [vigolium auth rm](#vigolium-auth-rm)
+- [vigolium auth show](#vigolium-auth-show)
 - [vigolium auth totp](#vigolium-auth-totp)
 - [vigolium config](#vigolium-config)
 - [vigolium config clean](#vigolium-config-clean)
 - [vigolium config env](#vigolium-config-env)
+- [vigolium config get](#vigolium-config-get)
 - [vigolium config ls](#vigolium-config-ls)
 - [vigolium config set](#vigolium-config-set)
+- [vigolium config unset](#vigolium-config-unset)
 - [vigolium config validate](#vigolium-config-validate)
 - [vigolium db](#vigolium-db)
 - [vigolium db clean](#vigolium-db-clean)
@@ -66,6 +71,7 @@ run `vigolium <command> -h`.
 - [vigolium finding](#vigolium-finding)
 - [vigolium finding load](#vigolium-finding-load)
 - [vigolium finding mark](#vigolium-finding-mark)
+- [vigolium finding show](#vigolium-finding-show)
 - [vigolium finding verify](#vigolium-finding-verify)
 - [vigolium fingerprint](#vigolium-fingerprint)
 - [vigolium fuzz](#vigolium-fuzz)
@@ -96,6 +102,7 @@ run `vigolium <command> -h`.
 - [vigolium module disable](#vigolium-module-disable)
 - [vigolium module enable](#vigolium-module-enable)
 - [vigolium module ls](#vigolium-module-ls)
+- [vigolium module show](#vigolium-module-show)
 - [vigolium nuclei](#vigolium-nuclei)
 - [vigolium oast](#vigolium-oast)
 - [vigolium oast ingest](#vigolium-oast-ingest)
@@ -105,14 +112,18 @@ run `vigolium <command> -h`.
 - [vigolium project](#vigolium-project)
 - [vigolium project config](#vigolium-project-config)
 - [vigolium project create](#vigolium-project-create)
+- [vigolium project current](#vigolium-project-current)
 - [vigolium project delete](#vigolium-project-delete)
 - [vigolium project list](#vigolium-project-list)
+- [vigolium project rename](#vigolium-project-rename)
 - [vigolium project use](#vigolium-project-use)
 - [vigolium replay](#vigolium-replay)
 - [vigolium run](#vigolium-run)
 - [vigolium scan](#vigolium-scan)
 - [vigolium scan diff](#vigolium-scan-diff)
+- [vigolium scan ls](#vigolium-scan-ls)
 - [vigolium scan status](#vigolium-scan-status)
+- [vigolium scan stop](#vigolium-scan-stop)
 - [vigolium scan wait](#vigolium-scan-wait)
 - [vigolium scan-request](#vigolium-scan-request)
 - [vigolium scan-url](#vigolium-scan-url)
@@ -126,6 +137,9 @@ run `vigolium <command> -h`.
 - [vigolium schema plan](#vigolium-schema-plan)
 - [vigolium schema storage](#vigolium-schema-storage)
 - [vigolium scope](#vigolium-scope)
+- [vigolium scope add](#vigolium-scope-add)
+- [vigolium scope check](#vigolium-scope-check)
+- [vigolium scope rm](#vigolium-scope-rm)
 - [vigolium scope set](#vigolium-scope-set)
 - [vigolium scope view](#vigolium-scope-view)
 - [vigolium server](#vigolium-server)
@@ -134,10 +148,13 @@ run `vigolium <command> -h`.
 - [vigolium server ca path](#vigolium-server-ca-path)
 - [vigolium server ca print](#vigolium-server-ca-print)
 - [vigolium server ca uninstall](#vigolium-server-ca-uninstall)
+- [vigolium server status](#vigolium-server-status)
+- [vigolium server stop](#vigolium-server-stop)
 - [vigolium skills](#vigolium-skills)
 - [vigolium skills get](#vigolium-skills-get)
 - [vigolium skills install](#vigolium-skills-install)
 - [vigolium skills list](#vigolium-skills-list)
+- [vigolium status](#vigolium-status)
 - [vigolium storage](#vigolium-storage)
 - [vigolium storage download](#vigolium-storage-download)
 - [vigolium storage ls](#vigolium-storage-ls)
@@ -216,10 +233,12 @@ Run audit and/or piolium back-to-back as a unified security audit
 | `--clean-raw` | - | bool | `false` | [audit] Remove <source>/vigolium-results/ from the source tree after the run (the session copy is always kept). Inverts the default --keep-raw retention of the source-folder copy. No effect on the piolium leg. |
 | `--commit-depth` | - | int | `1` | git clone --depth value when --source is a git URL (default 1; use 0 for full history; overrides --intensity) |
 | `--driver` | - | string | `auto` | Audit driver: auto (run audit; fall back to piolium only when audit cannot start - claude/codex CLI missing, binary not embedded, or no audit-supported mode in the chain), both (audit then piolium), audit, or piolium (default auto) |
+| `--dry-run` | - | bool | `false` | Print the resolved drivers, mode chain, source and agent without cloning the source, launching a driver or calling a provider |
 | `--intensity` | - | string | `balanced` | Audit intensity preset: quick, balanced, or deep |
 | `--interactive` | `-i` | bool | `false` | Drop into the coding agent with the audit harness installed and drive the audit yourself (audit-only; the embedded vigolium-audit binary's -i). Skips NDJSON streaming, the AgenticScan row, and findings auto-import — results land in <source>/vigolium-results/; import them afterward with 'vigolium import'. Not valid with --driver=piolium. |
 | `--keep-raw` | - | bool | `true` | [audit] Keep raw scanner output, draft findings, and intermediate workspaces under <source>/vigolium-results/ for manual review (overrides audit's deep/confirm auto-prune). On by default; the source-folder copy is also retained. Pass --clean-raw to remove it from the source tree. No effect on the piolium leg. |
 | `--list-modes` | - | bool | `false` | List the available audit modes (audit's mode graph: phases, time estimate, descriptions) and exit |
+| `--max-duration` | - | duration | `0s` | Maximum wall-clock duration for the whole audit (e.g. 2h; 0 = no limit). Reaching it stops the drivers: status timed_out, exit 5 |
 | `--mode` | - | string | - | Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, audit=reinvest/refresh/mock/diff/status |
 | `--modes` | - | string | - | Run a chain of modes back-to-back (comma-separated, e.g. deep,refresh,confirm). Overrides --mode/--intensity. Stops on the first non-complete mode. audit runs the chain natively (--modes); piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg. |
 | `--no-dedup` | - | bool | `false` | Skip the post-pass project-wide findings dedup that runs after the audit completes |
@@ -304,6 +323,17 @@ Agentic scan: autonomous AI-driven vulnerability scanning
 | `--triage` | - | bool | `false` | After the scan completes, run an AI triage pass over the findings (confirm real issues vs false positives, written back to finding status) |
 | `--upload-results` | - | bool | `false` | Upload scan results to cloud storage after completion (requires storage config) |
 | `--verbose` | `-v` | bool | `false` | **(overrides the global `--verbose`)** Show a per-tool head/tail preview of each tool result alongside the standard one-liner |
+
+## vigolium agent cancel
+
+Usage: `vigolium agent cancel <run-uuid|prefix>`
+
+Ask a running agent run (query, autopilot, swarm, audit, triage) to stop
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--timeout` | - | duration | `1m0s` | With --wait, how long to wait |
+| `--wait` | - | bool | `false` | Wait until the run has finished |
 
 ## vigolium agent olium
 
@@ -502,10 +532,12 @@ Run a unified security audit (alias for `vigolium agent audit`)
 | `--clean-raw` | - | bool | `false` | [audit] Remove <source>/vigolium-results/ from the source tree after the run (the session copy is always kept). Inverts the default --keep-raw retention of the source-folder copy. No effect on the piolium leg. |
 | `--commit-depth` | - | int | `1` | git clone --depth value when --source is a git URL (default 1; use 0 for full history; overrides --intensity) |
 | `--driver` | - | string | `auto` | Audit driver: auto (run audit; fall back to piolium only when audit cannot start - claude/codex CLI missing, binary not embedded, or no audit-supported mode in the chain), both (audit then piolium), audit, or piolium (default auto) |
+| `--dry-run` | - | bool | `false` | Print the resolved drivers, mode chain, source and agent without cloning the source, launching a driver or calling a provider |
 | `--intensity` | - | string | `balanced` | Audit intensity preset: quick, balanced, or deep |
 | `--interactive` | `-i` | bool | `false` | Drop into the coding agent with the audit harness installed and drive the audit yourself (audit-only; the embedded vigolium-audit binary's -i). Skips NDJSON streaming, the AgenticScan row, and findings auto-import — results land in <source>/vigolium-results/; import them afterward with 'vigolium import'. Not valid with --driver=piolium. |
 | `--keep-raw` | - | bool | `true` | [audit] Keep raw scanner output, draft findings, and intermediate workspaces under <source>/vigolium-results/ for manual review (overrides audit's deep/confirm auto-prune). On by default; the source-folder copy is also retained. Pass --clean-raw to remove it from the source tree. No effect on the piolium leg. |
 | `--list-modes` | - | bool | `false` | List the available audit modes (audit's mode graph: phases, time estimate, descriptions) and exit |
+| `--max-duration` | - | duration | `0s` | Maximum wall-clock duration for the whole audit (e.g. 2h; 0 = no limit). Reaching it stops the drivers: status timed_out, exit 5 |
 | `--mode` | - | string | - | Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, audit=reinvest/refresh/mock/diff/status |
 | `--modes` | - | string | - | Run a chain of modes back-to-back (comma-separated, e.g. deep,refresh,confirm). Overrides --mode/--intensity. Stops on the first non-complete mode. audit runs the chain natively (--modes); piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg. |
 | `--no-dedup` | - | bool | `false` | Skip the post-pass project-wide findings dedup that runs after the audit completes |
@@ -580,12 +612,37 @@ Load session auth configs from a file or stdin into the database
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent-format` | - | bool | `false` | Force parsing as agent session-config.json format |
+| `--dry-run` | - | bool | `false` | Parse the sessions (or raw login request) and report them, without logging in or saving |
 | `--force` | - | bool | `false` | **(overrides the global `--force`)** Save sessions whose login check failed (still exits 1) |
 | `--host` | - | string | - | Hostname to associate sessions with (derived from login URL if omitted) |
 | `--name` | - | string | - | Session name (used with raw HTTP request input) |
 | `--no-validate` | - | bool | `false` | Skip executing login flows for validation |
 | `--source` | - | string | `cli` | Source label for the session rows |
 | `--timeout` | - | duration | `30s` | Timeout for each login request |
+
+## vigolium auth rm
+
+Usage: `vigolium auth rm <session-name>`
+
+Aliases: `remove`, `delete`
+
+Delete a stored session
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show what would be deleted, without deleting |
+| `--host` | - | string | - | Only delete the session stored for this hostname |
+
+## vigolium auth show
+
+Usage: `vigolium auth show <session-name>`
+
+Show one stored session (tokens and credentials redacted)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--host` | - | string | - | Only the session stored for this hostname |
+| `--show-secrets` | - | bool | `false` | Reveal tokens and credentials in plaintext; prints a warning to stderr |
 
 ## vigolium auth totp
 
@@ -620,6 +677,16 @@ List the VIGOLIUM_* environment variables the binary reads
 | `--set` | - | bool | `false` | List only the variables set in this environment |
 | `--show-secrets` | - | bool | `false` | Reveal sensitive values in plaintext instead of [redacted] |
 
+## vigolium config get
+
+Usage: `vigolium config get <key>`
+
+Print one configuration value
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--show-secrets` | - | bool | `false` | Reveal a sensitive value in plaintext instead of [redacted]; prints a warning to stderr |
+
 ## vigolium config ls
 
 Usage: `vigolium config ls [filter]`
@@ -639,7 +706,19 @@ Usage: `vigolium config set <key> <value>`
 
 Set a configuration value
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the value the key would get, without editing the config file |
+
+## vigolium config unset
+
+Usage: `vigolium config unset <key>`
+
+Remove a key from the config file so its default applies
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Report whether the file sets the key, without editing it |
 
 ## vigolium config validate
 
@@ -1109,6 +1188,7 @@ Import findings from a file or stdin
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Parse the input and report how many findings it holds, without storing them |
 | `--finding-file` | - | string | - | Path to findings file |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Associate imported findings with a scan UUID |
 
@@ -1122,8 +1202,17 @@ Record a verdict on findings (false_positive, confirmed, accepted_risk, fixed, t
 |------|-------|------|---------|-------------|
 | `--as` | - | string | - | Verdict to record: false_positive\|confirmed\|accepted_risk\|fixed\|triaged (required) |
 | `--by` | - | string | - | Who decided (default "cli") |
+| `--dry-run` | - | bool | `false` | Show which findings would change status, without writing |
 | `--note` | - | string | - | Why: stored with the verdict and in the finding's status history |
 | `--stateless` | `-S` | bool | `false` | Write to the standalone .sqlite named by --db with project scoping off |
+
+## vigolium finding show
+
+Usage: `vigolium finding show <id|hash-prefix>...`
+
+Show findings by id or finding-hash prefix, with their evidence records
+
+_No command-specific flags._
 
 ## vigolium finding verify
 
@@ -1342,6 +1431,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--referer` | - | string | - | Referer header, curl's -e |
 | `--request` | `-X` | string | - | HTTP method override (default: the source request's, or GET) |
 | `--resolve` | - | stringArray | - | Pin a host to an address, curl's --resolve host:port:addr (repeatable) |
+| `--save` | - | string | - | Store payload exchanges (source "fuzz"): --save keeps the ones the run kept (matched/anomalous), --save=all every one (capped at 1000) |
 | `--send-timeout` | - | duration | `0s` | With --send-via-burp: per-request response timeout (<=2m; default uses the bridge's 30s) |
 | `--send-via-burp` | - | bool | `false` | Send each payload through Burp's own HTTP stack (exact bytes — malformed/smuggling preserved) instead of Go's client; requires --burp-bridge-url |
 | `--session-id` | - | string | - | Persist cookies across runs under ~/.vigolium/replay-jars/<id>.json |
@@ -1407,6 +1497,7 @@ Import scan data, databases, or live Burp Proxy history
 |------|-------|------|---------|-------------|
 | `--all-hosts` | - | bool | `false` | Import the operator's ENTIRE proxy history, unfiltered. Required when no filter is given — an unfiltered pull copies every host ever browsed, with its cookies and tokens, into this database. |
 | `--burp-bridge-url` | `-B` | string | - | Import live Burp/Caido proxy history from this loopback bridge URL into the database (alias: --caido-bridge-url) |
+| `--dry-run` | - | bool | `false` | Import into a throwaway database and report what would land, leaving the real one untouched (no report, no upload) |
 | `--exclude-search` | - | stringArray | - | Skip records matching this term (repeatable) |
 | `--from` | - | string | - | Import only records from this time onward (2d, 12h, today, YYYY-MM-DD, RFC3339) |
 | `--glob-db` | - | string | - | Glob of local files to import alongside any positional paths (use one format per run), e.g. --glob-db 'prefix-*.sqlite' or '*.jsonl' |
@@ -1443,6 +1534,7 @@ Ingest HTTP requests into database (locally or via server)
 | `--dir` | - | string | - | Ingest every matching file in this directory in one process (pairs with -I to fix the format, and --dir-glob to narrow the match) |
 | `--dir-glob` | - | string | `*` | Filename pattern for --dir (e.g. '*.har') |
 | `--disable-fetch-response` | - | bool | `false` | Store requests without fetching responses during ingestion |
+| `--dry-run` | - | bool | `false` | Parse the input and report how many requests it yields, without sending or storing any |
 | `--full-native-scan-on-receive` | - | bool | `false` | Run the full native scan pipeline (discovery + spidering + dynamic-assessment) continuously on received records, instead of dynamic-assessment only |
 | `--input` | `-i` | string | `-` | Input file path or spec (use - for stdin) |
 | `--input-mode` | `-I` | string | `urls` | Input format: urls, nuclei, openapi, wsdl, postman, curl, burpraw, burpxml, burpscope, har, deparos (aliases accepted, see --list-input-mode) |
@@ -1704,6 +1796,7 @@ Disable modules matching a search term
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show which modules would be disabled, without editing the config |
 | `--id` | - | bool | `false` | Match exact module ID instead of fuzzy search |
 
 ## vigolium module enable
@@ -1716,6 +1809,7 @@ Enable modules matching a search term
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show which modules would be enabled, without editing the config |
 | `--id` | - | bool | `false` | Match exact module ID instead of fuzzy search |
 
 ## vigolium module ls
@@ -1732,6 +1826,14 @@ List available modules
 | `--tags` | - | bool | `false` | Show only unique module tags |
 | `--type` | - | string | `all` | Filter modules by type: all, active, or passive |
 | `--verbose` | `-v` | bool | `false` | **(overrides the global `--verbose`)** Show long description and confirmation criteria |
+
+## vigolium module show
+
+Usage: `vigolium module show <module-id>`
+
+Show one module: description, confirmation criteria, severity, scope, tags, enabled
+
+_No command-specific flags._
 
 ## vigolium nuclei
 
@@ -1854,6 +1956,12 @@ Create a new project
 |------|-------|------|---------|-------------|
 | `--description` | - | string | - | Project description |
 
+## vigolium project current
+
+Show the project commands run against, and where that choice came from
+
+_No command-specific flags._
+
 ## vigolium project delete
 
 Usage: `vigolium project delete <project-uuid>`
@@ -1864,6 +1972,7 @@ Delete a project and every record tied to it
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the project and what it holds, without deleting anything |
 | `--keep-config` | - | bool | `false` | Keep the project's config directory (~/.vigolium/projects/<uuid>) on disk |
 
 ## vigolium project list
@@ -1876,6 +1985,14 @@ List all projects
 |------|-------|------|---------|-------------|
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
 | `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
+
+## vigolium project rename
+
+Usage: `vigolium project rename <project> <new-name>`
+
+Rename a project
+
+_No command-specific flags._
 
 ## vigolium project use
 
@@ -1906,6 +2023,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--burp-bridge-url` | `-B` | string | - | Loopback Burp/Caido bridge URL used by --save-to-burp / --send-via-burp / --to-repeater / --to-organizer (alias: --caido-bridge-url) |
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--concurrency` | `-c` | int | `10` | Bulk: concurrent replays; keep low to avoid overwhelming an intercepting proxy like Burp |
+| `--dry-run` | - | bool | `false` | Print the request that would be sent (after header overlays and --target), without sending or storing it |
 | `--exclude-body` | - | string | - | Bulk: drop records whose request/response body contains the term (inverse of --body) |
 | `--exclude-header-search` | - | string | - | Bulk: drop records whose HTTP header names/values contain the term (inverse of --header-search) |
 | `--exclude-search` | - | stringArray | - | Bulk: drop records where the term appears in the URL, path, or raw request/response (repeatable; dropped if ANY term matches — inverse of --search) |
@@ -1925,14 +2043,17 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--method` | - | stringSlice | - | Bulk: filter records by HTTP method (repeatable) |
 | `--no-cookies` | - | bool | `false` | Don't carry cookies (overrides --session-id) |
 | `--no-redirects` | - | bool | `false` | Don't follow 30x redirects |
+| `--no-save` | - | bool | `false` | Do not store the exchange sent |
 | `--notes` | - | string | - | Note attached to the --to-organizer item (longer than 200 chars is truncated with an ellipsis, not rejected) |
 | `--offset` | - | int | `0` | Bulk: skip this many matched records before replaying (pagination) |
+| `--once` | - | bool | `false` | Send the request once (no baseline, no diff) and print a compact result: saved record_uuid, status, final_url and a bounded body |
 | `--output` | `-o` | string | - | Write the JSONL result stream (one object per record) to this file; stdout keeps the human summary, or the -j envelope |
 | `--path` | - | string | - | Bulk: filter records by URL path pattern |
 | `--raw-request` | - | string | - | Full raw HTTP request override — send these exact bytes instead of the resolved baseline |
 | `--raw-request-file` | - | string | - | Read --raw-request from a file |
 | `--record-uuid` | `-u` | string | - | Stored HTTP record UUID (or unique 8+ char prefix) to use as baseline |
 | `--repeater-tab` | - | string | - | Repeater tab name for --to-repeater (default: vigolium) |
+| `--save` | - | bool | `false` | Store the exchange sent (source "replay") and report its saved_record_uuid. On by default for a single replay; bulk replay stores only with --save |
 | `--save-to-burp` | - | bool | `false` | Add each replayed request and its fresh response to Burp's Target Site map |
 | `--search` | - | stringArray | - | Bulk: search across URL, path, and the raw request/response (headers + body); repeatable, AND-combined |
 | `--send-timeout` | - | duration | `0s` | With --send-via-burp: response timeout (<=2m; default uses the bridge's 30s) |
@@ -2155,6 +2276,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--probe` | - | bool | `false` | Enable the host-sweep phase: one request per target, passive tech fingerprinting + surface scoring, no content discovery or fuzzing (same as 'vigolium run probe') |
 | `--rate-limit` | `-r` | int|phase=int | `100` | Global requests/second cap, applied to native scanning AND known-issue-scan. Applies at its documented default even when unset; pass 0 for no cap. Accepts a phase qualifier, repeatable: --rate-limit known-issue-scan=20 |
 | `--record-redirect-chain` | - | bool | `false` | Store a followed redirect's hops as their own http_records rows, chained by parent_uuid, instead of keeping only the final response. Canonical hops (scheme upgrade, trailing slash, www.) collapse into their destination row, and a chain stores at most 4 rows, keeping the first and the last. Read by the probe phase; on by default under 'run probe'. |
+| `--record-uuid` | - | stringArray | - | Scan only this stored HTTP record (UUID or unique 8+ char prefix); repeatable. Runs the dynamic assessment over exactly these records unless --only/--skip pick phases. Cannot be combined with -t/-T/-i, --all-records, -S or --db-isolate |
 | `--redirect-mode` | - | string | - | Which redirects to follow: off \| same-host \| same-apex \| in-scope \| any (default in-scope; 'run probe' defaults to same-apex). 'in-scope' follows a hop only to a host the scan scope admits (same-apex when no scope is set). 'same-apex' follows within the registrable domain, so www.example.com -> example.com follows but example.com -> tracker.example.net does not. A hop to another host never carries session or -H headers. Every mode also stops at a login/SSO wall, whatever its host, and records the 3xx instead. |
 | `--report-url` | - | string | - | URL for the "Raw Report URL" button in HTML reports (overrides VIGOLIUM_REPORT_SHARED_URL) |
 | `--require-auth` | - | bool | `false` | Fail a target's spidering instead of crawling anonymously when configured authentication (session cookies/auth headers) cannot be applied to the browser (sets spidering.require_auth) |
@@ -2208,6 +2330,25 @@ Compare two scans' findings: new, fixed, not re-observed, unchanged
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--target` | - | string | - | Compare the scans of this target (with --last) instead of naming two scans |
 
+## vigolium scan ls
+
+Aliases: `list`
+
+List scan sessions (alias of 'vigolium log ls')
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
+| `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
+| `--from` | - | string | - | Only sessions started at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
+| `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
+| `--offset` | - | int | `0` | Skip the first N rows (follow output_budget.next_offset) |
+| `--reap` | - | bool | `false` | Finalize abandoned running scan rows as failed (stop_reason abandoned) and prune expired status.json files; writes the store |
+| `--to` | - | string | - | Only sessions started at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
+| `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
+
 ## vigolium scan status
 
 Usage: `vigolium scan status <scan-uuid>`
@@ -2218,6 +2359,17 @@ Show a scan's live status: phase, progress, liveness and ETA
 |------|-------|------|---------|-------------|
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off |
+
+## vigolium scan stop
+
+Usage: `vigolium scan stop <scan-uuid|prefix>`
+
+Ask a running scan to stop, or finalize one whose process is gone
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--timeout` | - | duration | `1m0s` | With --wait, how long to wait before giving up and naming the pid |
+| `--wait` | - | bool | `false` | Wait until the scan has finished (acknowledged the stop) |
 
 ## vigolium scan wait
 
@@ -2437,6 +2589,42 @@ Manage scan scope rules
 
 _No command-specific flags._
 
+## vigolium scope add
+
+Usage: `vigolium scope add <component> <pattern>...`
+
+Append patterns to a scope rule's include list (or --exclude list)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the rule's old and new value, without editing the config |
+| `--exclude` | - | bool | `false` | Edit the exclude list instead of the include list |
+| `--project` | - | string | - | Write the project's config overlay instead of the global config |
+
+## vigolium scope check
+
+Usage: `vigolium scope check <url>`
+
+Say whether a URL is in scope, and which rule and pattern refuse it
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--project` | - | string | - | Apply this project's scope overlay (UUID, name or unique 8+ char UUID prefix) |
+
+## vigolium scope rm
+
+Usage: `vigolium scope rm <component> <pattern>...`
+
+Aliases: `remove`
+
+Remove patterns from a scope rule's include list (or --exclude list)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the rule's old and new value, without editing the config |
+| `--exclude` | - | bool | `false` | Edit the exclude list instead of the include list |
+| `--project` | - | string | - | Write the project's config overlay instead of the global config |
+
 ## vigolium scope set
 
 Usage: `vigolium scope set <component.field> <value>`
@@ -2445,6 +2633,7 @@ Set a scope rule
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the rule's old and new value, without editing the config |
 | `--project` | - | string | - | Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix); the global --project-uuid/--project-name flags do the same |
 
 ## vigolium scope view
@@ -2471,6 +2660,7 @@ Serve the REST API, ingest live traffic, and scan it as it arrives
 | `--disable-catchup` | - | bool | `false` | Deprecated: no-op (catch-up scanning is already disabled) |
 | `--disable-warm-session` | - | bool | `false` | Disable agent subprocess warm session pooling |
 | `--discard-queued` | - | bool | `false` | Drop tasks a previous run left in the disk-spill queue instead of resuming them (tasks older than 24h are always dropped) |
+| `--events` | - | string | - | Machine mode: print one server.ready JSON line on stdout once the listeners are bound and send every log line to stderr (value: ndjson). -j does the same |
 | `--full-native-scan-on-receive` | - | bool | `false` | Run the full native scan pipeline (discovery + spidering + dynamic-assessment) continuously on received records, instead of dynamic-assessment only |
 | `--host` | - | string | `127.0.0.1` | Bind address for the API server ($VIGOLIUM_SERVER_HOST when unset; use 0.0.0.0 to expose it) |
 | `--ingest-proxy-host` | - | string | `127.0.0.1` | Bind address for the ingest proxy (config server.ingest_proxy_host). A non-loopback address needs --proxy-token or --proxy-allow |
@@ -2480,7 +2670,7 @@ Serve the REST API, ingest live traffic, and scan it as it arrives
 | `--no-agent` | - | bool | `false` | Disable all agent endpoints and warm session pooling |
 | `--no-auth` | `-A` | bool | `false` | Run server without API key authentication (loopback --host only, unless --allow-unauthenticated-bind) |
 | `--no-swagger` | - | bool | `false` | Disable Swagger UI and API spec endpoint |
-| `--output` | `-o` | string | - | Write findings to specified output file |
+| `--output` | `-o` | string | - | Append findings to this file as JSON lines while scan-on-receive finds them |
 | `--passive-only` | - | bool | `false` | With --scan-on-receive, run passive modules only (no active scan traffic; includes secret detection) |
 | `--proxy-allow` | - | stringArray | - | Accept ingest-proxy clients only from this CIDR or IP (repeatable; config server.ingest_proxy_allow) |
 | `--proxy-insecure` | - | bool | `false` | When intercepting HTTPS (--proxy-mitm), skip verification of the upstream server's TLS certificate |
@@ -2527,6 +2717,23 @@ Remove trust in the MITM CA (prints the commands; --yes runs them)
 |------|-------|------|---------|-------------|
 | `--yes` | - | bool | `false` | Run the commands instead of printing them (may prompt for sudo) |
 
+## vigolium server status
+
+Show running servers: pidfile, process liveness and /health
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--port` | - | int | `0` | Only the server on this port (default: every server with a pidfile) |
+
+## vigolium server stop
+
+Stop a running server (SIGTERM, only when /health confirms the pid)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--port` | - | int | `0` | The server's port (required when more than one is running) |
+| `--timeout` | - | duration | `40s` | How long to wait for the server to exit |
+
 ## vigolium skills
 
 Usage: `vigolium skills [subcommand]`
@@ -2559,6 +2766,7 @@ Install skill bundle(s) into a coding agent's skills directory
 | `--agent` | - | string | `claude` | Target coding agent: claude, codex, or agents |
 | `--all` | - | bool | `false` | Install every bundled skill |
 | `--dir` | - | string | - | Override the destination directory (skips --agent/--scope resolution) |
+| `--dry-run` | - | bool | `false` | Show which skills would be installed or skipped, without writing files |
 | `--scope` | - | string | `project` | Install scope: project (current folder) or global (home dir) |
 
 ## vigolium skills list
@@ -2566,6 +2774,12 @@ Install skill bundle(s) into a coding agent's skills directory
 Aliases: `ls`
 
 List all bundled skills
+
+_No command-specific flags._
+
+## vigolium status
+
+One-screen orientation: database, project, scope, running scans, counts, proxy
 
 _No command-specific flags._
 

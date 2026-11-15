@@ -231,6 +231,8 @@ var schemaTables = []string{
 		module_errors {{JSON}},
 		extensions_failed {{JSON}},
 		module_stats {{JSON}},
+		stop_requested_at {{TIMESTAMP}},
+		stop_requested_by TEXT,
 		created_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`,
@@ -506,6 +508,7 @@ var schemaTables = []string{
 		started_at {{TIMESTAMP}},
 		completed_at {{TIMESTAMP}},
 		duration_ms INTEGER DEFAULT 0,
+		cancel_requested_at {{TIMESTAMP}},
 		created_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`,
 	`CREATE TABLE IF NOT EXISTS authentication_hostnames (
@@ -965,6 +968,12 @@ var columnMigrations = []columnMigration{
 	{"findings", "last_seen_at", "{{TIMESTAMP}}"},
 	// scans.module_stats: the per-module ledger (database.ModuleStat).
 	{"scans", "module_stats", "{{JSON}}"},
+	// Stop requests (additive, no version bump: nullable, no backfill). A
+	// `scan stop` / `agent cancel` from another process sets them; the running
+	// process polls its own row and unwinds. NULL means "never asked".
+	{"scans", "stop_requested_at", "{{TIMESTAMP}}"},
+	{"scans", "stop_requested_by", "TEXT"},
+	{"agentic_scans", "cancel_requested_at", "{{TIMESTAMP}}"},
 }
 
 func init() {

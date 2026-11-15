@@ -218,6 +218,19 @@ func runImport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	repo := database.NewRepository(db)
+	if importDryRun {
+		// Import into a throwaway store: the counts are what would land, and
+		// the real database is never written.
+		if reportFormat != "" || upload {
+			return usageErrorf("--dry-run writes nothing, so it takes no --format/-o report or --upload")
+		}
+		scratchRepo, cleanup, sErr := dryRunScratchRepo(ctx, "import-dry-run")
+		if sErr != nil {
+			return sErr
+		}
+		defer cleanup()
+		repo = scratchRepo
+	}
 	if bridgeURL != "" {
 		// Build (and therefore validate) the query BEFORE the banner: announcing
 		// an import that is about to be refused reads as a run that started and
@@ -238,7 +251,10 @@ func runImport(cmd *cobra.Command, args []string) error {
 		// Count first, write second. An operator who asked for one host and is
 		// shown 12,400 records across their whole history stops here — which is
 		// only possible because nothing has been written yet.
-		proceed, pErr := preflightImportBridge(ctx, client, query)
+		proceed, pErr := true, error(nil)
+		if !importDryRun {
+			proceed, pErr = preflightImportBridge(ctx, client, query)
+		}
 		if pErr != nil {
 			return pErr
 		}
@@ -262,6 +278,7 @@ func runImport(cmd *cobra.Command, args []string) error {
 			return emitMutation(cmd, "", mutationResult{
 				Changed: result.Inserted+result.Updated > 0,
 				Action:  "import",
+				DryRun:  importDryRun,
 				Extra:   extra,
 			})
 		}
@@ -347,6 +364,9 @@ func runImport(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		printImportResult(label, summary)
+		if importDryRun {
+			fmt.Fprintf(os.Stderr, "%s Dry run: imported into a throwaway database; nothing was written to yours\n", terminal.InfoSymbol())
+		}
 	}
 
 	if reportFormat != "" {
@@ -419,6 +439,7 @@ func runImport(cmd *cobra.Command, args []string) error {
 		if err := emitMutation(cmd, "", mutationResult{
 			Changed: importChanged(summary),
 			Action:  "import",
+			DryRun:  importDryRun,
 			Extra:   jsonOut,
 		}); err != nil {
 			return err
@@ -614,6 +635,9 @@ func importOneSource(ctx context.Context, repo *database.Repository, src, projec
 		OriginalSource:     src,
 		SessionDirArchiver: cliSessionDirArchiver,
 		ImportScopes:       importIncludeScopes,
+	}
+	if importDryRun {
+		opts.SessionDirArchiver = nil // a dry run copies no session directory
 	}
 	return dbimport.ImportPath(ctx, repo, localPath, projectUUID, opts)
 }

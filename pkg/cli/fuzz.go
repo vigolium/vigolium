@@ -310,6 +310,9 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	if err := validateFuzzNetFlags(); err != nil {
 		return err
 	}
+	if err := validateFuzzSave(); err != nil {
+		return err
+	}
 	if err := fuzzShaping.validate(); err != nil {
 		return err
 	}
@@ -530,7 +533,9 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	saveExchanges := armFuzzSave(&job)
 	report, runErr := fuzz.Run(ctx, job)
+	fuzzSavedUUIDs = saveExchanges(ctx, replaySourceURL(src))
 	if stream != nil {
 		_ = stream.Flush()
 	}
@@ -1233,19 +1238,20 @@ func emitFuzzJSONSummary(cmd *cobra.Command, src *replaySource, args []string, p
 	}
 	summary := fuzzJSONSummary{
 		fuzzExtras: fuzzExtras{
-			Target:          fuzzTargetLabel(src),
-			Positions:       positions,
-			Payloads:        payloadCount,
-			Sent:            report.Sent,
-			Matched:         report.Matched,
-			Calibrated:      report.Calibrated,
-			Errors:          report.Errors,
-			Baseline:        report.Baseline,
-			Anomalies:       report.Anomalies,
-			AnomaliesElided: report.AnomaliesElided,
-			SentViaBurp:     sentViaBurp,
-			OrganizerPushed: organizerPushed,
-			Pace:            pace,
+			Target:           fuzzTargetLabel(src),
+			Positions:        positions,
+			Payloads:         payloadCount,
+			Sent:             report.Sent,
+			Matched:          report.Matched,
+			Calibrated:       report.Calibrated,
+			Errors:           report.Errors,
+			Baseline:         report.Baseline,
+			Anomalies:        report.Anomalies,
+			AnomaliesElided:  report.AnomaliesElided,
+			SentViaBurp:      sentViaBurp,
+			OrganizerPushed:  organizerPushed,
+			SavedRecordUUIDs: fuzzSavedUUIDs,
+			Pace:             pace,
 		},
 		TopResults: top,
 	}

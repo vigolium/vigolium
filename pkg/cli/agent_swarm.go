@@ -602,6 +602,11 @@ func runAgentSwarm(cmd *cobra.Command, args []string) (err error) {
 		MaxCostUSD:         swarmMaxCostUSD,
 		SkipPreflight:      swarmPreflight.skip || swarmDryRun,
 	}
+	if !swarmDryRun {
+		if err := agent.ProviderDialCheck(ctx, &settings.Agent.Olium); err != nil {
+			return err
+		}
+	}
 
 	// Wire the nested audit harness: only an explicit --audit/--piolium (or a
 	// prompt that asks for one) launches it.
@@ -682,6 +687,9 @@ func runAgentSwarm(cmd *cobra.Command, args []string) (err error) {
 		ctx, cancel = context.WithTimeout(ctx, swarmMaxDuration)
 		defer cancel()
 	}
+	var stopCancelWatch func()
+	ctx, stopCancelWatch = watchAgentCancel(ctx, repo, sessionDir, swarmAgenticScanUUID)
+	defer stopCancelWatch()
 
 	// Resolve effective agent name for display
 	effectiveAgent := cfg.AgentName

@@ -504,6 +504,9 @@ var projectDeleteCmd = &cobra.Command{
 			}
 		}
 
+		if projectDeleteDryRun {
+			return previewProjectDelete(cmd, project, stats, configDir, keepConfig)
+		}
 		if done, confErr := handleConfirmation(fmt.Sprintf(
 			"deleting project %s and purging all of its scan data", projectUUID)); done {
 			if confErr == nil && globalJSON {

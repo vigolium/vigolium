@@ -33,6 +33,7 @@ var caveatMessages = map[string]string{
 	ReasonScanBudget:         "the total scan time budget ran out",
 	ReasonRequestBudget:      "the request budget (--max-requests) ran out",
 	ReasonCancelled:          "the scan was interrupted",
+	ReasonUserStopped:        "the scan was stopped on request before it finished",
 	ReasonTargetsUnreachable: "some targets did not answer",
 	ReasonTargetsFailed:      "some targets errored",
 	ReasonTargetsSkipped:     "some targets were never attempted",

@@ -112,6 +112,7 @@ const (
 	ReasonEdgeBlocked          = "edge_blocked"           // a WAF/edge blocked requests to one or more hosts during the phase
 	ReasonBrowserUnavailable   = "browser_unavailable"    // the crawl browser failed to launch
 	ReasonAuthUnverified       = "auth_unverified"        // a session's login could not be verified (no check, or the check failed)
+	ReasonUserStopped          = "user_stopped"           // a stop request (`scan stop`, REST stop) ended the run
 
 	// Stop reasons: the scan did nothing useful and ends with exit 1.
 	ReasonNoTargetsInScope   = "no_targets_in_scope"  // scope admitted zero targets
@@ -162,6 +163,7 @@ var OutcomeCodes = []string{
 	ReasonEdgeBlocked,
 	ReasonBrowserUnavailable,
 	ReasonAuthUnverified,
+	ReasonUserStopped,
 	ReasonNoTargetsInScope,
 	ReasonNoTargetsReachable,
 	LimitTargetBudget,

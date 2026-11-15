@@ -112,7 +112,7 @@ func emitLogJSON(cmd *cobra.Command, uuid string) error {
 		withExtra("uuid", uuid),
 		withExtra("session_kind", src.kind),
 		withExtra("status", src.status),
-		withExtra("effective_status", effectiveStatus(src.status, "", src.liveness)),
+		withExtra("effective_status", effectiveStatus(src.status, src.errorMessage, src.liveness)),
 		withExtra("stale", stale),
 		withExtra("last_write_at", formatLivenessTime(src.liveness.LastWriteAt)),
 		withExtra("liveness_sources", sources),

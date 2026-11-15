@@ -120,6 +120,10 @@ type Runner struct {
 	// (see moduleErrorLedger). Replaced at the top of RunNativeScan.
 	moduleErrors atomic.Pointer[moduleErrorLedger]
 
+	// stopRequestedBy names who asked this run to stop (a string), unset
+	// until a stop request arrives; see handleStopRequest.
+	stopRequestedBy atomic.Value
+
 	// liveness is the running scan's heartbeat (status.json and the scan row's
 	// heartbeat columns), nil outside RunNativeScan. Atomic for the same reason
 	// as currentPhase: the finding observer reads it from worker goroutines.

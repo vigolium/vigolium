@@ -370,7 +370,8 @@ func init() {
 	registerCommandSchema(contract.Command{Name: "fuzz", Item: fuzz.Result{}, Extras: fuzzExtras{},
 		Description: "The run summary: items are the top-ranked matched results (total is every match); --fields projects them."})
 	registerCommandSchema(contract.Command{Name: "replay", Item: replayOutput{}, Extras: replayExtras{},
-		Description: "One row per replayed record: the baseline, the replay and their diff. A single source is one item; a bulk run counts failed rows."})
+		Variants:    []contract.Variant{{Flag: "--once", Item: replayOnceView{}}, {Flag: "--dry-run", Item: replayDryRunView{}}},
+		Description: "One row per replayed record: the baseline, the replay and their diff, and saved_record_uuid when the exchange was stored. A single source is one item; a bulk run counts failed rows. --once prints one compact item instead."})
 	registerCommandSchema(contract.Command{Name: "ingest", Item: ingestedRecord{}, Extras: ingestExtras{},
 		Description: "The records the ingest left in the store (capped; items_truncated says more exist), with why any were not stored."})
 	registerCommandSchema(contract.Command{Name: "traffic body", Item: trafficBodyReceipt{}, ItemsKind: contract.ItemsObject,
@@ -455,7 +456,9 @@ type fuzzExtras struct {
 	AnomaliesElided int           `json:"anomalies_elided,omitempty"`
 	SentViaBurp     bool          `json:"sent_via_burp,omitempty"`
 	OrganizerPushed int           `json:"organizer_pushed,omitempty"`
-	Pace            fuzzPace      `json:"pace"`
+	// SavedRecordUUIDs are the exchanges `--save` stored (source "fuzz").
+	SavedRecordUUIDs []string `json:"saved_record_uuids,omitempty"`
+	Pace             fuzzPace `json:"pace"`
 	// Next is the follow-up that confirms the anomalies; it sends traffic.
 	Next []scanNextStep `json:"next,omitempty"`
 }
@@ -485,6 +488,9 @@ type ingestExtras struct {
 	ItemsTruncated   bool              `json:"items_truncated,omitempty"`
 	FailureReasons   map[string]int64  `json:"failure_reasons,omitempty"`
 	Failures         []core.DropSample `json:"failures,omitempty"`
+	// WouldIngest is what `ingest --dry-run` parsed: the requests a real run
+	// would fetch and store.
+	WouldIngest int64 `json:"would_ingest,omitempty"`
 }
 
 // trafficBodyReceipt mirrors `traffic body -j`.

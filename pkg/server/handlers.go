@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -330,6 +331,7 @@ func (h *Handlers) HandleHealth(c fiber.Ctx) error {
 	return c.JSON(HealthResponse{
 		Status:    "healthy",
 		Timestamp: time.Now().Format(time.RFC3339),
+		PID:       os.Getpid(),
 	})
 }
 

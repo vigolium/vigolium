@@ -76,13 +76,13 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	defer closeDatabaseOnExit()
 
 	if resetDryRun {
-		_, dbPath, err := resetTarget()
+		_, dbPath, err := resetDatabasePath()
 		if err != nil {
 			return err
 		}
 		res := dbResetView{Path: dbPath, Files: existingResetFiles(dbPath), DryRun: true}
 		if globalJSON {
-			return emitMutation(cmd, "", mutationResult{Action: "reset", Items: []dbResetView{res}}, withDBPath(dbPath))
+			return emitMutation(cmd, "", mutationResult{Action: "reset", DryRun: true, Items: []dbResetView{res}}, withDBPath(dbPath))
 		}
 		fmt.Fprintf(os.Stderr, "%s Dry run: db reset would delete and recreate %s\n", terminal.InfoSymbol(), terminal.Cyan(dbPath))
 		if len(res.Files) == 0 {
@@ -476,9 +476,17 @@ func runVacuum(ctx context.Context, db *database.DB) {
 }
 
 // resetDatabase deletes the SQLite database file and recreates it with a fresh schema.
-// resetTarget resolves the database db reset deletes: its settings and the
-// expanded SQLite path.
-func resetTarget() (*config.Settings, string, error) {
+func resetDatabase() (dbResetView, error) {
+	settings, dbPath, err := resetDatabasePath()
+	if err != nil {
+		return dbResetView{}, err
+	}
+	return resetDatabaseAt(settings, dbPath)
+}
+
+// resetDatabasePath names the SQLite file `db reset` deletes and recreates,
+// with the settings that name it.
+func resetDatabasePath() (*config.Settings, string, error) {
 	// config.LoadSettings directly, and ANY error refuses — not the clicommon
 	// helper, which degrades a merely-discovered broken config to defaults.
 	//
@@ -508,12 +516,9 @@ func resetTarget() (*config.Settings, string, error) {
 	return settings, config.ExpandPath(settings.Database.SQLite.Path), nil
 }
 
-func resetDatabase() (dbResetView, error) {
-	settings, dbPath, err := resetTarget()
-	if err != nil {
-		return dbResetView{}, err
-	}
-
+// resetDatabaseAt deletes the SQLite file at dbPath (and its WAL/SHM
+// companions) and recreates it empty.
+func resetDatabaseAt(settings *config.Settings, dbPath string) (dbResetView, error) {
 	// Close existing connection if open
 	clicommon.ResetDBCache()
 

@@ -97,6 +97,7 @@
             "preflight_failed",
             "project_not_found",
             "provider_missing",
+            "provider_unreachable",
             "proxy_auth_required",
             "queue_full",
             "rate_limited",
@@ -543,6 +544,12 @@
     },
     "organizer_pushed": {
       "type": "integer"
+    },
+    "saved_record_uuids": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
     },
     "pace": {
       "$ref": "#/$defs/cli.fuzzPace"

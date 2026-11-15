@@ -18,7 +18,7 @@ var scopeSetCmd = &cobra.Command{
 	Short: "Set a scope rule",
 	Long: "Set a scope rule using component.field notation (e.g. host.exclude \"*.internal.com,admin.*\").\n\n" +
 		"Lists take the comma form or JSON/YAML flow syntax ('[\"*.example.com\",\"example.com\"]'); '<rule>.add <value>' " +
-		"appends and '<rule>.clear' (no value) empties. The value is checked with the same rules as 'config validate' and refused " +
+		"appends, '<rule>.remove <value>' removes and '<rule>.clear' (no value) empties. The value is checked with the same rules as 'config validate' and refused " +
 		"(exit 2, nothing written) when it would break the scope. Writes the global config, or with --project the " +
 		"project's overlay (~/.vigolium/projects/<uuid>/config.yaml). The file is edited in place, keeping its comments " +
 		"and ${VAR} placeholders. A config that fails to load is never overwritten.",
@@ -70,7 +70,7 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 
 	// The rule's value before the write, for the -j old/new pair. A list-op key
 	// (`.add`/`.clear`) reports the list it changes.
-	ruleKey := strings.TrimSuffix(strings.TrimSuffix(key, ".add"), ".clear")
+	ruleKey := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(key, ".add"), ".clear"), ".remove")
 	oldValue := flatSettingValue(settings, ruleKey)
 
 	edit, err := config.SetFieldEdit(settings, key, value)
@@ -83,7 +83,11 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 
 	where := ""
 	layer, configPath := "global", effectiveConfigPath()
-	if scopeSetProject != "" {
+	if scopeSetDryRun {
+		if scopeSetProject != "" {
+			layer, configPath = "project", config.ProjectConfigPath(scopeSetProject)
+		}
+	} else if scopeSetProject != "" {
 		path, err := config.SetProjectOverlayEdit(scopeSetProject, key, edit)
 		if err != nil {
 			if errors.Is(err, config.ErrUnknownKey) || errors.Is(err, config.ErrInvalidValue) {
@@ -114,6 +118,7 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 		return emitMutation(cmd, "", mutationResult{
 			Changed: changed,
 			Action:  action,
+			DryRun:  scopeSetDryRun,
 			Items: []scopeSetView{{
 				Key: ruleKey, Old: oldValue, New: newValue,
 				Layer: layer, ConfigPath: config.ContractPath(configPath),
@@ -121,6 +126,10 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 		}, opts...)
 	}
 
+	if scopeSetDryRun {
+		fmt.Printf("%s Dry run: would set %s = %s in %s\n", terminal.InfoSymbol(), terminal.Cyan(key), value, terminal.Gray(config.ContractPath(configPath)))
+		return nil
+	}
 	fmt.Printf("%s Set %s = %s%s\n", terminal.SuccessSymbol(), terminal.Cyan(key), value, terminal.Gray(where))
 	return nil
 }

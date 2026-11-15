@@ -217,3 +217,37 @@ func TestIngestHTTP_OpenAPIVariablesBearer(t *testing.T) {
 	require.Len(t, raws, 1)
 	assert.Contains(t, raws[0], "Authorization: Bearer tok")
 }
+
+// SRV: input_mode url takes the URL from `url` when content is empty; an
+// unknown mode is error_code unsupported_input_mode even with no content;
+// a v2 caller gets the mutation envelope.
+func TestIngestHTTP_URLModeAndCodes(t *testing.T) {
+	app := newIngestApp(t)
+	status, resp, _, raw := postIngest(t, app, map[string]any{"input_mode": "url", "url": "https://url-field.example/path?a=1"})
+	require.Equal(t, http.StatusOK, status, raw)
+	assert.Equal(t, 1, resp.Imported, raw)
+
+	status, _, bad, raw := postIngest(t, app, map[string]any{"input_mode": "nope"})
+	require.Equal(t, http.StatusBadRequest, status, raw)
+	assert.Equal(t, "unsupported_input_mode", bad.ErrorCode, raw)
+
+	status, _, bad, raw = postIngest(t, app, map[string]any{"input_mode": "auto", "content_base64": fixtureB64(t, "unknown.json")})
+	require.Equal(t, http.StatusBadRequest, status, raw)
+	assert.Equal(t, "input_unparsed", bad.ErrorCode, raw)
+
+	db, repo := newPinnedTestDB(t)
+	h := newBasicHandlers(t, ServerConfig{DisableFetchResponse: true}, &fakeQueue{}, db, repo, nil)
+	v2 := fiber.New()
+	v2.Use(apiVersionMiddleware(2))
+	v2.Post("/api/ingest-http", h.HandleIngestHTTP)
+	body, _ := json.Marshal(map[string]any{"input_mode": "url", "content": "https://v2.example/"})
+	status, out := doReq(t, v2, http.MethodPost, "/api/ingest-http", string(body), nil)
+	require.Equal(t, http.StatusOK, status, string(out))
+	var env map[string]any
+	require.NoError(t, json.Unmarshal(out, &env), string(out))
+	assert.Equal(t, true, env["ok"], string(out))
+	assert.Equal(t, "mutation", env["kind"], string(out))
+	assert.Equal(t, float64(1), env["imported"], string(out))
+	items, _ := env["items"].([]any)
+	assert.Len(t, items, 1, string(out))
+}

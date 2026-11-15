@@ -10,7 +10,7 @@ import (
 // list path for a `<list>.add` / `<list>.clear` op.
 func SettingPath(key string) string {
 	parent, last, ok := cutLast(key)
-	if ok && (last == "add" || last == "clear") {
+	if ok && (last == "add" || last == "clear" || last == "remove") {
 		if t, valid := resolveSettingType(parent); valid && isListType(t) {
 			return parent
 		}
