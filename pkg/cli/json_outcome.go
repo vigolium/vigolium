@@ -98,11 +98,8 @@ func publishHeldResult(held *heldJSONResult, err error, code int) error {
 	doc := held.doc
 	var body *agentError
 	if !exitIsOK(code) {
-		body = &agentError{
-			Code:     classifyErrorCode(err, code),
-			Message:  errorMessage(err),
-			ExitCode: code,
-		}
+		b := newAgentErrorBody(err, code)
+		body = &b
 		reencoded, encErr := attachOutcomeError(held, body)
 		if encErr != nil {
 			return encErr
@@ -167,11 +164,7 @@ func outcomeErrorEnvelope(err error, exitCode int, cmd *cobra.Command) agentErro
 		SchemaVersion: AgentSchemaVersion,
 		Command:       name,
 		OK:            false,
-		Error: agentError{
-			Code:     classifyErrorCode(err, exitCode),
-			Message:  err.Error(),
-			ExitCode: exitCode,
-		},
+		Error:         newAgentErrorBody(err, exitCode),
 		DBPath:        resolvedReadDBPath(),
 		SoftFail:      globalSoftFail,
 		GeneratedAt:   agentTimestamp(now),

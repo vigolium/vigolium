@@ -2,8 +2,10 @@ package clicommon
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vigolium/vigolium/pkg/apicontract"
+	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
 // The error types the CLI's exit-code classifier recognises. They live here,
@@ -85,4 +87,76 @@ func IncompleteErrorf(code apicontract.ErrorCode, format string, args ...any) er
 		code = apicontract.CodePartial
 	}
 	return IncompleteError{code: code, err: fmt.Errorf(format, args...)}
+}
+
+// CLIError is a command-line error that carries its remedies as fields rather
+// than as decoration baked into the message. Error() is the human text: the
+// fact, then the hint and the suggestion on their own lines. The -j error
+// envelope copies the fields into error{hint, did_you_mean, usage_argv} and
+// keeps error.message to the fact alone, so a program never has to scrape a
+// suggestion out of prose.
+//
+// Code defaults to usage_error, which exits 2; any other code exits 1 and is
+// reported as that code.
+type CLIError struct {
+	Err  error
+	Code apicontract.ErrorCode
+	// Hint is one sentence naming the next step.
+	Hint string
+	// DidYouMean is the nearest valid spelling of what was typed (a flag with
+	// its dashes, a command path, an enum value).
+	DidYouMean string
+	// UsageArgv is the argv that prints the failing command's flags.
+	UsageArgv []string
+}
+
+func (e CLIError) Unwrap() error { return e.Err }
+
+// ErrorCode reports the error's stable code (usage_error when unset).
+func (e CLIError) ErrorCode() apicontract.ErrorCode {
+	if e.Code == "" {
+		return apicontract.CodeUsageError
+	}
+	return e.Code
+}
+
+// IsUsage reports whether the error is a misuse of the command line (exit 2).
+func (e CLIError) IsUsage() bool { return e.ErrorCode() == apicontract.CodeUsageError }
+
+// Fact is the message without the remedies: what the -j envelope's
+// error.message carries.
+func (e CLIError) Fact() string {
+	if e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+// Error renders the fact followed by the remedies, for a human reading stderr.
+func (e CLIError) Error() string {
+	return e.Fact() + e.Decoration()
+}
+
+// Decoration is the human-only suffix Error() appends to the fact.
+func (e CLIError) Decoration() string {
+	var b strings.Builder
+	if e.DidYouMean != "" {
+		b.WriteString("\n\n  " + terminal.InfoSymbol() + " Did you mean " + terminal.BoldCyan(e.DidYouMean) + "?")
+	}
+	if e.Hint != "" {
+		if e.DidYouMean == "" {
+			b.WriteString("\n")
+		}
+		b.WriteString("\n  " + terminal.InfoSymbol() + " " + e.Hint)
+	}
+	return b.String()
+}
+
+// UsageArgvFor is the argv that prints a command's flags as the `schema
+// flags` document: ["vigolium", <path...>, "--usage", "-j"]. path is the
+// command path without the root name ("" for the root).
+func UsageArgvFor(path string) []string {
+	argv := []string{"vigolium"}
+	argv = append(argv, strings.Fields(path)...)
+	return append(argv, "--usage", "-j")
 }

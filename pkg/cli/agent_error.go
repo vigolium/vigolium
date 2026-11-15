@@ -41,6 +41,32 @@ type agentError struct {
 	Code     apicontract.ErrorCode `json:"code"`
 	Message  string                `json:"message"`
 	ExitCode int                   `json:"exit_code"`
+	// Hint, DidYouMean and UsageArgv are copied from a clicommon.CLIError in
+	// the chain; Message then holds the bare fact without them.
+	Hint       string   `json:"hint,omitempty"`
+	DidYouMean string   `json:"did_you_mean,omitempty"`
+	UsageArgv  []string `json:"usage_argv,omitempty"`
+}
+
+// newAgentErrorBody builds the error object for err at exitCode. A CLIError in
+// the chain contributes its remedies as fields, and its human decoration is
+// removed from the message so message is the fact alone.
+func newAgentErrorBody(err error, exitCode int) agentError {
+	body := agentError{
+		Code:     classifyErrorCode(err, exitCode),
+		Message:  errorMessage(err),
+		ExitCode: exitCode,
+	}
+	var cli clicommon.CLIError
+	if errors.As(err, &cli) {
+		if decor := cli.Decoration(); decor != "" {
+			body.Message = strings.Replace(body.Message, decor, "", 1)
+		}
+		body.Hint = cli.Hint
+		body.DidYouMean = cli.DidYouMean
+		body.UsageArgv = cli.UsageArgv
+	}
+	return body
 }
 
 // errCodeIngestIncomplete is the one remaining alias, for ingest.go; new code
@@ -85,6 +111,11 @@ func classifyErrorCode(err error, exitCode int) apicontract.ErrorCode {
 			return incomplete.Code()
 		}
 		return apicontract.CodePartial
+	}
+	// A structured CLI error names its own condition.
+	var cli clicommon.CLIError
+	if errors.As(err, &cli) && !cli.IsUsage() {
+		return cli.ErrorCode()
 	}
 	// An explicitly coded error outranks every inference below: the call site
 	// knew exactly which condition this was.

@@ -206,6 +206,13 @@ func classifyExitCode(err error) int {
 	if errors.As(err, &usage) {
 		return ExitUsageError
 	}
+	var cli clicommon.CLIError
+	if errors.As(err, &cli) {
+		if cli.IsUsage() {
+			return ExitUsageError
+		}
+		return ExitError
+	}
 	// A refused non-interactive confirmation is a misuse of the command line,
 	// not a failure of the work: nothing ran, nothing changed, and the fix is to
 	// add --force. Exit 2 puts it in the same bucket as a missing required flag,

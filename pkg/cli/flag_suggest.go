@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
@@ -29,16 +29,20 @@ func flagErrorFunc(cmd *cobra.Command, err error) error {
 	if notExist.GetSpecifiedShortnames() != "" || len(typed) < 2 {
 		return err
 	}
-	// With no confident near-miss, say where the answer is rather than nothing.
-	// A bare "unknown flag: --url" is a dead end; naming the command's own help
-	// costs one line and is never misleading, which a guessed flag can be.
+	// The remedies travel as fields (clicommon.CLIError): a human reads them
+	// under the fact, the -j envelope carries them as hint/did_you_mean/
+	// usage_argv with error.message left as the bare fact. With no confident
+	// near-miss, the hint still says where the answer is.
 	best := closestFlagName(cmd, typed)
-	if best == "" {
-		return fmt.Errorf("%w\n\n  %s Run '%s --help' for this command's flags",
-			err, terminal.InfoSymbol(), cmd.CommandPath())
+	out := clicommon.CLIError{
+		Err:       err,
+		Hint:      fmt.Sprintf("Run '%s --help' for this command's flags", cmd.CommandPath()),
+		UsageArgv: clicommon.UsageArgvFor(commandPathWithoutRoot(cmd)),
 	}
-	return fmt.Errorf("%w\n\n  %s Did you mean %s? (run '%s --help' for all flags)",
-		err, terminal.InfoSymbol(), terminal.BoldCyan("--"+best), cmd.CommandPath())
+	if best != "" {
+		out.DidYouMean = "--" + best
+	}
+	return out
 }
 
 // closestFlagName returns the registered long flag on cmd nearest to typed by
