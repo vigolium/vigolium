@@ -12,12 +12,12 @@ import (
 
 // Generic -j shaping, driven by each command's Shape in commandTraits.
 //
-// A read command used to carry --fields/--compact/--max-output-bytes only if
-// its author remembered to register them, so half the read surface had no way
-// to narrow a 400 KB answer. applyShapingTraits gives every shaped command the
-// flags it is missing; validateGenericShaping checks them before the command
-// runs (so a typo exits 2 before anything is sent); applyGenericShaping applies
-// them to the document in writeAgentJSON. A command that projects its own rows
+// applyShapingTraits gives every shaped command the
+// --fields/--compact/--max-output-bytes (and paging) flags it is missing, so
+// no read is left without a way to narrow a large answer;
+// validateGenericShaping checks them before the command runs (so a typo exits
+// 2 before anything is sent); applyGenericShaping applies them to the document
+// in writeAgentJSON. A command that projects its own rows
 // (Shape.Own) keeps doing so: the generic pass registers and applies only what
 // that command did not.
 

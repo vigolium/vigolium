@@ -18,7 +18,7 @@ import (
 // enforces a rule every command must follow, so a command added later gets it
 // without remembering to.
 
-// treeHookAnnotation marks a command a hook already processed, so
+// These annotations mark a command a hook already processed, so
 // prepareCommandTree stays safe to call more than once.
 const (
 	groupHookAnnotation = "vigolium.group_enforced"

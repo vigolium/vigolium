@@ -42,7 +42,7 @@ func registerReadOnlyFlag(cmd *cobra.Command) {
 // accepted, arms the shared opener before any database is opened.
 //
 // It also arms the opener with the command's declared database intent
-// (db_intent.go): both decide how the one shared connection is opened, and
+// (resolveDBIntent): both decide how the one shared connection is opened, and
 // both must be settled before anything opens it.
 func applyReadOnlyMode(cmd *cobra.Command) error {
 	applyDBIntent(cmd)

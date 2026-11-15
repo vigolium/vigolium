@@ -21,8 +21,8 @@ type closedValueFlag struct {
 }
 
 // closedValueFlags is every flag with a closed value set outside the ones a
-// command validates itself. A typo here used to answer "total: 0" (a filter
-// that matched nothing) or be ignored (a sort key), both indistinguishable from
+// command validates itself. Unchecked, a typo answers "total: 0" (a filter
+// that matched nothing) or is ignored (a sort key), both indistinguishable from
 // a real empty result.
 var closedValueFlags = []closedValueFlag{
 	// Severity filters that normalise shorthands and prefixes ('h,c', 'me').
