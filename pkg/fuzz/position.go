@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 // DefaultKeyword is the literal marker fuzz replaces when present in the raw
@@ -81,6 +82,13 @@ func ResolvePositions(raw []byte, sel Selectors) ([]Position, error) {
 	// new parameter) are only built when their selector asks for them, so the
 	// default "all" set is the scanner's set.
 	mode, arg, _ := strings.Cut(strings.ToLower(sel.Mode), ":")
+	// Headers the request does not carry (X-Forwarded-For, Referer, ...) are
+	// the scanner's synthetic points; fuzzing them adds positions nobody
+	// asked for, so they are opt-in through headers:synthetic.
+	synthetic := false
+	if (mode == "headers" || mode == "header") && arg == "synthetic" {
+		synthetic, arg = true, ""
+	}
 	var opts httpmsg.InsertionPointOptions
 	var want func(httpmsg.InsertionPoint) bool
 	byType := func(f func(httpmsg.InsertionPointType) bool) func(httpmsg.InsertionPoint) bool {
@@ -120,7 +128,7 @@ func ResolvePositions(raw []byte, sel Selectors) ([]Position, error) {
 		return nil, fmt.Errorf("unknown --fuzz selector %q (want %s)", sel.Mode, SelectorNames)
 	}
 	if arg != "" && opts.NewParam == nil {
-		return nil, fmt.Errorf("--fuzz %s takes no :%s qualifier (only new-param:query|body|json does)", mode, arg)
+		return nil, fmt.Errorf("--fuzz %s takes no :%s qualifier (only new-param:query|body|json and headers:synthetic do)", mode, arg)
 	}
 
 	ips, err := httpmsg.CreateInsertionPoints(raw, opts)
@@ -130,9 +138,13 @@ func ResolvePositions(raw []byte, sel Selectors) ([]Position, error) {
 
 	var positions []Position
 	for _, ip := range ips {
-		if want(ip) {
-			positions = append(positions, ipToPosition(ip))
+		if !want(ip) {
+			continue
 		}
+		if !synthetic && ip.Type() == httpmsg.INS_HEADER && httpmsg.GetHeaderOffsets(raw, ip.Name()) == nil {
+			continue
+		}
+		positions = append(positions, ipToPosition(ip))
 	}
 	if len(positions) == 0 {
 		switch mode {
@@ -148,8 +160,43 @@ func ResolvePositions(raw []byte, sel Selectors) ([]Position, error) {
 	return positions, nil
 }
 
+// HasMarker reports whether raw carries keyword or a numbered sibling
+// (FUZZ2, ...).
+func HasMarker(raw []byte, keyword string) bool {
+	if keyword == "" {
+		keyword = DefaultKeyword
+	}
+	return len(findMarkers(raw, keyword)) > 0
+}
+
+// NearestMarker returns the token in raw that looks most like keyword (a
+// different case, or within two edits: FUZ, FUZZZ, fuzz), or "" when nothing
+// is close. It names the likely typo when a request carries no marker.
+func NearestMarker(raw []byte, keyword string) string {
+	if keyword == "" {
+		keyword = DefaultKeyword
+	}
+	best, bestDist := "", 3
+	for _, tok := range bytes.FieldsFunc(raw, func(r rune) bool {
+		return !(r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z')
+	}) {
+		t := string(tok)
+		if t == keyword || len(t) > 2*len(keyword) {
+			continue
+		}
+		d := textutil.Levenshtein(strings.ToUpper(t), strings.ToUpper(keyword))
+		if strings.EqualFold(t, keyword) {
+			d = 0
+		}
+		if d < bestDist && d < len(keyword) {
+			best, bestDist = t, d
+		}
+	}
+	return best
+}
+
 // SelectorNames lists the --fuzz selector grammar for help and error text.
-const SelectorNames = "method|path|params|param-name|new-param[:query|body|json]|body|headers|cookies|all"
+const SelectorNames = "method|path|params|param-name|new-param[:query|body|json]|body|headers[:synthetic]|cookies|all"
 
 // parseNewParamLocation reads the new-param qualifier; empty means "infer from
 // the request" (JSON body → json, form body → body, else query).

@@ -1274,7 +1274,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
 | `--form` | - | stringArray | - | multipart/form-data field 'name=value', 'name=@file' or 'name=<file' (repeatable) |
 | `--form-string` | - | stringArray | - | multipart field whose value is never interpreted (repeatable) |
-| `--fuzz` | - | string | - | What to fuzz: method\|path\|params\|param-name\|new-param[:query\|body\|json]\|body\|headers\|cookies\|all (default: all insertion points; param-name renames a parameter, new-param adds one, body replaces the body) |
+| `--fuzz` | - | string | - | What to fuzz: method\|path\|params\|param-name\|new-param[:query\|body\|json]\|body\|headers[:synthetic]\|cookies\|all (default: all insertion points; param-name renames a parameter, new-param adds one, body replaces the body) |
 | `--fuzz-header` | - | stringArray | - | Fuzz a specific header by name (repeatable) |
 | `--get` | - | bool | `false` | Send the accumulated data as query parameters on a GET, curl's -G |
 | `--head` | - | bool | `false` | Use HEAD, curl's -I |
@@ -1304,6 +1304,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--matches-to-organizer` | - | bool | `false` | Push each matched result's request to Burp's Organizer (Burp re-issues it) for manual triage; requires --burp-bridge-url |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--max-redirs` | - | int | `0` | Maximum redirects to follow (0 = Go's default of 10) |
+| `--max-requests` | - | int | `10000` | Refuse a run whose plan expands to more payload sends than this (0 = no cap; baseline and calibration sends are not counted) |
 | `--max-time` | - | duration | `0s` | Total per-request budget; alias for --timeout, curl's -m |
 | `--mode` | - | string | `sniper` | With several markers (FUZZ, FUZZ2, ...): sniper (one at a time) \| batteringram (same payload everywhere) \| pitchfork (lists in lockstep) \| clusterbomb (every combination) |
 | `--no-calibrate` | - | bool | `false` | Disable auto-calibration of the target's catch-all response |
@@ -1313,7 +1314,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--path-as-is` | - | bool | `false` | Send the path byte-for-byte (already the case; see pkg/replay wire fidelity) — accepted for curl compatibility |
 | `--payload` | `-p` | stringArray | - | Inline payload literal (repeatable) |
 | `--point` | - | stringArray | - | Explicit insertion point 'TYPE:name' e.g. URL_PARAM:id (repeatable) |
-| `--rate-limit` | `-r` | float64 | `0` | Max requests/second across all workers, counting baseline and calibration sends (0 = unlimited; fractions allowed, e.g. 0.5). Not taken from scanning config |
+| `--rate-limit` | `-r` | float64 | `100` | Max requests/second across all workers, counting baseline and calibration sends (0 = unlimited; fractions allowed, e.g. 0.5). Not taken from scanning config |
 | `--record-uuid` | `-u` | string | - | Use a stored HTTP record (UUID or unique 8+ char prefix) as the request to fuzz |
 | `--referer` | - | string | - | Referer header, curl's -e |
 | `--request` | `-X` | string | - | HTTP method override (default: the source request's, or GET) |

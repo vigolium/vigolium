@@ -373,7 +373,7 @@ var fuzzFlagGroups = []flagGroup{
 		"resolve", "path-as-is"}},
 	{"Session & Auth", []string{"auth-session", "session-id", "no-cookies"}},
 	{"Speed & Behaviour", []string{
-		"no-calibrate", "allow-baseline-error", "concurrency", "rate-limit", "delay", "timeout", "no-redirects",
+		"no-calibrate", "allow-baseline-error", "concurrency", "rate-limit", "max-requests", "delay", "timeout", "no-redirects",
 		"dry-run", "ignore-scope"}},
 	{"Output", []string{"output", "all-results", "fail-on-match", "fields", "compact", "max-output-bytes"}},
 	{"Burp Bridge", []string{"send-via-burp", "burp-bridge-url", "http-mode", "send-timeout", "matches-to-organizer"}},

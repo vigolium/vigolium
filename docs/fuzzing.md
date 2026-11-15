@@ -38,12 +38,17 @@ cat req.txt | vigolium fuzz --target http://acme.test  # stdin (scheme-less raw 
 
 ## Positions — what to fuzz
 
+Positions are picked **one way**; a request with no marker and no position
+flag is refused (exit 2) with the nearest marker-like token it found, and so
+is a marker combined with a position flag.
+
 - A literal **`FUZZ` marker** anywhere in the request (request line, path,
-  header, body) wins if present. Occurrences in the request line are
-  auto-encoded, so a payload with spaces (`' OR '1'='1`) stays well-formed.
-  Rename the keyword with `--keyword`.
-- Otherwise `--fuzz method|path|params|headers|cookies|all`
-  (default: **all** discovered insertion points).
+  header, body). Occurrences in the request line are auto-encoded, so a
+  payload with spaces (`' OR '1'='1`) stays well-formed. Rename the keyword
+  with `--keyword`.
+- Otherwise `--fuzz method|path|params|headers|cookies|all` (`all` is every
+  discovered insertion point). Headers the request does not carry are left out
+  unless `--fuzz headers:synthetic`.
 - Or target one point: `--point URL_PARAM:id`, or `--fuzz-header X-Forwarded-For`.
 - Three kinds the default set never includes, each its own selector:
   - `--fuzz param-name` **renames** an existing query or form parameter
@@ -75,7 +80,8 @@ cat req.txt | vigolium fuzz --target http://acme.test  # stdin (scheme-less raw 
 
 `-c/--concurrency` (default 10; 50 on HTTP/2 or HTTP/3, see [Protocol](#protocol)) bounds parallel sends, `--delay <ms>` waits
 before each send per worker, and `-r/--rate-limit <req/s>` caps the whole run
-across every worker (fractions allowed, `0` = unlimited). The rate limit counts
+across every worker (default 100, fractions allowed, `0` = unlimited). `--max-requests`
+(default 10000, `0` = no cap) refuses a plan that expands to more payload sends. The rate limit counts
 **every** send — baseline samples and calibration probes as well as payloads —
 and is smooth (no burst). `fuzz` is a primitive, so `scanning.rate_limit` and the
 scan pace config never apply to it. The effective pace is printed on the

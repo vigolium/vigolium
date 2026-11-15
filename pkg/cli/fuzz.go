@@ -73,6 +73,7 @@ var (
 	fuzzConcurrency        int
 	fuzzDelayMs            int
 	fuzzRateLimit          float64
+	fuzzMaxRequests        int
 	fuzzSuffixes           []string
 	fuzzTimeout            time.Duration
 	fuzzNoRedirects        bool
@@ -103,16 +104,21 @@ drives): pick a position, pick a wordlist, read the anomalies. For opinionated,
 confirmation-backed detection use the module scanner instead:
 'vigolium scan-request -i req.txt -m xss,sqli -j'.
 
+BOUNDS: --rate-limit defaults to 100 req/s and --max-requests to 10000 sends (a larger
+plan is refused); 0 lifts either.
+
 SOURCE (one of):
   vigolium fuzz https://acme.test/api?id=FUZZ         # positional URL (+ -X/-H/-d)
-  vigolium fuzz -i req.txt                            # curl/raw HTTP/Burp/base64/URL/stdin
-  vigolium fuzz -u <record-uuid>                      # a stored HTTP record as baseline
-  cat req.txt | vigolium fuzz                         # piped request on stdin
+  vigolium fuzz -i req.txt --fuzz params             # curl/raw HTTP/Burp/base64/URL/stdin
+  vigolium fuzz -u <record-uuid> --fuzz params        # a stored HTTP record as baseline
+  cat req.txt | vigolium fuzz --fuzz all              # piped request on stdin
 
-POSITIONS (what to fuzz):
-  a literal FUZZ marker anywhere (request line, path, header, body) wins if present;
-  otherwise --fuzz method|path|params|headers|cookies|all (default: all discovered
-  insertion points), or --point TYPE:name (e.g. URL_PARAM:id) / --header Name.
+POSITIONS (what to fuzz — one way, required):
+  a literal FUZZ marker anywhere (request line, path, header, body); or, with no
+  marker, --fuzz method|path|params|headers|cookies|all, --point TYPE:name (e.g.
+  URL_PARAM:id) or --fuzz-header Name. A request with neither is refused, and so is
+  a marker combined with a position flag.
+  Headers the request does not carry are left out unless --fuzz headers:synthetic.
   Opt-in kinds the default set never includes:
     --fuzz param-name                rename an existing query/form parameter (?id=1 → ?PAYLOAD=1)
     --fuzz new-param[:query|body|json]  ADD a parameter named PAYLOAD (parameter discovery;
@@ -222,7 +228,8 @@ func init() {
 	f.BoolVar(&fuzzAllowBaselineError, "allow-baseline-error", false, "Run even when every baseline send fails (deltas, calibration and anomaly scoring then compare against an empty response)")
 	f.IntVarP(&fuzzConcurrency, "concurrency", "c", 10, "Concurrent requests")
 	f.IntVar(&fuzzDelayMs, "delay", 0, "Delay in ms before each request (per worker)")
-	f.Float64VarP(&fuzzRateLimit, "rate-limit", "r", 0, "Max requests/second across all workers, counting baseline and calibration sends (0 = unlimited; fractions allowed, e.g. 0.5). Not taken from scanning config")
+	f.Float64VarP(&fuzzRateLimit, "rate-limit", "r", defaultFuzzRateLimit, "Max requests/second across all workers, counting baseline and calibration sends (0 = unlimited; fractions allowed, e.g. 0.5). Not taken from scanning config")
+	f.IntVar(&fuzzMaxRequests, "max-requests", defaultFuzzMaxRequests, "Refuse a run whose plan expands to more payload sends than this (0 = no cap; baseline and calibration sends are not counted)")
 	f.DurationVar(&fuzzTimeout, "timeout", replay.DefaultTimeout, "Per-request timeout (e.g. 30s)")
 	f.BoolVar(&fuzzNoRedirects, "no-redirects", false, "Don't follow 30x redirects")
 	f.StringVarP(&fuzzOutputPath, "output", "o", "", "Write the per-payload JSONL stream to this file (stdout keeps the human table, or the -j envelope)")
@@ -245,6 +252,51 @@ func init() {
 	// Curl-compatible request/transport/session flags.
 	registerFuzzNetFlags(f)
 
+}
+
+// Defaults for the two send bounds. A typo or a big wordlist used to become an
+// uncapped, unpaced multi-position run; these match scan's 100 rps default and
+// put a ceiling on the plan an operator has to raise on purpose.
+const (
+	defaultFuzzRateLimit   = 100
+	defaultFuzzMaxRequests = 10_000
+)
+
+// checkFuzzPositionFlags makes the position choice explicit. A request with no
+// marker and no position flag used to fall back to every insertion point
+// (synthetic headers included), so a typo'd marker became a multi-position
+// run; and a marker silently overrode --point/--fuzz/--fuzz-header.
+func checkFuzzPositionFlags(raw []byte) error {
+	var flags []string
+	if fuzzSelector != "" {
+		flags = append(flags, "--fuzz")
+	}
+	if len(fuzzPoints) > 0 {
+		flags = append(flags, "--point")
+	}
+	if len(fuzzFuzzHeaders) > 0 {
+		flags = append(flags, "--fuzz-header")
+	}
+	keyword := fuzzKeyword
+	if keyword == "" {
+		keyword = fuzz.DefaultKeyword
+	}
+	if fuzz.HasMarker(raw, keyword) {
+		if len(flags) > 0 {
+			return usageErrorf("the request carries a %s marker, which already picks the position; drop %s or remove the marker",
+				keyword, strings.Join(flags, "/"))
+		}
+		return nil
+	}
+	if len(flags) > 0 {
+		return nil
+	}
+	hint := ""
+	if near := fuzz.NearestMarker(raw, keyword); near != "" {
+		hint = fmt.Sprintf(" (found %q — did you mean %s?)", near, keyword)
+	}
+	return usageErrorf("no %s marker in the request%s; put %s where payloads go, or choose positions with --fuzz all|params|headers|..., --point TYPE:name or --fuzz-header Name",
+		keyword, hint, keyword)
 }
 
 // fuzzOrganizerCap bounds how many matched requests are pushed to Burp's
@@ -305,6 +357,9 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if err := checkFuzzPositionFlags(src.BaselineRequest); err != nil {
+		return err
+	}
 	positions, err := fuzz.ResolvePositions(src.BaselineRequest, fuzz.Selectors{
 		Mode:        fuzzSelector,
 		NamedPoints: fuzzPoints,
@@ -327,6 +382,13 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	cases, err := fuzz.BuildPlan(mode, positions, sets, payloads)
 	if err != nil {
 		return err
+	}
+	if fuzzMaxRequests < 0 {
+		return usageErrorf("--max-requests must be >= 0 (0 = no cap), got %d", fuzzMaxRequests)
+	}
+	if fuzzMaxRequests > 0 && cases.Len() > fuzzMaxRequests {
+		return usageErrorf("this run expands to %d sends (%d position(s), %s), above --max-requests %d; narrow the positions or payloads, or raise --max-requests (0 = no cap)",
+			cases.Len(), len(positions), mode, fuzzMaxRequests)
 	}
 
 	// --dry-run answers "will this do what I meant?" before any traffic —

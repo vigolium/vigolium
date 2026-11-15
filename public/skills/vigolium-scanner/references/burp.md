@@ -87,7 +87,7 @@ Both `http://` (Burp's listener) and `socks5://` proxy URLs work.
 ```bash
 vigolium scan -t https://acme.test --proxy http://127.0.0.1:8080
 vigolium replay -u <uuid> --proxy http://127.0.0.1:8080
-vigolium fuzz -u <uuid> --class sqli -a --proxy http://127.0.0.1:8080 -c 3
+vigolium fuzz -u <uuid> --fuzz params --class sqli -a --proxy http://127.0.0.1:8080 -c 3
 vigolium fuzz 'http://127.0.0.1:3000/FUZZ' -w words.txt --proxy http://127.0.0.1:8080
 ```
 
@@ -198,7 +198,7 @@ vigolium replay -u <uuid> --to-organizer --notes "IDOR candidate" --highlight or
 vigolium replay -u <uuid> --save-to-burp -B http://127.0.0.1:9009
 
 # Fuzz matches → Organizer (Burp re-issues each one)
-vigolium fuzz -u <uuid> --class sqli -a --matches-to-organizer -B http://127.0.0.1:9009
+vigolium fuzz -u <uuid> --fuzz params --class sqli -a --matches-to-organizer -B http://127.0.0.1:9009
 
 # Copy the database records matching the active filters into Burp's Site map
 vigolium traffic --host acme.test --status 200 --save-to-burp -B http://127.0.0.1:9009
@@ -232,7 +232,7 @@ carries a fresh response).
 vigolium replay --raw-request-file ./desync.txt \
   --send-via-burp --http-mode http1 -B http://127.0.0.1:9009
 
-vigolium fuzz -u <uuid> --class crlf --send-via-burp --http-mode http1 -B …
+vigolium fuzz -u <uuid> --fuzz params --class crlf --send-via-burp --http-mode http1 -B …
 ```
 
 | Flag | Notes |
@@ -255,7 +255,7 @@ No extension, no running Burp.
 vigolium scan -I burp -i burp-export.xml -t https://acme.test   # Burp XML export
 vigolium ingest -I burp -i burp-export.xml                       # ingest without scanning
 vigolium replay -i ./copied-request.txt                          # "Copy as raw" single item
-vigolium fuzz -i ./copied-request.txt --class sqli -a
+vigolium fuzz -i ./copied-request.txt --fuzz params --class sqli -a
 ```
 
 Auto-detection covers Burp XML, a raw request, and a Burp-style

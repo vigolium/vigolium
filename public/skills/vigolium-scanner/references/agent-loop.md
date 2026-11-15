@@ -729,7 +729,7 @@ vigolium replay -u <uuid> --to-repeater -B http://127.0.0.1:9009
 vigolium replay -u <uuid> --to-organizer --notes "IDOR candidate" -B http://127.0.0.1:9009
 
 # Fuzz matches → the Organizer (Burp re-issues each)
-vigolium fuzz -u <uuid> --class sqli --matches-to-organizer -B http://127.0.0.1:9009
+vigolium fuzz -u <uuid> --fuzz params --class sqli --matches-to-organizer -B http://127.0.0.1:9009
 ```
 
 `--send-via-burp` (on `replay` / `fuzz` / `finding`) routes the actual send
@@ -879,7 +879,7 @@ vigolium fuzz -u <uuid> --fuzz-header X-Forwarded-For \
 vigolium fuzz -i login.txt --mode pitchfork -w users.txt -w passwords.txt
 
 # Agent handle: ONE envelope on stdout, exit 3 on match.
-vigolium fuzz -u <uuid> --class xss,sqli -a -j --fail-on-match
+vigolium fuzz -u <uuid> --fuzz params --class xss,sqli -a -j --fail-on-match
 ```
 
 **Source** (one of): a positional URL, `-i/--input` (curl / raw HTTP / Burp XML /

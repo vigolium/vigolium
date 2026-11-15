@@ -89,16 +89,19 @@ source, not just a positional URL.
 
 ## Positions: what gets fuzzed
 
-Resolution order — **first match wins**:
+Pick positions **one way** — the run is refused (exit 2) otherwise:
 
 1. **A literal `FUZZ` marker** anywhere in the request (request line, path,
    header name/value, body). Occurrences in the request line are auto-encoded,
    so a payload with spaces (`' OR '1'='1`) stays well-formed. Rename it with
-   `--keyword`.
-2. `--point TYPE:name` — one exact insertion point (repeatable).
-3. `--fuzz-header NAME` — one header by name (repeatable).
-4. `--fuzz method|path|params|headers|cookies|all` — a category.
-5. Nothing given → **every discovered insertion point**.
+   `--keyword`. A marker plus `--point`/`--fuzz`/`--fuzz-header` is a usage error.
+2. No marker: `--point TYPE:name` (one exact insertion point, repeatable),
+   `--fuzz-header NAME` (repeatable), or `--fuzz method|path|params|headers|cookies|all`.
+3. Neither → usage error naming the nearest marker-like token (`FUZ`, `fuzz`).
+   `--fuzz all` is the old "every discovered insertion point".
+
+Headers the request does not carry (`X-Forwarded-For`, `Referer`, …) are left
+out of `headers`/`all` unless `--fuzz headers:synthetic`.
 
 Three opt-in kinds are never in the default set; ask for them by selector:
 
@@ -363,8 +366,9 @@ is a ready confirmation command against the hardened module scanner.
 |------|-----------------|
 | `--dry-run` | resolve positions + payloads and print the exact bytes each would send, with **zero** network traffic — the pre-flight before committing to a big run |
 | `-c/--concurrency` | concurrent requests (default 10); lower it through a proxy |
-| `-r/--rate-limit <req/s>` | cap the whole run across all workers, counting baseline and calibration sends (fractions allowed; `0` = unlimited, the default). Smooth, no burst. Not taken from `scanning.rate_limit` — fuzz is a primitive. The effective pace is echoed on stderr and as `pace` in `-j`/`--dry-run` |
+| `-r/--rate-limit <req/s>` | cap the whole run across all workers, counting baseline and calibration sends (fractions allowed; default 100, `0` = unlimited). Smooth, no burst. Not taken from `scanning.rate_limit` — fuzz is a primitive. The effective pace is echoed on stderr and as `pace` in `-j`/`--dry-run` |
 | `--delay <ms>` | per-worker delay before each request — the polite knob for rate-limited targets |
+| `--max-requests <n>` | refuse a plan that expands to more payload sends (default 10000, `0` = no cap); baseline and calibration sends are not counted |
 | `--timeout` | per-request (default 25s); `--max-time` is the curl alias |
 | `--no-redirects` | stop following 30x (following is the default) |
 | `--max-redirs` | cap the chain instead of severing it (`0` = Go's default of 10). The curl spelling; use it when a target loops redirects and a wordlist run would otherwise spend its budget in the loop |
@@ -385,7 +389,7 @@ mean, or the payload set is empty.
 Burp's Organizer for manual triage. Both need `-B/--burp-bridge-url`.
 
 ```bash
-vigolium fuzz -u <uuid> --class sqli -a \
+vigolium fuzz -u <uuid> --fuzz params --class sqli -a \
   --send-via-burp --http-mode http1 --matches-to-organizer -B http://127.0.0.1:9009
 ```
 
