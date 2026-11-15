@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/proxytarget/proxytest"
 	"github.com/vigolium/vigolium/pkg/replay"
 )
@@ -43,10 +44,7 @@ func fuzzTarget(t *testing.T) (host string, port int, seen func() []string) {
 
 func runThroughProxy(t *testing.T, raw []byte, host string, port int, payloads []string, proxy *proxytest.Proxy) {
 	t.Helper()
-	client := replay.NewDefaultClient(nil, 5*time.Second)
-	if !replay.SetProxy(client, proxy.URL) {
-		t.Fatal("SetProxy did not apply")
-	}
+	client := replay.NewClient(nil, 5*time.Second, proxyenv.Resolve(proxy.URL.String(), func(string) string { return "" }))
 	positions, err := ResolvePositions(raw, Selectors{})
 	if err != nil {
 		t.Fatalf("ResolvePositions: %v", err)

@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -104,22 +103,6 @@ type statusProxyView struct {
 	Source string `json:"source"`
 }
 
-// statusProxyResolver names the proxy a send would use and where it came
-// from, through the HTTP stack's own resolver so status and the senders agree.
-var statusProxyResolver = effectiveProxy
-
-// redactProxyURL drops the password from a proxy URL.
-func redactProxyURL(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
-		return raw
-	}
-	return u.Redacted()
-}
-
 func runStatus(cmd *cobra.Command, _ []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
@@ -135,8 +118,8 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		SessionsDir: config.ContractPath(settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir()),
 		SkillStale:  doctorSkillStale(),
 	}
-	pURL, pSource := statusProxyResolver(globalProxy)
-	view.Proxy = statusProxyView{URL: redactProxyURL(pURL), Source: pSource}
+	route, pSource := effectiveProxy(globalProxy)
+	view.Proxy = statusProxyView{URL: route.Redacted(), Source: pSource}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

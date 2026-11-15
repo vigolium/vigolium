@@ -22,6 +22,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	vighttp "github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/replay"
 	"github.com/vigolium/vigolium/pkg/replay/jar"
@@ -485,9 +486,13 @@ func newReplayRun() (*replayRun, error) {
 	if jarErr != nil {
 		fmt.Fprintf(os.Stderr, "%s replay: cookie jar disabled (%v)\n", terminal.WarningSymbol(), jarErr)
 	}
+	client, err := newReplayClient(pj, replayTimeout)
+	if err != nil {
+		return nil, err
+	}
 	return &replayRun{
 		rawOverride: rawOverride,
-		client:      newReplayClient(pj, replayTimeout),
+		client:      client,
 		pj:          pj,
 		jarLoaded:   jarLoaded,
 		saveToBurp:  replaySaveToBurp,
@@ -499,20 +504,19 @@ func newReplayRun() (*replayRun, error) {
 }
 
 // newReplayClient builds the shared HTTP client for replay: the persistent
-// cookie jar (when --session-id is set) plus --proxy routing, preserving the
-// InsecureSkipVerify TLS config NewDefaultClient installs.
-func newReplayClient(pj *jar.PersistentJar, timeout time.Duration) *http.Client {
+// cookie jar (when --session-id is set) plus the proxy the HTTP stack
+// resolves (--proxy, else the environment). A --proxy that does not parse is
+// a usage error rather than a silent direct connection.
+func newReplayClient(pj *jar.PersistentJar, timeout time.Duration) (*http.Client, error) {
 	var jarForClient http.CookieJar
 	if pj != nil {
 		jarForClient = pj
 	}
-	client := replay.NewDefaultClient(jarForClient, timeout)
-	if globalProxy != "" {
-		if px, perr := url.Parse(globalProxy); perr == nil {
-			replay.SetProxy(client, px)
-		}
+	choice := proxyenv.FromEnvironment(globalProxy)
+	if globalProxy != "" && choice.Err() != nil {
+		return nil, usageErrorf("%v", choice.Err())
 	}
-	return client
+	return replay.NewClient(jarForClient, timeout, choice), nil
 }
 
 // saveReplayJar persists the cookie jar (no-op when --session-id is unset),

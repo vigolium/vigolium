@@ -146,9 +146,6 @@ func (c Choice) Err() error { return c.err }
 // Any reports whether any request could be proxied.
 func (c Choice) Any() bool { return c.cli != nil || c.http != nil || c.https != nil || c.all != nil }
 
-// FromFlag reports whether the proxy is --proxy rather than the environment.
-func (c Choice) FromFlag() bool { return c.cli != nil }
-
 // For returns the route a request to u takes, or nil to connect directly.
 func (c Choice) For(u *url.URL) *Route {
 	if u == nil {
@@ -186,8 +183,9 @@ func (c Choice) Bypass(scheme, host string) bool {
 		return false
 	}
 	h, port := splitHostPort(scheme, host)
+	ip := net.ParseIP(h)
 	for _, rule := range c.noProxy {
-		if rule.matches(h, port) {
+		if rule.matches(h, ip, port) {
 			return true
 		}
 	}
@@ -340,14 +338,15 @@ func parseNoProxy(v string) []noProxyRule {
 	return out
 }
 
-func (r noProxyRule) matches(host, port string) bool {
+// matches reports whether the rule exempts host (ip is its parse, nil for a
+// name) on port.
+func (r noProxyRule) matches(host string, ip net.IP, port string) bool {
 	if r.all {
 		return true
 	}
 	if r.port != "" && r.port != port {
 		return false
 	}
-	ip := net.ParseIP(host)
 	switch {
 	case r.ipNet != nil:
 		return ip != nil && r.ipNet.Contains(ip)

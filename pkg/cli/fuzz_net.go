@@ -314,7 +314,10 @@ func fuzzHTTPVersionSetting() (bulkhttp.Mode, error) {
 // transport becomes the template of a bulkhttp.Transport (returned too, for
 // Prepare and Close), which pins the target to HTTP/3, HTTP/2 or HTTP/1.1.
 func buildFuzzClient(cookies gohttp.CookieJar, mode bulkhttp.Mode) (*gohttp.Client, *bulkhttp.Transport, error) {
-	client := newReplayClient(nil, resolveFuzzTimeout())
+	client, err := newReplayClient(nil, resolveFuzzTimeout())
+	if err != nil {
+		return nil, nil, err
+	}
 	client.Jar = cookies
 
 	base, ok := proxytarget.Base(client.Transport)

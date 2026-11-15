@@ -66,7 +66,7 @@ func TestResolveAllProxyAndFlag(t *testing.T) {
 	if got := route(c, "https://127.0.0.1/"); got != "http://burp:8080 --proxy" {
 		t.Errorf("--proxy got %q", got)
 	}
-	if !c.FromFlag() || len(c.Routes()) != 1 {
+	if len(c.Routes()) != 1 || c.Routes()[0].Source != SourceFlag {
 		t.Errorf("flag routes = %+v", c.Routes())
 	}
 	if v, _ := c.NoProxy(); v != "" {

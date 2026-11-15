@@ -521,20 +521,15 @@ func probeAgentEndpoint(a *AgentCheck) ScopedCheck {
 // through, where it was configured, and whether it accepts a connection.
 // Loopback targets are not exempt from it (an explicit proxy URL, unlike Go's
 // environment resolver, proxies localhost too).
-func ProxyCheck(proxy, source string) *CheckResult {
-	if proxy == "" {
+func ProxyCheck(route *proxyenv.Route, source string) *CheckResult {
+	if route == nil || route.URL == nil {
 		return &CheckResult{Status: StatusOK, Message: "none: requests connect directly"}
 	}
-	shown := proxy
-	if u, err := url.Parse(proxy); err == nil && u.User != nil {
-		u.User = url.User("redacted")
-		shown = u.String()
-	}
-	msg := fmt.Sprintf("%s from %s; loopback targets go through it too", shown, source)
-	if source != "--proxy" && source != "VIGOLIUM_PROXY" {
+	msg := fmt.Sprintf("%s from %s; loopback targets go through it too", route.Redacted(), source)
+	if !route.Everything {
 		msg += " unless NO_PROXY names them"
 	}
-	sc := checkProxy(proxy)
+	sc := checkProxy(route.URL.String())
 	if sc.Status != ScopedOK {
 		return &CheckResult{Status: StatusError, Message: msg + " — " + sc.Message,
 			Tip: "Start the proxy, or remove it (" + source + ") to connect directly."}
