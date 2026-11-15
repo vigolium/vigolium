@@ -373,7 +373,7 @@ func TestGroupPositionalsAndUsageLookups(t *testing.T) {
 		"unknown scope component":       {"scope", "hosts", "-j"},
 		"near miss of a subcommand":     {"finding", "mak", "-j"},
 		"pure group under -j":           {"project", "-j"},
-		"unknown word on a pure group":  {"project", "current", "-j"},
+		"unknown word on a pure group":  {"project", "currnt", "-j"},
 		"cobra count validator, exit 2": {"scan", "diff", st.s1},
 	} {
 		code, out, errOut := st.run(t, args...)

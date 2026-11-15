@@ -18,7 +18,7 @@ var scopeSetCmd = &cobra.Command{
 	Short: "Set a scope rule",
 	Long: "Set a scope rule using component.field notation (e.g. host.exclude \"*.internal.com,admin.*\").\n\n" +
 		"Lists take the comma form or JSON/YAML flow syntax ('[\"*.example.com\",\"example.com\"]'); '<rule>.add <value>' " +
-		"appends and '<rule>.clear' (no value) empties. The value is checked with the same rules as 'config validate' and refused " +
+		"appends, '<rule>.remove <value>' removes and '<rule>.clear' (no value) empties. The value is checked with the same rules as 'config validate' and refused " +
 		"(exit 2, nothing written) when it would break the scope. Writes the global config, or with --project the " +
 		"project's overlay (~/.vigolium/projects/<uuid>/config.yaml). The file is edited in place, keeping its comments " +
 		"and ${VAR} placeholders. A config that fails to load is never overwritten.",
@@ -61,7 +61,7 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 
 	// The rule's value before the write, for the -j old/new pair. A list-op key
 	// (`.add`/`.clear`) reports the list it changes.
-	ruleKey := strings.TrimSuffix(strings.TrimSuffix(key, ".add"), ".clear")
+	ruleKey := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(key, ".add"), ".clear"), ".remove")
 	oldValue := flatSettingValue(settings, ruleKey)
 
 	edit, err := config.SetFieldEdit(settings, key, value)

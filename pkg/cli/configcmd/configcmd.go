@@ -82,6 +82,8 @@ func NewCommand(deps Deps, ex Examples) *cobra.Command {
 		newSetCmd(deps, ex.Set),
 		newCleanCmd(deps, ex.Clean),
 		newValidateCmd(deps, ex.Validate),
+		newGetCmd(deps),
+		newUnsetCmd(deps),
 	)
 	return cmd
 }

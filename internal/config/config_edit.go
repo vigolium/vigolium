@@ -97,6 +97,22 @@ func SetFieldEdit(settings *Settings, key, value string) (RawEdit, error) {
 	}
 	parts := strings.Split(path, ".")
 	switch op {
+	case "remove":
+		full := v.Interface()
+		drop := removedListItems(path, value)
+		return func(d *yamledit.Doc) error {
+			if cur := d.Get(parts); cur != nil && cur.Kind == yaml.SequenceNode {
+				_, err := d.RemoveItems(parts, drop...)
+				return err
+			}
+			// The file does not hold the list (its value is a default):
+			// write what remains of it.
+			n, err := yamledit.Node(full)
+			if err != nil {
+				return err
+			}
+			return d.Set(parts, n)
+		}, nil
 	case "clear":
 		return func(d *yamledit.Doc) error {
 			return d.Set(parts, &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle})
