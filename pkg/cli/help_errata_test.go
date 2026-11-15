@@ -114,10 +114,3 @@ func TestFullExamplesUseLogNamespace(t *testing.T) {
 		}
 	}
 }
-
-func walkCommandTree(c *cobra.Command, fn func(*cobra.Command)) {
-	fn(c)
-	for _, sub := range c.Commands() {
-		walkCommandTree(sub, fn)
-	}
-}
