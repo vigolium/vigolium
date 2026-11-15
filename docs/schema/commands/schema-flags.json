@@ -20,6 +20,12 @@
         },
         "inherited": {
           "type": "boolean"
+        },
+        "enum": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
