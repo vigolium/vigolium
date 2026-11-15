@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 // Hooks that walk the finished command tree (prepareCommandTree). Each one
@@ -124,7 +125,7 @@ func nearestSubcommand(cmd *cobra.Command, word string, generous bool) string {
 			return s[0]
 		}
 	}
-	if best := closestName(word, names); best != "" {
+	if best := textutil.Closest(word, names); best != "" {
 		return byName[best]
 	}
 	return ""
@@ -301,7 +302,7 @@ func (e *enumError) suggestion() string {
 			return a
 		}
 	}
-	return closestName(lower, e.allowed)
+	return textutil.Closest(lower, e.allowed)
 }
 
 // enumFlag converts an already-registered flag into a closed-set flag. It

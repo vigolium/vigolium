@@ -115,13 +115,13 @@ func TestSuggestionBudgetRejectsUnrelatedShortFlags(t *testing.T) {
 		{"full-body", 3},
 	}
 	for _, tc := range cases {
-		if got := suggestionBudget(tc.typed); got != tc.want {
-			t.Errorf("suggestionBudget(%q) = %d, want %d", tc.typed, got, tc.want)
+		if got := textutil.SuggestionBudget(tc.typed); got != tc.want {
+			t.Errorf("textutil.SuggestionBudget(%q) = %d, want %d", tc.typed, got, tc.want)
 		}
 	}
 
 	// Levenshtein("url", "all") is 2, which must now exceed the budget.
-	if d := textutil.Levenshtein("url", "all"); d <= suggestionBudget("url") {
+	if d := textutil.Levenshtein("url", "all"); d <= textutil.SuggestionBudget("url") {
 		t.Errorf("--url is still within suggestion range of --all (distance %d)", d)
 	}
 }

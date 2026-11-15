@@ -13,6 +13,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 // registerModuleSelectionFlags registers --module-id and --passive-only, the
@@ -186,7 +187,7 @@ func emptyModuleSelectionError() error {
 	}
 	ids := append(modules.GetActiveModulesID(), modules.GetPassiveModulesID()...)
 	for _, p := range append(append([]string(nil), globalModules...), globalModuleIDs...) {
-		if best := closestName(strings.ToLower(p), ids); best != "" {
+		if best := textutil.Closest(strings.ToLower(p), ids); best != "" {
 			e.DidYouMean = best
 			break
 		}

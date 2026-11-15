@@ -21,6 +21,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 // This file builds the compact, token-aware JSON views emitted by the read/query
@@ -667,7 +668,7 @@ func validateFieldSelection(fields, supported []string) error {
 	for _, f := range fields {
 		if _, ok := resolveFieldName(f, has); !ok {
 			unknown = append(unknown, f)
-			if near := closestName(f, supported); near != "" {
+			if near := textutil.Closest(f, supported); near != "" {
 				hints = append(hints, f+" → "+near)
 			}
 		}

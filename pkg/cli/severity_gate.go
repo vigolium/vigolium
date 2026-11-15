@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 // severityRanks orders severities from least to most severe, mirroring
@@ -98,7 +99,7 @@ func parseSeverityList(raw string) ([]string, error) {
 		if severityRank(s) == 0 {
 			return nil, clicommon.CLIError{
 				Err:        fmt.Errorf("unknown severity %q: must be one of: %s", strings.TrimSpace(tok), strings.Join(severityOrder, ", ")),
-				DidYouMean: closestName(s, severityOrder),
+				DidYouMean: textutil.Closest(s, severityOrder),
 			}
 		}
 		seen[s] = true

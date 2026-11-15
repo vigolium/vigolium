@@ -9,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 var scopeCmd = &cobra.Command{
@@ -189,7 +190,7 @@ func unknownScopeComponentError(typed string, entries []config.ConfigEntry) erro
 	component, _, _ := strings.Cut(strings.ToLower(typed), ".")
 	return clicommon.CLIError{
 		Err:        fmt.Errorf("no scope component %q; components: %s", typed, strings.Join(components, ", ")),
-		DidYouMean: closestName(component, components),
+		DidYouMean: textutil.Closest(component, components),
 		UsageArgv:  clicommon.UsageArgvFor("scope view"),
 	}
 }

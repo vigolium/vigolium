@@ -294,15 +294,7 @@ func checkSecretRuleIDs(known []string, lists ...[]string) error {
 				Hint: "Rule IDs are the rule_id values a match reports (kit secret-scan -j), e.g. kingfisher.aws.1",
 			}
 			// A near miss is the common case: a typo in a long, namespaced ID.
-			best, bestDist := "", -1
-			for _, k := range known {
-				if d := textutil.Levenshtein(id, k); bestDist == -1 || d < bestDist {
-					best, bestDist = k, d
-				}
-			}
-			if bestDist >= 0 && bestDist <= max(2, len(id)/4) {
-				e.DidYouMean = best
-			}
+			e.DidYouMean = textutil.Closest(id, known)
 			return e
 		}
 	}
