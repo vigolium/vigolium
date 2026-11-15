@@ -237,7 +237,7 @@ Run audit and/or piolium back-to-back as a unified security audit
 | `--interactive` | `-i` | bool | `false` | Drop into the coding agent with the audit harness installed and drive the audit yourself (audit-only; the embedded vigolium-audit binary's -i). Skips NDJSON streaming, the AgenticScan row, and findings auto-import — results land in <source>/vigolium-results/; import them afterward with 'vigolium import'. Not valid with --driver=piolium. |
 | `--keep-raw` | - | bool | `true` | [audit] Keep raw scanner output, draft findings, and intermediate workspaces under <source>/vigolium-results/ for manual review (overrides audit's deep/confirm auto-prune). On by default; the source-folder copy is also retained. Pass --clean-raw to remove it from the source tree. No effect on the piolium leg. |
 | `--list-modes` | - | bool | `false` | List the available audit modes (audit's mode graph: phases, time estimate, descriptions) and exit |
-| `--max-duration` | - | duration | `0s` | Maximum wall-clock duration for the whole audit (e.g. 2h; 0 = no limit). Reaching it stops the drivers: status timed_out, exit 5 |
+| `--max-duration` | - | duration | `0s` | Maximum wall-clock duration for the whole audit (e.g. 2h; 0 = no limit). Reaching it stops the drivers: status timed_out, exit 5 (alias: --max-time) |
 | `--mode` | - | string | - | Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, audit=reinvest/refresh/mock/diff/status |
 | `--modes` | - | string | - | Run a chain of modes back-to-back (comma-separated, e.g. deep,refresh,confirm). Overrides --mode/--intensity. Stops on the first non-complete mode. audit runs the chain natively (--modes); piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg. |
 | `--no-dedup` | - | bool | `false` | Skip the post-pass project-wide findings dedup that runs after the audit completes |
@@ -288,7 +288,7 @@ Agentic scan: autonomous AI-driven vulnerability scanning
 | `--llm-api-key` | - | string | - | Olium API key for key-based providers (falls back to agent.olium.llm_api_key or provider env var) |
 | `--max-commands` | - | int | `0` | Tool-call budget for the operator (0 = the --intensity preset: quick 150, balanced 750, deep 3000). Hitting it stops the run: status budget_exhausted, exit 5 |
 | `--max-cost-usd` | - | float64 | `0` | Cap on the operator's estimated spend in USD, priced per turn from provider usage (0 = no cap). Hitting it stops the run: status budget_exhausted, exit 5 |
-| `--max-duration` | - | duration | `6h0m0s` | Maximum wall-clock duration for the autopilot session (e.g. 1h, 6h) |
+| `--max-duration` | - | duration | `6h0m0s` | Maximum wall-clock duration for the autopilot session (e.g. 1h, 6h) (alias: --max-time) |
 | `--model` | - | string | - | Olium model id override (falls back to agent.olium.model) |
 | `--no-post-halt-verify` | - | bool | `false` | Skip the post-halt coverage verification re-entry (operator halts → coverage probe → re-prompt agent when new routes turn up) |
 | `--no-preflight` | - | bool | `false` | Skip the provider preflight ping (a missing or broken provider then fails on the first real call) |
@@ -374,7 +374,7 @@ Send a prompt to an AI agent and get a response
 | `--instruction` | - | string | - | Custom instruction to guide the agent (appended to prompt) |
 | `--instruction-file` | - | string | - | Path to a file containing custom instructions |
 | `--llm-api-key` | - | string | - | Olium API key for key-based providers (falls back to agent.olium.llm_api_key or provider env var) |
-| `--max-duration` | - | duration | `5m0s` | Maximum wall-clock time for agent execution (0 = no limit) |
+| `--max-duration` | - | duration | `5m0s` | Maximum wall-clock time for agent execution (0 = no limit) (alias: --max-time) |
 | `--model` | - | string | - | Olium model id override (falls back to agent.olium.model) |
 | `--no-preflight` | - | bool | `false` | Skip the provider preflight ping (a missing or broken provider then fails on the first real call) |
 | `--oauth-cred` | - | string | - | Olium OAuth/SA credential file (openai-codex-oauth, anthropic-vertex, or google-vertex; falls back to agent.olium.oauth_cred_path or $GOOGLE_APPLICATION_CREDENTIALS) |
@@ -448,7 +448,7 @@ Agentic scan: AI-guided targeted vulnerability swarm
 | `--master-batch-size` | - | int | `0` | Max records per master agent batch (0 = default 5) |
 | `--max-commands` | - | int | `0` | Tool-call budget across every agent call of the run (0 = no cap). Hitting it stops the run: status budget_exhausted, exit 5 |
 | `--max-cost-usd` | - | float64 | `0` | Cap on the run's estimated spend in USD across every agent call (0 = no cap). Hitting it stops the run: status budget_exhausted, exit 5 |
-| `--max-duration` | - | duration | `12h0m0s` | Maximum swarm duration (0 = unlimited; e.g. 6h, 24h) |
+| `--max-duration` | - | duration | `12h0m0s` | Maximum swarm duration (0 = unlimited; e.g. 6h, 24h) (alias: --max-time) |
 | `--max-iterations` | - | int | `3` | Maximum triage-rescan iterations |
 | `--max-master-retries` | - | int | `3` | Max master agent retries on parse failure |
 | `--max-plan-records` | - | int | `25` | Max records sent to plan agent (selects most interesting with one slot per URL prefix; 0 = no limit). Defaults are overridden by --intensity: quick=10, balanced=25, deep=50. |
@@ -500,7 +500,7 @@ Confirm a single finding with an AI triager: confirmed, false_positive or inconc
 | `--gcp-location` | - | string | - | GCP region for Vertex providers (else $GOOGLE_CLOUD_LOCATION, then YAML, then us-central1) |
 | `--gcp-project` | - | string | - | GCP project for Vertex providers (else $GOOGLE_CLOUD_PROJECT, then YAML, then SA file's project_id) |
 | `--llm-api-key` | - | string | - | Olium API key for key-based providers (falls back to agent.olium.llm_api_key or provider env var) |
-| `--max-duration` | - | duration | `5m0s` | Maximum wall-clock time for the triage run (0 = no limit) |
+| `--max-duration` | - | duration | `5m0s` | Maximum wall-clock time for the triage run (0 = no limit) (alias: --max-time) |
 | `--model` | - | string | - | Olium model id override (falls back to agent.olium.model) |
 | `--no-preflight` | - | bool | `false` | Skip the provider preflight ping (a missing or broken provider then fails on the first real call) |
 | `--no-probe` | - | bool | `false` | Do not contact the target: the agent gets no HTTP, browser or shell tools and decides from the captured traffic (inconclusive when that cannot settle it) |
@@ -539,7 +539,7 @@ Run a unified security audit (alias for `vigolium agent audit`)
 | `--interactive` | `-i` | bool | `false` | Drop into the coding agent with the audit harness installed and drive the audit yourself (audit-only; the embedded vigolium-audit binary's -i). Skips NDJSON streaming, the AgenticScan row, and findings auto-import — results land in <source>/vigolium-results/; import them afterward with 'vigolium import'. Not valid with --driver=piolium. |
 | `--keep-raw` | - | bool | `true` | [audit] Keep raw scanner output, draft findings, and intermediate workspaces under <source>/vigolium-results/ for manual review (overrides audit's deep/confirm auto-prune). On by default; the source-folder copy is also retained. Pass --clean-raw to remove it from the source tree. No effect on the piolium leg. |
 | `--list-modes` | - | bool | `false` | List the available audit modes (audit's mode graph: phases, time estimate, descriptions) and exit |
-| `--max-duration` | - | duration | `0s` | Maximum wall-clock duration for the whole audit (e.g. 2h; 0 = no limit). Reaching it stops the drivers: status timed_out, exit 5 |
+| `--max-duration` | - | duration | `0s` | Maximum wall-clock duration for the whole audit (e.g. 2h; 0 = no limit). Reaching it stops the drivers: status timed_out, exit 5 (alias: --max-time) |
 | `--mode` | - | string | - | Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, audit=reinvest/refresh/mock/diff/status |
 | `--modes` | - | string | - | Run a chain of modes back-to-back (comma-separated, e.g. deep,refresh,confirm). Overrides --mode/--intensity. Stops on the first non-complete mode. audit runs the chain natively (--modes); piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg. |
 | `--no-dedup` | - | bool | `false` | Skip the post-pass project-wide findings dedup that runs after the audit completes |
@@ -836,7 +836,7 @@ Export database records
 | `--status` | - | intSlice | - | Filter records by HTTP status code (can be specified multiple times) |
 | `--table` | - | string | - | Database table to operate on (http_records, findings, scans) |
 | `--to` | - | string | - | Export records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
-| `--uuid` | - | string | - | Export exactly one record by its UUID (or unique 8+ char prefix). Honored by every --format (including fs) and resolved before pagination, so a record outside the --limit window is still found |
+| `--uuid` | - | string | - | Export exactly one record by its UUID (or unique 8+ char prefix). Honored by every --format (including fs) and resolved before pagination, so a record outside the --limit window is still found (alias: --record-uuid) |
 | `--watch` | - | string | - | Re-run on interval (e.g. 10s, 1m, 5m) |
 
 ## vigolium db list
@@ -850,14 +850,14 @@ List database records (default: http_records)
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--asc` | - | bool | `false` | Sort in ascending order instead of descending |
-| `--body` | - | string | - | Search only the HTTP request/response body (not headers); use --search to span the whole exchange |
+| `--body` | - | string | - | Search only the HTTP request/response body (not headers); use --search to span the whole exchange (alias: --body-search) |
 | `--columns` | - | stringSlice | - | Columns to include in output, comma-separated |
 | `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--fields` | - | stringSlice | - | Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url). An unknown name is an error, not a silent drop |
 | `--finding-source` | - | string | - | Filter findings by source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
 | `--from` | - | string | - | Show records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--full-body` | - | bool | `false` | Render complete request/response bodies (no truncation/stubbing) with --json, and whole (uncompacted) bodies with --markdown |
-| `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange |
+| `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange (alias: --header-search) |
 | `--host` | - | string | - | Filter records by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--limit` | `-n` | int | `100` | Maximum number of records to display |
 | `--list-columns` | - | bool | `false` | List column names for the current table |
@@ -883,7 +883,7 @@ List database records (default: http_records)
 | `--to` | - | string | - | Show records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--tree` | - | bool | `false` | Display results in hierarchical tree format |
 | `--url` | - | stringArray | - | Select records whose URL matches EXACTLY (repeatable; OR-ed). Compared against the stored URL with no normalization — use --path or --search for substring matching |
-| `--uuid` | - | stringSlice | - | Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination |
+| `--uuid` | - | stringSlice | - | Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination (alias: --record-uuid) |
 | `--watch` | - | string | - | Re-run on interval (e.g. 10s, 1m, 5m) |
 
 ## vigolium db migrate
@@ -1083,7 +1083,7 @@ Evaluate JavaScript code with vigolium.* APIs available
 | `--ext-file` | - | string | - | Path to JS file to evaluate |
 | `--handler` | - | string | - | Handler to call: scanPerRequest, scanPerHost or scanPerInsertionPoint (default: every handler the module declares) |
 | `--insertion` | - | string | - | Insertion point for scanPerInsertionPoint as TYPE:name, e.g. URL_PARAM:id (default: every point) |
-| `--record-uuid` | - | string | - | Stored HTTP record to run the extension against (UUID or unique prefix; see vigolium traffic) |
+| `--record-uuid` | `-u` | string | - | Stored HTTP record to run the extension against (UUID or unique prefix; see vigolium traffic) |
 | `--stdin` | - | bool | `false` | Read JS code from stdin |
 | `--timeout` | - | duration | `30s` | Execution timeout |
 
@@ -1166,7 +1166,7 @@ Run one extension against a stored record (offline unless --allow-network)
 | `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
-| `--record-uuid` | - | string | - | Stored HTTP record to run the extension against (UUID or unique prefix; see vigolium traffic) |
+| `--record-uuid` | `-u` | string | - | Stored HTTP record to run the extension against (UUID or unique prefix; see vigolium traffic) |
 
 ## vigolium extensions test
 
@@ -1213,7 +1213,7 @@ Browse vulnerability findings with fuzzy search and filtering
 |------|-------|------|---------|-------------|
 | `--agentic-scan` | - | string | - | Filter by agentic-scan UUID (findings produced by an agent autopilot/swarm/audit run) |
 | `--asc` | - | bool | `false` | Sort in ascending order (default: descending) |
-| `--body` | - | string | - | Search only the linked request/response body (not headers); use --search to span the whole exchange |
+| `--body` | - | string | - | Search only the linked request/response body (not headers); use --search to span the whole exchange (alias: --body-search) |
 | `--burp` | - | bool | `false` | Display in Burp Suite-style format (colored request/response) |
 | `--burp-bridge-url` | `-B` | string | - | Loopback Burp/Caido bridge URL used by --push-to-burp / --to-repeater (alias: --caido-bridge-url) |
 | `--columns` | - | stringSlice | - | Columns to show (comma-separated, e.g. ID,SEVERITY,MODULE) |
@@ -1221,9 +1221,9 @@ Browse vulnerability findings with fuzzy search and filtering
 | `--confidence` | - | string | - | Filter by confidence: certain,firm,tentative (comma-separated) |
 | `--curl` | - | bool | `false` | Render each selected finding's proving request (its stored evidence, else its first linked record) as a curl command; -j gives {id, finding_hash, record_uuid, curl, argv} |
 | `--curl-all` | - | bool | `false` | Like --curl, but render every HTTP record linked to each finding |
-| `--exclude-body` | - | string | - | Exclude findings whose linked request/response body contains the term (inverse of --body; bodies only) |
+| `--exclude-body` | - | string | - | Exclude findings whose linked request/response body contains the term (inverse of --body; bodies only) (alias: --exclude-body-search) |
 | `--exclude-columns` | - | stringSlice | - | Columns to hide (comma-separated) |
-| `--exclude-header` | - | string | - | Exclude findings whose linked request/response header block contains the term (inverse of --header; headers only) |
+| `--exclude-header` | - | string | - | Exclude findings whose linked request/response header block contains the term (inverse of --header; headers only) (alias: --exclude-header-search) |
 | `--exclude-search` | - | stringArray | - | Exclude findings where the term appears in the module metadata, matched location, or linked request/response (repeatable; dropped if ANY term matches — the inverse of --search) |
 | `--fields` | - | stringSlice | - | Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url). An unknown name is an error, not a silent drop |
 | `--finding-source` | - | string | - | Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
@@ -1231,7 +1231,7 @@ Browse vulnerability findings with fuzzy search and filtering
 | `--full-body` | - | bool | `false` | Render complete request/response bodies (no truncation/stubbing) with --json, and whole (uncompacted) bodies with --markdown |
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
-| `--header` | - | string | - | Search only the HTTP header block of the linked request/response (not bodies); use --search to span the whole exchange |
+| `--header` | - | string | - | Search only the HTTP header block of the linked request/response (not bodies); use --search to span the whole exchange (alias: --header-search) |
 | `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--http-mode` | - | string | - | With --send-via-burp: wire protocol — auto\|http1\|http2\|http2_ignore_alpn (default auto) |
 | `--id` | - | string | - | Filter by finding ID (the integer from the ID column, e.g. --id 42) |
@@ -1526,7 +1526,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--rate-limit` | `-r` | float64 | `100` | Max requests/second across all workers, counting baseline and calibration sends (0 = unlimited; fractions allowed, e.g. 0.5). Not taken from scanning config |
 | `--record-uuid` | `-u` | string | - | Use a stored HTTP record (UUID or unique 8+ char prefix) as the request to fuzz |
 | `--referer` | - | string | - | Referer header, curl's -e |
-| `--request` | `-X` | string | - | HTTP method override (default: the source request's, or GET) |
+| `--request` | `-X` | string | - | HTTP method override (default: the source request's, or GET) (alias: --method) |
 | `--resolve` | - | stringArray | - | Pin a host to an address, curl's --resolve host:port:addr (repeatable) |
 | `--save` | - | string | - | Store payload exchanges (source "fuzz"): --save keeps the ones the run kept (matched/anomalous), --save=all every one (capped at 1000) |
 | `--send-timeout` | - | duration | `0s` | With --send-via-burp: per-request response timeout (<=2m; default uses the bridge's 30s) |
@@ -1619,7 +1619,7 @@ Import scan data, databases, or live Burp Proxy history
 | `--to` | - | string | - | Import only records up to this time |
 | `--upload` | - | bool | `false` | Upload the local import source to cloud storage after import |
 | `--upload-key` | - | string | - | Explicit storage key for --upload (default: imports/<basename>-<ts>.<ext>) |
-| `--yes` | - | bool | `false` | Skip the pre-flight confirmation for a bridge import |
+| `--yes` | - | bool | `false` | Skip the pre-flight confirmation for a bridge import (the global --force does too) |
 
 ## vigolium ingest
 
@@ -1711,7 +1711,7 @@ Unminify and unpack a JavaScript bundle into readable source
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--deadline` | - | duration | `0s` | Analysis deadline (0 = engine default) |
+| `--deadline` | - | duration | `0s` | Analysis deadline (0 = engine default) (alias: --max-time) |
 | `--extract` | - | bool | `false` | Also extract every fact kind (a full analysis pass); listed in -j output, summarized on stderr otherwise |
 | `--kinds` | - | stringSlice | - | Only report these fact kinds (endpoints, routes, assets, graphql, realtime, dom_flows, paths); implies --extract |
 | `--max-ast-nodes` | - | int | `0` | Maximum parsed AST nodes before the analysis degrades to a per-module scan (0 = engine default) |
@@ -2155,13 +2155,13 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--asc` | - | bool | `false` | Bulk: sort ascending (default: descending) |
 | `--auth-session` | - | string | - | Auth session name to merge headers from (from 'vigolium auth list') |
 | `--baseline` | - | bool | `false` | Also send the un-mutated request first and diff the two. A supplied request (-i, --raw-request) is otherwise sent once with no diff; a stored record diffs against its stored response either way |
-| `--body` | - | string | - | Bulk: filter records whose request/response body contains this text |
+| `--body` | - | string | - | Bulk: filter records whose request/response body contains this text (alias: --body-search) |
 | `--burp-bridge-url` | `-B` | string | - | Loopback Burp/Caido bridge URL used by --save-to-burp / --send-via-burp / --to-repeater / --to-organizer (alias: --caido-bridge-url) |
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--concurrency` | `-c` | int | `10` | Bulk: concurrent replays; keep low to avoid overwhelming an intercepting proxy like Burp |
 | `--dry-run` | - | bool | `false` | Print the request that would be sent (after header overlays and --target), without sending or storing it |
 | `--excerpt-bytes` | - | int | `4096` | Bytes of each response (and the mutated request) kept as an excerpt in the -j/JSONL result |
-| `--exclude-body` | - | string | - | Bulk: drop records whose request/response body contains the term (inverse of --body) |
+| `--exclude-body` | - | string | - | Bulk: drop records whose request/response body contains the term (inverse of --body) (alias: --exclude-body-search) |
 | `--exclude-header-search` | - | string | - | Bulk: drop records whose HTTP header names/values contain the term (inverse of --header-search) |
 | `--exclude-search` | - | stringArray | - | Bulk: drop records where the term appears in the URL, path, or raw request/response (repeatable; dropped if ANY term matches — inverse of --search) |
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
@@ -2536,7 +2536,7 @@ Block until a scan finishes, then print its summary and exit with its outcome
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--poll` | - | duration | `2s` | How often to re-read the scan's status |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a standalone .sqlite) with project scoping off |
-| `--timeout` | - | duration | `30m0s` | Give up after this long (exit 1, error.code wait_timeout); 0 waits indefinitely |
+| `--timeout` | - | duration | `30m0s` | Give up after this long (exit 1, error.code wait_timeout); 0 waits indefinitely (alias: --max-time) |
 
 ## vigolium scan-request
 
@@ -2615,7 +2615,7 @@ Scan a single URL for vulnerabilities
 | `--auth` | - | stringArray | - | Inline session in 'name:Header:value' format. Repeatable; commas are literal (header values may contain commas). |
 | `--auth-file` | - | stringArray | - | Path to auth file (YAML/JSON, single session or sessions: bundle), or bare name resolved against scanning_strategy.session.session_dir. Repeatable; commas are literal. |
 | `--baseline` | - | string | - | Previous run's findings (.jsonl export or .sqlite store): --fail-on counts only findings not in it; -j adds baseline{new,unchanged,fixed,ignored} |
-| `--body` | - | string | - | Request body |
+| `--body` | - | string | - | Request body (alias: --data) |
 | `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
 | `--discover` | - | bool | `false` | Run content discovery before scanning |
@@ -2897,7 +2897,7 @@ Print the MITM CA certificate (PEM), or write it with --out
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--out` | - | string | - | Write the PEM certificate to this file instead of stdout |
+| `--out` | - | string | - | Write the PEM certificate to this file instead of stdout (alias: --output) |
 
 ## vigolium server ca uninstall
 
@@ -3093,16 +3093,16 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 |------|-------|------|---------|-------------|
 | `--all` | `-a` | bool | `false` | List/replay every matched record (ignore the -n/--limit cap); pair with --replay to re-send all stored traffic |
 | `--asc` | - | bool | `false` | Sort in ascending order (default: descending) |
-| `--body` | - | string | - | Search only the HTTP request/response body (not headers); use --search to span the whole exchange |
+| `--body` | - | string | - | Search only the HTTP request/response body (not headers); use --search to span the whole exchange (alias: --body-search) |
 | `--burp` | - | bool | `false` | Display in Burp Suite-style format (colored request/response) |
 | `--burp-bridge-url` | `-B` | string | - | Merge live traffic from this loopback Burp/Caido bridge URL with local database records (alias: --caido-bridge-url) |
 | `--columns` | - | stringSlice | - | Columns to show (comma-separated, e.g. HOST,METHOD,PATH,STATUS) |
 | `--compact` | - | bool | `false` | With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int | `10` | Concurrent replays (--replay); keep low to avoid overwhelming an intercepting proxy like Burp |
 | `--curl` | - | bool | `false` | Render each matched record as a curl command (URL from the stored scheme/host/port; renders at most 20 without -a); -j gives {uuid, url, curl, argv} |
-| `--exclude-body` | - | string | - | Exclude records whose request/response body contains the term (inverse of --body; bodies only, not headers) |
+| `--exclude-body` | - | string | - | Exclude records whose request/response body contains the term (inverse of --body; bodies only, not headers) (alias: --exclude-body-search) |
 | `--exclude-columns` | - | stringSlice | - | Columns to hide (comma-separated) |
-| `--exclude-header` | - | string | - | Exclude records whose HTTP header block contains the term (inverse of --header; headers only, not bodies) |
+| `--exclude-header` | - | string | - | Exclude records whose HTTP header block contains the term (inverse of --header; headers only, not bodies) (alias: --exclude-header-search) |
 | `--exclude-not-found` | - | bool | `false` | Drop records that are their origin's not-found page: a 404/410, or a response matching the not-found baseline 'vigolium fingerprint' stored (applied to the returned page) |
 | `--exclude-search` | - | stringArray | - | Exclude records where the term appears in the URL, path, or raw request/response (repeatable; dropped if ANY term matches — the inverse of --search) |
 | `--fields` | - | stringSlice | - | Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url). An unknown name is an error, not a silent drop |
@@ -3112,7 +3112,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
 | `--group-by` | - | string | - | Count the matched records by one field instead of listing them (host, ip, is_authenticated, method, response_content_type, scan_uuid, source, status_code). Runs the same filters as the listing |
 | `--group-limit` | - | int | `20` | With --group-by: maximum groups to show, largest first (0 = every group). The tail is reported as a count, never dropped |
-| `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange |
+| `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange (alias: --header-search) |
 | `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--ignore-scope` | - | bool | `false` | With --replay: send to hosts outside the configured host scope |
 | `--in-replace` | - | bool | `false` | With --replay: overwrite each stored response with the new replay response |
@@ -3141,7 +3141,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--tree` | - | bool | `false` | Display as host/path hierarchy tree |
 | `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
 | `--url` | - | stringArray | - | Select records whose URL matches EXACTLY (repeatable; OR-ed). Compared against the stored URL with no normalization — use --path or --search for substring matching |
-| `--uuid` | - | stringSlice | - | Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination, so a match is never missed because it fell outside -n |
+| `--uuid` | - | stringSlice | - | Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination, so a match is never missed because it fell outside -n (alias: --record-uuid) |
 | `--with-browser` | - | bool | `false` | Replay each URL through a real browser routed via --proxy (--replay), so Burp captures browser-driven traffic |
 
 ## vigolium traffic body
@@ -3159,7 +3159,7 @@ Extract one stored request or response body
 | `--request` | - | bool | `false` | Read the request side |
 | `--response` | - | bool | `false` | Read the response side (default) |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a standalone .sqlite) with project scoping off; never writes to your project DB |
-| `--uuid` | - | string | - | UUID (or unique prefix, 8+ chars) of the stored record to read; the positional argument is the same |
+| `--uuid` | - | string | - | UUID (or unique prefix, 8+ chars) of the stored record to read; the positional argument is the same (alias: --record-uuid) |
 
 ## vigolium traffic headers
 
@@ -3175,7 +3175,7 @@ Read one stored message's headers without its body
 | `--request` | - | bool | `false` | Read the request side |
 | `--response` | - | bool | `false` | Read the response side (default) |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a standalone .sqlite) with project scoping off; never writes to your project DB |
-| `--uuid` | - | string | - | UUID (or unique prefix, 8+ chars) of the stored record to read; the positional argument is the same |
+| `--uuid` | - | string | - | UUID (or unique prefix, 8+ chars) of the stored record to read; the positional argument is the same (alias: --record-uuid) |
 
 ## vigolium update
 
