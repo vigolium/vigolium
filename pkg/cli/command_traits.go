@@ -90,7 +90,7 @@ var commandTraits = map[string]commandTrait{
 	"db seed":            {Kind: kindMutation, DB: dbWrite},
 	"db stats":           {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
 	"dig":                {Kind: kindInteractive, DB: dbNone},
-	"dns":                {Kind: kindRead, DB: dbWrite, Shape: rowsShape().owned().unpaged("sends DNS queries: a second page would resolve again").vocabFrom(dnsresolve.Answer{}).drop("records", "resolver")},
+	"dns":                {Kind: kindRead, DB: dbWrite, SendsTraffic: true, Shape: rowsShape().owned().unpaged("sends DNS queries: a second page would resolve again").vocabFrom(dnsresolve.Answer{}).drop("records", "resolver")},
 	"doctor":             {Kind: kindRead, DB: dbRead, Shape: rowsShape()},
 	"endpoints":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(database.EndpointView{}).drop("sample_paths", "params", "request_content_types", "response_content_types", "js_outcomes", "findings_by_severity")},
 	"export":             {Kind: kindStream, DB: dbRead, ReadOnly: true, Shape: noShape("records stream to a file or stdout; the -j document is a receipt")},

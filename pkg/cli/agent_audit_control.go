@@ -90,7 +90,7 @@ func printAuditDryRun(cmd *cobra.Command, settings *config.Settings, authOverrid
 		view.DriverCheck = err.Error()
 	}
 	if globalJSON {
-		return emitObject(cmd, ".", view)
+		return emitObject(cmd, ".", view, withDryRun())
 	}
 	fmt.Printf("driver:       %s\n", view.Driver)
 	fmt.Printf("modes:        %s\n", agent.JoinModes(view.Modes))

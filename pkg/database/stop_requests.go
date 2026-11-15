@@ -117,13 +117,7 @@ func (r *Repository) RequestAgenticScanCancel(ctx context.Context, runUUID strin
 		}
 		return false, "", err
 	}
-	live := true
-	for _, s := range TerminalAgenticScanStatuses {
-		if row.Status == s {
-			live = false
-		}
-	}
-	return live && row.At != nil && !row.At.IsZero(), row.Status, nil
+	return !IsTerminalAgenticScanStatus(row.Status) && row.At != nil && !row.At.IsZero(), row.Status, nil
 }
 
 // AgenticScanCancelRequested reports whether a cancel request is pending on

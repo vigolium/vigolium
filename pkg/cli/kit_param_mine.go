@@ -117,7 +117,11 @@ func runKitParamMine(cmd *cobra.Command, args []string) error {
 		return clicommon.UsageErrorf("invalid target %q: %v", target, err)
 	}
 
-	if err := newSendScopeGate(kitParamMineIgnoreScope).check(target); err != nil {
+	gate, err := newSendScopeGate(kitParamMineIgnoreScope)
+	if err != nil {
+		return err
+	}
+	if err := gate.check(target); err != nil {
 		return err
 	}
 

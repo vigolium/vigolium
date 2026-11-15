@@ -284,7 +284,7 @@ func seedScanStatusStore(t *testing.T) (home, dbPath string) {
 	// A "running" row whose heartbeat stopped long ago: an abandoned scan.
 	old := time.Now().Add(-time.Hour)
 	require.NoError(t, repo.CreateScan(ctx, &database.Scan{UUID: "c2-dead", ProjectUUID: database.DefaultProjectUUID, Status: "running", StartedAt: old, CreatedAt: old, UpdatedAt: old}))
-	_, err = repo.UpdateScanHeartbeat(ctx, "c2-dead", database.ScanHeartbeat{At: old, Phase: "discovery"})
+	_, _, err = repo.UpdateScanHeartbeat(ctx, "c2-dead", database.ScanHeartbeat{At: old, Phase: "discovery"})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 	return home, dbPath

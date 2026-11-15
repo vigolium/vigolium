@@ -80,6 +80,17 @@ func (r *Repository) ListRecordSources(ctx context.Context, projectUUID string) 
 	return out, nil
 }
 
+// HasRecordSource reports whether any record in the project ("" = every
+// project) carries exactly this source label: one indexed probe, where
+// ListRecordSources reads every distinct label.
+func (r *Repository) HasRecordSource(ctx context.Context, projectUUID, source string) (bool, error) {
+	q := r.db.NewSelect().Model((*HTTPRecord)(nil)).Where("source = ?", source)
+	if projectUUID != "" {
+		q = q.Where("project_uuid = ?", projectUUID)
+	}
+	return q.Exists(ctx)
+}
+
 // IsBridgeRecordSource reports whether a source label names a bridge vendor.
 // Case-insensitive, since it answers both a user-typed --source and a header
 // value written by a plugin.

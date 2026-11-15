@@ -35,15 +35,20 @@ const (
 	DefaultTimeout = 25 * time.Second
 )
 
-// NewDefaultClient returns an *http.Client suitable for replay traffic.
-// TLS verification is off because targets are often localhost or
-// self-signed staging. Proxy is read from HTTPS_PROXY / HTTP_PROXY / ALL_PROXY
-// (by scheme, NO_PROXY honoured) so an operator can pipe through Burp;
-// SetProxy replaces it. The transport is a
+// NewDefaultClient is NewClient routed by the environment's proxy
+// (proxyenv: HTTPS_PROXY / HTTP_PROXY / ALL_PROXY by scheme, NO_PROXY
+// honoured), resolved once here.
+func NewDefaultClient(jar gohttp.CookieJar, timeout time.Duration) *gohttp.Client {
+	return NewClient(jar, timeout, proxyenv.FromEnvironment(""))
+}
+
+// NewClient returns an *http.Client suitable for replay traffic, routed by
+// proxy (direct when it names none). TLS verification is off because targets
+// are often localhost or self-signed staging. The transport is a
 // proxytarget.Transport, so a request whose Host header differs from its
 // destination still reaches an HTTP proxy addressed to the destination's
 // host:port. Pass jar=nil for stateless replays.
-func NewDefaultClient(jar gohttp.CookieJar, timeout time.Duration) *gohttp.Client {
+func NewClient(jar gohttp.CookieJar, timeout time.Duration, proxy proxyenv.Choice) *gohttp.Client {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
@@ -52,38 +57,9 @@ func NewDefaultClient(jar gohttp.CookieJar, timeout time.Duration) *gohttp.Clien
 		Jar:     jar,
 		Transport: proxytarget.Wrap(&gohttp.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ClientSessionCache: network.TLSSessionCache()}, //nolint:gosec // intentional for replay
-			Proxy:           proxyFromEnv,
+			Proxy:           proxy.Func(),
 		}),
 	}
-}
-
-// SetProxy routes client's traffic through proxyURL, or connects directly when
-// proxyURL is nil. It reports false, changing nothing, when client's transport
-// is neither an *http.Transport nor a proxytarget.Transport.
-func SetProxy(client *gohttp.Client, proxyURL *url.URL) bool {
-	if client == nil {
-		return false
-	}
-	t, ok := proxytarget.Base(client.Transport)
-	if !ok {
-		return false
-	}
-	if proxyURL == nil {
-		t.Proxy = nil
-	} else {
-		t.Proxy = gohttp.ProxyURL(proxyURL)
-	}
-	return true
-}
-
-// proxyFromEnv is the environment's proxy for req (proxyenv: by scheme,
-// ALL_PROXY as the fallback, NO_PROXY honoured, loopback not exempt by
-// itself), the rule vigolium's own Requester uses.
-func proxyFromEnv(req *gohttp.Request) (*url.URL, error) {
-	if r := proxyenv.FromEnvironment("").For(req.URL); r != nil {
-		return r.URL, nil
-	}
-	return nil, nil
 }
 
 // isDefaultPort reports whether port is the well-known default for scheme and

@@ -75,6 +75,9 @@ func TestStoredRecordsMode(t *testing.T) {
 	mk := func(path string) *cobra.Command {
 		root := &cobra.Command{Use: "vigolium"}
 		c := &cobra.Command{Use: path}
+		if path != "scan" {
+			c.Flags().Bool("include-stored", false, "")
+		}
 		root.AddCommand(c)
 		return c
 	}

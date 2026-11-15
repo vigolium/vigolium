@@ -28,8 +28,9 @@ type ScanHeartbeat struct {
 //
 // Only a row still "running" is touched: a late beat must never re-stamp a
 // finalized row. updated reports whether a row was written, which is how a
-// heartbeat learns its scan was finalized by someone else.
-func (r *Repository) UpdateScanHeartbeat(ctx context.Context, scanUUID string, hb ScanHeartbeat) (updated bool, err error) {
+// heartbeat learns its scan was finalized by someone else. stop is the stop
+// request pending on the row (nil when none), returned by the same statement.
+func (r *Repository) UpdateScanHeartbeat(ctx context.Context, scanUUID string, hb ScanHeartbeat) (updated bool, stop *ScanStopRequest, err error) {
 	q := r.db.NewUpdate().
 		Model((*Scan)(nil)).
 		Set("heartbeat_at = ?", hb.At).
@@ -49,12 +50,23 @@ func (r *Repository) UpdateScanHeartbeat(ctx context.Context, scanUUID string, h
 	if hb.RequestsSent != nil {
 		q = q.Set("total_requests = ?", *hb.RequestsSent)
 	}
-	res, err := q.Exec(ctx)
-	if err != nil {
-		return false, err
+	var rows []struct {
+		At *time.Time `bun:"stop_requested_at"`
+		By *string    `bun:"stop_requested_by"`
 	}
-	n, _ := res.RowsAffected()
-	return n > 0, nil
+	if err := q.Returning("stop_requested_at, stop_requested_by").Scan(ctx, &rows); err != nil {
+		return false, nil, err
+	}
+	if len(rows) == 0 {
+		return false, nil, nil
+	}
+	if at := rows[0].At; at != nil && !at.IsZero() {
+		stop = &ScanStopRequest{At: *at}
+		if rows[0].By != nil {
+			stop.By = *rows[0].By
+		}
+	}
+	return true, stop, nil
 }
 
 // LastScanLogTimes returns, per scan, the newest scan_logs.created_at — one

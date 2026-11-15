@@ -576,7 +576,7 @@ func (h *Handlers) cancelRun(uuid string) bool {
 		return false
 	}
 	h.agentMu.Lock()
-	if st := h.agenticScanStatus[uuid]; st != nil && !isTerminalAgentStatus(st.Status) {
+	if st := h.agenticScanStatus[uuid]; st != nil && !database.IsTerminalAgenticScanStatus(st.Status) {
 		st.Status = "cancelling"
 	}
 	h.agentMu.Unlock()

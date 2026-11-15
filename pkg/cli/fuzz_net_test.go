@@ -39,8 +39,12 @@ func TestReplayAndFuzzClientsKeepPortThroughProxy(t *testing.T) {
 	if bulk != nil {
 		defer bulk.Close()
 	}
+	replayClient, err := newReplayClient(nil, 0)
+	if err != nil {
+		t.Fatalf("newReplayClient: %v", err)
+	}
 	clients := map[string]*http.Client{
-		"replay": newReplayClient(nil, 0),
+		"replay": replayClient,
 		"fuzz":   fuzzClient,
 	}
 	for name, client := range clients {

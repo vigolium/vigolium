@@ -31,6 +31,10 @@ func TestRequestScanStop(t *testing.T) {
 	if err != nil || req == nil || req.By != "cli:alice@host" || req.At.IsZero() {
 		t.Fatalf("ScanStopRequested = %+v, %v", req, err)
 	}
+	// The heartbeat's UPDATE returns the same request.
+	if ok, beatReq, err := repo.UpdateScanHeartbeat(ctx, "run-1", ScanHeartbeat{At: time.Now()}); err != nil || !ok || beatReq == nil || beatReq.By != "cli:alice@host" {
+		t.Fatalf("UpdateScanHeartbeat = %v, %+v, %v", ok, beatReq, err)
+	}
 
 	if ok, err := repo.RequestScanStop(ctx, "done-1", "x"); err != nil || ok {
 		t.Fatalf("finished row accepted a stop request: ok=%v err=%v", ok, err)

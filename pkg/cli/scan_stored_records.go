@@ -30,26 +30,20 @@ func registerIncludeStoredFlag(cmd *cobra.Command) {
 		"Also test the records already stored for the target's hosts (by default only the input and what this run finds from it are tested)")
 }
 
-// storedRecordsMode is the Options.StoredRecords value for cmd: "exclude"
-// for --input-only and for the input-only commands without --include-stored,
-// "include" for --include-stored, "" (include) otherwise.
+// storedRecordsMode is the Options.StoredRecords value for cmd. A command
+// with --include-stored names an input: "include" with the flag, "exclude"
+// when it has targets, "" (include) over stored records alone. Any other
+// command names an origin: "exclude" only for --input-only.
 func storedRecordsMode(cmd *cobra.Command, hasTargets bool) string {
-	switch commandPathWithoutRoot(cmd) {
-	case "scan-url", "scan-request":
-		if scanIncludeStored {
-			return types.StoredRecordsInclude
-		}
-		return types.StoredRecordsExclude
-	case "run":
-		if scanIncludeStored {
-			return types.StoredRecordsInclude
-		}
-		if hasTargets {
+	switch {
+	case cmd.Flags().Lookup("include-stored") == nil:
+		if scanInputOnly {
 			return types.StoredRecordsExclude
 		}
 		return ""
-	}
-	if scanInputOnly {
+	case scanIncludeStored:
+		return types.StoredRecordsInclude
+	case hasTargets:
 		return types.StoredRecordsExclude
 	}
 	return ""

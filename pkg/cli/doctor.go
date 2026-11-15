@@ -471,7 +471,7 @@ func printDoctorReport(r *diagnostics.Report, dc *doctorContext) {
 		printTip(r.Initialized.Tip)
 	}
 	if dc != nil {
-		pc := diagnostics.ProxyCheck(dc.proxyURL, dc.proxySource)
+		pc := diagnostics.ProxyCheck(dc.proxy, dc.proxySource)
 		printCheck("Proxy", pc.Status, pc.Message)
 		printDetails(detailsVisible(pc.Status), pc.Details)
 		printTip(pc.Tip)

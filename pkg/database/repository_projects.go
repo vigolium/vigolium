@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
 	"github.com/vigolium/vigolium/pkg/apicontract"
 
 	"github.com/uptrace/bun"

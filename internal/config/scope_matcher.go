@@ -250,30 +250,39 @@ const (
 //
 // Nil-safe: a scan with no matcher rejects nothing.
 func (m *ScopeMatcher) RejectReason(host, path string) string {
+	rule, _ := m.RejectDetail(host, path)
+	return rule
+}
+
+// RejectDetail is RejectReason plus the pattern responsible: the exclude
+// pattern that matched, the include list that admitted nothing, the origin
+// mode, or the static extension. Both are "" when host/path is in scope.
+func (m *ScopeMatcher) RejectDetail(host, path string) (rule, pattern string) {
 	if m == nil {
-		return ""
+		return "", ""
 	}
 	if !m.dynamicallyAllowed(host) {
-		switch evalGlob(host, m.cfg.Host) {
+		switch v, p := evalGlobWith(host, m.cfg.Host, globMatch); v {
 		case globExcluded:
-			return ScopeRuleHostExclude
+			return ScopeRuleHostExclude, p
 		case globNotIncluded:
-			return ScopeRuleHostInclude
+			return ScopeRuleHostInclude, strings.Join(m.cfg.Host.Include, ", ")
 		}
 		if !m.hostMatchesOrigin(host) {
-			return ScopeRuleCLIOriginMode
+			return ScopeRuleCLIOriginMode, m.cfg.CLIOriginMode
 		}
 	}
-	switch evalPathGlob(path, m.cfg.Path) {
+	scopePath := pathglob.ScopePath(path)
+	switch v, p := evalGlobWith(scopePath, m.cfg.Path, pathGlobMatch); v {
 	case globExcluded:
-		return ScopeRulePathExclude
+		return ScopeRulePathExclude, p
 	case globNotIncluded:
-		return ScopeRulePathInclude
+		return ScopeRulePathInclude, strings.Join(m.cfg.Path.Include, ", ")
 	}
 	if m.IsStaticFile(path) {
-		return ScopeRuleStaticFile
+		return ScopeRuleStaticFile, filepath.Ext(scopePath)
 	}
-	return ""
+	return "", ""
 }
 
 // HostInScope reports whether host is within the configured scope (host rule +
@@ -316,16 +325,22 @@ func matchesExcludeRule(value string, rule ScopeRule) bool {
 }
 
 func matchesExcludeRuleWith(value string, rule ScopeRule, match func(value, pattern string) bool) bool {
+	_, ok := excludePatternWith(value, rule, match)
+	return ok
+}
+
+// excludePatternWith is the first of rule's exclude patterns value matches.
+func excludePatternWith(value string, rule ScopeRule, match func(value, pattern string) bool) (string, bool) {
 	if len(rule.Exclude) == 0 {
-		return false
+		return "", false
 	}
 	valueLower := strings.ToLower(value)
 	for _, pattern := range rule.Exclude {
 		if match(valueLower, strings.ToLower(pattern)) {
-			return true
+			return pattern, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // IsStaticFile returns true if the URL path ends with a known static-asset extension.
@@ -540,44 +555,47 @@ func matchPathGlob(path string, rule ScopeRule) bool {
 func pathGlobMatch(value, pattern string) bool { return pathglob.Match(pattern, value) }
 
 func evalPathGlob(path string, rule ScopeRule) globVerdict {
-	return evalGlobWith(pathglob.ScopePath(path), rule, pathGlobMatch)
+	v, _ := evalGlobWith(pathglob.ScopePath(path), rule, pathGlobMatch)
+	return v
 }
 
 // evalGlob is matchGlob with the reason kept: RejectReason needs to know which
 // side of the rule refused, and deriving both from one function is what keeps
 // the explanation and the verdict from drifting.
 func evalGlob(value string, rule ScopeRule) globVerdict {
-	return evalGlobWith(value, rule, globMatch)
+	v, _ := evalGlobWith(value, rule, globMatch)
+	return v
 }
 
 // evalGlobWith is evalGlob with the pattern matcher supplied (match(value,
-// pattern), both lowercased).
-func evalGlobWith(value string, rule ScopeRule, match func(value, pattern string) bool) globVerdict {
+// pattern), both lowercased) and, for globExcluded, the exclude pattern that
+// matched.
+func evalGlobWith(value string, rule ScopeRule, match func(value, pattern string) bool) (globVerdict, string) {
 	if isDefaultPassAll(rule) {
-		return globPass
+		return globPass, ""
 	}
 
 	// Check excludes first (higher priority). Through the same helper
 	// ExplicitlyExcluded uses, so the pre-send exclusion check and the full scope
 	// decision cannot disagree about what an exclude pattern matches.
-	if matchesExcludeRuleWith(value, rule, match) {
-		return globExcluded
+	if p, ok := excludePatternWith(value, rule, match); ok {
+		return globExcluded, p
 	}
 
 	// If include is empty or only contains "*", match everything
 	if len(rule.Include) == 0 || (len(rule.Include) == 1 && rule.Include[0] == "*") {
-		return globPass
+		return globPass, ""
 	}
 
 	// Check includes
 	valueLower := strings.ToLower(value)
 	for _, pattern := range rule.Include {
 		if match(valueLower, strings.ToLower(pattern)) {
-			return globPass
+			return globPass, ""
 		}
 	}
 
-	return globNotIncluded
+	return globNotIncluded, ""
 }
 
 // matchStatusCode checks if the status code matches the rule patterns.

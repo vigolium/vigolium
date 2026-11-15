@@ -350,7 +350,7 @@ func TestReapAbandonedScans(t *testing.T) {
 	create := func(uuid, project string, started time.Time, beat *time.Time) {
 		require.NoError(t, repo.CreateScan(ctx, &database.Scan{UUID: uuid, ProjectUUID: project, Status: "running", StartedAt: started, CreatedAt: started, UpdatedAt: started}))
 		if beat != nil {
-			_, err := repo.UpdateScanHeartbeat(ctx, uuid, database.ScanHeartbeat{At: *beat, Phase: "discovery"})
+			_, _, err := repo.UpdateScanHeartbeat(ctx, uuid, database.ScanHeartbeat{At: *beat, Phase: "discovery"})
 			require.NoError(t, err)
 		}
 	}
@@ -415,7 +415,7 @@ func TestAbandonedScanReaper(t *testing.T) {
 	} {
 		start := now.Add(-3 * time.Hour)
 		require.NoError(t, repo.CreateScan(ctx, &database.Scan{UUID: uuid, ProjectUUID: spec.project, Status: "running", StartedAt: start, CreatedAt: start, UpdatedAt: start}))
-		_, err := repo.UpdateScanHeartbeat(ctx, uuid, database.ScanHeartbeat{At: spec.beat, Phase: "discovery"})
+		_, _, err := repo.UpdateScanHeartbeat(ctx, uuid, database.ScanHeartbeat{At: spec.beat, Phase: "discovery"})
 		require.NoError(t, err)
 	}
 

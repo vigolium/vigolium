@@ -18,8 +18,8 @@ import (
 // 36 characters is something a model gets wrong often enough to matter.
 
 // uuidShortLen is the length of a uuid_short: the shortest prefix the resolver
-// expands (database.MinRecordUUIDPrefix).
-const uuidShortLen = database.MinRecordUUIDPrefix
+// expands.
+const uuidShortLen = database.MinUUIDPrefix
 
 // uuidShort returns the resolvable short form of a record UUID.
 func uuidShort(u string) string {

@@ -6,11 +6,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/vigolium/vigolium/pkg/agent/recon"
 	"maps"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/vigolium/vigolium/pkg/agent/recon"
 
 	"github.com/uptrace/bun"
 )

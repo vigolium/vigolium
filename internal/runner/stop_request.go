@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -36,14 +35,21 @@ func SessionStopPath(sessionsDir, scanUUID string) string {
 // directory must already exist (the heartbeat created it): a sentinel for a
 // scan that never ran on this host would stop nothing.
 func WriteStopSentinel(sessionsDir, scanUUID, by string) (string, error) {
-	path := SessionStopPath(sessionsDir, scanUUID)
-	if _, err := os.Stat(filepath.Dir(path)); err != nil {
+	return WriteSentinel(filepath.Join(sessionsDir, scanUUID), SessionStopFilename, by)
+}
+
+// WriteSentinel writes a StopRequest from by as filename inside the existing
+// directory dir (a scan's or agent run's session directory) and returns its
+// path.
+func WriteSentinel(dir, filename, by string) (string, error) {
+	if _, err := os.Stat(dir); err != nil {
 		return "", err
 	}
 	data, err := json.Marshal(StopRequest{By: by, At: time.Now().UTC()})
 	if err != nil {
 		return "", err
 	}
+	path := filepath.Join(dir, filename)
 	return path, atomicfile.WriteBytes(path, data)
 }
 
@@ -68,27 +74,15 @@ func readStopSentinel(path string) *StopRequest {
 	return &req
 }
 
-// stopRequestBudget bounds the per-beat read of the stop request columns.
-const stopRequestBudget = 2 * time.Second
-
 // pollStopRequest checks the two places a stop request can arrive — the scan
-// row's stop_requested_at and the session's stop sentinel — and hands the
-// first one found to OnStopRequest, once.
-func (h *Heartbeat) pollStopRequest() {
+// row's stop_requested_at, which the beat's UPDATE returned as dbReq, and the
+// session's stop sentinel — and hands the first one found to OnStopRequest,
+// once.
+func (h *Heartbeat) pollStopRequest(dbReq *StopRequest) {
 	if h.cfg.OnStopRequest == nil || h.stopDelivered.Load() {
 		return
 	}
-	var req *StopRequest
-	if h.cfg.Repo != nil && h.cfg.ScanUUID != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), stopRequestBudget)
-		got, err := h.cfg.Repo.ScanStopRequested(ctx, h.cfg.ScanUUID)
-		cancel()
-		if err != nil {
-			zap.L().Debug("heartbeat: stop request read failed", zap.String("scan_uuid", h.cfg.ScanUUID), zap.Error(err))
-		} else if got != nil {
-			req = &StopRequest{By: got.By, At: got.At}
-		}
-	}
+	req := dbReq
 	if req == nil && h.cfg.SessionsDir != "" && h.cfg.ScanUUID != "" {
 		req = readStopSentinel(SessionStopPath(h.cfg.SessionsDir, h.cfg.ScanUUID))
 	}

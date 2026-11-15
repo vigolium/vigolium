@@ -15,7 +15,7 @@ func TestUpdateScanHeartbeat(t *testing.T) {
 
 	at := time.Now().UTC().Truncate(time.Millisecond)
 	sent := int64(42)
-	if ok, err := repo.UpdateScanHeartbeat(ctx, "hb-1", ScanHeartbeat{At: at, Phase: "discovery", RequestsSent: &sent, PID: 1234, Host: "box"}); err != nil || !ok {
+	if ok, _, err := repo.UpdateScanHeartbeat(ctx, "hb-1", ScanHeartbeat{At: at, Phase: "discovery", RequestsSent: &sent, PID: 1234, Host: "box"}); err != nil || !ok {
 		t.Fatalf("update = %v, %v", ok, err)
 	}
 	got, err := repo.GetScanByUUID(ctx, "hb-1")
@@ -30,7 +30,7 @@ func TestUpdateScanHeartbeat(t *testing.T) {
 	}
 
 	// The final beat clears the phase; a nil count leaves total_requests alone.
-	if _, err := repo.UpdateScanHeartbeat(ctx, "hb-1", ScanHeartbeat{At: at.Add(time.Second)}); err != nil {
+	if _, _, err := repo.UpdateScanHeartbeat(ctx, "hb-1", ScanHeartbeat{At: at.Add(time.Second)}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = repo.GetScanByUUID(ctx, "hb-1")
@@ -43,7 +43,7 @@ func TestUpdateScanHeartbeat(t *testing.T) {
 		t.Fatal(err)
 	}
 	late := at.Add(time.Hour)
-	ok, err := repo.UpdateScanHeartbeat(ctx, "hb-1", ScanHeartbeat{At: late, Phase: "x"})
+	ok, _, err := repo.UpdateScanHeartbeat(ctx, "hb-1", ScanHeartbeat{At: late, Phase: "x"})
 	if err != nil || ok {
 		t.Fatalf("beat on a completed row = %v, %v; want false, nil", ok, err)
 	}

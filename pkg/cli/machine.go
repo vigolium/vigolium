@@ -50,6 +50,12 @@ func withDBPath(path string) envOpt {
 	return func(e *agentEnvelope) { e.DBPath = path }
 }
 
+// withDryRun marks the result a dry run (dry_run: true): nothing was sent
+// or written.
+func withDryRun() envOpt {
+	return func(e *agentEnvelope) { e.DryRun = true }
+}
+
 // withProjectScope records the project filter that was actually applied.
 func withProjectScope(projectUUID string) envOpt {
 	return func(e *agentEnvelope) { e.WithProjectScope(projectUUID) }

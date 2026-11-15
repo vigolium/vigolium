@@ -9,6 +9,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/diagnostics"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
@@ -16,20 +17,16 @@ import (
 // each setting came from, and which proxy requests go through.
 type doctorContext struct {
 	sources     map[string]string
-	proxyURL    string
+	proxy       *proxyenv.Route
 	proxySource string
 }
 
 func newDoctorContext(settings *config.Settings, project string) *doctorContext {
 	c := &doctorContext{}
 	c.sources, _ = config.TraceSources(config.TraceOptions{ConfigPath: globalConfig, ProjectUUID: project, FlagKeys: configFlagKeys()})
-	c.proxyURL, c.proxySource = doctorProxySource()
+	c.proxy, c.proxySource = effectiveProxy(globalProxy)
 	return c
 }
-
-// doctorProxySource names the proxy the HTTP stack sends through and where it
-// came from; ("", "none") when requests connect directly.
-func doctorProxySource() (proxyURL, source string) { return effectiveProxy(globalProxy) }
 
 // doctorCheckKeys is the setting each check tests, for the source it names
 // when it fails.
@@ -46,7 +43,7 @@ var doctorCheckKeys = map[string]string{
 // tested setting on every check that is not ok.
 func (c *doctorContext) checks(r *diagnostics.Report) []diagnostics.Check {
 	base := r.Checks()
-	pc := diagnostics.ProxyCheck(c.proxyURL, c.proxySource)
+	pc := diagnostics.ProxyCheck(c.proxy, c.proxySource)
 	proxy := diagnostics.Check{ID: "proxy", Group: "core", Status: string(pc.Status), Message: pc.Message, Tip: pc.Tip, Details: pc.Details}
 	if pc.Status != diagnostics.StatusOK {
 		proxy.Affects = []string{"every request"}
@@ -171,7 +168,7 @@ func emitDoctorDryRun(cmd *cobra.Command, dc *doctorContext, report *diagnostics
 	checks := dc.filter(dc.checks(report))
 	return emitRead(cmd, "", checks, int64(len(checks)), 0, len(checks),
 		withExtra("status", report.Status), withExtra("capabilities", report.Capabilities()),
-		withExtra("fixes", plan), func(e *agentEnvelope) { e.DryRun = true })
+		withExtra("fixes", plan), withDryRun())
 }
 
 // emitDoctorLegacyJSON is the pre-flattening document: items:[report], and

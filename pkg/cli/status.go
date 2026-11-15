@@ -3,9 +3,9 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,6 +16,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 var statusCmd = &cobra.Command{
@@ -104,22 +105,6 @@ type statusProxyView struct {
 	Source string `json:"source"`
 }
 
-// statusProxyResolver names the proxy a send would use and where it came
-// from, through the HTTP stack's own resolver so status and the senders agree.
-var statusProxyResolver = effectiveProxy
-
-// redactProxyURL drops the password from a proxy URL.
-func redactProxyURL(raw string) string {
-	if raw == "" {
-		return ""
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.User == nil {
-		return raw
-	}
-	return u.Redacted()
-}
-
 func runStatus(cmd *cobra.Command, _ []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
@@ -135,8 +120,8 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		SessionsDir: config.ContractPath(settings.ScanningStrategy.ScanLogs.EffectiveSessionsDir()),
 		SkillStale:  doctorSkillStale(),
 	}
-	pURL, pSource := statusProxyResolver(globalProxy)
-	view.Proxy = statusProxyView{URL: redactProxyURL(pURL), Source: pSource}
+	route, pSource := effectiveProxy(globalProxy)
+	view.Proxy = statusProxyView{URL: route.Redacted(), Source: pSource}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -150,7 +135,9 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		}
 		view.DBPath = config.ContractPath(resolvedReadDBPath())
 		repo := database.NewRepository(db)
-		if projectUUID != "" {
+		if p := clicommon.ResolvedProject(); p != nil && p.UUID == projectUUID {
+			view.ProjectName = p.Name
+		} else if projectUUID != "" {
 			if p, err := repo.GetProjectByUUID(ctx, projectUUID); err == nil && p != nil {
 				view.ProjectName = p.Name
 			}
@@ -200,18 +187,36 @@ func statusScopeOf(s config.ScopeConfig) statusScopeView {
 
 // statusCounts is three plain COUNT queries, scoped to the project.
 func statusCounts(ctx context.Context, db *database.DB, projectUUID string) *statusCountsView {
-	count := func(table string) int {
-		q := db.NewSelect().TableExpr(table)
-		if projectUUID != "" {
-			q = q.Where("project_uuid = ?", projectUUID)
+	count := func(model any, where ...string) func() int {
+		return func() int {
+			q := db.NewSelect().Model(model)
+			if projectUUID != "" {
+				q = q.Where("project_uuid = ?", projectUUID)
+			}
+			for _, w := range where {
+				q = q.Where(w, database.RecordKindFinding)
+			}
+			n, err := q.Count(ctx)
+			if err != nil {
+				return -1
+			}
+			return int(n)
 		}
-		n, err := q.Count(ctx)
-		if err != nil {
-			return -1
-		}
-		return int(n)
 	}
-	return &statusCountsView{Records: count("http_records"), Findings: count("findings"), Scans: count("scans")}
+	// Findings are confirmed findings only, as GetProjectStats counts them:
+	// candidates and observations share the table.
+	queries := []func() int{
+		count((*database.HTTPRecord)(nil)),
+		count((*database.Finding)(nil), "(record_kind IS NULL OR record_kind = '' OR record_kind = ?)"),
+		count((*database.Scan)(nil)),
+	}
+	got := make([]int, len(queries))
+	var wg sync.WaitGroup
+	for i, q := range queries {
+		wg.Go(func() { got[i] = q() })
+	}
+	wg.Wait()
+	return &statusCountsView{Records: got[0], Findings: got[1], Scans: got[2]}
 }
 
 // statusRunning lists up to statusRunningLimit scans whose row says running,
@@ -230,7 +235,7 @@ func statusRunning(ctx context.Context, repo *database.Repository, projectUUID, 
 	for _, s := range shown {
 		statusFile := runner.SessionStatusPath(sessionsDir, s.UUID)
 		lv := sessionLiveness(s, statusFile, resolveSessionLogPath(filepath.Join(sessionsDir, s.UUID)), lastLogs[s.UUID])
-		item := statusRunScan{ScanUUID: s.UUID, Target: truncateStatusTarget(s.Target),
+		item := statusRunScan{ScanUUID: s.UUID, Target: textutil.TruncateUTF8Ellipsis(s.Target, 80, "..."),
 			EffectiveStatus: effectiveStatus(s.Status, s.ErrorMessage, lv), Phase: s.CurrentPhase, PID: s.PID}
 		if t := formatLivenessTime(lv.LastWriteAt); t != nil {
 			item.LastWriteAt = *t
@@ -238,13 +243,6 @@ func statusRunning(ctx context.Context, repo *database.Repository, projectUUID, 
 		out = append(out, item)
 	}
 	return out, len(rows)
-}
-
-func truncateStatusTarget(t string) string {
-	if len(t) > 80 {
-		return t[:77] + "..."
-	}
-	return t
 }
 
 func printStatusHuman(v statusView) {

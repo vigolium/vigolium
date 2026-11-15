@@ -236,8 +236,11 @@ func (h *HostRateLimiter) Feedback(host string, o FeedbackOutcome) {
 	if err != nil && isConnReset(err) {
 		resetStorm = h.noteReset(host)
 	} else if err == nil && statusCode > 0 && h.anyReset.Load() {
-		if e := h.existing(host); e != nil {
-			e.resets.Store(0)
+		if entry == nil {
+			entry = h.existing(host)
+		}
+		if entry != nil && entry.resets.Load() != 0 {
+			entry.resets.Store(0)
 		}
 	}
 	if resetStorm && !wafBlocked {

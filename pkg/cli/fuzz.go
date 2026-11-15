@@ -338,7 +338,11 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	src, err := resolveFuzzSource(ctx, args)
+	gate, err := newSendScopeGate(fuzzIgnoreScope)
+	if err != nil {
+		return err
+	}
+	src, err := resolveFuzzSource(ctx, args, gate)
 	if err != nil {
 		return err
 	}
@@ -363,7 +367,7 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := checkFuzzScope(src.Hostname); err != nil {
+	if err := checkFuzzScope(gate, src.Hostname); err != nil {
 		return err
 	}
 
@@ -788,11 +792,11 @@ func plural(n int, one, many string) string {
 // source is often a pasted command whose target isn't obvious at a glance, so
 // the cheap guard is worth it. A project with no host scope configured passes
 // everything, and --ignore-scope is the deliberate override.
-func checkFuzzScope(hostname string) error {
+func checkFuzzScope(gate sendScopeGate, hostname string) error {
 	if hostname == "" {
 		return nil
 	}
-	return newSendScopeGate(fuzzIgnoreScope).check(hostname)
+	return gate.check(hostname)
 }
 
 // fuzzDryRun is the --dry-run report: what fuzz resolved, and the exact bytes
@@ -858,7 +862,7 @@ func emitFuzzDryRun(cmd *cobra.Command, src *replaySource, positions []fuzz.Posi
 	}
 
 	if globalJSON {
-		return emitObject(cmd, ".", redactFuzzDryRun(report))
+		return emitObject(cmd, ".", redactFuzzDryRun(report), withDryRun())
 	}
 	fmt.Printf("%s dry run — %d position(s), %s, %d sends, pace: %s, nothing sent\n\n",
 		terminal.InfoSymbol(), len(positions), fuzzMode, report.Sends, report.Pace)
@@ -1000,7 +1004,7 @@ func fuzzExcerptCap() int {
 
 // resolveFuzzSource picks the request to fuzz from a positional URL, -i/--input,
 // -u/--record-uuid, or piped stdin — reusing replay's source resolvers.
-func resolveFuzzSource(ctx context.Context, args []string) (*replaySource, error) {
+func resolveFuzzSource(ctx context.Context, args []string, gate sendScopeGate) (*replaySource, error) {
 	set := 0
 	if len(args) == 1 {
 		set++
@@ -1044,7 +1048,7 @@ func resolveFuzzSource(ctx context.Context, args []string) (*replaySource, error
 		}, nil
 
 	case fuzzInput != "" || fuzzInputFile != "":
-		return sourceFromInput(ctx, repo, fuzzInput, fuzzInputFile, rawInputOptions{pin: fuzzTargetURL, ignoreScope: fuzzIgnoreScope})
+		return sourceFromInput(ctx, repo, fuzzInput, fuzzInputFile, rawInputOptions{pin: fuzzTargetURL, gate: gate})
 
 	case fuzzRecordUUID != "":
 		if repo == nil {
@@ -1059,7 +1063,7 @@ func resolveFuzzSource(ctx context.Context, args []string) (*replaySource, error
 			return nil, err
 		}
 		if ok {
-			return sourceFromInputString(ctx, repo, data, "", rawInputOptions{pin: fuzzTargetURL, ignoreScope: fuzzIgnoreScope})
+			return sourceFromInputString(ctx, repo, data, "", rawInputOptions{pin: fuzzTargetURL, gate: gate})
 		}
 		return nil, usageErrorf("no source: pass a URL, --input, --record-uuid, or pipe a request on stdin")
 	}

@@ -612,11 +612,6 @@ func (r *Repository) GetRecordByUUID(ctx context.Context, uuid string) (*HTTPRec
 	return record, nil
 }
 
-// MinRecordUUIDPrefix is the shortest prefix GetRecordByUUIDOrPrefix will
-// expand. Eight hex characters is 4 billion values - unique in any real
-// project - and short enough for a model to copy without mangling it.
-const MinRecordUUIDPrefix = 8
-
 // GetRecordByUUIDOrPrefix retrieves a record by full UUID, falling back to
 // expanding an unambiguous prefix. Returns sql.ErrNoRows when nothing
 // matches, and an error naming the candidates when a prefix is ambiguous.
@@ -631,7 +626,7 @@ const MinRecordUUIDPrefix = 8
 // the prefix scan only runs once that has missed.
 func (r *Repository) GetRecordByUUIDOrPrefix(ctx context.Context, idOrPrefix string) (*HTTPRecord, error) {
 	rec, err := r.GetRecordByUUID(ctx, idOrPrefix)
-	if err == nil || !errors.Is(err, sql.ErrNoRows) || len(idOrPrefix) < MinRecordUUIDPrefix {
+	if err == nil || !errors.Is(err, sql.ErrNoRows) || len(idOrPrefix) < MinUUIDPrefix {
 		return rec, err
 	}
 	full, resolveErr := r.ResolveRecordUUID(ctx, idOrPrefix)

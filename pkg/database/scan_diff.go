@@ -349,9 +349,6 @@ const (
 	ScanRefPrevious = "previous"
 )
 
-// minScanUUIDPrefix is the shortest scan UUID prefix ResolveScanRef expands.
-const minScanUUIDPrefix = 8
-
 // ResolveScanRef resolves a scan reference within the project: a full UUID, a
 // UUID prefix of at least 8 characters, or the keyword "latest" (the most
 // recently started scan that is not still running) / "previous" (the one
@@ -375,47 +372,31 @@ func (r *Repository) ResolveScanRef(ctx context.Context, projectUUID, ref string
 		return scans[idx], nil
 	}
 
-	scope := func(q *bun.SelectQuery) *bun.SelectQuery {
-		if projectUUID != "" {
-			q = q.Where("project_uuid = ?", projectUUID)
-		}
-		return q
-	}
 	scan := &Scan{}
-	err := scope(r.db.NewSelect().Model(scan).Where("uuid = ?", ref)).Scan(ctx)
+	q := r.db.NewSelect().Model(scan).Where("uuid = ?", ref)
+	if projectUUID != "" {
+		q = q.Where("project_uuid = ?", projectUUID)
+	}
+	err := q.Scan(ctx)
 	if err == nil {
 		return scan, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("look up scan %s: %w", ref, err)
 	}
-	if len(ref) < minScanUUIDPrefix {
-		return nil, fmt.Errorf("%w: %q (a prefix needs at least %d characters; keywords: latest, previous)", ErrScanNotFound, ref, minScanUUIDPrefix)
+	if len(ref) < MinUUIDPrefix {
+		return nil, fmt.Errorf("%w: %q (a prefix needs at least %d characters; keywords: latest, previous)", ErrScanNotFound, ref, MinUUIDPrefix)
 	}
-	upper, ok := prefixUpperBound(ref)
-	if !ok {
+	full, cands, err := r.ResolveUUIDPrefix(ctx, "scans", projectUUID, ref)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
 		return nil, fmt.Errorf("%w: %q", ErrScanNotFound, ref)
-	}
-	var scans []*Scan
-	if err := scope(r.db.NewSelect().Model(&scans).
-		Where("uuid >= ? AND uuid < ?", ref, upper).
-		OrderExpr("uuid ASC").Limit(6)).Scan(ctx); err != nil {
+	case err != nil:
 		return nil, fmt.Errorf("look up scan prefix %s: %w", ref, err)
+	case full == "":
+		return nil, fmt.Errorf("scan prefix %q matches several scans (%s) - use more characters", ref, strings.Join(cands, ", "))
 	}
-	switch len(scans) {
-	case 0:
-		return nil, fmt.Errorf("%w: %q", ErrScanNotFound, ref)
-	case 1:
-		return scans[0], nil
-	}
-	cands := make([]string, 0, 5)
-	for i, s := range scans {
-		if i == 5 {
-			break
-		}
-		cands = append(cands, s.UUID)
-	}
-	return nil, fmt.Errorf("scan prefix %q matches %d scans (%s) - use more characters", ref, len(scans), strings.Join(cands, ", "))
+	return r.GetScanByUUID(ctx, full)
 }
 
 // ScansForTarget returns the last n finished scans (newest first) whose target

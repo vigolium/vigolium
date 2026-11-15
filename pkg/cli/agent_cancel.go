@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/vigolium/vigolium/internal/atomicfile"
+	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/contract"
@@ -176,24 +176,11 @@ func runAgentCancel(cmd *cobra.Command, args []string) error {
 	}
 	sessionsDir := settings.Agent.EffectiveSessionsDir()
 	ctx := context.Background()
-
-	var repo *database.Repository
-	var db *database.DB
-	if d, err := getDB(); err == nil {
-		db, repo = d, database.NewRepository(d)
-	}
-	projectUUID := ""
-	if repo != nil && !statelessReadRequested() {
-		if projectUUID, err = resolveProjectUUID(); err != nil {
-			return err
-		}
-	}
-	uuid, err := resolveRunRef(ctx, db, "agentic_scans", projectUUID, args[0], func(prefix string) []string {
-		return sessionDirsWithPrefix(sessionsDir, prefix)
-	})
+	t, err := openRunTarget(ctx, "agentic_scans", sessionsDir, args[0])
 	if err != nil {
 		return err
 	}
+	uuid, repo := t.uuid, t.repo
 
 	out := agentCancelView{AgenticScanUUID: uuid, Via: []string{}}
 	changed := false
@@ -203,8 +190,10 @@ func runAgentCancel(cmd *cobra.Command, args []string) error {
 			run = r
 		}
 	}
-	if run != nil && projectUUID != "" && run.ProjectUUID != "" && run.ProjectUUID != projectUUID {
-		return codedErrorf(apicontract.CodeNotFound, "no agent run %s in this project (it belongs to project %s; pass --project-uuid to act on it)", uuid, run.ProjectUUID)
+	if run != nil {
+		if err := t.inProject(run.ProjectUUID, apicontract.CodeNotFound, "agent run"); err != nil {
+			return err
+		}
 	}
 	sessionDir := filepath.Join(sessionsDir, uuid)
 	if run != nil && run.SessionDir != "" {
@@ -221,10 +210,10 @@ func runAgentCancel(cmd *cobra.Command, args []string) error {
 		}
 		out.Status = status
 		if !ok {
-			out.Action = "already_finished"
+			out.Action = stopActionAlreadyFinished
 			break
 		}
-		out.Action, changed = "cancel_requested", true
+		out.Action, changed = cancelActionRequested, true
 		out.Via = append(out.Via, "db")
 		if haveSession && writeAgentCancelSentinel(sessionDir) == nil {
 			out.Via = append(out.Via, "sentinel")
@@ -233,26 +222,24 @@ func runAgentCancel(cmd *cobra.Command, args []string) error {
 		if err := writeAgentCancelSentinel(sessionDir); err != nil {
 			return fmt.Errorf("write cancel sentinel for run %s: %w", uuid, err)
 		}
-		out.Action, out.Status, changed = "cancel_requested", "unknown", true
+		out.Action, out.Status, changed = cancelActionRequested, "unknown", true
 		out.Via = append(out.Via, "sentinel")
 	default:
 		return codedErrorf(apicontract.CodeNotFound, "no agent run %s: not in this store and no session directory at %s", uuid, terminal.ShortenHome(sessionDir))
 	}
 
 	var waitErr error
-	if agentCancelWait && out.Action == "cancel_requested" && run != nil {
-		ack := false
-		deadline := time.Now().Add(agentCancelTimeout)
-		for {
+	if agentCancelWait && out.Action == cancelActionRequested && run != nil {
+		ack, err := pollUntil(ctx, realWaitClock{}, agentCancelTimeout, time.Second, func(ctx context.Context) (bool, error) {
 			status, stErr := repo.AgenticScanStatusByUUID(ctx, uuid)
-			if stErr == nil && isTerminalAgenticStatus(status) {
-				out.Status, ack = status, true
-				break
+			if stErr == nil && database.IsTerminalAgenticScanStatus(status) {
+				out.Status = status
+				return true, nil
 			}
-			if time.Now().After(deadline) {
-				break
-			}
-			time.Sleep(time.Second)
+			return false, nil
+		})
+		if err != nil {
+			return err
 		}
 		out.Acknowledged = &ack
 		if !ack {
@@ -271,7 +258,7 @@ func runAgentCancel(cmd *cobra.Command, args []string) error {
 	}
 	if !globalSilent {
 		switch out.Action {
-		case "cancel_requested":
+		case cancelActionRequested:
 			fmt.Printf("%s cancel requested for agent run %s (via %s); it stops within ~5s\n", terminal.InfoSymbol(), uuid, strings.Join(out.Via, ", "))
 			if out.Acknowledged != nil && *out.Acknowledged {
 				fmt.Printf("%s run %s is %s\n", terminal.SuccessSymbol(), uuid, out.Status)
@@ -284,18 +271,8 @@ func runAgentCancel(cmd *cobra.Command, args []string) error {
 }
 
 func writeAgentCancelSentinel(sessionDir string) error {
-	return atomicfile.WriteBytes(filepath.Join(sessionDir, agentCancelFilename),
-		[]byte(fmt.Sprintf(`{"by":%q,"at":%q}`, stopRequester(), time.Now().UTC().Format(time.RFC3339))))
-}
-
-// isTerminalAgenticStatus reports whether an agentic_scans status is final.
-func isTerminalAgenticStatus(status string) bool {
-	for _, s := range database.TerminalAgenticScanStatuses {
-		if s == status {
-			return true
-		}
-	}
-	return false
+	_, err := runner.WriteSentinel(sessionDir, agentCancelFilename, stopRequester())
+	return err
 }
 
 // agentRunFailure is the error for an agent run that ended with err: a run

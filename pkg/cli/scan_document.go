@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/vigolium/vigolium/pkg/agent/recon"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/vigolium/vigolium/pkg/agent/recon"
 
 	"github.com/spf13/pflag"
 	"github.com/uptrace/bun"

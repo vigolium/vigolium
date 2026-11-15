@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/proxytarget/proxytest"
 )
 
@@ -63,11 +64,7 @@ func targetServer(t *testing.T) (host string, port int, gotHost func() string) {
 
 func proxiedClient(t *testing.T, proxy *url.URL) *http.Client {
 	t.Helper()
-	client := NewDefaultClient(nil, 0)
-	if !SetProxy(client, proxy) {
-		t.Fatal("SetProxy did not apply to the default client")
-	}
-	return client
+	return NewClient(nil, 0, proxyenv.Resolve(proxy.String(), func(string) string { return "" }))
 }
 
 // TestSendRawThroughHTTPProxyKeepsPort pins the regression: the send path set
@@ -171,8 +168,7 @@ func TestSendRawDefaultPortThroughHTTPProxy(t *testing.T) {
 func TestSendRawDirectHostHeader(t *testing.T) {
 	host, port, gotHost := targetServer(t)
 	authority := host + ":" + strconv.Itoa(port)
-	client := NewDefaultClient(nil, 0)
-	SetProxy(client, nil)
+	client := NewClient(nil, 0, proxyenv.Choice{})
 
 	cases := []struct {
 		name string

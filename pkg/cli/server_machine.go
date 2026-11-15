@@ -311,15 +311,9 @@ func runServerStop(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("signal pid %d: %w", v.PID, err)
 	}
-	stopped := false
-	deadline := time.Now().Add(serverStopTimeout)
-	for time.Now().Before(deadline) {
-		if !procutil.IsProcessAlive(v.PID) {
-			stopped = true
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+	stopped, _ := pollUntil(context.Background(), realWaitClock{}, serverStopTimeout, 200*time.Millisecond, func(context.Context) (bool, error) {
+		return !procutil.IsProcessAlive(v.PID), nil
+	})
 	v.Stopped = &stopped
 	v.Running = !stopped
 	var waitErr error
