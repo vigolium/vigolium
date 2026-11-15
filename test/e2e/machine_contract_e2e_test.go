@@ -140,6 +140,7 @@ var machineContractRows = map[string]contractRow{
 
 	// Config.
 	"config clean":    {args: []string{"--force"}},
+	"config env":      {},
 	"config ls":       {},
 	"config set":      {args: []string{"dynamic-assessment.extensions.enabled", "true"}},
 	"config validate": {},
