@@ -832,9 +832,10 @@ Check system readiness and diagnose configuration issues
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | With --fix: list each install (method, destination, approximate size) without running it |
 | `--fix` | - | bool | `false` | Auto-install/fix failing checks |
 | `--for` | - | string | - | Scope the verdict to one purpose: scan\|agent\|server (checks that do not affect it are reported but not counted) |
-| `--only` | - | stringSlice | - | Fix only specific items (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill) |
+| `--only` | - | stringSlice | - | Show (and with --fix, repair) only these checks: a check id or fix key (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill,oast,agent,proxy,…) |
 | `--stateless` | `-S` | bool | `false` | With --for scan: the scan will use a temporary database, so the database check is skipped |
 | `--strict` | - | bool | `false` | Exit 1 when the verdict is degraded, not only when it is not_ready |
 | `--target` | `-t` | string | - | With --for scan: also check DNS, TCP and TLS reachability of this URL |
