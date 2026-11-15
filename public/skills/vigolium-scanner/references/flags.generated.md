@@ -598,6 +598,7 @@ Load session auth configs from a file or stdin into the database
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--agent-format` | - | bool | `false` | Force parsing as agent session-config.json format |
+| `--dry-run` | - | bool | `false` | Parse the sessions (or raw login request) and report them, without logging in or saving |
 | `--force` | - | bool | `false` | **(overrides the global `--force`)** Save sessions whose login check failed (still exits 1) |
 | `--host` | - | string | - | Hostname to associate sessions with (derived from login URL if omitted) |
 | `--name` | - | string | - | Session name (used with raw HTTP request input) |
@@ -645,7 +646,9 @@ Usage: `vigolium config set <key> <value>`
 
 Set a configuration value
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the value the key would get, without editing the config file |
 
 ## vigolium config validate
 
@@ -777,7 +780,9 @@ _No command-specific flags._
 
 Delete and recreate the database from scratch (SQLite only)
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show which database files would be deleted and recreated, without touching them |
 
 ## vigolium db seed
 
@@ -1105,6 +1110,7 @@ Import findings from a file or stdin
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Parse the input and report how many findings it holds, without storing them |
 | `--finding-file` | - | string | - | Path to findings file |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Associate imported findings with a scan UUID |
 
@@ -1118,6 +1124,7 @@ Record a verdict on findings (false_positive, confirmed, accepted_risk, fixed, t
 |------|-------|------|---------|-------------|
 | `--as` | - | string | - | Verdict to record: false_positive\|confirmed\|accepted_risk\|fixed\|triaged (required) |
 | `--by` | - | string | - | Who decided (default "cli") |
+| `--dry-run` | - | bool | `false` | Show which findings would change status, without writing |
 | `--note` | - | string | - | Why: stored with the verdict and in the finding's status history |
 | `--stateless` | `-S` | bool | `false` | Write to the standalone .sqlite named by --db with project scoping off |
 
@@ -1401,6 +1408,7 @@ Import scan data, databases, or live Burp Proxy history
 |------|-------|------|---------|-------------|
 | `--all-hosts` | - | bool | `false` | Import the operator's ENTIRE proxy history, unfiltered. Required when no filter is given — an unfiltered pull copies every host ever browsed, with its cookies and tokens, into this database. |
 | `--burp-bridge-url` | `-B` | string | - | Import live Burp/Caido proxy history from this loopback bridge URL into the database (alias: --caido-bridge-url) |
+| `--dry-run` | - | bool | `false` | Import into a throwaway database and report what would land, leaving the real one untouched (no report, no upload) |
 | `--exclude-search` | - | stringArray | - | Skip records matching this term (repeatable) |
 | `--from` | - | string | - | Import only records from this time onward (2d, 12h, today, YYYY-MM-DD, RFC3339) |
 | `--glob-db` | - | string | - | Glob of local files to import alongside any positional paths (use one format per run), e.g. --glob-db 'prefix-*.sqlite' or '*.jsonl' |
@@ -1435,6 +1443,7 @@ Ingest HTTP requests into database (locally or via server)
 | `--dir` | - | string | - | Ingest every matching file in this directory in one process (pairs with -I to fix the format, and --dir-glob to narrow the match) |
 | `--dir-glob` | - | string | `*` | Filename pattern for --dir (e.g. '*.har') |
 | `--disable-fetch-response` | - | bool | `false` | Store requests without fetching responses during ingestion |
+| `--dry-run` | - | bool | `false` | Parse the input and report how many requests it yields, without sending or storing any |
 | `--full-native-scan-on-receive` | - | bool | `false` | Run the full native scan pipeline (discovery + spidering + dynamic-assessment) continuously on received records, instead of dynamic-assessment only |
 | `--input` | `-i` | string | `-` | Input file path or spec (use - for stdin) |
 | `--input-mode` | `-I` | string | `urls` | Input format: urls, nuclei, openapi, wsdl, postman, curl, burpraw, burpxml, burpscope, har, deparos (aliases accepted, see --list-input-mode) |
@@ -1691,6 +1700,7 @@ Disable modules matching a search term
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show which modules would be disabled, without editing the config |
 | `--id` | - | bool | `false` | Match exact module ID instead of fuzzy search |
 
 ## vigolium module enable
@@ -1703,6 +1713,7 @@ Enable modules matching a search term
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show which modules would be enabled, without editing the config |
 | `--id` | - | bool | `false` | Match exact module ID instead of fuzzy search |
 
 ## vigolium module ls
@@ -1851,6 +1862,7 @@ Delete a project and every record tied to it
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the project and what it holds, without deleting anything |
 | `--keep-config` | - | bool | `false` | Keep the project's config directory (~/.vigolium/projects/<uuid>) on disk |
 
 ## vigolium project list
@@ -2141,6 +2153,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--probe` | - | bool | `false` | Enable the host-sweep phase: one request per target, passive tech fingerprinting + surface scoring, no content discovery or fuzzing (same as 'vigolium run probe') |
 | `--rate-limit` | `-r` | int|phase=int | `100` | Global requests/second cap, applied to native scanning AND known-issue-scan. Applies at its documented default even when unset; pass 0 for no cap. Accepts a phase qualifier, repeatable: --rate-limit known-issue-scan=20 |
 | `--record-redirect-chain` | - | bool | `false` | Store a followed redirect's hops as their own http_records rows, chained by parent_uuid, instead of keeping only the final response. Canonical hops (scheme upgrade, trailing slash, www.) collapse into their destination row, and a chain stores at most 4 rows, keeping the first and the last. Read by the probe phase; on by default under 'run probe'. |
+| `--record-uuid` | - | stringArray | - | Scan only this stored HTTP record (UUID or unique 8+ char prefix); repeatable. Runs the dynamic assessment over exactly these records unless --only/--skip pick phases. Cannot be combined with -t/-T/-i, --all-records, -S or --db-isolate |
 | `--redirect-mode` | - | string | - | Which redirects to follow: off \| same-host \| same-apex \| in-scope \| any (default in-scope; 'run probe' defaults to same-apex). 'in-scope' follows a hop only to a host the scan scope admits (same-apex when no scope is set). 'same-apex' follows within the registrable domain, so www.example.com -> example.com follows but example.com -> tracker.example.net does not. A hop to another host never carries session or -H headers. Every mode also stops at a login/SSO wall, whatever its host, and records the 3xx instead. |
 | `--report-url` | - | string | - | URL for the "Raw Report URL" button in HTML reports (overrides VIGOLIUM_REPORT_SHARED_URL) |
 | `--require-auth` | - | bool | `false` | Fail a target's spidering instead of crawling anonymously when configured authentication (session cookies/auth headers) cannot be applied to the browser (sets spidering.require_auth) |
@@ -2457,6 +2470,7 @@ Set a scope rule
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | Show the rule's old and new value, without editing the config |
 | `--project` | - | string | - | Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix) |
 
 ## vigolium scope view
@@ -2571,6 +2585,7 @@ Install skill bundle(s) into a coding agent's skills directory
 | `--agent` | - | string | `claude` | Target coding agent: claude, codex, or agents |
 | `--all` | - | bool | `false` | Install every bundled skill |
 | `--dir` | - | string | - | Override the destination directory (skips --agent/--scope resolution) |
+| `--dry-run` | - | bool | `false` | Show which skills would be installed or skipped, without writing files |
 | `--scope` | - | string | `project` | Install scope: project (current folder) or global (home dir) |
 
 ## vigolium skills list

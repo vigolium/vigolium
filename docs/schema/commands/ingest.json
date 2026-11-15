@@ -393,6 +393,9 @@
         "$ref": "#/$defs/core.DropSample"
       },
       "type": "array"
+    },
+    "would_ingest": {
+      "type": "integer"
     }
   },
   "additionalProperties": false,
