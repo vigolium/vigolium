@@ -1386,6 +1386,7 @@ Import scan data, databases, or live Burp Proxy history
 | `--exclude-search` | - | stringArray | - | Skip records matching this term (repeatable) |
 | `--from` | - | string | - | Import only records from this time onward (2d, 12h, today, YYYY-MM-DD, RFC3339) |
 | `--glob-db` | - | string | - | Glob of local files to import alongside any positional paths (use one format per run), e.g. --glob-db 'prefix-*.sqlite' or '*.jsonl' |
+| `--glob-strict` | - | bool | `false` | Stop at the first source that fails to import; by default a bad source is reported and the rest still import (exit 1 when any failed) |
 | `--host` | - | string | - | Import only records for this host (supports * wildcards, e.g. '*.example.com') |
 | `--include-scopes` | - | bool | `false` | Store the scope rules of a JSONL source in the active project (they change what later scans may reach); skipped by default |
 | `--limit` | `-n` | int | `0` | Import at most N records (0 = no limit) |

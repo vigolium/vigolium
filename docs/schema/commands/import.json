@@ -1,6 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "cli.importSourceStatus": {
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "source",
+        "status"
+      ]
+    },
     "contract.ErrorBody": {
       "properties": {
         "code": {
@@ -384,6 +403,15 @@
       "type": "integer"
     },
     "oast_merged": {
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/cli.importSourceStatus"
+      },
+      "type": "array"
+    },
+    "sources_failed": {
       "type": "integer"
     },
     "report_path": {
