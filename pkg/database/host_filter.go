@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/uptrace/bun"
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
 // HostFilter is a parsed --host value. Every read that takes --host accepts
@@ -36,13 +37,8 @@ func ParseHostFilter(raw string) HostFilter {
 			f := HostFilter{Host: u.Hostname(), Scheme: strings.ToLower(u.Scheme)}
 			if p, err := strconv.Atoi(u.Port()); err == nil {
 				f.Port = p
-			} else {
-				switch f.Scheme {
-				case "http", "ws":
-					f.Port = 80
-				case "https", "wss":
-					f.Port = 443
-				}
+			} else if p := httpmsg.GetDefaultPort(f.Scheme); p > 0 {
+				f.Port = p
 			}
 			return f
 		}

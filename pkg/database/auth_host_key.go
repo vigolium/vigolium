@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/vigolium/vigolium/pkg/httpmsg"
 )
 
 // AuthHostKey is the key a session is stored under in
@@ -53,16 +55,15 @@ func AuthHostLookupKeys(key string) []string {
 	return keys
 }
 
+// isDefaultSchemePort reports whether port is scheme's default; an empty
+// scheme is https.
 func isDefaultSchemePort(scheme, port string) bool {
 	n, err := strconv.Atoi(port)
 	if err != nil {
 		return false
 	}
-	switch strings.ToLower(scheme) {
-	case "http", "ws":
-		return n == 80
-	case "https", "wss", "":
-		return n == 443
+	if scheme == "" {
+		scheme = "https"
 	}
-	return false
+	return n == httpmsg.GetDefaultPort(scheme)
 }
