@@ -140,8 +140,14 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 			// instead of "Targets: 0".
 			targetsLine = fmt.Sprintf("All records: %s HTTP records in the %s",
 				terminal.Orange(fmt.Sprintf("%d", dbCount)), describeScanStore(settings, opts.ProjectUUID))
+		case err == nil && dbCount > 0 && opts.ExcludesStoredRecords():
+			targetsLine += fmt.Sprintf(" | %s stored HTTP Records not tested %s", terminal.Orange(fmt.Sprintf("%d", dbCount)),
+				terminal.Gray("(input only; --include-stored tests them)"))
 		case err == nil && dbCount > 0:
 			targetsLine += fmt.Sprintf(" | %s (HTTP Records)", terminal.Orange(fmt.Sprintf("%d", dbCount)))
+			if opts.StoredRecords == "" && !opts.ScanOnReceive && len(opts.Targets) > 0 {
+				targetsLine += " " + terminal.Gray("(stored records on these hosts are tested too; --input-only skips them)")
+			}
 		}
 	}
 	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolTarget), targetsLine)

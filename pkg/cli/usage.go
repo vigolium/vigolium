@@ -215,7 +215,7 @@ func terseGlobalFlags(fs *pflag.FlagSet) string {
 // all four. Every non-hidden local flag should live in exactly one group here so
 // the "Other:" section only ever holds cobra's auto-added --help.
 var scanFlagGroups = []flagGroup{
-	{"Target & Input", []string{"target", "target-file", "all-records", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
+	{"Target & Input", []string{"target", "target-file", "all-records", "input-only", "include-stored", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
 	{"Input Format", []string{"required-only", "skip-format-validation"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
 	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter", "allow-risky-payloads", "no-param-dedup", "header-fuzz", "resume-scan"}},

@@ -1960,6 +1960,7 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--heuristics-check` | - | string | - | Pre-scan heuristics level: none, basic, advanced (default: basic) |
 | `--ignore-file` | - | string | - | YAML list of finding hashes to ignore ({hash, reason, expires}); default .vigolium-ignore.yaml when present |
 | `--include-response` | - | bool | `false` | Include full HTTP response body in output |
+| `--include-stored` | - | bool | `false` | Also test the records already stored for the target's hosts (by default only the input and what this run finds from it are tested) |
 | `--input` | `-i` | string | `-` | Input file path or spec (use - for stdin) |
 | `--input-mode` | `-I` | string | `urls` | Input format: urls, nuclei, openapi, wsdl, postman, curl, burpraw, burpxml, burpscope, har, deparos (aliases accepted, see --list-input-mode) |
 | `--input-read-timeout` | - | duration | `3m0s` | Deadline for reading input from stdin; 0 disables it |
@@ -2076,6 +2077,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--include-response` | - | bool | `false` | Include full HTTP response body in output |
 | `--input` | `-i` | string | `-` | Input file path or spec (use - for stdin) |
 | `--input-mode` | `-I` | string | `urls` | Input format: urls, nuclei, openapi, wsdl, postman, curl, burpraw, burpxml, burpscope, har, deparos (aliases accepted, see --list-input-mode) |
+| `--input-only` | - | bool | `false` | Test only the targets/input and what this run finds from them, not the records already stored for their hosts |
 | `--input-read-timeout` | - | duration | `3m0s` | Deadline for reading input from stdin; 0 disables it |
 | `--intensity` | - | string | - | How hard to scan: quick, balanced (default), or deep — the one dial for phases, pace and module tiers (sets --strategy and --scanning-profile) |
 | `--keep-db-on-error` | - | bool | `false` | On a failed -S/--stateless scan, move the throwaway working database to ~/.vigolium/recovered instead of deleting it, so the partial results survive the failure (requires -S) |
@@ -2226,6 +2228,7 @@ Scan a raw HTTP request for vulnerabilities
 | `--header` | `-H` | stringArray | - | Set a header on the captured request (repeatable, e.g. -H 'Cookie: a=1'): replaces every same-named captured header, else appends. Commas are literal — repeat -H for multiple headers. |
 | `--ignore-file` | - | string | - | YAML list of finding hashes to ignore ({hash, reason, expires}); default .vigolium-ignore.yaml when present |
 | `--ignore-scope` | - | bool | `false` | Scan the target even when the configured scope rejects it (relaxes scope.host/scope.path for this run) |
+| `--include-stored` | - | bool | `false` | Also test the records already stored for the target's hosts (by default only the input and what this run finds from it are tested) |
 | `--input` | `-i` | string | `-` | Input file or - for stdin |
 | `--input-read-timeout` | - | duration | `3m0s` | Deadline for reading input from stdin; 0 disables it |
 | `--intensity` | - | string | - | How hard to scan: quick, balanced (default), or deep — the one dial for phases, pace and module tiers (sets --strategy and --scanning-profile) |
@@ -2291,6 +2294,7 @@ Scan a single URL for vulnerabilities
 | `--header` | `-H` | stringArray | - | Custom header (repeatable, e.g. -H 'Cookie: x=1'). Commas are literal — repeat -H for multiple headers. |
 | `--ignore-file` | - | string | - | YAML list of finding hashes to ignore ({hash, reason, expires}); default .vigolium-ignore.yaml when present |
 | `--ignore-scope` | - | bool | `false` | Scan the target even when the configured scope rejects it (relaxes scope.host/scope.path for this run) |
+| `--include-stored` | - | bool | `false` | Also test the records already stored for the target's hosts (by default only the input and what this run finds from it are tested) |
 | `--input-read-timeout` | - | duration | `3m0s` | Deadline for reading input from stdin; 0 disables it |
 | `--intensity` | - | string | - | How hard to scan: quick, balanced (default), or deep — the one dial for phases, pace and module tiers (sets --strategy and --scanning-profile) |
 | `--keep-db-on-error` | - | bool | `false` | On a failed -S/--stateless scan, move the throwaway working database to ~/.vigolium/recovered instead of deleting it, so the partial results survive the failure (requires -S) |

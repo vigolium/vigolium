@@ -45,6 +45,7 @@ func init() {
 	flags.StringArrayVarP(&scanURLHeaders, "header", "H", nil, "Set a header on the captured request (repeatable, e.g. -H 'Cookie: a=1'): replaces every same-named captured header, else appends. Commas are literal — repeat -H for multiple headers.")
 	registerPhaseFlags(flags)
 	registerLightweightScanIOFlags(flags)
+	registerIncludeStoredFlag(scanRequestCmd)
 	registerLightweightScanTuningFlags(flags)
 }
 

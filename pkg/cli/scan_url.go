@@ -87,6 +87,7 @@ func init() {
 	registerHTTPClientFlags(flags)
 	registerPhaseFlags(flags)
 	registerLightweightScanIOFlags(flags)
+	registerIncludeStoredFlag(scanURLCmd)
 	registerLightweightScanTuningFlags(flags)
 }
 
@@ -1035,6 +1036,12 @@ func buildPhaseOptions(target string) (*types.Options, error) {
 	// nothing is sent twice.
 	opts.Headers = append([]string(nil), scanURLHeaders...)
 	opts.OutputFormats = parseFormats(globalFormat)
+	// The input is what the Runner tests: the records stored for its host are
+	// left alone unless --include-stored.
+	opts.StoredRecords = types.StoredRecordsExclude
+	if scanIncludeStored {
+		opts.StoredRecords = types.StoredRecordsInclude
+	}
 	// reconcileOutputFormats validates formats and sets DeferredJSONLExport, which
 	// the post-scan jsonl export keys off of. Propagate its error rather than
 	// discarding it: callers (runScanURLCmd/runScanRequestCmd) also pre-validate

@@ -49,6 +49,7 @@ func init() {
 	registerSpecFlags(flags)
 	flags.StringVar(&scanOpts.FingerprintDepth, "fingerprint-depth", "", "With the fingerprint phase: reads per origin, light|standard|full (default standard, light past 50 targets; 'vigolium fingerprint --depth')")
 	registerNativeScanFlags(flags, true)
+	registerInputOnlyFlag(scanCmd)
 	addFlagAliases(scanCmd, nativeScanFlagAliases)
 }
 
@@ -179,6 +180,7 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	if globalAllRecords && !scanStdinExplicit {
 		scanOpts.Stdin = false
 	}
+	scanOpts.StoredRecords = storedRecordsMode(cmd, len(scanOpts.Targets)+len(scanOpts.TargetsFilePaths) > 0)
 	scanOpts.OnlyPhase = globalOnly
 	scanOpts.SkipPhases = globalSkipPhases
 	scanOpts.ScopeOriginMode = globalScopeOrigin

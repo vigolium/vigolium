@@ -154,9 +154,12 @@ IP targets always match exactly, whatever the mode.
 **This is not only a filter on new traffic - it decides which *stored* records a
 scan picks up.** Every assessment phase resolves its work set from the database:
 distinct origins in the project, minus those the scope matcher rejects, minus
-those whose (scheme, port) does not match a target's. There is no "this scan
-only" filter, because `http_records` carries no scan id. So on a database that
-already holds traffic from earlier scans:
+those whose (scheme, port) does not match a target's. `scan-url`,
+`scan-request` and `run <phase> -t` test only their input (and what the run
+finds from it) unless `--include-stored`; `scan -t` names an origin, so on a
+database that already holds traffic from earlier scans it tests those records
+too (the banner and `plan.targets.stored_records`/`db_records_in_scope` say how
+many), unless `--input-only`:
 
 ```bash
 # Target is ONE host, but at the default balanced mode this also (re)scans every
@@ -173,6 +176,7 @@ Pick deliberately:
 
 | Want | Use |
 |------|-----|
+| Only the input and what this run finds from it | `scan --input-only` (the default on `scan-url`, `scan-request`, `run -t`) |
 | Exactly the host named, but keep its stored history | `--scope-origin strict` |
 | Nothing pre-existing at all | `-S/--stateless` (throwaway DB) |
 | Keep state, but separate from other work | `--db <file>` or a distinct `--project` |

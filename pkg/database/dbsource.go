@@ -714,11 +714,14 @@ const riskPrefetchBatchSize = 128
 //   - A record served twice is scanned twice. Findings dedup downstream, so the
 //     visible cost is time rather than duplicate results.
 type RiskPrioritizedDBInputSource struct {
-	db                   *DB
-	repo                 *Repository
-	scanUUID             string
-	hostScopes           []HostTarget // when non-empty, only records matching these in-scope origins (scheme/host/port) are returned
-	maxParamShapeSamples int          // when > 0, coalesce same-shape GET records to this many value-distinct samples
+	db         *DB
+	repo       *Repository
+	scanUUID   string
+	hostScopes []HostTarget // when non-empty, only records matching these in-scope origins (scheme/host/port) are returned
+	// runFilter, when set, keeps only the records this run produced or seeded
+	// (see RunRecordFilter).
+	runFilter            *RunRecordFilter
+	maxParamShapeSamples int // when > 0, coalesce same-shape GET records to this many value-distinct samples
 	closed               atomic.Bool
 	mu                   sync.Mutex
 
@@ -838,6 +841,20 @@ func (s *RiskPrioritizedDBInputSource) Bound() (at time.Time, id string, ok bool
 func (s *RiskPrioritizedDBInputSource) WithHostScopes(hosts []HostTarget) *RiskPrioritizedDBInputSource {
 	s.hostScopes = hosts
 	return s
+}
+
+// WithRunFilter keeps only the records this run produced or seeded (nil
+// keeps every in-scope record). Records stored before the run on the same
+// hosts are left alone, so a single-target scan tests its input and what it
+// found from it, not the host's whole history.
+func (s *RiskPrioritizedDBInputSource) WithRunFilter(f *RunRecordFilter) *RiskPrioritizedDBInputSource {
+	s.runFilter = f
+	return s
+}
+
+// applyScope applies the host-scope filter and, when set, the run filter.
+func (s *RiskPrioritizedDBInputSource) applyScope(q *bun.SelectQuery) *bun.SelectQuery {
+	return s.runFilter.Apply(applyHostScopeFilter(q, s.hostScopes))
 }
 
 // WithParamShapeCoalescing enables param-shape coalescing of the snapshot:
@@ -993,7 +1010,7 @@ func (s *RiskPrioritizedDBInputSource) captureBoundLocked(ctx context.Context) e
 		at := dbTimestampString(s.db.Driver(), s.resumeAt)
 		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, s.resumeID)
 	}
-	q = applyHostScopeFilter(q, s.hostScopes)
+	q = s.applyScope(q)
 	q = applyProjectFilter(q, s.projectUUID)
 	q = applyEvidenceExclusion(q)
 
@@ -1014,7 +1031,7 @@ func (s *RiskPrioritizedDBInputSource) captureBoundLocked(ctx context.Context) e
 	// with the same window and scope the page queries use. Coalescing can only
 	// drop records from it, which makes this an upper bound on what the round
 	// serves. A failed count is a missing progress reading, not a failed round.
-	cq := applyHostScopeFilter(s.applyResumeAndBound(s.db.NewSelect().Model((*HTTPRecord)(nil))), s.hostScopes)
+	cq := s.applyScope(s.applyResumeAndBound(s.db.NewSelect().Model((*HTTPRecord)(nil))))
 	if n, err := cq.Count(ctx); err == nil {
 		s.count.Store(int64(n))
 	} else {
@@ -1100,7 +1117,7 @@ func (s *RiskPrioritizedDBInputSource) bucketPageQueryLocked() *bun.SelectQuery 
 		at := dbTimestampString(s.db.Driver(), s.keyAt)
 		q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, s.keyID)
 	}
-	q = applyHostScopeFilter(q, s.hostScopes)
+	q = s.applyScope(q)
 	return q.OrderExpr("created_at ASC, uuid ASC").Limit(riskPrefetchBatchSize)
 }
 
@@ -1118,7 +1135,7 @@ func (s *RiskPrioritizedDBInputSource) nextBucketLocked(ctx context.Context) (bo
 		q = q.Where("(risk_score < ? OR (risk_score = ? AND surface_score < ?))",
 			s.bucketRisk, s.bucketRisk, s.bucketSurface)
 	}
-	q = applyHostScopeFilter(q, s.hostScopes)
+	q = s.applyScope(q)
 	q = q.OrderExpr("risk_score DESC, surface_score DESC").Limit(1)
 	var rows []bucketRow
 	if err := q.Scan(ctx, &rows); err != nil {

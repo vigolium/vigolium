@@ -73,7 +73,8 @@ func (r *Runner) runParamMiningPhase(ctx context.Context, infra *phaseInfra) err
 		cfg = r.settings.DynamicAssessment.ParamMining
 	}
 
-	rows, err := r.repository.ParamMiningCandidates(ctx, infra.scanUUID, r.getInScopeDBHosts(ctx), paramMiningCandidatesPerHost)
+	rows, err := r.repository.ParamMiningCandidates(ctx, infra.scanUUID, r.getInScopeDBHosts(ctx), paramMiningCandidatesPerHost,
+		r.runRecordFilter(ctx, infra.scanUUID))
 	if err != nil {
 		return fmt.Errorf("param-mining: read candidates: %w", err)
 	}

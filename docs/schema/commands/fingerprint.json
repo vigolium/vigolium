@@ -2090,6 +2090,12 @@
         "db_records_in_scope": {
           "type": "integer"
         },
+        "stored_records": {
+          "type": "string"
+        },
+        "db_records_excluded": {
+          "type": "integer"
+        },
         "admitted": {
           "type": "integer"
         },

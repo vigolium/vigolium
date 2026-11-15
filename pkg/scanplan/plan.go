@@ -267,8 +267,16 @@ type Targets struct {
 	// DBRecordsInScope counts the stored records the assessment will read;
 	// absent without a database.
 	DBRecordsInScope *int64 `json:"db_records_in_scope,omitempty"`
-	Admitted         int    `json:"admitted"`
-	Rejected         int    `json:"rejected"`
+	// StoredRecords is "include" when the assessment also tests the records
+	// already stored for the targets' hosts, "exclude" when it tests only what
+	// this run seeds or finds (scan --input-only, the scan-url/scan-request/run
+	// -t default). Absent without a database.
+	StoredRecords string `json:"stored_records,omitempty"`
+	// DBRecordsExcluded counts the stored in-scope records an "exclude" scan
+	// leaves untested.
+	DBRecordsExcluded *int64 `json:"db_records_excluded,omitempty"`
+	Admitted          int    `json:"admitted"`
+	Rejected          int    `json:"rejected"`
 	// RejectedSample names at most 10 refused targets.
 	RejectedSample []Rejection `json:"rejected_sample,omitempty"`
 }

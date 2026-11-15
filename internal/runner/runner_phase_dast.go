@@ -770,6 +770,7 @@ func (r *Runner) runDynamicAssessmentRound(
 func (r *Runner) newDASource(infra *phaseInfra, inScopeHosts []database.HostTarget) *database.RiskPrioritizedDBInputSource {
 	return database.NewRiskPrioritizedDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
 		WithHostScopes(inScopeHosts).
+		WithRunFilter(r.runRecordFilter(context.Background(), infra.scanUUID)).
 		WithParamShapeCoalescing(r.resolveMaxParamShapeSamples())
 }
 

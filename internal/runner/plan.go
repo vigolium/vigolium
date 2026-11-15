@@ -178,7 +178,17 @@ func ResolvePlan(ctx context.Context, in PlanInput) (*scanplan.Plan, error) {
 			}
 		}
 		if known {
-			p.Targets.DBRecordsInScope = &n
+			p.Targets.StoredRecords = types.StoredRecordsInclude
+			if opts.ExcludesStoredRecords() {
+				// Stored records are left alone: the assessment reads only
+				// what this run seeds or finds.
+				excluded, zero := n, int64(0)
+				p.Targets.StoredRecords = types.StoredRecordsExclude
+				p.Targets.DBRecordsExcluded = &excluded
+				p.Targets.DBRecordsInScope = &zero
+			} else {
+				p.Targets.DBRecordsInScope = &n
+			}
 		}
 	}
 

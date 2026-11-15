@@ -73,6 +73,10 @@ type Options struct {
 	Offline bool
 
 	Silent bool
+	// StoredRecords decides whether the scan also tests records already
+	// stored for its targets' hosts: StoredRecordsInclude (the default, "")
+	// or StoredRecordsExclude, which tests only what this run seeded or found.
+	StoredRecords string
 	// FindingLinesToStdout prints one uncoloured line per finding on stdout
 	// while Silent keeps everything else quiet. Set only by the CLI for a typed
 	// --silent: server and agent runs use Silent to mean "nothing on stdout".
@@ -593,6 +597,17 @@ func (options *Options) OutputPathForFormat(format string) string {
 // (pkg/output/formats); only the last extension is stripped.
 func StripFormatExtension(path string) string {
 	return formats.StripExtension(path)
+}
+
+// Stored-record modes for Options.StoredRecords.
+const (
+	StoredRecordsInclude = "include"
+	StoredRecordsExclude = "exclude"
+)
+
+// ExcludesStoredRecords reports whether the scan tests only its own input.
+func (options *Options) ExcludesStoredRecords() bool {
+	return options != nil && options.StoredRecords == StoredRecordsExclude
 }
 
 // FormatOutputPath appends the given format's file extension (aliases

@@ -219,6 +219,12 @@ func (r *Runner) formatTargetCounts(ctx context.Context, cliCount int) string {
 			seeded = n
 		}
 	}
+	if r.options.ExcludesStoredRecords() {
+		return fmt.Sprintf("Targets: %s (%s input | %s stored HTTP Records not tested: input only)",
+			terminal.Orange(fmt.Sprintf("%d", seeded)),
+			terminal.Orange(fmt.Sprintf("%d", seeded)),
+			terminal.Orange(fmt.Sprintf("%d", dbCount)))
+	}
 	return fmt.Sprintf("Targets: %s (%s input | %s HTTP Records)",
 		terminal.Orange(fmt.Sprintf("%d", seeded+dbCount)),
 		terminal.Orange(fmt.Sprintf("%d", seeded)),
@@ -495,7 +501,11 @@ func (r *Runner) printScanConfig() {
 	if r.repository != nil {
 		ctx := context.Background()
 		hosts := r.getInScopeDBHosts(ctx)
-		if dbCount, err := r.repository.CountRecordsAfterCursor(ctx, r.options.ProjectUUID, time.Time{}, "", hosts...); err == nil && dbCount > 0 {
+		if dbCount, err := r.repository.CountRecordsAfterCursor(ctx, r.options.ProjectUUID, time.Time{}, "", hosts...); err == nil && dbCount > 0 && r.options.ExcludesStoredRecords() {
+			targetsLine += fmt.Sprintf(" (CLI: %s | stored HTTP Records not tested: %s)",
+				terminal.Orange(fmt.Sprintf("%d", len(opts.Targets))),
+				terminal.Orange(fmt.Sprintf("%d", dbCount)))
+		} else if err == nil && dbCount > 0 {
 			targetsLine += fmt.Sprintf(" (CLI: %s | HTTP Records: %s)",
 				terminal.Orange(fmt.Sprintf("%d", len(opts.Targets))),
 				terminal.Orange(fmt.Sprintf("%d", dbCount)))

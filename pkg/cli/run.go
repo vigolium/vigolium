@@ -103,6 +103,7 @@ func init() {
 	registerSpecFlags(flags)
 	flags.StringVar(&scanOpts.FingerprintDepth, "fingerprint-depth", "", "With the fingerprint phase: reads per origin, light|standard|full (default standard, light past 50 targets; 'vigolium fingerprint --depth')")
 	registerNativeScanFlags(flags, true)
+	registerIncludeStoredFlag(runCmd)
 	addFlagAliases(runCmd, nativeScanFlagAliases)
 	if f := flags.Lookup("skip"); f != nil {
 		f.Hidden = true

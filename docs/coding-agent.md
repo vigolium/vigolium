@@ -119,6 +119,12 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
 - **`scan-url` and `scan-request` persist by default.** Their findings and
   traffic go into the project database like any other scan; `-S/--stateless`
   is what makes a run throwaway (pair it with `-o`/`--format` to keep anything).
+- **Single-input scans test only their input.** `scan-url`, `scan-request` and
+  `run <phase> -t` leave the records already stored for the target's host alone
+  (`plan.targets.stored_records: "exclude"`, `db_records_excluded`);
+  `--include-stored` tests them too. `scan -t` names an origin and keeps
+  including them (`stored_records: "include"`, the banner states the count);
+  `scan --input-only` excludes them.
 - **`-S` on a scan writes nothing to `$HOME`.** On `scan`, `run`, `scan-url`
   and `scan-request`, `-S` skips the first-run bootstrap (no config, database,
   presets or `initialized` marker is created; the scan runs on embedded

@@ -34,7 +34,13 @@ var paramMiningCandidateColumns = []string{
 // then age; at most perHost rows per origin (scheme, hostname, port), so one
 // large host cannot crowd the others out of a global cap. perHost <= 0 = no
 // cap. Content-type and per-endpoint selection is left to the caller.
-func (r *Repository) ParamMiningCandidates(ctx context.Context, scanUUID string, hosts []HostTarget, perHost int) ([]HTTPRecord, error) {
+//
+// run, when non-nil, keeps only that run's records (RunRecordFilter).
+func (r *Repository) ParamMiningCandidates(ctx context.Context, scanUUID string, hosts []HostTarget, perHost int, run ...*RunRecordFilter) ([]HTTPRecord, error) {
+	var runFilter *RunRecordFilter
+	if len(run) > 0 {
+		runFilter = run[0]
+	}
 	scan, err := r.GetScanByUUID(ctx, scanUUID)
 	if err != nil {
 		return nil, fmt.Errorf("load scan %s: %w", scanUUID, err)
@@ -48,7 +54,7 @@ func (r *Repository) ParamMiningCandidates(ctx context.Context, scanUUID string,
 			at := dbTimestampString(r.db.Driver(), scan.CursorAt)
 			q = q.Where("(created_at > ? OR (created_at = ? AND uuid > ?))", at, at, scan.CursorUUID)
 		}
-		q = applyHostScopeFilter(q, hosts)
+		q = runFilter.Apply(applyHostScopeFilter(q, hosts))
 		return applyProjectFilter(q, scan.ProjectUUID)
 	}
 
