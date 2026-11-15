@@ -403,7 +403,7 @@ var serverFlagGroups = []flagGroup{
 	{"Ingestion", []string{"scan-on-receive", "full-native-scan-on-receive", "passive-only", "mem-buffer", "discard-queued", "catchup-threads", "disable-catchup", "disable-warm-session"}},
 	{"Proxy & Bridge", []string{"burp-bridge-url", "proxy-token", "proxy-allow", "proxy-insecure", "proxy-mitm"}},
 	{"Access Control", []string{"no-auth", "allow-unauthenticated-bind", "alternative-ingest-key", "view-only", "demo-only", "no-agent", "no-swagger"}},
-	{"Output", []string{"output", "mirror-fs"}},
+	{"Output", []string{"output", "mirror-fs", "events"}},
 }
 
 // exportFlagGroups categorizes `vigolium export`.

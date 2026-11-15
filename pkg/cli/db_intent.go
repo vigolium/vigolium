@@ -75,6 +75,8 @@ var dbIntents = map[string]string{
 	"project rename":  "write",
 	"module show":     dbIntentNone,
 	"finding show":    "read",
+	"server status":   dbIntentNone,
+	"server stop":     dbIntentNone,
 	"scan wait":       "read", // polls during a scan: must never take the write lock
 	"run":             "write",
 	"scan-url":        "write",

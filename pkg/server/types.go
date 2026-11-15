@@ -349,6 +349,9 @@ type ScanStatusResponse struct {
 type HealthResponse struct {
 	Status    string `json:"status"`
 	Timestamp string `json:"timestamp"`
+	// PID is the serving process's pid, so a controller holding a pidfile can
+	// confirm it is talking to the process it recorded.
+	PID int `json:"pid"`
 }
 
 // ErrorResponse is the v1 error body. Code is always the HTTP status;

@@ -63,6 +63,8 @@ var machineKinds = map[string]machineKind{
 	"project rename":  kindMutation,
 	"module show":     kindRead,
 	"finding show":    kindRead,
+	"server status":   kindRead,
+	"server stop":     kindMutation,
 	"scan wait":       kindScan, // the finished scan's scan document; --events streams instead
 	"run":             kindScan,
 	"scan-url":        kindScan,

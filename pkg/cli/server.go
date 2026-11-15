@@ -106,7 +106,7 @@ var serverCmd = &cobra.Command{
 	Long: `Start the Vigolium REST API server (Fiber-based). Exposes scan endpoints, traffic ingestion, agent runs, and a Swagger UI.
 
 Common modes:
-  • Default: full API, requires the auto-generated key from config (see config ls server.auth_api_key --force)
+  • Default: full API, requires the auto-generated key from config (see config ls server.auth_api_key --show-secrets)
   • --view-only: read-only — no scan, ingest, or agent endpoints
   • --burp-bridge-url (alias --caido-bridge-url): merge live Burp/Caido proxy history into the normal HTTP records API
   • --scan-on-receive: continuously scan ingested traffic as it arrives
@@ -115,7 +115,18 @@ Common modes:
 
 Both listeners bind 127.0.0.1 by default. --host 0.0.0.0 (or $VIGOLIUM_SERVER_HOST) exposes the API.
 A routable --ingest-proxy-host needs --proxy-token and/or --proxy-allow, or the server refuses to start.
-The MITM CA is managed with 'vigolium server ca print|path|install|uninstall'.`,
+The MITM CA is managed with 'vigolium server ca print|path|install|uninstall'.
+
+Probes (no auth): GET /health answers 200 {"status":"healthy","pid":N} while the
+process serves; GET /ready answers 200 only when the database responds and the
+record writer accepts writes (503 {"status":"not_ready","reason":…} otherwise).
+
+Machine mode (-j or --events): stdout carries exactly one line,
+{"type":"server.ready","addr","url","pid","db_path","auth","health_url",…},
+once both listeners are bound; the banner and the access log go to stderr.
+The server records itself in ~/.vigolium/server/<port>.json:
+'vigolium server status' reads it (and /health), 'vigolium server stop' sends
+SIGTERM only when /health answers with the recorded pid.`,
 	Args: cobra.NoArgs,
 	RunE: runServerCmd,
 }
@@ -322,7 +333,7 @@ func printServerEndpoints(serviceAddr string, showAPIKeyHint bool) {
 	row("Server running at", terminal.Orange(fmt.Sprintf("http://%s", serviceAddr)))
 	row("Dashboard UI available at", terminal.Orange(fmt.Sprintf("http://localhost:%s/", port)))
 	if showAPIKeyHint {
-		row("Get the API key", terminal.Orange("vigolium config ls server.auth_api_key --force"))
+		row("Get the API key", terminal.Orange("vigolium config ls server.auth_api_key --show-secrets"))
 	}
 }
 
@@ -360,6 +371,11 @@ func initServerDatabase(cfg *config.DatabaseConfig, silent bool) (*database.DB, 
 
 func runServerCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
+	realStdout, restoreStdout, err := redirectServerStdout()
+	if err != nil {
+		return err
+	}
+	defer restoreStdout()
 
 	// --export-ca: generate (if needed) and write the MITM CA cert, then exit.
 	if serverOpts.ExportCA != "" {
@@ -620,6 +636,9 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		closeServerQueue(taskQueue, queueDir)
 		return err
 	}
+	removePidfile := announceServerReady(realStdout, serverOpts.Host, serverOpts.ServicePort,
+		serverReadyDBPath(&settings.Database), serverOpts.NoAuth, serverReadyProxyAddr(proxyHost, serverOpts.IngestProxyPort))
+	defer removePidfile()
 
 	// In view-only or demo-only mode, print banner early and skip runner/catchup entirely
 	if serverOpts.ViewOnly || serverOpts.DemoOnly {

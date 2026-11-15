@@ -2,6 +2,7 @@ package server
 
 import (
 	"io/fs"
+	"os"
 	"strings"
 
 	"github.com/gofiber/contrib/v3/swaggerui"
@@ -27,7 +28,10 @@ func registerRoutes(app *fiber.App, handlers *Handlers, cfg ServerConfig) {
 	// Negotiate the response version before anything that can answer: auth,
 	// project lookup and the body limit all write errors in it.
 	app.Use(apiVersionMiddleware(cfg.APIVersionDefault))
-	app.Use(fiberlogger.New())
+	// The stream is read when the routes are built, not when fiber's
+	// package initialized: a CLI that points os.Stdout at stderr (server
+	// machine mode) keeps the access log off its stdout.
+	app.Use(fiberlogger.New(fiberlogger.Config{Stream: os.Stdout}))
 	app.Use(fiberrecover.New())
 	app.Use(SecurityHeadersMiddleware())
 	app.Use(DefaultBodyLimitMiddleware())
