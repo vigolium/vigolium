@@ -220,7 +220,10 @@ const enumAnnotation = "vigolium_enum"
 // enumValue validates a flag's value against a closed set while flags are
 // parsed, so a typo exits 2 naming the valid values before anything runs. It
 // wraps the flag's own Value: the variable, the default, and Type() are
-// unchanged. A slice flag is checked element by element.
+// unchanged. A slice flag is checked element by element. The wrapper does
+// not expose pflag.SliceValue: code that reads a flag's slice through it
+// (scan_parallel's child argv, input_spool) must not be pointed at an enum
+// flag.
 type enumValue struct {
 	inner   pflag.Value
 	allowed []string
@@ -266,20 +269,6 @@ func (e *enumValue) accepts(v string) bool {
 		}
 	}
 	return false
-}
-
-// Replace and Append keep slice flags' SliceValue behaviour when the inner
-// value has it.
-func (e *enumValue) Replace(vals []string) error {
-	for _, v := range vals {
-		if err := e.Set(v); err != nil {
-			return err
-		}
-	}
-	if sv, ok := e.inner.(pflag.SliceValue); ok {
-		return sv.Replace(vals)
-	}
-	return nil
 }
 
 // enumError is the cause pflag wraps in its InvalidValueError.
