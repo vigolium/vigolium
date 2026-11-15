@@ -168,7 +168,7 @@ func init() {
 		"Drop tasks a previous run left in the disk-spill queue instead of resuming them (tasks older than 24h are always dropped)")
 
 	// Output group
-	flags.StringVarP(&serverOpts.Output, "output", "o", "", "Write findings to specified output file")
+	flags.StringVarP(&serverOpts.Output, "output", "o", "", "Append findings to this file as JSON lines while scan-on-receive finds them")
 	flags.StringVar(&serverOpts.MirrorFS, "mirror-fs", "",
 		"Mirror ingested traffic + findings to a live flat filesystem tree under this dir (<dir>/traffic, <dir>/findings), in addition to the database — readable by an external agent with ls/grep/jq")
 
@@ -234,7 +234,18 @@ func newServerRunnerOptions(so *serverOptions, concurrency, maxPerHost, maxHostE
 		ProxyURL:       proxy,
 		Modules:        activeModules,
 		PassiveModules: []string{"all"},
+		// -o streams findings as JSON lines while they are found: with no
+		// format the output writer opened no file at all.
+		OutputFormats: serverOutputFormats(so.Output),
 	}
+}
+
+// serverOutputFormats is the format -o writes ("" for no -o).
+func serverOutputFormats(output string) []string {
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+	return []string{"jsonl"}
 }
 
 // proxyCADir is the directory holding the ingest-proxy MITM CA. It resolves the

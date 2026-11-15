@@ -375,8 +375,18 @@ func (r *Repository) LoadEnabledScopes(ctx context.Context, projectUUID string) 
 	return scopes, nil
 }
 
+// ScanSourceScanOnReceive is scans.scan_source for a server's scan-on-receive
+// runner row.
+const ScanSourceScanOnReceive = "scan-on-receive"
+
 // CreateScanWithCursor creates a Scan record. If mode is "incremental", copies cursor
 // from the last completed scan with matching Modules. Otherwise starts at zero.
+//
+// A scan-on-receive row inherits from the newest earlier scan-on-receive row
+// of its project and modules whatever that row's status: the cursor only
+// advances past records the run processed, so a server stopped with SIGTERM
+// (cancelled) or one that crashed (abandoned) still marks durable progress,
+// and restarting from zero rescanned everything it had already done.
 func (r *Repository) CreateScanWithCursor(ctx context.Context, scan *Scan) error {
 	if scan == nil {
 		return fmt.Errorf("invalid Scan")
@@ -390,15 +400,19 @@ func (r *Repository) CreateScanWithCursor(ctx context.Context, scan *Scan) error
 		// (created_at, uuid) position, so inheriting one from another project would
 		// make this incremental scan skip records up to that foreign timestamp.
 		var prev Scan
-		err := r.db.NewSelect().
+		q := r.db.NewSelect().
 			Model(&prev).
 			Column("cursor_at", "cursor_uuid").
 			Where("project_uuid = ?", scan.ProjectUUID).
-			Where("status = ?", "completed").
-			Where("modules = ?", scan.Modules).
-			OrderExpr("finished_at DESC").
-			Limit(1).
-			Scan(ctx)
+			Where("modules = ?", scan.Modules)
+		if scan.ScanSource == ScanSourceScanOnReceive {
+			q = q.Where("scan_source = ?", ScanSourceScanOnReceive).
+				Where("cursor_at IS NOT NULL").
+				OrderExpr("created_at DESC")
+		} else {
+			q = q.Where("status = ?", "completed").OrderExpr("finished_at DESC")
+		}
+		err := q.Limit(1).Scan(ctx)
 		if err == nil && !prev.CursorAt.IsZero() {
 			scan.StartCursorAt = prev.CursorAt
 			scan.StartCursorUUID = prev.CursorUUID

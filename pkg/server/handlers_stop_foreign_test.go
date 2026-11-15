@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,5 +72,24 @@ func TestHandleAgentCancel_ForeignRunGetsCancelRequest(t *testing.T) {
 		if status, _ := doReq(t, app, http.MethodPost, "/api/agent/scans/"+id+"/cancel", "", nil); status != http.StatusNotFound {
 			t.Errorf("%s: status %d, want 404", id, status)
 		}
+	}
+}
+
+// With scan-on-receive on, an ingest response names the scan that will pick
+// the records up and its cursor.
+func TestIngestResponseNamesScanOnReceiveScan(t *testing.T) {
+	db, repo := newPinnedTestDB(t)
+	ctx := context.Background()
+	if err := repo.CreateScan(ctx, &database.Scan{UUID: "scan-sor-1", ProjectUUID: database.DefaultProjectUUID, Status: "running",
+		ScanSource: database.ScanSourceScanOnReceive, StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	h := newBasicHandlers(t, ServerConfig{ScanOnReceive: true, DisableFetchResponse: true}, &fakeQueue{}, db, repo, nil)
+	app := fiber.New()
+	app.Post("/api/ingest-http", h.HandleIngestHTTP)
+	status, body := doReq(t, app, http.MethodPost, "/api/ingest-http",
+		`{"input_mode":"curl","content":"curl https://sor.example/a"}`, map[string]string{"Content-Type": "application/json"})
+	if status != http.StatusOK || !strings.Contains(string(body), `"scan_on_receive":{"scan_uuid":"scan-sor-1"`) {
+		t.Fatalf("status %d\n%s", status, body)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -430,7 +431,7 @@ func (h *Handlers) ingestBurpBase64(c fiber.Ctx, ctx context.Context, req *Inges
 	rr = h.fetchResponseIfNeeded(rr)
 
 	if !h.isIngestInScope(rr, getProjectUUID(c)) {
-		return c.JSON(IngestHTTPResponse{
+		return h.respondIngest(c, IngestHTTPResponse{
 			ProjectUUID: getProjectUUID(c),
 			Imported:    0,
 			Skipped:     1,
@@ -443,7 +444,7 @@ func (h *Handlers) ingestBurpBase64(c fiber.Ctx, ctx context.Context, req *Inges
 		return respondError(c, fiber.StatusInternalServerError, fmt.Errorf("failed to save record: %w", err))
 	}
 
-	return c.JSON(IngestHTTPResponse{
+	return h.respondIngest(c, IngestHTTPResponse{
 		ProjectUUID: getProjectUUID(c),
 		Imported:    1,
 		Message:     "imported 1 request",
@@ -470,7 +471,7 @@ func (h *Handlers) ingestCurl(c fiber.Ctx, ctx context.Context, req *IngestHTTPR
 	rr = h.fetchResponseIfNeeded(rr)
 
 	if !h.isIngestInScope(rr, getProjectUUID(c)) {
-		return c.JSON(IngestHTTPResponse{
+		return h.respondIngest(c, IngestHTTPResponse{
 			ProjectUUID: getProjectUUID(c),
 			Imported:    0,
 			Skipped:     1,
@@ -482,7 +483,7 @@ func (h *Handlers) ingestCurl(c fiber.Ctx, ctx context.Context, req *IngestHTTPR
 		return respondError(c, fiber.StatusInternalServerError, fmt.Errorf("failed to save record: %w", err))
 	}
 
-	return c.JSON(IngestHTTPResponse{
+	return h.respondIngest(c, IngestHTTPResponse{
 		ProjectUUID: getProjectUUID(c),
 		Imported:    1,
 		Message:     "imported 1 request from curl",
@@ -546,7 +547,7 @@ func (h *Handlers) ingestOpenAPI(c fiber.Ctx, ctx context.Context, req *IngestHT
 		msg += fmt.Sprintf(" (%d operations produced no request)", stats.SkippedOperations)
 	}
 
-	return c.JSON(IngestHTTPResponse{
+	return h.respondIngest(c, IngestHTTPResponse{
 		ProjectUUID:    getProjectUUID(c),
 		Imported:       imported,
 		Skipped:        skipped,
@@ -658,7 +659,7 @@ func (h *Handlers) ingestFileFormat(c fiber.Ctx, ctx context.Context, req *Inges
 		}
 	}
 
-	return c.JSON(IngestHTTPResponse{
+	return h.respondIngest(c, IngestHTTPResponse{
 		ProjectUUID:    getProjectUUID(c),
 		Imported:       imported,
 		Skipped:        skipped,
@@ -712,7 +713,7 @@ func (h *Handlers) ingestURL(c fiber.Ctx, ctx context.Context, req *IngestHTTPRe
 	rr = h.fetchResponseIfNeeded(rr)
 
 	if !h.isIngestInScope(rr, getProjectUUID(c)) {
-		return c.JSON(IngestHTTPResponse{
+		return h.respondIngest(c, IngestHTTPResponse{
 			ProjectUUID: getProjectUUID(c),
 			Imported:    0,
 			Skipped:     1,
@@ -724,7 +725,7 @@ func (h *Handlers) ingestURL(c fiber.Ctx, ctx context.Context, req *IngestHTTPRe
 		return respondError(c, fiber.StatusInternalServerError, fmt.Errorf("failed to save record: %w", err))
 	}
 
-	return c.JSON(IngestHTTPResponse{
+	return h.respondIngest(c, IngestHTTPResponse{
 		ProjectUUID: getProjectUUID(c),
 		Imported:    1,
 		Message:     "imported 1 request from URL",
@@ -793,7 +794,7 @@ func (h *Handlers) ingestURLFile(c fiber.Ctx, ctx context.Context, req *IngestHT
 		msg += fmt.Sprintf(" (%d filtered by scope)", skipped)
 	}
 
-	return c.JSON(IngestHTTPResponse{
+	return h.respondIngest(c, IngestHTTPResponse{
 		ProjectUUID:    getProjectUUID(c),
 		Imported:       imported,
 		Skipped:        skipped,
@@ -806,4 +807,21 @@ func (h *Handlers) ingestURLFile(c fiber.Ctx, ctx context.Context, req *IngestHT
 		Errors:  errs,
 		Message: msg,
 	})
+}
+
+// respondIngest writes an ingest result, naming the scan-on-receive scan that
+// will process the records when the server runs one.
+func (h *Handlers) respondIngest(c fiber.Ctx, resp IngestHTTPResponse) error {
+	if h.config.ScanOnReceive && h.repo != nil && resp.Imported > 0 {
+		ctx, cancel := context.WithTimeout(c.Context(), 2*time.Second)
+		defer cancel()
+		if s, err := h.repo.LatestScanOnReceiveScan(ctx, resp.ProjectUUID); err == nil && s != nil {
+			sor := &IngestScanOnReceive{ScanUUID: s.UUID, CursorUUID: s.CursorUUID, ProcessedCount: s.ProcessedCount}
+			if !s.CursorAt.IsZero() {
+				sor.CursorAt = s.CursorAt.UTC().Format(time.RFC3339Nano)
+			}
+			resp.ScanOnReceive = sor
+		}
+	}
+	return c.JSON(resp)
 }

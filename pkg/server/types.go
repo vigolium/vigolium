@@ -406,6 +406,19 @@ type IngestHTTPResponse struct {
 	ContextOnly  int      `json:"context_only,omitempty"`
 	Errors       []string `json:"errors,omitempty"`
 	Message      string   `json:"message"`
+	// ScanOnReceive names the scan that will pick these records up, when the
+	// server runs scan-on-receive: its UUID (poll it with GET /api/scans/:uuid
+	// or `vigolium scan status`) and its cursor, the last record it has
+	// processed. Records created after the cursor are still pending.
+	ScanOnReceive *IngestScanOnReceive `json:"scan_on_receive,omitempty"`
+}
+
+// IngestScanOnReceive is the scan-on-receive runner an ingest feeds.
+type IngestScanOnReceive struct {
+	ScanUUID       string `json:"scan_uuid"`
+	CursorAt       string `json:"cursor_at,omitempty"`
+	CursorUUID     string `json:"cursor_uuid,omitempty"`
+	ProcessedCount int64  `json:"processed_count"`
 }
 
 // PaginatedResponse is the v1 paginated list body. SchemaVersion (1) and

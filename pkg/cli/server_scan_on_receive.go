@@ -28,7 +28,7 @@ func newScanOnReceiveRow(projectUUID, target, modules string, threads int) *data
 		Target:      target,
 		Modules:     modules,
 		Threads:     threads,
-		ScanSource:  "scan-on-receive",
+		ScanSource:  database.ScanSourceScanOnReceive,
 		ScanMode:    "incremental",
 		StartedAt:   time.Now(),
 	}
