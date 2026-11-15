@@ -173,7 +173,7 @@ func runModuleEnable(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if err := config.SaveSettings(configPath, settings); err != nil {
+	if err := saveEnabledModules(configPath, settings); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 	if globalJSON {
@@ -226,7 +226,7 @@ func runModuleDisable(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if err := config.SaveSettings(configPath, settings); err != nil {
+	if err := saveEnabledModules(configPath, settings); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 	if globalJSON {
@@ -282,4 +282,14 @@ func emitModuleToggle(cmd *cobra.Command, action string, matches []matchedModule
 			"config_path":     config.ContractPath(configPath),
 		},
 	})
+}
+
+// saveEnabledModules writes the two module lists into the raw config file in
+// place, leaving the rest of the file (comments, ${VAR} placeholders) alone.
+func saveEnabledModules(configPath string, settings *config.Settings) error {
+	em := settings.DynamicAssessment.EnabledModules
+	_, err := config.EditConfigFile(configPath,
+		config.SetPathEdit("dynamic-assessment.enabled_modules.active_modules", em.ActiveModules),
+		config.SetPathEdit("dynamic-assessment.enabled_modules.passive_modules", em.PassiveModules))
+	return err
 }

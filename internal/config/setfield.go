@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -119,10 +120,16 @@ func SetField(settings *Settings, key string, value string) error {
 			return err
 		}
 		current[leafKey] = v
-	case exists:
-		current[leafKey] = coerceValue(value, existing)
+	case valid && declared.Kind() != reflect.Interface:
+		// The declared type decides, strictly: `yes` for a bool or `1.5` for
+		// an int is refused instead of being stored as false or a string.
+		v, err := coerceValueForType(key, value, declared)
+		if err != nil {
+			return err
+		}
+		current[leafKey] = v
 	default:
-		current[leafKey] = coerceValueForKind(value, declared.Kind())
+		current[leafKey] = coerceValue(value, existing)
 	}
 
 	return commitRaw(raw, settings, key)
@@ -264,26 +271,43 @@ func yamlFieldType(t reflect.Type, name string) (reflect.Type, bool) {
 	return nil, false
 }
 
-// coerceValueForKind converts value to the concrete type implied by a struct
-// field's declared reflect.Kind. It is used when the leaf key was dropped by
-// omitempty (so there is no existing value to sniff the type from).
-func coerceValueForKind(value string, kind reflect.Kind) any {
-	switch kind {
+// coerceValueForType converts value to the concrete type of a struct field.
+// Booleans take strconv.ParseBool's spellings only and integers must parse
+// exactly; anything else is ErrInvalidValue rather than a silent false, zero or
+// string. A time.Duration also accepts a duration string ("30s").
+func coerceValueForType(key, value string, t reflect.Type) (any, error) {
+	if t == reflect.TypeOf(time.Duration(0)) {
+		if _, err := time.ParseDuration(value); err == nil {
+			return value, nil
+		}
+	}
+	switch t.Kind() {
 	case reflect.Bool:
-		return strings.EqualFold(value, "true") || value == "1"
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if n, err := strconv.Atoi(value); err == nil {
-			return n
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s expects true or false, got %q", ErrInvalidValue, key, value)
 		}
-		return value
+		return b, nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		n, err := strconv.ParseInt(strings.TrimSpace(value), 10, t.Bits())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s expects an integer, got %q", ErrInvalidValue, key, value)
+		}
+		return n, nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		n, err := strconv.ParseUint(strings.TrimSpace(value), 10, t.Bits())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s expects a non-negative integer, got %q", ErrInvalidValue, key, value)
+		}
+		return n, nil
 	case reflect.Float32, reflect.Float64:
-		if n, err := strconv.ParseFloat(value, 64); err == nil {
-			return n
+		f, err := strconv.ParseFloat(strings.TrimSpace(value), t.Bits())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s expects a number, got %q", ErrInvalidValue, key, value)
 		}
-		return value
+		return f, nil
 	default:
-		return value
+		return value, nil
 	}
 }
 

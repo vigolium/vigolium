@@ -279,6 +279,28 @@ func TestConfigAndScopeSetJSON(t *testing.T) {
 	require.Contains(t, row["new"], "admin.example.com")
 }
 
+// `scope set` edits the config in place: `<rule>.clear` needs no value, and
+// the file keeps its comments and placeholders.
+func TestScopeSetEditsInPlace(t *testing.T) {
+	e := newB5Env(t)
+	cfg := filepath.Join(e.home, ".vigolium", "vigolium-configs.yaml")
+	src := "# keep me\nstorage:\n  secret_key: ${VIGOLIUM_STORAGE_SECRET_KEY}\nscope:\n  host:\n    exclude: [a.example] # rule\n"
+	require.NoError(t, os.WriteFile(cfg, []byte(src), 0o600))
+
+	code, _, stderr := e.run(t, []string{"VIGOLIUM_STORAGE_SECRET_KEY=topsecret-value"}, "scope", "set", "host.exclude.add", "b.example", "-j")
+	require.Equal(t, 0, code, stderr)
+	got, _ := os.ReadFile(cfg)
+	require.Equal(t, strings.Replace(src, "[a.example]", "[a.example, b.example]", 1), string(got))
+
+	code, _, stderr = e.run(t, nil, "scope", "set", "host.exclude.clear", "-j")
+	require.Equal(t, 0, code, stderr)
+	got, _ = os.ReadFile(cfg)
+	require.Equal(t, strings.Replace(src, "[a.example]", "[]", 1), string(got))
+
+	code, _, _ = e.run(t, nil, "scope", "set", "host.exclude", "-j")
+	require.Equal(t, 2, code)
+}
+
 func TestDBCleanResetJSON(t *testing.T) {
 	e := newB5Env(t)
 	code, _, stderr := e.run(t, nil, "project", "create", "seed", "-j")

@@ -1,7 +1,6 @@
 package configcmd
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/terminal"
-	"gopkg.in/yaml.v3"
 )
 
 func newSetCmd(deps Deps, example string) *cobra.Command {
@@ -20,8 +18,10 @@ func newSetCmd(deps Deps, example string) *cobra.Command {
 		Long: "Set a configuration value using dot-notation key (e.g. notify.enabled true).\nAlso accepts 'key = value' and 'key=value' formats.\n\n" +
 			"List and map values take JSON or YAML flow syntax ('[\"a.example\",\"b.example\"]', '[a, b]', '{\"k\":\"v\"}'),\n" +
 			"checked against the setting's type; the comma form (a,b) still works for lists. '<list>.add <value>' appends\n" +
-			"one element or a JSON list; '<list>.clear' empties it. A value that fails validation (see 'config validate')\n" +
-			"is refused with exit 2 and the file is left unchanged.",
+			"one element or a JSON list; '<list>.clear' (no value) empties it. Booleans take true/false (or 1/0, t/f) and\n" +
+			"integers must parse exactly. A value that fails validation (see 'config validate') is refused with exit 2\n" +
+			"and the file is left unchanged. The file is edited in place: comments and ${VAR} placeholders are kept.\n" +
+			"The confirmation shows the value read back from the file.",
 		Args:    cobra.RangeArgs(1, 3),
 		Example: example,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -48,51 +48,62 @@ func runConfigSet(cmd *cobra.Command, deps Deps, args []string) error {
 	case len(args) == 2:
 		key = args[0]
 		value = args[1]
+	case len(args) == 1 && strings.HasSuffix(args[0], ".clear"):
+		// `<list>.clear` takes no value.
+		key = args[0]
 	default:
 		return clicommon.UsageErrorf("usage: config set <key> <value> | config set <key>=<value> | config set <key> = <value>")
 	}
 
-	// Load current settings
+	// The loaded settings validate and parse the value; the file itself is
+	// edited in place on its raw text, so `${VAR}` placeholders and comments
+	// survive and no expanded secret is ever written back.
 	configPath := clicommon.EffectiveConfigPath(deps.ConfigFlag())
 	settings, err := config.LoadSettings(deps.ConfigFlag())
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load config, refusing to write: %w", err)
 	}
 
-	// Snapshot before the write so `changed` reports whether the value
-	// actually moved (setting a key to its current value is a no-op write).
-	before, _ := yaml.Marshal(settings)
-
-	// Update the field
-	if err := config.SetField(settings, key, value); err != nil {
+	edit, err := config.SetFieldEdit(settings, key, value)
+	if err != nil {
 		// A key that names no setting, or a value that cannot be stored under
-		// it (a list that does not parse, an element of the wrong type, a scope
-		// pattern that validation rejects), is a mistake on the command line
-		// (exit 2), not a failure to write the config. Nothing was written.
+		// it (a list that does not parse, a bool that is not true/false, a
+		// scope pattern that validation rejects), is a mistake on the command
+		// line (exit 2), not a failure to write the config. Nothing was written.
 		if errors.Is(err, config.ErrUnknownKey) || errors.Is(err, config.ErrInvalidValue) {
 			return clicommon.AsUsageError(fmt.Errorf("failed to set %q: %w", key, err))
 		}
 		return fmt.Errorf("failed to set %q: %w", key, err)
 	}
-
-	// Save back to file
-	if err := config.SaveSettings(configPath, settings); err != nil {
+	changed, err := config.EditConfigFile(configPath, edit)
+	if err != nil {
+		if errors.Is(err, config.ErrInvalidValue) {
+			return clicommon.AsUsageError(fmt.Errorf("failed to set %q: %w", key, err))
+		}
 		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	// Echo what the file now holds, read back through the loader, rather than
+	// the argument: the two differ whenever the value was normalized.
+	settingKey := config.SettingPath(key)
+	stored := value
+	if reloaded, err := config.LoadSettings(configPath); err == nil {
+		if v, ok := config.SettingDisplay(reloaded, settingKey); ok {
+			stored = v
+		}
 	}
 
 	// The confirmation used to echo the supplied value verbatim, so
 	// `config set agent.api_key sk-...` printed the key straight back to stdout
 	// — into the shell history, the CI log, and the agent transcript. `config ls`
 	// redacts the same value; the write path has to agree with the read path.
-	sensitive := config.IsSensitiveEntry(key, value)
-	shown := value
+	sensitive := config.IsSensitiveEntry(settingKey, value) || config.IsSensitiveEntry(settingKey, stored)
+	shown := stored
 	if sensitive {
 		shown = clicommon.SecretPlaceholder
 	}
 
 	if deps.mutationJSONRequested() {
-		after, _ := yaml.Marshal(settings)
-		changed := before == nil || after == nil || !bytes.Equal(before, after)
 		action := "update"
 		if !changed {
 			action = "noop"
@@ -106,7 +117,7 @@ func runConfigSet(cmd *cobra.Command, deps Deps, args []string) error {
 		}}, changed, action, nil)
 	}
 
-	fmt.Printf("%s Set %s = %s\n", terminal.SuccessSymbol(), terminal.Cyan(key), shown)
+	fmt.Printf("%s Set %s = %s\n", terminal.SuccessSymbol(), terminal.Cyan(settingKey), shown)
 	return nil
 }
 

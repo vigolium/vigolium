@@ -79,29 +79,39 @@ func (h *Handlers) HandleUpdateConfig(c fiber.Ctx) error {
 
 	var updated []ConfigEntryResponse
 	var errors []string
+	var edits []config.RawEdit
 
-	for key, value := range req {
-		if err := config.SetField(h.settings, key, value); err != nil {
+	// Sorted, so the response and the order of edits are deterministic.
+	keys := make([]string, 0, len(req))
+	for key := range req {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		value := req[key]
+		// SetFieldEdit validates against the in-memory settings and returns
+		// the matching in-place edit of the raw file: h.settings holds
+		// environment-expanded values and must never be marshalled back over
+		// the file, which would write every secret in clear.
+		edit, err := config.SetFieldEdit(h.settings, key, value)
+		if err != nil {
 			errors = append(errors, key+": "+err.Error())
 			continue
 		}
+		edits = append(edits, edit)
 		updated = append(updated, ConfigEntryResponse{
 			Key:   key,
 			Value: value,
 		})
 	}
 
-	// Sort updated entries for deterministic output
-	sort.Slice(updated, func(i, j int) bool {
-		return updated[i].Key < updated[j].Key
-	})
-
 	// Persist to disk
 	if len(updated) > 0 {
 		if h.configWatcher != nil {
 			h.configWatcher.MarkSelfWrite()
 		}
-		if err := config.SaveSettings(h.effectiveConfigPath(), h.settings); err != nil {
+		if _, err := config.EditConfigFile(h.effectiveConfigPath(), edits...); err != nil {
 			zap.L().Error("Failed to save config", zap.Error(err))
 			return respondErrorMsg(c, fiber.StatusInternalServerError, "failed to save config", err.Error())
 		}

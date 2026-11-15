@@ -592,27 +592,6 @@ func LoadSettingsWithProject(configPath string, projectUUID string) (*Settings, 
 	return settings, nil
 }
 
-// SaveProjectConfig writes a project config overlay to its config directory.
-func SaveProjectConfig(projectUUID string, profile *ProfileSettings) error {
-	dir := ProjectConfigDir(projectUUID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create project config directory: %w", err)
-	}
-
-	data, err := yaml.Marshal(profile)
-	if err != nil {
-		return fmt.Errorf("failed to marshal project config: %w", err)
-	}
-
-	path := ProjectConfigPath(projectUUID)
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return fmt.Errorf("failed to write project config: %w", err)
-	}
-	InvalidateProjectOverlay(projectUUID)
-
-	return nil
-}
-
 // ConfigFilePath returns the resolved path to the config file.
 // It searches the same locations as LoadSettings but only returns the path.
 // If no config file exists, returns the default path.
@@ -631,7 +610,10 @@ func ConfigFilePath() string {
 	return ExpandPath("~/.vigolium/vigolium-configs.yaml")
 }
 
-// SaveSettings writes settings to YAML file
+// SaveSettings marshals settings to a new YAML file. It is for first-time
+// generation only: settings loaded from a file hold environment-expanded
+// values, and marshalling them over that file would write every secret in
+// clear and drop its comments. Edit an existing file with EditConfigFile.
 func SaveSettings(path string, settings *Settings) error {
 	path = ExpandPath(path)
 

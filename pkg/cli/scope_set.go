@@ -18,10 +18,11 @@ var scopeSetCmd = &cobra.Command{
 	Short: "Set a scope rule",
 	Long: "Set a scope rule using component.field notation (e.g. host.exclude \"*.internal.com,admin.*\").\n\n" +
 		"Lists take the comma form or JSON/YAML flow syntax ('[\"*.example.com\",\"example.com\"]'); '<rule>.add <value>' " +
-		"appends and '<rule>.clear' empties. The value is checked with the same rules as 'config validate' and refused " +
+		"appends and '<rule>.clear' (no value) empties. The value is checked with the same rules as 'config validate' and refused " +
 		"(exit 2, nothing written) when it would break the scope. Writes the global config, or with --project the " +
-		"project's overlay (~/.vigolium/projects/<uuid>/config.yaml). A config that fails to load is never overwritten.",
-	Args: cobra.ExactArgs(2),
+		"project's overlay (~/.vigolium/projects/<uuid>/config.yaml). The file is edited in place, keeping its comments " +
+		"and ${VAR} placeholders. A config that fails to load is never overwritten.",
+	Args: cobra.RangeArgs(1, 2),
 	RunE: runScopeSet,
 }
 
@@ -32,7 +33,13 @@ func init() {
 
 func runScopeSet(cmd *cobra.Command, args []string) error {
 	key := "scope." + args[0]
-	value := args[1]
+	var value string
+	switch {
+	case len(args) == 2:
+		value = args[1]
+	case !strings.HasSuffix(key, ".clear"):
+		return usageErrorf("scope set %s needs a value (only '<rule>.clear' takes none)", args[0])
+	}
 
 	// config.LoadSettings*, not clicommon.LoadSettings: the CLI loader answers a
 	// discovered-but-unreadable config with built-in defaults, and saving those
@@ -47,7 +54,8 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 	ruleKey := strings.TrimSuffix(strings.TrimSuffix(key, ".add"), ".clear")
 	oldValue := flatSettingValue(settings, ruleKey)
 
-	if err := config.SetField(settings, key, value); err != nil {
+	edit, err := config.SetFieldEdit(settings, key, value)
+	if err != nil {
 		if errors.Is(err, config.ErrUnknownKey) || errors.Is(err, config.ErrInvalidValue) {
 			return clicommon.AsUsageError(fmt.Errorf("failed to set %q: %w", key, err))
 		}
@@ -57,16 +65,19 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 	where := ""
 	layer, configPath := "global", effectiveConfigPath()
 	if scopeSetProject != "" {
-		path, err := config.SetProjectOverlayValue(scopeSetProject, key, settings)
+		path, err := config.SetProjectOverlayEdit(scopeSetProject, key, edit)
 		if err != nil {
-			if errors.Is(err, config.ErrUnknownKey) {
+			if errors.Is(err, config.ErrUnknownKey) || errors.Is(err, config.ErrInvalidValue) {
 				return clicommon.AsUsageError(err)
 			}
 			return fmt.Errorf("failed to save project config: %w", err)
 		}
 		where = " (" + config.ContractPath(path) + ")"
 		layer, configPath = "project", path
-	} else if err := config.SaveSettings(effectiveConfigPath(), settings); err != nil {
+	} else if _, err := config.EditConfigFile(configPath, edit); err != nil {
+		if errors.Is(err, config.ErrInvalidValue) {
+			return clicommon.AsUsageError(fmt.Errorf("failed to set %q: %w", key, err))
+		}
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
