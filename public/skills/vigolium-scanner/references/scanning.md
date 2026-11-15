@@ -702,9 +702,9 @@ start filtering.
 
 ### CI Output
 
-- `--ci-output-format` enables CI-friendly output: JSONL findings only, no color, no banners
-- Equivalent to combining `--format jsonl --silent`
-- Useful for CI/CD pipelines that parse JSON output
+- `--ci-output-format` was removed (exit 2): use `-j` for one scan document, or `--format jsonl -o <file>`
+- `--silent` prints one plain line per finding on stdout and nothing else
+- `-o` with no `--format` infers it from the extension (`.jsonl`, `.html`, `.sarif`, `.junit.xml`, …); `-j -o doc.json` writes the document to the file and a receipt to stdout
 
 ### Valid `--only` Phases
 

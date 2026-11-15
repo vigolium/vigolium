@@ -106,7 +106,7 @@ vigolium scan -t https://acme.example   # scans into acme.sqlite
 vigolium finding                        # reads acme.sqlite
 ```
 
-The value goes through the same expansion as the config file's `database.sqlite.path`, so `~` and nested `${VAR}` references resolve. Each command prints a one-line notice naming the resolved database (suppressed under `--silent`, `-j/--json`, and `--ci-output-format`).
+The value goes through the same expansion as the config file's `database.sqlite.path`, so `~` and nested `${VAR}` references resolve. Each command prints a one-line notice naming the resolved database (suppressed under `--silent` and `-j/--json`).
 
 **Reads** additionally treat the file as a standalone source with project scoping off — the same thing `-S/--stateless` does — so every row in it is visible regardless of which project UUID wrote it. This applies to every command that reads through the shared query path (`finding`, `traffic`, `replay`, `export`, and record lookups like `fuzz -u <uuid>`), and is skipped until the file exists, so the first read on a fresh session prints an empty table instead of failing. **Writes are unaffected**: `scan` and `ingest` write to the pinned database normally, and the variable never sets the `--stateless` flag itself — on `scan`/`scan-url`/`scan-request`/`run` that flag means "scan into a throwaway temp database and discard it" (and is mutually exclusive with `--db`), while on `ingest` `-S` is `--scan-on-receive`.
 
@@ -127,9 +127,9 @@ On startup Vigolium compares the running version against the latest `@vigolium/v
   Run `vigolium update` to upgrade.
 ```
 
-The check is automatically skipped for `--json`, CI (`--ci-output-format`), and non-interactive (piped) output, and for the `version`, `update`, and `init` commands. Set `VIGOLIUM_DISABLE_UPDATE_CHECK=1` to turn it off, or `VIGOLIUM_AUTO_UPDATE=1` to have Vigolium update the running binary in place (the same signed, verified path as `vigolium update`) and re-exec it to continue the current command.
+The check is automatically skipped for `--json` and non-interactive (piped) output, and for the `version`, `update`, and `init` commands. Set `VIGOLIUM_DISABLE_UPDATE_CHECK=1` to turn it off, or `VIGOLIUM_AUTO_UPDATE=1` to have Vigolium update the running binary in place (the same signed, verified path as `vigolium update`) and re-exec it to continue the current command.
 
-Auto-update never acts when the caller is not a person at a terminal: it is off under `-j`, `--events` and `--ci-output-format`, when stdout or stderr is not a TTY, for `vigolium server`, when any of `CI`, `CONTINUOUS_INTEGRATION`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `JENKINS_URL`, `VIGOLIUM_AGENT`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `CURSOR_AGENT` or `GEMINI_CLI` is set (to anything but `0`/`false`), and for binaries run by the npm package or Homebrew. In those cases the notice flow applies instead.
+Auto-update never acts when the caller is not a person at a terminal: it is off under `-j` and `--events`, when stdout or stderr is not a TTY, for `vigolium server`, when any of `CI`, `CONTINUOUS_INTEGRATION`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `JENKINS_URL`, `VIGOLIUM_AGENT`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `CURSOR_AGENT` or `GEMINI_CLI` is set (to anything but `0`/`false`), and for binaries run by the npm package or Homebrew. In those cases the notice flow applies instead.
 
 Any environment variable can also be interpolated inside `vigolium-configs.yaml`:
 

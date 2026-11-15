@@ -375,7 +375,7 @@ lines. Available on `scan`, `run`, `scan-url`, `scan-request`.
 **`--events` owns stdout.** Anything else that would write there is refused with
 exit `2` rather than interleaved into a stream that is neither contract:
 `-j` (the scan document — read it afterwards with `finding --scan-uuid`),
-`--ci-output-format`, `--format jsonl` without `-o`, `--print-finding`,
+`--format jsonl` without `-o`, `--print-finding`,
 `--print-traffic` and `--print-traffic-tree`. `-j` owns stdout the same way:
 it refuses those writers too, and a `-P`/`--split-by-host` fan-out. The error names the conflicting flag; give the other
 writer an `-o <file>` and both work. `--events` is also refused under a

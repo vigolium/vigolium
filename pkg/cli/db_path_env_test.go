@@ -244,7 +244,6 @@ func TestDBPathEnvNoticeSuppression(t *testing.T) {
 		{name: "default prints", quiet: func() {}, want: true},
 		{name: "--silent", quiet: func() { globalSilent = true }},
 		{name: "--json", quiet: func() { globalJSON = true }},
-		{name: "--ci-output-format", quiet: func() { globalCIOutput = true }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetDBPathEnvGlobals(t)

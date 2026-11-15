@@ -33,8 +33,7 @@ default human output is unchanged; you opt into machine output with `-j/--json`.
     store use `-S --format sqlite` or copy the database file.
 - Non-interactive by default: the TUI is opt-in (`--tui`), never auto-launched.
   Destructive commands need `--force`. Color is automatic: on only when stdout
-  and stderr are both terminals, off under `-j`, `--events` and
-  `--ci-output-format`; `--color always|never|auto` overrides it (`--no-color`
+  and stderr are both terminals, off under `-j` and `--events`; `--color always|never|auto` overrides it (`--no-color`
   = `never`; `NO_COLOR`, `FORCE_COLOR` and `CLICOLOR_FORCE` are honored under
   `auto`). The banner prints only when stderr is a terminal and `--events` is
   off. Scope with `--project-uuid <uuid>`, `--project-name <name>`,
@@ -272,14 +271,15 @@ is stored on the scan row (`scans.plan`), and drives the pre-scan banner.
   store. `modules.selected` is what the scan was handed, `modules.executed` how
   many ran at least once (scan-url used to report `modules_run`, which counted
   the loaded modules).
-- **`-j` owns stdout.** `-j` with `--events`, `--ci-output-format`,
+- **`-j` owns stdout.** `-j` with `--events`,
   `--format jsonl` without `-o`, `--print-finding`, `--print-traffic` or
   `--print-traffic-tree` is a usage error (exit 2); so is `-j` with a
   per-target fan-out (`-P` over `-T`, `-S -T --split-by-host`). `--format jsonl
   -o run.jsonl -j` writes the stream to the file and the document to stdout.
-- **`--ci-output-format`** still prints nuclei-shaped finding lines this release,
-  with a one-time deprecation notice on stderr; next release they become
-  `{"type":"finding","data":<finding view>}` lines.
+- **`--ci-output-format`** was removed: using it is exit 2 naming `-j` and
+  `--format jsonl`. `--silent` prints one plain line per finding on stdout and
+  nothing else (unless `-j`, `--events` or a stdout jsonl/github stream owns
+  stdout).
 
 ## Query findings
 
@@ -1200,7 +1200,7 @@ One NDJSON line per event on **stdout**, from `scan.started` to a single
 terminal `scan.finished`. Human output stays on stderr throughout.
 
 - **`--events` owns stdout exclusively.** Combining it with another writer of
-  stdout — `-j/--json`, `--format jsonl` without `-o`, `--ci-output-format`,
+  stdout — `-j/--json`, `--format jsonl` without `-o`,
   `--print-finding`, `--print-traffic`, `--print-traffic-tree` — is rejected
   before any work starts, with exit `2` naming the conflict. It used to produce
   a corrupt interleaved stream and exit `0`. Exactly one protocol on stdout,

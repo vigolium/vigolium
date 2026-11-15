@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
@@ -239,7 +240,10 @@ type StandardWriter struct {
 	DisableStdout           bool
 	IncludeResponseInOutput bool
 	JSONOutput              bool
-	PhaseTag                string // Phase label for console output prefix (e.g. "scan", "known-issue-scan")
+	// PlainLines renders each finding on stdout as one uncoloured screen line
+	// with no phase prefix (--silent).
+	PlainLines bool
+	PhaseTag   string // Phase label for console output prefix (e.g. "scan", "known-issue-scan")
 	// OnEvent, when set, is invoked for every finding this writer emits, before
 	// any rendering. It exists so a single seam can observe the whole finding
 	// stream — the machine event stream (--events) counts and reports findings
@@ -307,6 +311,14 @@ func NewStandardWriter(options *types.Options) (*StandardWriter, error) {
 		disableStdout = true
 	}
 
+	// --silent: one plain line per finding, and stdout is otherwise silent.
+	// The CLI sets it only when nothing else owns stdout (-j, --events, a
+	// stdout jsonl or github stream).
+	plainLines := options.FindingLinesToStdout
+	if plainLines {
+		disableStdout = false
+	}
+
 	// CapturedConsole renders the live finding stream in the human-readable
 	// console format even when jsonl set JSONOutput: the captured per-target log
 	// (the -P fan-out's <output>.console.log) should read like a console scan, not
@@ -318,7 +330,8 @@ func NewStandardWriter(options *types.Options) (*StandardWriter, error) {
 		outputFile:              outputFile,
 		DisableStdout:           disableStdout,
 		IncludeResponseInOutput: options.IncludeResponseInOutput,
-		JSONOutput:              jsonStdout,
+		JSONOutput:              jsonStdout && !plainLines,
+		PlainLines:              plainLines,
 	}, nil
 }
 
@@ -368,6 +381,8 @@ func (w *StandardWriter) Write(event *ResultEvent) error {
 	if !w.DisableStdout {
 		if w.JSONOutput {
 			_, _ = os.Stdout.Write(data)
+		} else if w.PlainLines {
+			_, _ = os.Stdout.WriteString(FormatFindingLine(event) + "\n")
 		} else {
 			screenData := w.formatScreen(event)
 			if len(screenData) > 0 {
@@ -393,6 +408,13 @@ func (w *StandardWriter) Write(event *ResultEvent) error {
 // progress stays visible when nothing reaches stdout during the scan.
 func (w *StandardWriter) ShowsFindingsOnStdout() bool {
 	return !w.DisableStdout && !w.JSONOutput
+}
+
+// FormatFindingLine is the --silent finding line: the console's screen line
+// with no phase prefix and no color.
+func FormatFindingLine(event *ResultEvent) string {
+	w := &StandardWriter{}
+	return strings.TrimRight(terminal.StripANSI(string(w.formatScreen(event))), "\n")
 }
 
 // WriteFileOnly writes the event to file only, skipping screen output.

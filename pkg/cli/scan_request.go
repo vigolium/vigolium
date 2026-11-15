@@ -78,7 +78,6 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 	if err := validateLightweightScanTuning(); err != nil {
 		return err
 	}
-	noteCIOutputDeprecated()
 
 	// Read raw HTTP request
 	var raw []byte

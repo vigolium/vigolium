@@ -132,11 +132,6 @@ func TestGitHubFormatNeverSharesStdoutWithJSON(t *testing.T) {
 	opts.Output = "ci"
 	require.NoError(t, reconcileOutputFormats(opts))
 
-	globalJSON, globalCIOutput = false, true
-	opts = types.DefaultOptions()
-	opts.OutputFormats = []string{"github"}
-	requireUsageError(t, reconcileOutputFormats(opts))
-
 	assert.False(t, formatNeedsOutput("github"), "github streams to stdout without -o")
 	assert.True(t, formatNeedsOutput("csv"))
 	assert.True(t, formatNeedsOutput("no-such-format"), "unknown formats default to needing -o")

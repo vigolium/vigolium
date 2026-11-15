@@ -65,6 +65,24 @@ func generateReportFromDB(ctx context.Context, db *database.DB, outputPath strin
 	return rf.generate(items, outputPath, meta)
 }
 
+// silentFindingLines reports whether --silent prints its one line per finding
+// on stdout: it was typed, and nothing else owns stdout (the -j document,
+// --events, or a jsonl or github stream with no -o). Read from the CLI's own
+// -o and --events, which a -S run blanks on its options while it runs.
+func silentFindingLines(formats []string) bool {
+	if !globalSilent || globalJSON || strings.TrimSpace(scanOpts.Events) != "" {
+		return false
+	}
+	if strings.TrimSpace(scanOpts.Output) == "" &&
+		slices.ContainsFunc(formats, func(f string) bool {
+			c := output.CanonicalFormat(f)
+			return c == "jsonl" || c == "github"
+		}) {
+		return false
+	}
+	return true
+}
+
 // parseFormats splits a comma-separated format string, defaulting to "console".
 func parseFormats(raw string) []string {
 	if formats := clicommon.SplitCSV(raw); len(formats) > 0 {
@@ -99,8 +117,8 @@ func githubToStdout(formats []string, outputPath string) bool {
 	return slices.ContainsFunc(formats, func(f string) bool { return output.CanonicalFormat(f) == "github" })
 }
 
-// reconcileOutputFormats applies --json and --ci-output-format overrides to
-// OutputFormats and validates the result. Shared by scan and scan-url commands.
+// reconcileOutputFormats applies -j and --silent to the output options and
+// validates the formats. Shared by scan and scan-url commands.
 //
 // -j no longer becomes --format jsonl: it is the scan document, written once
 // after the run (scan_document.go), so it only reserves stdout for that
@@ -110,26 +128,16 @@ func reconcileOutputFormats(opts *types.Options) error {
 		return err
 	}
 	// The github format's workflow commands own stdout when there is no -o. The
-	// -j document and the CI jsonl stream want stdout too, and a consumer
-	// parsing either would choke on the other.
-	if githubToStdout(opts.OutputFormats, opts.Output) {
-		if globalJSON {
-			return usageErrorf("--format github writes workflow commands to stdout and cannot be combined with -j/--json; pass -o FILE to write them to a file instead")
-		}
-		if globalCIOutput {
-			return usageErrorf("--format github cannot be combined with --ci-output-format, which replaces --format with a jsonl stream on stdout")
-		}
+	// -j document wants stdout too, and a consumer parsing either would choke on
+	// the other.
+	if githubToStdout(opts.OutputFormats, opts.Output) && globalJSON {
+		return usageErrorf("--format github writes workflow commands to stdout and cannot be combined with -j/--json; pass -o FILE to write them to a file instead")
 	}
-	opts.StdoutDocument = globalJSON && !globalCIOutput
+	opts.StdoutDocument = globalJSON
 	if opts.HasFormat("jsonl") {
 		opts.JSONOutput = true
 	}
-	if globalCIOutput {
-		opts.CIOutput = true
-		opts.OutputFormats = []string{"jsonl"}
-		opts.JSONOutput = true
-		opts.Silent = true
-	}
+	opts.FindingLinesToStdout = silentFindingLines(opts.OutputFormats)
 	if err := normalizeScanFormats(opts.OutputFormats); err != nil {
 		return err
 	}

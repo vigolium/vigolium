@@ -159,16 +159,17 @@ vigolium scan --stateless -t https://example.com --format console,jsonl,html -o 
 
 ## CI/CD Integration
 
-Use `--ci-output-format` for clean, parseable output with no banners or color codes:
+Use `-j` for one parseable scan document on stdout, or a jsonl file plus a
+gate:
 
 ```bash
 vigolium scan --stateless \
   -t https://example.com \
-  --ci-output-format \
-  -o findings
+  --format jsonl -o findings.jsonl \
+  --fail-on high
 ```
 
-This forces JSONL output and suppresses all decorative output.
+`--silent` prints one plain line per finding on stdout and nothing else.
 
 ## Scanning from Various Input Sources
 

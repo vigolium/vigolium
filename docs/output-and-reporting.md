@@ -65,8 +65,9 @@ vigolium scan https://example.com --format jsonl \
         select(.severity == "high" or .severity == "critical")'
 ```
 
-`--ci-output-format` is the exception: it emits finding objects only and
-suppresses banners/color for a simple CI stream.
+`--ci-output-format` was removed: typing it is exit 2. Use `-j` for one scan
+document, `--format jsonl` for the stream, or `--silent` for one plain line per
+finding on stdout and nothing else.
 
 Use `--include-response` on `scan`/`run` when the full response body is needed
 in scan output, or `--omit-response` to keep persisted exports smaller.
@@ -182,8 +183,8 @@ history tracks a finding across runs; its body lists the finding as
 info/suspect. Dismissed findings are left out. Code findings carry `file=` and
 `line=`; HTTP findings name their URL in the message. Without `-o` the commands
 go to stdout, where the Actions runner reads them (live finding lines move to
-stderr), so `--format github` cannot be combined with `-j` or
-`--ci-output-format` unless `-o FILE` sends the commands to a file. When
+stderr), so `--format github` cannot be combined with `-j` unless `-o FILE`
+sends the commands to a file. When
 `GITHUB_STEP_SUMMARY` is set, the Markdown report is appended to the job
 summary as well (only its summary when the full report would exceed GitHub's
 1 MiB limit).

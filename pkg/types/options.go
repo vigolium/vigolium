@@ -73,6 +73,10 @@ type Options struct {
 	Offline bool
 
 	Silent bool
+	// FindingLinesToStdout prints one uncoloured line per finding on stdout
+	// while Silent keeps everything else quiet. Set only by the CLI for a typed
+	// --silent: server and agent runs use Silent to mean "nothing on stdout".
+	FindingLinesToStdout bool
 	// ScanConfigPrinted indicates the scan configuration summary has already been
 	// printed by the caller (e.g. CLI). When true, the runner skips its own summary.
 	ScanConfigPrinted bool

@@ -163,7 +163,6 @@ and wins for that command — read it instead of the row here.
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--ci-output-format` | - | bool | `false` | CI-friendly output: JSONL findings only, no color, no banners |
 | `--color` | - | string | `auto` | Color ANSI output: auto (only when stdout and stderr are both terminals), always, or never. --no-color is never; NO_COLOR, FORCE_COLOR and CLICOLOR_FORCE are honored under auto. -j, --events and --ci-output-format force never |
 | `--config` | - | string | - | Path to config file (default "~/.vigolium/vigolium-configs.yaml") |
 | `--db` | - | string | - | Path to SQLite database file (default "~/.vigolium/database-vgnm.sqlite"). Also honors $VIGOLIUM_DB_PATH, which additionally reads that file with project scoping off |

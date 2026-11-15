@@ -243,8 +243,7 @@ vigolium scan --stateless -t https://example.com \
 A minimal gate that fails the build when any finding is reported:
 
 ```bash
-vigolium scan --stateless -t "$TARGET" --ci-output-format -o findings
-test ! -s findings.jsonl || { echo "Vulnerabilities found"; exit 1; }
+vigolium scan --stateless -t "$TARGET" --fail-on info --format jsonl -o findings.jsonl
 ```
 
 See [CI/CD Integration](../guides/ci-cd-integration.md) for full pipeline
@@ -255,7 +254,7 @@ examples.
 | `--format` | Output | Notes |
 |------------|--------|-------|
 | `console` | Terminal (default) | Colored, human-readable |
-| `jsonl` | `<o>.jsonl` | One JSON object per line; `-j` is shorthand |
+| `jsonl` | `<o>.jsonl` | One JSON object per line (`-j` is the scan document, not jsonl) |
 | `html` | `<o>.html` | Interactive ag-grid report; requires `-o` |
 | `report` | document report | Self-contained report; requires `-o` |
 | `pdf` | `<o>.pdf` | PDF rendered with headless Chrome; requires `-o` |
@@ -265,7 +264,10 @@ examples.
 
 For stateless runs, `-o` is the **base** path — Vigolium appends the correct
 extension per format and materializes every requested format from the
-temporary database before tearing it down.
+temporary database before tearing it down. Without `--format`, a known
+extension picks it (`-o r.html` is `--format html`, `-o r.junit.xml` is
+junit); `-o x.json` is the `-j` document file and needs `-j`. Every output
+path is created and checked before the first request.
 
 ## Cheat sheet
 
@@ -284,7 +286,7 @@ vigolium scan --stateless -i openapi.yaml -I openapi \
   -t https://api.example.com --format html -o report
 
 # CI gate
-vigolium scan --stateless -t "$TARGET" --ci-output-format -o findings
+vigolium scan --stateless -t "$TARGET" --fail-on high --format jsonl -o findings.jsonl
 ```
 
 ## Next steps

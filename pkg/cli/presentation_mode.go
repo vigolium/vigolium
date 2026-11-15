@@ -78,7 +78,6 @@ func newPresentationFlagSet() (*pflag.FlagSet, []presentationBinding) {
 		{fs.BoolP("json", "j", false, ""), &globalJSON},
 		{fs.Bool("silent", false, ""), &globalSilent},
 		{fs.Bool("soft-fail", false, ""), &globalSoftFail},
-		{fs.Bool("ci-output-format", false, ""), &globalCIOutput},
 	}
 }
 

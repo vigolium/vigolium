@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -287,7 +286,6 @@ func runScanURLCmd(cmd *cobra.Command, args []string) error {
 	if err := validateLightweightScanTuning(); err != nil {
 		return err
 	}
-	noteCIOutputDeprecated()
 
 	inputs, err := scanURLInputs(args)
 	if err != nil {
@@ -1258,16 +1256,10 @@ func runRunnerScan(sess *directScanSession, rr *httpmsg.HttpRequestResponse, tar
 
 // outputScanResult writes the scan result as JSON or human-readable table.
 func outputScanResult(result *scanResult) error {
-	// CI output: one JSONL line per finding, nothing else. Still the
-	// nuclei-shaped output.ResultEvent this release (noteCIOutputDeprecated).
-	if globalCIOutput {
+	// --silent: one plain line per finding on stdout, and nothing else.
+	if globalSilent && !globalJSON {
 		for _, f := range result.Findings {
-			data, err := json.Marshal(f)
-			if err != nil {
-				return err
-			}
-			_, _ = os.Stdout.Write(data)
-			_, _ = os.Stdout.Write([]byte("\n"))
+			fmt.Fprintln(os.Stdout, output.FormatFindingLine(f))
 		}
 		return nil
 	}
