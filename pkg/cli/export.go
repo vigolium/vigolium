@@ -485,7 +485,7 @@ func runExportCmd(cmd *cobra.Command, args []string) error {
 		failErr = fmt.Errorf("%d of %d formats failed: %s", len(failed), len(specs), strings.Join(failed, ", "))
 	}
 	if globalJSON {
-		if err := emitExportReceipt(cmd, run, outputs, failErr); err != nil {
+		if err := emitExportReceipt(cmd, run, outputs); err != nil {
 			return err
 		}
 	}
@@ -545,15 +545,13 @@ func receiptPath(p string) string {
 
 // emitExportReceipt prints `export -j`: the files written as items, the item
 // counts, and the project filter applied. A multi-format run with a failed
-// format still lists what landed, with ok:false and the error.
-func emitExportReceipt(cmd *cobra.Command, run *exportRun, outputs []exportedFile, failErr error) error {
+// format still lists what landed; the failure it returns afterwards makes the
+// held document ok:false with the error (json_outcome.go).
+func emitExportReceipt(cmd *cobra.Command, run *exportRun, outputs []exportedFile) error {
 	views := exportFileViews(outputs)
 	opts := []envOpt{withProjectScope(run.projectUUID)}
 	if run.countsSet {
 		opts = append(opts, withExtra("counts", run.counts.view()))
-	}
-	if failErr != nil {
-		opts = append(opts, withResultFailure(failErr))
 	}
 	return emitRead(cmd, "", views, int64(len(views)), 0, len(views), opts...)
 }

@@ -1009,9 +1009,6 @@ func installPresets(cmd *cobra.Command, filter string) error {
 
 	if globalJSON {
 		var opts []envOpt
-		if failErr != nil {
-			opts = append(opts, withResultFailure(failErr))
-		}
 		if err := emitMutation(cmd, "", mutationResult{
 			Changed: installed > 0 || typesView.Status == "updated",
 			Action:  "install",

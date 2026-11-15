@@ -252,9 +252,6 @@ func runExtensionOnRecord(cmd *cobra.Command, arg string) error {
 			withExtra("network_calls_blocked", extras.NetworkCallsBlocked),
 			withExtra("duration_ms", extras.DurationMS),
 		}
-		if runErr != nil {
-			opts = append(opts, withResultFailure(runErr))
-		}
 		if err := emitRead(extensionsRunCmd, "results", items, int64(len(items)), 0, len(items), opts...); err != nil {
 			return err
 		}

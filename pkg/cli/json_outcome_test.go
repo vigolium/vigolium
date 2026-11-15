@@ -29,6 +29,15 @@ func withDeferredJSON(t *testing.T) *cobra.Command {
 	return cmd
 }
 
+// runAsExecute runs fn the way Execute runs a command under -j: the result
+// document is held, then published with ok and error decided from fn's error.
+func runAsExecute(cmd *cobra.Command, fn func() error) error {
+	jsonResultDeferred = true
+	err := fn()
+	_, _ = finishJSONOutcome(err, classifyExitCode(err), cmd)
+	return err
+}
+
 func outcomeDoc(t *testing.T, out string) map[string]any {
 	t.Helper()
 	docs := decodeStdoutDocuments(t, out)

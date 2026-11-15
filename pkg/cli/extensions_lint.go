@@ -166,9 +166,6 @@ func runExtensionsLint(cmd *cobra.Command, args []string) error {
 			items = append(items, toExtLintFile(f))
 		}
 		var opts []envOpt
-		if lintErr != nil {
-			opts = append(opts, withResultFailure(lintErr))
-		}
 		opts = append(opts, withExtra("summary", summary))
 		if err := emitRead(cmd, "", items, int64(len(items)), 0, len(items), opts...); err != nil {
 			return err

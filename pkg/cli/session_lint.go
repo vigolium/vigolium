@@ -112,9 +112,6 @@ func runSessionLint(cmd *cobra.Command, args []string) error {
 	}
 	if globalJSON {
 		var opts []envOpt
-		if lintErr != nil {
-			opts = append(opts, withResultFailure(lintErr))
-		}
 		opts = append(opts,
 			withExtra("files", len(inputs)),
 			withExtra("errors", errorsN),

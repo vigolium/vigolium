@@ -91,9 +91,6 @@ func runExtensionsTest(cmd *cobra.Command, args []string) error {
 			withExtra("failed", report.Failed),
 			withExtra("skipped", report.Skipped),
 		}
-		if testErr != nil {
-			opts = append(opts, withResultFailure(testErr))
-		}
 		n := len(report.Cases)
 		if err := emitRead(cmd, "cases", report.Cases, int64(n), 0, n, opts...); err != nil {
 			return err

@@ -180,9 +180,6 @@ func runSessionCheck(cmd *cobra.Command, args []string) error {
 	failErr := sessionCheckError(items)
 	if globalJSON {
 		var opts []envOpt
-		if failErr != nil {
-			opts = append(opts, withResultFailure(failErr))
-		}
 		opts = append(opts, withExtra("source", source))
 		if err := emitRead(cmd, "", items, int64(len(items)), 0, len(items), opts...); err != nil {
 			return err
