@@ -1115,35 +1115,13 @@ func streamExportData(ctx context.Context, db *database.DB, q exportQuery, emit 
 		emCfg := loadEnabledModulesConfig()
 
 		for _, m := range modules.GetActiveModules() {
-			entry := moduleJSONEntry{
-				ID:                   m.ID(),
-				Name:                 m.Name(),
-				Type:                 "active",
-				Description:          m.Description(),
-				ShortDescription:     m.ShortDescription(),
-				ConfirmationCriteria: m.ConfirmationCriteria(),
-				Severity:             m.Severity().String(),
-				Confidence:           m.Confidence().String(),
-				ScanScope:            scanScopeNames(m.ScanScopes()),
-				Enabled:              emCfg.ActiveEnabled(m.ID()),
-			}
+			entry := newModuleJSONEntry(m, "active", emCfg.ActiveEnabled(m.ID()))
 			if err := emitItem("module", entry); err != nil {
 				return err
 			}
 		}
 		for _, m := range modules.GetPassiveModules() {
-			entry := moduleJSONEntry{
-				ID:                   m.ID(),
-				Name:                 m.Name(),
-				Type:                 "passive",
-				Description:          m.Description(),
-				ShortDescription:     m.ShortDescription(),
-				ConfirmationCriteria: m.ConfirmationCriteria(),
-				Severity:             m.Severity().String(),
-				Confidence:           m.Confidence().String(),
-				ScanScope:            scanScopeNames(m.ScanScopes()),
-				Enabled:              emCfg.PassiveEnabled(m.ID()),
-			}
+			entry := newModuleJSONEntry(m, "passive", emCfg.PassiveEnabled(m.ID()))
 			if err := emitItem("module", entry); err != nil {
 				return err
 			}

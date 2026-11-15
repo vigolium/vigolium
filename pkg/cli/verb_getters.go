@@ -463,13 +463,7 @@ func runModuleShow(cmd *cobra.Command, args []string) error {
 // moduleEntryByID builds the module ls -j row for one module.
 func moduleEntryByID(id string) (moduleJSONEntry, bool) {
 	em := loadEnabledModulesConfig()
-	build := func(m modules.Module, typ string, enabled bool) moduleJSONEntry {
-		return moduleJSONEntry{
-			ID: m.ID(), Name: m.Name(), Type: typ, Description: m.Description(), ShortDescription: m.ShortDescription(),
-			ConfirmationCriteria: m.ConfirmationCriteria(), Severity: m.Severity().String(), Confidence: m.Confidence().String(),
-			ScanScope: scanScopeNames(m.ScanScopes()), Tags: m.Tags(), Enabled: enabled,
-		}
-	}
+	build := newModuleJSONEntry
 	for _, m := range modules.GetActiveModules() {
 		if m.ID() == id {
 			return build(m, "active", em.ActiveEnabled(id)), true

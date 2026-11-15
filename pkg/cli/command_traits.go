@@ -125,10 +125,10 @@ var commandTraits = map[string]commandTrait{
 	"log":             {Kind: kindRead, DB: dbRead, Shape: rowsShape()},
 	"log ls":          {Kind: kindRead, DB: dbRead, Shape: rowsShape().owned()},
 	"match-not-found": {Kind: kindRead, DB: dbRead, Shape: rowsShape().owned().unpaged("reads stdin once: there is no second read to page")},
-	"module":          {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(moduleJSONEntry{})},
+	"module":          {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(moduleJSONEntry{}, moduleTagRow{}).drop("description", "confirmation_criteria")},
 	"module disable":  {Kind: kindMutation, DB: dbNone},
 	"module enable":   {Kind: kindMutation, DB: dbNone},
-	"module ls":       {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(moduleJSONEntry{})},
+	"module ls":       {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(moduleJSONEntry{}, moduleTagRow{}).drop("description", "confirmation_criteria")},
 	"module show":     {Kind: kindRead, DB: dbNone, Shape: objectShape()},
 	"nuclei":          {Kind: kindInteractive, DB: dbNone},
 	"oast":            {Kind: kindInteractive, DB: dbNone},
@@ -295,9 +295,17 @@ func (s commandShape) drop(keys ...string) commandShape {
 	return s
 }
 
-// vocabFrom declares the vocabulary as the JSON keys of v's struct type.
-func (s commandShape) vocabFrom(v any) commandShape {
-	s.Vocab = contract.JSONFieldNames(v)
+// vocabFrom declares the vocabulary as the JSON keys of the given struct
+// types (a command with more than one row shape names each).
+func (s commandShape) vocabFrom(vs ...any) commandShape {
+	s.Vocab = nil
+	for _, v := range vs {
+		for _, k := range contract.JSONFieldNames(v) {
+			if !containsString(s.Vocab, k) {
+				s.Vocab = append(s.Vocab, k)
+			}
+		}
+	}
 	return s
 }
 

@@ -123,3 +123,44 @@ func TestCompactFindingViewDropsProse(t *testing.T) {
 	asked := compactFindingView(f, nil, agentViewOptions{noBodies: true, fields: []string{"id", "description"}})
 	require.Equal(t, f.Description, asked["description"])
 }
+
+// module ls -j: tier and risk_high are derived from the tags; --compact drops
+// the long prose (it stays without --compact); --tags answers under -j.
+func TestModuleLsShaping(t *testing.T) {
+	out, err := runShaped(t, []string{"module", "ls"})
+	require.NoError(t, err)
+	var doc struct {
+		Items []map[string]any `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &doc))
+	require.NotEmpty(t, doc.Items)
+	tiers := map[string]bool{}
+	sawRisk := false
+	for _, it := range doc.Items {
+		require.Contains(t, it, "description")
+		require.Contains(t, it, "tier")
+		tiers[it["tier"].(string)] = true
+		if it["risk_high"] == true {
+			sawRisk = true
+		}
+	}
+	require.True(t, tiers["light"] && tiers["heavy"], "tiers come from the tier tags: %v", tiers)
+	require.True(t, sawRisk, "some module carries risk:high")
+
+	out, err = runShaped(t, []string{"module", "ls"}, "--compact")
+	require.NoError(t, err)
+	doc.Items = nil
+	require.NoError(t, json.Unmarshal([]byte(out), &doc))
+	for _, it := range doc.Items {
+		require.NotContains(t, it, "description")
+		require.NotContains(t, it, "confirmation_criteria")
+		require.Contains(t, it, "short_description")
+	}
+
+	out, err = runShaped(t, []string{"module", "ls"}, "--tags")
+	require.NoError(t, err)
+	doc.Items = nil
+	require.NoError(t, json.Unmarshal([]byte(out), &doc))
+	require.NotEmpty(t, doc.Items)
+	require.ElementsMatch(t, []string{"tag", "modules"}, mapKeys(doc.Items[0]))
+}

@@ -72,7 +72,7 @@ func init() {
 		cmd.Flags().BoolVarP(&moduleOpts.Verbose, "verbose", "v", false,
 			"Show long description and confirmation criteria")
 		cmd.Flags().BoolVar(&moduleOpts.TagsOnly, "tags", false,
-			"Show only unique module tags")
+			"Show only unique module tags, with how many modules carry each (rows {tag, modules} under -j)")
 	}
 }
 
@@ -312,9 +312,51 @@ type moduleJSONEntry struct {
 	ScanScope            []string `json:"scan_scope"`
 	Tags                 []string `json:"tags"`
 	Enabled              bool     `json:"enabled"`
+	// Tier is the intensity tier the module's tags declare: light, moderate,
+	// heavy or intrusive, or "none" (no tier tag: it runs at every intensity).
+	Tier string `json:"tier"`
+	// RiskHigh: the module carries risk:high (its probes can change server
+	// state); a broad selection drops it below --intensity deep unless
+	// --allow-risky-payloads is set.
+	RiskHigh bool `json:"risk_high"`
+}
+
+// newModuleJSONEntry is the -j row of one module.
+func newModuleJSONEntry(m modules.Module, typ string, enabled bool) moduleJSONEntry {
+	tags := m.Tags()
+	return moduleJSONEntry{
+		ID:                   m.ID(),
+		Name:                 m.Name(),
+		Type:                 typ,
+		Description:          m.Description(),
+		ShortDescription:     m.ShortDescription(),
+		ConfirmationCriteria: m.ConfirmationCriteria(),
+		Severity:             m.Severity().String(),
+		Confidence:           m.Confidence().String(),
+		ScanScope:            scanScopeNames(m.ScanScopes()),
+		Tags:                 tags,
+		Enabled:              enabled,
+		Tier:                 modules.ModuleTierName(tags),
+		RiskHigh:             modules.IsRiskHighModule(tags),
+	}
+}
+
+// moduleTagRow is one row of `module ls -j --tags`.
+type moduleTagRow struct {
+	Tag     string `json:"tag"`
+	Modules int    `json:"modules"`
 }
 
 func printModuleJSON(cmd *cobra.Command, opts *moduleOptions, filter string) error {
+	if opts.TagsOnly {
+		counts := moduleTagCounts(opts, filter)
+		rows := make([]moduleTagRow, 0, len(counts))
+		for tag, n := range counts {
+			rows = append(rows, moduleTagRow{Tag: tag, Modules: n})
+		}
+		sort.Slice(rows, func(i, j int) bool { return rows[i].Tag < rows[j].Tag })
+		return emitRead(cmd, "tags", rows, int64(len(rows)), 0, len(rows))
+	}
 	emCfg := loadEnabledModulesConfig()
 	entries := []moduleJSONEntry{}
 	var activeCount, passiveCount int
@@ -329,19 +371,7 @@ func printModuleJSON(cmd *cobra.Command, opts *moduleOptions, filter string) err
 				continue
 			}
 			activeCount++
-			entries = append(entries, moduleJSONEntry{
-				ID:                   m.ID(),
-				Name:                 m.Name(),
-				Type:                 "active",
-				Description:          m.Description(),
-				ShortDescription:     m.ShortDescription(),
-				ConfirmationCriteria: m.ConfirmationCriteria(),
-				Severity:             m.Severity().String(),
-				Confidence:           m.Confidence().String(),
-				ScanScope:            scanScopeNames(m.ScanScopes()),
-				Tags:                 m.Tags(),
-				Enabled:              enabled,
-			})
+			entries = append(entries, newModuleJSONEntry(m, "active", enabled))
 		}
 	}
 
@@ -355,19 +385,7 @@ func printModuleJSON(cmd *cobra.Command, opts *moduleOptions, filter string) err
 				continue
 			}
 			passiveCount++
-			entries = append(entries, moduleJSONEntry{
-				ID:                   m.ID(),
-				Name:                 m.Name(),
-				Type:                 "passive",
-				Description:          m.Description(),
-				ShortDescription:     m.ShortDescription(),
-				ConfirmationCriteria: m.ConfirmationCriteria(),
-				Severity:             m.Severity().String(),
-				Confidence:           m.Confidence().String(),
-				ScanScope:            scanScopeNames(m.ScanScopes()),
-				Tags:                 m.Tags(),
-				Enabled:              enabled,
-			})
+			entries = append(entries, newModuleJSONEntry(m, "passive", enabled))
 		}
 	}
 
@@ -401,9 +419,9 @@ func scanScopeNames(s modkit.ScanScope) []string {
 	return names
 }
 
-func printModuleTags(opts *moduleOptions, filter string) {
+// moduleTagCounts counts, per tag, the modules the type and name filters keep.
+func moduleTagCounts(opts *moduleOptions, filter string) map[string]int {
 	tagCounts := make(map[string]int)
-
 	if opts.ModuleType == "all" || opts.ModuleType == "active" {
 		for _, m := range modules.GetActiveModules() {
 			if !moduleMatchesFilter(m, filter) {
@@ -424,6 +442,11 @@ func printModuleTags(opts *moduleOptions, filter string) {
 			}
 		}
 	}
+	return tagCounts
+}
+
+func printModuleTags(opts *moduleOptions, filter string) {
+	tagCounts := moduleTagCounts(opts, filter)
 
 	if len(tagCounts) == 0 {
 		fmt.Printf("%s No tags found.\n", terminal.InfoSymbol())

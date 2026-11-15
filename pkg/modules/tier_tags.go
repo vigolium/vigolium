@@ -85,3 +85,19 @@ func ModuleTierRank(tags []string) int {
 	}
 	return rank
 }
+
+// Tier names ModuleTierName returns besides the tier tags.
+const TierNameNone = "none"
+
+// ModuleTierName returns the tier tag ModuleTierRank ranks a module by
+// (light, moderate, heavy, intrusive), or TierNameNone for a module with no
+// tier tag, which runs at every intensity.
+func ModuleTierName(tags []string) string {
+	rank := ModuleTierRank(tags)
+	for name, r := range tierRank {
+		if r == rank {
+			return name
+		}
+	}
+	return TierNameNone
+}

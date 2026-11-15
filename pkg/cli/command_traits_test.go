@@ -157,11 +157,15 @@ func runShaped(t *testing.T, path []string, flags ...string) (string, error) {
 	t.Setenv("HOME", t.TempDir())
 	prevJSON := globalJSON
 	globalJSON = true
-	t.Cleanup(func() {
-		globalJSON = prevJSON
+	reset := func() {
 		jsonFields, jsonCompact, maxOutputBytes, shapeLimit, shapeOffset = nil, false, 0, 0, 0
 		activeShaping = nil
-		c.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
+		c.Flags().VisitAll(resetFlagToDefault)
+	}
+	reset()
+	t.Cleanup(func() {
+		globalJSON = prevJSON
+		reset()
 	})
 	require.NoError(t, c.ParseFlags(flags))
 	if err := validateGenericShaping(c); err != nil {
@@ -170,4 +174,17 @@ func runShaped(t *testing.T, path []string, flags ...string) (string, error) {
 	var runErr error
 	out := captureStdout(t, func() { runErr = c.RunE(c, c.Flags().Args()) })
 	return out, runErr
+}
+
+// resetFlagToDefault puts a parsed flag back to its default value.
+func resetFlagToDefault(f *pflag.Flag) {
+	if !f.Changed {
+		return
+	}
+	if sv, ok := f.Value.(pflag.SliceValue); ok {
+		_ = sv.Replace(nil)
+	} else {
+		_ = f.Value.Set(f.DefValue)
+	}
+	f.Changed = false
 }
