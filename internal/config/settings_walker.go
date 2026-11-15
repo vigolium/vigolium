@@ -79,23 +79,14 @@ func walkSettings(prefix string, v reflect.Value, out map[string]reflect.Value) 
 		}
 		t := v.Type()
 		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
-			if f.PkgPath != "" {
-				continue
-			}
-			tag := f.Tag.Get("yaml")
-			if tag == "-" {
-				continue
-			}
-			name, opts, _ := strings.Cut(tag, ",")
-			if strings.Contains(opts, "inline") {
+			name, inline, ok := yamlKey(t.Field(i))
+			switch {
+			case !ok:
+			case inline:
 				walkSettings(prefix, v.Field(i), out)
-				continue
+			default:
+				walkSettings(joinKey(prefix, name), v.Field(i), out)
 			}
-			if name == "" {
-				name = strings.ToLower(f.Name)
-			}
-			walkSettings(joinKey(prefix, name), v.Field(i), out)
 		}
 	case reflect.Map:
 		if v.Type().Key().Kind() != reflect.String || v.Len() == 0 || !scalarKind(v.Type().Elem()) {

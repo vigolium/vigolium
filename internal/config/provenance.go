@@ -43,9 +43,12 @@ type TraceOptions struct {
 // environment override → flag.
 func TraceSources(opts TraceOptions) (map[string]string, error) {
 	sources := map[string]string{}
-	path, err := resolveConfigFile(opts.ConfigPath)
-	if err != nil {
-		return nil, err
+	path := ExpandPath(opts.ConfigPath)
+	if opts.ConfigPath == "" {
+		var err error
+		if path, err = discoverConfigFile(); err != nil {
+			return nil, err
+		}
 	}
 	if path != "" {
 		if err := traceYAMLFile(path, SourceFile, sources); err != nil {
@@ -93,21 +96,6 @@ func SourceOf(sources map[string]string, key string) string {
 			return s
 		}
 	}
-}
-
-// resolveConfigFile is the file LoadSettings reads, or "" when there is none.
-func resolveConfigFile(configPath string) (string, error) {
-	if configPath != "" {
-		return ExpandPath(configPath), nil
-	}
-	for _, p := range []string{ExpandPath("~/.vigolium/vigolium-configs.yaml"), "./vigolium-configs.yaml"} {
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-	}
-	return "", nil
 }
 
 // traceYAMLFile records the leaves of the raw (unexpanded) YAML file at path

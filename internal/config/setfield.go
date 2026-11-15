@@ -256,25 +256,48 @@ func resolveSettingKind(key string) (reflect.Kind, bool) {
 	return t.Kind(), true
 }
 
-// yamlFieldType returns the type of the struct field whose yaml tag name matches
-// name. Fields tagged `yaml:"-"` are skipped; an empty tag name falls back to
-// the yaml default (the lowercased field name).
+// yamlFieldType returns the type of the struct field whose yaml key is name.
 func yamlFieldType(t reflect.Type, name string) (reflect.Type, bool) {
+	idx, ok := yamlFieldIndex(t, name)
+	if !ok {
+		return nil, false
+	}
+	return t.FieldByIndex(idx).Type, true
+}
+
+// yamlFieldIndex returns the index path (for FieldByIndex) of the struct field
+// whose yaml key is name, looking through `,inline` struct fields.
+func yamlFieldIndex(t reflect.Type, name string) ([]int, bool) {
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
-		tag := f.Tag.Get("yaml")
-		if tag == "-" {
-			continue
-		}
-		tagName, _, _ := strings.Cut(tag, ",")
-		if tagName == "" {
-			tagName = strings.ToLower(f.Name)
-		}
-		if tagName == name {
-			return f.Type, true
+		key, inline, ok := yamlKey(f)
+		switch {
+		case !ok:
+		case inline && f.Type.Kind() == reflect.Struct:
+			if sub, found := yamlFieldIndex(f.Type, name); found {
+				return append([]int{i}, sub...), true
+			}
+		case key == name:
+			return []int{i}, true
 		}
 	}
 	return nil, false
+}
+
+// yamlKey is the key yaml.v3 maps a struct field to: the tag name, else the
+// lowercased field name. ok is false for an unexported field or one tagged
+// `yaml:"-"`; inline reports a `,inline` field, whose keys belong to the
+// enclosing mapping.
+func yamlKey(f reflect.StructField) (name string, inline, ok bool) {
+	tag := f.Tag.Get("yaml")
+	if tag == "-" || !f.IsExported() {
+		return "", false, false
+	}
+	name, opts, _ := strings.Cut(tag, ",")
+	if name == "" {
+		name = strings.ToLower(f.Name)
+	}
+	return name, strings.Contains(opts, "inline"), true
 }
 
 // coerceValueForType converts value to the concrete type of a struct field.
