@@ -1895,7 +1895,7 @@ Manage scanner modules
 | `--list-enabled` | - | bool | `false` | Show only enabled modules |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
-| `--tags` | - | bool | `false` | Show only unique module tags |
+| `--tags` | - | bool | `false` | Show only unique module tags, with how many modules carry each (rows {tag, modules} under -j) |
 | `--type` | - | string | `all` | Filter modules by type: all, active, or passive |
 | `--verbose` | `-v` | bool | `false` | **(overrides the global `--verbose`)** Show long description and confirmation criteria |
 
@@ -1941,7 +1941,7 @@ List available modules
 | `--list-enabled` | - | bool | `false` | Show only enabled modules |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
-| `--tags` | - | bool | `false` | Show only unique module tags |
+| `--tags` | - | bool | `false` | Show only unique module tags, with how many modules carry each (rows {tag, modules} under -j) |
 | `--type` | - | string | `all` | Filter modules by type: all, active, or passive |
 | `--verbose` | `-v` | bool | `false` | **(overrides the global `--verbose`)** Show long description and confirmation criteria |
 

@@ -55,6 +55,12 @@
         },
         "enabled": {
           "type": "boolean"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "risk_high": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -70,7 +76,9 @@
         "confidence",
         "scan_scope",
         "tags",
-        "enabled"
+        "enabled",
+        "tier",
+        "risk_high"
       ]
     },
     "contract.ErrorBody": {
