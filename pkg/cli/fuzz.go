@@ -79,6 +79,7 @@ var (
 	fuzzNoRedirects        bool
 	fuzzOutputPath         string
 	fuzzAllResults         bool
+	fuzzTopLimit           int
 	fuzzFailOnMatch        bool
 
 	// Burp bridge.
@@ -234,7 +235,8 @@ func init() {
 	f.DurationVar(&fuzzTimeout, "timeout", replay.DefaultTimeout, "Per-request timeout (e.g. 30s)")
 	f.BoolVar(&fuzzNoRedirects, "no-redirects", false, "Don't follow 30x redirects")
 	f.StringVarP(&fuzzOutputPath, "output", "o", "", "Write the per-payload JSONL stream to this file (stdout keeps the human table, or the -j envelope)")
-	f.BoolVar(&fuzzAllResults, "all-results", false, "Emit every result, not just matched ones")
+	f.BoolVar(&fuzzAllResults, "all-results", false, "Emit every result, not just matched ones (the -j document's items included)")
+	f.IntVarP(&fuzzTopLimit, "limit", "n", fuzzTopResultsEmit, "With -j: the most results the document lists, highest-ranked first (0 = every one); total counts them all")
 	f.BoolVar(&fuzzFailOnMatch, "fail-on-match", false, "Exit non-zero (3) if any result matches (for agent/CI gating)")
 
 	// Burp bridge — route each payload through Burp's engine (exact bytes) and,
@@ -315,6 +317,9 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	installReplayTrafficDump()
+	if fuzzTopLimit < 0 {
+		return usageErrorf("--limit must be >= 0 (0 = every result), got %d", fuzzTopLimit)
+	}
 	if err := fuzzShaping.validate(); err != nil {
 		return err
 	}
@@ -476,6 +481,7 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	// OnResult is called serially by the engine, so no extra locking is needed
 	// to accumulate the ranked top anomalies for the -j summary.
 	var topResults []fuzz.Result
+	resultsKept := 0 // every result the -j document describes, listed or not
 	job := fuzz.Job{
 		Raw:                src.BaselineRequest,
 		Scheme:             src.Scheme,
@@ -507,8 +513,11 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 					_ = enc.Encode(r)
 				}
 			}
-			if plan.envelope && r.Matched && len(topResults) < fuzzTopResultsCollect {
-				topResults = append(topResults, r)
+			if plan.envelope && (fuzzAllResults || r.Matched) {
+				resultsKept++
+				if fuzzTopLimit == 0 || len(topResults) < max(fuzzTopResultsCollect, fuzzTopLimit) {
+					topResults = append(topResults, r)
+				}
 			}
 		},
 	}
@@ -562,7 +571,7 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	}
 
 	if plan.envelope && report != nil {
-		if err := emitFuzzJSONSummary(cmd, src, args, len(positions), len(payloads), report, topResults, bridge != nil && bridge.sendViaBurp, organizerPushed, pace); err != nil {
+		if err := emitFuzzJSONSummary(cmd, src, args, len(positions), len(payloads), report, topResults, resultsKept, bridge != nil && bridge.sendViaBurp, organizerPushed, pace); err != nil {
 			return err
 		}
 	} else if report != nil {
@@ -1223,10 +1232,10 @@ var fuzzShaping = rowShaping{
 	compactDrop: []string{"anomaly_reasons"},
 }
 
-func emitFuzzJSONSummary(cmd *cobra.Command, src *replaySource, args []string, positions, payloadCount int, report *fuzz.Report, top []fuzz.Result, sentViaBurp bool, organizerPushed int, pace fuzzPace) error {
+func emitFuzzJSONSummary(cmd *cobra.Command, src *replaySource, args []string, positions, payloadCount int, report *fuzz.Report, top []fuzz.Result, kept int, sentViaBurp bool, organizerPushed int, pace fuzzPace) error {
 	sort.SliceStable(top, func(i, j int) bool { return fuzzResultRank(top[i]) > fuzzResultRank(top[j]) })
-	if len(top) > fuzzTopResultsEmit {
-		top = top[:fuzzTopResultsEmit]
+	if fuzzTopLimit > 0 && len(top) > fuzzTopLimit {
+		top = top[:fuzzTopLimit]
 	}
 	summary := fuzzJSONSummary{
 		fuzzExtras: fuzzExtras{
@@ -1234,6 +1243,7 @@ func emitFuzzJSONSummary(cmd *cobra.Command, src *replaySource, args []string, p
 			Positions:        positions,
 			Payloads:         payloadCount,
 			Sent:             report.Sent,
+			SentTotal:        report.SentTotal,
 			Matched:          report.Matched,
 			Calibrated:       report.Calibrated,
 			Errors:           report.Errors,
@@ -1259,10 +1269,14 @@ func emitFuzzJSONSummary(cmd *cobra.Command, src *replaySource, args []string, p
 	if env.Items, err = fuzzShaping.apply(env.Items); err != nil {
 		return err
 	}
-	// items holds the top results, but total is the whole matched count: the
-	// envelope describes the run, and `matched` beyond the top-N is the signal
-	// that there is more in the stream.
-	env.Total = int64(report.Matched)
+	// items holds the top results, but total is every result the document
+	// describes (the matched ones, or all of them under --all-results): more
+	// than items is the signal that there is more in the stream.
+	total := report.Matched
+	if fuzzAllResults {
+		total = kept
+	}
+	env.Total = int64(max(total, len(top)))
 	if tail := fuzzFollowUpArgs(args, report.Matched); tail != nil {
 		if argv := followUpArgv(tail...); argv != nil {
 			env.With("next", []scanNextStep{{

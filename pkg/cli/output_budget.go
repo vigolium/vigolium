@@ -114,10 +114,16 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 	apply := func(k int) {
 		env.Items = items.Slice(0, k).Interface()
 		report := map[string]any{
-			"max_bytes":   budget,
-			"returned":    k,
-			"omitted":     n - k,
-			"next_offset": env.Offset + k,
+			"max_bytes": budget,
+			"returned":  k,
+			"omitted":   n - k,
+		}
+		// A second page of a command that sends would send again, so it gets
+		// no offset to follow, only where the whole result can go instead.
+		if sendsTrafficCommands[env.Command] {
+			report["full_result"] = sendingBudgetHint
+		} else {
+			report["next_offset"] = env.Offset + k
 		}
 		if len(dropped) > 0 {
 			report["dropped_keys"] = slices.Clone(dropped)
@@ -241,6 +247,9 @@ func pageFromOffset[T any](rows []T, offset int) ([]T, error) {
 	}
 	return rows[offset:], nil
 }
+
+// sendingBudgetHint is output_budget.full_result on a command that sends.
+const sendingBudgetHint = "this command sends requests: re-running it for the next page would send them again; re-run with -o <file> to keep every row, or narrow each row with --fields/--compact"
 
 // outputBudgetKey names the report the budget pass attaches. A caller reads it
 // to learn that the page it holds was cut by bytes rather than by -n/--limit.

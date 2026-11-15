@@ -444,10 +444,13 @@ type schemaFlagsExtras struct {
 // fuzzExtras are fuzz -j's top-level keys: fuzzJSONSummary (which embeds this
 // type) without the top_results it moves to items.
 type fuzzExtras struct {
-	Target          string        `json:"target"`
-	Positions       int           `json:"positions"`
-	Payloads        int           `json:"payloads"`
+	Target    string `json:"target"`
+	Positions int    `json:"positions"`
+	Payloads  int    `json:"payloads"`
+	// Sent counts payload sends; SentTotal every request, baseline samples
+	// and calibration probes included.
 	Sent            int           `json:"sent"`
+	SentTotal       int           `json:"sent_total"`
 	Matched         int           `json:"matched"`
 	Calibrated      int           `json:"calibrated"`
 	Errors          int           `json:"errors"`

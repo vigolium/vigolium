@@ -150,8 +150,11 @@ func TestEnvelopeCommonExtrasMatchEmitters(t *testing.T) {
 	}
 	sorted := func(v []string) []string { v = slices.Clone(v); sort.Strings(v); return v }
 	require.Equal(t, sorted(contract.JSONFieldNames(contract.GlobSources{})), keysOf(got["glob_sources"]))
-	// dropped_keys appears only when a droppable key was emptied.
-	budgetKeys := slices.DeleteFunc(contract.JSONFieldNames(contract.OutputBudget{}), func(k string) bool { return k == "dropped_keys" })
+	// dropped_keys appears only when a droppable key was emptied, full_result
+	// only on a command that sends.
+	budgetKeys := slices.DeleteFunc(contract.JSONFieldNames(contract.OutputBudget{}), func(k string) bool {
+		return k == "dropped_keys" || k == "full_result"
+	})
 	require.Equal(t, sorted(budgetKeys), keysOf(got[outputBudgetKey]))
 
 	// Every project source the CLI can report is in the schema's enum.

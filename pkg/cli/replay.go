@@ -50,6 +50,7 @@ var (
 	replayTargetURL      string
 	replayTimeout        time.Duration
 	replayOutputPath     string
+	replayExcerptBytes   int
 	replayBurpBridgeURL  string
 	replaySaveToBurp     bool
 	replaySendViaBurp    bool
@@ -192,6 +193,8 @@ func init() {
 	f.BoolVar(&replayInReplace, "in-replace", false,
 		"When the source is a stored record, update its stored response with the replay")
 	registerRowShapingFlags(f)
+	f.IntVar(&replayExcerptBytes, "excerpt-bytes", replay.DefaultExcerptCap,
+		"Bytes of each response (and the mutated request) kept as an excerpt in the -j/JSONL result")
 	f.StringVarP(&replayOutputPath, "output", "o", "", "Write the JSONL result stream (one object per record) to this file; stdout keeps the human summary, or the -j envelope")
 	registerBridgeURLFlag(replayCmd, &replayBurpBridgeURL,
 		"Loopback Burp/Caido bridge URL used by --save-to-burp / --send-via-burp / --to-repeater / --to-organizer")
@@ -267,6 +270,9 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	}
 	if err := validateReplayFlags(); err != nil {
 		return err
+	}
+	if replayExcerptBytes < 1 {
+		return usageErrorf("--excerpt-bytes must be >= 1, got %d", replayExcerptBytes)
 	}
 	if err := replayShaping.validate(); err != nil {
 		return err
@@ -549,12 +555,13 @@ func (rr *replayRun) one(ctx context.Context, src *replaySource, overlay map[str
 		Client:               rr.client,
 		SendBaseline:         replaySendBaseline,
 		BaselineIsEvidence:   src.FindingID != 0 && len(src.BaselineResponse) > 0,
+		ExcerptCap:           replayExcerptBytes,
 	}
 	// --send-via-burp routes the actual send through Burp's engine so the exact bytes
 	// (deliberate Content-Length, smuggling, unusual methods) reach the wire; the
 	// baseline and diff logic are unchanged.
 	if rr.sendViaBurp {
-		opts.Sender = burpbridge.BridgeSender(rr.burpClient, src.Scheme, src.Hostname, src.Port, rr.sendOpts, replay.DefaultExcerptCap)
+		opts.Sender = burpbridge.BridgeSender(rr.burpClient, src.Scheme, src.Hostname, src.Port, rr.sendOpts, replayExcerptBytes)
 	}
 
 	result, err := replay.Do(ctx, opts)
@@ -1227,6 +1234,12 @@ type replayOutput struct {
 	// SavedRecordUUID is the record the exchange was stored as (source
 	// "replay"); empty when it was not stored.
 	SavedRecordUUID string `json:"saved_record_uuid,omitempty"`
+	// StatusCode and ResponseContentLength repeat the replayed response's
+	// status and length at the top level, so `--fields status,length` (and a
+	// jq one-liner) reach them without walking result.replay. Absent when
+	// nothing answered.
+	StatusCode            *int `json:"status_code,omitempty"`
+	ResponseContentLength *int `json:"response_content_length,omitempty"`
 	// Error is set (with Result nil) only in bulk mode when a single record
 	// fails to replay, so one bad record doesn't abort the JSONL stream.
 	Error string `json:"error,omitempty"`
@@ -1251,6 +1264,10 @@ func buildReplayOutput(src *replaySource, result *replay.Result, jarLoaded int, 
 	if pj != nil {
 		out.JarPath = pj.Path()
 		out.CookiesPreloaded = jarLoaded
+	}
+	if result != nil && result.Replay != nil && result.Replay.Status != 0 {
+		status, length := result.Replay.Status, result.Replay.ResponseLen
+		out.StatusCode, out.ResponseContentLength = &status, &length
 	}
 	return out
 }

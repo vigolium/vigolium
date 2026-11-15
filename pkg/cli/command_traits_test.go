@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"slices"
 	"testing"
@@ -9,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 )
 
 // TestCommandTraitsShapes is the static half of the shaping guardrail: every
@@ -166,11 +169,14 @@ func runShaped(t *testing.T, path []string, flags ...string) (string, error) {
 	t.Cleanup(func() {
 		globalJSON = prevJSON
 		reset()
+		// A run closes the shared connection on exit but leaves it cached.
+		clicommon.ResetDBCache()
 	})
 	require.NoError(t, c.ParseFlags(flags))
 	if err := validateGenericShaping(c); err != nil {
 		return "", err
 	}
+	c.SetContext(context.Background())
 	var runErr error
 	out := captureStdout(t, func() { runErr = c.RunE(c, c.Flags().Args()) })
 	return out, runErr

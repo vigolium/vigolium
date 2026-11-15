@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -73,7 +74,11 @@ func Run(ctx context.Context, job Job) (*Report, error) {
 	// the one send path is what guarantees baseline samples and calibration
 	// probes are paced exactly like payloads.
 	limiter := newRateLimiter(job.RateLimit)
+	// sentTotal counts every request the run puts on the wire: baseline
+	// samples and calibration probes as well as payloads (Report.Sent).
+	var sentTotal atomic.Int64
 	send := func(raw []byte) *replay.Summary {
+		sentTotal.Add(1)
 		if limiter != nil {
 			if err := limiter.Wait(ctx); err != nil {
 				return &replay.Summary{Error: err.Error()}
@@ -88,6 +93,7 @@ func Run(ctx context.Context, job Job) (*Report, error) {
 	// Baseline — the un-fuzzed request, for delta reporting and calibration.
 	baseSum, baseline := sampleBaseline(ctx, job, send)
 	report := &Report{Baseline: baseline}
+	defer func() { report.SentTotal = int(sentTotal.Load()) }()
 	if baseline.Samples == 0 && !job.AllowBaselineError {
 		if err := ctx.Err(); err != nil {
 			return report, err

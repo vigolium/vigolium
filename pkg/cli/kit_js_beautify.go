@@ -109,22 +109,25 @@ type kitBeautifyResult struct {
 	// Status is the engine's own verdict: complete, partial, or failed. Without
 	// it, output from a clean AST pass and from the degraded string fallback are
 	// identical in shape, and a programmatic caller cannot tell them apart.
-	Status      string                `json:"status,omitempty"`
-	Changed     bool                  `json:"changed"`
-	Format      string                `json:"format,omitempty"`
-	ModuleCount int                   `json:"module_count"`
-	ModulePaths []string              `json:"module_paths,omitempty"`
-	BytesIn     int                   `json:"bytes_in"`
-	BytesOut    int                   `json:"bytes_out"`
-	Content     string                `json:"content"`
-	Endpoints   []kitBeautifyEndpoint `json:"endpoints,omitempty"`
-	Routes      []kitRoute            `json:"routes,omitempty"`
-	Assets      []kitAsset            `json:"assets,omitempty"`
-	GraphQL     []kitGraphQLOp        `json:"graphql,omitempty"`
-	Realtime    []kitRealtime         `json:"realtime,omitempty"`
-	DOMFlows    []kitFlow             `json:"dom_flows,omitempty"`
-	Paths       []kitPath             `json:"paths,omitempty"`
-	Secrets     []kitSecretMatch      `json:"secrets,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	Changed     bool     `json:"changed"`
+	Format      string   `json:"format,omitempty"`
+	ModuleCount int      `json:"module_count"`
+	ModulePaths []string `json:"module_paths,omitempty"`
+	BytesIn     int      `json:"bytes_in"`
+	BytesOut    int      `json:"bytes_out"`
+	Content     string   `json:"content"`
+	// ContentOmitted: the content went to -o/--output (OutputPath) and is
+	// left out of the -j document rather than sent twice.
+	ContentOmitted bool                  `json:"content_omitted,omitempty"`
+	Endpoints      []kitBeautifyEndpoint `json:"endpoints,omitempty"`
+	Routes         []kitRoute            `json:"routes,omitempty"`
+	Assets         []kitAsset            `json:"assets,omitempty"`
+	GraphQL        []kitGraphQLOp        `json:"graphql,omitempty"`
+	Realtime       []kitRealtime         `json:"realtime,omitempty"`
+	DOMFlows       []kitFlow             `json:"dom_flows,omitempty"`
+	Paths          []kitPath             `json:"paths,omitempty"`
+	Secrets        []kitSecretMatch      `json:"secrets,omitempty"`
 	// Counts holds one entry per reported kind, zero included, whenever facts
 	// or secrets were asked for: a kind missing from Counts was not looked for.
 	Counts map[string]int `json:"counts,omitempty"`
@@ -253,6 +256,10 @@ func runKitJSBeautify(cmd *cobra.Command, args []string) error {
 	}
 
 	if globalJSON {
+		if result.OutputPath != "" {
+			result.Content = ""
+			result.ContentOmitted = true
+		}
 		// Wrapped, not reshaped: items:[result] carries the same object D6
 		// defined; --json-legacy-keys flattens it back to the top level.
 		return emitObject(cmd, ".", result)

@@ -2,12 +2,17 @@ package cli
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/replay"
 )
 
 // scanDocLike is a scan-shaped envelope: a few small findings and a bulky
@@ -26,9 +31,9 @@ func scanDocLike() *agentEnvelope {
 // table, then phase outcomes) before it cuts a finding, and says so.
 func TestOutputBudgetDropsBulkyKeysBeforeItems(t *testing.T) {
 	env := scanDocLike()
-	requireBudgetApplied(t, env, 2500)
+	requireBudgetApplied(t, env, 3000)
 	doc, parsed := decodeBudgeted(t, env)
-	require.LessOrEqual(t, len(doc), 2500)
+	require.LessOrEqual(t, len(doc), 3000)
 	require.Nil(t, parsed["plan"])
 	require.NotNil(t, parsed["targets"], "only as much as needed is dropped")
 	require.Len(t, parsed["items"], 3, "no finding is cut while a droppable key remains")
@@ -163,4 +168,59 @@ func TestModuleLsShaping(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &doc))
 	require.NotEmpty(t, doc.Items)
 	require.ElementsMatch(t, []string{"tag", "modules"}, mapKeys(doc.Items[0]))
+}
+
+// On a command that sends, a budgeted page points at -o instead of an offset:
+// following an offset would send everything again.
+func TestOutputBudgetSendingCommandHasNoNextOffset(t *testing.T) {
+	env := newAgentEnvelope("replay", "", budgetItems(10, 64), 10, 0, 10)
+	requireBudgetApplied(t, env, 600)
+	_, parsed := decodeBudgeted(t, env)
+	report := parsed[outputBudgetKey].(map[string]any)
+	require.NotContains(t, report, "next_offset")
+	require.Contains(t, report["full_result"], "-o")
+
+	read := newAgentEnvelope("traffic", "", budgetItems(10, 64), 10, 0, 10)
+	requireBudgetApplied(t, read, 600)
+	_, parsed = decodeBudgeted(t, read)
+	require.Contains(t, parsed[outputBudgetKey], "next_offset")
+}
+
+// replay rows carry the replayed status and length at the top level.
+func TestReplayOutputTopLevelStatusAndLength(t *testing.T) {
+	out := buildReplayOutput(&replaySource{Scheme: "http", Hostname: "x"},
+		&replay.Result{Replay: &replay.Summary{Status: 404, ResponseLen: 12}}, 0, nil)
+	raw, err := json.Marshal(out)
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(raw, &m))
+	require.EqualValues(t, 404, m["status_code"])
+	require.EqualValues(t, 12, m["response_content_length"])
+	require.NoError(t, validateFieldSelection([]string{"status", "length"}, replayShaping.supported))
+}
+
+// fuzz -j lists at most -n results (default 20); --all-results lists every
+// result, not only matches, and total counts them; sent_total counts the
+// baseline and calibration requests too.
+func TestFuzzJSONLimitAndAllResults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("same page"))
+	}))
+	defer srv.Close()
+	words := filepath.Join(t.TempDir(), "w.txt")
+	require.NoError(t, os.WriteFile(words, []byte("a\nb\nc\nd\ne\n"), 0o600))
+
+	out, err := runShaped(t, []string{"fuzz"}, srv.URL+"/?q=FUZZ", "-w", words, "--all-results", "-n", "2", "--no-calibrate")
+	require.NoError(t, err)
+	var doc struct {
+		Total     int              `json:"total"`
+		Sent      int              `json:"sent"`
+		SentTotal int              `json:"sent_total"`
+		Items     []map[string]any `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &doc), out)
+	require.Len(t, doc.Items, 2)
+	require.Equal(t, 5, doc.Total, "total counts every result under --all-results")
+	require.Equal(t, 5, doc.Sent)
+	require.Greater(t, doc.SentTotal, doc.Sent, "the baseline is a send too")
 }

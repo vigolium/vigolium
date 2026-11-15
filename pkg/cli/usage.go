@@ -375,7 +375,7 @@ var fuzzFlagGroups = []flagGroup{
 	{"Speed & Behaviour", []string{
 		"no-calibrate", "allow-baseline-error", "concurrency", "rate-limit", "max-requests", "delay", "timeout", "no-redirects",
 		"dry-run", "ignore-scope", "keep-host"}},
-	{"Output", []string{"output", "all-results", "fail-on-match", "save", "fields", "compact", "max-output-bytes"}},
+	{"Output", []string{"output", "all-results", "limit", "fail-on-match", "save", "fields", "compact", "max-output-bytes"}},
 	{"Burp Bridge", []string{"send-via-burp", "burp-bridge-url", "http-mode", "send-timeout", "matches-to-organizer"}},
 }
 
@@ -384,7 +384,7 @@ var replayFlagGroups = []flagGroup{
 	{"Input & Selection", []string{"input", "input-file", "raw-request", "raw-request-file", "record-uuid", "finding-id", "target"}},
 	{"Bulk Filter", []string{"host", "method", "status", "path", "source", "search", "header-search", "body", "exclude-search", "exclude-header-search", "exclude-body", "from", "to", "sort", "asc", "offset", "limit", "all", "all-matches"}},
 	{"Request Options", []string{"header", "ignore-scope", "keep-host", "auth-session", "session-id", "no-cookies", "no-redirects", "baseline", "timeout", "concurrency", "with-browser"}},
-	{"Output", []string{"output", "once", "save", "no-save", "dry-run", "in-replace", "stateless", "fields", "compact", "max-output-bytes"}},
+	{"Output", []string{"output", "once", "save", "no-save", "dry-run", "in-replace", "stateless", "fields", "compact", "max-output-bytes", "excerpt-bytes"}},
 	{"Burp Bridge", []string{"burp-bridge-url", "save-to-burp", "send-via-burp", "http-mode", "send-timeout", "to-repeater", "repeater-tab", "to-organizer", "notes", "highlight"}},
 }
 

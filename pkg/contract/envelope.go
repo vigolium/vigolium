@@ -97,10 +97,15 @@ type GlobSkipped struct {
 
 // OutputBudget is the output_budget extra of a page --max-output-bytes cut.
 type OutputBudget struct {
-	MaxBytes   int `json:"max_bytes"`
-	Returned   int `json:"returned"`
-	Omitted    int `json:"omitted"`
-	NextOffset int `json:"next_offset"`
+	MaxBytes int `json:"max_bytes"`
+	Returned int `json:"returned"`
+	Omitted  int `json:"omitted"`
+	// NextOffset is the --offset of the next page. Absent on a command that
+	// sends requests, where FullResult says how to get every row instead.
+	NextOffset *int `json:"next_offset,omitempty"`
+	// FullResult replaces NextOffset on a command that sends requests: a
+	// second page would send them again.
+	FullResult string `json:"full_result,omitempty"`
 	// DroppedKeys names the top-level keys emptied (set to null) to fit the
 	// budget, in the order they were dropped, before any item was cut.
 	DroppedKeys []string `json:"dropped_keys,omitempty"`

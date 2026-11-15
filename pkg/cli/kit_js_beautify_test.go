@@ -352,3 +352,27 @@ func TestKitBeautifySecrets(t *testing.T) {
 		t.Error("--show-secrets without --secrets should be a usage error")
 	}
 }
+
+// With -o the content goes to the file once; the -j document says where and
+// leaves the content out.
+func TestKitBeautifyOutputOmitsContent(t *testing.T) {
+	resetKitBeautifyFlags(t)
+	globalJSON = true
+	kitBeautifyOutput = filepath.Join(t.TempDir(), "out.js")
+
+	stdout, _, _ := runKitBeautifyWithFake(t, kitBeautifyGoldenInput, kitAllKindsResult())
+	var doc map[string]any
+	if err := json.Unmarshal(kitBeautifyItem(t, stdout), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["content"] != "" || doc["content_omitted"] != true {
+		t.Fatalf("content must be omitted with -o: content=%v content_omitted=%v", doc["content"], doc["content_omitted"])
+	}
+	if doc["output_path"] != kitBeautifyOutput {
+		t.Fatalf("output_path = %v", doc["output_path"])
+	}
+	written, err := os.ReadFile(kitBeautifyOutput)
+	if err != nil || len(written) == 0 {
+		t.Fatalf("the file holds the content: %v (%d bytes)", err, len(written))
+	}
+}

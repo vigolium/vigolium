@@ -193,11 +193,15 @@ type Result struct {
 
 // Report is the aggregate returned by Run once every send completes.
 type Report struct {
-	Baseline   Baseline `json:"baseline"`
-	Sent       int      `json:"sent"`
-	Matched    int      `json:"matched"`
-	Calibrated int      `json:"calibrated"`
-	Errors     int      `json:"errors"`
+	Baseline Baseline `json:"baseline"`
+	// Sent counts payload sends: one per case of the plan that went out.
+	Sent int `json:"sent"`
+	// SentTotal counts every request the run sent: Sent plus the baseline
+	// samples and the calibration probes.
+	SentTotal  int `json:"sent_total"`
+	Matched    int `json:"matched"`
+	Calibrated int `json:"calibrated"`
+	Errors     int `json:"errors"`
 
 	// Anomalies are the results the --anomaly detector flagged, scored
 	// against the completed population and sorted most-interesting first.
