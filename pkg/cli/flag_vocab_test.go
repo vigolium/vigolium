@@ -196,3 +196,41 @@ func TestPaceDefaultsAreNamedConstants(t *testing.T) {
 		}
 	}
 }
+
+// A child no longer inherits the listing's filters, which it ignored: a filter
+// given to a subcommand is an unknown flag (a usage error), not a silent no-op.
+func TestListingFiltersAreLocal(t *testing.T) {
+	prepareCommandTree(rootCmd)
+	for _, argv := range [][]string{
+		{"finding", "--severity", "high", "mark", "4", "confirmed"},
+		{"finding", "mark", "4", "confirmed", "--severity", "high"},
+		{"finding", "show", "4", "--limit", "5"},
+		{"finding", "load", "x.json", "--host", "a"},
+		{"traffic", "body", "rec", "--host", "a"},
+		{"traffic", "headers", "rec", "--status", "200"},
+		{"db", "compact", "--search", "x"},
+		{"db", "stats", "--table", "findings"},
+		{"db", "migrate", "--watch", "5s"},
+	} {
+		c, rest, err := rootCmd.Find(argv)
+		require.NoError(t, err, argv)
+		perr := c.ParseFlags(rest)
+		require.Error(t, perr, "%v must reject the listing's filter", argv)
+		require.Contains(t, perr.Error(), "unknown flag", argv)
+		c.Flags().VisitAll(resetFlagToDefault)
+	}
+	// What the children do read is theirs.
+	for _, argv := range [][]string{
+		{"finding", "verify", "--scan-uuid", "latest"},
+		{"db", "list", "--search", "x", "--table", "findings", "--watch", "5s"},
+		{"db", "export", "--search", "x"},
+		{"db", "clean", "--search", "x"},
+		{"db", "stats", "--watch", "5s"},
+	} {
+		c, rest, err := rootCmd.Find(argv)
+		require.NoError(t, err, argv)
+		require.NoError(t, c.ParseFlags(rest), argv)
+		c.Flags().VisitAll(resetFlagToDefault)
+	}
+	findingScanUUID, dbSearch, globalTable, globalWatchRaw = "", "", "", ""
+}

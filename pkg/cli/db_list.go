@@ -88,6 +88,7 @@ var (
 
 func init() {
 	dbCmd.AddCommand(dbListCmd)
+	registerDBSharedFlags(dbListCmd, dbFlagTable, dbFlagSearch, dbFlagWatch)
 	registerListFlags(dbListCmd)
 }
 

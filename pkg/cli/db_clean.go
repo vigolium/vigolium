@@ -54,6 +54,7 @@ var (
 
 func init() {
 	dbCmd.AddCommand(dbCleanCmd)
+	registerDBSharedFlags(dbCleanCmd, dbFlagSearch)
 	dbCmd.AddCommand(dbResetCmd)
 
 	dbCleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete every row from all data tables (requires --force unless --dry-run)")

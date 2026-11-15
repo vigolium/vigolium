@@ -89,8 +89,9 @@ func init() {
 	f.Float64Var(&findingVerifyRateLimit, "rate-limit", unlimitedRate, "Max requests/second across the verification (0 = unlimited; fractions allowed)")
 	f.DurationVar(&findingVerifyTimeout, "timeout", verify.DefaultTimeout, "Time limit for verifying one finding (one request is capped at 15s)")
 	f.BoolVarP(&globalStateless, "stateless", "S", false, "Use the standalone .sqlite named by --db with project scoping off")
-	// --scan-uuid is the finding command's persistent filter flag; here it
-	// adds every finding of that scan (uuid, 8+ char prefix, latest, previous).
+	// Bound to the listing's --scan-uuid variable: here it adds every finding
+	// of that scan (uuid, 8+ char prefix, latest, previous).
+	f.StringVar(&findingScanUUID, "scan-uuid", "", "Verify every finding of this scan (UUID, 8+ char prefix, latest, previous)")
 	f.StringVar(&globalGlobDB, "glob-db", "", "Not supported: a --glob-db merge is a temporary copy, so a verdict written there would be lost")
 	_ = f.MarkHidden("glob-db")
 }

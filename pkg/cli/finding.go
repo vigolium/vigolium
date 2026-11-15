@@ -124,8 +124,10 @@ func init() {
 	rootCmd.AddCommand(findingCmd)
 	findingCmd.AddCommand(findingLoadCmd)
 
-	// Filter flags
-	pf := findingCmd.PersistentFlags()
+	// Filter flags: local to the listing. As persistent flags every finding
+	// subcommand accepted them and ignored them, so `finding --severity high
+	// mark 4` marked finding 4 whatever its severity.
+	pf := findingCmd.Flags()
 	pf.StringVar(&findingHost, "host", "", "Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	pf.StringSliceVar(&findingMethods, "method", nil, "Filter by HTTP method (repeatable)")
 	pf.IntSliceVar(&findingStatus, "status", nil, "Filter by HTTP status code (repeatable)")

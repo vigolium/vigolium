@@ -27,6 +27,7 @@ var (
 
 func init() {
 	dbCmd.AddCommand(dbStatsCmd)
+	registerDBSharedFlags(dbStatsCmd, dbFlagWatch)
 
 	dbStatsCmd.Flags().BoolVar(&statsDetailed, "detailed", false, "Show per-host and per-module breakdown")
 	dbStatsCmd.Flags().StringVar(&statsScanUUID, "scan-uuid", "", "Show statistics for a specific scan UUID")

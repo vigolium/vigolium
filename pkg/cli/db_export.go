@@ -55,6 +55,7 @@ var (
 
 func init() {
 	dbCmd.AddCommand(dbExportCmd)
+	registerDBSharedFlags(dbExportCmd, dbFlagTable, dbFlagSearch, dbFlagWatch)
 
 	dbExportCmd.Flags().StringVarP(&exportFormat, "format", "f", "jsonl", "Export format: "+output.FormatsHelp(output.SurfaceDBExport))
 	dbExportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file path, defaults to stdout")

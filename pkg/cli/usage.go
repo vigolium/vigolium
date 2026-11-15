@@ -331,7 +331,7 @@ var listQueryFlagGroups = []flagGroup{
 	{"Search", []string{"search", "header", "body", "exclude-search", "exclude-header", "exclude-body", "exclude-not-found"}},
 	{"Date Range", []string{"from", "to"}},
 	{"Display", []string{"tree", "raw", "burp", "markdown", "group-by", "group-limit", "columns", "exclude-columns", "tui", "no-tui"}},
-	{"Output", []string{"fields", "compact", "full-body", "max-output-bytes", "output", "with-records", "record-fields", "record-limit", "no-header"}},
+	{"Output", []string{"fields", "compact", "full-body", "max-output-bytes", "output", "with-records", "record-fields", "record-limit", "no-header", "watch"}},
 	{"Pagination & Sort", []string{"limit", "offset", "sort", "asc", "pick", "all"}},
 	{"Data Source", []string{"stateless", "glob-db", "glob-strict", "table", "list-tables", "list-columns"}},
 	{"Replay", []string{"replay", "ignore-scope", "concurrency", "with-browser", "burp-bridge-url", "save-to-vigolium-db", "save-to-burp", "in-replace", "timeout"}},

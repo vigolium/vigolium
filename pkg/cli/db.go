@@ -23,9 +23,32 @@ var dbSearch string
 
 func init() {
 	rootCmd.AddCommand(dbCmd)
-	dbCmd.PersistentFlags().StringVar(&globalTable, "table", "", "Database table to operate on (http_records, findings, scans)")
-	dbCmd.PersistentFlags().StringVar(&dbSearch, "search", "", "Quick search across record fields (URLs, paths, descriptions)")
-	dbCmd.PersistentFlags().StringVar(&globalWatchRaw, "watch", "", "Re-run on interval (e.g. 10s, 1m, 5m)")
+}
+
+// The db subcommands' shared flags, registered only on the subcommands that
+// read them (registerDBSharedFlags). They used to be persistent on `db`, so
+// `db compact --search x` was accepted and did nothing.
+const (
+	dbFlagTable  = "table"
+	dbFlagSearch = "search"
+	dbFlagWatch  = "watch"
+)
+
+// registerDBSharedFlags adds the named shared db flags to cmd.
+func registerDBSharedFlags(cmd *cobra.Command, names ...string) {
+	f := cmd.Flags()
+	for _, name := range names {
+		switch name {
+		case dbFlagTable:
+			f.StringVar(&globalTable, dbFlagTable, "", "Database table to operate on (http_records, findings, scans)")
+		case dbFlagSearch:
+			f.StringVar(&dbSearch, dbFlagSearch, "", "Quick search across record fields (URLs, paths, descriptions)")
+		case dbFlagWatch:
+			f.StringVar(&globalWatchRaw, dbFlagWatch, "", "Re-run on interval (e.g. 10s, 1m, 5m)")
+		default:
+			panic("registerDBSharedFlags: unknown flag " + name)
+		}
+	}
 }
 
 // getDB returns the shared database connection, opening it on first use from

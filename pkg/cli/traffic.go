@@ -160,8 +160,9 @@ var trafficCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(trafficCmd)
 
-	// Shared filter flags on PersistentFlags (apply to both the listing and --replay)
-	pf := trafficCmd.PersistentFlags()
+	// Filter flags, local to the listing (they apply to it and to --replay;
+	// traffic body/headers select their record with their own flags)
+	pf := trafficCmd.Flags()
 	pf.StringSliceVar(&trafficUUIDs, "uuid", nil,
 		"Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination, so a match is never missed because it fell outside -n")
 	pf.StringArrayVar(&trafficURLs, "url", nil,
