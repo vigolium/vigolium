@@ -2,11 +2,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/ingestor"
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/apicontract"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -24,6 +28,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/notify/webhook"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
+	"github.com/vigolium/vigolium/pkg/work"
 	"go.uber.org/zap"
 )
 
@@ -182,6 +187,13 @@ func runIngestCmd(cmd *cobra.Command, args []string) error {
 	case len(sources) > 1:
 		announceIngestBatch(sources)
 	}
+	// Every path is checked before anything is ingested: a missing file or a
+	// directory given to -i used to end as "0 records" and exit 0.
+	for _, src := range sources {
+		if err := checkIngestSourcePath(src); err != nil {
+			return err
+		}
+	}
 
 	// The summary is emitted ONCE, here, from the accumulated outcome. It used
 	// to be printed by each per-source run, so a batch of fifty HARs with -j
@@ -190,8 +202,10 @@ func runIngestCmd(cmd *cobra.Command, args []string) error {
 	started := time.Now()
 	var total ingestOutcome
 	failedSources := 0
+	var unparsed []string
 	for _, src := range sources {
 		ingestOpts.Input = src
+		ingestItemsRead.Store(0)
 		out, err := run(cmd, args)
 		total.add(out)
 		if err != nil {
@@ -200,9 +214,64 @@ func runIngestCmd(cmd *cobra.Command, args []string) error {
 			}
 			failedSources++
 			fmt.Fprintf(os.Stderr, "%s ingest %s: %v\n", terminal.WarnPrefix(), src, err)
+			continue
+		}
+		if !remote && ingestSourceIsFile(src) && ingestItemsRead.Load() == 0 {
+			unparsed = append(unparsed, src)
 		}
 	}
-	return reportIngest(total, remote, failedSources, len(sources), time.Since(started))
+	reportErr := reportIngest(total, remote, failedSources, len(sources), time.Since(started))
+	if reportErr == nil && len(unparsed) > 0 {
+		return clicommon.CLIError{
+			Err: fmt.Errorf("%d of %d input(s) yielded no records: %s",
+				len(unparsed), len(sources), strings.Join(unparsed, ", ")),
+			Code: apicontract.CodeInputUnparsed,
+			Hint: "Check the file's format; pin it with -I <format> (see 'vigolium scan --list-input-mode')",
+		}
+	}
+	return reportErr
+}
+
+// ingestItemsRead counts the work items the current source yielded.
+var ingestItemsRead atomic.Int64
+
+// countingInputSource counts the items its source yields into ingestItemsRead.
+type countingInputSource struct{ source.InputSource }
+
+func (c countingInputSource) Next(ctx context.Context) (*work.WorkItem, error) {
+	item, err := c.InputSource.Next(ctx)
+	if err == nil && item != nil {
+		ingestItemsRead.Add(1)
+	}
+	return item, err
+}
+
+// ingestSourceIsFile reports whether an ingest input is a local file (not
+// stdin, not a URL).
+func ingestSourceIsFile(src string) bool {
+	return src != "" && src != "-" && !strings.Contains(src, "://")
+}
+
+// checkIngestSourcePath refuses an -i path that does not exist (source_missing)
+// or is a directory (source_unreadable; --dir ingests a directory).
+func checkIngestSourcePath(src string) error {
+	if !ingestSourceIsFile(src) {
+		return nil
+	}
+	info, err := os.Stat(src)
+	switch {
+	case err != nil && errors.Is(err, os.ErrNotExist):
+		return clicommon.CLIError{Err: fmt.Errorf("ingest input %s: %w", src, err), Code: apicontract.CodeSourceMissing}
+	case err != nil:
+		return clicommon.CLIError{Err: fmt.Errorf("ingest input %s: %w", src, err), Code: apicontract.CodeSourceUnreadable}
+	case info.IsDir():
+		return clicommon.CLIError{
+			Err:  fmt.Errorf("ingest input %s is a directory", src),
+			Code: apicontract.CodeSourceUnreadable,
+			Hint: "To ingest every file in it: vigolium ingest --dir " + src,
+		}
+	}
+	return nil
 }
 
 // reportIngest emits the one completion document for the whole invocation and
@@ -472,6 +541,10 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (ingestOutcome, error) {
 		Variables:            ingestParseVariables(ingestOpts.Variables),
 		DefaultFallbackValue: ingestOpts.DefaultParam,
 	})
+	// Count what the input yields, so a file that parses to nothing is told
+	// apart from one whose records were all filtered.
+	ingestItemsRead.Add(int64(len(preloadedWithResp)))
+	inputSource = countingInputSource{InputSource: inputSource}
 
 	// --- 4. Initialize database ---
 	// Global → the resolved project's overlay: the scope judged below (static
@@ -712,7 +785,7 @@ func tryPreloadAutoDetect(useStdin bool, filePath string) ([]*httpmsg.HttpReques
 	case filePath != "":
 		f, err := os.Open(filePath)
 		if err != nil {
-			return nil, "", nil
+			return nil, "", err
 		}
 		defer func() { _ = f.Close() }()
 		buf, err := io.ReadAll(io.LimitReader(f, maxPeekBytes+1))

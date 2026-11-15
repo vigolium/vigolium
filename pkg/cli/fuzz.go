@@ -504,6 +504,9 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	if fuzzFailOnMatch && report != nil && report.Matched > 0 {
 		return asMatchErrorf("--fail-on-match: %d request(s) matched", report.Matched)
 	}
+	if report != nil {
+		return sendOutcomeError("fuzz request", report.Sent, report.Errors)
+	}
 	return nil
 }
 

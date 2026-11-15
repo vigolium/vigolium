@@ -9,6 +9,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/fuzz"
 )
 
 // A failed -j command used to print `✖ Error: …` to stderr and nothing at all to
@@ -136,6 +137,11 @@ func classifyErrorCode(err error, exitCode int) apicontract.ErrorCode {
 	var dbCoded interface{ Code() apicontract.ErrorCode }
 	if errors.As(err, &dbCoded) {
 		return dbCoded.Code()
+	}
+	// A fuzz run whose baseline got no answer sent no payload: the target
+	// was not reachable.
+	if errors.Is(err, fuzz.ErrBaselineUnreachable) {
+		return apicontract.CodeNoTargetsReachable
 	}
 	// The --read-only evidence open wraps the bare sentinel with its own remedy.
 	if errors.Is(err, database.ErrSchemaOutdated) {
