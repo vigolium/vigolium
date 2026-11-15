@@ -647,8 +647,17 @@
                     "file": {
                       "type": "string"
                     },
+                    "hostname": {
+                      "type": "string"
+                    },
                     "line": {
                       "type": "integer"
+                    },
+                    "matched_at": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
                     },
                     "severity": {
                       "type": "string"
@@ -663,6 +672,9 @@
                       "type": "array"
                     },
                     "title": {
+                      "type": "string"
+                    },
+                    "url": {
                       "type": "string"
                     }
                   },
