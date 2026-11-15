@@ -14,7 +14,7 @@ import (
 // render instead of printing its table.
 var tsvReadCommands = []string{
 	"db list", "db stats", "dns", "endpoints", "finding", "hosts", "log ls",
-	"match-not-found", "params", "scan diff", "traffic",
+	"match-not-found", "params", "scan diff", "scan ls", "traffic",
 }
 
 func TestTSVReadCommandsRatchet(t *testing.T) {

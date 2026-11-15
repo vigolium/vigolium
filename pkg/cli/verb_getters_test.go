@@ -36,7 +36,7 @@ func TestGettersAndRemovers(t *testing.T) {
 	}
 
 	// config get / unset
-	if v := first(run(0, "config", "get", "notify.enabled")); v["value"] != "true" {
+	if v := first(run(0, "config", "get", "notify.enabled")); v["value"] != true || v["source"] != "file" {
 		t.Fatalf("config get notify.enabled = %v", v)
 	}
 	if doc := run(2, "config", "get", "notify.enabeld"); !strings.Contains(doc["error"].(map[string]any)["did_you_mean"].(string), "notify.enabled") {

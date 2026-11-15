@@ -27,7 +27,7 @@
     "name": "config get",
     "kind": "command",
     "envelope_kind": "read",
-    "description": "One configuration key (or every key under a section), redacted unless --show-secrets."
+    "description": "One configuration key (or every key under a section) with its typed value, default, type and source layer; string credentials redacted unless --show-secrets."
   },
   {
     "name": "config ls",

@@ -560,14 +560,6 @@ func runFindingShow(cmd *cobra.Command, args []string) error {
 // The commands live in pkg/cli/configcmd; their row types are mirrored here,
 // where the schema registry is (configcmd cannot import pkg/cli).
 
-type configGetView struct {
-	Key       string `json:"key"`
-	Value     string `json:"value"`
-	Sensitive bool   `json:"sensitive"`
-	Empty     bool   `json:"empty"`
-	Redacted  bool   `json:"redacted"`
-}
-
 type configGetExtras struct {
 	ConfigPath string `json:"config_path"`
 	Redacted   bool   `json:"redacted"`
@@ -580,8 +572,8 @@ type configUnsetView struct {
 }
 
 func init() {
-	registerCommandSchema(contract.Command{Name: "config get", Item: configGetView{}, Extras: configGetExtras{},
-		Description: "One configuration key (or every key under a section), redacted unless --show-secrets."})
+	registerCommandSchema(contract.Command{Name: "config get", Item: configEntrySchema{}, Extras: configGetExtras{},
+		Description: "One configuration key (or every key under a section) with its typed value, default, type and source layer; string credentials redacted unless --show-secrets."})
 	registerCommandSchema(contract.Command{Name: "config unset", Item: configUnsetView{},
 		Description: "The key removed from the config file (removed false when the file did not set it)."})
 }

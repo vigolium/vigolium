@@ -1,12 +1,20 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
-    "cli.configGetView": {
+    "cli.configEntrySchema": {
       "properties": {
         "key": {
           "type": "string"
         },
-        "value": {
+        "value": true,
+        "display": {
+          "type": "string"
+        },
+        "default": true,
+        "type": {
+          "type": "string"
+        },
+        "source": {
           "type": "string"
         },
         "sensitive": {
@@ -24,6 +32,10 @@
       "required": [
         "key",
         "value",
+        "display",
+        "default",
+        "type",
+        "source",
         "sensitive",
         "empty",
         "redacted"
@@ -258,7 +270,7 @@
     },
     "items": {
       "items": {
-        "$ref": "#/$defs/cli.configGetView"
+        "$ref": "#/$defs/cli.configEntrySchema"
       },
       "type": "array"
     },
@@ -351,5 +363,5 @@
     "kind"
   ],
   "title": "vigolium config get -j",
-  "description": "One configuration key (or every key under a section), redacted unless --show-secrets."
+  "description": "One configuration key (or every key under a section) with its typed value, default, type and source layer; string credentials redacted unless --show-secrets."
 }
