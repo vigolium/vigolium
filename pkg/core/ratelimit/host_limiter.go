@@ -87,6 +87,10 @@ type hostEntry struct {
 	// pinned at full rate.
 	preArmed atomic.Bool
 
+	// resets counts consecutive connection resets since the host's last
+	// answer; resetStormThreshold of them arm AIMD like a WAF block.
+	resets atomic.Int32
+
 	// pauseUntil (unix nanos) holds every new acquire for this host until the
 	// server's throttle window has passed: a 429, or a 503 with
 	// Retry-After. throttles counts consecutive throttles for the 1s·2^n
@@ -175,6 +179,9 @@ type HostRateLimiter struct {
 	// the acquire hot path skips the pause lookup on a scan that never saw a
 	// 429.
 	anyPaused atomic.Bool
+	// anyReset is a fast-path flag: false until some host reset a connection,
+	// so a healthy answer skips the reset-counter lookup until then.
+	anyReset atomic.Bool
 
 	// preArmSink, when set, is invoked once per host the first time PreArm throttles
 	// it for a CDN/WAF edge, so a front-end can tell the operator that host's

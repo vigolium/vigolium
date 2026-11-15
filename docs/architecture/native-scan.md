@@ -927,7 +927,7 @@ type RecordWriter struct {
 - `Acquire(ctx, host)` blocks until a slot is free; `Release(host)` frees a slot.
 - Background eviction goroutine removes idle entries (default: 30s idle, checked every 10s).
 - Per-shard capacity cap with oldest-entry eviction when exceeded.
-- Optional AIMD pacing starts at the configured ceiling and backs off on distress. The runner also enables reactive WAF auto-arm: healthy hosts remain at full concurrency until a WAF/CDN block is observed. A detected edge can be pre-armed earlier; `--no-waf-pacing` disables that proactive step, not reactive back-off.
+- Optional AIMD pacing starts at the configured ceiling and backs off on distress. The runner also enables reactive WAF auto-arm: healthy hosts remain at full concurrency until a WAF/CDN block is observed. A detected edge can be pre-armed earlier, and so is a scan whose targets are all one loopback or private-address host (a development server starts at a quarter of `--max-per-host` and ramps up on clean answers); `--no-waf-pacing` disables those proactive steps, not reactive back-off. Three consecutive connection resets from a host arm its back-off too (halving its concurrency), since a small server shedding load resets rather than blocks.
 
 ### Host Error Circuit Breaker — `pkg/core/hosterrors/`
 

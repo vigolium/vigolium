@@ -133,6 +133,15 @@ func (r *Runner) emitNoticeLine(line string) {
 // FormatBlockNoticeLine — a caution, not a failure: the scan continues, just gentler.
 func FormatEdgePaceLine(n hostlimit.PreArmNotice) string {
 	vendor := n.Vendor
+	if vendor == hostlimit.PreArmVendorLocal {
+		return fmt.Sprintf("%s %s %s %s %s %s\n",
+			terminal.Yellow(terminal.SymbolSnow),
+			terminal.BoldYellow(NoticeMarkerPacing),
+			terminal.HiBlue(n.Host),
+			terminal.Muted("→"),
+			terminal.Yellow("local host"),
+			terminal.Muted(fmt.Sprintf("starting per-host concurrency at %d (of %d) and ramping up on clean answers, so a small server is not overrun (disable with --no-waf-pacing)", n.Start, n.From)))
+	}
 	if vendor == "" {
 		vendor = "WAF/CDN"
 	}

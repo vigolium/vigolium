@@ -3,6 +3,11 @@ package ratelimit
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
+	"net/url"
+	"strings"
+	"syscall"
 	"time"
 
 	"go.uber.org/zap"
@@ -224,6 +229,24 @@ func (h *HostRateLimiter) Feedback(host string, o FeedbackOutcome) {
 	if !h.usesAdaptiveEntries() {
 		return
 	}
+	// A run of connection resets is a server shedding load (a small dev
+	// server's accept queue overflowing), not a WAF; it arms the host's AIMD so
+	// its concurrency halves before the resets count toward quarantine.
+	resetStorm := false
+	if err != nil && isConnReset(err) {
+		resetStorm = h.noteReset(host)
+	} else if err == nil && statusCode > 0 && h.anyReset.Load() {
+		if e := h.existing(host); e != nil {
+			e.resets.Store(0)
+		}
+	}
+	if resetStorm && !wafBlocked {
+		wafBlocked = true
+		if e := h.existing(host); e != nil && !e.armed.Load() {
+			zap.L().Info("HostRateLimiter: connection-reset storm — arming adaptive back-off",
+				zap.String("host", host))
+		}
+	}
 	// WAF-auto-arm mode stays dormant until some host trips a WAF block: until then no
 	// non-block response can change any limit, so skip the per-host shard lookup and
 	// keep Feedback ~free on the common non-WAF hot path. (wafAutoArm implies
@@ -358,6 +381,28 @@ func isDistress(statusCode int, err error) bool {
 	return false
 }
 
+// resetStormThreshold is how many consecutive connection resets arm a host.
+const resetStormThreshold = 3
+
+// noteReset counts a connection reset against host and reports whether the
+// run of them has reached resetStormThreshold.
+func (h *HostRateLimiter) noteReset(host string) bool {
+	h.anyReset.Store(true)
+	entry := h.getOrCreateEntry(h.shardFor(host), host)
+	return entry.resets.Add(1) >= resetStormThreshold
+}
+
+// isConnReset reports whether err is the peer resetting or dropping the
+// connection: ECONNRESET, EPIPE, or an EOF before any response.
+func isConnReset(err error) bool {
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection reset") || strings.Contains(msg, "broken pipe") ||
+		strings.HasSuffix(msg, ": eof") || msg == "eof"
+}
+
 // isContextCanceled reports whether err is a caller cancellation, which
 // reflects scan shutdown or an abandoned call rather than host distress and
 // must not trigger back-off. A deadline is NOT a cancellation: a
@@ -460,4 +505,60 @@ func (h *HostRateLimiter) existing(host string) *hostEntry {
 	entry := shard.hosts[host]
 	shard.mu.RUnlock()
 	return entry
+}
+
+// PreArmVendorLocal is the PreArm vendor for a single loopback or
+// private-address target: a development server, not an edge.
+const PreArmVendorLocal = "local"
+
+// PreArmLocalTarget pre-arms the one host of a scan whose targets all name a
+// single loopback or private-address host (localhost, 127.0.0.1, 10.x, …),
+// so a small development server is paced from its first request and ramps
+// up on clean answers instead of taking the full per-host burst. It returns
+// the host it armed, or "" when the targets span several hosts or a public one.
+func (h *HostRateLimiter) PreArmLocalTarget(targets []string) string {
+	if h == nil || !h.PreArmable() {
+		return ""
+	}
+	host := singleLocalHost(targets)
+	if host != "" {
+		h.PreArm(host, PreArmVendorLocal)
+	}
+	return host
+}
+
+// singleLocalHost is the one hostname every target names, when it is local.
+func singleLocalHost(targets []string) string {
+	host := ""
+	for _, t := range targets {
+		raw := strings.TrimSpace(t)
+		if raw == "" {
+			continue
+		}
+		if !strings.Contains(raw, "://") {
+			raw = "http://" + raw
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Hostname() == "" {
+			return ""
+		}
+		h := strings.ToLower(u.Hostname())
+		if host != "" && h != host {
+			return ""
+		}
+		host = h
+	}
+	if host == "" || !isLocalHost(host) {
+		return ""
+	}
+	return host
+}
+
+// isLocalHost reports whether host is loopback, private or link-local.
+func isLocalHost(host string) bool {
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }

@@ -760,6 +760,11 @@ func executeDirectScan(ctx context.Context, sess *directScanSession, rr *httpmsg
 	defer stack.Close()
 	httpRequester, svc := stack.Requester, stack.Services
 	defer sess.installProbeDefaults()()
+	// One local host (a development server): paced from the first request.
+	if svc.HostLimiter.PreArmLocalTarget([]string{target}) != "" && !globalSilent && !globalJSON {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.InfoSymbol(),
+			terminal.Gray("local target: per-host concurrency starts low and ramps up on clean answers (--no-waf-pacing turns this off)"))
+	}
 
 	// Warn once per host when the edge WAF/CDN starts filtering scan traffic.
 	// The Runner-backed path wires this in RunNativeScan; this direct path builds

@@ -3,6 +3,8 @@ package ratelimit
 import (
 	"context"
 	"errors"
+	"io"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -569,5 +571,71 @@ func TestCeilingPerHostAccessor(t *testing.T) {
 	defer func() { _ = static.Close() }()
 	if got := static.CeilingPerHost(); got != 8 {
 		t.Errorf("static CeilingPerHost() = %d, want MaxPerHost=8", got)
+	}
+}
+
+// A run of connection resets arms an unarmed WAF-auto-arm host and halves its
+// concurrency; a lone reset, or resets broken by an answer, do not.
+func TestWafAutoArm_ResetStormArms(t *testing.T) {
+	h := NewHostRateLimiter(HostRateLimiterConfig{
+		MaxPerHost: 16, WafAutoArm: true, EvictInterval: time.Hour,
+	})
+	defer func() { _ = h.Close() }()
+	const host = "dev.local"
+	if err := h.Acquire(context.Background(), host); err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	h.Release(host)
+
+	reset := errors.New("read tcp 127.0.0.1:5->127.0.0.1:3000: read: connection reset by peer")
+	h.Feedback(host, FeedbackOutcome{Err: reset})
+	h.Feedback(host, FeedbackOutcome{Err: reset})
+	h.Feedback(host, FeedbackOutcome{Status: 200}) // an answer ends the run
+	h.Feedback(host, FeedbackOutcome{Err: reset})
+	h.Feedback(host, FeedbackOutcome{Err: reset})
+	if got := h.currentLimit(host); got != 16 {
+		t.Fatalf("resets broken by an answer must not arm: limit=%d", got)
+	}
+	h.Feedback(host, FeedbackOutcome{Err: syscall.ECONNRESET})
+	if got := h.currentLimit(host); got != 8 {
+		t.Fatalf("a reset storm halves the host: limit=%d, want 8", got)
+	}
+	if !isConnReset(io.ErrUnexpectedEOF) || isConnReset(errors.New("dial tcp: i/o timeout")) {
+		t.Error("isConnReset classification")
+	}
+}
+
+// A scan of one local host is paced from its first request; a public host or
+// several hosts are not.
+func TestPreArmLocalTarget(t *testing.T) {
+	newLimiter := func(noPreArm bool) *HostRateLimiter {
+		return NewHostRateLimiter(HostRateLimiterConfig{MaxPerHost: 16, WafAutoArm: true, DisablePreArm: noPreArm, EvictInterval: time.Hour})
+	}
+	h := newLimiter(false)
+	defer func() { _ = h.Close() }()
+	if got := h.PreArmLocalTarget([]string{"http://127.0.0.1:3000/a", "127.0.0.1:3000/b"}); got != "127.0.0.1" {
+		t.Fatalf("armed %q", got)
+	}
+	if got := h.currentLimit("127.0.0.1"); got != 4 {
+		t.Errorf("local host limit = %d, want 16/4", got)
+	}
+	for _, targets := range [][]string{
+		{"https://example.com/"},
+		{"http://localhost:3000/", "http://127.0.0.1:3000/"},
+		{},
+	} {
+		if got := h.PreArmLocalTarget(targets); got != "" {
+			t.Errorf("%v armed %q", targets, got)
+		}
+	}
+	for _, host := range []string{"localhost", "app.localhost", "10.1.2.3", "192.168.0.9", "::1"} {
+		if !isLocalHost(host) {
+			t.Errorf("%s is local", host)
+		}
+	}
+	off := newLimiter(true)
+	defer func() { _ = off.Close() }()
+	if got := off.PreArmLocalTarget([]string{"http://localhost/"}); got != "" {
+		t.Errorf("--no-waf-pacing disables the pre-arm, armed %q", got)
 	}
 }

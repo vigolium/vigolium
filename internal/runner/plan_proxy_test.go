@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
 func clearProxyEnv(t *testing.T) {
@@ -66,5 +68,13 @@ func TestProxyUnreachableHint(t *testing.T) {
 	}
 	if h := ProxyUnreachableHint("http://burp:8080", issues); !strings.Contains(h, "from --proxy") {
 		t.Errorf("flag hint = %q", h)
+	}
+}
+
+// The local pre-arm notice reads as a local server, not a WAF edge.
+func TestFormatEdgePaceLineLocal(t *testing.T) {
+	line := terminal.StripANSI(FormatEdgePaceLine(hostlimit.PreArmNotice{Host: "127.0.0.1", Vendor: hostlimit.PreArmVendorLocal, From: 16, Start: 4}))
+	if !strings.Contains(line, "local host") || strings.Contains(line, "WAF") && !strings.Contains(line, "--no-waf-pacing") || !strings.Contains(line, "at 4 (of 16)") {
+		t.Errorf("line = %q", line)
 	}
 }
