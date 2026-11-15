@@ -918,6 +918,9 @@ func executeDirectScan(ctx context.Context, sess *directScanSession, rr *httpmsg
 		scanErrors = append(scanErrors, execErr.Error())
 	}
 	interrupted := ctx.Err() != nil
+	if interrupted {
+		directScanInterrupted.Store(true)
+	}
 	if budgetHit {
 		noteDirectScanBudget(sess, scanUUID, globalScanningMaxDuration)
 	}
@@ -1282,8 +1285,12 @@ func outputScanResult(result *scanResult) error {
 	// Human-readable output. The scan ID is on the completion line because it
 	// is the handle every follow-up command takes (log, scan status,
 	// finding --scan-uuid).
-	fmt.Fprintf(os.Stderr, "\n%s Native scan completed: %s (%s %s) in %s — Scan ID: %s\n",
-		terminal.SuccessSymbol(),
+	verb, mark := "completed", terminal.SuccessSymbol()
+	if result.Interrupted {
+		verb, mark = "interrupted", terminal.WarningSymbol()
+	}
+	fmt.Fprintf(os.Stderr, "\n%s Native scan %s: %s (%s %s) in %s — Scan ID: %s\n",
+		mark, verb,
 		terminal.Cyan(result.Target),
 		result.Method,
 		terminal.Gray(fmt.Sprintf("%d/%d modules ran", result.ModulesRun, result.ModulesLoaded)),

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
@@ -98,3 +99,26 @@ var errExample = &simpleErr{"boom"}
 type simpleErr struct{ s string }
 
 func (e *simpleErr) Error() string { return e.s }
+
+// A gracefully interrupted scan is exit 5 with code interrupted; an earlier
+// error (1) and the gate (4) still take precedence.
+func TestWithFailOnGateInterrupted(t *testing.T) {
+	prev := activeScanSignals
+	t.Cleanup(func() { activeScanSignals = prev; directScanInterrupted.Store(false) })
+	activeScanSignals = &scanSignalCoordinator{}
+	activeScanSignals.interrupted.Store(true)
+
+	err := withFailOnGate(nil)
+	if classifyExitCode(err) != ExitIncomplete || classifyErrorCode(err, ExitIncomplete) != apicontract.CodeInterrupted {
+		t.Fatalf("interrupted scan: %v (exit %d)", err, classifyExitCode(err))
+	}
+	if got := withFailOnGate(errors.New("boom")); classifyExitCode(got) != ExitError {
+		t.Errorf("an earlier error must win: %v", got)
+	}
+
+	activeScanSignals = nil
+	directScanInterrupted.Store(true)
+	if err := withFailOnGate(nil); classifyErrorCode(err, classifyExitCode(err)) != apicontract.CodeInterrupted {
+		t.Errorf("direct path interrupt: %v", err)
+	}
+}
