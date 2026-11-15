@@ -110,11 +110,10 @@ func hasFlag(c *cobra.Command, name string) bool {
 	return false
 }
 
-// genericShaping is the invocation's generic shaping: what the running command
-// had registered for it, set by validateGenericShaping.
+// genericShaping is the invocation's generic shaping: the operations the
+// running command had registered for it, set by validateGenericShaping.
 type genericShaping struct {
-	path string
-	ops  []string
+	ops []string
 }
 
 func (g *genericShaping) has(op string) bool { return g != nil && slices.Contains(g.ops, op) }
@@ -133,7 +132,7 @@ func validateGenericShaping(cmd *cobra.Command) error {
 	if !ok || !annotated {
 		return nil
 	}
-	g := &genericShaping{path: path}
+	g := &genericShaping{}
 	if raw != "" {
 		g.ops = strings.Split(raw, ",")
 	}

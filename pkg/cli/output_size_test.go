@@ -95,7 +95,7 @@ func TestScanStatusCompactDropsPlan(t *testing.T) {
 
 	t.Cleanup(func() { jsonCompact, activeShaping = false, nil })
 	jsonCompact = true
-	activeShaping = &genericShaping{path: "scan status", ops: []string{shapeOpFields, shapeOpCompact}}
+	activeShaping = &genericShaping{ops: []string{shapeOpFields, shapeOpCompact}}
 	env := newMachineEnvelope(c, ".", []any{scanStatusView{ScanUUID: "u", Status: "running"}}, 1, 0, 1)
 	env.objectResult = true
 	require.NoError(t, applyGenericShaping(env))
