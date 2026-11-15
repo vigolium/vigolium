@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
-    "cli.configUnsetView": {
+    "configcmd.UnsetResult": {
       "properties": {
         "key": {
           "type": "string"
@@ -268,7 +268,7 @@
     },
     "items": {
       "items": {
-        "$ref": "#/$defs/cli.configUnsetView"
+        "$ref": "#/$defs/configcmd.UnsetResult"
       },
       "type": "array"
     },

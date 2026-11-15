@@ -13,6 +13,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/apicontract"
+	"github.com/vigolium/vigolium/pkg/cli/configcmd"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -550,24 +551,15 @@ func runFindingShow(cmd *cobra.Command, args []string) error {
 }
 
 // ---- config get / unset schemas --------------------------------------------
-//
-// The commands live in pkg/cli/configcmd; their row types are mirrored here,
-// where the schema registry is (configcmd cannot import pkg/cli).
 
 type configGetExtras struct {
 	ConfigPath string `json:"config_path"`
 	Redacted   bool   `json:"redacted"`
 }
 
-type configUnsetView struct {
-	Key        string `json:"key"`
-	Removed    bool   `json:"removed"`
-	ConfigPath string `json:"config_path"`
-}
-
 func init() {
-	registerCommandSchema(contract.Command{Name: "config get", Item: configEntrySchema{}, Extras: configGetExtras{},
+	registerCommandSchema(contract.Command{Name: "config get", Item: configcmd.EntryView{}, Extras: configGetExtras{},
 		Description: "One configuration key (or every key under a section) with its typed value, default, type and source layer; string credentials redacted unless --show-secrets."})
-	registerCommandSchema(contract.Command{Name: "config unset", Item: configUnsetView{},
+	registerCommandSchema(contract.Command{Name: "config unset", Item: configcmd.UnsetResult{},
 		Description: "The key removed from the config file (removed false when the file did not set it)."})
 }

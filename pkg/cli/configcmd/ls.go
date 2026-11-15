@@ -35,13 +35,13 @@ func newLsCmd(deps Deps, example string) *cobra.Command {
 	return cmd
 }
 
-// configEntryView is one setting in the shape a machine consumer reads.
+// EntryView is one setting in the shape a machine consumer reads.
 //
 // Value is typed (bool, number, string, list, object) and REDACTED under the
 // default policy when the key is a string credential; Display is the string
 // the human table prints. `sensitive` is carried so a consumer can tell a
 // genuinely empty setting from one that was withheld.
-type configEntryView struct {
+type EntryView struct {
 	Key       string `json:"key"`
 	Value     any    `json:"value"`
 	Display   string `json:"display"`
@@ -54,15 +54,15 @@ type configEntryView struct {
 }
 
 // display renders the value for the human table.
-func (v configEntryView) display() string {
+func (v EntryView) display() string {
 	if v.Empty {
 		return "(empty)"
 	}
 	return v.Display
 }
 
-func newConfigEntryView(entry config.SettingEntry, source string, showSecrets bool) configEntryView {
-	v := configEntryView{
+func newConfigEntryView(entry config.SettingEntry, source string, showSecrets bool) EntryView {
+	v := EntryView{
 		Key:       entry.Key,
 		Value:     entry.Value,
 		Display:   config.DisplaySettingValue(entry.Value),
@@ -130,7 +130,7 @@ func runConfigLs(cmd *cobra.Command, deps Deps, args []string, showSecrets, effe
 		fmt.Fprintf(os.Stderr, "%s Revealing sensitive configuration values in plaintext.\n", terminal.WarningSymbol())
 	}
 
-	matched := make([]configEntryView, 0, len(entries))
+	matched := make([]EntryView, 0, len(entries))
 	for _, entry := range entries {
 		if filter != "" && !keyMatches(strings.ToLower(entry.Key), filter) {
 			continue

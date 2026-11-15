@@ -50,10 +50,10 @@ func runConfigGet(cmd *cobra.Command, deps Deps, key string, showSecrets bool) e
 	key = strings.TrimSpace(key)
 	entries := config.SettingEntries(settings)
 
-	var matched []configEntryView
+	var matched []EntryView
 	for _, e := range entries {
 		if e.Key == key {
-			matched = []configEntryView{newConfigEntryView(e, config.SourceOf(sources, e.Key), showSecrets)}
+			matched = []EntryView{newConfigEntryView(e, config.SourceOf(sources, e.Key), showSecrets)}
 			break
 		}
 		if strings.HasPrefix(e.Key, key+".") {
@@ -109,8 +109,8 @@ func newUnsetCmd(deps Deps) *cobra.Command {
 	return cmd
 }
 
-// configUnsetResult is the `config unset -j` row.
-type configUnsetResult struct {
+// UnsetResult is the `config unset -j` row.
+type UnsetResult struct {
 	Key        string `json:"key"`
 	Removed    bool   `json:"removed"`
 	ConfigPath string `json:"config_path"`
@@ -150,7 +150,7 @@ func runConfigUnset(cmd *cobra.Command, deps Deps, key string, dryRun bool) erro
 	if !present {
 		action = "noop"
 	}
-	row := []configUnsetResult{{Key: key, Removed: present, ConfigPath: config.ContractPath(configPath)}}
+	row := []UnsetResult{{Key: key, Removed: present, ConfigPath: config.ContractPath(configPath)}}
 	if deps.mutationJSONRequested() {
 		if dryRun && deps.WriteDryRunMutation != nil {
 			return deps.WriteDryRunMutation(cmd, row, action, nil)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
-    "cli.configEntrySchema": {
+    "configcmd.EntryView": {
       "properties": {
         "key": {
           "type": "string"
@@ -279,7 +279,7 @@
     },
     "items": {
       "items": {
-        "$ref": "#/$defs/cli.configEntrySchema"
+        "$ref": "#/$defs/configcmd.EntryView"
       },
       "type": "array"
     },
