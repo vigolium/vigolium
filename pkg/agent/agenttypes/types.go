@@ -129,6 +129,11 @@ type AgentFinding struct {
 	Snippet     string   `json:"snippet,omitempty"`
 	CWE         string   `json:"cwe,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	// URL, Hostname and MatchedAt locate a finding on a live target (a code
+	// finding has File/Line instead).
+	URL       string   `json:"url,omitempty"`
+	Hostname  string   `json:"hostname,omitempty"`
+	MatchedAt []string `json:"matched_at,omitempty"`
 }
 
 // UnmarshalJSON implements lenient parsing for AgentFinding.
@@ -165,6 +170,15 @@ func (f *AgentFinding) UnmarshalJSON(data []byte) error {
 	}
 	if v, ok := raw["tags"]; ok {
 		f.Tags = flexStringSlice(v)
+	}
+	if v, ok := raw["url"]; ok && v != nil {
+		f.URL = fmt.Sprint(v)
+	}
+	if v, ok := raw["hostname"]; ok && v != nil {
+		f.Hostname = fmt.Sprint(v)
+	}
+	if v, ok := raw["matched_at"]; ok {
+		f.MatchedAt = flexStringSlice(v)
 	}
 	return nil
 }
