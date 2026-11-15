@@ -81,8 +81,13 @@ func isWatchUsageError(err error) bool {
 // the -j envelope's db_path. Under --glob-db it names the pattern instead of the
 // scratch file: a temp path the caller cannot reopen is worse than useless as an
 // assertion target, while the pattern is what the caller asked for.
+// globDBNamesImportSources is set by `vigolium import`, whose --glob-db names
+// the files to import rather than the database read: its db_path is the
+// destination it wrote into.
+var globDBNamesImportSources bool
+
 func resolvedReadDBPath() string {
-	if pattern := strings.TrimSpace(globalGlobDB); pattern != "" {
+	if pattern := strings.TrimSpace(globalGlobDB); pattern != "" && !globDBNamesImportSources {
 		return pattern
 	}
 	return clicommon.OpenedDBPath()

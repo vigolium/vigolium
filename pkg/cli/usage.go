@@ -419,7 +419,7 @@ var importFlagGroups = []flagGroup{
 	{"Output Format", []string{"format", "output"}},
 	{"Filter", []string{"search", "severity"}},
 	{"Report Metadata", []string{"report-title", "report-target", "report-duration", "report-generated-at", "report-url", "max-body-bytes", "pdf-timeout", "no-redact"}},
-	{"Source & Upload", []string{"glob-db", "upload", "upload-key", "burp-bridge-url", "include-scopes"}},
+	{"Source & Upload", []string{"glob-db", "upload", "upload-key", "burp-bridge-url", "include-scopes", "glob-strict"}},
 	// Bridge-pull narrowing. An unfiltered -B pull copies the operator's entire
 	// proxy history — every host they have browsed, with its cookies — so these
 	// get their own titled block rather than being buried under "Filter".

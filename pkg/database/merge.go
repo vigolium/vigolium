@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"slices"
 	"strings"
 )
@@ -216,6 +217,17 @@ func mergeOnce(ctx context.Context, dest *DB, srcPath string, opts MergeOptions)
 		return nil, fmt.Errorf("attach source database: %w", err)
 	}
 	defer func() { _, _ = conn.ExecContext(ctx, "DETACH DATABASE src") }()
+
+	// A SQLite file with none of vigolium's tables merges as zeros, which read
+	// as a clean import of an empty store; it is refused instead.
+	var core int
+	if err := conn.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM src.sqlite_master WHERE type = 'table' AND name = ?", coreTableName).Scan(&core); err != nil {
+		return nil, fmt.Errorf("inspect source database: %w", err)
+	}
+	if core == 0 {
+		return nil, &ForeignStoreError{Path: srcPath}
+	}
 
 	// Pre-read the row-by-row tables before opening the write transaction: a
 	// SQLite connection cannot run new statements while a result-set cursor is
@@ -789,3 +801,14 @@ func retryOnBusy(ctx context.Context, fn func() error) error {
 	policy.Op = "merge into a busy destination"
 	return RetryBusy(ctx, fn, policy)
 }
+
+// ForeignStoreError is a SQLite file that is not a vigolium store: it has no
+// http_records table.
+type ForeignStoreError struct{ Path string }
+
+func (e *ForeignStoreError) Error() string {
+	return fmt.Sprintf("%s is a SQLite database but not a vigolium store (no %s table)", e.Path, coreTableName)
+}
+
+// Code classifies the refusal for the CLI's error envelope.
+func (e *ForeignStoreError) Code() apicontract.ErrorCode { return apicontract.CodeSourceIncompatible }

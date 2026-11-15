@@ -94,6 +94,8 @@ func init() {
 		"Store the scope rules of a JSONL source in the active project (they change what later scans may reach); skipped by default")
 	importCmd.Flags().Bool("upload", false, "Upload the local import source to cloud storage after import")
 	importCmd.Flags().String("upload-key", "", "Explicit storage key for --upload (default: imports/<basename>-<ts>.<ext>)")
+	importCmd.Flags().BoolVar(&globalGlobStrict, "glob-strict", false,
+		"Stop at the first source that fails to import; by default a bad source is reported and the rest still import (exit 1 when any failed)")
 	importCmd.Flags().StringVar(&globalGlobDB, "glob-db", "", "Glob of local files to import alongside any positional paths (use one format per run), e.g. --glob-db 'prefix-*.sqlite' or '*.jsonl'")
 	// --format is the global flag (a local one would shadow it): here it names
 	// the report to write after the import — see importReportFormat.
@@ -138,6 +140,7 @@ func runImport(cmd *cobra.Command, args []string) error {
 		upload = true
 	}
 	globDB := globalGlobDB
+	globDBNamesImportSources = true
 	bridgeURL := strings.TrimSpace(importBurpBridgeURL)
 	if bridgeURL != "" {
 		validated, err := burpbridge.ValidateURL(bridgeURL)
@@ -285,18 +288,40 @@ func runImport(cmd *cobra.Command, args []string) error {
 	}
 
 	results := make([]*dbimport.Result, 0, len(sources))
+	statuses := make([]importSourceStatus, 0, len(sources))
+	var firstErr error
 	for i, src := range sources {
 		result, err := importOneSource(ctx, repo, src, projectUUID)
 		if err != nil {
-			return fmt.Errorf("import %s: %w", src, err)
+			err = fmt.Errorf("import %s: %w", src, err)
+			// One source keeps its bare error; in a multi-source run a bad
+			// member is recorded and the rest still import, unless
+			// --glob-strict asks to stop at the first one.
+			if !multi || globalGlobStrict {
+				return err
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+			statuses = append(statuses, importSourceStatus{Source: src, Status: "failed", Error: err.Error()})
+			if !globalJSON {
+				fmt.Fprintf(os.Stderr, "  %s [%d/%d] %s — %v\n", terminal.ErrorPrefix(), i+1, len(sources), src, err)
+			}
+			continue
 		}
 		results = append(results, result)
+		statuses = append(statuses, importSourceStatus{Source: src, Status: "imported"})
 		// Per-source progress line for multi-source human runs; the aggregate
 		// block follows. JSON stays a single object, emitted below.
 		if multi && !globalJSON {
 			printImportSourceProgress(i+1, len(sources), src, result)
 		}
 	}
+	if len(results) == 0 {
+		return firstErr
+	}
+	failedSources := len(sources) - len(results)
+	recordImportGlobSources(globDB, sources, statuses)
 
 	// Summary: single source keeps the exact pre-existing shape (full block /
 	// single JSON object). Multiple sources fold into one aggregate summary,
@@ -316,6 +341,10 @@ func runImport(cmd *cobra.Command, args []string) error {
 	var jsonOut map[string]any
 	if globalJSON {
 		jsonOut = importResultJSON(label, summary)
+		if multi {
+			jsonOut["sources"] = statuses
+			jsonOut["sources_failed"] = failedSources
+		}
 	} else {
 		printImportResult(label, summary)
 	}
@@ -404,7 +433,38 @@ func runImport(cmd *cobra.Command, args []string) error {
 	if err := importIncompleteError(summary); err != nil {
 		return err
 	}
+	if failedSources > 0 {
+		return fmt.Errorf("%d of %d import sources failed (the totals above cover the %d that imported); first failure: %w",
+			failedSources, len(sources), len(results), firstErr)
+	}
 	return nil
+}
+
+// importSourceStatus is one source of a multi-source import in the -j
+// document: imported, or failed with the reason.
+type importSourceStatus struct {
+	Source string `json:"source"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+// recordImportGlobSources fills the --glob-db counters the envelope's
+// glob_sources block reports (matched, loaded, skipped) from what this import
+// did, so a clean glob does not read "matched 0, loaded 0".
+func recordImportGlobSources(globDB string, sources []string, statuses []importSourceStatus) {
+	if strings.TrimSpace(globDB) == "" {
+		return
+	}
+	globDBMatchedCount = len(sources)
+	globDBSources = nil
+	globDBSkippedFiles = nil
+	for _, st := range statuses {
+		if st.Status == "failed" {
+			globDBSkippedFiles = append(globDBSkippedFiles, globSkippedFile{File: st.Source, Error: st.Error})
+			continue
+		}
+		globDBSources = append(globDBSources, globDBSource{file: st.Source})
+	}
 }
 
 // importReportFormat is the report --format names: the global flag, read

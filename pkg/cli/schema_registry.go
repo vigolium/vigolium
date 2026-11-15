@@ -545,6 +545,11 @@ type importExtras struct {
 	FindingRecordsMerged int    `json:"finding_records_merged,omitempty"`
 	OASTMerged           int    `json:"oast_merged,omitempty"`
 
+	// A multi-source import: every source with its outcome, and how many
+	// failed (the totals above cover the rest).
+	Sources       []importSourceStatus `json:"sources,omitempty"`
+	SourcesFailed int                  `json:"sources_failed,omitempty"`
+
 	// Artifacts requested alongside the import.
 	ReportPath string   `json:"report_path,omitempty"`
 	UploadedTo []string `json:"uploaded_to,omitempty"`
