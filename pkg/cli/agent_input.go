@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"sync"
 
 	fileutil "github.com/projectdiscovery/utils/file"
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/agent"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
@@ -175,13 +175,32 @@ func resolveInputAndTarget(target, input string, repo *database.Repository) (*Re
 	}, nil
 }
 
-// printIntentDryRun prints the parsed ScanIntent as JSON and exits.
-func printIntentDryRun(intent *agent.ScanIntent) error {
-	data, err := json.MarshalIndent(intent, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal intent: %w", err)
+// promptDryRunView is the --dry-run document for a natural-language prompt.
+type promptDryRunView struct {
+	Raw         string            `json:"raw"`
+	ModelParsed bool              `json:"model_parsed"`
+	Apps        []agent.AppIntent `json:"apps"`
+	Note        string            `json:"note"`
+}
+
+// printPromptDryRun previews a natural-language agent prompt without the
+// model: a prompt that is already a URL resolves offline; anything else is
+// reported unparsed, since parsing it is a provider call.
+func printPromptDryRun(cmd *cobra.Command, prompt string) error {
+	view := promptDryRunView{Raw: strings.TrimSpace(prompt), Apps: []agent.AppIntent{}}
+	if intent := agent.StructuredIntent(prompt); intent != nil {
+		view.Apps = intent.Apps
+		view.Note = "dry run: the prompt is a structured input and resolved without the model; nothing was sent"
+	} else {
+		view.Note = "dry run: a natural-language prompt is parsed by the model at run time, which --dry-run does not call; pass -t/--source to preview the rendered prompts"
 	}
-	fmt.Println(string(data))
+	if globalJSON {
+		return emitObject(cmd, ".", view)
+	}
+	for _, app := range view.Apps {
+		fmt.Printf("target: %s\n", firstNonEmptyString(app.Target, app.SourcePath))
+	}
+	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), view.Note)
 	return nil
 }
 

@@ -160,6 +160,20 @@ func ParseScanIntent(ctx context.Context, engine *Engine, prompt string, opts ..
 	return intent, nil
 }
 
+// StructuredIntent returns the intent of a prompt that is already a
+// structured input (a URL), resolved without a model call, or nil.
+func StructuredIntent(prompt string) *ScanIntent {
+	trimmed := strings.TrimSpace(prompt)
+	if trimmed == "" {
+		return nil
+	}
+	intent := tryStructuredFallback(trimmed)
+	if intent == nil {
+		return nil
+	}
+	return ResolveIntentApps(intent)
+}
+
 // tryStructuredFallback checks if the prompt is already a structured input format
 // (URL, curl, etc.) and returns a ScanIntent directly without an LLM call.
 func tryStructuredFallback(input string) *ScanIntent {

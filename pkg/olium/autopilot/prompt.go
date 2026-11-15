@@ -111,6 +111,13 @@ func buildSystemPrompt(opts Options) string {
 	return b.String()
 }
 
+// RenderPrompts returns the system prompt and the first user turn a run with
+// opts would send, without running anything: no provider call, no tool, no
+// request. It backs `agent autopilot --dry-run`.
+func RenderPrompts(opts Options) (system, initial string) {
+	return buildSystemPrompt(opts), buildInitialPrompt(opts)
+}
+
 // isClaudeCodeProvider reports whether the configured provider is the
 // claude-code CLI driver. The check goes through Provider.Name() so we
 // don't have to import the provider package here (avoids a cycle: the

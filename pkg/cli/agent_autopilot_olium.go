@@ -13,6 +13,7 @@ import (
 
 	"io"
 
+	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent"
@@ -50,6 +51,13 @@ func runAutopilotOlium(parentCtx context.Context, settings *config.Settings, rep
 	// direct and multi-app paths (there is no --browser flag).
 	enabledBrowser := true
 	settings.Agent.Browser.Enable = &enabledBrowser
+
+	// --dry-run renders the prompts and stops: no session dir, no run row, no
+	// pre-scan, no knowledge-base distillation, no provider. Every one of those
+	// either sends traffic, calls the model, or records a run that never ran.
+	if autopilotDryRun {
+		return printAutopilotDryRun(nil, settings, instruction)
+	}
 
 	// Ctx + timeout + signal handling — descend from the caller's context so an
 	// outer cancellation/timeout (e.g. the multi-app scheduler) actually stops
@@ -680,6 +688,48 @@ func resolveAutopilotAuditCfg(settings *config.Settings) (*config.AuditAgentConf
 		auditModeLocal = ""
 	}
 	return agent.PickAuditHarness(autopilotPiolium, auditModeLocal, noAudit, autopilotSource, settings.Agent.Audit)
+}
+
+// autopilotDryRunView is the `agent autopilot --dry-run` document.
+type autopilotDryRunView struct {
+	Target        string `json:"target,omitempty"`
+	SourcePath    string `json:"source_path,omitempty"`
+	Focus         string `json:"focus,omitempty"`
+	SystemPrompt  string `json:"system_prompt"`
+	InitialPrompt string `json:"initial_prompt"`
+	Note          string `json:"note"`
+}
+
+// printAutopilotDryRun renders the operator's system prompt and first turn
+// offline. The provider is not resolved, so a provider-specific persona
+// (claude-code) is not reflected; the prior-context, knowledge-base and
+// pre-scan sections a live run appends are left out because building them
+// reads the store, calls the model or scans the target.
+func printAutopilotDryRun(cmd *cobra.Command, settings *config.Settings, instruction string) error {
+	systemPrompt, err := resolveSystemPrompt(autopilotSystemPrompt, autopilotSystemPromptFile)
+	if err != nil {
+		return err
+	}
+	system, initial := autopilot.RenderPrompts(autopilot.Options{
+		Target:       autopilotTarget,
+		SourcePath:   autopilotSource,
+		Focus:        autopilotFocus,
+		Instruction:  instruction,
+		SystemPrompt: firstNonEmptyString(systemPrompt, settings.Agent.Olium.SystemPrompt),
+		// Autopilot always runs with the browser (runAutopilotOlium forces it).
+		BrowserAvailable: true,
+	})
+	view := autopilotDryRunView{
+		Target: autopilotTarget, SourcePath: autopilotSource, Focus: autopilotFocus,
+		SystemPrompt: system, InitialPrompt: initial,
+		Note: "dry run: nothing was sent and no provider was called; a live run also appends prior-context, knowledge-base and pre-scan sections to the first turn",
+	}
+	if globalJSON {
+		return emitObject(cmd, ".", view)
+	}
+	fmt.Printf("── system prompt ──\n%s\n\n── first turn ──\n%s\n\n", system, initial)
+	fmt.Fprintf(os.Stderr, "%s %s\n", terminal.InfoSymbol(), view.Note)
+	return nil
 }
 
 // runAutopilotOliumPipeline drives the autopilot pipeline runner — the same path

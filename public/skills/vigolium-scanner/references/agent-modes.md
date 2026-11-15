@@ -291,7 +291,7 @@ vigolium agent autopilot -t https://example.com --max-duration 15m
 # Pipe a curl command (target auto-derived)
 echo "curl -X POST https://example.com/api/login -d '{\"user\":\"admin\"}'" | vigolium agent autopilot
 
-# Preview system prompt
+# Preview system prompt + first turn (sends nothing, calls no provider)
 vigolium agent autopilot -t https://example.com --dry-run
 
 # Force piolium as the audit harness (auto-disables vigolium-audit for this run)
@@ -581,7 +581,7 @@ vigolium agent swarm -t https://example.com/api/search -m xss-reflected,xss-stor
 vigolium agent swarm -t https://example.com --only dynamic-assessment
 vigolium agent swarm -t https://example.com --skip discovery,spidering
 
-# Preview master agent prompt
+# Preview master agent prompt (no probe/discovery/recon/scan, no provider call)
 vigolium agent swarm -t https://example.com/api/users --dry-run
 
 # Override the olium provider for one run (swarm has no --agent flag)

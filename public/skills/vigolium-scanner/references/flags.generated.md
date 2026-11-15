@@ -258,7 +258,7 @@ Agentic scan: autonomous AI-driven vulnerability scanning
 | `--db-isolate` | - | bool | `false` | Run into a private temporary database, then merge results into --db (or the default DB) at the end — lets parallel runs share one --db without write contention (SQLite only) |
 | `--diff` | - | string | - | Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N |
 | `--disable-guardrail` | - | bool | `false` | Skip the prompt-safety classifier on the natural-language prompt (use only when refusing a known-good prompt) |
-| `--dry-run` | - | bool | `false` | Render the system prompt without launching the agent |
+| `--dry-run` | - | bool | `false` | Render the system prompt and first turn without launching the agent: no request to the target and no provider call (a natural-language prompt is not parsed) |
 | `--files` | - | stringSlice | - | Specific files to include (relative to --source) |
 | `--input` | - | string | - | Raw input (curl command, raw HTTP, Burp XML, URL). Reads from stdin if piped |
 | `--intensity` | - | string | `balanced` | Scan intensity preset: quick, balanced, or deep |
@@ -402,7 +402,7 @@ Agentic scan: AI-guided targeted vulnerability swarm
 | `--diff` | - | string | - | Focus on changed code: PR URL (github.com/.../pull/123), git ref range (main...branch), or HEAD~N |
 | `--disable-guardrail` | - | bool | `false` | Skip the prompt-safety classifier on the natural-language prompt (use only when refusing a known-good prompt) |
 | `--discover` | - | bool | `false` | Run discovery+spidering before master agent planning to expand attack surface |
-| `--dry-run` | - | bool | `false` | Render prompts without executing |
+| `--dry-run` | - | bool | `false` | Render prompts without executing: no request to the target (no probe, discovery, recon or scan) and no provider call (a natural-language prompt is not parsed) |
 | `--files` | - | stringSlice | - | Specific source files to include (relative to --source) |
 | `--gcp-location` | - | string | - | GCP region for Vertex providers (else $GOOGLE_CLOUD_LOCATION, then YAML, then us-central1) |
 | `--gcp-project` | - | string | - | GCP project for Vertex providers (else $GOOGLE_CLOUD_PROJECT, then YAML, then SA file's project_id) |

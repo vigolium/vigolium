@@ -234,9 +234,15 @@ func (normalizeSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error
 		ps.agenticScan.InputType = string(agentinput.DetectInputType(ps.cfg.Inputs[0]))
 	}
 
-	recordUUIDs := ps.runner.validateProbeAndSave(ctx, ps.records, nil, nil, "agent-swarm", ps.cfg.ProjectUUID, ps.cfg.probeConfig())
-	ps.agenticScan.RecordCount = len(recordUUIDs)
-	ps.result.TotalRecords = len(recordUUIDs)
+	// A dry run renders prompts only: probing the inputs would send requests.
+	if ps.cfg.DryRun {
+		ps.agenticScan.RecordCount = len(ps.records)
+		ps.result.TotalRecords = len(ps.records)
+	} else {
+		recordUUIDs := ps.runner.validateProbeAndSave(ctx, ps.records, nil, nil, "agent-swarm", ps.cfg.ProjectUUID, ps.cfg.probeConfig())
+		ps.agenticScan.RecordCount = len(recordUUIDs)
+		ps.result.TotalRecords = len(recordUUIDs)
+	}
 	ps.recordStats.Initial = len(ps.records)
 
 	writeInputsToSessionDir(ps.sessionDir, ps.records, ps.cfg.SourcePath)
@@ -259,7 +265,7 @@ func (authSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error {
 		ps.runner.addWarning(ps.result, "ignoring --browser-auth: --browser was not enabled (auth phase needs the browser agent to drive login)")
 		fmt.Fprintf(os.Stderr, "%s --browser-auth was set but --browser is off; skipping the browser-based auth phase. Pass --browser to enable it.\n", terminal.WarningSymbol())
 	}
-	if !ps.cfg.Auth || !ps.cfg.Browser || phaseCompleted(ps.checkpoint, SwarmPhaseAuth) {
+	if !ps.cfg.Auth || !ps.cfg.Browser || ps.cfg.DryRun || phaseCompleted(ps.checkpoint, SwarmPhaseAuth) {
 		return nil
 	}
 	started := ps.startPhase(ctx, SwarmPhaseAuth, true)
@@ -513,7 +519,7 @@ func (ps *swarmPipelineState) hydrateSourceAnalysisSessions(ctx context.Context,
 type discoverySwarmStep struct{}
 
 func (discoverySwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error {
-	if ps.stop || ps.cfg.DiscoverFunc == nil || phaseCompleted(ps.checkpoint, SwarmPhaseDiscover) {
+	if ps.stop || ps.cfg.DryRun || ps.cfg.DiscoverFunc == nil || phaseCompleted(ps.checkpoint, SwarmPhaseDiscover) {
 		return nil
 	}
 	started := ps.startPhase(ctx, SwarmPhaseDiscover, true)
@@ -552,7 +558,8 @@ type reconSwarmStep struct{}
 // Failures are non-fatal: a sweep error is logged and recorded as a
 // warning, but the pipeline proceeds with no tech-stack context.
 func (reconSwarmStep) Run(ctx context.Context, ps *swarmPipelineState) error {
-	if ps.stop {
+	// A dry run sends nothing to the target; the recon sweep is GET probes.
+	if ps.stop || ps.cfg.DryRun {
 		return nil
 	}
 	if PhaseSkipped(ps.cfg.SkipPhases, SwarmPhaseRecon) {

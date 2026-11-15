@@ -182,7 +182,7 @@ func init() {
 	f.StringSliceVar(&autopilotSkillTags, "skill-tag", nil, "Force-load every skill carrying one of these tags (e.g. xss,idor)")
 	f.BoolVar(&autopilotNoSkillFilter, "no-skill-filter", false, "Load the full skill set; skip the pre-flight skill selection")
 	f.DurationVar(&autopilotMaxDuration, "max-duration", 6*time.Hour, "Maximum wall-clock duration for the autopilot session (e.g. 1h, 6h)")
-	f.BoolVar(&autopilotDryRun, "dry-run", false, "Render the system prompt without launching the agent")
+	f.BoolVar(&autopilotDryRun, "dry-run", false, "Render the system prompt and first turn without launching the agent: no request to the target and no provider call (a natural-language prompt is not parsed)")
 	f.BoolVar(&autopilotShowPrompt, "show-prompt", false, "Print rendered prompt to stderr before executing")
 	f.StringVar(&autopilotPlanFile, "plan-file", "", "Path to a plan file mixing free-text guidance and raw HTTP request(s). Owns the instruction + seed input; cannot be combined with --input or a prompt (--prompt / positional)")
 	// The browser is always available for autopilot (agent.browser.enable defaults
@@ -275,7 +275,7 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) (err error) {
 	// resumed one. It is preserved verbatim as instruction context instead.
 	hasExplicitFlags := autopilotTarget != "" || autopilotInput != "" || autopilotRecordUUID != "" || autopilotSource != "" || autopilotPlanFile != "" || autopilotResume != ""
 	if rawPrompt != "" && !hasExplicitFlags {
-		return runAutopilotFromPrompt(rawPrompt)
+		return runAutopilotFromPrompt(cmd, rawPrompt)
 	}
 	if rawPrompt != "" {
 		autopilotInstructionPrefix = rawPrompt
@@ -417,7 +417,7 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) (err error) {
 	// (insert new, refresh changed, skip unchanged). Non-fatal on failure. Kept
 	// after the resume block so it imports into the resumed project (which resume
 	// has already pinned via clicommon.PinProjectUUID).
-	if bridge := strings.TrimSpace(autopilotBurpBridgeURL); bridge != "" && repo != nil {
+	if bridge := strings.TrimSpace(autopilotBurpBridgeURL); bridge != "" && repo != nil && !autopilotDryRun {
 		validated, verr := burpbridge.ValidateURL(bridge)
 		if verr != nil {
 			return usageErrorf("--burp-bridge-url: %w", verr)
@@ -517,7 +517,7 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) (err error) {
 		zap.L().Debug("Cleaned up stale session directories", zap.Int("count", n))
 	}
 
-	if storage.IsGCSURI(autopilotSource) {
+	if storage.IsGCSURI(autopilotSource) && !autopilotDryRun {
 		// Pass the active project so --project-uuid (or --project-name) can
 		// override the project component parsed from the gs:// URI, matching
 		// audit/swarm/scan behavior.
@@ -569,6 +569,9 @@ func runAgentAutopilot(cmd *cobra.Command, args []string) (err error) {
 	if cmd != nil {
 		ctx = cmd.Context()
 	}
+	if autopilotDryRun {
+		return printAutopilotDryRun(cmd, settings, instruction)
+	}
 	err = runAutopilotOlium(ctx, settings, repo, instruction)
 	// Materialize the -S export here rather than in a defer: the DB handle must
 	// still be open, and this is the invocation that actually ran the operator
@@ -593,7 +596,12 @@ func emitAutopilotStatelessExport() error {
 }
 
 // runAutopilotFromPrompt parses a natural language prompt and runs autopilot for each extracted app.
-func runAutopilotFromPrompt(prompt string) error {
+func runAutopilotFromPrompt(cmd *cobra.Command, prompt string) error {
+	// Parsing a natural-language prompt is a model call (and the guardrail is
+	// another), so a dry run stops before both.
+	if autopilotDryRun {
+		return printPromptDryRun(cmd, prompt)
+	}
 	settings, err := guardOrRefuseFromPrompt(context.Background(), prompt, autopilotDisableGuardrail)
 	if err != nil {
 		return err
@@ -614,10 +622,6 @@ func runAutopilotFromPrompt(prompt string) error {
 	autopilotInstructionPrefix = intent.Raw
 	for i := range intent.Apps {
 		intent.Apps[i].Instruction = ""
-	}
-
-	if autopilotDryRun {
-		return printIntentDryRun(intent)
 	}
 
 	// Single app: populate flags and re-enter the main flow.

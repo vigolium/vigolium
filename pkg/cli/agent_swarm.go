@@ -163,7 +163,7 @@ func init() {
 	f.StringSliceVarP(&swarmModules, "modules", "m", nil, "Explicit module names to include")
 	f.IntVar(&swarmMaxIterations, "max-iterations", 3, "Maximum triage-rescan iterations")
 	f.StringVar(&swarmAgentLabel, "agent-label", "", "Label recorded on the AgenticScan DB row; agent dispatch always uses olium")
-	f.BoolVar(&swarmDryRun, "dry-run", false, "Render prompts without executing")
+	f.BoolVar(&swarmDryRun, "dry-run", false, "Render prompts without executing: no request to the target (no probe, discovery, recon or scan) and no provider call (a natural-language prompt is not parsed)")
 	f.BoolVar(&swarmShowPrompt, "show-prompt", false, "Print rendered prompts to stderr before executing")
 	f.BoolVar(&swarmSourceAnalysisOnly, "source-analysis-only", false, "Run only the source analysis phase and exit")
 	f.DurationVar(&swarmMaxDuration, "max-duration", 12*time.Hour, "Maximum swarm duration (0 = unlimited; e.g. 6h, 24h)")
@@ -1287,6 +1287,11 @@ func truncateSwarmInput(s string, maxLen int) string {
 
 // runSwarmFromPrompt parses a natural language prompt and runs swarm for each extracted app.
 func runSwarmFromPrompt(cmd *cobra.Command, prompt string) error {
+	// Parsing a natural-language prompt is a model call (and the guardrail is
+	// another), so a dry run stops before both.
+	if swarmDryRun {
+		return printPromptDryRun(cmd, prompt)
+	}
 	settings, err := guardOrRefuseFromPrompt(context.Background(), prompt, swarmDisableGuardrail)
 	if err != nil {
 		return err
@@ -1306,10 +1311,6 @@ func runSwarmFromPrompt(cmd *cobra.Command, prompt string) error {
 	swarmInstructionPrefix = intent.Raw
 	for i := range intent.Apps {
 		intent.Apps[i].Instruction = ""
-	}
-
-	if swarmDryRun {
-		return printIntentDryRun(intent)
 	}
 
 	// Single app: populate flags and re-enter the main flow.
