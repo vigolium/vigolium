@@ -333,19 +333,19 @@ func printScanStopHuman(v scanStopView) {
 	}
 	switch v.Action {
 	case stopActionRequested:
-		fmt.Fprintf(os.Stdout, "%s stop requested for scan %s (via %s)\n", terminal.InfoSymbol(), v.ScanUUID, strings.Join(v.Via, ", "))
+		fmt.Printf("%s stop requested for scan %s (via %s)\n", terminal.InfoSymbol(), v.ScanUUID, strings.Join(v.Via, ", "))
 		if v.Acknowledged != nil && *v.Acknowledged {
-			fmt.Fprintf(os.Stdout, "%s scan %s is %s\n", terminal.SuccessSymbol(), v.ScanUUID, v.EffectiveStatus)
+			fmt.Printf("%s scan %s is %s\n", terminal.SuccessSymbol(), v.ScanUUID, v.EffectiveStatus)
 		} else if v.Acknowledged == nil {
-			fmt.Fprintf(os.Stdout, "  it stops at its next heartbeat (≤10s); wait for it: vigolium scan wait %s\n", v.ScanUUID)
+			fmt.Printf("  it stops at its next heartbeat (≤10s); wait for it: vigolium scan wait %s\n", v.ScanUUID)
 		}
 	case stopActionReaped:
-		fmt.Fprintf(os.Stdout, "%s scan %s was abandoned (its process is gone); finalized as failed, stop_reason abandoned\n", terminal.InfoSymbol(), v.ScanUUID)
+		fmt.Printf("%s scan %s was abandoned (its process is gone); finalized as failed, stop_reason abandoned\n", terminal.InfoSymbol(), v.ScanUUID)
 	default:
-		fmt.Fprintf(os.Stdout, "%s scan %s is not running (%s); nothing to stop\n", terminal.InfoSymbol(), v.ScanUUID, v.EffectiveStatus)
+		fmt.Printf("%s scan %s is not running (%s); nothing to stop\n", terminal.InfoSymbol(), v.ScanUUID, v.EffectiveStatus)
 	}
 	if v.Hint != "" {
-		fmt.Fprintf(os.Stdout, "  %s\n", v.Hint)
+		fmt.Printf("  %s\n", v.Hint)
 	}
 }
 
