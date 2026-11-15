@@ -505,6 +505,13 @@ dynamic-assessment:
     #   - xss-reflected-brutelogic
     # passive_modules:
     #   - all
+    # An empty list is an error (use [all]).
+    #
+    # Modules to turn off, subtracted from the lists above. "vigolium module
+    # disable <id>" writes these, so [all] keeps picking up new modules.
+    # disabled_active_modules:
+    #   - sqli-time-blind
+    # disabled_passive_modules: []
 
   # --------------------------------------------------------------------------
   # JavaScript Extensions

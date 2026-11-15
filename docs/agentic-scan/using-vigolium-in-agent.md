@@ -437,8 +437,8 @@ vigolium scan -t https://example.com -m sqli-error --module-tag xss
 > Disable all SQL injection modules, enable all XSS modules
 ```
 ```bash
-vigolium module disable sqli
-vigolium module enable xss
+vigolium module disable sqli --force   # --force: the term matches more than 5 modules
+vigolium module enable xss --force
 ```
 
 **Enable by exact module ID:**

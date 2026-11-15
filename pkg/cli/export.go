@@ -1005,7 +1005,7 @@ func streamExportData(ctx context.Context, db *database.DB, scope exportScope, o
 				Severity:             m.Severity().String(),
 				Confidence:           m.Confidence().String(),
 				ScanScope:            scanScopeNames(m.ScanScopes()),
-				Enabled:              isModuleEnabled(m.ID(), emCfg.ActiveModules),
+				Enabled:              emCfg.ActiveEnabled(m.ID()),
 			}
 			if err := emitItem("module", entry); err != nil {
 				return err
@@ -1022,7 +1022,7 @@ func streamExportData(ctx context.Context, db *database.DB, scope exportScope, o
 				Severity:             m.Severity().String(),
 				Confidence:           m.Confidence().String(),
 				ScanScope:            scanScopeNames(m.ScanScopes()),
-				Enabled:              isModuleEnabled(m.ID(), emCfg.PassiveModules),
+				Enabled:              emCfg.PassiveEnabled(m.ID()),
 			}
 			if err := emitItem("module", entry); err != nil {
 				return err

@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"slices"
+
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -19,6 +21,9 @@ type ModuleSelection struct {
 	// ActiveByConfig / PassiveByConfig report a dynamic-assessment
 	// enabled_modules allowlist narrowing an "all" selection.
 	ActiveByConfig, PassiveByConfig bool
+	// ConfigDisabled lists the module ids the enabled_modules deny-lists
+	// removed from an "all" selection, active then passive.
+	ConfigDisabled []string
 	// Dropped module ids per gate, active then passive.
 	TierDeferred      []string
 	RiskWithheld      []string
@@ -85,6 +90,24 @@ func FilterModulesForRun(opts *types.Options, settings *config.Settings) ModuleS
 		if passiveUsingAll && !isAllModules(settings.DynamicAssessment.EnabledModules.PassiveModules) {
 			sel.Passive = modules.GetPassiveModulesByIDs(settings.DynamicAssessment.EnabledModules.PassiveModules)
 			sel.PassiveByConfig = true
+		}
+	}
+	// The deny-lists subtract from an "all" selection (allow-list or not); an
+	// explicit -m naming a disabled module still runs it.
+	if settings != nil {
+		em := &settings.DynamicAssessment.EnabledModules
+		var dropped []string
+		if activeUsingAll && len(em.DisabledActiveModules) > 0 {
+			sel.Active, dropped = partitionModules(sel.Active, func(m modules.ActiveModule) bool {
+				return slices.Contains(em.DisabledActiveModules, m.ID())
+			})
+			sel.ConfigDisabled = append(sel.ConfigDisabled, dropped...)
+		}
+		if passiveUsingAll && len(em.DisabledPassiveModules) > 0 {
+			sel.Passive, dropped = partitionModules(sel.Passive, func(m modules.PassiveModule) bool {
+				return slices.Contains(em.DisabledPassiveModules, m.ID())
+			})
+			sel.ConfigDisabled = append(sel.ConfigDisabled, dropped...)
 		}
 	}
 	gateActive := activeUsingAll && !sel.ActiveByConfig

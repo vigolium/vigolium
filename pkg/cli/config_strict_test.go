@@ -8,6 +8,7 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
+	"github.com/vigolium/vigolium/pkg/modules"
 )
 
 // withGlobalConfig points --config at path for one test and restores it.
@@ -70,8 +71,15 @@ func TestModuleEnableWritesExplicitConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Any real module ids; the assertion is about WHICH FILE moved, not which
+	// module landed in it. An explicit allow-list holding a different module,
+	// so enabling ids[0] has to add it there.
+	ids := modules.GetActiveModulesID()
+	if len(ids) < 2 {
+		t.Skip("not enough active modules registered")
+	}
 	explicit := filepath.Join(home, "team.yaml")
-	if err := os.WriteFile(explicit, []byte("dynamic-assessment:\n  enabled_modules:\n    active_modules: []\n"), 0o644); err != nil {
+	if err := os.WriteFile(explicit, []byte("dynamic-assessment:\n  enabled_modules:\n    active_modules: ["+ids[1]+"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	withGlobalConfig(t, explicit)
@@ -80,12 +88,6 @@ func TestModuleEnableWritesExplicitConfig(t *testing.T) {
 	moduleExactID = true
 	t.Cleanup(func() { moduleExactID = prevExact })
 
-	// Any real module id; the assertion is about WHICH FILE moved, not which
-	// module landed in it.
-	ids := expandAllModuleIDs("active")
-	if len(ids) == 0 {
-		t.Skip("no active modules registered")
-	}
 	if err := runModuleEnable(nil, []string{ids[0]}); err != nil {
 		t.Fatalf("runModuleEnable: %v", err)
 	}

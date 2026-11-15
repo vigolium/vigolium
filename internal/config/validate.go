@@ -253,6 +253,7 @@ func ValidateSettings(s *Settings) []Issue {
 	}
 	issues := ValidateScope(s.Scope)
 	issues = append(issues, validateOAST(s.OAST)...)
+	issues = append(issues, validateEnabledModules(s.DynamicAssessment.EnabledModules)...)
 
 	sections := []struct {
 		key      string
@@ -443,4 +444,27 @@ func quoteAll(ss []string) []string {
 		out[i] = strconv.Quote(s)
 	}
 	return out
+}
+
+// validateEnabledModules reports an explicit empty module allow-list, keyed by
+// the list itself so `config set <list> []` is refused.
+func validateEnabledModules(c EnabledModulesConfig) []Issue {
+	var issues []Issue
+	for _, l := range []struct {
+		name string
+		list []string
+	}{
+		{"active_modules", c.ActiveModules},
+		{"passive_modules", c.PassiveModules},
+	} {
+		if l.list != nil && len(l.list) == 0 {
+			key := "dynamic-assessment.enabled_modules." + l.name
+			issues = append(issues, Issue{
+				Key: key, Severity: SeverityError, Code: IssueConfigValueInvalid,
+				Message: fmt.Sprintf("%s is an empty list, which selects no module", key),
+				Fix:     fmt.Sprintf("vigolium config set %s '[all]' (turn single modules off with `vigolium module disable <id> --id`)", key),
+			})
+		}
+	}
+	return issues
 }

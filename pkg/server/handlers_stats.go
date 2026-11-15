@@ -1,8 +1,6 @@
 package server
 
 import (
-	"slices"
-
 	"github.com/gofiber/fiber/v3"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/modules"
@@ -26,14 +24,17 @@ func (h *Handlers) HandleStats(c fiber.Ctx) error {
 
 	// Determine enabled counts from settings
 	if h.settings != nil {
-		resp.Modules.Active.Enabled = countEnabledModules(
-			h.settings.DynamicAssessment.EnabledModules.ActiveModules,
-			len(activeModules),
-		)
-		resp.Modules.Passive.Enabled = countEnabledModules(
-			h.settings.DynamicAssessment.EnabledModules.PassiveModules,
-			len(passiveModules),
-		)
+		em := &h.settings.DynamicAssessment.EnabledModules
+		for _, m := range activeModules {
+			if em.ActiveEnabled(m.ID()) {
+				resp.Modules.Active.Enabled++
+			}
+		}
+		for _, m := range passiveModules {
+			if em.PassiveEnabled(m.ID()) {
+				resp.Modules.Passive.Enabled++
+			}
+		}
 	} else {
 		// No settings = all enabled
 		resp.Modules.Active.Enabled = len(activeModules)
@@ -69,13 +70,4 @@ func (h *Handlers) HandleStats(c fiber.Ctx) error {
 	}
 
 	return c.JSON(resp)
-}
-
-// countEnabledModules returns the number of enabled modules.
-// If the config list contains "all", all modules are enabled.
-func countEnabledModules(configured []string, total int) int {
-	if slices.Contains(configured, "all") {
-		return total
-	}
-	return len(configured)
 }

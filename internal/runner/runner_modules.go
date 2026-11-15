@@ -410,6 +410,9 @@ func (r *Runner) getModulesToExecute() ([]modules.ActiveModule, []modules.Passiv
 	if sel.PassiveByConfig {
 		zap.L().Info("Passive modules filtered by config", zap.Strings("ids", r.settings.DynamicAssessment.EnabledModules.PassiveModules))
 	}
+	if len(sel.ConfigDisabled) > 0 {
+		zap.L().Info("Modules disabled by config", zap.Strings("ids", sel.ConfigDisabled))
+	}
 	intensity := r.intensityLabel()
 	logTierDeferred(intensity, "Active", sel.TierCeiling, sel.activeTier)
 	logTierDeferred(intensity, "Passive", sel.TierCeiling, sel.passiveTier)

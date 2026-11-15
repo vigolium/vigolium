@@ -103,23 +103,6 @@ func loadEnabledModulesConfig() *config.EnabledModulesConfig {
 	return &settingsOrDefaults().DynamicAssessment.EnabledModules
 }
 
-// isModuleEnabled checks whether a module ID is enabled given a list from config.
-// An empty list or ["all"] means every module is enabled.
-func isModuleEnabled(moduleID string, configList []string) bool {
-	if len(configList) == 0 {
-		return true
-	}
-	if len(configList) == 1 && configList[0] == "all" {
-		return true
-	}
-	for _, id := range configList {
-		if id == moduleID {
-			return true
-		}
-	}
-	return false
-}
-
 // moduleRow holds display data for a single module in the table.
 type moduleRow struct {
 	symbol, moduleType, id, desc, status, tags string
@@ -193,7 +176,7 @@ func printModuleTable(cmd *cobra.Command, opts *moduleOptions, filter string) er
 			if !moduleMatchesFilter(m, filter) {
 				continue
 			}
-			enabled := isModuleEnabled(m.ID(), emCfg.ActiveModules)
+			enabled := emCfg.ActiveEnabled(m.ID())
 			if opts.ListEnabled && !enabled {
 				continue
 			}
@@ -229,7 +212,7 @@ func printModuleTable(cmd *cobra.Command, opts *moduleOptions, filter string) er
 			if !moduleMatchesFilter(m, filter) {
 				continue
 			}
-			enabled := isModuleEnabled(m.ID(), emCfg.PassiveModules)
+			enabled := emCfg.PassiveEnabled(m.ID())
 			if opts.ListEnabled && !enabled {
 				continue
 			}
@@ -341,7 +324,7 @@ func printModuleJSON(cmd *cobra.Command, opts *moduleOptions, filter string) err
 			if !moduleMatchesFilter(m, filter) {
 				continue
 			}
-			enabled := isModuleEnabled(m.ID(), emCfg.ActiveModules)
+			enabled := emCfg.ActiveEnabled(m.ID())
 			if opts.ListEnabled && !enabled {
 				continue
 			}
@@ -367,7 +350,7 @@ func printModuleJSON(cmd *cobra.Command, opts *moduleOptions, filter string) err
 			if !moduleMatchesFilter(m, filter) {
 				continue
 			}
-			enabled := isModuleEnabled(m.ID(), emCfg.PassiveModules)
+			enabled := emCfg.PassiveEnabled(m.ID())
 			if opts.ListEnabled && !enabled {
 				continue
 			}
@@ -492,7 +475,7 @@ func printModuleVerbose(opts *moduleOptions, filter string) {
 			if !moduleMatchesFilter(m, filter) {
 				continue
 			}
-			enabled := isModuleEnabled(m.ID(), emCfg.ActiveModules)
+			enabled := emCfg.ActiveEnabled(m.ID())
 			if opts.ListEnabled && !enabled {
 				continue
 			}
@@ -512,7 +495,7 @@ func printModuleVerbose(opts *moduleOptions, filter string) {
 			if !moduleMatchesFilter(m, filter) {
 				continue
 			}
-			enabled := isModuleEnabled(m.ID(), emCfg.PassiveModules)
+			enabled := emCfg.PassiveEnabled(m.ID())
 			if opts.ListEnabled && !enabled {
 				continue
 			}

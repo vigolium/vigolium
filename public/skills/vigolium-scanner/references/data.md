@@ -1410,6 +1410,10 @@ severity, confidence, scan_scope, tags, enabled}`, with `active_count` and
 |------|------|---------|-------------|
 | `--id` | bool | `false` | Match exact module ID instead of fuzzy |
 
+`disable` adds to `dynamic-assessment.enabled_modules.disabled_{active,passive}_modules`
+(the `[all]` allow-list stays); `enable` removes from it, and adds to an explicit
+allow-list. A term matching more than 5 modules needs `--force`.
+
 ### Examples
 
 ```bash
@@ -1418,8 +1422,8 @@ vigolium module ls xss                 # fuzzy filter
 vigolium module ls --type active
 vigolium module ls --list-enabled
 vigolium module ls -v                  # verbose with descriptions
-vigolium module enable xss             # enable all xss modules
-vigolium module disable sqli           # disable all sqli modules
+vigolium module enable xss --force     # enable all xss modules (more than 5 match)
+vigolium module disable sqli --force   # disable all sqli modules
 vigolium module enable active-xss-reflected --id  # exact ID
 vigolium scan -M                       # shortcut to list modules
 ```

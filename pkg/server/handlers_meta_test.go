@@ -73,21 +73,6 @@ func TestHandleStats_WithDBCounts(t *testing.T) {
 	}
 }
 
-func TestCountEnabledModules(t *testing.T) {
-	if got := countEnabledModules([]string{"all"}, 50); got != 50 {
-		t.Errorf(`"all" => %d, want total 50`, got)
-	}
-	if got := countEnabledModules([]string{"a", "b", "c"}, 50); got != 3 {
-		t.Errorf("explicit list => %d, want 3", got)
-	}
-	if got := countEnabledModules(nil, 50); got != 0 {
-		t.Errorf("nil => %d, want 0", got)
-	}
-	if got := countEnabledModules([]string{"x", "all", "y"}, 12); got != 12 {
-		t.Errorf(`list containing "all" => %d, want total 12`, got)
-	}
-}
-
 // -----------------------------------------------------------------------------
 // HandleListModules + module helpers
 // -----------------------------------------------------------------------------

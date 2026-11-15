@@ -2,13 +2,17 @@ package cli
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/config/yamledit"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"gopkg.in/yaml.v3"
 )
 
 var moduleExactID bool
@@ -17,7 +21,7 @@ var moduleEnableCmd = &cobra.Command{
 	Use:     "enable <search>",
 	Aliases: []string{"e"},
 	Short:   "Enable modules matching a search term",
-	Long:    "Enable every module whose ID, name, description, or tag matches the search term and persist the change to the config file. Pass --id to require an exact module-ID match instead of fuzzy matching.",
+	Long:    "Enable every module whose ID, name, description, or tag matches the search term and persist the change to the config file: the module leaves the disabled_*_modules deny-list, and joins an explicit allow-list. A term matching more than 5 modules needs --force. Pass --id to require an exact module-ID match instead of fuzzy matching.",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runModuleEnable,
 }
@@ -26,7 +30,7 @@ var moduleDisableCmd = &cobra.Command{
 	Use:     "disable <search>",
 	Aliases: []string{"d"},
 	Short:   "Disable modules matching a search term",
-	Long:    "Disable every module whose ID, name, description, or tag matches the search term and persist the change to the config file. Pass --id to require an exact module-ID match instead of fuzzy matching.",
+	Long:    "Disable every module whose ID, name, description, or tag matches the search term and persist the change to the config file by adding it to the disabled_active_modules / disabled_passive_modules deny-list (the [all] allow-list stays, so modules added by later releases stay on). A term matching more than 5 modules needs --force. Pass --id to require an exact module-ID match instead of fuzzy matching.",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runModuleDisable,
 }
@@ -76,53 +80,86 @@ func findMatchingModules(search string, exactID bool) []matchedModule {
 	return matches
 }
 
-// addModuleToList adds a module ID to the config list.
-// If list is ["all"], returns it unchanged (already enabled).
-// Returns the updated list and whether it was modified.
-func addModuleToList(list []string, moduleID string) ([]string, bool) {
-	if len(list) == 1 && list[0] == "all" {
-		return list, false
+// maxModuleToggleWithoutForce is how many modules one enable/disable may flip
+// without --force. A fuzzy term like "a" matches hundreds.
+const maxModuleToggleWithoutForce = 5
+
+// checkModuleToggleBreadth refuses a search that matched more modules than a
+// typo should be able to flip, unless --force.
+func checkModuleToggleBreadth(verb, search string, matches []matchedModule) error {
+	if len(matches) <= maxModuleToggleWithoutForce || globalForce {
+		return nil
 	}
-	for _, id := range list {
-		if id == moduleID {
-			return list, false
-		}
-	}
-	return append(list, moduleID), true
+	return usageErrorf("%q matches %d modules; pass --force to %s all of them, or --id with an exact module ID (list them with `vigolium module ls %s`)",
+		search, len(matches), verb, search)
 }
 
-// removeModuleFromList removes a module ID from the config list.
-// If list is ["all"], expands it to all IDs of that type minus the target.
-func removeModuleFromList(list []string, moduleID string, moduleType string) ([]string, bool) {
-	if len(list) == 1 && list[0] == "all" {
-		expanded := expandAllModuleIDs(moduleType)
-		var result []string
-		for _, id := range expanded {
-			if id != moduleID {
-				result = append(result, id)
+const enabledModulesKey = "dynamic-assessment.enabled_modules."
+
+// moduleListKeys returns the allow-list and deny-list config keys for a module type.
+func moduleListKeys(moduleType string) (allow, deny string) {
+	if moduleType == "active" {
+		return enabledModulesKey + "active_modules", enabledModulesKey + "disabled_active_modules"
+	}
+	return enabledModulesKey + "passive_modules", enabledModulesKey + "disabled_passive_modules"
+}
+
+func moduleEnabledIn(em *config.EnabledModulesConfig, m matchedModule) bool {
+	if m.moduleType == "active" {
+		return em.ActiveEnabled(m.id)
+	}
+	return em.PassiveEnabled(m.id)
+}
+
+// toggleModules flips each match to the requested state in the raw config and
+// returns the ids it changed. Disabling appends to the deny-list, so the
+// allow-list keeps selecting modules a later release adds. Enabling removes
+// from the deny-list, and adds to the allow-list only when that list is an
+// explicit one that does not hold the module.
+func toggleModules(configPath string, em *config.EnabledModulesConfig, matches []matchedModule, enable bool) ([]string, error) {
+	var flipped []string
+	add := map[string][]*yaml.Node{}
+	remove := map[string][]string{}
+	for _, m := range matches {
+		if moduleEnabledIn(em, m) == enable {
+			continue
+		}
+		flipped = append(flipped, m.id)
+		allowKey, denyKey := moduleListKeys(m.moduleType)
+		allow := em.PassiveModules
+		if m.moduleType == "active" {
+			allow = em.ActiveModules
+		}
+		node := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: m.id}
+		if !enable {
+			add[denyKey] = append(add[denyKey], node)
+			continue
+		}
+		remove[denyKey] = append(remove[denyKey], m.id)
+		if !config.AllowsAll(allow) && !slices.Contains(allow, m.id) {
+			add[allowKey] = append(add[allowKey], node)
+		}
+	}
+	if len(flipped) == 0 {
+		return nil, nil
+	}
+	_, err := config.EditConfigFile(configPath, func(d *yamledit.Doc) error {
+		for _, key := range slices.Sorted(maps.Keys(remove)) {
+			if _, err := d.RemoveItems(strings.Split(key, "."), remove[key]...); err != nil {
+				return err
 			}
 		}
-		return result, true
-	}
-
-	var result []string
-	found := false
-	for _, id := range list {
-		if id == moduleID {
-			found = true
-		} else {
-			result = append(result, id)
+		for _, key := range slices.Sorted(maps.Keys(add)) {
+			if _, err := d.AppendUnique(strings.Split(key, "."), add[key]...); err != nil {
+				return err
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return result, found
-}
-
-// expandAllModuleIDs returns all module IDs for the given type ("active" or "passive").
-func expandAllModuleIDs(moduleType string) []string {
-	if moduleType == "active" {
-		return modules.GetActiveModulesID()
-	}
-	return modules.GetPassiveModulesID()
+	return flipped, nil
 }
 
 // noModulesMatchError rejects a search that matched nothing. It used to print a
@@ -134,118 +171,64 @@ func noModulesMatchError(search string) error {
 }
 
 func runModuleEnable(cmd *cobra.Command, args []string) error {
-	search := args[0]
-	matches := findMatchingModules(search, moduleExactID)
-
-	if len(matches) == 0 {
-		return noModulesMatchError(search)
-	}
-
-	// EffectiveConfigPath, not ConfigFilePath: with --config set, this command
-	// used to READ the named file and WRITE the discovered one, so
-	// `vigolium module enable X --config ./team.yaml` silently rewrote
-	// ~/.vigolium/vigolium-configs.yaml with team.yaml's contents plus the
-	// change — a whole config clobbered by a one-module edit.
-	configPath := clicommon.EffectiveConfigPath(globalConfig)
-	settings, err := clicommon.LoadSettings(globalConfig)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	var enabled []string
-	for _, m := range matches {
-		var modified bool
-		if m.moduleType == "active" {
-			settings.DynamicAssessment.EnabledModules.ActiveModules, modified = addModuleToList(settings.DynamicAssessment.EnabledModules.ActiveModules, m.id)
-		} else {
-			settings.DynamicAssessment.EnabledModules.PassiveModules, modified = addModuleToList(settings.DynamicAssessment.EnabledModules.PassiveModules, m.id)
-		}
-		if modified {
-			enabled = append(enabled, m.id)
-		}
-	}
-
-	if len(enabled) == 0 {
-		if globalJSON {
-			return emitModuleToggle(cmd, "enable", matches, enabled, configPath)
-		}
-		fmt.Printf("%s All matching modules are already enabled\n", terminal.InfoSymbol())
-		return nil
-	}
-
-	if err := saveEnabledModules(configPath, settings); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-	if globalJSON {
-		return emitModuleToggle(cmd, "enable", matches, enabled, configPath)
-	}
-
-	fmt.Printf("%s Enabled %d module(s):\n", terminal.SuccessSymbol(), len(enabled))
-	for _, id := range enabled {
-		fmt.Printf("  %s %s\n", terminal.SuccessSymbol(), terminal.Cyan(id))
-	}
-	fmt.Printf("\n%s Config saved to %s\n", terminal.InfoSymbol(), terminal.Gray(configPath))
-	return nil
+	return runModuleToggle(cmd, args[0], true)
 }
 
 func runModuleDisable(cmd *cobra.Command, args []string) error {
-	search := args[0]
-	matches := findMatchingModules(search, moduleExactID)
+	return runModuleToggle(cmd, args[0], false)
+}
 
+func runModuleToggle(cmd *cobra.Command, search string, enable bool) error {
+	verb := "disable"
+	if enable {
+		verb = "enable"
+	}
+	matches := findMatchingModules(search, moduleExactID)
 	if len(matches) == 0 {
 		return noModulesMatchError(search)
 	}
+	if err := checkModuleToggleBreadth(verb, search, matches); err != nil {
+		return err
+	}
 
-	// Load and save the SAME file — see runModuleEnable.
+	// EffectiveConfigPath, not ConfigFilePath: with --config set, this command
+	// used to READ the named file and WRITE the discovered one. config.LoadSettings,
+	// not the CLI loader that answers a broken config with defaults: the state
+	// read here decides what is written.
 	configPath := clicommon.EffectiveConfigPath(globalConfig)
-	settings, err := clicommon.LoadSettings(globalConfig)
+	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return fmt.Errorf("failed to load config, refusing to write: %w", err)
 	}
-
-	var disabled []string
-	for _, m := range matches {
-		var modified bool
-		if m.moduleType == "active" {
-			settings.DynamicAssessment.EnabledModules.ActiveModules, modified = removeModuleFromList(
-				settings.DynamicAssessment.EnabledModules.ActiveModules, m.id, m.moduleType)
-		} else {
-			settings.DynamicAssessment.EnabledModules.PassiveModules, modified = removeModuleFromList(
-				settings.DynamicAssessment.EnabledModules.PassiveModules, m.id, m.moduleType)
-		}
-		if modified {
-			disabled = append(disabled, m.id)
-		}
-	}
-
-	if len(disabled) == 0 {
-		if globalJSON {
-			return emitModuleToggle(cmd, "disable", matches, disabled, configPath)
-		}
-		fmt.Printf("%s All matching modules are already disabled\n", terminal.InfoSymbol())
-		return nil
-	}
-
-	if err := saveEnabledModules(configPath, settings); err != nil {
+	flipped, err := toggleModules(configPath, &settings.DynamicAssessment.EnabledModules, matches, enable)
+	if err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 	if globalJSON {
-		return emitModuleToggle(cmd, "disable", matches, disabled, configPath)
+		return emitModuleToggle(cmd, verb, matches, flipped, configPath)
 	}
-
-	fmt.Printf("%s Disabled %d module(s):\n", terminal.SuccessSymbol(), len(disabled))
-	for _, id := range disabled {
-		fmt.Printf("  %s %s\n", terminal.WarnPrefix(), terminal.Yellow(id))
+	if len(flipped) == 0 {
+		fmt.Printf("%s All matching modules are already %sd\n", terminal.InfoSymbol(), verb)
+		return nil
+	}
+	if enable {
+		fmt.Printf("%s Enabled %d module(s):\n", terminal.SuccessSymbol(), len(flipped))
+		for _, id := range flipped {
+			fmt.Printf("  %s %s\n", terminal.SuccessSymbol(), terminal.Cyan(id))
+		}
+	} else {
+		fmt.Printf("%s Disabled %d module(s):\n", terminal.SuccessSymbol(), len(flipped))
+		for _, id := range flipped {
+			fmt.Printf("  %s %s\n", terminal.WarnPrefix(), terminal.Yellow(id))
+		}
 	}
 	fmt.Printf("\n%s Config saved to %s\n", terminal.InfoSymbol(), terminal.Gray(configPath))
-
-	// Hint: show how to re-enable
-	if len(disabled) == 1 {
-		fmt.Printf("%s Re-enable with: %s\n", terminal.InfoSymbol(),
-			terminal.Gray("vigolium module enable "+disabled[0]+" --id"))
-	} else {
-		fmt.Printf("%s Re-enable with: %s\n", terminal.InfoSymbol(),
-			terminal.Gray(fmt.Sprintf("vigolium module enable %s", strings.ToLower(search))))
+	if !enable {
+		hint := "vigolium module enable " + strings.ToLower(search)
+		if len(flipped) == 1 {
+			hint = "vigolium module enable " + flipped[0] + " --id"
+		}
+		fmt.Printf("%s Re-enable with: %s\n", terminal.InfoSymbol(), terminal.Gray(hint))
 	}
 	return nil
 }
@@ -282,14 +265,4 @@ func emitModuleToggle(cmd *cobra.Command, action string, matches []matchedModule
 			"config_path":     config.ContractPath(configPath),
 		},
 	})
-}
-
-// saveEnabledModules writes the two module lists into the raw config file in
-// place, leaving the rest of the file (comments, ${VAR} placeholders) alone.
-func saveEnabledModules(configPath string, settings *config.Settings) error {
-	em := settings.DynamicAssessment.EnabledModules
-	_, err := config.EditConfigFile(configPath,
-		config.SetPathEdit("dynamic-assessment.enabled_modules.active_modules", em.ActiveModules),
-		config.SetPathEdit("dynamic-assessment.enabled_modules.passive_modules", em.PassiveModules))
-	return err
 }
