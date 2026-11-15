@@ -1,6 +1,7 @@
 package xss_light_scanner
 
 import (
+	"bytes"
 	"strings"
 
 	httpUtils "github.com/projectdiscovery/utils/http"
@@ -84,7 +85,9 @@ func sendAndValidateRawPayload(
 		return nil, nil
 	}
 
-	return body, nil
+	// The body aliases a pooled buffer that resp.Close() hands back for the
+	// next request; the caller keeps analysing it, so return a copy.
+	return bytes.Clone(body), nil
 }
 
 // sendAndValidatePayload sends a canary payload and validates the response.
