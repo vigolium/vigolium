@@ -776,11 +776,7 @@ Check the configuration for values that break or silently weaken scans
 
 Manage database records
 
-| Flag | Short | Type | Default | Description |
-|------|-------|------|---------|-------------|
-| `--search` | - | string | - | Quick search across record fields (URLs, paths, descriptions) |
-| `--table` | - | string | - | Database table to operate on (http_records, findings, scans) |
-| `--watch` | - | string | - | Re-run on interval (e.g. 10s, 1m, 5m) |
+_No command-specific flags._
 
 ## vigolium db clean
 
@@ -795,6 +791,7 @@ Clean database records
 | `--host` | - | string | - | Delete records on this host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--orphans` | - | bool | `false` | Delete findings with no matching HTTP record |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Delete records belonging to the specified scan UUID |
+| `--search` | - | string | - | Quick search across record fields (URLs, paths, descriptions) |
 | `--severity` | - | string | - | Delete findings matching the specified severity level (findings only; HTTP records are kept) |
 | `--status` | - | intSlice | - | Delete records with matching HTTP status codes |
 | `--table` | - | string | - | Delete all rows from a specific table (e.g., http_records, findings, scans) |
@@ -834,10 +831,13 @@ Export database records
 | `--report-url` | - | string | - | URL for the "Raw Report URL" button in HTML reports (overrides VIGOLIUM_REPORT_SHARED_URL) |
 | `--request-only` | - | bool | `false` | Export only HTTP requests, omitting responses (raw format only) |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Filter records by scan UUID |
+| `--search` | - | string | - | Quick search across record fields (URLs, paths, descriptions) |
 | `--severity` | - | string | - | Filter findings by severity level |
 | `--status` | - | intSlice | - | Filter records by HTTP status code (can be specified multiple times) |
+| `--table` | - | string | - | Database table to operate on (http_records, findings, scans) |
 | `--to` | - | string | - | Export records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--uuid` | - | string | - | Export exactly one record by its UUID (or unique 8+ char prefix). Honored by every --format (including fs) and resolved before pagination, so a record outside the --limit window is still found |
+| `--watch` | - | string | - | Re-run on interval (e.g. 10s, 1m, 5m) |
 
 ## vigolium db list
 
@@ -875,13 +875,16 @@ List database records (default: http_records)
 | `--record-kind` | - | string | - | Filter by record kind (finding, candidate, observation; comma-separated). Default: finding |
 | `--remark` | - | string | - | Filter records containing this text in remarks |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Filter records by scan UUID |
+| `--search` | - | string | - | Quick search across record fields (URLs, paths, descriptions) |
 | `--severity` | - | string | - | Filter findings by severity: critical,high,medium,low,suspect,info (comma-separated; single-letter shorthands ok, e.g. 'h,c') |
 | `--sort` | - | string | `created_at` | Sort results by field: uuid, created_at, sent_at, method, status_code, response_time, risk_score, surface_score |
 | `--status` | - | intSlice | - | Filter records by HTTP status code (can be specified multiple times) |
+| `--table` | - | string | - | Database table to operate on (http_records, findings, scans) |
 | `--to` | - | string | - | Show records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--tree` | - | bool | `false` | Display results in hierarchical tree format |
 | `--url` | - | stringArray | - | Select records whose URL matches EXACTLY (repeatable; OR-ed). Compared against the stored URL with no normalization — use --path or --search for substring matching |
 | `--uuid` | - | stringSlice | - | Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination |
+| `--watch` | - | string | - | Re-run on interval (e.g. 10s, 1m, 5m) |
 
 ## vigolium db migrate
 
@@ -916,6 +919,7 @@ Show database statistics
 | `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Show statistics for a specific scan UUID |
 | `--to` | - | string | - | Only records sent, findings found and scans started at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
+| `--watch` | - | string | - | Re-run on interval (e.g. 10s, 1m, 5m) |
 
 ## vigolium dig
 
@@ -1317,6 +1321,7 @@ Re-run a finding's module against its target and record whether it reproduces
 | `--no-write` | - | bool | `false` | Run the verification but do not store the verdict |
 | `--rate-limit` | - | float64 | `0` | Max requests/second across the verification (0 = unlimited; fractions allowed) |
 | `--refetch` | - | bool | `false` | Passive findings: fetch a fresh response instead of re-analyzing the stored one |
+| `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Verify every finding of this scan (UUID, 8+ char prefix, latest, previous) |
 | `--stateless` | `-S` | bool | `false` | Use the standalone .sqlite named by --db with project scoping off |
 | `--timeout` | - | duration | `2m0s` | Time limit for verifying one finding (one request is capped at 15s) |
 
