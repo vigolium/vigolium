@@ -222,7 +222,7 @@ func writeResultDocument(v any) error {
 		// the receipt. Latching first meant a failed atomicfile.WriteBytes returned an
 		// error that the root handler then refused to frame, so `-j -o <unwritable>`
 		// exited non-zero with completely empty stdout.
-		return writeJSONResultToFile(dest, doc, resultIsPaged(v))
+		return writeJSONResultToFile(dest, doc, v)
 	}
 	return writeAgentJSONDoc(doc)
 }

@@ -73,44 +73,60 @@ func jsonOutputDestination() string {
 // The receipt never contains the document. Echoing it back would reinstate the
 // transcript cost the flag exists to remove, and a caller that wanted both can
 // ask twice.
-func writeJSONResultToFile(dest string, doc []byte, paged bool) error {
-	return writeJSONResultToFileNow(dest, doc, paged, nil)
+func writeJSONResultToFile(dest string, doc []byte, src any) error {
+	return writeJSONResultToFileNow(dest, doc, src, nil)
 }
 
 // writeJSONResultToFileNow writes the file and its receipt to stdout directly,
 // bypassing the held-result path: Execute calls it when publishing a held -o
-// result. outcomeErr is the error the document carries (nil when ok); the
-// receipt repeats it, so the receipt alone answers whether the command worked.
-func writeJSONResultToFileNow(dest string, doc []byte, paged bool, outcomeErr *agentError) error {
+// result. src is the document's value (its command, kind and total are
+// repeated); outcomeErr is the error the document carries (nil when ok), which
+// the receipt repeats, so the receipt alone answers whether the command worked.
+func writeJSONResultToFileNow(dest string, doc []byte, src any, outcomeErr *agentError) error {
 	if err := writeRequestedFile(dest, doc); err != nil {
 		return err
 	}
-	sum := sha256.Sum256(doc)
-	receipt := map[string]any{
-		"ok":             outcomeErr == nil,
-		"artifact":       "json_result",
-		"output":         dest,
-		"bytes":          len(doc),
-		"sha256":         hex.EncodeToString(sum[:]),
-		"schema_version": AgentSchemaVersion,
-		// A saved page is still a page. Saying so keeps a file named like a full
-		// export from being read as one when -n/--limit was still in force.
-		"complete": !paged,
-	}
-	if paged {
-		receipt["hint"] = "this file holds one page; pass -a/--all or raise -n/--limit for the whole result set"
-	}
-	if outcomeErr != nil {
-		receipt["error"] = outcomeErr
-		if globalSoftFail {
-			receipt["soft_fail"] = true
-		}
-	}
-	doc, err := encodeAgentJSON(receipt)
+	receipt := jsonResultReceipt(src, dest, doc, outcomeErr)
+	out, err := encodeAgentJSON(receipt)
 	if err != nil {
 		return err
 	}
-	return writeAgentJSONDoc(doc)
+	return writeAgentJSONDoc(out)
+}
+
+// jsonResultReceipt is the -o receipt: an envelope with the source document's
+// spine (command, kind, ok, total) and no rows, plus where the document went.
+func jsonResultReceipt(src any, dest string, doc []byte, outcomeErr *agentError) *agentEnvelope {
+	paged := resultIsPaged(src)
+	sum := sha256.Sum256(doc)
+	r := newAgentEnvelope("", "", nil, 0, 0, 0)
+	if env, ok := src.(*agentEnvelope); ok && env != nil {
+		r.Command, r.Kind, r.Total = env.Command, env.Kind, env.Total
+		r.Changed, r.Action, r.DryRun = env.Changed, env.Action, env.DryRun
+		r.ProjectUUID, r.DBPath = env.ProjectUUID, env.DBPath
+		for _, k := range []string{"project_source", "project_scoped", "sends_traffic"} {
+			if v, ok := env.extra[k]; ok {
+				r.extra[k] = v
+			}
+		}
+	}
+	r.OK = outcomeErr == nil
+	r.Error = outcomeErr
+	if outcomeErr != nil {
+		r.SoftFail = globalSoftFail
+	}
+	r.With("artifact", "json_result").
+		With("output", dest).
+		With("bytes", len(doc)).
+		With("sha256", hex.EncodeToString(sum[:])).
+		// A saved page is still a page. Saying so keeps a file named like a
+		// full export from being read as one when -n/--limit was still in force.
+		With("complete", !paged).
+		With("artifacts", []scanArtifact{{Format: "json", Path: dest, Bytes: int64(len(doc))}})
+	if paged {
+		r.With("hint", "this file holds one page; pass -a/--all or raise -n/--limit for the whole result set")
+	}
+	return r
 }
 
 // resultIsPaged reports whether an envelope carries fewer rows than it matched,

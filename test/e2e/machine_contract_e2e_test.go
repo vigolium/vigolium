@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -24,6 +25,8 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli"
+	"github.com/vigolium/vigolium/pkg/contract"
+	"github.com/vigolium/vigolium/pkg/contract/contracttest"
 )
 
 // The runtime half of the machine contract (plan B §1.3 test 4). The static
@@ -347,6 +350,12 @@ func TestMachineContractMatrix(t *testing.T) {
 				_, isArray := doc["items"].([]any)
 				require.Truef(t, isArray, "items must be an array, got %T\n%s", doc["items"], r)
 				requireSafeFollowUp(t, r, doc)
+				// Schema coverage: a registered command's document validates. A
+				// --dry-run prints the plan document instead (`schema plan`),
+				// which scan_dry_run_test.go validates.
+				if _, ok := contract.LookupCommand(wantCommand); ok && !slices.Contains(row.args, "--dry-run") {
+					contracttest.Validate(t, wantCommand, []byte(r.stdout))
+				}
 			})
 		})
 	}

@@ -355,21 +355,19 @@ var schemaPending = map[string]string{
 	"auth check":   pendingTypedItems, "auth lint": pendingTypedItems, "auth list": pendingTypedItems,
 	"auth load": pendingTypedItems, "auth totp": pendingTypedItems,
 	"config clean": pendingTypedItems, "config ls": pendingTypedItems, "config set": pendingTypedItems,
-	"config validate": pendingTypedItems,
-	"db clean":        pendingTypedItems, "db compact": pendingTypedItems, "db list": pendingTypedItems,
-	"db migrate": pendingTypedItems, "db reset": pendingTypedItems, "db stats": pendingTypedItems,
+	"config validate":  pendingTypedItems,
 	"storage download": pendingStream,
 	"doctor":           pendingTypedItems,
 	"extensions":       pendingTypedItems, "extensions docs": pendingTypedItems, "extensions ls": pendingTypedItems,
-	"finding load": pendingTypedItems, "finding verify": pendingTypedItems,
-	"init":        pendingTypedItems,
-	"kit harvest": pendingTypedItems, "kit js-beautify": pendingTypedItems, "kit jwt-crack": pendingTypedItems,
+	"finding verify": pendingTypedItems,
+	"init":           pendingTypedItems,
+	"kit harvest":    pendingTypedItems, "kit js-beautify": pendingTypedItems, "kit jwt-crack": pendingTypedItems,
 	"kit oast new": pendingTypedItems, "kit oast poll": pendingTypedItems, "kit param-mine": pendingTypedItems,
 	"kit payload": pendingTypedItems, "kit secret-scan": pendingTypedItems, "kit tmp-clean": pendingTypedItems,
 	"kit wordlist": pendingTypedItems,
 	"module":       pendingTypedItems, "module ls": pendingTypedItems,
-	"project config": pendingTypedItems, "project list": pendingTypedItems,
-	"scope": pendingTypedItems, "scope set": pendingTypedItems, "scope view": pendingTypedItems,
+	"project config": pendingTypedItems,
+	"scope":          pendingTypedItems, "scope set": pendingTypedItems, "scope view": pendingTypedItems,
 	"server ca install": pendingTypedItems, "server ca path": pendingTypedItems,
 	"server ca print": pendingTypedItems, "server ca uninstall": pendingTypedItems,
 	"skills": pendingTypedItems, "skills get": pendingTypedItems, "skills install": pendingTypedItems,
@@ -384,7 +382,7 @@ var schemaPending = map[string]string{
 
 // schemaPendingCeiling pins the ratchet's size: lower it when a command gets
 // a schema; never raise it.
-const schemaPendingCeiling = 71
+const schemaPendingCeiling = 63
 
 // TestSchemaCoverageRatchet: every runnable non-interactive command either has
 // a registered schema or a reason in schemaPending, never both.
@@ -418,4 +416,22 @@ func TestSchemaCoverageRatchet(t *testing.T) {
 	} else if n < schemaPendingCeiling {
 		t.Errorf("schemaPending shrank to %d: lower schemaPendingCeiling to %d", n, n)
 	}
+}
+
+// The stream a --watch read writes is declared, and `run fingerprint`'s host
+// rows are a declared variant of `run`.
+func TestSchemaDeclaresStreamsAndRunFingerprint(t *testing.T) {
+	for _, name := range []string{"db list", "db stats"} {
+		s, err := contract.CommandSchema(name)
+		require.NoError(t, err)
+		raw, err := json.Marshal(s)
+		require.NoError(t, err)
+		require.Contains(t, string(raw), "NDJSON", "%s --watch streams documents", name)
+	}
+	s, err := contract.CommandSchema("run")
+	require.NoError(t, err)
+	raw, err := json.Marshal(s)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "run fingerprint")
+	require.Contains(t, string(raw), "not_found", "the host view (with its not-found baseline) is an item shape of run")
 }

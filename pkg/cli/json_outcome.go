@@ -107,7 +107,7 @@ func publishHeldResult(held *heldJSONResult, err error, code int) error {
 		doc = reencoded
 	}
 	if held.dest != "" {
-		return writeJSONResultToFileNow(held.dest, doc, resultIsPaged(held.v), body)
+		return writeJSONResultToFileNow(held.dest, doc, held.v, body)
 	}
 	return writeAgentJSONDoc(doc)
 }

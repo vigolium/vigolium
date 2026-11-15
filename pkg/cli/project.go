@@ -196,19 +196,9 @@ var projectListCmd = &cobra.Command{
 
 		if globalJSON {
 			active, _ := resolveProjectUUID()
-			type projectJSON struct {
-				UUID          string `json:"uuid"`
-				Name          string `json:"name"`
-				Description   string `json:"description,omitempty"`
-				OwnerUUID     string `json:"owner_uuid,omitempty"`
-				DefaultTarget string `json:"default_target,omitempty"`
-				Active        bool   `json:"active"`
-				CreatedAt     string `json:"created_at"`
-				UpdatedAt     string `json:"updated_at"`
-			}
-			out := make([]projectJSON, 0, len(projects))
+			out := make([]projectListView, 0, len(projects))
 			for _, p := range projects {
-				out = append(out, projectJSON{
+				out = append(out, projectListView{
 					UUID:          p.UUID,
 					Name:          p.Name,
 					Description:   p.Description,
@@ -601,4 +591,16 @@ func init() {
 	projectCmd.AddCommand(projectUseCmd)
 	projectCmd.AddCommand(projectDeleteCmd)
 	projectCmd.AddCommand(projectConfigCmd)
+}
+
+// projectListView is one `project list -j` row.
+type projectListView struct {
+	UUID          string `json:"uuid"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	OwnerUUID     string `json:"owner_uuid,omitempty"`
+	DefaultTarget string `json:"default_target,omitempty"`
+	Active        bool   `json:"active"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
 }

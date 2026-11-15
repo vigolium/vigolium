@@ -59,6 +59,9 @@ type Command struct {
 	// own top-level keys. omitempty fields are optional, the rest required.
 	// They override a common envelope extra of the same name.
 	Extras any
+	// StreamFlag names the flag that turns stdout into a stream of these
+	// documents, one per line (NDJSON); "" when there is none.
+	StreamFlag string
 }
 
 // Variant is an alternative item shape selected by a flag.

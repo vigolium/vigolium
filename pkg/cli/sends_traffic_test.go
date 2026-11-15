@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 )
 
 func TestCheckFollowUpArgv(t *testing.T) {
@@ -23,6 +25,10 @@ func TestCheckFollowUpArgv(t *testing.T) {
 func TestFollowUpDBFlagFallsBackToGlobalDB(t *testing.T) {
 	resetDBCacheForTest()
 	t.Cleanup(resetDBCacheForTest)
+	prevOpened := clicommon.OpenedDBPath()
+	clicommon.SetOpenedDBPath("")
+	t.Cleanup(func() { clicommon.SetOpenedDBPath(prevOpened) })
+	swapGlobal(t, &globalStateless, false)
 	swapGlobal(t, &globalDB, "/tmp/pinned.sqlite")
 	require.Equal(t, "/tmp/pinned.sqlite", followUpDBFlag())
 }

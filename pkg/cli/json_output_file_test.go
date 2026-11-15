@@ -136,7 +136,7 @@ func TestWriteJSONResultToFileWritesDocumentAndReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stdout = w
-	writeErr := writeJSONResultToFile(dest, doc, false)
+	writeErr := writeJSONResultToFile(dest, doc, newAgentEnvelope("traffic", "", []string{}, 0, 0, 0))
 	_ = w.Close()
 	os.Stdout = orig
 
@@ -156,8 +156,15 @@ func TestWriteJSONResultToFileWritesDocumentAndReceipt(t *testing.T) {
 	}
 	// The receipt replaces the document on stdout; echoing it back would
 	// reinstate exactly the transcript cost -o exists to remove.
-	if _, ok := receipt["items"]; ok {
+	if items, _ := receipt["items"].([]any); len(items) != 0 {
 		t.Error("the receipt carries the result rows")
+	}
+	// The receipt is an envelope: the source document's spine, ok, artifacts.
+	if receipt["command"] != "traffic" || receipt["ok"] != true || receipt["schema_version"] == nil {
+		t.Errorf("receipt is not an envelope: %v", receipt)
+	}
+	if arts, _ := receipt["artifacts"].([]any); len(arts) != 1 {
+		t.Errorf("receipt artifacts = %v", receipt["artifacts"])
 	}
 
 	saved, err := os.ReadFile(dest)

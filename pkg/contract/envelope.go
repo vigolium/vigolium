@@ -61,6 +61,23 @@ type EnvelopeCommon struct {
 	OutputBudget *OutputBudget `json:"output_budget,omitempty"`
 	// SendsTraffic marks a command whose job is to send requests to a target.
 	SendsTraffic bool `json:"sends_traffic,omitempty"`
+
+	// The -o receipt: the document went to Output instead of stdout, so items
+	// is empty and these describe the file.
+	Artifact  string            `json:"artifact,omitempty"`
+	Output    string            `json:"output,omitempty"`
+	Bytes     int               `json:"bytes,omitempty"`
+	SHA256    string            `json:"sha256,omitempty"`
+	Complete  *bool             `json:"complete,omitempty"`
+	Hint      string            `json:"hint,omitempty"`
+	Artifacts []ReceiptArtifact `json:"artifacts,omitempty"`
+}
+
+// ReceiptArtifact is one file a command wrote.
+type ReceiptArtifact struct {
+	Format string `json:"format"`
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
 }
 
 // GlobSources is the glob_sources extra of a --glob-db read.
@@ -126,6 +143,10 @@ func CommandSchema(name string) (*Schema, error) {
 	desc := c.Description
 	if desc == "" {
 		desc = "The -j document of `vigolium " + c.Name + "`."
+	}
+	if c.StreamFlag != "" {
+		desc += " With " + c.StreamFlag + ", stdout is a stream of these documents, one per line (NDJSON), " +
+			"ending with an error document if the stream stops on a failure."
 	}
 	return b.root(env, "vigolium "+c.Name+" -j", desc), nil
 }
