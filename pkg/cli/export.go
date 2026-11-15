@@ -96,7 +96,7 @@ func init() {
 	exportCmd.Flags().StringVar(&topExportSeverity, "severity", "",
 		"Filter findings by severity (comma-separated: critical,high,medium,low,info)")
 	exportCmd.Flags().BoolVar(&topExportAllProjects, "all-projects", false,
-		"Export every project in the store; by default the export covers the active project (--project-uuid, --project-name, $VIGOLIUM_PROJECT_UUID, `project use`, else the default project)")
+		"Export every project in the store; by default the export covers the active project (--project-uuid, --project-name, $VIGOLIUM_PROJECT_UUID, the project use file, else the default project)")
 	exportCmd.Flags().StringSliceVar(&topExportScanUUIDs, "scan-uuid", nil,
 		"Agentic scan UUID(s) whose session directories to include in --format bundle (repeatable)")
 	registerReportFlags(exportCmd.Flags())
