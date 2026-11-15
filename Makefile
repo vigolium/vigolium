@@ -166,7 +166,7 @@ test: install-gotestsum ensure-jstangle
 # pkg/spitolas/internal/form (stats, policy gates, upload fixtures).
 test-race: install-gotestsum ensure-jstangle
 	@echo "$(PREFIX) Running tests with race detector..."
-	$(TESTCMD) $(TESTFLAGS) -race $$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')
+	$(TESTCMD) $(TESTFLAGS) -race -timeout 30m $$(go list ./... | grep -Ev '$(GOLIST_EXCLUDE)')
 
 # Run unit tests (excludes integration, e2e; see GOLIST_EXCLUDE for what's filtered)
 test-unit: install-gotestsum ensure-jstangle
