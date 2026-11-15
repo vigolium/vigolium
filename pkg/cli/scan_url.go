@@ -502,7 +502,9 @@ func setupScanHTTPStack(budget *egress.Budget) (*httpstack.Stack, error) {
 	if globalNoClustering {
 		opts.ClusterRequests = false
 	}
-	return httpstack.New(httpstack.Config{Options: opts, WafPacing: true, Budget: budget})
+	// The direct path is a dynamic-assessment pass, which has no phase-local
+	// rate: the scan-wide --rate-limit is the cap, as it is on the Runner path.
+	return httpstack.New(httpstack.Config{Options: opts, WafPacing: true, Budget: budget, RateLimit: float64(max(opts.RateLimit, 0))})
 }
 
 // getFilteredModules returns active and passive modules based on CLI flags.

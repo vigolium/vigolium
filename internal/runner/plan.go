@@ -464,6 +464,10 @@ func planPhasePace(settings *config.Settings, opts *types.Options, phase string)
 		if phase == string(PhaseKnownIssueScan) {
 			pace.RateLimit = settings.ScanningPace.KnownIssueScanRateLimit(opts)
 		}
+	} else if phase == string(PhaseDynamicAssessment) {
+		// No phase-local rate, but every request goes through the scan-wide
+		// limiter, so that is the rate in force; 0 here would read "unlimited".
+		pace.RateLimit = effectiveRateLimit(opts)
 	}
 	if config.PhasePaceSupports(phase, config.PaceFieldConcurrency) {
 		pace.Concurrency = resolved.Concurrency

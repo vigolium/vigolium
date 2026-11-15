@@ -133,6 +133,9 @@ func resolvedPaceTable(settings *config.Settings, opts *types.Options) (scaneven
 			if phase == "known-issue-scan" {
 				entry.RateLimit = settings.ScanningPace.KnownIssueScanRateLimit(opts)
 			}
+		} else if phase == "dynamic-assessment" {
+			// No phase-local rate: the scan-wide limiter paces it.
+			entry.RateLimit = max(opts.RateLimit, 0)
 		}
 		if config.PhasePaceSupports(phase, config.PaceFieldConcurrency) {
 			entry.Concurrency = resolved.Concurrency

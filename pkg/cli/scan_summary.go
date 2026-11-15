@@ -185,7 +185,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 	fmt.Fprintf(os.Stderr, "  %s Speed: concurrency=%s | rate-limit=%s | max-per-host=%s\n",
 		terminal.Purple(terminal.SymbolInfo),
 		terminal.HiBlue(fmt.Sprintf("%d", opts.Concurrency)),
-		terminal.HiBlue(fmt.Sprintf("%d", globalRateLimit)),
+		terminal.HiBlue(fmt.Sprintf("%d", opts.RateLimit)),
 		terminal.HiBlue(fmt.Sprintf("%d", opts.MaxPerHost)))
 	// Under a parallel fan-out (-P > 1), surface the per-process heap ceiling the
 	// isolated child scans inherit. A single scan omits it — the ceiling is rarely
