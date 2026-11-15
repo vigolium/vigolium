@@ -47,11 +47,23 @@ func shimSpecNamed(t *testing.T, name string) shimSpec {
 func TestTranslateFFUFDiscoveryRouteStripsFuzzMarker(t *testing.T) {
 	// FUZZ as the whole last path segment and no matchers: content discovery,
 	// which brute-forces that segment by construction.
-	joined, _ := mustTranslate(t, translateFFUF, "-u", "https://t/FUZZ", "-w", "words.txt")
+	joined, _ := mustTranslate(t, translateFFUF, "-u", "https://t/FUZZ", "-w", "words.txt", "-recursion")
 	if strings.Contains(joined, "FUZZ") {
 		t.Errorf("FUZZ marker survived on the discovery route: %s", joined)
 	}
 	requireContains(t, joined, "run discovery", "-t https://t", "--discovery-wordlist words.txt")
+}
+
+// A -w run of one last-segment FUZZ is sent word by word (fuzz), not turned
+// into a discovery phase that crawls and adds its own lists.
+func TestTranslateFFUFWordlistRunRoutesToFuzz(t *testing.T) {
+	joined, tr := mustTranslate(t, translateFFUF, "-u", "http://h/FUZZ", "-w", "five.txt")
+	if !strings.HasPrefix(joined, "fuzz http://h/FUZZ") {
+		t.Errorf("wordlist run not routed to fuzz: %s", joined)
+	}
+	if !hasNote(tr, "-recursion") {
+		t.Errorf("the discovery alternative is not named: %v", tr.notes)
+	}
 }
 
 func TestTranslateFFUFMapsPaceFlags(t *testing.T) {
@@ -61,11 +73,11 @@ func TestTranslateFFUFMapsPaceFlags(t *testing.T) {
 
 func TestTranslateFFUFAcceptsEqualsForm(t *testing.T) {
 	joined, _ := mustTranslate(t, translateFFUF, "-u=https://t/FUZZ", "-w=words.txt")
-	requireContains(t, joined, "-t https://t")
+	requireContains(t, joined, "fuzz https://t/FUZZ", "-w words.txt")
 }
 
 func TestTranslateFFUFStripsWordlistKeyword(t *testing.T) {
-	joined, _ := mustTranslate(t, translateFFUF, "-u", "https://t/FUZZ", "-w", "words.txt:FUZZ")
+	joined, _ := mustTranslate(t, translateFFUF, "-u", "https://t/FUZZ", "-w", "words.txt:FUZZ", "-recursion")
 	requireContains(t, joined, "--discovery-wordlist words.txt")
 }
 
@@ -124,7 +136,7 @@ func TestTranslateFFUFKeywordFromWordlist(t *testing.T) {
 }
 
 func TestTranslateFFUFExtensionsPerRoute(t *testing.T) {
-	joined, _ := mustTranslate(t, translateFFUF, "-u", "https://t/FUZZ", "-w", "w.txt", "-e", ".php,.bak")
+	joined, _ := mustTranslate(t, translateFFUF, "-u", "https://t/FUZZ", "-w", "w.txt", "-e", ".php,.bak", "-recursion")
 	requireContains(t, joined, "run discovery", "--discovery-extensions php,bak")
 
 	joined, _ = mustTranslate(t, translateFFUF, "-u", "https://t/FUZZ", "-w", "w.txt", "-e", ".php,.bak", "-mc", "200")
@@ -146,7 +158,7 @@ func TestTranslateFFUFRecursion(t *testing.T) {
 }
 
 func TestTranslateFFUFAutoCalibrateIsNotedNotRouted(t *testing.T) {
-	joined, tr := mustTranslate(t, translateFFUF, "-u", "https://t/FUZZ", "-w", "w.txt", "-ac")
+	joined, tr := mustTranslate(t, translateFFUF, "-u", "https://t/FUZZ", "-w", "w.txt", "-ac", "-recursion")
 	requireContains(t, joined, "run discovery")
 	if !hasNote(tr, "-ac accepted") {
 		t.Errorf("-ac not noted: %v", tr.notes)
@@ -476,5 +488,26 @@ func TestFlagNameNormalizesDashesAndEquals(t *testing.T) {
 		if got := flagName(in); got != want {
 			t.Errorf("flagName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// Types the dns command cannot resolve, and host <IP>, are refused rather
+// than turned into an A lookup.
+func TestDNSShimsRefuseWhatTheyCannotMap(t *testing.T) {
+	for _, args := range [][]string{{"localhost", "SRV"}, {"example.com", "ptr"}, {"example.com", "NAPTR"}} {
+		if _, err := translateDig(args); err == nil {
+			t.Errorf("dig %v accepted", args)
+		}
+	}
+	if tr, err := translateDig([]string{"example.com", "MX"}); err != nil || !slices.Contains(tr.argv, "mx") {
+		t.Errorf("dig MX: %v %v", tr.argv, err)
+	}
+	for _, ip := range []string{"127.0.0.1", "::1"} {
+		if _, err := translateHost([]string{ip}); err == nil {
+			t.Errorf("host %s accepted", ip)
+		}
+	}
+	if _, err := translateHost([]string{"example.com"}); err != nil {
+		t.Errorf("host example.com: %v", err)
 	}
 }

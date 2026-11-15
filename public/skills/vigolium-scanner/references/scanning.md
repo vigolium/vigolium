@@ -815,12 +815,14 @@ own command line and routes it:
 
 ```bash
 $ vigolium ffuf -u https://target.example/FUZZ -w words.txt
+◆ routed to: vigolium fuzz https://target.example/FUZZ -w words.txt
+$ vigolium ffuf -u https://target.example/FUZZ -w words.txt -recursion
 ◆ routed to: vigolium run discovery -t https://target.example --discovery-wordlist words.txt
 ```
 
 | Instead of | Shim | Native |
 |---|---|---|
-| `ffuf` / `feroxbuster` | `vigolium ffuf …` | `run discovery --discovery-wordlist` (FUZZ as the last path segment), else `fuzz <url-with-FUZZ> -w <list>` with matchers mapped |
+| `ffuf` / `feroxbuster` | `vigolium ffuf …` | `fuzz <url-with-FUZZ> -w <list>` with matchers mapped; `run discovery --discovery-wordlist` only with `-recursion` (FUZZ as the last path segment) or no `-w` |
 | `nuclei` | `vigolium nuclei …` | `run known-issue-scan -t <url>` |
 | `katana` / `gospider` | `vigolium katana …` | `run spidering -t <url>` |
 | `gau` / `waybackurls` | `vigolium gau <domain>` | `run external-harvest -t <url>` (into the DB), or `kit harvest <domain>` (stdout, no DB) |
@@ -832,7 +834,8 @@ How each shim routes its argv:
 
 | Shim | Routes to |
 |---|---|
-| `vigolium ffuf -u <url>/FUZZ -w <list>` (FUZZ is the whole last path segment, no matchers) | `run discovery --discovery-wordlist` |
+| `vigolium ffuf -u <url>/FUZZ -w <list> -recursion` (FUZZ is the whole last path segment, no matchers), or no `-w` | `run discovery --discovery-wordlist` |
+| `vigolium ffuf -u <url>/FUZZ -w <list>` (no `-recursion`) | `fuzz <url>/FUZZ -w <list>`: each word once, like ffuf |
 | `vigolium ffuf -u <url>/api/FUZZ.php …`, FUZZ in a query/`-H`/`-d`, or any `-mc/-ms/-mw/-ml/-mr/-fc/-fs/-fw/-fl/-fr` | `fuzz <url> -w <list>` (FUZZ kept, matchers mapped) |
 | `vigolium nuclei -u <url> -severity high -tags cve` | `run known-issue-scan --known-issue-scan-*` |
 | `vigolium katana -u <url>` | `run spidering` |
@@ -930,8 +933,8 @@ wordlist: `vigolium run discovery --discovery-wordlist words.txt -t <url>`
 (`--discovery-extensions php,bak` and `--discovery-max-depth N` are ffuf's `-e`
 and `-recursion-depth`).
 
-Or just type ffuf's own argv — `vigolium ffuf -u https://t/FUZZ -w words.txt`
-translates to exactly that and prints what it ran (see "Tool shims" below).
+Or just type ffuf's own argv — `vigolium ffuf -u https://t/FUZZ -w words.txt -recursion`
+translates to exactly that (without `-recursion` it is a `fuzz` run of the list) and prints what it ran (see "Tool shims" below).
 
 ### katana / gospider / hakrawler -> spidering
 
@@ -1056,7 +1059,7 @@ vigolium dig +short MX example.com @1.1.1.1      # → vigolium dns example.com 
 vigolium dns -T hosts.txt --type a,cname,txt -j
 ```
 
-Resolution only: `dig AXFR` and reverse lookups are refused.
+Resolution only: `dig AXFR`, reverse lookups (`dig -x`, `host <IP>`) and record types `vigolium dns` does not resolve (`dig name SRV`, `PTR`, …) are refused rather than turned into an A lookup.
 
 ### openssl s_client -> `hosts`
 
