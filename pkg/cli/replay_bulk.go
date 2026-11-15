@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -68,6 +69,16 @@ func runReplayBulk(ctx context.Context, cmd *cobra.Command, rr *replayRun, filte
 			return emitReplayBulkEnvelope(cmd, nil)
 		}
 		return nil
+	}
+
+	// A selection matching several records replays all of them only when
+	// asked: a broad term must not fan out by accident. traffic --replay is
+	// the listing re-sent, so it needs no confirmation; --all is one.
+	if len(records) > 1 && !replayAllMatches && !replayAll && commandPathWithoutRoot(cmd) == "replay" {
+		return clicommon.CLIError{
+			Err:  fmt.Errorf("%d stored records match the selection; nothing sent", len(records)),
+			Hint: "pass --all-matches to replay all of them, or narrow it (-u <uuid>, --host, --path, --search)",
+		}
 	}
 
 	// Every destination is checked before the first send: one record outside

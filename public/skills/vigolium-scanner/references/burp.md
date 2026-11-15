@@ -375,7 +375,7 @@ them in Burp's Target tree without replaying anything.
 
 ```bash
 # Re-send Burp-captured requests under a different user's session.
-vigolium replay --host acme.test --method GET -B http://127.0.0.1:9009 \
+vigolium replay --host acme.test --method GET --all-matches -B http://127.0.0.1:9009 \
   -H 'Cookie: session=victim' --format console -c 3
 ```
 

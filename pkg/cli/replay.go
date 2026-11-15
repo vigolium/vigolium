@@ -64,6 +64,7 @@ var (
 	// the diff engine). The filter surface tracks `vigolium traffic`. The
 	// positional term is a local threaded through, not a flag global.
 	replayAll               bool
+	replayAllMatches        bool
 	replayBulkHost          string
 	replayBulkMethods       []string
 	replayBulkStatus        []int
@@ -213,6 +214,7 @@ func init() {
 	// Bulk selection — mirror the traffic filters. Setting any of these (or
 	// --all, or a positional search term) switches replay into bulk mode over
 	// the matching stored records.
+	f.BoolVar(&replayAllMatches, "all-matches", false, "Bulk: replay every record the selection matches when it matches more than one (required then, so a broad term cannot fan out by accident)")
 	f.BoolVarP(&replayAll, "all", "a", false, "Bulk: replay every matched stored record (lifts the -n/--limit cap); re-send all stored traffic")
 	f.StringVar(&replayBulkHost, "host", "", "Bulk: filter records by hostname pattern (wildcard supported)")
 	f.StringSliceVar(&replayBulkMethods, "method", nil, "Bulk: filter records by HTTP method (repeatable)")
@@ -252,6 +254,12 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	var bulkFuzzy string
 	if len(args) == 1 {
 		bulkFuzzy = strings.TrimSpace(args[0])
+		if urlShapedPositional(bulkFuzzy) {
+			return clicommon.CLIError{
+				Err:  fmt.Errorf("replay %q: a positional argument is a search over stored records, not a request to send", bulkFuzzy),
+				Hint: "send that request with: vigolium replay -i 'curl " + bulkFuzzy + "' (or -i <raw request>); search stored records with --search " + bulkFuzzy,
+			}
+		}
 	}
 	if err := validateReplayFlags(); err != nil {
 		return err
@@ -1282,4 +1290,19 @@ func emitReplayOutputHeader(w io.Writer, out *replayOutput) {
 	if out.SavedToOrganizer {
 		_, _ = fmt.Fprintf(w, "  saved to Burp Organizer\n")
 	}
+}
+
+// urlShapedPositional reports whether a replay positional looks like a
+// request target (a URL, an absolute path, a path with a query) rather than
+// a search term: those are refused, since the bulk search they would run is
+// almost never what was meant.
+func urlShapedPositional(v string) bool {
+	lower := strings.ToLower(v)
+	switch {
+	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"), strings.HasPrefix(v, "/"):
+		return true
+	case strings.Contains(v, "?") && strings.Contains(v, "="):
+		return !strings.ContainsAny(v, " \t")
+	}
+	return false
 }

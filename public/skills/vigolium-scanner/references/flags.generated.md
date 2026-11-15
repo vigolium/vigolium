@@ -1867,6 +1867,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--all` | `-a` | bool | `false` | Bulk: replay every matched stored record (lifts the -n/--limit cap); re-send all stored traffic |
+| `--all-matches` | - | bool | `false` | Bulk: replay every record the selection matches when it matches more than one (required then, so a broad term cannot fan out by accident) |
 | `--asc` | - | bool | `false` | Bulk: sort ascending (default: descending) |
 | `--auth-session` | - | string | - | Auth session name to merge headers from (from 'vigolium auth list') |
 | `--baseline` | - | bool | `false` | Also send the un-mutated request first and diff the two. A supplied request (-i, --raw-request) is otherwise sent once with no diff; a stored record diffs against its stored response either way |

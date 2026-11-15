@@ -787,21 +787,23 @@ Say what you want: `--format jsonl` for the stream, `-j` for one envelope.
 # Re-send ALL stored traffic through Burp, 5 at a time.
 vigolium replay --all --proxy http://127.0.0.1:8080 -c 5
 
-# Fuzzy-search stored traffic and re-send just the matches.
-vigolium replay admin --proxy http://127.0.0.1:8080 -c 5
+# Fuzzy-search stored traffic and re-send just the matches (--all-matches is
+# required once more than one record matches; a URL-shaped term is refused:
+# send a URL with -i).
+vigolium replay admin --all-matches --proxy http://127.0.0.1:8080 -c 5
 
 # Pattern-search like `traffic`: POSTs to an API host, drop logout.
-vigolium replay --host api.example.com --method POST --search token \
+vigolium replay --host api.example.com --method POST --search token --all-matches \
   --exclude-search logout --proxy http://127.0.0.1:8080 -c 5
 
 # From a standalone export (project scoping off).
 vigolium replay -S --db scan.sqlite --all --proxy http://127.0.0.1:8080 -c 5
 
 # Per-record tables instead of the JSONL stream.
-vigolium replay login --format console
+vigolium replay login --all-matches --format console
 
 # One envelope, every replayed record a row in items (failed ones carry error).
-vigolium replay login -j
+vigolium replay login --all-matches -j
 ```
 
 Bulk selection mirrors `vigolium traffic`: `--host`, `--method`, `--status`,

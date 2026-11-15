@@ -57,3 +57,42 @@ func TestIngestBurpRawRebasesOnTarget(t *testing.T) {
 	require.Len(t, doc.Items, 1, "one record: the rebased request, not -t as well: %s", stdout)
 	assert.True(t, strings.HasPrefix(doc.Items[0].URL, srv.URL+"/captured"), doc.Items[0].URL)
 }
+
+func TestURLShapedPositional(t *testing.T) {
+	for v, want := range map[string]bool{
+		"http://h/item?id=1": true,
+		"/admin":             true,
+		"item?id=1":          true,
+		"admin":              false,
+		"sessionid":          false,
+		"a?b":                false,
+	} {
+		assert.Equal(t, want, urlShapedPositional(v), v)
+	}
+}
+
+// replay <url> is refused with the -i form; a bulk selection matching several
+// records needs --all-matches.
+func TestReplayPositionalAndAllMatches(t *testing.T) {
+	srv, hits := countingServer(t)
+	home := a3Home(t, "127.0.0.1")
+	db := filepath.Join(t.TempDir(), "r.sqlite")
+	for _, p := range []string{"/a", "/b"} {
+		code, stdout, stderr := runA3(t, home, "ingest", "-t", srv.URL+p, "--db", db)
+		require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	before := hits.Load()
+
+	code, stdout, _ := runA3(t, home, "replay", srv.URL+"/a", "--db", db, "-j")
+	assert.Equal(t, ExitUsageError, code)
+	assert.Contains(t, stdout, "replay -i")
+
+	code, stdout, _ = runA3(t, home, "replay", "--host", "127.0.0.1", "--db", db, "-j")
+	assert.Equal(t, ExitUsageError, code, stdout)
+	assert.Contains(t, stdout, "--all-matches")
+	assert.Equal(t, before, hits.Load(), "nothing sent")
+
+	code, stdout, stderr := runA3(t, home, "replay", "--host", "127.0.0.1", "--db", db, "-j", "--all-matches")
+	require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	assert.Equal(t, before+2, hits.Load())
+}
