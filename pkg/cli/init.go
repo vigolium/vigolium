@@ -161,8 +161,38 @@ func initializeVigolium(createDefaultDB bool) error {
 	fmt.Fprintf(os.Stderr, "  %s Docs & guides: %s\n", terminal.InfoSymbol(), terminal.Cyan("https://docs.vigolium.com"))
 	fmt.Fprintf(os.Stderr, "  %s Run %s to install the browser and templates (add --yes for agentic-scan runtimes).\n",
 		terminal.TipSymbol(), terminal.BoldCyan("vigolium doctor --fix --only chrome,nuclei"))
+	if line := skillInstallNotice(os.Getenv, skillInstalled); line != "" && !globalJSON && !globalSilent {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.TipSymbol(), line)
+	}
 
 	return nil
+}
+
+// skillInstallNotice is the first-run line for a coding agent that has no
+// vigolium skill yet: the one command that teaches it the CLI. "" when no
+// coding-agent variable is set or a skill is already installed.
+func skillInstallNotice(getenv func(string) string, installed func() bool) string {
+	name, agent := detectCodingAgent(getenv)
+	if name == "" || installed() {
+		return ""
+	}
+	return fmt.Sprintf("%s is set: run %s so your coding agent knows how to drive vigolium.",
+		name, terminal.BoldCyan("vigolium skills install --agent "+agent))
+}
+
+// skillInstalled reports whether any of the skill install locations holds a
+// bundled skill, current or not.
+func skillInstalled() bool {
+	skills, err := loadBundledSkills()
+	if err != nil {
+		return true // cannot tell; say nothing
+	}
+	for _, v := range scanInstalledSkills(skills) {
+		if v.Status != skillStatusMissing {
+			return true
+		}
+	}
+	return false
 }
 
 // bootstrapDefaultProfiles copies embedded profile YAMLs into the profiles

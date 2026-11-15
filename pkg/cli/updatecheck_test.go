@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
 func TestIsVersionBehind(t *testing.T) {
@@ -170,6 +171,36 @@ func TestFormatUpdateNotice(t *testing.T) {
 	for _, want := range []string{"v0.1.41-beta", "v0.1.42-beta", "vigolium update"} {
 		if !strings.Contains(notice, want) {
 			t.Errorf("notice missing %q:\n%s", want, notice)
+		}
+	}
+}
+
+// A coding agent is told how to install the skill once, at first run; CI is
+// not a coding agent.
+func TestSkillInstallNotice(t *testing.T) {
+	env := func(kv map[string]string) func(string) string { return func(k string) string { return kv[k] } }
+	missing := func() bool { return false }
+	installed := func() bool { return true }
+
+	line := terminal.StripANSI(skillInstallNotice(env(map[string]string{"CLAUDECODE": "1"}), missing))
+	if !strings.Contains(line, "vigolium skills install --agent claude") || !strings.Contains(line, "CLAUDECODE") {
+		t.Errorf("claude notice = %q", line)
+	}
+	if line := skillInstallNotice(env(map[string]string{"CODEX_SANDBOX": "seatbelt"}), missing); !strings.Contains(line, "--agent codex") {
+		t.Errorf("codex notice = %q", line)
+	}
+	if line := skillInstallNotice(env(map[string]string{"CI": "true"}), missing); line != "" {
+		t.Errorf("CI is not a coding agent: %q", line)
+	}
+	if line := skillInstallNotice(env(map[string]string{"CLAUDECODE": "1"}), installed); line != "" {
+		t.Errorf("an installed skill needs no notice: %q", line)
+	}
+	if line := skillInstallNotice(env(map[string]string{"CLAUDECODE": "0"}), missing); line != "" {
+		t.Errorf("a falsy variable is unset: %q", line)
+	}
+	for _, v := range ciEnvVars {
+		if n, _ := detectCodingAgent(env(map[string]string{v: "1"})); n != "" {
+			t.Errorf("%s detected as a coding agent", v)
 		}
 	}
 }
