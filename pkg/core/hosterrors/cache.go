@@ -157,7 +157,7 @@ type cacheItem struct {
 	// refused counts the requests Admit turned away for this host (cooling
 	// down, a probe already in flight, or dead).
 	refused atomic.Int64
-	lastErr  atomic.Pointer[error]
+	lastErr atomic.Pointer[error]
 	// mu serialises state transitions (the slow path). Admit's Open→HalfOpen
 	// CAS does not take it.
 	mu sync.Mutex

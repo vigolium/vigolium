@@ -209,9 +209,9 @@ type PhaseOutcome struct {
 	// not reduce its coverage verdict (the public default OAST server being
 	// unreachable): reported as caveats, never as a partial phase. Sorted,
 	// unique.
-	Notes []string `json:"notes,omitempty"`
-	Errors  int        `json:"errors,omitempty"`
-	Message string     `json:"message,omitempty"` // first error, truncated
+	Notes   []string `json:"notes,omitempty"`
+	Errors  int      `json:"errors,omitempty"`
+	Message string   `json:"message,omitempty"` // first error, truncated
 	// Unprocessed counts work items the executor dequeued but did not process —
 	// deliberately NOT acknowledged, so a later run re-serves them.
 	Unprocessed int64               `json:"unprocessed,omitempty"`
