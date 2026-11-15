@@ -156,3 +156,26 @@ func (c Caveat) Line() string {
 	b.WriteString("]")
 	return b.String()
 }
+
+// ScopeDroppedCountPrefix prefixes the PhaseOutcome.Counts keys that count the
+// records a scope rule class refused ("scope_dropped.status_code").
+const ScopeDroppedCountPrefix = "scope_dropped."
+
+// ScopeDropped sums the per-class scope drops across a scan's phases; nil when
+// scope dropped nothing.
+func ScopeDropped(phases []PhaseOutcome) map[string]int64 {
+	var out map[string]int64
+	for _, p := range phases {
+		for k, n := range p.Counts {
+			class, ok := strings.CutPrefix(k, ScopeDroppedCountPrefix)
+			if !ok || n <= 0 {
+				continue
+			}
+			if out == nil {
+				out = map[string]int64{}
+			}
+			out[class] += n
+		}
+	}
+	return out
+}

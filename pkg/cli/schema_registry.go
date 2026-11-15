@@ -173,14 +173,17 @@ type paramsExtras struct {
 
 // scanDocExtras are the scan document's top-level keys (scan_document.go).
 type scanDocExtras struct {
-	ScanUUID          string                  `json:"scan_uuid,omitempty"`
-	ScanUUIDs         []string                `json:"scan_uuids"`
-	Persisted         bool                    `json:"persisted"`
-	Stateless         bool                    `json:"stateless"`
-	Status            string                  `json:"status"`
-	Completeness      string                  `json:"completeness"`
-	Reasons           []string                `json:"reasons"`
-	StopReason        string                  `json:"stop_reason,omitempty"`
+	ScanUUID     string   `json:"scan_uuid,omitempty"`
+	ScanUUIDs    []string `json:"scan_uuids"`
+	Persisted    bool     `json:"persisted"`
+	Stateless    bool     `json:"stateless"`
+	Status       string   `json:"status"`
+	Completeness string   `json:"completeness"`
+	Reasons      []string `json:"reasons"`
+	StopReason   string   `json:"stop_reason,omitempty"`
+	// ScopeDropped counts the records scope rules refused, per rule class
+	// (host, path, static_file, status_code, …). Intent, not lost coverage.
+	ScopeDropped      map[string]int64        `json:"scope_dropped,omitempty"`
 	Targets           []scanDocTarget         `json:"targets"`
 	TargetsNotScanned []string                `json:"targets_not_scanned"`
 	PhaseOutcomes     []database.PhaseOutcome `json:"phase_outcomes"`

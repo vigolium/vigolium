@@ -276,7 +276,7 @@ func planScope(s config.ScopeConfig) scanplan.Scope {
 		}
 		return append([]string(nil), v...)
 	}
-	return scanplan.Scope{
+	out := scanplan.Scope{
 		OriginMode:   config.ResolveCLIOriginMode(s.CLIOriginMode),
 		IgnoreStatic: s.IgnoreStaticFile,
 		HostInclude:  nonNil(s.Host.Include),
@@ -284,6 +284,12 @@ func planScope(s config.ScopeConfig) scanplan.Scope {
 		PathInclude:  nonNil(s.Path.Include),
 		PathExclude:  nonNil(s.Path.Exclude),
 	}
+	for _, r := range config.NonDefaultScopeRules(s) {
+		out.Rules = append(out.Rules, scanplan.ScopeRuleView{
+			Class: r.Class, Include: nonNil(r.Rule.Include), Exclude: nonNil(r.Rule.Exclude),
+		})
+	}
+	return out
 }
 
 // planScopeTargets adds the derived file-input scope to the plan:

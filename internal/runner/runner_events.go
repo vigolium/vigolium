@@ -581,6 +581,12 @@ func (t *phaseTracker) noteExecution(rep core.ExecutionReport) {
 	if rep.ScopeRejected > 0 && rep.Responded == 0 {
 		t.markPartial(database.ReasonTargetsOutOfScope)
 	}
+	// What scope dropped, per rule class: the operator's intent, not lost
+	// coverage, so counted rather than turned into a reason. The scan
+	// document sums these into scope_dropped.
+	for class, n := range rep.ScopeRejectedBy {
+		t.addCount(database.ScopeDroppedCountPrefix+class, n)
+	}
 	if rep.Unacked > 0 {
 		t.mu.Lock()
 		t.unacked += rep.Unacked
@@ -590,6 +596,19 @@ func (t *phaseTracker) noteExecution(rep core.ExecutionReport) {
 	// so the latest one is the phase's.
 	t.setFindingsCapped(rep.FindingsCapped)
 	t.ledger.addExecution(rep)
+}
+
+// addCount adds n to a phase-specific tally in PhaseOutcome.Counts.
+func (t *phaseTracker) addCount(name string, n int64) {
+	if t == nil || name == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.counts == nil {
+		t.counts = make(map[string]int64)
+	}
+	t.counts[name] += n
 }
 
 // setCount records a phase-specific tally for PhaseOutcome.Counts. The last value

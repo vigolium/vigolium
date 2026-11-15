@@ -44,6 +44,9 @@ const (
 	IssueScopeIncludeRestrictive           = "scope_include_restrictive"
 	IssueScopePathNoSlash                  = "scope_path_no_slash"
 	IssueScopeStatusInvalid                = "scope_status_invalid"
+	IssueScopeStatusOutOfRange             = "scope_status_out_of_range"
+	IssueScopeExcludesEverything           = "scope_excludes_everything"
+	IssueScopeIncludesNothing              = "scope_includes_nothing"
 	IssueScopeOriginModeInvalid            = "scope_origin_mode_invalid"
 	IssueScopeBodyActionInvalid            = "scope_body_action_invalid"
 	IssueScopeIncludeMatchesNoRecentTarget = "scope_include_matches_no_recent_target"
@@ -166,6 +169,51 @@ func ValidateScope(s ScopeConfig) []Issue {
 					Fix:     setListFix(key, keepPatterns(patterns, validStatusPattern)),
 				})
 			}
+		}
+	}
+
+	// Status codes are 100-599: a pattern wholly outside that matches no
+	// response, and an include list of only such patterns drops every record.
+	inRange := 0
+	for i, p := range s.StatusCode.Include {
+		if !validStatusPattern(p) {
+			continue
+		}
+		if statusPatternInRange(p) {
+			inRange++
+			continue
+		}
+		issues = append(issues, Issue{
+			Key: "scope.status_code.include", Severity: SeverityWarning, Code: IssueScopeStatusOutOfRange,
+			Message: fmt.Sprintf("scope.status_code.include[%d] = %q: HTTP status codes are 100-599, so this matches no response", i, p),
+		})
+	}
+	if len(s.StatusCode.Include) > 0 && inRange == 0 {
+		issues = append(issues, Issue{
+			Key: "scope.status_code.include", Severity: SeverityWarning, Code: IssueScopeIncludesNothing,
+			Message: "scope.status_code.include matches no HTTP status: every response is dropped from every scan",
+			Fix:     "vigolium config set scope.status_code.include '[\"*\"]'",
+		})
+	}
+	for i, p := range s.StatusCode.Exclude {
+		if validStatusPattern(p) && p != "*" && !statusPatternInRange(p) {
+			issues = append(issues, Issue{
+				Key: "scope.status_code.exclude", Severity: SeverityWarning, Code: IssueScopeStatusOutOfRange,
+				Message: fmt.Sprintf("scope.status_code.exclude[%d] = %q: HTTP status codes are 100-599, so this excludes nothing", i, p),
+			})
+		}
+	}
+
+	// An exclude of "*" refuses every record for that rule: a scan with it
+	// sends its requests and then drops every result.
+	for _, r := range ScopeRuleClasses(s) {
+		if slices.Contains(r.Rule.Exclude, "*") {
+			key := "scope." + r.Class + ".exclude"
+			issues = append(issues, Issue{
+				Key: key, Severity: SeverityWarning, Code: IssueScopeExcludesEverything,
+				Message: fmt.Sprintf("%s contains \"*\": every record is out of scope, so scans drop all their results", key),
+				Fix:     setListFix(key, keepPatterns(r.Rule.Exclude, func(q string) bool { return q != "*" })),
+			})
 		}
 	}
 
@@ -363,6 +411,27 @@ func globPatternProblem(p string) string {
 // validStatusPattern mirrors the shapes statusCodeMatches understands: "*",
 // an exact code, a class with x/* wildcards ("2xx", "30*"), or a range
 // ("400-499"). Anything else silently never matches there.
+// statusPatternInRange reports whether a valid status pattern can match an
+// HTTP status (100-599).
+func statusPatternInRange(p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "*" {
+		return true
+	}
+	if lo, hi, ok := strings.Cut(p, "-"); ok {
+		a, _ := strconv.Atoi(strings.TrimSpace(lo))
+		b, _ := strconv.Atoi(strings.TrimSpace(hi))
+		return a <= 599 && b >= 100
+	}
+	norm := strings.ReplaceAll(strings.ToLower(p), "x", "*")
+	if !strings.Contains(norm, "*") {
+		n, err := strconv.Atoi(norm)
+		return err == nil && n >= 100 && n <= 599
+	}
+	// A class such as 2xx or 5*: its first digit decides.
+	return norm[0] == '*' || (norm[0] >= '1' && norm[0] <= '5')
+}
+
 func validStatusPattern(p string) bool {
 	p = strings.TrimSpace(p)
 	if p == "*" {

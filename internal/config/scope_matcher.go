@@ -375,34 +375,34 @@ func (m *ScopeMatcher) CheckBodySize(reqBodyLen, respBodyLen int) (action BodySi
 	}
 }
 
+// Scope rule classes: the component of the scope config that refused a record.
+// InScopeWithReason and RejectClassBytes name one of these; the scan document
+// counts drops by them (scope_dropped).
+const (
+	ScopeClassHost                = "host"
+	ScopeClassPath                = "path"
+	ScopeClassStaticFile          = "static_file"
+	ScopeClassStatusCode          = "status_code"
+	ScopeClassRequestContentType  = "request_content_type"
+	ScopeClassResponseContentType = "response_content_type"
+	ScopeClassRequestString       = "request_string"
+	ScopeClassResponseString      = "response_string"
+)
+
 // InScope checks all scope rules and returns true if the record is in scope.
 // All components are AND-ed: every rule must pass.
 func (m *ScopeMatcher) InScope(input ScopeMatchInput) bool {
-	if !m.hostInScope(input.Host) {
-		return false
-	}
-	if !matchPathGlob(input.Path, m.cfg.Path) {
-		return false
-	}
-	if m.IsStaticFile(input.Path) {
-		return false
-	}
-	if !matchStatusCode(input.StatusCode, m.cfg.StatusCode) {
-		return false
-	}
-	if !matchGlob(input.RequestContentType, m.cfg.RequestContentType) {
-		return false
-	}
-	if !matchGlob(input.ResponseContentType, m.cfg.ResponseContentType) {
-		return false
-	}
-	if !matchSubstring(input.RequestRaw, m.cfg.RequestString) {
-		return false
-	}
-	if !matchSubstring(input.ResponseBody, m.cfg.ResponseString) {
-		return false
-	}
-	return true
+	ok, _ := m.InScopeWithReason(input)
+	return ok
+}
+
+// InScopeWithReason is InScope that also names the rule class that refused the
+// record ("" when it is in scope).
+func (m *ScopeMatcher) InScopeWithReason(input ScopeMatchInput) (bool, string) {
+	class := m.rejectClass(input.Host, input.Path, input.StatusCode, input.RequestContentType, input.ResponseContentType,
+		func() bool { return matchSubstring(input.RequestRaw, m.cfg.RequestString) },
+		func() bool { return matchSubstring(input.ResponseBody, m.cfg.ResponseString) })
+	return class == "", class
 }
 
 // InScopeBytes is like InScope but accepts raw []byte for request/response body
@@ -410,32 +410,57 @@ func (m *ScopeMatcher) InScope(input ScopeMatchInput) bool {
 func (m *ScopeMatcher) InScopeBytes(host, path string, statusCode int,
 	reqContentType, respContentType string,
 	requestRaw, responseBody []byte) bool {
+	return m.RejectClassBytes(host, path, statusCode, reqContentType, respContentType, requestRaw, responseBody) == ""
+}
 
-	if !m.hostInScope(host) {
-		return false
+// RejectClassBytes names the rule class that refuses the record, "" when it is
+// in scope. The []byte form of InScopeWithReason.
+func (m *ScopeMatcher) RejectClassBytes(host, path string, statusCode int,
+	reqContentType, respContentType string,
+	requestRaw, responseBody []byte) string {
+	return m.rejectClass(host, path, statusCode, reqContentType, respContentType,
+		func() bool { return matchSubstringBytes(requestRaw, m.cfg.RequestString) },
+		func() bool { return matchSubstringBytes(responseBody, m.cfg.ResponseString) })
+}
+
+// rejectClass applies every rule in order and names the first that refuses.
+// The body rules are closures so each caller keeps its own string/[]byte form.
+func (m *ScopeMatcher) rejectClass(host, path string, statusCode int, reqContentType, respContentType string,
+	requestOK, responseOK func() bool) string {
+	switch {
+	case !m.hostInScope(host):
+		return ScopeClassHost
+	case !matchPathGlob(path, m.cfg.Path):
+		return ScopeClassPath
+	case m.IsStaticFile(path):
+		return ScopeClassStaticFile
+	case !matchStatusCode(statusCode, m.cfg.StatusCode):
+		return ScopeClassStatusCode
+	case !matchGlob(reqContentType, m.cfg.RequestContentType):
+		return ScopeClassRequestContentType
+	case !matchGlob(respContentType, m.cfg.ResponseContentType):
+		return ScopeClassResponseContentType
+	case !requestOK():
+		return ScopeClassRequestString
+	case !responseOK():
+		return ScopeClassResponseString
 	}
-	if !matchPathGlob(path, m.cfg.Path) {
-		return false
+	return ""
+}
+
+// RequestRejectClass names the rule class InScopeRequest (static files
+// included) or, with targetOnly, InScopeTarget refuses host/path with; "" when
+// in scope.
+func (m *ScopeMatcher) RequestRejectClass(host, path string, targetOnly bool) string {
+	switch {
+	case !m.hostInScope(host):
+		return ScopeClassHost
+	case !matchPathGlob(path, m.cfg.Path):
+		return ScopeClassPath
+	case !targetOnly && m.IsStaticFile(path):
+		return ScopeClassStaticFile
 	}
-	if m.IsStaticFile(path) {
-		return false
-	}
-	if !matchStatusCode(statusCode, m.cfg.StatusCode) {
-		return false
-	}
-	if !matchGlob(reqContentType, m.cfg.RequestContentType) {
-		return false
-	}
-	if !matchGlob(respContentType, m.cfg.ResponseContentType) {
-		return false
-	}
-	if !matchSubstringBytes(requestRaw, m.cfg.RequestString) {
-		return false
-	}
-	if !matchSubstringBytes(responseBody, m.cfg.ResponseString) {
-		return false
-	}
-	return true
+	return ""
 }
 
 // InScopeRequest checks request-only scope rules (host, path, request content type, request string).
@@ -847,4 +872,36 @@ func mustAtoi(s string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// NamedScopeRule is one scope rule with its class (ScopeClass*).
+type NamedScopeRule struct {
+	Class string
+	Rule  ScopeRule
+}
+
+// ScopeRuleClasses lists every include/exclude rule of s with its class, in
+// evaluation order.
+func ScopeRuleClasses(s ScopeConfig) []NamedScopeRule {
+	return []NamedScopeRule{
+		{ScopeClassHost, s.Host},
+		{ScopeClassPath, s.Path},
+		{ScopeClassStatusCode, s.StatusCode},
+		{ScopeClassRequestContentType, s.RequestContentType},
+		{ScopeClassResponseContentType, s.ResponseContentType},
+		{ScopeClassRequestString, s.RequestString},
+		{ScopeClassResponseString, s.ResponseString},
+	}
+}
+
+// NonDefaultScopeRules are the rules of s that narrow anything: every rule not
+// at its pass-all default.
+func NonDefaultScopeRules(s ScopeConfig) []NamedScopeRule {
+	var out []NamedScopeRule
+	for _, r := range ScopeRuleClasses(s) {
+		if !isDefaultPassAll(r.Rule) {
+			out = append(out, r)
+		}
+	}
+	return out
 }

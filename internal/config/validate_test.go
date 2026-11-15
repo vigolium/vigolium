@@ -196,3 +196,65 @@ func TestSetProjectOverlayValue(t *testing.T) {
 		t.Fatalf("broken overlay changed: %q", data)
 	}
 }
+
+// Scope rules that refuse everything or match nothing are warned about, so
+// `config validate` no longer passes a rule that drops every finding.
+func TestValidateScopeWarnsOnRulesThatDropEverything(t *testing.T) {
+	cases := map[string]struct {
+		mutate func(*ScopeConfig)
+		code   string
+	}{
+		"status exclude *":         {func(s *ScopeConfig) { s.StatusCode.Exclude = []string{"*"} }, IssueScopeExcludesEverything},
+		"content type exclude *":   {func(s *ScopeConfig) { s.ResponseContentType.Exclude = []string{"*"} }, IssueScopeExcludesEverything},
+		"status include 999":       {func(s *ScopeConfig) { s.StatusCode.Include = []string{"999"} }, IssueScopeIncludesNothing},
+		"status include 999 range": {func(s *ScopeConfig) { s.StatusCode.Include = []string{"999"} }, IssueScopeStatusOutOfRange},
+		"status exclude 700":       {func(s *ScopeConfig) { s.StatusCode.Exclude = []string{"700"} }, IssueScopeStatusOutOfRange},
+	}
+	for name, tc := range cases {
+		s := *DefaultScopeConfig()
+		tc.mutate(&s)
+		found := false
+		for _, is := range ValidateScope(s) {
+			if is.Code == tc.code {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: no %s issue in %+v", name, tc.code, ValidateScope(s))
+		}
+	}
+	for _, is := range ValidateScope(*DefaultScopeConfig()) {
+		if is.Code == IssueScopeExcludesEverything || is.Code == IssueScopeIncludesNothing || is.Code == IssueScopeStatusOutOfRange {
+			t.Errorf("the default scope raised %s", is.Code)
+		}
+	}
+	if s := (ScopeConfig{StatusCode: ScopeRule{Include: []string{"2xx", "400-499", "301"}}}); len(filterCodes(ValidateScope(s), IssueScopeIncludesNothing)) != 0 {
+		t.Error("in-range status patterns flagged")
+	}
+}
+
+func filterCodes(issues []Issue, code string) []Issue {
+	var out []Issue
+	for _, is := range issues {
+		if is.Code == code {
+			out = append(out, is)
+		}
+	}
+	return out
+}
+
+func TestScopeMatcherNamesRejectClass(t *testing.T) {
+	s := *DefaultScopeConfig()
+	s.StatusCode.Exclude = []string{"404"}
+	m := NewScopeMatcher(s)
+	ok, class := m.InScopeWithReason(ScopeMatchInput{Host: "a.example", Path: "/x", StatusCode: 404})
+	if ok || class != ScopeClassStatusCode {
+		t.Fatalf("got %v %q", ok, class)
+	}
+	if ok, class := m.InScopeWithReason(ScopeMatchInput{Host: "a.example", Path: "/x", StatusCode: 200}); !ok || class != "" {
+		t.Fatalf("in scope: %v %q", ok, class)
+	}
+	if got := NonDefaultScopeRules(s); len(got) != 1 || got[0].Class != ScopeClassStatusCode {
+		t.Fatalf("non-default rules = %+v", got)
+	}
+}
