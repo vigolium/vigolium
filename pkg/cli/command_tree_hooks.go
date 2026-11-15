@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -330,4 +331,23 @@ func flagEnumValues(f *pflag.Flag) []string {
 		return nil
 	}
 	return f.Annotations[enumAnnotation]
+}
+
+// cobraUnknownCommand matches cobra's own unknown-command error, raised for the
+// root before any hook can run.
+var cobraUnknownCommand = regexp.MustCompile(`^unknown command "([^"]*)" for "`)
+
+// structureUnknownCommand turns cobra's unknown-command error (whose message
+// carries its "Did you mean this?" block as text) into the structured CLIError,
+// so the -j envelope's message is the fact and the suggestion is a field.
+func structureUnknownCommand(cmd *cobra.Command, err error) error {
+	var cli clicommon.CLIError
+	if err == nil || cmd == nil || errors.As(err, &cli) {
+		return err
+	}
+	m := cobraUnknownCommand.FindStringSubmatch(err.Error())
+	if m == nil {
+		return err
+	}
+	return unknownSubcommandError(cmd, m[1], nearestSubcommand(cmd, m[1], true))
 }

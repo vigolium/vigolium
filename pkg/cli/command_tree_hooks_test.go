@@ -142,3 +142,18 @@ func TestEnumFlagsRejectUnknownValues(t *testing.T) {
 // flag. "<path> --<name>"; a persistent flag is listed under the command that
 // declares it.
 var requiredEnumFlags = []string{}
+
+// cobra's root-level unknown command becomes the structured error: the fact as
+// message, the suggestion as did_you_mean.
+func TestStructureUnknownCommand(t *testing.T) {
+	root := preparedMachineTree(t)
+	_, _, err := root.Find([]string{"scna"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Did you mean this?")
+	out := structureUnknownCommand(root, err)
+	var cli clicommon.CLIError
+	require.True(t, errors.As(out, &cli))
+	require.Equal(t, `unknown command "scna" for "vigolium"`, cli.Fact())
+	require.Equal(t, "scan", cli.DidYouMean)
+	require.Equal(t, ExitUsageError, classifyExitCode(out))
+}

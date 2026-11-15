@@ -530,6 +530,7 @@ func Execute() {
 		// `traffic --json --bad` does. See presentation_mode.go.
 		resolvePresentationMode(argsForPresentationRecovery())
 
+		err = structureUnknownCommand(cmd, err)
 		code := classifyExitCode(err)
 		// A flag-parse failure never reaches a RunE, so it cannot be wrapped as a
 		// usageError at its source; cobra surfaces it as a plain error from
