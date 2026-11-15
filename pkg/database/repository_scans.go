@@ -327,6 +327,13 @@ func (r *Repository) RefreshScanStats(ctx context.Context, scanUUID string) erro
 
 // ListScans returns scans ordered by created_at descending with limit/offset, filtered by project.
 func (r *Repository) ListScans(ctx context.Context, projectUUID string, limit, offset int) ([]*Scan, int64, error) {
+	return r.ListScansStartedBetween(ctx, projectUUID, nil, nil, limit, offset)
+}
+
+// ListScansStartedBetween is ListScans restricted to scans whose started_at
+// falls within [from, to]; a nil bound is open. The bounds apply before the
+// limit, so an older window is not hidden behind the newest page.
+func (r *Repository) ListScansStartedBetween(ctx context.Context, projectUUID string, from, to *time.Time, limit, offset int) ([]*Scan, int64, error) {
 	var scans []*Scan
 	q := r.db.NewSelect().
 		Model(&scans).
@@ -335,6 +342,12 @@ func (r *Repository) ListScans(ctx context.Context, projectUUID string, limit, o
 		Offset(int64(offset))
 	if projectUUID != "" {
 		q = q.Where("project_uuid = ?", projectUUID)
+	}
+	if from != nil {
+		q = q.Where("started_at >= ?", *from)
+	}
+	if to != nil {
+		q = q.Where("started_at <= ?", *to)
 	}
 	count, err := q.ScanAndCount(ctx)
 	if err != nil {

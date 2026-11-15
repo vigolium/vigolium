@@ -99,7 +99,7 @@ var agenticScanBlobColumns = []string{
 // so a caller that serializes the *AgenticScan verbatim (the `--json` CLI
 // paths) must keep using ListAgenticScans.
 func (r *Repository) ListAgenticScanSummaries(ctx context.Context, projectUUID string, mode string, limit, offset int) ([]*AgenticScan, int64, error) {
-	return r.listAgenticScans(ctx, projectUUID, mode, limit, offset, agenticScanBlobColumns)
+	return r.listAgenticScans(ctx, projectUUID, mode, nil, nil, limit, offset, agenticScanBlobColumns)
 }
 
 // AgenticScanStatusByUUID returns just the status column for a run.
@@ -135,38 +135,48 @@ func (r *Repository) UpdateAgenticScanStorageURL(ctx context.Context, agenticSca
 // created_at DESC, with every column populated. Callers that only render the
 // run should prefer ListAgenticScanSummaries.
 func (r *Repository) ListAgenticScans(ctx context.Context, projectUUID string, mode string, limit, offset int) ([]*AgenticScan, int64, error) {
-	return r.listAgenticScans(ctx, projectUUID, mode, limit, offset, nil)
+	return r.listAgenticScans(ctx, projectUUID, mode, nil, nil, limit, offset, nil)
 }
 
-// listAgenticScans backs both list variants. A nil exclude slice selects every
-// column; otherwise the named ones are left out.
-func (r *Repository) listAgenticScans(ctx context.Context, projectUUID string, mode string, limit, offset int, exclude []string) ([]*AgenticScan, int64, error) {
+// ListAgenticScansCreatedBetween is ListAgenticScans restricted to runs
+// created within [from, to]; a nil bound is open.
+func (r *Repository) ListAgenticScansCreatedBetween(ctx context.Context, projectUUID string, from, to *time.Time, limit int) ([]*AgenticScan, error) {
+	runs, _, err := r.listAgenticScans(ctx, projectUUID, "", from, to, limit, 0, nil)
+	return runs, err
+}
+
+// listAgenticScans backs the list variants. A nil exclude slice selects every
+// column; otherwise the named ones are left out. A nil from/to bound on
+// created_at is open.
+func (r *Repository) listAgenticScans(ctx context.Context, projectUUID, mode string, from, to *time.Time, limit, offset int, exclude []string) ([]*AgenticScan, int64, error) {
 	projectUUID = defaultProjectUUID(projectUUID)
 	if limit <= 0 {
 		limit = 50
 	}
 
-	countQ := r.db.NewSelect().Model((*AgenticScan)(nil)).
-		Where("project_uuid = ?", projectUUID).
-		Where("(parent_run_uuid IS NULL OR parent_run_uuid = '')")
-	if mode != "" {
-		countQ = countQ.Where("mode = ?", mode)
+	filter := func(q *bun.SelectQuery) *bun.SelectQuery {
+		q = q.Where("project_uuid = ?", projectUUID).
+			Where("(parent_run_uuid IS NULL OR parent_run_uuid = '')")
+		if mode != "" {
+			q = q.Where("mode = ?", mode)
+		}
+		if from != nil {
+			q = q.Where("created_at >= ?", *from)
+		}
+		if to != nil {
+			q = q.Where("created_at <= ?", *to)
+		}
+		return q
 	}
-	total, countErr := countQ.Count(ctx)
+	total, countErr := filter(r.db.NewSelect().Model((*AgenticScan)(nil))).Count(ctx)
 
 	var runs []*AgenticScan
-	q := r.db.NewSelect().Model(&runs).
-		Where("project_uuid = ?", projectUUID).
-		Where("(parent_run_uuid IS NULL OR parent_run_uuid = '')").
+	q := filter(r.db.NewSelect().Model(&runs)).
 		OrderExpr("created_at DESC").
 		Limit(int64(limit)).
 		Offset(int64(offset))
-
 	if len(exclude) > 0 {
 		q = q.ExcludeColumn(exclude...)
-	}
-	if mode != "" {
-		q = q.Where("mode = ?", mode)
 	}
 
 	if err := q.Scan(ctx); err != nil {

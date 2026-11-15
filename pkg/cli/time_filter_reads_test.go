@@ -33,11 +33,19 @@ func TestTimeFilterReads(t *testing.T) {
 	require.Nil(t, cleanCmd.Flags().Lookup("to"), "db clean --before must not gain a --to alias (it widens a DELETE)")
 }
 
+// log ls --from/--to bound the scans in the query, so a window older than the
+// newest page still lists.
 func TestLogLsTimeFilter(t *testing.T) {
+	ctx := context.Background()
+	db := newExportTestDB(t)
 	day := func(d int) time.Time { return time.Date(2026, 1, d, 12, 0, 0, 0, time.UTC) }
-	rows := []sessionRow{{uuid: "a", createdAt: day(1)}, {uuid: "b", createdAt: day(5)}, {uuid: "c", createdAt: day(9)}}
+	for i, d := range []int{1, 5, 9} {
+		uuid := []string{"a", "b", "c"}[i]
+		_, err := db.NewInsert().Model(&database.Scan{UUID: uuid, Status: "completed", StartedAt: day(d), CreatedAt: day(d)}).Exec(ctx)
+		require.NoError(t, err)
+	}
 	from, to := day(2), day(8)
-	got := filterSessionRowsByTime(rows, &from, &to)
+	got := collectNativeRows(ctx, database.NewRepository(db), "", t.TempDir(), &from, &to)
 	require.Len(t, got, 1)
 	require.Equal(t, "b", got[0].uuid)
 }
