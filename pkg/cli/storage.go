@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
@@ -52,7 +53,7 @@ func requireStorageClient() (*storage.Client, error) {
 		return nil, err
 	}
 	if !settings.Storage.IsEnabled() {
-		return nil, fmt.Errorf("cloud storage is not enabled; enable with `vigolium config set storage.enabled true` "+
+		return nil, codedErrorf(apicontract.CodeStorageDisabled, "cloud storage is not enabled; enable with `vigolium config set storage.enabled true` "+
 			"(or set %s=true), then set storage.driver, storage.bucket, storage.access_key, and storage.secret_key",
 			config.StorageEnabledEnvVar)
 	}

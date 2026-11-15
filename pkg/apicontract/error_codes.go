@@ -129,6 +129,9 @@ const (
 const (
 	// CodeProjectNotFound: no project carries the given UUID or name.
 	CodeProjectNotFound ErrorCode = "project_not_found"
+	// CodeStorageDisabled: a storage command or --upload ran with cloud storage
+	// not enabled in the configuration.
+	CodeStorageDisabled ErrorCode = "storage_disabled"
 	// CodeInvalidProjectUUID: the project UUID is not well formed.
 	CodeInvalidProjectUUID ErrorCode = "invalid_project_uuid"
 )
@@ -174,7 +177,7 @@ var knownErrorCodes = []ErrorCode{
 	CodeTimedOut, CodeBudgetExhausted, CodePartial,
 	CodeProviderMissing, CodePreflightFailed, CodeNotReady, CodeLintFailed,
 	CodeExtensionLoadFailed,
-	CodeProjectNotFound, CodeInvalidProjectUUID,
+	CodeProjectNotFound, CodeInvalidProjectUUID, CodeStorageDisabled,
 	CodeInvalidRequest, CodeUnauthorized, CodeForbidden, CodeConflict,
 	CodeRateLimited, CodeQueueFull, CodeScanNotFound, CodeInternalError,
 	CodeFindingNotFound, CodeMethodNotAllowed, CodePayloadTooLarge,

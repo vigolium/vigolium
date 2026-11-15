@@ -324,7 +324,7 @@ func resolveTriageFinding(ctx context.Context, db *database.DB, repo *database.R
 		f, err := repo.GetFindingByID(ctx, id)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return nil, fmt.Errorf("no finding with id %d", id)
+				return nil, codedErrorf(apicontract.CodeFindingNotFound, "no finding with id %d", id)
 			}
 			return nil, fmt.Errorf("failed to load finding %d: %w", id, err)
 		}

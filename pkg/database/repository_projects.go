@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 
 	"github.com/uptrace/bun"
 )
@@ -91,13 +92,26 @@ func (r *Repository) GetProjectByName(ctx context.Context, name string) (*Projec
 	}
 	switch len(projects) {
 	case 0:
-		return nil, fmt.Errorf("no project found with name %q", name)
+		return nil, &ProjectNameError{msg: fmt.Sprintf("no project found with name %q", name), code: apicontract.CodeProjectNotFound}
 	case 1:
 		return projects[0], nil
 	default:
-		return nil, fmt.Errorf("multiple projects (%d) found with name %q; use --project-uuid to specify by UUID", len(projects), name)
+		return nil, &ProjectNameError{
+			msg:  fmt.Sprintf("multiple projects (%d) found with name %q; use --project-uuid to specify by UUID", len(projects), name),
+			code: apicontract.CodeAmbiguousID,
+		}
 	}
 }
+
+// ProjectNameError is a --project-name lookup that did not resolve to exactly
+// one project; Code says whether none or several matched.
+type ProjectNameError struct {
+	msg  string
+	code apicontract.ErrorCode
+}
+
+func (e *ProjectNameError) Error() string               { return e.msg }
+func (e *ProjectNameError) Code() apicontract.ErrorCode { return e.code }
 
 // ListProjects returns projects, optionally filtered by owner.
 func (r *Repository) ListProjects(ctx context.Context, ownerUUID string) ([]*Project, error) {

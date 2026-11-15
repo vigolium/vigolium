@@ -2,10 +2,13 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/vigolium/vigolium/pkg/apicontract"
 )
 
 // makeProject inserts a project row and returns it.
@@ -341,5 +344,31 @@ func TestGetProjectStatsAndAll(t *testing.T) {
 	}
 	if all[projB].HTTP5xx != 1 || all[projB].Critical != 1 {
 		t.Errorf("B aggregate wrong: 5xx=%d critical=%d", all[projB].HTTP5xx, all[projB].Critical)
+	}
+}
+
+// A --project-name that resolves to no project or to several carries a code,
+// so the CLI reports project_not_found / ambiguous_id instead of "failed".
+func TestGetProjectByNameErrorCodes(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewRepository(db)
+	ctx := context.Background()
+	makeProject(t, repo, "dup", "")
+	makeProject(t, repo, "dup", "")
+
+	codeOf := func(err error) string {
+		var coded interface{ Code() apicontract.ErrorCode }
+		if !errors.As(err, &coded) {
+			return ""
+		}
+		return string(coded.Code())
+	}
+	_, err := repo.GetProjectByName(ctx, "nope")
+	if codeOf(err) != "project_not_found" {
+		t.Errorf("missing name: %v (%q)", err, codeOf(err))
+	}
+	_, err = repo.GetProjectByName(ctx, "dup")
+	if codeOf(err) != "ambiguous_id" {
+		t.Errorf("ambiguous name: %v (%q)", err, codeOf(err))
 	}
 }
