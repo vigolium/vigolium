@@ -365,6 +365,9 @@ func runAgentAudit(cmd *cobra.Command, args []string) error {
 	// be present and the resolved chain must contain at least one mode
 	// audit understands. Fail before the git clone.
 	if auditInteractive {
+		if err := requireInteractiveTTY("audit --interactive", "vigolium audit --source <path> (headless, without -i)"); err != nil {
+			return err
+		}
 		if !bin.Available() {
 			//vigolium:not-usage environment: the embedded binary is missing, not a bad command line
 			return fmt.Errorf("--interactive requires the embedded vigolium-audit binary — run `make build-audit` and rebuild vigolium")

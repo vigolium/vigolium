@@ -90,8 +90,10 @@ func runAgentTriage(cmd *cobra.Command, args []string) error {
 	defer closeDatabaseOnExit()
 
 	// The picker is a TUI; a machine caller names the finding.
-	if len(args) == 0 && globalJSON {
-		return usageErrorf("a finding id is required with -j (agent triage <finding-id>); the interactive picker needs a terminal")
+	if len(args) == 0 {
+		if err := requireInteractiveTTY("the agent triage finding picker", "vigolium agent triage <finding-id>"); err != nil {
+			return err
+		}
 	}
 
 	settings, err := clicommon.LoadSettings(globalConfig)

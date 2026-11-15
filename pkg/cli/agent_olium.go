@@ -139,7 +139,7 @@ func runAgentOlium(cmd *cobra.Command, args []string) error {
 			}
 			prompt = strings.TrimSpace(string(raw))
 			if prompt == "" {
-				return fmt.Errorf("olium: -p - requires a non-empty prompt on stdin")
+				return usageErrorf("olium: -p - requires a non-empty prompt on stdin")
 			}
 		}
 		// Verbose tool previews + a per-turn usage line follow the global
@@ -166,6 +166,9 @@ func runAgentOlium(cmd *cobra.Command, args []string) error {
 
 	// Interactive TUI — may be seeded with an initial prompt that
 	// gets auto-submitted on startup.
+	if err := requireInteractiveTTY("the olium TUI", `vigolium olium -p "<prompt>" (or -p - to read it from stdin)`); err != nil {
+		return err
+	}
 	opts.InitialPrompt = initial
 	return olium.RunTUI(opts)
 }

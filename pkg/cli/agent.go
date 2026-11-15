@@ -174,6 +174,15 @@ func runAgentQuery(cmd *cobra.Command, args []string) error {
 	if !hasTemplate && !hasInline {
 		return usageErrorf("either a prompt (argument, --prompt/-p, --stdin) or a template (--prompt-template, --prompt-file) is required")
 	}
+	// --stdin is read here, so an empty pipe is refused before anything
+	// is built or sent; the engine then takes it as an inline prompt.
+	if agentStdin && agentPromptInline == "" {
+		text, err := readNonEmptyStdin("--stdin")
+		if err != nil {
+			return err
+		}
+		agentPromptInline, agentStdin = text, false
+	}
 
 	settings, err := clicommon.LoadSettings(globalConfig)
 	if err != nil {
