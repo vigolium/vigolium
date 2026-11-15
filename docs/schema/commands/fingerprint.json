@@ -653,6 +653,12 @@
           },
           "type": "array"
         },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "errors": {
           "type": "integer"
         },
