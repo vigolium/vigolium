@@ -3,9 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -105,30 +103,29 @@ func (s *handSendSaver) active() bool { return s != nil && s.skip == "" && s.rep
 // [:port]) and the response summary. A transport error (no response) is not
 // stored. Returns the new record's UUID.
 func (s *handSendSaver) save(ctx context.Context, origin string, rawRequest []byte, resp *replay.Summary) (string, error) {
-	if !s.active() || len(rawRequest) == 0 || resp == nil || resp.Status <= 0 || resp.Error != "" {
+	if !s.active() {
 		return "", nil
 	}
-	rr, err := httpmsg.ParseRawRequestWithURL(string(rawRequest), origin)
-	if err != nil {
-		return "", fmt.Errorf("parse the sent request: %w", err)
+	rr, err := handSentExchange(origin, rawRequest, resp)
+	if rr == nil || err != nil {
+		return "", err
 	}
-	rr = rr.WithResponse(httpmsg.NewHttpResponseWithDuration(rawSummaryResponse(resp), time.Duration(resp.ResponseTimeMs)*time.Millisecond))
 	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	return s.repo.SaveRecord(saveCtx, rr, s.source, s.projectUUID)
 }
 
-// rawSummaryResponse rebuilds a raw HTTP/1.1 response from a summary.
-func rawSummaryResponse(summary *replay.Summary) []byte {
-	var b strings.Builder
-	fmt.Fprintf(&b, "HTTP/1.1 %d %s\r\n", summary.Status, http.StatusText(summary.Status))
-	for k, values := range summary.Headers {
-		for _, value := range values {
-			fmt.Fprintf(&b, "%s: %s\r\n", k, value)
-		}
+// handSentExchange is the exchange to store for rawRequest sent to origin and
+// its response summary; nil for a transport error (no response).
+func handSentExchange(origin string, rawRequest []byte, resp *replay.Summary) (*httpmsg.HttpRequestResponse, error) {
+	if len(rawRequest) == 0 || resp == nil || resp.Status <= 0 || resp.Error != "" {
+		return nil, nil
 	}
-	b.WriteString("\r\n")
-	return append([]byte(b.String()), summary.RawBody...)
+	rr, err := httpmsg.ParseRawRequestWithURL(string(rawRequest), origin)
+	if err != nil {
+		return nil, fmt.Errorf("parse the sent request: %w", err)
+	}
+	return rr.WithResponse(httpmsg.NewHttpResponseWithDuration(rawReplayResponse(resp), time.Duration(resp.ResponseTimeMs)*time.Millisecond)), nil
 }
 
 // validateReplaySaveFlags checks the save and --once flags against the rest
@@ -179,6 +176,22 @@ func saveReplayExchange(ctx context.Context, s *handSendSaver, src *replaySource
 	return uuid
 }
 
+// sentRequest is the request a replay sends — override when set, else the
+// baseline — and the URL it resolves to against src's destination.
+func sentRequest(src *replaySource, override []byte) (raw []byte, sentURL string) {
+	raw = src.BaselineRequest
+	if len(override) > 0 {
+		raw = override
+	}
+	sentURL = replaySourceURL(src)
+	if rr, err := httpmsg.ParseRawRequestWithURL(string(raw), sentURL); err == nil {
+		if u, uerr := rr.URL(); uerr == nil && u != nil {
+			sentURL = u.String()
+		}
+	}
+	return raw, sentURL
+}
+
 // replayOnceView is what `replay --once` prints: one send, reduced to what a
 // caller cites and reads.
 type replayOnceView struct {
@@ -204,17 +217,12 @@ func newReplayOnceView(out *replayOutput, src *replaySource, saver *handSendSave
 	if saver != nil && saver.skip != "" && saver.skip != "disabled" {
 		v.SaveSkipped = saver.skip
 	}
-	raw := src.BaselineRequest
-	if out.Result != nil && len(out.Result.RawMutatedRequest) > 0 {
-		raw = out.Result.RawMutatedRequest
+	var mutated []byte
+	if out.Result != nil {
+		mutated = out.Result.RawMutatedRequest
 	}
-	v.Method = requestMethodOf(raw)
-	v.URL = replaySourceURL(src)
-	if rr, err := httpmsg.ParseRawRequestWithURL(string(raw), v.URL); err == nil {
-		if u, uerr := rr.URL(); uerr == nil && u != nil {
-			v.URL = u.String()
-		}
-	}
+	raw, sentURL := sentRequest(src, mutated)
+	v.Method, v.URL = requestMethodOf(raw), sentURL
 	if out.Result == nil || out.Result.Replay == nil {
 		return v
 	}
@@ -297,18 +305,34 @@ func (c *fuzzExchangeCollector) observe(matched bool, raw []byte, resp *replay.S
 	c.items = append(c.items, fuzzExchange{raw: append([]byte(nil), raw...), resp: resp})
 }
 
-// store writes the buffered exchanges and returns their record UUIDs.
+// store writes the buffered exchanges through one batched record writer
+// (the scanner's: one duplicate lookup and one transaction per batch, an
+// exchange identical to a stored one reusing its record) and returns their
+// record UUIDs.
 func (c *fuzzExchangeCollector) store(ctx context.Context, s *handSendSaver, origin string) []string {
 	uuids := []string{}
 	if c == nil || !s.active() {
 		return uuids
 	}
+	exchanges := make([]*httpmsg.HttpRequestResponse, 0, len(c.items))
 	for _, ex := range c.items {
-		uuid, err := s.save(ctx, origin, ex.raw, ex.resp)
+		rr, err := handSentExchange(origin, ex.raw, ex.resp)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s fuzz: could not store an exchange: %v\n", terminal.WarningSymbol(), err)
 			continue
 		}
+		if rr != nil {
+			exchanges = append(exchanges, rr)
+		}
+	}
+	c.items = nil
+	w := database.NewRecordWriter(s.repo, database.RecordWriterConfig{})
+	saved, err := w.SaveRecordBatch(context.WithoutCancel(ctx), exchanges, s.source, s.projectUUID)
+	w.Close()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s fuzz: could not store every exchange: %v\n", terminal.WarningSymbol(), err)
+	}
+	for _, uuid := range saved {
 		if uuid != "" {
 			uuids = append(uuids, uuid)
 		}
@@ -341,29 +365,18 @@ type replayDryRunView struct {
 }
 
 func emitReplayDryRun(cmd *cobra.Command, src *replaySource, overlay map[string]string, rr *replayRun) error {
-	raw := src.BaselineRequest
-	if len(rr.rawOverride) > 0 {
-		raw = rr.rawOverride
-	}
+	raw, sentURL := sentRequest(src, rr.rawOverride)
 	v := replayDryRunView{
-		Method: requestMethodOf(raw), URL: replaySourceURL(src), Source: src.OriginLabel,
+		Method: requestMethodOf(raw), URL: sentURL, Source: src.OriginLabel,
 		Request: string(raw), OverlayHeaders: sortedHeaderNames(overlay),
 		RawOverride: len(rr.rawOverride) > 0, WouldSave: rr.saver.active(),
 	}
 	if v.OverlayHeaders == nil {
 		v.OverlayHeaders = []string{}
 	}
-	if parsed, err := httpmsg.ParseRawRequestWithURL(string(raw), v.URL); err == nil {
-		if u, uerr := parsed.URL(); uerr == nil && u != nil {
-			v.URL = u.String()
-		}
-	}
 	if globalJSON {
 		v.Request, v.URL = redactRaw(jsonRedactOn, v.Request), redactURL(jsonRedactOn, v.URL)
-		env := newMachineEnvelope(cmd, kindRead, "", []replayDryRunView{v}, 1, 0, 1)
-		env.objectResult = true
-		env.DryRun = true
-		return writeAgentJSON(env)
+		return emitObject(cmd, "", v, withDryRun())
 	}
 	fmt.Printf("%s Dry run: would send %s %s (nothing sent, nothing stored)\n\n%s\n", terminal.InfoSymbol(), v.Method, v.URL, v.Request)
 	return nil

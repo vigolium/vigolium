@@ -283,7 +283,7 @@ func emitShimDryRun(cmd *cobra.Command, tool string, argv, translated, notes []s
 		report.Notes = []string{}
 	}
 	if globalJSON {
-		return emitObject(cmd, ".", report)
+		return emitObject(cmd, ".", report, withDryRun())
 	}
 	fmt.Println(report.NativeCommand)
 	for _, n := range notes {

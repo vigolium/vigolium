@@ -168,7 +168,7 @@ func emitDoctorDryRun(cmd *cobra.Command, dc *doctorContext, report *diagnostics
 	checks := dc.filter(dc.checks(report))
 	return emitRead(cmd, "", checks, int64(len(checks)), 0, len(checks),
 		withExtra("status", report.Status), withExtra("capabilities", report.Capabilities()),
-		withExtra("fixes", plan), func(e *agentEnvelope) { e.DryRun = true })
+		withExtra("fixes", plan), withDryRun())
 }
 
 // emitDoctorLegacyJSON is the pre-flattening document: items:[report], and

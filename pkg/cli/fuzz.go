@@ -863,7 +863,7 @@ func emitFuzzDryRun(cmd *cobra.Command, src *replaySource, positions []fuzz.Posi
 	}
 
 	if globalJSON {
-		return emitObject(cmd, ".", redactFuzzDryRun(report))
+		return emitObject(cmd, ".", redactFuzzDryRun(report), withDryRun())
 	}
 	fmt.Printf("%s dry run — %d position(s), %s, %d sends, pace: %s, nothing sent\n\n",
 		terminal.InfoSymbol(), len(positions), fuzzMode, report.Sends, report.Pace)

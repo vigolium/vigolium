@@ -195,7 +195,7 @@ func printPromptDryRun(cmd *cobra.Command, prompt string) error {
 		view.Note = "dry run: a natural-language prompt is parsed by the model at run time, which --dry-run does not call; pass -t/--source to preview the rendered prompts"
 	}
 	if globalJSON {
-		return emitObject(cmd, ".", view)
+		return emitObject(cmd, ".", view, withDryRun())
 	}
 	for _, app := range view.Apps {
 		fmt.Printf("target: %s\n", firstNonEmptyString(app.Target, app.SourcePath))
