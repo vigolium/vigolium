@@ -187,6 +187,12 @@
         },
         "next_offset": {
           "type": "integer"
+        },
+        "dropped_keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,

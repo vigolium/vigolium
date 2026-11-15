@@ -2495,6 +2495,7 @@ Show a scan's live status: phase, progress, liveness and ETA
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
 | `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off |
