@@ -402,6 +402,12 @@
     "description": "The server stopped (SIGTERM, sent only when /health answered with the recorded pid), and whether it exited in time."
   },
   {
+    "name": "skills get",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One item per skill (its SKILL.md in content, references under --full), per reference with --ref, or per file with --list-refs."
+  },
+  {
     "name": "skills install",
     "kind": "command",
     "envelope_kind": "mutation",

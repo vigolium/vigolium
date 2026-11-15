@@ -2956,6 +2956,8 @@ Print a skill's full content
 |------|-------|------|---------|-------------|
 | `--all` | - | bool | `false` | Output every bundled skill |
 | `--full` | - | bool | `false` | Include reference files, not just SKILL.md |
+| `--list-refs` | - | bool | `false` | List the skill's files (SKILL.md and references) with byte and line counts instead of printing them |
+| `--ref` | - | stringArray | - | Print only this reference file: recipes, recipes.md or references/recipes.md (repeatable) |
 
 ## vigolium skills install
 
