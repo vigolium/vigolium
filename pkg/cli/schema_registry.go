@@ -466,9 +466,12 @@ type replayExtras struct {
 // reports what it submitted (records_submitted, errors). Every key is optional
 // because each mode carries only its own.
 type ingestExtras struct {
-	RecordsIngested  int64             `json:"records_ingested,omitempty"`
-	RecordsFailed    int64             `json:"records_failed,omitempty"`
-	RecordsSkipped   int64             `json:"records_skipped,omitempty"`
+	RecordsIngested int64 `json:"records_ingested,omitempty"`
+	RecordsFailed   int64 `json:"records_failed,omitempty"`
+	RecordsSkipped  int64 `json:"records_skipped,omitempty"`
+	// RecordsWritten counts the rows this run added; records already stored
+	// count in records_ingested but not here, and changed follows this.
+	RecordsWritten   int64             `json:"records_written,omitempty"`
 	RecordsSubmitted int64             `json:"records_submitted,omitempty"`
 	Errors           int64             `json:"errors,omitempty"`
 	DurationMS       int64             `json:"duration_ms,omitempty"`

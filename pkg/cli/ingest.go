@@ -312,12 +312,17 @@ func reportIngest(out ingestOutcome, remote bool, failedSources, totalSources in
 		for _, r := range out.Records {
 			items = append(items, r)
 		}
+		changed := out.Stored > 0
+		if out.Written >= 0 {
+			changed = out.Written > 0
+		}
 		env := newAgentEnvelope("ingest", "", items, out.Stored, 0, 0).
-			asMutation(out.Stored > 0, "ingest", false)
+			asMutation(changed, "ingest", false)
 		env.DBPath = resolvedReadDBPath()
 		env.With("records_ingested", out.Stored).
 			With("records_failed", out.Failed).
 			With("records_skipped", out.Skipped).
+			With("records_written", max(out.Written, 0)).
 			With("duration_ms", elapsed.Milliseconds()).
 			With("input_format", strings.Join(out.Formats, ",")).
 			With("record_source", database.RecordSourceIngestCLI).
@@ -451,8 +456,9 @@ func runRemoteIngest(_ *cobra.Command, _ []string) (ingestOutcome, error) {
 // runLocalIngest fetches HTTP responses and stores request/response pairs in
 // the database, and reports what it actually stored. The caller owns the
 // summary; see reportIngest.
-func runLocalIngest(cmd *cobra.Command, _ []string) (ingestOutcome, error) {
-	var outcome ingestOutcome
+func runLocalIngest(cmd *cobra.Command, _ []string) (outcome ingestOutcome, err error) {
+	// Unknown until the store is open and counted; see the deferred count below.
+	outcome.Written = -1
 
 	// --- 1. Auto-detect format ---
 	// -I given: the operator's format stands (no sniffing, even for -I urls).
@@ -496,7 +502,7 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (ingestOutcome, error) {
 			return outcome, fmt.Errorf("failed to read ingest input: %w", preloadErr)
 		}
 	}
-	outcome.noteFormat(inputFormat)
+	outcome.noteFormat(reportedIngestFormat(inputFormat, filePath, formatExplicit))
 	if detectedFormat != "" {
 		outcome.Formats = []string{string(detectedFormat)}
 	}
@@ -634,6 +640,17 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (ingestOutcome, error) {
 		return outcome, projErr
 	}
 
+	// Rows written is the store's count before and after, not the number of
+	// saves: a save of an exchange already stored returns the existing row,
+	// so a re-ingest of the same URLs stores everything and writes nothing.
+	if before, cerr := countIngestRecords(ctx, db, ingestProjectUUID); cerr == nil {
+		defer func() {
+			if after, aerr := countIngestRecords(context.Background(), db, ingestProjectUUID); aerr == nil {
+				outcome.Written = max(after-before, 0)
+			}
+		}()
+	}
+
 	// One saver for every record that arrives with its response already
 	// attached, whichever path it came in on: the auto-detected preload below,
 	// and — through preloadedResponseSource — the format parsers, which used to
@@ -690,6 +707,9 @@ func runLocalIngest(cmd *cobra.Command, _ []string) (ingestOutcome, error) {
 	}
 
 	executorCfg := core.ExecutorConfig{
+		// The records an ingest fetches are ingest records, the same label
+		// the direct-save path writes and the -j document reports.
+		RecordSource:      database.RecordSourceIngestCLI,
 		Workers:           opts.Concurrency,
 		Services:          svc,
 		HTTPRequester:     httpRequester,
@@ -972,6 +992,19 @@ func detectInputFormat(input string) string {
 	return ""
 }
 
+// reportedIngestFormat names the format an ingest input was read as. With
+// the URL-list default and no -I, a file's format is decided per file by the
+// file source; the same detector names it here, so a HAR reports "har".
+func reportedIngestFormat(inputFormat, filePath string, explicit bool) string {
+	if explicit || inputFormat != "urls" || filePath == "" {
+		return inputFormat
+	}
+	if det, err := source.DetectFormat(filePath); err == nil && det.Format != "" {
+		return det.Format
+	}
+	return inputFormat
+}
+
 // ingestParseHeaders parses header strings in "Name: Value" format.
 func ingestParseHeaders(headers []string) map[string]string {
 	result := make(map[string]string)
@@ -1069,3 +1102,10 @@ func runLocalIngestScan(settings *config.Settings, db *database.DB, repo *databa
 // ingestInputFormatExplicit records whether -I was typed for the current
 // ingest (the derived scan scope must judge the format the parser used).
 var ingestInputFormatExplicit bool
+
+// countIngestRecords counts a project's http_records rows.
+func countIngestRecords(ctx context.Context, db *database.DB, projectUUID string) (int64, error) {
+	n, err := db.NewSelect().Model((*database.HTTPRecord)(nil)).
+		Where("project_uuid = ?", projectUUID).Count(ctx)
+	return int64(n), err
+}

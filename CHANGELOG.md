@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - `db export --format jsonl` (the default) writes the `{"type","data"}` lines `vigolium export` writes and `import` reads: the selected records, then their linked findings. The previous nuclei-style output is `--format nuclei`. `--table http_records|findings` picks the line types; other tables are a usage error.
 - `finding load` reads `export`/`db export` JSONL and `finding -j` documents, keeps `url`, `hostname` and `matched_at`, rejects an unknown severity (`input_unparsed`, nothing stored), and counts agent findings that differ only by URL as separate findings.
 - A multi-source `import` (several paths or `--glob-db`) continues past a source that fails, lists each source with its status in `-j` `sources[]`, and exits 1 naming the failures; `--glob-strict` stops at the first. A SQLite file that is not a vigolium store is refused (`source_incompatible`) instead of merging as zeros.
+- `ingest` reports the format it detected (`input_format: har`, not `urls`), labels the records it fetches `ingest-cli` like the ones it saves directly, keeps a HAR entry's `time` as `response_time_ms`, and sets `changed` from the rows it actually wrote (new `records_written`); re-ingesting the same input is `changed: false`.
 
 ## [v0.5.7] - 2026-11-14
 

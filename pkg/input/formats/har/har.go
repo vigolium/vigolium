@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/input/formats"
@@ -130,7 +131,14 @@ func (f *Format) processEntry(entry *harEntry) *httpmsg.HttpRequestResponse {
 	if entry.Response.Status > 0 {
 		rawResp := buildRawResponse(&entry.Response)
 		if rawResp != "" {
-			resp := httpmsg.NewHttpResponse([]byte(rawResp))
+			// The capture's own timing is a real measurement of this exchange,
+			// so it is kept; an untimed entry stays "unknown".
+			var resp *httpmsg.HttpResponse
+			if entry.Time != nil && *entry.Time > 0 {
+				resp = httpmsg.NewHttpResponseWithDuration([]byte(rawResp), time.Duration(*entry.Time*float64(time.Millisecond)))
+			} else {
+				resp = httpmsg.NewHttpResponse([]byte(rawResp))
+			}
 			if resp != nil {
 				rr = rr.WithResponse(resp)
 			}
@@ -409,6 +417,9 @@ func headerValue(headers []harHeader, name string) string {
 type harEntry struct {
 	Request  harRequest  `json:"request"`
 	Response harResponse `json:"response"`
+	// Time is the entry's total elapsed time in milliseconds; -1 (or absent)
+	// when the browser did not time it.
+	Time *float64 `json:"time"`
 }
 
 type harRequest struct {

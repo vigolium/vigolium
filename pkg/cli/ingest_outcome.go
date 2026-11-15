@@ -32,6 +32,9 @@ type ingestOutcome struct {
 	// that the configuration asked to keep. Records dropped by the executor's
 	// pre-fetch filters are not visible here and are not counted.
 	Skipped int64
+	// Written counts the rows this run added to http_records; a record that
+	// was already stored counts in Stored but not here. -1 means unknown.
+	Written int64
 
 	// Submitted and Errors are remote mode's (-s/--server) own counters, which
 	// are about HTTP submissions rather than rows: the server owns the store.
@@ -112,6 +115,11 @@ func (o *ingestOutcome) add(other ingestOutcome) {
 	o.Stored += other.Stored
 	o.Failed += other.Failed
 	o.Skipped += other.Skipped
+	if other.Written < 0 || o.Written < 0 {
+		o.Written = -1
+	} else {
+		o.Written += other.Written
+	}
 	o.Submitted += other.Submitted
 	o.Errors += other.Errors
 	for _, f := range other.Formats {

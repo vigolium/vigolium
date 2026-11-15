@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -87,4 +88,47 @@ func TestIngestStdinHonoursFormat(t *testing.T) {
 	require.Equal(t, 0, code)
 	require.NotContains(t, stdout, "//servers/")
 	require.NotContains(t, stdout, "//paths/")
+}
+
+// An auto-detected HAR reports its real format and keeps the capture's
+// timing; a re-ingest of the same file stores nothing new and says so; fetched
+// URLs are labelled as ingest records.
+func TestIngestReportsDetectedFormatAndWrites(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	e := newB5Env(t)
+	harPath := filepath.Join(e.home, "cap.har")
+	har := `{"log":{"version":"1.2","creator":{"name":"t","version":"1"},"entries":[{"startedDateTime":"2026-01-01T00:00:00Z","time":42,` +
+		`"request":{"method":"GET","url":"` + srv.URL + `/from-har","httpVersion":"HTTP/1.1","headers":[],"queryString":[],"cookies":[],"headersSize":-1,"bodySize":0},` +
+		`"response":{"status":200,"statusText":"OK","httpVersion":"HTTP/1.1","headers":[{"name":"Content-Type","value":"text/plain"}],"cookies":[],"content":{"size":2,"mimeType":"text/plain","text":"ok"},"redirectURL":"","headersSize":-1,"bodySize":2},` +
+		`"cache":{},"timings":{"send":0,"wait":1,"receive":0}}]}}`
+	require.NoError(t, os.WriteFile(harPath, []byte(har), 0o600))
+
+	code, stdout, stderr := e.run(t, nil, "ingest", "-i", harPath, "-j")
+	require.Equal(t, 0, code, stderr)
+	doc := oneDoc(t, stdout, stderr)
+	require.Equal(t, "har", doc["input_format"])
+	require.Equal(t, true, doc["changed"])
+	require.EqualValues(t, 1, doc["records_written"])
+
+	code, stdout, stderr = e.run(t, nil, "ingest", "-i", harPath, "-j")
+	require.Equal(t, 0, code, stderr)
+	doc = oneDoc(t, stdout, stderr)
+	require.Equal(t, false, doc["changed"], "a re-ingest wrote nothing")
+
+	code, stdout, stderr = e.run(t, nil, "traffic", "-j", "--fields", "response_time_ms,source")
+	require.Equal(t, 0, code, stderr)
+	require.Contains(t, stdout, `"response_time_ms":42`)
+
+	urls := filepath.Join(e.home, "urls.txt")
+	require.NoError(t, os.WriteFile(urls, []byte(srv.URL+"/fetched\n"), 0o600))
+	code, _, stderr = e.run(t, nil, "ingest", "-i", urls, "-j")
+	require.Equal(t, 0, code, stderr)
+	code, stdout, stderr = e.run(t, nil, "traffic", "-j", "--search", "fetched", "--fields", "source")
+	require.Equal(t, 0, code, stderr)
+	require.Contains(t, stdout, `"source":"ingest-cli"`)
+	require.NotContains(t, stdout, `"source":"scanner"`)
 }

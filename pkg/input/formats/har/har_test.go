@@ -235,3 +235,21 @@ func writeTestFile(t *testing.T, content string) string {
 	require.NoError(t, err)
 	return path
 }
+
+// entries[].time is the capture's measurement of the exchange and is kept as
+// the response duration; -1 means untimed.
+func TestParseFromData_KeepsEntryTime(t *testing.T) {
+	entry := func(tm string) string {
+		return `{"time": ` + tm + `, "request": {"method": "GET", "url": "http://localhost/x", "httpVersion": "HTTP/1.1", "headers": []},
+			"response": {"status": 200, "httpVersion": "HTTP/1.1", "headers": [], "content": {"text": "ok"}}}`
+	}
+	data := []byte(`{"log": {"entries": [` + entry("123.6") + `,` + entry("-1") + `]}}`)
+	var results []*httpmsg.HttpRequestResponse
+	require.NoError(t, New().ParseFromData(data, func(rr *httpmsg.HttpRequestResponse) bool {
+		results = append(results, rr)
+		return true
+	}))
+	require.Len(t, results, 2)
+	assert.Equal(t, int64(123), results[0].Response().Duration().Milliseconds())
+	assert.Zero(t, results[1].Response().Duration())
+}
