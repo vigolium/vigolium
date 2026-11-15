@@ -289,8 +289,13 @@ func TestDoctorSkillCheckAndFix(t *testing.T) {
 	swapGlobal(t, &doctorOnly, nil)
 	doc := emitCaptured(t, func() error { return runDoctorCmd(doctorCmd, nil) })
 	require.Equal(t, "ready", doc["status"], "a stale skill does not move the verdict")
-	report := doc["items"].([]any)[0].(map[string]any)
-	skillCheck := report["skill"].(map[string]any)
+	var skillCheck map[string]any
+	for _, it := range doc["items"].([]any) {
+		if c := it.(map[string]any); c["id"] == "skill" {
+			skillCheck = c
+		}
+	}
+	require.NotNil(t, skillCheck, "the skill check is one of the flat checks")
 	require.Equal(t, "warning", skillCheck["status"])
 	require.Contains(t, skillCheck["message"], "stale=1")
 	require.Contains(t, skillCheck["message"], "modified=1")
@@ -309,6 +314,7 @@ func TestDoctorSkillCheckAndFix(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, skillStatusCurrent, inspectSkillInstall(staleDest, digest).Status)
 	require.Equal(t, skillStatusModified, inspectSkillInstall(modifiedDest, digest).Status, "local edits are kept")
-	updated := doc["updated"].(map[string]any)["skill"].(map[string]any)
-	require.Contains(t, updated["message"], "stale=0")
+	items := doc["items"].([]any)
+	require.Len(t, items, 1, "--only skill shows the skill check alone")
+	require.Contains(t, items[0].(map[string]any)["message"], "stale=0", "items are the re-checked state")
 }
