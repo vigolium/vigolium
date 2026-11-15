@@ -73,6 +73,18 @@
             4,
             5
           ]
+        },
+        "hint": {
+          "type": "string"
+        },
+        "did_you_mean": {
+          "type": "string"
+        },
+        "usage_argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
