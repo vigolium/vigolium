@@ -568,6 +568,7 @@ func showLogForUUID(uuid string, followExplicit bool) error {
 type logSource struct {
 	kind           string // "native" or "agentic"
 	status         string // run status from DB (running, completed, failed, ...)
+	errorMessage   string // the native row's error_message (tells an older cancelled row from a failed one)
 	filePath       string // absolute path to runtime.log (empty when fromDB)
 	transcriptPath string // absolute path to transcript.jsonl (agentic only, "" when absent)
 	fromDB         bool   // true when falling back to scan_logs table
@@ -635,11 +636,11 @@ func resolveLogSource(uuid string, settings *config.Settings) (*logSource, error
 
 	if nativeLog != "" {
 		scan := nativeRow()
-		status := ""
+		status, errMsg := "", ""
 		if scan != nil {
-			status = scan.Status
+			status, errMsg = scan.Status, scan.ErrorMessage
 		}
-		return &logSource{kind: "native", status: status, liveness: nativeLiveness(scan, nativeLog), filePath: nativeLog, scanUUID: uuid}, nil
+		return &logSource{kind: "native", status: status, errorMessage: errMsg, liveness: nativeLiveness(scan, nativeLog), filePath: nativeLog, scanUUID: uuid}, nil
 	}
 	if agenticLog != "" {
 		transcript := resolveTranscriptPath(agenticDir)
@@ -669,7 +670,7 @@ func resolveLogSource(uuid string, settings *config.Settings) (*logSource, error
 			terminal.ShortenHome(expectedNative), terminal.ShortenHome(expectedAgentic), dbErr)
 	}
 	if scan := nativeRow(); scan != nil {
-		return &logSource{kind: "native", status: scan.Status, liveness: nativeLiveness(scan, ""), fromDB: true, scanUUID: uuid}, nil
+		return &logSource{kind: "native", status: scan.Status, errorMessage: scan.ErrorMessage, liveness: nativeLiveness(scan, ""), fromDB: true, scanUUID: uuid}, nil
 	}
 	if run, err := repo.GetAgenticScan(ctx, uuid); err == nil && run != nil {
 		// Prefer the DB-stored SessionDir (handles custom paths), fall back

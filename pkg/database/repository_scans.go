@@ -230,10 +230,7 @@ func (r *Repository) CompleteScan(ctx context.Context, scanUUID string, errMsg s
 // A zero ScanCompletion writes nothing to the three columns, which is how a
 // caller says "I don't know" without overwriting a verdict with a guess.
 func (r *Repository) CompleteScanWithOutcome(ctx context.Context, scanUUID string, errMsg string, c ScanCompletion) error {
-	status := "completed"
-	if errMsg != "" {
-		status = "failed"
-	}
+	status := ScanTerminalStatus(errMsg)
 
 	// Compute duration from started_at so the scan row doesn't report 0ms after
 	// it finishes. We read started_at first rather than using SQL arithmetic to
@@ -266,6 +263,25 @@ func (r *Repository) CompleteScanWithOutcome(ctx context.Context, scanUUID strin
 
 	_, err := q.Exec(ctx)
 	return err
+}
+
+// ScanCancelledMessage is the error_message a run cancelled by its caller
+// (Ctrl-C, SIGTERM, a stop request) is finalized with.
+const ScanCancelledMessage = "cancelled"
+
+// ScanTerminalStatus is the stored status for a scan finalized with errMsg:
+// "completed" without one, "cancelled" for the cancellation marker, "failed"
+// otherwise. error_message still carries "cancelled" on a cancelled row, so a
+// reader that predates the status (it used to be stored "failed") keeps
+// telling the two apart.
+func ScanTerminalStatus(errMsg string) string {
+	switch errMsg {
+	case "":
+		return "completed"
+	case ScanCancelledMessage:
+		return "cancelled"
+	}
+	return "failed"
 }
 
 // applyScanCompletionColumns adds the completeness columns to an UPDATE, and
