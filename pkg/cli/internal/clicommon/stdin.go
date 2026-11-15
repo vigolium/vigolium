@@ -42,8 +42,8 @@ var ErrStdinTimeout = errors.New("timed out reading stdin")
 var ErrStdinTooLarge = errors.New("stdin input exceeds the size limit")
 
 type stdinResult struct {
-	data []byte
-	err  error
+	n   int64
+	err error
 }
 
 // ReadStdinBounded reads all of stdin subject to a size limit and a deadline.
@@ -98,6 +98,29 @@ var ErrStdinNoData = errors.New("no data on stdin")
 // long-lived caller that times out repeatedly would leak one goroutine per
 // timeout.
 func ReadBoundedWait(r io.Reader, name string, limit int64, firstByte, total time.Duration) ([]byte, error) {
+	var data []byte
+	if err := boundedRead(r, name, limit, firstByte, total, func(lr io.Reader) (int64, error) {
+		var err error
+		data, err = io.ReadAll(lr)
+		return int64(len(data)), err
+	}); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// CopyBounded is ReadBounded streaming into w rather than into memory, for a
+// caller that spools the input to a file: the size limit and the deadline
+// apply the same way, and nothing larger than a copy buffer is held.
+func CopyBounded(w io.Writer, r io.Reader, name string, limit int64, timeout time.Duration) error {
+	return boundedRead(r, name, limit, 0, timeout, func(lr io.Reader) (int64, error) {
+		return io.Copy(w, lr)
+	})
+}
+
+// boundedRead runs consume over r in a goroutine, limited to one byte past
+// limit, and applies the first-byte and total deadlines (see ReadBoundedWait).
+func boundedRead(r io.Reader, name string, limit int64, firstByte, total time.Duration, consume func(io.Reader) (int64, error)) error {
 	if limit <= 0 {
 		limit = DefaultStdinLimit
 	}
@@ -107,18 +130,18 @@ func ReadBoundedWait(r io.Reader, name string, limit int64, firstByte, total tim
 	go func() {
 		// Read one byte past the limit so exceeding it is detectable rather
 		// than silently truncating the caller's input into a parse error.
-		data, err := io.ReadAll(io.LimitReader(fr, limit+1))
-		done <- stdinResult{data: data, err: err}
+		n, err := consume(io.LimitReader(fr, limit+1))
+		done <- stdinResult{n: n, err: err}
 	}()
 
-	finish := func(res stdinResult) ([]byte, error) {
+	finish := func(res stdinResult) error {
 		if res.err != nil {
-			return nil, fmt.Errorf("failed to read %s: %w", name, res.err)
+			return fmt.Errorf("failed to read %s: %w", name, res.err)
 		}
-		if int64(len(res.data)) > limit {
-			return nil, fmt.Errorf("%w: %s exceeds %d bytes", ErrStdinTooLarge, name, limit)
+		if res.n > limit {
+			return fmt.Errorf("%w: %s exceeds %d bytes", ErrStdinTooLarge, name, limit)
 		}
-		return res.data, nil
+		return nil
 	}
 
 	if firstByte > 0 {
@@ -130,7 +153,7 @@ func ReadBoundedWait(r io.Reader, name string, limit int64, firstByte, total tim
 		case <-fr.started:
 			timer.Stop()
 		case <-timer.C:
-			return nil, fmt.Errorf("%w: nothing arrived on %s within %s", ErrStdinNoData, name, firstByte)
+			return fmt.Errorf("%w: nothing arrived on %s within %s", ErrStdinNoData, name, firstByte)
 		}
 	}
 
@@ -148,7 +171,7 @@ func ReadBoundedWait(r io.Reader, name string, limit int64, firstByte, total tim
 	case res := <-done:
 		return finish(res)
 	case <-deadline:
-		return nil, fmt.Errorf("%w after %s: no complete input arrived on %s "+
+		return fmt.Errorf("%w after %s: no complete input arrived on %s "+
 			"(raise or disable the deadline with --input-read-timeout)",
 			ErrStdinTimeout, total, name)
 	}

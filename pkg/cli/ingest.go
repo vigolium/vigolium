@@ -820,23 +820,23 @@ func noteIngestNoRefetch(stored int64) {
 
 // spoolIngestStdin copies stdin (bounded by the stdin limit and
 // --input-read-timeout) into a scratch file and returns its path and a cleanup.
+// The copy streams, so a large capture is never held in memory.
 func spoolIngestStdin() (string, func(), error) {
-	data, err := readStdin()
-	if err != nil {
-		return "", func() {}, fmt.Errorf("failed to read ingest input from stdin: %w", err)
-	}
 	f, err := scratch.CreateTemp("ingest-stdin-*")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("spool stdin: %w", err)
 	}
 	cleanup := func() { _ = os.Remove(f.Name()) }
-	_, werr := f.Write(data)
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
+	err = clicommon.CopyBounded(f, os.Stdin, "stdin", clicommon.DefaultStdinLimit, stdinReadTimeout())
+	if err != nil {
+		err = fmt.Errorf("failed to read ingest input from stdin: %w", err)
 	}
-	if werr != nil {
+	if cerr := f.Close(); err == nil && cerr != nil {
+		err = fmt.Errorf("spool stdin: %w", cerr)
+	}
+	if err != nil {
 		cleanup()
-		return "", func() {}, fmt.Errorf("spool stdin: %w", werr)
+		return "", func() {}, err
 	}
 	return f.Name(), cleanup, nil
 }
