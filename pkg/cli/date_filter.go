@@ -79,6 +79,17 @@ var flagAliases = map[*cobra.Command]map[string]string{}
 // Calls accumulate and are order-independent: the normalize func closes over the
 // command's map, which later calls extend in place.
 func addFlagAliases(cmd *cobra.Command, aliases map[string]string) {
+	// Installing the normalizer renames a real flag spelled like an alias (on
+	// this command or a descendant) to the canonical name, silently. Record it
+	// first, while the flag still has its own name; the flag vocabulary test
+	// fails on any entry.
+	for alias := range aliases {
+		walkTree(cmd, func(d *cobra.Command) {
+			if hasRealFlagNamed(d, alias) {
+				flagAliasShadows[commandPathWithoutRoot(cmd)+":"+alias] = commandPathWithoutRoot(d)
+			}
+		})
+	}
 	merged, installed := flagAliases[cmd]
 	if !installed {
 		merged = make(map[string]string, len(aliases))
@@ -96,6 +107,25 @@ func addFlagAliases(cmd *cobra.Command, aliases map[string]string) {
 		}
 		return pflag.NormalizedName(name)
 	})
+}
+
+// flagAliasShadows records aliases that were installed over a real flag of the
+// same spelling: "<command>:<alias>" -> the command that has the real flag.
+var flagAliasShadows = map[string]string{}
+
+// hasRealFlagNamed reports whether d registers a flag spelled exactly name.
+// It walks the sets rather than calling Lookup, which normalises: an alias
+// would resolve to its canonical flag and hide the very flag it shadows.
+func hasRealFlagNamed(d *cobra.Command, name string) bool {
+	found := false
+	check := func(f *pflag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	}
+	d.Flags().VisitAll(check)
+	d.PersistentFlags().VisitAll(check)
+	return found
 }
 
 // flagAliasSpellings returns every alias that resolves to canonical, each

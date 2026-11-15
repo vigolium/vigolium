@@ -241,3 +241,15 @@ const (
 	defaultRateLimit   = 100
 	defaultMaxPerHost  = types.DefaultMaxPerHost
 )
+
+// Defaults of the speed dials on the commands outside the scan family, named
+// here so one place says what each command sends at by default (the flag
+// vocabulary test refuses a literal default on these flags).
+const (
+	// defaultSendConcurrency: fuzz, replay, traffic --replay and dns workers.
+	defaultSendConcurrency = 10
+	// defaultParamMineRateLimit: kit param-mine requests/second.
+	defaultParamMineRateLimit = 20
+	// unlimitedRate: a --rate-limit default of no cap (finding verify).
+	unlimitedRate = 0
+)

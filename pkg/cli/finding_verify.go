@@ -86,7 +86,7 @@ func init() {
 	f.StringVar(&findingVerifyFailIf, "fail-if", "", "Exit 4 when any finding gets one of these verdicts: "+strings.Join(database.VerificationVerdicts, ",")+" (comma-separated)")
 	f.BoolVar(&findingVerifyIgnoreScope, "ignore-scope", false, "Verify findings on hosts outside the configured host scope")
 	f.BoolVar(&findingVerifyRefetch, "refetch", false, "Passive findings: fetch a fresh response instead of re-analyzing the stored one")
-	f.Float64Var(&findingVerifyRateLimit, "rate-limit", 0, "Max requests/second across the verification (0 = unlimited; fractions allowed)")
+	f.Float64Var(&findingVerifyRateLimit, "rate-limit", unlimitedRate, "Max requests/second across the verification (0 = unlimited; fractions allowed)")
 	f.DurationVar(&findingVerifyTimeout, "timeout", verify.DefaultTimeout, "Time limit for verifying one finding (one request is capped at 15s)")
 	f.BoolVarP(&globalStateless, "stateless", "S", false, "Use the standalone .sqlite named by --db with project scoping off")
 	// --scan-uuid is the finding command's persistent filter flag; here it

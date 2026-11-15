@@ -71,7 +71,7 @@ func init() {
 	f.BoolVar(&kitParamMineNoBuiltin, "no-builtin", false, "Use only the -w wordlists, not the built-in list")
 	f.IntVar(&kitParamMineMaxRequests, "max-requests", parammine.DefaultMaxRequests, "Request budget, baselines and confirmations included")
 	f.DurationVar(&kitParamMineTimeout, "timeout", 15*time.Second, "Per-request timeout")
-	f.IntVar(&kitParamMineRateLimit, "rate-limit", 20, "Maximum requests per second (0 = unlimited)")
+	f.IntVar(&kitParamMineRateLimit, "rate-limit", defaultParamMineRateLimit, "Maximum requests per second (0 = unlimited)")
 	kitCmd.AddCommand(kitParamMineCmd)
 }
 

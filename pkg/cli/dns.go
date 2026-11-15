@@ -51,7 +51,7 @@ func init() {
 	f.StringArrayVar(&dnsResolvers, "resolver", nil, "Resolver host[:port] to ask (repeatable; default the system resolver)")
 	f.BoolVar(&dnsIgnoreScope, "ignore-scope", false, "Resolve names outside the configured host scope")
 	f.BoolVar(&dnsNoStore, "no-store", false, "Print the answers without storing them")
-	f.IntVarP(&dnsConcurrency, "concurrency", "c", 10, "Names resolved in parallel")
+	f.IntVarP(&dnsConcurrency, "concurrency", "c", defaultSendConcurrency, "Names resolved in parallel")
 	f.DurationVar(&dnsTimeout, "timeout", 5*time.Second, "Per-query timeout")
 	registerRowShapingFlags(f)
 	registerTSVFlags(f)

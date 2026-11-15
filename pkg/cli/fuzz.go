@@ -228,7 +228,7 @@ func init() {
 	f.BoolVar(&fuzzIgnoreScope, "ignore-scope", false, "Fuzz a host outside the project's configured scope")
 	f.BoolVar(&fuzzNoCalibrate, "no-calibrate", false, "Disable auto-calibration of the target's catch-all response")
 	f.BoolVar(&fuzzAllowBaselineError, "allow-baseline-error", false, "Run even when every baseline send fails (deltas, calibration and anomaly scoring then compare against an empty response)")
-	f.IntVarP(&fuzzConcurrency, "concurrency", "c", 10, "Concurrent requests")
+	f.IntVarP(&fuzzConcurrency, "concurrency", "c", defaultSendConcurrency, "Concurrent requests")
 	f.IntVar(&fuzzDelayMs, "delay", 0, "Delay in ms before each request (per worker)")
 	f.Float64VarP(&fuzzRateLimit, "rate-limit", "r", defaultFuzzRateLimit, "Max requests/second across all workers, counting baseline and calibration sends (0 = unlimited; fractions allowed, e.g. 0.5). Not taken from scanning config")
 	f.IntVar(&fuzzMaxRequests, "max-requests", defaultFuzzMaxRequests, "Refuse a run whose plan expands to more payload sends than this (0 = no cap; baseline and calibration sends are not counted)")

@@ -243,7 +243,7 @@ func init() {
 	f.BoolVar(&replayBulkAsc, "asc", false, "Bulk: sort ascending (default: descending)")
 	f.IntVar(&replayBulkOffset, "offset", 0, "Bulk: skip this many matched records before replaying (pagination)")
 	f.IntVarP(&replayBulkLimit, "limit", "n", 100, "Bulk: max records to replay (use --all to lift the cap)")
-	f.IntVarP(&replayConcurrency, "concurrency", "c", 10, "Bulk: concurrent replays; keep low to avoid overwhelming an intercepting proxy like Burp")
+	f.IntVarP(&replayConcurrency, "concurrency", "c", defaultSendConcurrency, "Bulk: concurrent replays; keep low to avoid overwhelming an intercepting proxy like Burp")
 	f.BoolVar(&replayWithBrowser, "with-browser", false,
 		"Load each record's URL in a real browser routed via --proxy so an intercepting proxy captures browser-driven traffic; navigation-only, so no baseline-vs-replay diff is produced")
 	f.BoolVarP(&globalStateless, "stateless", "S", false, "Read records from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB")
