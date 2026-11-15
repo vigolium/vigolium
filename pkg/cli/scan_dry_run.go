@@ -423,6 +423,7 @@ type scanDryRunDocSchema struct {
 	Kind          string           `json:"kind" jsonschema:"enum=scan"`
 	OK            bool             `json:"ok"`
 	DryRun        bool             `json:"dry_run"`
+	Redacted      bool             `json:"redacted,omitempty"`
 	ProjectSource string           `json:"project_source,omitempty"`
 	DBPath        string           `json:"db_path,omitempty"`
 	Total         int64            `json:"total"`

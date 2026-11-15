@@ -26,6 +26,9 @@
         "dry_run": {
           "type": "boolean"
         },
+        "redacted": {
+          "type": "boolean"
+        },
         "project_source": {
           "type": "string"
         },
