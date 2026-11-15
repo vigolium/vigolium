@@ -15,6 +15,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/ingestor"
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/internal/scratch"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -43,7 +44,9 @@ Two modes:
   • Remote — POSTs to a running 'vigolium server' via -s/--server (requires VIGOLIUM_API_KEY)
 
 Stdin and -i auto-detect the content shape: a URL list, a raw HTTP request,
-a Burp request/response pair (split by '***'), or a curl command. Inputs that
+a Burp request/response pair (split by '***'), a curl command, or any of the
+file formats (HAR, OpenAPI, Postman, Burp XML, ...); -I pins the format for
+either. Stdin is spooled to a temporary file and read like -i <file>. Inputs that
 already carry a response (Burp pair, HAR, …) are stored as-is — no live
 refetch — so the response you pasted is what lands in the database.`,
 	Args: cobra.NoArgs,
@@ -142,6 +145,20 @@ func runIngestCmd(cmd *cobra.Command, args []string) error {
 		if ingestOpts.Input == "-" {
 			ingestOpts.Input = ""
 		}
+	}
+
+	// Stdin is spooled to a scratch file and ingested as that file, so -I and
+	// the file format detection (HAR, OpenAPI, Postman, Burp XML, ...) apply to
+	// piped input exactly as to -i <file>. The stdin path used to know only URL
+	// lists and single requests: a piped HAR stored nothing, and a piped
+	// OpenAPI document became requests to http://servers/ and http://paths/.
+	if ingestOpts.Input == "-" {
+		spooled, cleanup, err := spoolIngestStdin()
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		ingestOpts.Input = spooled
 	}
 
 	// Validate mutual exclusivity: -t/--target and --spec-url cannot both be set
@@ -679,6 +696,29 @@ func noteIngestNoRefetch(stored int64) {
 	}
 	fmt.Fprintf(os.Stderr, "%s Saved %d record(s) with attached response (no refetch)\n",
 		terminal.InfoSymbol(), stored)
+}
+
+// spoolIngestStdin copies stdin (bounded by the stdin limit and
+// --input-read-timeout) into a scratch file and returns its path and a cleanup.
+func spoolIngestStdin() (string, func(), error) {
+	data, err := readStdin()
+	if err != nil {
+		return "", func() {}, fmt.Errorf("failed to read ingest input from stdin: %w", err)
+	}
+	f, err := scratch.CreateTemp("ingest-stdin-*")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("spool stdin: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(f.Name()) }
+	_, werr := f.Write(data)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		cleanup()
+		return "", func() {}, fmt.Errorf("spool stdin: %w", werr)
+	}
+	return f.Name(), cleanup, nil
 }
 
 // tryPreloadAutoDetect peeks at stdin or file content to recognize a single
