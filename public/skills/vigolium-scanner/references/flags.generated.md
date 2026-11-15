@@ -2635,7 +2635,7 @@ Serve the REST API, ingest live traffic, and scan it as it arrives
 | `--no-agent` | - | bool | `false` | Disable all agent endpoints and warm session pooling |
 | `--no-auth` | `-A` | bool | `false` | Run server without API key authentication (loopback --host only, unless --allow-unauthenticated-bind) |
 | `--no-swagger` | - | bool | `false` | Disable Swagger UI and API spec endpoint |
-| `--output` | `-o` | string | - | Write findings to specified output file |
+| `--output` | `-o` | string | - | Append findings to this file as JSON lines while scan-on-receive finds them |
 | `--passive-only` | - | bool | `false` | With --scan-on-receive, run passive modules only (no active scan traffic; includes secret detection) |
 | `--proxy-allow` | - | stringArray | - | Accept ingest-proxy clients only from this CIDR or IP (repeatable; config server.ingest_proxy_allow) |
 | `--proxy-insecure` | - | bool | `false` | When intercepting HTTPS (--proxy-mitm), skip verification of the upstream server's TLS certificate |
