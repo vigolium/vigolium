@@ -184,6 +184,15 @@ func TestOutputBudgetSendingCommandHasNoNextOffset(t *testing.T) {
 	requireBudgetApplied(t, read, 600)
 	_, parsed = decodeBudgeted(t, read)
 	require.Contains(t, parsed[outputBudgetKey], "next_offset")
+
+	// An unpaged read has no --offset to follow either; its full_result says
+	// why, in the words its Shape declares.
+	unpaged := newAgentEnvelope("dns", "", budgetItems(10, 64), 10, 0, 10)
+	requireBudgetApplied(t, unpaged, 600)
+	_, parsed = decodeBudgeted(t, unpaged)
+	report = parsed[outputBudgetKey].(map[string]any)
+	require.NotContains(t, report, "next_offset")
+	require.Contains(t, report["full_result"], commandTraits["dns"].Shape.Reason)
 }
 
 // replay rows carry the replayed status and length at the top level.

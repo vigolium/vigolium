@@ -104,11 +104,11 @@ type OutputBudget struct {
 	MaxBytes int `json:"max_bytes"`
 	Returned int `json:"returned"`
 	Omitted  int `json:"omitted"`
-	// NextOffset is the --offset of the next page. Absent on a command that
-	// sends requests, where FullResult says how to get every row instead.
+	// NextOffset is the --offset of the next page. Absent when there is no
+	// next page to follow, where FullResult says how to get every row instead.
 	NextOffset *int `json:"next_offset,omitempty"`
-	// FullResult replaces NextOffset on a command that sends requests: a
-	// second page would send them again.
+	// FullResult replaces NextOffset on a command that sends requests (a
+	// second page would send them again) or does not page at all; it says why.
 	FullResult string `json:"full_result,omitempty"`
 	// DroppedKeys names the top-level keys emptied (set to null) to fit the
 	// budget, in the order they were dropped, before any item was cut.

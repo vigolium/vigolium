@@ -89,7 +89,10 @@ vigolium traffic -j --full-body --max-output-bytes 65536
 
   Resume with `--offset <next_offset>`. `total` still describes the whole result
   set, so a page cut by bytes reports exactly as one cut by `-n` does — including
-  `complete: false` in the `-o` receipt.
+  `complete: false` in the `-o` receipt. A command that sends requests or does
+  not page (`fuzz`, `replay`, `dns`, `match-not-found`, the scan document) gets
+  `full_result` instead of `next_offset`: why there is no next page, and to use
+  `-o <file>` for every row.
 - A budget too small for the envelope's fixed parts fails with exit `1` and
   `error.code: "output_too_large"` rather than emitting an over-budget document.
 - It requires `-j/--json` (exit `2` otherwise): a silently ignored budget is

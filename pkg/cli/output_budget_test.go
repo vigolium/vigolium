@@ -260,8 +260,18 @@ func TestOutputBudgetFlagRegisteredOnReadCommands(t *testing.T) {
 // largest that fits, which is the definition the function is supposed to meet.
 func TestOutputBudgetSearchIsMaximalAndUnderBudget(t *testing.T) {
 	rng := rand.New(rand.NewSource(20261003))
+	prevPretty, prevLegacy := globalPretty, globalJSONLegacyKeys
+	t.Cleanup(func() { globalPretty, globalJSONLegacyKeys = prevPretty, prevLegacy })
 
-	for trial := 0; trial < 300; trial++ {
+	for trial := 0; trial < 600; trial++ {
+		// The search estimates from per-item sizes; --pretty and the legacy
+		// alias make that estimate inexact, which the final encode must catch.
+		globalPretty = trial%3 == 1
+		globalJSONLegacyKeys = trial%3 == 2
+		legacyKey := "findings"
+		if trial%6 == 5 {
+			legacyKey = "."
+		}
 		n := 1 + rng.Intn(12)
 		items := make([]map[string]any, 0, n)
 		for i := range n {
@@ -275,7 +285,7 @@ func TestOutputBudgetSearchIsMaximalAndUnderBudget(t *testing.T) {
 		budget := 1 + rng.Intn(4000)
 		want := -1
 		for k := n; k >= 0; k-- {
-			ref := newAgentEnvelope("finding", "findings", items[:k], int64(n), 0, 100)
+			ref := newAgentEnvelope("finding", legacyKey, items[:k], int64(n), 0, 100)
 			ref.With(outputBudgetKey, map[string]any{
 				"max_bytes": budget, "returned": k, "omitted": n - k, "next_offset": k,
 			})
@@ -289,7 +299,7 @@ func TestOutputBudgetSearchIsMaximalAndUnderBudget(t *testing.T) {
 
 		// One envelope for both: newAgentEnvelope stamps generated_at, so a second
 		// one would differ from the first by a millisecond and never compare equal.
-		env := newAgentEnvelope("finding", "findings", items, int64(n), 0, 100)
+		env := newAgentEnvelope("finding", legacyKey, items, int64(n), 0, 100)
 		full, err := encodeAgentJSON(env)
 		require.NoError(t, err)
 

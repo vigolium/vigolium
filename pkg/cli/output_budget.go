@@ -61,11 +61,15 @@ func validateOutputBudgetFlag(jsonRequested bool) error {
 // applyOutputBudget trims an envelope's items so the encoded document fits
 // within maxOutputBytes, and records what it dropped.
 //
-// It measures with the REAL encoder — same indentation, same escaping, same
-// legacy-key duplication — because every one of those changes the size, and a
-// budget enforced against an estimate is a budget that is sometimes exceeded.
-// That makes each measurement a full encode, so the search is a binary one:
-// ~log2(n) encodes rather than n.
+// What it returns is measured with the REAL encoder — same indentation, same
+// escaping, same legacy-key duplication — because every one of those changes
+// the size, and a budget enforced against an estimate is a budget that is
+// sometimes exceeded. The search itself runs on an estimate that does not
+// re-encode the rows: each item is marshalled once, and a k-item document is
+// the item-free document (with its k-item report) plus the first k item
+// sizes. In the default compact encoding that sum is exact, so the winner
+// costs one full encode; when it is not (--pretty, a flattened legacy alias)
+// the final encode catches it and a search over full encodes finishes the job.
 //
 // Total is deliberately left alone. It describes the result set, not the page,
 // and leaving it is what makes resultIsPaged and the -o receipt report
@@ -95,6 +99,7 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 	// Droppable extras emptied so far, with their values for restore.
 	var dropped []string
 	saved := map[string]any{}
+	followable, fullResult := budgetFollowUp(env.Command)
 
 	// restore undoes everything a measurement did, so a trial encode can never
 	// leak into the emitted document.
@@ -110,31 +115,28 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 	// Every candidate carries its own output_budget object, so a measurement
 	// includes the bytes the report itself costs — measuring without it and
 	// attaching it afterwards is how a budget gets exceeded by the very field
-	// that announces the budget.
-	apply := func(k int) {
-		env.Items = items.Slice(0, k).Interface()
+	// that announces the budget. rows is the item count actually placed (k,
+	// or 0 for an item-free estimate).
+	apply := func(k, rows int) {
+		env.Items = items.Slice(0, rows).Interface()
 		report := map[string]any{
 			"max_bytes": budget,
 			"returned":  k,
 			"omitted":   n - k,
 		}
-		// A second page of a command that sends would send again, so it gets
-		// no offset to follow, only where the whole result can go instead.
-		if commandTraits[env.Command].SendsTraffic {
-			report["full_result"] = sendingBudgetHint
-		} else {
+		if followable {
 			report["next_offset"] = env.Offset + k
+		} else {
+			report["full_result"] = fullResult
 		}
 		if len(dropped) > 0 {
 			report["dropped_keys"] = slices.Clone(dropped)
 		}
 		env.With(outputBudgetKey, report)
 	}
-	// measure is apply plus the encode that answers "does it fit". Split from
-	// apply so the winning state can be restored at the end without paying for
-	// one more full encode of a document that has already been measured.
+	// measure is apply plus the encode that answers "does it fit".
 	measure := func(k int) ([]byte, bool, error) {
-		apply(k)
+		apply(k, k)
 		doc, err := encodeAgentJSON(env)
 		if err != nil {
 			return nil, false, err
@@ -152,6 +154,25 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 		return doc, nil
 	}
 
+	// itemBytes[k] is what the first k items add to the item-free document.
+	itemBytes, err := prefixItemBytes(items, legacyRowsRendered(env))
+	if err != nil {
+		return nil, err
+	}
+	// estimate is the size of the k-item document without encoding a row.
+	estimate := func(k int) (int, error) {
+		apply(k, 0)
+		base, err := encodeAgentJSON(env)
+		if err != nil {
+			return 0, err
+		}
+		return len(base) + itemBytes[k], nil
+	}
+	fail := func(err error) ([]byte, error) {
+		restore()
+		return nil, err
+	}
+
 	// Bulky context goes before any item does: a scan document's plan and
 	// per-target tables are the same on every poll and can be read again
 	// (scan status, finding --scan-uuid); its findings are the answer.
@@ -163,10 +184,16 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 		saved[key] = v
 		env.extra[key] = nil
 		dropped = append(dropped, key)
+		size, err := estimate(n)
+		if err != nil {
+			return fail(err)
+		}
+		if size > budget {
+			continue
+		}
 		doc, fits, err := measure(n)
 		if err != nil {
-			restore()
-			return nil, err
+			return fail(err)
 		}
 		if fits {
 			return doc, nil
@@ -176,10 +203,9 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 	// The empty-item document is the floor: envelope metadata, the budget
 	// report, and whatever else the command attached. If that alone is over
 	// budget, no prefix can help — this is a budget too small to answer at all.
-	best, empty, err := measure(0)
+	floor, empty, err := measure(0)
 	if err != nil {
-		restore()
-		return nil, err
+		return fail(err)
 	}
 	if !empty {
 		restore()
@@ -192,21 +218,48 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 			budget, emptied)
 	}
 
-	// Largest k in [0, n) whose document fits. lo always fits, hi never does —
-	// n itself is known not to fit from the full encode above. best tracks lo's
-	// document, so the search already holds the bytes it ends up choosing.
+	// Largest k in [0, n) whose estimate fits. n itself is known not to fit
+	// from the full encode above.
 	lo, hi := 0, n
 	for hi-lo > 1 {
 		mid := lo + (hi-lo)/2
-		candidate, ok, err := measure(mid)
+		size, err := estimate(mid)
 		if err != nil {
-			restore()
-			return nil, err
+			return fail(err)
 		}
-		if ok {
-			lo, best = mid, candidate
+		if size <= budget {
+			lo = mid
 		} else {
 			hi = mid
+		}
+	}
+
+	// Confirm the winner with the real encoder. Where the estimate is not
+	// exact, search [0, lo] with full encodes: 0 always fits (the floor), and
+	// best tracks the fitting document so the search ends holding its bytes.
+	best := floor
+	if lo > 0 {
+		doc, fits, err := measure(lo)
+		if err != nil {
+			return fail(err)
+		}
+		if fits {
+			best = doc
+		} else {
+			hi = lo
+			lo = 0
+			for hi-lo > 1 {
+				mid := lo + (hi-lo)/2
+				candidate, ok, err := measure(mid)
+				if err != nil {
+					return fail(err)
+				}
+				if ok {
+					lo, best = mid, candidate
+				} else {
+					hi = mid
+				}
+			}
 		}
 	}
 
@@ -222,8 +275,55 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 
 	// Re-apply the winner: the last probe was not necessarily lo. No encode —
 	// best is already that document.
-	apply(lo)
+	apply(lo, lo)
 	return best, nil
+}
+
+// prefixItemBytes marshals each item once and returns, for every k, the bytes
+// the first k items add to an item-free document: the items themselves and
+// the commas between them, twice when the legacy alias repeats the rows.
+// Each item is marshalled as a one-element slice of its own type, so the
+// encoder treats it exactly as it does inside the full slice.
+func prefixItemBytes(items reflect.Value, legacyCopy bool) ([]int, error) {
+	n := items.Len()
+	out := make([]int, n+1)
+	for i := range n {
+		raw, err := jsonMarshalNoEscape(items.Slice(i, i+1).Interface())
+		if err != nil {
+			return nil, err
+		}
+		size := len(raw) - 2 // the one-element slice's brackets
+		if i > 0 {
+			size++ // the comma before it
+		}
+		if legacyCopy {
+			size *= 2
+		}
+		out[i+1] = out[i] + size
+	}
+	return out, nil
+}
+
+// legacyRowsRendered reports whether the --json-legacy-keys alias repeats the
+// row list under its old name.
+func legacyRowsRendered(env *agentEnvelope) bool {
+	return env.legacyKey != "" && env.legacyKey != "." && jsonLegacyKeysEnabled()
+}
+
+// budgetFollowUp says how a caller reaches the rows a budget cut: the next
+// --offset when the command pages and re-running it sends nothing, else a
+// full_result note saying why there is no next page and where every row can
+// go instead.
+func budgetFollowUp(command string) (followable bool, fullResult string) {
+	t := commandTraits[command]
+	if !t.SendsTraffic && t.Shape.Paging != pagingNone {
+		return true, ""
+	}
+	reason := sendingBudgetReason
+	if t.Shape.Paging == pagingNone && t.Shape.Reason != "" {
+		reason = t.Shape.Reason
+	}
+	return false, reason + budgetFullResultRemedy
 }
 
 // inMemoryOffset backs --offset on the commands that build their whole result
@@ -248,8 +348,13 @@ func pageFromOffset[T any](rows []T, offset int) ([]T, error) {
 	return rows[offset:], nil
 }
 
-// sendingBudgetHint is output_budget.full_result on a command that sends.
-const sendingBudgetHint = "this command sends requests: re-running it for the next page would send them again; re-run with -o <file> to keep every row, or narrow each row with --fields/--compact"
+// output_budget.full_result is a reason the rest cannot be paged plus the
+// remedy. A command that sends and declares no reason of its own gets
+// sendingBudgetReason.
+const (
+	sendingBudgetReason    = "this command sends requests: re-running it for the next page would send them again"
+	budgetFullResultRemedy = "; re-run with -o <file> to keep every row, or narrow each row with --fields/--compact"
+)
 
 // outputBudgetKey names the report the budget pass attaches. A caller reads it
 // to learn that the page it holds was cut by bytes rather than by -n/--limit.
