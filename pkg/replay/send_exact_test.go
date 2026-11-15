@@ -48,7 +48,7 @@ func TestSendRawExactAndRedirects(t *testing.T) {
 	}
 
 	sum = SendRaw(context.Background(), client, raw, "http", hostname, p, true, 0)
-	if sum.Redirects != 0 || sum.FinalURL != "" || sum.Status != http.StatusFound {
+	if sum.Redirects != 0 || !strings.HasSuffix(sum.FinalURL, "/start") || sum.Status != http.StatusFound {
 		t.Errorf("no-redirects: %+v", sum)
 	}
 
