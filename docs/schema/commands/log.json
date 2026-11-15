@@ -63,6 +63,7 @@
             "preflight_failed",
             "project_not_found",
             "provider_missing",
+            "provider_unreachable",
             "proxy_auth_required",
             "queue_full",
             "rate_limited",
