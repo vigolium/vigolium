@@ -1,5 +1,17 @@
 [
   {
+    "name": "config env",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Every VIGOLIUM_* variable the binary reads: set or not, value (credentials redacted), the settings key it overrides."
+  },
+  {
+    "name": "config ls",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Every settable key with its typed value (string credentials redacted), default, type and source layer (default, file, env:NAME, project, flag)."
+  },
+  {
     "name": "db clean",
     "kind": "command",
     "envelope_kind": "mutation",

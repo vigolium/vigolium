@@ -34,6 +34,7 @@ run `vigolium <command> -h`.
 - [vigolium auth totp](#vigolium-auth-totp)
 - [vigolium config](#vigolium-config)
 - [vigolium config clean](#vigolium-config-clean)
+- [vigolium config env](#vigolium-config-env)
 - [vigolium config ls](#vigolium-config-ls)
 - [vigolium config set](#vigolium-config-set)
 - [vigolium config validate](#vigolium-config-validate)
@@ -608,6 +609,17 @@ Reset Vigolium to a clean state
 
 _No command-specific flags._
 
+## vigolium config env
+
+Usage: `vigolium config env [filter]`
+
+List the VIGOLIUM_* environment variables the binary reads
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--set` | - | bool | `false` | List only the variables set in this environment |
+| `--show-secrets` | - | bool | `false` | Reveal sensitive values in plaintext instead of [redacted] |
+
 ## vigolium config ls
 
 Usage: `vigolium config ls [filter]`
@@ -618,6 +630,7 @@ Display current configuration
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--effective` | - | bool | `false` | List only the keys a layer set (file, env:NAME, project, flag), each with its source |
 | `--show-secrets` | - | bool | `false` | Reveal sensitive values (API keys, tokens, credentials) in plaintext instead of [redacted]; prints a warning to stderr |
 
 ## vigolium config set
@@ -2428,7 +2441,7 @@ Set a scope rule
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--project` | - | string | - | Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix) |
+| `--project` | - | string | - | Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix); the global --project-uuid/--project-name flags do the same |
 
 ## vigolium scope view
 
