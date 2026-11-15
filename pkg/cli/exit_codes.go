@@ -9,6 +9,8 @@ import (
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
+	"github.com/vigolium/vigolium/pkg/fuzz"
+	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
@@ -224,6 +226,14 @@ func classifyExitCode(err error) int {
 	// once the extension engine has loaded, but it is still a mistyped flag value
 	// and fails before any phase sends traffic.
 	if errors.Is(err, runner.ErrUnknownExtensionModule) {
+		return ExitUsageError
+	}
+	// A rejected --only/--skip (an unknown phase, both flags at once).
+	if errors.Is(err, runner.ErrPhaseSelection) {
+		return ExitUsageError
+	}
+	// -I naming no input format; a fuzz run with no payload source.
+	if errors.Is(err, source.ErrUnknownFormat) || errors.Is(err, fuzz.ErrNoPayloads) {
 		return ExitUsageError
 	}
 	return ExitError

@@ -111,7 +111,7 @@ func resolveEvalSource(args []string) (string, error) {
 	}
 
 	if inputs == 0 {
-		return "", fmt.Errorf("no input provided; use a positional argument, --ext-file, or --stdin")
+		return "", usageErrorf("no input provided; use a positional argument, --ext-file, or --stdin")
 	}
 	if inputs > 1 {
 		return "", fmt.Errorf("multiple inputs provided; use only one of: positional argument, --ext-file, or --stdin")

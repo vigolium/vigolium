@@ -3,6 +3,7 @@ package fuzz
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -28,6 +29,9 @@ var builtinWordlists = map[string]string{
 
 // PayloadClasses returns the built-in vulnerability-class names accepted by
 // LoadPayloads' classes argument (and `vigolium fuzz --class`).
+// ErrNoPayloads is a fuzz run given no payload source.
+var ErrNoPayloads = errors.New("no payloads: supply -w/--wordlist, --class, or -p/--payload")
+
 func PayloadClasses() []string {
 	return payloads.Classes()
 }
@@ -84,7 +88,7 @@ func LoadPayloads(wordlistRefs, classes, inline []string) ([]string, error) {
 	}
 
 	if len(out) == 0 {
-		return nil, fmt.Errorf("no payloads: supply -w/--wordlist, --class, or -p/--payload")
+		return nil, ErrNoPayloads
 	}
 	return out, nil
 }

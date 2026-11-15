@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -364,7 +365,7 @@ func parseOnlyPhases(raw string) (map[string]bool, []string, error) {
 		}
 		n := NormalizeNativePhase(p)
 		if !IsOnlyPhaseSpelling(n) {
-			return nil, nil, fmt.Errorf("invalid --only value %q; valid phases: %s", p, ValidOnlyPhasesDesc)
+			return nil, nil, phaseSelectionErrorf("invalid --only value %q; valid phases: %s", p, ValidOnlyPhasesDesc)
 		}
 		if !allowed[n] {
 			allowed[n] = true
@@ -372,7 +373,7 @@ func parseOnlyPhases(raw string) (map[string]bool, []string, error) {
 		}
 	}
 	if len(allowed) == 0 {
-		return nil, nil, fmt.Errorf("--only requires at least one phase; valid phases: %s", ValidOnlyPhasesDesc)
+		return nil, nil, phaseSelectionErrorf("--only requires at least one phase; valid phases: %s", ValidOnlyPhasesDesc)
 	}
 	return allowed, normalized, nil
 }
@@ -447,12 +448,27 @@ func IsSkippablePhaseSpelling(s string) bool {
 	return ok && p.Skippable
 }
 
+// ErrPhaseSelection marks a rejected --only/--skip selection: a misuse of the
+// command line, which the CLI reports as a usage error (exit 2).
+var ErrPhaseSelection = errors.New("invalid phase selection")
+
+// phaseSelectionError is a rejected selection; errors.Is matches
+// ErrPhaseSelection without the sentinel's text in the message.
+type phaseSelectionError struct{ msg string }
+
+func (e phaseSelectionError) Error() string        { return e.msg }
+func (e phaseSelectionError) Is(target error) bool { return target == ErrPhaseSelection }
+
+func phaseSelectionErrorf(format string, args ...any) error {
+	return phaseSelectionError{msg: fmt.Sprintf(format, args...)}
+}
+
 // ApplyNativePhaseSelection resolves --only / --skip onto opts. setExtensions
 // is how the caller's settings learn the extension decision: called with true
 // when --only lists extension, false on --skip extension. It may be nil.
 func ApplyNativePhaseSelection(opts *types.Options, setExtensions func(enabled bool)) error {
 	if opts.OnlyPhase != "" && len(opts.SkipPhases) > 0 {
-		return fmt.Errorf("--only and --skip are mutually exclusive; use one or the other")
+		return phaseSelectionErrorf("--only and --skip are mutually exclusive; use one or the other")
 	}
 
 	for i := range opts.SkipPhases {
@@ -546,7 +562,7 @@ func ApplyNativePhaseSelection(opts *types.Options, setExtensions func(enabled b
 			case "preflight":
 				opts.SkipPreflight = true
 			default:
-				return fmt.Errorf("invalid --skip value %q; valid phases: %s", phase, ValidSkipPhasesDesc)
+				return phaseSelectionErrorf("invalid --skip value %q; valid phases: %s", phase, ValidSkipPhasesDesc)
 			}
 		}
 	}
@@ -566,7 +582,7 @@ func validateOnlyRespider(allowed map[string]bool) error {
 	if allowed["spidering"] && (allowed["discovery"] || allowed["ingestion"]) {
 		return nil
 	}
-	return fmt.Errorf("--only targeted-respider re-crawls what discovery found after spidering; " +
+	return phaseSelectionErrorf("--only targeted-respider re-crawls what discovery found after spidering; " +
 		"list them with it: --only discovery,spidering,targeted-respider")
 }
 

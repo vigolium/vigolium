@@ -990,7 +990,7 @@ func resolveFuzzSource(ctx context.Context, args []string) (*replaySource, error
 		if ok {
 			return sourceFromInputString(ctx, repo, data, "")
 		}
-		return nil, fmt.Errorf("no source: pass a URL, --input, --record-uuid, or pipe a request on stdin")
+		return nil, usageErrorf("no source: pass a URL, --input, --record-uuid, or pipe a request on stdin")
 	}
 }
 

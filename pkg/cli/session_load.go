@@ -106,7 +106,7 @@ func runSessionLoad(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to read from stdin: %w", err)
 		}
 		if len(data) == 0 {
-			return fmt.Errorf("no input provided on stdin")
+			return usageErrorf("no input provided on stdin")
 		}
 	} else {
 		name = args[0]

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -45,7 +44,7 @@ func parseDateRangeFlags(from, to, fromFlag, toFlag string) (*time.Time, *time.T
 		dateTo = &t
 	}
 	if dateFrom != nil && dateTo != nil && dateTo.Before(*dateFrom) {
-		return nil, nil, fmt.Errorf(
+		return nil, nil, usageErrorf(
 			"%s (%s) is before %s (%s) — the range matches nothing",
 			toFlag, clicommon.FormatTimeFilter(*dateTo),
 			fromFlag, clicommon.FormatTimeFilter(*dateFrom))

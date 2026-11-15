@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -66,6 +67,9 @@ type FileSourceConfig struct {
 }
 
 // NewFileSource creates a new FileSource for the given file and format.
+// ErrUnknownFormat marks an input format name that no source handles.
+var ErrUnknownFormat = errors.New("unknown input format")
+
 func NewFileSource(cfg FileSourceConfig) (*FileSource, error) {
 	format, err := resolveFormat(cfg.Format)
 	if err != nil {
@@ -252,7 +256,7 @@ func resolveFormat(name string) (formats.Format, error) {
 	if e, ok := lookupFormat(name); ok {
 		return e.newParser(), nil
 	}
-	return nil, fmt.Errorf("unknown input format %q; supported formats: %s (see 'vigolium scan --list-input-mode')", name, SupportedFormats())
+	return nil, fmt.Errorf("%w %q; supported formats: %s (see 'vigolium scan --list-input-mode')", ErrUnknownFormat, name, SupportedFormats())
 }
 
 // NewParser returns a fresh parser for the given format name or alias, for
