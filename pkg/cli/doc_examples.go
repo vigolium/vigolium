@@ -55,7 +55,7 @@ type docLine struct {
 // count.
 func cobraDocCommands(root *cobra.Command) []docCommand {
 	var out []docCommand
-	walkCommandTree(root, func(c *cobra.Command) {
+	walkTree(root, func(c *cobra.Command) {
 		if c.Example != "" {
 			src := c.CommandPath() + " (Example)"
 			lines := strings.Split(terminal.StripANSI(c.Example), "\n")
@@ -745,14 +745,6 @@ func docIsVigoliumBinary(w string) bool {
 	return strings.HasSuffix(w, "/bin/vigolium")
 }
 
-// walkCommandTree calls fn on c and every command below it.
-func walkCommandTree(c *cobra.Command, fn func(*cobra.Command)) {
-	fn(c)
-	for _, sub := range c.Commands() {
-		walkCommandTree(sub, fn)
-	}
-}
-
 // docSkillFile is one markdown file of the embedded skill bundle.
 type docSkillFile struct {
 	path string // path inside public.StaticFS
@@ -859,7 +851,7 @@ func ReadOnlyDocExample(ex DocExample) (path, why string) {
 	case t.Kind != kindRead:
 		return path, "kind " + string(t.Kind)
 	case t.DB != dbRead:
-		return path, "db intent " + t.DB
+		return path, "db intent " + t.DB.String()
 	case t.SendsTraffic:
 		return path, "sends traffic"
 	}

@@ -103,19 +103,6 @@ func bytesSplitComma(s string) []string {
 	return out
 }
 
-// TestDerivedTraitViews: the per-concern tables the package reads are views of
-// commandTraits, so they name exactly its commands.
-func TestDerivedTraitViews(t *testing.T) {
-	require.Len(t, machineKinds, len(commandTraits))
-	require.Len(t, dbIntents, len(commandTraits))
-	require.Len(t, MachineContractCommands(), len(commandTraits))
-	for path, tr := range commandTraits {
-		require.Equal(t, tr.Kind, machineKinds[path], path)
-		require.Equal(t, tr.DB, dbIntents[path], path)
-		require.Equal(t, tr.SendsTraffic, sendsTrafficCommands[path], path)
-	}
-}
-
 // TestGenericShapingModuleLs: module ls had no shaping at all; the generic
 // pass gives it --fields, --compact, -n/--offset and applies them.
 func TestGenericShapingModuleLs(t *testing.T) {

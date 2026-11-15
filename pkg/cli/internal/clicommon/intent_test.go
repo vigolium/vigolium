@@ -194,12 +194,4 @@ func TestOpenIntentServes(t *testing.T) {
 			t.Errorf("%v.serves(%v) = %v, want %v", c.have, c.want, got, c.ok)
 		}
 	}
-	for _, s := range []string{"read", "write", "evidence"} {
-		if i, ok := ParseOpenIntent(s); !ok || i.String() != s {
-			t.Errorf("ParseOpenIntent(%q) round trip = %v, %v", s, i, ok)
-		}
-	}
-	if _, ok := ParseOpenIntent("none"); ok {
-		t.Error(`"none" is not an open intent`)
-	}
 }

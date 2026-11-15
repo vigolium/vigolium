@@ -20,45 +20,38 @@ import (
 // the declaration is required rather than defaulted.
 func TestDBIntentCoverage(t *testing.T) {
 	prepareCommandTree(rootCmd)
-	applyDBIntentAnnotations(rootCmd)
 
 	seen := map[string]bool{}
-	walkCommandTree(rootCmd, func(c *cobra.Command) {
+	walkTree(rootCmd, func(c *cobra.Command) {
 		path := commandPathWithoutRoot(c)
 		seen[path] = true
 		if !c.Runnable() {
 			return
 		}
-		v, ok := c.Annotations[dbIntentAnnotation]
+		tr, ok := commandTraits[path]
 		if !ok {
-			t.Errorf("command %q has no %s annotation: add it to commandTraits (command_traits.go) with DB read, write or none",
-				path, dbIntentAnnotation)
+			t.Errorf("command %q is not in commandTraits (command_traits.go): add it with DB dbRead, dbWrite or dbNone", path)
 			return
 		}
-		if _, valid := clicommon.ParseOpenIntent(v); !valid && v != dbIntentNone {
-			t.Errorf("command %q declares db intent %q; want read, write or none", path, v)
+		if tr.DB == dbUndeclared {
+			t.Errorf("command %q declares no DB intent; want dbRead, dbWrite or dbNone", path)
 		}
 	})
 
-	for path := range dbIntents {
+	for path := range commandTraits {
 		if seen[path] || path == "help" || strings.HasPrefix(path, "completion") {
 			continue // cobra adds help/completion at Execute time
 		}
-		t.Errorf("dbIntents names %q, which is not a command: remove the stale entry", path)
+		t.Errorf("commandTraits names %q, which is not a command: remove the stale entry", path)
 	}
 }
 
-// TestDBIntentReadCommandsAgreeWithReadOnlyList: the read-only-capable commands
-// are, by their own contract, the ones that never write — so each must open the
-// read pool, except the two network commands that declare write on purpose.
-func TestDBIntentReadCommandsAgreeWithReadOnlyList(t *testing.T) {
-	for _, path := range readOnlyCapableCommands {
-		want := "read"
-		if path == "replay" || path == "fuzz" {
-			want = "write"
-		}
-		if got := dbIntents[path]; got != want {
-			t.Errorf("dbIntents[%q] = %q, want %q", path, got, want)
+// TestReadOnlyCommandsOpenTheReadPool: a ReadOnly command never writes, so it
+// opens the read pool — except a network command, which records what it sends.
+func TestReadOnlyCommandsOpenTheReadPool(t *testing.T) {
+	for path, tr := range commandTraits {
+		if tr.ReadOnly && tr.DB != dbRead && !tr.SendsTraffic {
+			t.Errorf("%q accepts --read-only but declares DB %s", path, tr.DB)
 		}
 	}
 }
@@ -67,7 +60,6 @@ func TestDBIntentReadCommandsAgreeWithReadOnlyList(t *testing.T) {
 // or a writer. --save-to-vigolium-db turns a traffic read into a write.
 func TestResolveDBIntent_WriteFlagsFlip(t *testing.T) {
 	prepareCommandTree(rootCmd)
-	applyDBIntentAnnotations(rootCmd)
 
 	traffic, _, err := rootCmd.Find([]string{"traffic"})
 	if err != nil {

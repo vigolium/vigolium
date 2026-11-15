@@ -414,25 +414,12 @@ func init() {
 	pf.StringVar(&globalProjectName, "project-name", "", "Project name to scope all operations to (must match exactly one project). Also honors $VIGOLIUM_PROJECT_NAME")
 }
 
-// memLimitCommands are the command paths (not leaf names: `extensions run` is
-// not `run`) that drive a native scan and so get an auto soft heap ceiling. The
-// long-running server and the ingest proxy are intentionally excluded — they
-// manage their own concurrency and lifetime.
-var memLimitCommands = map[string]bool{
-	"scan":            true,
-	"scan-url":        true,
-	"scan-request":    true,
-	"run":             true,
-	"agent autopilot": true,
-	"agent swarm":     true,
-}
-
 // applyScanMemLimit derives and applies the GOMEMLIMIT soft ceiling for a
 // scan-driving command, logging a one-line note unless output is suppressed. A
 // no-op for other commands and for child processes that already inherited a
 // GOMEMLIMIT from the -P parent.
 func applyScanMemLimit(cmd *cobra.Command) {
-	if !memLimitCommands[commandPathWithoutRoot(cmd)] {
+	if t, _ := traitOf(cmd); !t.Runtime.has(rtMemLimit) {
 		return
 	}
 	res := memlimit.Apply(memlimit.Options{
@@ -459,14 +446,6 @@ func prepareCommandTree(root *cobra.Command) {
 	// kit's subcommands register from their own files' init(), after kit.go's,
 	// so its summary can only be derived once the tree is complete.
 	deriveKitShort()
-
-	// Stamp each command's declared -j output kind from the central table
-	// (command_traits.go); machine_contract_test.go checks the result.
-	applyMachineKinds(root)
-
-	// Stamp each command's declared database intent (db_intent.go): read
-	// commands open the query_only pool, never the write lock.
-	applyDBIntentAnnotations(root)
 
 	// A group answers an unknown subcommand with a usage error, and every
 	// positional-argument error exits 2 (command_tree_hooks.go). The group hook
@@ -747,15 +726,6 @@ func discoveredConfigFatal(cmd *cobra.Command) bool {
 	return !strings.HasPrefix(cmd.Name(), "__complete")
 }
 
-// statelessHomeCommands are the scan-driving command paths on which -S means
-// "write nothing to $HOME" (the read commands' -S only switches the store).
-var statelessHomeCommands = map[string]bool{
-	"scan":         true,
-	"run":          true,
-	"scan-url":     true,
-	"scan-request": true,
-}
-
 // applyStatelessHome enables the stateless home (internal/paths) for a -S
 // scan, rooted in this process's scratch directory.
 func applyStatelessHome(cmd *cobra.Command) error {
@@ -767,7 +737,7 @@ func applyStatelessHome(cmd *cobra.Command) error {
 	for top.Parent() != nil && top.Parent() != cmd.Root() {
 		top = top.Parent()
 	}
-	if !statelessHomeCommands[top.Name()] {
+	if t, _ := traitOf(top); !t.Runtime.has(rtStatelessHome) {
 		return nil
 	}
 	dir, err := scratch.MkdirTemp("stateless-home-*")

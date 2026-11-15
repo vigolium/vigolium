@@ -265,7 +265,7 @@ type moduleToggleExtras struct {
 // -j document's declared kind, so the two tables cannot disagree.
 func registerCommandSchema(c contract.Command) {
 	if c.Kind == "" {
-		c.Kind = envelopeKindForDeclared(machineKinds[c.Name])
+		c.Kind = envelopeKindForDeclared(commandTraits[c.Name].Kind)
 	}
 	contract.RegisterCommand(c)
 }

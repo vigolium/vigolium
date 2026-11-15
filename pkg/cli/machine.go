@@ -37,42 +37,6 @@ const (
 	kindInteractive machineKind = "interactive"
 )
 
-// machineAnnotation is the cobra annotation key carrying a command's kind. It
-// is applied from the central table by applyMachineKinds.
-const machineAnnotation = "vigolium.io/machine"
-
-// applyMachineKinds stamps every command in the tree with its declared kind
-// from machineKinds. Called from prepareCommandTree, once the tree is complete.
-// A command missing from the table is left unannotated; the contract test
-// fails on it, which is where an undeclared command should be caught.
-func applyMachineKinds(root *cobra.Command) {
-	var walk func(c *cobra.Command)
-	walk = func(c *cobra.Command) {
-		if k, ok := machineKinds[commandPathWithoutRoot(c)]; ok {
-			if c.Annotations == nil {
-				c.Annotations = map[string]string{}
-			}
-			c.Annotations[machineAnnotation] = string(k)
-		}
-		for _, sub := range c.Commands() {
-			walk(sub)
-		}
-	}
-	walk(root)
-}
-
-// machineKindOf returns the declared kind of cmd: the annotation when the tree
-// was prepared, the central table otherwise.
-func machineKindOf(cmd *cobra.Command) machineKind {
-	if cmd == nil {
-		return ""
-	}
-	if k, ok := cmd.Annotations[machineAnnotation]; ok {
-		return machineKind(k)
-	}
-	return machineKinds[commandPathWithoutRoot(cmd)]
-}
-
 // envOpt adjusts an envelope before it is written.
 type envOpt func(*agentEnvelope)
 

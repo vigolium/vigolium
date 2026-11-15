@@ -29,22 +29,6 @@ import (
 // legitimately has nothing to read yet and erroring there would be a regression
 // with no upside.
 
-// sourceMustExistExceptions are the read-only-capable commands that may still
-// bring a store into being: `replay` and `fuzz` are network commands that happen
-// to accept a stored request, and they record what they send, so a fresh store
-// is a legitimate outcome for them.
-//
-// Derived from readOnlyCapableCommands rather than re-listed, because the two
-// questions ("may this command promise not to write?" and "must this command
-// find a store already there?") differ only by these two names. Copying the
-// other ten would mean a new read command silently landing in one list and not
-// the other — and the failure that hides is exactly the one this file exists to
-// prevent: a pure read creating a 344 KB database at a typo'd --db.
-var sourceMustExistExceptions = map[string]bool{
-	"replay": true,
-	"fuzz":   true,
-}
-
 // applySourceMustExist arms the shared opener when the running command is a pure
 // read against an explicitly pinned source. Called from the root
 // PersistentPreRunE after applyDBPathEnv, so $VIGOLIUM_DB_PATH has already been
@@ -53,8 +37,10 @@ func applySourceMustExist(cmd *cobra.Command) {
 	if globalDB == "" {
 		return
 	}
-	path := commandPathWithoutRoot(cmd)
-	if !isReadOnlyCapable(path) || sourceMustExistExceptions[path] {
+	// The read-only-capable pure reads. replay and fuzz accept --read-only too,
+	// but they record what they send, so a fresh store is a legitimate outcome
+	// for them (they declare DB write).
+	if t, _ := traitOf(cmd); !t.ReadOnly || t.DB != dbRead {
 		return
 	}
 	// database.ExpandPath, not config.ExpandPath: the guard must resolve the path

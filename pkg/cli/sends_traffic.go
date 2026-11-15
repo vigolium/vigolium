@@ -11,7 +11,7 @@ import (
 
 // stampSendsTraffic marks a sending command's document.
 func stampSendsTraffic(env *agentEnvelope) {
-	if env != nil && sendsTrafficCommands[env.Command] {
+	if env != nil && commandTraits[env.Command].SendsTraffic {
 		env.With("sends_traffic", true)
 	}
 }
@@ -44,12 +44,13 @@ func CheckFollowUpArgv(root *cobra.Command, argv []string, sourceDB string) erro
 		return fmt.Errorf("query_argv arguments rejected: %q: %w", argv, err)
 	}
 	path := commandPathWithoutRoot(cmd)
-	switch machineKinds[path] {
+	t := commandTraits[path]
+	switch t.Kind {
 	case kindRead, kindStream:
 	default:
-		return fmt.Errorf("query_argv %q runs %q, which is not a read (kind %q)", argv, path, machineKinds[path])
+		return fmt.Errorf("query_argv %q runs %q, which is not a read (kind %q)", argv, path, t.Kind)
 	}
-	if sendsTrafficCommands[path] {
+	if t.SendsTraffic {
 		return fmt.Errorf("query_argv %q runs %q, which sends traffic", argv, path)
 	}
 	if sourceDB != "" {

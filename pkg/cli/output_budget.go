@@ -120,7 +120,7 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 		}
 		// A second page of a command that sends would send again, so it gets
 		// no offset to follow, only where the whole result can go instead.
-		if sendsTrafficCommands[env.Command] {
+		if commandTraits[env.Command].SendsTraffic {
 			report["full_result"] = sendingBudgetHint
 		} else {
 			report["next_offset"] = env.Offset + k

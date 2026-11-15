@@ -20,7 +20,7 @@ func TestFlagUsageHasNoBacktickVarname(t *testing.T) {
 	prepareCommandTree(rootCmd)
 
 	seen := map[*pflag.Flag]bool{}
-	walkCommandTree(rootCmd, func(c *cobra.Command) {
+	walkTree(rootCmd, func(c *cobra.Command) {
 		check := func(f *pflag.Flag) {
 			// Without a backtick the value name is the type name
 			// ("stringArray"), which pflag picks itself.
@@ -52,7 +52,7 @@ func TestFlagUsageHasNoBacktickVarname(t *testing.T) {
 func TestFailOnHelpListsEverySeverity(t *testing.T) {
 	want := "(" + strings.Join(severityOrder, "|") + ")"
 	seen := 0
-	walkCommandTree(rootCmd, func(c *cobra.Command) {
+	walkTree(rootCmd, func(c *cobra.Command) {
 		f := c.LocalFlags().Lookup("fail-on")
 		if f == nil {
 			return

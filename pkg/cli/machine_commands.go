@@ -9,9 +9,9 @@ package cli
 // (test/e2e/machine_contract_e2e_test.go), which must cover every leaf and
 // cannot reach the cobra tree from outside the package.
 func MachineContractCommands() map[string]string {
-	out := make(map[string]string, len(machineKinds))
-	for path, kind := range machineKinds {
-		out[path] = string(kind)
+	out := make(map[string]string, len(commandTraits))
+	for path, t := range commandTraits {
+		out[path] = string(t.Kind)
 	}
 	return out
 }
