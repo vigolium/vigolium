@@ -220,8 +220,22 @@ type HostObservationQuery struct {
 	Has string
 	// SoftNotFound keeps origins that answer 2xx/3xx to a missing path.
 	SoftNotFound bool
+	// ObservedFrom and ObservedTo bound observed_at (inclusive); nil is open.
+	ObservedFrom *time.Time
+	ObservedTo   *time.Time
 	Limit        int
 	Offset       int
+}
+
+// observedRange applies the observed_at bounds.
+func (q HostObservationQuery) observedRange(sel *bun.SelectQuery) *bun.SelectQuery {
+	if q.ObservedFrom != nil {
+		sel = sel.Where("ho.observed_at >= ?", *q.ObservedFrom)
+	}
+	if q.ObservedTo != nil {
+		sel = sel.Where("ho.observed_at <= ?", *q.ObservedTo)
+	}
+	return sel
 }
 
 // hostObservationHas maps a Has value to its predicate.
@@ -247,6 +261,7 @@ func (r *Repository) hostObservationQuery(q HostObservationQuery) (*bun.SelectQu
 	if q.ScanUUID != "" {
 		sel = sel.Where("ho.scan_uuid = ?", q.ScanUUID)
 	}
+	sel = q.observedRange(sel)
 	if p := strings.TrimSpace(q.HostPattern); p != "" {
 		if strings.Contains(p, "*") {
 			sel = sel.Where(WithLikeEscape("ho.hostname LIKE ?"), LikeGlob(strings.ToLower(p)))
@@ -288,6 +303,7 @@ func (r *Repository) hostObservationQuery(q HostObservationQuery) (*bun.SelectQu
 		if q.ScanUUID != "" {
 			latest = latest.Where("ho.scan_uuid = ?", q.ScanUUID)
 		}
+		latest = q.observedRange(latest)
 		sel = sel.Where("ho.id IN (?)", latest)
 	}
 	return sel, nil

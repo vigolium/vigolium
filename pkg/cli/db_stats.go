@@ -20,6 +20,8 @@ var (
 	statsDetailed bool
 	statsScanUUID string
 	statsHost     string
+	statsFrom     string
+	statsTo       string
 )
 
 func init() {
@@ -28,11 +30,17 @@ func init() {
 	dbStatsCmd.Flags().BoolVar(&statsDetailed, "detailed", false, "Show per-host and per-module breakdown")
 	dbStatsCmd.Flags().StringVar(&statsScanUUID, "scan-uuid", "", "Show statistics for a specific scan UUID")
 	dbStatsCmd.Flags().StringVar(&statsHost, "host", "", "Show statistics for a specific hostname")
+	registerTimeRangeFlags(dbStatsCmd, &statsFrom, &statsTo, "records sent, findings found and scans started")
 }
 
 func runDBStats(cmd *cobra.Command, args []string) error {
 	// Ensure database is closed on exit
 	defer closeDatabaseOnExit()
+
+	dateFrom, dateTo, err := parseDateRangeFlags(statsFrom, statsTo, timeFilterFromLabel, timeFilterToLabel)
+	if err != nil {
+		return err
+	}
 
 	// Get database connection
 	db, err := getDB()
@@ -51,6 +59,8 @@ func runDBStats(cmd *cobra.Command, args []string) error {
 			ProjectUUID: projectUUID,
 			HostPattern: statsHost,
 			ScanUUID:    statsScanUUID,
+			DateFrom:    dateFrom,
+			DateTo:      dateTo,
 		}
 
 		// Get statistics

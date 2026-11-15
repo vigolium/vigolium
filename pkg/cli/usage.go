@@ -409,7 +409,7 @@ var serverFlagGroups = []flagGroup{
 // exportFlagGroups categorizes `vigolium export`.
 var exportFlagGroups = []flagGroup{
 	{"Output Format", []string{"format", "output", "omit-response", "no-url-dedup"}},
-	{"Filter", []string{"search", "exclude", "severity", "scan-uuid", "only", "limit", "all-projects"}},
+	{"Filter", []string{"search", "exclude", "severity", "scan-uuid", "only", "limit", "all-projects", "from", "to"}},
 	{"Report Metadata", []string{"report-title", "report-target", "report-duration", "report-generated-at", "report-url", "max-body-bytes", "pdf-timeout", "no-redact"}},
 	{"Data Source", []string{"db", "stateless", "glob-db", "glob-strict"}},
 }

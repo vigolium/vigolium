@@ -37,6 +37,10 @@ var (
 	topExportReportURL    string
 	topExportScanUUIDs    []string
 
+	// topExportFrom and topExportTo bound every exported row by its own time.
+	topExportFrom string
+	topExportTo   string
+
 	// topExportAllProjects spans every project in the store instead of the
 	// active one.
 	topExportAllProjects bool
@@ -95,6 +99,7 @@ func init() {
 		"URL for the \"Raw Report URL\" button in HTML reports (overrides VIGOLIUM_REPORT_SHARED_URL)")
 	exportCmd.Flags().StringVar(&topExportSeverity, "severity", "",
 		"Filter findings by severity (comma-separated: critical,high,medium,low,info)")
+	registerTimeRangeFlags(exportCmd, &topExportFrom, &topExportTo, "rows recorded (records by sent_at, findings by found_at, scans by created_at, OAST by interacted_at)")
 	exportCmd.Flags().BoolVar(&topExportAllProjects, "all-projects", false,
 		"Export every project in the store; by default the export covers the active project (--project-uuid, --project-name, $VIGOLIUM_PROJECT_UUID, the project use file, else the default project)")
 	exportCmd.Flags().StringSliceVar(&topExportScanUUIDs, "scan-uuid", nil,
@@ -240,6 +245,8 @@ func topExportQuery(projectUUID string) exportQuery {
 	if topExportSeverity != "" {
 		q.severity = strings.Split(strings.ToLower(topExportSeverity), ",")
 	}
+	// Validated by runExportCmd before any query; a bad value here bounds nothing.
+	q.from, q.to, _ = parseDateRangeFlags(topExportFrom, topExportTo, timeFilterFromLabel, timeFilterToLabel)
 	return q
 }
 
@@ -396,6 +403,9 @@ func runExportCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 
 	if err := validateExportOnly(); err != nil {
+		return err
+	}
+	if _, _, err := parseDateRangeFlags(topExportFrom, topExportTo, timeFilterFromLabel, timeFilterToLabel); err != nil {
 		return err
 	}
 	if err := validateReportFlags(); err != nil {
@@ -999,11 +1009,14 @@ func (r *exportRun) exportFS(ctx context.Context, outputPath string) ([]exported
 	if topExportSeverity != "" {
 		severities = strings.Split(topExportSeverity, ",")
 	}
+	q := topExportQuery(r.projectUUID)
 	filters := database.QueryFilters{
 		ProjectUUID: r.projectUUID,
 		FuzzyTerm:   topExportSearch,
 		Severity:    severities,
 		Limit:       topExportLimit,
+		DateFrom:    q.from,
+		DateTo:      q.to,
 	}
 	stats, err := writeFSExport(ctx, db, filters, outputPath, fsExportOptions{omitResponse: topExportOmitResponse})
 	if err != nil {

@@ -33,6 +33,8 @@ var (
 	logStripANSI bool
 	logRaw       bool
 	logLsReap    bool
+	logLsFrom    string
+	logLsTo      string
 )
 
 var logCmd = &cobra.Command{
@@ -91,6 +93,7 @@ func init() {
 	logCmd.Flags().BoolVar(&logRaw, "raw", false, "For agentic sessions, print the raw transcript JSONL verbatim instead of the rendered replay")
 	tui.AddFlags(logCmd, &logLsTUI, &logLsNoTUI)
 	tui.AddFlags(logLsCmd, &logLsTUI, &logLsNoTUI)
+	registerTimeRangeFlags(logLsCmd, &logLsFrom, &logLsTo, "sessions started")
 	logLsCmd.Flags().BoolVar(&logLsReap, "reap", false, "Finalize abandoned running scan rows as failed (stop_reason abandoned) and prune expired status.json files; writes the store")
 	registerRowShapingFlags(logLsCmd.Flags())
 	registerInMemoryOffsetFlag(logLsCmd.Flags())
@@ -193,6 +196,10 @@ func runLogLs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	startedFrom, startedTo, err := parseDateRangeFlags(logLsFrom, logLsTo, timeFilterFromLabel, timeFilterToLabel)
+	if err != nil {
+		return err
+	}
 	settings, err := clicommon.LoadSettings(globalConfig)
 	if err != nil {
 		return err
@@ -259,6 +266,7 @@ func runLogLs(cmd *cobra.Command, args []string) error {
 	sort.Slice(rows, func(i, j int) bool {
 		return rows[i].createdAt.After(rows[j].createdAt)
 	})
+	rows = filterSessionRowsByTime(rows, startedFrom, startedTo)
 
 	if active, tuiErr := tui.Active(logLsTUI, logLsNoTUI, globalJSON); tuiErr != nil {
 		return tuiErr
@@ -968,4 +976,23 @@ func writeDBLogLine(w io.Writer, l *database.ScanLog) {
 		line = terminal.StripANSI(line)
 	}
 	_, _ = io.WriteString(w, line)
+}
+
+// filterSessionRowsByTime keeps the sessions that started within [from, to];
+// a nil bound is open.
+func filterSessionRowsByTime(rows []sessionRow, from, to *time.Time) []sessionRow {
+	if from == nil && to == nil {
+		return rows
+	}
+	kept := rows[:0]
+	for _, r := range rows {
+		if from != nil && r.createdAt.Before(*from) {
+			continue
+		}
+		if to != nil && r.createdAt.After(*to) {
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return kept
 }

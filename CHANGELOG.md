@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - `finding load` reads `export`/`db export` JSONL and `finding -j` documents, keeps `url`, `hostname` and `matched_at`, rejects an unknown severity (`input_unparsed`, nothing stored), and counts agent findings that differ only by URL as separate findings.
 - A multi-source `import` (several paths or `--glob-db`) continues past a source that fails, lists each source with its status in `-j` `sources[]`, and exits 1 naming the failures; `--glob-strict` stops at the first. A SQLite file that is not a vigolium store is refused (`source_incompatible`) instead of merging as zeros.
 - `ingest` reports the format it detected (`input_format: har`, not `urls`), labels the records it fetches `ingest-cli` like the ones it saves directly, keeps a HAR entry's `time` as `response_time_ms`, and sets `changed` from the rows it actually wrote (new `records_written`); re-ingesting the same input is `changed: false`.
+- `traffic -j` rows carry `sent_at` (RFC 3339, UTC). `hosts`, `log ls`, `db stats` and `export` accept `--from/--to` (`--since/--until`). Time-filter help states that a time without a zone is local and results print in UTC.
 
 ## [v0.5.7] - 2026-11-14
 

@@ -613,7 +613,7 @@ var (
 	trafficViewFields = append([]string{
 		"uuid", "method", "url", "host", "status_code",
 		"response_content_type", "response_content_length", "response_time_ms",
-		"response_words", "source", "scan_uuid", "response_title", "ip",
+		"response_words", "source", "scan_uuid", "sent_at", "response_title", "ip",
 		"risk_score", "surface_score", "is_authenticated", "technology", "remarks",
 		"body_compaction", "request", "response",
 		// Emitted only when --fields names them: uuid_short is the resolvable
@@ -724,6 +724,11 @@ func compactRecordView(rec *database.HTTPRecord, opts agentViewOptions) map[stri
 	}
 	if rec.ScanUUID != "" {
 		m["scan_uuid"] = rec.ScanUUID
+	}
+	// When the exchange was sent, in UTC: the time --from/--to and
+	// --sort sent_at act on.
+	if !rec.SentAt.IsZero() {
+		m["sent_at"] = rec.SentAt.UTC().Format(time.RFC3339)
 	}
 	if rec.ResponseTitle != "" {
 		m["response_title"] = rec.ResponseTitle

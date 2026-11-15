@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,15 @@ var (
 	timeFilterFromLabel = flagAliasLabel(timeFilterAliases, "from")
 	timeFilterToLabel   = flagAliasLabel(timeFilterAliases, "to")
 )
+
+// registerTimeRangeFlags registers the standard --from/--to pair (with the
+// --since/--until aliases) on cmd; what names the rows being bounded.
+func registerTimeRangeFlags(cmd *cobra.Command, from, to *string, what string) {
+	cmd.Flags().StringVar(from, "from", "", fmt.Sprintf("Only %s at or after this time — %s (alias: --since)", what, clicommon.TimeFilterSyntax))
+	cmd.Flags().StringVar(to, "to", "", fmt.Sprintf("Only %s at or before this time — %s; %s (alias: --until)",
+		what, clicommon.TimeFilterSyntax, clicommon.TimeFilterUpperBoundNote))
+	addFlagAliases(cmd, timeFilterAliases)
+}
 
 // parseDateRangeFlags resolves a --from/--to (--since/--until) pair into query
 // bounds. Either side may be empty, yielding a nil (unbounded) end. fromFlag and

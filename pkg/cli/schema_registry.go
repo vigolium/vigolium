@@ -84,6 +84,7 @@ type recordViewSchema struct {
 	ResponseWords         int64  `json:"response_words"`
 	Source                string `json:"source"`
 	ScanUUID              string `json:"scan_uuid,omitempty"`
+	SentAt                string `json:"sent_at,omitempty"`
 	ResponseTitle         string `json:"response_title,omitempty"`
 	IP                    string `json:"ip,omitempty"`
 	RiskScore             int    `json:"risk_score,omitempty"`
