@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/vigolium/vigolium/pkg/contract"
 	vighttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -79,10 +78,7 @@ func init() {
 
 // matchNotFoundShaping is match-not-found's --fields vocabulary; its rows have
 // nothing bulky for --compact to drop.
-var matchNotFoundShaping = rowShaping{
-	supported:  contract.JSONFieldNames(matchNotFoundItem{}),
-	defaultTSV: []string{"id", "matches", "known", "reason", "url"},
-}
+var matchNotFoundShaping = rowShaping{path: "match-not-found", defaultTSV: []string{"id", "matches", "known", "reason", "url"}}
 
 // matchNotFoundInput is one stdin line.
 type matchNotFoundInput struct {

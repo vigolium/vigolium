@@ -8,6 +8,9 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/contract"
+	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/dnsresolve"
+	"github.com/vigolium/vigolium/pkg/fuzz"
 )
 
 // commandTraits declares, for every runnable command, everything the machine
@@ -87,9 +90,9 @@ var commandTraits = map[string]commandTrait{
 	"db seed":            {Kind: kindMutation, DB: dbWrite},
 	"db stats":           {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
 	"dig":                {Kind: kindInteractive, DB: dbNone},
-	"dns":                {Kind: kindRead, DB: dbWrite, Shape: rowsShape().owned().unpaged("sends DNS queries: a second page would resolve again")},
+	"dns":                {Kind: kindRead, DB: dbWrite, Shape: rowsShape().owned().unpaged("sends DNS queries: a second page would resolve again").vocabFrom(dnsresolve.Answer{}).drop("records", "resolver")},
 	"doctor":             {Kind: kindRead, DB: dbRead, Shape: rowsShape()},
-	"endpoints":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery()},
+	"endpoints":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(database.EndpointView{}).drop("sample_paths", "params", "request_content_types", "response_content_types", "js_outcomes", "findings_by_severity")},
 	"export":             {Kind: kindStream, DB: dbRead, ReadOnly: true, Shape: noShape("records stream to a file or stdout; the -j document is a receipt")},
 	"extensions":         {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
 	"extensions docs":    {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
@@ -109,11 +112,11 @@ var commandTraits = map[string]commandTrait{
 	"finding show":     {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: objectShape()},
 	"finding verify":   {Kind: kindMutation, DB: dbWrite, SendsTraffic: true},
 	"fingerprint":      {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape},
-	"fuzz":             {Kind: kindStream, DB: dbWrite, ReadOnly: true, SendsTraffic: true, Shape: rowsShape().owned().unpaged("sends traffic: a second page would re-send every payload")},
+	"fuzz":             {Kind: kindStream, DB: dbWrite, ReadOnly: true, SendsTraffic: true, Shape: rowsShape().owned().unpaged("sends traffic: a second page would re-send every payload").vocabFrom(fuzz.Result{}).drop("anomaly_reasons")},
 	"gau":              {Kind: kindInteractive, DB: dbNone},
 	"help":             {Kind: kindInteractive, DB: dbNone},
 	"host":             {Kind: kindInteractive, DB: dbNone},
-	"hosts":            {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery()},
+	"hosts":            {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(hostView{}).drop("tls", "fingerprint", "not_found", "txt")},
 	"import":           {Kind: kindMutation, DB: dbWrite},
 	"ingest":           {Kind: kindMutation, DB: dbWrite, Runtime: rtCoreDeps},
 	"init":             {Kind: kindMutation, DB: dbWrite},
@@ -133,8 +136,8 @@ var commandTraits = map[string]commandTrait{
 	"kit wordlist":     {Kind: kindRead, DB: dbNone, Shape: noShape("rows are plain strings")},
 	// Bare `log` lists; `log <uuid>` prints a transcript.
 	"log":             {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape()},
-	"log ls":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned()},
-	"match-not-found": {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().unpaged("reads stdin once: there is no second read to page")},
+	"log ls":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().vocabFrom(logRowView{}).drop("liveness_sources", "log_path", "log_size", "has_log")},
+	"match-not-found": {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().unpaged("reads stdin once: there is no second read to page").vocabFrom(matchNotFoundItem{})},
 	"module":          {Kind: kindRead, DB: dbNone, Shape: rowsShape().vocabFrom(moduleJSONEntry{}, moduleTagRow{}).drop("description", "confirmation_criteria")},
 	"module disable":  {Kind: kindMutation, DB: dbNone},
 	"module enable":   {Kind: kindMutation, DB: dbNone},
@@ -146,7 +149,7 @@ var commandTraits = map[string]commandTrait{
 	"oast ingest":     {Kind: kindMutation, DB: dbWrite},
 	"oast poll":       {Kind: kindMutation, DB: dbWrite},
 	"olium":           {Kind: kindInteractive, DB: dbWrite},
-	"params":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery()},
+	"params":          {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(database.ParamView{}).drop("samples", "types")},
 	"project":         {Kind: kindInteractive, DB: dbNone},
 	"project config":  {Kind: kindRead, DB: dbWrite, Shape: objectShape().vocabFrom(projectConfigView{})},
 	"project create":  {Kind: kindMutation, DB: dbWrite},
@@ -158,7 +161,7 @@ var commandTraits = map[string]commandTrait{
 	// replay/fuzz stay "write": they read a stored request, but replay
 	// --in-replace rewrites it and both are network commands whose DB touch is
 	// incidental, so the read pool buys nothing.
-	"replay":      {Kind: kindStream, DB: dbWrite, ReadOnly: true, SendsTraffic: true, Shape: rowsShape().owned().pagedByQuery()},
+	"replay":      {Kind: kindStream, DB: dbWrite, ReadOnly: true, SendsTraffic: true, Shape: rowsShape().owned().pagedByQuery().vocabFrom(replayOutput{})},
 	"run":         {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape, Runtime: rtMemLimit | rtStatelessHome | rtStatelessWrite | rtCoreDeps},
 	"scan":        {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape, Runtime: rtMemLimit | rtStatelessHome | rtStatelessWrite | rtCoreDeps},
 	"scan diff":   {Kind: kindRead, DB: dbRead, ReadOnly: true, Shape: rowsShape().owned()},
@@ -337,7 +340,8 @@ type commandShape struct {
 	Reason string
 	// Own: the command projects its rows itself (rowShaping, the finding and
 	// traffic views, the scan document) and registers its own --fields and
-	// --compact; generic shaping leaves its items alone.
+	// --compact; generic shaping leaves its items alone. A rowShaping command
+	// still declares its Vocab and CompactDrop here.
 	Own bool
 }
 

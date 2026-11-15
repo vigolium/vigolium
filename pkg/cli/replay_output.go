@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
-	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/replay"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -135,7 +134,7 @@ func emitReplayResult(cmd *cobra.Command, p streamOutputPlan, out *replayOutput)
 // replayShaping is replay -j's --fields vocabulary (one replay row's keys).
 // --compact is applied to the nested exchange by compactReplayOutput instead,
 // since what makes a replay row large lives below its top level.
-var replayShaping = rowShaping{supported: contract.JSONFieldNames(replayOutput{})}
+var replayShaping = rowShaping{path: "replay"}
 
 // shapeReplayRows applies --compact and --fields to replay rows. Only `replay`
 // itself registers those flags; the `traffic --replay` shim reaches the same

@@ -205,7 +205,7 @@ func TestReplayOutputTopLevelStatusAndLength(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &m))
 	require.EqualValues(t, 404, m["status_code"])
 	require.EqualValues(t, 12, m["response_content_length"])
-	require.NoError(t, validateFieldSelection([]string{"status", "length"}, replayShaping.supported))
+	require.NoError(t, validateFieldSelection([]string{"status", "length"}, replayShaping.shape().Vocab))
 }
 
 // fuzz -j lists at most -n results (default 20); --all-results lists every

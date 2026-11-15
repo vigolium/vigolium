@@ -195,26 +195,32 @@ func applyGenericShaping(env *agentEnvelope) error {
 	if err != nil {
 		return err
 	}
-	nullable := requiredNullableKeys(env.Command)
+	var drop []string
+	if compact {
+		drop = t.Shape.CompactDrop
+	}
+	env.Items = shapeRowMaps(rows, fields, drop, requiredNullableKeys(env.Command))
+	return nil
+}
+
+// shapeRowMaps applies --compact (drop) and --fields to rows in place. A
+// dropped key the schema requires (nullable) stays, emptied, so the compact
+// document still validates.
+func shapeRowMaps(rows []map[string]any, fields, drop, nullable []string) []map[string]any {
 	for i, r := range rows {
-		if compact {
-			for _, k := range t.Shape.CompactDrop {
-				if _, ok := r[k]; !ok {
-					continue
-				}
-				// A key the schema requires stays, emptied, so the compact
-				// document still validates.
-				if slices.Contains(nullable, k) {
-					r[k] = nil
-				} else {
-					delete(r, k)
-				}
+		for _, k := range drop {
+			if _, ok := r[k]; !ok {
+				continue
+			}
+			if slices.Contains(nullable, k) {
+				r[k] = nil
+			} else {
+				delete(r, k)
 			}
 		}
 		rows[i] = projectFields(r, fields)
 	}
-	env.Items = rows
-	return nil
+	return rows
 }
 
 // pageEnvelopeItems cuts env.Items to the --offset/--limit window. Total keeps

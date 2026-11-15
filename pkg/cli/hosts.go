@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/agent/recon"
-	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/tlsprobe"
@@ -108,11 +107,7 @@ type hostView struct {
 
 // hostsShaping is hosts' --fields vocabulary; --compact drops the nested
 // documents and keeps the lifted survey facts.
-var hostsShaping = rowShaping{
-	supported:   contract.JSONFieldNames(hostView{}),
-	compactDrop: []string{"tls", "fingerprint", "not_found", "txt"},
-	defaultTSV:  []string{"hostname", "port", "status_code", "title", "server", "favicon_mmh3", "soft_not_found"},
-}
+var hostsShaping = rowShaping{path: "hosts", defaultTSV: []string{"hostname", "port", "status_code", "title", "server", "favicon_mmh3", "soft_not_found"}}
 
 func newHostView(o *database.HostObservation) hostView {
 	v := hostView{
