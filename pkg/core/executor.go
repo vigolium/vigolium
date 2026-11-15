@@ -120,6 +120,9 @@ type Executor struct {
 	// input was out of scope looked exactly like one whose inputs were all
 	// scanned clean.
 	scopeRejected atomic.Int64
+	// scopeByClass splits scopeRejected by the scope rule class that refused
+	// the item (config.ScopeClass*), cumulative like scopeRejected.
+	scopeByClass scopeClassCounts
 
 	// baselineFailures keeps the most recent baseline-fetch transport failures,
 	// classified, so "nothing answered" can say why. Bounded; see
@@ -132,7 +135,10 @@ type Executor struct {
 
 	// reportBase holds the cumulative counters' values at the start of the
 	// current Execute, so Report() describes this run only (see Execute).
-	reportBase struct{ responded, scopeRejected, feedbackDropped int64 }
+	reportBase struct {
+		responded, scopeRejected, feedbackDropped int64
+		scopeByClass                              map[string]int64
+	}
 
 	// Database storage (optional)
 	repo          *database.Repository
@@ -465,6 +471,7 @@ func (e *Executor) Execute(ctx context.Context) (bool, error) {
 	// executor's lifetime; the report's copies are this run's share.
 	e.reportBase.responded = e.responded.Load()
 	e.reportBase.scopeRejected = e.scopeRejected.Load()
+	e.reportBase.scopeByClass = e.scopeByClass.snapshot()
 	e.reportBase.feedbackDropped = e.FeedbackDropped()
 	e.quarantine.reset()
 

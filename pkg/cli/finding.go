@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -259,9 +260,10 @@ func runFinding(cmd *cobra.Command, args []string) error {
 	if err := validateFindingCurlFlags(cmd); err != nil {
 		return err
 	}
-	var fuzzyTerm string
+	var fuzzyTerm, positionalID string
 	// Argument routing mirrors traffic: "tree" activates tree mode, "ls"/"list"
-	// are no-ops (default table view), anything else is a fuzzy search term.
+	// are no-ops (default table view), a bare integer is a finding id (the
+	// number every listing shows), anything else is a fuzzy search term.
 	// Routed before openReadDB because a positional fuzzy term is a filter, and
 	// the skip set below has to know which filters are active.
 	if len(args) == 1 {
@@ -271,7 +273,12 @@ func runFinding(cmd *cobra.Command, args []string) error {
 		case "ls", "list":
 			// no-op — default table view
 		default:
-			fuzzyTerm = args[0]
+			if isDecimalID(args[0]) && strings.TrimSpace(findingIDRaw) == "" {
+				positionalID = args[0]
+				findingIDRaw = positionalID
+			} else {
+				fuzzyTerm = args[0]
+			}
 		}
 	}
 
@@ -308,6 +315,13 @@ func runFinding(cmd *cobra.Command, args []string) error {
 		findings, total, err := fqb.ExecuteWithCount(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to query findings: %w", err)
+		}
+		if positionalID != "" && total == 0 {
+			return clicommon.CLIError{
+				Err:  fmt.Errorf("no finding with id %s in this project", positionalID),
+				Code: apicontract.CodeFindingNotFound,
+				Hint: "To search for the number as text instead: vigolium finding --search " + positionalID,
+			}
 		}
 
 		// --pick narrows the fetched page to specific 1-based positions (after
@@ -538,7 +552,9 @@ func buildFindingFilters(fuzzyTerm string) (database.QueryFilters, error) {
 
 	var severities []string
 	if findingSeverity != "" {
-		severities = parseSeverityList(findingSeverity)
+		if severities, err = parseSeverityList(findingSeverity); err != nil {
+			return database.QueryFilters{}, err
+		}
 	} else if findingMinSeverity != "" {
 		severities = severitiesAtOrAbove(normalizeSeverity(findingMinSeverity))
 		if severities == nil {
@@ -941,4 +957,18 @@ func resolveFindingColumns(include, exclude []string) []findingColumnDef {
 	}
 
 	return cols
+}
+
+// isDecimalID reports whether s is a positive decimal integer: the shape of a
+// finding id.
+func isDecimalID(s string) bool {
+	if s == "" || len(s) > 18 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != "0"
 }

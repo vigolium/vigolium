@@ -173,14 +173,17 @@ type paramsExtras struct {
 
 // scanDocExtras are the scan document's top-level keys (scan_document.go).
 type scanDocExtras struct {
-	ScanUUID          string                  `json:"scan_uuid,omitempty"`
-	ScanUUIDs         []string                `json:"scan_uuids"`
-	Persisted         bool                    `json:"persisted"`
-	Stateless         bool                    `json:"stateless"`
-	Status            string                  `json:"status"`
-	Completeness      string                  `json:"completeness"`
-	Reasons           []string                `json:"reasons"`
-	StopReason        string                  `json:"stop_reason,omitempty"`
+	ScanUUID     string   `json:"scan_uuid,omitempty"`
+	ScanUUIDs    []string `json:"scan_uuids"`
+	Persisted    bool     `json:"persisted"`
+	Stateless    bool     `json:"stateless"`
+	Status       string   `json:"status"`
+	Completeness string   `json:"completeness"`
+	Reasons      []string `json:"reasons"`
+	StopReason   string   `json:"stop_reason,omitempty"`
+	// ScopeDropped counts the records scope rules refused, per rule class
+	// (host, path, static_file, status_code, …). Intent, not lost coverage.
+	ScopeDropped      map[string]int64        `json:"scope_dropped,omitempty"`
 	Targets           []scanDocTarget         `json:"targets"`
 	TargetsNotScanned []string                `json:"targets_not_scanned"`
 	PhaseOutcomes     []database.PhaseOutcome `json:"phase_outcomes"`
@@ -298,8 +301,16 @@ func init() {
 	registerCommandSchema(contract.Command{Name: "scan diff", Item: scanDiffItemSchema{}, Extras: scanDiffExtras{},
 		Description: "Findings classified new / unchanged / fixed / not_reobserved between two scans."})
 	for _, name := range []string{"scan", "run", "scan-url", "scan-request"} {
+		var variants []contract.Variant
+		desc := "The scan document: one document per invocation, items are finding views."
+		if name == "run" {
+			// `run fingerprint` reports the origins it fingerprinted, as
+			// `fingerprint -j` does, not findings.
+			variants = []contract.Variant{{Flag: "the fingerprint phase (run fingerprint)", Item: hostView{}}}
+			desc = "The scan document: items are finding views, or host views for `run fingerprint`."
+		}
 		registerCommandSchema(contract.Command{Name: name, Item: findingViewSchema{}, Extras: scanDocExtras{},
-			Description: "The scan document: one document per invocation, items are finding views."})
+			Variants: variants, Description: desc})
 	}
 
 	// Mutations.
@@ -361,10 +372,57 @@ func init() {
 		Description: "A receipt for one extracted body: size, sha256, completeness and where it was written."})
 	registerCommandSchema(contract.Command{Name: "traffic headers", Item: trafficHeadersReceipt{}, ItemsKind: contract.ItemsObject,
 		Description: "One stored message's headers as an ordered array (repeated headers kept)."})
+	// The database maintenance commands, finding load and project list.
+	registerCommandSchema(contract.Command{Name: "db stats", Item: database.DatabaseStats{}, ItemsKind: contract.ItemsObject,
+		StreamFlag: "--watch", Description: "Row counts and breakdowns for the store (one object)."})
+	registerCommandSchema(contract.Command{Name: "db list", Extras: dbListExtras{}, StreamFlag: "--watch",
+		Description: "Rows of one table: records and findings as their -j views, scans as scan rows, any other table as column maps; with no table, the table names (and with one, its columns under --columns)."})
+	registerCommandSchema(contract.Command{Name: "db clean", Item: dbCleanView{}, Extras: dbCleanExtras{},
+		Description: "Rows deleted (or, with --dry-run, matched) per table; aborted when the confirmation was declined."})
+	registerCommandSchema(contract.Command{Name: "db compact", Item: database.CompactSummary{}, ItemsKind: contract.ItemsObject,
+		Description: "The compaction summary: bodies replaced by their head, bytes reclaimed, whether the file was vacuumed."})
+	registerCommandSchema(contract.Command{Name: "db reset", Item: dbResetView{}, Extras: dbResetExtras{},
+		Description: "The database deleted and recreated; aborted when the confirmation was declined."})
+	registerCommandSchema(contract.Command{Name: "db migrate", Item: database.MigrateResult{}, ItemsKind: contract.ItemsObject,
+		Description: "The schema versions before and after, and the migrations applied."})
+	registerCommandSchema(contract.Command{Name: "finding load", Item: int64(0), Extras: findingLoadExtras{},
+		Description: "The ids of the findings stored (total counts them); parsed, saved and skipped count the input."})
+	registerCommandSchema(contract.Command{Name: "project list", Item: projectListView{},
+		Description: "Every project in the store, marking the active one."})
+
 	for _, name := range []string{"export", "db export"} {
 		registerCommandSchema(contract.Command{Name: name, Item: exportFileView{}, Extras: exportReceiptExtras{},
 			Description: "A receipt: the files written (-j needs -o; the export itself never shares stdout with the document) and their counts."})
 	}
+}
+
+// dbListExtras are `db list -j`'s top-level keys beyond the common ones.
+type dbListExtras struct {
+	Table   string   `json:"table,omitempty"`
+	Columns []string `json:"columns,omitempty"`
+}
+
+// dbCleanExtras are `db clean -j`'s top-level keys (all absent when aborted).
+type dbCleanExtras struct {
+	Mode        string `json:"mode,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+	StoreWide   bool   `json:"store_wide,omitempty"`
+	RowsMatched int64  `json:"rows_matched,omitempty"`
+	RowsDeleted int64  `json:"rows_deleted,omitempty"`
+	Aborted     bool   `json:"aborted,omitempty"`
+}
+
+// dbResetExtras are `db reset -j`'s top-level keys.
+type dbResetExtras struct {
+	Aborted bool `json:"aborted,omitempty"`
+}
+
+// findingLoadExtras are `finding load -j`'s top-level keys.
+type findingLoadExtras struct {
+	Format  string `json:"format"`
+	Parsed  int    `json:"parsed"`
+	Saved   int    `json:"saved"`
+	Skipped int    `json:"skipped"`
 }
 
 // dnsExtras are `dns -j`'s top-level keys.
@@ -393,6 +451,8 @@ type fuzzExtras struct {
 	SentViaBurp     bool          `json:"sent_via_burp,omitempty"`
 	OrganizerPushed int           `json:"organizer_pushed,omitempty"`
 	Pace            fuzzPace      `json:"pace"`
+	// Next is the follow-up that confirms the anomalies; it sends traffic.
+	Next []scanNextStep `json:"next,omitempty"`
 }
 
 // replayExtras are replay -j's top-level keys (bulk runs count failures).

@@ -181,6 +181,7 @@ func writeAgentJSON(env *agentEnvelope) error {
 	// hook is one a new command forgets — which is how a merged read with a
 	// skipped file reported a clean short answer in the first place.
 	attachGlobSources(env)
+	stampSendsTraffic(env)
 	return writeResultDocument(env)
 }
 
@@ -193,6 +194,10 @@ func writeResultDocument(v any) error {
 	//
 	// It hands back the bytes it measured, so a budgeted document is encoded once
 	// here rather than once to decide where to cut and again to emit.
+	var fullItems any
+	if env, ok := v.(*agentEnvelope); ok {
+		fullItems = env.Items
+	}
 	doc, err := applyOutputBudget(v, maxOutputBytes)
 	if err != nil {
 		return err
@@ -202,13 +207,22 @@ func writeResultDocument(v any) error {
 			return err
 		}
 	}
+	if jsonResultDeferred && !jsonStreamMode {
+		// Execute publishes it once the exit code is known (json_outcome.go),
+		// to stdout or to the -o file.
+		holdJSONResult(&heldJSONResult{
+			v: v, doc: doc, items: fullItems, budgeted: maxOutputBytes > 0,
+			dest: jsonOutputDestination(),
+		})
+		return nil
+	}
 	if dest := jsonOutputDestination(); dest != "" {
 		// Deliberately NOT latching here: nothing has reached stdout yet. The latch
 		// belongs after publication, and writeJSONResultToFile sets it when it writes
 		// the receipt. Latching first meant a failed atomicfile.WriteBytes returned an
 		// error that the root handler then refused to frame, so `-j -o <unwritable>`
 		// exited non-zero with completely empty stdout.
-		return writeJSONResultToFile(dest, doc, resultIsPaged(v))
+		return writeJSONResultToFile(dest, doc, v)
 	}
 	return writeAgentJSONDoc(doc)
 }
@@ -236,6 +250,10 @@ func writeStdoutFrame(v any) error {
 	doc, err := encodeAgentJSON(v)
 	if err != nil {
 		return err
+	}
+	if jsonResultDeferred && !jsonStreamMode {
+		holdJSONResult(&heldJSONResult{v: v, doc: doc})
+		return nil
 	}
 	return writeAgentJSONDoc(doc)
 }

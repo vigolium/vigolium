@@ -135,6 +135,9 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	if err := rejectUUIDScanTargets(cmd, args); err != nil {
 		return err
 	}
+	if err := rejectVerbScanTargets(args); err != nil {
+		return err
+	}
 
 	// Copy global flags into scan options
 	scanOpts.ScanUUID = globalScanUUID

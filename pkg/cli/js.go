@@ -186,7 +186,7 @@ func resolveJsSource() (string, error) {
 	// Default: read from stdin
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
-		return "", fmt.Errorf("no input provided; use --code, --code-file, or pipe JS via stdin")
+		return "", usageErrorf("no input provided; use --code, --code-file, or pipe JS via stdin")
 	}
 
 	data, err := readStdin()

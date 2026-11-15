@@ -377,7 +377,16 @@ func TestReplayAndFuzzPolarity(t *testing.T) {
 		assert.EqualValues(t, 2, doc["sent"])
 		assert.EqualValues(t, 2, doc["matched"])
 		assert.Len(t, doc["items"], 2, "top results are the rows")
-		assert.Contains(t, doc, "query_argv")
+		// The confirmation scan sends traffic, so it is a next step, never the
+		// read-only query hint.
+		assert.NotContains(t, doc, "query_argv")
+		assert.Equal(t, true, doc["sends_traffic"])
+		next, _ := doc["next"].([]any)
+		require.Len(t, next, 1)
+		step := next[0].(map[string]any)
+		assert.Equal(t, true, step["sends_traffic"])
+		assert.Contains(t, step["argv"], "scan-url", "a URL source is confirmed with scan-url, not scan-request -i")
+		assert.NotContains(t, fmt.Sprint(step["argv"]), "FUZZ")
 		assert.NotContains(t, stderr, `"payload"`, "the per-payload stream no longer spills onto stderr")
 	})
 	t.Run("fuzz --format jsonl is the stream", func(t *testing.T) {

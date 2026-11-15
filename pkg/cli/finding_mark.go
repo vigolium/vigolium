@@ -201,7 +201,7 @@ func runFindingMark(cmd *cobra.Command, args []string) error {
 		if projectUUID != "" {
 			where = " in the current project"
 		}
-		return codedErrorf(apicontract.CodeNotFound, "%d finding(s) not found%s: %s",
+		return codedErrorf(apicontract.CodeFindingNotFound, "%d finding(s) not found%s: %s",
 			len(res.NotFound), where, strings.Join(res.NotFound, ", "))
 	}
 	return nil

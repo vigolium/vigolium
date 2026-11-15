@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -24,6 +25,8 @@ import (
 
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli"
+	"github.com/vigolium/vigolium/pkg/contract"
+	"github.com/vigolium/vigolium/pkg/contract/contracttest"
 )
 
 // The runtime half of the machine contract (plan B §1.3 test 4). The static
@@ -85,6 +88,13 @@ var machineContractRows = map[string]contractRow{
 	"kit":                   {skip: interactive, badFlagSkip: interactive},
 	"kit oast":              {skip: interactive, badFlagSkip: interactive},
 	"oast":                  {skip: interactive, badFlagSkip: interactive},
+	"auth":                  {skip: interactive, badFlagSkip: interactive},
+	"completion":            {skip: interactive, badFlagSkip: interactive},
+	"config":                {skip: interactive, badFlagSkip: interactive},
+	"db":                    {skip: interactive, badFlagSkip: interactive},
+	"project":               {skip: interactive, badFlagSkip: interactive},
+	"server ca":             {skip: interactive, badFlagSkip: interactive},
+	"storage":               {skip: interactive, badFlagSkip: interactive},
 	"completion bash":       {skip: interactive, badFlagSkip: interactive},
 	"completion fish":       {skip: interactive, badFlagSkip: interactive},
 	"completion powershell": {skip: interactive, badFlagSkip: interactive},
@@ -181,7 +191,9 @@ var machineContractRows = map[string]contractRow{
 	"init":   {},
 	"js":     {args: []string{"--code", "1+1"}},
 
-	"oast ingest": {args: []string{"{F}/oast.log", "--format", "raw-log"}},
+	"oast ingest":     {args: []string{"{F}/oast.log", "--format", "raw-log"}},
+	"oast poll":       {args: []string{"--open", "--wait", "1s"}},
+	"match-not-found": {stdin: `{"id":"r1","url":"http://127.0.0.1:1/x","status":404}` + "\n"},
 
 	// Kit.
 	"kit harvest":     {skip: "needs the network: queries public URL archives (wayback, commoncrawl, …)"},
@@ -306,7 +318,7 @@ func TestMachineContractMatrix(t *testing.T) {
 				r := fx.run(t, path, row, []string{"--b8-no-such-flag"}, false)
 				require.Equalf(t, apicontract.ExitUsageError, r.code, "an unknown flag is a usage error (exit 2)\n%s", r)
 				doc := oneContractDocument(t, r)
-				require.Equalf(t, false, doc["ok"], "%s", r)
+				requireOutcomeMatchesExit(t, r, doc)
 				require.Equalf(t, path, doc["command"], "%s", r)
 				errObj, _ := doc["error"].(map[string]any)
 				require.NotNilf(t, errObj, "the error envelope carries error{}\n%s", r)
@@ -325,9 +337,7 @@ func TestMachineContractMatrix(t *testing.T) {
 				}
 				require.EqualValuesf(t, apicontract.SchemaVersion, doc["schema_version"], "%s", r)
 				require.Equalf(t, wantCommand, doc["command"], "command must be the cobra path\n%s", r)
-				if row.exit == 0 {
-					require.Equalf(t, true, doc["ok"], "%s", r)
-				}
+				requireOutcomeMatchesExit(t, r, doc)
 				wantKind := envelopeKind(kind)
 				if row.kind != "" {
 					wantKind = row.kind
@@ -339,9 +349,52 @@ func TestMachineContractMatrix(t *testing.T) {
 				}
 				_, isArray := doc["items"].([]any)
 				require.Truef(t, isArray, "items must be an array, got %T\n%s", doc["items"], r)
+				requireSafeFollowUp(t, r, doc)
+				// Schema coverage: a registered command's document validates. A
+				// --dry-run prints the plan document instead (`schema plan`),
+				// which scan_dry_run_test.go validates.
+				if _, ok := contract.LookupCommand(wantCommand); ok && !slices.Contains(row.args, "--dry-run") {
+					contracttest.Validate(t, wantCommand, []byte(r.stdout))
+				}
 			})
 		})
 	}
+}
+
+// requireOutcomeMatchesExit is the outcome guardrail: ok is true exactly when
+// the process exited 0, 3 or 4, and error{code,message,exit_code} is present
+// exactly when ok is false, naming the same exit code.
+func requireOutcomeMatchesExit(t *testing.T, r contractRun, doc map[string]any) {
+	t.Helper()
+	wantOK := r.code == apicontract.ExitSuccess || r.code == apicontract.ExitFuzzMatch || r.code == apicontract.ExitFailOnGate
+	require.Equalf(t, wantOK, doc["ok"], "ok must be true exactly when exit is 0, 3 or 4\n%s", r)
+	errObj, hasErr := doc["error"].(map[string]any)
+	require.Equalf(t, !wantOK, hasErr, "error must be present exactly when ok is false\n%s", r)
+	if hasErr {
+		require.NotEmptyf(t, errObj["code"], "%s", r)
+		require.EqualValuesf(t, r.code, errObj["exit_code"], "error.exit_code is the process exit code\n%s", r)
+	}
+}
+
+// requireSafeFollowUp is the hint guardrail: a query_argv parses, names a read
+// that sends no traffic, and repeats the source's --db.
+func requireSafeFollowUp(t *testing.T, r contractRun, doc map[string]any) {
+	t.Helper()
+	raw, ok := doc["query_argv"].([]any)
+	if !ok {
+		return
+	}
+	argv := make([]string, 0, len(raw))
+	for _, a := range raw {
+		argv = append(argv, fmt.Sprint(a))
+	}
+	sourceDB := ""
+	for i, a := range r.argv {
+		if a == "--db" && i+1 < len(r.argv) {
+			sourceDB = r.argv[i+1]
+		}
+	}
+	require.NoErrorf(t, cli.CheckFollowUpArgv(nil, argv, sourceDB), "%s", r)
 }
 
 // envelopeKind is the `kind` a declared kind renders: a stream command's -j

@@ -57,6 +57,7 @@ type phaseTracker struct {
 	mu         sync.Mutex
 	reasons    map[string]struct{}
 	limits     map[string]struct{}
+	notes      map[string]struct{}
 	errs       int
 	firstErr   string
 	skipped    bool
@@ -491,6 +492,17 @@ func (t *phaseTracker) markPartial(code string) {
 	addCode(&t.reasons, code)
 }
 
+// noteCaveat records a caveat about the environment that does not reduce the
+// phase's coverage verdict (PhaseOutcome.Notes).
+func (t *phaseTracker) noteCaveat(code string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	addCode(&t.notes, code)
+}
+
 // noteLimit records that a configured bound was reached. Separate from a reason
 // on purpose: a target that used its whole time budget behaved exactly as
 // configured, and folding that into "partial" would mark every properly
@@ -569,6 +581,12 @@ func (t *phaseTracker) noteExecution(rep core.ExecutionReport) {
 	if rep.ScopeRejected > 0 && rep.Responded == 0 {
 		t.markPartial(database.ReasonTargetsOutOfScope)
 	}
+	// What scope dropped, per rule class: the operator's intent, not lost
+	// coverage, so counted rather than turned into a reason. The scan
+	// document sums these into scope_dropped.
+	for class, n := range rep.ScopeRejectedBy {
+		t.addCount(database.ScopeDroppedCountPrefix+class, n)
+	}
 	if rep.Unacked > 0 {
 		t.mu.Lock()
 		t.unacked += rep.Unacked
@@ -578,6 +596,19 @@ func (t *phaseTracker) noteExecution(rep core.ExecutionReport) {
 	// so the latest one is the phase's.
 	t.setFindingsCapped(rep.FindingsCapped)
 	t.ledger.addExecution(rep)
+}
+
+// addCount adds n to a phase-specific tally in PhaseOutcome.Counts.
+func (t *phaseTracker) addCount(name string, n int64) {
+	if t == nil || name == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.counts == nil {
+		t.counts = make(map[string]int64)
+	}
+	t.counts[name] += n
 }
 
 // setCount records a phase-specific tally for PhaseOutcome.Counts. The last value
@@ -675,6 +706,7 @@ func (t *phaseTracker) outcome() database.PhaseOutcome {
 		Phase:       t.phase,
 		Reasons:     database.SortedCodes(t.reasons),
 		Limits:      database.SortedCodes(t.limits),
+		Notes:       database.SortedCodes(t.notes),
 		Errors:      t.errs,
 		Message:     t.firstErr,
 		Unprocessed: t.unacked,

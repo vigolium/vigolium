@@ -2,6 +2,7 @@ package core
 
 import (
 	"github.com/vigolium/vigolium/pkg/core/stats"
+	"sync"
 )
 
 // ExecutionReport says whether one Execute call processed its whole input, and
@@ -37,6 +38,9 @@ type ExecutionReport struct {
 	// choice), so Clean ignores it; a consumer compares it with Responded to
 	// spot a run whose every input was rejected.
 	ScopeRejected int64
+	// ScopeRejectedBy splits ScopeRejected by the scope rule class that refused
+	// each item (host, path, static_file, status_code, …).
+	ScopeRejectedBy map[string]int64
 	// Responded counts input items this run got an HTTP response for.
 	Responded int64
 	// SkippedQuarantined counts input items this run dropped because their
@@ -83,6 +87,7 @@ func (e *Executor) Report() ExecutionReport {
 	rep := e.report
 	rep.Unacked = e.unacked.Load()
 	rep.ScopeRejected = e.scopeRejected.Load() - e.reportBase.scopeRejected
+	rep.ScopeRejectedBy = e.scopeByClass.since(e.reportBase.scopeByClass)
 	rep.Responded = e.responded.Load() - e.reportBase.responded
 	rep.FeedbackDropped = e.FeedbackDropped() - e.reportBase.feedbackDropped
 	rep.ModuleSkips = e.ModuleSkips()
@@ -172,4 +177,53 @@ func (e *Executor) ConsideredModuleCount() int64 {
 func (e *Executor) ResolveRequestUUID(requestHash string) string {
 	val, _ := e.caches.requestUUIDs.Load(requestHash)
 	return val
+}
+
+// scopeClassCounts counts scope rejections per rule class.
+type scopeClassCounts struct {
+	mu sync.Mutex
+	n  map[string]int64
+}
+
+func (c *scopeClassCounts) add(class string) {
+	if class == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n == nil {
+		c.n = map[string]int64{}
+	}
+	c.n[class]++
+}
+
+func (c *scopeClassCounts) snapshot() map[string]int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[string]int64, len(c.n))
+	for k, v := range c.n {
+		out[k] = v
+	}
+	return out
+}
+
+// since returns the counts accrued after base; nil when none.
+func (c *scopeClassCounts) since(base map[string]int64) map[string]int64 {
+	var out map[string]int64
+	for k, v := range c.snapshot() {
+		if d := v - base[k]; d > 0 {
+			if out == nil {
+				out = map[string]int64{}
+			}
+			out[k] = d
+		}
+	}
+	return out
+}
+
+// noteScopeRejected counts one item the scope refused, under the rule class
+// that refused it.
+func (e *Executor) noteScopeRejected(class string) {
+	e.scopeRejected.Add(1)
+	e.scopeByClass.add(class)
 }

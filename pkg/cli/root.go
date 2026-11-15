@@ -452,6 +452,16 @@ func prepareCommandTree(root *cobra.Command) {
 	// Stamp each command's declared database intent (db_intent.go): read
 	// commands open the query_only pool, never the write lock.
 	applyDBIntentAnnotations(root)
+
+	// A group answers an unknown subcommand with a usage error, and every
+	// positional-argument error exits 2 (command_tree_hooks.go). The group hook
+	// runs first so its validators are wrapped too.
+	enforceGroupSubcommands(root)
+	wrapArgsValidators(root)
+
+	// Flags with a closed value set reject a typo while flags parse
+	// (enum_flags.go).
+	applyClosedValueFlags(root)
 }
 
 func Execute() {
@@ -472,13 +482,19 @@ func Execute() {
 	}
 
 	// --usage is answered before cobra parses anything (usage_compact.go).
-	if runUsageIfRequested(rootCmd, os.Args[1:]) {
+	if handled, usageErr := runUsageIfRequested(rootCmd, os.Args[1:]); handled {
 		releaseScratch()
-		os.Exit(0)
+		if usageErr == nil {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "%s %v\n", terminal.ErrorPrefix(), usageErr)
+		emitJSONError(usageErr, ExitUsageError, rootCmd)
+		os.Exit(ExitUsageError)
 	}
 
 	// ExecuteC (not Execute) so we get the command that actually ran back —
 	// the agent-family setup hint below needs to know which one failed.
+	jsonResultDeferred = true
 	cmd, err := rootCmd.ExecuteC()
 
 	// Bounded delivery of any scan webhook the command fired (asynchronous
@@ -501,6 +517,15 @@ func Execute() {
 	// scratch teardown is called explicitly on each path instead.
 	releaseScratch()
 
+	if err == nil {
+		// The held -j result (json_outcome.go). Its -o write can still fail,
+		// which turns a success into export_failed.
+		if code, err := finishJSONOutcome(nil, ExitSuccess, cmd); err != nil {
+			os.Exit(processExitCode(code, globalSoftFail))
+		}
+		return
+	}
+
 	if err != nil {
 		// When the failure IS the flag parse, cobra never bound the presentation
 		// flags, so --json/--silent/--soft-fail are all still at their zero
@@ -509,6 +534,7 @@ func Execute() {
 		// `traffic --json --bad` does. See presentation_mode.go.
 		resolvePresentationMode(argsForPresentationRecovery())
 
+		err = structureUnknownCommand(cmd, err)
 		code := classifyExitCode(err)
 		// A flag-parse failure never reaches a RunE, so it cannot be wrapped as a
 		// usageError at its source; cobra surfaces it as a plain error from
@@ -528,7 +554,9 @@ func Execute() {
 		// nothing: the old order exited 0 here and emitted no object at all, so
 		// `--json --soft-fail` reported a silent success for a command that had
 		// failed, which is the one outcome a machine caller cannot recover from.
-		emitJSONError(err, code, cmd)
+		// The held result document (ok:false plus error beside it), or the
+		// error envelope when the command wrote no result.
+		code, _ = finishJSONOutcome(err, code, cmd)
 
 		// --soft-fail forces a successful exit code so wrapping scripts and CI
 		// pipelines are not aborted by errors the operator considers expected.
@@ -634,6 +662,15 @@ func resolveModules() []string {
 		if len(tagResolved) == 0 {
 			zap.L().Warn("no modules matched the given tags",
 				zap.Strings("tags", globalModuleTags))
+			// Carried through verbatim, like an unmatched -m pattern: the
+			// selection then names no built-in module, and the runner (after
+			// matching extensions) or the direct path rejects it. Falling back
+			// to every module turned a typo into a full scan.
+			unmatched := make([]string, 0, len(globalModuleTags))
+			for _, t := range globalModuleTags {
+				unmatched = append(unmatched, "tag:"+t)
+			}
+			addUnique(unmatched)
 		} else {
 			zap.L().Debug("resolved module tags",
 				zap.Strings("tags", globalModuleTags),

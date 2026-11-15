@@ -24,6 +24,7 @@
             "ingest_incomplete",
             "input_unparsed",
             "internal_error",
+            "interrupted",
             "invalid_project_uuid",
             "invalid_request",
             "lint_failed",
@@ -53,6 +54,7 @@
             "source_incompatible",
             "source_missing",
             "source_unreadable",
+            "storage_disabled",
             "timed_out",
             "unauthorized",
             "unsupported_api_version",
@@ -73,6 +75,18 @@
             4,
             5
           ]
+        },
+        "hint": {
+          "type": "string"
+        },
+        "did_you_mean": {
+          "type": "string"
+        },
+        "usage_argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,

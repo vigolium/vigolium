@@ -106,7 +106,7 @@ func runSessionLoad(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to read from stdin: %w", err)
 		}
 		if len(data) == 0 {
-			return fmt.Errorf("no input provided on stdin")
+			return usageErrorf("no input provided on stdin")
 		}
 	} else {
 		name = args[0]
@@ -279,11 +279,11 @@ func emitSessionLoad(cmd *cobra.Command, results []authentication.LoginResult, p
 func withResultFailure(err error) envOpt {
 	return func(e *agentEnvelope) {
 		e.OK = false
-		e.With("error", agentError{
+		e.Error = &agentError{
 			Code:     classifyErrorCode(err, ExitError),
 			Message:  err.Error(),
 			ExitCode: ExitError,
-		})
+		}
 	}
 }
 

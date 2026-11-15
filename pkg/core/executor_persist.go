@@ -10,14 +10,16 @@ import (
 	"go.uber.org/zap"
 )
 
-func (e *Executor) persistAndCheckScope(ctx context.Context, item *work.WorkItem, req *httpmsg.HttpRequestResponse, inScope bool, redirectHops []*httpmsg.HttpRequestResponse) bool {
+// scopeClass is the scope rule class that refused the record ("" = in scope).
+func (e *Executor) persistAndCheckScope(ctx context.Context, item *work.WorkItem, req *httpmsg.HttpRequestResponse, scopeClass string, redirectHops []*httpmsg.HttpRequestResponse) bool {
+	inScope := scopeClass == ""
 	if e.cfg.ScopeMatcher != nil {
 		if req.Service() == nil {
 			return false
 		}
 
 		if !inScope {
-			e.scopeRejected.Add(1)
+			e.noteScopeRejected(scopeClass)
 		}
 		if !inScope && e.cfg.ScopeOnIngest {
 			e.noteDrop(req.Target(), DropOutOfScope, nil)

@@ -16,6 +16,7 @@ var scopeCmd = &cobra.Command{
 	Aliases: []string{"sc"},
 	Short:   "Manage scan scope rules",
 	Long:    "Inspect and edit scope rules that control which hosts, paths, status codes, and content types are in-scope for scanning. Running 'vigolium scope' without a subcommand is equivalent to 'scope view'.",
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runScopeView(scopeViewCmd, args)
 	},
@@ -76,6 +77,12 @@ func runScopeView(cmd *cobra.Command, args []string) error {
 			Component: scopeComponentOf(entry.Key),
 			Empty:     entry.Value == "" || entry.Value == "<nil>",
 		})
+	}
+
+	// A component filter that names no scope key is a typo (`scope hosts`), not
+	// an empty scope: answering with zero rows and exit 0 read as "no rules".
+	if len(args) > 0 && len(matched) == 0 {
+		return unknownScopeComponentError(args[0], entries)
 	}
 
 	// -j used to be accepted here and produce ANSI-colored prose on stdout with
@@ -143,5 +150,28 @@ func scopeComponentColor(key string) func(string) string {
 		return terminal.HiMagenta
 	default:
 		return terminal.HiGreen
+	}
+}
+
+// unknownScopeComponentError is the usage error for a component filter that
+// matches no scope.* key, naming the components that exist.
+func unknownScopeComponentError(typed string, entries []config.ConfigEntry) error {
+	seen := map[string]bool{}
+	var components []string
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Key, "scope.") {
+			continue
+		}
+		if c := scopeComponentOf(e.Key); c != "" && !seen[c] {
+			seen[c] = true
+			components = append(components, c)
+		}
+	}
+	sort.Strings(components)
+	component, _, _ := strings.Cut(strings.ToLower(typed), ".")
+	return clicommon.CLIError{
+		Err:        fmt.Errorf("no scope component %q; components: %s", typed, strings.Join(components, ", ")),
+		DidYouMean: closestName(component, components),
+		UsageArgv:  clicommon.UsageArgvFor("scope view"),
 	}
 }

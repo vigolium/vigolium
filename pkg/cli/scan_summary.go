@@ -387,9 +387,13 @@ func printScanCompletionSummary(repo *database.Repository, projectUUID, scanUUID
 	// Header line carries the total wall-clock duration, so it prints first and
 	// unconditionally: even if the count queries below fail, the operator still
 	// sees the completion banner and how long the run took.
+	headline := "Native scan completed"
+	if scanWasInterrupted() {
+		headline = "Native scan interrupted"
+	}
 	fmt.Fprintf(os.Stderr, "\n%s %s %s%s\n",
 		terminal.Aqua(terminal.SymbolSparkle),
-		terminal.BoldAqua("Native scan completed"),
+		terminal.BoldAqua(headline),
 		terminal.Gray("in "),
 		terminal.Magenta(elapsed.Round(time.Second).String()))
 

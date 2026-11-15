@@ -26,6 +26,8 @@ type scanArtifact struct {
 type scanNextStep struct {
 	Argv []string `json:"argv"`
 	Why  string   `json:"why"`
+	// SendsTraffic marks a step that sends requests to the target.
+	SendsTraffic bool `json:"sends_traffic,omitempty"`
 }
 
 // scanArtifacts collects the files the current invocation wrote. Reset at the
@@ -87,7 +89,11 @@ func scanNextSteps(scanUUID, dbPath string, findings int64, persisted bool) []sc
 			why = "confirm the scan stored no findings"
 		}
 		steps = append(steps, scanNextStep{Argv: argv, Why: why})
-		steps = append(steps, scanNextStep{Argv: []string{"vigolium", "scan", "status", scanUUID}, Why: "phase outcomes and coverage caveats"})
+		status := []string{"vigolium", "scan", "status", scanUUID}
+		if dbPath != "" {
+			status = append(status, "--db", dbPath)
+		}
+		steps = append(steps, scanNextStep{Argv: status, Why: "phase outcomes and coverage caveats"})
 	}
 	for _, a := range collectedScanArtifacts() {
 		if a.Format == "jsonl" {

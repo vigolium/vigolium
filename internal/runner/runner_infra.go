@@ -193,6 +193,10 @@ func (r *Runner) buildInfrastructure(ctx context.Context, plan NativeScanPlan) (
 		infra.Close()
 		return nil, err
 	}
+	if err := r.validateModuleSelection(plan, infra.jsEngine); err != nil {
+		infra.Close()
+		return nil, err
+	}
 
 	// Initialize multi-session support for IDOR/BOLA testing. Skipped when no
 	// enabled phase will reach the target: see reachesTarget above.
@@ -312,21 +316,31 @@ func (r *Runner) awaitOAST(ctx context.Context, infra *phaseInfra) *oast.Service
 	if err == nil {
 		return svc
 	}
+	caveatOnly := svc.UsesDefaultServer()
 	svc.Close()
 	infra.oast = nil
 	if ctx.Err() != nil {
 		// The phase is being torn down anyway; its own reason says why.
 		return nil
 	}
-	r.reportOASTUnavailable(err)
+	r.reportOASTUnavailable(err, caveatOnly)
 	return nil
 }
 
 // reportOASTUnavailable is the single operator-facing notice that out-of-band
 // checks were skipped: a non-stopping phase reason, an oast.unavailable event,
 // and one stderr line.
-func (r *Runner) reportOASTUnavailable(err error) {
-	r.currentPhase.Load().markPartial(database.ReasonOASTUnavailable)
+//
+// caveatOnly is set when the scan used the public default server: a machine
+// without access to it is the everyday case, so the gap is a caveat and does
+// not make the phase partial (which --fail-on would turn into exit 5). A server
+// the operator configured that is down is real coverage loss and stays partial.
+func (r *Runner) reportOASTUnavailable(err error, caveatOnly bool) {
+	if caveatOnly {
+		r.currentPhase.Load().noteCaveat(database.ReasonOASTUnavailable)
+	} else {
+		r.currentPhase.Load().markPartial(database.ReasonOASTUnavailable)
+	}
 	scanevents.Emit(scanevents.Event{
 		Type:    scanevents.TypeOASTUnavailable,
 		Phase:   string(PhaseDynamicAssessment),

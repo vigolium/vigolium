@@ -9,6 +9,8 @@ import (
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
+	"github.com/vigolium/vigolium/pkg/fuzz"
+	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
@@ -206,6 +208,13 @@ func classifyExitCode(err error) int {
 	if errors.As(err, &usage) {
 		return ExitUsageError
 	}
+	var cli clicommon.CLIError
+	if errors.As(err, &cli) {
+		if cli.IsUsage() {
+			return ExitUsageError
+		}
+		return ExitError
+	}
 	// A refused non-interactive confirmation is a misuse of the command line,
 	// not a failure of the work: nothing ran, nothing changed, and the fix is to
 	// add --force. Exit 2 puts it in the same bucket as a missing required flag,
@@ -217,6 +226,14 @@ func classifyExitCode(err error) int {
 	// once the extension engine has loaded, but it is still a mistyped flag value
 	// and fails before any phase sends traffic.
 	if errors.Is(err, runner.ErrUnknownExtensionModule) {
+		return ExitUsageError
+	}
+	// A rejected --only/--skip (an unknown phase, both flags at once).
+	if errors.Is(err, runner.ErrPhaseSelection) || errors.Is(err, runner.ErrEmptyModuleSelection) {
+		return ExitUsageError
+	}
+	// -I naming no input format; a fuzz run with no payload source.
+	if errors.Is(err, source.ErrUnknownFormat) || errors.Is(err, fuzz.ErrNoPayloads) {
 		return ExitUsageError
 	}
 	return ExitError

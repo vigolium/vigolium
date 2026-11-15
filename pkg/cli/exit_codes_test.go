@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
+	"github.com/vigolium/vigolium/pkg/fuzz"
+	"github.com/vigolium/vigolium/pkg/input/source"
+	"github.com/vigolium/vigolium/pkg/types"
 )
 
 func TestClassifyExitCodeSeparatesGateFromError(t *testing.T) {
@@ -140,5 +144,29 @@ func TestExitCodesMatchAPIContract(t *testing.T) {
 	}
 	if AgentSchemaVersion != apicontract.SchemaVersion {
 		t.Errorf("AgentSchemaVersion %d != apicontract.SchemaVersion %d", AgentSchemaVersion, apicontract.SchemaVersion)
+	}
+}
+
+// Bad invocations are usage errors (exit 2), not failures of the work.
+func TestBadInvocationsAreUsageErrors(t *testing.T) {
+	opts := &types.Options{OnlyPhase: "bogusphase"}
+	onlyErr := runner.ApplyNativePhaseSelection(opts, nil)
+	both := runner.ApplyNativePhaseSelection(&types.Options{OnlyPhase: "discovery", SkipPhases: []string{"spidering"}}, nil)
+	_, _, rangeErr := parseDateRangeFlags("2026-02-01", "2026-01-01", "--from", "--to")
+	_, formatErr := source.NewFileSource(source.FileSourceConfig{FilePath: "x.txt", Format: "bogus", FormatExplicit: true})
+	for name, err := range map[string]error{
+		"unknown --only phase":  onlyErr,
+		"--only with --skip":    both,
+		"inverted --from/--to":  rangeErr,
+		"unknown input format":  formatErr,
+		"fuzz with no payloads": fmt.Errorf("wrapped: %w", fuzz.ErrNoPayloads),
+	} {
+		if err == nil {
+			t.Errorf("%s: no error", name)
+			continue
+		}
+		if got := classifyExitCode(err); got != ExitUsageError {
+			t.Errorf("%s: exit %d, want 2 (%v)", name, got, err)
+		}
 	}
 }

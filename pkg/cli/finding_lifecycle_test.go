@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
@@ -195,6 +197,9 @@ func TestFindingMark_EndToEnd(t *testing.T) {
 		t.Fatalf("mark with a miss exit = %d, want 1", code)
 	}
 	doc = decodeOne(t, out)
+	if errObj, _ := doc["error"].(map[string]any); doc["ok"] != false || errObj == nil || errObj["exit_code"] != float64(1) || errObj["code"] != "finding_not_found" {
+		t.Errorf("exit 1 keeps the result document but says ok:false with error: %v", doc)
+	}
 	if nf, _ := doc["not_found"].([]any); len(nf) != 1 || nf[0] != "424242" {
 		t.Errorf("not_found = %v", doc["not_found"])
 	}
@@ -348,7 +353,7 @@ func TestScanRejectsUUIDTarget(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2\n%s\n%s", code, out, errOut)
 	}
-	if all := out + errOut; !strings.Contains(all, "did you mean") && !strings.Contains(all, "Did you mean") || !strings.Contains(all, "scan diff") {
+	if all := out + errOut; !strings.Contains(all, "did you mean") && !strings.Contains(all, "Did you mean") || !strings.Contains(all, "scan status") {
 		t.Errorf("error does not point at the subcommands:\n%s", all)
 	}
 	if err := rejectUUIDScanTargets(scanCmd, []string{"intranet", "https://app.example"}); err != nil {
@@ -357,3 +362,75 @@ func TestScanRejectsUUIDTarget(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// Unknown words on groups and on --usage are usage errors; a bare integer on
+// finding is an id, and a missing one says how to search for it instead.
+func TestGroupPositionalsAndUsageLookups(t *testing.T) {
+	st := seedC6Store(t)
+	for name, args := range map[string][]string{
+		"unknown root command --usage":  {"bogus", "--usage"},
+		"unknown group word --usage":    {"config", "bogus", "--usage", "-j"},
+		"unknown scope component":       {"scope", "hosts", "-j"},
+		"near miss of a subcommand":     {"finding", "mak", "-j"},
+		"pure group under -j":           {"project", "-j"},
+		"unknown word on a pure group":  {"project", "current", "-j"},
+		"cobra count validator, exit 2": {"scan", "diff", st.s1},
+	} {
+		code, out, errOut := st.run(t, args...)
+		if code != 2 {
+			t.Errorf("%s: exit %d, want 2\n%s\n%s", name, code, out, errOut)
+		}
+		if strings.Contains(strings.Join(args, " "), "-j") {
+			doc := decodeOne(t, out)
+			if doc["ok"] != false {
+				t.Errorf("%s: %v", name, doc)
+			}
+		}
+	}
+	if code, out, _ := st.run(t, "module", "xss", "--usage"); code != 0 || !strings.Contains(out, "--") {
+		t.Errorf("a filter word on module is still accepted by --usage: exit %d\n%s", code, out)
+	}
+
+	code, out, _ := st.run(t, "finding", "424242", "-j")
+	if code != 1 {
+		t.Fatalf("finding <missing id>: exit %d\n%s", code, out)
+	}
+	doc := decodeOne(t, out)
+	errObj, _ := doc["error"].(map[string]any)
+	if errObj["code"] != "finding_not_found" || !strings.Contains(fmt.Sprint(errObj["hint"]), "finding --search 424242") {
+		t.Errorf("finding <missing id>: %v", doc)
+	}
+	code, out, _ = st.run(t, "finding", itoa(st.stay), "-j")
+	if code != 0 || len(items(t, decodeOne(t, out))) != 1 {
+		t.Errorf("finding <id>: exit %d\n%s", code, out)
+	}
+}
+
+// `scan <verb>` is a usage error naming the command that was meant; a URL
+// spelling of the same word, and any other bare word, is still a target.
+func TestScanRejectsVerbTargets(t *testing.T) {
+	for _, verb := range []string{"ls", "LIST", "stop", "show", "logs", "rm", "pause"} {
+		err := rejectVerbScanTargets([]string{verb})
+		if err == nil {
+			t.Errorf("scan %s accepted as a target", verb)
+			continue
+		}
+		if classifyExitCode(err) != ExitUsageError {
+			t.Errorf("scan %s: exit %d", verb, classifyExitCode(err))
+		}
+		var cli clicommon.CLIError
+		if !errors.As(err, &cli) || cli.Hint == "" {
+			t.Errorf("scan %s: no hint: %v", verb, err)
+		}
+	}
+	if err := rejectVerbScanTargets([]string{"http://ls", "intranet", "ls.example.com"}); err != nil {
+		t.Errorf("a URL or plain host was rejected: %v", err)
+	}
+	st := seedC6Store(t)
+	if code, out, errOut := st.run(t, "scan", "ls", "-j"); code != 2 || !strings.Contains(out, "log ls") {
+		t.Errorf("scan ls: exit %d\n%s\n%s", code, out, errOut)
+	}
+	if code, out, _ := st.run(t, "scan", "stop", "123e4567-e89b-12d3-a456-426614174000", "-j"); code != 2 || !strings.Contains(out, "/stop") {
+		t.Errorf("scan stop <uuid>: exit %d\n%s", code, out)
+	}
+}

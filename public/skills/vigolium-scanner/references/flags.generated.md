@@ -1631,6 +1631,7 @@ List native scan and agentic scan sessions
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
+| `--offset` | - | int | `0` | Skip the first N rows (follow output_budget.next_offset) |
 | `--reap` | - | bool | `false` | Finalize abandoned running scan rows as failed (stop_reason abandoned) and prune expired status.json files; writes the store |
 | `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
 
@@ -1993,7 +1994,6 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--no-waf-pacing` | - | bool | `false` | Disable proactive CDN/WAF-edge pacing (don't pre-throttle per-host concurrency when a CloudFront/Cloudflare/etc. edge is detected); reactive back-off after a WAF block still applies |
 | `--oast-url` | - | string | - | Fixed out-of-band callback URL instead of interactsh; put {nonce} in it (https://{nonce}.cb.example.com) to attribute logged callbacks with 'vigolium oast ingest' |
 | `--omit-response` | - | bool | `false` | Omit raw HTTP request/response bytes from output file (keeps metadata, smaller files) |
-| `--only` | - | string | - | Run only these phases (comma-separated: ingestion, probe, fingerprint, discovery, external-harvest, spidering, known-issue-scan, dynamic-assessment, extension, heuristics-check, port-sweep, targeted-respider; aliases accepted, see 'vigolium run --help') |
 | `--output` | `-o` | string | - | Write findings to specified output file |
 | `--parallel` | `-P` | int | `1` | Scan up to N targets concurrently as isolated child processes (requires -S -T --split-by-host, OR --db-isolate -T which merges into --db and exports one unified output; each target keeps its own --concurrency, so real in-flight requests ≈ N × --concurrency) |
 | `--param-mining` | - | bool | `false` | Mine hidden parameters (Arjun-style) on this scan's dynamic endpoints before the assessment, so injection modules test them too. Default: on at --intensity deep, off below; --param-mining=false turns it off at deep. Budget: dynamic-assessment.param_mining in config |
@@ -2015,7 +2015,6 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--safe` | - | bool | `false` | Bounded, non-mutating scan: GET/HEAD traffic only, no form submission/uploads/login attempts in the browser, no risky payloads or intrusive templates, low pace, 15m total budget (typed flags still win) |
 | `--scanning-profile` | - | string | - | Advanced: scanning profile name or YAML file path (pace, discovery depth, templates); --intensity picks this for you |
 | `--scope-origin` | - | string | - | Host scope strictness: all, relaxed, balanced, strict (default balanced; balanced admits any host sharing the target's eTLD+1, including subdomains already in the database from earlier scans). Bounds which STORED records a phase works and, under the default --redirect-mode in-scope, which hosts a redirect may follow to |
-| `--skip` | - | stringSlice | - | Skip these phases (repeatable: ingestion, probe, fingerprint, discovery, external-harvest, spidering, known-issue-scan, dynamic-assessment, extension, heuristics-check, port-sweep, harvest-probe, targeted-respider, param-mining, preflight; aliases accepted, see 'vigolium run --help') |
 | `--skip-format-validation` | - | bool | `false` | Skip validation of input file format |
 | `--skip-heuristics` | - | bool | `false` | Disable pre-scan heuristics (equivalent to --heuristics-check=none) |
 | `--spec-default` | - | string | `1` | Fallback value for required OpenAPI parameters that lack examples |
@@ -2170,6 +2169,7 @@ Compare two scans' findings: new, fixed, not re-observed, unchanged
 | `--include-dismissed` | - | bool | `false` | Keep findings marked false_positive or accepted_risk |
 | `--last` | - | int | `2` | With --target: compare the N-th most recent scan of the target against the most recent (N >= 2) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | Skip the first N rows (follow output_budget.next_offset) |
 | `--output` | `-o` | string | - | With --json: write the result document to this file and print a receipt instead; '-' forces stdout |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--target` | - | string | - | Compare the scans of this target (with --last) instead of naming two scans |

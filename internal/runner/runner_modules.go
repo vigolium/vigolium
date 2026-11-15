@@ -373,6 +373,51 @@ func (r *Runner) validateExtensionSelection(plan NativeScanPlan, engine *jsext.E
 		ErrUnknownExtensionModule, strings.Join(sel.Unknown, ", "), hint)
 }
 
+// ErrEmptyModuleSelection is what the run fails with when an explicit module
+// selection (-m, --module-tag, --module-id) resolves to no module at all, built
+// in or extension. The CLI maps it to exit 2: running zero modules and reporting
+// "completed" read as a clean assessment of a selection that was a typo.
+var ErrEmptyModuleSelection = errors.New("module selection matches no module")
+
+// validateModuleSelection fails the run before any phase sends traffic when an
+// explicit module selection resolves to nothing. Only the selection is judged,
+// not what the intensity tier or the config allowlist later withholds from it.
+func (r *Runner) validateModuleSelection(plan NativeScanPlan, engine *jsext.Engine) error {
+	if !planRunsPhase(plan, PhaseDynamicAssessment) {
+		return nil
+	}
+	// Modules holds the resolved -m/--module-tag/--module-id selection: nil for
+	// none (--passive-only), ["all"] when nothing narrowed it, else IDs — with
+	// any unmatched pattern or tag carried through verbatim.
+	ids := r.options.Modules
+	if !explicitIDs(ids) {
+		return nil
+	}
+	if len(modules.GetActiveModulesByIDs(ids))+len(modules.GetPassiveModulesByIDs(ids)) > 0 {
+		return nil
+	}
+	if engine != nil {
+		if sel := r.selectExtensionModules(engine); len(sel.Active)+len(sel.Passive) > 0 {
+			return nil
+		}
+	}
+	typed := append([]string(nil), r.options.ModulePatterns...)
+	for _, t := range r.options.ModuleTags {
+		typed = append(typed, "tag:"+t)
+	}
+	if len(typed) == 0 {
+		typed = ids
+	}
+	return fmt.Errorf("%w: %s (list modules with: vigolium module ls)",
+		ErrEmptyModuleSelection, strings.Join(typed, ", "))
+}
+
+// explicitIDs reports whether a module ID list names specific modules (not
+// nil = none, not ["all"]).
+func explicitIDs(ids []string) bool {
+	return len(ids) > 1 || (len(ids) == 1 && ids[0] != "all")
+}
+
 // countExtensionModules counts the JS/YAML extension modules in a module set.
 func countExtensionModules(active []modules.ActiveModule, passive []modules.PassiveModule) int {
 	n := 0

@@ -2,6 +2,7 @@ package fuzz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -25,6 +26,10 @@ var calibrationProbes = []string{
 // Run executes the job: send the baseline, optionally calibrate, then fan out
 // every (position, payload) pair through replay.SendRaw, gating each result and
 // streaming it via job.OnResult. It returns once every send completes.
+// ErrBaselineUnreachable is a fuzz run whose un-fuzzed baseline request got
+// no response, so no payload was sent.
+var ErrBaselineUnreachable = errors.New("baseline request failed")
+
 func Run(ctx context.Context, job Job) (*Report, error) {
 	if job.Client == nil && job.Sender == nil {
 		return nil, fmt.Errorf("fuzz.Run: job.Client or job.Sender is required")
@@ -87,9 +92,9 @@ func Run(ctx context.Context, job Job) (*Report, error) {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		return report, fmt.Errorf("fuzz.Run: baseline request failed (%s); "+
+		return report, fmt.Errorf("fuzz.Run: %w (%s); "+
 			"every delta and the calibration would compare against nothing — fix the request or allow it explicitly",
-			baseline.Error)
+			ErrBaselineUnreachable, baseline.Error)
 	}
 
 	var detect *detector

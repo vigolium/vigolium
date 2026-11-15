@@ -26,6 +26,7 @@ type scanDocJSON struct {
 	Command           string                  `json:"command"`
 	Kind              string                  `json:"kind"`
 	OK                bool                    `json:"ok"`
+	Error             *agentError             `json:"error"`
 	ScanUUID          string                  `json:"scan_uuid"`
 	ScanUUIDs         []string                `json:"scan_uuids"`
 	ProjectUUID       string                  `json:"project_uuid"`
@@ -62,7 +63,8 @@ func decodeOneScanDoc(t *testing.T, stdout string) scanDocJSON {
 	require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(stdout)), &doc), stdout)
 	assert.Equal(t, AgentSchemaVersion, doc.SchemaVersion)
 	assert.Equal(t, "scan", doc.Kind)
-	assert.True(t, doc.OK, "a scan document is a result document, failed scan or not")
+	// A failed scan still prints its document; ok and error then say it failed.
+	assert.Equal(t, doc.OK, doc.Error == nil, "error is present exactly when ok is false")
 	return doc
 }
 
@@ -306,6 +308,9 @@ func TestScanDocumentFailurePath(t *testing.T) {
 	assert.Zero(t, hits.Load())
 	doc := decodeOneScanDoc(t, stdout)
 	contracttest.Validate(t, "scan", []byte(stdout))
+	assert.False(t, doc.OK, "exit 1: the document is kept and says it failed")
+	require.NotNil(t, doc.Error)
+	assert.Equal(t, 1, doc.Error.ExitCode)
 	assert.Equal(t, "failed", doc.Status)
 	assert.Equal(t, database.ReasonNoTargetsInScope, doc.StopReason)
 	require.NotEmpty(t, doc.Errors)

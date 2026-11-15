@@ -1,0 +1,345 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "contract.ErrorBody": {
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "ambiguous_id",
+            "body_decode_failed",
+            "body_incomplete",
+            "body_unavailable",
+            "budget_exhausted",
+            "config_invalid",
+            "conflict",
+            "database_locked",
+            "database_unavailable",
+            "export_failed",
+            "extension_load_failed",
+            "failed",
+            "finding_not_found",
+            "forbidden",
+            "gate_tripped",
+            "ingest_incomplete",
+            "input_unparsed",
+            "internal_error",
+            "interrupted",
+            "invalid_project_uuid",
+            "invalid_request",
+            "lint_failed",
+            "login_failed",
+            "method_not_allowed",
+            "no_targets_in_scope",
+            "no_targets_reachable",
+            "not_authenticated",
+            "not_found",
+            "not_ready",
+            "output_too_large",
+            "partial",
+            "payload_too_large",
+            "pdf_failed",
+            "preflight_failed",
+            "project_not_found",
+            "provider_missing",
+            "proxy_auth_required",
+            "queue_full",
+            "rate_limited",
+            "record_not_found",
+            "scan_abandoned",
+            "scan_not_found",
+            "schema_outdated",
+            "schema_too_new",
+            "service_unavailable",
+            "source_incompatible",
+            "source_missing",
+            "source_unreadable",
+            "storage_disabled",
+            "timed_out",
+            "unauthorized",
+            "unsupported_api_version",
+            "unsupported_input_mode",
+            "usage_error",
+            "wait_timeout"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "did_you_mean": {
+          "type": "string"
+        },
+        "usage_argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "exit_code"
+      ]
+    },
+    "contract.GlobSkipped": {
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "file",
+        "error"
+      ]
+    },
+    "contract.GlobSources": {
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "matched": {
+          "type": "integer"
+        },
+        "loaded": {
+          "type": "integer"
+        },
+        "skipped": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/contract.GlobSkipped"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parse_errors": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "pattern",
+        "matched",
+        "loaded",
+        "skipped",
+        "parse_errors"
+      ]
+    },
+    "contract.OutputBudget": {
+      "properties": {
+        "max_bytes": {
+          "type": "integer"
+        },
+        "returned": {
+          "type": "integer"
+        },
+        "omitted": {
+          "type": "integer"
+        },
+        "next_offset": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "max_bytes",
+        "returned",
+        "omitted",
+        "next_offset"
+      ]
+    },
+    "contract.ReceiptArtifact": {
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "format",
+        "path",
+        "bytes"
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 2
+    },
+    "command": {
+      "type": "string",
+      "const": "finding load"
+    },
+    "kind": {
+      "type": "string",
+      "const": "mutation"
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "true exactly when the command exited 0, 3 or 4; false documents carry error"
+    },
+    "error": {
+      "$ref": "#/$defs/contract.ErrorBody"
+    },
+    "soft_fail": {
+      "type": "boolean"
+    },
+    "changed": {
+      "type": "boolean"
+    },
+    "action": {
+      "type": "string"
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "project_uuid": {
+      "type": "string"
+    },
+    "db_path": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "items": {
+      "items": {
+        "type": "integer"
+      },
+      "type": "array"
+    },
+    "query": {
+      "type": "string"
+    },
+    "query_argv": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "generated_at_ms": {
+      "type": "integer"
+    },
+    "project_source": {
+      "type": "string",
+      "enum": [
+        "flag",
+        "env",
+        "active_file",
+        "default"
+      ]
+    },
+    "project_scoped": {
+      "type": "boolean"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "glob_sources": {
+      "$ref": "#/$defs/contract.GlobSources"
+    },
+    "output_budget": {
+      "$ref": "#/$defs/contract.OutputBudget"
+    },
+    "sends_traffic": {
+      "type": "boolean"
+    },
+    "artifact": {
+      "type": "string"
+    },
+    "output": {
+      "type": "string"
+    },
+    "bytes": {
+      "type": "integer"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "hint": {
+      "type": "string"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/contract.ReceiptArtifact"
+      },
+      "type": "array"
+    },
+    "format": {
+      "type": "string"
+    },
+    "parsed": {
+      "type": "integer"
+    },
+    "saved": {
+      "type": "integer"
+    },
+    "skipped": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "ok",
+    "total",
+    "offset",
+    "limit",
+    "items",
+    "project_source",
+    "format",
+    "parsed",
+    "saved",
+    "skipped",
+    "kind",
+    "changed",
+    "action"
+  ],
+  "title": "vigolium finding load -j",
+  "description": "The ids of the findings stored (total counts them); parsed, saved and skipped count the input."
+}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/httpstack"
@@ -157,13 +158,16 @@ func runKitParamMine(cmd *cobra.Command, args []string) error {
 	}
 
 	if globalJSON {
-		return emitRead(cmd, "params", items, int64(len(items)), 0, len(items),
+		if err := emitRead(cmd, "params", items, int64(len(items)), 0, len(items),
 			withExtra("url", res.URL),
 			withExtra("method", res.Method),
 			withExtra("location", string(res.Location)),
 			withExtra("names_tested", res.Tested),
 			withExtra("requests", res.Requests),
-			withExtra("aborted", res.Aborted))
+			withExtra("aborted", res.Aborted)); err != nil {
+			return err
+		}
+		return paramMineOutcome(res.Aborted)
 	}
 	for _, it := range items {
 		fmt.Printf("%s\t%s\t%s\n", it.Name, it.Signal, it.Detail)
@@ -173,6 +177,20 @@ func runKitParamMine(cmd *cobra.Command, args []string) error {
 		summary += " — stopped early: " + res.Aborted
 	}
 	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.InfoSymbol(), summary)
+	return paramMineOutcome(res.Aborted)
+}
+
+// paramMineOutcome turns a run that stopped on failed sends into its exit: a
+// baseline that got no answer tested nothing (no_targets_reachable); a burst of
+// transport errors cut the run short (partial). The other stops (budget,
+// blocked, unstable) are answers about the target, reported in "aborted".
+func paramMineOutcome(aborted string) error {
+	switch aborted {
+	case parammine.AbortBaseline:
+		return sendOutcomeError("param-mine baseline request", 1, 1)
+	case parammine.AbortErrors:
+		return incompleteErrorf(apicontract.CodePartial, "param-mine stopped after consecutive transport errors; the names after that point were not tested")
+	}
 	return nil
 }
 

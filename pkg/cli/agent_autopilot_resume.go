@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/olium/sessionlog"
@@ -32,7 +35,11 @@ func prepareAutopilotResume(ctx context.Context, repo *database.Repository, resu
 	run, err := repo.GetAgenticScan(ctx, resumeUUID)
 	if err != nil {
 		//vigolium:not-usage database lookup result
-		return fmt.Errorf("--resume: agentic scan %s not found: %w", resumeUUID, err)
+		wrapped := fmt.Errorf("--resume: agentic scan %s not found: %w", resumeUUID, err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return clicommon.NewCodedError(apicontract.CodeScanNotFound, wrapped)
+		}
+		return wrapped
 	}
 	if run.Mode != "autopilot" {
 		//vigolium:not-usage decided from the stored run, after I/O

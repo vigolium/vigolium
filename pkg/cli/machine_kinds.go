@@ -16,6 +16,15 @@ var machineKinds = map[string]machineKind{
 	"kit":      kindInteractive,
 	"kit oast": kindInteractive,
 	"oast":     kindInteractive,
+	// Pure groups: help for a human, a usage error under -j
+	// (enforceGroupSubcommands).
+	"auth":       kindInteractive,
+	"completion": kindInteractive,
+	"config":     kindInteractive,
+	"db":         kindInteractive,
+	"project":    kindInteractive,
+	"server ca":  kindInteractive,
+	"storage":    kindInteractive,
 
 	"completion bash":       kindInteractive,
 	"completion fish":       kindInteractive,

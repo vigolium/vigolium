@@ -358,6 +358,10 @@ func runTraffic(cmd *cobra.Command, args []string) error {
 		trafficUUIDs = resolved
 		filters.RecordUUIDs = resolved
 	}
+	if err := checkTrafficSourceFilter(context.Background(), db, filters.Source, filters.ProjectUUID); err != nil {
+		return err
+	}
+	hintNonStandardMethods(filters.Methods)
 	if trafficSaveToVigoliumDB {
 		// --save-to-vigolium-db flips this invocation to write intent
 		// (dbWriteFlags), so the opener has already made the schema ready.

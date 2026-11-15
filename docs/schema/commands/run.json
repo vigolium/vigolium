@@ -222,6 +222,129 @@
         "found_at"
       ]
     },
+    "cli.hostView": {
+      "properties": {
+        "hostname": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "observed_at": {
+          "type": "string"
+        },
+        "scan_uuid": {
+          "type": "string"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "a": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "aaaa": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cname": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mx": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ns": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "txt": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "soa": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "caa": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "server": {
+          "type": "string"
+        },
+        "status_code": {
+          "type": "integer"
+        },
+        "technology": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "favicon_mmh3": {
+          "type": "integer"
+        },
+        "soft_not_found": {
+          "type": "boolean"
+        },
+        "tls_version": {
+          "type": "string"
+        },
+        "cert_not_after": {
+          "type": "string"
+        },
+        "sans": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "favicon": {
+          "$ref": "#/$defs/recon.FaviconInfo"
+        },
+        "tls": {
+          "$ref": "#/$defs/tlsprobe.Info"
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/recon.TechStackReport"
+        },
+        "not_found": {
+          "$ref": "#/$defs/database.NotFoundBaseline"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "hostname",
+        "port",
+        "observed_at",
+        "complete"
+      ]
+    },
     "cli.recordViewSchema": {
       "properties": {
         "uuid": {
@@ -385,6 +508,7 @@
             "ingest_incomplete",
             "input_unparsed",
             "internal_error",
+            "interrupted",
             "invalid_project_uuid",
             "invalid_request",
             "lint_failed",
@@ -414,6 +538,7 @@
             "source_incompatible",
             "source_missing",
             "source_unreadable",
+            "storage_disabled",
             "timed_out",
             "unauthorized",
             "unsupported_api_version",
@@ -526,6 +651,9 @@
         },
         "why": {
           "type": "string"
+        },
+        "sends_traffic": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
@@ -533,6 +661,95 @@
       "required": [
         "argv",
         "why"
+      ]
+    },
+    "contract.ErrorBody": {
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "ambiguous_id",
+            "body_decode_failed",
+            "body_incomplete",
+            "body_unavailable",
+            "budget_exhausted",
+            "config_invalid",
+            "conflict",
+            "database_locked",
+            "database_unavailable",
+            "export_failed",
+            "extension_load_failed",
+            "failed",
+            "finding_not_found",
+            "forbidden",
+            "gate_tripped",
+            "ingest_incomplete",
+            "input_unparsed",
+            "internal_error",
+            "interrupted",
+            "invalid_project_uuid",
+            "invalid_request",
+            "lint_failed",
+            "login_failed",
+            "method_not_allowed",
+            "no_targets_in_scope",
+            "no_targets_reachable",
+            "not_authenticated",
+            "not_found",
+            "not_ready",
+            "output_too_large",
+            "partial",
+            "payload_too_large",
+            "pdf_failed",
+            "preflight_failed",
+            "project_not_found",
+            "provider_missing",
+            "proxy_auth_required",
+            "queue_full",
+            "rate_limited",
+            "record_not_found",
+            "scan_abandoned",
+            "scan_not_found",
+            "schema_outdated",
+            "schema_too_new",
+            "service_unavailable",
+            "source_incompatible",
+            "source_missing",
+            "source_unreadable",
+            "storage_disabled",
+            "timed_out",
+            "unauthorized",
+            "unsupported_api_version",
+            "unsupported_input_mode",
+            "usage_error",
+            "wait_timeout"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "did_you_mean": {
+          "type": "string"
+        },
+        "usage_argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "exit_code"
       ]
     },
     "contract.GlobSkipped": {
@@ -735,6 +952,63 @@
         "at"
       ]
     },
+    "database.NotFoundBaseline": {
+      "properties": {
+        "paths": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "integer"
+        },
+        "length": {
+          "type": "integer"
+        },
+        "words": {
+          "type": "integer"
+        },
+        "lines": {
+          "type": "integer"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "soft_not_found": {
+          "type": "boolean"
+        },
+        "signature": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "paths",
+        "status",
+        "length",
+        "words",
+        "lines",
+        "soft_not_found"
+      ]
+    },
     "database.PersistenceOutcome": {
       "properties": {
         "writer": {
@@ -779,6 +1053,12 @@
           "type": "array"
         },
         "limits": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "notes": {
           "items": {
             "type": "string"
           },
@@ -889,6 +1169,60 @@
         "reached"
       ]
     },
+    "recon.APISpecDetection": {
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "status_code": {
+          "type": "integer"
+        },
+        "reachable": {
+          "type": "boolean"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "url",
+        "kind",
+        "status_code",
+        "reachable"
+      ]
+    },
+    "recon.CORSDetection": {
+      "properties": {
+        "tested_origin": {
+          "type": "string"
+        },
+        "allow_origin": {
+          "type": "string"
+        },
+        "allow_credentials": {
+          "type": "string"
+        },
+        "allow_methods": {
+          "type": "string"
+        },
+        "reflective": {
+          "type": "boolean"
+        },
+        "permissive": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "tested_origin"
+      ]
+    },
     "recon.FaviconInfo": {
       "properties": {
         "url": {
@@ -915,6 +1249,336 @@
         "md5",
         "sha256",
         "size"
+      ]
+    },
+    "recon.JSFrameworkSignal": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name"
+      ]
+    },
+    "recon.LoginCandidate": {
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "username_name": {
+          "type": "string"
+        },
+        "password_name": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "url"
+      ]
+    },
+    "recon.ProbeError": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "probe": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "network",
+            "budget",
+            "scope",
+            "blocked",
+            "cancelled",
+            "skipped"
+          ]
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "kind",
+        "error"
+      ]
+    },
+    "recon.SecurityHeadersAudit": {
+      "properties": {
+        "present": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "missing": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "recon.SensitivePathEntry": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "status_code": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "status_code",
+        "reason"
+      ]
+    },
+    "recon.StackDetection": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "category",
+        "confidence"
+      ]
+    },
+    "recon.TechStackReport": {
+      "properties": {
+        "hostname": {
+          "type": "string"
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "stacks": {
+          "items": {
+            "$ref": "#/$defs/recon.StackDetection"
+          },
+          "type": "array"
+        },
+        "api_specs": {
+          "items": {
+            "$ref": "#/$defs/recon.APISpecDetection"
+          },
+          "type": "array"
+        },
+        "well_known": {
+          "items": {
+            "$ref": "#/$defs/recon.WellKnownEntry"
+          },
+          "type": "array"
+        },
+        "security_headers": {
+          "$ref": "#/$defs/recon.SecurityHeadersAudit"
+        },
+        "cors": {
+          "$ref": "#/$defs/recon.CORSDetection"
+        },
+        "allowed_methods": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        "sensitive_paths": {
+          "items": {
+            "$ref": "#/$defs/recon.SensitivePathEntry"
+          },
+          "type": "array"
+        },
+        "js_signals": {
+          "items": {
+            "$ref": "#/$defs/recon.JSFrameworkSignal"
+          },
+          "type": "array"
+        },
+        "favicon_hash": {
+          "type": "string"
+        },
+        "favicon": {
+          "$ref": "#/$defs/recon.FaviconInfo"
+        },
+        "base_status": {
+          "type": "integer"
+        },
+        "base_location": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "server": {
+          "type": "string"
+        },
+        "powered_by": {
+          "type": "string"
+        },
+        "http_version": {
+          "type": "string"
+        },
+        "alt_svc": {
+          "type": "string"
+        },
+        "source_maps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "depth": {
+          "type": "string"
+        },
+        "vhost_findings": {
+          "items": {
+            "$ref": "#/$defs/recon.VHostFinding"
+          },
+          "type": "array"
+        },
+        "login_candidates": {
+          "items": {
+            "$ref": "#/$defs/recon.LoginCandidate"
+          },
+          "type": "array"
+        },
+        "probe_count": {
+          "type": "integer"
+        },
+        "probe_errors": {
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "$ref": "#/$defs/recon.ProbeError"
+          },
+          "type": "array"
+        },
+        "duration": {
+          "type": "integer"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "hostname",
+        "base_url",
+        "generated_at",
+        "security_headers",
+        "probe_count",
+        "duration"
+      ]
+    },
+    "recon.VHostFinding": {
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "status_code": {
+          "type": "integer"
+        },
+        "body_delta": {
+          "type": "integer"
+        },
+        "baseline_code": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "host",
+        "status_code",
+        "body_delta",
+        "baseline_code"
+      ]
+    },
+    "recon.WellKnownEntry": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "status_code": {
+          "type": "integer"
+        },
+        "snippet": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "path",
+        "status_code"
       ]
     },
     "scanplan.AuthSession": {
@@ -1643,6 +2307,12 @@
             }
           ]
         },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/scanplan.ScopeRuleView"
+          },
+          "type": "array"
+        },
         "scope_targets": {
           "items": {
             "type": "string"
@@ -1665,6 +2335,46 @@
         "host_exclude",
         "path_include",
         "path_exclude"
+      ]
+    },
+    "scanplan.ScopeRuleView": {
+      "properties": {
+        "class": {
+          "type": "string"
+        },
+        "include": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exclude": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "class",
+        "include",
+        "exclude"
       ]
     },
     "scanplan.Sitemap": {
@@ -1875,7 +2585,13 @@
     },
     "ok": {
       "type": "boolean",
-      "const": true
+      "description": "true exactly when the command exited 0, 3 or 4; false documents carry error"
+    },
+    "error": {
+      "$ref": "#/$defs/contract.ErrorBody"
+    },
+    "soft_fail": {
+      "type": "boolean"
     },
     "project_uuid": {
       "type": "string"
@@ -1894,7 +2610,15 @@
     },
     "items": {
       "items": {
-        "$ref": "#/$defs/cli.findingViewSchema"
+        "anyOf": [
+          {
+            "$ref": "#/$defs/cli.findingViewSchema"
+          },
+          {
+            "$ref": "#/$defs/cli.hostView"
+          }
+        ],
+        "description": "The default row, or the row shape selected by: the fingerprint phase (run fingerprint)"
       },
       "type": "array"
     },
@@ -1936,6 +2660,40 @@
     },
     "output_budget": {
       "$ref": "#/$defs/contract.OutputBudget"
+    },
+    "sends_traffic": {
+      "type": "boolean"
+    },
+    "artifact": {
+      "type": "string"
+    },
+    "output": {
+      "type": "string"
+    },
+    "bytes": {
+      "type": "integer"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "hint": {
+      "type": "string"
+    },
+    "artifacts": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/cli.scanArtifact"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "scan_uuid": {
       "type": "string"
@@ -1981,6 +2739,12 @@
     "stop_reason": {
       "type": "string"
     },
+    "scope_dropped": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "type": "object"
+    },
     "targets": {
       "anyOf": [
         {
@@ -2025,19 +2789,6 @@
         {
           "items": {
             "$ref": "#/$defs/database.Caveat"
-          },
-          "type": "array"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "artifacts": {
-      "anyOf": [
-        {
-          "items": {
-            "$ref": "#/$defs/cli.scanArtifact"
           },
           "type": "array"
         },
@@ -2164,5 +2915,5 @@
     "kind"
   ],
   "title": "vigolium run -j",
-  "description": "The scan document: one document per invocation, items are finding views."
+  "description": "The scan document: items are finding views, or host views for `run fingerprint`."
 }

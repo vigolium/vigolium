@@ -81,11 +81,19 @@ func awaitDirectOAST(ctx context.Context, sess *directScanSession, scanUUID stri
 		cfg.OASTService = svc
 		return svc
 	}
+	// The public default server being unreachable is a caveat of this
+	// machine's network, not lost coverage; a configured server that is down
+	// is (see Runner.reportOASTUnavailable).
+	caveatOnly := svc.UsesDefaultServer()
 	svc.Close()
 	if ctx.Err() != nil {
 		return nil
 	}
-	sess.notePhaseReason(scanUUID, database.ReasonOASTUnavailable)
+	if caveatOnly {
+		sess.notePhaseCaveat(scanUUID, database.ReasonOASTUnavailable)
+	} else {
+		sess.notePhaseReason(scanUUID, database.ReasonOASTUnavailable)
+	}
 	if !globalSilent {
 		fmt.Fprintf(os.Stderr, "%s OAST unavailable (%s) — blind/out-of-band checks skipped\n",
 			terminal.WarnPrefix(), oastUnavailableDetail(err))

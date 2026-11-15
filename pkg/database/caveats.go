@@ -75,6 +75,9 @@ func CoverageCaveats(c ScanCompletion, moduleErrors map[string]int64) []Caveat {
 			cv.Message = caveatMessage(reason)
 			out = append(out, cv)
 		}
+		for _, note := range p.Notes {
+			out = append(out, Caveat{Code: note, Phase: p.Phase, Message: caveatMessage(note)})
+		}
 		if len(p.FindingsCapped) > 0 {
 			cv := Caveat{Code: LimitFindingsPerModule, Phase: p.Phase, Message: caveatMessage(LimitFindingsPerModule)}
 			cv.Modules, cv.Count = rankModules(p.FindingsCapped)
@@ -152,4 +155,27 @@ func (c Caveat) Line() string {
 	b.WriteString(c.Code)
 	b.WriteString("]")
 	return b.String()
+}
+
+// ScopeDroppedCountPrefix prefixes the PhaseOutcome.Counts keys that count the
+// records a scope rule class refused ("scope_dropped.status_code").
+const ScopeDroppedCountPrefix = "scope_dropped."
+
+// ScopeDropped sums the per-class scope drops across a scan's phases; nil when
+// scope dropped nothing.
+func ScopeDropped(phases []PhaseOutcome) map[string]int64 {
+	var out map[string]int64
+	for _, p := range phases {
+		for k, n := range p.Counts {
+			class, ok := strings.CutPrefix(k, ScopeDroppedCountPrefix)
+			if !ok || n <= 0 {
+				continue
+			}
+			if out == nil {
+				out = map[string]int64{}
+			}
+			out[class] += n
+		}
+	}
+	return out
 }

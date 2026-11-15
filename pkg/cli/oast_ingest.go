@@ -28,7 +28,6 @@ it. 'oast ingest' reads the callbacks your endpoint logged and turns the ones
 carrying a recorded nonce into findings of the scan that planted them.
 
 To mint callback URLs by hand, see 'vigolium kit oast'.`,
-	RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 }
 
 var oastIngestCmd = &cobra.Command{

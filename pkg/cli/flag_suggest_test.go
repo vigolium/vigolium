@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
@@ -166,4 +167,30 @@ func TestFlagErrorFuncStillCatchesRealTypos(t *testing.T) {
 			t.Errorf("%s: expected %q, got %q", tc.typed, tc.want, err.Error())
 		}
 	}
+}
+
+// The -j error carries the suggestion as fields and keeps message to the fact.
+func TestFlagErrorEnvelopeCarriesStructuredRemedies(t *testing.T) {
+	withMachineDocumentState(t)
+	globalJSON = true
+	root := &cobra.Command{Use: "vigolium"}
+	c := &cobra.Command{Use: "finding"}
+	root.AddCommand(c)
+	c.SetFlagErrorFunc(flagErrorFunc)
+	c.Flags().String("host", "", "")
+
+	err := parseErr(t, c, "--hostt", "x")
+	require.Error(t, err)
+	code := classifyExitCode(err)
+	require.Equal(t, ExitUsageError, code)
+
+	out := captureStdout(t, func() { emitJSONError(err, code, c) })
+	docs := decodeStdoutDocuments(t, out)
+	require.Len(t, docs, 1)
+	e := docs[0]["error"].(map[string]any)
+	require.Equal(t, "unknown flag: --hostt", e["message"], "message is the bare fact")
+	require.Equal(t, "usage_error", e["code"])
+	require.Equal(t, "--host", e["did_you_mean"])
+	require.Contains(t, e["hint"], "vigolium finding --help")
+	require.Equal(t, []any{"vigolium", "finding", "--usage", "-j"}, e["usage_argv"])
 }

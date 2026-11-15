@@ -142,14 +142,8 @@ func (e *Executor) sendItem(ctx context.Context, item *work.WorkItem, itemCh cha
 	// Pre-request scope check (host/path only — avoids HTTP call)
 	if e.cfg.ScopeMatcher != nil && item.Request.Service() != nil {
 		host, path := item.Request.Service().Host(), item.Request.Request().Path()
-		var inScope bool
-		if e.cfg.FetchStaticFiles {
-			inScope = e.cfg.ScopeMatcher.InScopeTarget(host, path)
-		} else {
-			inScope = e.cfg.ScopeMatcher.InScopeRequest(host, path, "", "")
-		}
-		if !inScope {
-			e.scopeRejected.Add(1)
+		if class := e.cfg.ScopeMatcher.RequestRejectClass(host, path, e.cfg.FetchStaticFiles); class != "" {
+			e.noteScopeRejected(class)
 			e.noteUnanswered(item, DropOutOfScope, nil)
 			item.Complete()
 			return true
@@ -437,9 +431,9 @@ func (e *Executor) processItemDetached(t *itemTracker) {
 
 	// Pre-compute scope status before passive modules so scope-aware
 	// passive modules can be skipped for out-of-scope items.
-	inScope := true
+	scopeClass := ""
 	if e.cfg.ScopeMatcher != nil && req.Service() != nil {
-		inScope = e.cfg.ScopeMatcher.InScopeBytes(
+		scopeClass = e.cfg.ScopeMatcher.RejectClassBytes(
 			req.Service().Host(),
 			req.Request().Path(),
 			httpResp.StatusCode(),
@@ -449,6 +443,7 @@ func (e *Executor) processItemDetached(t *itemTracker) {
 			httpResp.Body(),
 		)
 	}
+	inScope := scopeClass == ""
 
 	// The passive stage already ran on this record in an earlier pass or run
 	// (coverage ledger): skip it.
@@ -473,7 +468,7 @@ func (e *Executor) processItemDetached(t *itemTracker) {
 	}
 	skipActive := bodySizeAction == config.BodySizePassiveOnly
 
-	if !e.persistAndCheckScope(ctx, item, req, inScope, redirectHops) {
+	if !e.persistAndCheckScope(ctx, item, req, scopeClass, redirectHops) {
 		return
 	}
 

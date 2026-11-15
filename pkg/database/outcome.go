@@ -205,8 +205,13 @@ type PhaseOutcome struct {
 	State   PhaseState `json:"state"`
 	Reasons []string   `json:"reasons,omitempty"` // sorted, unique
 	Limits  []string   `json:"limits,omitempty"`  // sorted, unique
-	Errors  int        `json:"errors,omitempty"`
-	Message string     `json:"message,omitempty"` // first error, truncated
+	// Notes are caveat codes about the environment the phase ran in that do
+	// not reduce its coverage verdict (the public default OAST server being
+	// unreachable): reported as caveats, never as a partial phase. Sorted,
+	// unique.
+	Notes   []string `json:"notes,omitempty"`
+	Errors  int      `json:"errors,omitempty"`
+	Message string   `json:"message,omitempty"` // first error, truncated
 	// Unprocessed counts work items the executor dequeued but did not process —
 	// deliberately NOT acknowledged, so a later run re-serves them.
 	Unprocessed int64               `json:"unprocessed,omitempty"`
@@ -282,6 +287,7 @@ var phaseStateRank = map[PhaseState]int{
 func (o *PhaseOutcome) Merge(b PhaseOutcome) {
 	o.Reasons = mergeCodes(o.Reasons, b.Reasons)
 	o.Limits = mergeCodes(o.Limits, b.Limits)
+	o.Notes = mergeCodes(o.Notes, b.Notes)
 	o.Errors += b.Errors
 	if o.Message == "" {
 		o.Message = b.Message

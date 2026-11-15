@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
@@ -18,6 +18,17 @@ import (
 // installed once on rootCmd; cobra's FlagErrorFunc() walks up to the parent, so
 // every subcommand inherits it.
 func flagErrorFunc(cmd *cobra.Command, err error) error {
+	// A closed-set flag given a value outside its set: the valid values are in
+	// the message, the nearest one is the suggestion.
+	var invalid *pflag.InvalidValueError
+	var enum *enumError
+	if errors.As(err, &invalid) && errors.As(err, &enum) {
+		return clicommon.CLIError{
+			Err:        err,
+			DidYouMean: enum.suggestion(),
+			UsageArgv:  clicommon.UsageArgvFor(commandPathWithoutRoot(cmd)),
+		}
+	}
 	var notExist *pflag.NotExistError
 	if !errors.As(err, &notExist) {
 		return err
@@ -29,16 +40,20 @@ func flagErrorFunc(cmd *cobra.Command, err error) error {
 	if notExist.GetSpecifiedShortnames() != "" || len(typed) < 2 {
 		return err
 	}
-	// With no confident near-miss, say where the answer is rather than nothing.
-	// A bare "unknown flag: --url" is a dead end; naming the command's own help
-	// costs one line and is never misleading, which a guessed flag can be.
+	// The remedies travel as fields (clicommon.CLIError): a human reads them
+	// under the fact, the -j envelope carries them as hint/did_you_mean/
+	// usage_argv with error.message left as the bare fact. With no confident
+	// near-miss, the hint still says where the answer is.
 	best := closestFlagName(cmd, typed)
-	if best == "" {
-		return fmt.Errorf("%w\n\n  %s Run '%s --help' for this command's flags",
-			err, terminal.InfoSymbol(), cmd.CommandPath())
+	out := clicommon.CLIError{
+		Err:       err,
+		Hint:      fmt.Sprintf("Run '%s --help' for this command's flags", cmd.CommandPath()),
+		UsageArgv: clicommon.UsageArgvFor(commandPathWithoutRoot(cmd)),
 	}
-	return fmt.Errorf("%w\n\n  %s Did you mean %s? (run '%s --help' for all flags)",
-		err, terminal.InfoSymbol(), terminal.BoldCyan("--"+best), cmd.CommandPath())
+	if best != "" {
+		out.DidYouMean = "--" + best
+	}
+	return out
 }
 
 // closestFlagName returns the registered long flag on cmd nearest to typed by

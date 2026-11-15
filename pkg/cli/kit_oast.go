@@ -59,7 +59,6 @@ separate, fire-and-forget invocations (no long-running process).
 The session file holds the interactsh private key + correlation id; keep it
 until you are done polling. Uses the public oast.pro server by default; point
 --server/--token at a self-hosted interactsh instance to keep callbacks private.`,
-	RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 }
 
 var kitOASTNewCmd = &cobra.Command{

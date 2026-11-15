@@ -190,6 +190,10 @@ type Scope struct {
 	HostExclude  []string `json:"host_exclude"`
 	PathInclude  []string `json:"path_include"`
 	PathExclude  []string `json:"path_exclude"`
+	// Rules lists every scope rule that differs from its pass-all default,
+	// status code, content type and string rules included, so a rule that
+	// drops records is visible before the scan runs.
+	Rules []ScopeRuleView `json:"rules,omitempty"`
 	// ScopeTargets are scope-only targets derived from a file input with no
 	// -t: the scope-origin index is built from them, but they seed
 	// nothing.
@@ -197,6 +201,15 @@ type Scope struct {
 	// InputHosts is the input file's per-host record census, each host with
 	// whether the derived scope admits it. Sorted by records, descending.
 	InputHosts []InputHost `json:"input_hosts,omitempty"`
+}
+
+// ScopeRuleView is one non-default scope rule: its class (host, path,
+// status_code, request_content_type, response_content_type, request_string,
+// response_string) and its patterns.
+type ScopeRuleView struct {
+	Class   string   `json:"class"`
+	Include []string `json:"include"`
+	Exclude []string `json:"exclude"`
 }
 
 // InputHost is one row of Scope.InputHosts.

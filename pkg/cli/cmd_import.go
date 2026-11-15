@@ -474,7 +474,7 @@ func gatherImportSources(args []string, globDB string) ([]string, error) {
 	}
 	sources := dedupeStrings(raw)
 	if len(sources) == 0 {
-		return nil, fmt.Errorf("no import sources: provide a path argument or --glob-db <pattern>")
+		return nil, usageErrorf("no import sources: provide a path argument or --glob-db <pattern>")
 	}
 	return sources, nil
 }

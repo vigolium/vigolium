@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -250,8 +251,24 @@ func withFailOnGate(prior error) error {
 	if err := failOnGateError(); err != nil {
 		return err
 	}
+	// A graceful interrupt flushed partial results; it is not a success.
+	// Exit 5 with its own code, so the outcome says why the work is short.
+	if scanWasInterrupted() {
+		return incompleteErrorf(apicontract.CodeInterrupted,
+			"the scan was interrupted; results cover what ran before the signal")
+	}
 	if partialGateArmed() && partialGateReason != "" {
 		return incompleteErrorf(apicontract.CodePartial, "scan coverage was partial (%s); --fail-on-partial", partialGateReason)
 	}
 	return nil
+}
+
+// directScanInterrupted records that a direct scan-url / scan-request pass ended
+// on a shutdown signal (the runner path reports it via activeScanSignals).
+var directScanInterrupted atomic.Bool
+
+// scanWasInterrupted reports whether this invocation's scan stopped on a
+// shutdown signal, on either path.
+func scanWasInterrupted() bool {
+	return activeScanSignals.Interrupted() || directScanInterrupted.Load()
 }

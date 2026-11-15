@@ -33,9 +33,6 @@ transform or probe meant to be driven by an orchestrator or run by hand.
   vigolium kit tmp-clean                     remove vigolium scratch left in the temp dir
 
 All commands honour -j/--json for machine-readable output and read '-' as stdin.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return cmd.Help()
-	},
 }
 
 func init() {

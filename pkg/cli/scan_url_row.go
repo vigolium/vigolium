@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,6 +83,9 @@ type directScanSession struct {
 	// register, blind checks skipped) and scan_budget
 	// (--scanning-max-duration ran out). Folded into the row by complete.
 	phaseReasons map[string][]string
+	// phaseNotes are caveat codes the direct path observed that do not make
+	// the scan partial (PhaseOutcome.Notes), per scan UUID.
+	phaseNotes map[string][]string
 
 	// cfg is the invocation's settings, loaded once (see directSettings).
 	cfg *directSettings
@@ -188,6 +192,17 @@ func (s *directScanSession) notePhaseReason(scanUUID, reason string) {
 		}
 	}
 	s.phaseReasons[scanUUID] = append(s.phaseReasons[scanUUID], reason)
+}
+
+// notePhaseCaveat records a caveat code for scanUUID that does not reduce
+// coverage (PhaseOutcome.Notes).
+func (s *directScanSession) notePhaseCaveat(scanUUID, code string) {
+	if s.phaseNotes == nil {
+		s.phaseNotes = map[string][]string{}
+	}
+	if !slices.Contains(s.phaseNotes[scanUUID], code) {
+		s.phaseNotes[scanUUID] = append(s.phaseNotes[scanUUID], code)
+	}
 }
 
 // scanUUID returns the UUID the next input scans under: the pinned one, or a
@@ -370,6 +385,9 @@ func (s *directScanSession) complete(ctx context.Context, repo *database.Reposit
 	if reached || (s.pinned != "" && s.agg.reached) {
 		for _, reason := range s.phaseReasons[scanUUID] {
 			completion = runner.ApplyDirectPhaseReason(completion, reason)
+		}
+		for _, code := range s.phaseNotes[scanUUID] {
+			completion = runner.ApplyDirectPhaseNote(completion, code)
 		}
 	}
 

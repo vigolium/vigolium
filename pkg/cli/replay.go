@@ -330,7 +330,26 @@ func runReplay(cmd *cobra.Command, args []string) error {
 
 	saveReplayJar(rr.pj)
 
-	return emitReplayResult(cmd, plan, out)
+	if err := emitReplayResult(cmd, plan, out); err != nil {
+		return err
+	}
+	failed := 0
+	if replayEntryFailed(out) {
+		failed = 1
+	}
+	return sendOutcomeError("replay", 1, failed)
+}
+
+// replayEntryFailed reports whether one replay got no response: the record
+// could not be replayed at all, or its send ended in a transport error.
+func replayEntryFailed(out *replayOutput) bool {
+	if out == nil {
+		return false
+	}
+	if out.Error != "" {
+		return true
+	}
+	return out.Result != nil && out.Result.Replay != nil && out.Result.Replay.Error != ""
 }
 
 // validateReplayFlags rejects flag combinations that can't be honored, so the

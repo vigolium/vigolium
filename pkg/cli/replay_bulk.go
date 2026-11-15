@@ -110,6 +110,8 @@ func runReplayBulk(ctx context.Context, cmd *cobra.Command, rr *replayRun, filte
 		sem   = make(chan struct{}, concurrency)
 		// collected holds every entry for the -j envelope, in completion order.
 		collected []*replayOutput
+		// attempted and failed feed the run's outcome (sendOutcomeError).
+		attempted, failed int
 	)
 
 	for _, rec := range records {
@@ -138,6 +140,10 @@ func runReplayBulk(ctx context.Context, cmd *cobra.Command, rr *replayRun, filte
 
 			outMu.Lock()
 			defer outMu.Unlock()
+			attempted++
+			if replayEntryFailed(entry) {
+				failed++
+			}
 			if enc != nil {
 				emitBulkEntry(enc, entry)
 			}
@@ -157,9 +163,11 @@ func runReplayBulk(ctx context.Context, cmd *cobra.Command, rr *replayRun, filte
 
 	saveReplayJar(rr.pj)
 	if plan.envelope {
-		return emitReplayBulkEnvelope(cmd, collected)
+		if err := emitReplayBulkEnvelope(cmd, collected); err != nil {
+			return err
+		}
 	}
-	return nil
+	return sendOutcomeError("replay", attempted, failed)
 }
 
 // recordEntry replays one stored record and returns its output. On any

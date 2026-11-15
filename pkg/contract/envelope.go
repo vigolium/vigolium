@@ -17,8 +17,13 @@ type Envelope struct {
 	Command       string `json:"command"`
 	// Kind is the document's shape: read, mutation or scan.
 	Kind string `json:"kind,omitempty"`
-	// OK is true on every result document; the error envelope carries false.
+	// OK is true exactly when the command exited 0, 3 or 4. A result document
+	// whose command then failed carries false and Error.
 	OK bool `json:"ok"`
+	// Error is present exactly when OK is false.
+	Error *ErrorBody `json:"error,omitempty"`
+	// SoftFail states that --soft-fail forced the process exit status to 0.
+	SoftFail bool `json:"soft_fail,omitempty"`
 	// Changed, Action and DryRun are the mutation spine (kind "mutation").
 	Changed *bool  `json:"changed,omitempty"`
 	Action  string `json:"action,omitempty"`
@@ -54,6 +59,25 @@ type EnvelopeCommon struct {
 	GlobSources *GlobSources `json:"glob_sources,omitempty"`
 	// OutputBudget reports a page cut by --max-output-bytes.
 	OutputBudget *OutputBudget `json:"output_budget,omitempty"`
+	// SendsTraffic marks a command whose job is to send requests to a target.
+	SendsTraffic bool `json:"sends_traffic,omitempty"`
+
+	// The -o receipt: the document went to Output instead of stdout, so items
+	// is empty and these describe the file.
+	Artifact  string            `json:"artifact,omitempty"`
+	Output    string            `json:"output,omitempty"`
+	Bytes     int               `json:"bytes,omitempty"`
+	SHA256    string            `json:"sha256,omitempty"`
+	Complete  *bool             `json:"complete,omitempty"`
+	Hint      string            `json:"hint,omitempty"`
+	Artifacts []ReceiptArtifact `json:"artifacts,omitempty"`
+}
+
+// ReceiptArtifact is one file a command wrote.
+type ReceiptArtifact struct {
+	Format string `json:"format"`
+	Path   string `json:"path"`
+	Bytes  int64  `json:"bytes"`
 }
 
 // GlobSources is the glob_sources extra of a --glob-db read.
@@ -97,7 +121,8 @@ func CommandSchema(name string) (*Schema, error) {
 
 	env.Properties.Set("schema_version", constSchema("integer", apicontract.SchemaVersion))
 	env.Properties.Set("command", constSchema("string", c.Name))
-	env.Properties.Set("ok", constSchema("boolean", true))
+	env.Properties.Set("ok", &Schema{Type: "boolean",
+		Description: "true exactly when the command exited 0, 3 or 4; false documents carry error"})
 	if c.Kind != "" {
 		env.Properties.Set("kind", constSchema("string", c.Kind))
 		env.Required = appendUnique(env.Required, "kind")
@@ -118,6 +143,10 @@ func CommandSchema(name string) (*Schema, error) {
 	desc := c.Description
 	if desc == "" {
 		desc = "The -j document of `vigolium " + c.Name + "`."
+	}
+	if c.StreamFlag != "" {
+		desc += " With " + c.StreamFlag + ", stdout is a stream of these documents, one per line (NDJSON), " +
+			"ending with an error document if the stream stops on a failure."
 	}
 	return b.root(env, "vigolium "+c.Name+" -j", desc), nil
 }

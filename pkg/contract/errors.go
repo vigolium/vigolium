@@ -31,6 +31,13 @@ type ErrorBody struct {
 	Code     apicontract.ErrorCode `json:"code"`
 	Message  string                `json:"message"`
 	ExitCode int                   `json:"exit_code"`
+	// Hint names the next step, in one sentence.
+	Hint string `json:"hint,omitempty"`
+	// DidYouMean is the nearest valid spelling of what was typed: a flag with
+	// its dashes, a command path, or an enum value.
+	DidYouMean string `json:"did_you_mean,omitempty"`
+	// UsageArgv prints the failing command's flags as a document.
+	UsageArgv []string `json:"usage_argv,omitempty"`
 }
 
 // ErrorSchema builds the schema of the -j error document. error.code is the

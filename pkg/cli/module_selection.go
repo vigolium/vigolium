@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -165,4 +166,30 @@ func validateModuleSelectionFlags(noPassive bool) error {
 		}
 	}
 	return nil
+}
+
+// emptyModuleSelectionError is the usage error for an explicit module
+// selection (-m, --module-tag, --module-id) that matched no module; nil when
+// nothing narrowed the selection.
+func emptyModuleSelectionError() error {
+	typed := append([]string(nil), globalModules...)
+	for _, t := range globalModuleTags {
+		typed = append(typed, "tag:"+t)
+	}
+	typed = append(typed, globalModuleIDs...)
+	if len(typed) == 0 {
+		return nil
+	}
+	e := clicommon.CLIError{
+		Err:  fmt.Errorf("module selection matches no module: %s", strings.Join(typed, ", ")),
+		Hint: "List modules with: vigolium module ls",
+	}
+	ids := append(modules.GetActiveModulesID(), modules.GetPassiveModulesID()...)
+	for _, p := range append(append([]string(nil), globalModules...), globalModuleIDs...) {
+		if best := closestName(strings.ToLower(p), ids); best != "" {
+			e.DidYouMean = best
+			break
+		}
+	}
+	return e
 }

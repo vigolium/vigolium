@@ -53,6 +53,30 @@ var BridgeRecordSources = []string{
 	RecordSourceCaido,
 }
 
+// KnownRecordSources are the http_records.source labels vigolium itself
+// writes. A label outside it can still exist (a REST client may set its own),
+// which is why a --source filter is checked against the stored labels too.
+var KnownRecordSources = []string{
+	RecordSourceIngestServer, RecordSourceIngestContext, RecordSourceIngestProxy, RecordSourceIngestCLI,
+	RecordSourceScanner, RecordSourceProbe, RecordSourceFingerprint, RecordSourceHarvest,
+	RecordSourceFinding, RecordSourceBurp, RecordSourceCaido, RecordSourceParamMining,
+	RecordKindCandidate, RecordKindObservation, legacyKISEvidenceSource, "seed",
+}
+
+// ListRecordSources returns the distinct http_records.source labels stored in
+// a project ("" = every project), sorted.
+func (r *Repository) ListRecordSources(ctx context.Context, projectUUID string) ([]string, error) {
+	var out []string
+	q := r.db.NewSelect().Model((*HTTPRecord)(nil)).ColumnExpr("DISTINCT COALESCE(source, '')").OrderExpr("1")
+	if projectUUID != "" {
+		q = q.Where("project_uuid = ?", projectUUID)
+	}
+	if err := q.Scan(ctx, &out); err != nil {
+		return nil, fmt.Errorf("list record sources: %w", err)
+	}
+	return out, nil
+}
+
 // IsBridgeRecordSource reports whether a source label names a bridge vendor.
 // Case-insensitive, since it answers both a user-typed --source and a header
 // value written by a plugin.

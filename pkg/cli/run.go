@@ -76,6 +76,15 @@ Valid phases (canonical name, then the aliases it also answers to):
 		if err := ambiguousRunPhase(args[0]); err != nil {
 			return err
 		}
+		// The positional already selects the one phase to run, so there is
+		// nothing for --skip to remove. The flag is shared with scan and hidden
+		// here; naming it is a usage error rather than a silent conflict.
+		for _, name := range []string{"skip", "only"} {
+			if cmd.Flags().Changed(name) {
+				return usageErrorf("run <phase> runs exactly one phase, so --%s does not apply; "+
+					"to choose several phases, use: vigolium scan --only <a,b> or vigolium scan --skip <phase>", name)
+			}
+		}
 		globalOnly = args[0]
 		// The positional arg is the phase name, not a target — pass nil so
 		// runScanCmd does not merge it into the scan target list.
@@ -95,4 +104,10 @@ func init() {
 	flags.StringVar(&scanOpts.FingerprintDepth, "fingerprint-depth", "", "With the fingerprint phase: reads per origin, light|standard|full (default standard, light past 50 targets; 'vigolium fingerprint --depth')")
 	registerNativeScanFlags(flags, true)
 	addFlagAliases(runCmd, nativeScanFlagAliases)
+	if f := flags.Lookup("skip"); f != nil {
+		f.Hidden = true
+	}
+	if f := flags.Lookup("only"); f != nil {
+		f.Hidden = true
+	}
 }

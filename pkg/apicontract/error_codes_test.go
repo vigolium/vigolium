@@ -91,7 +91,7 @@ func TestErrorCodesSortedCopy(t *testing.T) {
 
 func TestIncompleteCodes(t *testing.T) {
 	for _, c := range ErrorCodes() {
-		want := c == CodeTimedOut || c == CodeBudgetExhausted || c == CodePartial
+		want := c == CodeTimedOut || c == CodeBudgetExhausted || c == CodePartial || c == CodeInterrupted
 		if c.IsIncomplete() != want {
 			t.Errorf("%q.IsIncomplete() = %v, want %v", c, !want, want)
 		}

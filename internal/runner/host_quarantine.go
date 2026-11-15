@@ -2,7 +2,10 @@ package runner
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"sort"
+	"strings"
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core"
@@ -125,4 +128,91 @@ func (t *phaseTracker) fillQuarantined(out *database.PhaseOutcome) {
 			Detail: fmt.Sprintf("quarantined (%s): skipped_quarantined=%d", q.State, q.Items),
 		})
 	}
+}
+
+// hostErrors is the scan's dead-host breaker, nil when --max-host-error is off.
+func (infra *phaseInfra) hostErrors() *hosterrors.Cache {
+	if infra == nil || infra.svc == nil {
+		return nil
+	}
+	return infra.svc.HostErrors
+}
+
+// noteGateRefusals folds the requests the breaker refused during the phase
+// into its outcome: each host whose refusal count grew is unreachable for the
+// phase (targets_unreachable) and listed with how many requests it refused.
+func (t *phaseTracker) noteGateRefusals(cache *hosterrors.Cache, before map[string]int64) {
+	if t == nil || cache == nil {
+		return
+	}
+	grew := false
+	after := cache.Refusals()
+	t.mu.Lock()
+	for host, n := range after {
+		d := n - before[host]
+		if d <= 0 {
+			continue
+		}
+		grew = true
+		if t.quarantined == nil {
+			t.quarantined = make(map[string]core.QuarantinedHost)
+		}
+		q := t.quarantined[host]
+		q.Host = host
+		q.Items += d
+		q.State = cache.State(host).String()
+		if q.Class == "" {
+			q.Class = http.ClassifyTransportError(cache.LastError(host))
+		}
+		t.quarantined[host] = q
+	}
+	t.mu.Unlock()
+	if grew {
+		t.markPartial(database.ReasonTargetsUnreachable)
+	}
+}
+
+// allTargetsQuarantined ends a scan whose every admitted target ended it
+// quarantined (open or dead) as failed with no_targets_reachable: such a run
+// covered nothing past the point its hosts went down, which a completed status
+// misstated. Targets the breaker never tracked count as reachable.
+func (r *Runner) allTargetsQuarantined(cache *hosterrors.Cache, admitted []string) error {
+	if cache == nil || len(admitted) == 0 || !cache.AnyTripped() {
+		return nil
+	}
+	var down []database.TargetIssue
+	for _, target := range admitted {
+		key := breakerKeyForTarget(target)
+		switch cache.State(key) {
+		case hosterrors.StateOpen, hosterrors.StateDead:
+			down = append(down, database.TargetIssue{
+				Target: target,
+				Code:   http.ClassifyTransportError(cache.LastError(key)),
+				Detail: "quarantined for the rest of the scan",
+			})
+		default:
+			return nil
+		}
+	}
+	r.scanOutcome.setStopReason(database.ReasonNoTargetsReachable)
+	err := &TargetsUnreachableError{Unreachable: down}
+	r.scanLogger.Error(string(PhasePreflight), err.Error())
+	return err
+}
+
+// breakerKeyForTarget is the breaker key ("host:port", lower case) of a target
+// URL, with the scheme's default port when none is given.
+func breakerKeyForTarget(target string) string {
+	u, err := url.Parse(target)
+	if err != nil || u.Host == "" {
+		return strings.ToLower(target)
+	}
+	port := u.Port()
+	if port == "" {
+		port = "80"
+		if strings.EqualFold(u.Scheme, "https") {
+			port = "443"
+		}
+	}
+	return strings.ToLower(net.JoinHostPort(u.Hostname(), port))
 }

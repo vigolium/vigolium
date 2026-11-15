@@ -619,6 +619,20 @@ func (qb *QueryBuilder) applySorting(query *bun.SelectQuery) {
 }
 
 // mapSortColumn maps user-friendly sort names to actual column names
+// RecordSortKeys are the --sort values a record query accepts (mapSortColumn).
+var RecordSortKeys = []string{
+	"uuid", "created_at", "created", "sent_at", "sent", "method", "path",
+	"status_code", "status", "response_time", "time", "source",
+	"risk_score", "risk", "surface_score", "surface",
+}
+
+// FindingSortKeys are the --sort values a finding query accepts
+// (mapFindingSortColumn).
+var FindingSortKeys = []string{
+	"found_at", "found", "created_at", "created", "severity",
+	"module_name", "module", "module_id", "confidence",
+}
+
 func (qb *QueryBuilder) mapSortColumn(name string) string {
 	switch name {
 	case "uuid":

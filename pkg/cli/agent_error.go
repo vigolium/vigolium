@@ -4,13 +4,12 @@ import (
 	"errors"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
-	"github.com/vigolium/vigolium/pkg/scanevents"
+	"github.com/vigolium/vigolium/pkg/fuzz"
 )
 
 // A failed -j command used to print `✖ Error: …` to stderr and nothing at all to
@@ -43,6 +42,32 @@ type agentError struct {
 	Code     apicontract.ErrorCode `json:"code"`
 	Message  string                `json:"message"`
 	ExitCode int                   `json:"exit_code"`
+	// Hint, DidYouMean and UsageArgv are copied from a clicommon.CLIError in
+	// the chain; Message then holds the bare fact without them.
+	Hint       string   `json:"hint,omitempty"`
+	DidYouMean string   `json:"did_you_mean,omitempty"`
+	UsageArgv  []string `json:"usage_argv,omitempty"`
+}
+
+// newAgentErrorBody builds the error object for err at exitCode. A CLIError in
+// the chain contributes its remedies as fields, and its human decoration is
+// removed from the message so message is the fact alone.
+func newAgentErrorBody(err error, exitCode int) agentError {
+	body := agentError{
+		Code:     classifyErrorCode(err, exitCode),
+		Message:  errorMessage(err),
+		ExitCode: exitCode,
+	}
+	var cli clicommon.CLIError
+	if errors.As(err, &cli) {
+		if decor := cli.Decoration(); decor != "" {
+			body.Message = strings.Replace(body.Message, decor, "", 1)
+		}
+		body.Hint = cli.Hint
+		body.DidYouMean = cli.DidYouMean
+		body.UsageArgv = cli.UsageArgv
+	}
+	return body
 }
 
 // errCodeIngestIncomplete is the one remaining alias, for ingest.go; new code
@@ -88,6 +113,11 @@ func classifyErrorCode(err error, exitCode int) apicontract.ErrorCode {
 		}
 		return apicontract.CodePartial
 	}
+	// A structured CLI error names its own condition.
+	var cli clicommon.CLIError
+	if errors.As(err, &cli) && !cli.IsUsage() {
+		return cli.ErrorCode()
+	}
 	// An explicitly coded error outranks every inference below: the call site
 	// knew exactly which condition this was.
 	var coded codedError
@@ -107,6 +137,11 @@ func classifyErrorCode(err error, exitCode int) apicontract.ErrorCode {
 	var dbCoded interface{ Code() apicontract.ErrorCode }
 	if errors.As(err, &dbCoded) {
 		return dbCoded.Code()
+	}
+	// A fuzz run whose baseline got no answer sent no payload: the target
+	// was not reachable.
+	if errors.Is(err, fuzz.ErrBaselineUnreachable) {
+		return apicontract.CodeNoTargetsReachable
 	}
 	// The --read-only evidence open wraps the bare sentinel with its own remedy.
 	if errors.Is(err, database.ErrSchemaOutdated) {
@@ -171,25 +206,7 @@ func emitJSONError(err error, exitCode int, cmd *cobra.Command) {
 		jsonStreamMode = true
 		defer func() { jsonStreamMode = prev }()
 	}
-	name := "vigolium"
-	if cmd != nil {
-		name = commandPathWithoutRoot(cmd)
-	}
-	now := time.Now()
-	env := agentErrorEnvelope{
-		SchemaVersion: AgentSchemaVersion,
-		Command:       name,
-		OK:            false,
-		Error: agentError{
-			Code:     classifyErrorCode(err, exitCode),
-			Message:  err.Error(),
-			ExitCode: exitCode,
-		},
-		DBPath:        resolvedReadDBPath(),
-		SoftFail:      globalSoftFail,
-		GeneratedAt:   agentTimestamp(now),
-		GeneratedAtMS: scanevents.EpochMillis(now),
-	}
+	env := outcomeErrorEnvelope(err, exitCode, cmd)
 	// Straight to stdout, deliberately NOT through writeAgentJSON: -o/--output
 	// redirects the RESULT document, and an error is not one. Routing it there
 	// would write the failure into the file the caller expected results in, and

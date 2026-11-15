@@ -154,7 +154,10 @@ type cacheItem struct {
 	openedAt atomic.Int64 // unix nanos
 	cooldown atomic.Int64 // nanos
 	probeAt  atomic.Int64 // unix nanos; 0 = no probe in flight
-	lastErr  atomic.Pointer[error]
+	// refused counts the requests Admit turned away for this host (cooling
+	// down, a probe already in flight, or dead).
+	refused atomic.Int64
+	lastErr atomic.Pointer[error]
 	// mu serialises state transitions (the slow path). Admit's Open→HalfOpen
 	// CAS does not take it.
 	mu sync.Mutex
@@ -294,6 +297,11 @@ func (c *Cache) Admit(key string) (ok, isProbe bool) {
 	if it == nil {
 		return true, false
 	}
+	defer func() {
+		if !ok {
+			it.refused.Add(1)
+		}
+	}()
 	now := c.nowNanos()
 	switch State(it.state.Load()) {
 	case StateClosed:
@@ -487,6 +495,23 @@ func (c *Cache) LastError(key string) error {
 		return *p
 	}
 	return nil
+}
+
+// Refusals returns, per host key, how many requests Admit has refused so far
+// (nil-safe; hosts with none are omitted). A phase compares two snapshots to
+// learn which hosts it could not reach.
+func (c *Cache) Refusals() map[string]int64 {
+	if c == nil || !c.anyTripped.Load() {
+		return nil
+	}
+	out := map[string]int64{}
+	c.tripped.Range(func(k, v any) bool {
+		if n := v.(*cacheItem).refused.Load(); n > 0 {
+			out[k.(string)] = n
+		}
+		return true
+	})
+	return out
 }
 
 // QuarantinedCount returns how many hosts are currently not Closed (Open,
