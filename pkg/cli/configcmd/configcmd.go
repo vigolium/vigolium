@@ -9,7 +9,11 @@
 // has no dependency back on pkg/cli.
 package configcmd
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+
+	"github.com/vigolium/vigolium/internal/config"
+)
 
 // Deps carries the runtime dependencies the config commands need, injected by
 // pkg/cli so this package stays decoupled from the CLI's global flag state.
@@ -44,6 +48,23 @@ type Deps struct {
 	// because this package cannot reach the database. nil, or an error (no
 	// database yet), skips the rule.
 	RecentScanTargets func(projectUUID string, n int) ([]string, error)
+
+	// ProjectSettings loads the settings a scan in the invocation's project
+	// runs under (global config, then the project overlay) and names that
+	// project ("" = no overlay). nil falls back to the global config alone.
+	ProjectSettings func() (*config.Settings, string, error)
+	// FlagKeys lists the settings keys a global flag of this invocation sets
+	// (--db → database.sqlite.path), for the provenance column.
+	FlagKeys func() []string
+}
+
+// loadSettings is ProjectSettings, or the global config when it is not wired.
+func (d Deps) loadSettings() (*config.Settings, string, error) {
+	if d.ProjectSettings != nil {
+		return d.ProjectSettings()
+	}
+	s, err := config.LoadSettings(d.ConfigFlag())
+	return s, "", err
 }
 
 // jsonRequested reports whether machine output was asked for, tolerating a Deps
@@ -79,6 +100,7 @@ func NewCommand(deps Deps, ex Examples) *cobra.Command {
 		newSetCmd(deps, ex.Set),
 		newCleanCmd(deps, ex.Clean),
 		newValidateCmd(deps, ex.Validate),
+		newEnvCmd(deps),
 	)
 	return cmd
 }

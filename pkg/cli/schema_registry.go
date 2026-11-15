@@ -343,6 +343,10 @@ func init() {
 		Description: "Every preset file considered (installed, skipped, failed) plus vigolium.d.ts (updated or current)."})
 	registerCommandSchema(contract.Command{Name: "extensions types", Item: extTypesView{}, ItemsKind: contract.ItemsObject,
 		Description: "vigolium.d.ts: the file written with -o, or the declarations inline as content."})
+	registerCommandSchema(contract.Command{Name: "config ls", Item: configEntrySchema{}, Extras: configLsExtras{},
+		Description: "Every settable key with its typed value (string credentials redacted), default, type and source layer (default, file, env:NAME, project, flag)."})
+	registerCommandSchema(contract.Command{Name: "config env", Item: configEnvSchema{}, Extras: configEnvExtras{},
+		Description: "Every VIGOLIUM_* variable the binary reads: set or not, value (credentials redacted), the settings key it overrides."})
 	registerCommandSchema(contract.Command{Name: "import", Extras: importExtras{},
 		Description: "items is always []; the import counters stay at the top level (a parse, a SQLite merge, or a live bridge import)."})
 	registerCommandSchema(contract.Command{Name: "js", Item: jsEvalItem{}, ItemsKind: contract.ItemsObject,
@@ -517,6 +521,45 @@ type seedExtras struct {
 // importExtras mirrors the top-level keys `import -j` keeps (importResultJSON,
 // mergeResultJSON, burpImportResultJSON). Which set appears depends on the
 // source, so every key is optional.
+// configEntrySchema mirrors configcmd's configEntryView.
+type configEntrySchema struct {
+	Key       string `json:"key"`
+	Value     any    `json:"value"`
+	Display   string `json:"display"`
+	Default   any    `json:"default"`
+	Type      string `json:"type"`
+	Source    string `json:"source"`
+	Sensitive bool   `json:"sensitive"`
+	Empty     bool   `json:"empty"`
+	Redacted  bool   `json:"redacted"`
+}
+
+// configLsExtras are config ls's top-level keys.
+type configLsExtras struct {
+	ConfigPath  string `json:"config_path"`
+	Redacted    bool   `json:"redacted"`
+	Filter      string `json:"filter"`
+	Effective   bool   `json:"effective"`
+	ProjectUUID string `json:"project_uuid,omitempty"`
+}
+
+// configEnvSchema mirrors configcmd's configEnvView.
+type configEnvSchema struct {
+	Name         string `json:"name"`
+	Set          bool   `json:"set"`
+	Value        string `json:"value,omitempty"`
+	Redacted     bool   `json:"redacted"`
+	Sensitive    bool   `json:"sensitive"`
+	OverridesKey string `json:"overrides_key,omitempty"`
+	Template     bool   `json:"template,omitempty"`
+	Description  string `json:"description"`
+}
+
+// configEnvExtras are config env's top-level keys.
+type configEnvExtras struct {
+	Redacted bool `json:"redacted"`
+}
+
 type importExtras struct {
 	// A parsed source (JSONL, audit directory, HAR, …).
 	AgenticScanUUID         string         `json:"agentic_scan_uuid,omitempty"`

@@ -33,6 +33,8 @@ func init() {
 			WriteJSON:         writeConfigEnvelope,
 			WriteMutation:     writeConfigMutation,
 			RecentScanTargets: recentScanTargets,
+			ProjectSettings:   configProjectSettings,
+			FlagKeys:          configFlagKeys,
 		},
 		configcmd.Examples{
 			Parent:   configExamples,

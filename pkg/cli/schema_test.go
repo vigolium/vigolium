@@ -354,7 +354,7 @@ var schemaPending = map[string]string{
 	"agent triage": pendingTypedItems,
 	"auth check":   pendingTypedItems, "auth lint": pendingTypedItems, "auth list": pendingTypedItems,
 	"auth load": pendingTypedItems, "auth totp": pendingTypedItems,
-	"config clean": pendingTypedItems, "config ls": pendingTypedItems, "config set": pendingTypedItems,
+	"config clean": pendingTypedItems, "config set": pendingTypedItems,
 	"config validate":  pendingTypedItems,
 	"storage download": pendingStream,
 	"doctor":           pendingTypedItems,
@@ -382,7 +382,7 @@ var schemaPending = map[string]string{
 
 // schemaPendingCeiling pins the ratchet's size: lower it when a command gets
 // a schema; never raise it.
-const schemaPendingCeiling = 63
+const schemaPendingCeiling = 62
 
 // TestSchemaCoverageRatchet: every runnable non-interactive command either has
 // a registered schema or a reason in schemaPending, never both.

@@ -27,7 +27,7 @@ var scopeSetCmd = &cobra.Command{
 }
 
 func init() {
-	scopeSetCmd.Flags().StringVar(&scopeSetProject, "project", "", "Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix)")
+	scopeSetCmd.Flags().StringVar(&scopeSetProject, "project", "", "Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix); the global --project-uuid/--project-name flags do the same")
 	scopeCmd.AddCommand(scopeSetCmd)
 }
 
@@ -36,6 +36,15 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 	// typo created ~/.vigolium/projects/<typo>/ that no scan would ever read.
 	if scopeSetProject != "" {
 		resolved, err := resolveProjectRefArg(cmd.Context(), scopeSetProject)
+		if err != nil {
+			return err
+		}
+		scopeSetProject = resolved
+	} else if globalProjectFlagTyped(cmd) {
+		// --project-uuid / --project-name typed on the command line select the
+		// overlay like --project does (an environment pin does not: it would
+		// silently move every global rule into one project).
+		resolved, err := resolveProjectUUID()
 		if err != nil {
 			return err
 		}
@@ -135,4 +144,15 @@ func flatSettingValue(settings *config.Settings, key string) string {
 		}
 	}
 	return ""
+}
+
+// globalProjectFlagTyped reports whether --project-uuid or --project-name was
+// given on this command line.
+func globalProjectFlagTyped(cmd *cobra.Command) bool {
+	for _, name := range []string{"project-uuid", "project-name"} {
+		if f := cmd.Flags().Lookup(name); f != nil && f.Changed {
+			return true
+		}
+	}
+	return false
 }

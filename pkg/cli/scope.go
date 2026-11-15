@@ -45,20 +45,27 @@ type scopeEntry struct {
 	Value     string `json:"value"`
 	Component string `json:"component"`
 	Empty     bool   `json:"empty"`
+	// Source is the layer that set the value: default, file, env:NAME or
+	// project (the active project's overlay).
+	Source string `json:"source"`
 }
 
 func runScopeView(cmd *cobra.Command, args []string) error {
-	settings, err := clicommon.LoadSettings(globalConfig)
+	// The scope a scan in this project runs under: the global config with the
+	// project's overlay applied, each value labelled with the layer that set it.
+	settings, projectUUID, err := configProjectSettings()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	sources, err := config.TraceSources(config.TraceOptions{ConfigPath: globalConfig, ProjectUUID: projectUUID})
+	if err != nil {
+		return fmt.Errorf("failed to trace config sources: %w", err)
+	}
 
-	entries := config.FlattenSettings(settings)
-
-	// Sort entries by key for stable output
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Key < entries[j].Key
-	})
+	var entries []config.ConfigEntry
+	for _, e := range config.SettingEntries(settings) {
+		entries = append(entries, config.ConfigEntry{Key: e.Key, Value: config.DisplaySettingValue(e.Value)})
+	}
 
 	// Build filter: only show scope.* keys, optionally filtered by component
 	filter := "scope."
@@ -75,7 +82,8 @@ func runScopeView(cmd *cobra.Command, args []string) error {
 			Key:       entry.Key,
 			Value:     entry.Value,
 			Component: scopeComponentOf(entry.Key),
-			Empty:     entry.Value == "" || entry.Value == "<nil>",
+			Empty:     entry.Value == "" || entry.Value == "<nil>" || entry.Value == "[]",
+			Source:    config.SourceOf(sources, entry.Key),
 		})
 	}
 
@@ -92,6 +100,9 @@ func runScopeView(cmd *cobra.Command, args []string) error {
 	if globalJSON {
 		env := newMachineEnvelope(cmd, kindRead, "entries", matched, int64(len(matched)), 0, len(matched))
 		env.With("config_path", config.ContractPath(effectiveConfigPath()))
+		if projectUUID != "" {
+			env.With("overlay_project_uuid", projectUUID)
+		}
 		if len(args) > 0 {
 			env.With("component_filter", args[0])
 		}
@@ -103,7 +114,11 @@ func runScopeView(cmd *cobra.Command, args []string) error {
 		if e.Empty {
 			displayValue = "(empty)"
 		}
-		fmt.Printf("  %s = %s\n", scopeComponentColor(e.Key)(e.Key), displayValue)
+		line := fmt.Sprintf("  %s = %s", scopeComponentColor(e.Key)(e.Key), displayValue)
+		if e.Source != config.SourceDefault {
+			line += "  " + terminal.Gray("("+e.Source+")")
+		}
+		fmt.Println(line)
 	}
 
 	if len(matched) == 0 {
@@ -117,6 +132,9 @@ func runScopeView(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	fmt.Printf("%s Config file: %s\n", terminal.InfoSymbol(), terminal.Gray(config.ContractPath(effectiveConfigPath())))
+	if projectUUID != "" {
+		fmt.Printf("%s Project overlay: %s\n", terminal.InfoSymbol(), terminal.Gray(config.ContractPath(config.ProjectConfigPath(projectUUID))))
+	}
 
 	return nil
 }

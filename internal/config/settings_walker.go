@@ -1,6 +1,8 @@
 package config
 
 import (
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -259,4 +261,28 @@ func LookupSetting(settings *Settings, key string) (SettingEntry, bool) {
 		}
 	}
 	return SettingEntry{}, false
+}
+
+// DisplaySettingValue renders a SettingEntry value as one line of text: lists
+// as "[a, b]", objects as JSON, everything else with fmt.
+func DisplaySettingValue(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return x
+	case []any:
+		parts := make([]string, 0, len(x))
+		for _, item := range x {
+			parts = append(parts, DisplaySettingValue(item))
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	case map[string]any:
+		raw, err := json.Marshal(x)
+		if err != nil {
+			return fmt.Sprint(x)
+		}
+		return string(raw)
+	}
+	return fmt.Sprint(v)
 }
