@@ -64,6 +64,7 @@ severity (after the result is written).`,
 func init() {
 	scanCmd.AddCommand(scanDiffCmd)
 	f := scanDiffCmd.Flags()
+	registerInMemoryOffsetFlag(f)
 	f.StringVar(&scanDiffTarget, "target", "", "Compare the scans of this target (with --last) instead of naming two scans")
 	f.IntVar(&scanDiffLast, "last", 2, "With --target: compare the N-th most recent scan of the target against the most recent (N >= 2)")
 	f.StringVar(&scanDiffFailOnNew, "fail-on-new", "", "Exit 4 when a NEW finding is at or above this severity ("+strings.Join(severityOrder, "|")+")")
@@ -257,7 +258,11 @@ func writeScanDiffJSON(cmd *cobra.Command, diff *database.ScanDiff, projectUUID 
 	if reasons == nil {
 		reasons = []string{}
 	}
-	return emitRead(cmd, "", items, int64(len(items)), 0, len(items),
+	page, err := pageFromOffset(items, inMemoryOffset)
+	if err != nil {
+		return err
+	}
+	return emitRead(cmd, "", page, int64(len(items)), inMemoryOffset, len(page),
 		withExtra("base", scanDiffScanView(diff.Base)),
 		withExtra("head", scanDiffScanView(diff.Head)),
 		withExtra("comparable", diff.Comparable),

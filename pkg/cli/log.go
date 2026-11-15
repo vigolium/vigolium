@@ -93,6 +93,7 @@ func init() {
 	tui.AddFlags(logLsCmd, &logLsTUI, &logLsNoTUI)
 	logLsCmd.Flags().BoolVar(&logLsReap, "reap", false, "Finalize abandoned running scan rows as failed (stop_reason abandoned) and prune expired status.json files; writes the store")
 	registerRowShapingFlags(logLsCmd.Flags())
+	registerInMemoryOffsetFlag(logLsCmd.Flags())
 }
 
 // logLsShaping is log ls' --fields vocabulary; --compact drops the liveness
@@ -277,11 +278,15 @@ func runLogLs(cmd *cobra.Command, args []string) error {
 		// This used to emit a BARE ARRAY, the one -j surface that broke the
 		// "parse .items" rule the envelope exists to establish. A contract with a
 		// documented hole is one every consumer special-cases forever.
-		items, err := logLsShaping.apply(out)
+		page, err := pageFromOffset(out, inMemoryOffset)
 		if err != nil {
 			return err
 		}
-		env := newMachineEnvelope(cmd, kindRead, "rows", items, int64(len(out)), 0, len(out))
+		items, err := logLsShaping.apply(page)
+		if err != nil {
+			return err
+		}
+		env := newMachineEnvelope(cmd, kindRead, "rows", items, int64(len(out)), inMemoryOffset, len(page))
 		env.DBPath = resolvedReadDBPath()
 		if extras != nil {
 			if extras.Reaped == nil {

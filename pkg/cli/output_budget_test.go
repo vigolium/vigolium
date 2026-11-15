@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/apicontract"
@@ -300,10 +301,11 @@ func TestOutputBudgetSearchIsMaximalAndUnderBudget(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, string(full), string(doc))
 			assert.NotContains(t, env.extra, outputBudgetKey)
-		case want < 0:
-			// Not even an empty item list fits.
+		case want <= 0:
+			// Not even the first row fits (or not even an empty item list): a
+			// budget too small for this result, never an empty page.
 			require.Error(t, err)
-			assert.True(t, isOutputTooLarge(err), "a budget below the floor must be coded")
+			assert.True(t, isOutputTooLarge(err), "a budget below one row must be coded")
 		default:
 			require.NoError(t, err)
 			require.NotNil(t, doc)
@@ -324,4 +326,52 @@ func TestOutputBudgetSearchIsMaximalAndUnderBudget(t *testing.T) {
 func isOutputTooLarge(err error) bool {
 	var coded codedError
 	return errors.As(err, &coded) && coded.Code() == apicontract.CodeOutputTooLarge
+}
+
+// Rows exist and none fits: output_too_large, never an empty page whose
+// next_offset points back at itself.
+func TestOutputBudgetNoRowFitsIsTooLarge(t *testing.T) {
+	rows := []map[string]any{{"uuid": strings.Repeat("a", 4000)}, {"uuid": "b"}}
+	env := newAgentEnvelope("scan diff", "", rows, 2, 0, 2)
+	empty, err := encodeAgentJSON(newAgentEnvelope("scan diff", "", []map[string]any{}, 2, 0, 2))
+	require.NoError(t, err)
+	_, err = applyOutputBudget(env, len(empty)+300)
+	require.Error(t, err)
+	require.Equal(t, apicontract.CodeOutputTooLarge, classifyErrorCode(err, classifyExitCode(err)))
+}
+
+// Every command whose -j document the output budget can cut accepts --offset,
+// so output_budget.next_offset can be followed.
+func TestNextOffsetIsFollowable(t *testing.T) {
+	root := preparedMachineTree(t)
+	seen := map[string]bool{}
+	walkTree(root, func(c *cobra.Command) {
+		if c.Flag("max-output-bytes") == nil {
+			return
+		}
+		path := commandPathWithoutRoot(c)
+		if reason, ok := nextOffsetExempt[path]; ok {
+			seen[path] = true
+			require.NotEmpty(t, reason)
+			return
+		}
+		require.NotNilf(t, c.Flag("offset"), "%s takes --max-output-bytes but no --offset: its next_offset is a dead end", path)
+	})
+	for path := range nextOffsetExempt {
+		require.Truef(t, seen[path], "nextOffsetExempt lists %q, which has no --max-output-bytes: delete it", path)
+	}
+}
+
+// nextOffsetExempt are budgeted commands where following next_offset would
+// mean running the work again, with why.
+var nextOffsetExempt = map[string]string{
+	"scan":            "sends traffic: a second page would re-run the scan; page the stored findings with finding --scan-uuid",
+	"run":             "sends traffic: as scan",
+	"scan-url":        "sends traffic: as scan",
+	"scan-request":    "sends traffic: as scan",
+	"fingerprint":     "sends traffic: as scan",
+	"fuzz":            "sends traffic: a second page would re-send every payload",
+	"dns":             "sends DNS queries: a second page would resolve again",
+	"match-not-found": "reads stdin once: there is no second read to page",
+	"scan wait":       "the stored scan document: page its findings with finding --scan-uuid <uuid> --offset",
 }

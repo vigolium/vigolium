@@ -165,10 +165,42 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 		}
 	}
 
+	// Rows exist and not even one fits: an empty page with next_offset equal to
+	// this offset would send a caller that follows it round the same loop
+	// forever. That is a budget too small for this result, said once.
+	if lo == 0 && n > 0 {
+		restore()
+		return nil, codedErrorf(apicontract.CodeOutputTooLarge,
+			"the first row alone exceeds --max-output-bytes %d; raise the budget or narrow each row with --fields/--compact",
+			budget)
+	}
+
 	// Re-apply the winner: the last probe was not necessarily lo. No encode —
 	// best is already that document.
 	apply(lo)
 	return best, nil
+}
+
+// inMemoryOffset backs --offset on the commands that build their whole result
+// in memory (log ls, scan diff), so the next_offset the output budget reports
+// can be followed.
+var inMemoryOffset int
+
+// registerInMemoryOffsetFlag adds --offset to such a command.
+func registerInMemoryOffsetFlag(flags *pflag.FlagSet) {
+	flags.IntVar(&inMemoryOffset, "offset", 0, "Skip the first N rows (follow output_budget.next_offset)")
+}
+
+// pageFromOffset returns rows from --offset on; an offset past the end is an
+// empty page.
+func pageFromOffset[T any](rows []T, offset int) ([]T, error) {
+	if offset < 0 {
+		return nil, usageErrorf("--offset must be >= 0, got %d", offset)
+	}
+	if offset >= len(rows) {
+		return []T{}, nil
+	}
+	return rows[offset:], nil
 }
 
 // outputBudgetKey names the report the budget pass attaches. A caller reads it
