@@ -38,6 +38,9 @@ type flagUsageView struct {
 	Default   string `json:"default,omitempty"`
 	Usage     string `json:"usage"`
 	Inherited bool   `json:"inherited"`
+	// Enum is the closed set of values the flag accepts; absent for an open
+	// flag. A value outside it is a usage error.
+	Enum []string `json:"enum,omitempty"`
 }
 
 // collectFlagUsage lists cmd's visible flags — local first, then inherited,
@@ -58,6 +61,7 @@ func collectFlagUsage(cmd *cobra.Command) []flagUsageView {
 			out = append(out, flagUsageView{
 				Name: f.Name, Shorthand: f.Short, Type: f.Type, Default: def,
 				Usage: f.Description, Inherited: inherited,
+				Enum: flagEnumValues(fs.Lookup(f.Name)),
 			})
 		}
 	}

@@ -18,6 +18,17 @@ import (
 // installed once on rootCmd; cobra's FlagErrorFunc() walks up to the parent, so
 // every subcommand inherits it.
 func flagErrorFunc(cmd *cobra.Command, err error) error {
+	// A closed-set flag given a value outside its set: the valid values are in
+	// the message, the nearest one is the suggestion.
+	var invalid *pflag.InvalidValueError
+	var enum *enumError
+	if errors.As(err, &invalid) && errors.As(err, &enum) {
+		return clicommon.CLIError{
+			Err:        err,
+			DidYouMean: enum.suggestion(),
+			UsageArgv:  clicommon.UsageArgvFor(commandPathWithoutRoot(cmd)),
+		}
+	}
 	var notExist *pflag.NotExistError
 	if !errors.As(err, &notExist) {
 		return err

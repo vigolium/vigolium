@@ -16,6 +16,7 @@ var scopeCmd = &cobra.Command{
 	Aliases: []string{"sc"},
 	Short:   "Manage scan scope rules",
 	Long:    "Inspect and edit scope rules that control which hosts, paths, status codes, and content types are in-scope for scanning. Running 'vigolium scope' without a subcommand is equivalent to 'scope view'.",
+	Args:    cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runScopeView(scopeViewCmd, args)
 	},

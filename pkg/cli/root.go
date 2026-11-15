@@ -452,6 +452,12 @@ func prepareCommandTree(root *cobra.Command) {
 	// Stamp each command's declared database intent (db_intent.go): read
 	// commands open the query_only pool, never the write lock.
 	applyDBIntentAnnotations(root)
+
+	// A group answers an unknown subcommand with a usage error, and every
+	// positional-argument error exits 2 (command_tree_hooks.go). The group hook
+	// runs first so its validators are wrapped too.
+	enforceGroupSubcommands(root)
+	wrapArgsValidators(root)
 }
 
 func Execute() {

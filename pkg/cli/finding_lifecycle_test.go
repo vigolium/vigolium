@@ -348,7 +348,7 @@ func TestScanRejectsUUIDTarget(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2\n%s\n%s", code, out, errOut)
 	}
-	if all := out + errOut; !strings.Contains(all, "did you mean") && !strings.Contains(all, "Did you mean") || !strings.Contains(all, "scan diff") {
+	if all := out + errOut; !strings.Contains(all, "did you mean") && !strings.Contains(all, "Did you mean") || !strings.Contains(all, "scan status") {
 		t.Errorf("error does not point at the subcommands:\n%s", all)
 	}
 	if err := rejectUUIDScanTargets(scanCmd, []string{"intranet", "https://app.example"}); err != nil {
