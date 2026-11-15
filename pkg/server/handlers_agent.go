@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -987,20 +986,12 @@ func (h *Handlers) streamAgentSessionLog(c fiber.Ctx, agenticScanUUID, logPath s
 		if err != nil {
 			return true
 		}
-		return isTerminalAgentStatus(status)
+		return database.IsTerminalAgenticScanStatus(status)
 	}
 
 	return c.SendStreamWriter(func(w *bufio.Writer) {
 		tailSessionLog(w, logPath, isDone, 500*time.Millisecond, 2*time.Hour, strip)
 	})
-}
-
-// isTerminalAgentStatus reports whether an agentic_scans.status value indicates
-// the run has finished and no more bytes will be appended to run.log. It reads
-// database.TerminalAgenticScanStatuses so the log follower and the retention
-// sweep can never disagree about what "finished" means — see that variable.
-func isTerminalAgentStatus(status string) bool {
-	return slices.Contains(database.TerminalAgenticScanStatuses, status)
 }
 
 // terminalStatusForRunErr maps a streaming run's terminal error to its status

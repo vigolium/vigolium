@@ -5,12 +5,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/vigolium/vigolium/internal/config"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/vigolium/vigolium/internal/config"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/vigolium/vigolium/pkg/apicontract"

@@ -31,8 +31,8 @@ func TestIsTerminalAgentStatus(t *testing.T) {
 		"":          false,
 	}
 	for status, want := range cases {
-		if got := isTerminalAgentStatus(status); got != want {
-			t.Errorf("isTerminalAgentStatus(%q) = %v, want %v", status, got, want)
+		if got := database.IsTerminalAgenticScanStatus(status); got != want {
+			t.Errorf("database.IsTerminalAgenticScanStatus(%q) = %v, want %v", status, got, want)
 		}
 	}
 }
@@ -539,12 +539,12 @@ func TestWorkbenchTerminalStatusesMatchServer(t *testing.T) {
 func TestCompletedStatusesAreTerminal(t *testing.T) {
 	for _, degraded := range []bool{false, true} {
 		s := database.CompletedAgenticScanStatus(degraded)
-		if !isTerminalAgentStatus(s) || !slices.Contains(database.CompletedAgenticScanStatuses, s) {
+		if !database.IsTerminalAgenticScanStatus(s) || !slices.Contains(database.CompletedAgenticScanStatuses, s) {
 			t.Errorf("CompletedAgenticScanStatus(%v) = %q is not terminal+completed", degraded, s)
 		}
 	}
 	for _, s := range database.CompletedAgenticScanStatuses {
-		if !isTerminalAgentStatus(s) {
+		if !database.IsTerminalAgenticScanStatus(s) {
 			t.Errorf("%q is completed but not terminal", s)
 		}
 	}
@@ -560,7 +560,7 @@ func TestCombinedAuditStatus(t *testing.T) {
 		if got := combinedAuditStatus(rs); got != want {
 			t.Errorf("combinedAuditStatus = %q, want %q", got, want)
 		}
-		if !isTerminalAgentStatus(want) {
+		if !database.IsTerminalAgenticScanStatus(want) {
 			t.Errorf("%q is not terminal", want)
 		}
 	}

@@ -138,7 +138,7 @@ func waitForTerminalStatus(t *testing.T, repo *database.Repository, uuid string,
 		run, err := repo.GetAgenticScan(context.Background(), uuid)
 		if err == nil && run != nil {
 			last = run
-			if isTerminalAgentStatus(run.Status) {
+			if database.IsTerminalAgenticScanStatus(run.Status) {
 				return run
 			}
 		}

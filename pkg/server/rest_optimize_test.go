@@ -297,12 +297,12 @@ func TestQueryByteLimitClamps(t *testing.T) {
 // it meant the SSE log follower spun until its two-hour cap on a run that had
 // already finished.
 func TestIsTerminalAgentStatusCoversCombinedAudit(t *testing.T) {
-	if !isTerminalAgentStatus("completed_with_errors") {
+	if !database.IsTerminalAgenticScanStatus("completed_with_errors") {
 		t.Fatal(`"completed_with_errors" must be terminal`)
 	}
 	for _, status := range []string{"running", "pending", ""} {
-		if isTerminalAgentStatus(status) {
-			t.Fatalf("isTerminalAgentStatus(%q) = true, want false", status)
+		if database.IsTerminalAgenticScanStatus(status) {
+			t.Fatalf("database.IsTerminalAgenticScanStatus(%q) = true, want false", status)
 		}
 	}
 }

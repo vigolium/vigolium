@@ -8,12 +8,17 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// uuidPrefixTables are the tables ResolveUUIDPrefix may scan: each has a text
-// uuid primary key and a project_uuid column.
+// MinUUIDPrefix is the shortest UUID prefix a reference may expand from:
+// eight hex characters is 4 billion values - unique in any real project - and
+// short enough for a model to copy without mangling it.
+const MinUUIDPrefix = 8
+
+// uuidPrefixTables are the tables ResolveUUIDPrefix may scan, each with a text
+// uuid primary key; true marks a project_uuid column to scope by.
 var uuidPrefixTables = map[string]bool{
-	"http_records":  true,
 	"scans":         true,
 	"agentic_scans": true,
+	"projects":      false,
 }
 
 // MaxUUIDPrefixCandidates bounds the candidates an ambiguous prefix returns.
@@ -30,7 +35,8 @@ const MaxUUIDPrefixCandidates = 5
 // ambiguity from naming another project's rows. The minimum prefix length is
 // the caller's policy.
 func (r *Repository) ResolveUUIDPrefix(ctx context.Context, table, projectUUID, prefix string) (string, []string, error) {
-	if !uuidPrefixTables[table] {
+	scoped, known := uuidPrefixTables[table]
+	if !known {
 		return "", nil, fmt.Errorf("resolve uuid prefix: table %q is not resolvable", table)
 	}
 	upper, ok := prefixUpperBound(prefix)
@@ -42,7 +48,7 @@ func (r *Repository) ResolveUUIDPrefix(ctx context.Context, table, projectUUID, 
 		TableExpr("?", bun.Ident(table)).
 		Column("uuid").
 		Where("uuid >= ? AND uuid < ?", prefix, upper)
-	if projectUUID != "" {
+	if scoped && projectUUID != "" {
 		q = q.Where("project_uuid = ?", projectUUID)
 	}
 	if err := q.OrderExpr("uuid").Limit(MaxUUIDPrefixCandidates).Scan(ctx, &uuids); err != nil {

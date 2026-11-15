@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -209,6 +210,12 @@ var TerminalAgenticScanStatuses = []string{
 	"timeout",
 	"budget_exhausted",
 	"error",
+}
+
+// IsTerminalAgenticScanStatus reports whether an agentic_scans.status value
+// is one of TerminalAgenticScanStatuses.
+func IsTerminalAgenticScanStatus(status string) bool {
+	return slices.Contains(TerminalAgenticScanStatuses, status)
 }
 
 // CompletedAgenticScanStatuses are the terminal statuses of a run that ran to
