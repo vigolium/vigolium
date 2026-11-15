@@ -860,6 +860,7 @@ Export database tables and module registry
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--all-projects` | - | bool | `false` | Export every project in the store; by default the export covers the active project (--project-uuid, --project-name, $VIGOLIUM_PROJECT_UUID, the project use file, else the default project) |
 | `--exclude` | - | stringSlice | - | Exclude these tables (comma-separated, same names as --only, e.g. scans,oast). The module registry is left out unless --only names modules |
 | `--format` | - | string | `jsonl` | **(overrides the global `--format`)** Export format(s), comma-separated: jsonl, html, report, pdf (headless Chrome), markdown (alias: md), sarif (SARIF 2.1.0), csv, junit (failures at/above --fail-on), github (workflow commands; stdout without -o), bundle (alias: gz), fs (alias: file-system; flat traffic/finding tree) |
 | `--glob-db` | - | string | - | Export across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
@@ -1386,6 +1387,7 @@ Import scan data, databases, or live Burp Proxy history
 | `--from` | - | string | - | Import only records from this time onward (2d, 12h, today, YYYY-MM-DD, RFC3339) |
 | `--glob-db` | - | string | - | Glob of local files to import alongside any positional paths (use one format per run), e.g. --glob-db 'prefix-*.sqlite' or '*.jsonl' |
 | `--host` | - | string | - | Import only records for this host (supports * wildcards, e.g. '*.example.com') |
+| `--include-scopes` | - | bool | `false` | Store the scope rules of a JSONL source in the active project (they change what later scans may reach); skipped by default |
 | `--limit` | `-n` | int | `0` | Import at most N records (0 = no limit) |
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
 | `--method` | - | stringSlice | - | Import only these HTTP methods (comma-separated) |
