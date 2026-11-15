@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -14,9 +13,11 @@ import (
 
 var (
 	resolvedProjectUUID string
-	resolveProjectOnce  sync.Once
-	resolveProjectErr   error
-	resolveProjectDone  bool
+	// resolvedProject is the row read while resolving, when one was.
+	resolvedProject    *database.Project
+	resolveProjectOnce sync.Once
+	resolveProjectErr  error
+	resolveProjectDone bool
 	// resolvedProjectBranch records which step of the resolution order produced
 	// resolvedProjectUUID (see ProjectResolutionBranch).
 	resolvedProjectBranch ProjectBranch
@@ -115,14 +116,14 @@ func ResolveProjectUUID(getDB func() (*database.DB, error), projectUUID, project
 			repo := database.NewRepository(db)
 			project, err := repo.GetProjectByName(context.Background(), projectName)
 			if err != nil {
-				if strings.Contains(err.Error(), "no project found") {
-					resolveProjectErr = NewCodedError(apicontract.CodeProjectNotFound,
-						fmt.Errorf("%w (list projects with `vigolium project list`, create one with `vigolium project create %s`)", err, projectName))
-					return
+				var nameErr *database.ProjectNameError
+				if errors.As(err, &nameErr) && nameErr.Code() == apicontract.CodeProjectNotFound {
+					err = CLIError{Err: err, Code: apicontract.CodeProjectNotFound, Hint: ProjectNotFoundHint}
 				}
 				resolveProjectErr = err
 				return
 			}
+			resolvedProject = project
 			resolvedProjectUUID = project.UUID
 			resolvedProjectBranch = BranchSelection
 		default:
@@ -141,8 +142,52 @@ func ResolveProjectUUID(getDB func() (*database.DB, error), projectUUID, project
 	return resolvedProjectUUID, resolveProjectErr
 }
 
+// ProjectNotFoundHint is the next step every project_not_found error names.
+const ProjectNotFoundHint = "list them with `vigolium project list`; create one with `vigolium project create <name>`"
+
+// LookupProjectRef resolves ref — a UUID, an exact name, or a unique UUID
+// prefix — to the project it names. A miss is project_not_found
+// (IsProjectNotFound) and an ambiguous ref a usage error, both prefixed with
+// source when it is set; any other lookup error is returned unchanged.
+func LookupProjectRef(ctx context.Context, repo *database.Repository, ref, source string) (*database.Project, error) {
+	p, err := repo.ResolveProjectRef(ctx, ref)
+	if source != "" {
+		source += ": "
+	}
+	switch {
+	case err == nil:
+		return p, nil
+	case errors.Is(err, database.ErrProjectRefAmbiguous):
+		return nil, UsageErrorf("%s%w", source, err)
+	case errors.Is(err, database.ErrProjectNotFound):
+		return nil, CLIError{
+			Err:  fmt.Errorf("%sproject %q not found", source, ref),
+			Code: apicontract.CodeProjectNotFound,
+			Hint: ProjectNotFoundHint,
+		}
+	}
+	return nil, err
+}
+
+// IsProjectNotFound reports whether err is LookupProjectRef's miss.
+func IsProjectNotFound(err error) bool {
+	var cliErr CLIError
+	return errors.As(err, &cliErr) && cliErr.Code == apicontract.CodeProjectNotFound
+}
+
+// ResolvedProject is the project row the resolution read while verifying the
+// selection, nil when it read none (the default project, an unverified
+// selection, or a store that could not answer).
+func ResolvedProject() *database.Project {
+	if !resolveProjectDone || resolveProjectErr != nil {
+		return nil
+	}
+	return resolvedProject
+}
+
 // verifyProjectRef resolves ref to an existing project's UUID. The default
-// project always passes; so does any ref when the store cannot be opened.
+// project always passes; so does any ref when the store cannot be opened or
+// cannot answer (an old or foreign file without a projects table).
 func verifyProjectRef(getDB func() (*database.DB, error), ref, source string) (string, error) {
 	if ref == database.DefaultProjectUUID {
 		return ref, nil
@@ -151,21 +196,15 @@ func verifyProjectRef(getDB func() (*database.DB, error), ref, source string) (s
 	if err != nil {
 		return ref, nil
 	}
-	p, err := database.NewRepository(db).ResolveProjectRef(context.Background(), ref)
+	p, err := LookupProjectRef(context.Background(), database.NewRepository(db), ref, source)
 	switch {
 	case err == nil:
+		resolvedProject = p
 		return p.UUID, nil
-	case errors.Is(err, database.ErrProjectRefAmbiguous):
-		return ref, UsageErrorf("%s: %v", source, err)
-	case errors.Is(err, database.ErrProjectNotFound):
-		return ref, CodedErrorf(apicontract.CodeProjectNotFound,
-			"%s %q: no such project (list them with `vigolium project list`; create one with `vigolium project create <name> --project-uuid <uuid>`)",
-			source, ref)
-	default:
-		// A store without a projects table (an old or foreign file) cannot
-		// answer; do not turn that into a missing project.
-		return ref, nil
+	case IsProjectNotFound(err), errors.Is(err, database.ErrProjectRefAmbiguous):
+		return ref, err
 	}
+	return ref, nil
 }
 
 // ResetProjectResolutionForTest clears the once-per-process resolution so a
@@ -178,6 +217,7 @@ func verifyProjectRef(getDB func() (*database.DB, error), ref, source string) (s
 func ResetProjectResolutionForTest() {
 	resolveProjectOnce = sync.Once{}
 	resolvedProjectUUID = ""
+	resolvedProject = nil
 	resolveProjectErr = nil
 	resolveProjectDone = false
 	resolvedProjectBranch = ""
@@ -195,6 +235,7 @@ func PinProjectUUID(projectUUID string) {
 	// still wins.
 	resolveProjectOnce.Do(func() {})
 	resolvedProjectUUID = projectUUID
+	resolvedProject = nil
 	resolvedProjectBranch = BranchSelection
 	resolveProjectErr = nil
 	resolveProjectDone = true

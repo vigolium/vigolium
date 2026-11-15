@@ -150,7 +150,9 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 		}
 		view.DBPath = config.ContractPath(resolvedReadDBPath())
 		repo := database.NewRepository(db)
-		if projectUUID != "" {
+		if p := clicommon.ResolvedProject(); p != nil && p.UUID == projectUUID {
+			view.ProjectName = p.Name
+		} else if projectUUID != "" {
 			if p, err := repo.GetProjectByUUID(ctx, projectUUID); err == nil && p != nil {
 				view.ProjectName = p.Name
 			}

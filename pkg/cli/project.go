@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
-	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -20,10 +19,16 @@ import (
 
 // resolveProjectUUID returns the effective project UUID, resolved once per
 // process from the --project-uuid / --project-name global flags. See
-// clicommon.ResolveProjectUUID for the full resolution order.
+// clicommon.ResolveProjectUUID for the full resolution order. The existence
+// check reads through a read handle, so a command that never writes (config
+// get, a --dry-run) does not migrate the store to check a project.
 func resolveProjectUUID() (string, error) {
-	return clicommon.ResolveProjectUUID(getDB, globalProjectUUID, globalProjectName,
+	return clicommon.ResolveProjectUUID(projectVerifyDB, globalProjectUUID, globalProjectName,
 		clicommon.VerifyProjectExists(projectExistenceCheckApplies()))
+}
+
+func projectVerifyDB() (*database.DB, error) {
+	return getDBFor(clicommon.IntentRead)
 }
 
 // resolveProjectRefArg resolves a project named on the command line (a UUID,
@@ -41,18 +46,11 @@ func resolveProjectRefArg(ctx context.Context, ref string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("open the database to look up project %q: %w", ref, err)
 	}
-	p, err := database.NewRepository(db).ResolveProjectRef(ctx, ref)
-	switch {
-	case err == nil:
-		return p.UUID, nil
-	case errors.Is(err, database.ErrProjectRefAmbiguous):
-		return "", usageErrorf("%v", err)
-	case errors.Is(err, database.ErrProjectNotFound):
-		return "", codedErrorf(apicontract.CodeProjectNotFound,
-			"project %q not found (list them with `vigolium project list`; create one with `vigolium project create <name>`)", ref)
-	default:
+	p, err := clicommon.LookupProjectRef(ctx, database.NewRepository(db), ref, "")
+	if err != nil {
 		return "", err
 	}
+	return p.UUID, nil
 }
 
 // projectExistenceCheckApplies reports whether the selected project can be
@@ -324,21 +322,13 @@ func runProjectUse(cmd *cobra.Command, args []string) error {
 	created := false
 	// A UUID, an exact name or a unique UUID prefix, like every other project
 	// reference.
-	project, err := repo.ResolveProjectRef(ctx, projectUUID)
+	project, err := clicommon.LookupProjectRef(ctx, repo, projectUUID, "")
 	if err != nil {
-		if errors.Is(err, database.ErrProjectRefAmbiguous) {
-			return usageErrorf("%v", err)
-		}
-		if !errors.Is(err, database.ErrProjectNotFound) && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("failed to look up project: %w", err)
-		}
-		if !create {
-			// Never auto-created: a typo'd UUID used to mint a fresh, empty
-			// project and point every later command at it, which an agent cannot
-			// tell apart from a project with no findings yet.
-			return codedErrorf(apicontract.CodeProjectNotFound,
-				"project %q not found; create it with `vigolium project create <name>` (list them with `vigolium project list`)",
-				projectUUID)
+		// Never auto-created without --create: a typo'd UUID used to mint a
+		// fresh, empty project and point every later command at it, which an
+		// agent cannot tell apart from a project with no findings yet.
+		if !create || !clicommon.IsProjectNotFound(err) {
+			return err
 		}
 		project, err = autoCreateProject(ctx, repo, cmd, projectUUID)
 		if err != nil {
