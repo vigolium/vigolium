@@ -311,7 +311,7 @@ func runLogLs(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		env := newMachineEnvelope(cmd, kindRead, "rows", items, int64(len(out)), inMemoryOffset, len(page))
+		env := newMachineEnvelope(cmd, "rows", items, int64(len(out)), inMemoryOffset, len(page))
 		env.DBPath = resolvedReadDBPath()
 		if extras != nil {
 			if extras.Reaped == nil {

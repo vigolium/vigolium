@@ -715,7 +715,7 @@ func emitExtensionDocsJSON(cmd *cobra.Command, filter string) error {
 			Example:     fn.Example,
 		})
 	}
-	env := newMachineEnvelope(cmd, kindRead, "", views, int64(len(views)), 0, len(views))
+	env := newMachineEnvelope(cmd, "", views, int64(len(views)), 0, len(views))
 	if filter != "" {
 		env.With("filter", filter)
 	}

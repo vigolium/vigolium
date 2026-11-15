@@ -690,7 +690,7 @@ func printActiveFindingFilters(filters database.QueryFilters, fuzzyTerm string) 
 
 func displayFindingsJSON(ctx context.Context, cmd *cobra.Command, db *database.DB, findings []*database.Finding, total int64, projectUUID string) error {
 	opts := agentViewOptionsFromFlags()
-	env := newMachineEnvelope(cmd, kindRead, "findings",
+	env := newMachineEnvelope(cmd, "findings",
 		findingViews(ctx, db, findings, opts, findingWithRecords), total, findingOffset, findingLimit)
 	env.WithProjectScope(projectUUID)
 	env.DBPath = resolvedReadDBPath()

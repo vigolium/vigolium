@@ -527,7 +527,7 @@ func runFindingShow(cmd *cobra.Command, args []string) error {
 	}
 	if globalJSON {
 		views := findingViews(ctx, db, findings, agentViewOptions{redact: jsonRedactOn}, true)
-		env := newMachineEnvelope(cmd, kindRead, "", views, int64(len(findings)), 0, len(findings))
+		env := newMachineEnvelope(cmd, "", views, int64(len(findings)), 0, len(findings))
 		env.WithProjectScope(projectUUID)
 		env.DBPath = resolvedReadDBPath()
 		env.With("not_found", notFound)

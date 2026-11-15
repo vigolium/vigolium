@@ -109,7 +109,7 @@ func fencedJSONUnder(t *testing.T, doc, heading string) string {
 // from the document.
 func producedEnvelopeKeys(t *testing.T) map[string]bool {
 	t.Helper()
-	env := newMachineEnvelope(findingCmd, kindRead, "findings", []map[string]any{{"id": 1}}, 39, 0, 100).
+	env := newMachineEnvelope(findingCmd, "findings", []map[string]any{{"id": 1}}, 39, 0, 100).
 		WithProjectScope("00000000-0000-0000-defa-c01001000001").
 		WithQuery("finding", "--id", "1")
 	env.DBPath = "/tmp/db.sqlite"

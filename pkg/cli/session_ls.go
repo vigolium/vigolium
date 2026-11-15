@@ -70,7 +70,7 @@ func runSessionLs(cmd *cobra.Command, args []string) error {
 	views := newAuthSessionViews(rows, sessionLsShowSecrets)
 
 	if globalJSON {
-		env := newMachineEnvelope(cmd, kindRead, "sessions", views, int64(len(views)), 0, len(views))
+		env := newMachineEnvelope(cmd, "sessions", views, int64(len(views)), 0, len(views))
 		env.DBPath = resolvedReadDBPath()
 		env.WithProjectScope(projectUUID)
 		env.With("redacted", !sessionLsShowSecrets)

@@ -67,7 +67,7 @@ func emitStrategyJSON(cmd *cobra.Command, cfg *config.ScanningStrategyConfig) er
 	strategies := strategyCatalog(cfg)
 	profiles, profilesDir := profileCatalog(cfg)
 
-	env := newMachineEnvelope(cmd, kindRead, "strategies", strategies,
+	env := newMachineEnvelope(cmd, "strategies", strategies,
 		int64(len(strategies)), 0, len(strategies))
 	env.With("default_strategy", cfg.DefaultStrategy)
 	if cfg.ScanningProfile != "" {

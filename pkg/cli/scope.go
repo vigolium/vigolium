@@ -98,7 +98,7 @@ func runScopeView(cmd *cobra.Command, args []string) error {
 	// fails for a reason the exit code says nothing about. An empty result is an
 	// empty array, never a warning line.
 	if globalJSON {
-		env := newMachineEnvelope(cmd, kindRead, "entries", matched, int64(len(matched)), 0, len(matched))
+		env := newMachineEnvelope(cmd, "entries", matched, int64(len(matched)), 0, len(matched))
 		env.With("config_path", config.ContractPath(effectiveConfigPath()))
 		if projectUUID != "" {
 			env.With("overlay_project_uuid", projectUUID)
