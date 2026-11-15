@@ -14,7 +14,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/burpbridge"
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -68,6 +67,7 @@ var (
 	// Behaviour / output.
 	fuzzDryRun             bool
 	fuzzIgnoreScope        bool
+	fuzzKeepHost           bool
 	fuzzAllowBaselineError bool
 	fuzzNoCalibrate        bool
 	fuzzConcurrency        int
@@ -183,7 +183,8 @@ func init() {
 	f.StringVarP(&fuzzInput, "input", "i", "", "Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin")
 	f.StringVar(&fuzzInputFile, "input-file", "", "Read --input value from a file")
 	f.StringVarP(&fuzzRecordUUID, "record-uuid", "u", "", "Use a stored HTTP record (UUID or unique 8+ char prefix) as the request to fuzz")
-	f.StringVarP(&fuzzTargetURL, "target", "t", "", "Override scheme/host/port the request is sent to (e.g. https://staging.acme.test)")
+	f.StringVarP(&fuzzTargetURL, "target", "t", "", "Override scheme/host/port the request is sent to (e.g. https://staging.acme.test); a Host header naming the old destination follows it unless --keep-host")
+	f.BoolVar(&fuzzKeepHost, "keep-host", false, "With -t: send the request's Host header unchanged even when it names the old destination")
 
 	// Curl-style builder — applied to whatever source resolved the request.
 	f.StringVarP(&fuzzMethod, "request", "X", "", "HTTP method override (default: the source request's, or GET)")
@@ -313,6 +314,7 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 	if err := validateFuzzSave(); err != nil {
 		return err
 	}
+	installReplayTrafficDump()
 	if err := fuzzShaping.validate(); err != nil {
 		return err
 	}
@@ -336,7 +338,7 @@ func runFuzz(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if fuzzTargetURL != "" {
-		if err := applyTargetOverride(src, fuzzTargetURL); err != nil {
+		if err := applyTargetOverride(src, fuzzTargetURL, fuzzKeepHost); err != nil {
 			return err
 		}
 	}
@@ -778,20 +780,10 @@ func plural(n int, one, many string) string {
 // the cheap guard is worth it. A project with no host scope configured passes
 // everything, and --ignore-scope is the deliberate override.
 func checkFuzzScope(hostname string) error {
-	if fuzzIgnoreScope || hostname == "" {
+	if hostname == "" {
 		return nil
 	}
-	// Scope is a guard rail, not a gate: an unreadable config must not stop an
-	// operator who asked for a specific target. It must not do so SILENTLY
-	// either — the fallback scope is "everything in the config's scope section",
-	// which an empty default makes vacuous, so the warning is the only sign the
-	// guard rail is not the one that was configured.
-	settings := settingsOrDefaults()
-	matcher := config.NewScopeMatcher(settings.Scope, globalTargets...)
-	if matcher.HostInScope(hostname) {
-		return nil
-	}
-	return fmt.Errorf("%s is outside the project's configured scope; pass --ignore-scope to fuzz it anyway", hostname)
+	return newSendScopeGate(fuzzIgnoreScope).check(hostname)
 }
 
 // fuzzDryRun is the --dry-run report: what fuzz resolved, and the exact bytes
@@ -1043,7 +1035,7 @@ func resolveFuzzSource(ctx context.Context, args []string) (*replaySource, error
 		}, nil
 
 	case fuzzInput != "" || fuzzInputFile != "":
-		return sourceFromInput(ctx, repo, fuzzInput, fuzzInputFile)
+		return sourceFromInput(ctx, repo, fuzzInput, fuzzInputFile, rawInputOptions{pin: fuzzTargetURL, ignoreScope: fuzzIgnoreScope})
 
 	case fuzzRecordUUID != "":
 		if repo == nil {
@@ -1058,7 +1050,7 @@ func resolveFuzzSource(ctx context.Context, args []string) (*replaySource, error
 			return nil, err
 		}
 		if ok {
-			return sourceFromInputString(ctx, repo, data, "")
+			return sourceFromInputString(ctx, repo, data, "", rawInputOptions{pin: fuzzTargetURL, ignoreScope: fuzzIgnoreScope})
 		}
 		return nil, usageErrorf("no source: pass a URL, --input, --record-uuid, or pipe a request on stdin")
 	}

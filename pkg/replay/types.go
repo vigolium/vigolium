@@ -80,6 +80,11 @@ type Options struct {
 
 	// ExcerptCap overrides the excerpt clip size. Zero = DefaultExcerptCap.
 	ExcerptCap int
+
+	// BaselineIsEvidence marks a baseline that is a finding's own evidence
+	// (replay --finding-id): an identical answer means the finding
+	// reproduced, not that a payload failed to take effect.
+	BaselineIsEvidence bool
 }
 
 // Summary describes the response side of a single HTTP exchange.
@@ -97,10 +102,12 @@ type Summary struct {
 	Excerpt        string        `json:"excerpt,omitempty"`
 	Truncated      bool          `json:"excerpt_truncated,omitempty"`
 	Error          string        `json:"error,omitempty"`
-	// FinalURL is the URL the response came from, after any redirects the
-	// client followed; empty when the sender cannot tell (a bridge send).
-	FinalURL string `json:"final_url,omitempty"`
-	RawBody  []byte `json:"-"`
+	// FinalURL is the URL that answered, after any redirects were followed;
+	// Redirects counts the hops (absent when the request was answered
+	// directly).
+	FinalURL  string `json:"final_url,omitempty"`
+	Redirects int    `json:"redirects,omitempty"`
+	RawBody   []byte `json:"-"`
 }
 
 // Diff captures the comparison between baseline and replay.

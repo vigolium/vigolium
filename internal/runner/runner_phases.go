@@ -118,6 +118,9 @@ func (r *Runner) RunNativeScan() (err error) {
 	// single requester), so the notice fires once per host regardless of which
 	// requester — heuristics, auth prep, discovery — first tripped the pre-arm.
 	r.attachWAFPacingNotifier(infra.hostLimiter)
+	// A single loopback or private host (a development server) is paced from
+	// its first request and ramps up on clean answers.
+	infra.hostLimiter.PreArmLocalTarget(r.options.Targets)
 	// Route every finding the writer emits onto the machine event stream. One
 	// seam rather than one per OnResult callback; see attachEventObserver.
 	r.attachEventObserver()

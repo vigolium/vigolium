@@ -160,6 +160,10 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		zapLogger := initLogger(globalVerbose, globalSilent, globalDebug, globalDumpTraffic, globalLogFile)
 		_ = zapLogger // logger is set globally via zap.ReplaceGlobals
 
+		if err := rejectCIOutputFlag(); err != nil {
+			return err
+		}
+
 		// A broken default config stops every command that would act on it;
 		// only the commands that inspect or repair it keep running on defaults.
 		clicommon.DiscoveredConfigFatal = discoveredConfigFatal(cmd)
@@ -387,7 +391,8 @@ func init() {
 
 	pf.StringVar(&globalScanUUID, "scan-uuid", "", "Pin scan UUID for this session (use to sync results across nodes; defaults to a freshly-minted UUID)")
 	pf.StringVar(&globalFormat, "format", "console", "Output format (comma-separated for multiple): "+output.FormatsHelp(output.SurfaceScan))
-	pf.BoolVar(&globalCIOutput, "ci-output-format", false, "CI-friendly output: JSONL findings only, no color, no banners")
+	pf.BoolVar(&globalCIOutput, "ci-output-format", false, "Removed: use -j for the scan document or --format jsonl for the findings stream")
+	_ = pf.MarkHidden("ci-output-format")
 	pf.BoolVar(&globalNoColor, "no-color", false, "Disable ANSI color in all output (same as --color=never; also honored via the NO_COLOR env var)")
 	registerOutputHygieneFlags(pf)
 	pf.BoolVar(&globalFullExample, "full-example", false, "Show full example commands organized by section")

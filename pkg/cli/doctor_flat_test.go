@@ -123,7 +123,7 @@ func TestDoctorProxyNamesItsSource(t *testing.T) {
 	require.Len(t, items, 1)
 	c := items[0].(map[string]any)
 	require.Equal(t, "error", c["status"])
-	require.Contains(t, c["message"], "$HTTPS_PROXY")
+	require.Contains(t, c["message"], "from HTTPS_PROXY")
 	require.Contains(t, c["message"], "loopback")
 }
 

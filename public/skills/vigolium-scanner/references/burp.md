@@ -81,8 +81,13 @@ no-op.
 ## Channel 1 — route vigolium's traffic through Burp
 
 `--proxy` is a **global** flag, so it works on every command that sends
-requests. Without it, `VIGOLIUM_PROXY` is used, then `HTTP_PROXY`/`HTTPS_PROXY`.
-Both `http://` (Burp's listener) and `socks5://` proxy URLs work.
+requests. Without it, `VIGOLIUM_PROXY` is used (it proxies everything, like
+the flag), then the environment by target scheme: `HTTPS_PROXY` for https,
+`HTTP_PROXY` for http, `ALL_PROXY` for either, minus hosts in `NO_PROXY`.
+Loopback is not bypassed on its own: `HTTPS_PROXY=<Burp>` still shows a
+`localhost` target in Burp. The banner's `Proxy:` line, the plan's `proxy`
+section and an unreachable error name the proxy and the variable it came
+from. Both `http://` (Burp's listener) and `socks5://` proxy URLs work.
 
 ```bash
 vigolium scan -t https://acme.test --proxy http://127.0.0.1:8080
@@ -370,7 +375,7 @@ them in Burp's Target tree without replaying anything.
 
 ```bash
 # Re-send Burp-captured requests under a different user's session.
-vigolium replay --host acme.test --method GET -B http://127.0.0.1:9009 \
+vigolium replay --host acme.test --method GET --all-matches -B http://127.0.0.1:9009 \
   -H 'Cookie: session=victim' --format console -c 3
 ```
 

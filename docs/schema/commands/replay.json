@@ -231,6 +231,7 @@
             "not_authenticated",
             "not_found",
             "not_ready",
+            "out_of_scope",
             "output_too_large",
             "partial",
             "payload_too_large",
@@ -519,6 +520,9 @@
         },
         "final_url": {
           "type": "string"
+        },
+        "redirects": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,

@@ -41,7 +41,6 @@ func TestValidateStdoutProtocol(t *testing.T) {
 
 	t.Run("no events is always fine", func(t *testing.T) {
 		o := types.DefaultOptions()
-		o.CIOutput = true
 		o.OutputFormats = []string{"jsonl"}
 		scanPrintFinding = true
 		t.Cleanup(func() { scanPrintFinding = false })
@@ -51,15 +50,6 @@ func TestValidateStdoutProtocol(t *testing.T) {
 
 	t.Run("events alone is fine", func(t *testing.T) {
 		assert.NoError(t, validateStdoutProtocol(eventsOpts()))
-	})
-
-	t.Run("events + ci-output is a usage error", func(t *testing.T) {
-		o := eventsOpts()
-		o.CIOutput = true
-		err := validateStdoutProtocol(o)
-		require.Error(t, err)
-		assert.Equal(t, ExitUsageError, classifyExitCode(err), "a rejected combination is exit 2")
-		assert.Contains(t, err.Error(), "--ci-output-format", "the message must name the conflict")
 	})
 
 	t.Run("events + stdout jsonl is a usage error", func(t *testing.T) {
@@ -130,11 +120,6 @@ func TestValidateStdoutProtocolScanDocumentOwnsStdout(t *testing.T) {
 		"--format jsonl": func() *types.Options {
 			o := types.DefaultOptions()
 			o.OutputFormats = []string{"jsonl"}
-			return o
-		},
-		"--ci-output-format": func() *types.Options {
-			o := types.DefaultOptions()
-			o.CIOutput = true
 			return o
 		},
 	} {

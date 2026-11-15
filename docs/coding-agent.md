@@ -33,8 +33,7 @@ default human output is unchanged; you opt into machine output with `-j/--json`.
     store use `-S --format sqlite` or copy the database file.
 - Non-interactive by default: the TUI is opt-in (`--tui`), never auto-launched.
   Destructive commands need `--force`. Color is automatic: on only when stdout
-  and stderr are both terminals, off under `-j`, `--events` and
-  `--ci-output-format`; `--color always|never|auto` overrides it (`--no-color`
+  and stderr are both terminals, off under `-j` and `--events`; `--color always|never|auto` overrides it (`--no-color`
   = `never`; `NO_COLOR`, `FORCE_COLOR` and `CLICOLOR_FORCE` are honored under
   `auto`). The banner prints only when stderr is a terminal and `--events` is
   off. Scope with `--project-uuid <uuid>`, `--project-name <name>`,
@@ -120,6 +119,12 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
 - **`scan-url` and `scan-request` persist by default.** Their findings and
   traffic go into the project database like any other scan; `-S/--stateless`
   is what makes a run throwaway (pair it with `-o`/`--format` to keep anything).
+- **Single-input scans test only their input.** `scan-url`, `scan-request` and
+  `run <phase> -t` leave the records already stored for the target's host alone
+  (`plan.targets.stored_records: "exclude"`, `db_records_excluded`);
+  `--include-stored` tests them too. `scan -t` names an origin and keeps
+  including them (`stored_records: "include"`, the banner states the count);
+  `scan --input-only` excludes them.
 - **`-S` on a scan writes nothing to `$HOME`.** On `scan`, `run`, `scan-url`
   and `scan-request`, `-S` skips the first-run bootstrap (no config, database,
   presets or `initialized` marker is created; the scan runs on embedded
@@ -159,7 +164,19 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
   connect, plus a TLS handshake on an explicit non-standard port — and scans over
   the scheme that answered; `resolved_target` is the result. Nothing answered
   keeps `https://` (`default`), and the unreachable error suggests
-  `-t http://host:port`. `--no-scheme-probe` skips the probe.
+  `-t http://host:port`. `--no-scheme-probe` skips the probe. `replay -i` and
+  `fuzz -i` parse raw request text the same way (`-t` pins the scheme; a
+  missing final blank line is repaired, from a file or stdin), and probe only
+  an in-scope host. `ingest -I burpraw -t <base>` rebases the captured request
+  onto `<base>` instead of storing `<base>` as a record of its own.
+- **`replay`/`fuzz -t <origin>`** move the destination; a `Host` header that
+  named the old destination follows it, any other `Host` is sent as written,
+  and `--keep-host` keeps it. A replay that followed redirects reports
+  `final_url` and `redirects` on its `replay` summary. `--raw-request` sends
+  its bytes exactly (no added `User-Agent` or `Accept-Encoding`).
+  `replay --finding-id` reads an answer identical to the finding's evidence as
+  "reproduced". `--dump-traffic` prints replay and fuzz exchanges too.
+  `--read-only` protects the database file, not the target: sends still go out.
 - **Both commands enforce the config scope**, with or without `-S` (see
   [Scope admission](#scope-admission)). A refused input is not sent; its target
   entry says `admitted: false`, `reason: "out_of_scope"`, `code: <rule>`, and
@@ -168,8 +185,12 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
 
 ### Plan first (`--dry-run`)
 
-`vigolium scan … --dry-run` (and `run <phase> --dry-run`) resolves the scan and
-prints its plan without running it: no scan UUID, no scan row, no output file,
+`vigolium scan … --dry-run` (and `run <phase> --dry-run`, `scan-url
+--dry-run`, `scan-request --dry-run`) resolves the scan and prints its plan
+without running it. On scan-url/scan-request the plan carries
+`execution_path`: `runner` (the plan as described) or `direct` (one single
+pass of the modules over the request, with a `direct_path` warning);
+scan-request does not probe the scheme under `--dry-run`. In every case: no scan UUID, no scan row, no output file,
 no wordlist materialized, no login, no OAST registration, no request; an
 existing database is opened read-only for the record counts. `-j` prints a
 `kind: "scan"` envelope with `dry_run: true`, `items` = the plan's phases and
@@ -189,7 +210,16 @@ vigolium scan -t https://target.example --dry-run -j | jq '.plan | {phases: [.ph
 - `estimate` is a rough request count (`confidence: "rough"`, a `basis` per
   phase). `ceiling_by_pace` — rate limit × the time budget — is the one hard
   number; `--max-requests` clamps the rest (`clamped_to`, `hits_max_requests`).
+  `estimate.duration_ms {low, high, basis, confidence: "rough"}` is the
+  expected wall-clock range: requests over each phase's rate, bounded by the
+  phase budgets and `--max-time`. The banner prints it as `~2m-15m (rough)`.
 - `auth` lists session names and kinds, never values.
+- `proxy` (present when anything is proxied): `routes[] {scheme, url, source}`
+  (`source` is `--proxy`, `VIGOLIUM_PROXY` or the environment variable),
+  `no_proxy`/`no_proxy_source`, and `targets{<target>: "<proxy> (from X)" |
+  "direct" | "direct (NO_PROXY)"}`. Environment proxies are picked by target
+  scheme and honour `NO_PROXY`; loopback is not bypassed on its own. An
+  unreachable error names the proxy and its variable.
 
 The same plan is the second event of every `--events` stream (`scan.plan`),
 is stored on the scan row (`scans.plan`), and drives the pre-scan banner.
@@ -269,17 +299,22 @@ is stored on the scan row (`scans.plan`), and drives the pre-scan banner.
   in `reasons`.
 - **`persisted: false`** for `-S` (the temp store is gone when the process
   exits, so `db_path` and `query` are omitted) and for a direct run that had no
-  store. `modules.selected` is what the scan was handed, `modules.executed` how
+  store. A `-S` document embeds each finding's evidence record under `records`
+  (`records_total`/`records_truncated` when it links more) and omits
+  `http_record_uuids`/`origin_record_uuid`, which nothing resolves afterwards;
+  they stay when `--format sqlite` wrote the store or the working database was
+  kept. `modules.selected` is what the scan was handed, `modules.executed` how
   many ran at least once (scan-url used to report `modules_run`, which counted
   the loaded modules).
-- **`-j` owns stdout.** `-j` with `--events`, `--ci-output-format`,
+- **`-j` owns stdout.** `-j` with `--events`,
   `--format jsonl` without `-o`, `--print-finding`, `--print-traffic` or
   `--print-traffic-tree` is a usage error (exit 2); so is `-j` with a
   per-target fan-out (`-P` over `-T`, `-S -T --split-by-host`). `--format jsonl
   -o run.jsonl -j` writes the stream to the file and the document to stdout.
-- **`--ci-output-format`** still prints nuclei-shaped finding lines this release,
-  with a one-time deprecation notice on stderr; next release they become
-  `{"type":"finding","data":<finding view>}` lines.
+- **`--ci-output-format`** was removed: using it is exit 2 naming `-j` and
+  `--format jsonl`. `--silent` prints one plain line per finding on stdout and
+  nothing else (unless `-j`, `--events` or a stdout jsonl/github stream owns
+  stdout).
 
 ## Query findings
 
@@ -991,7 +1026,7 @@ Exit codes:
 |------|---------|
 | `0` | success |
 | `1` | the work failed; `error.code` says how (`source_missing`, `export_failed`, `no_targets_in_scope`, `no_targets_reachable`, …) |
-| `2` | usage error — bad flag, bad value, rejected combination, a search that matched nothing (`module enable`), or a mutation that needed `--force` and had no terminal to ask. `error.code: "usage_error"`, except a scan whose `--ext` extension failed to load before any request: `extension_load_failed` (`--ext-allow-failures` to scan without it) |
+| `2` | usage error — bad flag, bad value, rejected combination, a search that matched nothing (`module enable`), or a mutation that needed `--force` and had no terminal to ask. `error.code: "usage_error"`, except a scan whose `--ext` extension failed to load before any request: `extension_load_failed` (`--ext-allow-failures` to scan without it), and a send to a host the configured scope refuses: `out_of_scope` (`fuzz`, `dns`, `replay` single and bulk, `traffic --replay`, `kit param-mine`, `finding verify`; nothing is sent, `--ignore-scope` on each overrides it) |
 | `3` | `--fail-on-match` / `--fail-on-crack` matched (`fuzz`, `kit secret-scan`, `kit jwt-crack`) |
 | `4` | the `--fail-on <severity>` (or `scan diff --fail-on-new <severity>`) gate tripped |
 | `5` | incomplete — the work ran but did not finish. `error.code` is `timed_out`, `budget_exhausted` or `partial`. The default for agent runs (`agent autopilot`/`swarm`/`audit`: a `--max-duration` stop, a `--max-commands`/`--token-budget`/`--max-cost-usd` stop, an audit in which some drivers failed; `agent query`/`triage` past `--max-duration`) — see [AI / agentic scans](#ai--agentic-scans); a native scan that is merely partial still exits `0` (see [Partial scans](#partial-scans)), with an opt-in `--fail-on-partial` planned for a later release |
@@ -1200,7 +1235,7 @@ One NDJSON line per event on **stdout**, from `scan.started` to a single
 terminal `scan.finished`. Human output stays on stderr throughout.
 
 - **`--events` owns stdout exclusively.** Combining it with another writer of
-  stdout — `-j/--json`, `--format jsonl` without `-o`, `--ci-output-format`,
+  stdout — `-j/--json`, `--format jsonl` without `-o`,
   `--print-finding`, `--print-traffic`, `--print-traffic-tree` — is rejected
   before any work starts, with exit `2` naming the conflict. It used to produce
   a corrupt interleaved stream and exit `0`. Exactly one protocol on stdout,

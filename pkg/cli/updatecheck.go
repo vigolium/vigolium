@@ -145,11 +145,44 @@ type autoUpdateEnv struct {
 	exe       string // resolved running binary ("" when unknown)
 }
 
+// ciEnvVars mark a CI runner.
+var ciEnvVars = []string{
+	"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "JENKINS_URL",
+}
+
+// codingAgentEnvVars mark a caller that is a coding agent, with the
+// `skills install --agent` value that teaches it the CLI.
+var codingAgentEnvVars = []struct {
+	name  string
+	agent string
+}{
+	{"VIGOLIUM_AGENT", "claude"},
+	{"CLAUDECODE", "claude"},
+	{"CLAUDE_CODE_ENTRYPOINT", "claude"},
+	{"CODEX_SANDBOX", "codex"},
+	{"CURSOR_AGENT", "agents"},
+	{"GEMINI_CLI", "agents"},
+}
+
 // agentEnvVars mark a caller that is CI or a coding agent. Any of them set (to
 // anything but "", "0" or "false") keeps auto-update off.
-var agentEnvVars = []string{
-	"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "JENKINS_URL",
-	"VIGOLIUM_AGENT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CODEX_SANDBOX", "CURSOR_AGENT", "GEMINI_CLI",
+var agentEnvVars = func() []string {
+	out := append([]string{}, ciEnvVars...)
+	for _, v := range codingAgentEnvVars {
+		out = append(out, v.name)
+	}
+	return out
+}()
+
+// detectCodingAgent returns the first coding-agent variable set and the
+// skills install --agent value for it, or "" when none is set.
+func detectCodingAgent(getenv func(string) string) (name, agent string) {
+	for _, v := range codingAgentEnvVars {
+		if envSetTruthy(getenv(v.name)) {
+			return v.name, v.agent
+		}
+	}
+	return "", ""
 }
 
 func currentAutoUpdateEnv(cmd *cobra.Command) autoUpdateEnv {

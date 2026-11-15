@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,13 +21,20 @@ import (
 	"github.com/vigolium/vigolium/pkg/burpbridge"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
+	vighttp "github.com/vigolium/vigolium/pkg/http"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/replay"
 	"github.com/vigolium/vigolium/pkg/replay/jar"
+	"github.com/vigolium/vigolium/pkg/requestinput"
+	"github.com/vigolium/vigolium/pkg/requestscheme"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
 var (
+	// replayIgnoreScope is replay's --ignore-scope (traffic --replay maps its
+	// own onto it).
+	replayIgnoreScope    bool
+	replayKeepHost       bool
 	replayRecordUUID     string
 	replayFindingID      int64
 	replayInput          string
@@ -59,6 +67,7 @@ var (
 	// the diff engine). The filter surface tracks `vigolium traffic`. The
 	// positional term is a local threaded through, not a flag global.
 	replayAll               bool
+	replayAllMatches        bool
 	replayBulkHost          string
 	replayBulkMethods       []string
 	replayBulkStatus        []int
@@ -152,6 +161,7 @@ func init() {
 
 	// Source flags — exactly one of these resolves the baseline.
 	f.StringVarP(&replayRecordUUID, "record-uuid", "u", "", "Stored HTTP record UUID (or unique 8+ char prefix) to use as baseline")
+	f.BoolVar(&replayIgnoreScope, "ignore-scope", false, "Send to hosts outside the configured host scope")
 	f.Int64Var(&replayFindingID, "finding-id", 0, "Finding ID — replay the finding's linked record (or its stored evidence)")
 	f.StringVarP(&replayInput, "input", "i", "", "Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin")
 	f.StringVar(&replayInputFile, "input-file", "", "Read --input value from a file")
@@ -174,7 +184,8 @@ func init() {
 	f.BoolVar(&replayNoRedirects, "no-redirects", false, "Don't follow 30x redirects")
 	f.BoolVar(&replaySendBaseline, "baseline", false,
 		"Also send the un-mutated request first and diff the two. A supplied request (-i, --raw-request) is otherwise sent once with no diff; a stored record diffs against its stored response either way")
-	f.StringVarP(&replayTargetURL, "target", "t", "", "Override scheme/host/port (e.g. https://staging.example.com)")
+	f.StringVarP(&replayTargetURL, "target", "t", "", "Override scheme/host/port (e.g. https://staging.example.com); a Host header naming the old destination follows it unless --keep-host")
+	f.BoolVar(&replayKeepHost, "keep-host", false, "With -t: send the request's Host header unchanged even when it names the old destination")
 	f.DurationVar(&replayTimeout, "timeout", replay.DefaultTimeout, "Per-request timeout (e.g. 30s, 1m)")
 
 	// Result handling.
@@ -207,6 +218,7 @@ func init() {
 	// Bulk selection — mirror the traffic filters. Setting any of these (or
 	// --all, or a positional search term) switches replay into bulk mode over
 	// the matching stored records.
+	f.BoolVar(&replayAllMatches, "all-matches", false, "Bulk: replay every record the selection matches when it matches more than one (required then, so a broad term cannot fan out by accident)")
 	f.BoolVarP(&replayAll, "all", "a", false, "Bulk: replay every matched stored record (lifts the -n/--limit cap); re-send all stored traffic")
 	f.StringVar(&replayBulkHost, "host", "", "Bulk: filter records by hostname pattern (wildcard supported)")
 	f.StringSliceVar(&replayBulkMethods, "method", nil, "Bulk: filter records by HTTP method (repeatable)")
@@ -246,6 +258,12 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	var bulkFuzzy string
 	if len(args) == 1 {
 		bulkFuzzy = strings.TrimSpace(args[0])
+		if urlShapedPositional(bulkFuzzy) {
+			return clicommon.CLIError{
+				Err:  fmt.Errorf("replay %q: a positional argument is a search over stored records, not a request to send", bulkFuzzy),
+				Hint: "send that request with: vigolium replay -i 'curl " + bulkFuzzy + "' (or -i <raw request>); search stored records with --search " + bulkFuzzy,
+			}
+		}
 	}
 	if err := validateReplayFlags(); err != nil {
 		return err
@@ -325,9 +343,12 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	}
 
 	if replayTargetURL != "" {
-		if err := applyTargetOverride(src, replayTargetURL); err != nil {
+		if err := applyTargetOverride(src, replayTargetURL, replayKeepHost); err != nil {
 			return err
 		}
+	}
+	if err := newSendScopeGate(replayIgnoreScope).check(src.Hostname); err != nil {
+		return err
 	}
 	if replayDryRun {
 		return emitReplayDryRun(cmd, src, overlay, rr)
@@ -449,6 +470,7 @@ func newReplayRun() (*replayRun, error) {
 	if err != nil {
 		return nil, err
 	}
+	installReplayTrafficDump()
 	pj, jarLoaded, jarErr := openReplayJar()
 	if jarErr != nil {
 		fmt.Fprintf(os.Stderr, "%s replay: cookie jar disabled (%v)\n", terminal.WarningSymbol(), jarErr)
@@ -526,6 +548,7 @@ func (rr *replayRun) one(ctx context.Context, src *replaySource, overlay map[str
 		NoRedirects:          replayNoRedirects,
 		Client:               rr.client,
 		SendBaseline:         replaySendBaseline,
+		BaselineIsEvidence:   src.FindingID != 0 && len(src.BaselineResponse) > 0,
 	}
 	// --send-via-burp routes the actual send through Burp's engine so the exact bytes
 	// (deliberate Content-Length, smuggling, unusual methods) reach the wire; the
@@ -630,7 +653,7 @@ func resolveReplaySource(ctx context.Context) (*replaySource, error) {
 		return sourceFromFinding(ctx, repo, replayFindingID)
 
 	case replayInput != "" || replayInputFile != "":
-		return sourceFromInput(ctx, repo, replayInput, replayInputFile)
+		return sourceFromInput(ctx, repo, replayInput, replayInputFile, replayRawInputOptions())
 
 	case replayRawRequest != "" || replayRawRequestFile != "":
 		// The raw request is the whole request already, so with nothing else
@@ -640,7 +663,7 @@ func resolveReplaySource(ctx context.Context) (*replaySource, error) {
 		if err != nil {
 			return nil, err
 		}
-		return sourceFromInputString(ctx, repo, string(raw), replayRawRequestFile)
+		return sourceFromInputString(ctx, repo, string(raw), replayRawRequestFile, replayRawInputOptions())
 
 	default:
 		data, ok, err := readStdinIfPiped()
@@ -648,7 +671,7 @@ func resolveReplaySource(ctx context.Context) (*replaySource, error) {
 			return nil, err
 		}
 		if ok {
-			return sourceFromInputString(ctx, repo, data, "")
+			return sourceFromInputString(ctx, repo, data, "", replayRawInputOptions())
 		}
 		return nil, usageErrorf("no source specified: pass one of --record-uuid, --finding-id, --input/--input-file, --raw-request/--raw-request-file, or pipe a request on stdin")
 	}
@@ -701,7 +724,7 @@ func sourceFromFinding(ctx context.Context, repo *database.Repository, id int64)
 	return src, nil
 }
 
-func sourceFromInput(ctx context.Context, repo *database.Repository, inline, file string) (*replaySource, error) {
+func sourceFromInput(ctx context.Context, repo *database.Repository, inline, file string, raw rawInputOptions) (*replaySource, error) {
 	var data string
 	switch {
 	case file != "":
@@ -733,7 +756,7 @@ func sourceFromInput(ctx context.Context, repo *database.Repository, inline, fil
 	default:
 		data = inline
 	}
-	return sourceFromInputString(ctx, repo, data, file)
+	return sourceFromInputString(ctx, repo, data, file, raw)
 }
 
 // inlineNamesFile reports whether an -i value is a file path rather than a
@@ -753,10 +776,20 @@ func inlineNamesFile(inline string) bool {
 
 // sourceFromInputString delegates to the agent input normalizer so a
 // curl/raw/burp string from an external driver parses the same way it
-// would in autopilot.
-func sourceFromInputString(ctx context.Context, repo *database.Repository, data, label string) (*replaySource, error) {
+// would in autopilot. Raw HTTP text goes through requestinput instead, the
+// parser scan-request uses: a missing final blank line is repaired, and the
+// scheme comes from the command's -t, the request's own signals or a
+// probe of the target, not an https assumption.
+func sourceFromInputString(ctx context.Context, repo *database.Repository, data, label string, raw rawInputOptions) (*replaySource, error) {
 	if strings.TrimSpace(data) == "" {
 		return nil, fmt.Errorf("input is empty")
+	}
+	if input.DetectInputType(data) == agenttypes.InputTypeRaw {
+		if src, err := sourceFromRawText(ctx, data, label, raw); err == nil {
+			return src, nil
+		}
+		// Not parseable as one raw request (a Burp pair, a capture with a
+		// response): the general normalizer below decides.
 	}
 	records, err := input.NormalizeInput(ctx, data, "", repo)
 	if errors.Is(err, input.ErrUnknownInputFormat) {
@@ -799,6 +832,59 @@ func sourceFromInputString(ctx context.Context, repo *database.Repository, data,
 	return src, nil
 }
 
+// rawInputOptions is what parsing raw request text needs from the command:
+// its -t (pins the scheme) and its --ignore-scope (lets the scheme probe
+// contact an out-of-scope host).
+type rawInputOptions struct {
+	pin         string
+	ignoreScope bool
+}
+
+func replayRawInputOptions() rawInputOptions {
+	return rawInputOptions{pin: replayTargetURL, ignoreScope: replayIgnoreScope}
+}
+
+// sourceFromRawText is a raw HTTP request typed or piped to -i, parsed by
+// requestinput.Parse. The baseline bytes are the normalized text, header
+// terminator included, so the send path parses what the operator pasted.
+func sourceFromRawText(ctx context.Context, data, label string, raw rawInputOptions) (*replaySource, error) {
+	opts := requestinput.Options{Target: raw.pin, Resolver: requestSchemeResolver, NoProbe: true}
+	res, err := requestinput.Parse(ctx, data, opts)
+	if err != nil {
+		return nil, err
+	}
+	// The probe contacts the target, so it waits for the scope gate: an
+	// out-of-scope host keeps the default and is refused before any send.
+	if raw.pin == "" && res.SchemeSource == requestscheme.SourceDefault &&
+		newSendScopeGate(raw.ignoreScope).check(res.Request.Target()) == nil {
+		opts.NoProbe = false
+		if res, err = requestinput.Parse(ctx, data, opts); err != nil {
+			return nil, err
+		}
+	}
+	u, err := res.Request.URL()
+	if err != nil || u == nil || u.URL == nil {
+		return nil, fmt.Errorf("could not extract URL from input")
+	}
+	src := &replaySource{
+		BaselineRequest: []byte(res.Raw),
+		Scheme:          u.Scheme,
+		Hostname:        u.Hostname(),
+		Port:            portFromURL(u.URL),
+		URL:             u.URL.String(),
+		InputType:       string(agenttypes.InputTypeRaw),
+		OriginLabel:     fmt.Sprintf("input (%s)", agenttypes.InputTypeRaw),
+	}
+	if label != "" {
+		src.OriginLabel = fmt.Sprintf("file %s", label)
+	}
+	if res.SchemeSource == requestscheme.SourceProbe && !globalSilent && !globalJSON {
+		fmt.Fprintf(os.Stderr, "%s request line has no scheme — probed the target: %s\n",
+			terminal.InfoSymbol(), terminal.Cyan(u.Scheme+"://"+u.Host))
+	}
+	return src, nil
+}
+
 func sourceFromRawRequest(rawReq, rawResp []byte, urlStr string) (*replaySource, error) {
 	if len(rawReq) == 0 {
 		return nil, fmt.Errorf("no raw request bytes")
@@ -820,21 +906,47 @@ func sourceFromRawRequest(rawReq, rawResp []byte, urlStr string) (*replaySource,
 	}, nil
 }
 
-// applyTargetOverride rewrites src's destination. The baseline request
-// bytes (Host header, path) are left verbatim; only the socket we aim
-// at changes — that's how an operator confirms a finding against a
-// different env without re-deriving the request. replay.SendRaw sends that
-// Host header as written and, through an HTTP proxy, still names the new
-// destination's host:port in the request target.
-func applyTargetOverride(src *replaySource, target string) error {
+// applyTargetOverride rewrites src's destination. A Host header that named the
+// old destination follows it (keepHost off), so the request reaches the new
+// environment's virtual host; any other Host (a deliberate vhost, a
+// Host-header probe) is sent as written. replay.SendRaw sends the Host header
+// as written and, through an HTTP proxy, still names the new destination's
+// host:port in the request target.
+func applyTargetOverride(src *replaySource, target string, keepHost bool) error {
 	u, err := url.Parse(target)
 	if err != nil || u == nil || u.Hostname() == "" {
 		return usageErrorf("invalid --target %q: %w", target, err)
 	}
+	oldAuthority := strings.ToLower(replay.Authority(src.Scheme, src.Hostname, src.Port))
 	src.Scheme = u.Scheme
 	src.Hostname = u.Hostname()
 	src.Port = portFromURL(u)
+	if keepHost || len(src.BaselineRequest) == 0 {
+		return nil
+	}
+	if host := rawHostHeader(src.BaselineRequest); host != "" && strings.EqualFold(host, oldAuthority) {
+		if rewritten, err := httpmsg.AddOrReplaceHeader(src.BaselineRequest, "Host", replay.Authority(src.Scheme, src.Hostname, src.Port)); err == nil {
+			src.BaselineRequest = rewritten
+		}
+	}
 	return nil
+}
+
+// rawHostHeader is the Host header of a raw request ("" when it has none).
+func rawHostHeader(raw []byte) string {
+	head := raw
+	if i := bytes.Index(head, []byte("\r\n\r\n")); i >= 0 {
+		head = head[:i]
+	} else if i := bytes.Index(head, []byte("\n\n")); i >= 0 {
+		head = head[:i]
+	}
+	for _, line := range strings.Split(string(head), "\n") {
+		name, value, ok := strings.Cut(strings.TrimRight(line, "\r"), ":")
+		if ok && strings.EqualFold(strings.TrimSpace(name), "host") {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func portFromURL(u *url.URL) int {
@@ -876,7 +988,7 @@ func buildReplayOverlay(ctx context.Context, src *replaySource) (map[string]stri
 	overlay := map[string]string{}
 
 	if replayAuthSession != "" {
-		headers, err := resolveAuthSessionHeaders(ctx, replayAuthSession, src.Hostname)
+		headers, err := resolveAuthSessionHeaders(ctx, replayAuthSession, src)
 		if err != nil {
 			return nil, err
 		}
@@ -899,7 +1011,7 @@ func buildReplayOverlay(ctx context.Context, src *replaySource) (map[string]stri
 // a hostname. Shared by `replay --auth-session` and `fuzz --auth-session` so
 // the lookup, the project scoping, and the not-found message stay identical
 // between them.
-func resolveAuthSessionHeaders(ctx context.Context, sessionName, hostname string) (map[string]string, error) {
+func resolveAuthSessionHeaders(ctx context.Context, sessionName string, src *replaySource) (map[string]string, error) {
 	db, err := openReadDB(globDBSkipSet{})
 	if err != nil {
 		//vigolium:not-usage database open failure
@@ -907,16 +1019,21 @@ func resolveAuthSessionHeaders(ctx context.Context, sessionName, hostname string
 	}
 	repo := database.NewRepository(db)
 	pid, _ := effectiveProjectUUID()
-	rows, err := repo.GetAuthenticationHostnamesByHostname(ctx, pid, hostname)
-	if err != nil {
-		return nil, fmt.Errorf("lookup auth sessions: %w", err)
-	}
-	for _, row := range rows {
-		if row.SessionName == sessionName {
-			return row.Headers, nil
+	// The key auth load writes (host:port unless the port is the scheme's
+	// default), then the bare host for sessions stored without a port.
+	key := database.AuthHostKeyFor(src.Scheme, src.Hostname, strconv.Itoa(src.Port))
+	for _, k := range database.AuthHostLookupKeys(key) {
+		rows, err := repo.GetAuthenticationHostnamesByHostname(ctx, pid, k)
+		if err != nil {
+			return nil, fmt.Errorf("lookup auth sessions: %w", err)
+		}
+		for _, row := range rows {
+			if row.SessionName == sessionName {
+				return row.Headers, nil
+			}
 		}
 	}
-	return nil, fmt.Errorf("auth session %q not found for hostname %s", sessionName, hostname)
+	return nil, fmt.Errorf("auth session %q not found for %s", sessionName, key)
 }
 
 // parseReplayHeaderFlags parses the repeatable --header flags into an overlay
@@ -1231,5 +1348,29 @@ func emitReplayOutputHeader(w io.Writer, out *replayOutput) {
 	}
 	if out.SavedRecordUUID != "" {
 		_, _ = fmt.Fprintf(w, "  stored as record %s (--no-save to skip)\n", out.SavedRecordUUID)
+	}
+}
+
+// urlShapedPositional reports whether a replay positional looks like a
+// request target (a URL, an absolute path, a path with a query) rather than
+// a search term: those are refused, since the bulk search they would run is
+// almost never what was meant.
+func urlShapedPositional(v string) bool {
+	lower := strings.ToLower(v)
+	switch {
+	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"), strings.HasPrefix(v, "/"):
+		return true
+	case strings.Contains(v, "?") && strings.Contains(v, "="):
+		return !strings.ContainsAny(v, " \t")
+	}
+	return false
+}
+
+// installReplayTrafficDump routes replay's sends through --dump-traffic.
+func installReplayTrafficDump() {
+	if globalDumpTraffic {
+		replay.TrafficDump = vighttp.DumpExchange
+	} else {
+		replay.TrafficDump = nil
 	}
 }

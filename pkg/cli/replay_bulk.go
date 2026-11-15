@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -68,6 +69,22 @@ func runReplayBulk(ctx context.Context, cmd *cobra.Command, rr *replayRun, filte
 			return emitReplayBulkEnvelope(cmd, nil)
 		}
 		return nil
+	}
+
+	// A selection matching several records replays all of them only when
+	// asked: a broad term must not fan out by accident. traffic --replay is
+	// the listing re-sent, so it needs no confirmation; --all is one.
+	if len(records) > 1 && !replayAllMatches && !replayAll && commandPathWithoutRoot(cmd) == "replay" {
+		return clicommon.CLIError{
+			Err:  fmt.Errorf("%d stored records match the selection; nothing sent", len(records)),
+			Hint: "pass --all-matches to replay all of them, or narrow it (-u <uuid>, --host, --path, --search)",
+		}
+	}
+
+	// Every destination is checked before the first send: one record outside
+	// the scope refuses the batch (--ignore-scope sends anyway).
+	if err := checkBulkReplayScope(records); err != nil {
+		return err
 	}
 
 	// The static --header overlay is host-independent, so parse it once here
@@ -189,7 +206,7 @@ func (rr *replayRun) recordEntry(ctx context.Context, rec *database.HTTPRecord, 
 	}
 
 	if replayTargetURL != "" {
-		if err := applyTargetOverride(src, replayTargetURL); err != nil {
+		if err := applyTargetOverride(src, replayTargetURL, replayKeepHost); err != nil {
 			return bulkErrorEntry(src, err)
 		}
 	}
@@ -273,4 +290,18 @@ func sourceFromDBRecord(rec *database.HTTPRecord) *replaySource {
 		RecordUUID:           rec.UUID,
 		OriginLabel:          fmt.Sprintf("record %s", rec.UUID),
 	}
+}
+
+// checkBulkReplayScope runs the send scope gate over every record a bulk
+// replay would send to (after a -t override, which replaces the destination).
+func checkBulkReplayScope(records []*database.HTTPRecord) error {
+	gate := newSendScopeGate(replayIgnoreScope)
+	if replayTargetURL != "" {
+		return gate.check(replayTargetURL)
+	}
+	hosts := make([]string, 0, len(records))
+	for _, rec := range records {
+		hosts = append(hosts, rec.Hostname)
+	}
+	return gate.check(hosts...)
 }

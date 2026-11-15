@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/authentication"
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	corestats "github.com/vigolium/vigolium/pkg/core/stats"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -133,6 +134,15 @@ func (r *Runner) emitNoticeLine(line string) {
 // FormatBlockNoticeLine — a caution, not a failure: the scan continues, just gentler.
 func FormatEdgePaceLine(n hostlimit.PreArmNotice) string {
 	vendor := n.Vendor
+	if vendor == hostlimit.PreArmVendorLocal {
+		return fmt.Sprintf("%s %s %s %s %s %s\n",
+			terminal.Yellow(terminal.SymbolSnow),
+			terminal.BoldYellow(NoticeMarkerPacing),
+			terminal.HiBlue(n.Host),
+			terminal.Muted("→"),
+			terminal.Yellow("local host"),
+			terminal.Muted(fmt.Sprintf("starting per-host concurrency at %d (of %d) and ramping up on clean answers, so a small server is not overrun (disable with --no-waf-pacing)", n.Start, n.From)))
+	}
 	if vendor == "" {
 		vendor = "WAF/CDN"
 	}
@@ -209,6 +219,12 @@ func (r *Runner) formatTargetCounts(ctx context.Context, cliCount int) string {
 		if n := source.GetTotal(r.inputSource); n > seeded {
 			seeded = n
 		}
+	}
+	if r.options.ExcludesStoredRecords() {
+		return fmt.Sprintf("Targets: %s (%s input | %s stored HTTP Records not tested: input only)",
+			terminal.Orange(fmt.Sprintf("%d", seeded)),
+			terminal.Orange(fmt.Sprintf("%d", seeded)),
+			terminal.Orange(fmt.Sprintf("%d", dbCount)))
 	}
 	return fmt.Sprintf("Targets: %s (%s input | %s HTTP Records)",
 		terminal.Orange(fmt.Sprintf("%d", seeded+dbCount)),
@@ -486,7 +502,11 @@ func (r *Runner) printScanConfig() {
 	if r.repository != nil {
 		ctx := context.Background()
 		hosts := r.getInScopeDBHosts(ctx)
-		if dbCount, err := r.repository.CountRecordsAfterCursor(ctx, r.options.ProjectUUID, time.Time{}, "", hosts...); err == nil && dbCount > 0 {
+		if dbCount, err := r.repository.CountRecordsAfterCursor(ctx, r.options.ProjectUUID, time.Time{}, "", hosts...); err == nil && dbCount > 0 && r.options.ExcludesStoredRecords() {
+			targetsLine += fmt.Sprintf(" (CLI: %s | stored HTTP Records not tested: %s)",
+				terminal.Orange(fmt.Sprintf("%d", len(opts.Targets))),
+				terminal.Orange(fmt.Sprintf("%d", dbCount)))
+		} else if err == nil && dbCount > 0 {
 			targetsLine += fmt.Sprintf(" (CLI: %s | HTTP Records: %s)",
 				terminal.Orange(fmt.Sprintf("%d", len(opts.Targets))),
 				terminal.Orange(fmt.Sprintf("%d", dbCount)))
@@ -605,7 +625,17 @@ func (r *Runner) printScanConfig() {
 		printSessionAuth("from inline auth")
 	case totalAuth > 1:
 		printSessionAuth(fmt.Sprintf("from %d auth source(s)", totalAuth))
+	case opts.NoAuth:
+		fmt.Fprintf(os.Stderr, "  %s Session auth: %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.Gray("none (--no-auth)"))
 	default:
+		// The scan falls back to the sessions stored for its hosts: say so,
+		// or the banner reads "none" while a stored cookie is sent.
+		if stored, _, ok := r.loadSessionsFromDB(context.Background()); ok {
+			printSessionAuth(fmt.Sprintf("from the database: %s (--no-auth to scan without)", sessionNames(stored)))
+			return
+		}
 		fmt.Fprintf(os.Stderr, "  %s Session auth: %s\n",
 			terminal.Purple(terminal.SymbolInfo),
 			terminal.Gray("none"))
@@ -688,4 +718,15 @@ func (r *Runner) printVerboseTargets(targets []string) {
 	if len(targets) > 10 {
 		fmt.Fprintf(os.Stderr, "    %s\n", terminal.Muted(fmt.Sprintf("... and %d more", len(targets)-10)))
 	}
+}
+
+// sessionNames lists session names for a banner.
+func sessionNames(sessions []*authentication.Session) string {
+	names := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		if s != nil {
+			names = append(names, s.Name)
+		}
+	}
+	return strings.Join(names, ", ")
 }

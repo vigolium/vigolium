@@ -771,6 +771,7 @@ func (r *Runner) newDASource(infra *phaseInfra, inScopeHosts []database.HostTarg
 	return database.NewRiskPrioritizedDBInputSource(r.repository.DB(), r.repository, infra.scanUUID).
 		WithHostScopes(inScopeHosts).
 		WithRecordUUIDs(r.options.RecordUUIDs).
+		WithRunFilter(r.runRecordFilter(context.Background(), infra.scanUUID)).
 		WithParamShapeCoalescing(r.daParamShapeSamples())
 }
 

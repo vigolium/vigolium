@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,5 +129,34 @@ func TestScoped_TargetChecks(t *testing.T) {
 	r, _ = Scoped(PurposeScan, healthyReport(), ScopedDeps{Settings: config.DefaultSettings(), Target: "https://nope.invalid"})
 	if c := checkByID(r, "target_dns"); c == nil || c.Status != ScopedNotReady || r.Status != "not_ready" {
 		t.Fatalf("dns failure = %+v, verdict %s", c, r.Status)
+	}
+}
+
+// TestScoped_EnvironmentProxy: a proxy from the environment is checked like
+// --proxy and named with its variable; a NO_PROXY target is probed directly.
+func TestScoped_EnvironmentProxy(t *testing.T) {
+	stubScoped(t, 50<<30, 65535)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	srv := httptest.NewTLSServer(nil)
+	defer srv.Close()
+	env := map[string]string{"HTTPS_PROXY": "http://" + ln.Addr().String(), "NO_PROXY": "127.0.0.1"}
+	deps := ScopedDeps{Settings: config.DefaultSettings(), Target: srv.URL, Getenv: func(k string) string { return env[k] }}
+	r, _ := Scoped(PurposeScan, healthyReport(), deps)
+	c := checkByID(r, "proxy")
+	if c == nil || c.Status != ScopedOK || !strings.Contains(c.Message, "from HTTPS_PROXY") || !strings.Contains(c.Message, "NO_PROXY=127.0.0.1") {
+		t.Fatalf("proxy check = %+v", c)
+	}
+	if c := checkByID(r, "target_tls"); c == nil || c.Status != ScopedOK {
+		t.Fatalf("a NO_PROXY target is probed directly: %+v", r.Checks)
+	}
+
+	delete(env, "NO_PROXY")
+	r, _ = Scoped(PurposeScan, healthyReport(), deps)
+	if c := checkByID(r, "target_dns"); c == nil || c.Status != ScopedSkipped || !strings.Contains(c.Message, ln.Addr().String()) {
+		t.Fatalf("a proxied target names its proxy: %+v", r.Checks)
 	}
 }

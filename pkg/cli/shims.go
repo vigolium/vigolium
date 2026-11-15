@@ -94,7 +94,7 @@ var shimSpecs = []shimSpec{
 		name:     "ffuf",
 		short:    "Content discovery / fuzzing with ffuf's argv (routed to `vigolium run discovery` or `vigolium fuzz`)",
 		example:  "vigolium ffuf -u https://target/FUZZ -w words.txt",
-		native:   "run discovery (FUZZ as the whole last path segment, no matchers) or fuzz (anything else)",
+		native:   "fuzz (a -w wordlist run), or run discovery (FUZZ as the whole last path segment with -recursion, or with no -w)",
 		longDash: "-",
 		// ffuf -json is JSON-lines result output; -config is ffuf's own file.
 		collisions: []string{"json", "config", "debug-log"},
@@ -684,7 +684,7 @@ func ffufRules(st *ffufState) map[string]shimRule {
 		return shimRule{to: to, into: &st.fuzzOnly, doc: "fuzz " + to + " <value> (routes to fuzz)"}
 	}
 	r := map[string]shimRule{
-		"u": {capture: &st.target, doc: "target URL: FUZZ as the whole last path segment → run discovery -t <url without /FUZZ>; FUZZ anywhere else → fuzz <url> (marker kept)"},
+		"u": {capture: &st.target, doc: "target URL: with -w → fuzz <url> (marker kept); FUZZ as the whole last path segment with -recursion (or no -w) → run discovery -t <url without /FUZZ>"},
 		"w": {appendTo: &st.wordlists, doc: "PATH[:KEYWORD] → --discovery-wordlist PATH, or fuzz -w PATH (+ --keyword KEYWORD)"},
 		"H": {appendTo: &st.headers, doc: "-H (FUZZ in a header routes to fuzz)"},
 		"X": {capture: &st.method, doc: "fuzz -X (a non-GET method routes to fuzz)"},
@@ -715,7 +715,7 @@ func ffufRules(st *ffufState) map[string]shimRule {
 		"of":      {capture: &st.outputFormat, doc: "accepted (no-op, noted): vigolium picks the file format"},
 		"e":       {capture: &st.exts, doc: "discovery: --discovery-extensions (dots stripped); fuzz: --suffix (appended literally)"},
 		"recursion": {bare: true, set: &st.recursion,
-			doc: "accepted on the discovery route (discovery recurses by default); refused on the fuzz route"},
+			doc: "routes a last-segment FUZZ to run discovery (which recurses by default); refused on the fuzz route"},
 		"recursion-depth": {capture: &st.recursionDepth, parse: nonNegativeInt, doc: "--discovery-max-depth <n> (discovery route only)"},
 	}
 	for alias, canon := range map[string]string{
@@ -775,6 +775,12 @@ func translateFFUF(args []string) (shimTranslation, error) {
 	}
 	if len(st.fuzzOnly) > 0 {
 		reasons = append(reasons, "matchers/filters were given (discovery has none)")
+	}
+	// A wordlist run of one path segment is what ffuf does: send each word,
+	// once. Discovery would crawl, recurse and add its own lists on top, so
+	// it takes the run only when -recursion asks for that.
+	if len(reasons) == 0 && len(paths) > 0 && !st.recursion && st.recursionDepth == "" {
+		reasons = append(reasons, "a wordlist over one path segment is sent word by word (pass -recursion for content discovery, which also crawls and recurses)")
 	}
 	if st.data != "" && !inData {
 		reasons = append(reasons, "-d sets a body (discovery sends none)")

@@ -117,6 +117,7 @@ var (
 	trafficReplay            bool
 	trafficReplayConcurrency int
 	trafficReplayBrowser     bool
+	trafficIgnoreScope       bool
 
 	// trafficAll lifts the -n/--limit cap so every matched record is
 	// listed/replayed. Most useful with --replay to re-send all stored traffic.
@@ -214,6 +215,7 @@ func init() {
 	f.BoolVar(&trafficReplay, "replay", false, "Re-send the matched requests and compare original vs new response (instead of listing)")
 	f.BoolVarP(&trafficAll, "all", "a", false, "List/replay every matched record (ignore the -n/--limit cap); pair with --replay to re-send all stored traffic")
 	f.IntVarP(&trafficReplayConcurrency, "concurrency", "c", 10, "Concurrent replays (--replay); keep low to avoid overwhelming an intercepting proxy like Burp")
+	f.BoolVar(&trafficIgnoreScope, "ignore-scope", false, "With --replay: send to hosts outside the configured host scope")
 	f.BoolVar(&trafficReplayBrowser, "with-browser", false, "Replay each URL through a real browser routed via --proxy (--replay), so Burp captures browser-driven traffic")
 	registerBridgeURLFlag(trafficCmd, &trafficBurpBridgeURL,
 		"Merge live traffic from this loopback Burp/Caido bridge URL with local database records")

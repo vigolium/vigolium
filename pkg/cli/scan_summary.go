@@ -10,6 +10,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/scanplan"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -139,8 +140,14 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 			// instead of "Targets: 0".
 			targetsLine = fmt.Sprintf("All records: %s HTTP records in the %s",
 				terminal.Orange(fmt.Sprintf("%d", dbCount)), describeScanStore(settings, opts.ProjectUUID))
+		case err == nil && dbCount > 0 && opts.ExcludesStoredRecords():
+			targetsLine += fmt.Sprintf(" | %s stored HTTP Records not tested %s", terminal.Orange(fmt.Sprintf("%d", dbCount)),
+				terminal.Gray("(input only; --include-stored tests them)"))
 		case err == nil && dbCount > 0:
 			targetsLine += fmt.Sprintf(" | %s (HTTP Records)", terminal.Orange(fmt.Sprintf("%d", dbCount)))
+			if opts.StoredRecords == "" && !opts.ScanOnReceive && len(opts.Targets) > 0 {
+				targetsLine += " " + terminal.Gray("(stored records on these hosts are tested too; --input-only skips them)")
+			}
 		}
 	}
 	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolTarget), targetsLine)
@@ -187,6 +194,11 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		terminal.HiBlue(fmt.Sprintf("%d", opts.Concurrency)),
 		terminal.HiBlue(fmt.Sprintf("%d", opts.RateLimit)),
 		terminal.HiBlue(fmt.Sprintf("%d", opts.MaxPerHost)))
+	// The proxy and where it came from: an environment proxy silently taking
+	// over a scan reads as an unreachable target otherwise.
+	if line := proxyenv.FromEnvironment(opts.ProxyURL).Summary(); line != "" {
+		fmt.Fprintf(os.Stderr, "  %s Proxy: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiBlue(line))
+	}
 	// Under a parallel fan-out (-P > 1), surface the per-process heap ceiling the
 	// isolated child scans inherit. A single scan omits it — the ceiling is rarely
 	// worth a line when only one process runs.
@@ -213,6 +225,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), modulesBannerLine(plan, opts, settings))
 	if plan != nil {
 		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), estimateBannerLine(plan))
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), authBannerLine(plan, opts.NoAuth))
 	}
 	// Output destination & format(s) — shown when -o or a non-default --format
 	// is in play so it's clear where (and in what shape) results land.
@@ -332,7 +345,31 @@ func estimateBannerLine(plan *scanplan.Plan) string {
 			terminal.Orange(fmt.Sprintf("%d", *e.CeilingByPace)), terminal.Orange(formatRange(e.Low, e.High)),
 			terminal.Gray("("+e.Confidence+"; vigolium scan --dry-run for the breakdown)"))
 	}
+	if d := e.DurationMS; d != nil && d.High > 0 {
+		line += fmt.Sprintf(", %s %s", terminal.Orange("~"+formatDurationRange(d.Low, d.High)), terminal.Gray("("+d.Confidence+")"))
+	}
 	return line
+}
+
+// formatDurationRange renders a rough millisecond range as "2m-15m".
+func formatDurationRange(lowMS, highMS int64) string {
+	round := func(ms int64) string {
+		sec := (ms + 500) / 1000
+		switch {
+		case sec < 60:
+			return fmt.Sprintf("%ds", sec)
+		case sec < 3600:
+			return fmt.Sprintf("%dm", (sec+30)/60)
+		default:
+			m := (sec + 30) / 60
+			return fmt.Sprintf("%dh%02dm", m/60, m%60)
+		}
+	}
+	lo, hi := round(lowMS), round(highMS)
+	if lo == hi {
+		return hi
+	}
+	return lo + "-" + hi
 }
 
 // countExtensionFiles counts JS/TS/YAML extension files from the configured directories without loading them.
@@ -503,4 +540,27 @@ func summaryFindingCounts(ctx context.Context, repo *database.Repository, projec
 // "Stored:" ("" when it cannot be named, e.g. a non-SQLite driver).
 func resolvedSummaryDBPath() string {
 	return resolvedReadDBPath()
+}
+
+// authBannerLine names the sessions the scan sends, and where they come from:
+// a session stored in the database is sent without any flag, so the banner
+// is the one place that says so.
+func authBannerLine(plan *scanplan.Plan, noAuth bool) string {
+	if len(plan.Auth) == 0 {
+		if noAuth {
+			return "Session auth: " + terminal.Gray("none (--no-auth)")
+		}
+		return "Session auth: " + terminal.Gray("none")
+	}
+	names := make([]string, 0, len(plan.Auth))
+	fromDB := false
+	for _, a := range plan.Auth {
+		names = append(names, a.Name)
+		fromDB = fromDB || a.Source == "db"
+	}
+	line := "Session auth: " + terminal.HiGreen(strings.Join(names, ", "))
+	if fromDB {
+		line += " " + terminal.Gray("(stored in the database for these hosts; --no-auth scans without)")
+	}
+	return line
 }

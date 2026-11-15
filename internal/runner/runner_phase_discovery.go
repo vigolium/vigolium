@@ -322,7 +322,8 @@ func (r *Runner) runDiscoveryPhase(ctx context.Context, infra *phaseInfra) error
 		// the items that reach fetchBaseline: CLI targets and request-only
 		// spec-endpoint stubs. Those are precisely the entry points most likely
 		// to be gated.
-		OnAuthWall: authWalls.Observe,
+		OnAuthWall:     authWalls.Observe,
+		OnRecordStored: r.onRecordStored(),
 		// Deparos already captured a response for each crawled URL and emits it on
 		// the work item (deparos_discovery.go saveAndEmit); reuse it instead of
 		// issuing a second identical request per URL. Request-only items (spec-

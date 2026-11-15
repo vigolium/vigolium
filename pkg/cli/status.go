@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -106,19 +105,8 @@ type statusProxyView struct {
 }
 
 // statusProxyResolver names the proxy a send would use and where it came
-// from ("flag", "env:HTTP_PROXY", …, "none"). A seam: the shared proxy
-// resolver replaces it once it exists, so `status` and the senders agree.
-var statusProxyResolver = func(cliProxy string) (proxyURL, source string) {
-	if cliProxy != "" {
-		return cliProxy, "flag"
-	}
-	for _, name := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
-		if v := os.Getenv(name); v != "" {
-			return v, "env:" + name
-		}
-	}
-	return "", "none"
-}
+// from, through the HTTP stack's own resolver so status and the senders agree.
+var statusProxyResolver = effectiveProxy
 
 // redactProxyURL drops the password from a proxy URL.
 func redactProxyURL(raw string) string {

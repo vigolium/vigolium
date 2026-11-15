@@ -181,7 +181,6 @@ and wins for that command — read it instead of the row here.
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--ci-output-format` | - | bool | `false` | CI-friendly output: JSONL findings only, no color, no banners |
 | `--color` | - | string | `auto` | Color ANSI output: auto (only when stdout and stderr are both terminals), always, or never. --no-color is never; NO_COLOR, FORCE_COLOR and CLICOLOR_FORCE are honored under auto. -j, --events and --ci-output-format force never |
 | `--config` | - | string | - | Path to config file (default "~/.vigolium/vigolium-configs.yaml") |
 | `--db` | - | string | - | Path to SQLite database file (default "~/.vigolium/database-vgnm.sqlite"). Also honors $VIGOLIUM_DB_PATH, which additionally reads that file with project scoping off |
@@ -1224,6 +1223,7 @@ Re-run a finding's module against its target and record whether it reproduces
 |------|-------|------|---------|-------------|
 | `--dry-run` | - | bool | `false` | Print the reconstructed module, baseline request and insertion point; send nothing and write nothing |
 | `--fail-if` | - | string | - | Exit 4 when any finding gets one of these verdicts: confirmed,not_reproduced,inconclusive,unsupported (comma-separated) |
+| `--ignore-scope` | - | bool | `false` | Verify findings on hosts outside the configured host scope |
 | `--mark` | - | bool | `false` | Also set the status: not_reproduced → false_positive, confirmed → confirmed |
 | `--no-write` | - | bool | `false` | Run the verification but do not store the verdict |
 | `--rate-limit` | - | float64 | `0` | Max requests/second across the verification (0 = unlimited; fractions allowed) |
@@ -1293,6 +1293,7 @@ Fingerprint origins with a bounded set of reads and store the result as host fac
 | `--max-time` | - | duration | `0s` | Maximum total scan duration, e.g. 15m, 2h (default: scanning_pace.scan_max_duration, 1h; alias --scanning-max-duration) |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-carry-browser-session` | - | bool | `false` | Do not carry the spidering browser's cleared session (cookies + UA) into discovery/scanning (on by default when --spider runs; scoped to the same host, respects -H) |
 | `--no-cdp` | - | bool | `false` | Disable Chrome DevTools Protocol event listener detection |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
@@ -1401,6 +1402,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--input` | `-i` | string | - | Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin |
 | `--input-file` | - | string | - | Read --input value from a file |
 | `--insecure` | - | bool | `false` | Skip TLS verification (already the default; accepted for curl compatibility) |
+| `--keep-host` | - | bool | `false` | With -t: send the request's Host header unchanged even when it names the old destination |
 | `--key` | - | string | - | Client certificate private key file (PEM) |
 | `--keyword` | - | string | `FUZZ` | Marker keyword replaced by each payload when present in the request |
 | `--location` | - | bool | `false` | Follow 30x redirects (already the default; use --no-redirects to stop) — accepted for curl compatibility |
@@ -1436,7 +1438,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--send-via-burp` | - | bool | `false` | Send each payload through Burp's own HTTP stack (exact bytes — malformed/smuggling preserved) instead of Go's client; requires --burp-bridge-url |
 | `--session-id` | - | string | - | Persist cookies across runs under ~/.vigolium/replay-jars/<id>.json |
 | `--suffix` | - | stringSlice | - | Also send each payload with each of these suffixes appended, literally (comma-list, e.g. .php,.bak — ffuf's -e) |
-| `--target` | `-t` | string | - | Override scheme/host/port the request is sent to (e.g. https://staging.acme.test) |
+| `--target` | `-t` | string | - | Override scheme/host/port the request is sent to (e.g. https://staging.acme.test); a Host header naming the old destination follows it unless --keep-host |
 | `--timeout` | - | duration | `25s` | Per-request timeout (e.g. 30s) |
 | `--user` | - | string | - | Basic auth 'user:password', curl's -u |
 | `--user-agent` | - | string | - | User-Agent header, curl's -A |
@@ -1677,6 +1679,7 @@ Discover hidden parameters an endpoint accepts (Arjun-style)
 |------|-------|------|---------|-------------|
 | `--data` | `-d` | string | - | Request body (form or JSON); names are added to it |
 | `--header` | `-H` | stringArray | - | Request header 'Name: value' (repeatable) |
+| `--ignore-scope` | - | bool | `false` | Mine an endpoint outside the configured host scope |
 | `--location` | - | string | `auto` | Where names go: auto, query, form, json |
 | `--max-requests` | - | int | `60` | Request budget, baselines and confirmations included |
 | `--method` | `-X` | string | `GET` | HTTP method |
@@ -2016,6 +2019,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--all` | `-a` | bool | `false` | Bulk: replay every matched stored record (lifts the -n/--limit cap); re-send all stored traffic |
+| `--all-matches` | - | bool | `false` | Bulk: replay every record the selection matches when it matches more than one (required then, so a broad term cannot fan out by accident) |
 | `--asc` | - | bool | `false` | Bulk: sort ascending (default: descending) |
 | `--auth-session` | - | string | - | Auth session name to merge headers from (from 'vigolium auth list') |
 | `--baseline` | - | bool | `false` | Also send the un-mutated request first and diff the two. A supplied request (-i, --raw-request) is otherwise sent once with no diff; a stored record diffs against its stored response either way |
@@ -2035,9 +2039,11 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--highlight` | - | string | - | Highlight colour for the --to-organizer item: none\|red\|orange\|yellow\|green\|cyan\|blue\|pink\|magenta\|gray |
 | `--host` | - | string | - | Bulk: filter records by hostname pattern (wildcard supported) |
 | `--http-mode` | - | string | - | With --send-via-burp: wire protocol — auto\|http1\|http2\|http2_ignore_alpn (default auto; use http1 for request smuggling/desync) |
+| `--ignore-scope` | - | bool | `false` | Send to hosts outside the configured host scope |
 | `--in-replace` | - | bool | `false` | When the source is a stored record, update its stored response with the replay |
 | `--input` | `-i` | string | - | Raw input: curl, raw HTTP, Burp XML, base64 or URL text, a path to a file holding one, or '-' for stdin |
 | `--input-file` | - | string | - | Read --input value from a file |
+| `--keep-host` | - | bool | `false` | With -t: send the request's Host header unchanged even when it names the old destination |
 | `--limit` | `-n` | int | `100` | Bulk: max records to replay (use --all to lift the cap) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--method` | - | stringSlice | - | Bulk: filter records by HTTP method (repeatable) |
@@ -2063,7 +2069,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--source` | - | string | - | Bulk: filter records by source (burp, caido, scanner, probe, ingest-cli, ingest-proxy, seed, ...) |
 | `--stateless` | `-S` | bool | `false` | Read records from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--status` | - | intSlice | - | Bulk: filter records by stored status code (repeatable) |
-| `--target` | `-t` | string | - | Override scheme/host/port (e.g. https://staging.example.com) |
+| `--target` | `-t` | string | - | Override scheme/host/port (e.g. https://staging.example.com); a Host header naming the old destination follows it unless --keep-host |
 | `--timeout` | - | duration | `25s` | Per-request timeout (e.g. 30s, 1m) |
 | `--to` | - | string | - | Bulk: only records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--to-organizer` | - | bool | `false` | Store the replayed request + response in Burp's Organizer for manual follow-up; requires --burp-bridge-url |
@@ -2115,6 +2121,7 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--heuristics-check` | - | string | - | Pre-scan heuristics level: none, basic, advanced (default: basic) |
 | `--ignore-file` | - | string | - | YAML list of finding hashes to ignore ({hash, reason, expires}); default .vigolium-ignore.yaml when present |
 | `--include-response` | - | bool | `false` | Include full HTTP response body in output |
+| `--include-stored` | - | bool | `false` | Also test the records already stored for the target's hosts (by default only the input and what this run finds from it are tested) |
 | `--input` | `-i` | string | `-` | Input file path or spec (use - for stdin) |
 | `--input-mode` | `-I` | string | `urls` | Input format: urls, nuclei, openapi, wsdl, postman, curl, burpraw, burpxml, burpscope, har, deparos (aliases accepted, see --list-input-mode) |
 | `--input-read-timeout` | - | duration | `3m0s` | Deadline for reading input from stdin; 0 disables it |
@@ -2136,6 +2143,7 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--max-time` | - | duration | `0s` | Maximum total scan duration, e.g. 15m, 2h (default: scanning_pace.scan_max_duration, 1h; alias --scanning-max-duration) |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-carry-browser-session` | - | bool | `false` | Do not carry the spidering browser's cleared session (cookies + UA) into discovery/scanning (on by default when --spider runs; scoped to the same host, respects -H) |
 | `--no-cdp` | - | bool | `false` | Disable Chrome DevTools Protocol event listener detection |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
@@ -2231,6 +2239,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--include-response` | - | bool | `false` | Include full HTTP response body in output |
 | `--input` | `-i` | string | `-` | Input file path or spec (use - for stdin) |
 | `--input-mode` | `-I` | string | `urls` | Input format: urls, nuclei, openapi, wsdl, postman, curl, burpraw, burpxml, burpscope, har, deparos (aliases accepted, see --list-input-mode) |
+| `--input-only` | - | bool | `false` | Test only the targets/input and what this run finds from them, not the records already stored for their hosts |
 | `--input-read-timeout` | - | duration | `3m0s` | Deadline for reading input from stdin; 0 disables it |
 | `--intensity` | - | string | - | How hard to scan: quick, balanced (default), or deep — the one dial for phases, pace and module tiers (sets --strategy and --scanning-profile) |
 | `--keep-db-on-error` | - | bool | `false` | On a failed -S/--stateless scan, move the throwaway working database to ~/.vigolium/recovered instead of deleting it, so the partial results survive the failure (requires -S) |
@@ -2251,6 +2260,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--module-id` | - | stringSlice | - | Run exactly these module IDs (exact match against active AND passive modules, repeatable). Unlike -m, also selects passive modules. |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-carry-browser-session` | - | bool | `false` | Do not carry the spidering browser's cleared session (cookies + UA) into discovery/scanning (on by default when --spider runs; scoped to the same host, respects -H) |
 | `--no-cdp` | - | bool | `false` | Disable Chrome DevTools Protocol event listener detection |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
@@ -2404,6 +2414,7 @@ Scan a raw HTTP request for vulnerabilities
 | `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
 | `--discover` | - | bool | `false` | Run content discovery before scanning |
+| `--dry-run` | - | bool | `false` | Resolve and print the scan plan — phases (with why each disabled one is off), budgets, pace, modules, scope, auth session names, scope admission and a rough request estimate — then exit without scanning. Mints no scan UUID, writes no output file or scan row, materializes no wordlist, runs no login and registers no OAST; an existing database is only read. -j prints it as a document (items = phases, plan = the full plan, dry_run: true). Names the path the scan would take (execution_path: runner or direct); the scheme is not probed |
 | `--events` | - | string | - | Emit a machine-readable event stream to stdout while the scan runs: 'ndjson' (one JSON object per line, flushed per event). The human console stays on stderr, so a driver reads the stream with 2>/dev/null. Events: scan.started, phase.started/progress/finished, waf.block, waf.pacing, finding.new, error, scan.finished. |
 | `--external-harvest` | - | bool | `false` | Run external intelligence harvesting before scanning |
 | `--fail-on` | - | string | - | Exit non-zero if a finding at or above this severity is present (info\|suspect\|low\|medium\|high\|critical); findings marked false_positive/accepted_risk do not count — for CI/agent gating; implies --fail-on-partial; --soft-fail overrides. |
@@ -2413,6 +2424,7 @@ Scan a raw HTTP request for vulnerabilities
 | `--header` | `-H` | stringArray | - | Set a header on the captured request (repeatable, e.g. -H 'Cookie: a=1'): replaces every same-named captured header, else appends. Commas are literal — repeat -H for multiple headers. |
 | `--ignore-file` | - | string | - | YAML list of finding hashes to ignore ({hash, reason, expires}); default .vigolium-ignore.yaml when present |
 | `--ignore-scope` | - | bool | `false` | Scan the target even when the configured scope rejects it (relaxes scope.host/scope.path for this run) |
+| `--include-stored` | - | bool | `false` | Also test the records already stored for the target's hosts (by default only the input and what this run finds from it are tested) |
 | `--input` | `-i` | string | `-` | Input file or - for stdin |
 | `--input-read-timeout` | - | duration | `3m0s` | Deadline for reading input from stdin; 0 disables it |
 | `--intensity` | - | string | - | How hard to scan: quick, balanced (default), or deep — the one dial for phases, pace and module tiers (sets --strategy and --scanning-profile) |
@@ -2430,6 +2442,7 @@ Scan a raw HTTP request for vulnerabilities
 | `--module-id` | - | stringSlice | - | Run exactly these module IDs (exact match against active AND passive modules, repeatable). Unlike -m, also selects passive modules. |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
 | `--no-param-dedup` | - | bool | `false` | Keep testing a parameter with every module of a vuln class after one already reported it (default: one finding per param and class, e.g. sqli-time-blind skips a param sqli-error-based confirmed). For audit runs |
 | `--no-passive` | - | bool | `false` | Skip passive modules |
@@ -2469,6 +2482,7 @@ Scan a single URL for vulnerabilities
 | `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--concurrency` | `-c` | int|phase=int | `25` | Number of concurrent scan workers. Accepts a phase qualifier, repeatable: --concurrency discovery=10 |
 | `--discover` | - | bool | `false` | Run content discovery before scanning |
+| `--dry-run` | - | bool | `false` | Resolve and print the scan plan — phases (with why each disabled one is off), budgets, pace, modules, scope, auth session names, scope admission and a rough request estimate — then exit without scanning. Mints no scan UUID, writes no output file or scan row, materializes no wordlist, runs no login and registers no OAST; an existing database is only read. -j prints it as a document (items = phases, plan = the full plan, dry_run: true). Names the path the scan would take (execution_path: runner or direct) |
 | `--events` | - | string | - | Emit a machine-readable event stream to stdout while the scan runs: 'ndjson' (one JSON object per line, flushed per event). The human console stays on stderr, so a driver reads the stream with 2>/dev/null. Events: scan.started, phase.started/progress/finished, waf.block, waf.pacing, finding.new, error, scan.finished. |
 | `--external-harvest` | - | bool | `false` | Run external intelligence harvesting before scanning |
 | `--fail-on` | - | string | - | Exit non-zero if a finding at or above this severity is present (info\|suspect\|low\|medium\|high\|critical); findings marked false_positive/accepted_risk do not count — for CI/agent gating; implies --fail-on-partial; --soft-fail overrides. |
@@ -2478,6 +2492,7 @@ Scan a single URL for vulnerabilities
 | `--header` | `-H` | stringArray | - | Custom header (repeatable, e.g. -H 'Cookie: x=1'). Commas are literal — repeat -H for multiple headers. |
 | `--ignore-file` | - | string | - | YAML list of finding hashes to ignore ({hash, reason, expires}); default .vigolium-ignore.yaml when present |
 | `--ignore-scope` | - | bool | `false` | Scan the target even when the configured scope rejects it (relaxes scope.host/scope.path for this run) |
+| `--include-stored` | - | bool | `false` | Also test the records already stored for the target's hosts (by default only the input and what this run finds from it are tested) |
 | `--input-read-timeout` | - | duration | `3m0s` | Deadline for reading input from stdin; 0 disables it |
 | `--intensity` | - | string | - | How hard to scan: quick, balanced (default), or deep — the one dial for phases, pace and module tiers (sets --strategy and --scanning-profile) |
 | `--keep-db-on-error` | - | bool | `false` | On a failed -S/--stateless scan, move the throwaway working database to ~/.vigolium/recovered instead of deleting it, so the partial results survive the failure (requires -S) |
@@ -2495,6 +2510,7 @@ Scan a single URL for vulnerabilities
 | `--module-id` | - | stringSlice | - | Run exactly these module IDs (exact match against active AND passive modules, repeatable). Unlike -m, also selects passive modules. |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
 | `--no-param-dedup` | - | bool | `false` | Keep testing a parameter with every module of a vuln class after one already reported it (default: one finding per param and class, e.g. sqli-time-blind skips a param sqli-error-based confirmed). For audit runs |
 | `--no-passive` | - | bool | `false` | Skip passive modules |
@@ -2894,6 +2910,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--group-limit` | - | int | `20` | With --group-by: maximum groups to show, largest first (0 = every group). The tail is reported as a count, never dropped |
 | `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange |
 | `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
+| `--ignore-scope` | - | bool | `false` | With --replay: send to hosts outside the configured host scope |
 | `--in-replace` | - | bool | `false` | With --replay: overwrite each stored response with the new replay response |
 | `--limit` | `-n` | int | `100` | Maximum records to display |
 | `--markdown` | - | bool | `false` | Render the matched records as Markdown (request/response in fenced http blocks) to stdout; response bodies are compacted to a preview by default (use --full-body for whole bodies) |

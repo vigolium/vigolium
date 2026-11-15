@@ -96,12 +96,36 @@ func TestReconcileOutputFormatsDeferredJSONL(t *testing.T) {
 		assert.False(t, opts.DeferredJSONLExport)
 	})
 
-	t.Run("CI output keeps the legacy emitter", func(t *testing.T) {
-		globalJSON, globalCIOutput = false, true
+	t.Run("--silent prints finding lines when stdout is free", func(t *testing.T) {
+		swapGlobal(t, &globalSilent, true)
+		swapGlobal(t, &scanOpts, types.DefaultOptions())
+		cases := []struct {
+			name    string
+			json    bool
+			formats []string
+			output  string
+			events  string
+			want    bool
+		}{
+			{name: "console", formats: []string{"console"}, want: true},
+			{name: "-j owns stdout", json: true, formats: []string{"console"}},
+			{name: "jsonl to stdout", formats: []string{"jsonl"}},
+			{name: "jsonl to a file", formats: []string{"jsonl"}, output: "x.jsonl", want: true},
+			{name: "github to stdout", formats: []string{"github"}},
+			{name: "--events", formats: []string{"console"}, events: "ndjson"},
+		}
+		for _, c := range cases {
+			globalJSON = c.json
+			scanOpts.Output, scanOpts.Events = c.output, c.events
+			opts := &types.Options{OutputFormats: c.formats, Output: c.output}
+			require.NoError(t, reconcileOutputFormats(opts), c.name)
+			assert.Equal(t, c.want, opts.FindingLinesToStdout, c.name)
+		}
+		globalSilent = false
+		globalJSON = false
 		opts := &types.Options{OutputFormats: []string{"console"}}
 		require.NoError(t, reconcileOutputFormats(opts))
-		assert.True(t, opts.CIOutput)
-		assert.False(t, opts.DeferredJSONLExport, "CI output must not route through the envelope export")
+		assert.False(t, opts.FindingLinesToStdout, "only a typed --silent")
 	})
 
 	t.Run("--json is the scan document, not jsonl", func(t *testing.T) {

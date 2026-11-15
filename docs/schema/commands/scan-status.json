@@ -287,6 +287,7 @@
             "not_authenticated",
             "not_found",
             "not_ready",
+            "out_of_scope",
             "output_too_large",
             "partial",
             "payload_too_large",
@@ -556,6 +557,30 @@
         "target_concurrency"
       ]
     },
+    "scanplan.DurationEstimate": {
+      "properties": {
+        "low": {
+          "type": "integer"
+        },
+        "high": {
+          "type": "integer"
+        },
+        "basis": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "low",
+        "high",
+        "basis",
+        "confidence"
+      ]
+    },
     "scanplan.Egress": {
       "properties": {
         "gated": {
@@ -646,6 +671,9 @@
         },
         "confidence": {
           "type": "string"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/scanplan.DurationEstimate"
         }
       },
       "additionalProperties": false,
@@ -993,6 +1021,9 @@
         "dry_run": {
           "type": "boolean"
         },
+        "execution_path": {
+          "type": "string"
+        },
         "strategy": {
           "type": "string"
         },
@@ -1055,6 +1086,9 @@
         "egress": {
           "$ref": "#/$defs/scanplan.Egress"
         },
+        "proxy": {
+          "$ref": "#/$defs/scanplan.Proxy"
+        },
         "estimate": {
           "$ref": "#/$defs/scanplan.Estimate"
         },
@@ -1086,6 +1120,60 @@
         "targets",
         "estimate",
         "warnings"
+      ]
+    },
+    "scanplan.Proxy": {
+      "properties": {
+        "routes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/scanplan.ProxyRoute"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "no_proxy": {
+          "type": "string"
+        },
+        "no_proxy_source": {
+          "type": "string"
+        },
+        "targets": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "routes"
+      ]
+    },
+    "scanplan.ProxyRoute": {
+      "properties": {
+        "scheme": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "scheme",
+        "url",
+        "source"
       ]
     },
     "scanplan.Rejection": {
@@ -1269,6 +1357,12 @@
           "type": "boolean"
         },
         "db_records_in_scope": {
+          "type": "integer"
+        },
+        "stored_records": {
+          "type": "string"
+        },
+        "db_records_excluded": {
           "type": "integer"
         },
         "admitted": {

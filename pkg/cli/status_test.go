@@ -48,7 +48,7 @@ func TestStatusOrientation(t *testing.T) {
 		t.Fatalf("running: %v total %v", v["running"], v["running_total"])
 	}
 	proxy, _ := v["proxy"].(map[string]any)
-	if proxy["source"] != "env:HTTPS_PROXY" || strings.Contains(out, "secret") {
+	if proxy["source"] != "HTTPS_PROXY" || strings.Contains(out, "secret") {
 		t.Fatalf("proxy: %v (secret must be redacted)", proxy)
 	}
 }

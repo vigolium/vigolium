@@ -714,7 +714,7 @@ Module authors embed `BaseActiveModule` or `BasePassiveModule` to get default im
 ### ResultEvent — `pkg/output/output.go`
 
 The JSON tags below are the nuclei-compatible **import and legacy** format
-(`finding load` accepts it; `--ci-output-format` still prints it this release).
+(`finding load` accepts it).
 No `-j` document uses them: the scan document's `items` and `finding -j` render
 findings through the finding view (`findingViewFromEvent` for in-memory results).
 
@@ -927,7 +927,7 @@ type RecordWriter struct {
 - `Acquire(ctx, host)` blocks until a slot is free; `Release(host)` frees a slot.
 - Background eviction goroutine removes idle entries (default: 30s idle, checked every 10s).
 - Per-shard capacity cap with oldest-entry eviction when exceeded.
-- Optional AIMD pacing starts at the configured ceiling and backs off on distress. The runner also enables reactive WAF auto-arm: healthy hosts remain at full concurrency until a WAF/CDN block is observed. A detected edge can be pre-armed earlier; `--no-waf-pacing` disables that proactive step, not reactive back-off.
+- Optional AIMD pacing starts at the configured ceiling and backs off on distress. The runner also enables reactive WAF auto-arm: healthy hosts remain at full concurrency until a WAF/CDN block is observed. A detected edge can be pre-armed earlier, and so is a scan whose targets are all one loopback or private-address host (a development server starts at a quarter of `--max-per-host` and ramps up on clean answers); `--no-waf-pacing` disables those proactive steps, not reactive back-off. Three consecutive connection resets from a host arm its back-off too (halving its concurrency), since a small server shedding load resets rather than blocks.
 
 ### Host Error Circuit Breaker — `pkg/core/hosterrors/`
 

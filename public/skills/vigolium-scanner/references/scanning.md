@@ -154,9 +154,12 @@ IP targets always match exactly, whatever the mode.
 **This is not only a filter on new traffic - it decides which *stored* records a
 scan picks up.** Every assessment phase resolves its work set from the database:
 distinct origins in the project, minus those the scope matcher rejects, minus
-those whose (scheme, port) does not match a target's. There is no "this scan
-only" filter, because `http_records` carries no scan id. So on a database that
-already holds traffic from earlier scans:
+those whose (scheme, port) does not match a target's. `scan-url`,
+`scan-request` and `run <phase> -t` test only their input (and what the run
+finds from it) unless `--include-stored`; `scan -t` names an origin, so on a
+database that already holds traffic from earlier scans it tests those records
+too (the banner and `plan.targets.stored_records`/`db_records_in_scope` say how
+many), unless `--input-only`:
 
 ```bash
 # Target is ONE host, but at the default balanced mode this also (re)scans every
@@ -173,6 +176,7 @@ Pick deliberately:
 
 | Want | Use |
 |------|-----|
+| Only the input and what this run finds from it | `scan --input-only` (the default on `scan-url`, `scan-request`, `run -t`) |
 | Exactly the host named, but keep its stored history | `--scope-origin strict` |
 | Nothing pre-existing at all | `-S/--stateless` (throwaway DB) |
 | Keep state, but separate from other work | `--db <file>` or a distinct `--project` |
@@ -702,9 +706,9 @@ start filtering.
 
 ### CI Output
 
-- `--ci-output-format` enables CI-friendly output: JSONL findings only, no color, no banners
-- Equivalent to combining `--format jsonl --silent`
-- Useful for CI/CD pipelines that parse JSON output
+- `--ci-output-format` was removed (exit 2): use `-j` for one scan document, or `--format jsonl -o <file>`
+- `--silent` prints one plain line per finding on stdout and nothing else
+- `-o` with no `--format` infers it from the extension (`.jsonl`, `.html`, `.sarif`, `.junit.xml`, …); `-j -o doc.json` writes the document to the file and a receipt to stdout
 
 ### Valid `--only` Phases
 
@@ -811,12 +815,14 @@ own command line and routes it:
 
 ```bash
 $ vigolium ffuf -u https://target.example/FUZZ -w words.txt
+◆ routed to: vigolium fuzz https://target.example/FUZZ -w words.txt
+$ vigolium ffuf -u https://target.example/FUZZ -w words.txt -recursion
 ◆ routed to: vigolium run discovery -t https://target.example --discovery-wordlist words.txt
 ```
 
 | Instead of | Shim | Native |
 |---|---|---|
-| `ffuf` / `feroxbuster` | `vigolium ffuf …` | `run discovery --discovery-wordlist` (FUZZ as the last path segment), else `fuzz <url-with-FUZZ> -w <list>` with matchers mapped |
+| `ffuf` / `feroxbuster` | `vigolium ffuf …` | `fuzz <url-with-FUZZ> -w <list>` with matchers mapped; `run discovery --discovery-wordlist` only with `-recursion` (FUZZ as the last path segment) or no `-w` |
 | `nuclei` | `vigolium nuclei …` | `run known-issue-scan -t <url>` |
 | `katana` / `gospider` | `vigolium katana …` | `run spidering -t <url>` |
 | `gau` / `waybackurls` | `vigolium gau <domain>` | `run external-harvest -t <url>` (into the DB), or `kit harvest <domain>` (stdout, no DB) |
@@ -828,7 +834,8 @@ How each shim routes its argv:
 
 | Shim | Routes to |
 |---|---|
-| `vigolium ffuf -u <url>/FUZZ -w <list>` (FUZZ is the whole last path segment, no matchers) | `run discovery --discovery-wordlist` |
+| `vigolium ffuf -u <url>/FUZZ -w <list> -recursion` (FUZZ is the whole last path segment, no matchers), or no `-w` | `run discovery --discovery-wordlist` |
+| `vigolium ffuf -u <url>/FUZZ -w <list>` (no `-recursion`) | `fuzz <url>/FUZZ -w <list>`: each word once, like ffuf |
 | `vigolium ffuf -u <url>/api/FUZZ.php …`, FUZZ in a query/`-H`/`-d`, or any `-mc/-ms/-mw/-ml/-mr/-fc/-fs/-fw/-fl/-fr` | `fuzz <url> -w <list>` (FUZZ kept, matchers mapped) |
 | `vigolium nuclei -u <url> -severity high -tags cve` | `run known-issue-scan --known-issue-scan-*` |
 | `vigolium katana -u <url>` | `run spidering` |
@@ -926,8 +933,8 @@ wordlist: `vigolium run discovery --discovery-wordlist words.txt -t <url>`
 (`--discovery-extensions php,bak` and `--discovery-max-depth N` are ffuf's `-e`
 and `-recursion-depth`).
 
-Or just type ffuf's own argv — `vigolium ffuf -u https://t/FUZZ -w words.txt`
-translates to exactly that and prints what it ran (see "Tool shims" below).
+Or just type ffuf's own argv — `vigolium ffuf -u https://t/FUZZ -w words.txt -recursion`
+translates to exactly that (without `-recursion` it is a `fuzz` run of the list) and prints what it ran (see "Tool shims" below).
 
 ### katana / gospider / hakrawler -> spidering
 
@@ -1052,7 +1059,7 @@ vigolium dig +short MX example.com @1.1.1.1      # → vigolium dns example.com 
 vigolium dns -T hosts.txt --type a,cname,txt -j
 ```
 
-Resolution only: `dig AXFR` and reverse lookups are refused.
+Resolution only: `dig AXFR`, reverse lookups (`dig -x`, `host <IP>`) and record types `vigolium dns` does not resolve (`dig name SRV`, `PTR`, …) are refused rather than turned into an A lookup.
 
 ### openssl s_client -> `hosts`
 

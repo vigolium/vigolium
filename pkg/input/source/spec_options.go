@@ -3,6 +3,7 @@ package source
 import (
 	"net/http"
 
+	"github.com/vigolium/vigolium/pkg/input/formats/burpraw"
 	"github.com/vigolium/vigolium/pkg/input/formats/openapi"
 	"github.com/vigolium/vigolium/pkg/input/formats/postman"
 	"github.com/vigolium/vigolium/pkg/input/formats/wsdl"
@@ -61,6 +62,9 @@ func ApplySpecOptions(src InputSource, o SpecOptions) {
 			Headers:     o.Headers,
 			Variables:   o.Variables,
 		})
+	case *burpraw.Format:
+		// A raw request has no base URL of its own: -t rebases it.
+		parser.SetBaseURL(o.BaseURL)
 	case *postman.Format:
 		parser.SetPostmanOptions(postman.Options{
 			BaseURL:   o.BaseURL,

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -88,6 +87,7 @@ func init() {
 	registerHTTPClientFlags(flags)
 	registerPhaseFlags(flags)
 	registerLightweightScanIOFlags(flags)
+	registerIncludeStoredFlag(scanURLCmd)
 	registerLightweightScanTuningFlags(flags)
 }
 
@@ -266,6 +266,9 @@ func runScanURLCmd(cmd *cobra.Command, args []string) error {
 	if err := validateModuleSelectionFlags(scanURLNoPassive); err != nil {
 		return err
 	}
+	if err := resolveScanOutputs(cmd); err != nil {
+		return err
+	}
 	// Validate --format before any network activity so an unknown format (or
 	// fs/sqlite) fails fast instead of being silently ignored on the direct path.
 	if err := validateGlobalFormats(); err != nil {
@@ -273,6 +276,9 @@ func runScanURLCmd(cmd *cobra.Command, args []string) error {
 	}
 	if err := validateEventsFlag(scanOpts.Events); err != nil {
 		return asUsageError(err)
+	}
+	if err := validateNoAuth(); err != nil {
+		return err
 	}
 	// Validated here, not only in runRunnerScan: without -S/-o this command takes
 	// the direct in-memory path, which never reaches the Runner — so a check
@@ -284,7 +290,6 @@ func runScanURLCmd(cmd *cobra.Command, args []string) error {
 	if err := validateLightweightScanTuning(); err != nil {
 		return err
 	}
-	noteCIOutputDeprecated()
 
 	inputs, err := scanURLInputs(args)
 	if err != nil {
@@ -296,6 +301,10 @@ func runScanURLCmd(cmd *cobra.Command, args []string) error {
 	admission, err := admitDirectInputs(cfg, inputs)
 	if err != nil {
 		return err
+	}
+
+	if scanDryRun {
+		return runLightweightDryRun(cmd, inputs)
 	}
 
 	ctx, stop := lightweightScanContext()
@@ -759,6 +768,11 @@ func executeDirectScan(ctx context.Context, sess *directScanSession, rr *httpmsg
 	defer stack.Close()
 	httpRequester, svc := stack.Requester, stack.Services
 	defer sess.installProbeDefaults()()
+	// One local host (a development server): paced from the first request.
+	if svc.HostLimiter.PreArmLocalTarget([]string{target}) != "" && !globalSilent && !globalJSON {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.InfoSymbol(),
+			terminal.Gray("local target: per-host concurrency starts low and ramps up on clean answers (--no-waf-pacing turns this off)"))
+	}
 
 	// Warn once per host when the edge WAF/CDN starts filtering scan traffic.
 	// The Runner-backed path wires this in RunNativeScan; this direct path builds
@@ -1022,6 +1036,7 @@ func buildPhaseOptions(target string) (*types.Options, error) {
 	opts.OastURL = scanOpts.OastURL
 	opts.AuthFiles = scanOpts.AuthFiles
 	opts.AuthInline = scanOpts.AuthInline
+	opts.NoAuth = scanOpts.NoAuth
 	// -H rides on every request the Runner sends (phase-discovered ones too),
 	// and pins those header names against an --auth session's values. The
 	// request itself already carries them (scan-url builds it with them,
@@ -1029,6 +1044,12 @@ func buildPhaseOptions(target string) (*types.Options, error) {
 	// nothing is sent twice.
 	opts.Headers = append([]string(nil), scanURLHeaders...)
 	opts.OutputFormats = parseFormats(globalFormat)
+	// The input is what the Runner tests: the records stored for its host are
+	// left alone unless --include-stored.
+	opts.StoredRecords = types.StoredRecordsExclude
+	if scanIncludeStored {
+		opts.StoredRecords = types.StoredRecordsInclude
+	}
 	// reconcileOutputFormats validates formats and sets DeferredJSONLExport, which
 	// the post-scan jsonl export keys off of. Propagate its error rather than
 	// discarding it: callers (runScanURLCmd/runScanRequestCmd) also pre-validate
@@ -1255,16 +1276,10 @@ func runRunnerScan(sess *directScanSession, rr *httpmsg.HttpRequestResponse, tar
 
 // outputScanResult writes the scan result as JSON or human-readable table.
 func outputScanResult(result *scanResult) error {
-	// CI output: one JSONL line per finding, nothing else. Still the
-	// nuclei-shaped output.ResultEvent this release (noteCIOutputDeprecated).
-	if globalCIOutput {
+	// --silent: one plain line per finding on stdout, and nothing else.
+	if globalSilent && !globalJSON {
 		for _, f := range result.Findings {
-			data, err := json.Marshal(f)
-			if err != nil {
-				return err
-			}
-			_, _ = os.Stdout.Write(data)
-			_, _ = os.Stdout.Write([]byte("\n"))
+			_, _ = fmt.Fprintln(os.Stdout, output.FormatFindingLine(f))
 		}
 		return nil
 	}

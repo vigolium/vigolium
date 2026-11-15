@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/input/source"
+	"github.com/vigolium/vigolium/pkg/requestinput"
 )
 
 // withInputReadTimeout restores the package global after a test mutates it.
@@ -165,9 +166,9 @@ func TestNormalizeRawRequestAlwaysTrimsLeading(t *testing.T) {
 // TestRawRequestBodyHeaderLookupIsHeaderOnly: a body that merely mentions
 // Content-Length must not make a bodyless request look body-bearing.
 func TestRawRequestBodyHeaderLookupIsHeaderOnly(t *testing.T) {
-	assert.False(t, rawRequestDeclaresBody("GET /x?q=Content-Length:+5 HTTP/1.1\r\nHost: x\r\n\r\n"))
-	assert.True(t, rawRequestDeclaresBody("POST / HTTP/1.1\r\ncontent-length: 1\r\n\r\nz"))
-	assert.True(t, rawRequestDeclaresBody("POST / HTTP/1.1\nContent-Length: 1\n\nz"),
+	assert.False(t, requestinput.DeclaresBody("GET /x?q=Content-Length:+5 HTTP/1.1\r\nHost: x\r\n\r\n"))
+	assert.True(t, requestinput.DeclaresBody("POST / HTTP/1.1\r\ncontent-length: 1\r\n\r\nz"))
+	assert.True(t, requestinput.DeclaresBody("POST / HTTP/1.1\nContent-Length: 1\n\nz"),
 		"bare-LF requests are accepted by the parser and must be read the same way")
 }
 

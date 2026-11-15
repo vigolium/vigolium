@@ -11,13 +11,14 @@ import (
 	"io"
 	"net"
 	gohttp "net/http"
+	"net/http/httputil"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/core/network"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/proxytarget"
 )
 
@@ -36,8 +37,9 @@ const (
 
 // NewDefaultClient returns an *http.Client suitable for replay traffic.
 // TLS verification is off because targets are often localhost or
-// self-signed staging. Proxy is read from HTTP_PROXY / HTTPS_PROXY so an
-// operator can pipe through Burp; SetProxy replaces it. The transport is a
+// self-signed staging. Proxy is read from HTTPS_PROXY / HTTP_PROXY / ALL_PROXY
+// (by scheme, NO_PROXY honoured) so an operator can pipe through Burp;
+// SetProxy replaces it. The transport is a
 // proxytarget.Transport, so a request whose Host header differs from its
 // destination still reaches an HTTP proxy addressed to the destination's
 // host:port. Pass jar=nil for stateless replays.
@@ -74,16 +76,12 @@ func SetProxy(client *gohttp.Client, proxyURL *url.URL) bool {
 	return true
 }
 
-// proxyFromEnv mirrors the precedence vigolium's own Requester uses:
-// HTTP_PROXY / HTTPS_PROXY (uppercase first, lowercase fallback).
-// NO_PROXY is deliberately ignored — attack-validation traffic is
-// rarely something an operator wants the proxy to skip, and a stale
-// NO_PROXY would silently hide the very traffic Burp is meant to show.
+// proxyFromEnv is the environment's proxy for req (proxyenv: by scheme,
+// ALL_PROXY as the fallback, NO_PROXY honoured, loopback not exempt by
+// itself), the rule vigolium's own Requester uses.
 func proxyFromEnv(req *gohttp.Request) (*url.URL, error) {
-	for _, k := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
-		if v := os.Getenv(k); v != "" {
-			return url.Parse(v)
-		}
+	if r := proxyenv.FromEnvironment("").For(req.URL); r != nil {
+		return r.URL, nil
 	}
 	return nil, nil
 }
@@ -126,6 +124,20 @@ func Authority(scheme, hostname string, port int) string {
 // a Host that differs from the destination relies on the client's transport
 // being a proxytarget.Transport (NewDefaultClient's is).
 func sendRawHTTP(ctx context.Context, client *gohttp.Client, raw []byte, scheme, hostname string, port int, noRedirects bool, excerptCap int) *Summary {
+	return sendRawHTTPWith(ctx, client, raw, sendTarget{scheme: scheme, hostname: hostname, port: port}, noRedirects, excerptCap)
+}
+
+// sendTarget is where sendRawHTTPWith sends, and how exactly.
+type sendTarget struct {
+	scheme, hostname string
+	port             int
+	// exact sends the bytes as given: no User-Agent is added and the
+	// transport adds no Accept-Encoding (--raw-request).
+	exact bool
+}
+
+func sendRawHTTPWith(ctx context.Context, client *gohttp.Client, raw []byte, t sendTarget, noRedirects bool, excerptCap int) *Summary {
+	scheme, hostname, port := t.scheme, t.hostname, t.port
 	if excerptCap <= 0 {
 		excerptCap = DefaultExcerptCap
 	}
@@ -165,26 +177,49 @@ func sendRawHTTP(ctx context.Context, client *gohttp.Client, raw []byte, scheme,
 	// when it is empty net/http sends req.URL.Host, the destination authority.
 	req.RequestURI = ""
 
-	if req.Header.Get("User-Agent") == "" {
+	if t.exact {
+		// net/http adds a Go User-Agent to a request without one; an empty
+		// value keeps it off the wire.
+		if _, ok := req.Header["User-Agent"]; !ok {
+			req.Header["User-Agent"] = []string{""}
+		}
+	} else if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", defaultUserAgent)
 	}
 
-	sendClient := client
-	if noRedirects {
-		sendClient = &gohttp.Client{
-			Timeout:   client.Timeout,
-			Transport: client.Transport,
-			Jar:       client.Jar,
-			CheckRedirect: func(*gohttp.Request, []*gohttp.Request) error {
+	// One client per send: it counts the redirects it follows, and an exact
+	// send uses a transport that adds no Accept-Encoding.
+	hops := 0
+	sendClient := &gohttp.Client{
+		Timeout:   client.Timeout,
+		Transport: client.Transport,
+		Jar:       client.Jar,
+		CheckRedirect: func(_ *gohttp.Request, via []*gohttp.Request) error {
+			if noRedirects {
 				return gohttp.ErrUseLastResponse
-			},
-		}
+			}
+			if len(via) >= maxReplayRedirects {
+				return fmt.Errorf("stopped after %d redirects", maxReplayRedirects)
+			}
+			hops = len(via)
+			return nil
+		},
+	}
+	if t.exact {
+		sendClient.Transport = uncompressedTransport(client.Transport)
 	}
 
 	req = req.WithContext(ctx)
+	var reqDump []byte
+	if TrafficDump != nil {
+		reqDump, _ = httputil.DumpRequestOut(req, true)
+	}
 	start := time.Now()
 	resp, err := sendClient.Do(req)
 	elapsed := time.Since(start)
+	if TrafficDump != nil {
+		dumpExchange(req, reqDump, resp, err, elapsed)
+	}
 	if err != nil {
 		return &Summary{
 			Error:          fmt.Sprintf("request failed: %v", err),
@@ -201,7 +236,7 @@ func sendRawHTTP(ctx context.Context, client *gohttp.Client, raw []byte, scheme,
 		finalURL = resp.Request.URL.String()
 	}
 
-	return &Summary{
+	out := &Summary{
 		FinalURL:       finalURL,
 		Status:         resp.StatusCode,
 		ResponseLen:    len(bodyBytes),
@@ -212,6 +247,38 @@ func sendRawHTTP(ctx context.Context, client *gohttp.Client, raw []byte, scheme,
 		Truncated:      truncated,
 		RawBody:        bodyBytes,
 	}
+	if hops > 0 {
+		out.Redirects = hops
+	}
+	return out
+}
+
+// maxReplayRedirects is how many redirects a replay follows (net/http's own
+// default).
+const maxReplayRedirects = 10
+
+// uncompressedTransport is rt with DisableCompression set, so the transport
+// adds no Accept-Encoding. rt is returned unchanged when it is not an
+// *http.Transport underneath.
+func uncompressedTransport(rt gohttp.RoundTripper) gohttp.RoundTripper {
+	base, ok := proxytarget.Base(rt)
+	if !ok {
+		return rt
+	}
+	clone := base.Clone()
+	clone.DisableCompression = true
+	if _, wrapped := rt.(*proxytarget.Transport); wrapped {
+		return proxytarget.Wrap(clone)
+	}
+	return clone
+}
+
+// TrafficDump, when set, receives every exchange replay sends (--dump-traffic).
+// reqDump is the request as sent; resp's body has not been read yet.
+var TrafficDump func(method, url string, reqDump []byte, resp *gohttp.Response, err error, elapsed time.Duration)
+
+func dumpExchange(req *gohttp.Request, reqDump []byte, resp *gohttp.Response, err error, elapsed time.Duration) {
+	TrafficDump(req.Method, req.URL.String(), reqDump, resp, err, elapsed)
 }
 
 // SendRaw sends raw request bytes against scheme://hostname:port using
@@ -283,7 +350,10 @@ func Do(ctx context.Context, opts Options) (*Result, error) {
 		if opts.Sender != nil {
 			return opts.Sender(ctx, raw)
 		}
-		return sendRawHTTP(ctx, opts.Client, raw, opts.Scheme, opts.Hostname, opts.Port, opts.NoRedirects, excerptCap)
+		return sendRawHTTPWith(ctx, opts.Client, raw, sendTarget{
+			scheme: opts.Scheme, hostname: opts.Hostname, port: opts.Port,
+			exact: len(opts.RawRequest) > 0,
+		}, opts.NoRedirects, excerptCap)
 	}
 
 	sentReq, sentTrunc := clipBytes(mutated, excerptCap)
@@ -310,6 +380,9 @@ func Do(ctx context.Context, opts Options) (*Result, error) {
 
 	replay := send(mutated)
 	diff := computeDiff(baseline, replay, payloads)
+	if opts.BaselineIsEvidence && diff != nil && strings.HasPrefix(diff.Interpretation, "response identical to baseline") {
+		diff.Interpretation = "response identical to the finding's evidence: the finding reproduced."
+	}
 
 	return &Result{
 		MutatedRequest:      sentReq,

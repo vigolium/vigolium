@@ -1,4 +1,3 @@
 # Raw stdout writers in pkg/cli that bypass the -j envelope (machine_stdout_lint_test.go).
 # Shrink-only: delete a line when its writer moves to emitRead/emitObject/emitMutation.
 # <file> <func> <count>
-scan_url.go outputScanResult 2

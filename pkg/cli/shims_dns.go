@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"net"
 	"slices"
 	"strings"
 
@@ -44,6 +45,26 @@ func dnsTypeToken(tok string) (string, bool) {
 		return t, true
 	}
 	return "", false
+}
+
+// knownDNSTypes are record type names dig accepts as a bare positional. One
+// that `vigolium dns` does not resolve is refused rather than looked up as a
+// host name ("dig example.com SRV" must not become an A lookup of "SRV").
+var knownDNSTypes = []string{
+	"a", "aaaa", "afsdb", "apl", "caa", "cdnskey", "cds", "cert", "cname", "dhcid",
+	"dlv", "dname", "dnskey", "ds", "hinfo", "hip", "https", "ipseckey", "key", "kx",
+	"loc", "mx", "naptr", "ns", "nsec", "nsec3", "nsec3param", "openpgpkey", "ptr",
+	"rp", "rrsig", "sig", "smimea", "soa", "spf", "srv", "sshfp", "svcb", "ta",
+	"tkey", "tlsa", "tsig", "txt", "uri", "zonemd",
+}
+
+// unsupportedDNSType reports whether tok names a record type that `vigolium
+// dns` does not resolve.
+func unsupportedDNSType(tok string) bool {
+	if _, ok := dnsTypeToken(tok); ok {
+		return false
+	}
+	return slices.Contains(knownDNSTypes, strings.ToLower(tok))
 }
 
 // dnsArgv assembles the native command line.
@@ -109,6 +130,9 @@ func translateDig(args []string) (shimTranslation, error) {
 				types = append(types, t)
 				continue
 			}
+			if unsupportedDNSType(a) {
+				return shimTranslation{}, usageErrorf("dig: record type %s is not supported by `vigolium dns` (types: %s)", strings.ToUpper(a), strings.Join(dnsresolve.Types, ", "))
+			}
 			names = append(names, a)
 		}
 	}
@@ -148,6 +172,11 @@ func translateHost(args []string) (shimTranslation, error) {
 	}
 	if len(positional) == 0 {
 		return shimTranslation{}, usageErrorf("host: a name to resolve is required")
+	}
+	// host <IP> is a reverse (PTR) lookup, which `vigolium dns` does not do;
+	// resolving the address as a name would answer a different question.
+	if net.ParseIP(strings.Trim(positional[0], "[]")) != nil {
+		return shimTranslation{}, usageErrorf("host: %s is an address, and reverse lookups are not supported by `vigolium dns`", positional[0])
 	}
 	var servers []string
 	if len(positional) > 1 {

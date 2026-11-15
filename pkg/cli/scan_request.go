@@ -12,6 +12,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/input/formats/detect"
+	"github.com/vigolium/vigolium/pkg/requestinput"
 )
 
 // scan-request flags
@@ -45,6 +46,7 @@ func init() {
 	flags.StringArrayVarP(&scanURLHeaders, "header", "H", nil, "Set a header on the captured request (repeatable, e.g. -H 'Cookie: a=1'): replaces every same-named captured header, else appends. Commas are literal — repeat -H for multiple headers.")
 	registerPhaseFlags(flags)
 	registerLightweightScanIOFlags(flags)
+	registerIncludeStoredFlag(scanRequestCmd)
 	registerLightweightScanTuningFlags(flags)
 }
 
@@ -57,6 +59,9 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 	if err := validateModuleSelectionFlags(scanURLNoPassive); err != nil {
 		return err
 	}
+	if err := resolveScanOutputs(cmd); err != nil {
+		return err
+	}
 	// Validate --format before any network activity so an unknown format (or
 	// fs/sqlite) fails fast instead of being silently ignored on the direct path.
 	if err := validateGlobalFormats(); err != nil {
@@ -64,6 +69,9 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 	}
 	if err := validateEventsFlag(scanOpts.Events); err != nil {
 		return asUsageError(err)
+	}
+	if err := validateNoAuth(); err != nil {
+		return err
 	}
 	// Validated here, not only in runRunnerScan: without -S/-o this command takes
 	// the direct in-memory path, which never reaches the Runner — so a check
@@ -75,7 +83,6 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 	if err := validateLightweightScanTuning(); err != nil {
 		return err
 	}
-	noteCIOutputDeprecated()
 
 	// Read raw HTTP request
 	var raw []byte
@@ -168,7 +175,8 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 	// refused target is never contacted). A probe that changed the target is
 	// admitted again over the URL that will actually be sent.
 	_, refused := admission.verdict(target)
-	resolved, schemeSource := settleRequestScheme(ctx, normalized, rr, scanReqTarget != "", scanReqNoSchemeProbe || refused)
+	// A dry run sends nothing, so the scheme is not probed.
+	resolved, schemeSource := settleRequestScheme(ctx, normalized, rr, scanReqTarget != "", scanReqNoSchemeProbe || refused || scanDryRun)
 	if resolved != rr {
 		// A probe rebuilds the request from the captured text, so the -H
 		// overrides are applied again.
@@ -180,6 +188,10 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 		if admission, err = admitDirectInputs(cfg, inputs); err != nil {
 			return err
 		}
+	}
+
+	if scanDryRun {
+		return runLightweightDryRun(cmd, inputs)
 	}
 
 	sess := newDirectScanSession(database.ScanNameScanRequest, inputs)
@@ -238,32 +250,8 @@ func applyRequestHeaderOverrides(rr *httpmsg.HttpRequestResponse, headers []stri
 // forgiving behavior for the common bodyless GET pasted out of a terminal, and
 // stops guessing the moment the request declares a body.
 func normalizeRawRequestInput(raw string) string {
-	raw = strings.TrimLeft(raw, " \t\r\n")
-	if rawRequestDeclaresBody(raw) {
-		return raw
-	}
-	return strings.TrimRight(raw, " \t\r\n")
-}
-
-// rawRequestDeclaresBody reports whether the header block of raw carries a
-// Content-Length or Transfer-Encoding header. Only the header block is scanned
-// — a body containing the literal text "Content-Length:" must not make the
-// whole message look body-bearing — and the match is case-insensitive at the
-// start of a line, as HTTP field names are.
-func rawRequestDeclaresBody(raw string) bool {
-	head := raw
-	if i := strings.Index(head, "\r\n\r\n"); i >= 0 {
-		head = head[:i]
-	} else if i := strings.Index(head, "\n\n"); i >= 0 {
-		head = head[:i]
-	}
-	for _, line := range strings.Split(head, "\n") {
-		name := strings.TrimSpace(strings.ToLower(line))
-		if strings.HasPrefix(name, "content-length:") || strings.HasPrefix(name, "transfer-encoding:") {
-			return true
-		}
-	}
-	return false
+	parsed, _ := requestinput.Normalize(raw)
+	return parsed
 }
 
 // scanRequestNoInput is the usage message for scan-request with nothing to read.

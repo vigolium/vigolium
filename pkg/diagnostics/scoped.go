@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
@@ -66,10 +67,12 @@ type ScopedDeps struct {
 	Settings *config.Settings
 	// Stateless skips the database check (-S scans use a temporary store).
 	Stateless bool
-	// Proxy is the proxy the HTTP stack will use (--proxy or the environment),
-	// checked for reachability when set; ProxySource names where it came from.
-	Proxy       string
-	ProxySource string
+	// Proxy is the --proxy URL. With it unset, the environment's proxies
+	// (HTTP_PROXY/HTTPS_PROXY/ALL_PROXY, NO_PROXY) are checked instead.
+	Proxy string
+	// Getenv reads the environment for the proxy variables (os.Getenv when
+	// nil).
+	Getenv func(string) string
 	// Target, when set, adds DNS/TCP/TLS checks for that URL (doctor -t).
 	Target string
 	// DBDir is the database directory checked for free space ("" skips it).
@@ -132,11 +135,8 @@ func Scoped(purpose string, r *Report, deps ScopedDeps) (*ScopedReport, error) {
 	switch purpose {
 	case PurposeScan:
 		add(fromResult("scope", r.Scope, ScopedDegraded, []string{"requests the broken rule touches"}))
-		if deps.Proxy != "" {
-			c := checkProxy(deps.Proxy)
-			if deps.ProxySource != "" {
-				c.Message += " (from " + deps.ProxySource + "; loopback targets are proxied too)"
-			}
+		choice := proxyenv.Resolve(deps.Proxy, deps.Getenv)
+		for _, c := range checkProxies(choice) {
 			add(c)
 		}
 		add(checkDisk(deps.DBDir))
@@ -150,7 +150,7 @@ func Scoped(purpose string, r *Report, deps ScopedDeps) (*ScopedReport, error) {
 		add(fromResult("jstangle", js, ScopedDegraded, []string{"JavaScript endpoint extraction in discovery"}))
 		add(oastCheck(r.OAST))
 		if deps.Target != "" {
-			for _, c := range checkTarget(deps.Target, deps.Proxy) {
+			for _, c := range checkTarget(deps.Target, targetProxy(choice, deps.Target)) {
 				add(c)
 			}
 		}
@@ -297,6 +297,57 @@ func agentCheck(a *AgentCheck) ScopedCheck {
 		Affects: []string{"every agent mode"}}
 }
 
+// checkProxies checks every proxy target traffic may go through, naming
+// where each came from and which requests it carries.
+func checkProxies(choice proxyenv.Choice) []ScopedCheck {
+	var out []ScopedCheck
+	if err := choice.Err(); err != nil {
+		out = append(out, ScopedCheck{ID: "proxy", Status: ScopedNotReady, Counts: true, Message: err.Error(),
+			Affects: []string{"every proxied request"}})
+	}
+	routes := choice.Routes()
+	for _, r := range choice.Proxies() {
+		c := checkProxy(r.URL.String())
+		var schemes []string
+		for _, v := range routes {
+			if v.Source == r.Source {
+				schemes = append(schemes, v.Scheme)
+			}
+		}
+		carries := "every request"
+		if !r.Everything {
+			carries = strings.Join(schemes, ", ") + " targets"
+		}
+		c.Message += fmt.Sprintf(" (from %s, for %s", r.Source, carries)
+		if v, src := choice.NoProxy(); v != "" {
+			c.Message += "; " + src + "=" + v
+		}
+		if !r.Everything {
+			c.Message += "; loopback is not bypassed unless NO_PROXY names it"
+		}
+		c.Message += ")"
+		out = append(out, c)
+	}
+	return out
+}
+
+// targetProxy is the proxy URL a request to target goes through, "" when it
+// connects directly.
+func targetProxy(choice proxyenv.Choice, target string) string {
+	raw := target
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if r := choice.For(u); r != nil {
+		return r.Redacted()
+	}
+	return ""
+}
+
 func checkProxy(proxy string) ScopedCheck {
 	u, err := url.Parse(proxy)
 	if err != nil || u.Host == "" {
@@ -394,7 +445,7 @@ func checkTarget(raw, proxy string) []ScopedCheck {
 		return []ScopedCheck{{ID: "target", Status: ScopedNotReady, Counts: true, Message: "unparseable target " + raw}}
 	}
 	if proxy != "" {
-		return []ScopedCheck{{ID: "target_dns", Status: ScopedSkipped, Message: "behind --proxy: the proxy resolves and connects"}}
+		return []ScopedCheck{{ID: "target_dns", Status: ScopedSkipped, Message: "behind the proxy " + proxy + ": the proxy resolves and connects"}}
 	}
 	host := u.Hostname()
 	port := u.Port()
@@ -480,6 +531,9 @@ func ProxyCheck(proxy, source string) *CheckResult {
 		shown = u.String()
 	}
 	msg := fmt.Sprintf("%s from %s; loopback targets go through it too", shown, source)
+	if source != "--proxy" && source != "VIGOLIUM_PROXY" {
+		msg += " unless NO_PROXY names them"
+	}
 	sc := checkProxy(proxy)
 	if sc.Status != ScopedOK {
 		return &CheckResult{Status: StatusError, Message: msg + " — " + sc.Message,

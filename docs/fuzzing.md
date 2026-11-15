@@ -191,8 +191,9 @@ largest size delta → slowest). `query` (or `query_argv`, ready for exec) is a
 confirmation command against the hardened module scanner.
 
 `--fail-on-match` exits non-zero (**3**) when any result matches — for CI/agent
-gating. Network policy honors `--proxy`, `VIGOLIUM_PROXY` and
-`HTTP_PROXY`/`HTTPS_PROXY` (route through Burp). Through an `http://` proxy the
+gating. Network policy honors `--proxy`, `VIGOLIUM_PROXY` and the
+environment proxies (`HTTPS_PROXY` for https targets, `HTTP_PROXY` for http,
+`ALL_PROXY` as the fallback, minus `NO_PROXY`) to route through Burp. Through an `http://` proxy the
 request line names the target's host and non-default port, and a fuzzed `Host`
 header is sent as the payload, not replaced by the target hostname.
 

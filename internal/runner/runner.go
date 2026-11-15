@@ -41,6 +41,9 @@ const secretScanBatchSize = 500
 
 // Runner is a client for running the enumeration process.
 type Runner struct {
+	// seededRecords collects the records this run's inputs landed on, for a
+	// scan that excludes stored records.
+	seededRecords     runRecords
 	output            output.Writer
 	options           *types.Options
 	settings          *config.Settings

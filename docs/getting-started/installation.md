@@ -205,7 +205,7 @@ Vigolium also checks npm for a newer release on startup at most once per day.
 Set `VIGOLIUM_DISABLE_UPDATE_CHECK=1` to suppress that notice, or
 `VIGOLIUM_AUTO_UPDATE=1` to update and re-exec the newer binary automatically.
 Auto-update only acts for a person at a terminal: it stays off under `-j`,
-`--events`, `--ci-output-format`, when stdout or stderr is not a TTY, for
+`--events`, when stdout or stderr is not a TTY, for
 `vigolium server`, and when `CI` or a coding-agent variable (`VIGOLIUM_AGENT`,
 `CLAUDECODE`, …) is set, so an agent never has its binary swapped mid-session.
 

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/types"
 	"github.com/vigolium/vigolium/pkg/types/severity"
 )
 
@@ -418,4 +419,42 @@ func TestMultiWriterPropagatesError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, "boom", err.Error())
 	assert.Empty(t, good.written, "later writers are skipped after an error")
+}
+
+// --silent: Silent is set, yet each finding is one plain line on stdout, with
+// no color and no phase prefix, even when a jsonl format set JSONOutput.
+func TestStandardWriterSilentFindingLines(t *testing.T) {
+	opts := types.DefaultOptions()
+	opts.Silent = true
+	opts.FindingLinesToStdout = true
+	opts.OutputFormats = []string{"jsonl"}
+	opts.JSONOutput = true
+	opts.DeferredJSONLExport = true
+	w, err := NewStandardWriter(opts)
+	require.NoError(t, err)
+	w.PhaseTag = "dynamic-assessment"
+
+	r, pipeW, err := os.Pipe()
+	require.NoError(t, err)
+	orig := os.Stdout
+	os.Stdout = pipeW
+	writeErr := w.Write(sampleEvent())
+	require.NoError(t, pipeW.Close())
+	out, readErr := io.ReadAll(r)
+	os.Stdout = orig
+	require.NoError(t, writeErr)
+	require.NoError(t, readErr)
+
+	text := string(out)
+	assert.Equal(t, 1, strings.Count(text, "\n"), "one line per finding")
+	assert.Equal(t, terminal.StripANSI(text), text, "no color")
+	assert.Contains(t, text, "[xss-reflected]")
+	assert.NotContains(t, text, "dynamic-assessment", "no phase prefix")
+	assert.NotContains(t, text, "template-id", "not JSON")
+
+	// Silent without the CLI's option stays silent (server, agent).
+	opts.FindingLinesToStdout = false
+	w2, err := NewStandardWriter(opts)
+	require.NoError(t, err)
+	assert.True(t, w2.DisableStdout)
 }

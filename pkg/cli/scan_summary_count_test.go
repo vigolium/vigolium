@@ -6,9 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/scanplan"
+	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
 // TestSummaryFindingCountsIsTheScansOwn: the completion summary's "N issues
@@ -59,4 +62,14 @@ func TestSummaryFindingCountsIsTheScansOwn(t *testing.T) {
 	total, _, err = summaryFindingCounts(ctx, repo, project, "", hosts)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, total)
+}
+
+// The banner's estimate line carries the rough duration range.
+func TestEstimateBannerLineDuration(t *testing.T) {
+	plan := &scanplan.Plan{Estimate: scanplan.Estimate{Low: 10, High: 100, Confidence: scanplan.ConfidenceRough,
+		DurationMS: &scanplan.DurationEstimate{Low: 90_000, High: 900_000, Confidence: scanplan.ConfidenceRough}}}
+	line := terminal.StripANSI(estimateBannerLine(plan))
+	assert.Contains(t, line, "~2m-15m (rough)")
+	assert.Equal(t, "45s", formatDurationRange(44_600, 45_000))
+	assert.Equal(t, "1h05m", formatDurationRange(3_900_000, 3_900_000))
 }

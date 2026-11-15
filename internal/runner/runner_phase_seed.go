@@ -19,18 +19,19 @@ func (r *Runner) seedCLITargets(ctx context.Context, infra *phaseInfra) error {
 	authWalls := newAuthWallCollector()
 
 	executorCfg := core.ExecutorConfig{
-		OnModuleError: r.noteModuleError,
-		Phase:         string(PhaseSeed),
-		Workers:       r.options.Concurrency,
-		Services:      infra.svc,
-		HTTPRequester: infra.httpRequester,
-		Repository:    r.repository,
-		ScanUUID:      infra.scanUUID,
-		ProjectUUID:   r.options.ProjectUUID,
-		ScopeMatcher:  infra.scopeMatcher,
-		PauseCtrl:     r.pauseCtrl,
-		OnTraffic:     r.makeOnTraffic("seed"),
-		OnAuthWall:    authWalls.Observe,
+		OnModuleError:  r.noteModuleError,
+		Phase:          string(PhaseSeed),
+		Workers:        r.options.Concurrency,
+		Services:       infra.svc,
+		HTTPRequester:  infra.httpRequester,
+		Repository:     r.repository,
+		ScanUUID:       infra.scanUUID,
+		ProjectUUID:    r.options.ProjectUUID,
+		ScopeMatcher:   infra.scopeMatcher,
+		PauseCtrl:      r.pauseCtrl,
+		OnTraffic:      r.makeOnTraffic("seed"),
+		OnAuthWall:     authWalls.Observe,
+		OnRecordStored: r.onRecordStored(),
 		OnResult: func(result *output.ResultEvent) {
 			if err := r.output.Write(result); err != nil {
 				zap.L().Error("Failed to write result", zap.Error(err))

@@ -307,7 +307,9 @@ stores). What to read in it:
   by_phase, basis, confidence: "rough"}`. `ceiling_by_pace` (rate limit × the
   time budget) is the only hard number; the rest is a heuristic, explained in
   each `basis`. A `--max-requests` lower than `high` clamps it and names the
-  phases that will hit it.
+  phases that will hit it. `estimate.duration_ms {low, high, basis}` is the
+  rough wall-clock range; compare its `high` with your harness's command
+  timeout before running in the foreground.
 - `warnings[]`: `{code, message}` — `targets_out_of_scope`,
   `unbounded_discovery` (no `--scanning-max-duration` or `--max-requests`),
   `auth_invalid`, `input_file`.
@@ -375,7 +377,7 @@ lines. Available on `scan`, `run`, `scan-url`, `scan-request`.
 **`--events` owns stdout.** Anything else that would write there is refused with
 exit `2` rather than interleaved into a stream that is neither contract:
 `-j` (the scan document — read it afterwards with `finding --scan-uuid`),
-`--ci-output-format`, `--format jsonl` without `-o`, `--print-finding`,
+`--format jsonl` without `-o`, `--print-finding`,
 `--print-traffic` and `--print-traffic-tree`. `-j` owns stdout the same way:
 it refuses those writers too, and a `-P`/`--split-by-host` fan-out. The error names the conflicting flag; give the other
 writer an `-o <file>` and both work. `--events` is also refused under a
@@ -785,21 +787,23 @@ Say what you want: `--format jsonl` for the stream, `-j` for one envelope.
 # Re-send ALL stored traffic through Burp, 5 at a time.
 vigolium replay --all --proxy http://127.0.0.1:8080 -c 5
 
-# Fuzzy-search stored traffic and re-send just the matches.
-vigolium replay admin --proxy http://127.0.0.1:8080 -c 5
+# Fuzzy-search stored traffic and re-send just the matches (--all-matches is
+# required once more than one record matches; a URL-shaped term is refused:
+# send a URL with -i).
+vigolium replay admin --all-matches --proxy http://127.0.0.1:8080 -c 5
 
 # Pattern-search like `traffic`: POSTs to an API host, drop logout.
-vigolium replay --host api.example.com --method POST --search token \
+vigolium replay --host api.example.com --method POST --search token --all-matches \
   --exclude-search logout --proxy http://127.0.0.1:8080 -c 5
 
 # From a standalone export (project scoping off).
 vigolium replay -S --db scan.sqlite --all --proxy http://127.0.0.1:8080 -c 5
 
 # Per-record tables instead of the JSONL stream.
-vigolium replay login --format console
+vigolium replay login --all-matches --format console
 
 # One envelope, every replayed record a row in items (failed ones carry error).
-vigolium replay login -j
+vigolium replay login --all-matches -j
 ```
 
 Bulk selection mirrors `vigolium traffic`: `--host`, `--method`, `--status`,

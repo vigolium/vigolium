@@ -77,6 +77,9 @@ Shows it: `vigolium scan -S -T targets.txt --split-by-host -P 4 --format sqlite 
   journal change, no checkpoint, no `-wal`/`-shm` siblings, and it reads a
   `chmod 444` file. Commands that write refuse it (exit 2). It cannot migrate
   an old store; that fails with a schema error instead of upgrading in place.
+  It is a database guarantee, not a network one: `traffic --replay`, `replay`
+  and `fuzz` under `--read-only` still send requests (they just do not save
+  them).
 
 Shows it: `vigolium finding --read-only --db evidence.sqlite -j`
 

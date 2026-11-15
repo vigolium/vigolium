@@ -13,6 +13,14 @@ import (
 // containing a request optionally followed by a "***" separator and response.
 type Format struct {
 	formatOpts formats.InputFormatOptions
+	// baseURL is the -t target: the request is sent to its scheme, host and
+	// port, with its own request line and headers.
+	baseURL string
+}
+
+// SetBaseURL rebases the request onto base (the -t target).
+func (f *Format) SetBaseURL(base string) {
+	f.baseURL = base
 }
 
 // New creates a new burpraw Format parser.
@@ -41,7 +49,7 @@ func (f *Format) Parse(input string, callback formats.ParseReqRespCallback) erro
 		return fmt.Errorf("failed to read burp raw file: %w", err)
 	}
 
-	rr, err := detect.ParseBurpPair(string(data))
+	rr, err := detect.ParseBurpPairAt(string(data), f.baseURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse burp raw file: %w", err)
 	}

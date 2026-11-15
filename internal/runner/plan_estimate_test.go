@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/vigolium/vigolium/internal/config"
@@ -152,5 +153,43 @@ func TestEstimateTargetSilentPhases(t *testing.T) {
 	est := estimateFor(syntheticPlan(PhaseExternalHarvest), 5, 0)
 	if pe := est.ByPhase[string(PhaseExternalHarvest)]; pe.Low != 0 || pe.High != 0 {
 		t.Errorf("external-harvest = %+v", pe)
+	}
+}
+
+// TestEstimateDuration: requests over the rate, each phase bounded by its own
+// budget, the total by the scan's; labelled rough.
+func TestEstimateDuration(t *testing.T) {
+	p := syntheticPlan(PhasePreflight, PhaseDynamicAssessment)
+	est := estimateFor(p, 1, 10)
+	d := est.DurationMS
+	if d == nil {
+		t.Fatal("no duration estimate")
+	}
+	if d.Confidence != scanplan.ConfidenceRough || d.Basis == "" {
+		t.Errorf("duration = %+v, want rough with a basis", d)
+	}
+	// 10 rps: the high is the request high over the rate.
+	if want := est.High * 1000 / 10; d.High != want || d.Low > d.High {
+		t.Errorf("duration = %+v, want high %d", d, want)
+	}
+
+	// A phase budget bounds its share; the scan budget bounds the total.
+	p.Phases[1].Budget = &scanplan.PhaseBudget{PhaseCeilingMS: 5_000, Semantics: scanplan.SemanticsPhase}
+	d = estimateFor(p, 1, 10).DurationMS
+	if d.High > 5_000+1_000 {
+		t.Errorf("phase budget ignored: %+v", d)
+	}
+	p.Budgets.ScanMaxDurationMS = 2_000
+	d = estimateFor(p, 1, 10).DurationMS
+	if d.High > 2_000 || d.Low > d.High {
+		t.Errorf("scan budget ignored: %+v", d)
+	}
+
+	// Unpaced: an assumed throughput, said in the basis.
+	p = syntheticPlan(PhaseDynamicAssessment)
+	p.Budgets.RateLimit = 0
+	d = estimateFor(p, 1, 10).DurationMS
+	if d.High <= 0 || !strings.Contains(d.Basis, "assumed") {
+		t.Errorf("unpaced duration = %+v", d)
 	}
 }

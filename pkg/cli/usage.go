@@ -215,7 +215,7 @@ func terseGlobalFlags(fs *pflag.FlagSet) string {
 // all four. Every non-hidden local flag should live in exactly one group here so
 // the "Other:" section only ever holds cobra's auto-added --help.
 var scanFlagGroups = []flagGroup{
-	{"Target & Input", []string{"target", "target-file", "all-records", "record-uuid", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
+	{"Target & Input", []string{"target", "target-file", "all-records", "record-uuid", "input-only", "include-stored", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
 	{"Input Format", []string{"required-only", "skip-format-validation"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
 	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter", "allow-risky-payloads", "no-param-dedup", "header-fuzz", "resume-scan"}},
@@ -227,7 +227,7 @@ var scanFlagGroups = []flagGroup{
 	{"Harvest", []string{"external-harvest"}},
 	{"KnownIssueScan", []string{"known-issue-scan", "known-issue-scan-tags", "known-issue-scan-exclude-tags", "known-issue-scan-severities", "known-issue-scan-templates-dir", "known-issue-scan-templates"}},
 	{"Request", []string{"method", "body", "header", "advanced-options", "retries", "stream"}},
-	{"Authentication", []string{"auth", "auth-file"}},
+	{"Authentication", []string{"auth", "auth-file", "no-auth"}},
 	{"Speed Control", []string{"timeout", "concurrency", "rate-limit", "max-per-host", "max-requests", "max-requests-per-host", "no-waf-pacing", "max-host-error", "max-findings-per-module", "no-clustering"}},
 	{"Output", []string{"output", "stats", "fail-on", "fail-on-partial", "baseline", "ignore-file", "events", "include-response", "omit-response", "export-only", "report-url", "max-body-bytes", "pdf-timeout", "no-redact", "upload-results", "print-finding", "print-traffic", "print-traffic-tree"}},
 	{"Scan Document (-j)", []string{"limit", "fields", "compact", "full-body", "max-output-bytes"}},
@@ -334,7 +334,7 @@ var listQueryFlagGroups = []flagGroup{
 	{"Output", []string{"fields", "compact", "full-body", "max-output-bytes", "output", "with-records", "record-fields", "record-limit", "no-header"}},
 	{"Pagination & Sort", []string{"limit", "offset", "sort", "asc", "pick", "all"}},
 	{"Data Source", []string{"stateless", "glob-db", "glob-strict", "table", "list-tables", "list-columns"}},
-	{"Replay", []string{"replay", "concurrency", "with-browser", "burp-bridge-url", "save-to-vigolium-db", "save-to-burp", "in-replace", "timeout"}},
+	{"Replay", []string{"replay", "ignore-scope", "concurrency", "with-browser", "burp-bridge-url", "save-to-vigolium-db", "save-to-burp", "in-replace", "timeout"}},
 	{"Burp Push", []string{"push-to-burp", "to-repeater", "send-via-burp", "http-mode"}},
 	{"Curl", []string{"curl", "curl-all", "redact-auth"}},
 }
@@ -374,7 +374,7 @@ var fuzzFlagGroups = []flagGroup{
 	{"Session & Auth", []string{"auth-session", "session-id", "no-cookies"}},
 	{"Speed & Behaviour", []string{
 		"no-calibrate", "allow-baseline-error", "concurrency", "rate-limit", "max-requests", "delay", "timeout", "no-redirects",
-		"dry-run", "ignore-scope"}},
+		"dry-run", "ignore-scope", "keep-host"}},
 	{"Output", []string{"output", "all-results", "fail-on-match", "save", "fields", "compact", "max-output-bytes"}},
 	{"Burp Bridge", []string{"send-via-burp", "burp-bridge-url", "http-mode", "send-timeout", "matches-to-organizer"}},
 }
@@ -382,8 +382,8 @@ var fuzzFlagGroups = []flagGroup{
 // replayFlagGroups categorizes `vigolium replay`.
 var replayFlagGroups = []flagGroup{
 	{"Input & Selection", []string{"input", "input-file", "raw-request", "raw-request-file", "record-uuid", "finding-id", "target"}},
-	{"Bulk Filter", []string{"host", "method", "status", "path", "source", "search", "header-search", "body", "exclude-search", "exclude-header-search", "exclude-body", "from", "to", "sort", "asc", "offset", "limit", "all"}},
-	{"Request Options", []string{"header", "auth-session", "session-id", "no-cookies", "no-redirects", "baseline", "timeout", "concurrency", "with-browser"}},
+	{"Bulk Filter", []string{"host", "method", "status", "path", "source", "search", "header-search", "body", "exclude-search", "exclude-header-search", "exclude-body", "from", "to", "sort", "asc", "offset", "limit", "all", "all-matches"}},
+	{"Request Options", []string{"header", "ignore-scope", "keep-host", "auth-session", "session-id", "no-cookies", "no-redirects", "baseline", "timeout", "concurrency", "with-browser"}},
 	{"Output", []string{"output", "once", "save", "no-save", "dry-run", "in-replace", "stateless", "fields", "compact", "max-output-bytes"}},
 	{"Burp Bridge", []string{"burp-bridge-url", "save-to-burp", "send-via-burp", "http-mode", "send-timeout", "to-repeater", "repeater-tab", "to-organizer", "notes", "highlight"}},
 }

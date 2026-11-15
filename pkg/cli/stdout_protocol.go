@@ -2,24 +2,20 @@ package cli
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"strings"
-	"sync"
 
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
-	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
 // Who owns stdout.
 //
-// A scan command can be asked to write up to four different things there, and
-// three of them are streams with no framing of their own:
+// A scan command can be asked to write up to three different things there, and
+// two of them are streams with no framing of their own:
 //
 //   - `--events ndjson`, one event object per line, for the whole run;
 //   - `--format jsonl` with no -o, the bulk export streamed to stdout;
-//   - `--ci-output-format`, one finding object per line;
 //   - `--print-finding` / `--print-traffic` / `--print-traffic-tree`, Markdown.
 //
 // Any two of those interleave into a stream that is not what either contract
@@ -56,8 +52,6 @@ func validateStdoutProtocol(opts *types.Options) error {
 	}
 	const fix = "Add -o <file> or drop --events"
 	switch {
-	case opts.CIOutput:
-		return usageErrorf("--events owns stdout; --ci-output-format writes one finding per line there too. %s", fix)
 	// jsonl WITH -o goes to the file, so only the stdout case conflicts.
 	case opts.HasFormat("jsonl") && strings.TrimSpace(opts.Output) == "":
 		return usageErrorf("--events owns stdout; --format jsonl without -o would also write there. %s", fix)
@@ -80,8 +74,6 @@ func validateScanDocumentProtocol(opts *types.Options) error {
 	}
 	const owns = "-j prints one scan document on stdout when the scan ends"
 	switch {
-	case opts.CIOutput || globalCIOutput:
-		return usageErrorf("%s; --ci-output-format writes one finding per line there too. Drop one of them", owns)
 	case strings.TrimSpace(opts.Events) != "":
 		// Decision D11: no final scan.result event; the two stay separate until
 		// --events can write to a file.
@@ -112,23 +104,20 @@ func rejectFanOutJSON() error {
 		"Scan without the fan-out (drop -P/--split-by-host), or drop -j and read each scan afterwards with `vigolium finding --scan-uuid <uuid> -j`")
 }
 
-// ciOutputDeprecationOnce keeps the --ci-output-format notice to one line per
-// invocation.
-var ciOutputDeprecationOnce sync.Once
-
-// noteCIOutputDeprecated prints a one-time stderr notice when
-// --ci-output-format is in use: its lines are still the nuclei-shaped
-// output.ResultEvent this release, and become finding-view lines
-// ({"type":"finding","data":…}) in the next one.
-func noteCIOutputDeprecated() {
-	if !globalCIOutput || globalSilent {
-		return
+// rejectCIOutputFlag refuses the removed --ci-output-format. It printed no
+// findings for `scan`, and what it promised is -j (one scan document) or
+// --format jsonl (the findings stream).
+func rejectCIOutputFlag() error {
+	if !globalCIOutput {
+		return nil
 	}
-	ciOutputDeprecationOnce.Do(func() {
-		fmt.Fprintf(os.Stderr, "%s --ci-output-format: the nuclei-shaped finding lines (template-id, matched-at, info{}) are deprecated "+
-			"and become {\"type\":\"finding\",\"data\":<finding view>} lines next release. Use -j for one scan document, or --format jsonl -o <file>\n",
-			terminal.WarnPrefix())
-	})
+	// Report the refusal in the caller's own mode: the flag no longer makes
+	// this a machine-output run.
+	globalCIOutput = false
+	return clicommon.CLIError{
+		Err:  usageErrorf("--ci-output-format was removed"),
+		Hint: "use -j for one scan document on stdout, or --format jsonl -o <file> (or --format jsonl alone, to stdout) for the findings stream",
+	}
 }
 
 // scanInput is one parsed request the lightweight commands were asked to scan,

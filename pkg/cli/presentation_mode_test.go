@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/spf13/pflag"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func resetPresentationFlags(t *testing.T) {
@@ -121,19 +123,20 @@ func TestPresentationModeRecoversTheRestAfterAnEarlyBinding(t *testing.T) {
 	}
 }
 
-// --ci-output-format is a BOOL at the root. Declared here as a String, pflag
-// consumed the next argument as its value, so `--ci-output-format --json`
-// swallowed --json and the caller that asked for JSON got none.
-func TestPresentationModeRecoversCIOutputWithoutEatingTheNextFlag(t *testing.T) {
-	resetPresentationFlags(t)
-	resolvePresentationMode([]string{"traffic", "--definitely-invalid", "--ci-output-format", "--json"})
+// --ci-output-format was removed: typing it is a usage error naming -j and
+// --format jsonl, reported in the caller's own mode.
+func TestCIOutputFormatIsRemoved(t *testing.T) {
+	swapGlobal(t, &globalCIOutput, true)
+	err := rejectCIOutputFlag()
+	require.Error(t, err)
+	assert.Equal(t, ExitUsageError, classifyExitCode(err))
+	assert.Contains(t, err.Error(), "-j")
+	assert.Contains(t, err.Error(), "--format jsonl")
+	assert.False(t, globalCIOutput, "the refusal is not itself a machine-output run")
+	assert.True(t, rootCmd.PersistentFlags().Lookup("ci-output-format").Hidden)
 
-	if !globalCIOutput {
-		t.Error("--ci-output-format must be recovered")
-	}
-	if !globalJSON {
-		t.Error("--json after --ci-output-format must survive; a bool flag takes no value")
-	}
+	globalCIOutput = false
+	assert.NoError(t, rejectCIOutputFlag())
 }
 
 // The drift test: every recovered flag must carry its root counterpart's type,
@@ -161,7 +164,7 @@ func TestPresentationFlagsMatchRootTypes(t *testing.T) {
 				recovered.Name, actual.Shorthand, recovered.Shorthand)
 		}
 	})
-	if checked != 4 {
-		t.Fatalf("compared %d flags, want 4 — the recovery set changed without this test", checked)
+	if checked != 3 {
+		t.Fatalf("compared %d flags, want 3 — the recovery set changed without this test", checked)
 	}
 }

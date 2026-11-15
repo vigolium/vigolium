@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -29,26 +28,8 @@ func newDoctorContext(settings *config.Settings, project string) *doctorContext 
 }
 
 // doctorProxySource names the proxy the HTTP stack sends through and where it
-// came from, in the stack's own order: --proxy (or $VIGOLIUM_PROXY, its
-// fallback), then HTTP_PROXY, http_proxy, HTTPS_PROXY, https_proxy. ("",
-// "none") when requests connect directly.
-func doctorProxySource() (proxyURL, source string) {
-	if globalProxy != "" {
-		if f := rootCmd.PersistentFlags().Lookup("proxy"); f != nil && f.Changed {
-			return globalProxy, "--proxy"
-		}
-		if os.Getenv("VIGOLIUM_PROXY") == globalProxy {
-			return globalProxy, "$VIGOLIUM_PROXY"
-		}
-		return globalProxy, "--proxy"
-	}
-	for _, name := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
-		if v := os.Getenv(name); v != "" {
-			return v, "$" + name
-		}
-	}
-	return "", "none"
-}
+// came from; ("", "none") when requests connect directly.
+func doctorProxySource() (proxyURL, source string) { return effectiveProxy(globalProxy) }
 
 // doctorCheckKeys is the setting each check tests, for the source it names
 // when it fails.

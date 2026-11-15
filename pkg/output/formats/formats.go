@@ -257,3 +257,42 @@ func StripExtension(path string) string {
 	}
 	return path
 }
+
+// extensionAliases are suffixes ByExtension maps onto a format although the
+// format writes a different one: spellings an operator types for it.
+var extensionAliases = map[string]string{
+	".sqlite3":  "sqlite",
+	".db":       "sqlite",
+	".markdown": "markdown",
+	".tgz":      "bundle",
+}
+
+// ByExtension returns the format a file name's extension names on surface s:
+// the longest matching format extension wins, so "r.report.html" is report and
+// "r.junit.xml" is junit, not html or nothing. A path with no recognised
+// extension, or one naming a format the surface does not accept, is not found.
+func ByExtension(path string, s Surface) (Format, bool) {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	if lower == "" {
+		return Format{}, false
+	}
+	var best Format
+	found := false
+	for _, f := range table {
+		if f.Ext == "" || f.Surfaces&s == 0 || !strings.HasSuffix(lower, f.Ext) {
+			continue
+		}
+		if !found || len(f.Ext) > len(best.Ext) {
+			best, found = f, true
+		}
+	}
+	if found {
+		return best, true
+	}
+	if name, ok := extensionAliases[strings.ToLower(filepath.Ext(lower))]; ok {
+		if f, ok := Get(name); ok && f.Surfaces&s != 0 {
+			return f, true
+		}
+	}
+	return Format{}, false
+}

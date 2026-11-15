@@ -218,3 +218,18 @@ func readFileString(t *testing.T, path string) string {
 	require.NoError(t, err)
 	return string(data)
 }
+
+// An export failure keeps the stateless database without --keep-db-on-error:
+// the results it holds are the only copy once the file could not be written.
+func TestReleaseStatelessDBKeepsOnExportFailure(t *testing.T) {
+	swapGlobal(t, &globalKeepDBOnError, false)
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(t.TempDir(), "stateless-run.sqlite")
+	require.NoError(t, os.WriteFile(path, []byte("results"), 0o600))
+
+	got := releaseStatelessDB(path, codedErrorf(apicontract.CodePDFFailed, "render pdf: chrome missing"))
+	require.Error(t, got)
+	assert.Contains(t, got.Error(), "working database kept at")
+	assert.FileExists(t, namedKeptPath(t, got.Error()))
+	assert.NoFileExists(t, path)
+}

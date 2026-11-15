@@ -28,11 +28,16 @@ type Plan struct {
 	// --scan-uuid pinned one.
 	ScanUUID string `json:"scan_uuid,omitempty"`
 	// DryRun marks a plan that was resolved without running the scan.
-	DryRun     bool   `json:"dry_run,omitempty"`
-	Strategy   string `json:"strategy"`
-	Intensity  string `json:"intensity,omitempty"`
-	Profile    string `json:"profile,omitempty"`
-	Heuristics string `json:"heuristics_check"`
+	DryRun bool `json:"dry_run,omitempty"`
+	// ExecutionPath says how scan-url/scan-request would run the input:
+	// "runner" (the phase pipeline this plan describes) or "direct" (one
+	// in-memory pass of the selected modules over the request). Absent for
+	// the other scan commands, which always use the runner.
+	ExecutionPath string `json:"execution_path,omitempty"`
+	Strategy      string `json:"strategy"`
+	Intensity     string `json:"intensity,omitempty"`
+	Profile       string `json:"profile,omitempty"`
+	Heuristics    string `json:"heuristics_check"`
 	// Phases is every phase in execution order, enabled AND disabled.
 	Phases  []Phase       `json:"phases"`
 	Budgets Budgets       `json:"budgets"`
@@ -45,9 +50,33 @@ type Plan struct {
 	Harvest     *Harvest     `json:"harvest,omitempty"`
 	ParamMining *ParamMining `json:"param_mining,omitempty"`
 	// Egress lists which outbound paths share the scan's rate and host limits.
-	Egress   *Egress   `json:"egress,omitempty"`
+	Egress *Egress `json:"egress,omitempty"`
+	// Proxy is the proxy target traffic goes through and where it came from;
+	// absent when every request connects directly.
+	Proxy    *Proxy    `json:"proxy,omitempty"`
 	Estimate Estimate  `json:"estimate"`
 	Warnings []Warning `json:"warnings"`
+}
+
+// Proxy is the effective proxy configuration: --proxy for every request, or
+// the environment's proxies by scheme minus NO_PROXY.
+type Proxy struct {
+	Routes []ProxyRoute `json:"routes"`
+	// NoProxy and NoProxySource are the NO_PROXY value in effect and the
+	// variable it came from (absent under --proxy, which ignores it).
+	NoProxy       string `json:"no_proxy,omitempty"`
+	NoProxySource string `json:"no_proxy_source,omitempty"`
+	// Targets lists, per admitted target, the proxy it goes through ("direct"
+	// when it connects directly).
+	Targets map[string]string `json:"targets,omitempty"`
+}
+
+// ProxyRoute is one proxy: the request scheme it serves ("*" for all), its
+// URL (password masked) and its source ("--proxy" or the variable name).
+type ProxyRoute struct {
+	Scheme string `json:"scheme"`
+	URL    string `json:"url"`
+	Source string `json:"source"`
 }
 
 // Phase is one row of the plan.
@@ -243,8 +272,16 @@ type Targets struct {
 	// DBRecordsInScope counts the stored records the assessment will read;
 	// absent without a database.
 	DBRecordsInScope *int64 `json:"db_records_in_scope,omitempty"`
-	Admitted         int    `json:"admitted"`
-	Rejected         int    `json:"rejected"`
+	// StoredRecords is "include" when the assessment also tests the records
+	// already stored for the targets' hosts, "exclude" when it tests only what
+	// this run seeds or finds (scan --input-only, the scan-url/scan-request/run
+	// -t default). Absent without a database.
+	StoredRecords string `json:"stored_records,omitempty"`
+	// DBRecordsExcluded counts the stored in-scope records an "exclude" scan
+	// leaves untested.
+	DBRecordsExcluded *int64 `json:"db_records_excluded,omitempty"`
+	Admitted          int    `json:"admitted"`
+	Rejected          int    `json:"rejected"`
 	// RejectedSample names at most 10 refused targets.
 	RejectedSample []Rejection `json:"rejected_sample,omitempty"`
 }
@@ -345,6 +382,18 @@ type Estimate struct {
 	ByPhase         map[string]PhaseEstimate `json:"by_phase"`
 	Basis           string                   `json:"basis"`
 	Confidence      string                   `json:"confidence"`
+	// DurationMS is the rough wall-clock range the scan is expected to take.
+	DurationMS *DurationEstimate `json:"duration_ms,omitempty"`
+}
+
+// DurationEstimate is a rough wall-clock range in milliseconds: requests over
+// the effective rate, bounded by the phase budgets and the scan's own
+// duration budget. Confidence is always "rough".
+type DurationEstimate struct {
+	Low        int64  `json:"low"`
+	High       int64  `json:"high"`
+	Basis      string `json:"basis"`
+	Confidence string `json:"confidence"`
 }
 
 // PhaseEstimate is one phase's share of the estimate.

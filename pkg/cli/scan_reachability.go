@@ -69,6 +69,12 @@ func (d *directReach) settle(err error) error {
 // answered: error.code no_targets_reachable, exit 1. It wraps
 // runner.ErrNoTargetsReachable so callers can still match it.
 func noTargetsReachableError(issues []database.TargetIssue, hint string) error {
+	if ph := runner.ProxyUnreachableHint(globalProxy, issues); ph != "" && !strings.Contains(hint, ph) {
+		if hint != "" {
+			hint += "; "
+		}
+		hint += ph
+	}
 	return clicommon.NewCodedError(apicontract.CodeNoTargetsReachable,
 		&runner.TargetsUnreachableError{Unreachable: issues, Hint: hint})
 }
@@ -165,6 +171,9 @@ func printUnreachableResult(result *scanResult) {
 		fmt.Fprintf(os.Stderr, "  %s\n", terminal.Gray(result.Unreachable.Detail))
 	}
 	if hint := schemeHint(result.SchemeSource, result.ResolvedTarget); hint != "" {
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.TipPrefix(), terminal.Gray(hint))
+	}
+	if hint := runner.ProxyUnreachableHint(globalProxy, []database.TargetIssue{{Target: result.Target}}); hint != "" {
 		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.TipPrefix(), terminal.Gray(hint))
 	}
 }

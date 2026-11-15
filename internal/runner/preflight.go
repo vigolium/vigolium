@@ -13,6 +13,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/core/egress"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/http"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"go.uber.org/zap"
@@ -278,7 +279,14 @@ func (r *Runner) runPreflight(ctx context.Context, infra *phaseInfra, admitted [
 		return nil
 	}
 	r.scanOutcome.setStopReason(database.ReasonNoTargetsReachable)
-	err := &TargetsUnreachableError{Unreachable: unreachable, Hint: r.assumedSchemeHint(admitted)}
+	hint := r.assumedSchemeHint(admitted)
+	if ph := ProxyUnreachableHint(r.options.ProxyURL, unreachable); ph != "" {
+		if hint != "" {
+			hint += "; "
+		}
+		hint += ph
+	}
+	err := &TargetsUnreachableError{Unreachable: unreachable, Hint: hint}
 	r.scanLogger.Error(string(PhasePreflight), err.Error())
 	return err
 }
@@ -293,6 +301,32 @@ func (r *Runner) assumedSchemeHint(targets []string) string {
 		if _, assumed := r.options.TargetsSchemeAssumed[t]; assumed {
 			return "a schemeless target was assumed http://; pass https:// explicitly if it serves TLS"
 		}
+	}
+	return ""
+}
+
+// ProxyUnreachableHint names the proxy an unreachable target was sent
+// through and where it came from, so a dead proxy is not mistaken for a dead
+// target. "" when none of them went through a proxy.
+func ProxyUnreachableHint(cliProxy string, unreachable []database.TargetIssue) string {
+	choice := proxyenv.FromEnvironment(cliProxy)
+	if !choice.Any() {
+		return ""
+	}
+	for _, issue := range unreachable {
+		u, err := neturl.Parse(issue.Target)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		route := choice.For(u)
+		if route == nil {
+			continue
+		}
+		if route.Everything {
+			return fmt.Sprintf("requests went through the proxy %s from %s; check that it is running", route.Redacted(), route.Source)
+		}
+		return fmt.Sprintf("requests went through the proxy %s from %s; check that it is running, or add %s to NO_PROXY (or unset %s) to connect directly",
+			route.Redacted(), route.Source, u.Hostname(), route.Source)
 	}
 	return ""
 }

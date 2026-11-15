@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -22,13 +23,14 @@ import (
 )
 
 var (
-	findingVerifyDryRun    bool
-	findingVerifyNoWrite   bool
-	findingVerifyMark      bool
-	findingVerifyFailIf    string
-	findingVerifyRefetch   bool
-	findingVerifyRateLimit float64
-	findingVerifyTimeout   time.Duration
+	findingVerifyDryRun      bool
+	findingVerifyNoWrite     bool
+	findingVerifyMark        bool
+	findingVerifyFailIf      string
+	findingVerifyRefetch     bool
+	findingVerifyIgnoreScope bool
+	findingVerifyRateLimit   float64
+	findingVerifyTimeout     time.Duration
 )
 
 // findingVerifyActor is recorded on status changes made by --mark.
@@ -82,6 +84,7 @@ func init() {
 	f.BoolVar(&findingVerifyNoWrite, "no-write", false, "Run the verification but do not store the verdict")
 	f.BoolVar(&findingVerifyMark, "mark", false, "Also set the status: not_reproduced → false_positive, confirmed → confirmed")
 	f.StringVar(&findingVerifyFailIf, "fail-if", "", "Exit 4 when any finding gets one of these verdicts: "+strings.Join(database.VerificationVerdicts, ",")+" (comma-separated)")
+	f.BoolVar(&findingVerifyIgnoreScope, "ignore-scope", false, "Verify findings on hosts outside the configured host scope")
 	f.BoolVar(&findingVerifyRefetch, "refetch", false, "Passive findings: fetch a fresh response instead of re-analyzing the stored one")
 	f.Float64Var(&findingVerifyRateLimit, "rate-limit", 0, "Max requests/second across the verification (0 = unlimited; fractions allowed)")
 	f.DurationVar(&findingVerifyTimeout, "timeout", verify.DefaultTimeout, "Time limit for verifying one finding (one request is capped at 15s)")
@@ -163,6 +166,18 @@ func runFindingVerify(cmd *cobra.Command, args []string) error {
 			return usageErrorf("%v", amb)
 		}
 		return err
+	}
+
+	// Verification re-sends the finding's request: gated like every send.
+	// A dry run sends nothing.
+	if !findingVerifyDryRun {
+		hosts := make([]string, 0, len(findings))
+		for _, f := range findings {
+			hosts = append(hosts, cmp.Or(f.Hostname, f.URL))
+		}
+		if err := newSendScopeGate(findingVerifyIgnoreScope).check(hosts...); err != nil {
+			return err
+		}
 	}
 
 	stack := &verifyStack{}

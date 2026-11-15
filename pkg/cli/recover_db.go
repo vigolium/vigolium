@@ -58,7 +58,9 @@ func releaseStatelessDB(path string, runErr error) error {
 	if path == "" {
 		return runErr
 	}
-	if runErr != nil && globalKeepDBOnError {
+	// A run whose only failure is an output it could not write still holds its
+	// results in this database: keep it, so they are not lost with the file.
+	if runErr != nil && (globalKeepDBOnError || isExportFailure(runErr)) {
 		kept, keepErr := preserveWorkingDB(path, "stateless")
 		if keepErr == nil {
 			return fmt.Errorf("%w (working database kept at %s; inspect with: vigolium finding -S --db %s)",
