@@ -344,17 +344,53 @@ func rejectUUIDScanTargets(cmd *cobra.Command, args []string) error {
 		if !scanUUIDShape.MatchString(strings.TrimSpace(a)) {
 			continue
 		}
-		var subs []string
-		for _, c := range cmd.Commands() {
-			if c.IsAvailableCommand() && c.Name() != "help" {
-				subs = append(subs, c.Name())
-			}
+		return clicommon.CLIError{
+			Err:       fmt.Errorf("%q looks like a scan UUID, not a target URL", a),
+			Hint:      scanUUIDVerbsHint,
+			UsageArgv: clicommon.UsageArgvFor("scan"),
 		}
-		hint := ""
-		if len(subs) > 0 {
-			hint = fmt.Sprintf(" Did you mean `vigolium scan %s ...`?", strings.Join(subs, "/"))
+	}
+	return nil
+}
+
+// scanUUIDVerbsHint names what can be done with a scan UUID, including the
+// stop that `scan` has no subcommand for.
+const scanUUIDVerbsHint = "Read it: vigolium scan status <uuid>; wait for it: vigolium scan wait <uuid>; " +
+	"compare two: vigolium scan diff <a> <b>; its log: vigolium log <uuid>. " +
+	"To stop a running scan, interrupt its process (Ctrl-C / SIGINT), or POST /api/scans/<uuid>/stop on the server that runs it."
+
+// scanVerbTargets maps a bare word that is a verb, typed where `scan` expects a
+// target, to the command the caller meant. `vigolium scan ls` used to start a
+// real scan of http://ls.
+var scanVerbTargets = map[string]string{
+	"ls":     "vigolium log ls",
+	"list":   "vigolium log ls",
+	"ps":     "vigolium log ls",
+	"show":   "vigolium scan status <uuid>",
+	"logs":   "vigolium log <uuid>",
+	"stop":   "interrupt the scan process (Ctrl-C / SIGINT), or POST /api/scans/<uuid>/stop on the server that runs it",
+	"cancel": "interrupt the scan process (Ctrl-C / SIGINT), or POST /api/scans/<uuid>/stop on the server that runs it",
+	"kill":   "interrupt the scan process (Ctrl-C / SIGINT), or POST /api/scans/<uuid>/stop on the server that runs it",
+	"pause":  "POST /api/scans/<uuid>/pause on the server that runs the scan (pause is server-only)",
+	"resume": "POST /api/scans/<uuid>/resume on the server that runs the scan (resume is server-only)",
+	"rm":     "vigolium db clean --scan-uuid <uuid>",
+}
+
+// rejectVerbScanTargets refuses a bare word that is a verb, where `scan`
+// expects a target. A URL (`http://ls`) or a host with a dot or port is still a
+// target; so is any other bare word (`scan intranet`). A near miss of a scan
+// subcommand is caught by the command tree's group hook.
+func rejectVerbScanTargets(args []string) error {
+	for _, a := range args {
+		meant, ok := scanVerbTargets[strings.ToLower(strings.TrimSpace(a))]
+		if !ok {
+			continue
 		}
-		return usageErrorf("%q looks like a scan UUID, not a target URL.%s", a, hint)
+		return clicommon.CLIError{
+			Err:       fmt.Errorf("%q is a verb, not a scan target; scan has no %q subcommand", a, strings.ToLower(a)),
+			Hint:      "Use: " + meant + ". To scan a host with that name, pass it as a URL (http://" + a + ")",
+			UsageArgv: clicommon.UsageArgvFor("scan"),
+		}
 	}
 	return nil
 }

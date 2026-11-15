@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
@@ -399,5 +400,34 @@ func TestGroupPositionalsAndUsageLookups(t *testing.T) {
 	code, out, _ = st.run(t, "finding", itoa(st.stay), "-j")
 	if code != 0 || len(items(t, decodeOne(t, out))) != 1 {
 		t.Errorf("finding <id>: exit %d\n%s", code, out)
+	}
+}
+
+// `scan <verb>` is a usage error naming the command that was meant; a URL
+// spelling of the same word, and any other bare word, is still a target.
+func TestScanRejectsVerbTargets(t *testing.T) {
+	for _, verb := range []string{"ls", "LIST", "stop", "show", "logs", "rm", "pause"} {
+		err := rejectVerbScanTargets([]string{verb})
+		if err == nil {
+			t.Errorf("scan %s accepted as a target", verb)
+			continue
+		}
+		if classifyExitCode(err) != ExitUsageError {
+			t.Errorf("scan %s: exit %d", verb, classifyExitCode(err))
+		}
+		var cli clicommon.CLIError
+		if !errors.As(err, &cli) || cli.Hint == "" {
+			t.Errorf("scan %s: no hint: %v", verb, err)
+		}
+	}
+	if err := rejectVerbScanTargets([]string{"http://ls", "intranet", "ls.example.com"}); err != nil {
+		t.Errorf("a URL or plain host was rejected: %v", err)
+	}
+	st := seedC6Store(t)
+	if code, out, errOut := st.run(t, "scan", "ls", "-j"); code != 2 || !strings.Contains(out, "log ls") {
+		t.Errorf("scan ls: exit %d\n%s\n%s", code, out, errOut)
+	}
+	if code, out, _ := st.run(t, "scan", "stop", "123e4567-e89b-12d3-a456-426614174000", "-j"); code != 2 || !strings.Contains(out, "/stop") {
+		t.Errorf("scan stop <uuid>: exit %d\n%s", code, out)
 	}
 }
