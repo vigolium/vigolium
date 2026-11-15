@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/requestinput"
 	"github.com/vigolium/vigolium/pkg/requestscheme"
 	"github.com/vigolium/vigolium/pkg/spitolas"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -341,48 +343,45 @@ func (h *Handlers) handleScanRequest(c fiber.Ctx, start func(func()) bool) error
 		return respondError(c, fiber.StatusBadRequest, fmt.Errorf("failed to decode raw_request: %w", err))
 	}
 
-	rawStr := strings.TrimSpace(string(rawBytes))
-	if rawStr == "" {
-		return respondError(c, fiber.StatusBadRequest, ErrMissingRawRequest)
+	// Parsed like `vigolium scan-request` parses it (requestinput): scope
+	// admission on the inferred target first, so a refused target is never
+	// contacted by the scheme probe, and again over the URL a probe moved it to.
+	var (
+		settings       *config.Settings
+		settingsLoaded bool
+		settingsErr    error
+		refused        func() error
+	)
+	admit := func(target string) error {
+		if !settingsLoaded {
+			settingsLoaded = true
+			settings, settingsErr = h.scanSettings(c)
+		}
+		if settingsErr != nil {
+			return settingsErr
+		}
+		if refused = refuseOutOfScope(c, settings, target); refused != nil {
+			return errScanTargetRefused
+		}
+		return nil
 	}
-
-	// Parse raw HTTP request
-	var rr *httpmsg.HttpRequestResponse
-	if req.TargetURL != "" {
-		rr, err = httpmsg.ParseRawRequestWithURL(rawStr, req.TargetURL)
-	} else {
-		rr, err = httpmsg.ParseRawRequest(rawStr)
-	}
-	if err != nil {
-		return respondErrorMsg(c, fiber.StatusBadRequest, ErrInvalidRawRequest.Error()+": "+err.Error())
-	}
-
-	settings, err := h.scanSettings(c)
-	if err != nil {
-		return respondError(c, fiber.StatusInternalServerError, err)
-	}
-
-	// Scope admission on the inferred target first, so a refused target is
-	// never contacted by the scheme probe below (see HandleScanURL).
-	if refused := refuseOutOfScope(c, settings, rr.Target()); refused != nil {
-		return refused()
-	}
-
-	// No target_url and no scheme on the request line: settle the scheme the
-	// way `vigolium scan-request` does — the request's own signals, else a
-	// connect / TLS handshake — instead of assuming https. A probe that moved
-	// the target is admitted again over the URL that will be sent.
-	settled := requestscheme.Settle(c.Context(), rawStr, rr, requestscheme.Options{
-		Pinned:   req.TargetURL != "",
+	parsed, err := requestinput.Parse(c.Context(), string(rawBytes), requestinput.Options{
+		Target:   req.TargetURL,
 		NoProbe:  req.NoSchemeProbe,
 		Resolver: scanRequestSchemeResolver,
+		Admit:    admit,
 	})
-	if settled.Changed {
-		rr = settled.Request
-		if refused := refuseOutOfScope(c, settings, rr.Target()); refused != nil {
-			return refused()
-		}
+	switch {
+	case refused != nil:
+		return refused()
+	case settingsErr != nil:
+		return respondError(c, fiber.StatusInternalServerError, settingsErr)
+	case errors.Is(err, requestinput.ErrEmpty):
+		return respondError(c, fiber.StatusBadRequest, ErrMissingRawRequest)
+	case err != nil:
+		return respondErrorMsg(c, fiber.StatusBadRequest, ErrInvalidRawRequest.Error()+": "+err.Error())
 	}
+	rr := parsed.Request
 
 	// Attach paired response if provided (Burp-style request+response)
 	if respB64 := req.RespBase64(); respB64 != "" {
@@ -435,7 +434,7 @@ func (h *Handlers) handleScanRequest(c fiber.Ctx, start func(func()) bool) error
 		Status:       "running",
 		Message:      fmt.Sprintf("scan-request started for %s", target),
 		Target:       target,
-		SchemeSource: settled.Source,
+		SchemeSource: parsed.SchemeSource,
 	})
 }
 
@@ -457,6 +456,10 @@ func probeStealth(settings *config.Settings) string {
 	}
 	return settings.Spidering.Stealth
 }
+
+// errScanTargetRefused ends requestinput.Parse when scope refuses the target;
+// the handler answers with refuseOutOfScope's responder.
+var errScanTargetRefused = errors.New("scan target refused by scope")
 
 // scanRequestSchemeResolver replaces the scheme probe behind
 // POST /api/scan-request (tests); nil is portsweep.ResolveScheme.

@@ -32,6 +32,10 @@ type Options struct {
 	NoProbe bool
 	// Resolver replaces the scheme probe (tests). Nil = the real probe.
 	Resolver requestscheme.Resolver
+	// Admit, when set, is the caller's scope check. It is asked about the
+	// parsed target before the scheme probe could contact it, and again when
+	// the probe moved the target; its error ends Parse.
+	Admit func(target string) error
 }
 
 // Result is a parsed request.
@@ -109,10 +113,25 @@ func Parse(ctx context.Context, raw string, opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	res := requestscheme.Settle(ctx, parsed, rr, requestscheme.Options{
+	settle := requestscheme.Options{
 		Pinned:   target != "",
-		NoProbe:  opts.NoProbe,
+		NoProbe:  opts.NoProbe || opts.Admit != nil,
 		Resolver: opts.Resolver,
-	})
+	}
+	res := requestscheme.Settle(ctx, parsed, rr, settle)
+	if opts.Admit != nil {
+		if err := opts.Admit(res.Request.Target()); err != nil {
+			return Result{}, err
+		}
+		if !opts.NoProbe && res.Source == requestscheme.SourceDefault {
+			settle.NoProbe = false
+			res = requestscheme.Settle(ctx, parsed, rr, settle)
+			if res.Changed {
+				if err := opts.Admit(res.Request.Target()); err != nil {
+					return Result{}, err
+				}
+			}
+		}
+	}
 	return Result{Request: res.Request, Raw: send, Parsed: parsed, SchemeSource: res.Source, Scheme: res}, nil
 }
