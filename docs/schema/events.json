@@ -1944,6 +1944,12 @@
             }
           ]
         },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/scanplan.ScopeRuleView"
+          },
+          "type": "array"
+        },
         "scope_targets": {
           "items": {
             "type": "string"
@@ -1966,6 +1972,46 @@
         "host_exclude",
         "path_include",
         "path_exclude"
+      ]
+    },
+    "scanplan.ScopeRuleView": {
+      "properties": {
+        "class": {
+          "type": "string"
+        },
+        "include": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exclude": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "class",
+        "include",
+        "exclude"
       ]
     },
     "scanplan.Sitemap": {
