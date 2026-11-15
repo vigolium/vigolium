@@ -87,6 +87,7 @@
             "ingest_incomplete",
             "input_unparsed",
             "internal_error",
+            "interrupted",
             "invalid_project_uuid",
             "invalid_request",
             "lint_failed",
