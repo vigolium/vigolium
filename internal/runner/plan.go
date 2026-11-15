@@ -19,6 +19,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/database"
 	deparosconfig "github.com/vigolium/vigolium/pkg/deparos/config"
 	"github.com/vigolium/vigolium/pkg/deparos/jstangle"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/input/source"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/scanevents"
@@ -247,6 +248,8 @@ func ResolvePlan(ctx context.Context, in PlanInput) (*scanplan.Plan, error) {
 			p.AddWarning("unbounded_discovery", "discovery has a per-target budget and no phase ceiling; pass --scanning-max-duration or --max-requests to bound the whole scan")
 		}
 	}
+
+	p.Proxy = planProxy(opts.ProxyURL, adm.Admitted)
 
 	p.Estimate = estimatePlan(p, planEstimateInput{
 		settings: settings,
@@ -756,4 +759,24 @@ func planSummaryLine(p *scanplan.Plan) string {
 	}
 	return fmt.Sprintf("phases=%s modules=%d/%d estimate=%d-%d",
 		strings.Join(p.EnabledPhaseIDs(), ","), p.Modules.Active, p.Modules.Passive, p.Estimate.Low, p.Estimate.High)
+}
+
+// planProxy is the plan's proxy section: nil when nothing is proxied.
+func planProxy(cliProxy string, admitted []string) *scanplan.Proxy {
+	choice := proxyenv.FromEnvironment(cliProxy)
+	if !choice.Any() {
+		return nil
+	}
+	out := &scanplan.Proxy{}
+	for _, r := range choice.Routes() {
+		out.Routes = append(out.Routes, scanplan.ProxyRoute{Scheme: r.Scheme, URL: r.URL, Source: r.Source})
+	}
+	out.NoProxy, out.NoProxySource = choice.NoProxy()
+	for _, t := range admitted {
+		if out.Targets == nil {
+			out.Targets = map[string]string{}
+		}
+		out.Targets[t] = choice.Describe(t)
+	}
+	return out
 }

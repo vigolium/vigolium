@@ -12,12 +12,12 @@ import (
 	"net"
 	gohttp "net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/core/network"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/proxytarget"
 )
 
@@ -36,8 +36,9 @@ const (
 
 // NewDefaultClient returns an *http.Client suitable for replay traffic.
 // TLS verification is off because targets are often localhost or
-// self-signed staging. Proxy is read from HTTP_PROXY / HTTPS_PROXY so an
-// operator can pipe through Burp; SetProxy replaces it. The transport is a
+// self-signed staging. Proxy is read from HTTPS_PROXY / HTTP_PROXY / ALL_PROXY
+// (by scheme, NO_PROXY honoured) so an operator can pipe through Burp;
+// SetProxy replaces it. The transport is a
 // proxytarget.Transport, so a request whose Host header differs from its
 // destination still reaches an HTTP proxy addressed to the destination's
 // host:port. Pass jar=nil for stateless replays.
@@ -74,16 +75,12 @@ func SetProxy(client *gohttp.Client, proxyURL *url.URL) bool {
 	return true
 }
 
-// proxyFromEnv mirrors the precedence vigolium's own Requester uses:
-// HTTP_PROXY / HTTPS_PROXY (uppercase first, lowercase fallback).
-// NO_PROXY is deliberately ignored — attack-validation traffic is
-// rarely something an operator wants the proxy to skip, and a stale
-// NO_PROXY would silently hide the very traffic Burp is meant to show.
+// proxyFromEnv is the environment's proxy for req (proxyenv: by scheme,
+// ALL_PROXY as the fallback, NO_PROXY honoured, loopback not exempt by
+// itself), the rule vigolium's own Requester uses.
 func proxyFromEnv(req *gohttp.Request) (*url.URL, error) {
-	for _, k := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
-		if v := os.Getenv(k); v != "" {
-			return url.Parse(v)
-		}
+	if r := proxyenv.FromEnvironment("").For(req.URL); r != nil {
+		return r.URL, nil
 	}
 	return nil, nil
 }

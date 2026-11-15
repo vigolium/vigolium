@@ -43,6 +43,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/core/network"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 )
 
 // Default sweep parameters. These are the single source of truth for the
@@ -212,25 +213,20 @@ func Sweep(ctx context.Context, host string, opts Options) Result {
 	return finalize(res, open, tcpOpen, opts.HoneypotRatio)
 }
 
-// proxyFunc returns the transport Proxy func for raw: nil (direct) when raw is
-// empty, otherwise a fixed proxy. An explicit URL rather than
+// proxyFunc returns the transport Proxy func for the confirm step: raw
+// (--proxy) for every request when set, else the environment's proxy by
+// scheme with NO_PROXY honoured (proxyenv), nil (direct) when neither. Never
 // ProxyFromEnvironment, which would bypass the proxy for a loopback target.
 //
 // An unparseable proxy fails every confirm request rather than falling back to a
 // direct connection: the operator asked for their traffic to go through a proxy,
 // and confirming ports around it is the one outcome they ruled out.
 func proxyFunc(raw string) func(*http.Request) (*url.URL, error) {
-	if raw == "" {
-		return nil
-	}
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Host == "" {
-		if err == nil {
-			err = fmt.Errorf("proxy URL %q has no host", raw)
-		}
+	choice := proxyenv.FromEnvironment(raw)
+	if err := choice.Err(); err != nil {
 		return func(*http.Request) (*url.URL, error) { return nil, err }
 	}
-	return http.ProxyURL(parsed)
+	return choice.Func()
 }
 
 // finalize sorts confirmed ports, runs the honeypot guard, and returns the

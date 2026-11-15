@@ -2222,6 +2222,9 @@
         "egress": {
           "$ref": "#/$defs/scanplan.Egress"
         },
+        "proxy": {
+          "$ref": "#/$defs/scanplan.Proxy"
+        },
         "estimate": {
           "$ref": "#/$defs/scanplan.Estimate"
         },
@@ -2253,6 +2256,60 @@
         "targets",
         "estimate",
         "warnings"
+      ]
+    },
+    "scanplan.Proxy": {
+      "properties": {
+        "routes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/scanplan.ProxyRoute"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "no_proxy": {
+          "type": "string"
+        },
+        "no_proxy_source": {
+          "type": "string"
+        },
+        "targets": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "routes"
+      ]
+    },
+    "scanplan.ProxyRoute": {
+      "properties": {
+        "scheme": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "scheme",
+        "url",
+        "source"
       ]
     },
     "scanplan.Rejection": {

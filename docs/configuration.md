@@ -86,7 +86,7 @@ Higher-precedence sources override lower ones. Within the config file, environme
 | `VIGOLIUM_BIN` | Set (not read) by an agent run for its bash tool: the absolute path of the running `vigolium`, which is also first on that shell's `PATH` |
 | `VIGOLIUM_PROJECT_UUID` | Active project UUID when no project flag is supplied |
 | `VIGOLIUM_PROJECT_NAME` | Active project name when no project flag is supplied (looked up in the database; `VIGOLIUM_PROJECT_UUID` wins if both are set) |
-| `VIGOLIUM_PROXY` | HTTP/SOCKS proxy URL, used when `--proxy` is not set |
+| `VIGOLIUM_PROXY` | HTTP/SOCKS proxy URL, used when `--proxy` is not set; proxies every request like the flag. Without either, `HTTPS_PROXY`/`HTTP_PROXY` (by target scheme) and `ALL_PROXY` apply, minus `NO_PROXY` (host, `.domain`, IP, CIDR, `*`, optional `:port`); loopback is proxied unless `NO_PROXY` names it |
 | `VIGOLIUM_DEFAULT_UA` | Override the configured outbound User-Agent selector or value |
 | `VIGOLIUM_BURP_BRIDGE_URL` | Default loopback Burp bridge URL for bridge-aware commands |
 | `VIGOLIUM_HOME` | Base directory for Vigolium data (used by the installer; defaults to `~/.vigolium`) |

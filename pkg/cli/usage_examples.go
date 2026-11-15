@@ -1390,7 +1390,7 @@ var fuzzExamples = FormatExamples(
 	"# AGENT: gate a pipeline — exit non-zero when any payload matches",
 	"vigolium fuzz -i req.txt --fuzz params --class lfi --match-regex 'root:.*:0:0' --fail-on-match",
 	"# Fuzz a header via a persistent proxy (Burp) for inspection",
-	"HTTP_PROXY=http://127.0.0.1:8080 vigolium fuzz -i req.txt --fuzz-header X-Forwarded-For --class ssrf",
+	"ALL_PROXY=http://127.0.0.1:8080 vigolium fuzz -i req.txt --fuzz-header X-Forwarded-For --class ssrf",
 	"",
 	"# BURP ENGINE: send every payload through Burp byte-for-byte (force HTTP/1 for smuggling)",
 	"vigolium fuzz -i req.txt --point PATH:0 -w smuggle.txt \\",

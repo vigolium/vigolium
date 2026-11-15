@@ -192,6 +192,12 @@ vigolium scan -t https://target.example --dry-run -j | jq '.plan | {phases: [.ph
   expected wall-clock range: requests over each phase's rate, bounded by the
   phase budgets and `--max-time`. The banner prints it as `~2m-15m (rough)`.
 - `auth` lists session names and kinds, never values.
+- `proxy` (present when anything is proxied): `routes[] {scheme, url, source}`
+  (`source` is `--proxy`, `VIGOLIUM_PROXY` or the environment variable),
+  `no_proxy`/`no_proxy_source`, and `targets{<target>: "<proxy> (from X)" |
+  "direct" | "direct (NO_PROXY)"}`. Environment proxies are picked by target
+  scheme and honour `NO_PROXY`; loopback is not bypassed on its own. An
+  unreachable error names the proxy and its variable.
 
 The same plan is the second event of every `--events` stream (`scan.plan`),
 is stored on the scan row (`scans.plan`), and drives the pre-scan banner.

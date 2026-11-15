@@ -842,9 +842,9 @@ history, logs, or support transcripts.
 A login request goes to the host the scan is about to attack, so it is treated
 as target traffic:
 
-- It follows `--proxy` (and `HTTP_PROXY` / `HTTPS_PROXY`), resolved exactly as
-  the scan's own requests are, with an explicit proxy URL so a `localhost`
-  target is proxied too. A proxy log therefore shows the login alongside the
+- It follows `--proxy` (and `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` minus
+  `NO_PROXY`), resolved exactly as the scan's own requests are, so a
+  `localhost` target is proxied too unless `NO_PROXY` names it. A proxy log therefore shows the login alongside the
   scan it authenticated.
 - It accepts self-signed, expired and wrong-host certificates, like every other
   request to the target.

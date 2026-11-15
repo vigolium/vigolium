@@ -30,6 +30,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/core/ratelimit"
 	"github.com/vigolium/vigolium/pkg/core/services"
 	"github.com/vigolium/vigolium/pkg/deparos/waf"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/proxytarget"
 	"github.com/vigolium/vigolium/pkg/types"
@@ -133,7 +134,10 @@ type Requester struct {
 	// rawClient never follows redirects: a raw request is exactly one
 	// round trip, so the response belongs to the bytes that were sent and no
 	// header ever travels to a Location host.
-	rawClient     *rawhttp.Client
+	rawClient *rawhttp.Client
+	// rawClients picks the raw client per request: direct, or one per
+	// proxy, since rawhttp dials through the proxy its client was built with.
+	rawClients    *rawClientSet
 	services      *services.Services
 	customHeaders map[string]string
 	clusterer     *RequestClusterer
@@ -719,24 +723,19 @@ func targetTLSConfig(sni string) *tls.Config {
 	return cfg
 }
 
-// applyExplicitProxy installs the resolved proxy on t as an explicit URL rather
-// than ProxyFromEnvironment, because Go's environment resolver bypasses the
-// proxy for localhost and a localhost target still has to be observable in the
-// operator's proxy log. An unparseable URL is warned about and left unset, so a
-// typo degrades to a direct connection rather than failing the client's
-// construction. client names the caller in that warning.
+// applyExplicitProxy installs the resolved proxy on t (proxyenv: --proxy for
+// every request, else the environment's proxy by scheme with NO_PROXY
+// honoured). It never uses ProxyFromEnvironment, whose resolver bypasses the
+// proxy for localhost: a localhost target still has to be observable in the
+// operator's proxy log unless NO_PROXY names it. An unparseable URL is warned
+// about and left unset, so a typo degrades to a direct connection rather than
+// failing the client's construction. client names the caller in that warning.
 func applyExplicitProxy(t *http.Transport, cliProxy, client string) {
-	proxyURL := getProxyURL(cliProxy)
-	if proxyURL == "" {
-		return
+	choice := proxyenv.FromEnvironment(cliProxy)
+	if err := choice.Err(); err != nil {
+		zap.L().Warn("Invalid proxy URL", zap.String("client", client), zap.Error(err))
 	}
-	parsed, err := url.Parse(proxyURL)
-	if err != nil {
-		zap.L().Warn("Invalid proxy URL",
-			zap.String("url", proxyURL), zap.String("client", client), zap.Error(err))
-		return
-	}
-	t.Proxy = http.ProxyURL(parsed)
+	t.Proxy = choice.Func()
 }
 
 // targetRoundTripper returns the RoundTripper a target-facing client sends
@@ -752,29 +751,6 @@ func targetRoundTripper(t *http.Transport) http.RoundTripper {
 		return t
 	}
 	return proxytarget.Wrap(t)
-}
-
-// getProxyURL returns proxy URL from CLI flag or environment variable.
-// CLI flag takes precedence over environment variables.
-// Uses explicit proxy URL (not ProxyFromEnvironment) to ensure localhost is proxied.
-func getProxyURL(cliProxy string) string {
-	if cliProxy != "" {
-		return cliProxy
-	}
-	// Check environment variables (uppercase first, then lowercase)
-	if p := os.Getenv("HTTP_PROXY"); p != "" {
-		return p
-	}
-	if p := os.Getenv("http_proxy"); p != "" {
-		return p
-	}
-	if p := os.Getenv("HTTPS_PROXY"); p != "" {
-		return p
-	}
-	if p := os.Getenv("https_proxy"); p != "" {
-		return p
-	}
-	return ""
 }
 
 // defaultRequestTimeout is the fallback when a caller leaves Options.Timeout
@@ -984,19 +960,17 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 	// redirect client (both pointed at the same struct).
 	rawOpts := *rawhttp.DefaultOptions
 	rawOpts.Timeout = timeout
-	if proxyURL := getProxyURL(options.ProxyURL); proxyURL != "" {
-		rawOpts.Proxy = proxyURL
-	} else {
-		rawOpts.FastDialer = dialer
-	}
 	rawOpts.FollowRedirects = false
 	rawOpts.MaxRedirects = 0
-	rawClient := rawhttp.NewClient(&rawOpts)
+	proxyChoice := proxyenv.FromEnvironment(options.ProxyURL)
+	rawClients := newRawClientSet(rawOpts, dialer, proxyChoice)
+	rawClient := rawClients.direct
 
 	r := &Requester{
 		client:        client,
 		clientNoRedir: clientNoRedir,
 		rawClient:     rawClient,
+		rawClients:    rawClients,
 		services:      services,
 		customHeaders: parseHeaders(options.Headers),
 		carried:       &carriedSessionStore{},
@@ -2000,7 +1974,11 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 		// Every raw send goes through DoRawWithOptions on a copy of the raw
 		// client's options, whose FollowRedirects is off: a raw probe is
 		// exactly one round trip, so the response belongs to the bytes sent.
-		rawOpts := *r.rawClient.Options
+		rawClient := r.rawClient
+		if r.rawClients != nil {
+			rawClient = r.rawClients.forURL(req.URL.URL)
+		}
+		rawOpts := *rawClient.Options
 		var body io.Reader = req.Body
 		target := ""
 		switch {
@@ -2027,7 +2005,7 @@ func (r *Requester) doRequest(ctx context.Context, input *httpmsg.HttpRequestRes
 		}
 		// req embeds *urlutil.URL (retryablehttp.Request), so req.String() is
 		// the request URL rawhttp dials.
-		resp, err = r.rawClient.DoRawWithOptions(req.Method, req.String(), target, req.Header, body, &rawOpts)
+		resp, err = rawClient.DoRawWithOptions(req.Method, req.String(), target, req.Header, body, &rawOpts)
 	} else {
 		if !opts.PreserveConnection {
 			dropConnectionClose(req.Header)

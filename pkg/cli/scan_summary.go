@@ -10,6 +10,7 @@ import (
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/database"
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/modules"
 	"github.com/vigolium/vigolium/pkg/scanplan"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -187,6 +188,11 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 		terminal.HiBlue(fmt.Sprintf("%d", opts.Concurrency)),
 		terminal.HiBlue(fmt.Sprintf("%d", opts.RateLimit)),
 		terminal.HiBlue(fmt.Sprintf("%d", opts.MaxPerHost)))
+	// The proxy and where it came from: an environment proxy silently taking
+	// over a scan reads as an unreachable target otherwise.
+	if line := proxyenv.FromEnvironment(opts.ProxyURL).Summary(); line != "" {
+		fmt.Fprintf(os.Stderr, "  %s Proxy: %s\n", terminal.Purple(terminal.SymbolInfo), terminal.HiBlue(line))
+	}
 	// Under a parallel fan-out (-P > 1), surface the per-process heap ceiling the
 	// isolated child scans inherit. A single scan omits it — the ceiling is rarely
 	// worth a line when only one process runs.

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/vigolium/vigolium/pkg/http/proxyenv"
 	"github.com/vigolium/vigolium/pkg/proxytarget"
 	"github.com/vigolium/vigolium/pkg/types"
 )
@@ -133,10 +134,9 @@ func loginBase(t *testing.T, opts *types.Options) *http.Transport {
 // proxyEnvSet reports whether the environment carries a proxy, so the
 // no-proxy assertion above does not fail on a machine that has one.
 func proxyEnvSet() (*url.URL, bool) {
-	raw := getProxyURL("")
-	if raw == "" {
+	ps := proxyenv.FromEnvironment("").Proxies()
+	if len(ps) == 0 {
 		return nil, false
 	}
-	u, err := url.Parse(raw)
-	return u, err == nil
+	return ps[0].URL, true
 }
