@@ -378,6 +378,18 @@
     "description": "The scope rule edited: its value before and after, and which config layer was written."
   },
   {
+    "name": "server status",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "One row per server pidfile: the recorded pid and address, whether the process is alive and /health answers."
+  },
+  {
+    "name": "server stop",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The server stopped (SIGTERM, sent only when /health answered with the recorded pid), and whether it exited in time."
+  },
+  {
     "name": "status",
     "kind": "command",
     "envelope_kind": "read",

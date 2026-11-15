@@ -147,6 +147,8 @@ run `vigolium <command> -h`.
 - [vigolium server ca path](#vigolium-server-ca-path)
 - [vigolium server ca print](#vigolium-server-ca-print)
 - [vigolium server ca uninstall](#vigolium-server-ca-uninstall)
+- [vigolium server status](#vigolium-server-status)
+- [vigolium server stop](#vigolium-server-stop)
 - [vigolium skills](#vigolium-skills)
 - [vigolium skills get](#vigolium-skills-get)
 - [vigolium skills install](#vigolium-skills-install)
@@ -2623,6 +2625,7 @@ Serve the REST API, ingest live traffic, and scan it as it arrives
 | `--disable-catchup` | - | bool | `false` | Deprecated: no-op (catch-up scanning is already disabled) |
 | `--disable-warm-session` | - | bool | `false` | Disable agent subprocess warm session pooling |
 | `--discard-queued` | - | bool | `false` | Drop tasks a previous run left in the disk-spill queue instead of resuming them (tasks older than 24h are always dropped) |
+| `--events` | - | string | - | Machine mode: print one server.ready JSON line on stdout once the listeners are bound and send every log line to stderr (value: ndjson). -j does the same |
 | `--full-native-scan-on-receive` | - | bool | `false` | Run the full native scan pipeline (discovery + spidering + dynamic-assessment) continuously on received records, instead of dynamic-assessment only |
 | `--host` | - | string | `127.0.0.1` | Bind address for the API server ($VIGOLIUM_SERVER_HOST when unset; use 0.0.0.0 to expose it) |
 | `--ingest-proxy-host` | - | string | `127.0.0.1` | Bind address for the ingest proxy (config server.ingest_proxy_host). A non-loopback address needs --proxy-token or --proxy-allow |
@@ -2678,6 +2681,23 @@ Remove trust in the MITM CA (prints the commands; --yes runs them)
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--yes` | - | bool | `false` | Run the commands instead of printing them (may prompt for sudo) |
+
+## vigolium server status
+
+Show running servers: pidfile, process liveness and /health
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--port` | - | int | `0` | Only the server on this port (default: every server with a pidfile) |
+
+## vigolium server stop
+
+Stop a running server (SIGTERM, only when /health confirms the pid)
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--port` | - | int | `0` | The server's port (required when more than one is running) |
+| `--timeout` | - | duration | `40s` | How long to wait for the server to exit |
 
 ## vigolium skills
 
