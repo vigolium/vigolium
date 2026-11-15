@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - `vigolium export` now exports the active project by default, like `traffic`, `finding` and `db export`; pass `--all-projects` for the whole store. Report metadata (target, duration) is scoped the same way.
 - `vigolium import` of a JSONL export now stores its `scan` and `oast_interaction` rows (re-homed into the active project, deduplicated); `scope` rows load only with `--include-scopes` or into a `-S`/`--glob-db` scratch database. `import -j` reports `imported_by_type`, `duplicates_by_type` and `skipped_types`.
+- `db export --format jsonl` (the default) writes the `{"type","data"}` lines `vigolium export` writes and `import` reads: the selected records, then their linked findings. The previous nuclei-style output is `--format nuclei`. `--table http_records|findings` picks the line types; other tables are a usage error.
 
 ## [v0.5.7] - 2026-11-14
 
