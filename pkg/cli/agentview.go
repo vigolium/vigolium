@@ -176,6 +176,9 @@ func normalizeFieldList(in []string) []string {
 // object under `"artifact": "json_result"` would be a lie, and a receipt that
 // could itself be redirected has nowhere left to report.
 func writeAgentJSON(env *agentEnvelope) error {
+	if readTSV {
+		return writeEnvelopeTSV(env)
+	}
 	// Attached here rather than at each call site: every -j read that can be
 	// sourced from --glob-db funnels through this function, and a per-command
 	// hook is one a new command forgets — which is how a merged read with a

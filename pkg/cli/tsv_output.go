@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -120,3 +123,77 @@ func tsvValue(v any) string {
 var tsvEscaper = strings.NewReplacer(`\`, `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`)
 
 func tsvEscape(s string) string { return tsvEscaper.Replace(s) }
+
+// readTSV makes writeAgentJSON print a document's items as TSV instead of the
+// document. It is set by the read commands whose --format tsv renders exactly
+// the rows their -j document carries (db list, db stats, scan diff), so the
+// two outputs cannot drift.
+var readTSV bool
+
+// enableReadTSV resolves --format on such a command: tsv sets readTSV and
+// reports true, so the caller takes its -j branch; console reports false; any
+// other format is a usage error.
+func enableReadTSV(cmd *cobra.Command) (bool, error) {
+	format, err := requestedReadFormat(cmd)
+	if err != nil {
+		return false, err
+	}
+	readTSV = format == "tsv"
+	return readTSV, nil
+}
+
+// writeEnvelopeTSV prints a document's items as TSV: the --fields columns,
+// else every scalar key of the rows (nested objects flattened to dotted keys,
+// lists JSON-encoded), sorted.
+func writeEnvelopeTSV(env *agentEnvelope) error {
+	rows, err := toRows(env.Items)
+	if err != nil {
+		// Items that are not objects (a list of table names) print one per line.
+		raw, merr := jsonMarshalNoEscape(env.Items)
+		if merr != nil {
+			return err
+		}
+		var values []any
+		if json.Unmarshal(raw, &values) != nil {
+			return err
+		}
+		rows = make([]map[string]any, 0, len(values))
+		for _, v := range values {
+			rows = append(rows, map[string]any{"value": v})
+		}
+	}
+	flat := make([]map[string]any, 0, len(rows))
+	keys := map[string]bool{}
+	for _, r := range rows {
+		f := map[string]any{}
+		flattenTSVRow("", r, f)
+		for k := range f {
+			keys[k] = true
+		}
+		flat = append(flat, f)
+	}
+	columns := normalizeFieldList(jsonFields)
+	if len(columns) == 0 {
+		columns = slices.Sorted(maps.Keys(keys))
+	}
+	for i, r := range flat {
+		flat[i] = projectFields(r, columns)
+	}
+	return writeTSV(os.Stdout, columns, flat)
+}
+
+// flattenTSVRow copies a JSON object into out with nested objects flattened
+// to dotted keys.
+func flattenTSVRow(prefix string, in map[string]any, out map[string]any) {
+	for k, v := range in {
+		key := k
+		if prefix != "" {
+			key = prefix + "." + k
+		}
+		if m, ok := v.(map[string]any); ok {
+			flattenTSVRow(key, m, out)
+			continue
+		}
+		out[key] = v
+	}
+}

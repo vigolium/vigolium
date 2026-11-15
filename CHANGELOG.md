@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - `traffic -j` rows carry `sent_at` (RFC 3339, UTC). `hosts`, `log ls`, `db stats` and `export` accept `--from/--to` (`--since/--until`). Time-filter help states that a time without a zone is local and results print in UTC.
 - `--host` on `traffic`, `finding`, `db list|export|stats|clean`, `inventory`, `hosts` and bulk `replay` accepts a bare host, `host:port`, an origin (`https://host[:port]`, as `traffic -j` prints it) or a bracketed IPv6 address.
 - `--glob-db` reads and multi-source `import` no longer leave `-wal`/`-shm` files beside their sources (a source with no live WAL is read immutable; one with a live WAL is read in place and the created sidecars removed, or through a scratch copy in a read-only directory), and a glob never matches a sidecar as a source.
+- `db ls`, `log ls`, `scan diff` and `db stats` honour `--format tsv` (with `--no-header`) and refuse other formats; `log <prefix>` resolves an 8+ character session UUID prefix; `db reset --dry-run` lists the files it would delete; `db stats` reads like `traffic` (standalone sources whole, `project_uuid` in `-j`); `--db` naming a non-SQLite file (a JSONL export) fails with a hint to pass `-S`.
 
 ## [v0.5.7] - 2026-11-14
 

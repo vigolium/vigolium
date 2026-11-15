@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/internal/runner"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
 	"github.com/vigolium/vigolium/pkg/contract"
@@ -96,6 +98,7 @@ func init() {
 	registerTimeRangeFlags(logLsCmd, &logLsFrom, &logLsTo, "sessions started")
 	logLsCmd.Flags().BoolVar(&logLsReap, "reap", false, "Finalize abandoned running scan rows as failed (stop_reason abandoned) and prune expired status.json files; writes the store")
 	registerRowShapingFlags(logLsCmd.Flags())
+	registerTSVFlags(logLsCmd.Flags())
 	registerInMemoryOffsetFlag(logLsCmd.Flags())
 }
 
@@ -104,6 +107,7 @@ func init() {
 var logLsShaping = rowShaping{
 	supported:   contract.JSONFieldNames(logRowView{}),
 	compactDrop: []string{"liveness_sources", "log_path", "log_size", "has_log"},
+	defaultTSV:  []string{"kind", "uuid", "effective_status", "target", "created_at"},
 }
 
 // logLsExtras are the top-level keys `log ls -j --reap` adds.
@@ -192,7 +196,8 @@ func formatLivenessTime(t time.Time) *string {
 func runLogLs(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
-	if err := logLsShaping.validate(); err != nil {
+	readFormat, err := logLsShaping.prepare(cmd)
+	if err != nil {
 		return err
 	}
 
@@ -276,6 +281,18 @@ func runLogLs(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 		return pickLogLsTUI(rows)
+	}
+
+	if readFormat == "tsv" {
+		out := make([]logRowView, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, r.view())
+		}
+		page, err := pageFromOffset(out, inMemoryOffset)
+		if err != nil {
+			return err
+		}
+		return logLsShaping.emitTSV(page)
 	}
 
 	if globalJSON {
@@ -512,6 +529,10 @@ func runLogShow(cmd *cobra.Command, args []string) error {
 	uuid := strings.TrimSpace(args[0])
 	if uuid == "" {
 		return usageErrorf("uuid argument is required")
+	}
+	uuid, err := resolveLogRef(uuid)
+	if err != nil {
+		return err
 	}
 
 	if globalJSON {
@@ -995,4 +1016,54 @@ func filterSessionRowsByTime(rows []sessionRow, from, to *time.Time) []sessionRo
 		kept = append(kept, r)
 	}
 	return kept
+}
+
+// logRefMinPrefix is the shortest UUID prefix `log <ref>` resolves, the same
+// floor record references use.
+const logRefMinPrefix = 8
+
+// resolveLogRef turns a session UUID prefix of 8+ characters into the full
+// UUID of the one native scan or agent run it names, in the project the read
+// is scoped to. A full UUID, a shorter value, or a store that cannot be
+// opened passes through unchanged for resolveLogSource to look up. No match
+// also passes through: a session directory can exist without a row.
+func resolveLogRef(ref string) (string, error) {
+	if len(ref) >= 36 || len(ref) < logRefMinPrefix {
+		return ref, nil
+	}
+	db, err := openReadDB(globDBSkipSet{Records: true})
+	if err != nil {
+		return ref, nil
+	}
+	projectUUID, err := effectiveProjectUUID()
+	if err != nil {
+		return "", err
+	}
+	repo := database.NewRepository(db)
+	ctx := context.Background()
+	var matches []string
+	for _, table := range []string{"scans", "agentic_scans"} {
+		full, candidates, rerr := repo.ResolveUUIDPrefix(ctx, table, projectUUID, ref)
+		switch {
+		case errors.Is(rerr, sql.ErrNoRows):
+		case rerr != nil:
+			// A store without the agentic table still resolves native scans.
+			continue
+		case full != "":
+			matches = append(matches, full)
+		default:
+			matches = append(matches, candidates...)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return ref, nil
+	case 1:
+		return matches[0], nil
+	}
+	return "", clicommon.CLIError{
+		Err:  fmt.Errorf("session reference %q is ambiguous: it prefixes %s", ref, strings.Join(matches, ", ")),
+		Code: apicontract.CodeAmbiguousID,
+		Hint: "Give more characters of the UUID (vigolium log ls lists them)",
+	}
 }
