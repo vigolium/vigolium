@@ -237,10 +237,11 @@ var machineContractRows = map[string]contractRow{
 	"server ca uninstall": {skip: "modifies the operating system's trust store"},
 
 	// Skills.
-	"skills":         {},
-	"skills get":     {args: []string{"vigolium-scanner"}},
-	"skills install": {args: []string{"--dir", "{DIR}/skills"}},
-	"skills list":    {},
+	"skills":           {},
+	"skills get":       {args: []string{"vigolium-scanner"}},
+	"skills install":   {args: []string{"--dir", "{DIR}/skills"}},
+	"skills list":      {},
+	"skills uninstall": {args: []string{"--dir", "{DIR}/skills"}},
 
 	// Storage.
 	"storage download": {skip: needsS3},

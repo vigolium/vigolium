@@ -128,7 +128,7 @@ func initializeVigolium(createDefaultDB bool) error {
 			zap.String("path", settings.Database.SQLite.Path))
 	}
 
-	fmt.Fprintf(os.Stderr, "  %s Installing default profiles, extensions, prompts, and skills...\n", terminal.InfoSymbol())
+	fmt.Fprintf(os.Stderr, "  %s Installing default profiles, extensions, prompts, and the built-in AI agent's skills (~/.vigolium/skills; coding-agent skills are `vigolium skills`)...\n", terminal.InfoSymbol())
 
 	// Bootstrap default profiles
 	bootstrapDefaultProfiles(vigoliumDir)

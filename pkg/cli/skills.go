@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/public"
@@ -132,7 +133,10 @@ func init() {
 	skillsInstallCmd.Flags().StringVar(&skillsOpts.Agent, "agent", "claude", "Target coding agent: claude, codex, or agents")
 	skillsInstallCmd.Flags().StringVar(&skillsOpts.Scope, "scope", "project", "Install scope: project (current folder) or global (home dir)")
 	skillsInstallCmd.Flags().BoolVar(&skillsOpts.All, "all", false, "Install every bundled skill")
-	skillsInstallCmd.Flags().StringVar(&skillsOpts.Dir, "dir", "", "Override the destination directory (skips --agent/--scope resolution)")
+	skillsInstallCmd.Flags().StringVar(&skillsOpts.Dir, "dir", "", "Override the destination directory (--agent/--scope are still validated, but do not pick the path)")
+
+	registerCommandSchema(contract.Command{Name: "skills install", Item: skillInstallView{}, Extras: skillInstallExtras{},
+		Description: "One item per skill bundle: where it went, the state found (status) and the state left (status_after)."})
 }
 
 // loadBundledSkills discovers and parses every skill bundle embedded under
@@ -456,15 +460,9 @@ func runSkillsInstall(cmd *cobra.Command, names []string) error {
 		}
 	}
 
-	// Resolve the destination base directory.
-	baseDir := skillsOpts.Dir
-	if baseDir == "" {
-		baseDir, err = skillsInstallBaseDir(skillsOpts.Agent, skillsOpts.Scope)
-		if err != nil {
-			return err
-		}
-	} else if abs, absErr := filepath.Abs(config.ExpandPath(baseDir)); absErr == nil {
-		baseDir = abs
+	baseDir, err := resolveSkillsBaseDir()
+	if err != nil {
+		return err
 	}
 
 	out := humanOut()
@@ -482,7 +480,7 @@ func runSkillsInstall(cmd *cobra.Command, names []string) error {
 			return fmt.Errorf("install %s: %w", b.Name, instErr)
 		}
 		view := skillInstallView{Name: b.Name, Path: dest, Installed: res.Installed, Status: res.Status,
-			PreviousVersion: res.Version, Backup: res.Backup, Pruned: res.Pruned}
+			StatusAfter: skillStatusAfterInstall(b, dest, res), PreviousVersion: res.Version, Backup: res.Backup, Pruned: res.Pruned}
 		if !res.Installed {
 			skipped++
 			view.Reason = skillSkipReason(res.Status)
@@ -535,7 +533,8 @@ func runSkillsInstall(cmd *cobra.Command, names []string) error {
 // whether this run wrote it.
 //
 // status is the state found before this run (missing, current, stale,
-// modified); reason says why a bundle was skipped (already_installed for a
+// modified) and status_after the state this run left (a dry run: the state it
+// would leave); reason says why a bundle was skipped (already_installed for a
 // current copy, otherwise the status). previous_version, backup and pruned
 // describe what a --force reinstall replaced.
 type skillInstallView struct {
@@ -543,10 +542,53 @@ type skillInstallView struct {
 	Path            string   `json:"path"`
 	Installed       bool     `json:"installed"`
 	Status          string   `json:"status"`
+	StatusAfter     string   `json:"status_after"`
 	Reason          string   `json:"reason,omitempty"`
 	PreviousVersion string   `json:"previous_version,omitempty"`
 	Backup          string   `json:"backup,omitempty"`
 	Pruned          []string `json:"pruned,omitempty"`
+}
+
+// skillStatusAfterInstall is the install state at dest once this run is over:
+// read back from disk after a real install, predicted for a dry run (a written
+// bundle is current; a skipped one keeps its state).
+func skillStatusAfterInstall(b bundledSkill, dest string, res skillInstallOutcome) string {
+	if skillsInstallDryRun {
+		if res.Installed {
+			return skillStatusCurrent
+		}
+		return res.Status
+	}
+	_, digest, err := bundleContents(b)
+	if err != nil {
+		return res.Status
+	}
+	return inspectSkillInstall(dest, digest).Status
+}
+
+// resolveSkillsBaseDir is the parent directory install and uninstall work in:
+// --dir when given, else the one --agent and --scope name. Both flags are
+// validated either way, so a typo is never silently ignored next to --dir.
+func resolveSkillsBaseDir() (string, error) {
+	computed, err := skillsInstallBaseDir(skillsOpts.Agent, skillsOpts.Scope)
+	if err != nil {
+		return "", err
+	}
+	if skillsOpts.Dir == "" {
+		return computed, nil
+	}
+	dir := config.ExpandPath(skillsOpts.Dir)
+	if abs, absErr := filepath.Abs(dir); absErr == nil {
+		dir = abs
+	}
+	return dir, nil
+}
+
+// skillInstallExtras are the top-level counters of `skills install -j`.
+type skillInstallExtras struct {
+	Installed int    `json:"installed"`
+	Skipped   int    `json:"skipped"`
+	Dir       string `json:"dir"`
 }
 
 // skillSkipReason names why an existing install was left alone.

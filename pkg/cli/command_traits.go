@@ -187,6 +187,7 @@ var commandTraits = map[string]commandTrait{
 	"skills get":          {Kind: kindRead, DB: dbNone, Shape: noShape("skill text")},
 	"skills install":      {Kind: kindMutation, DB: dbNone},
 	"skills list":         {Kind: kindRead, DB: dbNone, Shape: rowsShape()},
+	"skills uninstall":    {Kind: kindMutation, DB: dbNone},
 	"status":              {Kind: kindRead, DB: dbRead, Shape: objectShape()},
 	"storage":             {Kind: kindInteractive, DB: dbNone},
 	"storage download":    {Kind: kindStream, DB: dbNone, Shape: noShape("object bytes")},

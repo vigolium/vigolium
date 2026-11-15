@@ -25,7 +25,7 @@ scanning profiles, prompt templates, and extensions.
 
 Idempotent: on an existing installation it re-runs every step that is safe to
 repeat — database schema and seed, write-if-missing presets (profiles,
-extensions, prompts, skills) and the core dependency check — so a deleted
+extensions, prompts, the built-in AI agent's skills) and the core dependency check — so a deleted
 profile or a missing database is restored and existing edits are kept.
 --force backs up the config and preset directories to
 ~/.vigolium/backup-<timestamp>/ before regenerating them (with a new API key).

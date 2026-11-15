@@ -1771,9 +1771,9 @@ carries `project_source` (`flag`/`env`/`active_file`/`default`), plus a
 
 All mutating commands here and in `db clean`/`db reset`, `module enable/disable`,
 `config set/clean`, `scope set`, `storage upload/rm/results`, `init` and
-`skills install` print one mutation document under `-j`:
+`skills install`/`uninstall` print one mutation document under `-j`:
 `{"kind":"mutation","changed":bool,"action":"…","items":[…]}` (`dry_run:true`
-for `db clean --dry-run`). `changed:false` with `action:"noop"` means nothing
+on any `--dry-run`). `changed:false` with `action:"noop"` means nothing
 was written.
 
 ---
