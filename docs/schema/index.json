@@ -1,15 +1,51 @@
 [
   {
+    "name": "db clean",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "Rows deleted (or, with --dry-run, matched) per table; aborted when the confirmation was declined."
+  },
+  {
+    "name": "db compact",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The compaction summary: bodies replaced by their head, bytes reclaimed, whether the file was vacuumed."
+  },
+  {
     "name": "db export",
     "kind": "command",
     "envelope_kind": "read",
     "description": "A receipt: the files written (-j needs -o; the export itself never shares stdout with the document) and their counts."
   },
   {
+    "name": "db list",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Rows of one table: records and findings as their -j views, scans as scan rows, any other table as column maps; with no table, the table names (and with one, its columns under --columns)."
+  },
+  {
+    "name": "db migrate",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The schema versions before and after, and the migrations applied."
+  },
+  {
+    "name": "db reset",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The database deleted and recreated; aborted when the confirmation was declined."
+  },
+  {
     "name": "db seed",
     "kind": "command",
     "envelope_kind": "mutation",
     "description": "Sample rows written per table; a row already present is skipped and not counted."
+  },
+  {
+    "name": "db stats",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Row counts and breakdowns for the store (one object)."
   },
   {
     "name": "dns",
@@ -76,6 +112,12 @@
     "kind": "command",
     "envelope_kind": "read",
     "description": "Stored findings as finding views; --curl rows render each finding's request as a curl command."
+  },
+  {
+    "name": "finding load",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The ids of the findings stored (total counts them); parsed, saved and skipped count the input."
   },
   {
     "name": "finding mark",
@@ -180,6 +222,12 @@
     "description": "The project deleted, with what it held."
   },
   {
+    "name": "project list",
+    "kind": "command",
+    "envelope_kind": "read",
+    "description": "Every project in the store, marking the active one."
+  },
+  {
     "name": "project use",
     "kind": "command",
     "envelope_kind": "mutation",
@@ -195,7 +243,7 @@
     "name": "run",
     "kind": "command",
     "envelope_kind": "scan",
-    "description": "The scan document: one document per invocation, items are finding views."
+    "description": "The scan document: items are finding views, or host views for `run fingerprint`."
   },
   {
     "name": "scan",

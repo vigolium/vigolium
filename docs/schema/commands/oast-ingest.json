@@ -167,6 +167,26 @@
         "next_offset"
       ]
     },
+    "contract.ReceiptArtifact": {
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "format",
+        "path",
+        "bytes"
+      ]
+    },
     "oast.IngestedFinding": {
       "properties": {
         "nonce": {
@@ -310,6 +330,30 @@
     },
     "sends_traffic": {
       "type": "boolean"
+    },
+    "artifact": {
+      "type": "string"
+    },
+    "output": {
+      "type": "string"
+    },
+    "bytes": {
+      "type": "integer"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "hint": {
+      "type": "string"
+    },
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/contract.ReceiptArtifact"
+      },
+      "type": "array"
     },
     "format": {
       "type": "string"

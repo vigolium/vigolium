@@ -2038,6 +2038,37 @@
     "sends_traffic": {
       "type": "boolean"
     },
+    "artifact": {
+      "type": "string"
+    },
+    "output": {
+      "type": "string"
+    },
+    "bytes": {
+      "type": "integer"
+    },
+    "sha256": {
+      "type": "string"
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "hint": {
+      "type": "string"
+    },
+    "artifacts": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/cli.scanArtifact"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "scan_uuid": {
       "type": "string"
     },
@@ -2126,19 +2157,6 @@
         {
           "items": {
             "$ref": "#/$defs/database.Caveat"
-          },
-          "type": "array"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "artifacts": {
-      "anyOf": [
-        {
-          "items": {
-            "$ref": "#/$defs/cli.scanArtifact"
           },
           "type": "array"
         },
