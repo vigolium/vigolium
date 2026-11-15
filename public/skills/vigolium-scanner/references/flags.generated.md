@@ -658,7 +658,7 @@ Clean database records
 | `--before` | - | string | - | Delete records created strictly before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (the named day itself is kept) |
 | `--dry-run` | - | bool | `false` | Show what would be deleted without deleting |
 | `--findings-only` | - | bool | `false` | Delete findings only, keep HTTP records |
-| `--host` | - | string | - | Delete records matching the specified hostname |
+| `--host` | - | string | - | Delete records on this host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--orphans` | - | bool | `false` | Delete findings with no matching HTTP record |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Delete records belonging to the specified scan UUID |
 | `--severity` | - | string | - | Delete findings matching the specified severity level (findings only; HTTP records are kept) |
@@ -691,7 +691,7 @@ Export database records
 |------|-------|------|---------|-------------|
 | `--format` | `-f` | string | `jsonl` | **(overrides the global `--format`)** Export format: jsonl, json, raw, nuclei (one ResultEvent per linked finding), markdown (alias: md), markdown-table (alias: md-table), csv, bundle (alias: gz), fs (alias: file-system; flat traffic/finding tree) |
 | `--from` | - | string | - | Export records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
-| `--host` | - | string | - | Filter records by hostname pattern |
+| `--host` | - | string | - | Filter records by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--limit` | - | int | `0` | Maximum number of records to export, 0 for unlimited |
 | `--method` | - | stringSlice | - | Filter records by HTTP method (can be specified multiple times) |
 | `--offset` | - | int | `0` | Number of records to skip before exporting |
@@ -724,7 +724,7 @@ List database records (default: http_records)
 | `--from` | - | string | - | Show records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--full-body` | - | bool | `false` | Render complete request/response bodies (no truncation/stubbing) with --json, and whole (uncompacted) bodies with --markdown |
 | `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange |
-| `--host` | - | string | - | Filter records by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter records by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--limit` | `-n` | int | `100` | Maximum number of records to display |
 | `--list-columns` | - | bool | `false` | List column names for the current table |
 | `--list-tables` | - | bool | `false` | List all database table names |
@@ -774,7 +774,7 @@ Show database statistics
 |------|-------|------|---------|-------------|
 | `--detailed` | - | bool | `false` | Show per-host and per-module breakdown |
 | `--from` | - | string | - | Only records sent, findings found and scans started at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
-| `--host` | - | string | - | Show statistics for a specific hostname |
+| `--host` | - | string | - | Show statistics for one host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Show statistics for a specific scan UUID |
 | `--to` | - | string | - | Only records sent, findings found and scans started at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 
@@ -839,7 +839,7 @@ List endpoints (origin + path template) aggregated from stored traffic
 | `--from` | - | string | - | Only records sent at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
-| `--host` | - | string | - | Filter by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--limit` | `-n` | int | `100` | Maximum endpoints to list (0 = all); the aggregate always covers every matched record |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--method` | - | stringSlice | - | Filter by HTTP method (repeatable) |
@@ -1045,7 +1045,7 @@ Browse vulnerability findings with fuzzy search and filtering
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
 | `--header` | - | string | - | Search only the HTTP header block of the linked request/response (not bodies); use --search to span the whole exchange |
-| `--host` | - | string | - | Filter by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--http-mode` | - | string | - | With --send-via-burp: wire protocol — auto\|http1\|http2\|http2_ignore_alpn (default auto) |
 | `--id` | - | string | - | Filter by finding ID (the integer from the ID column, e.g. --id 42) |
 | `--include-dismissed` | - | bool | `false` | With --new-since: keep findings marked false_positive or accepted_risk |
@@ -1790,7 +1790,7 @@ List parameters per endpoint with value-type histograms, from stored traffic
 | `--from` | - | string | - | Only records sent at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
-| `--host` | - | string | - | Filter by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--limit` | `-n` | int | `100` | Maximum parameters to list (0 = all); the aggregate always covers every matched record |
 | `--location` | - | stringSlice | - | Only these locations (comma-separated): query, body, json, xml, cookie, multipart, header, path, other |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
@@ -2656,7 +2656,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--group-by` | - | string | - | Count the matched records by one field instead of listing them (host, ip, is_authenticated, method, response_content_type, scan_uuid, source, status_code). Runs the same filters as the listing |
 | `--group-limit` | - | int | `20` | With --group-by: maximum groups to show, largest first (0 = every group). The tail is reported as a count, never dropped |
 | `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange |
-| `--host` | - | string | - | Filter by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--in-replace` | - | bool | `false` | With --replay: overwrite each stored response with the new replay response |
 | `--limit` | `-n` | int | `100` | Maximum records to display |
 | `--markdown` | - | bool | `false` | Render the matched records as Markdown (request/response in fenced http blocks) to stdout; response bodies are compacted to a preview by default (use --full-body for whole bodies) |
