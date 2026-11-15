@@ -4,8 +4,44 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+The CLI as a coding agent drives it: outcomes that match the exit code, verbs to stop and inspect runs, sends that stay in scope and say where they go, and a skill that describes all of it.
+
+### Security
+
+- Config writers (`config set`/`unset`, `module enable`/`disable`, `scope set`/`add`/`rm`, project overlays, the server's config and scope handlers) edit the raw YAML in place: `${VAR}` placeholders and comments survive, and no expanded secret (`VIGOLIUM_DB_PASSWORD`, storage keys, OAST token) is written to disk any more. Booleans and integers are parsed strictly (exit 2 otherwise) and the value read back is echoed.
+- Under `-j` with a coding-agent variable set (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `GEMINI_CLI`, `VIGOLIUM_AGENT`; CI variables do not count), raw request/response views mask credential header values, cookie values and sensitive query parameters, and every envelope says `redacted`. `--redact` / `--no-redact` override. Bodies, the database and exports stay raw.
+- `server --no-auth` on a non-loopback `--host` (including `$VIGOLIUM_SERVER_HOST=0.0.0.0`) is refused unless `--allow-unauthenticated-bind`.
+- `auth load` prints sensitive header values and tokens as `<redacted>` and refuses a session file with lint errors (`lint_failed`; `--force` overrides).
+
+### Added
+
+- Verbs: `vigolium status`, `scan ls`, `scan stop <uuid|prefix> [--wait]` (a stop request the heartbeat picks up, also for `-S` scans and server-run scans), `agent cancel`, `finding show`, `config get`, `config unset`, `config env`, `config ls --effective`, `scope add`/`rm`/`check`, `project current`/`rename`, `auth show`/`rm`, `module show`, `server status`/`stop`, `skills uninstall`, `skills get --ref <file>` / `--list-refs`.
+- `--dry-run` on `db reset`, `project delete`, `module enable`/`disable`, `finding load`, `finding mark`, `import`, `ingest`, `skills install`/`uninstall`, `scope set`, `auth load`, `config set`, `replay`, `scan-url`, `scan-request` and `agent audit`; `agent autopilot`/`swarm --dry-run` call no provider and send nothing.
+- `replay --once` (one send, response inline), `--save`/`--no-save` (a single replay stores its exchange as source `replay`), `--baseline`, `--all-matches`, `--keep-host`, `--excerpt-bytes`; `fuzz --save[=all]` (source `fuzz`), `-n`, `--all-results`, `sent_total`; `scan --record-uuid`; `--include-stored` / `--input-only`; `--no-auth`; `--ignore-scope` on every sender; `init --with-deps`.
+- `server -j` / `--events ndjson` print one `server.ready` line once both listeners are bound; a pidfile under `~/.vigolium/server/`; `/health` reports `pid`.
+- Envelope fields: `error {code, message, exit_code, hint?, did_you_mean?, usage_argv?}` beside any document that ends non-zero, `next[] {argv, why, sends_traffic}`, `sends_traffic`, `redacted`. Plan fields: `proxy`, `estimate.duration_ms`, `execution_path`, `targets.stored_records`, `scope.rules`; scan documents count `scope_dropped` per rule class.
+- Error codes `out_of_scope`, `interrupted`, `provider_unreachable`, `storage_disabled`, `finding_not_found` / `scan_not_found` / `project_not_found` on the CLI paths that used generic ones.
+- `doctor -j` lists flat `checks` with `status` and `capabilities {scan, spidering, known_issue_scan, out_of_band, agent, audit}`; `--for scan|agent|server`, `--only` without `--fix`, `--fix --dry-run`, a proxy row naming its source.
+- Generic shaping (`--fields`, `--compact`, `--max-output-bytes`, `-n/--offset`) on every read that has rows; `module ls` rows carry `tier` and `risk_high`.
+- Shared spellings as aliases: `--header-search`/`--body-search` on reads, `-u/--record-uuid` for a stored record, `--data` on `scan-url`, `--method` on `fuzz`, `--max-time` on the agent runs, `js-beautify` and `scan wait`, `-o/--output` on `server ca print` and `skills gen-flags`.
+- The skill: `agent-loop.md` is split into one `loop-*.md` file per step, `invariants.md` holds the `-j` envelope, an `error.code` → next-command table and the exit codes, and the references cover untrusted target content, a one-off `-S` scan, harness timeouts, stopping a scan, local dev servers and proxied sandboxes. The e2e suite runs every documented read-only example against a seeded store and evaluates its `jq` paths.
+
 ### Changed
 
+- `ok` is true exactly when the exit code is 0, 3 or 4. A command that produced its document and then failed prints it once with `ok: false` and `error`; there is no second document.
+- A `query` / `query_argv` hint is always a read that sends nothing and repeats the source's `--db`; a follow-up that sends (fuzz's confirmation scan) moves to `next[]`.
+- A gracefully interrupted scan (SIGINT/SIGTERM, `scan stop`) exits 5 with `error.code: "interrupted"` and is stored `cancelled`. `--fail-on` implies `--fail-on-partial`.
+- `scan-url`, `scan-request` and `run -t` attack only their input; `--include-stored` adds the stored records of the host. `scan -t` keeps including them and states the count (`--input-only` turns it off).
+- Environment proxies are picked by target scheme (`HTTPS_PROXY` for https, `HTTP_PROXY` for http, `ALL_PROXY` for both) and honour `NO_PROXY`; loopback is not bypassed on its own. The plan, the banner, `status`, `doctor` and the unreachable error name the proxy and the variable it came from. `--proxy` still proxies everything.
+- Every sender (`replay`, `traffic --replay`, `fuzz`, `dns`, `kit param-mine`, `finding verify`) checks scope before the first request: exit 2 `out_of_scope`.
+- `fuzz` needs an explicit position (a marker, or `--fuzz`/`--point`/`--fuzz-header`, not both), defaults to `--rate-limit 100` and `--max-requests 10000` (a bigger plan is exit 2), and skips headers the request does not carry unless `--fuzz headers:synthetic`.
+- `replay -i` sends a supplied request once (`--baseline` for the diff); URL-shaped positionals are refused (exit 2 naming `-i`); a bulk replay matching several records needs `--all-matches`.
+- Unknown subcommands, flags, enum values and near-miss verbs (`scan stauts`, `scan ps`) are exit 2 with `did_you_mean`; group commands reject unknown words; argument-count errors are usage errors.
+- `--compact` also trims the envelope (`query`, `generated_at`, `db_path`) and empties a scan document's `plan`; the output budget empties bulky context before cutting findings.
+- A single loopback or private-address target is paced from its first request, and three connection resets in a row arm adaptive back-off on any host.
+- `module disable` writes a deny-list; a broad term needs `--force`.
+- Agent commands fail at once with `provider_unreachable` when the provider refuses the connection; a TUI or picker without a terminal is a usage error naming the non-interactive form.
+- `skills install -j` items carry `status_after`, and `--agent`/`--scope` are validated even with `--dir`. `init` names the built-in AI agent's skills apart from the coding-agent skill.
 - `vigolium export` now exports the active project by default, like `traffic`, `finding` and `db export`; pass `--all-projects` for the whole store. Report metadata (target, duration) is scoped the same way.
 - `vigolium import` of a JSONL export now stores its `scan` and `oast_interaction` rows (re-homed into the active project, deduplicated); `scope` rows load only with `--include-scopes` or into a `-S`/`--glob-db` scratch database. `import -j` reports `imported_by_type`, `duplicates_by_type` and `skipped_types`.
 - `db export --format jsonl` (the default) writes the `{"type","data"}` lines `vigolium export` writes and `import` reads: the selected records, then their linked findings. The previous nuclei-style output is `--format nuclei`. `--table http_records|findings` picks the line types; other tables are a usage error.
@@ -21,6 +57,19 @@ All notable changes to this project will be documented in this file.
 - `project use` accepts a name or a unique 8+ character UUID prefix; an unknown one is `project_not_found` (was `not_found`) with a `project create <name>` hint. New `project use --print-env` prints the export line and writes no `active-project` file, pinning one shell.
 - `vigolium init` help states its downloads (Chrome for Testing ~150 MB, nuclei-templates ~100 MB); without a terminal it skips them and prints the command that fetches them (`--with-deps` downloads anyway).
 - `doctor` prints the verdict first with what still works (scan, spidering, known-issue scan, out-of-band, agent, audit), then one line per check; detail lines need `-v`. `doctor -j` lists the checks flat in `items` (`id`, `group`, `status`, `message`, `affects`, `fix_argv`, and on a failing check `source`: the setting it tested and where it came from) with `status` and `capabilities` at the top level; `--json-legacy-keys` keeps the nested report. A proxy row names the proxy, the flag or variable that set it, and that loopback targets go through it. `--only` works without `--fix`. `--fix` prints the re-checked report once, and `--fix --dry-run` lists each install with its method, destination and approximate size. An agent provider behind an endpoint (`openai-compatible`, `anthropic-compatible`) is `unverified` instead of ok; `--for agent` probes the endpoint.
+
+### Removed
+
+- `--ci-output-format`: hidden, and using it is exit 2 naming `-j` (the scan document) and `--format jsonl` (the findings stream).
+
+### Fixed
+
+- `scan-url` and `scan-request` apply `--rate-limit` (they printed it and ignored it).
+- `server` binds both listeners before announcing them; a bind failure exits 1.
+- `ingest` from stdin honours `-I` and file-format detection.
+- `db clean --severity` deletes findings only, and every dry run reports per-table counts.
+- A scan with no target (`--all-records`) no longer panics on a nil admission.
+- Skill, help and docs examples that had rotted: `jq '.records[]'` (rows are in `.items[]`), a non-existent `jwt-none` preset, `ext lint` suggested for an auth file (`auth lint`), and statements the changes above made false.
 
 ## [v0.5.7] - 2026-11-14
 

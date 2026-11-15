@@ -1044,13 +1044,14 @@ Exit codes:
 | `2` | usage error — bad flag, bad value, rejected combination, a search that matched nothing (`module enable`), or a mutation that needed `--force` and had no terminal to ask. `error.code: "usage_error"`, except a scan whose `--ext` extension failed to load before any request: `extension_load_failed` (`--ext-allow-failures` to scan without it), and a send to a host the configured scope refuses: `out_of_scope` (`fuzz`, `dns`, `replay` single and bulk, `traffic --replay`, `kit param-mine`, `finding verify`; nothing is sent, `--ignore-scope` on each overrides it) |
 | `3` | `--fail-on-match` / `--fail-on-crack` matched (`fuzz`, `kit secret-scan`, `kit jwt-crack`) |
 | `4` | the `--fail-on <severity>` (or `scan diff --fail-on-new <severity>`) gate tripped |
-| `5` | incomplete — the work ran but did not finish. `error.code` is `timed_out`, `budget_exhausted` or `partial`. The default for agent runs (`agent autopilot`/`swarm`/`audit`: a `--max-duration` stop, a `--max-commands`/`--token-budget`/`--max-cost-usd` stop, an audit in which some drivers failed; `agent query`/`triage` past `--max-duration`) — see [AI / agentic scans](#ai--agentic-scans); a native scan that is merely partial still exits `0` (see [Partial scans](#partial-scans)), with an opt-in `--fail-on-partial` planned for a later release |
+| `5` | incomplete — the work ran but did not finish. `error.code` is `interrupted`, `timed_out`, `budget_exhausted` or `partial`. `interrupted`: a scan stopped by SIGINT/SIGTERM or `scan stop` after flushing what it had. The agent runs (`agent autopilot`/`swarm`/`audit`: a `--max-duration` stop, a `--max-commands`/`--token-budget`/`--max-cost-usd` stop, an audit in which some drivers failed; `agent query`/`triage` past `--max-duration`) — see [AI / agentic scans](#ai--agentic-scans). A native scan that is merely partial exits `0` unless `--fail-on` (which implies it) or `--fail-on-partial` is given (see [Partial scans](#partial-scans)) |
 
 `error.code` is a closed set shared with the REST API (`pkg/apicontract`):
 values are added, never re-worded, so branch on the code rather than the message.
 
 `3`, `4` and `5` are *completed results*, not failures: the output was written before
-the code was chosen. When it was NOT written — an unwritable `-o`, a query that
+the code was chosen. `ok` follows the exit code: `true` on `0`, `3` and `4`,
+`false` on `1`, `2` and `5` (with `error` attached). When it was NOT written — an unwritable `-o`, a query that
 failed mid-stream — the run exits `1` with `error.code: "export_failed"`, and
 that outranks the gate: a `4` whose artifact is missing would send a CI job to
 read a file that is not there. Each `--format` is attempted independently, so
@@ -1068,8 +1069,10 @@ Under `--json` you get **exactly one document per invocation**, whatever happens
 
 - Flag order does not matter. `traffic --bad --json` and `traffic --json --bad`
   both emit one `usage_error` object.
-- A command that already wrote its result does not get an error object appended
-  to it — the exit code carries the outcome.
+- A command that produced its result and then ended non-zero prints that
+  result once, with `ok: false` and the `error` object beside its fields (exit
+  `1`, `2` or `5`); there is no second document. On `3` and `4` the result is
+  printed with `ok: true` and no `error`.
 - A command that was *about* to write its result and then failed does get one.
   `-o <path>` that cannot be written exits `1` with `error.code:
   "export_failed"` and a message naming the path; the result document is not
@@ -1117,8 +1120,8 @@ closes its end cannot hang the process:
 project a rescan would touch. Pass `--all-records` to rescan every HTTP record
 in the active project; it cannot be combined with `-t`, `-T`, `-i` or `-S`
 (exit `2`). On an interactive terminal the bare form still rescans for one
-release, with a deprecation warning; under `-j`, `--events`, `--ci-output`, or
-when stdout or stderr is not a terminal it is already an error.
+release, with a deprecation warning; under `-j`, `--events`, or when stdout or
+stderr is not a terminal it is already an error.
 
 ### Scope admission
 
@@ -1180,11 +1183,13 @@ mis-schemed target is an error instead of a clean-looking empty scan:
 A scan that ran to its end having covered less than it was given is a **partial**
 scan, and partial is **not** an error:
 
-- **The exit code does not change.** A partial scan still exits `0`. Nothing
-  failed; coverage was simply less than complete, and a CI job that treats that
-  as a failure would fail on every correctly time-boxed run. There is no
-  `--fail-on-partial` gate today; exit `5` is reserved for it, and a later
-  release adds the flag as an opt-in.
+- **The exit code does not change by default.** A partial scan exits `0`.
+  Nothing failed; coverage was simply less than complete, and a CI job that
+  treats that as a failure would fail on every correctly time-boxed run.
+  `--fail-on-partial` opts in to exit `5` (`error.code: "partial"`, `ok:
+  false`, the document still printed), and `--fail-on <severity>` implies it;
+  `scan wait <uuid> --fail-on-partial` does the same for a scan you did not
+  start. A tripped `--fail-on` gate (exit `4`) takes precedence over partial.
 - **`scan.finished` reports `"status": "curtailed"`** instead of `"completed"`,
   with `stop_reason` (one code) and `reasons` (the union of every phase's
   reasons). `failed` and `interrupted` are never relabelled — a scan that failed
@@ -1222,15 +1227,16 @@ scan, and partial is **not** an error:
 Reason and limit codes are added, never renamed, so matching on a code is safe;
 a code you do not recognise is a code added after your version.
 
-**An interrupted scan's row says `status: failed`.** The event stream says
-`"status": "interrupted"` for the same run, and the two disagree on purpose:
-`status` on the scan row is a released value, and the finalizer has always
-written `failed` for a run that did not reach its end. (The vocabulary has a
-`cancelled` value; the finalizer does not use it.) Do not read the row's
-`status` as "something broke" for an interrupted run — read the coverage fields,
-which the row and the stream agree on completely: `completeness: partial`,
-`stop_reason: cancelled`, and `input_incomplete` among the reasons. If you need
-to distinguish an interrupt from a crash, that triple is the signal.
+**An interrupted scan's row says `status: cancelled`.** A run stopped by
+SIGINT/SIGTERM or `scan stop` is stored `cancelled` (with `stop_reason`
+`cancelled`, or `user_stopped` for `scan stop`), so `log ls`, `scan ls`, `log
+<uuid>` and `scan status` agree, and the event stream's `scan.finished` says
+`"status": "interrupted"`. The process exits `5` with `error.code:
+"interrupted"` after printing its document. Its coverage fields read
+`completeness: partial` and `input_incomplete` among the reasons. A
+scan-on-receive successor inherits the cursor of the newest earlier
+scan-on-receive run whatever its status, so an interrupted run is not
+rescanned from the start.
 
 Record delivery is **at-least-once**. A curtailed phase leaves its durable cursor
 *behind* the records it did not finish, so a successor run — `scan-on-receive`,
@@ -1367,6 +1373,49 @@ An unknown UUID is tolerated for 30s (the row may not exist yet), then fails
 and ends with `scan.finished`, or with an `error` line whose `error_kind` is
 `wait_timeout` / `scan_abandoned`; it cannot be combined with `-j`.
 
+## Inspecting and controlling a run
+
+Every verb below prints one `-j` document (`vigolium schema command <name>`
+has its shape) and, where it changes state, takes `--dry-run`.
+
+| Need | Command | Notes |
+|---|---|---|
+| Where am I | `vigolium status -j` | store, project and its source, proxy and its source, scope rule counts, record/finding/scan counts, running scans, whether the installed skill is stale |
+| What is running or ran | `vigolium scan ls -j` | native and agent runs, `effective_status` (`abandoned` = the process is gone) |
+| Stop a scan | `vigolium scan stop <uuid-or-prefix> --wait -j` | a stop request the scan's heartbeat picks up within ~10 s, wherever it runs; the scan exits `5` `interrupted`, its row says `cancelled`/`user_stopped`; a finished scan is `changed: false`, `action: already_finished` |
+| Stop an agent run | `vigolium agent cancel <uuid> --wait -j` | stored `cancelled`; the run exits `1` |
+| One finding with its records | `vigolium finding show <id-or-hash> -j` | `finding <int>` is the same id; a miss is `finding_not_found` |
+| One setting, its type and source | `vigolium config get <key> -j` | `config ls --effective -j` lists only what a layer set, with `source` (`default`, `file`, `env:NAME`, `project`, `profile`, `flag`); `config env -j` lists every `VIGOLIUM_*` variable; `config unset <key>` removes a key (comments kept) |
+| Scope rules | `vigolium scope check <url> -j` | says which rule and pattern decide; `scope add|rm <component> <pattern>…` edits one list |
+| Which project applies | `vigolium project current -j` | `{uuid, name, source}`; `project use <name> --print-env` pins one shell |
+| Re-send one request once | `vigolium replay -u <uuid> --once -j` | one send, the response inline (16 KiB body cap); single `replay` stores its exchange (`saved_record_uuid`, source `replay`), `--no-save` does not; bulk stores only with `--save`; `--dry-run` prints the request it would send |
+| Keep fuzz hits | `vigolium fuzz … --save -j` | stores the matched exchanges (`--save=all`: every exchange, capped at 1000; source `fuzz`); `--rate-limit` defaults to 100 and `--max-requests` to 10000 (a bigger plan is exit `2`) |
+| Readiness, scoped | `vigolium doctor --for scan -j` | flat `checks` in `items`, `status` and `capabilities {scan, spidering, known_issue_scan, out_of_band, agent, audit}` at the top; `--fix --dry-run` lists each install; `init --with-deps` downloads Chrome and templates without a terminal |
+| Run the API server under a supervisor | `vigolium server -j` | stdout is one `{"type":"server.ready", addr, url, pid, health_url, ready_url, pidfile, …}` line once both listeners are bound; `server status -j` and `server stop` read the pidfile |
+| A reference of the skill | `vigolium skills get vigolium-scanner --ref recipes` | `--list-refs` lists files with sizes; `skills uninstall` removes only unmodified manifest files |
+
+Hand sends go through scope: `replay`, `traffic --replay`, `fuzz`, `dns`, `kit
+param-mine` and `finding verify` refuse an out-of-scope host before the first
+request (exit `2`, `out_of_scope`; `--ignore-scope` opts out). `scan-url`,
+`scan-request` and `run -t` attack only their input unless `--include-stored`;
+`scan -t` includes the stored records of the target unless `--input-only`
+(`plan.targets.stored_records` says which). Proxies: `--proxy`/`$VIGOLIUM_PROXY`
+proxy everything; otherwise `HTTPS_PROXY`/`HTTP_PROXY` are picked by target
+scheme, `ALL_PROXY` covers both, `NO_PROXY` bypasses (loopback is not bypassed
+on its own), and the plan's `proxy` block, the banner and `status -j` name the
+proxy and the variable it came from.
+
+Shaping works the same on every read that has rows: `--fields`, `--compact`,
+`--max-output-bytes` and `-n/--offset` (`vigolium schema command <name>` names
+which a command takes). `--compact` drops the bulky row keys and, on the
+envelope, `query` (keeping `query_argv`), `generated_at` (keeping `_ms`) and
+`db_path`, and empties a scan document's `plan` (a dry run keeps it). Spellings
+are shared too: `--header-search`/`--body-search` filter reads, `-u/--record-uuid`
+names a stored record, `--data` is accepted on `scan-url`, `--method` on `fuzz`,
+`--max-time` caps the agent runs and `scan wait`, `-o/--output` names a file.
+An unknown subcommand, flag or enum value is exit `2` with `error.did_you_mean`
+and `error.usage_argv`.
+
 ## Discovering the interface
 
 ```bash
@@ -1434,7 +1483,11 @@ sessions apart or confirm a rotation landed.
 
 Every `-j` read carries a `query` field: a ready-to-run follow-up pinned to the
 same store and scope, correctly shell-quoted — and `query_argv`, the same
-command as an argv vector.
+command as an argv vector. A `query` is always a read that sends nothing and
+repeats the source's `--db` (an e2e guardrail checks every one the contract
+matrix emits). A follow-up that sends traffic — fuzz's confirmation scan, a scan
+document's next step — is in `next: [{argv, why, sends_traffic}]` instead, and
+the document of a command that sends says `sends_traffic: true`.
 
 ```bash
 q=$(vigolium --db ./run.sqlite -S finding --limit 1 --json | jq -r .query)
@@ -1508,9 +1561,10 @@ path.
   `record_not_found`, the same code as a UUID that does not exist. That is
   deliberate — a distinct "wrong project" error would confirm the record exists.
   The receipt carries `project_uuid` and `project_scoped`.
-- `vigolium export` defaults to the **whole database**, not your active project.
-  Pass `--project-uuid`/`--project-name` to narrow it; the stderr summary and a
-  bundle's `manifest.json` both state which scope the contents have.
+- `vigolium export` covers the **active project** (like `traffic`, `finding` and
+  `db export`); `--all-projects` exports every project in the store. A
+  standalone source (`-S`, `--glob-db`) is exported whole unless a project is
+  named. The stderr summary and a bundle's `manifest.json` state the scope.
 - A failed `-S` scan deletes its throwaway database, losing whatever it had
   learned before it broke. `--keep-db-on-error` moves it to
   `~/.vigolium/recovered/` instead and names the path in the error, so you can
