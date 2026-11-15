@@ -689,7 +689,7 @@ Export database records
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--format` | `-f` | string | `jsonl` | **(overrides the global `--format`)** Export format: jsonl, json, raw, markdown (alias: md), markdown-table (alias: md-table), csv, bundle (alias: gz), fs (alias: file-system; flat traffic/finding tree) |
+| `--format` | `-f` | string | `jsonl` | **(overrides the global `--format`)** Export format: jsonl, json, raw, nuclei (one ResultEvent per linked finding), markdown (alias: md), markdown-table (alias: md-table), csv, bundle (alias: gz), fs (alias: file-system; flat traffic/finding tree) |
 | `--from` | - | string | - | Export records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (alias: --since) |
 | `--host` | - | string | - | Filter records by hostname pattern |
 | `--limit` | - | int | `0` | Maximum number of records to export, 0 for unlimited |
