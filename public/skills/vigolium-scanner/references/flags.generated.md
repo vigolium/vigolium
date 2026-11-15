@@ -1345,6 +1345,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--referer` | - | string | - | Referer header, curl's -e |
 | `--request` | `-X` | string | - | HTTP method override (default: the source request's, or GET) |
 | `--resolve` | - | stringArray | - | Pin a host to an address, curl's --resolve host:port:addr (repeatable) |
+| `--save` | - | string | - | Store payload exchanges (source "fuzz"): --save keeps the ones the run kept (matched/anomalous), --save=all every one (capped at 1000) |
 | `--send-timeout` | - | duration | `0s` | With --send-via-burp: per-request response timeout (<=2m; default uses the bridge's 30s) |
 | `--send-via-burp` | - | bool | `false` | Send each payload through Burp's own HTTP stack (exact bytes — malformed/smuggling preserved) instead of Go's client; requires --burp-bridge-url |
 | `--session-id` | - | string | - | Persist cookies across runs under ~/.vigolium/replay-jars/<id>.json |
@@ -1904,6 +1905,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--burp-bridge-url` | `-B` | string | - | Loopback Burp/Caido bridge URL used by --save-to-burp / --send-via-burp / --to-repeater / --to-organizer (alias: --caido-bridge-url) |
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--concurrency` | `-c` | int | `10` | Bulk: concurrent replays; keep low to avoid overwhelming an intercepting proxy like Burp |
+| `--dry-run` | - | bool | `false` | Print the request that would be sent (after header overlays and --target), without sending or storing it |
 | `--exclude-body` | - | string | - | Bulk: drop records whose request/response body contains the term (inverse of --body) |
 | `--exclude-header-search` | - | string | - | Bulk: drop records whose HTTP header names/values contain the term (inverse of --header-search) |
 | `--exclude-search` | - | stringArray | - | Bulk: drop records where the term appears in the URL, path, or raw request/response (repeatable; dropped if ANY term matches — inverse of --search) |
@@ -1923,14 +1925,17 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--method` | - | stringSlice | - | Bulk: filter records by HTTP method (repeatable) |
 | `--no-cookies` | - | bool | `false` | Don't carry cookies (overrides --session-id) |
 | `--no-redirects` | - | bool | `false` | Don't follow 30x redirects |
+| `--no-save` | - | bool | `false` | Do not store the exchange sent |
 | `--notes` | - | string | - | Note attached to the --to-organizer item (longer than 200 chars is truncated with an ellipsis, not rejected) |
 | `--offset` | - | int | `0` | Bulk: skip this many matched records before replaying (pagination) |
+| `--once` | - | bool | `false` | Send the request once (no baseline, no diff) and print a compact result: saved record_uuid, status, final_url and a bounded body |
 | `--output` | `-o` | string | - | Write the JSONL result stream (one object per record) to this file; stdout keeps the human summary, or the -j envelope |
 | `--path` | - | string | - | Bulk: filter records by URL path pattern |
 | `--raw-request` | - | string | - | Full raw HTTP request override — send these exact bytes instead of the resolved baseline |
 | `--raw-request-file` | - | string | - | Read --raw-request from a file |
 | `--record-uuid` | `-u` | string | - | Stored HTTP record UUID (or unique 8+ char prefix) to use as baseline |
 | `--repeater-tab` | - | string | - | Repeater tab name for --to-repeater (default: vigolium) |
+| `--save` | - | bool | `false` | Store the exchange sent (source "replay") and report its saved_record_uuid. On by default for a single replay; bulk replay stores only with --save |
 | `--save-to-burp` | - | bool | `false` | Add each replayed request and its fresh response to Burp's Target Site map |
 | `--search` | - | stringArray | - | Bulk: search across URL, path, and the raw request/response (headers + body); repeatable, AND-combined |
 | `--send-timeout` | - | duration | `0s` | With --send-via-burp: response timeout (<=2m; default uses the bridge's 30s) |

@@ -243,7 +243,7 @@
     "name": "replay",
     "kind": "command",
     "envelope_kind": "read",
-    "description": "One row per replayed record: the baseline, the replay and their diff. A single source is one item; a bulk run counts failed rows."
+    "description": "One row per replayed record: the baseline, the replay and their diff, and saved_record_uuid when the exchange was stored. A single source is one item; a bulk run counts failed rows. --once prints one compact item instead."
   },
   {
     "name": "run",
