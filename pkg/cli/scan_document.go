@@ -223,7 +223,9 @@ func docReadContext() (context.Context, context.CancelFunc) {
 // fillFromStore reads the scan's findings, counts and row back from the store.
 // The row may be missing (it was never created); the findings are read anyway,
 // by scan_uuid, which every finding of the run carries.
-func (b *scanDocBuilder) fillFromStore(ctx context.Context, repo *database.Repository, s *scanDocScan, projectScope string) *database.Scan {
+// ev, when set, embeds each finding's evidence record (a -S store that goes
+// away with the run).
+func (b *scanDocBuilder) fillFromStore(ctx context.Context, repo *database.Repository, s *scanDocScan, projectScope string, ev *statelessEvidence) *database.Scan {
 	filters := database.QueryFilters{ProjectUUID: projectScope, ObservedInScan: s.scanUUID, SortBy: "severity", Limit: b.limit}
 	if scanDocListsHosts() {
 		// The fingerprint document's items are the origins it fingerprinted,
@@ -234,6 +236,10 @@ func (b *scanDocBuilder) fillFromStore(ctx context.Context, repo *database.Repos
 			hydrateFindingEvidence(ctx, repo, findings)
 		}
 		s.items = make([]map[string]any, 0, len(findings))
+		var byUUID map[string]*database.HTTPRecord
+		if ev != nil && !b.view.noBodies {
+			byUUID, _ = batchLoadFindingRecords(ctx, ev.db, findings, statelessEvidenceRecords)
+		}
 		for _, f := range findings {
 			if projectScope == "" && globalStateless {
 				// A -S temp store's row ids resolve to nothing once the run
@@ -241,7 +247,18 @@ func (b *scanDocBuilder) fillFromStore(ctx context.Context, repo *database.Repos
 				// finding.
 				f.ID = 0
 			}
-			s.items = append(s.items, compactFindingView(f, nil, b.view))
+			var recs []*database.HTTPRecord
+			if byUUID != nil {
+				recs = recordsForFinding(byUUID, f)
+			}
+			view := compactFindingView(f, recs, b.view)
+			if ev != nil && ev.dropUUIDs {
+				// Nothing will resolve these once the store is gone; the
+				// embedded record is the evidence.
+				delete(view, "http_record_uuids")
+				delete(view, "origin_record_uuid")
+			}
+			s.items = append(s.items, view)
 		}
 		s.total = total
 	} else {
@@ -334,6 +351,31 @@ func countRecordKind(ctx context.Context, repo *database.Repository, projectScop
 	return total
 }
 
+// statelessEvidenceRecords is how many linked records a -S document embeds
+// per finding: the evidence exchange, bounded like `finding --with-records`
+// (records_total and records_truncated say when there were more).
+const statelessEvidenceRecords = 1
+
+// statelessEvidence is how a -S run's document carries evidence that the
+// throwaway store will not keep.
+type statelessEvidence struct {
+	db *database.DB
+	// dropUUIDs removes record UUIDs no store will resolve: no sqlite artifact
+	// was written and the working database is not kept.
+	dropUUIDs bool
+}
+
+// statelessEvidenceFor returns the evidence policy for a Runner pass: nil
+// for a persisted run, whose record UUIDs resolve in its store.
+func statelessEvidenceFor(in runnerDocInput) *statelessEvidence {
+	if in.opts == nil || !in.opts.Stateless {
+		return nil
+	}
+	kept := in.runErr != nil && (globalKeepDBOnError || isExportFailure(in.runErr))
+	sqlite := slices.ContainsFunc(collectedScanArtifacts(), func(a scanArtifact) bool { return a.Format == "sqlite" })
+	return &statelessEvidence{db: in.db, dropUUIDs: !kept && !sqlite}
+}
+
 // runnerDocInput is one Runner pass, as AddRunner reads it.
 type runnerDocInput struct {
 	db     *database.DB
@@ -360,7 +402,7 @@ func (b *scanDocBuilder) AddRunner(in runnerDocInput) {
 
 	known := slices.ContainsFunc(b.scans, func(x *scanDocScan) bool { return x.scanUUID == opts.ScanUUID })
 	s := b.scanFor(opts.ScanUUID)
-	row := b.fillFromStore(ctx, repo, s, exportProjectScope(opts))
+	row := b.fillFromStore(ctx, repo, s, exportProjectScope(opts), statelessEvidenceFor(in))
 	if row == nil && in.runErr != nil && s.total == 0 && !known {
 		// Nothing ran far enough to leave a row: the failure is the answer, and
 		// with nothing else in the document the root's error envelope says it.
@@ -417,7 +459,7 @@ func (b *scanDocBuilder) AddStored(ctx context.Context, repo *database.Repositor
 	s := b.scanFor(row.UUID)
 	// Scoped by the row's own project: the findings of the scan live there,
 	// and a -S read of a standalone file keeps its row ids resolvable.
-	if got := b.fillFromStore(ctx, repo, s, row.ProjectUUID); got != nil {
+	if got := b.fillFromStore(ctx, repo, s, row.ProjectUUID, nil); got != nil {
 		row = got
 	}
 	if s.projectUUID == "" {
@@ -591,7 +633,7 @@ func (b *scanDocBuilder) AddDirect(result *scanResult, execErr error) {
 	var row *database.Scan
 	if result.Persisted && result.repo != nil {
 		ctx, cancel := docReadContext()
-		row = b.fillFromStore(ctx, result.repo, s, result.projectUUID)
+		row = b.fillFromStore(ctx, result.repo, s, result.projectUUID, nil)
 		cancel()
 		s.dbPath = directDocDBPath()
 	} else {

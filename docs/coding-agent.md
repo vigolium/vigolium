@@ -268,7 +268,11 @@ is stored on the scan row (`scans.plan`), and drives the pre-scan banner.
   in `reasons`.
 - **`persisted: false`** for `-S` (the temp store is gone when the process
   exits, so `db_path` and `query` are omitted) and for a direct run that had no
-  store. `modules.selected` is what the scan was handed, `modules.executed` how
+  store. A `-S` document embeds each finding's evidence record under `records`
+  (`records_total`/`records_truncated` when it links more) and omits
+  `http_record_uuids`/`origin_record_uuid`, which nothing resolves afterwards;
+  they stay when `--format sqlite` wrote the store or the working database was
+  kept. `modules.selected` is what the scan was handed, `modules.executed` how
   many ran at least once (scan-url used to report `modules_run`, which counted
   the loaded modules).
 - **`-j` owns stdout.** `-j` with `--events`,

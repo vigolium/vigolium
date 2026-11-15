@@ -366,3 +366,32 @@ func TestCodingAgentDocScanDocumentExample(t *testing.T) {
 	}
 	assert.EqualValues(t, AgentSchemaVersion, documented["schema_version"])
 }
+
+// A -S document embeds each finding's evidence record and drops the record
+// UUIDs the throwaway store takes with it, unless a sqlite artifact keeps
+// them resolvable.
+func TestStatelessScanDocumentEmbedsEvidence(t *testing.T) {
+	srv, _ := countingServer(t)
+	home := a3Home(t, "127.0.0.1")
+	base := []string{"scan", "-S", "-t", srv.URL + "/", "-j", "--only", "ingestion,dynamic-assessment", "--skip-heuristics", "-m", "security-headers-missing"}
+
+	code, stdout, stderr := runA3(t, home, base...)
+	require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	contracttest.Validate(t, "scan", []byte(stdout))
+	doc := decodeOneScanDoc(t, stdout)
+	require.NotEmpty(t, doc.Items)
+	item := doc.Items[0]
+	assert.NotContains(t, item, "http_record_uuids", "no store resolves them after a -S run")
+	assert.NotContains(t, item, "origin_record_uuid")
+	recs, ok := item["records"].([]any)
+	require.True(t, ok, "the evidence record is embedded: %v", item)
+	require.NotEmpty(t, recs)
+
+	sqlitePath := filepath.Join(t.TempDir(), "run.sqlite")
+	args := append(append([]string{}, base...), "--format", "sqlite", "-o", sqlitePath)
+	code, stdout, stderr = runA3(t, home, args...)
+	require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	doc = decodeOneScanDoc(t, stdout)
+	require.NotEmpty(t, doc.Items)
+	assert.Contains(t, doc.Items[0], "http_record_uuids", "the sqlite artifact keeps them resolvable")
+}
