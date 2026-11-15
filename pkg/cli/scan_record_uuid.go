@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -11,7 +9,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/vigolium/vigolium/internal/runner"
-	"github.com/vigolium/vigolium/pkg/apicontract"
+	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
@@ -81,53 +79,33 @@ func recordUUIDDefaultPhase() {
 // records in the project, refusing unknown, ambiguous and evidence records
 // (a finding's attached exchange is never re-attacked).
 func resolveScanRecordRefs(ctx context.Context, repo *database.Repository, projectUUID string, refs []string) ([]string, error) {
-	seen := map[string]bool{}
-	var out []string
+	var split []string
 	for _, raw := range refs {
-		for _, ref := range strings.Split(raw, ",") {
-			ref = strings.ToLower(strings.TrimSpace(ref))
-			if ref == "" {
-				continue
-			}
-			full := ref
-			if !scanUUIDShape.MatchString(ref) {
-				if len(ref) < database.MinUUIDPrefix {
-					return nil, usageErrorf("--%s %q: a prefix needs at least %d characters", recordUUIDFlag, ref, database.MinUUIDPrefix)
-				}
-				uuid, candidates, err := repo.ResolveRecordUUIDInProject(ctx, ref, projectUUID)
-				switch {
-				case errors.Is(err, sql.ErrNoRows):
-					return nil, codedErrorf(apicontract.CodeRecordNotFound, "--%s %q: no stored record in this project matches", recordUUIDFlag, ref)
-				case err != nil:
-					return nil, err
-				case len(candidates) > 1:
-					ids := make([]string, len(candidates))
-					for i, c := range candidates {
-						ids[i] = c.UUID
-					}
-					return nil, codedErrorf(apicontract.CodeAmbiguousID, "--%s %q matches %d records (%s); use more characters",
-						recordUUIDFlag, ref, len(ids), strings.Join(ids, ", "))
-				}
-				full = uuid
-			}
-			rec, err := repo.GetRecordByUUID(ctx, full)
-			if err != nil || rec == nil || (projectUUID != "" && rec.ProjectUUID != projectUUID) {
-				return nil, codedErrorf(apicontract.CodeRecordNotFound, "--%s %s: no stored record in this project has this UUID", recordUUIDFlag, full)
-			}
-			for _, ev := range database.EvidenceRecordSources {
-				if rec.Source == ev {
-					return nil, usageErrorf("--%s %s is scan evidence (source %q): evidence records are never re-scanned; scan the request it came from instead",
-						recordUUIDFlag, full, rec.Source)
-				}
-			}
-			if !seen[full] {
-				seen[full] = true
-				out = append(out, full)
-			}
-		}
+		split = append(split, clicommon.SplitCSV(raw)...)
 	}
-	if len(out) == 0 {
+	if len(split) == 0 {
 		return nil, usageErrorf("--%s was given no record", recordUUIDFlag)
+	}
+	resolved, err := resolveRecordRefs(ctx, repo, split, projectUUID)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(resolved))
+	for _, full := range resolved {
+		if seen[full] {
+			continue
+		}
+		seen[full] = true
+		rec, err := repo.GetRecordByUUID(ctx, full)
+		if err != nil || rec == nil || (projectUUID != "" && rec.ProjectUUID != projectUUID) {
+			return nil, recordNotFound(full)
+		}
+		if database.IsEvidenceRecordSource(rec.Source) {
+			return nil, usageErrorf("--%s %s is scan evidence (source %q): evidence records are never re-scanned; scan the request it came from instead",
+				recordUUIDFlag, full, rec.Source)
+		}
+		out = append(out, full)
 	}
 	return out, nil
 }
