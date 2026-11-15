@@ -277,6 +277,9 @@ func runScanURLCmd(cmd *cobra.Command, args []string) error {
 	if err := validateEventsFlag(scanOpts.Events); err != nil {
 		return asUsageError(err)
 	}
+	if err := validateNoAuth(); err != nil {
+		return err
+	}
 	// Validated here, not only in runRunnerScan: without -S/-o this command takes
 	// the direct in-memory path, which never reaches the Runner — so a check
 	// there alone let `scan-url --keep-db-on-error` exit 0 having done nothing
@@ -1033,6 +1036,7 @@ func buildPhaseOptions(target string) (*types.Options, error) {
 	opts.OastURL = scanOpts.OastURL
 	opts.AuthFiles = scanOpts.AuthFiles
 	opts.AuthInline = scanOpts.AuthInline
+	opts.NoAuth = scanOpts.NoAuth
 	// -H rides on every request the Runner sends (phase-discovered ones too),
 	// and pins those header names against an --auth session's values. The
 	// request itself already carries them (scan-url builds it with them,

@@ -228,7 +228,7 @@ func fuzzAuthSessionHeaders(ctx context.Context, src *replaySource) ([]string, e
 	if fuzzAuthSession == "" {
 		return nil, nil
 	}
-	overlay, err := resolveAuthSessionHeaders(ctx, fuzzAuthSession, src.Hostname)
+	overlay, err := resolveAuthSessionHeaders(ctx, fuzzAuthSession, src)
 	if err != nil {
 		return nil, err
 	}

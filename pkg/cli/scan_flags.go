@@ -169,6 +169,8 @@ func registerAuthFlags(flags *pflag.FlagSet) {
 			"or bare name resolved against scanning_strategy.session.session_dir. Repeatable; commas are literal.")
 	flags.StringArrayVar(&scanOpts.AuthInline, "auth", nil,
 		"Inline session in 'name:Header:value' format. Repeatable; commas are literal (header values may contain commas).")
+	flags.BoolVar(&scanOpts.NoAuth, "no-auth", false,
+		"Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs)")
 
 	// Accept the former flag names (--session / --session-file) shown in older
 	// guides and copy-pasted commands as aliases for --auth / --auth-file. A

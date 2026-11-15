@@ -227,7 +227,7 @@ var scanFlagGroups = []flagGroup{
 	{"Harvest", []string{"external-harvest"}},
 	{"KnownIssueScan", []string{"known-issue-scan", "known-issue-scan-tags", "known-issue-scan-exclude-tags", "known-issue-scan-severities", "known-issue-scan-templates-dir", "known-issue-scan-templates"}},
 	{"Request", []string{"method", "body", "header", "advanced-options", "retries", "stream"}},
-	{"Authentication", []string{"auth", "auth-file"}},
+	{"Authentication", []string{"auth", "auth-file", "no-auth"}},
 	{"Speed Control", []string{"timeout", "concurrency", "rate-limit", "max-per-host", "max-requests", "max-requests-per-host", "no-waf-pacing", "max-host-error", "max-findings-per-module", "no-clustering"}},
 	{"Output", []string{"output", "stats", "fail-on", "fail-on-partial", "baseline", "ignore-file", "events", "include-response", "omit-response", "export-only", "report-url", "max-body-bytes", "pdf-timeout", "no-redact", "upload-results", "print-finding", "print-traffic", "print-traffic-tree"}},
 	{"Scan Document (-j)", []string{"limit", "fields", "compact", "full-body", "max-output-bytes"}},

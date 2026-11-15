@@ -1181,6 +1181,7 @@ Fingerprint origins with a bounded set of reads and store the result as host fac
 | `--max-time` | - | duration | `0s` | Maximum total scan duration, e.g. 15m, 2h (default: scanning_pace.scan_max_duration, 1h; alias --scanning-max-duration) |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-carry-browser-session` | - | bool | `false` | Do not carry the spidering browser's cleared session (cookies + UA) into discovery/scanning (on by default when --spider runs; scoped to the same host, respects -H) |
 | `--no-cdp` | - | bool | `false` | Disable Chrome DevTools Protocol event listener detection |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
@@ -1986,6 +1987,7 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--max-time` | - | duration | `0s` | Maximum total scan duration, e.g. 15m, 2h (default: scanning_pace.scan_max_duration, 1h; alias --scanning-max-duration) |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-carry-browser-session` | - | bool | `false` | Do not carry the spidering browser's cleared session (cookies + UA) into discovery/scanning (on by default when --spider runs; scoped to the same host, respects -H) |
 | `--no-cdp` | - | bool | `false` | Disable Chrome DevTools Protocol event listener detection |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
@@ -2102,6 +2104,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--module-id` | - | stringSlice | - | Run exactly these module IDs (exact match against active AND passive modules, repeatable). Unlike -m, also selects passive modules. |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-carry-browser-session` | - | bool | `false` | Do not carry the spidering browser's cleared session (cookies + UA) into discovery/scanning (on by default when --spider runs; scoped to the same host, respects -H) |
 | `--no-cdp` | - | bool | `false` | Disable Chrome DevTools Protocol event listener detection |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
@@ -2251,6 +2254,7 @@ Scan a raw HTTP request for vulnerabilities
 | `--module-id` | - | stringSlice | - | Run exactly these module IDs (exact match against active AND passive modules, repeatable). Unlike -m, also selects passive modules. |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
 | `--no-param-dedup` | - | bool | `false` | Keep testing a parameter with every module of a vuln class after one already reported it (default: one finding per param and class, e.g. sqli-time-blind skips a param sqli-error-based confirmed). For audit runs |
 | `--no-passive` | - | bool | `false` | Skip passive modules |
@@ -2318,6 +2322,7 @@ Scan a single URL for vulnerabilities
 | `--module-id` | - | stringSlice | - | Run exactly these module IDs (exact match against active AND passive modules, repeatable). Unlike -m, also selects passive modules. |
 | `--module-tag` | - | stringSlice | - | Filter modules by tag (OR condition, e.g. --module-tag spring --module-tag injection) |
 | `--modules` | `-m` | stringSlice | - | Scan modules to enable (default "all", supports fuzzy match on ID/name, e.g. -m xss -m sqli) |
+| `--no-auth` | - | bool | `false` | Scan without a session: do not load the sessions stored for the targets' hosts (auth load, earlier --auth runs) |
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
 | `--no-param-dedup` | - | bool | `false` | Keep testing a parameter with every module of a vuln class after one already reported it (default: one finding per param and class, e.g. sqli-time-blind skips a param sqli-error-based confirmed). For audit runs |
 | `--no-passive` | - | bool | `false` | Skip passive modules |

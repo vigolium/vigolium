@@ -55,7 +55,7 @@ func (r *Runner) initSessions(ctx context.Context, infra *phaseInfra) error {
 			}
 			sessions = append(sessions, loaded...)
 		}
-	} else {
+	} else if !opts.NoAuth {
 		// Fallback: load from DB authentication_hostnames for this project's target hostnames
 		sessions, sessionHostnameMap, fromDB = r.loadSessionsFromDB(ctx)
 		if len(sessions) == 0 {
@@ -331,8 +331,15 @@ func (r *Runner) loadSessionsFromDB(ctx context.Context) ([]*authentication.Sess
 	hostnameMap := make(map[string]string)
 	var sessions []*authentication.Session
 	for _, hostname := range hostnames {
-		rows, err := r.repository.GetAuthenticationHostnamesByHostname(ctx, r.options.ProjectUUID, hostname)
-		if err != nil || len(rows) == 0 {
+		var rows []*database.AuthenticationHostname
+		for _, key := range database.AuthHostLookupKeys(hostname) {
+			got, err := r.repository.GetAuthenticationHostnamesByHostname(ctx, r.options.ProjectUUID, key)
+			if err == nil && len(got) > 0 {
+				rows = got
+				break
+			}
+		}
+		if len(rows) == 0 {
 			continue
 		}
 		for _, row := range rows {

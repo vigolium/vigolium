@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vigolium/vigolium/internal/redact"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/authentication"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
@@ -129,8 +130,13 @@ func runSessionLoad(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load session config: %w", err)
 	}
 	for _, is := range issues {
-		fmt.Fprintf(os.Stderr, "%s %s%s: %s (ignored; run 'vigolium auth lint')\n",
+		fmt.Fprintf(os.Stderr, "%s %s%s: %s (run 'vigolium auth lint')\n",
 			terminal.WarningSymbol(), name, issuePos(is), is.Message)
+	}
+	// What `auth lint` rejects is not saved: a stored session the linter calls
+	// broken is one later scans load without saying so.
+	if err := sessionLintGate(name, issues); err != nil {
+		return err
 	}
 
 	// Derive --host from login URLs if not provided.
@@ -390,7 +396,7 @@ func runSessionLoadRawRequest(cmd *cobra.Command, data []byte, w io.Writer) erro
 
 	if len(sess.Headers) > 0 {
 		for k, v := range sess.Headers {
-			display := v
+			display := redactSessionValue(k, v)
 			if len(display) > 60 {
 				display = display[:57] + "..."
 			}
@@ -399,6 +405,15 @@ func runSessionLoadRawRequest(cmd *cobra.Command, data []byte, w io.Writer) erro
 	}
 	_, _ = fmt.Fprintln(w)
 
+	// Linted as a definition: the headers the login just captured are its
+	// result, not a second auth source next to the login request.
+	def := *sess
+	if def.Login != nil || def.LoginRequest != "" {
+		def.Headers = nil
+	}
+	if err := sessionLintGate(sess.Name, authentication.LintSessionConfig(&authentication.SessionConfig{Sessions: []authentication.Session{def}})); err != nil {
+		return err
+	}
 	if err := persistSessionsWithResponse([]*authentication.Session{sess}, result.RawResponse, w); err != nil {
 		return err
 	}
@@ -429,7 +444,7 @@ func persistSessionsWithResponse(sessions []*authentication.Session, loginRespon
 		return err
 	}
 
-	rows := database.SessionsToAuthenticationHostnames(sessions, projectUUID, sessionLoadHost)
+	rows := database.SessionsToAuthenticationHostnames(sessions, projectUUID, database.AuthHostKey(sessionLoadHost))
 	now := time.Now()
 	for _, r := range rows {
 		r.Source = sessionLoadSource
@@ -456,9 +471,8 @@ func persistSessionsWithResponse(sessions []*authentication.Session, loginRespon
 		}
 		token := r.SessionToken
 		if token != "" {
-			if len(token) > 40 {
-				token = token[:37] + "..."
-			}
+			// A token is a credential: shown as present, never in clear.
+			token = redact.Placeholder
 			_, _ = fmt.Fprintf(w, "  %s  role=%s  token=%s\n", r.SessionName, role, terminal.Gray(token))
 		} else {
 			hasLogin := "no"
@@ -491,7 +505,7 @@ func persistSessions(sessions []*authentication.Session, w io.Writer) error {
 	}
 
 	// Convert to DB rows and persist.
-	rows := database.SessionsToAuthenticationHostnames(sessions, projectUUID, sessionLoadHost)
+	rows := database.SessionsToAuthenticationHostnames(sessions, projectUUID, database.AuthHostKey(sessionLoadHost))
 	now := time.Now()
 	for _, r := range rows {
 		r.Source = sessionLoadSource
@@ -523,9 +537,8 @@ func persistSessions(sessions []*authentication.Session, w io.Writer) error {
 		}
 		token := r.SessionToken
 		if token != "" {
-			if len(token) > 40 {
-				token = token[:37] + "..."
-			}
+			// A token is a credential: shown as present, never in clear.
+			token = redact.Placeholder
 			_, _ = fmt.Fprintf(w, "  %s  role=%s  token=%s  login=%s\n", r.SessionName, role, terminal.Gray(token), hasLogin)
 		} else {
 			_, _ = fmt.Fprintf(w, "  %s  role=%s  login=%s\n", r.SessionName, role, hasLogin)
@@ -563,4 +576,32 @@ func deriveHostFromSessions(sessions []*authentication.Session) string {
 // isAgentSessionFile returns true if the file path looks like an agent session config.
 func isAgentSessionFile(path string) bool {
 	return strings.Contains(path, "agent-sessions/") || strings.HasSuffix(path, "session-config.json")
+}
+
+// redactSessionValue masks a session header value whose name reads as a
+// credential (Cookie, Authorization, X-Api-Key, …) for display.
+func redactSessionValue(name, value string) string {
+	if redact.IsSensitiveName(name) {
+		return redact.Placeholder
+	}
+	return value
+}
+
+// sessionLintGate refuses to save sessions with lint errors (warnings pass),
+// unless --force.
+func sessionLintGate(name string, issues []authentication.LintIssue) error {
+	var errs []string
+	for _, is := range issues {
+		if is.Severity == "error" {
+			errs = append(errs, is.Field+": "+is.Message)
+		}
+	}
+	if len(errs) == 0 || sessionLoadForce {
+		return nil
+	}
+	return clicommon.CLIError{
+		Err:  fmt.Errorf("%s: %d lint error(s), nothing saved: %s", name, len(errs), strings.Join(errs, "; ")),
+		Code: apicontract.CodeLintFailed,
+		Hint: "fix them (vigolium auth lint " + name + "), or pass --force to save anyway",
+	}
 }

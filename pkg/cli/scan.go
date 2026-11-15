@@ -214,6 +214,9 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	if err := validateScanDocumentFlags(); err != nil {
 		return err
 	}
+	if err := validateNoAuth(); err != nil {
+		return err
+	}
 
 	// Stateless mode validation. The db-isolate precedence runs BEFORE the flag
 	// is copied into Options, so the copy below is already the resolved value and

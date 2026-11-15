@@ -73,6 +73,9 @@ type Options struct {
 	Offline bool
 
 	Silent bool
+	// NoAuth scans without any session: the sessions stored in the database
+	// for the targets' hosts are not loaded (--no-auth).
+	NoAuth bool
 	// StoredRecords decides whether the scan also tests records already
 	// stored for its targets' hosts: StoredRecordsInclude (the default, "")
 	// or StoredRecordsExclude, which tests only what this run seeded or found.

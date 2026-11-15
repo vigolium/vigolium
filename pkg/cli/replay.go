@@ -940,7 +940,7 @@ func buildReplayOverlay(ctx context.Context, src *replaySource) (map[string]stri
 	overlay := map[string]string{}
 
 	if replayAuthSession != "" {
-		headers, err := resolveAuthSessionHeaders(ctx, replayAuthSession, src.Hostname)
+		headers, err := resolveAuthSessionHeaders(ctx, replayAuthSession, src)
 		if err != nil {
 			return nil, err
 		}
@@ -963,7 +963,7 @@ func buildReplayOverlay(ctx context.Context, src *replaySource) (map[string]stri
 // a hostname. Shared by `replay --auth-session` and `fuzz --auth-session` so
 // the lookup, the project scoping, and the not-found message stay identical
 // between them.
-func resolveAuthSessionHeaders(ctx context.Context, sessionName, hostname string) (map[string]string, error) {
+func resolveAuthSessionHeaders(ctx context.Context, sessionName string, src *replaySource) (map[string]string, error) {
 	db, err := openReadDB(globDBSkipSet{})
 	if err != nil {
 		//vigolium:not-usage database open failure
@@ -971,16 +971,21 @@ func resolveAuthSessionHeaders(ctx context.Context, sessionName, hostname string
 	}
 	repo := database.NewRepository(db)
 	pid, _ := effectiveProjectUUID()
-	rows, err := repo.GetAuthenticationHostnamesByHostname(ctx, pid, hostname)
-	if err != nil {
-		return nil, fmt.Errorf("lookup auth sessions: %w", err)
-	}
-	for _, row := range rows {
-		if row.SessionName == sessionName {
-			return row.Headers, nil
+	// The key auth load writes (host:port unless the port is the scheme's
+	// default), then the bare host for sessions stored without a port.
+	key := database.AuthHostKeyFor(src.Scheme, src.Hostname, strconv.Itoa(src.Port))
+	for _, k := range database.AuthHostLookupKeys(key) {
+		rows, err := repo.GetAuthenticationHostnamesByHostname(ctx, pid, k)
+		if err != nil {
+			return nil, fmt.Errorf("lookup auth sessions: %w", err)
+		}
+		for _, row := range rows {
+			if row.SessionName == sessionName {
+				return row.Headers, nil
+			}
 		}
 	}
-	return nil, fmt.Errorf("auth session %q not found for hostname %s", sessionName, hostname)
+	return nil, fmt.Errorf("auth session %q not found for %s", sessionName, key)
 }
 
 // parseReplayHeaderFlags parses the repeatable --header flags into an overlay

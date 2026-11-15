@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vigolium/vigolium/pkg/authentication"
 	hostlimit "github.com/vigolium/vigolium/pkg/core/ratelimit"
 	corestats "github.com/vigolium/vigolium/pkg/core/stats"
 	"github.com/vigolium/vigolium/pkg/database"
@@ -624,7 +625,17 @@ func (r *Runner) printScanConfig() {
 		printSessionAuth("from inline auth")
 	case totalAuth > 1:
 		printSessionAuth(fmt.Sprintf("from %d auth source(s)", totalAuth))
+	case opts.NoAuth:
+		fmt.Fprintf(os.Stderr, "  %s Session auth: %s\n",
+			terminal.Purple(terminal.SymbolInfo),
+			terminal.Gray("none (--no-auth)"))
 	default:
+		// The scan falls back to the sessions stored for its hosts: say so,
+		// or the banner reads "none" while a stored cookie is sent.
+		if stored, _, ok := r.loadSessionsFromDB(context.Background()); ok {
+			printSessionAuth(fmt.Sprintf("from the database: %s (--no-auth to scan without)", sessionNames(stored)))
+			return
+		}
 		fmt.Fprintf(os.Stderr, "  %s Session auth: %s\n",
 			terminal.Purple(terminal.SymbolInfo),
 			terminal.Gray("none"))
@@ -707,4 +718,15 @@ func (r *Runner) printVerboseTargets(targets []string) {
 	if len(targets) > 10 {
 		fmt.Fprintf(os.Stderr, "    %s\n", terminal.Muted(fmt.Sprintf("... and %d more", len(targets)-10)))
 	}
+}
+
+// sessionNames lists session names for a banner.
+func sessionNames(sessions []*authentication.Session) string {
+	names := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		if s != nil {
+			names = append(names, s.Name)
+		}
+	}
+	return strings.Join(names, ", ")
 }

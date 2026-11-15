@@ -121,7 +121,8 @@ func (r *Runner) targetHostnames() []string {
 		if err != nil || u.Host == "" {
 			continue
 		}
-		h := u.Host
+		// The key auth load writes and every reader uses.
+		h := database.AuthHostKey(t)
 		if !seen[h] {
 			seen[h] = true
 			hostnames = append(hostnames, h)

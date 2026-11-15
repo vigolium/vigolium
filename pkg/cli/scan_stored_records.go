@@ -54,3 +54,12 @@ func storedRecordsMode(cmd *cobra.Command, hasTargets bool) string {
 	}
 	return ""
 }
+
+// validateNoAuth rejects --no-auth together with --auth/--auth-file: one says
+// scan without a session, the other names one.
+func validateNoAuth() error {
+	if scanOpts.NoAuth && len(scanOpts.AuthFiles)+len(scanOpts.AuthInline) > 0 {
+		return usageErrorf("--no-auth and --auth/--auth-file are mutually exclusive")
+	}
+	return nil
+}

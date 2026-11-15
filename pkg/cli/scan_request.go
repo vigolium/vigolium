@@ -70,6 +70,9 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 	if err := validateEventsFlag(scanOpts.Events); err != nil {
 		return asUsageError(err)
 	}
+	if err := validateNoAuth(); err != nil {
+		return err
+	}
 	// Validated here, not only in runRunnerScan: without -S/-o this command takes
 	// the direct in-memory path, which never reaches the Runner — so a check
 	// there alone let `scan-url --keep-db-on-error` exit 0 having done nothing

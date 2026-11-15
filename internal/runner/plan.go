@@ -586,7 +586,7 @@ func planAuth(ctx context.Context, p *scanplan.Plan, pr *Runner, opts *types.Opt
 		}
 		add(loaded, "inline")
 	}
-	if len(opts.AuthFiles) == 0 && len(opts.AuthInline) == 0 && pr.repository != nil {
+	if len(opts.AuthFiles) == 0 && len(opts.AuthInline) == 0 && !opts.NoAuth && pr.repository != nil {
 		loaded, _, _ := pr.loadSessionsFromDB(ctx)
 		add(loaded, "db")
 	}

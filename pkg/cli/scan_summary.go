@@ -225,6 +225,7 @@ func printScanSummary(opts *types.Options, settings *config.Settings, strategyNa
 	fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), modulesBannerLine(plan, opts, settings))
 	if plan != nil {
 		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), estimateBannerLine(plan))
+		fmt.Fprintf(os.Stderr, "  %s %s\n", terminal.Purple(terminal.SymbolInfo), authBannerLine(plan, opts.NoAuth))
 	}
 	// Output destination & format(s) — shown when -o or a non-default --format
 	// is in play so it's clear where (and in what shape) results land.
@@ -539,4 +540,27 @@ func summaryFindingCounts(ctx context.Context, repo *database.Repository, projec
 // "Stored:" ("" when it cannot be named, e.g. a non-SQLite driver).
 func resolvedSummaryDBPath() string {
 	return resolvedReadDBPath()
+}
+
+// authBannerLine names the sessions the scan sends, and where they come from:
+// a session stored in the database is sent without any flag, so the banner
+// is the one place that says so.
+func authBannerLine(plan *scanplan.Plan, noAuth bool) string {
+	if len(plan.Auth) == 0 {
+		if noAuth {
+			return "Session auth: " + terminal.Gray("none (--no-auth)")
+		}
+		return "Session auth: " + terminal.Gray("none")
+	}
+	names := make([]string, 0, len(plan.Auth))
+	fromDB := false
+	for _, a := range plan.Auth {
+		names = append(names, a.Name)
+		fromDB = fromDB || a.Source == "db"
+	}
+	line := "Session auth: " + terminal.HiGreen(strings.Join(names, ", "))
+	if fromDB {
+		line += " " + terminal.Gray("(stored in the database for these hosts; --no-auth scans without)")
+	}
+	return line
 }

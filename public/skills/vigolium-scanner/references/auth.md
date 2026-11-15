@@ -231,7 +231,17 @@ configurations to scans with `--auth-file`.
 `failed` and `host`. When a login failed the document also has `ok: false` and
 `error: {code: "login_failed", message, exit_code: 1}`. Human output goes to
 stderr under `-j`. An unknown field in the file is a warning for `auth load`
-and `--auth-file`.
+and `--auth-file`; anything `auth lint` calls an error makes `auth load` save
+nothing and exit 1 with `lint_failed` (`--force` saves anyway). Header values
+and tokens are printed as `<redacted>`.
+
+Sessions are stored per host key: the hostname, plus `:port` when the port is
+not the scheme's default (`--host 127.0.0.1:28942`, or the login URL's host).
+Scans of that host, `replay --auth-session` and `fuzz --auth-session` look the
+key up the same way, then fall back to the bare hostname. A scan with no
+`--auth`/`--auth-file` sends the sessions stored for its targets' hosts: the
+banner's `Session auth:` line and `plan.auth[]` (`source: "db"`) name them, and
+`--no-auth` scans without them.
 
 ### `auth lint`
 
