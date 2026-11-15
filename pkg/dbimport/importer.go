@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/uptrace/bun"
 	"github.com/vigolium/vigolium/pkg/audit"
 	"github.com/vigolium/vigolium/pkg/database"
 )
@@ -719,55 +720,87 @@ func newResult() *Result {
 // uuid, interactions on (project, full id, protocol, time), scopes on
 // (project, rule type, name, host and path pattern). Row ids are not carried
 // over, and an interaction's finding_id is dropped because finding ids are
-// local to the store that assigned them.
+// local to the store that assigned them. Everything is written in one
+// transaction, and the existing interaction and scope keys of each project are
+// read once up front rather than probed row by row.
 func importSideTables(ctx context.Context, repo *database.Repository, res *Result, scans []*database.Scan, oasts []*database.OASTInteraction, scopes []*database.Scope) error {
-	db := repo.DB()
-	for _, sc := range scans {
-		r, err := db.NewInsert().Model(sc).On("CONFLICT (uuid) DO NOTHING").Exec(ctx)
-		if err != nil {
-			return fmt.Errorf("import scan %s: %w", sc.UUID, err)
-		}
-		if n, _ := r.RowsAffected(); n > 0 {
-			res.ImportedByType["scan"]++
-		} else {
-			res.DuplicatesByType["scan"]++
-		}
+	if len(scans)+len(oasts)+len(scopes) == 0 {
+		return nil
 	}
-	for _, oi := range oasts {
-		exists, err := db.NewSelect().Model((*database.OASTInteraction)(nil)).
-			Where("project_uuid = ? AND full_id = ? AND protocol = ? AND interacted_at = ?",
-				oi.ProjectUUID, oi.FullID, oi.Protocol, oi.InteractedAt).Exists(ctx)
-		if err != nil {
-			return fmt.Errorf("import oast interaction %s: %w", oi.FullID, err)
+	return repo.DB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		for _, sc := range scans {
+			r, err := tx.NewInsert().Model(sc).On("CONFLICT (uuid) DO NOTHING").Exec(ctx)
+			if err != nil {
+				return fmt.Errorf("import scan %s: %w", sc.UUID, err)
+			}
+			if n, _ := r.RowsAffected(); n > 0 {
+				res.ImportedByType["scan"]++
+			} else {
+				res.DuplicatesByType["scan"]++
+			}
 		}
-		if exists {
-			res.DuplicatesByType["oast_interaction"]++
-			continue
+
+		oastKey := func(oi *database.OASTInteraction) string {
+			return strings.Join([]string{oi.FullID, oi.Protocol, oi.InteractedAt.UTC().Format(time.RFC3339Nano)}, "\x00")
 		}
-		oi.ID, oi.FindingID = 0, 0
-		if _, err := db.NewInsert().Model(oi).Exec(ctx); err != nil {
-			return fmt.Errorf("import oast interaction %s: %w", oi.FullID, err)
+		seenOAST := map[string]map[string]bool{}
+		for _, oi := range oasts {
+			seen, ok := seenOAST[oi.ProjectUUID]
+			if !ok {
+				var existing []*database.OASTInteraction
+				if err := tx.NewSelect().Model(&existing).Column("full_id", "protocol", "interacted_at").
+					Where("project_uuid = ?", oi.ProjectUUID).Scan(ctx); err != nil {
+					return fmt.Errorf("import oast interaction %s: %w", oi.FullID, err)
+				}
+				seen = make(map[string]bool, len(existing))
+				for _, e := range existing {
+					seen[oastKey(e)] = true
+				}
+				seenOAST[oi.ProjectUUID] = seen
+			}
+			if seen[oastKey(oi)] {
+				res.DuplicatesByType["oast_interaction"]++
+				continue
+			}
+			oi.ID, oi.FindingID = 0, 0
+			if _, err := tx.NewInsert().Model(oi).Exec(ctx); err != nil {
+				return fmt.Errorf("import oast interaction %s: %w", oi.FullID, err)
+			}
+			seen[oastKey(oi)] = true
+			res.ImportedByType["oast_interaction"]++
 		}
-		res.ImportedByType["oast_interaction"]++
-	}
-	for _, sc := range scopes {
-		exists, err := db.NewSelect().Model((*database.Scope)(nil)).
-			Where("project_uuid = ? AND rule_type = ? AND name = ? AND COALESCE(host_pattern, '') = ? AND COALESCE(path_pattern, '') = ?",
-				sc.ProjectUUID, sc.RuleType, sc.Name, sc.HostPattern, sc.PathPattern).Exists(ctx)
-		if err != nil {
-			return fmt.Errorf("import scope %q: %w", sc.Name, err)
+
+		scopeKey := func(sc *database.Scope) string {
+			return strings.Join([]string{sc.RuleType, sc.Name, sc.HostPattern, sc.PathPattern}, "\x00")
 		}
-		if exists {
-			res.DuplicatesByType["scope"]++
-			continue
+		seenScopes := map[string]map[string]bool{}
+		for _, sc := range scopes {
+			seen, ok := seenScopes[sc.ProjectUUID]
+			if !ok {
+				var existing []*database.Scope
+				if err := tx.NewSelect().Model(&existing).Column("rule_type", "name", "host_pattern", "path_pattern").
+					Where("project_uuid = ?", sc.ProjectUUID).Scan(ctx); err != nil {
+					return fmt.Errorf("import scope %q: %w", sc.Name, err)
+				}
+				seen = make(map[string]bool, len(existing))
+				for _, e := range existing {
+					seen[scopeKey(e)] = true
+				}
+				seenScopes[sc.ProjectUUID] = seen
+			}
+			if seen[scopeKey(sc)] {
+				res.DuplicatesByType["scope"]++
+				continue
+			}
+			sc.ID = 0
+			if _, err := tx.NewInsert().Model(sc).Exec(ctx); err != nil {
+				return fmt.Errorf("import scope %q: %w", sc.Name, err)
+			}
+			seen[scopeKey(sc)] = true
+			res.ImportedByType["scope"]++
 		}
-		sc.ID = 0
-		if _, err := db.NewInsert().Model(sc).Exec(ctx); err != nil {
-			return fmt.Errorf("import scope %q: %w", sc.Name, err)
-		}
-		res.ImportedByType["scope"]++
-	}
-	return nil
+		return nil
+	})
 }
 
 func mergeResult(dst, src *Result) {
