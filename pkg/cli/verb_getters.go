@@ -21,8 +21,9 @@ import (
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
-// The getters and removers the command groups lacked: each used to fall into
-// the group's filter form or an unknown-command error.
+// Single-item getters and removers: scope add/rm/check, auth show/rm,
+// project current/rename, module show, finding show, and the config get/unset
+// schemas.
 
 // ---- scope add / rm / check ------------------------------------------------
 
@@ -464,15 +465,14 @@ func runModuleShow(cmd *cobra.Command, args []string) error {
 // moduleEntryByID builds the module ls -j row for one module.
 func moduleEntryByID(id string) (moduleJSONEntry, bool) {
 	em := loadEnabledModulesConfig()
-	build := newModuleJSONEntry
 	for _, m := range modules.GetActiveModules() {
 		if m.ID() == id {
-			return build(m, "active", em.ActiveEnabled(id)), true
+			return newModuleJSONEntry(m, "active", em.ActiveEnabled(id)), true
 		}
 	}
 	for _, m := range modules.GetPassiveModules() {
 		if m.ID() == id {
-			return build(m, "passive", em.PassiveEnabled(id)), true
+			return newModuleJSONEntry(m, "passive", em.PassiveEnabled(id)), true
 		}
 	}
 	return moduleJSONEntry{}, false
