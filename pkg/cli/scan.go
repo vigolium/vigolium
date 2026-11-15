@@ -182,6 +182,11 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	scanOpts.OnlyPhase = globalOnly
 	scanOpts.SkipPhases = globalSkipPhases
 	scanOpts.ScopeOriginMode = globalScopeOrigin
+	// -o's extension may pick the format, and under -j it may name the
+	// document file; settled before the formats are parsed.
+	if err := resolveScanOutputs(cmd); err != nil {
+		return err
+	}
 	scanOpts.OutputFormats = parseFormats(globalFormat)
 	// Validated here, before any network or database work: a typo in --events
 	// should fail in milliseconds, not after a 15-minute crawl whose whole reason

@@ -266,6 +266,9 @@ func runScanURLCmd(cmd *cobra.Command, args []string) error {
 	if err := validateModuleSelectionFlags(scanURLNoPassive); err != nil {
 		return err
 	}
+	if err := resolveScanOutputs(cmd); err != nil {
+		return err
+	}
 	// Validate --format before any network activity so an unknown format (or
 	// fs/sqlite) fails fast instead of being silently ignored on the direct path.
 	if err := validateGlobalFormats(); err != nil {

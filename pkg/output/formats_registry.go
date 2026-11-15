@@ -97,6 +97,16 @@ func FormatByName(token string) (OutputFormat, bool) {
 	return bind(f), true
 }
 
+// FormatByExtension returns the format a file name's extension names on
+// surface s (formats.ByExtension), with its renderer bound.
+func FormatByExtension(path string, s Surface) (OutputFormat, bool) {
+	f, ok := formats.ByExtension(path, s)
+	if !ok {
+		return OutputFormat{}, false
+	}
+	return bind(f), true
+}
+
 // Names lists the canonical format names a surface accepts, in table order.
 func Names(s Surface) []string { return formats.Names(s) }
 

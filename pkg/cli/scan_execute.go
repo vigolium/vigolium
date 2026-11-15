@@ -106,6 +106,12 @@ type nativeScanPass struct {
 func runNativeScanLifecycle(p nativeScanPass) (err error) {
 	opts, settings, scanStart := p.opts, p.settings, p.scanStart
 
+	// Every -o target is created and probed before the first request: a bad
+	// path found after the scan cost a -S run its results.
+	if err := preflightOutputs(opts); err != nil {
+		return err
+	}
+
 	// Stateless mode: create a temporary SQLite database for this run only.
 	var statelessDBPath string
 	if opts.Stateless {

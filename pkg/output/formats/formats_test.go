@@ -148,3 +148,42 @@ func helpNames(help string) []string {
 	flush(len(help))
 	return names
 }
+
+func TestByExtension(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"out.jsonl", "jsonl"},
+		{"out.html", "html"},
+		{"out.report.html", "report"},
+		{"OUT.MD", "markdown"},
+		{"out.markdown", "markdown"},
+		{"out.sarif", "sarif"},
+		{"dir/out.csv", "csv"},
+		{"out.junit.xml", "junit"},
+		{"out.github.txt", "github"},
+		{"out.sqlite", "sqlite"},
+		{"out.sqlite3", "sqlite"},
+		{"out.db", "sqlite"},
+		{"out.pdf", "pdf"},
+		{"out.json", ""},
+		{"out.xml", ""},
+		{"out.txt", ""},
+		{"out", ""},
+		{"out.tar.gz", ""},
+	}
+	for _, c := range cases {
+		f, ok := ByExtension(c.path, SurfaceScan)
+		got := ""
+		if ok {
+			got = f.Name
+		}
+		if got != c.want {
+			t.Errorf("ByExtension(%q) = %q, want %q", c.path, got, c.want)
+		}
+	}
+	if f, ok := ByExtension("out.tar.gz", SurfaceExport); !ok || f.Name != "bundle" {
+		t.Errorf("ByExtension(out.tar.gz, export) = %v %v, want bundle", f.Name, ok)
+	}
+}
