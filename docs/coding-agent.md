@@ -173,8 +173,12 @@ printf 'GET /api?q=1 HTTP/1.1\r\nHost: target.example\r\n\r\n' \
 
 ### Plan first (`--dry-run`)
 
-`vigolium scan … --dry-run` (and `run <phase> --dry-run`) resolves the scan and
-prints its plan without running it: no scan UUID, no scan row, no output file,
+`vigolium scan … --dry-run` (and `run <phase> --dry-run`, `scan-url
+--dry-run`, `scan-request --dry-run`) resolves the scan and prints its plan
+without running it. On scan-url/scan-request the plan carries
+`execution_path`: `runner` (the plan as described) or `direct` (one in-memory
+pass of the modules over the request, with a `direct_path` warning);
+scan-request does not probe the scheme under `--dry-run`. In every case: no scan UUID, no scan row, no output file,
 no wordlist materialized, no login, no OAST registration, no request; an
 existing database is opened read-only for the record counts. `-j` prints a
 `kind: "scan"` envelope with `dry_run: true`, `items` = the plan's phases and

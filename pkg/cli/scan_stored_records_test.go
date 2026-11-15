@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -86,4 +88,48 @@ func TestStoredRecordsMode(t *testing.T) {
 	scanIncludeStored = true
 	assert.Equal(t, types.StoredRecordsInclude, storedRecordsMode(mk("scan-url"), true))
 	assert.True(t, strings.HasPrefix(types.StoredRecordsExclude, "ex"))
+}
+
+// --dry-run on scan-url and scan-request sends nothing and names the path the
+// scan would take.
+func TestLightweightDryRun(t *testing.T) {
+	srv, hits := pathCountingServer(t)
+	home := a3Home(t, "127.0.0.1")
+	db := filepath.Join(t.TempDir(), "s.sqlite")
+	reqFile := filepath.Join(t.TempDir(), "req.txt")
+	host := strings.TrimPrefix(srv.URL, "http://")
+	require.NoError(t, os.WriteFile(reqFile, []byte("GET /r?id=1 HTTP/1.1\r\nHost: "+host+"\r\n\r\n"), 0o600))
+
+	type planDoc struct {
+		OK     bool `json:"ok"`
+		DryRun bool `json:"dry_run"`
+		Plan   struct {
+			ExecutionPath string `json:"execution_path"`
+			Targets       struct {
+				Admitted int `json:"admitted"`
+			} `json:"targets"`
+			Warnings []struct {
+				Code string `json:"code"`
+			} `json:"warnings"`
+		} `json:"plan"`
+	}
+	for name, tc := range map[string]struct {
+		args []string
+		path string
+	}{
+		"scan-url direct":     {[]string{"scan-url", srv.URL + "/item?id=1", "--db", db, "-m", "xss-light-path", "--dry-run", "-j"}, "direct"},
+		"scan-url runner":     {[]string{"scan-url", srv.URL + "/item?id=1", "--db", db, "-m", "xss-light-path", "--dry-run", "-j", "--format", "jsonl", "-o", filepath.Join(t.TempDir(), "x.jsonl")}, "runner"},
+		"scan-request direct": {[]string{"scan-request", "-i", reqFile, "--db", db, "-m", "xss-light-path", "--dry-run", "-j"}, "direct"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code, stdout, stderr := runA3(t, home, tc.args...)
+			require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
+			var doc planDoc
+			require.NoError(t, json.Unmarshal([]byte(strings.TrimSpace(stdout)), &doc), stdout)
+			assert.True(t, doc.OK && doc.DryRun)
+			assert.Equal(t, tc.path, doc.Plan.ExecutionPath)
+			assert.Equal(t, 1, doc.Plan.Targets.Admitted)
+			assert.Empty(t, hits(), "a dry run sends nothing")
+		})
+	}
 }

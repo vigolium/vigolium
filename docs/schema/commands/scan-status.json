@@ -1019,6 +1019,9 @@
         "dry_run": {
           "type": "boolean"
         },
+        "execution_path": {
+          "type": "string"
+        },
         "strategy": {
           "type": "string"
         },

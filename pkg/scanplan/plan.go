@@ -28,11 +28,16 @@ type Plan struct {
 	// --scan-uuid pinned one.
 	ScanUUID string `json:"scan_uuid,omitempty"`
 	// DryRun marks a plan that was resolved without running the scan.
-	DryRun     bool   `json:"dry_run,omitempty"`
-	Strategy   string `json:"strategy"`
-	Intensity  string `json:"intensity,omitempty"`
-	Profile    string `json:"profile,omitempty"`
-	Heuristics string `json:"heuristics_check"`
+	DryRun bool `json:"dry_run,omitempty"`
+	// ExecutionPath says how scan-url/scan-request would run the input:
+	// "runner" (the phase pipeline this plan describes) or "direct" (one
+	// in-memory pass of the selected modules over the request). Absent for
+	// the other scan commands, which always use the runner.
+	ExecutionPath string `json:"execution_path,omitempty"`
+	Strategy      string `json:"strategy"`
+	Intensity     string `json:"intensity,omitempty"`
+	Profile       string `json:"profile,omitempty"`
+	Heuristics    string `json:"heuristics_check"`
 	// Phases is every phase in execution order, enabled AND disabled.
 	Phases  []Phase       `json:"phases"`
 	Budgets Budgets       `json:"budgets"`

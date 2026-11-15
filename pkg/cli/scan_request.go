@@ -171,7 +171,8 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 	// refused target is never contacted). A probe that changed the target is
 	// admitted again over the URL that will actually be sent.
 	_, refused := admission.verdict(target)
-	resolved, schemeSource := settleRequestScheme(ctx, normalized, rr, scanReqTarget != "", scanReqNoSchemeProbe || refused)
+	// A dry run sends nothing, so the scheme is not probed.
+	resolved, schemeSource := settleRequestScheme(ctx, normalized, rr, scanReqTarget != "", scanReqNoSchemeProbe || refused || scanDryRun)
 	if resolved != rr {
 		// A probe rebuilds the request from the captured text, so the -H
 		// overrides are applied again.
@@ -183,6 +184,10 @@ func runScanRequestCmd(cmd *cobra.Command, _ []string) error {
 		if admission, err = admitDirectInputs(cfg, inputs); err != nil {
 			return err
 		}
+	}
+
+	if scanDryRun {
+		return runLightweightDryRun(cmd, inputs)
 	}
 
 	sess := newDirectScanSession(database.ScanNameScanRequest, inputs)

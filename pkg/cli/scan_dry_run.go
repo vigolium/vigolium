@@ -120,6 +120,12 @@ func runScanDryRun(cmd *cobra.Command, settings *config.Settings, strategyName s
 		targets, _, _ := scanSeededTargets(scanOpts, inputModeExplicit)
 		return noTargetsInScopeError(runner.AdmitTargets(settings.Scope, targets))
 	}
+	return printDryRunPlan(cmd, plan, dbPath)
+}
+
+// printDryRunPlan prints a resolved dry-run plan: the -j document (items =
+// phases, plan = the full plan, dry_run: true) or the human rendering.
+func printDryRunPlan(cmd *cobra.Command, plan *scanplan.Plan, dbPath string) error {
 	if globalJSON {
 		env := newMachineEnvelope(cmd, kindScan, "", plan.Phases, int64(len(plan.Phases)), 0, len(plan.Phases))
 		env.DryRun = true
@@ -140,7 +146,7 @@ func runScanDryRun(cmd *cobra.Command, settings *config.Settings, strategyName s
 // database".
 func openPlanDB(settings *config.Settings) (*database.Repository, string, func()) {
 	noop := func() {}
-	if settings == nil || scanOpts.Stateless {
+	if settings == nil || scanOpts.Stateless || globalStateless {
 		return nil, "", noop
 	}
 	cfg := settings.Database

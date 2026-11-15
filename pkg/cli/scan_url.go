@@ -300,6 +300,10 @@ func runScanURLCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if scanDryRun {
+		return runLightweightDryRun(cmd, inputs)
+	}
+
 	ctx, stop := lightweightScanContext()
 	defer stop()
 
