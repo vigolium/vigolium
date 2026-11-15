@@ -202,6 +202,20 @@ func JSONFieldNames(v any) []string {
 	return out
 }
 
+// RequiredNullableJSONFields returns the keys of v's struct type that are
+// required (no omitempty) and may be null (a pointer, slice or map): the keys a
+// shaped document can empty by setting them to null without failing its
+// schema.
+func RequiredNullableJSONFields(v any) []string {
+	var out []string
+	forEachJSONField(reflect.TypeOf(v), func(f reflect.StructField, name string, omitempty bool) {
+		if !omitempty && nilable(f.Type) {
+			out = append(out, name)
+		}
+	})
+	return out
+}
+
 // root wraps a top-level object schema with the dialect and the collected
 // definitions.
 func (b *builder) root(s *Schema, title, description string) *Schema {

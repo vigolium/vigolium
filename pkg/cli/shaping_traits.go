@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/vigolium/vigolium/pkg/contract"
 )
 
 // Generic -j shaping, driven by each command's Shape in commandTraits.
@@ -62,11 +64,13 @@ func applyShapingTraits(root *cobra.Command) {
 				f.StringSliceVar(&jsonFields, "fields", nil, "Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop")
 				added = append(added, shapeOpFields)
 			}
-			if t.Shape.Kind == shapeRows {
+			if t.Shape.Kind == shapeRows || len(t.Shape.CompactDrop) > 0 {
 				if !hasFlag(c, "compact") {
 					f.BoolVar(&jsonCompact, "compact", false, "With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path)")
 					added = append(added, shapeOpCompact)
 				}
+			}
+			if t.Shape.Kind == shapeRows {
 				if !hasFlag(c, "max-output-bytes") {
 					registerOutputBudgetFlag(f)
 					added = append(added, shapeOpBudget)
@@ -194,10 +198,20 @@ func applyGenericShaping(env *agentEnvelope) error {
 	if err != nil {
 		return err
 	}
+	nullable := requiredNullableKeys(env.Command)
 	for i, r := range rows {
 		if compact {
 			for _, k := range t.Shape.CompactDrop {
-				delete(r, k)
+				if _, ok := r[k]; !ok {
+					continue
+				}
+				// A key the schema requires stays, emptied, so the compact
+				// document still validates.
+				if slices.Contains(nullable, k) {
+					r[k] = nil
+				} else {
+					delete(r, k)
+				}
 			}
 		}
 		rows[i] = projectFields(r, fields)
@@ -265,4 +279,29 @@ func emittedVocab(items any) []string {
 	}
 	slices.Sort(vocab)
 	return vocab
+}
+
+// requiredNullableKeys are the item keys of path's registered schema that are
+// required but may be null.
+func requiredNullableKeys(path string) []string {
+	c, ok := contract.LookupCommand(path)
+	if !ok || c.Item == nil {
+		return nil
+	}
+	return contract.RequiredNullableJSONFields(c.Item)
+}
+
+// compactEnvelope is --compact on the envelope itself: the human-readable
+// query (query_argv stays), generated_at (generated_at_ms stays), the db_path
+// the document names (query_argv repeats it), and a scan document's plan
+// (scan status has it).
+func compactEnvelope(env *agentEnvelope) {
+	env.Query = ""
+	env.GeneratedAt = ""
+	env.DBPath = ""
+	if slices.Contains(env.droppable, "plan") {
+		if _, ok := env.extra["plan"]; ok {
+			env.extra["plan"] = nil
+		}
+	}
 }

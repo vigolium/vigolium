@@ -1,6 +1,10 @@
 package cli
 
 import (
+	"reflect"
+	"slices"
+	"strings"
+
 	"github.com/spf13/pflag"
 
 	"github.com/vigolium/vigolium/pkg/apicontract"
@@ -88,12 +92,18 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 	}
 	n := items.Len()
 	original := env.Items
+	// Droppable extras emptied so far, with their values for restore.
+	var dropped []string
+	saved := map[string]any{}
 
 	// restore undoes everything a measurement did, so a trial encode can never
 	// leak into the emitted document.
 	restore := func() {
 		env.Items = original
 		delete(env.extra, outputBudgetKey)
+		for k, v := range saved {
+			env.extra[k] = v
+		}
 	}
 
 	// apply puts the envelope in the state a k-item answer would be emitted in.
@@ -103,12 +113,16 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 	// that announces the budget.
 	apply := func(k int) {
 		env.Items = items.Slice(0, k).Interface()
-		env.With(outputBudgetKey, map[string]any{
+		report := map[string]any{
 			"max_bytes":   budget,
 			"returned":    k,
 			"omitted":     n - k,
 			"next_offset": env.Offset + k,
-		})
+		}
+		if len(dropped) > 0 {
+			report["dropped_keys"] = slices.Clone(dropped)
+		}
+		env.With(outputBudgetKey, report)
 	}
 	// measure is apply plus the encode that answers "does it fit". Split from
 	// apply so the winning state can be restored at the end without paying for
@@ -132,6 +146,27 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 		return doc, nil
 	}
 
+	// Bulky context goes before any item does: a scan document's plan and
+	// per-target tables are the same on every poll and can be read again
+	// (scan status, finding --scan-uuid); its findings are the answer.
+	for _, key := range env.droppable {
+		v, ok := env.extra[key]
+		if !ok || isNilValue(v) {
+			continue
+		}
+		saved[key] = v
+		env.extra[key] = nil
+		dropped = append(dropped, key)
+		doc, fits, err := measure(n)
+		if err != nil {
+			restore()
+			return nil, err
+		}
+		if fits {
+			return doc, nil
+		}
+	}
+
 	// The empty-item document is the floor: envelope metadata, the budget
 	// report, and whatever else the command attached. If that alone is over
 	// budget, no prefix can help — this is a budget too small to answer at all.
@@ -142,9 +177,13 @@ func applyOutputBudget(v any, budget int) ([]byte, error) {
 	}
 	if !empty {
 		restore()
+		emptied := ""
+		if len(dropped) > 0 {
+			emptied = " (even with " + strings.Join(dropped, ", ") + " emptied)"
+		}
 		return nil, codedErrorf(apicontract.CodeOutputTooLarge,
-			"result metadata alone exceeds --max-output-bytes %d; raise the budget or narrow the result with --fields/--compact",
-			budget)
+			"result metadata alone exceeds --max-output-bytes %d%s; raise the budget or narrow the result with --fields/--compact",
+			budget, emptied)
 	}
 
 	// Largest k in [0, n) whose document fits. lo always fits, hi never does —
@@ -206,3 +245,16 @@ func pageFromOffset[T any](rows []T, offset int) ([]T, error) {
 // outputBudgetKey names the report the budget pass attaches. A caller reads it
 // to learn that the page it holds was cut by bytes rather than by -n/--limit.
 const outputBudgetKey = "output_budget"
+
+// isNilValue reports whether v encodes as JSON null.
+func isNilValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Interface:
+		return rv.IsNil()
+	}
+	return false
+}

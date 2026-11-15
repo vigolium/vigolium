@@ -111,6 +111,10 @@ type agentEnvelope struct {
 	// shaped marks a document applyGenericShaping already narrowed, so a
 	// document written twice is never paged or projected twice.
 	shaped bool
+	// droppable are top-level extras the output budget may empty (set to
+	// null), in this order, before it cuts any item: bulky context a caller
+	// can fetch again (the scan plan, the per-target table, phase outcomes).
+	droppable []string
 }
 
 // newAgentEnvelope builds the standard envelope with no kind; a command emits

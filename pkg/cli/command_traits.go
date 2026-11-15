@@ -153,7 +153,7 @@ var commandTraits = map[string]commandTrait{
 	"scan":        {Kind: kindScan, DB: dbWrite, SendsTraffic: true, Shape: scanDocumentShape},
 	"scan diff":   {Kind: kindRead, DB: dbRead, Shape: rowsShape().owned()},
 	"scan ls":     {Kind: kindRead, DB: dbRead, Shape: rowsShape().owned()},
-	"scan status": {Kind: kindRead, DB: dbRead, Shape: objectShape()},
+	"scan status": {Kind: kindRead, DB: dbRead, Shape: objectShape().drop("plan")},
 	"scan stop":   {Kind: kindMutation, DB: dbWrite},
 	// Polls during a scan: must never take the write lock.
 	"scan wait":           {Kind: kindScan, DB: dbRead, Shape: scanDocumentShape},
@@ -287,6 +287,11 @@ func (s commandShape) pagedByQuery() commandShape { s.Paging = pagingQuery; retu
 
 func (s commandShape) unpaged(reason string) commandShape {
 	s.Paging, s.Reason = pagingNone, reason
+	return s
+}
+
+func (s commandShape) drop(keys ...string) commandShape {
+	s.CompactDrop = append(append([]string(nil), s.CompactDrop...), keys...)
 	return s
 }
 

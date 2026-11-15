@@ -1041,6 +1041,8 @@ func (b *scanDocBuilder) envelope() *agentEnvelope {
 	if stopReason != "" {
 		env.With("stop_reason", stopReason)
 	}
+	// What --compact and the output budget may empty before any finding.
+	env.droppable = []string{"plan", "targets", "phase_outcomes"}
 	// Records scope refused, per rule class: what the operator's scope rules
 	// kept out of the scan. Not a coverage gap, so not a reason; said here so a
 	// rule that refuses everything is visible.

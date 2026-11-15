@@ -283,7 +283,11 @@ func TestScanDocumentHasNoNucleiKeys(t *testing.T) {
 				if tc.targets == 1 {
 					require.NotEmpty(t, doc.ScanUUID)
 					require.NotEmpty(t, doc.QueryArgv)
-					assert.Contains(t, doc.Query, "finding --scan-uuid "+doc.ScanUUID)
+					if strings.Contains(name, "--compact") {
+						assert.Empty(t, doc.Query, "--compact keeps query_argv, not the query string")
+					} else {
+						assert.Contains(t, doc.Query, "finding --scan-uuid "+doc.ScanUUID)
+					}
 					assert.Contains(t, doc.QueryArgv, "--db")
 				}
 			} else {

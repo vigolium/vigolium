@@ -179,6 +179,9 @@ func writeAgentJSON(env *agentEnvelope) error {
 	if err := applyGenericShaping(env); err != nil {
 		return err
 	}
+	if jsonCompact {
+		compactEnvelope(env)
+	}
 	if readTSV {
 		return writeEnvelopeTSV(env)
 	}
