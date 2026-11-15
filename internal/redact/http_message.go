@@ -155,3 +155,40 @@ func redactSetCookie(value string) string {
 	}
 	return out
 }
+
+// HeaderValue redacts one header's value the way HTTPMessage does inside a
+// message: cookie values for Cookie / Set-Cookie (names and attributes kept),
+// the whole value for a credential header, anything else unchanged.
+func HeaderValue(name, value string, extra map[string]struct{}) string {
+	lname := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case lname == "cookie":
+		return redactCookieHeader(value)
+	case lname == "set-cookie":
+		return redactSetCookie(value)
+	case isSensitiveHeader(lname, extra):
+		return Placeholder
+	}
+	return value
+}
+
+// StartLine redacts sensitive query parameters on a request line; a status
+// line comes back unchanged.
+func StartLine(line string) string { return redactStartLine(line) }
+
+// Header returns a copy of h with every value passed through HeaderValue; h
+// itself is not modified. nil stays nil.
+func Header(h map[string][]string, extra map[string]struct{}) map[string][]string {
+	if h == nil {
+		return nil
+	}
+	out := make(map[string][]string, len(h))
+	for name, values := range h {
+		red := make([]string, len(values))
+		for i, v := range values {
+			red[i] = HeaderValue(name, v, extra)
+		}
+		out[name] = red
+	}
+	return out
+}

@@ -142,6 +142,9 @@ var replayShaping = rowShaping{supported: contract.JSONFieldNames(replayOutput{}
 // emitters with traffic's own --fields, which describe traffic rows, so it is
 // passed through untouched.
 func shapeReplayRows(cmd *cobra.Command, outs []*replayOutput) ([]any, error) {
+	if jsonRedactOn {
+		outs = redactReplayOutputs(outs)
+	}
 	if commandPathWithoutRoot(cmd) != "replay" {
 		rows := make([]any, len(outs))
 		for i, o := range outs {

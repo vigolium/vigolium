@@ -269,7 +269,7 @@ func agentRunEnvelope(o *agentRunOutcome) *agentEnvelope {
 			findings = findings[:agentRunTopFindings]
 		}
 		for _, f := range findings {
-			items = append(items, compactFindingView(f, nil, agentViewOptions{}))
+			items = append(items, compactFindingView(f, nil, agentViewOptions{redact: jsonRedactOn}))
 		}
 	}
 

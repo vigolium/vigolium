@@ -409,6 +409,15 @@ duplicates the rows on the wire and exists only for consumers still migrating.
   run), `action` (`"compact"`, `"push_to_burp"`, …) and `dry_run: true` on a dry
   run. Commands not yet on the envelope have no `kind`.
 - `items` is always an array: `[]` when empty, never `null`, never an object.
+- `redacted` is always present. It is `true` when credential header values,
+  cookie values and sensitive query parameters in the document's raw views
+  (record and finding requests/responses, `replay`, `fuzz --dry-run`,
+  `traffic headers`, `--curl`) were masked as `<redacted>`: by default under
+  `-j` when a coding-agent variable is set (`CLAUDECODE`,
+  `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `GEMINI_CLI`,
+  `VIGOLIUM_AGENT`; CI variables do not turn it on), or with `--redact`.
+  `--no-redact` turns it off. Bodies are kept, and the database, `export`,
+  `--format jsonl` streams and `db export` stay raw.
 - Finding rows carry `finding_hash`, the finding's stable identity (the dedup
   key, and what SARIF fingerprints use); `--fields` accepts it.
 - `project_scoped` says whether a project filter was applied at all, so "no

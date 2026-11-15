@@ -238,6 +238,7 @@ func newReplayOnceView(out *replayOutput, src *replaySource, saver *handSendSave
 // emitReplayOnce prints the --once result.
 func emitReplayOnce(cmd *cobra.Command, v replayOnceView) error {
 	if globalJSON {
+		v.URL, v.FinalURL = redactURL(jsonRedactOn, v.URL), redactURL(jsonRedactOn, v.FinalURL)
 		return emitObject(cmd, "", v)
 	}
 	saved := "not stored"
@@ -358,6 +359,7 @@ func emitReplayDryRun(cmd *cobra.Command, src *replaySource, overlay map[string]
 		}
 	}
 	if globalJSON {
+		v.Request, v.URL = redactRaw(jsonRedactOn, v.Request), redactURL(jsonRedactOn, v.URL)
 		env := newMachineEnvelope(cmd, kindRead, "", []replayDryRunView{v}, 1, 0, 1)
 		env.objectResult = true
 		env.DryRun = true

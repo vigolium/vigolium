@@ -387,13 +387,13 @@ func runTrafficHeaders(cmd *cobra.Command, args []string) error {
 	if globalJSON {
 		receipt := map[string]any{
 			"uuid":    msg.Record.UUID,
-			"url":     msg.Record.URL,
+			"url":     redactURL(jsonRedactOn, msg.Record.URL),
 			"side":    string(msg.Side),
-			"headers": entries,
+			"headers": redactHeaderEntries(jsonRedactOn, entries),
 			"count":   len(entries),
 		}
 		if line := headerStartLine(msg.Headers); line != "" {
-			receipt["start_line"] = line
+			receipt["start_line"] = redactStartLine(jsonRedactOn, line)
 		}
 		if name := strings.TrimSpace(extractHeaderName); name != "" {
 			receipt["name"] = name

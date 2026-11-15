@@ -20,6 +20,15 @@ not repeated here: the CLI says it, with exit `2`.
   goes through scope like any other target (`vigolium scope check <url>`).
 - Do not paste credentials a response leaked into other tools or prompts;
   cite the record UUID instead (`traffic --uuid <uuid>`).
+- Under a coding agent (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`,
+  `CURSOR_AGENT`, `GEMINI_CLI`, `VIGOLIUM_AGENT`; CI variables do not count)
+  every `-j` document masks credential header values, cookie values and
+  sensitive query parameters in its raw views (records, findings, `replay`,
+  `fuzz --dry-run`, `traffic headers`, `--curl`), and says so: `redacted:
+  true`. `--no-redact` shows them, `--redact` forces masking anywhere. Bodies
+  are kept; the database and exports (`export`, `--format jsonl`, `db export`)
+  stay raw, and `replay -u <uuid>` re-sends the stored bytes, so nothing you
+  do next needs the secret in your context.
 
 Shows it: `vigolium traffic -j --fields uuid_short,title,url --compact`
 

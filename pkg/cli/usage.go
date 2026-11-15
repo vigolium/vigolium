@@ -109,7 +109,7 @@ type flagGroup struct {
 // longer appear here). Every persistent flag registered in root.go should live
 // in exactly one group so no persistent flag falls into an "Other:" section.
 var globalFlagGroups = []flagGroup{
-	{"Output", []string{"verbose", "silent", "debug", "dump-traffic", "log-file", "json", "pretty", "format", "ci-output-format", "color", "no-color", "width"}},
+	{"Output", []string{"verbose", "silent", "debug", "dump-traffic", "log-file", "json", "pretty", "redact", "no-redact", "format", "ci-output-format", "color", "no-color", "width"}},
 	{"Network", []string{"proxy", "offline"}},
 	{"Extensions", []string{"ext", "ext-dir", "ext-allow-failures"}},
 	{"Project", []string{"project-uuid", "project-name"}},

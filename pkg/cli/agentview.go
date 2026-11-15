@@ -103,6 +103,10 @@ type agentViewOptions struct {
 	// notFound answers matches_not_found from the origin's stored not-found
 	// baseline; nil when the view did not ask for it.
 	notFound *notFoundMatcher
+
+	// redact masks credentials in the raw views (json_redact.go): header
+	// values, cookie values and sensitive query parameters. Bodies are kept.
+	redact bool
 }
 
 // withHostFacts returns a copy of opts that serves host facts from a run's
@@ -133,6 +137,7 @@ func agentViewOptionsFromFlags() agentViewOptions {
 		fields:       normalizeFieldList(jsonFields),
 		recordFields: normalizeFieldList(jsonRecordField),
 		recordLimit:  jsonRecordLimit,
+		redact:       jsonRedactOn,
 	}
 }
 
@@ -505,7 +510,7 @@ func bodyView(raw []byte, contentType string, max int, opts agentViewOptions) ma
 	headers, body := splitHeadersBody(raw)
 	v := map[string]any{}
 	if headers != "" {
-		v["raw_headers"] = headers
+		v["raw_headers"] = redactRaw(opts.redact, headers)
 	}
 	if len(body) == 0 {
 		return v
@@ -722,7 +727,7 @@ func compactRecordView(rec *database.HTTPRecord, opts agentViewOptions) map[stri
 	m := map[string]any{
 		"uuid":                    rec.UUID,
 		"method":                  rec.Method,
-		"url":                     rec.URL,
+		"url":                     redactURL(opts.redact, rec.URL),
 		"host":                    hostLabel(rec.Scheme, rec.Hostname, rec.Port),
 		"status_code":             rec.StatusCode,
 		"response_content_type":   rec.ResponseContentType,
@@ -785,7 +790,7 @@ func compactRecordView(rec *database.HTTPRecord, opts agentViewOptions) map[stri
 	}
 	if wantsField(opts.fields, "response_headers") && rec.HasResponse && len(rec.RawResponse) > 0 {
 		headers, _ := splitHeadersBody(rec.RawResponse)
-		m["response_headers"] = headers
+		m["response_headers"] = redactRaw(opts.redact, headers)
 	}
 
 	if !opts.noBodies {
@@ -838,7 +843,7 @@ func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opt
 		m["description"] = f.Description
 	}
 	if f.URL != "" {
-		m["url"] = f.URL
+		m["url"] = redactURL(opts.redact, f.URL)
 	}
 	if f.Hostname != "" {
 		m["hostname"] = f.Hostname
@@ -914,13 +919,14 @@ func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opt
 		if snip := evidenceSnippet(decodedResponseText(f.Response), needles, agentEvidenceWindow); snip != "" {
 			m["response_evidence"] = snip
 		} else if f.Response != "" && opts.fullBody {
-			m["response"] = f.Response
+			m["response"] = redactRaw(opts.redact, f.Response)
 		}
 		if f.Request != "" {
+			req := redactRaw(opts.redact, f.Request)
 			if opts.fullBody {
-				m["request"] = f.Request
+				m["request"] = req
 			} else {
-				m["request"] = clicommon.Truncate(f.Request, agentReqBodyPreviewMax)
+				m["request"] = clicommon.Truncate(req, agentReqBodyPreviewMax)
 			}
 		}
 	}

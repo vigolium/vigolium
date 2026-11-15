@@ -163,6 +163,9 @@ Run 'vigolium <command> --help' for command-specific flags and examples, or 'vig
 		if err := rejectCIOutputFlag(); err != nil {
 			return err
 		}
+		if err := applyRedactionMode(); err != nil {
+			return err
+		}
 
 		// Generic -j shaping flags (shaping_traits.go) are checked before the
 		// command opens a store or sends a request.
@@ -374,6 +377,7 @@ func init() {
 	pf := rootCmd.PersistentFlags()
 	registerReadOnlyFlag(rootCmd)
 	registerJSONLegacyKeysFlag(rootCmd)
+	registerRedactFlags(rootCmd)
 
 	pf.BoolVarP(&globalVerbose, "verbose", "v", false, "Enable verbose logging output")
 	pf.BoolVar(&globalSilent, "silent", false, "Suppress all output except findings")

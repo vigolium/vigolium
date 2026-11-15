@@ -588,6 +588,13 @@ func (fx *contractFixture) exec(t *testing.T, home, db string, env []string, std
 	return contractRun{argv: argv, code: code, stdout: stdout.String(), stderr: stderr.String()}
 }
 
+// codingAgentEnv are the variables that mark a coding-agent caller, which
+// turns -j redaction on by default. A test run from inside one would otherwise
+// see other documents than a plain shell does.
+var codingAgentEnv = map[string]bool{
+	"CLAUDECODE": true, "CLAUDE_CODE_ENTRYPOINT": true, "CODEX_SANDBOX": true, "CURSOR_AGENT": true, "GEMINI_CLI": true,
+}
+
 // contractEnv is the parent environment minus anything that could pick a
 // store, a project or a proxy for the child, plus an isolated HOME.
 func contractEnv(home string, extra []string) []string {
@@ -595,7 +602,7 @@ func contractEnv(home string, extra []string) []string {
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		switch {
-		case name == "HOME", strings.HasPrefix(name, "VIGOLIUM_"),
+		case name == "HOME", strings.HasPrefix(name, "VIGOLIUM_"), codingAgentEnv[name],
 			strings.EqualFold(name, "http_proxy"), strings.EqualFold(name, "https_proxy"),
 			strings.EqualFold(name, "all_proxy"):
 			continue

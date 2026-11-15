@@ -34,3 +34,29 @@ func TestHTTPMessage(t *testing.T) {
 		t.Error("a message with nothing sensitive must be returned unchanged")
 	}
 }
+
+func TestHeaderValueAndHeaderMap(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"Cookie", "sid=abc; theme=dark", "sid=<redacted>; theme=<redacted>"},
+		{"Set-Cookie", "sid=abc; Path=/; HttpOnly", "sid=<redacted>; Path=/; HttpOnly"},
+		{"Authorization", "Bearer xyz", Placeholder},
+		{"X-Api-Key", "k", Placeholder},
+		{"Content-Type", "text/html", "text/html"},
+	}
+	for _, c := range cases {
+		if got := HeaderValue(c.name, c.in, nil); got != c.want {
+			t.Errorf("HeaderValue(%s, %q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+	h := map[string][]string{"Set-Cookie": {"a=1", "b=2; Secure"}, "Server": {"nginx"}}
+	got := Header(h, nil)
+	if got["Set-Cookie"][0] != "a=<redacted>" || got["Set-Cookie"][1] != "b=<redacted>; Secure" || got["Server"][0] != "nginx" {
+		t.Errorf("Header = %v", got)
+	}
+	if h["Set-Cookie"][0] != "a=1" {
+		t.Error("Header modified its input")
+	}
+	if StartLine("GET /x?token=abc&id=1 HTTP/1.1") != "GET /x?token=%3Credacted%3E&id=1 HTTP/1.1" {
+		t.Errorf("StartLine = %q", StartLine("GET /x?token=abc&id=1 HTTP/1.1"))
+	}
+}

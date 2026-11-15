@@ -139,7 +139,7 @@ func findingRecordCurls(f *database.Finding, byUUID map[string]*database.HTTPRec
 		if len(rec.RawRequest) == 0 {
 			continue
 		}
-		it, err := recordCurl(rec, findingRedactAuth)
+		it, err := recordCurl(rec, findingRedactAuth || jsonRedactOn)
 		if err != nil {
 			continue
 		}

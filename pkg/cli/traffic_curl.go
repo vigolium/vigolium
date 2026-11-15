@@ -43,7 +43,7 @@ func renderTrafficCurl(cmd *cobra.Command, records []*database.HTTPRecord, total
 	items := make([]curlItem, 0, len(records))
 	var skipped []string
 	for _, rec := range records {
-		it, err := recordCurl(rec, trafficRedactAuth)
+		it, err := recordCurl(rec, trafficRedactAuth || jsonRedactOn)
 		if err != nil {
 			skipped = append(skipped, rec.UUID)
 			continue

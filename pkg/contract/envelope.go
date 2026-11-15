@@ -45,6 +45,10 @@ type Envelope struct {
 	// GeneratedAtMS the same instant in epoch milliseconds.
 	GeneratedAt   string `json:"generated_at,omitempty"`
 	GeneratedAtMS int64  `json:"generated_at_ms,omitempty"`
+	// Redacted says credential values in this document's raw request/response
+	// views were masked (-j under a coding agent, or --redact). The CLI always
+	// renders it; optional here so a document from an older binary validates.
+	Redacted bool `json:"redacted,omitempty"`
 }
 
 // EnvelopeCommon are the extras any envelope may carry, whatever the command.

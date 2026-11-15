@@ -90,6 +90,11 @@ type agentEnvelope struct {
 	GeneratedAt   string `json:"generated_at,omitempty"`
 	GeneratedAtMS int64  `json:"generated_at_ms,omitempty"`
 
+	// Redacted says this document's raw request/response views had their
+	// credential values masked (json_redact.go). Always rendered, so a consumer
+	// never has to infer it from an absent key.
+	Redacted bool `json:"redacted"`
+
 	// extra carries command-specific fields. Marshaled by MarshalJSON into the
 	// same object.
 	extra map[string]any
@@ -143,6 +148,7 @@ func newAgentEnvelope(command, legacyKey string, items any, total int64, offset,
 		// them must not ship a pair sampled a millisecond apart.
 		GeneratedAt:   agentTimestamp(now),
 		GeneratedAtMS: scanevents.EpochMillis(now),
+		Redacted:      jsonRedactOn,
 		extra:         map[string]any{},
 	}
 	env.legacyKey = legacyKey
@@ -251,7 +257,7 @@ var envelopeFields = map[string]bool{
 	"error": true, "soft_fail": true, "changed": true, "action": true, "dry_run": true,
 	"project_uuid": true, "db_path": true,
 	"total": true, "offset": true, "limit": true, "items": true, "query": true,
-	"query_argv": true, "generated_at": true, "generated_at_ms": true,
+	"query_argv": true, "generated_at": true, "generated_at_ms": true, "redacted": true,
 }
 
 // MarshalJSON merges the struct fields with extra (and the legacy row alias)
