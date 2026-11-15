@@ -25,7 +25,11 @@ func checkTrafficSourceFilter(ctx context.Context, db *database.DB, source, proj
 	if source == "" || database.IsBridgeRecordSource(source) || containsFold(database.KnownRecordSources, source) {
 		return nil
 	}
-	stored, err := database.NewRepository(db).ListRecordSources(ctx, projectUUID)
+	repo := database.NewRepository(db)
+	if found, err := repo.HasRecordSource(ctx, projectUUID, source); err != nil || found {
+		return nil
+	}
+	stored, err := repo.ListRecordSources(ctx, projectUUID)
 	if err != nil || containsFold(stored, source) {
 		return nil
 	}
@@ -50,12 +54,7 @@ func hintNonStandardMethods(methods []string) {
 }
 
 func containsFold(list []string, v string) bool {
-	for _, s := range list {
-		if strings.EqualFold(s, v) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(list, func(s string) bool { return strings.EqualFold(s, v) })
 }
 
 func nonEmpty(list []string) []string {
