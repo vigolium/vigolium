@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"strings"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -69,14 +67,16 @@ func dbListSortKeys() []string {
 	return out
 }
 
-// isOliumProviderFlag recognises the olium --provider override, which several
-// agent commands register through the same usage string.
-func isOliumProviderFlag(f *pflag.Flag) bool {
-	return f.Name == "provider" && strings.HasPrefix(f.Usage, oliumProviderFlagUsage)
+// registerOliumProviderFlag registers the olium --provider override as a
+// closed-set flag over the providers the runtime accepts.
+func registerOliumProviderFlag(fs *pflag.FlagSet, p *string, usage string) {
+	fs.StringVar(p, "provider", "", usage)
+	enumFlag(fs, "provider", olium.ProviderNames, enumAllowEmpty(),
+		enumAccept(func(v string) bool { return olium.IsKnownProvider(v) }))
 }
 
-// applyClosedValueFlags converts every flag in closedValueFlags, plus every
-// olium --provider override, into an enum flag.
+// applyClosedValueFlags converts every flag in closedValueFlags into an enum
+// flag.
 func applyClosedValueFlags(root *cobra.Command) {
 	byPath := map[string][]closedValueFlag{}
 	for _, cv := range closedValueFlags {
@@ -90,14 +90,6 @@ func applyClosedValueFlags(root *cobra.Command) {
 				fs = c.PersistentFlags()
 			}
 			enumFlag(fs, cv.flag, cv.values(), cv.opts...)
-		}
-		for _, fs := range []*pflag.FlagSet{c.Flags(), c.PersistentFlags()} {
-			fs.VisitAll(func(f *pflag.Flag) {
-				if isOliumProviderFlag(f) {
-					enumFlag(fs, f.Name, olium.ProviderNames, enumAllowEmpty(),
-						enumAccept(func(v string) bool { return olium.IsKnownProvider(v) }))
-				}
-			})
 		}
 	})
 }

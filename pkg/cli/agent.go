@@ -144,7 +144,7 @@ func init() {
 	rf.StringVar(&agentInstruction, "instruction", "", "Custom instruction to guide the agent (appended to prompt)")
 	rf.StringVar(&agentInstructionFile, "instruction-file", "", "Path to a file containing custom instructions")
 	rf.BoolVar(&agentUploadResults, "upload-results", false, "Upload session bundle to cloud storage after completion (requires storage config)")
-	rf.StringVar(&agentQueryOliumProvider, "provider", "", oliumProviderFlagUsage)
+	registerOliumProviderFlag(rf, &agentQueryOliumProvider, oliumProviderFlagUsage)
 	rf.StringVar(&agentQueryOliumModel, "model", "", "Olium model id override (falls back to agent.olium.model)")
 	rf.StringVar(&agentQueryOliumOAuthCred, "oauth-cred", "", "Olium OAuth/SA credential file (openai-codex-oauth, anthropic-vertex, or google-vertex; falls back to agent.olium.oauth_cred_path or $GOOGLE_APPLICATION_CREDENTIALS)")
 	rf.StringVar(&agentQueryOliumOAuthToken, "oauth-token", "", "Olium Anthropic OAuth bearer token (anthropic-oauth provider; falls back to agent.olium.oauth_token or $ANTHROPIC_API_KEY)")
