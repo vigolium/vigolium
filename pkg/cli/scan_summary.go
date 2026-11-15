@@ -332,7 +332,31 @@ func estimateBannerLine(plan *scanplan.Plan) string {
 			terminal.Orange(fmt.Sprintf("%d", *e.CeilingByPace)), terminal.Orange(formatRange(e.Low, e.High)),
 			terminal.Gray("("+e.Confidence+"; vigolium scan --dry-run for the breakdown)"))
 	}
+	if d := e.DurationMS; d != nil && d.High > 0 {
+		line += fmt.Sprintf(", %s %s", terminal.Orange("~"+formatDurationRange(d.Low, d.High)), terminal.Gray("("+d.Confidence+")"))
+	}
 	return line
+}
+
+// formatDurationRange renders a rough millisecond range as "2m-15m".
+func formatDurationRange(lowMS, highMS int64) string {
+	round := func(ms int64) string {
+		sec := (ms + 500) / 1000
+		switch {
+		case sec < 60:
+			return fmt.Sprintf("%ds", sec)
+		case sec < 3600:
+			return fmt.Sprintf("%dm", (sec+30)/60)
+		default:
+			m := (sec + 30) / 60
+			return fmt.Sprintf("%dh%02dm", m/60, m%60)
+		}
+	}
+	lo, hi := round(lowMS), round(highMS)
+	if lo == hi {
+		return hi
+	}
+	return lo + "-" + hi
 }
 
 // countExtensionFiles counts JS/TS/YAML extension files from the configured directories without loading them.

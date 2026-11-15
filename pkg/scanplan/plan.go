@@ -345,6 +345,18 @@ type Estimate struct {
 	ByPhase         map[string]PhaseEstimate `json:"by_phase"`
 	Basis           string                   `json:"basis"`
 	Confidence      string                   `json:"confidence"`
+	// DurationMS is the rough wall-clock range the scan is expected to take.
+	DurationMS *DurationEstimate `json:"duration_ms,omitempty"`
+}
+
+// DurationEstimate is a rough wall-clock range in milliseconds: requests over
+// the effective rate, bounded by the phase budgets and the scan's own
+// duration budget. Confidence is always "rough".
+type DurationEstimate struct {
+	Low        int64  `json:"low"`
+	High       int64  `json:"high"`
+	Basis      string `json:"basis"`
+	Confidence string `json:"confidence"`
 }
 
 // PhaseEstimate is one phase's share of the estimate.

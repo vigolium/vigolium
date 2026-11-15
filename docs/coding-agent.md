@@ -188,6 +188,9 @@ vigolium scan -t https://target.example --dry-run -j | jq '.plan | {phases: [.ph
 - `estimate` is a rough request count (`confidence: "rough"`, a `basis` per
   phase). `ceiling_by_pace` — rate limit × the time budget — is the one hard
   number; `--max-requests` clamps the rest (`clamped_to`, `hits_max_requests`).
+  `estimate.duration_ms {low, high, basis, confidence: "rough"}` is the
+  expected wall-clock range: requests over each phase's rate, bounded by the
+  phase budgets and `--max-time`. The banner prints it as `~2m-15m (rough)`.
 - `auth` lists session names and kinds, never values.
 
 The same plan is the second event of every `--events` stream (`scan.plan`),

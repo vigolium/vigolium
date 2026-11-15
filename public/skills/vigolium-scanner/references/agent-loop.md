@@ -307,7 +307,9 @@ stores). What to read in it:
   by_phase, basis, confidence: "rough"}`. `ceiling_by_pace` (rate limit × the
   time budget) is the only hard number; the rest is a heuristic, explained in
   each `basis`. A `--max-requests` lower than `high` clamps it and names the
-  phases that will hit it.
+  phases that will hit it. `estimate.duration_ms {low, high, basis}` is the
+  rough wall-clock range; compare its `high` with your harness's command
+  timeout before running in the foreground.
 - `warnings[]`: `{code, message}` — `targets_out_of_scope`,
   `unbounded_discovery` (no `--scanning-max-duration` or `--max-requests`),
   `auth_invalid`, `input_file`.

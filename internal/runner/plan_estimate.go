@@ -147,7 +147,78 @@ func estimatePlan(p *scanplan.Plan, in planEstimateInput) scanplan.Estimate {
 		est.Low = min(est.Low, limit)
 	}
 	est.Basis = strings.Join(basis, "; ")
+	est.DurationMS = estimateDuration(p, in, est)
 	return est
+}
+
+// estUnpacedRPS is the throughput assumed for a phase no rate limit paces:
+// what a loopback or nearby target sustains at default concurrency.
+const estUnpacedRPS = 50
+
+// estimateDuration turns the request estimate into a rough wall-clock range:
+// each phase's low/high over its rate (estUnpacedRPS when unpaced), the high
+// bounded by the phase's own time budget, the total bounded by the scan's.
+func estimateDuration(p *scanplan.Plan, in planEstimateInput, est scanplan.Estimate) *scanplan.DurationEstimate {
+	T := max(in.targets, 1)
+	var low, high int64
+	unpaced := false
+	for _, ph := range p.Phases {
+		pe, ok := est.ByPhase[ph.ID]
+		if !ok || !ph.Enabled {
+			continue
+		}
+		rate := int64(p.Budgets.RateLimit)
+		if ph.Pace != nil && ph.Pace.RateLimit > 0 {
+			rate = int64(ph.Pace.RateLimit)
+		}
+		if rate <= 0 {
+			rate = estUnpacedRPS
+			if pe.High > 0 {
+				unpaced = true
+			}
+		}
+		pl := pe.Low * 1000 / rate
+		ph2 := pe.High * 1000 / rate
+		if wall := phaseWallMS(p, ph, T); wall > 0 {
+			pl = min(pl, wall)
+			ph2 = min(ph2, wall)
+		}
+		low += pl
+		high += ph2
+	}
+	if est.ClampedTo != nil && p.Budgets.RateLimit > 0 {
+		high = min(high, *est.ClampedTo*1000/int64(p.Budgets.RateLimit))
+	}
+	basis := []string{"estimated requests ÷ rate limit per phase"}
+	if unpaced {
+		basis = append(basis, fmt.Sprintf("%d req/s assumed where no rate limit applies", estUnpacedRPS))
+	}
+	basis = append(basis, "bounded by each phase's time budget")
+	if scanMax := p.Budgets.ScanMaxDurationMS; scanMax > 0 {
+		low, high = min(low, scanMax), min(high, scanMax)
+		basis = append(basis, fmt.Sprintf("capped by the scan's %s budget", time.Duration(scanMax)*time.Millisecond))
+	}
+	low = min(low, high)
+	return &scanplan.DurationEstimate{Low: low, High: high, Basis: strings.Join(basis, "; "), Confidence: scanplan.ConfidenceRough}
+}
+
+// phaseWallMS is the longest a phase may run: its ceiling, or its per-target
+// budget over the rounds its target concurrency needs. 0 when unbounded.
+func phaseWallMS(p *scanplan.Plan, ph scanplan.Phase, T int64) int64 {
+	if ph.Budget == nil {
+		return 0
+	}
+	if ph.Budget.PhaseCeilingMS > 0 {
+		return ph.Budget.PhaseCeilingMS
+	}
+	if ph.Budget.PerTargetMS > 0 {
+		conc := int64(1)
+		if p.Discovery != nil && NativePhase(ph.ID) == PhaseDiscovery {
+			conc = int64(max(p.Discovery.TargetConcurrency, 1))
+		}
+		return ph.Budget.PerTargetMS * ((T + conc - 1) / conc)
+	}
+	return 0
 }
 
 // estimatePhase is one phase's low/high. ok is false for a phase with nothing

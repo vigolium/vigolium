@@ -117,6 +117,30 @@
         "target_concurrency"
       ]
     },
+    "scanplan.DurationEstimate": {
+      "properties": {
+        "low": {
+          "type": "integer"
+        },
+        "high": {
+          "type": "integer"
+        },
+        "basis": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "low",
+        "high",
+        "basis",
+        "confidence"
+      ]
+    },
     "scanplan.Egress": {
       "properties": {
         "gated": {
@@ -207,6 +231,9 @@
         },
         "confidence": {
           "type": "string"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/scanplan.DurationEstimate"
         }
       },
       "additionalProperties": false,
