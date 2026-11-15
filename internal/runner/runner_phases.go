@@ -453,8 +453,12 @@ func (r *Runner) RunNativeScan() (err error) {
 	if lost := authLostCause(ctx); lost != nil {
 		return lost
 	}
-	if err := r.allTargetsQuarantined(infra.hostErrors(), admission.Admitted); err != nil {
-		return err
+	// No admission means no CLI targets (a database rescan): nothing to have
+	// quarantined.
+	if admission != nil {
+		if err := r.allTargetsQuarantined(infra.hostErrors(), admission.Admitted); err != nil {
+			return err
+		}
 	}
 	if r.options.SkipIngestion && !r.options.KnownIssueScanEnabled && r.options.SkipDynamicAssessment {
 		zap.L().Info("Discovery skipped, no downstream phases need DB records")

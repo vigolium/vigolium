@@ -105,6 +105,9 @@ func (h *Handlers) HandleScanRecords(c fiber.Ctx) error {
 	}
 	opts.Concurrency = concurrency
 	opts.Modules = modules
+	// The dynamic assessment reads the store, not the feed: without this it
+	// would assess every record of the project, not the ones selected.
+	opts.RecordUUIDs = validUUIDs
 
 	dbSource := database.NewUUIDListDBInputSource(h.repo, validUUIDs)
 

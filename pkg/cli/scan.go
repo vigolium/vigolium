@@ -42,6 +42,7 @@ func init() {
 	flags := scanCmd.Flags()
 	registerInputSourceFlags(flags)
 	registerAllRecordsFlag(flags)
+	registerScanRecordUUIDFlag(flags)
 	registerHTTPClientFlags(flags)
 	registerScanModuleFlags(flags)
 	registerModuleSelectionFlags(flags)
@@ -181,6 +182,7 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	}
 	scanOpts.OnlyPhase = globalOnly
 	scanOpts.SkipPhases = globalSkipPhases
+	recordUUIDDefaultPhase()
 	scanOpts.ScopeOriginMode = globalScopeOrigin
 	scanOpts.OutputFormats = parseFormats(globalFormat)
 	// Validated here, before any network or database work: a typo in --events
@@ -457,6 +459,9 @@ func runScanCmd(cmd *cobra.Command, args []string) (err error) {
 	// drain a piped URL list now, so an inherited pipe that never writes fails in
 	// seconds instead of after the database, banner and scan.started.
 	if err := resolveScanTargetSource(cmd, settings); err != nil {
+		return err
+	}
+	if err := applyScanRecordRefs(scanContext(cmd)); err != nil {
 		return err
 	}
 	if err := prefetchScanStdin(); err != nil {

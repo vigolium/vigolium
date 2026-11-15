@@ -718,6 +718,7 @@ type RiskPrioritizedDBInputSource struct {
 	repo                 *Repository
 	scanUUID             string
 	hostScopes           []HostTarget // when non-empty, only records matching these in-scope origins (scheme/host/port) are returned
+	recordUUIDs          []string     // when non-empty, only these records are returned
 	maxParamShapeSamples int          // when > 0, coalesce same-shape GET records to this many value-distinct samples
 	closed               atomic.Bool
 	mu                   sync.Mutex
@@ -831,6 +832,21 @@ func (s *RiskPrioritizedDBInputSource) Bound() (at time.Time, id string, ok bool
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.boundAt, s.boundID, s.hasBound
+}
+
+// WithRecordUUIDs restricts the source to these records. Empty (the
+// default) leaves it unrestricted.
+func (s *RiskPrioritizedDBInputSource) WithRecordUUIDs(uuids []string) *RiskPrioritizedDBInputSource {
+	s.recordUUIDs = uuids
+	return s
+}
+
+// applyRecordFilter narrows q to the WithRecordUUIDs set, if any.
+func (s *RiskPrioritizedDBInputSource) applyRecordFilter(q *bun.SelectQuery) *bun.SelectQuery {
+	if len(s.recordUUIDs) == 0 {
+		return q
+	}
+	return q.Where("uuid IN (?)", bun.List(s.recordUUIDs))
 }
 
 // WithHostScopes sets an in-scope origin filter so only records matching these
@@ -996,6 +1012,7 @@ func (s *RiskPrioritizedDBInputSource) captureBoundLocked(ctx context.Context) e
 	q = applyHostScopeFilter(q, s.hostScopes)
 	q = applyProjectFilter(q, s.projectUUID)
 	q = applyEvidenceExclusion(q)
+	q = s.applyRecordFilter(q)
 
 	var rows []boundRow
 	if s.presetBound {
@@ -1050,7 +1067,7 @@ func (s *RiskPrioritizedDBInputSource) applyResumeAndBound(q *bun.SelectQuery) *
 	}
 	boundAt := dbTimestampString(s.db.Driver(), s.boundAt)
 	q = q.Where("(created_at < ? OR (created_at = ? AND uuid <= ?))", boundAt, boundAt, s.boundID)
-	return applyEvidenceExclusion(applyProjectFilter(q, s.projectUUID))
+	return s.applyRecordFilter(applyEvidenceExclusion(applyProjectFilter(q, s.projectUUID)))
 }
 
 // nextPageRowsLocked returns the next keyset page of eligible rows, ordered
