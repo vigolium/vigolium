@@ -74,11 +74,20 @@ func jsonOutputDestination() string {
 // transcript cost the flag exists to remove, and a caller that wanted both can
 // ask twice.
 func writeJSONResultToFile(dest string, doc []byte, paged bool) error {
+	return writeJSONResultToFileNow(dest, doc, paged, nil)
+}
+
+// writeJSONResultToFileNow writes the file and its receipt to stdout directly,
+// bypassing the held-result path: Execute calls it when publishing a held -o
+// result. outcomeErr is the error the document carries (nil when ok); the
+// receipt repeats it, so the receipt alone answers whether the command worked.
+func writeJSONResultToFileNow(dest string, doc []byte, paged bool, outcomeErr *agentError) error {
 	if err := writeRequestedFile(dest, doc); err != nil {
 		return err
 	}
 	sum := sha256.Sum256(doc)
 	receipt := map[string]any{
+		"ok":             outcomeErr == nil,
 		"artifact":       "json_result",
 		"output":         dest,
 		"bytes":          len(doc),
@@ -91,7 +100,17 @@ func writeJSONResultToFile(dest string, doc []byte, paged bool) error {
 	if paged {
 		receipt["hint"] = "this file holds one page; pass -a/--all or raise -n/--limit for the whole result set"
 	}
-	return writeReceiptFrame(receipt)
+	if outcomeErr != nil {
+		receipt["error"] = outcomeErr
+		if globalSoftFail {
+			receipt["soft_fail"] = true
+		}
+	}
+	doc, err := encodeAgentJSON(receipt)
+	if err != nil {
+		return err
+	}
+	return writeAgentJSONDoc(doc)
 }
 
 // resultIsPaged reports whether an envelope carries fewer rows than it matched,

@@ -4,13 +4,11 @@ import (
 	"errors"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
-	"github.com/vigolium/vigolium/pkg/scanevents"
 )
 
 // A failed -j command used to print `✖ Error: …` to stderr and nothing at all to
@@ -171,25 +169,7 @@ func emitJSONError(err error, exitCode int, cmd *cobra.Command) {
 		jsonStreamMode = true
 		defer func() { jsonStreamMode = prev }()
 	}
-	name := "vigolium"
-	if cmd != nil {
-		name = commandPathWithoutRoot(cmd)
-	}
-	now := time.Now()
-	env := agentErrorEnvelope{
-		SchemaVersion: AgentSchemaVersion,
-		Command:       name,
-		OK:            false,
-		Error: agentError{
-			Code:     classifyErrorCode(err, exitCode),
-			Message:  err.Error(),
-			ExitCode: exitCode,
-		},
-		DBPath:        resolvedReadDBPath(),
-		SoftFail:      globalSoftFail,
-		GeneratedAt:   agentTimestamp(now),
-		GeneratedAtMS: scanevents.EpochMillis(now),
-	}
+	env := outcomeErrorEnvelope(err, exitCode, cmd)
 	// Straight to stdout, deliberately NOT through writeAgentJSON: -o/--output
 	// redirects the RESULT document, and an error is not one. Routing it there
 	// would write the failure into the file the caller expected results in, and

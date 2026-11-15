@@ -309,13 +309,16 @@ func validateRegisteredDoc(t *testing.T, raw []byte) {
 		return
 	}
 	var head struct {
-		Command string `json:"command"`
-		OK      *bool  `json:"ok"`
+		Command string          `json:"command"`
+		OK      *bool           `json:"ok"`
+		Items   json.RawMessage `json:"items"`
 	}
 	if json.Unmarshal(raw, &head) != nil || head.OK == nil {
 		return
 	}
-	if !*head.OK {
+	// ok:false with items is a result document whose command then failed: it
+	// still matches the command's schema. Without items it is the error envelope.
+	if !*head.OK && head.Items == nil {
 		contracttest.ValidateError(t, raw)
 		return
 	}

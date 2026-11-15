@@ -17,8 +17,13 @@ type Envelope struct {
 	Command       string `json:"command"`
 	// Kind is the document's shape: read, mutation or scan.
 	Kind string `json:"kind,omitempty"`
-	// OK is true on every result document; the error envelope carries false.
+	// OK is true exactly when the command exited 0, 3 or 4. A result document
+	// whose command then failed carries false and Error.
 	OK bool `json:"ok"`
+	// Error is present exactly when OK is false.
+	Error *ErrorBody `json:"error,omitempty"`
+	// SoftFail states that --soft-fail forced the process exit status to 0.
+	SoftFail bool `json:"soft_fail,omitempty"`
 	// Changed, Action and DryRun are the mutation spine (kind "mutation").
 	Changed *bool  `json:"changed,omitempty"`
 	Action  string `json:"action,omitempty"`
@@ -97,7 +102,8 @@ func CommandSchema(name string) (*Schema, error) {
 
 	env.Properties.Set("schema_version", constSchema("integer", apicontract.SchemaVersion))
 	env.Properties.Set("command", constSchema("string", c.Name))
-	env.Properties.Set("ok", constSchema("boolean", true))
+	env.Properties.Set("ok", &Schema{Type: "boolean",
+		Description: "true exactly when the command exited 0, 3 or 4; false documents carry error"})
 	if c.Kind != "" {
 		env.Properties.Set("kind", constSchema("string", c.Kind))
 		env.Required = appendUnique(env.Required, "kind")

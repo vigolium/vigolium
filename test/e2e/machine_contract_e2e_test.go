@@ -181,7 +181,9 @@ var machineContractRows = map[string]contractRow{
 	"init":   {},
 	"js":     {args: []string{"--code", "1+1"}},
 
-	"oast ingest": {args: []string{"{F}/oast.log", "--format", "raw-log"}},
+	"oast ingest":     {args: []string{"{F}/oast.log", "--format", "raw-log"}},
+	"oast poll":       {args: []string{"--open", "--wait", "1s"}},
+	"match-not-found": {stdin: `{"id":"r1","url":"http://127.0.0.1:1/x","status":404}` + "\n"},
 
 	// Kit.
 	"kit harvest":     {skip: "needs the network: queries public URL archives (wayback, commoncrawl, …)"},
@@ -306,7 +308,7 @@ func TestMachineContractMatrix(t *testing.T) {
 				r := fx.run(t, path, row, []string{"--b8-no-such-flag"}, false)
 				require.Equalf(t, apicontract.ExitUsageError, r.code, "an unknown flag is a usage error (exit 2)\n%s", r)
 				doc := oneContractDocument(t, r)
-				require.Equalf(t, false, doc["ok"], "%s", r)
+				requireOutcomeMatchesExit(t, r, doc)
 				require.Equalf(t, path, doc["command"], "%s", r)
 				errObj, _ := doc["error"].(map[string]any)
 				require.NotNilf(t, errObj, "the error envelope carries error{}\n%s", r)
@@ -325,9 +327,7 @@ func TestMachineContractMatrix(t *testing.T) {
 				}
 				require.EqualValuesf(t, apicontract.SchemaVersion, doc["schema_version"], "%s", r)
 				require.Equalf(t, wantCommand, doc["command"], "command must be the cobra path\n%s", r)
-				if row.exit == 0 {
-					require.Equalf(t, true, doc["ok"], "%s", r)
-				}
+				requireOutcomeMatchesExit(t, r, doc)
 				wantKind := envelopeKind(kind)
 				if row.kind != "" {
 					wantKind = row.kind
@@ -341,6 +341,21 @@ func TestMachineContractMatrix(t *testing.T) {
 				require.Truef(t, isArray, "items must be an array, got %T\n%s", doc["items"], r)
 			})
 		})
+	}
+}
+
+// requireOutcomeMatchesExit is the outcome guardrail: ok is true exactly when
+// the process exited 0, 3 or 4, and error{code,message,exit_code} is present
+// exactly when ok is false, naming the same exit code.
+func requireOutcomeMatchesExit(t *testing.T, r contractRun, doc map[string]any) {
+	t.Helper()
+	wantOK := r.code == apicontract.ExitSuccess || r.code == apicontract.ExitFuzzMatch || r.code == apicontract.ExitFailOnGate
+	require.Equalf(t, wantOK, doc["ok"], "ok must be true exactly when exit is 0, 3 or 4\n%s", r)
+	errObj, hasErr := doc["error"].(map[string]any)
+	require.Equalf(t, !wantOK, hasErr, "error must be present exactly when ok is false\n%s", r)
+	if hasErr {
+		require.NotEmptyf(t, errObj["code"], "%s", r)
+		require.EqualValuesf(t, r.code, errObj["exit_code"], "error.exit_code is the process exit code\n%s", r)
 	}
 }
 

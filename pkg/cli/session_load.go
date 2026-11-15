@@ -279,11 +279,11 @@ func emitSessionLoad(cmd *cobra.Command, results []authentication.LoginResult, p
 func withResultFailure(err error) envOpt {
 	return func(e *agentEnvelope) {
 		e.OK = false
-		e.With("error", agentError{
+		e.Error = &agentError{
 			Code:     classifyErrorCode(err, ExitError),
 			Message:  err.Error(),
 			ExitCode: ExitError,
-		})
+		}
 	}
 }
 

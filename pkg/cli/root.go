@@ -479,6 +479,7 @@ func Execute() {
 
 	// ExecuteC (not Execute) so we get the command that actually ran back —
 	// the agent-family setup hint below needs to know which one failed.
+	jsonResultDeferred = true
 	cmd, err := rootCmd.ExecuteC()
 
 	// Bounded delivery of any scan webhook the command fired (asynchronous
@@ -500,6 +501,15 @@ func Execute() {
 	// Every exit from here on is an os.Exit, which does not run defers, so the
 	// scratch teardown is called explicitly on each path instead.
 	releaseScratch()
+
+	if err == nil {
+		// The held -j result (json_outcome.go). Its -o write can still fail,
+		// which turns a success into export_failed.
+		if err, code := finishJSONOutcome(nil, ExitSuccess, cmd); err != nil {
+			os.Exit(processExitCode(code, globalSoftFail))
+		}
+		return
+	}
 
 	if err != nil {
 		// When the failure IS the flag parse, cobra never bound the presentation
@@ -528,7 +538,9 @@ func Execute() {
 		// nothing: the old order exited 0 here and emitted no object at all, so
 		// `--json --soft-fail` reported a silent success for a command that had
 		// failed, which is the one outcome a machine caller cannot recover from.
-		emitJSONError(err, code, cmd)
+		// The held result document (ok:false plus error beside it), or the
+		// error envelope when the command wrote no result.
+		_, code = finishJSONOutcome(err, code, cmd)
 
 		// --soft-fail forces a successful exit code so wrapping scripts and CI
 		// pipelines are not aborted by errors the operator considers expected.

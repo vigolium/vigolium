@@ -37,10 +37,18 @@ type agentEnvelope struct {
 	// command. Set by the builder from the command's machine declaration
 	// (newMachineEnvelope, asMutation); empty from the raw newAgentEnvelope.
 	Kind string `json:"kind,omitempty"`
-	// OK is always true on a result document. The error envelope carries
-	// ok:false (agent_error.go), so `.ok` is a valid branch on every document a
-	// -j invocation prints.
+	// OK is true exactly when the invocation exits 0, 3 or 4. A result document
+	// whose command then failed carries ok:false and Error; the error envelope
+	// (agent_error.go) carries ok:false when there was no result at all, so
+	// `.ok` is a valid branch on every document a -j invocation prints.
 	OK bool `json:"ok"`
+	// Error is set, with OK false, when the command wrote this document and then
+	// ended with an exit code other than 0, 3 or 4 (json_outcome.go): the
+	// document keeps what the work produced and says why it is not a success.
+	Error *agentError `json:"error,omitempty"`
+	// SoftFail states that --soft-fail forced the process exit status to 0
+	// while Error records the code the command concluded.
+	SoftFail bool `json:"soft_fail,omitempty"`
 	// The mutation spine, set only by emitMutation. Changed is a pointer so a
 	// mutation that changed nothing still says `"changed": false` while a read
 	// carries no such key.
@@ -233,7 +241,7 @@ func envelopeItemSlice(v any) (*agentEnvelope, reflect.Value, bool) {
 // would reintroduce exactly the ambiguity the envelope removes.
 var envelopeFields = map[string]bool{
 	"schema_version": true, "command": true, "kind": true, "ok": true,
-	"changed": true, "action": true, "dry_run": true,
+	"error": true, "soft_fail": true, "changed": true, "action": true, "dry_run": true,
 	"project_uuid": true, "db_path": true,
 	"total": true, "offset": true, "limit": true, "items": true, "query": true,
 	"query_argv": true, "generated_at": true, "generated_at_ms": true,
