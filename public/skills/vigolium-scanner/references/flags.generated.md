@@ -733,6 +733,7 @@ List database records (default: http_records)
 | `--min-risk` | - | int | `0` | Show only records with risk score at or above this value |
 | `--min-surface` | - | int | `0` | Show only records with attack-surface score at or above this value (0-100, percent of the attack-surface signals present) |
 | `--module-type` | - | string | - | Filter findings by module type (active, passive, nuclei, agent, source-tools, oast, extension) |
+| `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--offset` | - | int | `0` | Number of records to skip before displaying |
 | `--output` | `-o` | string | - | With --json: write the result document to this file and print a receipt instead; '-' forces stdout |
 | `--path` | - | string | - | Filter records by URL path pattern |
@@ -758,7 +759,9 @@ _No command-specific flags._
 
 Delete and recreate the database from scratch (SQLite only)
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | List the database files that would be deleted and recreated, without touching them (needs no --force) |
 
 ## vigolium db seed
 
@@ -775,6 +778,7 @@ Show database statistics
 | `--detailed` | - | bool | `false` | Show per-host and per-module breakdown |
 | `--from` | - | string | - | Only records sent, findings found and scans started at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--host` | - | string | - | Show statistics for one host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
+| `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Show statistics for a specific scan UUID |
 | `--to` | - | string | - | Only records sent, findings found and scans started at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 
@@ -1640,6 +1644,7 @@ List native scan and agentic scan sessions
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
 | `--from` | - | string | - | Only sessions started at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
 | `--offset` | - | int | `0` | Skip the first N rows (follow output_budget.next_offset) |
 | `--reap` | - | bool | `false` | Finalize abandoned running scan rows as failed (stop_reason abandoned) and prune expired status.json files; writes the store |
@@ -2180,6 +2185,7 @@ Compare two scans' findings: new, fixed, not re-observed, unchanged
 | `--include-dismissed` | - | bool | `false` | Keep findings marked false_positive or accepted_risk |
 | `--last` | - | int | `2` | With --target: compare the N-th most recent scan of the target against the most recent (N >= 2) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--offset` | - | int | `0` | Skip the first N rows (follow output_budget.next_offset) |
 | `--output` | `-o` | string | - | With --json: write the result document to this file and print a receipt instead; '-' forces stdout |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |

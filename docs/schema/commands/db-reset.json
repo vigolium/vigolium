@@ -8,13 +8,30 @@
         },
         "files_removed": {
           "type": "integer"
+        },
+        "files": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dry_run": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,
       "type": "object",
       "required": [
         "path",
-        "files_removed"
+        "files_removed",
+        "files"
       ]
     },
     "contract.ErrorBody": {
