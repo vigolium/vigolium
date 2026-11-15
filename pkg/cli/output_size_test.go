@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/vigolium/vigolium/pkg/database"
 )
 
 // scanDocLike is a scan-shaped envelope: a few small findings and a bulky
@@ -96,4 +98,28 @@ func TestScanStatusCompactDropsPlan(t *testing.T) {
 	require.Contains(t, rows[0], "plan")
 	require.Nil(t, rows[0]["plan"])
 	require.Equal(t, "u", rows[0]["scan_uuid"])
+}
+
+// finding -j --compact is the survey form: identity, location, severity,
+// confidence and the one-line short; the module prose stays out unless
+// --fields names it.
+func TestCompactFindingViewDropsProse(t *testing.T) {
+	f := &database.Finding{
+		ID: 4, ModuleID: "m", Severity: "high", Confidence: "firm", URL: "http://x/",
+		ModuleShort: "one line", Description: strings.Repeat("d", 900),
+		Remediation: "fix it", AdditionalEvidence: []string{"e"},
+	}
+	full := compactFindingView(f, nil, agentViewOptions{})
+	for _, k := range []string{"description", "remediation", "additional_evidence"} {
+		require.Contains(t, full, k)
+	}
+	compact := compactFindingView(f, nil, agentViewOptions{noBodies: true})
+	for _, k := range []string{"description", "remediation", "additional_evidence"} {
+		require.NotContains(t, compact, k)
+	}
+	for _, k := range []string{"id", "module_id", "severity", "confidence", "url", "short"} {
+		require.Contains(t, compact, k)
+	}
+	asked := compactFindingView(f, nil, agentViewOptions{noBodies: true, fields: []string{"id", "description"}})
+	require.Equal(t, f.Description, asked["description"])
 }

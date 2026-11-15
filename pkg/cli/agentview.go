@@ -61,7 +61,7 @@ const defaultRecordLimit = 20
 // to a command's local flag set.
 func registerAgentJSONFlags(flags *pflag.FlagSet) {
 	flags.StringSliceVar(&jsonFields, "fields", nil, "Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url). An unknown name is an error, not a silent drop")
-	flags.BoolVar(&jsonCompact, "compact", false, "With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole")
+	flags.BoolVar(&jsonCompact, "compact", false, "With --json, emit metadata only: omit request/response bodies and each finding's description, remediation and additional_evidence (name one in --fields to keep it). --markdown already compacts response bodies by default; use --full-body to render them whole")
 	flags.BoolVar(&jsonFullBody, "full-body", false, "Render complete request/response bodies (no truncation/stubbing) with --json, and whole (uncompacted) bodies with --markdown")
 	registerOutputBudgetFlag(flags)
 }
@@ -805,6 +805,10 @@ func compactRecordView(rec *database.HTTPRecord, opts agentViewOptions) map[stri
 // (matched_at/extracted_results/additional_evidence) and a windowed snippet of
 // any inline response keep the proof small by default.
 func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opts agentViewOptions) map[string]any {
+	// --compact is identity, location, severity, confidence and the one-line
+	// short: the general prose (about a kilobyte per finding, the same for
+	// every finding of a module) stays out unless --fields names it.
+	prose := func(key string) bool { return !opts.noBodies || wantsField(opts.fields, key) }
 	m := map[string]any{
 		"severity":       f.Severity,
 		"confidence":     f.Confidence,
@@ -830,7 +834,7 @@ func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opt
 	if f.ModuleShort != "" {
 		m["short"] = f.ModuleShort
 	}
-	if f.Description != "" {
+	if f.Description != "" && prose("description") {
 		m["description"] = f.Description
 	}
 	if f.URL != "" {
@@ -845,7 +849,7 @@ func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opt
 	if len(f.ExtractedResults) > 0 {
 		m["extracted_results"] = f.ExtractedResults
 	}
-	if len(f.AdditionalEvidence) > 0 {
+	if len(f.AdditionalEvidence) > 0 && prose("additional_evidence") {
 		m["additional_evidence"] = f.AdditionalEvidence
 	}
 	if len(f.Tags) > 0 {
@@ -857,7 +861,7 @@ func compactFindingView(f *database.Finding, records []*database.HTTPRecord, opt
 	if f.CVSSScore != 0 {
 		m["cvss_score"] = f.CVSSScore
 	}
-	if f.Remediation != "" {
+	if f.Remediation != "" && prose("remediation") {
 		m["remediation"] = f.Remediation
 	}
 	if f.Status != "" {
