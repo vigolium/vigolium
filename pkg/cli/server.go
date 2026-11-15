@@ -50,6 +50,8 @@ type serverOptions struct {
 	ProxyAllow []string
 	APIKeys    []string
 	NoAuth     bool
+	// AllowUnauthBind lets --no-auth listen on a non-loopback --host.
+	AllowUnauthBind bool
 
 	// Ingest-proxy TLS interception (MITM)
 	ProxyMITM     bool   // Intercept HTTPS via a generated CA (records + scans TLS traffic)
@@ -146,7 +148,8 @@ func init() {
 		"Write the ingest-proxy MITM CA certificate to this path and exit (alias of 'server ca print --out')")
 	_ = flags.MarkHidden("export-ca")
 	flags.StringSliceVar(&serverOpts.APIKeys, "alternative-ingest-key", nil, "Additional API key for ingestion endpoints (repeatable)")
-	flags.BoolVarP(&serverOpts.NoAuth, "no-auth", "A", false, "Run server without API key authentication")
+	flags.BoolVarP(&serverOpts.NoAuth, "no-auth", "A", false, "Run server without API key authentication (loopback --host only, unless --allow-unauthenticated-bind)")
+	flags.BoolVar(&serverOpts.AllowUnauthBind, "allow-unauthenticated-bind", false, "Allow --no-auth with a non-loopback --host, exposing the API without a key to the network")
 
 	// Queue group
 	flags.IntVar(&serverOpts.MemBufferSize, "mem-buffer", 10000, "In-memory queue capacity before spilling to disk")
@@ -387,6 +390,9 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	serverOpts.Host = resolveServerHost(cmd, serverOpts.Host)
+	if err := server.CheckAPIBind(serverOpts.Host, serverOpts.NoAuth, serverOpts.AllowUnauthBind); err != nil {
+		return clicommon.AsUsageError(err)
+	}
 	proxyHost, proxyAuth, err := resolveIngestProxyAuth(cmd, serverOpts, &settings.Server)
 	if err != nil {
 		return err

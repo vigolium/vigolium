@@ -2429,6 +2429,7 @@ Serve the REST API, ingest live traffic, and scan it as it arrives
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--allow-unauthenticated-bind` | - | bool | `false` | Allow --no-auth with a non-loopback --host, exposing the API without a key to the network |
 | `--alternative-ingest-key` | - | stringSlice | - | Additional API key for ingestion endpoints (repeatable) |
 | `--burp-bridge-url` | `-B` | string | - | Merge live proxy traffic from this loopback Burp/Caido bridge URL into /api/http-records (alias: --caido-bridge-url) |
 | `--catchup-threads` | - | int | `4` | Deprecated: no-op (catch-up scanning is disabled) |
@@ -2443,7 +2444,7 @@ Serve the REST API, ingest live traffic, and scan it as it arrives
 | `--mem-buffer` | - | int | `10000` | In-memory queue capacity before spilling to disk |
 | `--mirror-fs` | - | string | - | Mirror ingested traffic + findings to a live flat filesystem tree under this dir (<dir>/traffic, <dir>/findings), in addition to the database — readable by an external agent with ls/grep/jq |
 | `--no-agent` | - | bool | `false` | Disable all agent endpoints and warm session pooling |
-| `--no-auth` | `-A` | bool | `false` | Run server without API key authentication |
+| `--no-auth` | `-A` | bool | `false` | Run server without API key authentication (loopback --host only, unless --allow-unauthenticated-bind) |
 | `--no-swagger` | - | bool | `false` | Disable Swagger UI and API spec endpoint |
 | `--output` | `-o` | string | - | Write findings to specified output file |
 | `--passive-only` | - | bool | `false` | With --scan-on-receive, run passive modules only (no active scan traffic; includes secret detection) |

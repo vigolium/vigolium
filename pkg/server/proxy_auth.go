@@ -104,6 +104,23 @@ func CheckProxyBind(host string, auth *ProxyAuth) error {
 		"or keep the default --ingest-proxy-host %s", shown, DefaultIngestProxyHost)
 }
 
+// CheckAPIBind refuses an unauthenticated REST API on a routable address, the
+// API's counterpart of CheckProxyBind: with no API key, everyone who can reach
+// the port can read every recorded request and start scans. allowUnauth is the
+// operator's explicit override.
+func CheckAPIBind(host string, noAuth, allowUnauth bool) error {
+	if !noAuth || allowUnauth || IsLoopbackHost(host) {
+		return nil
+	}
+	shown := host
+	if shown == "" || shown == "0.0.0.0" || shown == "::" || shown == "[::]" {
+		shown = "all interfaces"
+	}
+	return fmt.Errorf("refusing to bind the REST API to %s without authentication (--no-auth): "+
+		"drop --no-auth to require the API key, keep a loopback --host, "+
+		"or pass --allow-unauthenticated-bind to expose it anyway", shown)
+}
+
 // authorize applies the configured checks to r. On refusal it has already
 // written the response and returns false. On success it strips
 // Proxy-Authorization, so the credential is neither forwarded upstream nor

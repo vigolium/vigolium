@@ -22,3 +22,11 @@ func TestServerBindFailureExitsOne(t *testing.T) {
 	require.NotContains(t, stdout, "Server running")
 	require.Contains(t, stderr, "address already in use")
 }
+
+// --no-auth on a routable --host is refused (exit 2) before anything binds.
+func TestServerRefusesUnauthenticatedPublicBind(t *testing.T) {
+	e := newB5Env(t)
+	code, stdout, stderr := e.runChildWithin(t, 60*time.Second, "server", "--host", "0.0.0.0", "--service-port", "0", "-A")
+	require.Equal(t, 2, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
+	require.Contains(t, stderr, "--allow-unauthenticated-bind")
+}
