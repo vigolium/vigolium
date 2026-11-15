@@ -215,6 +215,9 @@
         "next_offset": {
           "type": "integer"
         },
+        "full_result": {
+          "type": "string"
+        },
         "dropped_keys": {
           "items": {
             "type": "string"
@@ -227,8 +230,7 @@
       "required": [
         "max_bytes",
         "returned",
-        "omitted",
-        "next_offset"
+        "omitted"
       ]
     },
     "contract.ReceiptArtifact": {
@@ -525,6 +527,9 @@
     "sent": {
       "type": "integer"
     },
+    "sent_total": {
+      "type": "integer"
+    },
     "matched": {
       "type": "integer"
     },
@@ -583,6 +588,7 @@
     "positions",
     "payloads",
     "sent",
+    "sent_total",
     "matched",
     "calibrated",
     "errors",

@@ -1441,7 +1441,7 @@ Inject payloads into a request and report per-payload response anomalies
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--all-results` | - | bool | `false` | Emit every result, not just matched ones |
+| `--all-results` | - | bool | `false` | Emit every result, not just matched ones (the -j document's items included) |
 | `--allow-baseline-error` | - | bool | `false` | Run even when every baseline send fails (deltas, calibration and anomaly scoring then compare against an empty response) |
 | `--anomaly` | `-a` | bool | `false` | Auto-detect interesting responses instead of requiring explicit matchers: score each response against the baseline AND the run's own population (rare status, unique body, size/time outliers, new error signatures, changed headers, unencoded reflection) |
 | `--anomaly-min-population` | - | int | `0` | Responses needed before population signals (rarity/outliers) count (default 12) |
@@ -1494,6 +1494,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--keep-host` | - | bool | `false` | With -t: send the request's Host header unchanged even when it names the old destination |
 | `--key` | - | string | - | Client certificate private key file (PEM) |
 | `--keyword` | - | string | `FUZZ` | Marker keyword replaced by each payload when present in the request |
+| `--limit` | `-n` | int | `20` | With -j: the most results the document lists, highest-ranked first (0 = every one); total counts them all |
 | `--location` | - | bool | `false` | Follow 30x redirects (already the default; use --no-redirects to stop) — accepted for curl compatibility |
 | `--match-header` | - | stringArray | - | Match on a response header: 'Name' for presence, or 'Name: regex' (repeatable) |
 | `--match-lines` | - | stringSlice | - | Match response line counts: N, N-M, >N, <N, !N |
@@ -2154,6 +2155,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--concurrency` | `-c` | int | `10` | Bulk: concurrent replays; keep low to avoid overwhelming an intercepting proxy like Burp |
 | `--dry-run` | - | bool | `false` | Print the request that would be sent (after header overlays and --target), without sending or storing it |
+| `--excerpt-bytes` | - | int | `4096` | Bytes of each response (and the mutated request) kept as an excerpt in the -j/JSONL result |
 | `--exclude-body` | - | string | - | Bulk: drop records whose request/response body contains the term (inverse of --body) |
 | `--exclude-header-search` | - | string | - | Bulk: drop records whose HTTP header names/values contain the term (inverse of --header-search) |
 | `--exclude-search` | - | stringArray | - | Bulk: drop records where the term appears in the URL, path, or raw request/response (repeatable; dropped if ANY term matches — inverse of --search) |

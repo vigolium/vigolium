@@ -517,6 +517,9 @@
         "next_offset": {
           "type": "integer"
         },
+        "full_result": {
+          "type": "string"
+        },
         "dropped_keys": {
           "items": {
             "type": "string"
@@ -529,8 +532,7 @@
       "required": [
         "max_bytes",
         "returned",
-        "omitted",
-        "next_offset"
+        "omitted"
       ]
     },
     "contract.ReceiptArtifact": {
