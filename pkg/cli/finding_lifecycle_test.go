@@ -197,6 +197,9 @@ func TestFindingMark_EndToEnd(t *testing.T) {
 		t.Fatalf("mark with a miss exit = %d, want 1", code)
 	}
 	doc = decodeOne(t, out)
+	if errObj, _ := doc["error"].(map[string]any); doc["ok"] != false || errObj == nil || errObj["exit_code"] != float64(1) {
+		t.Errorf("exit 1 keeps the result document but says ok:false with error: %v", doc)
+	}
 	if nf, _ := doc["not_found"].([]any); len(nf) != 1 || nf[0] != "424242" {
 		t.Errorf("not_found = %v", doc["not_found"])
 	}
