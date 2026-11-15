@@ -22,7 +22,7 @@ import (
 //
 // Exempt:
 //   - methods named Set or Type (pflag.Value): cobra reports those errors as
-//     "invalid argument", which isFlagParseError already maps to 2;
+//     "invalid argument", which flagErrorFunc already maps to 2;
 //   - a call on a line carrying, or directly below, a
 //     `//vigolium:not-usage <reason>` comment, for messages that only look like
 //     usage errors (a missing field in a stored record, say).

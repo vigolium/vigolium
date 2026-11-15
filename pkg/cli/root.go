@@ -374,6 +374,10 @@ func init() {
 	// FlagErrorFunc()'s walk to the parent.
 	rootCmd.SetFlagErrorFunc(flagErrorFunc)
 
+	// The root rejects an unknown subcommand itself (enforceGroupSubcommands);
+	// keep cobra's own suggestion distance for it.
+	rootCmd.SuggestionsMinimumDistance = 2
+
 	pf := rootCmd.PersistentFlags()
 	registerReadOnlyFlag(rootCmd)
 	registerJSONLegacyKeysFlag(rootCmd)
@@ -536,13 +540,11 @@ func Execute() {
 		// `traffic --json --bad` does. See presentation_mode.go.
 		resolvePresentationMode(argsForPresentationRecovery())
 
-		err = structureUnknownCommand(cmd, err)
 		code := classifyExitCode(err)
-		// A flag-parse failure never reaches a RunE, so it cannot be wrapped as a
-		// usageError at its source; cobra surfaces it as a plain error from
-		// ExecuteC with the command still unresolved. Recognising it here is what
-		// keeps "unknown flag" at 2 instead of collapsing into the generic 1.
-		if code == ExitError && isFlagParseError(err) {
+		// Flag-parse errors are usage errors from flagErrorFunc, and argument
+		// errors from wrapArgsValidators; cobra's missing-required-flag check
+		// is the one plain error left.
+		if code == ExitError && isRequiredFlagError(err) {
 			code = ExitUsageError
 		}
 
@@ -588,27 +590,10 @@ func releaseScratch() {
 	scratch.SweepOnce(scratch.DefaultMaxAge)
 }
 
-// isFlagParseError recognises the errors cobra/pflag raise for a malformed
-// command line. Matched on message prefix because pflag returns bare
-// fmt.Errorf values with no sentinel to compare against; the set is small and
-// stable, and a miss only means the old exit code (1), never a wrong success.
-func isFlagParseError(err error) bool {
-	msg := err.Error()
-	for _, prefix := range []string{
-		"unknown flag",
-		"unknown shorthand flag",
-		"unknown command",
-		"invalid argument",
-		"flag needs an argument",
-		"bad flag syntax",
-		"accepts ",
-		"required flag",
-	} {
-		if strings.HasPrefix(msg, prefix) {
-			return true
-		}
-	}
-	return false
+// isRequiredFlagError recognises cobra's missing-required-flag error, a bare
+// fmt.Errorf raised outside flag parsing (so flagErrorFunc never sees it).
+func isRequiredFlagError(err error) bool {
+	return strings.HasPrefix(err.Error(), "required flag")
 }
 
 // resolveModules resolves globalModules patterns and globalModuleTags into exact

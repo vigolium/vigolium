@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -41,7 +40,7 @@ const (
 // Args.
 func enforceGroupSubcommands(root *cobra.Command) {
 	walkTree(root, func(c *cobra.Command) {
-		if c == root || !c.HasSubCommands() || c.Annotations[groupHookAnnotation] != "" {
+		if !c.HasSubCommands() || c.Annotations[groupHookAnnotation] != "" {
 			return
 		}
 		setAnnotation(c, groupHookAnnotation, "1")
@@ -50,8 +49,8 @@ func enforceGroupSubcommands(root *cobra.Command) {
 			c.Args = rejectUnknownSubcommand
 			c.RunE = groupHelpRunE
 		case c.Args == nil:
-			// Its own RunE but no positional of its own (agent): any word is a
-			// subcommand that does not exist.
+			// Its own RunE but no positional of its own (the root, agent): any
+			// word is a subcommand that does not exist.
 			c.Args = rejectUnknownSubcommand
 		default:
 			own := c.Args
@@ -132,7 +131,7 @@ func nearestSubcommand(cmd *cobra.Command, word string, generous bool) string {
 
 // unknownSubcommandError is the usage error for an unknown subcommand word.
 // The message keeps cobra's wording ("unknown command …"), which is what
-// scripts and isFlagParseError already recognise.
+// scripts already recognise.
 func unknownSubcommandError(cmd *cobra.Command, word, best string) error {
 	path := commandPathWithoutRoot(cmd)
 	e := clicommon.CLIError{
@@ -346,23 +345,4 @@ func flagEnumValues(f *pflag.Flag) []string {
 		return nil
 	}
 	return f.Annotations[enumAnnotation]
-}
-
-// cobraUnknownCommand matches cobra's own unknown-command error, raised for the
-// root before any hook can run.
-var cobraUnknownCommand = regexp.MustCompile(`^unknown command "([^"]*)" for "`)
-
-// structureUnknownCommand turns cobra's unknown-command error (whose message
-// carries its "Did you mean this?" block as text) into the structured CLIError,
-// so the -j envelope's message is the fact and the suggestion is a field.
-func structureUnknownCommand(cmd *cobra.Command, err error) error {
-	var cli clicommon.CLIError
-	if err == nil || cmd == nil || errors.As(err, &cli) {
-		return err
-	}
-	m := cobraUnknownCommand.FindStringSubmatch(err.Error())
-	if m == nil {
-		return err
-	}
-	return unknownSubcommandError(cmd, m[1], nearestSubcommand(cmd, m[1], true))
 }

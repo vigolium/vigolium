@@ -10,9 +10,10 @@ import (
 	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
-// flagErrorFunc augments cobra's flag-parse errors with a "did you mean" hint.
-// Cobra suggests near-miss *subcommands* out of the box but says nothing for a
-// mistyped *flag*, so `--module` (instead of `--modules`) dead-ends at a bare
+// flagErrorFunc makes every flag-parse error a usage error (exit 2) and
+// augments the mistyped-flag ones with a "did you mean" hint. Cobra suggests
+// near-miss *subcommands* out of the box but says nothing for a mistyped
+// *flag*, so `--module` (instead of `--modules`) dead-ends at a bare
 // "unknown flag: --module". This closes that gap by pointing at the closest
 // registered long flag on the command that actually failed to parse. It is
 // installed once on rootCmd; cobra's FlagErrorFunc() walks up to the parent, so
@@ -31,14 +32,14 @@ func flagErrorFunc(cmd *cobra.Command, err error) error {
 	}
 	var notExist *pflag.NotExistError
 	if !errors.As(err, &notExist) {
-		return err
+		return asUsageError(err)
 	}
 	// Only long-flag typos ("--module") get a suggestion. An unknown shorthand
 	// carries a shortname group (GetSpecifiedShortnames) and rarely has a
 	// meaningful near-match, so leave those untouched.
 	typed := notExist.GetSpecifiedName()
 	if notExist.GetSpecifiedShortnames() != "" || len(typed) < 2 {
-		return err
+		return asUsageError(err)
 	}
 	// The remedies travel as fields (clicommon.CLIError): a human reads them
 	// under the fact, the -j envelope carries them as hint/did_you_mean/

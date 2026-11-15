@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
+
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
@@ -61,21 +64,26 @@ func TestUsageErrorPreservesMessage(t *testing.T) {
 	}
 }
 
-func TestIsFlagParseError(t *testing.T) {
-	// A flag-parse failure never reaches a RunE, so it cannot be wrapped at its
-	// source; recognising it here is what keeps "unknown flag" at 2.
-	for msg, want := range map[string]bool{
-		"unknown flag: --bogus":             true,
-		"unknown shorthand flag: 'S' in -S": true,
-		"flag needs an argument: --db":      true,
-		"accepts 1 arg(s), received 2":      true,
-		"connection refused":                false,
-		"failed to open database":           false,
+// Every flag-parse error leaves flagErrorFunc as a usage error (exit 2).
+func TestFlagParseErrorsAreUsageErrors(t *testing.T) {
+	root := &cobra.Command{Use: "vigolium"}
+	c := &cobra.Command{Use: "x", RunE: func(*cobra.Command, []string) error { return nil }}
+	root.AddCommand(c)
+	var db string
+	var n int
+	c.Flags().StringVar(&db, "db", "", "")
+	c.Flags().IntVar(&n, "limit", 0, "")
+	for _, argv := range [][]string{
+		{"--bogus"}, {"-Z"}, {"--db"}, {"--limit", "abc"}, {"---x"},
 	} {
-		if got := isFlagParseError(errors.New(msg)); got != want {
-			t.Errorf("isFlagParseError(%q) = %v, want %v", msg, got, want)
+		err := c.ParseFlags(argv)
+		require.Error(t, err, argv)
+		if got := classifyExitCode(flagErrorFunc(c, err)); got != ExitUsageError {
+			t.Errorf("%v: %v exits %d, want %d", argv, err, got, ExitUsageError)
 		}
 	}
+	require.True(t, isRequiredFlagError(errors.New(`required flag(s) "db" not set`)))
+	require.False(t, isRequiredFlagError(errors.New("connection refused")))
 }
 
 // TestExitCodeTable pins the whole exit-code contract (docs/coding-agent.md,
