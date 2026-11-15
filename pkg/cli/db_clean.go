@@ -287,10 +287,16 @@ func applySelection(ctx context.Context, del *database.DeleteBuilder, sel *clean
 func runScopedClean(ctx context.Context, cmd *cobra.Command, db *database.DB, sel *cleanSelection) error {
 	del := database.NewDeleteBuilder(db, sel.Filters)
 
-	// The preview runs the delete and rolls it back, so the per-table counts
-	// it shows are exactly what the real run removes.
-	preview, err := applySelection(ctx, del, sel, true)
+	// With --force nothing is asked, so the delete runs once and its own counts
+	// are both the preview and the result. Otherwise the preview runs the
+	// delete and rolls it back, so the per-table counts it shows are exactly
+	// what the confirmed run removes.
+	forced := globalForce && !cleanDryRun
+	preview, err := applySelection(ctx, del, sel, !forced)
 	if err != nil {
+		if forced {
+			return fmt.Errorf("failed to delete: %w", err)
+		}
 		return fmt.Errorf("failed to count rows to delete: %w", err)
 	}
 	count := preview[cleanModeTableName(sel)]
@@ -315,16 +321,17 @@ func runScopedClean(ctx context.Context, cmd *cobra.Command, db *database.DB, se
 		return nil
 	}
 
-	if done, err := handleConfirmation(sel.describeAction(count)); done {
-		if err == nil && globalJSON {
-			return emitDBClean(cmd, sel, cleanCountsView(sel, preview), total, 0, true)
+	deleted := preview
+	if !forced {
+		if done, err := handleConfirmation(sel.describeAction(count)); done {
+			if err == nil && globalJSON {
+				return emitDBClean(cmd, sel, cleanCountsView(sel, preview), total, 0, true)
+			}
+			return err
 		}
-		return err
-	}
-
-	deleted, err := applySelection(ctx, del, sel, false)
-	if err != nil {
-		return fmt.Errorf("failed to delete: %w", err)
+		if deleted, err = applySelection(ctx, del, sel, false); err != nil {
+			return fmt.Errorf("failed to delete: %w", err)
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "\n%s %s\n", terminal.SuccessSymbol(),

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -34,9 +33,6 @@ type TraceOptions struct {
 	FlagKeys []string
 }
 
-// envRefInValue matches ${NAME}, ${NAME:-default} and $NAME references.
-var envRefInValue = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-[^}]*)?\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
-
 // TraceSources reports, for every key a layer set, the layer that decided its
 // effective value: the config file (or env:NAME when the file's value is a
 // ${NAME} placeholder the environment filled), the project overlay, a
@@ -47,9 +43,12 @@ var envRefInValue = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-[^}]*)?\}
 // environment override → flag.
 func TraceSources(opts TraceOptions) (map[string]string, error) {
 	sources := map[string]string{}
-	path, err := resolveConfigFile(opts.ConfigPath)
-	if err != nil {
-		return nil, err
+	path := ExpandPath(opts.ConfigPath)
+	if opts.ConfigPath == "" {
+		var err error
+		if path, err = discoverConfigFile(); err != nil {
+			return nil, err
+		}
 	}
 	if path != "" {
 		if err := traceYAMLFile(path, SourceFile, sources); err != nil {
@@ -97,21 +96,6 @@ func SourceOf(sources map[string]string, key string) string {
 			return s
 		}
 	}
-}
-
-// resolveConfigFile is the file LoadSettings reads, or "" when there is none.
-func resolveConfigFile(configPath string) (string, error) {
-	if configPath != "" {
-		return ExpandPath(configPath), nil
-	}
-	for _, p := range []string{ExpandPath("~/.vigolium/vigolium-configs.yaml"), "./vigolium-configs.yaml"} {
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return "", err
-		}
-	}
-	return "", nil
 }
 
 // traceYAMLFile records the leaves of the raw (unexpanded) YAML file at path

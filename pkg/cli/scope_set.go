@@ -1,12 +1,12 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/cli/configcmd"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -75,10 +75,11 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 
 	edit, err := config.SetFieldEdit(settings, key, value)
 	if err != nil {
-		if errors.Is(err, config.ErrUnknownKey) || errors.Is(err, config.ErrInvalidValue) {
-			return clicommon.AsUsageError(fmt.Errorf("failed to set %q: %w", key, err))
+		err = fmt.Errorf("failed to set %q: %w", key, err)
+		if configcmd.IsBadSetting(err) {
+			return clicommon.AsUsageError(err)
 		}
-		return fmt.Errorf("failed to set %q: %w", key, err)
+		return err
 	}
 
 	where := ""
@@ -90,7 +91,7 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 	} else if scopeSetProject != "" {
 		path, err := config.SetProjectOverlayEdit(scopeSetProject, key, edit)
 		if err != nil {
-			if errors.Is(err, config.ErrUnknownKey) || errors.Is(err, config.ErrInvalidValue) {
+			if configcmd.IsBadSetting(err) {
 				return clicommon.AsUsageError(err)
 			}
 			return fmt.Errorf("failed to save project config: %w", err)
@@ -98,7 +99,7 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 		where = " (" + config.ContractPath(path) + ")"
 		layer, configPath = "project", path
 	} else if _, err := config.EditConfigFile(configPath, edit); err != nil {
-		if errors.Is(err, config.ErrInvalidValue) {
+		if configcmd.IsBadSetting(err) {
 			return clicommon.AsUsageError(fmt.Errorf("failed to set %q: %w", key, err))
 		}
 		return fmt.Errorf("failed to save config: %w", err)

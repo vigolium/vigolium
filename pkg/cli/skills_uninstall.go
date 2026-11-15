@@ -1,22 +1,18 @@
 package cli
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/vigolium/vigolium/pkg/contract"
-	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
@@ -189,43 +185,24 @@ func uninstallSkillBundle(b bundledSkill, dest string, force, dryRun bool) (skil
 		return uninstallUnstampedSkill(b.Name, dest, force, dryRun, view)
 	}
 
-	var remove []string
-	for _, f := range st.Manifest.Files {
-		rel := filepath.FromSlash(f.Path)
-		if !filepath.IsLocal(rel) {
-			continue
-		}
-		data, readErr := os.ReadFile(filepath.Join(dest, rel))
-		switch {
-		case errors.Is(readErr, fs.ErrNotExist):
-			view.Modified = append(view.Modified, f.Path)
-		case readErr != nil:
-			return view, readErr
-		default:
-			sum := sha256.Sum256(data)
-			if hex.EncodeToString(sum[:]) != f.SHA256 {
-				view.Modified = append(view.Modified, f.Path)
-			}
-			remove = append(remove, f.Path)
-		}
+	modified, present, err := manifestDrift(dest, st.Manifest)
+	if err != nil {
+		return view, err
 	}
-	if len(view.Modified) > 0 && !force {
+	view.Modified = modified
+	if len(modified) > 0 && !force {
 		view.Reason = skillStatusModified
 		return view, nil
 	}
-	remove = append(remove, skillManifestName)
-	listed := map[string]bool{}
+	view.FilesRemoved = append(view.FilesRemoved, present...)
+	remove := append(slices.Clone(present), skillManifestName)
+	listed := make(map[string]bool, len(remove))
 	for _, p := range remove {
 		listed[p] = true
 	}
 	view.Kept = unlistedSkillFiles(dest, listed)
 	view.Removed = true
 	view.StatusAfter = skillStatusMissing
-	for _, p := range remove {
-		if p != skillManifestName {
-			view.FilesRemoved = append(view.FilesRemoved, p)
-		}
-	}
 	if dryRun {
 		return view, nil
 	}
@@ -233,8 +210,9 @@ func uninstallSkillBundle(b bundledSkill, dest string, force, dryRun bool) (skil
 		if err := os.Remove(filepath.Join(dest, filepath.FromSlash(p))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return view, fmt.Errorf("remove %s: %w", p, err)
 		}
+		removeEmptyParents(dest, p)
 	}
-	removeEmptySkillDirs(dest, remove)
+	_ = os.Remove(dest) // when nothing is left in it
 	return view, nil
 }
 
@@ -246,24 +224,13 @@ func uninstallUnstampedSkill(name, dest string, force, dryRun bool, view skillUn
 		view.Reason = "unstamped"
 		return view, nil
 	}
-	skillMd := filepath.Join(dest, "SKILL.md")
-	raw, err := os.ReadFile(skillMd)
-	if err != nil {
+	if ok, _, err := legacySkillDeclares(name, dest); err != nil {
 		return view, err
-	}
-	parsed, perr := skill.Parse(raw, skillMd, dest, skill.SourceProjectClaude)
-	if perr != nil || !strings.EqualFold(parsed.Name, name) {
+	} else if !ok {
 		return view, fmt.Errorf("refusing to remove %s: it has no %s and its SKILL.md does not declare %q", dest, skillManifestName, name)
 	}
 	view.Kept = nil
-	_ = filepath.WalkDir(dest, func(p string, d fs.DirEntry, walkErr error) error {
-		if walkErr == nil && !d.IsDir() {
-			if rel, relErr := filepath.Rel(dest, p); relErr == nil {
-				view.FilesRemoved = append(view.FilesRemoved, filepath.ToSlash(rel))
-			}
-		}
-		return nil
-	})
+	view.FilesRemoved = append(view.FilesRemoved, unlistedSkillFiles(dest, nil)...)
 	view.Removed = true
 	view.StatusAfter = skillStatusMissing
 	if dryRun {
@@ -287,25 +254,4 @@ func unlistedSkillFiles(dest string, listed map[string]bool) []string {
 		return nil
 	})
 	return out
-}
-
-// removeEmptySkillDirs removes the directories the removed files left empty,
-// deepest first, then dest itself when nothing is left in it.
-func removeEmptySkillDirs(dest string, removed []string) {
-	dirs := map[string]bool{}
-	for _, p := range removed {
-		for dir := path.Dir(p); dir != "." && dir != "/"; dir = path.Dir(dir) {
-			dirs[dir] = true
-		}
-	}
-	ordered := make([]string, 0, len(dirs))
-	for d := range dirs {
-		ordered = append(ordered, d)
-	}
-	// Deeper paths have more separators; remove them before their parents.
-	sort.Slice(ordered, func(i, j int) bool { return strings.Count(ordered[i], "/") > strings.Count(ordered[j], "/") })
-	for _, d := range ordered {
-		_ = os.Remove(filepath.Join(dest, filepath.FromSlash(d))) // fails when not empty
-	}
-	_ = os.Remove(dest)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 // standardHTTPMethods are the methods a --method filter is expected to name.
@@ -34,7 +35,7 @@ func checkTrafficSourceFilter(ctx context.Context, db *database.DB, source, proj
 	return clicommon.CLIError{
 		Err: fmt.Errorf("no record has source %q; sources in this store: %s",
 			source, strings.Join(nonEmpty(stored), ", ")),
-		DidYouMean: closestName(strings.ToLower(source), candidates),
+		DidYouMean: textutil.Closest(strings.ToLower(source), candidates),
 	}
 }
 

@@ -53,7 +53,7 @@ func TestSettingEntriesTypedAndComplete(t *testing.T) {
 	}
 }
 
-func TestIsCredentialKey(t *testing.T) {
+func TestIsSensitiveEntry(t *testing.T) {
 	for key, want := range map[string]bool{
 		"notify.telegram.bot_token":            true,
 		"database.postgres.password":           true,
@@ -61,12 +61,13 @@ func TestIsCredentialKey(t *testing.T) {
 		"external_harvester.api_keys.urlscan":  true,
 		"notify.discord.webhook.url":           true,
 		"agent.olium.max_tokens":               false,
-		"discovery.engine.disable_secret_scan": true, // a word match; the walker only applies it to strings
+		"discovery.engine.disable_secret_scan": true, // a word match; callers only apply it to strings
 		"oast.server_url":                      false,
 		"scope.host.include":                   false,
 	} {
-		require.Equal(t, want, IsCredentialKey(key), key)
+		require.Equal(t, want, IsSensitiveEntry(key, "plain"), key)
 	}
+	require.True(t, IsSensitiveEntry("oast.server_url", "${OAST_URL}"), "an env reference is withheld")
 }
 
 // The tracer names the file, the env var behind a placeholder, the project

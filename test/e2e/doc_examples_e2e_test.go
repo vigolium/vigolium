@@ -20,6 +20,7 @@ import (
 	"github.com/itchyny/gojq"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vigolium/vigolium/internal/doclex"
 	"github.com/vigolium/vigolium/pkg/cli"
 )
 
@@ -123,11 +124,11 @@ func substituteDocExample(path string, argv []string) (out []string, ok bool) {
 		case a == "--db":
 			i++
 			continue
-		case strings.HasPrefix(a, "--db="), a == cli.DocEllipsis, a == "--json", a == "-j", a == "--pretty":
+		case strings.HasPrefix(a, "--db="), a == doclex.Ellipsis, a == "--json", a == "-j", a == "--pretty":
 			continue
 		case docLiteralByFlag[path][prev] != "":
 			a = docLiteralByFlag[path][prev]
-		case strings.Contains(a, cli.DocPlaceholder) || docIDLike.MatchString(a) ||
+		case strings.Contains(a, doclex.Placeholder) || docIDLike.MatchString(a) ||
 			(path == "finding show" || path == "finding") && isDigits(a) && !strings.HasPrefix(prev, "-"):
 			if v, known := docPlaceholderByFlag[prev]; known {
 				a = v
@@ -141,7 +142,7 @@ func substituteDocExample(path string, argv []string) (out []string, ok bool) {
 			}
 			ids := docPlaceholderByCommand[path]
 			if positional >= len(ids) {
-				if strings.Contains(a, cli.DocPlaceholder) {
+				if strings.Contains(a, doclex.Placeholder) {
 					return nil, false
 				}
 				break
@@ -190,7 +191,7 @@ func jqFilter(stage []string) (filter string, vars map[string]any, ok bool) {
 			filter = a
 		}
 	}
-	return filter, vars, filter != "" && !strings.Contains(filter, cli.DocPlaceholder)
+	return filter, vars, filter != "" && !strings.Contains(filter, doclex.Placeholder)
 }
 
 func TestDocExamplesRun(t *testing.T) {
@@ -198,7 +199,7 @@ func TestDocExamplesRun(t *testing.T) {
 	examples, err := cli.DocExamples()
 	require.NoError(t, err)
 	if data, readErr := os.ReadFile("../../docs/coding-agent.md"); readErr == nil {
-		examples = append(examples, cli.MarkdownDocExamples("docs/coding-agent.md", string(data))...)
+		examples = append(examples, doclex.Lexed(doclex.Markdown("docs/coding-agent.md", string(data)))...)
 	}
 	require.NotEmpty(t, examples)
 
@@ -225,7 +226,7 @@ func TestDocExamplesRun(t *testing.T) {
 	ran, jqChecked := 0, 0
 	seen := map[string]bool{}
 	for _, ex := range examples {
-		path, why := cli.ReadOnlyDocExample(ex)
+		path, why := cli.ReadOnlyDocExample(ex.Argv)
 		dryRun := why != "" && slices.Contains(ex.Argv, "--dry-run") && docDryRunCommands[path]
 		if (why != "" && !dryRun) || docStdinCommands[path] || humanOnlyDocExample(ex.Argv) {
 			continue
@@ -270,7 +271,7 @@ func TestDocExamplesRun(t *testing.T) {
 	require.Greater(t, ran, 40, "the selection is broken: too few documented reads ran")
 	require.GreaterOrEqual(t, jqChecked, 3, "the pipe extraction is broken: too few jq filters were checked")
 	for text := range docExampleSkips {
-		found := slices.ContainsFunc(examples, func(ex cli.DocExample) bool { return ex.Text == text })
+		found := slices.ContainsFunc(examples, func(ex doclex.Command) bool { return ex.Text == text })
 		require.Truef(t, found, "docExampleSkips names %q, which no longer appears in the docs", text)
 	}
 }

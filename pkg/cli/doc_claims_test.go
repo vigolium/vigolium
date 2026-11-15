@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/vigolium/vigolium/internal/doclex"
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/public"
@@ -75,19 +76,19 @@ func TestDocPresetExamplesNameRealPresets(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, strings.ToLower(e.Name()))
 	}
-	var cmds []docCommand
+	var cmds []doclex.Command
 	cmds = append(cmds, cobraDocCommands(rootCmd)...)
 	cmds = append(cmds, fullExampleDocCommands()...)
 	for _, f := range embeddedSkillDocs(t) {
-		cmds = append(cmds, markdownDocCommands(f.path, f.body)...)
+		cmds = append(cmds, doclex.Markdown(f.path, f.body)...)
 	}
 	seen := 0
 	for _, c := range cmds {
-		if len(c.argv) < 3 || (c.argv[0] != "extensions" && c.argv[0] != "ext") || c.argv[1] != "preset" {
+		if len(c.Argv) < 3 || (c.Argv[0] != "extensions" && c.Argv[0] != "ext") || c.Argv[1] != "preset" {
 			continue
 		}
-		word := strings.ToLower(c.argv[2])
-		if strings.HasPrefix(word, "-") || strings.HasPrefix(word, docPlaceholder) {
+		word := strings.ToLower(c.Argv[2])
+		if strings.HasPrefix(word, "-") || strings.HasPrefix(word, doclex.Placeholder) {
 			continue
 		}
 		seen++
@@ -99,7 +100,7 @@ func TestDocPresetExamplesNameRealPresets(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("%s: `extensions preset %s` matches no embedded preset", c.where(), c.argv[2])
+			t.Errorf("%s: `extensions preset %s` matches no embedded preset", c.Where(), c.Argv[2])
 		}
 	}
 	if seen == 0 {

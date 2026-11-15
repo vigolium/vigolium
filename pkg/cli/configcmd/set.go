@@ -71,21 +71,18 @@ func runConfigSet(cmd *cobra.Command, deps Deps, args []string, dryRun bool) err
 	before, _ := config.SettingDisplay(settings, settingKey)
 	edit, err := config.SetFieldEdit(settings, key, value)
 	if err != nil {
-		// A key that names no setting, or a value that cannot be stored under
-		// it (a list that does not parse, a bool that is not true/false, a
-		// scope pattern that validation rejects), is a mistake on the command
-		// line (exit 2), not a failure to write the config. Nothing was written.
-		if errors.Is(err, config.ErrUnknownKey) || errors.Is(err, config.ErrInvalidValue) {
-			return clicommon.AsUsageError(fmt.Errorf("failed to set %q: %w", key, err))
+		err = fmt.Errorf("failed to set %q: %w", key, err)
+		if IsBadSetting(err) {
+			return clicommon.AsUsageError(err)
 		}
-		return fmt.Errorf("failed to set %q: %w", key, err)
+		return err
 	}
 	if dryRun {
 		return reportConfigSetDryRun(cmd, deps, settings, key, settingKey, value, before, configPath)
 	}
 	changed, err := config.EditConfigFile(configPath, edit)
 	if err != nil {
-		if errors.Is(err, config.ErrInvalidValue) {
+		if IsBadSetting(err) {
 			return clicommon.AsUsageError(fmt.Errorf("failed to set %q: %w", key, err))
 		}
 		return fmt.Errorf("failed to save config: %w", err)
@@ -104,7 +101,7 @@ func runConfigSet(cmd *cobra.Command, deps Deps, args []string, dryRun bool) err
 	// `config set agent.api_key sk-...` printed the key straight back to stdout
 	// — into the shell history, the CI log, and the agent transcript. `config ls`
 	// redacts the same value; the write path has to agree with the read path.
-	sensitive := config.IsSensitiveEntry(settingKey, value) || config.IsSensitiveEntry(settingKey, stored)
+	sensitive := config.IsSensitiveSetting(settings, settingKey, value, stored)
 	shown := stored
 	if sensitive {
 		shown = clicommon.SecretPlaceholder
@@ -128,6 +125,14 @@ func runConfigSet(cmd *cobra.Command, deps Deps, args []string, dryRun bool) err
 	return nil
 }
 
+// IsBadSetting reports whether a failed write names no setting or a value that
+// cannot be stored under it (a list that does not parse, a bool that is not
+// true/false, a scope pattern that validation rejects): a mistake on the
+// command line (exit 2), not a failure to write the config. Nothing was written.
+func IsBadSetting(err error) bool {
+	return errors.Is(err, config.ErrUnknownKey) || errors.Is(err, config.ErrInvalidValue)
+}
+
 // configSetResult is the machine shape of a completed write.
 type configSetResult struct {
 	Key        string `json:"key"`
@@ -144,7 +149,7 @@ func reportConfigSetDryRun(cmd *cobra.Command, deps Deps, settings *config.Setti
 	if !ok {
 		after = value
 	}
-	sensitive := config.IsSensitiveEntry(settingKey, value) || config.IsSensitiveEntry(settingKey, after)
+	sensitive := config.IsSensitiveSetting(settings, settingKey, value, after)
 	shown := after
 	if sensitive {
 		shown = clicommon.SecretPlaceholder

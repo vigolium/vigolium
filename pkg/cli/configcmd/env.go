@@ -12,8 +12,8 @@ import (
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
 
-// configEnvView is one `config env` row.
-type configEnvView struct {
+// EnvView is one `config env` row.
+type EnvView struct {
 	Name         string `json:"name"`
 	Set          bool   `json:"set"`
 	Value        string `json:"value,omitempty"`
@@ -41,7 +41,7 @@ func newEnvCmd(deps Deps) *cobra.Command {
 			if showSecrets {
 				fmt.Fprintf(os.Stderr, "%s Revealing sensitive environment values in plaintext.\n", terminal.WarningSymbol())
 			}
-			rows := make([]configEnvView, 0, len(config.EnvRegistry))
+			rows := make([]EnvView, 0, len(config.EnvRegistry))
 			for _, e := range config.EnvSettings() {
 				if filter != "" && !strings.Contains(e.Name, filter) {
 					continue
@@ -49,7 +49,7 @@ func newEnvCmd(deps Deps) *cobra.Command {
 				if setOnly && !e.Set {
 					continue
 				}
-				v := configEnvView{
+				v := EnvView{
 					Name: e.Name, Set: e.Set, Value: e.Value, Sensitive: e.Sensitive,
 					OverridesKey: e.OverridesKey, Template: e.Template, Description: e.Description,
 				}

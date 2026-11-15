@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/internal/doclex"
 	"github.com/vigolium/vigolium/internal/runner"
 	"github.com/vigolium/vigolium/pkg/agent/agenttypes"
 	"github.com/vigolium/vigolium/pkg/input/source"
@@ -121,7 +122,7 @@ type docEnumCheck func(cmdPath, value string) error
 func docEachItem(value string, fn func(string) error) error {
 	for _, item := range strings.Split(value, ",") {
 		item = strings.TrimSpace(item)
-		if item == "" || strings.Contains(item, docPlaceholder) {
+		if item == "" || strings.Contains(item, doclex.Placeholder) {
 			continue
 		}
 		if err := fn(item); err != nil {
@@ -242,7 +243,7 @@ func validateDocArgv(root *cobra.Command, argv []string, deprecatedOK bool, dept
 			return nil, fmt.Errorf("completion: unknown shell %q", argv[1])
 		}
 		return nil, nil
-	case docPlaceholder:
+	case doclex.Placeholder:
 		// `vigolium <command> -h` is the generic "read the help" line.
 		if slices.Contains(argv, "-h") || slices.Contains(argv, "--help") {
 			return nil, nil
@@ -310,11 +311,11 @@ func validateDocArgv(root *cobra.Command, argv []string, deprecatedOK bool, dept
 
 	var positionals []string
 	for _, a := range fset.Args() {
-		if a != docEllipsis {
+		if a != doclex.Ellipsis {
 			positionals = append(positionals, a)
 		}
 	}
-	if len(positionals) > 0 && !strings.Contains(positionals[0], docPlaceholder) {
+	if len(positionals) > 0 && !strings.Contains(positionals[0], doclex.Placeholder) {
 		if cmd == root {
 			return warnings, fmt.Errorf("unknown command %q for %q", positionals[0], cmdPath)
 		}
@@ -328,7 +329,7 @@ func validateDocArgv(root *cobra.Command, argv []string, deprecatedOK bool, dept
 
 	// An elided tail ("vigolium storage get ...") may stand for the
 	// positionals themselves, so the arity check only runs without one.
-	elided := slices.Contains(fset.Args(), docEllipsis)
+	elided := slices.Contains(fset.Args(), doclex.Ellipsis)
 	if cmd.Args != nil && !elided {
 		if _, allowed := docArgsAllowlist[cmdPath]; !allowed {
 			if err := docRunArgs(cmd, positionals); err != nil {
@@ -359,7 +360,7 @@ func validateDocArgv(root *cobra.Command, argv []string, deprecatedOK bool, dept
 	}
 
 	// `run <phase>`: the positional is the --only vocabulary.
-	if cmdPath == "vigolium run" && len(positionals) == 1 && !strings.Contains(positionals[0], docPlaceholder) &&
+	if cmdPath == "vigolium run" && len(positionals) == 1 && !strings.Contains(positionals[0], doclex.Placeholder) &&
 		!runner.IsOnlyPhaseSpelling(positionals[0]) {
 		return warnings, fmt.Errorf("run: %q is not a phase (valid: %s)", positionals[0], runner.ValidOnlyPhasesDesc)
 	}
@@ -387,7 +388,7 @@ func validateDocArgv(root *cobra.Command, argv []string, deprecatedOK bool, dept
 			}
 		}
 	}
-	if snippet != "" && !strings.Contains(snippet, docPlaceholder) {
+	if snippet != "" && !strings.Contains(snippet, doclex.Placeholder) {
 		if err := docLintSnippet(snippet); err != nil {
 			return warnings, err
 		}
@@ -415,7 +416,7 @@ func validateDocShim(root, cmd *cobra.Command, args []string, deprecatedOK bool,
 	if err != nil {
 		// `vigolium ffuf -j -- <ffuf flags>` is a synopsis of the shim's
 		// own argv, not a command to translate.
-		if slices.Contains(split.foreign, docPlaceholder) || slices.Contains(split.foreign, docEllipsis) {
+		if slices.Contains(split.foreign, doclex.Placeholder) || slices.Contains(split.foreign, doclex.Ellipsis) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("%s shim does not translate: %w", spec.name, err)
@@ -499,7 +500,7 @@ func docUsePositionals(use string) (kinds []docPositionalKind, variadic bool) {
 func docCheckTypedPositionals(cmd *cobra.Command, positionals []string) error {
 	kinds, variadic := docUsePositionals(cmd.Use)
 	for i, p := range positionals {
-		if strings.Contains(p, docPlaceholder) || p == "-" {
+		if strings.Contains(p, doclex.Placeholder) || p == "-" {
 			continue
 		}
 		var k docPositionalKind
@@ -542,16 +543,16 @@ func docLintSnippet(code string) error {
 // Tests
 // ---------------------------------------------------------------------------
 
-func checkDocCommands(t *testing.T, cmds []docCommand) {
+func checkDocCommands(t *testing.T, cmds []doclex.Command) {
 	t.Helper()
 	for _, c := range cmds {
-		warnings, err := validateDocArgv(rootCmd, c.argv, c.deprecatedOK, 0)
+		warnings, err := validateDocArgv(rootCmd, c.Argv, c.DeprecatedOK, 0)
 		for _, w := range warnings {
-			t.Logf("%s: %s\n  %s", c.where(), w, c.text)
+			t.Logf("%s: %s\n  %s", c.Where(), w, c.Text)
 		}
 		if err != nil {
 			t.Errorf("%s: %s\n  -> %v\n  (fix the command, or mark a synopsis with `<!-- doccheck: skip -->` / `# doccheck: skip`)",
-				c.where(), c.text, err)
+				c.Where(), c.Text, err)
 		}
 	}
 }
@@ -560,7 +561,7 @@ func TestDocCommandsSkillBundle(t *testing.T) {
 	prepareCommandTree(rootCmd)
 	total := 0
 	for _, f := range embeddedSkillDocs(t) {
-		cmds := markdownDocCommands(f.path, f.body)
+		cmds := doclex.Markdown(f.path, f.body)
 		total += len(cmds)
 		t.Run(f.path, func(t *testing.T) { checkDocCommands(t, cmds) })
 	}
@@ -581,7 +582,7 @@ func TestDocCommandsRepoDocs(t *testing.T) {
 	}
 	slices.Sort(names)
 	for _, n := range names {
-		cmds := markdownDocCommands(n, docs[n])
+		cmds := doclex.Markdown(n, docs[n])
 		if len(cmds) == 0 {
 			continue
 		}
@@ -606,11 +607,11 @@ func TestDocCommandsInlineSkillSpans(t *testing.T) {
 	prepareCommandTree(rootCmd)
 	for _, f := range embeddedSkillDocs(t) {
 		for _, c := range inlineSkillSpans(f.path, f.body) {
-			if _, err := validateDocArgv(rootCmd, c.argv, c.deprecatedOK, 0); err != nil {
+			if _, err := validateDocArgv(rootCmd, c.Argv, c.DeprecatedOK, 0); err != nil {
 				if strings.Contains(err.Error(), "flag needs an argument") {
 					continue // `--flag` fragment naming a flag, not a command
 				}
-				t.Errorf("%s: `%s`\n  -> %v\n  (fix the command, or mark a synopsis line with `doccheck: skip`)", c.where(), c.text, err)
+				t.Errorf("%s: `%s`\n  -> %v\n  (fix the command, or mark a synopsis line with `doccheck: skip`)", c.Where(), c.Text, err)
 			}
 		}
 	}
@@ -620,9 +621,9 @@ var docInlineSpan = regexp.MustCompile("`((?:\\./bin/)?vigolium [^`]+)`")
 
 // inlineSkillSpans extracts `vigolium …` spans outside fences, skipping the
 // ones that read as synopsis rather than a command.
-func inlineSkillSpans(src, body string) []docCommand {
-	_, prose := markdownFences(body)
-	var out []docCommand
+func inlineSkillSpans(src, body string) []doclex.Command {
+	_, prose := doclex.Fences(body)
+	var out []doclex.Command
 	for ln, text := range prose {
 		if strings.Contains(text, "doccheck: skip") || strings.Contains(prose[ln-1], "doccheck: skip") {
 			continue
@@ -632,12 +633,12 @@ func inlineSkillSpans(src, body string) []docCommand {
 			if docInlineSynopsis(span) {
 				continue
 			}
-			for _, argv := range docShellCommands(span, 0) {
-				out = append(out, docCommand{source: src, line: ln, text: span, argv: argv})
+			for _, argv := range doclex.ShellCommands(span, 0) {
+				out = append(out, doclex.Command{Source: src, Line: ln, Text: span, Argv: argv})
 			}
 		}
 	}
-	slices.SortFunc(out, func(a, b docCommand) int { return a.line - b.line })
+	slices.SortFunc(out, func(a, b doclex.Command) int { return a.Line - b.Line })
 	return out
 }
 
@@ -694,49 +695,6 @@ func TestDocEnumTablesNameRealCommands(t *testing.T) {
 	}
 }
 
-// The lexer and validator are the test's own logic; pin the cases that bit
-// the prototype.
-func TestDocShellLexer(t *testing.T) {
-	cases := []struct {
-		line string
-		want [][]string
-	}{
-		{`vigolium finding --id <id> -j`, [][]string{{"finding", "--id", "PLACEHOLDER", "-j"}}},
-		{`vigolium scan -t https://x 2>&1 | tee out.log`, [][]string{{"scan", "-t", "https://x"}}},
-		{`eval "$(vigolium project use <uuid> --shell)"`, [][]string{{"project", "use", "PLACEHOLDER", "--shell"}}},
-		{`VIGOLIUM_DB_PATH=/tmp/x.db timeout 60 vigolium db stats -j > s.json`, [][]string{{"db", "stats", "-j"}}},
-		{`cat ids.txt | xargs -I{} vigolium finding --id {}`, [][]string{{"finding", "--id", "{}"}}},
-		{`vigolium ext eval 'vigolium.log.info("a # b")' # comment`, [][]string{{"ext", "eval", `vigolium.log.info("a # b")`}}},
-		{`./bin/vigolium version && echo ok`, [][]string{{"version"}}},
-		{`$(go env GOPATH)/bin/vigolium version`, [][]string{{"version"}}},
-		{"watch -n 5 'vigolium scan status <uuid>'", [][]string{{"scan", "status", "PLACEHOLDER"}}},
-		{"vigolium ingest -I openapi < spec.yaml", [][]string{{"ingest", "-I", "openapi"}}},
-		{"vigolium scan -t \"$TARGET\" --format jsonl", [][]string{{"scan", "-t", "PLACEHOLDER", "--format", "jsonl"}}},
-		{"vigolium storage rm a b ...", [][]string{{"storage", "rm", "a", "b", docEllipsis}}},
-		{`vigolium olium --prompt "..."`, [][]string{{"olium", "--prompt", "PLACEHOLDER"}}},
-		{"vigolium ffuf -j -- <ffuf flags>", [][]string{{"ffuf", "-j", "--", "PLACEHOLDER"}}},
-	}
-	for _, tc := range cases {
-		got := docShellCommands(tc.line, 0)
-		if fmt.Sprint(got) != fmt.Sprint(tc.want) {
-			t.Errorf("%s\n  got  %q\n  want %q", tc.line, got, tc.want)
-		}
-	}
-
-	lines := logicalDocLines([]string{
-		"$ vigolium scan \\",
-		"    -t https://x",
-		"vigolium ext eval --stdin <<'EOF'",
-		"vigolium.nope()",
-		"EOF",
-		"→ output line",
-		"vigolium version # doccheck: skip",
-	}, 1, docLinesShell, false)
-	if len(lines) != 2 || lines[0].text != "vigolium scan  -t https://x" || lines[1].line != 3 {
-		t.Errorf("logical lines: %+v", lines)
-	}
-}
-
 func TestDocValidatorCatchesKnownRot(t *testing.T) {
 	prepareCommandTree(rootCmd)
 	bad := []string{
@@ -754,7 +712,7 @@ func TestDocValidatorCatchesKnownRot(t *testing.T) {
 		"vigolium ffuf -u https://t/FUZZ -nosuch",        // shim cannot translate
 	}
 	for _, line := range bad {
-		cmds := docShellCommands(line, 0)
+		cmds := doclex.ShellCommands(line, 0)
 		if len(cmds) != 1 {
 			t.Fatalf("%s: extracted %d commands", line, len(cmds))
 		}
@@ -762,7 +720,7 @@ func TestDocValidatorCatchesKnownRot(t *testing.T) {
 			t.Errorf("validator accepted %q", line)
 		}
 	}
-	cmds := docShellCommands("vigolium agent query --agent x --prompt hi # doccheck: deprecated-ok", 0)
+	cmds := doclex.ShellCommands("vigolium agent query --agent x --prompt hi # doccheck: deprecated-ok", 0)
 	if _, err := validateDocArgv(rootCmd, cmds[0], true, 0); err != nil {
 		t.Errorf("deprecated-ok line rejected: %v", err)
 	}
@@ -773,7 +731,7 @@ func TestDocValidatorCatchesKnownRot(t *testing.T) {
 		"vigolium ffuf -u https://target/FUZZ -w words.txt --dry-run",
 	}
 	for _, line := range good {
-		for _, argv := range docShellCommands(line, 0) {
+		for _, argv := range doclex.ShellCommands(line, 0) {
 			if _, err := validateDocArgv(rootCmd, argv, false, 0); err != nil {
 				t.Errorf("validator rejected %q: %v", line, err)
 			}

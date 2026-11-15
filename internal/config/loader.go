@@ -296,40 +296,22 @@ func LoadSettingsWithWarnings(configPath string) (*Settings, []string, error) {
 			return nil, nil, &LoadError{Path: path, Explicit: true, Op: "stat", Err: err}
 		}
 	} else {
-		home := ExpandPath("~/.vigolium/vigolium-configs.yaml")
-		const cwdConfig = "./vigolium-configs.yaml"
-
-		found := false
-		for _, p := range []string{home, cwdConfig} {
-			_, err := os.Stat(p)
-			if err == nil {
-				path = p
-				found = true
-				break
-			}
-			// ONLY a missing file falls through to the next candidate. A permission
-			// error, a dangling symlink or an I/O error on ~/.vigolium means the
-			// operator's config exists and could not be looked at, and silently
-			// continuing to the next candidate (or to defaults) answered that with
-			// a scan configured by nobody.
-			if !errors.Is(err, fs.ErrNotExist) {
-				return nil, nil, &LoadError{Path: p, Explicit: false, Op: "stat", Err: err}
-			}
+		var err error
+		if path, err = discoverConfigFile(); err != nil {
+			return nil, nil, &LoadError{Path: path, Explicit: false, Op: "stat", Err: err}
 		}
-
-		// If no config file found, return default settings
-		if !found {
+		if path == "" {
 			return DefaultSettings(), nil, nil
 		}
 
 		// Discovery is first-match-wins, so a project-local ./vigolium-configs.yaml
 		// is INVISIBLE whenever the home file exists. Someone who drops one in a
 		// repo expecting it to apply gets no error and no effect; say so.
-		if path == home {
-			if _, err := os.Stat(cwdConfig); err == nil {
+		if home := ExpandPath(homeConfigFile); path == home {
+			if _, err := os.Stat(cwdConfigFile); err == nil {
 				warnings = append(warnings, fmt.Sprintf(
 					"%s is ignored because %s exists; pass --config %s to use it",
-					cwdConfig, ContractPath(home), cwdConfig))
+					cwdConfigFile, ContractPath(home), cwdConfigFile))
 			}
 		}
 	}
@@ -592,51 +574,36 @@ func LoadSettingsWithProject(configPath string, projectUUID string) (*Settings, 
 	return settings, nil
 }
 
-// ConfigFilePath returns the resolved path to the config file.
-// It searches the same locations as LoadSettings but only returns the path.
-// If no config file exists, returns the default path.
-func ConfigFilePath() string {
-	paths := []string{
-		ExpandPath("~/.vigolium/vigolium-configs.yaml"),
-		"./vigolium-configs.yaml",
-	}
+// Without --config, LoadSettings reads the first of these that exists.
+const (
+	homeConfigFile = "~/.vigolium/vigolium-configs.yaml"
+	cwdConfigFile  = "./vigolium-configs.yaml"
+)
 
-	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			return p
+// discoverConfigFile returns the config file LoadSettings reads without
+// --config, or "" when there is none. ONLY a missing file falls through to the
+// next candidate: a permission error, a dangling symlink or an I/O error on
+// ~/.vigolium means the operator's config exists and could not be looked at,
+// and silently continuing to the next candidate (or to defaults) would answer
+// that with a scan configured by nobody. The error names the path it hit.
+func discoverConfigFile() (string, error) {
+	for _, p := range []string{ExpandPath(homeConfigFile), cwdConfigFile} {
+		_, err := os.Stat(p)
+		if err == nil {
+			return p, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return p, err
 		}
 	}
-
-	return ExpandPath("~/.vigolium/vigolium-configs.yaml")
+	return "", nil
 }
 
-// SaveSettings marshals settings to a new YAML file. It is for first-time
-// generation only: settings loaded from a file hold environment-expanded
-// values, and marshalling them over that file would write every secret in
-// clear and drop its comments. Edit an existing file with EditConfigFile.
-func SaveSettings(path string, settings *Settings) error {
-	path = ExpandPath(path)
-
-	// Ensure parent directory exists
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+// ConfigFilePath returns the config file LoadSettings reads, or the default
+// path when none exists (or discovery failed).
+func ConfigFilePath() string {
+	if p, err := discoverConfigFile(); err == nil && p != "" {
+		return p
 	}
-
-	// Marshal to YAML
-	data, err := yaml.Marshal(settings)
-	if err != nil {
-		return fmt.Errorf("failed to marshal settings: %w", err)
-	}
-
-	// Atomic: a crash or a full disk mid-write must not leave a truncated
-	// config, which the next load would reject (or, discovered, ignore).
-	if err := atomicfile.WriteFile(path, 0o600, func(w *bufio.Writer) error {
-		_, err := w.Write(data)
-		return err
-	}); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
-
-	return nil
+	return ExpandPath(homeConfigFile)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 )
 
 func newGetCmd(deps Deps) *cobra.Command {
@@ -49,10 +50,10 @@ func runConfigGet(cmd *cobra.Command, deps Deps, key string, showSecrets bool) e
 	key = strings.TrimSpace(key)
 	entries := config.SettingEntries(settings)
 
-	var matched []configEntryView
+	var matched []EntryView
 	for _, e := range entries {
 		if e.Key == key {
-			matched = []configEntryView{newConfigEntryView(e, config.SourceOf(sources, e.Key), showSecrets)}
+			matched = []EntryView{newConfigEntryView(e, config.SourceOf(sources, e.Key), showSecrets)}
 			break
 		}
 		if strings.HasPrefix(e.Key, key+".") {
@@ -83,40 +84,11 @@ func runConfigGet(cmd *cobra.Command, deps Deps, key string, showSecrets bool) e
 
 // unknownConfigKeyError is a usage error naming the nearest known key.
 func unknownConfigKeyError(key string, keys []string) error {
-	best, bestDist := "", -1
-	for _, k := range keys {
-		if d := levenshtein(strings.ToLower(key), strings.ToLower(k)); bestDist < 0 || d < bestDist {
-			best, bestDist = k, d
-		}
+	return clicommon.CLIError{
+		Err:        fmt.Errorf("unknown config key %q", key),
+		Hint:       "list the keys with: vigolium config ls",
+		DidYouMean: textutil.Closest(strings.ToLower(key), keys),
 	}
-	cliErr := clicommon.CLIError{
-		Err:  fmt.Errorf("unknown config key %q", key),
-		Hint: "list the keys with: vigolium config ls",
-	}
-	if best != "" && bestDist <= max(3, len(key)/3) {
-		cliErr.DidYouMean = best
-	}
-	return cliErr
-}
-
-func levenshtein(a, b string) int {
-	prev := make([]int, len(b)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(a); i++ {
-		cur := make([]int, len(b)+1)
-		cur[0] = i
-		for j := 1; j <= len(b); j++ {
-			cost := 1
-			if a[i-1] == b[j-1] {
-				cost = 0
-			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
-		}
-		prev = cur
-	}
-	return prev[len(b)]
 }
 
 func newUnsetCmd(deps Deps) *cobra.Command {
@@ -137,8 +109,8 @@ func newUnsetCmd(deps Deps) *cobra.Command {
 	return cmd
 }
 
-// configUnsetResult is the `config unset -j` row.
-type configUnsetResult struct {
+// UnsetResult is the `config unset -j` row.
+type UnsetResult struct {
 	Key        string `json:"key"`
 	Removed    bool   `json:"removed"`
 	ConfigPath string `json:"config_path"`
@@ -178,7 +150,7 @@ func runConfigUnset(cmd *cobra.Command, deps Deps, key string, dryRun bool) erro
 	if !present {
 		action = "noop"
 	}
-	row := []configUnsetResult{{Key: key, Removed: present, ConfigPath: config.ContractPath(configPath)}}
+	row := []UnsetResult{{Key: key, Removed: present, ConfigPath: config.ContractPath(configPath)}}
 	if deps.mutationJSONRequested() {
 		if dryRun && deps.WriteDryRunMutation != nil {
 			return deps.WriteDryRunMutation(cmd, row, action, nil)

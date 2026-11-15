@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/olium/skill"
@@ -53,10 +54,33 @@ type skillManifestFile struct {
 	SHA256 string `json:"sha256"`
 }
 
+// bundleHash is one embedded bundle's hashed contents.
+type bundleHash struct {
+	files  []skillManifestFile
+	digest string
+	err    error
+}
+
+// bundleHashes memoizes bundleContents by embed directory: the embedded
+// bundle cannot change while the process runs, and status, doctor and skills
+// ls would otherwise hash all of it on every call.
+var bundleHashes sync.Map
+
 // bundleContents hashes every file of an embedded bundle and returns them
 // sorted by path, plus the bundle digest: sha256 over "path\x00sha256\n" for
-// each file in that order, so it depends on content and layout only.
+// each file in that order, so it depends on content and layout only. The
+// returned slice is shared; callers must not modify it.
 func bundleContents(b bundledSkill) ([]skillManifestFile, string, error) {
+	if v, ok := bundleHashes.Load(b.EmbedDir); ok {
+		h := v.(bundleHash)
+		return h.files, h.digest, h.err
+	}
+	files, digest, err := hashBundle(b)
+	bundleHashes.Store(b.EmbedDir, bundleHash{files: files, digest: digest, err: err})
+	return files, digest, err
+}
+
+func hashBundle(b bundledSkill) ([]skillManifestFile, string, error) {
 	var files []skillManifestFile
 	err := fs.WalkDir(public.StaticFS, b.EmbedDir, func(p string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil || d.IsDir() {
@@ -131,25 +155,38 @@ func inspectSkillInstall(dest, bundleDigest string) skillInstallState {
 		return skillInstallState{Status: skillStatusStale}
 	}
 	st := skillInstallState{Status: skillStatusCurrent, Version: m.BinaryVersion, Manifest: m}
-	for _, f := range m.Files {
-		if !filepath.IsLocal(filepath.FromSlash(f.Path)) {
-			continue
-		}
-		data, readErr := os.ReadFile(filepath.Join(dest, filepath.FromSlash(f.Path)))
-		if readErr != nil {
-			st.Status = skillStatusModified
-			return st
-		}
-		sum := sha256.Sum256(data)
-		if hex.EncodeToString(sum[:]) != f.SHA256 {
-			st.Status = skillStatusModified
-			return st
-		}
-	}
-	if m.BundleSHA256 != bundleDigest {
+	if modified, _, err := manifestDrift(dest, m); err != nil || len(modified) > 0 {
+		st.Status = skillStatusModified
+	} else if m.BundleSHA256 != bundleDigest {
 		st.Status = skillStatusStale
 	}
 	return st
+}
+
+// manifestDrift reads every file manifest m lists under dest. modified names
+// the ones that are missing or whose content no longer matches; present names
+// the ones still on disk (edited or not). Paths that escape dest are skipped.
+// A read error other than a missing file is returned.
+func manifestDrift(dest string, m *skillManifest) (modified, present []string, err error) {
+	for _, f := range m.Files {
+		rel := filepath.FromSlash(f.Path)
+		if !filepath.IsLocal(rel) {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(dest, rel))
+		switch {
+		case errors.Is(readErr, fs.ErrNotExist):
+			modified = append(modified, f.Path)
+			continue
+		case readErr != nil:
+			return modified, present, readErr
+		}
+		if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != f.SHA256 {
+			modified = append(modified, f.Path)
+		}
+		present = append(present, f.Path)
+	}
+	return modified, present, nil
 }
 
 // skillInstallOutcome is what installSkillBundle did at one destination.
@@ -233,31 +270,29 @@ func pruneDroppedSkillFiles(dest string, old *skillManifest, next []skillManifes
 			return pruned, fmt.Errorf("prune %s: %w", f.Path, err)
 		}
 		pruned = append(pruned, f.Path)
-		// Drop now-empty parents up to (not including) dest.
-		for dir := path.Dir(f.Path); dir != "." && dir != "/"; dir = path.Dir(dir) {
-			if os.Remove(filepath.Join(dest, filepath.FromSlash(dir))) != nil {
-				break // not empty (or already gone)
-			}
-		}
+		removeEmptyParents(dest, f.Path)
 	}
 	return pruned, nil
+}
+
+// removeEmptyParents removes the directories above the removed file rel
+// (slash-separated, relative to dest) that it left empty, up to but not
+// including dest.
+func removeEmptyParents(dest, rel string) {
+	for dir := path.Dir(rel); dir != "." && dir != "/"; dir = path.Dir(dir) {
+		if os.Remove(filepath.Join(dest, filepath.FromSlash(dir))) != nil {
+			return // not empty (or already gone)
+		}
+	}
 }
 
 // backupLegacySkill moves a pre-manifest install aside so --force can write a
 // clean copy. It refuses when SKILL.md names a different skill: that directory
 // is not ours to move.
 func backupLegacySkill(name, dest string, now time.Time) (string, error) {
-	skillMd := filepath.Join(dest, "SKILL.md")
-	raw, err := os.ReadFile(skillMd)
-	if err != nil {
+	if ok, got, err := legacySkillDeclares(name, dest); err != nil {
 		return "", err
-	}
-	parsed, perr := skill.Parse(raw, skillMd, dest, skill.SourceProjectClaude)
-	if perr != nil || !strings.EqualFold(parsed.Name, name) {
-		got := "unparseable frontmatter"
-		if perr == nil {
-			got = fmt.Sprintf("skill %q", parsed.Name)
-		}
+	} else if !ok {
 		return "", fmt.Errorf("refusing to replace %s: it has no %s and its SKILL.md declares %s, not %q; move it aside or pick another --dir",
 			dest, skillManifestName, got, name)
 	}
@@ -280,6 +315,22 @@ func backupLegacySkill(name, dest string, now time.Time) (string, error) {
 		return backup, fmt.Errorf("disable backed-up SKILL.md: %w", err)
 	}
 	return backup, nil
+}
+
+// legacySkillDeclares reports whether the SKILL.md of the unstamped install at
+// dest declares the skill name, the one check that makes the directory ours to
+// move or remove. got describes what it declares instead, for the refusal.
+func legacySkillDeclares(name, dest string) (ok bool, got string, err error) {
+	skillMd := filepath.Join(dest, "SKILL.md")
+	raw, err := os.ReadFile(skillMd)
+	if err != nil {
+		return false, "", err
+	}
+	parsed, perr := skill.Parse(raw, skillMd, dest, skill.SourceProjectClaude)
+	if perr != nil {
+		return false, "unparseable frontmatter", nil
+	}
+	return strings.EqualFold(parsed.Name, name), fmt.Sprintf("skill %q", parsed.Name), nil
 }
 
 // legacyBackupSkillMd is what SKILL.md is renamed to inside a legacy backup.

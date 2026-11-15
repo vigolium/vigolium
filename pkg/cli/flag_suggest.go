@@ -81,31 +81,5 @@ func closestFlagName(cmd *cobra.Command, typed string) string {
 			names = append(names, f.Name)
 		}
 	})
-	return closestName(typed, names)
-}
-
-// closestName is the candidate nearest typed within suggestionBudget, "" when
-// none is. Ties go to the first candidate, so the hint is stable across builds
-// (pflag visits flags in lexical order).
-func closestName(typed string, candidates []string) string {
-	best, bestDist := "", -1
-	for _, c := range candidates {
-		if d := textutil.Levenshtein(typed, c); bestDist == -1 || d < bestDist {
-			best, bestDist = c, d
-		}
-	}
-	if bestDist >= 0 && bestDist <= suggestionBudget(typed) {
-		return best
-	}
-	return ""
-}
-
-// suggestionBudget is the largest edit distance still considered a typo of
-// typed. One edit for a short name, widening to a third of the name's length for
-// longer ones, where the same distance leaves far more of the word intact.
-func suggestionBudget(typed string) int {
-	if len(typed) <= 5 {
-		return 1
-	}
-	return len(typed) / 3
+	return textutil.Closest(typed, names)
 }

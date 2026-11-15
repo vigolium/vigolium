@@ -106,9 +106,12 @@ func doctorSkillStale() bool {
 	if err != nil {
 		return false
 	}
-	for _, v := range scanInstalledSkills(skills) {
-		if v.Status == skillStatusStale {
-			return true
+	for _, loc := range skillInstallLocations() {
+		for _, b := range skills {
+			_, digest, _ := bundleContents(b)
+			if inspectSkillInstall(filepath.Join(loc.Dir, b.Name), digest).Status == skillStatusStale {
+				return true
+			}
 		}
 	}
 	return false

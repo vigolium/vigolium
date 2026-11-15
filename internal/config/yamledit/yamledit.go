@@ -147,9 +147,6 @@ func detectIndent(root *yaml.Node) int {
 	return 2
 }
 
-// Root returns the top-level mapping.
-func (d *Doc) Root() *yaml.Node { return d.root }
-
 // Get returns the value node at path, or nil when any segment is missing or
 // passes through something that is not a mapping.
 func (d *Doc) Get(path []string) *yaml.Node {
@@ -162,9 +159,6 @@ func (d *Doc) Get(path []string) *yaml.Node {
 	}
 	return n
 }
-
-// Has reports whether path names an existing key.
-func (d *Doc) Has(path []string) bool { return d.Get(path) != nil }
 
 func lookup(m *yaml.Node, key string) (*yaml.Node, *yaml.Node) {
 	for i := 0; i+1 < len(m.Content); i += 2 {
@@ -939,32 +933,42 @@ type Options struct {
 	Perm os.FileMode
 }
 
+// Result is what EditFile did.
+type Result struct {
+	// Changed reports that the file was written; an edit that changes nothing
+	// writes nothing.
+	Changed bool
+	// Reencoded reports that an existing file could not be edited in place and
+	// the whole tree was re-encoded: comments survive, blank lines and
+	// formatting may not. The caller decides how to tell the operator.
+	Reencoded bool
+}
+
 // EditFile parses the file at path (a missing file is an empty document),
-// applies edit, validates the result and writes it atomically. It reports
-// whether the file changed; an edit that changes nothing writes nothing.
-func EditFile(path string, edit func(*Doc) error, opts Options) (bool, error) {
+// applies edit, validates the result and writes it atomically.
+func EditFile(path string, edit func(*Doc) error, opts Options) (Result, error) {
 	src, err := os.ReadFile(path)
 	existed := err == nil
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, err
+		return Result{}, err
 	}
 	doc, err := Parse(src)
 	if err != nil {
-		return false, fmt.Errorf("%s does not parse, refusing to rewrite it: %w", path, err)
+		return Result{}, fmt.Errorf("%s does not parse, refusing to rewrite it: %w", path, err)
 	}
 	if err := edit(doc); err != nil {
-		return false, err
+		return Result{}, err
 	}
 	out, err := doc.Bytes()
 	if err != nil {
-		return false, err
+		return Result{}, err
 	}
 	if existed && bytes.Equal(out, src) {
-		return false, nil
+		return Result{}, nil
 	}
 	if opts.Validate != nil {
 		if err := opts.Validate(out); err != nil {
-			return false, err
+			return Result{}, err
 		}
 	}
 	perm := opts.Perm
@@ -975,13 +979,13 @@ func EditFile(path string, edit func(*Doc) error, opts Options) (bool, error) {
 		perm = fi.Mode().Perm()
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
+		return Result{}, err
 	}
 	if err := atomicfile.WriteFile(path, perm, func(w *bufio.Writer) error {
 		_, err := io.Copy(w, bytes.NewReader(out))
 		return err
 	}); err != nil {
-		return false, err
+		return Result{}, err
 	}
-	return true, nil
+	return Result{Changed: true, Reencoded: doc.reencoded && len(bytes.TrimSpace(src)) > 0}, nil
 }

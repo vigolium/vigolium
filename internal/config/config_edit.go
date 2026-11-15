@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/internal/config/yamledit"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,7 +23,10 @@ type RawEdit func(*yamledit.Doc) error
 // missing file is created holding only the edited keys. It reports whether the
 // file changed.
 func EditConfigFile(path string, edits ...RawEdit) (bool, error) {
-	return yamledit.EditFile(ExpandPath(path), applyAll(edits), yamledit.Options{Validate: validateRawSettings})
+	path = ExpandPath(path)
+	res, err := yamledit.EditFile(path, applyAll(edits), yamledit.Options{Validate: validateRawSettings})
+	warnReencoded(path, res)
+	return res.Changed, err
 }
 
 // EditProjectOverlay applies edits to a project's config overlay in place, the
@@ -32,17 +36,27 @@ func EditProjectOverlay(projectUUID string, edits ...RawEdit) (string, error) {
 		return "", fmt.Errorf("project overlay: no project selected")
 	}
 	path := ProjectConfigPath(projectUUID)
-	_, err := yamledit.EditFile(path, applyAll(edits), yamledit.Options{Validate: func(data []byte) error {
+	res, err := yamledit.EditFile(path, applyAll(edits), yamledit.Options{Validate: func(data []byte) error {
 		if _, err := parseProfile(data, path); err != nil {
 			return fmt.Errorf("%w: the edited project config would not load: %w", ErrInvalidValue, err)
 		}
 		return nil
 	}})
+	warnReencoded(path, res)
 	if err != nil {
 		return "", err
 	}
 	InvalidateProjectOverlay(projectUUID)
 	return path, nil
+}
+
+// warnReencoded tells the operator when an edit could not be spliced into the
+// file and rewrote it whole, which may reflow its blank lines and formatting.
+func warnReencoded(path string, res yamledit.Result) {
+	if res.Reencoded {
+		zap.L().Warn("Could not edit the config file in place; rewrote it whole (comments kept, blank lines and formatting may change)",
+			zap.String("file", ContractPath(path)))
+	}
 }
 
 func applyAll(edits []RawEdit) func(*yamledit.Doc) error {
@@ -96,60 +110,55 @@ func SetFieldEdit(settings *Settings, key, value string) (RawEdit, error) {
 		return nil, fmt.Errorf("key %q: %w", key, ErrUnknownKey)
 	}
 	parts := strings.Split(path, ".")
+	full := v.Interface()
 	switch op {
 	case "remove":
-		full := v.Interface()
 		drop := removedListItems(path, value)
-		return func(d *yamledit.Doc) error {
-			if cur := d.Get(parts); cur != nil && cur.Kind == yaml.SequenceNode {
-				_, err := d.RemoveItems(parts, drop...)
-				return err
-			}
-			// The file does not hold the list (its value is a default):
-			// write what remains of it.
-			n, err := yamledit.Node(full)
-			if err != nil {
-				return err
-			}
-			return d.Set(parts, n)
-		}, nil
+		return listEditOrSet(parts, full, func(d *yamledit.Doc) error {
+			_, err := d.RemoveItems(parts, drop...)
+			return err
+		}), nil
 	case "clear":
 		return func(d *yamledit.Doc) error {
 			return d.Set(parts, &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle})
 		}, nil
 	case "add":
-		full := v.Interface()
-		var added []any
+		var added []*yaml.Node
 		if v.Kind() == reflect.Slice && oldLen <= v.Len() {
 			for i := oldLen; i < v.Len(); i++ {
-				added = append(added, v.Index(i).Interface())
+				n, err := yamledit.Node(v.Index(i).Interface())
+				if err != nil {
+					return nil, err
+				}
+				added = append(added, n)
 			}
 		}
-		return func(d *yamledit.Doc) error {
-			if cur := d.Get(parts); cur != nil && cur.Kind == yaml.SequenceNode {
-				nodes := make([]*yaml.Node, 0, len(added))
-				for _, a := range added {
-					n, err := yamledit.Node(a)
-					if err != nil {
-						return err
-					}
-					nodes = append(nodes, n)
-				}
-				_, err := d.AppendUnique(parts, nodes...)
-				return err
-			}
-			n, err := yamledit.Node(full)
-			if err != nil {
-				return err
-			}
-			return d.Set(parts, n)
-		}, nil
+		return listEditOrSet(parts, full, func(d *yamledit.Doc) error {
+			_, err := d.AppendUnique(parts, added...)
+			return err
+		}), nil
 	default:
-		n, err := yamledit.Node(v.Interface())
+		n, err := yamledit.Node(full)
 		if err != nil {
 			return nil, err
 		}
 		return func(d *yamledit.Doc) error { return d.Set(parts, n) }, nil
+	}
+}
+
+// listEditOrSet applies inPlace when the file holds the list at parts, and
+// otherwise (the list's value came from the defaults or another layer) writes
+// full, the whole resulting list.
+func listEditOrSet(parts []string, full any, inPlace RawEdit) RawEdit {
+	return func(d *yamledit.Doc) error {
+		if cur := d.Get(parts); cur != nil && cur.Kind == yaml.SequenceNode {
+			return inPlace(d)
+		}
+		n, err := yamledit.Node(full)
+		if err != nil {
+			return err
+		}
+		return d.Set(parts, n)
 	}
 }
 
@@ -173,37 +182,31 @@ func SettingValue(settings *Settings, key string) (any, bool) {
 	return v.Interface(), true
 }
 
-// SettingDisplay renders the value at key on one line: a scalar as itself, a
-// list or map in YAML flow style. ok is false for a key that names no setting.
+// SettingDisplay renders the value at key on one line, the way `config ls`
+// shows it (DisplaySettingValue). ok is false for a key that names no setting.
 func SettingDisplay(settings *Settings, key string) (string, bool) {
 	v, ok := settingValue(settings, key)
 	if !ok {
 		return "", false
 	}
-	switch v.Kind() {
-	case reflect.Slice, reflect.Map, reflect.Struct:
-		var n yaml.Node
-		if err := n.Encode(v.Interface()); err != nil {
-			return fmt.Sprint(v.Interface()), true
-		}
-		setFlow(&n)
-		out, err := yaml.Marshal(&n)
-		if err != nil {
-			return fmt.Sprint(v.Interface()), true
-		}
-		return strings.TrimSpace(string(out)), true
-	default:
-		return fmt.Sprint(v.Interface()), true
-	}
+	return DisplaySettingValue(plainValue(v)), true
 }
 
-func setFlow(n *yaml.Node) {
-	if n.Kind == yaml.SequenceNode || n.Kind == yaml.MappingNode {
-		n.Style |= yaml.FlowStyle
+// IsSensitiveSetting is IsSensitiveEntry for the setting at key: a string
+// setting is withheld when its key names a credential or one of values (the
+// supplied and the stored text) interpolates an environment variable; any
+// other type never is.
+func IsSensitiveSetting(settings *Settings, key string, values ...string) bool {
+	v, ok := settingValue(settings, key)
+	if !ok || v.Kind() != reflect.String {
+		return false
 	}
-	for _, c := range n.Content {
-		setFlow(c)
+	for _, val := range values {
+		if IsSensitiveEntry(key, val) {
+			return true
+		}
 	}
+	return false
 }
 
 // settingValue walks settings along the dot-notation key by yaml tag names. A
@@ -220,26 +223,11 @@ func settingValue(settings *Settings, key string) (reflect.Value, bool) {
 		}
 		switch v.Kind() {
 		case reflect.Struct:
-			found := false
-			for i := 0; i < v.NumField(); i++ {
-				f := v.Type().Field(i)
-				tag := f.Tag.Get("yaml")
-				if tag == "-" || !f.IsExported() {
-					continue
-				}
-				name, _, _ := strings.Cut(tag, ",")
-				if name == "" {
-					name = strings.ToLower(f.Name)
-				}
-				if name == seg {
-					v = v.Field(i)
-					found = true
-					break
-				}
-			}
-			if !found {
+			idx, ok := yamlFieldIndex(v.Type(), seg)
+			if !ok {
 				return reflect.Value{}, false
 			}
+			v = v.FieldByIndex(idx)
 		case reflect.Map:
 			mv := v.MapIndex(reflect.ValueOf(seg).Convert(v.Type().Key()))
 			if !mv.IsValid() {

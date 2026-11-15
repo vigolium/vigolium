@@ -17,6 +17,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/olium/skill"
 	"github.com/vigolium/vigolium/pkg/terminal"
+	"github.com/vigolium/vigolium/pkg/utils/textutil"
 	"github.com/vigolium/vigolium/public"
 )
 
@@ -755,7 +756,7 @@ func resolveSkillRef(b bundledSkill, typed string) (string, error) {
 	}
 	return "", clicommon.CLIError{
 		Err:        fmt.Errorf("skill %s has no reference %q (references: %s)", b.Name, typed, strings.Join(stems, ", ")),
-		DidYouMean: closestName(strings.TrimSuffix(strings.TrimPrefix(want, "references/"), ".md"), stems),
+		DidYouMean: textutil.Closest(strings.TrimSuffix(strings.TrimPrefix(want, "references/"), ".md"), stems),
 		Hint:       "vigolium skills get " + b.Name + " --list-refs",
 	}
 }

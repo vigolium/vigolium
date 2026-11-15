@@ -260,13 +260,12 @@ func runLogLs(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	rows := collectNativeRows(ctx, repo, projectUUID, sessionsDir)
-	rows = append(rows, collectAgenticRows(ctx, repo, projectUUID, settings.Agent.EffectiveSessionsDir())...)
+	rows := collectNativeRows(ctx, repo, projectUUID, sessionsDir, startedFrom, startedTo)
+	rows = append(rows, collectAgenticRows(ctx, repo, projectUUID, settings.Agent.EffectiveSessionsDir(), startedFrom, startedTo)...)
 
 	sort.Slice(rows, func(i, j int) bool {
 		return rows[i].createdAt.After(rows[j].createdAt)
 	})
-	rows = filterSessionRowsByTime(rows, startedFrom, startedTo)
 
 	if active, tuiErr := tui.Active(logLsTUI, logLsNoTUI, globalJSON); tuiErr != nil {
 		return tuiErr
@@ -374,8 +373,10 @@ func runLogLs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func collectNativeRows(ctx context.Context, repo *database.Repository, projectUUID, sessionsDir string) []sessionRow {
-	scans, _, err := repo.ListScans(ctx, projectUUID, 200, 0)
+// collectNativeRows lists the newest native scans that started within
+// [from, to] (nil bounds are open), the window applied in the query.
+func collectNativeRows(ctx context.Context, repo *database.Repository, projectUUID, sessionsDir string, from, to *time.Time) []sessionRow {
+	scans, _, err := repo.ListScansStartedBetween(ctx, projectUUID, from, to, 200, 0)
 	if err != nil {
 		return nil
 	}
@@ -462,8 +463,8 @@ func fmtStaleAge(last time.Time) string {
 	return strings.TrimSuffix(age.String(), "0s")
 }
 
-func collectAgenticRows(ctx context.Context, repo *database.Repository, projectUUID, sessionsDir string) []sessionRow {
-	runs, _, err := repo.ListAgenticScans(ctx, projectUUID, "", 200, 0)
+func collectAgenticRows(ctx context.Context, repo *database.Repository, projectUUID, sessionsDir string, from, to *time.Time) []sessionRow {
+	runs, err := repo.ListAgenticScansCreatedBetween(ctx, projectUUID, from, to, 200)
 	if err != nil {
 		return nil
 	}
@@ -993,25 +994,6 @@ func writeDBLogLine(w io.Writer, l *database.ScanLog) {
 		line = terminal.StripANSI(line)
 	}
 	_, _ = io.WriteString(w, line)
-}
-
-// filterSessionRowsByTime keeps the sessions that started within [from, to];
-// a nil bound is open.
-func filterSessionRowsByTime(rows []sessionRow, from, to *time.Time) []sessionRow {
-	if from == nil && to == nil {
-		return rows
-	}
-	kept := rows[:0]
-	for _, r := range rows {
-		if from != nil && r.createdAt.Before(*from) {
-			continue
-		}
-		if to != nil && r.createdAt.After(*to) {
-			continue
-		}
-		kept = append(kept, r)
-	}
-	return kept
 }
 
 // logRefMinPrefix is the shortest UUID prefix `log <ref>` resolves, the same
