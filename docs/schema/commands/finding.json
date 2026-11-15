@@ -851,6 +851,9 @@
     "generated_at_ms": {
       "type": "integer"
     },
+    "redacted": {
+      "type": "boolean"
+    },
     "project_source": {
       "type": "string",
       "enum": [
@@ -904,9 +907,6 @@
     },
     "skipped": {
       "type": "integer"
-    },
-    "redacted": {
-      "type": "boolean"
     },
     "findings_total": {
       "type": "integer"

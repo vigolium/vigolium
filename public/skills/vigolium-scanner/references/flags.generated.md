@@ -199,12 +199,14 @@ and wins for that command — read it instead of the row here.
 | `--log-file` | - | string | - | Write all log output to this file (JSON format) |
 | `--mem-limit` | - | string | - | Soft heap ceiling (GOMEMLIMIT) for scans: empty = auto (1/3 of RAM, scaled down by -P/--parallel so all children stay under ⅔ of RAM), 'off' to disable, or an explicit size/percent like 6GiB or 50%. An existing GOMEMLIMIT env var overrides this. |
 | `--no-color` | - | bool | `false` | Disable ANSI color in all output (same as --color=never; also honored via the NO_COLOR env var) |
+| `--no-redact` | - | bool | `false` | With -j: print credentials in raw request/response views even when a coding agent is detected |
 | `--offline` | - | bool | `false` | Keep off every network path that is not the target: no OAST callbacks, third-party lookups (npm registry), nuclei template clone/update, browser download or update check (also settings key offline) |
 | `--pretty` | - | bool | `false` | Indent -j/--json output for reading (default: compact, one line). Also $VIGOLIUM_JSON_PRETTY=1. --watch stays one compact document per line |
 | `--project-name` | - | string | - | Project name to scope all operations to (must match exactly one project). Also honors $VIGOLIUM_PROJECT_NAME |
 | `--project-uuid` | - | string | - | Project to scope all operations to: a UUID, an exact name, or a unique 8+ char UUID prefix of an existing project (defaults to the default project; an unknown one is project_not_found). Also honors $VIGOLIUM_PROJECT_UUID |
 | `--proxy` | - | string | - | Route all requests through this proxy (HTTP/SOCKS5 URL) |
 | `--read-only` | - | bool | `false` | Open the database without modifying it (no directory creation, no journal-mode change, no WAL checkpoint). Read commands only; use it when the source file is evidence |
+| `--redact` | - | bool | `false` | With -j: mask credential header values, cookie values and sensitive query parameters in raw request/response views (on by default when a coding-agent variable such as CLAUDECODE is set; exports and the database stay raw) |
 | `--scan-uuid` | - | string | - | Pin scan UUID for this session (use to sync results across nodes; defaults to a freshly-minted UUID) |
 | `--silent` | - | bool | `false` | Suppress all output except findings |
 | `--skip-dependency-check` | - | bool | `false` | Skip the first-run dependency check and stamp ~/.vigolium/initialized (the check only prints a notice; chromium and nuclei templates are fetched by the phase that needs them) |
@@ -1020,7 +1022,7 @@ Export database tables and module registry
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
 | `--limit` | - | int | `0` | Maximum number of records to export per table (0 = unlimited) |
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
-| `--no-redact` | - | bool | `false` | Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
+| `--no-redact` | - | bool | `false` | **(overrides the global `--no-redact`)** Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
 | `--no-url-dedup` | - | bool | `false` | Emit every stored HTTP exchange; by default exchanges sharing a URL collapse to the first one (plus any a finding links to) |
 | `--omit-response` | - | bool | `false` | Omit raw HTTP request/response bytes (keeps metadata, smaller files) |
 | `--only` | - | stringSlice | - | Export only these tables (repeatable: http, findings, scans, modules, oast, source-repos, scopes; aliases like http_record, finding, scan accepted). Applies to every format |
@@ -1396,7 +1398,7 @@ Fingerprint origins with a bounded set of reads and store the result as host fac
 | `--no-forms` | - | bool | `false` | Disable form filling and submission during spidering (sets spidering.interaction edit_fields and submit_forms off; an explicit interaction key wins) |
 | `--no-param-dedup` | - | bool | `false` | Keep testing a parameter with every module of a vuln class after one already reported it (default: one finding per param and class, e.g. sqli-time-blind skips a param sqli-error-based confirmed). For audit runs |
 | `--no-prefix-breaker` | - | bool | `false` | Disable per-prefix circuit breaker that stops discovery from recursing into trap directories |
-| `--no-redact` | - | bool | `false` | Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
+| `--no-redact` | - | bool | `false` | **(overrides the global `--no-redact`)** Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
 | `--no-tech-filter` | - | bool | `false` | Disable the tech-stack allowlist (run every module regardless of detected stack). Auto-enabled by --intensity=deep. |
 | `--no-waf-pacing` | - | bool | `false` | Disable proactive CDN/WAF-edge pacing (don't pre-throttle per-host concurrency when a CloudFront/Cloudflare/etc. edge is detected); reactive back-off after a WAF block still applies |
 | `--oast-url` | - | string | - | Fixed out-of-band callback URL instead of interactsh; put {nonce} in it (https://{nonce}.cb.example.com) to attribute logged callbacks with 'vigolium oast ingest' |
@@ -1605,7 +1607,7 @@ Import scan data, databases, or live Burp Proxy history
 | `--limit` | `-n` | int | `0` | Import at most N records (0 = no limit) |
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
 | `--method` | - | stringSlice | - | Import only these HTTP methods (comma-separated) |
-| `--no-redact` | - | bool | `false` | Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
+| `--no-redact` | - | bool | `false` | **(overrides the global `--no-redact`)** Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
 | `--output` | `-o` | string | - | Report output path or gs://<project>/<key> URL (required when --format is set; supports {ts}) |
 | `--path` | - | string | - | Import only records whose path matches this pattern |
 | `--pdf-timeout` | - | duration | `0s` | Bound the headless-Chrome PDF render (0 = $VIGOLIUM_PDF_TIMEOUT, else 1m30s) |
@@ -1816,7 +1818,7 @@ Scan files or stdin for leaked credentials using the built-in secret catalog
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--min-confidence` | - | string | `low` | Minimum confidence to report: low, medium, high |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
-| `--redact` | - | bool | `false` | Mask the secret value in output (show only a prefix/suffix) |
+| `--redact` | - | bool | `false` | **(overrides the global `--redact`)** Mask the secret value in output (show only a prefix/suffix) |
 | `--rule` | - | stringSlice | - | Only report these rule IDs (comma-separated / repeatable) |
 
 ## vigolium kit tmp-clean
@@ -2285,7 +2287,7 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--no-forms` | - | bool | `false` | Disable form filling and submission during spidering (sets spidering.interaction edit_fields and submit_forms off; an explicit interaction key wins) |
 | `--no-param-dedup` | - | bool | `false` | Keep testing a parameter with every module of a vuln class after one already reported it (default: one finding per param and class, e.g. sqli-time-blind skips a param sqli-error-based confirmed). For audit runs |
 | `--no-prefix-breaker` | - | bool | `false` | Disable per-prefix circuit breaker that stops discovery from recursing into trap directories |
-| `--no-redact` | - | bool | `false` | Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
+| `--no-redact` | - | bool | `false` | **(overrides the global `--no-redact`)** Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
 | `--no-tech-filter` | - | bool | `false` | Disable the tech-stack allowlist (run every module regardless of detected stack). Auto-enabled by --intensity=deep. |
 | `--no-waf-pacing` | - | bool | `false` | Disable proactive CDN/WAF-edge pacing (don't pre-throttle per-host concurrency when a CloudFront/Cloudflare/etc. edge is detected); reactive back-off after a WAF block still applies |
 | `--oast-url` | - | string | - | Fixed out-of-band callback URL instead of interactsh; put {nonce} in it (https://{nonce}.cb.example.com) to attribute logged callbacks with 'vigolium oast ingest' |
@@ -2402,7 +2404,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--no-forms` | - | bool | `false` | Disable form filling and submission during spidering (sets spidering.interaction edit_fields and submit_forms off; an explicit interaction key wins) |
 | `--no-param-dedup` | - | bool | `false` | Keep testing a parameter with every module of a vuln class after one already reported it (default: one finding per param and class, e.g. sqli-time-blind skips a param sqli-error-based confirmed). For audit runs |
 | `--no-prefix-breaker` | - | bool | `false` | Disable per-prefix circuit breaker that stops discovery from recursing into trap directories |
-| `--no-redact` | - | bool | `false` | Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
+| `--no-redact` | - | bool | `false` | **(overrides the global `--no-redact`)** Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
 | `--no-tech-filter` | - | bool | `false` | Disable the tech-stack allowlist (run every module regardless of detected stack). Auto-enabled by --intensity=deep. |
 | `--no-waf-pacing` | - | bool | `false` | Disable proactive CDN/WAF-edge pacing (don't pre-throttle per-host concurrency when a CloudFront/Cloudflare/etc. edge is detected); reactive back-off after a WAF block still applies |
 | `--oast-url` | - | string | - | Fixed out-of-band callback URL instead of interactsh; put {nonce} in it (https://{nonce}.cb.example.com) to attribute logged callbacks with 'vigolium oast ingest' |
@@ -2584,7 +2586,7 @@ Scan a raw HTTP request for vulnerabilities
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
 | `--no-param-dedup` | - | bool | `false` | Keep testing a parameter with every module of a vuln class after one already reported it (default: one finding per param and class, e.g. sqli-time-blind skips a param sqli-error-based confirmed). For audit runs |
 | `--no-passive` | - | bool | `false` | Skip passive modules |
-| `--no-redact` | - | bool | `false` | Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
+| `--no-redact` | - | bool | `false` | **(overrides the global `--no-redact`)** Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
 | `--no-scheme-probe` | - | bool | `false` | Do not probe the target (TCP connect / TLS handshake) when the request carries no scheme signal; keep the https default |
 | `--no-tech-filter` | - | bool | `false` | Disable the tech-stack allowlist (run every module regardless of detected stack). Auto-enabled by --intensity=deep. |
 | `--no-waf-pacing` | - | bool | `false` | Disable proactive CDN/WAF-edge pacing (don't pre-throttle per-host concurrency when a CloudFront/Cloudflare/etc. edge is detected); reactive back-off after a WAF block still applies |
@@ -2652,7 +2654,7 @@ Scan a single URL for vulnerabilities
 | `--no-clustering` | - | bool | `false` | Disable deduplication of identical concurrent HTTP requests |
 | `--no-param-dedup` | - | bool | `false` | Keep testing a parameter with every module of a vuln class after one already reported it (default: one finding per param and class, e.g. sqli-time-blind skips a param sqli-error-based confirmed). For audit runs |
 | `--no-passive` | - | bool | `false` | Skip passive modules |
-| `--no-redact` | - | bool | `false` | Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
+| `--no-redact` | - | bool | `false` | **(overrides the global `--no-redact`)** Keep credential headers, cookie values and sensitive query parameters in HTML/PDF/SARIF/Markdown report evidence (redacted by default; also output.redact_evidence: false). JSONL and the database always keep the raw exchange |
 | `--no-tech-filter` | - | bool | `false` | Disable the tech-stack allowlist (run every module regardless of detected stack). Auto-enabled by --intensity=deep. |
 | `--no-waf-pacing` | - | bool | `false` | Disable proactive CDN/WAF-edge pacing (don't pre-throttle per-host concurrency when a CloudFront/Cloudflare/etc. edge is detected); reactive back-off after a WAF block still applies |
 | `--oast-url` | - | string | - | Fixed out-of-band callback URL instead of interactsh; put {nonce} in it (https://{nonce}.cb.example.com) to attribute logged callbacks with 'vigolium oast ingest' |

@@ -290,6 +290,9 @@
     "generated_at_ms": {
       "type": "integer"
     },
+    "redacted": {
+      "type": "boolean"
+    },
     "project_source": {
       "type": "string",
       "enum": [
