@@ -2718,6 +2718,25 @@
             "format": "uuid",
             "type": "string"
           },
+          "scan_on_receive": {
+            "nullable": true,
+            "properties": {
+              "cursor_at": {
+                "type": "string"
+              },
+              "cursor_uuid": {
+                "type": "string"
+              },
+              "processed_count": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "scan_uuid": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
           "skipped": {
             "description": "Records filtered by scope",
             "example": 3,
