@@ -135,7 +135,7 @@ func TestReplayAndFuzzInputAcceptsAPath(t *testing.T) {
 	before := hits.Load()
 	assert.Positive(t, before)
 
-	code, stdout, stderr = e.run(t, nil, "fuzz", "-i", req, "-p", "x", "-j")
+	code, stdout, stderr = e.run(t, nil, "fuzz", "-i", req, "-p", "x", "--fuzz", "params", "-j")
 	require.Equal(t, 0, code, "stdout:\n%s\nstderr:\n%s", stdout, stderr)
 	assert.Greater(t, hits.Load(), before)
 }
