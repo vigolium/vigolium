@@ -59,6 +59,8 @@ type EnvelopeCommon struct {
 	GlobSources *GlobSources `json:"glob_sources,omitempty"`
 	// OutputBudget reports a page cut by --max-output-bytes.
 	OutputBudget *OutputBudget `json:"output_budget,omitempty"`
+	// SendsTraffic marks a command whose job is to send requests to a target.
+	SendsTraffic bool `json:"sends_traffic,omitempty"`
 }
 
 // GlobSources is the glob_sources extra of a --glob-db read.

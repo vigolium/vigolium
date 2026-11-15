@@ -346,6 +346,7 @@ func TestMachineContractMatrix(t *testing.T) {
 				}
 				_, isArray := doc["items"].([]any)
 				require.Truef(t, isArray, "items must be an array, got %T\n%s", doc["items"], r)
+				requireSafeFollowUp(t, r, doc)
 			})
 		})
 	}
@@ -364,6 +365,27 @@ func requireOutcomeMatchesExit(t *testing.T, r contractRun, doc map[string]any) 
 		require.NotEmptyf(t, errObj["code"], "%s", r)
 		require.EqualValuesf(t, r.code, errObj["exit_code"], "error.exit_code is the process exit code\n%s", r)
 	}
+}
+
+// requireSafeFollowUp is the hint guardrail: a query_argv parses, names a read
+// that sends no traffic, and repeats the source's --db.
+func requireSafeFollowUp(t *testing.T, r contractRun, doc map[string]any) {
+	t.Helper()
+	raw, ok := doc["query_argv"].([]any)
+	if !ok {
+		return
+	}
+	argv := make([]string, 0, len(raw))
+	for _, a := range raw {
+		argv = append(argv, fmt.Sprint(a))
+	}
+	sourceDB := ""
+	for i, a := range r.argv {
+		if a == "--db" && i+1 < len(r.argv) {
+			sourceDB = r.argv[i+1]
+		}
+	}
+	require.NoErrorf(t, cli.CheckFollowUpArgv(nil, argv, sourceDB), "%s", r)
 }
 
 // envelopeKind is the `kind` a declared kind renders: a stream command's -j

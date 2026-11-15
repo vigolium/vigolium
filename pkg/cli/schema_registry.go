@@ -393,6 +393,8 @@ type fuzzExtras struct {
 	SentViaBurp     bool          `json:"sent_via_burp,omitempty"`
 	OrganizerPushed int           `json:"organizer_pushed,omitempty"`
 	Pace            fuzzPace      `json:"pace"`
+	// Next is the follow-up that confirms the anomalies; it sends traffic.
+	Next []scanNextStep `json:"next,omitempty"`
 }
 
 // replayExtras are replay -j's top-level keys (bulk runs count failures).

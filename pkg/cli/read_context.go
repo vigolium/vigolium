@@ -87,6 +87,12 @@ func followUpDBFlag() string {
 			return ""
 		}
 	}
+	// A command that opened its store directly (ingest, and others that do not
+	// go through the recorded opener) leaves nothing recorded; the --db the
+	// caller passed is still the store it used.
+	if src == "" {
+		src = strings.TrimSpace(globalDB)
+	}
 	if src == "" {
 		return ""
 	}

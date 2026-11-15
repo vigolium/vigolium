@@ -231,7 +231,9 @@ func runListTables(ctx context.Context, cmd *cobra.Command, db *database.DB) err
 	if globalJSON {
 		env := newMachineEnvelope(cmd, kindRead, "rows", tables, int64(len(tables)), 0, len(tables))
 		env.DBPath = resolvedReadDBPath()
-		env.WithQuery("db", "ls", "<table>", "--json")
+		if t := preferredTable(tables); t != "" {
+			env.WithQuery("db", "ls", t, "--json")
+		}
 		return writeAgentJSON(env)
 	}
 
@@ -1022,4 +1024,20 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// preferredTable picks the table a follow-up should list: the records or
+// findings when present, else the first table.
+func preferredTable(tables []string) string {
+	for _, want := range []string{"http_records", "findings"} {
+		for _, t := range tables {
+			if t == want {
+				return t
+			}
+		}
+	}
+	if len(tables) > 0 {
+		return tables[0]
+	}
+	return ""
 }

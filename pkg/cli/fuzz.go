@@ -1204,7 +1204,13 @@ func emitFuzzJSONSummary(cmd *cobra.Command, src *replaySource, args []string, p
 	// that there is more in the stream.
 	env.Total = int64(report.Matched)
 	if tail := fuzzFollowUpArgs(args, report.Matched); tail != nil {
-		env.WithQuery(tail...)
+		if argv := followUpArgv(tail...); argv != nil {
+			env.With("next", []scanNextStep{{
+				Argv:         argv,
+				Why:          "confirm the anomalies with the hardened modules",
+				SendsTraffic: true,
+			}})
+		}
 	}
 	return writeAgentJSON(env)
 }
@@ -1231,24 +1237,31 @@ func fuzzResultRank(r fuzz.Result) int {
 
 // fuzzFollowUpArgs returns the argv tail of a command that confirms anomalies
 // with the hardened module scanner, seeded from the same source the user
-// supplied. nil when nothing matched or the source can't be re-expressed as a
-// flag.
+// supplied. nil when nothing matched or the source can't be re-expressed: a
+// request file goes to scan-request -i (which reads a file), a URL to
+// scan-url -t with its markers removed. It sends traffic, so it is offered as
+// a next step, never as the read-only `query`.
 func fuzzFollowUpArgs(args []string, matched int) []string {
 	if matched == 0 {
 		return nil
 	}
-	var src string
 	switch {
-	case len(args) == 1:
-		src = args[0]
+	case len(args) == 1 && strings.Contains(args[0], "://"):
+		return []string{"scan-url", "-t", stripFuzzMarkers(args[0]), "-m", fuzzConfirmModules(), "-j"}
 	case fuzzInputFile != "":
-		src = fuzzInputFile
-	case fuzzInput != "" && fuzzInput != "-":
-		src = fuzzInput
-	default:
-		return nil
+		return []string{"scan-request", "-i", fuzzInputFile, "-m", fuzzConfirmModules(), "-j"}
 	}
-	return []string{"scan-request", "-i", src, "-m", fuzzConfirmModules(), "-j"}
+	return nil
+}
+
+// stripFuzzMarkers removes the marker keyword (and its numbered siblings) from
+// a URL, leaving the request it was placed in.
+func stripFuzzMarkers(u string) string {
+	kw := fuzzKeyword
+	if kw == "" {
+		kw = fuzz.DefaultKeyword
+	}
+	return regexp.MustCompile(regexp.QuoteMeta(kw)+`\d*`).ReplaceAllString(u, "")
 }
 
 // fuzzConfirmModules maps the payload classes used into module-selection terms
