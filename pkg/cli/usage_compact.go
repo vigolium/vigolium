@@ -28,7 +28,7 @@ var globalUsage bool
 
 // usageDescMax caps one flag's description on its line, after it is cut to its
 // first clause.
-const usageDescMax = 72
+const usageDescMax = 100
 
 // flagUsageView is one flag, as `schema flags -j` lists it.
 type flagUsageView struct {
@@ -122,18 +122,59 @@ func writeCompactUsage(w io.Writer, cmd *cobra.Command) {
 }
 
 // firstClause is a flag description up to its first sentence or clause break:
-// enough to recognise the flag, which is what the usage view is for.
+// enough to recognise the flag, which is what the usage view is for. A break
+// inside parentheses does not count, so "(e.g. -H 'Auth: x')" survives whole,
+// and neither does the full stop of an abbreviation (e.g., i.e., etc., vs.).
 func firstClause(s string) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
 	}
-	cut := len(s)
-	for _, sep := range []string{". ", "; ", " — ", " - "} {
-		if i := strings.Index(s, sep); i > 0 && i < cut {
-			cut = i
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(', '[':
+			depth++
+			continue
+		case ')', ']':
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+		if depth > 0 || i == 0 {
+			continue
+		}
+		rest := s[i:]
+		switch {
+		case strings.HasPrefix(rest, ". ") && !endsWithAbbreviation(s[:i+1]):
+			return strings.TrimSpace(s[:i])
+		case strings.HasPrefix(rest, "; "), strings.HasPrefix(rest, " — "), strings.HasPrefix(rest, " - "):
+			return strings.TrimSpace(s[:i])
 		}
 	}
-	return strings.TrimSpace(s[:cut])
+	return strings.TrimSpace(s)
+}
+
+// usageAbbreviations end in a full stop that does not end a sentence.
+var usageAbbreviations = []string{"e.g.", "i.e.", "etc.", "vs.", "approx.", "incl.", "no."}
+
+// endsWithAbbreviation reports whether s (text up to and including a full
+// stop) ends in an abbreviation rather than a sentence.
+func endsWithAbbreviation(s string) bool {
+	lower := strings.ToLower(s)
+	for _, a := range usageAbbreviations {
+		if strings.HasSuffix(lower, a) {
+			before := len(lower) - len(a)
+			if before == 0 || !isWordByte(lower[before-1]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || b == '-' || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9')
 }
 
 func visibleSubcommands(cmd *cobra.Command) []string {

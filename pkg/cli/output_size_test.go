@@ -224,3 +224,20 @@ func TestFuzzJSONLimitAndAllResults(t *testing.T) {
 	require.Equal(t, 5, doc.Sent)
 	require.Greater(t, doc.SentTotal, doc.Sent, "the baseline is a send too")
 }
+
+// --usage keeps a description's whole first clause: a full stop inside
+// parentheses or after an abbreviation is not the end of it.
+func TestFirstClauseKeepsExamples(t *testing.T) {
+	cases := map[string]string{
+		"Add custom HTTP header (repeatable, e.g. -H 'Auth: Bearer token'). Commas are literal": "Add custom HTTP header (repeatable, e.g. -H 'Auth: Bearer token')",
+		"Module-specific options as key=value (e.g. -a xss.dom=true)":                           "Module-specific options as key=value (e.g. -a xss.dom=true)",
+		"Try extensions, e.g. php. More text":                                                   "Try extensions, e.g. php",
+		"Per-request timeout; the default is 15s":                                               "Per-request timeout",
+		"First sentence. Second":                                                                "First sentence",
+		"Range a - b inside (x - y) stays - cut here":                                           "Range a",
+	}
+	for in, want := range cases {
+		require.Equal(t, want, firstClause(in), in)
+	}
+	require.GreaterOrEqual(t, usageDescMax, 100)
+}
