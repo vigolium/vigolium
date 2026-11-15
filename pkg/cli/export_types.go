@@ -13,12 +13,9 @@ import (
 type exportRecordType struct {
 	// Name is the canonical --only name.
 	Name string
-	// Envelope is the JSONL envelope "type" these records carry.
-	Envelope string
-	// Aliases are the other accepted spellings, envelope name included.
+	// Aliases are the other accepted spellings; the first is the JSONL
+	// envelope "type" these records carry.
 	Aliases []string
-	// Importable reports whether `vigolium import` reads it back.
-	Importable bool
 	// ImplicitlyExcluded types are left out unless --only names them.
 	ImplicitlyExcluded bool
 	// Formats lists the export formats that render this type; empty means
@@ -36,18 +33,18 @@ var (
 )
 
 var exportRecordTypes = []exportRecordType{
-	{Name: "http", Envelope: "http_record", Aliases: []string{"http_record", "http_records", "record", "records", "traffic"}, Importable: true,
+	{Name: "http", Aliases: []string{"http_record", "http_records", "record", "records", "traffic"},
 		Formats: append(slices.Clone(exportFormatsDocument), "fs")},
-	{Name: "findings", Envelope: "finding", Aliases: []string{"finding"}, Importable: true},
-	{Name: "scans", Envelope: "scan", Aliases: []string{"scan"}, Importable: true, Formats: exportFormatsDocument},
+	{Name: "findings", Aliases: []string{"finding"}},
+	{Name: "scans", Aliases: []string{"scan"}, Formats: exportFormatsDocument},
 	// The module registry is the binary's, not the store's; it rides along
 	// only when asked for.
-	{Name: "modules", Envelope: "module", Aliases: []string{"module"}, ImplicitlyExcluded: true, Formats: exportFormatsDocument},
-	{Name: "oast", Envelope: "oast_interaction", Aliases: []string{"oast_interaction", "oast_interactions", "oast-interactions"}, Importable: true, Formats: exportFormatsArchive},
-	{Name: "source-repos", Envelope: "source_repo", Aliases: []string{"source_repo", "source_repos", "source-repo"}, Formats: exportFormatsArchive},
+	{Name: "modules", Aliases: []string{"module"}, ImplicitlyExcluded: true, Formats: exportFormatsDocument},
+	{Name: "oast", Aliases: []string{"oast_interaction", "oast_interactions", "oast-interactions"}, Formats: exportFormatsArchive},
+	{Name: "source-repos", Aliases: []string{"source_repo", "source_repos", "source-repo"}, Formats: exportFormatsArchive},
 	// Scope rows are enabled scan rules: import stores them only into a
 	// stateless database or under --include-scopes.
-	{Name: "scopes", Envelope: "scope", Aliases: []string{"scope"}, Importable: true, Formats: exportFormatsArchive},
+	{Name: "scopes", Aliases: []string{"scope"}, Formats: exportFormatsArchive},
 }
 
 // supportsFormat reports whether the given canonical export format renders

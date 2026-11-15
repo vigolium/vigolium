@@ -188,18 +188,19 @@ func (s exportScope) includes(dataType string) bool {
 // topExportScope is the scope the `vigolium export` command's --only and
 // --exclude build. Unknown names were rejected by validateExportOnly.
 func topExportScope() exportScope {
-	scope, err := parseExportScope("--only", topExportOnly, "--exclude", topExportExclude)
-	if err != nil {
-		return newExportScope(topExportOnly)
-	}
+	scope, _ := parseExportScope("--only", topExportOnly, "--exclude", topExportExclude)
 	return scope
 }
 
-// shouldExport returns true if the given data type should be included in the
-// `vigolium export` command's own pre-flight checks (exportNeedsDB). The
-// streaming path takes an explicit exportScope instead.
-func shouldExport(dataType string) bool {
-	return topExportScope().includes(dataType)
+// needsDB reports whether any type the scope keeps lives in the database.
+// Modules come from the in-memory registry, so a modules-only export needs none.
+func (s exportScope) needsDB() bool {
+	for _, t := range exportRecordTypes {
+		if t.Name != "modules" && s.includes(t.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 // exportEnvelope wraps each exported item with a type tag for JSONL output.
@@ -248,6 +249,19 @@ func topExportQuery(projectUUID string) exportQuery {
 	// Validated by runExportCmd before any query; a bad value here bounds nothing.
 	q.from, q.to, _ = parseDateRangeFlags(topExportFrom, topExportTo, timeFilterFromLabel, timeFilterToLabel)
 	return q
+}
+
+// recordFilters are q's row filters for the HTTP-record query builder. They
+// leave out q.severity, which on a records query would keep only records a
+// finding of that severity links to; the fs export adds it on purpose.
+func (q exportQuery) recordFilters() database.QueryFilters {
+	return database.QueryFilters{
+		ProjectUUID: q.projectUUID,
+		FuzzyTerm:   q.search,
+		Limit:       q.limit,
+		DateFrom:    q.from,
+		DateTo:      q.to,
+	}
 }
 
 // limitQuery applies the per-table row limit.
@@ -390,13 +404,6 @@ func validateExportFormatsScope(specs []exportFormatSpec) error {
 		}
 	}
 	return nil
-}
-
-// exportNeedsDB reports whether any requested table lives in the database.
-// Modules come from the in-memory registry, so a modules-only export needs none.
-func exportNeedsDB() bool {
-	return shouldExport("http") || shouldExport("findings") || shouldExport("scans") ||
-		shouldExport("oast") || shouldExport("source-repos") || shouldExport("scopes")
 }
 
 func runExportCmd(cmd *cobra.Command, args []string) error {
@@ -861,7 +868,7 @@ func computeReportMeta(ctx context.Context, db *database.DB, projectUUID string)
 func (r *exportRun) exportJSONL(ctx context.Context, outputPath string) ([]exportedFile, error) {
 	// Modules don't need DB access, so handle the modules-only case without opening DB.
 	var db *database.DB
-	if exportNeedsDB() {
+	if topExportScope().needsDB() {
 		var err error
 		if db, err = r.openDB(); err != nil {
 			return nil, err
@@ -1005,20 +1012,10 @@ func (r *exportRun) exportFS(ctx context.Context, outputPath string) ([]exported
 		return nil, err
 	}
 
-	var severities []string
-	if topExportSeverity != "" {
-		severities = strings.Split(topExportSeverity, ",")
-	}
 	q := topExportQuery(r.projectUUID)
-	filters := database.QueryFilters{
-		ProjectUUID: r.projectUUID,
-		FuzzyTerm:   topExportSearch,
-		Severity:    severities,
-		Limit:       topExportLimit,
-		DateFrom:    q.from,
-		DateTo:      q.to,
-	}
-	stats, err := writeFSExport(ctx, db, filters, outputPath, fsExportOptions{omitResponse: topExportOmitResponse})
+	filters := q.recordFilters()
+	filters.Severity = q.severity
+	stats, err := writeFSExport(ctx, db, filters, outputPath, fsExportOptions{omitResponse: q.omitResponse})
 	if err != nil {
 		return nil, err
 	}
@@ -1214,13 +1211,7 @@ func findingReferencedRecordUUIDs(ctx context.Context, db *database.DB, projectU
 // entirely. Reads are strict: a query, row-scan or cursor error is returned.
 func streamHTTPRecords(ctx context.Context, db *database.DB, q exportQuery, emitItem func(string, any) error) error {
 	projectUUID, scanUUID := q.projectUUID, q.scanUUID
-	qb := database.NewQueryBuilder(db, database.QueryFilters{
-		ProjectUUID: projectUUID,
-		FuzzyTerm:   q.search,
-		Limit:       q.limit,
-		DateFrom:    q.from,
-		DateTo:      q.to,
-	})
+	qb := database.NewQueryBuilder(db, q.recordFilters())
 	if q.omitResponse {
 		qb = qb.OmitBodies()
 	}
