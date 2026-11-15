@@ -196,8 +196,13 @@ func sendRawHTTP(ctx context.Context, client *gohttp.Client, raw []byte, scheme,
 	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, defaultMaxResponseBytes))
 	sum := sha256.Sum256(bodyBytes)
 	excerpt, truncated := clipBytes(bodyBytes, excerptCap)
+	finalURL := ""
+	if resp.Request != nil && resp.Request.URL != nil {
+		finalURL = resp.Request.URL.String()
+	}
 
 	return &Summary{
+		FinalURL:       finalURL,
 		Status:         resp.StatusCode,
 		ResponseLen:    len(bodyBytes),
 		ContentHash:    hex.EncodeToString(sum[:8]),

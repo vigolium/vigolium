@@ -36,6 +36,8 @@ const (
 	RecordSourceBurp          = "burp"         // Burp Suite, via the loopback bridge or a push to /api/ingest-http
 	RecordSourceCaido         = "caido"        // Caido, via the loopback bridge or a push to /api/ingest-http
 	RecordSourceParamMining   = "param-mining" // request carrying a hidden parameter the param-mining phase confirmed
+	RecordSourceReplay        = "replay"       // an exchange sent by hand with `vigolium replay` (saved by default)
+	RecordSourceFuzz          = "fuzz"         // a payload exchange `vigolium fuzz --save` kept
 )
 
 // legacyKISEvidenceSource is the label known-issue-scan evidence was stored
@@ -60,6 +62,7 @@ var KnownRecordSources = []string{
 	RecordSourceIngestServer, RecordSourceIngestContext, RecordSourceIngestProxy, RecordSourceIngestCLI,
 	RecordSourceScanner, RecordSourceProbe, RecordSourceFingerprint, RecordSourceHarvest,
 	RecordSourceFinding, RecordSourceBurp, RecordSourceCaido, RecordSourceParamMining,
+	RecordSourceReplay, RecordSourceFuzz,
 	RecordKindCandidate, RecordKindObservation, legacyKISEvidenceSource, "seed",
 }
 
@@ -96,8 +99,11 @@ func IsBridgeRecordSource(source string) bool {
 // `finding verify` uses the difference to tell a finding's baseline from its
 // payload request on rows written before findings.origin_record_uuid existed,
 // and the assessment sources exclude them so a finding's payload-bearing
-// request is never rescanned as input on the next run.
-var EvidenceRecordSources = []string{RecordKindFinding, RecordKindCandidate, RecordKindObservation, legacyKISEvidenceSource}
+// request is never rescanned as input on the next run. Hand-sent exchanges
+// (replay, fuzz) are evidence too: they carry payloads a scan must not
+// re-attack.
+var EvidenceRecordSources = []string{RecordKindFinding, RecordKindCandidate, RecordKindObservation, legacyKISEvidenceSource,
+	RecordSourceReplay, RecordSourceFuzz}
 
 // applyEvidenceExclusion drops finding-evidence rows (EvidenceRecordSources).
 func applyEvidenceExclusion(q *bun.SelectQuery) *bun.SelectQuery {

@@ -284,4 +284,8 @@ type Job struct {
 	// it to Burp's Organizer). Invoked on the same serialized path as OnResult;
 	// keep it cheap (append, don't do blocking I/O here).
 	OnMatch func(r Result, rawRequest []byte)
+	// OnExchange, if set, is called for every result with the request bytes
+	// sent and the response summary (body included), on the same serialized
+	// path as OnResult. For a caller that stores exchanges (`fuzz --save`).
+	OnExchange func(r Result, rawRequest []byte, resp *replay.Summary)
 }

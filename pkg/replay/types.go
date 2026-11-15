@@ -97,7 +97,10 @@ type Summary struct {
 	Excerpt        string        `json:"excerpt,omitempty"`
 	Truncated      bool          `json:"excerpt_truncated,omitempty"`
 	Error          string        `json:"error,omitempty"`
-	RawBody        []byte        `json:"-"`
+	// FinalURL is the URL the response came from, after any redirects the
+	// client followed; empty when the sender cannot tell (a bridge send).
+	FinalURL string `json:"final_url,omitempty"`
+	RawBody  []byte `json:"-"`
 }
 
 // Diff captures the comparison between baseline and replay.

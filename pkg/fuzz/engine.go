@@ -190,6 +190,9 @@ func Run(ctx context.Context, job Job) (*Report, error) {
 				if job.OnResult != nil {
 					job.OnResult(res)
 				}
+				if job.OnExchange != nil {
+					job.OnExchange(res, built, sum)
+				}
 				mu.Unlock()
 			}
 		}(c)

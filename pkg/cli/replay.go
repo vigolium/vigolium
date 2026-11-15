@@ -259,6 +259,9 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	// default for one more release (--format console or the old --pretty
 	// select its tables; see streamOutputPlan).
 	bulk := replayBulkRequested(bulkFuzzy)
+	if err := validateReplaySaveFlags(bulk); err != nil {
+		return err
+	}
 	warnLegacyPretty(cmd, bulk)
 	plan, err := resolveReplayOutputPlan(cmd, !bulk || (flagChanged(cmd, "pretty") && !globalJSON))
 	if err != nil {
@@ -297,8 +300,12 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	}
 	rr.burpClient = bridgeClient
 	rr.sendOpts = burpbridge.SendOptions{Mode: httpMode, Timeout: replaySendTimeout}
+	rr.saver = newHandSendSaver(database.RecordSourceReplay, replaySaveEnabled(bulk))
 
 	// Bulk mode: iterate every matching stored record through the same engine.
+	if bulk && replayDryRun {
+		return usageErrorf("--dry-run previews one request; list what a bulk replay would send with `vigolium traffic` and the same filters")
+	}
 	if bulk {
 		filters, ferr := buildReplayBulkFilters(bulkFuzzy)
 		if ferr != nil {
@@ -322,6 +329,9 @@ func runReplay(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	if replayDryRun {
+		return emitReplayDryRun(cmd, src, overlay, rr)
+	}
 
 	out, err := rr.one(ctx, src, overlay)
 	if err != nil {
@@ -330,7 +340,11 @@ func runReplay(cmd *cobra.Command, args []string) error {
 
 	saveReplayJar(rr.pj)
 
-	if err := emitReplayResult(cmd, plan, out); err != nil {
+	if replayOnce {
+		if err := emitReplayOnce(cmd, newReplayOnceView(out, src, rr.saver)); err != nil {
+			return err
+		}
+	} else if err := emitReplayResult(cmd, plan, out); err != nil {
 		return err
 	}
 	failed := 0
@@ -420,6 +434,7 @@ type replayRun struct {
 	toOrganizer bool
 	withBrowser bool
 	sendOpts    burpbridge.SendOptions
+	saver       *handSendSaver
 }
 
 // newReplayRun assembles the settings shared by every record in one run: the
@@ -541,6 +556,7 @@ func (rr *replayRun) one(ctx context.Context, src *replaySource, overlay map[str
 	}
 
 	out := buildReplayOutput(src, result, rr.jarLoaded, rr.pj)
+	out.SavedRecordUUID = saveReplayExchange(ctx, rr.saver, src, result)
 	out.SavedToBurp = rr.saveToBurp
 	out.SentViaBurp = rr.sendViaBurp
 	out.StagedToRepeater = rr.toRepeater
@@ -1091,6 +1107,9 @@ type replayOutput struct {
 	SentViaBurp      bool                  `json:"sent_via_burp,omitempty"`
 	StagedToRepeater bool                  `json:"staged_to_repeater,omitempty"`
 	SavedToOrganizer bool                  `json:"saved_to_organizer,omitempty"`
+	// SavedRecordUUID is the record the exchange was stored as (source
+	// "replay"); empty when it was not stored.
+	SavedRecordUUID string `json:"saved_record_uuid,omitempty"`
 	// Error is set (with Result nil) only in bulk mode when a single record
 	// fails to replay, so one bad record doesn't abort the JSONL stream.
 	Error string `json:"error,omitempty"`
@@ -1209,5 +1228,8 @@ func emitReplayOutputHeader(w io.Writer, out *replayOutput) {
 	}
 	if out.SavedToOrganizer {
 		_, _ = fmt.Fprintf(w, "  saved to Burp Organizer\n")
+	}
+	if out.SavedRecordUUID != "" {
+		_, _ = fmt.Fprintf(w, "  stored as record %s (--no-save to skip)\n", out.SavedRecordUUID)
 	}
 }
