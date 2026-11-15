@@ -606,6 +606,15 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 		printConfigReload(settings, changed)
 	})
 
+	// Bind both listeners before anything announces the server: a port that
+	// is already taken used to log a bind error on stderr while stdout said
+	// "Server running" and the process exited 0, so a health check then
+	// succeeded against whatever else held the port.
+	if err := apiServer.Bind(); err != nil {
+		closeServerQueue(taskQueue, queueDir)
+		return err
+	}
+
 	// In view-only or demo-only mode, print banner early and skip runner/catchup entirely
 	if serverOpts.ViewOnly || serverOpts.DemoOnly {
 		if !globalSilent {
@@ -810,9 +819,11 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	// died (port in use, internal panic, etc.). Log it and cancel the root
 	// context so the main goroutine drops into the graceful-shutdown path
 	// below instead of yanking the process down with os.Exit.
+	serveErr := make(chan error, 1)
 	go func() {
 		if err := apiServer.Start(); err != nil {
 			zap.L().Error("API server error", zap.Error(err))
+			serveErr <- err
 			cancel()
 		}
 	}()
@@ -912,7 +923,14 @@ func runServerCmd(cmd *cobra.Command, args []string) error {
 	closeServerQueue(taskQueue, queueDir)
 
 	zap.L().Info("Server shutdown complete")
-	return nil
+	// The API server dying on its own (not a signal) is a failure, not a
+	// clean exit.
+	select {
+	case err := <-serveErr:
+		return fmt.Errorf("API server: %w", err)
+	default:
+		return nil
+	}
 }
 
 // parseAgentQueueTimeout parses a Go duration string for the agent queue timeout.

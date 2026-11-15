@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -55,6 +57,12 @@ type Server struct {
 	db              *database.DB
 	repo            *database.Repository
 	fsMirror        *fsexport.Mirror // live --mirror-fs filesystem mirror (nil when disabled)
+
+	// serviceLn and proxyLn are the bound listeners (Bind); started records
+	// whether Start handed them to the servers, so Shutdown knows who closes
+	// them.
+	serviceLn, proxyLn net.Listener
+	started            bool
 }
 
 // NewServer creates a new HTTP API server.
@@ -240,9 +248,46 @@ func (s *Server) OnConfigReload(fn func(changed []string)) {
 	}
 }
 
-// Start starts the API server (and proxy if configured).
-// Blocks until the server is stopped.
+// Bind opens the API listener and, when configured, the ingest proxy's,
+// without serving. A caller that announces the server binds first, so a port
+// already in use is an error before anything says "running". Idempotent.
+func (s *Server) Bind() error {
+	if s.serviceLn != nil {
+		return nil
+	}
+	ln, err := net.Listen("tcp", s.config.ServiceAddr)
+	if err != nil {
+		return fmt.Errorf("bind API server to %s: %w", s.config.ServiceAddr, err)
+	}
+	if s.proxyServer != nil {
+		pln, err := net.Listen("tcp", s.proxyServer.Addr)
+		if err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("bind ingest proxy to %s: %w", s.proxyServer.Addr, err)
+		}
+		s.proxyLn = pln
+	}
+	s.serviceLn = ln
+	return nil
+}
+
+// ServiceAddr returns the address the API listener is bound to, or the
+// configured address before Bind.
+func (s *Server) ServiceAddr() string {
+	if s.serviceLn != nil {
+		return s.serviceLn.Addr().String()
+	}
+	return s.config.ServiceAddr
+}
+
+// Start starts the API server (and proxy if configured), binding first when
+// Bind was not called. Blocks until the server is stopped.
 func (s *Server) Start() error {
+	if err := s.Bind(); err != nil {
+		return err
+	}
+	s.started = true
+
 	// Start config watcher for hot reload
 	if s.configWatcher != nil {
 		s.configWatcher.Start()
@@ -253,7 +298,7 @@ func (s *Server) Start() error {
 		go func() {
 			zap.L().Info("Ingest proxy starting",
 				zap.String("addr", s.proxyServer.Addr))
-			if err := s.proxyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := s.proxyServer.Serve(s.proxyLn); err != nil && err != http.ErrServerClosed {
 				zap.L().Error("Ingest proxy error", zap.Error(err))
 			}
 		}()
@@ -262,7 +307,7 @@ func (s *Server) Start() error {
 	zap.L().Info("API server starting",
 		zap.String("addr", s.config.ServiceAddr))
 
-	return s.serviceApp.Listen(s.config.ServiceAddr, fiber.ListenConfig{
+	return s.serviceApp.Listener(s.serviceLn, fiber.ListenConfig{
 		DisableStartupMessage: true,
 	})
 }
@@ -276,6 +321,16 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	zap.L().Info("API server shutting down")
+
+	// Bound but never started: nothing else owns the listeners.
+	if !s.started {
+		if s.serviceLn != nil {
+			_ = s.serviceLn.Close()
+		}
+		if s.proxyLn != nil {
+			_ = s.proxyLn.Close()
+		}
+	}
 
 	// Stop config watcher
 	if s.configWatcher != nil {
