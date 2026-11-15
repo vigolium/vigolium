@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- `vigolium export` now exports the active project by default, like `traffic`, `finding` and `db export`; pass `--all-projects` for the whole store. Report metadata (target, duration) is scoped the same way.
+- `vigolium import` of a JSONL export now stores its `scan` and `oast_interaction` rows (re-homed into the active project, deduplicated); `scope` rows load only with `--include-scopes` or into a `-S`/`--glob-db` scratch database. `import -j` reports `imported_by_type`, `duplicates_by_type` and `skipped_types`.
+- `db export --format jsonl` (the default) writes the `{"type","data"}` lines `vigolium export` writes and `import` reads: the selected records, then their linked findings. The previous nuclei-style output is `--format nuclei`. `--table http_records|findings` picks the line types; other tables are a usage error.
+- `finding load` reads `export`/`db export` JSONL and `finding -j` documents, keeps `url`, `hostname` and `matched_at`, rejects an unknown severity (`input_unparsed`, nothing stored), and counts agent findings that differ only by URL as separate findings.
+- A multi-source `import` (several paths or `--glob-db`) continues past a source that fails, lists each source with its status in `-j` `sources[]`, and exits 1 naming the failures; `--glob-strict` stops at the first. A SQLite file that is not a vigolium store is refused (`source_incompatible`) instead of merging as zeros.
+- `ingest` reports the format it detected (`input_format: har`, not `urls`), labels the records it fetches `ingest-cli` like the ones it saves directly, keeps a HAR entry's `time` as `response_time_ms`, and sets `changed` from the rows it actually wrote (new `records_written`); re-ingesting the same input is `changed: false`.
+- `traffic -j` rows carry `sent_at` (RFC 3339, UTC). `hosts`, `log ls`, `db stats` and `export` accept `--from/--to` (`--since/--until`). Time-filter help states that a time without a zone is local and results print in UTC.
+- `--host` on `traffic`, `finding`, `db list|export|stats|clean`, `inventory`, `hosts` and bulk `replay` accepts a bare host, `host:port`, an origin (`https://host[:port]`, as `traffic -j` prints it) or a bracketed IPv6 address.
+- `--glob-db` reads and multi-source `import` no longer leave `-wal`/`-shm` files beside their sources (a source with no live WAL is read immutable; one with a live WAL is read in place and the created sidecars removed, or through a scratch copy in a read-only directory), and a glob never matches a sidecar as a source.
+- `db ls`, `log ls`, `scan diff` and `db stats` honour `--format tsv` (with `--no-header`) and refuse other formats; `log <prefix>` resolves an 8+ character session UUID prefix; `db reset --dry-run` lists the files it would delete; `db stats` reads like `traffic` (standalone sources whole, `project_uuid` in `-j`); `--db` naming a non-SQLite file (a JSONL export) fails with a hint to pass `-S`.
+- `config ls` shows the settings of the active project (global config plus its overlay), lists every settable key including ones set to `false` or empty, and `-j` values are typed (`value`; the old text is `display`) with `default`, `type` and `source` (`default`, `file`, `env:NAME`, `project`, `flag`). Redaction applies to string credentials only (any key under `api_keys`, tokens, passwords), not to booleans like `disable_secret_scan`. `config ls --effective` lists only the keys a layer set. New `vigolium config env` lists every `VIGOLIUM_*` variable the binary reads.
+- `scope view` reads the active project's overlay and labels each value with its source; `scope set` honours the global `--project-uuid`/`--project-name` like `--project`.
+- `project use` accepts a name or a unique 8+ character UUID prefix; an unknown one is `project_not_found` (was `not_found`) with a `project create <name>` hint. New `project use --print-env` prints the export line and writes no `active-project` file, pinning one shell.
+- `vigolium init` help states its downloads (Chrome for Testing ~150 MB, nuclei-templates ~100 MB); without a terminal it skips them and prints the command that fetches them (`--with-deps` downloads anyway).
+- `doctor` prints the verdict first with what still works (scan, spidering, known-issue scan, out-of-band, agent, audit), then one line per check; detail lines need `-v`. `doctor -j` lists the checks flat in `items` (`id`, `group`, `status`, `message`, `affects`, `fix_argv`, and on a failing check `source`: the setting it tested and where it came from) with `status` and `capabilities` at the top level; `--json-legacy-keys` keeps the nested report. A proxy row names the proxy, the flag or variable that set it, and that loopback targets go through it. `--only` works without `--fix`. `--fix` prints the re-checked report once, and `--fix --dry-run` lists each install with its method, destination and approximate size. An agent provider behind an endpoint (`openai-compatible`, `anthropic-compatible`) is `unverified` instead of ok; `--for agent` probes the endpoint.
+
 ## [v0.5.7] - 2026-11-14
 
 ### Added

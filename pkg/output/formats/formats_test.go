@@ -70,7 +70,7 @@ func TestSurfaceMembership(t *testing.T) {
 	assert.Equal(t, []string{"jsonl", "html", "report", "pdf", "markdown", "sarif", "csv", "junit", "github", "bundle", "fs"}, Names(SurfaceExport))
 	assert.Equal(t, []string{"html", "report", "pdf", "markdown", "sarif", "csv", "junit", "github"}, Names(SurfaceImport))
 	assert.Equal(t, []string{"jsonl", "html", "report", "pdf", "markdown", "sarif", "csv", "junit"}, Names(SurfaceREST))
-	assert.Equal(t, []string{"jsonl", "json", "raw", "markdown", "markdown-table", "csv", "bundle", "fs"}, Names(SurfaceDBExport))
+	assert.Equal(t, []string{"jsonl", "json", "raw", "nuclei", "markdown", "markdown-table", "csv", "bundle", "fs"}, Names(SurfaceDBExport))
 }
 
 // TestHelpListsExactlyNames: the help string names every format of the surface

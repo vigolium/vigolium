@@ -255,7 +255,9 @@ func encodeJSONL(w io.Writer, items []any) (int, error) {
 // It is the `vigolium export` path, so its --only/--exclude apply here as they
 // do to every other format.
 func streamJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitResponse bool, projectUUID string) (exportCounts, error) {
-	return streamJSONLWithScope(ctx, db, w, topExportScope(), omitResponse, projectUUID, "")
+	q := topExportQuery(projectUUID)
+	q.omitResponse = omitResponse
+	return streamJSONLWithQuery(ctx, db, w, q)
 }
 
 // streamScopedJSONLExport is streamJSONLExport narrowed to one scan when
@@ -264,15 +266,17 @@ func streamJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitRe
 // The post-scan `--format jsonl` stream passes the scan's UUID; `vigolium
 // export` passes "" and stays the whole-project path.
 func streamScopedJSONLExport(ctx context.Context, db *database.DB, w io.Writer, omitResponse bool, projectUUID, scanUUID string) (exportCounts, error) {
-	return streamJSONLWithScope(ctx, db, w, scanExportScope, omitResponse, projectUUID, scanUUID)
+	return streamJSONLWithQuery(ctx, db, w, exportQuery{
+		scope: scanExportScope, omitResponse: omitResponse, projectUUID: projectUUID, scanUUID: scanUUID,
+	})
 }
 
-// streamJSONLWithScope is the JSONL envelope stream for one record-type scope.
-func streamJSONLWithScope(ctx context.Context, db *database.DB, w io.Writer, scope exportScope, omitResponse bool, projectUUID, scanUUID string) (exportCounts, error) {
+// streamJSONLWithQuery is the JSONL envelope stream for one export query.
+func streamJSONLWithQuery(ctx context.Context, db *database.DB, w io.Writer, q exportQuery) (exportCounts, error) {
 	counts := newExportCounts()
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
-	err := streamExportData(ctx, db, scope, omitResponse, projectUUID, scanUUID, func(item any) error {
+	err := streamExportData(ctx, db, q, func(item any) error {
 		if err := enc.Encode(item); err != nil {
 			return err
 		}
@@ -446,7 +450,7 @@ func finishScanJSONLExport(db *database.DB, opts *types.Options) error {
 func exportStatelessConsole(ctx context.Context, db *database.DB, outputPath string, omitResponse bool) (exportedFile, error) {
 	var lines int
 	err := atomicfile.Write(outputPath, func(w *bufio.Writer) error {
-		return streamExportData(ctx, db, fullExportScope, omitResponse, "", "", func(item any) error {
+		return streamExportData(ctx, db, exportQuery{scope: fullExportScope, omitResponse: omitResponse}, func(item any) error {
 			env, ok := item.(exportEnvelope)
 			if !ok {
 				return nil

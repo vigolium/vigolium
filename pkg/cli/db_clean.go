@@ -49,6 +49,7 @@ var (
 	cleanOrphans  bool
 	cleanFindings bool
 	cleanTable    string
+	resetDryRun   bool
 )
 
 func init() {
@@ -56,13 +57,14 @@ func init() {
 	dbCmd.AddCommand(dbResetCmd)
 
 	dbCleanCmd.Flags().BoolVar(&cleanAll, "all", false, "Delete every row from all data tables (requires --force unless --dry-run)")
-	dbCleanCmd.Flags().StringVar(&cleanHost, "host", "", "Delete records matching the specified hostname")
+	dbCleanCmd.Flags().StringVar(&cleanHost, "host", "", "Delete records on this host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	dbCleanCmd.Flags().StringVar(&cleanScanUUID, "scan-uuid", "", "Delete records belonging to the specified scan UUID")
 	dbCleanCmd.Flags().StringVar(&cleanBefore, "before", "", fmt.Sprintf("Delete records created strictly before this time — %s (the named day itself is kept)", clicommon.TimeFilterSyntax))
 	dbCleanCmd.Flags().IntSliceVar(&cleanStatus, "status", nil, "Delete records with matching HTTP status codes")
 	dbCleanCmd.Flags().StringVar(&cleanSeverity, "severity", "", "Delete findings matching the specified severity level (findings only; HTTP records are kept)")
 
 	dbCleanCmd.Flags().BoolVar(&cleanDryRun, "dry-run", false, "Show what would be deleted without deleting")
+	dbResetCmd.Flags().BoolVar(&resetDryRun, "dry-run", false, "List the database files that would be deleted and recreated, without touching them (needs no --force)")
 
 	dbCleanCmd.Flags().BoolVar(&cleanOrphans, "orphans", false, "Delete findings with no matching HTTP record")
 
@@ -72,6 +74,25 @@ func init() {
 
 func runDBReset(cmd *cobra.Command, args []string) error {
 	defer closeDatabaseOnExit()
+
+	if resetDryRun {
+		_, dbPath, err := resetTarget()
+		if err != nil {
+			return err
+		}
+		res := dbResetView{Path: dbPath, Files: existingResetFiles(dbPath), DryRun: true}
+		if globalJSON {
+			return emitMutation(cmd, "", mutationResult{Action: "reset", Items: []dbResetView{res}}, withDBPath(dbPath))
+		}
+		fmt.Fprintf(os.Stderr, "%s Dry run: db reset would delete and recreate %s\n", terminal.InfoSymbol(), terminal.Cyan(dbPath))
+		if len(res.Files) == 0 {
+			fmt.Fprintf(os.Stderr, "  (no file there yet; an empty database would be created)\n")
+		}
+		for _, f := range res.Files {
+			fmt.Fprintf(os.Stderr, "  delete %s\n", f)
+		}
+		return nil
+	}
 
 	if !globalForce {
 		fmt.Fprintf(os.Stderr, "%s %s\n", terminal.WarningSymbol(),
@@ -104,6 +125,23 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 type dbResetView struct {
 	Path         string `json:"path"`
 	FilesRemoved int    `json:"files_removed"`
+	// Files lists the files removed, or under --dry-run the files that would be.
+	Files  []string `json:"files"`
+	DryRun bool     `json:"dry_run,omitempty"`
+}
+
+// resetFileSuffixes are the database file and its companions db reset removes.
+var resetFileSuffixes = []string{"", "-wal", "-shm"}
+
+// existingResetFiles lists the reset files present for dbPath.
+func existingResetFiles(dbPath string) []string {
+	files := []string{}
+	for _, suffix := range resetFileSuffixes {
+		if _, err := os.Stat(dbPath + suffix); err == nil {
+			files = append(files, dbPath+suffix)
+		}
+	}
+	return files
 }
 
 // dbCleanView is one table's row in `db clean -j`: rows the selection matched
@@ -438,7 +476,9 @@ func runVacuum(ctx context.Context, db *database.DB) {
 }
 
 // resetDatabase deletes the SQLite database file and recreates it with a fresh schema.
-func resetDatabase() (dbResetView, error) {
+// resetTarget resolves the database db reset deletes: its settings and the
+// expanded SQLite path.
+func resetTarget() (*config.Settings, string, error) {
 	// config.LoadSettings directly, and ANY error refuses — not the clicommon
 	// helper, which degrades a merely-discovered broken config to defaults.
 	//
@@ -449,7 +489,7 @@ func resetDatabase() (dbResetView, error) {
 	// at that.
 	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
-		return dbResetView{}, fmt.Errorf("cannot determine which database to reset: %w", err)
+		return nil, "", fmt.Errorf("cannot determine which database to reset: %w", err)
 	}
 
 	if !settings.Database.Enabled && settings.Database.Driver == "" {
@@ -463,25 +503,28 @@ func resetDatabase() (dbResetView, error) {
 	}
 
 	if settings.Database.Driver != "sqlite" {
-		return dbResetView{}, fmt.Errorf("database reset is only supported for SQLite (current driver: %s)", settings.Database.Driver)
+		return nil, "", fmt.Errorf("database reset is only supported for SQLite (current driver: %s)", settings.Database.Driver)
 	}
+	return settings, config.ExpandPath(settings.Database.SQLite.Path), nil
+}
 
-	dbPath := config.ExpandPath(settings.Database.SQLite.Path)
+func resetDatabase() (dbResetView, error) {
+	settings, dbPath, err := resetTarget()
+	if err != nil {
+		return dbResetView{}, err
+	}
 
 	// Close existing connection if open
 	clicommon.ResetDBCache()
 
 	// Remove the database file and its WAL/SHM companions
-	removed := 0
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		p := dbPath + suffix
-		if _, err := os.Stat(p); err == nil {
-			if err := os.Remove(p); err != nil {
-				return dbResetView{}, fmt.Errorf("failed to remove %s: %w", p, err)
-			}
-			removed++
+	files := existingResetFiles(dbPath)
+	for _, p := range files {
+		if err := os.Remove(p); err != nil {
+			return dbResetView{}, fmt.Errorf("failed to remove %s: %w", p, err)
 		}
 	}
+	removed := len(files)
 
 	if removed == 0 {
 		_, _ = fmt.Fprintf(humanOut(), "%s No database file found at %s\n", terminal.InfoSymbol(), terminal.Cyan(dbPath))
@@ -501,5 +544,5 @@ func resetDatabase() (dbResetView, error) {
 	}
 
 	_, _ = fmt.Fprintf(humanOut(), "%s %s %s\n", terminal.SuccessSymbol(), terminal.Green("Database recreated at"), terminal.Cyan(dbPath))
-	return dbResetView{Path: dbPath, FilesRemoved: removed}, nil
+	return dbResetView{Path: dbPath, FilesRemoved: removed, Files: files}, nil
 }

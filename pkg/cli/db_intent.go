@@ -91,6 +91,7 @@ var dbIntents = map[string]string{
 
 	// Config files, not the store.
 	"config clean": dbIntentNone,
+	"config env":   dbIntentNone,
 	"config ls":    dbIntentNone,
 	"config set":   dbIntentNone,
 	// validate reads recent scan targets for one rule; a missing store skips it.

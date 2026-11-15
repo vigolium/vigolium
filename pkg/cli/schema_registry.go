@@ -84,6 +84,7 @@ type recordViewSchema struct {
 	ResponseWords         int64  `json:"response_words"`
 	Source                string `json:"source"`
 	ScanUUID              string `json:"scan_uuid,omitempty"`
+	SentAt                string `json:"sent_at,omitempty"`
 	ResponseTitle         string `json:"response_title,omitempty"`
 	IP                    string `json:"ip,omitempty"`
 	RiskScore             int    `json:"risk_score,omitempty"`
@@ -342,6 +343,10 @@ func init() {
 		Description: "Every preset file considered (installed, skipped, failed) plus vigolium.d.ts (updated or current)."})
 	registerCommandSchema(contract.Command{Name: "extensions types", Item: extTypesView{}, ItemsKind: contract.ItemsObject,
 		Description: "vigolium.d.ts: the file written with -o, or the declarations inline as content."})
+	registerCommandSchema(contract.Command{Name: "config ls", Item: configEntrySchema{}, Extras: configLsExtras{},
+		Description: "Every settable key with its typed value (string credentials redacted), default, type and source layer (default, file, env:NAME, project, flag)."})
+	registerCommandSchema(contract.Command{Name: "config env", Item: configEnvSchema{}, Extras: configEnvExtras{},
+		Description: "Every VIGOLIUM_* variable the binary reads: set or not, value (credentials redacted), the settings key it overrides."})
 	registerCommandSchema(contract.Command{Name: "import", Extras: importExtras{},
 		Description: "items is always []; the import counters stay at the top level (a parse, a SQLite merge, or a live bridge import)."})
 	registerCommandSchema(contract.Command{Name: "js", Item: jsEvalItem{}, ItemsKind: contract.ItemsObject,
@@ -466,9 +471,12 @@ type replayExtras struct {
 // reports what it submitted (records_submitted, errors). Every key is optional
 // because each mode carries only its own.
 type ingestExtras struct {
-	RecordsIngested  int64             `json:"records_ingested,omitempty"`
-	RecordsFailed    int64             `json:"records_failed,omitempty"`
-	RecordsSkipped   int64             `json:"records_skipped,omitempty"`
+	RecordsIngested int64 `json:"records_ingested,omitempty"`
+	RecordsFailed   int64 `json:"records_failed,omitempty"`
+	RecordsSkipped  int64 `json:"records_skipped,omitempty"`
+	// RecordsWritten counts the rows this run added; records already stored
+	// count in records_ingested but not here, and changed follows this.
+	RecordsWritten   int64             `json:"records_written,omitempty"`
 	RecordsSubmitted int64             `json:"records_submitted,omitempty"`
 	Errors           int64             `json:"errors,omitempty"`
 	DurationMS       int64             `json:"duration_ms,omitempty"`
@@ -513,6 +521,45 @@ type seedExtras struct {
 // importExtras mirrors the top-level keys `import -j` keeps (importResultJSON,
 // mergeResultJSON, burpImportResultJSON). Which set appears depends on the
 // source, so every key is optional.
+// configEntrySchema mirrors configcmd's configEntryView.
+type configEntrySchema struct {
+	Key       string `json:"key"`
+	Value     any    `json:"value"`
+	Display   string `json:"display"`
+	Default   any    `json:"default"`
+	Type      string `json:"type"`
+	Source    string `json:"source"`
+	Sensitive bool   `json:"sensitive"`
+	Empty     bool   `json:"empty"`
+	Redacted  bool   `json:"redacted"`
+}
+
+// configLsExtras are config ls's top-level keys.
+type configLsExtras struct {
+	ConfigPath  string `json:"config_path"`
+	Redacted    bool   `json:"redacted"`
+	Filter      string `json:"filter"`
+	Effective   bool   `json:"effective"`
+	ProjectUUID string `json:"project_uuid,omitempty"`
+}
+
+// configEnvSchema mirrors configcmd's configEnvView.
+type configEnvSchema struct {
+	Name         string `json:"name"`
+	Set          bool   `json:"set"`
+	Value        string `json:"value,omitempty"`
+	Redacted     bool   `json:"redacted"`
+	Sensitive    bool   `json:"sensitive"`
+	OverridesKey string `json:"overrides_key,omitempty"`
+	Template     bool   `json:"template,omitempty"`
+	Description  string `json:"description"`
+}
+
+// configEnvExtras are config env's top-level keys.
+type configEnvExtras struct {
+	Redacted bool `json:"redacted"`
+}
+
 type importExtras struct {
 	// A parsed source (JSONL, audit directory, HAR, …).
 	AgenticScanUUID         string         `json:"agentic_scan_uuid,omitempty"`
@@ -527,6 +574,13 @@ type importExtras struct {
 	SessionDir              string         `json:"session_dir,omitempty"`
 	StorageURL              string         `json:"storage_url,omitempty"`
 
+	// Per envelope type (http_record, finding, scan, oast_interaction, scope,
+	// agentic_scan): rows written, rows already present, rows of a type this
+	// import does not store (module, scope without --include-scopes).
+	ImportedByType   map[string]int `json:"imported_by_type,omitempty"`
+	DuplicatesByType map[string]int `json:"duplicates_by_type,omitempty"`
+	SkippedTypes     map[string]int `json:"skipped_types,omitempty"`
+
 	// A SQLite merge.
 	MergedFrom           string `json:"merged_from,omitempty"`
 	RecordsMerged        int    `json:"records_merged,omitempty"`
@@ -537,6 +591,11 @@ type importExtras struct {
 	ProjectsMerged       int    `json:"projects_merged,omitempty"`
 	FindingRecordsMerged int    `json:"finding_records_merged,omitempty"`
 	OASTMerged           int    `json:"oast_merged,omitempty"`
+
+	// A multi-source import: every source with its outcome, and how many
+	// failed (the totals above cover the rest).
+	Sources       []importSourceStatus `json:"sources,omitempty"`
+	SourcesFailed int                  `json:"sources_failed,omitempty"`
 
 	// Artifacts requested alongside the import.
 	ReportPath string   `json:"report_path,omitempty"`

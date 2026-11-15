@@ -66,8 +66,10 @@ type ScopedDeps struct {
 	Settings *config.Settings
 	// Stateless skips the database check (-S scans use a temporary store).
 	Stateless bool
-	// Proxy is the --proxy URL, checked for reachability when set.
-	Proxy string
+	// Proxy is the proxy the HTTP stack will use (--proxy or the environment),
+	// checked for reachability when set; ProxySource names where it came from.
+	Proxy       string
+	ProxySource string
 	// Target, when set, adds DNS/TCP/TLS checks for that URL (doctor -t).
 	Target string
 	// DBDir is the database directory checked for free space ("" skips it).
@@ -131,7 +133,11 @@ func Scoped(purpose string, r *Report, deps ScopedDeps) (*ScopedReport, error) {
 	case PurposeScan:
 		add(fromResult("scope", r.Scope, ScopedDegraded, []string{"requests the broken rule touches"}))
 		if deps.Proxy != "" {
-			add(checkProxy(deps.Proxy))
+			c := checkProxy(deps.Proxy)
+			if deps.ProxySource != "" {
+				c.Message += " (from " + deps.ProxySource + "; loopback targets are proxied too)"
+			}
+			add(c)
 		}
 		add(checkDisk(deps.DBDir))
 		add(checkFDs())
@@ -281,6 +287,9 @@ func agentCheck(a *AgentCheck) ScopedCheck {
 	if a == nil {
 		return ScopedCheck{ID: "agent", Status: ScopedSkipped, Message: "not checked"}
 	}
+	if a.Status == StatusOK && a.Unverified {
+		return probeAgentEndpoint(a)
+	}
 	if a.Status == StatusOK {
 		return ScopedCheck{ID: "agent", Status: ScopedOK, Counts: true, Message: a.Name}
 	}
@@ -427,4 +436,54 @@ func checkTarget(raw, proxy string) []ScopedCheck {
 	}
 	_ = tc.Close()
 	return append(out, ScopedCheck{ID: "target_tls", Status: ScopedOK, Counts: true, Message: "TLS handshake ok"})
+}
+
+// probeAgentEndpoint opens a TCP connection to an endpoint provider's base
+// URL: `--for agent` is where a provider is actually reached.
+func probeAgentEndpoint(a *AgentCheck) ScopedCheck {
+	u, err := url.Parse(a.Endpoint)
+	if err != nil || u.Host == "" {
+		return ScopedCheck{ID: "agent", Status: ScopedNotReady, Counts: true,
+			Message: "unparseable provider endpoint " + a.Endpoint, Affects: []string{"every agent mode"}}
+	}
+	host := u.Host
+	if u.Port() == "" {
+		if u.Scheme == "https" {
+			host += ":443"
+		} else {
+			host += ":80"
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	conn, err := scopedDial(ctx, "tcp", host)
+	if err != nil {
+		return ScopedCheck{ID: "agent", Status: ScopedNotReady, Counts: true,
+			Message: fmt.Sprintf("%s: endpoint %s unreachable: %v", a.Protocol, a.Endpoint, err),
+			Affects: []string{"every agent mode"}}
+	}
+	_ = conn.Close()
+	return ScopedCheck{ID: "agent", Status: ScopedOK, Counts: true, Message: fmt.Sprintf("%s: endpoint %s reachable", a.Protocol, a.Endpoint)}
+}
+
+// ProxyCheck is the full report's proxy row: which proxy every request goes
+// through, where it was configured, and whether it accepts a connection.
+// Loopback targets are not exempt from it (an explicit proxy URL, unlike Go's
+// environment resolver, proxies localhost too).
+func ProxyCheck(proxy, source string) *CheckResult {
+	if proxy == "" {
+		return &CheckResult{Status: StatusOK, Message: "none: requests connect directly"}
+	}
+	shown := proxy
+	if u, err := url.Parse(proxy); err == nil && u.User != nil {
+		u.User = url.User("redacted")
+		shown = u.String()
+	}
+	msg := fmt.Sprintf("%s from %s; loopback targets go through it too", shown, source)
+	sc := checkProxy(proxy)
+	if sc.Status != ScopedOK {
+		return &CheckResult{Status: StatusError, Message: msg + " — " + sc.Message,
+			Tip: "Start the proxy, or remove it (" + source + ") to connect directly."}
+	}
+	return &CheckResult{Status: StatusOK, Message: msg, Details: []string{sc.Message}}
 }

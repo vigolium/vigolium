@@ -695,12 +695,12 @@ func (qb *QueryBuilder) attachEndpointFindings(ctx context.Context, accs map[str
 		if qb.filters.ProjectUUID != "" {
 			q = q.Where("f.project_uuid = ?", qb.filters.ProjectUUID)
 		}
-		if hp := qb.filters.HostPattern; hp != "" {
-			if strings.Contains(hp, "*") {
-				q = q.Where(WithLikeEscape("f.hostname LIKE ?"), LikeGlob(hp))
-			} else {
-				q = q.Where("f.hostname = ?", hp)
-			}
+		// A finding row has a hostname but no port or scheme column; the
+		// endpoint lookup below keys on the full origin, so a finding on
+		// another port of the same host attaches to nothing.
+		if h := ParseHostFilter(qb.filters.HostPattern); h.Host != "" {
+			pred, args := h.predicate("f.hostname", "", "")
+			q = q.Where(pred, args...)
 		}
 		if err := q.OrderExpr("f.id ASC").Limit(inventoryPageSize).Scan(ctx, &page); err != nil {
 			return err

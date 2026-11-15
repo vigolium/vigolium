@@ -98,6 +98,7 @@ var table = []Format{
 	{Name: "jsonl", Ext: ".jsonl", Kind: KindStream, Surfaces: SurfaceScan | SurfaceExport | SurfaceREST | SurfaceDBExport, Label: "JSONL"},
 	{Name: "json", Ext: ".json", Kind: KindStream, Surfaces: SurfaceDBExport, Label: "JSON"},
 	{Name: "raw", Kind: KindStream, Surfaces: SurfaceDBExport, Label: "Raw HTTP"},
+	{Name: "nuclei", Ext: ".jsonl", Kind: KindStream, Surfaces: SurfaceDBExport, Label: "Nuclei-style findings", Note: "one ResultEvent per linked finding"},
 	{Name: "html", Ext: ".html", Kind: KindReport, Surfaces: SurfaceScan | SurfaceExport | SurfaceImport | SurfaceREST, NeedsOutputPath: true, Label: "HTML report"},
 	{Name: "report", Ext: ".report.html", Kind: KindReport, Surfaces: SurfaceScan | SurfaceExport | SurfaceImport | SurfaceREST, NeedsOutputPath: true, Label: "Document report"},
 	{Name: "pdf", Ext: ".pdf", Kind: KindReport, Surfaces: SurfaceScan | SurfaceExport | SurfaceImport | SurfaceREST, NeedsChrome: true, NeedsOutputPath: true, Label: "PDF report", Note: "headless Chrome"},

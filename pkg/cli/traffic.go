@@ -165,7 +165,7 @@ func init() {
 		"Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination, so a match is never missed because it fell outside -n")
 	pf.StringArrayVar(&trafficURLs, "url", nil,
 		"Select records whose URL matches EXACTLY (repeatable; OR-ed). Compared against the stored URL with no normalization — use --path or --search for substring matching")
-	pf.StringVar(&trafficHost, "host", "", "Filter by hostname pattern (wildcard supported)")
+	pf.StringVar(&trafficHost, "host", "", "Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	pf.StringSliceVar(&trafficMethods, "method", nil, "Filter by HTTP method (repeatable, e.g. --method GET --method POST)")
 	pf.IntSliceVar(&trafficStatus, "status", nil, "Filter by HTTP status code (repeatable, e.g. --status 200 --status 404)")
 	pf.StringVar(&trafficPath, "path", "", "Filter by URL path pattern")

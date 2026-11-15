@@ -176,6 +176,9 @@ func normalizeFieldList(in []string) []string {
 // object under `"artifact": "json_result"` would be a lie, and a receipt that
 // could itself be redirected has nowhere left to report.
 func writeAgentJSON(env *agentEnvelope) error {
+	if readTSV {
+		return writeEnvelopeTSV(env)
+	}
 	// Attached here rather than at each call site: every -j read that can be
 	// sourced from --glob-db funnels through this function, and a per-command
 	// hook is one a new command forgets — which is how a merged read with a
@@ -613,7 +616,7 @@ var (
 	trafficViewFields = append([]string{
 		"uuid", "method", "url", "host", "status_code",
 		"response_content_type", "response_content_length", "response_time_ms",
-		"response_words", "source", "scan_uuid", "response_title", "ip",
+		"response_words", "source", "scan_uuid", "sent_at", "response_title", "ip",
 		"risk_score", "surface_score", "is_authenticated", "technology", "remarks",
 		"body_compaction", "request", "response",
 		// Emitted only when --fields names them: uuid_short is the resolvable
@@ -724,6 +727,11 @@ func compactRecordView(rec *database.HTTPRecord, opts agentViewOptions) map[stri
 	}
 	if rec.ScanUUID != "" {
 		m["scan_uuid"] = rec.ScanUUID
+	}
+	// When the exchange was sent, in UTC: the time --from/--to and
+	// --sort sent_at act on.
+	if !rec.SentAt.IsZero() {
+		m["sent_at"] = rec.SentAt.UTC().Format(time.RFC3339)
 	}
 	if rec.ResponseTitle != "" {
 		m["response_title"] = rec.ResponseTitle

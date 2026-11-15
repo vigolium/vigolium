@@ -213,9 +213,13 @@ func TestDoctorJSONEnvelope(t *testing.T) {
 
 	doc := emitCaptured(t, func() error { return runDoctorCmd(doctorCmd, nil) })
 	items := requireEnvelope(t, doc, "doctor", "read")
-	require.Len(t, items, 1)
-	require.Equal(t, "degraded", items[0].(map[string]any)["status"])
+	require.NotEmpty(t, items, "items are the flat checks")
+	for _, it := range items {
+		require.Contains(t, it, "id")
+		require.Contains(t, it, "status")
+	}
 	require.Equal(t, "degraded", doc["status"], "the verdict is copied up for a branch without indexing")
+	require.Contains(t, doc, "capabilities")
 
 	legacyKeys(t)
 	doc = emitCaptured(t, func() error { return runDoctorCmd(doctorCmd, nil) })

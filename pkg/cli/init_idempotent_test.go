@@ -66,3 +66,25 @@ func TestBootstrapProfiles_WriteIfMissing(t *testing.T) {
 		}
 	}
 }
+
+// Without a terminal init downloads nothing and says how to fetch the core
+// dependencies; --with-deps and --offline override that either way.
+func TestInitSkipsDownloadsWithoutTerminal(t *testing.T) {
+	prevOffline, prevWith := globalOffline, initWithDeps
+	t.Cleanup(func() { globalOffline, initWithDeps = prevOffline, prevWith })
+	globalOffline, initWithDeps = false, false
+	if stdinIsTerminal() {
+		t.Skip("stdin is a terminal")
+	}
+	if initSkipsDownloads() == "" {
+		t.Fatal("init without a terminal must skip the downloads")
+	}
+	initWithDeps = true
+	if got := initSkipsDownloads(); got != "" {
+		t.Fatalf("--with-deps must download, got skip reason %q", got)
+	}
+	globalOffline = true
+	if initSkipsDownloads() != "--offline" {
+		t.Fatal("--offline always skips")
+	}
+}

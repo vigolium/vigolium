@@ -422,13 +422,9 @@ func (qb *QueryBuilder) applyFilters(query *bun.SelectQuery) {
 	}
 
 	// Host filtering (direct column, no join)
-	if qb.filters.HostPattern != "" {
-		if strings.Contains(qb.filters.HostPattern, "*") {
-			query.Where(WithLikeEscape("r.hostname LIKE ?"), LikeGlob(qb.filters.HostPattern))
-		} else {
-			query.Where("r.hostname = ?", qb.filters.HostPattern)
-		}
-	}
+	// Accepts a bare host, host:port, an origin or a bracketed IPv6 address
+	// (ParseHostFilter), so the `host` a traffic row prints filters back to it.
+	applyRecordHostFilter(query, qb.filters.HostPattern, "r")
 
 	// Method filtering
 	if len(qb.filters.Methods) > 0 {
@@ -1150,12 +1146,8 @@ func (fqb *FindingsQueryBuilder) applyFindingFilters(query *bun.SelectQuery) {
 	// finding linked to N records on the matching host yields ONE row, not N — a
 	// JOIN here duplicated both the listed rows and the ScanAndCount total. Matches
 	// the non-duplicating pattern used by the path/method/status/source filters below.
-	if fqb.filters.HostPattern != "" {
-		if strings.Contains(fqb.filters.HostPattern, "*") {
-			query.Where(WithLikeEscape(findingRegionPredicate("r.hostname LIKE ?")), LikeGlob(fqb.filters.HostPattern))
-		} else {
-			query.Where(findingRegionPredicate("r.hostname = ?"), fqb.filters.HostPattern)
-		}
+	if pred, args := recordHostPredicate(fqb.filters.HostPattern, "r"); pred != "" {
+		query.Where(findingRegionPredicate(pred), args...)
 	}
 
 	// Search across the finding's own fields (module metadata, matched location,

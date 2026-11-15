@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -15,76 +14,108 @@ import (
 )
 
 func newLsCmd(deps Deps, example string) *cobra.Command {
-	var showSecrets bool
+	var showSecrets, effective bool
 	cmd := &cobra.Command{
 		Use:     "ls [filter]",
 		Aliases: []string{"list", "view"},
 		Short:   "Display current configuration",
-		Long:    "Display current configuration settings. Sensitive values (API keys, tokens, credentials) are redacted by default; pass --show-secrets to reveal them in plaintext. Optionally filter by key (substring or fuzzy subsequence match, e.g. \"store\" matches \"storage.*\"). Filters containing glob metacharacters (* ? [ ]) are matched as glob patterns against the full key or any dot-segment, e.g. \"kno*\" matches \"known_issue_scan.*\".",
+		Long: "Display the settings a scan in the active project runs under: the global config with the project's overlay applied. " +
+			"Every settable key is listed, including keys set to false or empty, with its typed value, default and the layer that set it " +
+			"(default, file, env:NAME, project, flag). --effective lists only the keys a layer set. " +
+			"String credentials (API keys, tokens, passwords) are redacted by default; pass --show-secrets to reveal them in plaintext. " +
+			"Optionally filter by key (substring or fuzzy subsequence match, e.g. \"store\" matches \"storage.*\"). Filters containing glob metacharacters (* ? [ ]) are matched as glob patterns against the full key or any dot-segment, e.g. \"kno*\" matches \"known_issue_scan.*\".",
 		Example: example,
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfigLs(cmd, deps, args, showSecrets)
+			return runConfigLs(cmd, deps, args, showSecrets, effective)
 		},
 	}
 	cmd.Flags().BoolVar(&showSecrets, "show-secrets", false, "Reveal sensitive values (API keys, tokens, credentials) in plaintext instead of [redacted]; prints a warning to stderr")
+	cmd.Flags().BoolVar(&effective, "effective", false, "List only the keys a layer set (file, env:NAME, project, flag), each with its source")
 	return cmd
 }
 
 // configEntryView is one setting in the shape a machine consumer reads.
 //
-// Value is the REDACTED value under the default policy; Display is what the
-// human table prints. `sensitive` is carried so a consumer can tell a genuinely
-// empty setting from one that was withheld — an inference it would otherwise
-// have to make by string-matching "[redacted]".
+// Value is typed (bool, number, string, list, object) and REDACTED under the
+// default policy when the key is a string credential; Display is the string
+// the human table prints. `sensitive` is carried so a consumer can tell a
+// genuinely empty setting from one that was withheld.
 type configEntryView struct {
 	Key       string `json:"key"`
-	Value     string `json:"value"`
+	Value     any    `json:"value"`
+	Display   string `json:"display"`
+	Default   any    `json:"default"`
+	Type      string `json:"type"`
+	Source    string `json:"source"`
 	Sensitive bool   `json:"sensitive"`
 	Empty     bool   `json:"empty"`
 	Redacted  bool   `json:"redacted"`
 }
 
-// display renders the value for the human table. It is derived rather than
-// stored: "(empty)" is a rendering of Empty, and the redacted case already
-// carries "[redacted]" in Value.
+// display renders the value for the human table.
 func (v configEntryView) display() string {
 	if v.Empty {
 		return "(empty)"
 	}
-	return v.Value
+	return v.Display
 }
 
-func newConfigEntryView(entry config.ConfigEntry, showSecrets bool) configEntryView {
-	empty := entry.Value == "" || entry.Value == "<nil>"
+func newConfigEntryView(entry config.SettingEntry, source string, showSecrets bool) configEntryView {
 	v := configEntryView{
 		Key:       entry.Key,
 		Value:     entry.Value,
+		Display:   config.DisplaySettingValue(entry.Value),
+		Default:   entry.Default,
+		Type:      entry.Type,
+		Source:    source,
 		Sensitive: entry.Sensitive,
-		Empty:     empty,
+		Empty:     isEmptyValue(entry.Value),
 	}
-	switch {
-	case entry.Sensitive && !showSecrets && !empty:
+	if entry.Sensitive && !showSecrets && !v.Empty {
 		v.Value = clicommon.SecretPlaceholder
+		v.Display = clicommon.SecretPlaceholder
 		v.Redacted = true
-	case empty:
-		v.Value = ""
+	}
+	if entry.Sensitive && !showSecrets {
+		// A default credential is redacted too: it may be a real key baked
+		// into a build.
+		if d, ok := entry.Default.(string); ok && d != "" {
+			v.Default = clicommon.SecretPlaceholder
+		}
 	}
 	return v
 }
 
-func runConfigLs(cmd *cobra.Command, deps Deps, args []string, showSecrets bool) error {
-	settings, err := config.LoadSettings(deps.ConfigFlag())
+func isEmptyValue(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return true
+	case string:
+		return x == ""
+	case []any:
+		return len(x) == 0
+	case map[string]any:
+		return len(x) == 0
+	}
+	return false
+}
+
+func runConfigLs(cmd *cobra.Command, deps Deps, args []string, showSecrets, effective bool) error {
+	settings, projectUUID, err := deps.loadSettings()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	var flagKeys []string
+	if deps.FlagKeys != nil {
+		flagKeys = deps.FlagKeys()
+	}
+	sources, err := config.TraceSources(config.TraceOptions{ConfigPath: deps.ConfigFlag(), ProjectUUID: projectUUID, FlagKeys: flagKeys})
+	if err != nil {
+		return fmt.Errorf("failed to trace config sources: %w", err)
+	}
 
-	entries := config.FlattenSettings(settings)
-
-	// Sort entries by key for stable output
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Key < entries[j].Key
-	})
+	entries := config.SettingEntries(settings)
 
 	// Apply filter if provided
 	filter := ""
@@ -104,25 +135,35 @@ func runConfigLs(cmd *cobra.Command, deps Deps, args []string, showSecrets bool)
 		if filter != "" && !keyMatches(strings.ToLower(entry.Key), filter) {
 			continue
 		}
-		matched = append(matched, newConfigEntryView(entry, showSecrets))
+		source := config.SourceOf(sources, entry.Key)
+		if effective && source == config.SourceDefault {
+			continue
+		}
+		matched = append(matched, newConfigEntryView(entry, source, showSecrets))
 	}
 
-	// -j was accepted here and produced ANSI-colored prose on stdout with exit
-	// 0 — the worst available combination, because a consumer parsing that
-	// fails for a reason nothing in the exit status describes. The redaction
-	// rule is identical in both modes: a machine caller is the LAST consumer
-	// that should be handed plaintext credentials, since -j output routinely
-	// lands in an agent transcript.
+	// The redaction rule is identical in both modes: a machine caller is the
+	// LAST consumer that should be handed plaintext credentials, since -j
+	// output routinely lands in an agent transcript.
 	if deps.jsonRequested() {
-		return deps.WriteJSON(cmd, "entries", matched, len(matched), map[string]any{
+		extra := map[string]any{
 			"config_path": config.ContractPath(clicommon.EffectiveConfigPath(deps.ConfigFlag())),
 			"redacted":    !showSecrets,
 			"filter":      filter,
-		})
+			"effective":   effective,
+		}
+		if projectUUID != "" {
+			extra["project_uuid"] = projectUUID
+		}
+		return deps.WriteJSON(cmd, "entries", matched, len(matched), extra)
 	}
 
 	for _, e := range matched {
-		fmt.Printf("%s = %s\n", sectionKeyColor(e.Key)(e.Key), colorizeValue(e.display()))
+		line := fmt.Sprintf("%s = %s", sectionKeyColor(e.Key)(e.Key), colorizeValue(e.display()))
+		if effective || e.Source != config.SourceDefault {
+			line += "  " + terminal.Gray("("+e.Source+")")
+		}
+		fmt.Println(line)
 	}
 
 	if count := len(matched); count == 0 {
@@ -137,6 +178,9 @@ func runConfigLs(cmd *cobra.Command, deps Deps, args []string, showSecrets bool)
 	if filter == "" {
 		fmt.Println()
 		fmt.Printf("%s Config file: %s\n", terminal.InfoSymbol(), terminal.Gray(config.ContractPath(clicommon.EffectiveConfigPath(deps.ConfigFlag()))))
+		if projectUUID != "" {
+			fmt.Printf("%s Project overlay: %s\n", terminal.InfoSymbol(), terminal.Gray(projectUUID))
+		}
 	}
 
 	return nil

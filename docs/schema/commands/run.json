@@ -380,6 +380,9 @@
         "scan_uuid": {
           "type": "string"
         },
+        "sent_at": {
+          "type": "string"
+        },
         "response_title": {
           "type": "string"
         },

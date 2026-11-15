@@ -116,7 +116,7 @@ func registerListFlags(cmd *cobra.Command) {
 		"Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination")
 	cmd.Flags().StringArrayVar(&listURLs, "url", nil,
 		"Select records whose URL matches EXACTLY (repeatable; OR-ed). Compared against the stored URL with no normalization — use --path or --search for substring matching")
-	cmd.Flags().StringVar(&listHost, "host", "", "Filter records by hostname pattern (wildcard supported)")
+	cmd.Flags().StringVar(&listHost, "host", "", "Filter records by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	cmd.Flags().StringSliceVar(&listMethods, "method", nil, "Filter records by HTTP method (can be specified multiple times)")
 	cmd.Flags().IntSliceVar(&listStatus, "status", nil, "Filter records by HTTP status code (can be specified multiple times)")
 	cmd.Flags().StringVar(&listPath, "path", "", "Filter records by URL path pattern")
@@ -142,6 +142,7 @@ func registerListFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&listAsc, "asc", false, "Sort in ascending order instead of descending")
 
 	addFlagAliases(cmd, timeFilterAliases)
+	registerTSVFlags(cmd.Flags())
 }
 
 func runDBList(cmd *cobra.Command, args []string) error {
@@ -154,6 +155,9 @@ func runDBList(cmd *cobra.Command, args []string) error {
 	// the operator's own store while reading like a scoped read of a standalone
 	// file. Going through the shared opener also makes a JSONL export a valid
 	// source here, as it already is for finding and traffic.
+	if _, err := enableReadTSV(cmd); err != nil {
+		return err
+	}
 	db, err := openReadDB(globDBSkipSet{})
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
@@ -228,7 +232,7 @@ func runListTables(ctx context.Context, cmd *cobra.Command, db *database.DB) err
 	// Schema discovery is the one surface an agent reaches for BEFORE it knows
 	// anything about the store, so it emitting ANSI-colored text on stdout under
 	// -j was the worst possible exception to the machine contract.
-	if globalJSON {
+	if globalJSON || readTSV {
 		env := newMachineEnvelope(cmd, kindRead, "rows", tables, int64(len(tables)), 0, len(tables))
 		env.DBPath = resolvedReadDBPath()
 		if t := preferredTable(tables); t != "" {
@@ -255,7 +259,7 @@ func runListColumns(ctx context.Context, cmd *cobra.Command, db *database.DB, ta
 		return fmt.Errorf("failed to list columns for %q: %w", tableName, err)
 	}
 
-	if globalJSON {
+	if globalJSON || readTSV {
 		env := newMachineEnvelope(cmd, kindRead, "rows", columns, int64(len(columns)), 0, len(columns))
 		env.DBPath = resolvedReadDBPath()
 		env.With("table", tableName)
@@ -336,7 +340,7 @@ func runListHTTPRecords(ctx context.Context, cmd *cobra.Command, db *database.DB
 		return fmt.Errorf("failed to count records: %w", err)
 	}
 
-	if globalJSON {
+	if globalJSON || readTSV {
 		return displayJSON(ctx, cmd, db, records, total, listOffset, listLimit)
 	} else if listRaw {
 		return displayRaw(records)
@@ -399,7 +403,7 @@ func runListFindings(ctx context.Context, cmd *cobra.Command, db *database.DB) e
 		return fmt.Errorf("failed to count findings: %w", err)
 	}
 
-	if globalJSON {
+	if globalJSON || readTSV {
 		env := newMachineEnvelope(cmd, kindRead, "findings",
 			findingViews(ctx, db, findings, agentViewOptionsFromFlags(), false), total, listOffset, listLimit)
 		env.WithProjectScope(projectUUID)
@@ -483,7 +487,7 @@ func runListScans(ctx context.Context, cmd *cobra.Command, db *database.DB) erro
 
 	views := buildScanViews(scans)
 
-	if globalJSON {
+	if globalJSON || readTSV {
 		// The scans path used to hand its typed views straight to the envelope,
 		// so --fields was accepted and then ignored: `--fields uuid` returned all
 		// 39 keys, byte-identical to no projection. A flag that parses and does
@@ -662,7 +666,7 @@ func runListGenericTable(ctx context.Context, cmd *cobra.Command, db *database.D
 		return fmt.Errorf("failed to query table %q: %w", tableName, err)
 	}
 
-	if globalJSON {
+	if globalJSON || readTSV {
 		// This path used to accept --fields and ignore it, which is the same
 		// "parses and does nothing" defect the scans path was just fixed for.
 		// The vocabulary here is the table's own column set, already in hand.

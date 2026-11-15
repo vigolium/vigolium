@@ -153,9 +153,14 @@ func TestExportExplicitProjectFilters(t *testing.T) {
 	t.Cleanup(clicommon.CloseDatabaseOnExit)
 
 	ctx := context.Background()
-	db := newExportTestDB(t)
+	dbPath := filepath.Join(t.TempDir(), "export.sqlite")
+	db := newDBAtPath(t, dbPath)
 	seedFindingAndRecord(t, db, "projA", "a")
 	seedFindingAndRecord(t, db, "projB", "b")
+	for _, p := range []string{"projA", "projB"} {
+		_, err := db.NewInsert().Model(&database.Project{UUID: p, Name: p}).Exec(ctx)
+		require.NoError(t, err)
+	}
 
 	t.Run("no selection exports every project", func(t *testing.T) {
 		resetProjectScopeGlobals(t)
@@ -169,6 +174,7 @@ func TestExportExplicitProjectFilters(t *testing.T) {
 
 	t.Run("an explicit project narrows", func(t *testing.T) {
 		resetProjectScopeGlobals(t)
+		globalDB = dbPath
 		globalProjectUUID = "projA"
 		// openDB resolves the filter; the handle is already open here, so the
 		// resolution is driven directly the way openDB would.
@@ -288,4 +294,36 @@ func envelopeLine(t *testing.T, typ string, data map[string]any) string {
 	b, err := json.Marshal(map[string]any{"type": typ, "data": data})
 	require.NoError(t, err)
 	return string(b)
+}
+
+// `vigolium export` reads the active project by default, like every sibling
+// read; --all-projects spans the store and cannot be combined with a project.
+func TestExportProjectFilterDefaultsToActiveProject(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	resetProjectScopeGlobals(t)
+	prev := topExportAllProjects
+	t.Cleanup(func() { topExportAllProjects = prev })
+
+	topExportAllProjects = false
+	got, err := exportProjectFilter()
+	require.NoError(t, err)
+	assert.Equal(t, database.DefaultProjectUUID, got, "no flag must not mean every project")
+
+	topExportAllProjects = true
+	got, err = exportProjectFilter()
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	globalProjectUUID = database.DefaultProjectUUID
+	_, err = exportProjectFilter()
+	var usage clicommon.UsageError
+	require.ErrorAs(t, err, &usage)
+
+	// A standalone source is read whole unless a project is named.
+	resetProjectScopeGlobals(t)
+	topExportAllProjects = false
+	globalStateless = true
+	got, err = exportProjectFilter()
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }

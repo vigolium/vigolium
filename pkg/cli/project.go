@@ -275,14 +275,16 @@ var projectListCmd = &cobra.Command{
 }
 
 var projectUseCmd = &cobra.Command{
-	Use:   "use <uuid>",
+	Use:   "use <project>",
 	Short: "Set the active project (the global ~/.vigolium/active-project file)",
-	Long: "Make <uuid> the active project: it is written to ~/.vigolium/active-project, which every later command " +
+	Long: "Make <project> (a UUID, an exact name, or a unique 8+ char UUID prefix) the active project: it is written to ~/.vigolium/active-project, which every later command " +
 		"without --project-uuid / $VIGOLIUM_PROJECT_UUID resolves to. That file is global to the user, so a " +
 		"parallel shell or agent should pin --project-uuid or $VIGOLIUM_PROJECT_UUID instead.\n\n" +
 		"When stdout is not a terminal it also prints `export VIGOLIUM_PROJECT_UUID=<uuid>`, so\n" +
 		"  eval \"$(vigolium project use <uuid>)\"\n" +
 		"pins the current shell. With -j it prints the result document instead (no export line).\n\n" +
+		"--print-env pins one shell only: it prints the export line and writes no file, so other shells keep their project:\n" +
+		"  eval \"$(vigolium project use <project> --print-env)\"\n\n" +
 		"An unknown UUID is an error (not_found) unless --create is given, which creates the project with that " +
 		"UUID (--name and --description customize it).",
 	Args: cobra.ExactArgs(1),
@@ -292,18 +294,24 @@ var projectUseCmd = &cobra.Command{
 func runProjectUse(cmd *cobra.Command, args []string) error {
 	// Every activation, not just an auto-create: switching the active project
 	// re-scopes every unpinned command, which is the management action the
-	// read-only switch exists to forbid.
-	if err := checkProjectReadonly(); err != nil {
-		return err
+	// read-only switch exists to forbid. --print-env switches nothing.
+	if printEnv, _ := cmd.Flags().GetBool("print-env"); !printEnv {
+		if err := checkProjectReadonly(); err != nil {
+			return err
+		}
 	}
 	defer syncLogger()
 	defer closeDatabaseOnExit()
 
 	projectUUID := strings.TrimSpace(args[0])
 	create, _ := cmd.Flags().GetBool("create")
+	printEnv, _ := cmd.Flags().GetBool("print-env")
 	if create {
 		if _, parseErr := uuid.Parse(projectUUID); parseErr != nil {
 			return usageErrorf("--create needs a valid UUID, got %q: %w", projectUUID, parseErr)
+		}
+		if printEnv {
+			return usageErrorf("--print-env pins a shell to an existing project; create it first with `vigolium project create <name>`")
 		}
 	}
 
@@ -314,18 +322,23 @@ func runProjectUse(cmd *cobra.Command, args []string) error {
 	}
 
 	created := false
-	project, err := repo.GetProjectByUUID(ctx, projectUUID)
+	// A UUID, an exact name or a unique UUID prefix, like every other project
+	// reference.
+	project, err := repo.ResolveProjectRef(ctx, projectUUID)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, database.ErrProjectRefAmbiguous) {
+			return usageErrorf("%v", err)
+		}
+		if !errors.Is(err, database.ErrProjectNotFound) && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("failed to look up project: %w", err)
 		}
 		if !create {
 			// Never auto-created: a typo'd UUID used to mint a fresh, empty
 			// project and point every later command at it, which an agent cannot
 			// tell apart from a project with no findings yet.
-			return codedErrorf(apicontract.CodeNotFound,
-				"project %s not found; create it with `vigolium project create <name> --project-uuid %s`, or pass --create",
-				projectUUID, projectUUID)
+			return codedErrorf(apicontract.CodeProjectNotFound,
+				"project %q not found; create it with `vigolium project create <name>` (list them with `vigolium project list`)",
+				projectUUID)
 		}
 		project, err = autoCreateProject(ctx, repo, cmd, projectUUID)
 		if err != nil {
@@ -334,6 +347,10 @@ func runProjectUse(cmd *cobra.Command, args []string) error {
 		created = true
 		fmt.Fprintf(os.Stderr, "%s Created project %s (%s)\n",
 			terminal.SuccessSymbol(), terminal.BoldGreen(project.Name), project.UUID)
+	}
+
+	if printEnv {
+		return printProjectEnv(cmd, project)
 	}
 
 	previous, _ := config.ReadActiveProject()
@@ -624,6 +641,7 @@ func init() {
 	projectUseCmd.Flags().Bool("create", false, "Create the project with this UUID when it does not exist (otherwise an unknown UUID is a not_found error)")
 	projectUseCmd.Flags().String("name", "", "Name for a project created by --create (default: \"Project <short-uuid>\")")
 	projectUseCmd.Flags().String("description", "", "Description for a project created by --create")
+	projectUseCmd.Flags().Bool("print-env", false, "Print the export VIGOLIUM_PROJECT_UUID=<uuid> line for eval and write no file: pins this shell only")
 	projectDeleteCmd.Flags().Bool("keep-config", false, "Keep the project's config directory (~/.vigolium/projects/<uuid>) on disk")
 	tui.AddFlags(projectListCmd, &projectLsTUI, &projectLsNoTUI)
 	projectCmd.AddCommand(projectCreateCmd)
@@ -643,4 +661,27 @@ type projectListView struct {
 	Active        bool   `json:"active"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
+}
+
+// printProjectEnv is `project use --print-env`: the export line for eval, and
+// nothing written. Under -j the document says so (activated_scope "shell").
+func printProjectEnv(cmd *cobra.Command, project *database.Project) error {
+	if globalJSON {
+		return emitMutation(cmd, "", mutationResult{
+			Changed: false,
+			Action:  "noop",
+			Items:   []projectMutationView{newProjectMutationView(project)},
+			Extra: map[string]any{
+				"created":         false,
+				"activated_scope": "shell",
+				"env":             map[string]string{"VIGOLIUM_PROJECT_UUID": project.UUID},
+			},
+			Query: []string{"--project-uuid", project.UUID, "finding", "--json"},
+		}, withProjectUUID(project.UUID))
+	}
+	fmt.Printf("export VIGOLIUM_PROJECT_UUID=%s\n", project.UUID)
+	fmt.Fprintf(os.Stderr, "%s Project %s (%s) for this shell only; %s is unchanged.\n",
+		terminal.SuccessSymbol(), terminal.BoldGreen(project.Name), project.UUID,
+		config.ContractPath(config.ActiveProjectFilePath()))
+	return nil
 }

@@ -11,7 +11,7 @@ import (
 
 // TimeFilterSyntax is the one-line grammar summary shared by every --from/--to
 // help string, so the accepted forms read identically on each command.
-const TimeFilterSyntax = `2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339`
+const TimeFilterSyntax = `2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC`
 
 // TimeFilterUpperBoundNote states the end-of-day contract that upper bounds
 // apply. Declared once so every --to/--until help string describes it the same

@@ -69,6 +69,11 @@ type AgentCheck struct {
 	Message      string   `json:"message,omitempty"`
 	Details      []string `json:"details,omitempty"`
 	Tip          string   `json:"tip,omitempty"`
+	// Unverified marks a provider reached over an endpoint whose
+	// configuration is complete but which was not contacted: plain doctor
+	// does not probe it, `doctor --for agent` does. Endpoint names it.
+	Unverified bool   `json:"unverified,omitempty"`
+	Endpoint   string `json:"endpoint,omitempty"`
 }
 
 // ToolCheck holds the outcome of a third-party tool check.
@@ -718,13 +723,22 @@ func checkAgent(settings *config.Settings) *AgentCheck {
 		}
 	}
 
-	return &AgentCheck{
+	out := &AgentCheck{
 		Status:   StatusOK,
 		Name:     "olium",
 		Protocol: provider,
 		Binary:   binary,
 		Details:  details,
 	}
+	// A provider behind an endpoint (Ollama, LM Studio, a gateway) is only
+	// configured here, not reached: say so rather than report it ready.
+	if provider == "openai-compatible" || provider == "anthropic-compatible" {
+		out.Unverified = true
+		out.Endpoint = cfg.CustomProvider.BaseURL
+		out.Message = fmt.Sprintf("%s endpoint %s not contacted", provider, cfg.CustomProvider.BaseURL)
+		out.Tip = "Run `vigolium doctor --for agent` to probe the endpoint."
+	}
+	return out
 }
 
 func checkBrowser(settings *config.Settings) *CheckResult {

@@ -72,6 +72,7 @@ var machineKinds = map[string]machineKind{
 
 	// Config.
 	"config clean":    kindMutation,
+	"config env":      kindRead,
 	"config ls":       kindRead,
 	"config set":      kindMutation,
 	"config validate": kindRead,

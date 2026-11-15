@@ -54,6 +54,13 @@ type FixResult struct {
 	// Skipped marks an install that was not attempted because it pipes a
 	// vendor installer into a shell and consent was not given.
 	Skipped bool `json:"skipped,omitempty"`
+	// Planned marks a --dry-run row: the install that would run, how, where
+	// to and roughly how large.
+	Planned     bool   `json:"planned,omitempty"`
+	Method      string `json:"method,omitempty"`
+	Source      string `json:"source,omitempty"`
+	Destination string `json:"destination,omitempty"`
+	Size        string `json:"size,omitempty"`
 }
 
 // fixableItem defines a fixable doctor check.
@@ -74,6 +81,11 @@ type fixableItem struct {
 	// Refreshable items re-install when named in --only even if their check
 	// passes (`doctor --fix --only nuclei` refreshes the templates).
 	Refreshable bool
+	// Method, Destination and Size describe the install for --dry-run. Size
+	// is an approximate constant, or "unknown".
+	Method      string
+	Destination func(settings *config.Settings) string
+	Size        string
 }
 
 // FixOptions governs consent for VendorScript installs.
@@ -83,6 +95,8 @@ type FixOptions struct {
 	// Confirm, when set, is asked per vendor install not named in --only
 	// (an interactive prompt); nil means no consent.
 	Confirm func(label, source string) bool
+	// DryRun lists the installs that would run (Planned rows) and runs none.
+	DryRun bool
 }
 
 // aliases maps short names to canonical fix keys.
@@ -141,7 +155,10 @@ func fixRegistry() []fixableItem {
 			IsFailing: func(r *Report) bool {
 				return r.NucleiTemplates != nil && r.NucleiTemplates.Status != StatusOK
 			},
-			Fix: fixNucleiTemplates,
+			Fix:         fixNucleiTemplates,
+			Method:      "download",
+			Destination: func(s *config.Settings) string { return config.ContractPath(nucleiTemplatesDir(s)) },
+			Size:        "~100 MB",
 		},
 		{
 			Key:     "chromium",
@@ -149,6 +166,11 @@ func fixRegistry() []fixableItem {
 			Source:  "Chrome for Testing (downloads via cftbrowser to local cache)",
 			ToolKey: "chromium",
 			Fix:     fixChromium,
+			Method:  "download",
+			Destination: func(*config.Settings) string {
+				return "~/.cache/vigolium/"
+			},
+			Size: "~150 MB",
 		},
 		{
 			VendorScript: true,
@@ -157,6 +179,9 @@ func fixRegistry() []fixableItem {
 			Source:       "curl -fsSL https://bun.sh/install | bash",
 			ToolKey:      "bun",
 			Fix:          fixBun,
+			Method:       "vendor installer script",
+			Destination:  func(*config.Settings) string { return "~/.bun/" },
+			Size:         "~100 MB",
 		},
 		{
 			// Only an audit_external build has anything to fix here: it
@@ -169,7 +194,9 @@ func fixRegistry() []fixableItem {
 				c := r.EmbeddedBinaries["vigolium-audit"]
 				return bin.External() && c != nil && c.Status != StatusOK
 			},
-			Fix: fixAuditHelper,
+			Fix:    fixAuditHelper,
+			Method: "download",
+			Size:   "unknown",
 		},
 		{
 			VendorScript: true,
@@ -178,6 +205,8 @@ func fixRegistry() []fixableItem {
 			Source:       "curl -fsSL https://claude.ai/install.sh | bash",
 			ToolKey:      "claude",
 			Fix:          fixClaude,
+			Method:       "vendor installer script",
+			Size:         "unknown",
 		},
 		{
 			VendorScript: true,
@@ -186,6 +215,8 @@ func fixRegistry() []fixableItem {
 			Source:       "bun install --global agent-browser  (or npm install -g agent-browser)",
 			ToolKey:      "agent-browser",
 			Fix:          fixAgentBrowser,
+			Method:       "global package install (bun or npm)",
+			Size:         "unknown",
 		},
 		{
 			VendorScript: true,
@@ -194,6 +225,8 @@ func fixRegistry() []fixableItem {
 			Source:       "bun add -g @earendil-works/pi-coding-agent  (or npm install -g …)",
 			ToolKey:      "pi",
 			Fix:          fixPi,
+			Method:       "global package install (bun or npm)",
+			Size:         "unknown",
 		},
 		{
 			VendorScript: true,
@@ -206,7 +239,9 @@ func fixRegistry() []fixableItem {
 			// No DependsOn — fixPiolium self-resolves pi (and the JS
 			// package manager) so it works standalone under
 			// `--fix --only piolium` even on a bare host.
-			Fix: fixPiolium,
+			Fix:    fixPiolium,
+			Method: "pi extension install",
+			Size:   "unknown",
 		},
 	}
 }
@@ -328,6 +363,22 @@ func RunFixesWith(ctx context.Context, report *Report, settings *config.Settings
 		}
 		refresh := item.Refreshable && onlySet[item.Key]
 		if isFailing != nil && !isFailing(report) && !refresh {
+			continue
+		}
+
+		if opts.DryRun {
+			plan := FixResult{Key: item.Key, Label: item.Label, Planned: true, Method: item.Method,
+				Source: item.Source, Size: item.Size, Message: "would install"}
+			if plan.Size == "" {
+				plan.Size = "unknown"
+			}
+			if item.Destination != nil {
+				plan.Destination = item.Destination(settings)
+			}
+			if item.VendorScript && !onlySet[item.Key] && !opts.AssumeYes {
+				plan.Message = fmt.Sprintf("would ask before running `%s` (name it with --only %s or pass --yes)", item.Source, item.Key)
+			}
+			results = append(results, plan)
 			continue
 		}
 

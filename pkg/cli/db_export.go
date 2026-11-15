@@ -27,8 +27,12 @@ import (
 var dbExportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "Export database records",
-	Long:  "Export findings or raw HTTP traffic from the database in JSONL, JSON, CSV, or raw text format. Supports filters by host, status, scan ID, severity, and time range.",
-	RunE:  runDBExport,
+	Long: `Export stored HTTP traffic, and the findings linked to it, with filters by host, method, status, path, scan, severity, time range and record UUID.
+
+--format jsonl (the default) writes the same {"type": ..., "data": ...} lines as ` + "`vigolium export --format jsonl`" + `: one http_record line per selected record, then one finding line per confirmed finding linked to those records (--severity narrows the findings). ` + "`vigolium import`" + `, ` + "`finding load`" + ` and ` + "`-S --db`" + ` read it back. --limit and --offset count records, not lines. --table http_records keeps only the record lines, --table findings only the finding lines.
+
+--format nuclei keeps the previous jsonl output: one nuclei-style ResultEvent (template-id, matched-at, info{}) per linked finding.`,
+	RunE: runDBExport,
 }
 
 var (
@@ -55,7 +59,7 @@ func init() {
 	dbExportCmd.Flags().StringVarP(&exportFormat, "format", "f", "jsonl", "Export format: "+output.FormatsHelp(output.SurfaceDBExport))
 	dbExportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file path, defaults to stdout")
 
-	dbExportCmd.Flags().StringVar(&exportHost, "host", "", "Filter records by hostname pattern")
+	dbExportCmd.Flags().StringVar(&exportHost, "host", "", "Filter records by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards")
 	dbExportCmd.Flags().StringSliceVar(&exportMethods, "method", nil, "Filter records by HTTP method (can be specified multiple times)")
 	dbExportCmd.Flags().IntSliceVar(&exportStatus, "status", nil, "Filter records by HTTP status code (can be specified multiple times)")
 	dbExportCmd.Flags().StringVar(&exportPath, "path", "", "Filter records by URL path pattern")
@@ -92,6 +96,9 @@ func validateDBExportFlags() (dateFrom, dateTo *time.Time, err error) {
 			strings.TrimSpace(exportFormat), strings.Join(output.Names(output.SurfaceDBExport), ", "))
 	}
 	exportFormat = f.Name
+	if err := validateDBExportTable(); err != nil {
+		return nil, nil, err
+	}
 	if exportFormat == "bundle" && exportOutput == "" {
 		return nil, nil, usageErrorf("--format bundle requires -o/--output to specify the archive path")
 	}
@@ -286,6 +293,8 @@ func writeDBExportCounted(ctx context.Context, db *database.DB, dateFrom, dateTo
 
 	switch exportFormat {
 	case "jsonl":
+		err = exportDBEnvelopes(ctx, db, filters, records, out)
+	case "nuclei":
 		err = exportJSONL(ctx, db, records, out)
 	case "json":
 		err = exportJSON(records, out)
@@ -324,6 +333,90 @@ func runDBExportFS(db *database.DB, dateFrom, dateTo *time.Time) (fsExportStats,
 	return stats, nil
 }
 
+// dbExportScope is the record-type scope --table selects for the jsonl
+// format: both types by default, one of them when --table names it.
+func dbExportScope() exportScope {
+	if t, ok := lookupExportType(globalTable); ok {
+		return exportScope{only: []string{t.Name}}
+	}
+	return exportScope{only: []string{"http", "findings"}}
+}
+
+// validateDBExportTable maps the db group's --table onto the record types db
+// export writes. Only http_records and findings are tables it reads; the
+// other formats write records alone, so --table findings fits jsonl only.
+func validateDBExportTable() error {
+	table := strings.TrimSpace(globalTable)
+	if table == "" {
+		return nil
+	}
+	t, ok := lookupExportType(table)
+	if !ok || (t.Name != "http" && t.Name != "findings") {
+		return usageErrorf("db export --table %q: db export reads http_records and the findings linked to them; use `vigolium export --only %s` for other tables",
+			table, strings.Join(exportTypeNames(), ","))
+	}
+	if t.Name == "findings" && exportFormat != "jsonl" {
+		return usageErrorf("db export --table findings needs --format jsonl; --format %s writes records only", exportFormat)
+	}
+	return nil
+}
+
+// exportDBEnvelopes writes db export's jsonl: the selected records as
+// http_record envelopes, then the confirmed findings linked to them as finding
+// envelopes (each once, --severity applied), in the dialect `vigolium export`
+// writes and `vigolium import` reads.
+func exportDBEnvelopes(ctx context.Context, db *database.DB, filters database.QueryFilters, records []*database.HTTPRecord, out io.Writer) error {
+	scope := dbExportScope()
+	enc := json.NewEncoder(out)
+	enc.SetEscapeHTML(false)
+	if scope.includes("http") {
+		for _, rec := range records {
+			if err := enc.Encode(exportEnvelope{Type: "http_record", Data: rec}); err != nil {
+				return fmt.Errorf("failed to write output: %w", err)
+			}
+		}
+	}
+	if !scope.includes("findings") || len(records) == 0 {
+		return nil
+	}
+	uuids := make([]string, 0, len(records))
+	for _, rec := range records {
+		uuids = append(uuids, rec.UUID)
+	}
+	seen := make(map[int64]struct{})
+	// Chunked so a large page stays under the driver's bound-parameter limit.
+	for start := 0; start < len(uuids); start += 500 {
+		chunk := uuids[start:min(start+500, len(uuids))]
+		var findings []*database.Finding
+		q := scopeProjectBun(db.NewSelect().Model(&findings), filters.ProjectUUID).
+			Where("f.id IN (SELECT finding_id FROM finding_records WHERE record_uuid IN (?))", bun.List(chunk)).
+			Where("(f.record_kind IS NULL OR f.record_kind = '' OR f.record_kind = ?)", database.RecordKindFinding).
+			OrderExpr("f.found_at DESC")
+		if len(filters.Severity) > 0 {
+			sevs := make([]string, 0, len(filters.Severity))
+			for _, s := range filters.Severity {
+				sevs = append(sevs, strings.ToLower(strings.TrimSpace(s)))
+			}
+			q = q.Where("LOWER(f.severity) IN (?)", bun.List(sevs))
+		}
+		if err := q.Scan(ctx); err != nil {
+			return fmt.Errorf("export linked findings: %w", err)
+		}
+		for _, f := range findings {
+			if _, dup := seen[f.ID]; dup {
+				continue
+			}
+			seen[f.ID] = struct{}{}
+			if err := enc.Encode(exportEnvelope{Type: "finding", Data: f}); err != nil {
+				return fmt.Errorf("failed to write output: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// exportJSONL writes the nuclei-style dialect (--format nuclei): one
+// ResultEvent per finding linked to each record.
 func exportJSONL(ctx context.Context, db *database.DB, records []*database.HTTPRecord, out io.Writer) error {
 	for _, rec := range records {
 		// Fetch findings for this record
@@ -659,7 +752,7 @@ func writeDBBundleMembers(ctx context.Context, db *database.DB, projectUUID stri
 
 	// --- HTML report ---
 	if len(envelopes) > 0 {
-		autoTarget, autoDuration := computeReportMeta(ctx, db)
+		autoTarget, autoDuration := computeReportMeta(ctx, db, projectUUID)
 		meta := output.HTMLReportMeta{
 			Title:           "Vigolium Export Report",
 			Version:         getVersion(),

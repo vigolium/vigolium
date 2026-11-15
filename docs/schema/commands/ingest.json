@@ -364,6 +364,9 @@
     "records_skipped": {
       "type": "integer"
     },
+    "records_written": {
+      "type": "integer"
+    },
     "records_submitted": {
       "type": "integer"
     },

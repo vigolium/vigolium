@@ -34,6 +34,7 @@ run `vigolium <command> -h`.
 - [vigolium auth totp](#vigolium-auth-totp)
 - [vigolium config](#vigolium-config)
 - [vigolium config clean](#vigolium-config-clean)
+- [vigolium config env](#vigolium-config-env)
 - [vigolium config ls](#vigolium-config-ls)
 - [vigolium config set](#vigolium-config-set)
 - [vigolium config validate](#vigolium-config-validate)
@@ -608,6 +609,17 @@ Reset Vigolium to a clean state
 
 _No command-specific flags._
 
+## vigolium config env
+
+Usage: `vigolium config env [filter]`
+
+List the VIGOLIUM_* environment variables the binary reads
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--set` | - | bool | `false` | List only the variables set in this environment |
+| `--show-secrets` | - | bool | `false` | Reveal sensitive values in plaintext instead of [redacted] |
+
 ## vigolium config ls
 
 Usage: `vigolium config ls [filter]`
@@ -618,6 +630,7 @@ Display current configuration
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--effective` | - | bool | `false` | List only the keys a layer set (file, env:NAME, project, flag), each with its source |
 | `--show-secrets` | - | bool | `false` | Reveal sensitive values (API keys, tokens, credentials) in plaintext instead of [redacted]; prints a warning to stderr |
 
 ## vigolium config set
@@ -655,10 +668,10 @@ Clean database records
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--all` | - | bool | `false` | Delete every row from all data tables (requires --force unless --dry-run) |
-| `--before` | - | string | - | Delete records created strictly before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (the named day itself is kept) |
+| `--before` | - | string | - | Delete records created strictly before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (the named day itself is kept) |
 | `--dry-run` | - | bool | `false` | Show what would be deleted without deleting |
 | `--findings-only` | - | bool | `false` | Delete findings only, keep HTTP records |
-| `--host` | - | string | - | Delete records matching the specified hostname |
+| `--host` | - | string | - | Delete records on this host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--orphans` | - | bool | `false` | Delete findings with no matching HTTP record |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Delete records belonging to the specified scan UUID |
 | `--severity` | - | string | - | Delete findings matching the specified severity level (findings only; HTTP records are kept) |
@@ -677,7 +690,7 @@ Shrink stored bodies over a size limit to their head, keeping every record
 | `--keep-head` | - | string | `4k` | Bytes of each compacted body to keep (must be smaller than --body-over) |
 | `--max-db-size` | - | string | - | Size budget: compact the oldest records first until the database is at most this size after VACUUM |
 | `--no-vacuum` | - | bool | `false` | Skip the VACUUM that returns freed pages to the filesystem |
-| `--older-than` | - | string | - | Compact only records sent strictly before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 |
+| `--older-than` | - | string | - | Compact only records sent strictly before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC |
 | `--only-content-type` | - | stringSlice | - | Compact only records whose response media type matches one of these globs (OR'ed with --only-path) |
 | `--only-path` | - | stringSlice | - | Compact only records whose URL path matches one of these globs (OR'ed with --only-content-type) |
 | `--skip-content-type` | - | stringSlice | - | Never compact a record whose response media type matches one of these globs (e.g. '*javascript*') |
@@ -689,9 +702,9 @@ Export database records
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--format` | `-f` | string | `jsonl` | **(overrides the global `--format`)** Export format: jsonl, json, raw, markdown (alias: md), markdown-table (alias: md-table), csv, bundle (alias: gz), fs (alias: file-system; flat traffic/finding tree) |
-| `--from` | - | string | - | Export records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (alias: --since) |
-| `--host` | - | string | - | Filter records by hostname pattern |
+| `--format` | `-f` | string | `jsonl` | **(overrides the global `--format`)** Export format: jsonl, json, raw, nuclei (one ResultEvent per linked finding), markdown (alias: md), markdown-table (alias: md-table), csv, bundle (alias: gz), fs (alias: file-system; flat traffic/finding tree) |
+| `--from` | - | string | - | Export records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
+| `--host` | - | string | - | Filter records by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--limit` | - | int | `0` | Maximum number of records to export, 0 for unlimited |
 | `--method` | - | stringSlice | - | Filter records by HTTP method (can be specified multiple times) |
 | `--offset` | - | int | `0` | Number of records to skip before exporting |
@@ -702,7 +715,7 @@ Export database records
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Filter records by scan UUID |
 | `--severity` | - | string | - | Filter findings by severity level |
 | `--status` | - | intSlice | - | Filter records by HTTP status code (can be specified multiple times) |
-| `--to` | - | string | - | Export records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a bare date covers the whole day (alias: --until) |
+| `--to` | - | string | - | Export records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--uuid` | - | string | - | Export exactly one record by its UUID (or unique 8+ char prefix). Honored by every --format (including fs) and resolved before pagination, so a record outside the --limit window is still found |
 
 ## vigolium db list
@@ -721,10 +734,10 @@ List database records (default: http_records)
 | `--compact` | - | bool | `false` | With --json, emit metadata only (omit request/response bodies). --markdown already compacts response bodies by default; use --full-body to render them whole |
 | `--fields` | - | stringSlice | - | Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url). An unknown name is an error, not a silent drop |
 | `--finding-source` | - | string | - | Filter findings by source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
-| `--from` | - | string | - | Show records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (alias: --since) |
+| `--from` | - | string | - | Show records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--full-body` | - | bool | `false` | Render complete request/response bodies (no truncation/stubbing) with --json, and whole (uncompacted) bodies with --markdown |
 | `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange |
-| `--host` | - | string | - | Filter records by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter records by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--limit` | `-n` | int | `100` | Maximum number of records to display |
 | `--list-columns` | - | bool | `false` | List column names for the current table |
 | `--list-tables` | - | bool | `false` | List all database table names |
@@ -733,6 +746,7 @@ List database records (default: http_records)
 | `--min-risk` | - | int | `0` | Show only records with risk score at or above this value |
 | `--min-surface` | - | int | `0` | Show only records with attack-surface score at or above this value (0-100, percent of the attack-surface signals present) |
 | `--module-type` | - | string | - | Filter findings by module type (active, passive, nuclei, agent, source-tools, oast, extension) |
+| `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--offset` | - | int | `0` | Number of records to skip before displaying |
 | `--output` | `-o` | string | - | With --json: write the result document to this file and print a receipt instead; '-' forces stdout |
 | `--path` | - | string | - | Filter records by URL path pattern |
@@ -743,7 +757,7 @@ List database records (default: http_records)
 | `--severity` | - | string | - | Filter findings by severity: critical,high,medium,low,suspect,info (comma-separated; single-letter shorthands ok, e.g. 'h,c') |
 | `--sort` | - | string | `created_at` | Sort results by field: uuid, created_at, sent_at, method, status_code, response_time, risk_score, surface_score |
 | `--status` | - | intSlice | - | Filter records by HTTP status code (can be specified multiple times) |
-| `--to` | - | string | - | Show records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a bare date covers the whole day (alias: --until) |
+| `--to` | - | string | - | Show records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--tree` | - | bool | `false` | Display results in hierarchical tree format |
 | `--url` | - | stringArray | - | Select records whose URL matches EXACTLY (repeatable; OR-ed). Compared against the stored URL with no normalization — use --path or --search for substring matching |
 | `--uuid` | - | stringSlice | - | Select exact stored record(s) by UUID or unique 8+ char prefix (repeatable/comma-separated). Applied before pagination |
@@ -758,7 +772,9 @@ _No command-specific flags._
 
 Delete and recreate the database from scratch (SQLite only)
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | List the database files that would be deleted and recreated, without touching them (needs no --force) |
 
 ## vigolium db seed
 
@@ -773,8 +789,11 @@ Show database statistics
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--detailed` | - | bool | `false` | Show per-host and per-module breakdown |
-| `--host` | - | string | - | Show statistics for a specific hostname |
+| `--from` | - | string | - | Only records sent, findings found and scans started at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
+| `--host` | - | string | - | Show statistics for one host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
+| `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Show statistics for a specific scan UUID |
+| `--to` | - | string | - | Only records sent, findings found and scans started at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 
 ## vigolium dig
 
@@ -813,9 +832,10 @@ Check system readiness and diagnose configuration issues
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--dry-run` | - | bool | `false` | With --fix: list each install (method, destination, approximate size) without running it |
 | `--fix` | - | bool | `false` | Auto-install/fix failing checks |
 | `--for` | - | string | - | Scope the verdict to one purpose: scan\|agent\|server (checks that do not affect it are reported but not counted) |
-| `--only` | - | stringSlice | - | Fix only specific items (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill) |
+| `--only` | - | stringSlice | - | Show (and with --fix, repair) only these checks: a check id or fix key (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill,oast,agent,proxy,…) |
 | `--stateless` | `-S` | bool | `false` | With --for scan: the scan will use a temporary database, so the database check is skipped |
 | `--strict` | - | bool | `false` | Exit 1 when the verdict is degraded, not only when it is not_ready |
 | `--target` | `-t` | string | - | With --for scan: also check DNS, TCP and TLS reachability of this URL |
@@ -834,10 +854,10 @@ List endpoints (origin + path template) aggregated from stored traffic
 | `--collapse` | - | int | `0` | Merge N or more sibling literal segments sharing the same child templates into {var} (0 = off; >= 2) |
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
-| `--from` | - | string | - | Only records sent at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (alias: --since) |
+| `--from` | - | string | - | Only records sent at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
-| `--host` | - | string | - | Filter by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--limit` | `-n` | int | `100` | Maximum endpoints to list (0 = all); the aggregate always covers every matched record |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--method` | - | stringSlice | - | Filter by HTTP method (repeatable) |
@@ -852,7 +872,7 @@ List endpoints (origin + path template) aggregated from stored traffic
 | `--source` | - | string | - | Filter by record source (e.g. scanner, deparos, jstangle, html-form, api-spec, ingest-cli, ingest-proxy) |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--status` | - | intSlice | - | Filter by HTTP status code (repeatable) |
-| `--to` | - | string | - | Only records sent at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a bare date covers the whole day (alias: --until) |
+| `--to` | - | string | - | Only records sent at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 
 ## vigolium export
 
@@ -860,8 +880,10 @@ Export database tables and module registry
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
+| `--all-projects` | - | bool | `false` | Export every project in the store; by default the export covers the active project (--project-uuid, --project-name, $VIGOLIUM_PROJECT_UUID, the project use file, else the default project) |
 | `--exclude` | - | stringSlice | - | Exclude these tables (comma-separated, same names as --only, e.g. scans,oast). The module registry is left out unless --only names modules |
 | `--format` | - | string | `jsonl` | **(overrides the global `--format`)** Export format(s), comma-separated: jsonl, html, report, pdf (headless Chrome), markdown (alias: md), sarif (SARIF 2.1.0), csv, junit (failures at/above --fail-on), github (workflow commands; stdout without -o), bundle (alias: gz), fs (alias: file-system; flat traffic/finding tree) |
+| `--from` | - | string | - | Only rows recorded (records by sent_at, findings by found_at, scans by created_at, OAST by interacted_at) at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--glob-db` | - | string | - | Export across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
 | `--limit` | - | int | `0` | Maximum number of records to export per table (0 = unlimited) |
@@ -881,6 +903,7 @@ Export database tables and module registry
 | `--search` | - | string | - | Fuzzy search filter across URLs, paths, hostnames, methods, content types, and sources |
 | `--severity` | - | string | - | Filter findings by severity (comma-separated: critical,high,medium,low,info) |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a standalone .sqlite or .jsonl export) instead of your project DB; never writes to it |
+| `--to` | - | string | - | Only rows recorded (records by sent_at, findings by found_at, scans by created_at, OAST by interacted_at) at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 
 ## vigolium extensions
 
@@ -1035,12 +1058,12 @@ Browse vulnerability findings with fuzzy search and filtering
 | `--exclude-search` | - | stringArray | - | Exclude findings where the term appears in the module metadata, matched location, or linked request/response (repeatable; dropped if ANY term matches — the inverse of --search) |
 | `--fields` | - | stringSlice | - | Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url). An unknown name is an error, not a silent drop |
 | `--finding-source` | - | string | - | Filter by finding source (dynamic-assessment, spa, agent, oast, source-tools, extension) |
-| `--from` | - | string | - | Show findings at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (alias: --since) |
+| `--from` | - | string | - | Show findings at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--full-body` | - | bool | `false` | Render complete request/response bodies (no truncation/stubbing) with --json, and whole (uncompacted) bodies with --markdown |
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
 | `--header` | - | string | - | Search only the HTTP header block of the linked request/response (not bodies); use --search to span the whole exchange |
-| `--host` | - | string | - | Filter by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--http-mode` | - | string | - | With --send-via-burp: wire protocol — auto\|http1\|http2\|http2_ignore_alpn (default auto) |
 | `--id` | - | string | - | Filter by finding ID (the integer from the ID column, e.g. --id 42) |
 | `--include-dismissed` | - | bool | `false` | With --new-since: keep findings marked false_positive or accepted_risk |
@@ -1050,7 +1073,7 @@ Browse vulnerability findings with fuzzy search and filtering
 | `--method` | - | stringSlice | - | Filter by HTTP method (repeatable) |
 | `--min-severity` | - | string | - | Filter by minimum severity (e.g. high → high+critical); ignored when --severity is set |
 | `--module-type` | - | string | - | Filter by module type (active, passive, nuclei, agent, source-tools, oast, extension) |
-| `--new-since` | - | string | - | Only findings new since a scan (UUID, 8+ char prefix, latest, previous: first observed by a later scan and not by it) or a time (2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339: stored after it). Leaves out false_positive/accepted_risk unless --include-dismissed or --verdict |
+| `--new-since` | - | string | - | Only findings new since a scan (UUID, 8+ char prefix, latest, previous: first observed by a later scan and not by it) or a time (2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC: stored after it). Leaves out false_positive/accepted_risk unless --include-dismissed or --verdict |
 | `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
 | `--offset` | - | int | `0` | Number of findings to skip (for pagination) |
@@ -1071,7 +1094,7 @@ Browse vulnerability findings with fuzzy search and filtering
 | `--source` | - | string | - | Filter by record source (e.g. scanner, ingest-cli) |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--status` | - | intSlice | - | Filter by HTTP status code (repeatable) |
-| `--to` | - | string | - | Show findings at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a bare date covers the whole day (alias: --until) |
+| `--to` | - | string | - | Show findings at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--to-repeater` | - | bool | `false` | Also stage the selected finding(s) in a Burp Repeater tab (respects Burp's 30-tabs/min cap). Composes with --push-to-burp, like 'vigolium replay'. |
 | `--tree` | - | bool | `false` | Display as a host/path hierarchy tree; repeated titles collapse into one node with each affected URL listed below |
 | `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
@@ -1360,6 +1383,7 @@ Read stored host facts: DNS, TLS certificate, fingerprint and not-found baseline
 |------|-------|------|---------|-------------|
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
+| `--from` | - | string | - | Only observations made at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--has` | - | string | - | Only hosts carrying this fact: dns, favicon, fingerprint, not-found, tls |
 | `--history` | - | bool | `false` | Every observation, not just the latest per host:port |
 | `--host` | - | string | - | Only this hostname, or a pattern with * wildcards (same as the positional) |
@@ -1371,6 +1395,7 @@ Read stored host facts: DNS, TLS certificate, fingerprint and not-found baseline
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Only observations recorded by this run |
 | `--soft-404` | - | bool | `false` | Only origins that answer 2xx/3xx to a path that does not exist |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a standalone .sqlite) with project scoping off; never writes to your project DB |
+| `--to` | - | string | - | Only observations made at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 
 ## vigolium import
 
@@ -1385,7 +1410,9 @@ Import scan data, databases, or live Burp Proxy history
 | `--exclude-search` | - | stringArray | - | Skip records matching this term (repeatable) |
 | `--from` | - | string | - | Import only records from this time onward (2d, 12h, today, YYYY-MM-DD, RFC3339) |
 | `--glob-db` | - | string | - | Glob of local files to import alongside any positional paths (use one format per run), e.g. --glob-db 'prefix-*.sqlite' or '*.jsonl' |
+| `--glob-strict` | - | bool | `false` | Stop at the first source that fails to import; by default a bad source is reported and the rest still import (exit 1 when any failed) |
 | `--host` | - | string | - | Import only records for this host (supports * wildcards, e.g. '*.example.com') |
+| `--include-scopes` | - | bool | `false` | Store the scope rules of a JSONL source in the active project (they change what later scans may reach); skipped by default |
 | `--limit` | `-n` | int | `0` | Import at most N records (0 = no limit) |
 | `--max-body-bytes` | - | int | `4096` | Cap each HTTP request/response embedded in a Markdown report at this many bytes (UTF-8 safe, with a note naming the command that prints it whole); 0 or negative = no cap |
 | `--method` | - | stringSlice | - | Import only these HTTP methods (comma-separated) |
@@ -1445,7 +1472,9 @@ Ingest HTTP requests into database (locally or via server)
 
 Initialize Vigolium with default configuration and preset data
 
-_No command-specific flags._
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--with-deps` | - | bool | `false` | Download chromium (~150 MB) and nuclei-templates (~100 MB) even without a terminal (the default only when interactive) |
 
 ## vigolium js
 
@@ -1629,10 +1658,13 @@ List native scan and agentic scan sessions
 |------|-------|------|---------|-------------|
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
+| `--from` | - | string | - | Only sessions started at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--no-tui` | - | bool | `false` | Force TUI off (escape hatch if TUI ever becomes default) |
 | `--offset` | - | int | `0` | Skip the first N rows (follow output_budget.next_offset) |
 | `--reap` | - | bool | `false` | Finalize abandoned running scan rows as failed (stop_reason abandoned) and prune expired status.json files; writes the store |
+| `--to` | - | string | - | Only sessions started at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
 
 ## vigolium match-not-found
@@ -1776,10 +1808,10 @@ List parameters per endpoint with value-type histograms, from stored traffic
 | `--compact` | - | bool | `false` | With --json, drop each row's bulky keys (sample lists, excerpts, headers) and keep its metadata |
 | `--endpoint` | - | string | - | Only this endpoint: an id from 'vigolium endpoints' or a path template (/users/{int}) |
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
-| `--from` | - | string | - | Only records sent at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (alias: --since) |
+| `--from` | - | string | - | Only records sent at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
-| `--host` | - | string | - | Filter by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--limit` | `-n` | int | `100` | Maximum parameters to list (0 = all); the aggregate always covers every matched record |
 | `--location` | - | stringSlice | - | Only these locations (comma-separated): query, body, json, xml, cookie, multipart, header, path, other |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
@@ -1795,7 +1827,7 @@ List parameters per endpoint with value-type histograms, from stored traffic
 | `--source` | - | string | - | Filter by record source (e.g. scanner, deparos, jstangle, html-form, api-spec, ingest-cli, ingest-proxy) |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--status` | - | intSlice | - | Filter by HTTP status code (repeatable) |
-| `--to` | - | string | - | Only records sent at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a bare date covers the whole day (alias: --until) |
+| `--to` | - | string | - | Only records sent at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--type` | - | stringSlice | - | Only parameters whose dominant value type is one of these (comma-separated, e.g. integer,uuid,sequential_id) |
 
 ## vigolium project
@@ -1847,7 +1879,7 @@ List all projects
 
 ## vigolium project use
 
-Usage: `vigolium project use <uuid>`
+Usage: `vigolium project use <project>`
 
 Set the active project (the global ~/.vigolium/active-project file)
 
@@ -1856,6 +1888,7 @@ Set the active project (the global ~/.vigolium/active-project file)
 | `--create` | - | bool | `false` | Create the project with this UUID when it does not exist (otherwise an unknown UUID is a not_found error) |
 | `--description` | - | string | - | Description for a project created by --create |
 | `--name` | - | string | - | Name for a project created by --create (default: "Project <short-uuid>") |
+| `--print-env` | - | bool | `false` | Print the export VIGOLIUM_PROJECT_UUID=<uuid> line for eval and write no file: pins this shell only |
 
 ## vigolium replay
 
@@ -1878,7 +1911,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--exclude-search` | - | stringArray | - | Bulk: drop records where the term appears in the URL, path, or raw request/response (repeatable; dropped if ANY term matches — inverse of --search) |
 | `--fields` | - | stringSlice | - | Restrict --json rows to these keys (comma-separated). Aliases such as status/length/title are accepted and emitted under the name you pass. An unknown name is an error, not a silent drop |
 | `--finding-id` | - | int64 | `0` | Finding ID — replay the finding's linked record (or its stored evidence) |
-| `--from` | - | string | - | Bulk: only records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (alias: --since) |
+| `--from` | - | string | - | Bulk: only records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--header` | `-H` | stringArray | - | Extra request header 'Name: value' (repeatable, overrides baseline) |
 | `--header-search` | - | string | - | Bulk: filter records by text in HTTP header names/values (the search filter 'traffic --header' applies; -H/--header overrides headers instead) |
 | `--highlight` | - | string | - | Highlight colour for the --to-organizer item: none\|red\|orange\|yellow\|green\|cyan\|blue\|pink\|magenta\|gray |
@@ -1911,7 +1944,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--status` | - | intSlice | - | Bulk: filter records by stored status code (repeatable) |
 | `--target` | `-t` | string | - | Override scheme/host/port (e.g. https://staging.example.com) |
 | `--timeout` | - | duration | `25s` | Per-request timeout (e.g. 30s, 1m) |
-| `--to` | - | string | - | Bulk: only records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a bare date covers the whole day (alias: --until) |
+| `--to` | - | string | - | Bulk: only records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--to-organizer` | - | bool | `false` | Store the replayed request + response in Burp's Organizer for manual follow-up; requires --burp-bridge-url |
 | `--to-repeater` | - | bool | `false` | Stage the replayed request in a Burp Repeater tab for manual testing; requires --burp-bridge-url |
 | `--with-browser` | - | bool | `false` | Load each record's URL in a real browser routed via --proxy so an intercepting proxy captures browser-driven traffic; navigation-only, so no baseline-vs-replay diff is produced |
@@ -2169,6 +2202,7 @@ Compare two scans' findings: new, fixed, not re-observed, unchanged
 | `--include-dismissed` | - | bool | `false` | Keep findings marked false_positive or accepted_risk |
 | `--last` | - | int | `2` | With --target: compare the N-th most recent scan of the target against the most recent (N >= 2) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--offset` | - | int | `0` | Skip the first N rows (follow output_budget.next_offset) |
 | `--output` | `-o` | string | - | With --json: write the result document to this file and print a receipt instead; '-' forces stdout |
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
@@ -2411,7 +2445,7 @@ Set a scope rule
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--project` | - | string | - | Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix) |
+| `--project` | - | string | - | Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix); the global --project-uuid/--project-name flags do the same |
 
 ## vigolium scope view
 
@@ -2638,14 +2672,14 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--exclude-not-found` | - | bool | `false` | Drop records that are their origin's not-found page: a 404/410, or a response matching the not-found baseline 'vigolium fingerprint' stored (applied to the returned page) |
 | `--exclude-search` | - | stringArray | - | Exclude records where the term appears in the URL, path, or raw request/response (repeatable; dropped if ANY term matches — the inverse of --search) |
 | `--fields` | - | stringSlice | - | Restrict --json output to these top-level keys (comma-separated, e.g. id,severity,url). An unknown name is an error, not a silent drop |
-| `--from` | - | string | - | Show records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339 (alias: --since) |
+| `--from` | - | string | - | Show records at or after this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC (alias: --since) |
 | `--full-body` | - | bool | `false` | Render complete request/response bodies (no truncation/stubbing) with --json, and whole (uncompacted) bodies with --markdown |
 | `--glob-db` | - | string | - | Read across a glob of result files merged into one temporary DB (e.g. --glob-db 'scans/*.sqlite'); implies -S |
 | `--glob-strict` | - | bool | `false` | Fail the read on the first --glob-db source that cannot be imported, instead of skipping it with a warning |
 | `--group-by` | - | string | - | Count the matched records by one field instead of listing them (host, ip, is_authenticated, method, response_content_type, scan_uuid, source, status_code). Runs the same filters as the listing |
 | `--group-limit` | - | int | `20` | With --group-by: maximum groups to show, largest first (0 = every group). The tail is reported as a count, never dropped |
 | `--header` | - | string | - | Search only the HTTP header block of the request/response (not bodies); use --search to span the whole exchange |
-| `--host` | - | string | - | Filter by hostname pattern (wildcard supported) |
+| `--host` | - | string | - | Filter by host: hostname, host:port, origin (https://host[:port]) or bracketed IPv6; * wildcards |
 | `--in-replace` | - | bool | `false` | With --replay: overwrite each stored response with the new replay response |
 | `--limit` | `-n` | int | `100` | Maximum records to display |
 | `--markdown` | - | bool | `false` | Render the matched records as Markdown (request/response in fenced http blocks) to stdout; response bodies are compacted to a preview by default (use --full-body for whole bodies) |
@@ -2668,7 +2702,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--stateless` | `-S` | bool | `false` | Read from --db (a .jsonl export or standalone .sqlite) with project scoping off; never writes to your project DB |
 | `--status` | - | intSlice | - | Filter by HTTP status code (repeatable, e.g. --status 200 --status 404) |
 | `--timeout` | - | duration | `15s` | Per-request timeout for --replay (e.g. 30s, 1m) |
-| `--to` | - | string | - | Show records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a bare date covers the whole day (alias: --until) |
+| `--to` | - | string | - | Show records at or before this time — 2d, 12h, 30m, today, yesterday, 2026-08-05, "2026-08-05 14:30", or RFC3339; a time without a zone is local, results print in UTC; a bare date covers the whole day (alias: --until) |
 | `--tree` | - | bool | `false` | Display as host/path hierarchy tree |
 | `--tui` | - | bool | `false` | Open interactive TUI (arrow keys to navigate, enter to view details, c to copy id) |
 | `--url` | - | stringArray | - | Select records whose URL matches EXACTLY (repeatable; OR-ed). Compared against the stored URL with no normalization — use --path or --search for substring matching |

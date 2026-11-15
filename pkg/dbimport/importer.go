@@ -51,6 +51,12 @@ type Result struct {
 	SeverityCounts map[string]int
 	SkippedTypes   map[string]int
 
+	// ImportedByType counts the rows written per envelope type (http_record,
+	// finding, scan, oast_interaction, scope); DuplicatesByType counts the
+	// rows of each type that were already in the destination.
+	ImportedByType   map[string]int
+	DuplicatesByType map[string]int
+
 	SessionDir string
 	StorageURL string
 
@@ -131,6 +137,12 @@ type Options struct {
 	// before the first parse error can be reported, so the symptom of pointing
 	// `import` at the wrong file is the OOM killer rather than a message.
 	MaxLineBytes int
+
+	// ImportScopes stores `scope` envelopes. Scope rows are enabled scan rules,
+	// so loading them into a live store would silently change later scans:
+	// only the read-only scratch loaders and `import --include-scopes` set it.
+	// Without it scope envelopes are counted in SkippedTypes.
+	ImportScopes bool
 }
 
 // DefaultMaxLineBytes is the ceiling ImportJSONL applies to one line when
@@ -225,6 +237,12 @@ func ImportSQLite(ctx context.Context, repo *database.Repository, srcPath, proje
 	res.FindingsSaved = stats.FindingsMerged
 	res.FindingsSkipped = stats.FindingsDeduped
 	res.FindingsTotal = stats.FindingsMerged + stats.FindingsDeduped
+	res.ImportedByType["http_record"] = stats.RecordsMerged
+	res.ImportedByType["finding"] = stats.FindingsMerged
+	res.DuplicatesByType["finding"] = stats.FindingsDeduped
+	res.ImportedByType["scan"] = stats.ScansMerged
+	res.ImportedByType["agentic_scan"] = stats.AgenticScansMerged
+	res.ImportedByType["oast_interaction"] = stats.OASTMerged
 	return res, nil
 }
 
@@ -423,6 +441,8 @@ func ImportAudit(ctx context.Context, repo *database.Repository, folderPath, pro
 	res.FindingsSkipped = skipped
 	res.FindingsFailed = failed
 	res.SeverityCounts = sevCounts
+	res.ImportedByType["finding"] = saved
+	res.DuplicatesByType["finding"] = skipped
 	return res, nil
 }
 
@@ -448,6 +468,9 @@ func ImportJSONL(ctx context.Context, repo *database.Repository, r io.Reader, pr
 	var (
 		records      []*database.HTTPRecord
 		findings     []*database.Finding
+		scans        []*database.Scan
+		oasts        []*database.OASTInteraction
+		scopes       []*database.Scope
 		lineNum      int
 		recordLines  int
 		pendingBytes int
@@ -514,6 +537,37 @@ func ImportJSONL(ctx context.Context, repo *database.Repository, r io.Reader, pr
 			records = append(records, &rec)
 			recordLines++
 			pendingBytes += len(rec.RawRequest) + len(rec.RawResponse)
+
+		case "scan":
+			var scan database.Scan
+			if err := json.Unmarshal(envelope.Data, &scan); err != nil || scan.UUID == "" {
+				res.ParseErrors++
+				return
+			}
+			scan.ProjectUUID = homeProject(scan.ProjectUUID)
+			scans = append(scans, &scan)
+
+		case "oast_interaction":
+			var oi database.OASTInteraction
+			if err := json.Unmarshal(envelope.Data, &oi); err != nil || oi.FullID == "" {
+				res.ParseErrors++
+				return
+			}
+			oi.ProjectUUID = homeProject(oi.ProjectUUID)
+			oasts = append(oasts, &oi)
+
+		case "scope":
+			if !opts.ImportScopes {
+				res.SkippedTypes[envelope.Type]++
+				return
+			}
+			var sc database.Scope
+			if err := json.Unmarshal(envelope.Data, &sc); err != nil || sc.RuleType == "" {
+				res.ParseErrors++
+				return
+			}
+			sc.ProjectUUID = homeProject(sc.ProjectUUID)
+			scopes = append(scopes, &sc)
 
 		case "finding":
 			var finding database.Finding
@@ -611,7 +665,7 @@ func ImportJSONL(ctx context.Context, repo *database.Repository, r io.Reader, pr
 		}
 	}
 
-	if recordLines == 0 && len(findings) == 0 {
+	if recordLines == 0 && len(findings) == 0 && len(scans) == 0 && len(oasts) == 0 && len(scopes) == 0 {
 		return nil, fmt.Errorf("no importable data found (parsed %d lines, %d errors)", lineNum, res.ParseErrors)
 	}
 	if err := flushRecords(); err != nil {
@@ -624,6 +678,14 @@ func ImportJSONL(ctx context.Context, repo *database.Repository, r io.Reader, pr
 	res.FindingsSaved = saved
 	res.FindingsSkipped = skipped
 	res.FindingsFailed = failed
+
+	if err := importSideTables(ctx, repo, res, scans, oasts, scopes); err != nil {
+		return nil, err
+	}
+	res.ImportedByType["http_record"] += res.RecordsImported
+	res.DuplicatesByType["http_record"] += res.RecordsSkippedDuplicate
+	res.ImportedByType["finding"] += res.FindingsSaved
+	res.DuplicatesByType["finding"] += res.FindingsSkipped
 
 	if attachedScan != nil {
 		update := &database.AgenticScan{
@@ -645,9 +707,67 @@ func ImportJSONL(ctx context.Context, repo *database.Repository, r io.Reader, pr
 
 func newResult() *Result {
 	return &Result{
-		SeverityCounts: map[string]int{},
-		SkippedTypes:   map[string]int{},
+		SeverityCounts:   map[string]int{},
+		SkippedTypes:     map[string]int{},
+		ImportedByType:   map[string]int{},
+		DuplicatesByType: map[string]int{},
 	}
+}
+
+// importSideTables stores the scan, OAST-interaction and scope envelopes of a
+// JSONL import, each deduplicated against the destination: scans on their
+// uuid, interactions on (project, full id, protocol, time), scopes on
+// (project, rule type, name, host and path pattern). Row ids are not carried
+// over, and an interaction's finding_id is dropped because finding ids are
+// local to the store that assigned them.
+func importSideTables(ctx context.Context, repo *database.Repository, res *Result, scans []*database.Scan, oasts []*database.OASTInteraction, scopes []*database.Scope) error {
+	db := repo.DB()
+	for _, sc := range scans {
+		r, err := db.NewInsert().Model(sc).On("CONFLICT (uuid) DO NOTHING").Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("import scan %s: %w", sc.UUID, err)
+		}
+		if n, _ := r.RowsAffected(); n > 0 {
+			res.ImportedByType["scan"]++
+		} else {
+			res.DuplicatesByType["scan"]++
+		}
+	}
+	for _, oi := range oasts {
+		exists, err := db.NewSelect().Model((*database.OASTInteraction)(nil)).
+			Where("project_uuid = ? AND full_id = ? AND protocol = ? AND interacted_at = ?",
+				oi.ProjectUUID, oi.FullID, oi.Protocol, oi.InteractedAt).Exists(ctx)
+		if err != nil {
+			return fmt.Errorf("import oast interaction %s: %w", oi.FullID, err)
+		}
+		if exists {
+			res.DuplicatesByType["oast_interaction"]++
+			continue
+		}
+		oi.ID, oi.FindingID = 0, 0
+		if _, err := db.NewInsert().Model(oi).Exec(ctx); err != nil {
+			return fmt.Errorf("import oast interaction %s: %w", oi.FullID, err)
+		}
+		res.ImportedByType["oast_interaction"]++
+	}
+	for _, sc := range scopes {
+		exists, err := db.NewSelect().Model((*database.Scope)(nil)).
+			Where("project_uuid = ? AND rule_type = ? AND name = ? AND COALESCE(host_pattern, '') = ? AND COALESCE(path_pattern, '') = ?",
+				sc.ProjectUUID, sc.RuleType, sc.Name, sc.HostPattern, sc.PathPattern).Exists(ctx)
+		if err != nil {
+			return fmt.Errorf("import scope %q: %w", sc.Name, err)
+		}
+		if exists {
+			res.DuplicatesByType["scope"]++
+			continue
+		}
+		sc.ID = 0
+		if _, err := db.NewInsert().Model(sc).Exec(ctx); err != nil {
+			return fmt.Errorf("import scope %q: %w", sc.Name, err)
+		}
+		res.ImportedByType["scope"]++
+	}
+	return nil
 }
 
 func mergeResult(dst, src *Result) {
@@ -673,6 +793,12 @@ func mergeResult(dst, src *Result) {
 	}
 	for k, v := range src.SkippedTypes {
 		dst.SkippedTypes[k] += v
+	}
+	for k, v := range src.ImportedByType {
+		dst.ImportedByType[k] += v
+	}
+	for k, v := range src.DuplicatesByType {
+		dst.DuplicatesByType[k] += v
 	}
 	if src.MergeStats != nil {
 		if dst.MergeStats == nil {

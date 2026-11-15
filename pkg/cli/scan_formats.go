@@ -23,7 +23,7 @@ import (
 // findings to a single scan (empty = all of the project's), so a persisted scan's
 // report reflects that run rather than the project's whole history.
 func generateReportFromDB(ctx context.Context, db *database.DB, outputPath string, omitResponse bool, projectUUID, scanUUID string, rf reportFormatEntry, onTrim func(output.ReportTrimInfo)) error {
-	autoTarget, autoDuration := computeReportMeta(ctx, db)
+	autoTarget, autoDuration := computeReportMeta(ctx, db, projectUUID)
 	meta := output.HTMLReportMeta{
 		Title:           "Vigolium Scan Report",
 		Version:         getVersion(),
@@ -48,7 +48,7 @@ func generateReportFromDB(ctx context.Context, db *database.DB, outputPath strin
 			// Reports render the whole envelope: --export-only documents itself as
 			// narrowing the jsonl stream, and a report with its findings silently
 			// removed is worse than no report.
-			return streamExportData(ctx, db, fullExportScope, omitResponse, projectUUID, scanUUID, emit)
+			return streamExportData(ctx, db, scanReportQuery(omitResponse, projectUUID, scanUUID), emit)
 		}
 		return rf.streamGenerate(produce, outputPath, meta)
 	}
@@ -58,7 +58,7 @@ func generateReportFromDB(ctx context.Context, db *database.DB, outputPath strin
 	// whole finding history as if it were this run's result — contradicting this
 	// function's own contract and, for sarif, re-reporting every historical finding
 	// to GitHub code scanning on each scan.
-	items, err := queryExportData(ctx, db, omitResponse, projectUUID, scanUUID)
+	items, err := queryExportData(ctx, db, scanReportQuery(omitResponse, projectUUID, scanUUID))
 	if err != nil {
 		return err
 	}
@@ -267,4 +267,10 @@ func reportDestination(path string) string {
 		return "stdout"
 	}
 	return path
+}
+
+// scanReportQuery is the export query behind a run's post-scan reports: every
+// record type, scoped to the run's project and scan, with no row filters.
+func scanReportQuery(omitResponse bool, projectUUID, scanUUID string) exportQuery {
+	return exportQuery{scope: fullExportScope, omitResponse: omitResponse, projectUUID: projectUUID, scanUUID: scanUUID}
 }

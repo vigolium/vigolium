@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"go.uber.org/zap"
 )
@@ -109,6 +110,9 @@ func GetDBFor(intent OpenIntent, configPath, dbPath string) (*database.DB, error
 
 	// Before any open, because opening is what creates the file.
 	if err := checkSourceExists(); err != nil {
+		return nil, err
+	}
+	if err := checkSourceIsSQLite(); err != nil {
 		return nil, err
 	}
 
@@ -347,6 +351,29 @@ func checkSourceExists() error {
 	}
 	if info.IsDir() {
 		return fmt.Errorf("database %q is a directory, not a file", Policy.MustExist)
+	}
+	return nil
+}
+
+// checkSourceIsSQLite refuses a pinned source that exists but is not a SQLite
+// file — a JSONL export, most often — which would otherwise fail deep in the
+// driver as "file is not a database (26)". An empty file passes: SQLite
+// treats it as a new database, and the schema check decides from there.
+func checkSourceIsSQLite() error {
+	if Policy.MustExist == "" {
+		return nil
+	}
+	info, err := os.Stat(Policy.MustExist)
+	if err != nil || info.IsDir() || info.Size() == 0 {
+		return nil
+	}
+	if isSQLite, err := database.IsSQLiteFile(Policy.MustExist); err == nil && !isSQLite {
+		return CLIError{
+			//vigolium:not-usage the file's contents, not the command line
+			Err:  fmt.Errorf("--db %q is not a SQLite database", Policy.MustExist),
+			Code: apicontract.CodeSourceUnreadable,
+			Hint: "To read a JSONL export (or any standalone file) pass -S: -S --db " + Policy.MustExist,
+		}
 	}
 	return nil
 }

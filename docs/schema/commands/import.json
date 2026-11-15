@@ -1,6 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "cli.importSourceStatus": {
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "source",
+        "status"
+      ]
+    },
     "contract.ErrorBody": {
       "properties": {
         "code": {
@@ -341,6 +360,24 @@
     "storage_url": {
       "type": "string"
     },
+    "imported_by_type": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "type": "object"
+    },
+    "duplicates_by_type": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "type": "object"
+    },
+    "skipped_types": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "type": "object"
+    },
     "merged_from": {
       "type": "string"
     },
@@ -366,6 +403,15 @@
       "type": "integer"
     },
     "oast_merged": {
+      "type": "integer"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/cli.importSourceStatus"
+      },
+      "type": "array"
+    },
+    "sources_failed": {
       "type": "integer"
     },
     "report_path": {

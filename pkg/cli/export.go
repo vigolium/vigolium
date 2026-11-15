@@ -37,6 +37,14 @@ var (
 	topExportReportURL    string
 	topExportScanUUIDs    []string
 
+	// topExportFrom and topExportTo bound every exported row by its own time.
+	topExportFrom string
+	topExportTo   string
+
+	// topExportAllProjects spans every project in the store instead of the
+	// active one.
+	topExportAllProjects bool
+
 	// topExportNoURLDedup belongs to `vigolium export` alone. The post-scan
 	// exporters never set it: their JSONL is the documented per-run artifact and
 	// changing its row count by default would break every consumer counting on
@@ -50,6 +58,8 @@ var exportCmd = &cobra.Command{
 	Long: `Export the contents of one or more database tables (HTTP records, findings, scans, modules, OAST interactions, source repos, scopes) into JSONL, HTML, Markdown, PDF, SARIF, or a bundle archive.
 
 --format sarif writes a SARIF 2.1.0 log of the findings, for ingestion by GitHub code scanning, DefectDojo, the VS Code SARIF Viewer and other aggregators. Code findings anchor to their source file (with line number) so they can be annotated onto a diff; HTTP findings anchor to their URL and carry the proof exchange in the standard webRequest/webResponse fields.
+
+The export covers the active project (--project-uuid, --project-name, $VIGOLIUM_PROJECT_UUID, ` + "`project use`" + `, else the default project); --all-projects exports every project in the store. A standalone source (-S, --glob-db) is exported whole unless a project is named.
 
 Use --only to choose which tables to include, --omit-response to drop raw HTTP request/response bytes (keeps metadata, smaller files), and --search to fuzzy-filter rows before export. HTML and bundle output require -o/--output.
 
@@ -89,6 +99,9 @@ func init() {
 		"URL for the \"Raw Report URL\" button in HTML reports (overrides VIGOLIUM_REPORT_SHARED_URL)")
 	exportCmd.Flags().StringVar(&topExportSeverity, "severity", "",
 		"Filter findings by severity (comma-separated: critical,high,medium,low,info)")
+	registerTimeRangeFlags(exportCmd, &topExportFrom, &topExportTo, "rows recorded (records by sent_at, findings by found_at, scans by created_at, OAST by interacted_at)")
+	exportCmd.Flags().BoolVar(&topExportAllProjects, "all-projects", false,
+		"Export every project in the store; by default the export covers the active project (--project-uuid, --project-name, $VIGOLIUM_PROJECT_UUID, the project use file, else the default project)")
 	exportCmd.Flags().StringSliceVar(&topExportScanUUIDs, "scan-uuid", nil,
 		"Agentic scan UUID(s) whose session directories to include in --format bundle (repeatable)")
 	registerReportFlags(exportCmd.Flags())
@@ -195,6 +208,67 @@ type exportEnvelope struct {
 	Data interface{} `json:"data"`
 }
 
+// exportQuery is everything that selects the rows of one export: which record
+// types, the row filters, and the project and scan the rows belong to. Every
+// caller of streamExportData builds one; `vigolium export` derives its own
+// from the command's flags (topExportQuery), the post-scan exporters pass only
+// a scope, a project and a scan.
+type exportQuery struct {
+	scope        exportScope
+	omitResponse bool
+	// noURLDedup emits every stored HTTP exchange instead of collapsing
+	// exchanges that share a URL.
+	noURLDedup bool
+	search     string
+	severity   []string
+	limit      int
+	// projectUUID filters every table to one project; "" is the whole store.
+	projectUUID string
+	// scanUUID narrows the export to one native scan's rows.
+	scanUUID string
+	// from and to bound the rows by their own timestamp (sent_at for records,
+	// found_at for findings, created_at for scans, interacted_at for OAST).
+	from, to *time.Time
+}
+
+// topExportQuery is the query `vigolium export` runs: its flags, for the given
+// project ("" = every project).
+func topExportQuery(projectUUID string) exportQuery {
+	q := exportQuery{
+		scope:        topExportScope(),
+		omitResponse: topExportOmitResponse,
+		noURLDedup:   topExportNoURLDedup,
+		search:       topExportSearch,
+		limit:        topExportLimit,
+		projectUUID:  projectUUID,
+	}
+	if topExportSeverity != "" {
+		q.severity = strings.Split(strings.ToLower(topExportSeverity), ",")
+	}
+	// Validated by runExportCmd before any query; a bad value here bounds nothing.
+	q.from, q.to, _ = parseDateRangeFlags(topExportFrom, topExportTo, timeFilterFromLabel, timeFilterToLabel)
+	return q
+}
+
+// limitQuery applies the per-table row limit.
+func (q exportQuery) limitQuery(sq *bun.SelectQuery) *bun.SelectQuery {
+	if q.limit > 0 {
+		return sq.Limit(int64(q.limit))
+	}
+	return sq
+}
+
+// timeRange applies the from/to bounds to a single-table query on column.
+func (q exportQuery) timeRange(sq *bun.SelectQuery, column string) *bun.SelectQuery {
+	if q.from != nil {
+		sq = sq.Where("? >= ?", bun.Ident(column), *q.from)
+	}
+	if q.to != nil {
+		sq = sq.Where("? <= ?", bun.Ident(column), *q.to)
+	}
+	return sq
+}
+
 // scopeProjectBun applies a project_uuid filter to a single-table bun query when
 // projectUUID is non-empty. An empty projectUUID means whole-DB (the default
 // `vigolium export` / stateless temp-DB behavior); a non-empty value scopes the
@@ -287,16 +361,32 @@ func validateExportOnly() error {
 	return err
 }
 
-// validateExportFormatsScope refuses a findings-only format (csv, sarif)
-// whose --only/--exclude leave no findings: it would write a header-only
-// file while the receipt counted the records it never wrote.
+// validateExportFormatsScope refuses a format that renders none of the record
+// types --only/--exclude leave (csv with --only http would write a
+// header-only file while the receipt counted the records it never wrote), and
+// notes on stderr any type --only names that a format leaves out.
 func validateExportFormatsScope(specs []exportFormatSpec) error {
-	if topExportScope().includes("findings") {
-		return nil
-	}
+	scope := topExportScope()
 	for _, s := range specs {
-		if s.format == "csv" || s.format == "sarif" {
-			return usageErrorf("--format %s exports findings, but --only/--exclude leave none; add findings to --only or drop it", s.raw)
+		supported := exportTypesForFormat(s.format)
+		var rendered, ignored []string
+		for _, t := range exportRecordTypes {
+			if !scope.includes(t.Name) {
+				continue
+			}
+			if t.supportsFormat(s.format) {
+				rendered = append(rendered, t.Name)
+			} else if slices.Contains(scope.only, t.Name) {
+				ignored = append(ignored, t.Name)
+			}
+		}
+		if len(rendered) == 0 {
+			return usageErrorf("--format %s renders %s, but --only/--exclude leave none of them; add one to --only or drop it",
+				s.raw, strings.Join(supported, ", "))
+		}
+		if len(ignored) > 0 {
+			fmt.Fprintf(os.Stderr, "%s --format %s does not render %s (it renders %s)\n",
+				terminal.WarningSymbol(), s.raw, strings.Join(ignored, ", "), strings.Join(supported, ", "))
 		}
 	}
 	return nil
@@ -313,6 +403,9 @@ func runExportCmd(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 
 	if err := validateExportOnly(); err != nil {
+		return err
+	}
+	if _, _, err := parseDateRangeFlags(topExportFrom, topExportTo, timeFilterFromLabel, timeFilterToLabel); err != nil {
 		return err
 	}
 	if err := validateReportFlags(); err != nil {
@@ -505,11 +598,10 @@ type exportRun struct {
 	// for the whole database. Resolved once in openDB, after the source is open,
 	// so a --project-name lookup hits the source being exported.
 	//
-	// It used to be hardcoded "" at four call sites, so `export --project-uuid X`
-	// exported every project while the {project-uuid} placeholder in -o named X —
-	// a file whose name asserted a scope its contents did not have. The default
-	// is still whole-DB: `vigolium export` with no project flag is the documented
-	// way to dump a store.
+	// The default is the active project, like every sibling read (traffic,
+	// finding, db export); --all-projects asks for the whole store. A standalone
+	// source (-S, --glob-db) is read whole unless a project is named, because
+	// its rows carry the projects they were exported under.
 	projectUUID string
 
 	// multi records that more than one format was requested, which switches the
@@ -537,12 +629,23 @@ func (r *exportRun) openDB() (*database.DB, error) {
 		return nil, err
 	}
 	r.db = db
-	if explicitProjectSelected() {
-		if r.projectUUID, err = resolveProjectUUID(); err != nil {
-			return nil, err
-		}
+	if r.projectUUID, err = exportProjectFilter(); err != nil {
+		return nil, err
 	}
 	return db, nil
+}
+
+// exportProjectFilter is the project `vigolium export` reads: none under
+// --all-projects, otherwise the same effective project every read command
+// uses.
+func exportProjectFilter() (string, error) {
+	if topExportAllProjects {
+		if explicitProjectSelected() {
+			return "", usageErrorf("--all-projects cannot be combined with --project-uuid/--project-name")
+		}
+		return "", nil
+	}
+	return effectiveProjectUUID()
 }
 
 // loadItems materializes the export envelopes once and reuses them for every
@@ -551,7 +654,7 @@ func (r *exportRun) loadItems(ctx context.Context, db *database.DB) ([]any, erro
 	if r.itemsSet {
 		return r.items, nil
 	}
-	items, err := queryExportData(ctx, db, topExportOmitResponse, r.projectUUID, "")
+	items, err := queryExportData(ctx, db, topExportQuery(r.projectUUID))
 	if err != nil {
 		return nil, err
 	}
@@ -562,7 +665,7 @@ func (r *exportRun) loadItems(ctx context.Context, db *database.DB) ([]any, erro
 // reportMeta auto-detects the report target and duration once per run.
 func (r *exportRun) reportMeta(ctx context.Context, db *database.DB) (target, duration string) {
 	if !r.metaSet {
-		r.metaTarget, r.metaDuration = computeReportMeta(ctx, db)
+		r.metaTarget, r.metaDuration = computeReportMeta(ctx, db, r.projectUUID)
 		r.metaSet = true
 	}
 	return r.metaTarget, r.metaDuration
@@ -584,16 +687,13 @@ func (r *exportRun) printStats(format, outputPath string, counts exportCounts) {
 	printExportTally(counts)
 }
 
-// printProjectScope states which project the counts below it cover. Stated
-// rather than left to be inferred: the default is the whole database, and an
-// operator who expected their active project to apply has no other way to find
-// out that it did not.
+// printProjectScope states which project the counts below it cover.
 func (r *exportRun) printProjectScope() {
 	if r.projectUUID != "" {
 		fmt.Fprintf(os.Stderr, "  Project: %s\n", terminal.Cyan(r.projectUUID))
 		return
 	}
-	fmt.Fprintf(os.Stderr, "  Project: %s\n", terminal.Gray("all (no --project-uuid/--project-name)"))
+	fmt.Fprintf(os.Stderr, "  Project: %s\n", terminal.Gray("all"))
 }
 
 // runFormat materializes one requested format at its resolved path, returning the
@@ -705,13 +805,14 @@ func reportGenerator(format string) (output.OutputFormat, bool) {
 	return f, true
 }
 
-// computeReportMeta auto-detects scanTarget and scanDuration from the database.
-// It checks agentic_scans first, then falls back to the scans table.
-// When multiple rows exist, target becomes "multiple" and duration "N/A".
-func computeReportMeta(ctx context.Context, db *database.DB) (target, duration string) {
+// computeReportMeta auto-detects scanTarget and scanDuration from the database,
+// within projectUUID ("" = every project). It checks agentic_scans first, then
+// falls back to the scans table. When multiple rows exist, target becomes
+// "multiple" and duration "N/A".
+func computeReportMeta(ctx context.Context, db *database.DB, projectUUID string) (target, duration string) {
 	// Try agentic_scans first.
 	var agenticScans []database.AgenticScan
-	err := db.NewSelect().Model(&agenticScans).
+	err := scopeProjectBun(db.NewSelect().Model(&agenticScans), projectUUID).
 		Column("target_url", "duration_ms", "started_at", "completed_at").
 		Where("status IN (?)", bun.List(database.CompletedAgenticScanStatuses)).
 		OrderExpr("created_at DESC").
@@ -733,7 +834,7 @@ func computeReportMeta(ctx context.Context, db *database.DB) (target, duration s
 
 	// Fall back to native scans.
 	var scans []database.Scan
-	err = db.NewSelect().Model(&scans).
+	err = scopeProjectBun(db.NewSelect().Model(&scans), projectUUID).
 		Column("target", "started_at", "finished_at").
 		Where("status = ?", "completed").
 		OrderExpr("created_at DESC").
@@ -787,7 +888,7 @@ func (r *exportRun) exportJSONL(ctx context.Context, outputPath string) ([]expor
 	// summary prints.
 	write := func(w io.Writer) (exportCounts, error) {
 		if streaming {
-			counts, err := streamJSONLExport(ctx, db, w, topExportOmitResponse, r.projectUUID)
+			counts, err := streamJSONLWithQuery(ctx, db, w, topExportQuery(r.projectUUID))
 			if err != nil {
 				return counts, err
 			}
@@ -908,11 +1009,14 @@ func (r *exportRun) exportFS(ctx context.Context, outputPath string) ([]exported
 	if topExportSeverity != "" {
 		severities = strings.Split(topExportSeverity, ",")
 	}
+	q := topExportQuery(r.projectUUID)
 	filters := database.QueryFilters{
 		ProjectUUID: r.projectUUID,
 		FuzzyTerm:   topExportSearch,
 		Severity:    severities,
 		Limit:       topExportLimit,
+		DateFrom:    q.from,
+		DateTo:      q.to,
 	}
 	stats, err := writeFSExport(ctx, db, filters, outputPath, fsExportOptions{omitResponse: topExportOmitResponse})
 	if err != nil {
@@ -924,16 +1028,11 @@ func (r *exportRun) exportFS(ctx context.Context, outputPath string) ([]exported
 	return fsExportOutputs(stats), nil
 }
 
-// queryExportData queries all enabled tables and returns a slice of exportEnvelope
-// items ready for serialization. Both HTML and JSONL paths share this function.
-// When omitResponse is true, HTTP records keep all metadata but drop the bulky
-// raw request/response byte fields, yielding much smaller output files. When
-// projectUUID is non-empty, every DB-backed query is scoped to that project
-// (used by the per-scan `--format jsonl` export); empty means the whole DB
-// (the `vigolium export` and stateless temp-DB behavior).
-func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, projectUUID, scanUUID string) ([]any, error) {
+// queryExportData collects the envelopes of q into a slice ready for
+// serialization, for the formats that render from one.
+func queryExportData(ctx context.Context, db *database.DB, q exportQuery) ([]any, error) {
 	var items []any
-	err := streamExportData(ctx, db, topExportScope(), omitResponse, projectUUID, scanUUID, func(item any) error {
+	err := streamExportData(ctx, db, q, func(item any) error {
 		items = append(items, item)
 		return nil
 	})
@@ -962,12 +1061,13 @@ func queryExportData(ctx context.Context, db *database.DB, omitResponse bool, pr
 // themselves read successfully, so their absence is incompleteness to announce,
 // not a failed read.
 //
-// When omitResponse is true the bulky raw_request/raw_response columns are not
-// selected for http_records (honoring an explicit --omit-response). Report
+// When q.omitResponse is true the bulky raw_request/raw_response columns are
+// not selected for http_records (honoring an explicit --omit-response). Report
 // renderers must NOT force this on: they derive the displayed request/response
 // bodies from the raw bytes via HTTPRecord.MarshalJSON before trimming the
 // redundant raw copies, so excluding the columns blanks the report body.
-func streamExportData(ctx context.Context, db *database.DB, scope exportScope, omitResponse bool, projectUUID, scanUUID string, emit func(any) error) error {
+func streamExportData(ctx context.Context, db *database.DB, q exportQuery, emit func(any) error) error {
+	scope, projectUUID, scanUUID := q.scope, q.projectUUID, q.scanUUID
 	emitItem := func(typ string, data any) error {
 		return emit(exportEnvelope{Type: typ, Data: data})
 	}
@@ -975,20 +1075,18 @@ func streamExportData(ctx context.Context, db *database.DB, scope exportScope, o
 	// --- Scans ---
 	if scope.includes("scans") && db != nil {
 		var scans []*database.Scan
-		q := scopeProjectBun(db.NewSelect().Model(&scans).OrderExpr("created_at DESC"), projectUUID)
+		sq := scopeProjectBun(db.NewSelect().Model(&scans).OrderExpr("created_at DESC"), projectUUID)
 		// A scan-scoped export (the post-scan report/jsonl of one run) carries
 		// only that run's scan row, not every scan the project ever ran.
 		if scanUUID != "" {
-			q = q.Where("uuid = ?", scanUUID)
+			sq = sq.Where("uuid = ?", scanUUID)
 		}
-		if topExportSearch != "" {
-			p := database.LikeContains(topExportSearch)
-			q = q.Where(database.WithLikeEscape("(uuid LIKE ? OR status LIKE ? OR error_message LIKE ?)"), p, p, p)
+		if q.search != "" {
+			p := database.LikeContains(q.search)
+			sq = sq.Where(database.WithLikeEscape("(uuid LIKE ? OR status LIKE ? OR error_message LIKE ?)"), p, p, p)
 		}
-		if topExportLimit > 0 {
-			q = q.Limit(int64(topExportLimit))
-		}
-		if err := q.Scan(ctx); err != nil {
+		sq = q.limitQuery(q.timeRange(sq, "created_at"))
+		if err := sq.Scan(ctx); err != nil {
 			return fmt.Errorf("export scans: %w", err)
 		}
 		for _, s := range scans {
@@ -1000,14 +1098,14 @@ func streamExportData(ctx context.Context, db *database.DB, scope exportScope, o
 
 	// --- HTTP Records (cursor-streamed) ---
 	if scope.includes("http") && db != nil {
-		if err := streamHTTPRecords(ctx, db, omitResponse, projectUUID, scanUUID, emitItem); err != nil {
+		if err := streamHTTPRecords(ctx, db, q, emitItem); err != nil {
 			return err
 		}
 	}
 
 	// --- Findings (cursor-streamed) ---
 	if scope.includes("findings") && db != nil {
-		if err := streamFindings(ctx, db, projectUUID, scanUUID, emitItem); err != nil {
+		if err := streamFindings(ctx, db, q, emitItem); err != nil {
 			return err
 		}
 	}
@@ -1055,15 +1153,13 @@ func streamExportData(ctx context.Context, db *database.DB, scope exportScope, o
 	// --- OAST Interactions ---
 	if scope.includes("oast") && db != nil {
 		var interactions []*database.OASTInteraction
-		q := scopeProjectBun(db.NewSelect().Model(&interactions).OrderExpr("interacted_at DESC"), projectUUID)
-		if topExportSearch != "" {
-			p := database.LikeContains(topExportSearch)
-			q = q.Where(database.WithLikeEscape("(protocol LIKE ? OR module_id LIKE ? OR unique_id LIKE ? OR full_id LIKE ? OR target_url LIKE ?)"), p, p, p, p, p)
+		sq := scopeProjectBun(db.NewSelect().Model(&interactions).OrderExpr("interacted_at DESC"), projectUUID)
+		if q.search != "" {
+			p := database.LikeContains(q.search)
+			sq = sq.Where(database.WithLikeEscape("(protocol LIKE ? OR module_id LIKE ? OR unique_id LIKE ? OR full_id LIKE ? OR target_url LIKE ?)"), p, p, p, p, p)
 		}
-		if topExportLimit > 0 {
-			q = q.Limit(int64(topExportLimit))
-		}
-		if err := q.Scan(ctx); err != nil {
+		sq = q.limitQuery(q.timeRange(sq, "interacted_at"))
+		if err := sq.Scan(ctx); err != nil {
 			return fmt.Errorf("export oast interactions: %w", err)
 		}
 		for _, i := range interactions {
@@ -1076,15 +1172,13 @@ func streamExportData(ctx context.Context, db *database.DB, scope exportScope, o
 	// --- Scopes ---
 	if scope.includes("scopes") && db != nil {
 		var scopes []*database.Scope
-		q := scopeProjectBun(db.NewSelect().Model(&scopes).Where("enabled = ?", true).OrderExpr("priority ASC"), projectUUID)
-		if topExportSearch != "" {
-			p := database.LikeContains(topExportSearch)
-			q = q.Where(database.WithLikeEscape("(name LIKE ? OR host_pattern LIKE ? OR path_pattern LIKE ?)"), p, p, p)
+		sq := scopeProjectBun(db.NewSelect().Model(&scopes).Where("enabled = ?", true).OrderExpr("priority ASC"), projectUUID)
+		if q.search != "" {
+			p := database.LikeContains(q.search)
+			sq = sq.Where(database.WithLikeEscape("(name LIKE ? OR host_pattern LIKE ? OR path_pattern LIKE ?)"), p, p, p)
 		}
-		if topExportLimit > 0 {
-			q = q.Limit(int64(topExportLimit))
-		}
-		if err := q.Scan(ctx); err != nil {
+		sq = q.limitQuery(sq)
+		if err := sq.Scan(ctx); err != nil {
 			return fmt.Errorf("export scopes: %w", err)
 		}
 		for _, s := range scopes {
@@ -1140,13 +1234,16 @@ func findingReferencedRecordUUIDs(ctx context.Context, db *database.DB, projectU
 //
 // omitResponse drops the raw_request/raw_response columns from the SELECT
 // entirely. Reads are strict: a query, row-scan or cursor error is returned.
-func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, projectUUID, scanUUID string, emitItem func(string, any) error) error {
+func streamHTTPRecords(ctx context.Context, db *database.DB, q exportQuery, emitItem func(string, any) error) error {
+	projectUUID, scanUUID := q.projectUUID, q.scanUUID
 	qb := database.NewQueryBuilder(db, database.QueryFilters{
 		ProjectUUID: projectUUID,
-		FuzzyTerm:   topExportSearch,
-		Limit:       topExportLimit,
+		FuzzyTerm:   q.search,
+		Limit:       q.limit,
+		DateFrom:    q.from,
+		DateTo:      q.to,
 	})
-	if omitResponse {
+	if q.omitResponse {
 		qb = qb.OmitBodies()
 	}
 	query := qb.BuildRecordsQuery()
@@ -1166,7 +1263,7 @@ func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, 
 	// every record is emitted anyway, so the query is skipped rather than run and
 	// ignored.
 	var referenced map[string]struct{}
-	if !topExportNoURLDedup {
+	if !q.noURLDedup {
 		if referenced, err = findingReferencedRecordUUIDs(ctx, db, projectUUID); err != nil {
 			return err
 		}
@@ -1189,7 +1286,7 @@ func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, 
 		if err := db.ScanRow(ctx, rows, r); err != nil {
 			return fmt.Errorf("export http records: scan row: %w", err)
 		}
-		if !topExportNoURLDedup {
+		if !q.noURLDedup {
 			// A finding-referenced record is that finding's proof — emit it even
 			// when its URL was already claimed by an earlier (non-attack) record.
 			_, isReferenced := referenced[r.UUID]
@@ -1224,8 +1321,9 @@ func streamHTTPRecords(ctx context.Context, db *database.DB, omitResponse bool, 
 // row, holding only a single finding in memory at a time. Filters mirror the
 // legacy findings query exactly (search, severity, limit, found_at DESC).
 // Reads are strict: a query, row-scan or cursor error is returned.
-func streamFindings(ctx context.Context, db *database.DB, projectUUID, scanUUID string, emitItem func(string, any) error) error {
-	q := scopeProjectBun(db.NewSelect().Model((*database.Finding)(nil)).OrderExpr("found_at DESC"), projectUUID)
+func streamFindings(ctx context.Context, db *database.DB, eq exportQuery, emitItem func(string, any) error) error {
+	scanUUID := eq.scanUUID
+	q := scopeProjectBun(db.NewSelect().Model((*database.Finding)(nil)).OrderExpr("found_at DESC"), eq.projectUUID)
 	// Confirmed findings only. E0 observations / E1 candidates are persisted in
 	// the same table but must not surface in a report's "Findings" section as if
 	// they were confirmed vulnerabilities — mirror the default record_kind guard
@@ -1240,17 +1338,14 @@ func streamFindings(ctx context.Context, db *database.DB, projectUUID, scanUUID 
 	if scanUUID != "" {
 		q = q.Where("(f.scan_uuid = ? OR EXISTS (SELECT 1 FROM finding_observations o WHERE o.finding_id = f.id AND o.scan_uuid = ?))", scanUUID, scanUUID)
 	}
-	if topExportSearch != "" {
-		p := database.LikeContains(topExportSearch)
+	if eq.search != "" {
+		p := database.LikeContains(eq.search)
 		q = q.Where(database.WithLikeEscape("(module_id LIKE ? OR module_name LIKE ? OR description LIKE ? OR matched_at LIKE ? OR severity LIKE ? OR url LIKE ? OR hostname LIKE ? OR extracted_results LIKE ?)"), p, p, p, p, p, p, p, p)
 	}
-	if topExportSeverity != "" {
-		sevs := strings.Split(strings.ToLower(topExportSeverity), ",")
-		q = q.Where("LOWER(severity) IN (?)", bun.List(sevs))
+	if len(eq.severity) > 0 {
+		q = q.Where("LOWER(severity) IN (?)", bun.List(eq.severity))
 	}
-	if topExportLimit > 0 {
-		q = q.Limit(int64(topExportLimit))
-	}
+	q = eq.limitQuery(eq.timeRange(q, "f.found_at"))
 	rows, err := q.Rows(ctx)
 	if err != nil {
 		return fmt.Errorf("export findings: %w", err)

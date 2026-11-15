@@ -732,6 +732,16 @@ func ToDBFinding(af agenttypes.AgentFinding, moduleID string, scanUUID string, p
 		}
 		matchedAt = append(matchedAt, loc)
 	}
+	matchedAt = append(matchedAt, af.MatchedAt...)
+	if af.URL != "" && len(af.MatchedAt) == 0 {
+		matchedAt = append(matchedAt, af.URL)
+	}
+	hostname := af.Hostname
+	if hostname == "" && af.URL != "" {
+		if u, err := url.Parse(af.URL); err == nil {
+			hostname = u.Hostname()
+		}
+	}
 
 	confidence := af.Confidence
 	if confidence == "" {
@@ -749,7 +759,12 @@ func ToDBFinding(af agenttypes.AgentFinding, moduleID string, scanUUID string, p
 	}
 
 	// Generate finding hash for deduplication
+	// The location is part of the identity: the same issue on five URLs is
+	// five findings. A finding with no URL keeps the hash it always had.
 	hashInput := fmt.Sprintf("%s|%s|%s|%s", moduleID, af.Title, af.File, af.Snippet)
+	if af.URL != "" {
+		hashInput += "|" + af.URL
+	}
 	hash := fmt.Sprintf("%x", md5.Sum([]byte(hashInput)))
 
 	return &database.Finding{
@@ -760,6 +775,8 @@ func ToDBFinding(af agenttypes.AgentFinding, moduleID string, scanUUID string, p
 		Confidence:       confidence,
 		Tags:             tags,
 		MatchedAt:        matchedAt,
+		URL:              af.URL,
+		Hostname:         hostname,
 		ExtractedResults: extractSnippets(af),
 		FindingHash:      hash,
 		ScanUUID:         scanUUID,

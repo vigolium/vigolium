@@ -31,6 +31,8 @@ var (
 	hostsSANs         bool
 	hostsLimit        int
 	hostsOffset       int
+	hostsFrom         string
+	hostsTo           string
 )
 
 var hostsCmd = &cobra.Command{
@@ -57,6 +59,7 @@ func init() {
 	f.StringVar(&hostsHas, "has", "", "Only hosts carrying this fact: "+strings.Join(database.HostObservationHasValues(), ", "))
 	f.BoolVar(&hostsSoftNotFound, "soft-404", false, "Only origins that answer 2xx/3xx to a path that does not exist")
 	f.BoolVar(&hostsSANs, "sans", false, "Print the distinct DNS names in the matched certificates' SANs, one per line, and nothing else")
+	registerTimeRangeFlags(hostsCmd, &hostsFrom, &hostsTo, "observations made")
 	f.IntVarP(&hostsLimit, "limit", "n", 100, "Maximum hosts to list (0 = all)")
 	f.IntVar(&hostsOffset, "offset", 0, "Hosts to skip (pagination)")
 	f.BoolVarP(&globalStateless, "stateless", "S", false, "Read from --db (a standalone .sqlite) with project scoping off; never writes to your project DB")
@@ -185,9 +188,14 @@ func runHosts(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	observedFrom, observedTo, err := parseDateRangeFlags(hostsFrom, hostsTo, timeFilterFromLabel, timeFilterToLabel)
+	if err != nil {
+		return err
+	}
 	q := database.HostObservationQuery{
 		ProjectUUID: projectUUID, ScanUUID: strings.TrimSpace(hostsScanUUID), HostPattern: pattern,
 		History: hostsHistory, Has: hostsHas, SoftNotFound: hostsSoftNotFound,
+		ObservedFrom: observedFrom, ObservedTo: observedTo,
 		Limit: hostsLimit, Offset: hostsOffset,
 	}
 	if hostsSANs {

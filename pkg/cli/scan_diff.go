@@ -64,6 +64,7 @@ severity (after the result is written).`,
 func init() {
 	scanCmd.AddCommand(scanDiffCmd)
 	f := scanDiffCmd.Flags()
+	registerTSVFlags(f)
 	registerInMemoryOffsetFlag(f)
 	f.StringVar(&scanDiffTarget, "target", "", "Compare the scans of this target (with --last) instead of naming two scans")
 	f.IntVar(&scanDiffLast, "last", 2, "With --target: compare the N-th most recent scan of the target against the most recent (N >= 2)")
@@ -87,6 +88,9 @@ func runScanDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if err := validateJSONOutputFlag(cmd); err != nil {
+		return err
+	}
+	if _, err := enableReadTSV(cmd); err != nil {
 		return err
 	}
 	if scanDiffFailOnNew != "" {
@@ -154,7 +158,7 @@ func runScanDiff(cmd *cobra.Command, args []string) error {
 	}
 	applyIgnoreToDiff(diff, ignore)
 
-	if globalJSON {
+	if globalJSON || readTSV {
 		err = writeScanDiffJSON(cmd, diff, projectUUID)
 	} else {
 		printScanDiff(diff)

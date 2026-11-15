@@ -1453,7 +1453,7 @@ func TestDocValidatorCatchesKnownRot(t *testing.T) {
 	bad := []string{
 		"vigolium source ls",                             // removed command
 		"vigolium server -t https://x",                   // flag never existed
-		"vigolium project use my-project",                // name where a UUID goes
+		"vigolium agent session my-session",              // name where a UUID goes
 		"vigolium scan -T openapi.yaml",                  // spec to the target-list flag
 		"vigolium scan -t https://x --only crawling-ish", // not a phase
 		"vigolium scan -t https://x --format htm",        // not a format

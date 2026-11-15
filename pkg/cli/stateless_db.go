@@ -183,17 +183,28 @@ func expandUserHome(p string) string {
 
 // globDBMatches expands a --glob-db pattern to the local files it names. Shared
 // by every consumer of the flag so one wording of "no such pattern" / "matched
-// nothing" reaches the user regardless of which command asked.
+// nothing" reaches the user regardless of which command asked. SQLite sidecars
+// (-wal, -shm, -journal) are never sources: a `*.sqlite*` pattern would
+// otherwise match a database's own WAL as a second, broken database.
 func globDBMatches(pattern string) ([]string, error) {
-	matches, err := filepath.Glob(expandUserHome(pattern))
+	matches, err := globSourceFiles(pattern)
 	if err != nil {
-		return nil, usageErrorf("invalid --glob-db pattern %q: %w", pattern, err)
+		return nil, err
 	}
 	if len(matches) == 0 {
 		//vigolium:not-usage filesystem state, not the command line
 		return nil, fmt.Errorf("--glob-db %q matched no files", pattern)
 	}
 	return matches, nil
+}
+
+// globSourceFiles expands a --glob-db pattern, dropping SQLite sidecars.
+func globSourceFiles(pattern string) ([]string, error) {
+	matches, err := filepath.Glob(expandUserHome(pattern))
+	if err != nil {
+		return nil, usageErrorf("invalid --glob-db pattern %q: %w", pattern, err)
+	}
+	return slices.DeleteFunc(matches, database.IsSQLiteSidecar), nil
 }
 
 // openGlobSourceFile opens one --glob-db match as a queryable database, for the
@@ -712,6 +723,7 @@ func loadStatelessJSONL(path string) (*database.DB, error) {
 	// carried no project of its own.
 	res, err := dbimport.ImportJSONL(ctx, database.NewRepository(db), f, "", dbimport.Options{
 		PreserveProjectUUID: true,
+		ImportScopes:        true,
 	})
 	if err != nil {
 		_ = db.Close()
@@ -794,6 +806,7 @@ func openGlobDB(pattern string, skip globDBSkipSet) (*database.DB, error) {
 			SkipRecordBodies:    skip.RecordBodies,
 			SkipFindings:        skip.Findings,
 			PreserveProjectUUID: true,
+			ImportScopes:        true,
 		})
 		// A source whose findings the scratch store refused is a source that did
 		// not fully load, even though ImportPath returns no error for it. Counting

@@ -347,6 +347,12 @@ func (db *DB) getScanSessionStats(ctx context.Context, stats *DatabaseStats, fil
 	if filters.ScanUUID != "" {
 		query.Where("uuid = ?", filters.ScanUUID)
 	}
+	if filters.DateFrom != nil {
+		query.Where("created_at >= ?", *filters.DateFrom)
+	}
+	if filters.DateTo != nil {
+		query.Where("created_at <= ?", *filters.DateTo)
+	}
 	err := query.Scan(ctx)
 	if err != nil {
 		return err

@@ -21,18 +21,50 @@ type exportRecordType struct {
 	Importable bool
 	// ImplicitlyExcluded types are left out unless --only names them.
 	ImplicitlyExcluded bool
+	// Formats lists the export formats that render this type; empty means
+	// every format. jsonl and bundle carry every envelope, html embeds every
+	// envelope in its data island, the document reports read findings, scans,
+	// modules and record counts, and the findings-only formats (csv, sarif,
+	// junit, github) read nothing else.
+	Formats []string
 }
 
+// Format groups for the Formats column.
+var (
+	exportFormatsDocument = []string{"jsonl", "bundle", "html", "report", "pdf", "markdown"}
+	exportFormatsArchive  = []string{"jsonl", "bundle", "html"}
+)
+
 var exportRecordTypes = []exportRecordType{
-	{Name: "http", Envelope: "http_record", Aliases: []string{"http_record", "http_records", "record", "records", "traffic"}, Importable: true},
+	{Name: "http", Envelope: "http_record", Aliases: []string{"http_record", "http_records", "record", "records", "traffic"}, Importable: true,
+		Formats: append(slices.Clone(exportFormatsDocument), "fs")},
 	{Name: "findings", Envelope: "finding", Aliases: []string{"finding"}, Importable: true},
-	{Name: "scans", Envelope: "scan", Aliases: []string{"scan"}},
+	{Name: "scans", Envelope: "scan", Aliases: []string{"scan"}, Importable: true, Formats: exportFormatsDocument},
 	// The module registry is the binary's, not the store's; it rides along
 	// only when asked for.
-	{Name: "modules", Envelope: "module", Aliases: []string{"module"}, ImplicitlyExcluded: true},
-	{Name: "oast", Envelope: "oast_interaction", Aliases: []string{"oast_interaction", "oast_interactions", "oast-interactions"}},
-	{Name: "source-repos", Envelope: "source_repo", Aliases: []string{"source_repo", "source_repos", "source-repo"}},
-	{Name: "scopes", Envelope: "scope", Aliases: []string{"scope"}},
+	{Name: "modules", Envelope: "module", Aliases: []string{"module"}, ImplicitlyExcluded: true, Formats: exportFormatsDocument},
+	{Name: "oast", Envelope: "oast_interaction", Aliases: []string{"oast_interaction", "oast_interactions", "oast-interactions"}, Importable: true, Formats: exportFormatsArchive},
+	{Name: "source-repos", Envelope: "source_repo", Aliases: []string{"source_repo", "source_repos", "source-repo"}, Formats: exportFormatsArchive},
+	// Scope rows are enabled scan rules: import stores them only into a
+	// stateless database or under --include-scopes.
+	{Name: "scopes", Envelope: "scope", Aliases: []string{"scope"}, Importable: true, Formats: exportFormatsArchive},
+}
+
+// supportsFormat reports whether the given canonical export format renders
+// this record type.
+func (t exportRecordType) supportsFormat(format string) bool {
+	return len(t.Formats) == 0 || slices.Contains(t.Formats, format)
+}
+
+// exportTypesForFormat lists the canonical record types a format renders.
+func exportTypesForFormat(format string) []string {
+	var out []string
+	for _, t := range exportRecordTypes {
+		if t.supportsFormat(format) {
+			out = append(out, t.Name)
+		}
+	}
+	return out
 }
 
 // exportTypeNames lists the canonical names, for help and errors.
