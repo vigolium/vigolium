@@ -43,56 +43,54 @@ const (
 	shapeOpOffset  = "offset"
 )
 
-// applyShapingTraits registers, on every command whose Shape is rows or
-// object, the shaping flags it is missing: rows get --fields, --compact and
+// applyShapingTraits registers, on a command whose Shape is rows or object,
+// the shaping flags it is missing: rows get --fields, --compact and
 // --max-output-bytes, plus -n/--limit and --offset when they are paged in
 // memory (-n only while the letter is free); objects get --fields. Called from
 // prepareCommandTree; safe to call more than once.
-func applyShapingTraits(root *cobra.Command) {
-	walkTree(root, func(c *cobra.Command) {
-		if _, done := c.Annotations[shapingAnnotation]; done {
-			return
+func applyShapingTraits(c *cobra.Command, path string) {
+	if _, done := c.Annotations[shapingAnnotation]; done {
+		return
+	}
+	t, ok := commandTraits[path]
+	if !ok || (t.Shape.Kind != shapeRows && t.Shape.Kind != shapeObject) {
+		return
+	}
+	var added []string
+	f := c.Flags()
+	if t.Shape.generic() {
+		if !hasFlag(c, "fields") {
+			f.StringSliceVar(&jsonFields, "fields", nil, "Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop")
+			added = append(added, shapeOpFields)
 		}
-		t, ok := commandTraits[commandPathWithoutRoot(c)]
-		if !ok || (t.Shape.Kind != shapeRows && t.Shape.Kind != shapeObject) {
-			return
-		}
-		var added []string
-		f := c.Flags()
-		if t.Shape.generic() {
-			if !hasFlag(c, "fields") {
-				f.StringSliceVar(&jsonFields, "fields", nil, "Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop")
-				added = append(added, shapeOpFields)
-			}
-			if t.Shape.Kind == shapeRows || len(t.Shape.CompactDrop) > 0 {
-				if !hasFlag(c, "compact") {
-					f.BoolVar(&jsonCompact, "compact", false, "With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path)")
-					added = append(added, shapeOpCompact)
-				}
-			}
-			if t.Shape.Kind == shapeRows {
-				if !hasFlag(c, "max-output-bytes") {
-					registerOutputBudgetFlag(f)
-					added = append(added, shapeOpBudget)
-				}
+		if t.Shape.Kind == shapeRows || len(t.Shape.CompactDrop) > 0 {
+			if !hasFlag(c, "compact") {
+				f.BoolVar(&jsonCompact, "compact", false, "With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path)")
+				added = append(added, shapeOpCompact)
 			}
 		}
-		if t.Shape.Kind == shapeRows && t.Shape.Paging == pagingInMemory {
-			if !hasFlag(c, "limit") {
-				short := "n"
-				if shorthandTaken(c, short) {
-					short = ""
-				}
-				f.IntVarP(&shapeLimit, "limit", short, 0, "With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset)")
-				added = append(added, shapeOpLimit)
-			}
-			if !hasFlag(c, "offset") {
-				f.IntVar(&shapeOffset, "offset", 0, "With --json, skip the first N rows (follow output_budget.next_offset)")
-				added = append(added, shapeOpOffset)
+		if t.Shape.Kind == shapeRows {
+			if !hasFlag(c, "max-output-bytes") {
+				registerOutputBudgetFlag(f)
+				added = append(added, shapeOpBudget)
 			}
 		}
-		setAnnotation(c, shapingAnnotation, strings.Join(added, ","))
-	})
+	}
+	if t.Shape.Kind == shapeRows && t.Shape.Paging == pagingInMemory {
+		if !hasFlag(c, "limit") {
+			short := "n"
+			if shorthandTaken(c, short) {
+				short = ""
+			}
+			f.IntVarP(&shapeLimit, "limit", short, 0, "With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset)")
+			added = append(added, shapeOpLimit)
+		}
+		if !hasFlag(c, "offset") {
+			f.IntVar(&shapeOffset, "offset", 0, "With --json, skip the first N rows (follow output_budget.next_offset)")
+			added = append(added, shapeOpOffset)
+		}
+	}
+	setAnnotation(c, shapingAnnotation, strings.Join(added, ","))
 }
 
 // hasFlag reports whether c parses a flag called name: its own, a persistent

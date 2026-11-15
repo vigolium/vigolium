@@ -24,7 +24,7 @@ const (
 	argsHookAnnotation  = "vigolium.args_wrapped"
 )
 
-// enforceGroupSubcommands makes a command group answer an unknown subcommand
+// enforceGroupSubcommand makes a command group answer an unknown subcommand
 // with a usage error instead of its help text and exit 0.
 //
 // Cobra returns flag.ErrHelp for a command with no RunE before it looks at
@@ -38,32 +38,30 @@ const (
 // scan, …) keeps its positional: there the validator only rejects a word that
 // is a near miss of one of its subcommands, then defers to the command's own
 // Args.
-func enforceGroupSubcommands(root *cobra.Command) {
-	walkTree(root, func(c *cobra.Command) {
-		if !c.HasSubCommands() || c.Annotations[groupHookAnnotation] != "" {
-			return
-		}
-		setAnnotation(c, groupHookAnnotation, "1")
-		switch {
-		case c.RunE == nil && c.Run == nil:
-			c.Args = rejectUnknownSubcommand
-			c.RunE = groupHelpRunE
-		case c.Args == nil:
-			// Its own RunE but no positional of its own (the root, agent): any
-			// word is a subcommand that does not exist.
-			c.Args = rejectUnknownSubcommand
-		default:
-			own := c.Args
-			c.Args = func(cmd *cobra.Command, args []string) error {
-				if len(args) > 0 {
-					if err := rejectNearMissSubcommand(cmd, args[0]); err != nil {
-						return err
-					}
+func enforceGroupSubcommand(c *cobra.Command) {
+	if !c.HasSubCommands() || c.Annotations[groupHookAnnotation] != "" {
+		return
+	}
+	setAnnotation(c, groupHookAnnotation, "1")
+	switch {
+	case c.RunE == nil && c.Run == nil:
+		c.Args = rejectUnknownSubcommand
+		c.RunE = groupHelpRunE
+	case c.Args == nil:
+		// Its own RunE but no positional of its own (the root, agent): any
+		// word is a subcommand that does not exist.
+		c.Args = rejectUnknownSubcommand
+	default:
+		own := c.Args
+		c.Args = func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				if err := rejectNearMissSubcommand(cmd, args[0]); err != nil {
+					return err
 				}
-				return own(cmd, args)
 			}
+			return own(cmd, args)
 		}
-	})
+	}
 }
 
 // rejectUnknownSubcommand is the Args of a group with no positional.
@@ -169,33 +167,31 @@ func groupHelpRunE(cmd *cobra.Command, _ []string) error {
 	return cmd.Help()
 }
 
-// wrapArgsValidators makes every positional-argument error a usage error
+// wrapArgsValidator makes every positional-argument error a usage error
 // (exit 2). Cobra's validators (MinimumNArgs, ExactArgs, …) return plain
 // errors that otherwise classify as a generic failure, exit 1.
-func wrapArgsValidators(root *cobra.Command) {
-	walkTree(root, func(c *cobra.Command) {
-		if c.Args == nil || c.Annotations[argsHookAnnotation] != "" {
-			return
+func wrapArgsValidator(c *cobra.Command) {
+	if c.Args == nil || c.Annotations[argsHookAnnotation] != "" {
+		return
+	}
+	setAnnotation(c, argsHookAnnotation, "1")
+	own := c.Args
+	c.Args = func(cmd *cobra.Command, args []string) error {
+		err := own(cmd, args)
+		if err == nil || classifyExitCode(err) != ExitError {
+			return err
 		}
-		setAnnotation(c, argsHookAnnotation, "1")
-		own := c.Args
-		c.Args = func(cmd *cobra.Command, args []string) error {
-			err := own(cmd, args)
-			if err == nil || classifyExitCode(err) != ExitError {
-				return err
-			}
-			// A validator that coded its own condition keeps it.
-			var coded codedError
-			if errors.As(err, &coded) {
-				return err
-			}
-			return clicommon.CLIError{
-				Err:       err,
-				Hint:      fmt.Sprintf("Run '%s --help' for its arguments", cmd.CommandPath()),
-				UsageArgv: clicommon.UsageArgvFor(commandPathWithoutRoot(cmd)),
-			}
+		// A validator that coded its own condition keeps it.
+		var coded codedError
+		if errors.As(err, &coded) {
+			return err
 		}
-	})
+		return clicommon.CLIError{
+			Err:       err,
+			Hint:      fmt.Sprintf("Run '%s --help' for its arguments", cmd.CommandPath()),
+			UsageArgv: clicommon.UsageArgvFor(commandPathWithoutRoot(cmd)),
+		}
+	}
 }
 
 // walkTree visits c and every descendant.

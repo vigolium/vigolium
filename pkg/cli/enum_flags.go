@@ -75,21 +75,17 @@ func registerOliumProviderFlag(fs *pflag.FlagSet, p *string, usage string) {
 		enumAccept(func(v string) bool { return olium.IsKnownProvider(v) }))
 }
 
-// applyClosedValueFlags converts every flag in closedValueFlags into an enum
-// flag.
-func applyClosedValueFlags(root *cobra.Command) {
-	byPath := map[string][]closedValueFlag{}
+// applyClosedValueFlags converts c's flags in closedValueFlags into enum
+// flags.
+func applyClosedValueFlags(c *cobra.Command, path string) {
 	for _, cv := range closedValueFlags {
-		byPath[cv.path] = append(byPath[cv.path], cv)
-	}
-	walkTree(root, func(c *cobra.Command) {
-		path := commandPathWithoutRoot(c)
-		for _, cv := range byPath[path] {
-			fs := c.Flags()
-			if c.PersistentFlags().Lookup(cv.flag) != nil {
-				fs = c.PersistentFlags()
-			}
-			enumFlag(fs, cv.flag, cv.values(), cv.opts...)
+		if cv.path != path {
+			continue
 		}
-	})
+		fs := c.Flags()
+		if c.PersistentFlags().Lookup(cv.flag) != nil {
+			fs = c.PersistentFlags()
+		}
+		enumFlag(fs, cv.flag, cv.values(), cv.opts...)
+	}
 }

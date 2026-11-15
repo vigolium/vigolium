@@ -59,24 +59,22 @@ var vocabularyAliases = map[string]map[string]string{
 	"skills gen-flags": {"output": "out"},
 }
 
-// applyVocabularyAliases installs vocabularyAliases and names each alias in
-// its flag's help. Called from prepareCommandTree; safe to call again.
-func applyVocabularyAliases(root *cobra.Command) {
-	walkTree(root, func(c *cobra.Command) {
-		aliases, ok := vocabularyAliases[commandPathWithoutRoot(c)]
-		if !ok {
-			return
+// applyVocabularyAliases installs c's vocabularyAliases and names each alias
+// in its flag's help. Called from prepareCommandTree; safe to call again.
+func applyVocabularyAliases(c *cobra.Command, path string) {
+	aliases, ok := vocabularyAliases[path]
+	if !ok {
+		return
+	}
+	addFlagAliases(c, aliases)
+	for alias, canonical := range aliases {
+		f := c.Flags().Lookup(canonical)
+		if f == nil || f.Name != canonical {
+			continue
 		}
-		addFlagAliases(c, aliases)
-		for alias, canonical := range aliases {
-			f := c.Flags().Lookup(canonical)
-			if f == nil || f.Name != canonical {
-				continue
-			}
-			note := "--" + alias
-			if !strings.Contains(f.Usage, note) {
-				f.Usage += " (alias: " + note + ")"
-			}
+		note := "--" + alias
+		if !strings.Contains(f.Usage, note) {
+			f.Usage += " (alias: " + note + ")"
 		}
-	})
+	}
 }

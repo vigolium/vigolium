@@ -441,33 +441,38 @@ func applyScanMemLimit(cmd *cobra.Command) {
 // inspect or parse against the tree share it, so a test sees exactly the flags
 // and help text the binary has. Safe to call more than once.
 func prepareCommandTree(root *cobra.Command) {
-	// Give every command that lacks one a local -S/--stateless, so the letter
-	// means one thing across the whole surface. Done here rather than in init:
-	// it walks the finished command tree, and every subcommand must already be
-	// registered for the walk to reach it.
-	addStatelessShorthand(root)
-
 	// kit's subcommands register from their own files' init(), after kit.go's,
 	// so its summary can only be derived once the tree is complete.
 	deriveKitShort()
 
-	// A group answers an unknown subcommand with a usage error, and every
-	// positional-argument error exits 2 (command_tree_hooks.go). The group hook
-	// runs first so its validators are wrapped too.
-	enforceGroupSubcommands(root)
-	wrapArgsValidators(root)
+	// One walk; each hook only touches the node it is given (and, for the
+	// aliases, the normaliser its subtree inherits), so the order between
+	// nodes does not matter, only the order of the hooks on one node.
+	walkTree(root, func(c *cobra.Command) {
+		path := commandPathWithoutRoot(c)
 
-	// Flags with a closed value set reject a typo while flags parse
-	// (enum_flags.go).
-	applyClosedValueFlags(root)
+		// Every command that lacks one gets a local -S/--stateless, so the
+		// letter means one thing across the whole surface (stateless_flag.go).
+		addStatelessShorthandTo(c)
 
-	// One spelling per idea: the aliases of the vocabulary table
-	// (flag_aliases.go).
-	applyVocabularyAliases(root)
+		// A group answers an unknown subcommand with a usage error, and every
+		// positional-argument error exits 2 (command_tree_hooks.go). The group
+		// hook runs first so its validators are wrapped too.
+		enforceGroupSubcommand(c)
+		wrapArgsValidator(c)
 
-	// Every shaped read gets the -j shaping flags it is missing
-	// (shaping_traits.go, from commandTraits).
-	applyShapingTraits(root)
+		// Flags with a closed value set reject a typo while flags parse
+		// (enum_flags.go).
+		applyClosedValueFlags(c, path)
+
+		// One spelling per idea: the aliases of the vocabulary table
+		// (flag_aliases.go).
+		applyVocabularyAliases(c, path)
+
+		// Every shaped read gets the -j shaping flags it is missing
+		// (shaping_traits.go, from commandTraits).
+		applyShapingTraits(c, path)
+	})
 }
 
 func Execute() {
