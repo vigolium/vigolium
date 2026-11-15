@@ -35,10 +35,11 @@ var jsonResultDeferred bool
 
 // heldJSONResult is a result document waiting for the exit code.
 type heldJSONResult struct {
-	// v is the value that was encoded: an *agentEnvelope, or a receipt map.
+	// v is the result: an *agentEnvelope, or a receipt map. Encoded when it
+	// is published.
 	v any
-	// doc is v as encoded when the command wrote it; published as-is when the
-	// outcome is ok.
+	// doc is a budgeted v as the budget measured it (nil otherwise); published
+	// as-is when the outcome is ok.
 	doc []byte
 	// items are the envelope's rows before the output budget cut them, so a
 	// re-encode with the error attached is measured from the full set.
@@ -97,6 +98,12 @@ func finishJSONOutcome(err error, code int, cmd *cobra.Command) (int, error) {
 func publishHeldResult(held *heldJSONResult, err error, code int) error {
 	doc := held.doc
 	var body *agentError
+	if exitIsOK(code) && doc == nil {
+		var encErr error
+		if doc, encErr = encodeAgentJSON(held.v); encErr != nil {
+			return encErr
+		}
+	}
 	if !exitIsOK(code) {
 		b := newAgentErrorBody(err, code)
 		body = &b
@@ -149,7 +156,7 @@ func attachOutcomeError(held *heldJSONResult, body *agentError) ([]byte, error) 
 		}
 		return encodeAgentJSON(v)
 	}
-	return held.doc, nil
+	return encodeAgentJSON(held.v)
 }
 
 // outcomeErrorEnvelope builds the error envelope for an invocation that wrote no

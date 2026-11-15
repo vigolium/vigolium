@@ -178,7 +178,7 @@ func runAgentOlium(cmd *cobra.Command, args []string) error {
 // read from the same state regardless of which entry point is invoked.
 func registerOliumFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
-	f.StringVar(&oliumProvider, "provider", "", oliumProviderFlagUsage+"; default openai-compatible")
+	registerOliumProviderFlag(f, &oliumProvider, oliumProviderFlagUsage+"; default openai-compatible")
 	f.StringVar(&oliumModel, "model", "", "Model id (provider-specific default if empty)")
 	f.StringVar(&oliumOAuthCredPath, "oauth-cred", "", "Path to OAuth/SA credential file (openai-codex-oauth: ~/.codex/auth.json; anthropic-vertex/google-vertex: SA JSON or $GOOGLE_APPLICATION_CREDENTIALS)")
 	f.StringVar(&oliumOAuthToken, "oauth-token", "", "Anthropic OAuth bearer token (anthropic-oauth; falls back to agent.olium.oauth_token or $ANTHROPIC_API_KEY)")

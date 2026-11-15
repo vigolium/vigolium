@@ -288,30 +288,11 @@ func copyEmbeddedDir(targetDir, embedPath string) int {
 	return written
 }
 
-// coreDepCommands lists the command paths (not leaf names: `oast ingest` is not
-// `ingest`) whose first run checks for chromium + nuclei templates and, when
-// either is missing, says so in one stderr line. Nothing is installed here: the
-// spidering and known-issue-scan phases provision what they need when they run
-// (scan.setup).
-// The set deliberately excludes:
-//   - scan-url / scan-request: the direct path neither crawls nor runs nuclei
-//     unless asked, and then the phase provisions lazily like any other scan
-//   - informational commands (version, doctor, config, help, examples, license, log)
-//   - data-management commands (project, scope, source, traffic, finding, db, …)
-//   - the olium TUI and the agent query/olium/audit subcommands (LLM-only, no native scan)
-var coreDepCommands = map[string]bool{
-	"scan":            true,
-	"run":             true,
-	"agent autopilot": true, // uses chromium for spidering
-	"agent swarm":     true, // drives the native scan pipeline
-	"server":          true, // long-running API server that hosts scan endpoints
-	"ingest":          true, // populates the queue feeding scan workers
-}
-
 // needsCoreDeps reports whether the given command should run the first-run
 // chromium + nuclei-templates check.
 func needsCoreDeps(cmd *cobra.Command) bool {
-	return coreDepCommands[commandPathWithoutRoot(cmd)]
+	t, _ := traitOf(cmd)
+	return t.Runtime.has(rtCoreDeps)
 }
 
 // coreDepState is what the first-run check found missing.

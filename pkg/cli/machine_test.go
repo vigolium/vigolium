@@ -63,7 +63,7 @@ func TestEnvelopeObjectItemsBecomeArray(t *testing.T) {
 }
 
 func TestEnvelopeOKAndKind(t *testing.T) {
-	got := marshalEnvelope(t, newMachineEnvelope(findingCmd, kindRead, "", []int{1}, 1, 0, 1))
+	got := marshalEnvelope(t, newMachineEnvelope(findingCmd, "", []int{1}, 1, 0, 1))
 	assert.Equal(t, true, got["ok"])
 	assert.Equal(t, "read", got["kind"])
 	assert.NotContains(t, got, "changed", "a read carries no mutation fields")

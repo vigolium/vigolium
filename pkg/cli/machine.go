@@ -37,42 +37,6 @@ const (
 	kindInteractive machineKind = "interactive"
 )
 
-// machineAnnotation is the cobra annotation key carrying a command's kind. It
-// is applied from the central table by applyMachineKinds.
-const machineAnnotation = "vigolium.io/machine"
-
-// applyMachineKinds stamps every command in the tree with its declared kind
-// from machineKinds. Called from prepareCommandTree, once the tree is complete.
-// A command missing from the table is left unannotated; the contract test
-// fails on it, which is where an undeclared command should be caught.
-func applyMachineKinds(root *cobra.Command) {
-	var walk func(c *cobra.Command)
-	walk = func(c *cobra.Command) {
-		if k, ok := machineKinds[commandPathWithoutRoot(c)]; ok {
-			if c.Annotations == nil {
-				c.Annotations = map[string]string{}
-			}
-			c.Annotations[machineAnnotation] = string(k)
-		}
-		for _, sub := range c.Commands() {
-			walk(sub)
-		}
-	}
-	walk(root)
-}
-
-// machineKindOf returns the declared kind of cmd: the annotation when the tree
-// was prepared, the central table otherwise.
-func machineKindOf(cmd *cobra.Command) machineKind {
-	if cmd == nil {
-		return ""
-	}
-	if k, ok := cmd.Annotations[machineAnnotation]; ok {
-		return machineKind(k)
-	}
-	return machineKinds[commandPathWithoutRoot(cmd)]
-}
-
 // envOpt adjusts an envelope before it is written.
 type envOpt func(*agentEnvelope)
 
@@ -96,21 +60,22 @@ func withQuery(tail ...string) envOpt {
 	return func(e *agentEnvelope) { e.WithQuery(tail...) }
 }
 
-// newMachineEnvelope is newAgentEnvelope with the command name and kind taken
-// from cmd rather than typed by hand. A group whose bare invocation is the
+// newMachineEnvelope is newAgentEnvelope with the command name taken from cmd
+// rather than typed by hand, as a read document; emitMutation (asMutation) and
+// the scan documents set their own kind. A group whose bare invocation is the
 // documented shorthand for a subcommand (`scope` = `scope view`) passes that
 // subcommand: the output is its output, so the document names it and its
 // schema applies.
-func newMachineEnvelope(cmd *cobra.Command, kind machineKind, legacyKey string, items any, total int64, offset, limit int) *agentEnvelope {
+func newMachineEnvelope(cmd *cobra.Command, legacyKey string, items any, total int64, offset, limit int) *agentEnvelope {
 	env := newAgentEnvelope(commandPathWithoutRoot(cmd), legacyKey, items, total, offset, limit)
-	env.Kind = string(kind)
+	env.Kind = string(kindRead)
 	return env
 }
 
 // emitRead writes a row-list result. legacyKey is the pre-envelope name of the
 // row array, rendered only under --json-legacy-keys; "" for none.
 func emitRead(cmd *cobra.Command, legacyKey string, items any, total int64, offset, limit int, opts ...envOpt) error {
-	env := newMachineEnvelope(cmd, kindRead, legacyKey, items, total, offset, limit)
+	env := newMachineEnvelope(cmd, legacyKey, items, total, offset, limit)
 	return writeAgentJSON(applyEnvOpts(env, opts))
 }
 
@@ -118,7 +83,7 @@ func emitRead(cmd *cobra.Command, legacyKey string, items any, total int64, offs
 // --json-legacy-keys a named legacyKey renders the object under that name, and
 // "." flattens its keys to the top level (the bare-object shape it replaces).
 func emitObject(cmd *cobra.Command, legacyKey string, obj any, opts ...envOpt) error {
-	env := newMachineEnvelope(cmd, kindRead, legacyKey, []any{obj}, 1, 0, 1)
+	env := newMachineEnvelope(cmd, legacyKey, []any{obj}, 1, 0, 1)
 	env.objectResult = true
 	return writeAgentJSON(applyEnvOpts(env, opts))
 }
@@ -144,7 +109,7 @@ type mutationResult struct {
 func emitMutation(cmd *cobra.Command, legacyKey string, r mutationResult, opts ...envOpt) error {
 	items, object := normalizeEnvelopeItems(r.Items)
 	n := reflect.ValueOf(items).Len()
-	env := newMachineEnvelope(cmd, kindMutation, legacyKey, items, int64(n), 0, n)
+	env := newMachineEnvelope(cmd, legacyKey, items, int64(n), 0, n)
 	env.objectResult = object
 	env.asMutation(r.Changed, r.Action, r.DryRun)
 	for _, k := range sortedExtraKeys(r.Extra) {
@@ -215,7 +180,7 @@ func structFields(v any) (map[string]any, error) {
 // alias "." flattens it back to the top level.
 func envelopeFromStruct(cmd *cobra.Command, v any, rowsField string) (*agentEnvelope, error) {
 	if rowsField == "" {
-		env := newMachineEnvelope(cmd, kindRead, ".", []any{v}, 1, 0, 1)
+		env := newMachineEnvelope(cmd, ".", []any{v}, 1, 0, 1)
 		env.objectResult = true
 		return env, nil
 	}
@@ -234,7 +199,7 @@ func envelopeFromStruct(cmd *cobra.Command, v any, rowsField string) (*agentEnve
 		}
 	}
 	delete(fields, rowsField)
-	env := newMachineEnvelope(cmd, kindRead, rowsField, rows, int64(len(rows)), 0, len(rows))
+	env := newMachineEnvelope(cmd, rowsField, rows, int64(len(rows)), 0, len(rows))
 	for k, val := range fields {
 		env.With(k, val)
 	}

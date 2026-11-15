@@ -360,7 +360,7 @@ func emitReplayDryRun(cmd *cobra.Command, src *replaySource, overlay map[string]
 	}
 	if globalJSON {
 		v.Request, v.URL = redactRaw(jsonRedactOn, v.Request), redactURL(jsonRedactOn, v.URL)
-		env := newMachineEnvelope(cmd, kindRead, "", []replayDryRunView{v}, 1, 0, 1)
+		env := newMachineEnvelope(cmd, "", []replayDryRunView{v}, 1, 0, 1)
 		env.objectResult = true
 		env.DryRun = true
 		return writeAgentJSON(env)

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/dnsresolve"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -59,10 +58,7 @@ func init() {
 
 // dnsShaping is dns' --fields vocabulary (one answer's keys); --compact drops
 // the per-record list.
-var dnsShaping = rowShaping{
-	supported:   contract.JSONFieldNames(dnsresolve.Answer{}),
-	compactDrop: []string{"records", "resolver"},
-}
+var dnsShaping = rowShaping{path: "dns"}
 
 // dnsNames collects the names to resolve, hostnames only, deduplicated in order.
 func dnsNames(args []string) ([]string, error) {

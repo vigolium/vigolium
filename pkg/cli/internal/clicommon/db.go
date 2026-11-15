@@ -29,8 +29,7 @@ var (
 // OpenPolicy is how the running command may open the shared database. The CLI
 // sets Policy from it in PersistentPreRunE, before anything can open one.
 type OpenPolicy struct {
-	// Intent is the command's declared intent (the vigolium.io/db-intent
-	// annotation).
+	// Intent is the command's declared intent (the CLI's commandTraits).
 	Intent OpenIntent
 	// ReadOnly (--read-only) forces IntentEvidence for the whole process: the
 	// command must not modify its source.

@@ -25,7 +25,7 @@ func docClaimSources(t *testing.T) map[string]string {
 	if data, err := os.ReadFile("../../docs/coding-agent.md"); err == nil {
 		out["docs/coding-agent.md"] = string(data)
 	}
-	walkCommandTree(rootCmd, func(c *cobra.Command) {
+	walkTree(rootCmd, func(c *cobra.Command) {
 		out[c.CommandPath()+" (help)"] = terminal.StripANSI(c.Long + "\n" + c.Example)
 	})
 	var tour strings.Builder

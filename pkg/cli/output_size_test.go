@@ -95,8 +95,8 @@ func TestScanStatusCompactDropsPlan(t *testing.T) {
 
 	t.Cleanup(func() { jsonCompact, activeShaping = false, nil })
 	jsonCompact = true
-	activeShaping = &genericShaping{path: "scan status", ops: []string{shapeOpFields, shapeOpCompact}}
-	env := newMachineEnvelope(c, kindRead, ".", []any{scanStatusView{ScanUUID: "u", Status: "running"}}, 1, 0, 1)
+	activeShaping = &genericShaping{ops: []string{shapeOpFields, shapeOpCompact}}
+	env := newMachineEnvelope(c, ".", []any{scanStatusView{ScanUUID: "u", Status: "running"}}, 1, 0, 1)
 	env.objectResult = true
 	require.NoError(t, applyGenericShaping(env))
 	rows := env.Items.([]map[string]any)
@@ -184,6 +184,15 @@ func TestOutputBudgetSendingCommandHasNoNextOffset(t *testing.T) {
 	requireBudgetApplied(t, read, 600)
 	_, parsed = decodeBudgeted(t, read)
 	require.Contains(t, parsed[outputBudgetKey], "next_offset")
+
+	// An unpaged read has no --offset to follow either; its full_result says
+	// why, in the words its Shape declares.
+	unpaged := newAgentEnvelope("dns", "", budgetItems(10, 64), 10, 0, 10)
+	requireBudgetApplied(t, unpaged, 600)
+	_, parsed = decodeBudgeted(t, unpaged)
+	report = parsed[outputBudgetKey].(map[string]any)
+	require.NotContains(t, report, "next_offset")
+	require.Contains(t, report["full_result"], commandTraits["dns"].Shape.Reason)
 }
 
 // replay rows carry the replayed status and length at the top level.
@@ -196,7 +205,7 @@ func TestReplayOutputTopLevelStatusAndLength(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &m))
 	require.EqualValues(t, 404, m["status_code"])
 	require.EqualValues(t, 12, m["response_content_length"])
-	require.NoError(t, validateFieldSelection([]string{"status", "length"}, replayShaping.supported))
+	require.NoError(t, validateFieldSelection([]string{"status", "length"}, replayShaping.shape().Vocab))
 }
 
 // fuzz -j lists at most -n results (default 20); --all-results lists every

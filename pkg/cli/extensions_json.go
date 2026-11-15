@@ -107,7 +107,7 @@ func emitExtensionsJSON(cmd *cobra.Command, opts *extensionOptions, filter strin
 		}
 	}
 
-	env := newMachineEnvelope(cmd, kindRead, "extensions", views, int64(len(views)), 0, len(views))
+	env := newMachineEnvelope(cmd, "extensions", views, int64(len(views)), 0, len(views))
 	// The state that made the prose line necessary, as a field a caller can
 	// branch on instead of a sentence it has to match.
 	env.With("extensions_enabled", enabled)

@@ -79,8 +79,9 @@ func incompleteErrorf(code apicontract.ErrorCode, format string, args ...any) er
 // distinguishing "found something" from "broke" reads exit 4 vs exit 1.
 type gateError struct{ err error }
 
-func (g gateError) Error() string { return g.err.Error() }
-func (g gateError) Unwrap() error { return g.err }
+func (g gateError) Error() string               { return g.err.Error() }
+func (g gateError) Unwrap() error               { return g.err }
+func (g gateError) Code() apicontract.ErrorCode { return apicontract.CodeGateTripped }
 
 // matchError marks a --fail-on-match / --fail-on-crack hit. Like gateError it is
 // a completed result, not a failure: the work ran, its output was written, and
@@ -187,14 +188,16 @@ func isExportFailure(err error) bool {
 	return errors.As(err, &coded) && isExportFailureCode(coded.Code())
 }
 
-// classifyExitCode maps a command's error to its exit code.
+// classifyExitCode maps a command's error to its exit code. The typed errors
+// are tried in precedence order; each one's code decides the status
+// (apicontract.ErrorCode.Exit).
 func classifyExitCode(err error) int {
 	if err == nil {
 		return ExitSuccess
 	}
 	var gate gateError
 	if errors.As(err, &gate) {
-		return ExitFailOnGate
+		return gate.Code().Exit()
 	}
 	var match matchError
 	if errors.As(err, &match) {
@@ -202,7 +205,7 @@ func classifyExitCode(err error) int {
 	}
 	var incomplete incompleteError
 	if errors.As(err, &incomplete) {
-		return ExitIncomplete
+		return incomplete.Code().Exit()
 	}
 	var usage usageError
 	if errors.As(err, &usage) {
@@ -210,12 +213,7 @@ func classifyExitCode(err error) int {
 	}
 	var cli clicommon.CLIError
 	if errors.As(err, &cli) {
-		// A refused send is a usage error with its own code: nothing was sent
-		// and the fix is a flag (--ignore-scope) or the scope.
-		if cli.IsUsage() || cli.ErrorCode() == apicontract.CodeOutOfScope {
-			return ExitUsageError
-		}
-		return ExitError
+		return cli.ErrorCode().Exit()
 	}
 	// A refused non-interactive confirmation is a misuse of the command line,
 	// not a failure of the work: nothing ran, nothing changed, and the fix is to

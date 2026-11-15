@@ -21,7 +21,6 @@ import (
 	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
 	"github.com/vigolium/vigolium/pkg/cli/tui"
-	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/terminal"
@@ -104,11 +103,7 @@ func init() {
 
 // logLsShaping is log ls' --fields vocabulary; --compact drops the liveness
 // detail and the log path.
-var logLsShaping = rowShaping{
-	supported:   contract.JSONFieldNames(logRowView{}),
-	compactDrop: []string{"liveness_sources", "log_path", "log_size", "has_log"},
-	defaultTSV:  []string{"kind", "uuid", "effective_status", "target", "created_at"},
-}
+var logLsShaping = rowShaping{path: "log ls", defaultTSV: []string{"kind", "uuid", "effective_status", "target", "created_at"}}
 
 // logLsExtras are the top-level keys `log ls -j --reap` adds.
 type logLsExtras struct {
@@ -311,7 +306,7 @@ func runLogLs(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		env := newMachineEnvelope(cmd, kindRead, "rows", items, int64(len(out)), inMemoryOffset, len(page))
+		env := newMachineEnvelope(cmd, "rows", items, int64(len(out)), inMemoryOffset, len(page))
 		env.DBPath = resolvedReadDBPath()
 		if extras != nil {
 			if extras.Reaped == nil {

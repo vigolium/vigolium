@@ -165,7 +165,7 @@ func init() {
 	f.StringVar(&autopilotRecordUUID, "record-uuid", "", "Use an HTTP record from the database as the seed input (UUID or unique 8+ char prefix)")
 	registerBridgeURLFlag(agentAutopilotCmd, &autopilotBurpBridgeURL, "Pull live Burp/Caido proxy history into the project DB before the run (e.g. http://127.0.0.1:9009), so the pre-scan and operator can mine it alongside prior traffic. Also honors $VIGOLIUM_BURP_BRIDGE_URL")
 	f.StringVar(&autopilotPriorContext, "prior-context", "auto", "Front-load a bounded summary of the traffic + findings already in the project DB so the operator mines them instead of starting from scratch: auto (default; the bounded table when prior data exists), summary (one-line pointer), off")
-	f.StringVar(&autopilotOliumProvider, "provider", "", oliumProviderFlagUsage)
+	registerOliumProviderFlag(f, &autopilotOliumProvider, oliumProviderFlagUsage)
 	f.StringVar(&autopilotOliumModel, "model", "", "Olium model id override (falls back to agent.olium.model)")
 	f.StringVar(&autopilotSystemPrompt, "system-prompt", "", "Replace the built-in autopilot system prompt with this value (full replace; browser section is not auto-appended)")
 	f.StringVar(&autopilotSystemPromptFile, "system-prompt-file", "", "Path to a file whose contents replace the built-in autopilot system prompt (takes precedence over --system-prompt)")

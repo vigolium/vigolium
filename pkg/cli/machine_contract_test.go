@@ -76,7 +76,7 @@ func TestMachineContractCobraTree(t *testing.T) {
 	root := preparedMachineTree(t)
 
 	runnable := map[string]*cobra.Command{}
-	walkCommandTree(root, func(c *cobra.Command) {
+	walkTree(root, func(c *cobra.Command) {
 		if c.Runnable() {
 			runnable[commandPathWithoutRoot(c)] = c
 		}
@@ -87,7 +87,8 @@ func TestMachineContractCobraTree(t *testing.T) {
 
 	for _, path := range sortedMapKeys(runnable) {
 		c := runnable[path]
-		kind, ok := c.Annotations[machineAnnotation]
+		t0, ok := commandTraits[path]
+		kind := t0.Kind
 		if !ok {
 			t.Errorf("%q declares no machine kind: add it to commandTraits (command_traits.go)", path)
 			continue
@@ -128,9 +129,9 @@ func TestMachineContractCobraTree(t *testing.T) {
 
 	// The table and the ratchet name real commands only: a stale entry is a
 	// declaration nobody checks.
-	for path := range machineKinds {
+	for path := range commandTraits {
 		if _, ok := runnable[path]; !ok {
-			t.Errorf("machineKinds declares %q, which is not a runnable command", path)
+			t.Errorf("commandTraits declares %q, which is not a runnable command", path)
 		}
 	}
 	for path := range knownNonConforming {
@@ -139,8 +140,8 @@ func TestMachineContractCobraTree(t *testing.T) {
 		}
 	}
 	for path := range interactiveAllowed {
-		if machineKinds[path] != kindInteractive {
-			t.Errorf("interactiveAllowed lists %q, but machineKinds declares it %q", path, machineKinds[path])
+		if commandTraits[path].Kind != kindInteractive {
+			t.Errorf("interactiveAllowed lists %q, but commandTraits declares it %q", path, commandTraits[path].Kind)
 		}
 	}
 

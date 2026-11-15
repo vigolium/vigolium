@@ -374,6 +374,10 @@ func init() {
 	// FlagErrorFunc()'s walk to the parent.
 	rootCmd.SetFlagErrorFunc(flagErrorFunc)
 
+	// The root rejects an unknown subcommand itself (enforceGroupSubcommands);
+	// keep cobra's own suggestion distance for it.
+	rootCmd.SuggestionsMinimumDistance = 2
+
 	pf := rootCmd.PersistentFlags()
 	registerReadOnlyFlag(rootCmd)
 	registerJSONLegacyKeysFlag(rootCmd)
@@ -414,25 +418,12 @@ func init() {
 	pf.StringVar(&globalProjectName, "project-name", "", "Project name to scope all operations to (must match exactly one project). Also honors $VIGOLIUM_PROJECT_NAME")
 }
 
-// memLimitCommands are the command paths (not leaf names: `extensions run` is
-// not `run`) that drive a native scan and so get an auto soft heap ceiling. The
-// long-running server and the ingest proxy are intentionally excluded — they
-// manage their own concurrency and lifetime.
-var memLimitCommands = map[string]bool{
-	"scan":            true,
-	"scan-url":        true,
-	"scan-request":    true,
-	"run":             true,
-	"agent autopilot": true,
-	"agent swarm":     true,
-}
-
 // applyScanMemLimit derives and applies the GOMEMLIMIT soft ceiling for a
 // scan-driving command, logging a one-line note unless output is suppressed. A
 // no-op for other commands and for child processes that already inherited a
 // GOMEMLIMIT from the -P parent.
 func applyScanMemLimit(cmd *cobra.Command) {
-	if !memLimitCommands[commandPathWithoutRoot(cmd)] {
+	if t, _ := traitOf(cmd); !t.Runtime.has(rtMemLimit) {
 		return
 	}
 	res := memlimit.Apply(memlimit.Options{
@@ -450,41 +441,38 @@ func applyScanMemLimit(cmd *cobra.Command) {
 // inspect or parse against the tree share it, so a test sees exactly the flags
 // and help text the binary has. Safe to call more than once.
 func prepareCommandTree(root *cobra.Command) {
-	// Give every command that lacks one a local -S/--stateless, so the letter
-	// means one thing across the whole surface. Done here rather than in init:
-	// it walks the finished command tree, and every subcommand must already be
-	// registered for the walk to reach it.
-	addStatelessShorthand(root)
-
 	// kit's subcommands register from their own files' init(), after kit.go's,
 	// so its summary can only be derived once the tree is complete.
 	deriveKitShort()
 
-	// Stamp each command's declared -j output kind from the central table
-	// (command_traits.go); machine_contract_test.go checks the result.
-	applyMachineKinds(root)
+	// One walk; each hook only touches the node it is given (and, for the
+	// aliases, the normaliser its subtree inherits), so the order between
+	// nodes does not matter, only the order of the hooks on one node.
+	walkTree(root, func(c *cobra.Command) {
+		path := commandPathWithoutRoot(c)
 
-	// Stamp each command's declared database intent (db_intent.go): read
-	// commands open the query_only pool, never the write lock.
-	applyDBIntentAnnotations(root)
+		// Every command that lacks one gets a local -S/--stateless, so the
+		// letter means one thing across the whole surface (stateless_flag.go).
+		addStatelessShorthandTo(c)
 
-	// A group answers an unknown subcommand with a usage error, and every
-	// positional-argument error exits 2 (command_tree_hooks.go). The group hook
-	// runs first so its validators are wrapped too.
-	enforceGroupSubcommands(root)
-	wrapArgsValidators(root)
+		// A group answers an unknown subcommand with a usage error, and every
+		// positional-argument error exits 2 (command_tree_hooks.go). The group
+		// hook runs first so its validators are wrapped too.
+		enforceGroupSubcommand(c)
+		wrapArgsValidator(c)
 
-	// Flags with a closed value set reject a typo while flags parse
-	// (enum_flags.go).
-	applyClosedValueFlags(root)
+		// Flags with a closed value set reject a typo while flags parse
+		// (enum_flags.go).
+		applyClosedValueFlags(c, path)
 
-	// One spelling per idea: the aliases of the vocabulary table
-	// (flag_aliases.go).
-	applyVocabularyAliases(root)
+		// One spelling per idea: the aliases of the vocabulary table
+		// (flag_aliases.go).
+		applyVocabularyAliases(c, path)
 
-	// Every shaped read gets the -j shaping flags it is missing
-	// (shaping_traits.go, from commandTraits).
-	applyShapingTraits(root)
+		// Every shaped read gets the -j shaping flags it is missing
+		// (shaping_traits.go, from commandTraits).
+		applyShapingTraits(c, path)
+	})
 }
 
 func Execute() {
@@ -557,13 +545,11 @@ func Execute() {
 		// `traffic --json --bad` does. See presentation_mode.go.
 		resolvePresentationMode(argsForPresentationRecovery())
 
-		err = structureUnknownCommand(cmd, err)
 		code := classifyExitCode(err)
-		// A flag-parse failure never reaches a RunE, so it cannot be wrapped as a
-		// usageError at its source; cobra surfaces it as a plain error from
-		// ExecuteC with the command still unresolved. Recognising it here is what
-		// keeps "unknown flag" at 2 instead of collapsing into the generic 1.
-		if code == ExitError && isFlagParseError(err) {
+		// Flag-parse errors are usage errors from flagErrorFunc, and argument
+		// errors from wrapArgsValidators; cobra's missing-required-flag check
+		// is the one plain error left.
+		if code == ExitError && isRequiredFlagError(err) {
 			code = ExitUsageError
 		}
 
@@ -609,27 +595,10 @@ func releaseScratch() {
 	scratch.SweepOnce(scratch.DefaultMaxAge)
 }
 
-// isFlagParseError recognises the errors cobra/pflag raise for a malformed
-// command line. Matched on message prefix because pflag returns bare
-// fmt.Errorf values with no sentinel to compare against; the set is small and
-// stable, and a miss only means the old exit code (1), never a wrong success.
-func isFlagParseError(err error) bool {
-	msg := err.Error()
-	for _, prefix := range []string{
-		"unknown flag",
-		"unknown shorthand flag",
-		"unknown command",
-		"invalid argument",
-		"flag needs an argument",
-		"bad flag syntax",
-		"accepts ",
-		"required flag",
-	} {
-		if strings.HasPrefix(msg, prefix) {
-			return true
-		}
-	}
-	return false
+// isRequiredFlagError recognises cobra's missing-required-flag error, a bare
+// fmt.Errorf raised outside flag parsing (so flagErrorFunc never sees it).
+func isRequiredFlagError(err error) bool {
+	return strings.HasPrefix(err.Error(), "required flag")
 }
 
 // resolveModules resolves globalModules patterns and globalModuleTags into exact
@@ -747,15 +716,6 @@ func discoveredConfigFatal(cmd *cobra.Command) bool {
 	return !strings.HasPrefix(cmd.Name(), "__complete")
 }
 
-// statelessHomeCommands are the scan-driving command paths on which -S means
-// "write nothing to $HOME" (the read commands' -S only switches the store).
-var statelessHomeCommands = map[string]bool{
-	"scan":         true,
-	"run":          true,
-	"scan-url":     true,
-	"scan-request": true,
-}
-
 // applyStatelessHome enables the stateless home (internal/paths) for a -S
 // scan, rooted in this process's scratch directory.
 func applyStatelessHome(cmd *cobra.Command) error {
@@ -767,7 +727,7 @@ func applyStatelessHome(cmd *cobra.Command) error {
 	for top.Parent() != nil && top.Parent() != cmd.Root() {
 		top = top.Parent()
 	}
-	if !statelessHomeCommands[top.Name()] {
+	if t, _ := traitOf(top); !t.Runtime.has(rtStatelessHome) {
 		return nil
 	}
 	dir, err := scratch.MkdirTemp("stateless-home-*")

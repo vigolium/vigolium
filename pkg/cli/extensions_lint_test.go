@@ -96,7 +96,10 @@ func TestExtLint_JSONDocument(t *testing.T) {
 	writeTestFileAt(t, dir, "err.js", extLintErrJS)
 	writeTestFileAt(t, dir, "typo.vgm.yaml", "id: t\ntype: passive\nmatcher:\n  - contains: x\n")
 
-	out, err := runExtLint(t, dir)
+	var err error
+	out := captureStdout(t, func() {
+		err = runAsExecute(extensionsLintCmd, func() error { return runExtensionsLint(extensionsLintCmd, []string{dir}) })
+	})
 	require.Error(t, err)
 	docs := decodeStdoutDocuments(t, out)
 	require.Len(t, docs, 1, out)

@@ -55,7 +55,7 @@ func init() {
 // result carries the same schema_version/items/generated_at spine as every other
 // machine payload instead of a second shape invented in that package.
 func writeConfigEnvelope(cmd *cobra.Command, legacyKey string, items any, total int, extra map[string]any) error {
-	env := newMachineEnvelope(cmd, kindRead, legacyKey, items, int64(total), 0, total)
+	env := newMachineEnvelope(cmd, legacyKey, items, int64(total), 0, total)
 	for k, v := range extra {
 		env.With(k, v)
 	}

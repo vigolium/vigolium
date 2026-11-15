@@ -191,7 +191,9 @@ func TestSessionCheck_JSONFailureCarriesCode(t *testing.T) {
 	var err error
 	var stdout string
 	_ = captureStderr(t, func() {
-		stdout = captureStdout(t, func() { err = runSessionCheck(sessionCheckCmd, []string{file}) })
+		stdout = captureStdout(t, func() {
+			err = runAsExecute(sessionCheckCmd, func() error { return runSessionCheck(sessionCheckCmd, []string{file}) })
+		})
 	})
 	require.Error(t, err)
 	doc := decodeStdoutDocuments(t, stdout)[0]

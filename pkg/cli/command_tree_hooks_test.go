@@ -148,14 +148,14 @@ var requiredEnumFlags = []string{
 	"agent query --provider", "agent autopilot --provider",
 }
 
-// cobra's root-level unknown command becomes the structured error: the fact as
-// message, the suggestion as did_you_mean.
-func TestStructureUnknownCommand(t *testing.T) {
+// An unknown word at the root is the structured error: the fact as message,
+// the suggestion as did_you_mean.
+func TestRootUnknownCommand(t *testing.T) {
 	root := preparedMachineTree(t)
-	_, _, err := root.Find([]string{"scna"})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Did you mean this?")
-	out := structureUnknownCommand(root, err)
+	cmd, rest, err := root.Find([]string{"scna"})
+	require.NoError(t, err)
+	require.Same(t, root, cmd)
+	out := cmd.ValidateArgs(rest)
 	var cli clicommon.CLIError
 	require.True(t, errors.As(out, &cli))
 	require.Equal(t, `unknown command "scna" for "vigolium"`, cli.Fact())

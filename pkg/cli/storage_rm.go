@@ -74,9 +74,6 @@ func runStorageRm(cmd *cobra.Command, args []string) error {
 			action = "noop"
 		}
 		opts := []envOpt{withProjectScope(projectUUID)}
-		if failErr != nil {
-			opts = append(opts, withResultFailure(failErr))
-		}
 		if err := emitMutation(cmd, "", mutationResult{
 			Changed: removed > 0,
 			Action:  action,

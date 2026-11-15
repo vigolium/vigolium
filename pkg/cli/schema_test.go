@@ -100,7 +100,7 @@ func TestSchemaGolden(t *testing.T) {
 func TestSchemaRegisteredCommandsAreRealCommands(t *testing.T) {
 	root := preparedMachineTree(t)
 	runnable := map[string]bool{}
-	walkCommandTree(root, func(c *cobra.Command) {
+	walkTree(root, func(c *cobra.Command) {
 		if c.Runnable() {
 			runnable[commandPathWithoutRoot(c)] = true
 		}
@@ -108,7 +108,7 @@ func TestSchemaRegisteredCommandsAreRealCommands(t *testing.T) {
 	for _, name := range contract.CommandNames() {
 		require.True(t, runnable[name], "registered schema %q is not a runnable command", name)
 		c, _ := contract.LookupCommand(name)
-		require.Equal(t, envelopeKindForDeclared(machineKinds[name]), c.Kind, name)
+		require.Equal(t, envelopeKindForDeclared(commandTraits[name].Kind), c.Kind, name)
 		_, err := contract.CommandSchema(name)
 		require.NoError(t, err, name)
 	}
@@ -190,7 +190,7 @@ func TestFindingViewMirror(t *testing.T) {
 		}
 	}
 
-	env := newMachineEnvelope(findingCmd, kindRead, "findings", views, 2, 0, 2)
+	env := newMachineEnvelope(findingCmd, "findings", views, 2, 0, 2)
 	env.WithProjectScope("p1")
 	raw, err := jsonMarshalNoEscape(env)
 	require.NoError(t, err)
@@ -200,7 +200,7 @@ func TestFindingViewMirror(t *testing.T) {
 	for k := range recViews[0] {
 		require.Contains(t, contract.JSONFieldNames(recordViewSchema{}), k)
 	}
-	env = newMachineEnvelope(trafficCmd, kindRead, "records", recViews, 1, 0, 1)
+	env = newMachineEnvelope(trafficCmd, "records", recViews, 1, 0, 1)
 	raw, err = jsonMarshalNoEscape(env)
 	require.NoError(t, err)
 	contracttest.Validate(t, "traffic", raw)
@@ -393,12 +393,12 @@ const schemaPendingCeiling = 60
 // a registered schema or a reason in schemaPending, never both.
 func TestSchemaCoverageRatchet(t *testing.T) {
 	root := preparedMachineTree(t)
-	walkCommandTree(root, func(c *cobra.Command) {
+	walkTree(root, func(c *cobra.Command) {
 		if !c.Runnable() {
 			return
 		}
 		path := commandPathWithoutRoot(c)
-		if machineKindOf(c) == kindInteractive || isInteractiveAllowed(path) {
+		if commandTraits[path].Kind == kindInteractive || isInteractiveAllowed(path) {
 			return
 		}
 		_, registered := contract.LookupCommand(path)
@@ -412,7 +412,7 @@ func TestSchemaCoverageRatchet(t *testing.T) {
 		}
 	})
 	for path := range schemaPending {
-		if _, ok := machineKinds[path]; !ok {
+		if _, ok := commandTraits[path]; !ok {
 			t.Errorf("schemaPending lists %q, which is not a command", path)
 		}
 	}

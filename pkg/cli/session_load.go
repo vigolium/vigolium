@@ -182,7 +182,7 @@ func runSessionLoad(cmd *cobra.Command, args []string) error {
 	}
 
 	if globalJSON {
-		if err := emitSessionLoad(cmd, results, persisted, failed, failErr); err != nil {
+		if err := emitSessionLoad(cmd, results, persisted, failed); err != nil {
 			return err
 		}
 	}
@@ -257,17 +257,13 @@ func loginFailedError(failed []string, results []authentication.LoginResult) err
 
 // emitSessionLoad writes the -j document: the mutation envelope with one
 // LoginResult per session, plus the names saved and the names that failed.
-// When a login failed the document also carries ok:false and the coded error
-// (the error envelope is not printed after a result document), so the caller
-// gets both the per-session detail and the code it branches on.
-func emitSessionLoad(cmd *cobra.Command, results []authentication.LoginResult, persisted, failed []string, failErr error) error {
+// When a login failed the caller returns the coded error afterwards, which
+// makes the held document ok:false with that error (json_outcome.go), so the
+// caller gets both the per-session detail and the code it branches on.
+func emitSessionLoad(cmd *cobra.Command, results []authentication.LoginResult, persisted, failed []string) error {
 	action := "load"
 	if len(persisted) == 0 {
 		action = "noop"
-	}
-	opts := []envOpt{}
-	if failErr != nil {
-		opts = append(opts, withResultFailure(failErr))
 	}
 	return emitMutation(cmd, "", mutationResult{
 		Changed: len(persisted) > 0,
@@ -278,22 +274,7 @@ func emitSessionLoad(cmd *cobra.Command, results []authentication.LoginResult, p
 			"persisted": nonNilStrings(persisted),
 			"failed":    nonNilStrings(failed),
 		},
-	}, opts...)
-}
-
-// withResultFailure turns a result document into a failed one: ok:false and
-// the same `error` object the error envelope carries ({code, message,
-// exit_code}). For a command whose failure has per-item detail worth keeping
-// (which logins failed, which lint issues) — one document, one parse.
-func withResultFailure(err error) envOpt {
-	return func(e *agentEnvelope) {
-		e.OK = false
-		e.Error = &agentError{
-			Code:     classifyErrorCode(err, ExitError),
-			Message:  err.Error(),
-			ExitCode: ExitError,
-		}
-	}
+	})
 }
 
 func nonNilStrings(s []string) []string {
@@ -359,7 +340,7 @@ func runSessionLoadRawRequest(cmd *cobra.Command, data []byte, w io.Writer) erro
 		res.Reason, res.Message, res.Err = reason, err.Error(), err
 		failErr := codedErrorf(apicontract.CodeLoginFailed, "auto-discovery failed: %v", err)
 		if globalJSON {
-			if emitErr := emitSessionLoad(cmd, []authentication.LoginResult{res}, nil, []string{name}, failErr); emitErr != nil {
+			if emitErr := emitSessionLoad(cmd, []authentication.LoginResult{res}, nil, []string{name}); emitErr != nil {
 				return emitErr
 			}
 		}
@@ -427,7 +408,7 @@ func runSessionLoadRawRequest(cmd *cobra.Command, data []byte, w io.Writer) erro
 		res.Session = sess.Name
 		res.OK, res.Verified, res.Status = true, true, result.StatusCode
 		res.ExtractedHeaders = sortedHeaderNames(sess.Headers)
-		return emitSessionLoad(cmd, []authentication.LoginResult{res}, []string{sess.Name}, nil, nil)
+		return emitSessionLoad(cmd, []authentication.LoginResult{res}, []string{sess.Name}, nil)
 	}
 	return nil
 }

@@ -27,21 +27,10 @@ var globalReadOnly bool
 // ("ignore project boundaries in this file") and never implied immutability
 // despite reading like it might.
 
-// readOnlyCapableCommands are the read surfaces where --read-only is meaningful,
-// as exact cobra command paths.
-//
-// Exact, not prefix: CommandPath() renders the canonical name, so "db ls" could
-// never have matched (the path is always "db list"), while prefix matching
-// admitted "finding load", which imports findings INTO the database — the one
-// thing this flag exists to prevent. Subcommands that are genuinely read-only
-// are listed individually.
-var readOnlyCapableCommands = []string{
-	"finding", "traffic", "traffic body", "traffic headers", "endpoints", "params",
-	"db list", "db stats", "db export",
-	"log", "log ls", "export", "replay", "fuzz", "scan diff", "schema storage", "hosts",
-	"match-not-found",
-	"scan ls", "status", "finding show",
-}
+// The commands that accept --read-only are the ones commandTraits marks
+// ReadOnly, by exact cobra path: "finding load" imports findings INTO the
+// database, the one thing this flag exists to prevent, so a group's row never
+// covers its subcommands.
 
 // registerReadOnlyFlag adds the persistent --read-only flag to the root command.
 func registerReadOnlyFlag(cmd *cobra.Command) {
@@ -53,18 +42,17 @@ func registerReadOnlyFlag(cmd *cobra.Command) {
 // accepted, arms the shared opener before any database is opened.
 //
 // It also arms the opener with the command's declared database intent
-// (db_intent.go): both decide how the one shared connection is opened, and
+// (resolveDBIntent): both decide how the one shared connection is opened, and
 // both must be settled before anything opens it.
 func applyReadOnlyMode(cmd *cobra.Command) error {
 	applyDBIntent(cmd)
 	if !globalReadOnly {
 		return nil
 	}
-	path := commandPathWithoutRoot(cmd)
-	if !isReadOnlyCapable(path) {
+	if t, _ := traitOf(cmd); !t.ReadOnly {
 		return usageErrorf(
 			"--read-only is not supported on %q: it is a read-command guarantee, and this command writes.\n\nsupported: %s",
-			path, strings.Join(readOnlyCapableCommands, ", "))
+			commandPathWithoutRoot(cmd), strings.Join(readOnlyCapableCommands(), ", "))
 	}
 	// A command is not a reader or a writer — an INVOCATION is. These flags turn
 	// an admitted read command into one that writes, and would otherwise be
@@ -90,6 +78,14 @@ func commandPathWithoutRoot(cmd *cobra.Command) string {
 	return strings.TrimSpace(strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()))
 }
 
-func isReadOnlyCapable(path string) bool {
-	return slices.Contains(readOnlyCapableCommands, path)
+// readOnlyCapableCommands lists the commands that accept --read-only, sorted.
+func readOnlyCapableCommands() []string {
+	var out []string
+	for path, t := range commandTraits {
+		if t.ReadOnly {
+			out = append(out, path)
+		}
+	}
+	slices.Sort(out)
+	return out
 }

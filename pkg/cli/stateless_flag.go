@@ -117,10 +117,12 @@ const statelessShorthandFlag = "stateless-shorthand"
 // elsewhere it is a documented no-op. Both beat "unknown shorthand flag", which
 // exits non-zero with no output — a control that looks live and can only ever
 // report nothing. Idempotent: a second walk finds the letter taken everywhere.
-func addStatelessShorthand(c *cobra.Command) {
-	for _, sub := range c.Commands() {
-		addStatelessShorthand(sub)
-	}
+func addStatelessShorthand(root *cobra.Command) {
+	walkTree(root, addStatelessShorthandTo)
+}
+
+// addStatelessShorthandTo is addStatelessShorthand for one command.
+func addStatelessShorthandTo(c *cobra.Command) {
 	if shorthandTaken(c, "S") {
 		return
 	}

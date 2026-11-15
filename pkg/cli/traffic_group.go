@@ -93,7 +93,7 @@ func runTrafficGroupBy(ctx context.Context, cmd *cobra.Command, db *database.DB,
 // dividing one by the other is asking a real question and must not be handed two
 // different denominators under one name.
 func emitTrafficGroupJSON(cmd *cobra.Command, g database.RecordGrouping, projectUUID string) error {
-	env := newMachineEnvelope(cmd, kindRead, "", g.Groups, g.DistinctGroups, 0, trafficGroupLimit)
+	env := newMachineEnvelope(cmd, "", g.Groups, g.DistinctGroups, 0, trafficGroupLimit)
 	env.WithProjectScope(projectUUID)
 	env.DBPath = resolvedReadDBPath()
 	env.With("group_by", g.Field).

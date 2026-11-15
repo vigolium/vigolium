@@ -234,7 +234,7 @@ func runListTables(ctx context.Context, cmd *cobra.Command, db *database.DB) err
 	// anything about the store, so it emitting ANSI-colored text on stdout under
 	// -j was the worst possible exception to the machine contract.
 	if globalJSON || readTSV {
-		env := newMachineEnvelope(cmd, kindRead, "rows", tables, int64(len(tables)), 0, len(tables))
+		env := newMachineEnvelope(cmd, "rows", tables, int64(len(tables)), 0, len(tables))
 		env.DBPath = resolvedReadDBPath()
 		if t := preferredTable(tables); t != "" {
 			env.WithQuery("db", "ls", t, "--json")
@@ -261,7 +261,7 @@ func runListColumns(ctx context.Context, cmd *cobra.Command, db *database.DB, ta
 	}
 
 	if globalJSON || readTSV {
-		env := newMachineEnvelope(cmd, kindRead, "rows", columns, int64(len(columns)), 0, len(columns))
+		env := newMachineEnvelope(cmd, "rows", columns, int64(len(columns)), 0, len(columns))
 		env.DBPath = resolvedReadDBPath()
 		env.With("table", tableName)
 		return writeAgentJSON(env)
@@ -405,7 +405,7 @@ func runListFindings(ctx context.Context, cmd *cobra.Command, db *database.DB) e
 	}
 
 	if globalJSON || readTSV {
-		env := newMachineEnvelope(cmd, kindRead, "findings",
+		env := newMachineEnvelope(cmd, "findings",
 			findingViews(ctx, db, findings, agentViewOptionsFromFlags(), false), total, listOffset, listLimit)
 		env.WithProjectScope(projectUUID)
 		env.DBPath = resolvedReadDBPath()
@@ -497,7 +497,7 @@ func runListScans(ctx context.Context, cmd *cobra.Command, db *database.DB) erro
 		if err != nil {
 			return err
 		}
-		env := newMachineEnvelope(cmd, kindRead, "scans", rows, total, listOffset, listLimit)
+		env := newMachineEnvelope(cmd, "scans", rows, total, listOffset, listLimit)
 		env.DBPath = resolvedReadDBPath()
 		return writeAgentJSON(env)
 	}
@@ -679,7 +679,7 @@ func runListGenericTable(ctx context.Context, cmd *cobra.Command, db *database.D
 		for _, r := range rows {
 			projected = append(projected, projectFields(r, fields))
 		}
-		env := newMachineEnvelope(cmd, kindRead, "rows", projected, total, listOffset, listLimit)
+		env := newMachineEnvelope(cmd, "rows", projected, total, listOffset, listLimit)
 		env.DBPath = resolvedReadDBPath()
 		env.With("table", tableName).With("columns", headers)
 		return writeAgentJSON(env)
@@ -744,7 +744,7 @@ func displayJSON(ctx context.Context, cmd *cobra.Command, db *database.DB, recor
 	// yet evicted it - so reading a database back showed nothing, and reading a
 	// large sweep back showed facts for its last hosts only.
 	opts := agentViewOptionsFromFlags().withHostFacts(ctx, db, projectUUID, "").withNotFound(ctx, db, projectUUID)
-	env := newMachineEnvelope(cmd, kindRead, "records",
+	env := newMachineEnvelope(cmd, "records",
 		recordViews(records, opts), total, offset, limit)
 	env.WithProjectScope(projectUUID)
 	env.DBPath = resolvedReadDBPath()

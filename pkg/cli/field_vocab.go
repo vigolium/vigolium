@@ -94,19 +94,21 @@ func fieldAliasesFor(supported []string) []string {
 }
 
 // rowShaping is --fields / --compact for a list command whose rows are structs
-// rather than the map views traffic and finding build: the row type's keys are
-// the --fields vocabulary (plus the aliases above), and compactDrop names the
-// bulky keys --compact removes, and defaultTSV the --format tsv columns used
-// when --fields names none.
+// rather than the map views traffic and finding build, and which applies them
+// itself (Shape.Own). The vocabulary and the bulky keys --compact removes are
+// the ones its commandTraits row declares; defaultTSV are the --format tsv
+// columns used when --fields names none.
 type rowShaping struct {
-	supported   []string
-	compactDrop []string
-	defaultTSV  []string
+	path       string
+	defaultTSV []string
 }
+
+// shape is the commandTraits shape whose Vocab and CompactDrop apply.
+func (s rowShaping) shape() commandShape { return commandTraits[s.path].Shape }
 
 // validate checks the shaping flags before any query runs.
 func (s rowShaping) validate() error {
-	return validateAgentViewFlags(agentViewOptionsFromFlags(), s.supported)
+	return validateAgentViewFlags(agentViewOptionsFromFlags(), s.shape().Vocab)
 }
 
 // prepare is validate for a command that also renders --format tsv, and
@@ -120,7 +122,7 @@ func (s rowShaping) prepare(cmd *cobra.Command) (string, error) {
 
 // apply returns items shaped by the flags; unchanged when neither is set.
 func (s rowShaping) apply(items any) (any, error) {
-	if len(normalizeFieldList(jsonFields)) == 0 && (!jsonCompact || len(s.compactDrop) == 0) {
+	if len(normalizeFieldList(jsonFields)) == 0 && (!jsonCompact || len(s.shape().CompactDrop) == 0) {
 		return items, nil
 	}
 	return s.applyRows(items)
@@ -132,16 +134,11 @@ func (s rowShaping) applyRows(items any) ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	fields := normalizeFieldList(jsonFields)
-	for i, r := range rows {
-		if jsonCompact {
-			for _, k := range s.compactDrop {
-				delete(r, k)
-			}
-		}
-		rows[i] = projectFields(r, fields)
+	var drop []string
+	if jsonCompact {
+		drop = s.shape().CompactDrop
 	}
-	return rows, nil
+	return shapeRowMaps(rows, normalizeFieldList(jsonFields), drop, requiredNullableKeys(s.path)), nil
 }
 
 // emitTSV prints items as --format tsv: the --fields columns, or defaultTSV.

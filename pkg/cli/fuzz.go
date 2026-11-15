@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/vigolium/vigolium/pkg/burpbridge"
-	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/fuzz"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
@@ -1228,10 +1227,7 @@ type fuzzJSONSummary struct {
 // fuzzShaping is fuzz -j's --fields vocabulary (one result's keys); --compact
 // drops each result's anomaly explanation, and emitFuzzJSONSummary also drops
 // the top-level anomalies list and the baseline's raw timing samples.
-var fuzzShaping = rowShaping{
-	supported:   contract.JSONFieldNames(fuzz.Result{}),
-	compactDrop: []string{"anomaly_reasons"},
-}
+var fuzzShaping = rowShaping{path: "fuzz"}
 
 func emitFuzzJSONSummary(cmd *cobra.Command, src *replaySource, args []string, positions, payloadCount int, report *fuzz.Report, top []fuzz.Result, kept int, sentViaBurp bool, organizerPushed int, pace fuzzPace) error {
 	sort.SliceStable(top, func(i, j int) bool { return fuzzResultRank(top[i]) > fuzzResultRank(top[j]) })

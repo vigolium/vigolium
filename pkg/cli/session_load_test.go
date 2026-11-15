@@ -256,7 +256,9 @@ func TestSessionLoad_JSONDocument(t *testing.T) {
 	var err error
 	var stdout string
 	stderr := captureStderr(t, func() {
-		stdout = captureStdout(t, func() { err = runSessionLoad(sessionLoadCmd, []string{file}) })
+		stdout = captureStdout(t, func() {
+			err = runAsExecute(sessionLoadCmd, func() error { return runSessionLoad(sessionLoadCmd, []string{file}) })
+		})
 	})
 	require.Error(t, err)
 	docs := decodeStdoutDocuments(t, stdout)

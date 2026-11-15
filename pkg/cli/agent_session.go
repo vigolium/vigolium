@@ -52,7 +52,7 @@ func runAgentSession(cmd *cobra.Command, args []string) error {
 	defer syncLogger()
 	defer closeDatabaseOnExit()
 
-	// Read intent (declared in db_intent.go): no schema DDL on the read path.
+	// Read intent (declared in commandTraits): no schema DDL on the read path.
 	db, err := getDB()
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)

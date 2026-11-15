@@ -362,7 +362,7 @@ func deliverBody(cmd *cobra.Command, msg *extractedMessage, out []byte, complete
 // reads these commands and the listings alike. total/offset/limit describe the
 // one message that was addressed.
 func newExtractEnvelope(cmd *cobra.Command, msg *extractedMessage, receipt map[string]any) *agentEnvelope {
-	env := newMachineEnvelope(cmd, kindRead, "", receipt, 1, 0, 1)
+	env := newMachineEnvelope(cmd, "", receipt, 1, 0, 1)
 	env.DBPath = resolvedReadDBPath()
 	env.WithProjectScope(msg.ProjectScope)
 	return env.WithQuery("traffic", "--uuid", msg.Record.UUID, "--json", "--full-body")

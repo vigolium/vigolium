@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"strings"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
@@ -21,8 +19,8 @@ type closedValueFlag struct {
 }
 
 // closedValueFlags is every flag with a closed value set outside the ones a
-// command validates itself. A typo here used to answer "total: 0" (a filter
-// that matched nothing) or be ignored (a sort key), both indistinguishable from
+// command validates itself. Unchecked, a typo answers "total: 0" (a filter
+// that matched nothing) or is ignored (a sort key), both indistinguishable from
 // a real empty result.
 var closedValueFlags = []closedValueFlag{
 	// Severity filters that normalise shorthands and prefixes ('h,c', 'me').
@@ -69,35 +67,25 @@ func dbListSortKeys() []string {
 	return out
 }
 
-// isOliumProviderFlag recognises the olium --provider override, which several
-// agent commands register through the same usage string.
-func isOliumProviderFlag(f *pflag.Flag) bool {
-	return f.Name == "provider" && strings.HasPrefix(f.Usage, oliumProviderFlagUsage)
+// registerOliumProviderFlag registers the olium --provider override as a
+// closed-set flag over the providers the runtime accepts.
+func registerOliumProviderFlag(fs *pflag.FlagSet, p *string, usage string) {
+	fs.StringVar(p, "provider", "", usage)
+	enumFlag(fs, "provider", olium.ProviderNames, enumAllowEmpty(),
+		enumAccept(func(v string) bool { return olium.IsKnownProvider(v) }))
 }
 
-// applyClosedValueFlags converts every flag in closedValueFlags, plus every
-// olium --provider override, into an enum flag.
-func applyClosedValueFlags(root *cobra.Command) {
-	byPath := map[string][]closedValueFlag{}
+// applyClosedValueFlags converts c's flags in closedValueFlags into enum
+// flags.
+func applyClosedValueFlags(c *cobra.Command, path string) {
 	for _, cv := range closedValueFlags {
-		byPath[cv.path] = append(byPath[cv.path], cv)
+		if cv.path != path {
+			continue
+		}
+		fs := c.Flags()
+		if c.PersistentFlags().Lookup(cv.flag) != nil {
+			fs = c.PersistentFlags()
+		}
+		enumFlag(fs, cv.flag, cv.values(), cv.opts...)
 	}
-	walkTree(root, func(c *cobra.Command) {
-		path := commandPathWithoutRoot(c)
-		for _, cv := range byPath[path] {
-			fs := c.Flags()
-			if c.PersistentFlags().Lookup(cv.flag) != nil {
-				fs = c.PersistentFlags()
-			}
-			enumFlag(fs, cv.flag, cv.values(), cv.opts...)
-		}
-		for _, fs := range []*pflag.FlagSet{c.Flags(), c.PersistentFlags()} {
-			fs.VisitAll(func(f *pflag.Flag) {
-				if isOliumProviderFlag(f) {
-					enumFlag(fs, f.Name, olium.ProviderNames, enumAllowEmpty(),
-						enumAccept(func(v string) bool { return olium.IsKnownProvider(v) }))
-				}
-			})
-		}
-	})
 }

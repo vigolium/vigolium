@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
-	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -62,12 +61,7 @@ func init() {
 
 // endpointsShaping is endpoints' --fields vocabulary and the keys --compact
 // drops: the per-endpoint lists, which dominate a row's size.
-var endpointsShaping = rowShaping{
-	supported: contract.JSONFieldNames(database.EndpointView{}),
-	compactDrop: []string{"sample_paths", "params", "request_content_types", "response_content_types",
-		"js_outcomes", "findings_by_severity"},
-	defaultTSV: []string{"id", "records", "top_status", "methods", "origin", "template"},
-}
+var endpointsShaping = rowShaping{path: "endpoints", defaultTSV: []string{"id", "records", "top_status", "methods", "origin", "template"}}
 
 func validateEndpointsFlags() error {
 	if err := endpointsFlags.validate(); err != nil {

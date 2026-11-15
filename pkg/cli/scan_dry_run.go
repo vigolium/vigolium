@@ -127,7 +127,8 @@ func runScanDryRun(cmd *cobra.Command, settings *config.Settings, strategyName s
 // phases, plan = the full plan, dry_run: true) or the human rendering.
 func printDryRunPlan(cmd *cobra.Command, plan *scanplan.Plan, dbPath string) error {
 	if globalJSON {
-		env := newMachineEnvelope(cmd, kindScan, "", plan.Phases, int64(len(plan.Phases)), 0, len(plan.Phases))
+		env := newMachineEnvelope(cmd, "", plan.Phases, int64(len(plan.Phases)), 0, len(plan.Phases))
+		env.Kind = string(kindScan)
 		env.DryRun = true
 		env.With("plan", plan)
 		if dbPath != "" {

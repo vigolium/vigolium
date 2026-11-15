@@ -10,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vigolium/vigolium/pkg/cli/internal/clicommon"
-	"github.com/vigolium/vigolium/pkg/contract"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/terminal"
 )
@@ -65,11 +64,7 @@ func init() {
 
 // paramsShaping is params' --fields vocabulary; --compact drops the sample
 // values and the per-type histogram.
-var paramsShaping = rowShaping{
-	supported:   contract.JSONFieldNames(database.ParamView{}),
-	compactDrop: []string{"samples", "types"},
-	defaultTSV:  []string{"endpoint_id", "location", "name", "occurrences", "dominant_type", "template"},
-}
+var paramsShaping = rowShaping{path: "params", defaultTSV: []string{"endpoint_id", "location", "name", "occurrences", "dominant_type", "template"}}
 
 func validateParamsFlags() error {
 	if err := paramsFlags.validate(); err != nil {

@@ -12,12 +12,12 @@ import (
 
 // Generic -j shaping, driven by each command's Shape in commandTraits.
 //
-// A read command used to carry --fields/--compact/--max-output-bytes only if
-// its author remembered to register them, so half the read surface had no way
-// to narrow a 400 KB answer. applyShapingTraits gives every shaped command the
-// flags it is missing; validateGenericShaping checks them before the command
-// runs (so a typo exits 2 before anything is sent); applyGenericShaping applies
-// them to the document in writeAgentJSON. A command that projects its own rows
+// applyShapingTraits gives every shaped command the
+// --fields/--compact/--max-output-bytes (and paging) flags it is missing, so
+// no read is left without a way to narrow a large answer;
+// validateGenericShaping checks them before the command runs (so a typo exits
+// 2 before anything is sent); applyGenericShaping applies them to the document
+// in writeAgentJSON. A command that projects its own rows
 // (Shape.Own) keeps doing so: the generic pass registers and applies only what
 // that command did not.
 
@@ -43,56 +43,54 @@ const (
 	shapeOpOffset  = "offset"
 )
 
-// applyShapingTraits registers, on every command whose Shape is rows or
-// object, the shaping flags it is missing: rows get --fields, --compact and
+// applyShapingTraits registers, on a command whose Shape is rows or object,
+// the shaping flags it is missing: rows get --fields, --compact and
 // --max-output-bytes, plus -n/--limit and --offset when they are paged in
 // memory (-n only while the letter is free); objects get --fields. Called from
 // prepareCommandTree; safe to call more than once.
-func applyShapingTraits(root *cobra.Command) {
-	walkTree(root, func(c *cobra.Command) {
-		if _, done := c.Annotations[shapingAnnotation]; done {
-			return
+func applyShapingTraits(c *cobra.Command, path string) {
+	if _, done := c.Annotations[shapingAnnotation]; done {
+		return
+	}
+	t, ok := commandTraits[path]
+	if !ok || (t.Shape.Kind != shapeRows && t.Shape.Kind != shapeObject) {
+		return
+	}
+	var added []string
+	f := c.Flags()
+	if t.Shape.generic() {
+		if !hasFlag(c, "fields") {
+			f.StringSliceVar(&jsonFields, "fields", nil, "Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop")
+			added = append(added, shapeOpFields)
 		}
-		t, ok := commandTraits[commandPathWithoutRoot(c)]
-		if !ok || (t.Shape.Kind != shapeRows && t.Shape.Kind != shapeObject) {
-			return
-		}
-		var added []string
-		f := c.Flags()
-		if t.Shape.generic() {
-			if !hasFlag(c, "fields") {
-				f.StringSliceVar(&jsonFields, "fields", nil, "Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop")
-				added = append(added, shapeOpFields)
-			}
-			if t.Shape.Kind == shapeRows || len(t.Shape.CompactDrop) > 0 {
-				if !hasFlag(c, "compact") {
-					f.BoolVar(&jsonCompact, "compact", false, "With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path)")
-					added = append(added, shapeOpCompact)
-				}
-			}
-			if t.Shape.Kind == shapeRows {
-				if !hasFlag(c, "max-output-bytes") {
-					registerOutputBudgetFlag(f)
-					added = append(added, shapeOpBudget)
-				}
+		if t.Shape.Kind == shapeRows || len(t.Shape.CompactDrop) > 0 {
+			if !hasFlag(c, "compact") {
+				f.BoolVar(&jsonCompact, "compact", false, "With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path)")
+				added = append(added, shapeOpCompact)
 			}
 		}
-		if t.Shape.Kind == shapeRows && t.Shape.Paging == pagingInMemory {
-			if !hasFlag(c, "limit") {
-				short := "n"
-				if shorthandTaken(c, short) {
-					short = ""
-				}
-				f.IntVarP(&shapeLimit, "limit", short, 0, "With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset)")
-				added = append(added, shapeOpLimit)
-			}
-			if !hasFlag(c, "offset") {
-				f.IntVar(&shapeOffset, "offset", 0, "With --json, skip the first N rows (follow output_budget.next_offset)")
-				added = append(added, shapeOpOffset)
+		if t.Shape.Kind == shapeRows {
+			if !hasFlag(c, "max-output-bytes") {
+				registerOutputBudgetFlag(f)
+				added = append(added, shapeOpBudget)
 			}
 		}
-		setAnnotation(c, shapingAnnotation, strings.Join(added, ","))
-	})
+	}
+	if t.Shape.Kind == shapeRows && t.Shape.Paging == pagingInMemory {
+		if !hasFlag(c, "limit") {
+			short := "n"
+			if shorthandTaken(c, short) {
+				short = ""
+			}
+			f.IntVarP(&shapeLimit, "limit", short, 0, "With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset)")
+			added = append(added, shapeOpLimit)
+		}
+		if !hasFlag(c, "offset") {
+			f.IntVar(&shapeOffset, "offset", 0, "With --json, skip the first N rows (follow output_budget.next_offset)")
+			added = append(added, shapeOpOffset)
+		}
+	}
+	setAnnotation(c, shapingAnnotation, strings.Join(added, ","))
 }
 
 // hasFlag reports whether c parses a flag called name: its own, a persistent
@@ -110,11 +108,10 @@ func hasFlag(c *cobra.Command, name string) bool {
 	return false
 }
 
-// genericShaping is the invocation's generic shaping: what the running command
-// had registered for it, set by validateGenericShaping.
+// genericShaping is the invocation's generic shaping: the operations the
+// running command had registered for it, set by validateGenericShaping.
 type genericShaping struct {
-	path string
-	ops  []string
+	ops []string
 }
 
 func (g *genericShaping) has(op string) bool { return g != nil && slices.Contains(g.ops, op) }
@@ -133,7 +130,7 @@ func validateGenericShaping(cmd *cobra.Command) error {
 	if !ok || !annotated {
 		return nil
 	}
-	g := &genericShaping{path: path}
+	g := &genericShaping{}
 	if raw != "" {
 		g.ops = strings.Split(raw, ",")
 	}
@@ -198,26 +195,32 @@ func applyGenericShaping(env *agentEnvelope) error {
 	if err != nil {
 		return err
 	}
-	nullable := requiredNullableKeys(env.Command)
+	var drop []string
+	if compact {
+		drop = t.Shape.CompactDrop
+	}
+	env.Items = shapeRowMaps(rows, fields, drop, requiredNullableKeys(env.Command))
+	return nil
+}
+
+// shapeRowMaps applies --compact (drop) and --fields to rows in place. A
+// dropped key the schema requires (nullable) stays, emptied, so the compact
+// document still validates.
+func shapeRowMaps(rows []map[string]any, fields, drop, nullable []string) []map[string]any {
 	for i, r := range rows {
-		if compact {
-			for _, k := range t.Shape.CompactDrop {
-				if _, ok := r[k]; !ok {
-					continue
-				}
-				// A key the schema requires stays, emptied, so the compact
-				// document still validates.
-				if slices.Contains(nullable, k) {
-					r[k] = nil
-				} else {
-					delete(r, k)
-				}
+		for _, k := range drop {
+			if _, ok := r[k]; !ok {
+				continue
+			}
+			if slices.Contains(nullable, k) {
+				r[k] = nil
+			} else {
+				delete(r, k)
 			}
 		}
 		rows[i] = projectFields(r, fields)
 	}
-	env.Items = rows
-	return nil
+	return rows
 }
 
 // pageEnvelopeItems cuts env.Items to the --offset/--limit window. Total keeps

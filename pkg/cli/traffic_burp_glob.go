@@ -167,7 +167,7 @@ func saveGlobToBurp(ctx context.Context, cmd *cobra.Command, pattern string, fil
 	if globalJSON {
 		// items:[aggregate]; the per-run counters stay at the top level, and
 		// --json-legacy-keys renders the aggregate under its old name, `result`.
-		env := newMachineEnvelope(cmd, kindRead, "result", aggregate, 1, 0, 1).
+		env := newMachineEnvelope(cmd, "result", aggregate, 1, 0, 1).
 			With("pattern", pattern).
 			With("files", len(matches)).
 			With("files_read", read).

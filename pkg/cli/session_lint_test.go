@@ -74,7 +74,9 @@ func TestSessionLint_MultipleFilesJSON(t *testing.T) {
 	broken := writeLintFile(t, "broken.json", "{\"sessions\": [\n  {\"name\": }\n]}")
 
 	var err error
-	out := captureStdout(t, func() { err = runSessionLint(sessionLintCmd, []string{clean, typo, broken}) })
+	out := captureStdout(t, func() {
+		err = runAsExecute(sessionLintCmd, func() error { return runSessionLint(sessionLintCmd, []string{clean, typo, broken}) })
+	})
 	require.Error(t, err)
 	docs := decodeStdoutDocuments(t, out)
 	require.Len(t, docs, 1)
