@@ -41,6 +41,9 @@ type FindingStatusUpdate struct {
 	Note string
 	// Actor names who decided: a person, "agent-triage", "api", ….
 	Actor string
+	// DryRun resolves the selectors and reports what would change without
+	// writing anything.
+	DryRun bool
 }
 
 // FindingStatusChange is one finding a status write touched (or would have).
@@ -164,6 +167,9 @@ func (r *Repository) UpdateFindingStatusScoped(ctx context.Context, projectUUID 
 				CreatedAt:   now,
 			})
 			res.Changed = append(res.Changed, change)
+		}
+		if req.DryRun {
+			return nil
 		}
 		for chunk := range slices.Chunk(changedIDs, SQLChunkSize) {
 			if _, err := tx.NewUpdate().Model((*Finding)(nil)).

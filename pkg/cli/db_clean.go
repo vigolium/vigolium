@@ -73,6 +73,9 @@ func init() {
 func runDBReset(cmd *cobra.Command, args []string) error {
 	defer closeDatabaseOnExit()
 
+	if dbResetDryRun {
+		return previewDBReset(cmd)
+	}
 	if !globalForce {
 		fmt.Fprintf(os.Stderr, "%s %s\n", terminal.WarningSymbol(),
 			terminal.Yellow("This will DELETE and recreate the entire database. All scans, HTTP records, and findings will be lost."))
@@ -439,6 +442,16 @@ func runVacuum(ctx context.Context, db *database.DB) {
 
 // resetDatabase deletes the SQLite database file and recreates it with a fresh schema.
 func resetDatabase() (dbResetView, error) {
+	settings, dbPath, err := resetDatabasePath()
+	if err != nil {
+		return dbResetView{}, err
+	}
+	return resetDatabaseAt(settings, dbPath)
+}
+
+// resetDatabasePath names the SQLite file `db reset` deletes and recreates,
+// with the settings that name it.
+func resetDatabasePath() (*config.Settings, string, error) {
 	// config.LoadSettings directly, and ANY error refuses — not the clicommon
 	// helper, which degrades a merely-discovered broken config to defaults.
 	//
@@ -449,7 +462,7 @@ func resetDatabase() (dbResetView, error) {
 	// at that.
 	settings, err := config.LoadSettings(globalConfig)
 	if err != nil {
-		return dbResetView{}, fmt.Errorf("cannot determine which database to reset: %w", err)
+		return nil, "", fmt.Errorf("cannot determine which database to reset: %w", err)
 	}
 
 	if !settings.Database.Enabled && settings.Database.Driver == "" {
@@ -463,11 +476,15 @@ func resetDatabase() (dbResetView, error) {
 	}
 
 	if settings.Database.Driver != "sqlite" {
-		return dbResetView{}, fmt.Errorf("database reset is only supported for SQLite (current driver: %s)", settings.Database.Driver)
+		return nil, "", fmt.Errorf("database reset is only supported for SQLite (current driver: %s)", settings.Database.Driver)
 	}
 
-	dbPath := config.ExpandPath(settings.Database.SQLite.Path)
+	return settings, config.ExpandPath(settings.Database.SQLite.Path), nil
+}
 
+// resetDatabaseAt deletes the SQLite file at dbPath (and its WAL/SHM
+// companions) and recreates it empty.
+func resetDatabaseAt(settings *config.Settings, dbPath string) (dbResetView, error) {
 	// Close existing connection if open
 	clicommon.ResetDBCache()
 

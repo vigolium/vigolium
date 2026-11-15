@@ -140,8 +140,8 @@ func toggleModules(configPath string, em *config.EnabledModulesConfig, matches [
 			add[allowKey] = append(add[allowKey], node)
 		}
 	}
-	if len(flipped) == 0 {
-		return nil, nil
+	if len(flipped) == 0 || moduleToggleDryRun {
+		return flipped, nil
 	}
 	_, err := config.EditConfigFile(configPath, func(d *yamledit.Doc) error {
 		for _, key := range slices.Sorted(maps.Keys(remove)) {
@@ -211,6 +211,11 @@ func runModuleToggle(cmd *cobra.Command, search string, enable bool) error {
 		fmt.Printf("%s All matching modules are already %sd\n", terminal.InfoSymbol(), verb)
 		return nil
 	}
+	if moduleToggleDryRun {
+		fmt.Printf("%s Dry run: would %s %d module(s) in %s: %s\n", terminal.InfoSymbol(), verb, len(flipped),
+			terminal.Gray(configPath), strings.Join(flipped, ", "))
+		return nil
+	}
 	if enable {
 		fmt.Printf("%s Enabled %d module(s):\n", terminal.SuccessSymbol(), len(flipped))
 		for _, id := range flipped {
@@ -259,6 +264,7 @@ func emitModuleToggle(cmd *cobra.Command, action string, matches []matchedModule
 	return emitMutation(cmd, "", mutationResult{
 		Changed: len(flipped) > 0,
 		Action:  action,
+		DryRun:  moduleToggleDryRun,
 		Items:   items,
 		Extra: map[string]any{
 			"modules_changed": len(flipped),

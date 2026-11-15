@@ -162,6 +162,7 @@ func runFindingMark(cmd *cobra.Command, args []string) error {
 
 	res, err := database.NewRepository(db).UpdateFindingStatusScoped(context.Background(), projectUUID, database.FindingStatusUpdate{
 		IDs: ids, Hashes: hashes, Status: verdict, Note: strings.TrimSpace(findingMarkNote), Actor: actor,
+		DryRun: findingMarkDryRun,
 	})
 	if err != nil {
 		var amb *database.AmbiguousFindingHashError
@@ -183,6 +184,7 @@ func runFindingMark(cmd *cobra.Command, args []string) error {
 		if err := emitMutation(cmd, "", mutationResult{
 			Changed: len(res.Changed) > 0,
 			Action:  "update",
+			DryRun:  findingMarkDryRun,
 			Items:   res.Changed,
 			Extra: map[string]any{
 				"status":    verdict,

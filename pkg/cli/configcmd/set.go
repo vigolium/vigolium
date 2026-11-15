@@ -12,7 +12,8 @@ import (
 )
 
 func newSetCmd(deps Deps, example string) *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a configuration value",
 		Long: "Set a configuration value using dot-notation key (e.g. notify.enabled true).\nAlso accepts 'key = value' and 'key=value' formats.\n\n" +
@@ -25,12 +26,14 @@ func newSetCmd(deps Deps, example string) *cobra.Command {
 		Args:    cobra.RangeArgs(1, 3),
 		Example: example,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfigSet(cmd, deps, args)
+			return runConfigSet(cmd, deps, args, dryRun)
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show the value the key would get, without editing the config file")
+	return cmd
 }
 
-func runConfigSet(cmd *cobra.Command, deps Deps, args []string) error {
+func runConfigSet(cmd *cobra.Command, deps Deps, args []string, dryRun bool) error {
 	var key, value string
 	switch {
 	case len(args) == 1 && strings.Contains(args[0], "="):
@@ -64,6 +67,8 @@ func runConfigSet(cmd *cobra.Command, deps Deps, args []string) error {
 		return fmt.Errorf("failed to load config, refusing to write: %w", err)
 	}
 
+	settingKey := config.SettingPath(key)
+	before, _ := config.SettingDisplay(settings, settingKey)
 	edit, err := config.SetFieldEdit(settings, key, value)
 	if err != nil {
 		// A key that names no setting, or a value that cannot be stored under
@@ -75,6 +80,9 @@ func runConfigSet(cmd *cobra.Command, deps Deps, args []string) error {
 		}
 		return fmt.Errorf("failed to set %q: %w", key, err)
 	}
+	if dryRun {
+		return reportConfigSetDryRun(cmd, deps, settings, key, settingKey, value, before, configPath)
+	}
 	changed, err := config.EditConfigFile(configPath, edit)
 	if err != nil {
 		if errors.Is(err, config.ErrInvalidValue) {
@@ -85,7 +93,6 @@ func runConfigSet(cmd *cobra.Command, deps Deps, args []string) error {
 
 	// Echo what the file now holds, read back through the loader, rather than
 	// the argument: the two differ whenever the value was normalized.
-	settingKey := config.SettingPath(key)
 	stored := value
 	if reloaded, err := config.LoadSettings(configPath); err == nil {
 		if v, ok := config.SettingDisplay(reloaded, settingKey); ok {
@@ -128,4 +135,33 @@ type configSetResult struct {
 	Sensitive  bool   `json:"sensitive"`
 	Redacted   bool   `json:"redacted"`
 	ConfigPath string `json:"config_path"`
+}
+
+// reportConfigSetDryRun reports the value a key would get (the in-memory
+// settings already hold it) without touching the file.
+func reportConfigSetDryRun(cmd *cobra.Command, deps Deps, settings *config.Settings, key, settingKey, value, before, configPath string) error {
+	after, ok := config.SettingDisplay(settings, settingKey)
+	if !ok {
+		after = value
+	}
+	sensitive := config.IsSensitiveEntry(settingKey, value) || config.IsSensitiveEntry(settingKey, after)
+	shown := after
+	if sensitive {
+		shown = clicommon.SecretPlaceholder
+	}
+	action := "update"
+	if before == after {
+		action = "noop"
+	}
+	if deps.mutationJSONRequested() && deps.WriteDryRunMutation != nil {
+		return deps.WriteDryRunMutation(cmd, []configSetResult{{
+			Key:        key,
+			Value:      shown,
+			Sensitive:  sensitive,
+			Redacted:   sensitive,
+			ConfigPath: config.ContractPath(configPath),
+		}}, action, nil)
+	}
+	fmt.Printf("%s Dry run: would set %s = %s in %s\n", terminal.InfoSymbol(), terminal.Cyan(settingKey), shown, config.ContractPath(configPath))
+	return nil
 }

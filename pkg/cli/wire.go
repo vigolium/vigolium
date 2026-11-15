@@ -28,10 +28,13 @@ func init() {
 			// would leave the install short of a file the user did not ask to
 			// lose. A pinned --db names a different file, which clean never
 			// touched.
-			Reinitialize:      func() error { return initializeVigolium(true) },
-			JSON:              func() bool { return globalJSON },
-			WriteJSON:         writeConfigEnvelope,
-			WriteMutation:     writeConfigMutation,
+			Reinitialize:  func() error { return initializeVigolium(true) },
+			JSON:          func() bool { return globalJSON },
+			WriteJSON:     writeConfigEnvelope,
+			WriteMutation: writeConfigMutation,
+			WriteDryRunMutation: func(cmd *cobra.Command, items any, action string, extra map[string]any) error {
+				return emitMutation(cmd, "", mutationResult{Action: action, DryRun: true, Items: items, Extra: extra})
+			},
 			RecentScanTargets: recentScanTargets,
 		},
 		configcmd.Examples{

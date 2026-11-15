@@ -36,7 +36,7 @@ func TestConfigSetUsageErrors(t *testing.T) {
 		"add residue":        {"scope.host.exclude.add", `"x"`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := runConfigSet(nil, deps, args)
+			err := runConfigSet(nil, deps, args, false)
 			var usage clicommon.UsageError
 			if !errors.As(err, &usage) {
 				t.Fatalf("runConfigSet(%q) = %v, want a UsageError", args, err)
@@ -56,7 +56,7 @@ func TestConfigSetStructuredValueFile(t *testing.T) {
 	}
 	deps := Deps{ConfigFlag: func() string { return cfg }}
 
-	if err := runConfigSet(nil, deps, []string{"scope.host.include", `["a.example","*.b.example"]`}); err != nil {
+	if err := runConfigSet(nil, deps, []string{"scope.host.include", `["a.example","*.b.example"]`}, false); err != nil {
 		t.Fatal(err)
 	}
 	settings, err := config.LoadSettings(cfg)
@@ -68,7 +68,7 @@ func TestConfigSetStructuredValueFile(t *testing.T) {
 	}
 
 	before, _ := os.ReadFile(cfg)
-	if err := runConfigSet(nil, deps, []string{"scope.host.include", `["a.example",`}); err == nil {
+	if err := runConfigSet(nil, deps, []string{"scope.host.include", `["a.example",`}, false); err == nil {
 		t.Fatal("broken list accepted")
 	}
 	after, _ := os.ReadFile(cfg)
@@ -107,7 +107,7 @@ func TestConfigSetKeepsPlaceholdersAndComments(t *testing.T) {
 		{"notify.telegram.chat_id", "12345"},
 		{"scope.host.exclude.clear"},
 	} {
-		if err := runConfigSet(nil, deps, args); err != nil {
+		if err := runConfigSet(nil, deps, args, false); err != nil {
 			t.Fatalf("config set %q: %v", args, err)
 		}
 	}
@@ -152,7 +152,7 @@ func TestConfigSetStrictScalars(t *testing.T) {
 		{"server.service_port", "12ab"},
 		{"server.service_port", "1.5"},
 	} {
-		err := runConfigSet(nil, deps, args)
+		err := runConfigSet(nil, deps, args, false)
 		var usage clicommon.UsageError
 		if !errors.As(err, &usage) {
 			t.Errorf("config set %q = %v, want a usage error", args, err)
@@ -161,7 +161,7 @@ func TestConfigSetStrictScalars(t *testing.T) {
 	if got, _ := os.ReadFile(cfg); string(got) != "notify:\n  enabled: false\n" {
 		t.Fatalf("refused value changed the file: %q", got)
 	}
-	if err := runConfigSet(nil, deps, []string{"notify.enabled", "1"}); err != nil {
+	if err := runConfigSet(nil, deps, []string{"notify.enabled", "1"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(cfg); string(got) != "notify:\n  enabled: true\n" {
@@ -186,13 +186,13 @@ func TestConfigSetEchoesStoredValue(t *testing.T) {
 			return nil
 		},
 	}
-	if err := runConfigSet(nil, deps, []string{"notify.enabled", "T"}); err != nil {
+	if err := runConfigSet(nil, deps, []string{"notify.enabled", "T"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(items) != 1 || items[0].Value != "true" {
 		t.Fatalf("items = %+v", items)
 	}
-	if err := runConfigSet(nil, deps, []string{"scope.host.include", "a.example, b.example"}); err != nil {
+	if err := runConfigSet(nil, deps, []string{"scope.host.include", "a.example, b.example"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if items[0].Value != "[a.example, b.example]" {

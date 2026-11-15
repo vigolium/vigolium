@@ -79,6 +79,17 @@ func runFindingLoad(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if findingLoadDryRun {
+		if globalJSON {
+			return emitMutation(cmd, "", mutationResult{
+				Action: "import", DryRun: true, Items: []int64{},
+				Extra: map[string]any{"format": formatName, "parsed": len(findings), "saved": 0, "skipped": 0},
+			}, withProjectScope(projectUUID), withDBPath(resolvedReadDBPath()))
+		}
+		fmt.Printf("%s Dry run: %d finding(s) parsed from %s format; nothing stored\n", terminal.InfoSymbol(), len(findings), formatName)
+		return nil
+	}
+
 	ctx := context.Background()
 	repo := database.NewRepository(db)
 	saved, skipped := 0, 0

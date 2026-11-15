@@ -37,6 +37,9 @@ type Deps struct {
 	// action are arguments, not extras: the envelope owns those keys, and an
 	// extra named "changed" is dropped rather than rendered.
 	WriteMutation func(cmd *cobra.Command, items any, changed bool, action string, extra map[string]any) error
+	// WriteDryRunMutation is WriteMutation for a --dry-run: dry_run true and
+	// changed false.
+	WriteDryRunMutation func(cmd *cobra.Command, items any, action string, extra map[string]any) error
 
 	// RecentScanTargets returns the targets of the n most recent scans in the
 	// given project ("" = the project the CLI resolves by default), for

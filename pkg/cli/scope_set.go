@@ -74,7 +74,11 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 
 	where := ""
 	layer, configPath := "global", effectiveConfigPath()
-	if scopeSetProject != "" {
+	if scopeSetDryRun {
+		if scopeSetProject != "" {
+			layer, configPath = "project", config.ProjectConfigPath(scopeSetProject)
+		}
+	} else if scopeSetProject != "" {
 		path, err := config.SetProjectOverlayEdit(scopeSetProject, key, edit)
 		if err != nil {
 			if errors.Is(err, config.ErrUnknownKey) || errors.Is(err, config.ErrInvalidValue) {
@@ -105,6 +109,7 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 		return emitMutation(cmd, "", mutationResult{
 			Changed: changed,
 			Action:  action,
+			DryRun:  scopeSetDryRun,
 			Items: []scopeSetView{{
 				Key: ruleKey, Old: oldValue, New: newValue,
 				Layer: layer, ConfigPath: config.ContractPath(configPath),
@@ -112,6 +117,10 @@ func runScopeSet(cmd *cobra.Command, args []string) error {
 		}, opts...)
 	}
 
+	if scopeSetDryRun {
+		fmt.Printf("%s Dry run: would set %s = %s in %s\n", terminal.InfoSymbol(), terminal.Cyan(key), value, terminal.Gray(config.ContractPath(configPath)))
+		return nil
+	}
 	fmt.Printf("%s Set %s = %s%s\n", terminal.SuccessSymbol(), terminal.Cyan(key), value, terminal.Gray(where))
 	return nil
 }

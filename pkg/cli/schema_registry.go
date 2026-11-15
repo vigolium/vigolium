@@ -477,6 +477,9 @@ type ingestExtras struct {
 	ItemsTruncated   bool              `json:"items_truncated,omitempty"`
 	FailureReasons   map[string]int64  `json:"failure_reasons,omitempty"`
 	Failures         []core.DropSample `json:"failures,omitempty"`
+	// WouldIngest is what `ingest --dry-run` parsed: the requests a real run
+	// would fetch and store.
+	WouldIngest int64 `json:"would_ingest,omitempty"`
 }
 
 // trafficBodyReceipt mirrors `traffic body -j`.

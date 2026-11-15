@@ -215,7 +215,7 @@ func terseGlobalFlags(fs *pflag.FlagSet) string {
 // all four. Every non-hidden local flag should live in exactly one group here so
 // the "Other:" section only ever holds cobra's auto-added --help.
 var scanFlagGroups = []flagGroup{
-	{"Target & Input", []string{"target", "target-file", "all-records", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
+	{"Target & Input", []string{"target", "target-file", "all-records", "record-uuid", "input", "input-mode", "input-read-timeout", "no-scheme-probe"}},
 	{"Input Format", []string{"required-only", "skip-format-validation"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
 	{"Module Selection", []string{"modules", "module-tag", "module-id", "passive-only", "no-passive", "no-tech-filter", "allow-risky-payloads", "no-param-dedup", "header-fuzz", "resume-scan"}},
@@ -393,7 +393,7 @@ var ingestFlagGroups = []flagGroup{
 	{"Target & Input", []string{"target", "target-file", "input", "input-mode", "input-read-timeout"}},
 	{"Spec Options", []string{"spec-url", "spec-header", "spec-var", "spec-default"}},
 	{"Module Selection", []string{"modules", "module-tag", "no-tech-filter"}},
-	{"Ingestion", []string{"server", "scan-on-receive", "full-native-scan-on-receive", "disable-fetch-response", "keep-blocked", "scope-origin", "intensity", "dir", "dir-glob"}},
+	{"Ingestion", []string{"server", "scan-on-receive", "full-native-scan-on-receive", "disable-fetch-response", "keep-blocked", "scope-origin", "intensity", "dir", "dir-glob", "dry-run"}},
 	{"Speed Control", []string{"timeout", "concurrency", "rate-limit", "max-per-host", "max-host-error", "max-findings-per-module", "no-clustering", "no-waf-pacing"}},
 }
 
@@ -419,7 +419,7 @@ var importFlagGroups = []flagGroup{
 	{"Output Format", []string{"format", "output"}},
 	{"Filter", []string{"search", "severity"}},
 	{"Report Metadata", []string{"report-title", "report-target", "report-duration", "report-generated-at", "report-url", "max-body-bytes", "pdf-timeout", "no-redact"}},
-	{"Source & Upload", []string{"glob-db", "upload", "upload-key", "burp-bridge-url"}},
+	{"Source & Upload", []string{"glob-db", "upload", "upload-key", "burp-bridge-url", "dry-run"}},
 	// Bridge-pull narrowing. An unfiltered -B pull copies the operator's entire
 	// proxy history — every host they have browsed, with its cookies — so these
 	// get their own titled block rather than being buried under "Filter".

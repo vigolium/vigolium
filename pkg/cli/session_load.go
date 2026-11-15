@@ -140,6 +140,9 @@ func runSessionLoad(cmd *cobra.Command, args []string) error {
 	if sessionLoadHost == "" {
 		return usageErrorf("--host is required when session configs have no login URLs")
 	}
+	if sessionLoadDryRun {
+		return previewSessionLoad(cmd, sessions)
+	}
 
 	results := checkSessionLogins(cmdContext(cmd), sessions, w)
 
@@ -317,6 +320,9 @@ func runSessionLoadRawRequest(cmd *cobra.Command, data []byte, w io.Writer) erro
 	loginReq, err := authentication.ParseRawLoginRequest(string(data))
 	if err != nil {
 		return fmt.Errorf("failed to parse raw HTTP request: %w", err)
+	}
+	if sessionLoadDryRun {
+		return previewRawSessionLoad(cmd, loginReq.Method, loginReq.URL)
 	}
 
 	_, _ = fmt.Fprintf(w, "%s Sending login request: %s %s\n\n",
