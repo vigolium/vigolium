@@ -478,9 +478,14 @@ func Execute() {
 	}
 
 	// --usage is answered before cobra parses anything (usage_compact.go).
-	if runUsageIfRequested(rootCmd, os.Args[1:]) {
+	if handled, usageErr := runUsageIfRequested(rootCmd, os.Args[1:]); handled {
 		releaseScratch()
-		os.Exit(0)
+		if usageErr == nil {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "%s %v\n", terminal.ErrorPrefix(), usageErr)
+		emitJSONError(usageErr, ExitUsageError, rootCmd)
+		os.Exit(ExitUsageError)
 	}
 
 	// ExecuteC (not Execute) so we get the command that actually ran back —

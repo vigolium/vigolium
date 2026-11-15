@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -357,3 +358,46 @@ func TestScanRejectsUUIDTarget(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// Unknown words on groups and on --usage are usage errors; a bare integer on
+// finding is an id, and a missing one says how to search for it instead.
+func TestGroupPositionalsAndUsageLookups(t *testing.T) {
+	st := seedC6Store(t)
+	for name, args := range map[string][]string{
+		"unknown root command --usage":  {"bogus", "--usage"},
+		"unknown group word --usage":    {"config", "bogus", "--usage", "-j"},
+		"unknown scope component":       {"scope", "hosts", "-j"},
+		"near miss of a subcommand":     {"finding", "mak", "-j"},
+		"pure group under -j":           {"project", "-j"},
+		"unknown word on a pure group":  {"project", "current", "-j"},
+		"cobra count validator, exit 2": {"scan", "diff", st.s1},
+	} {
+		code, out, errOut := st.run(t, args...)
+		if code != 2 {
+			t.Errorf("%s: exit %d, want 2\n%s\n%s", name, code, out, errOut)
+		}
+		if strings.Contains(strings.Join(args, " "), "-j") {
+			doc := decodeOne(t, out)
+			if doc["ok"] != false {
+				t.Errorf("%s: %v", name, doc)
+			}
+		}
+	}
+	if code, out, _ := st.run(t, "module", "xss", "--usage"); code != 0 || !strings.Contains(out, "--") {
+		t.Errorf("a filter word on module is still accepted by --usage: exit %d\n%s", code, out)
+	}
+
+	code, out, _ := st.run(t, "finding", "424242", "-j")
+	if code != 1 {
+		t.Fatalf("finding <missing id>: exit %d\n%s", code, out)
+	}
+	doc := decodeOne(t, out)
+	errObj, _ := doc["error"].(map[string]any)
+	if errObj["code"] != "finding_not_found" || !strings.Contains(fmt.Sprint(errObj["hint"]), "finding --search 424242") {
+		t.Errorf("finding <missing id>: %v", doc)
+	}
+	code, out, _ = st.run(t, "finding", itoa(st.stay), "-j")
+	if code != 0 || len(items(t, decodeOne(t, out))) != 1 {
+		t.Errorf("finding <id>: exit %d\n%s", code, out)
+	}
+}

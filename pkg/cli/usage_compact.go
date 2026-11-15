@@ -148,7 +148,12 @@ func visibleSubcommands(cmd *cobra.Command) []string {
 
 // runUsageIfRequested answers --usage before cobra parses the command line, and
 // reports whether it did. -j/--json selects the `schema flags` document.
-func runUsageIfRequested(root *cobra.Command, args []string) bool {
+//
+// A command path that does not resolve (`vigolium bogus --usage`, `vigolium
+// config bogus --usage`) is a usage error, returned for the caller to report:
+// answering with the root's or the group's flags and exit 0 told the caller the
+// command existed.
+func runUsageIfRequested(root *cobra.Command, args []string) (bool, error) {
 	var rest []string
 	asked, asJSON := false, false
 	for _, a := range args {
@@ -166,21 +171,51 @@ func runUsageIfRequested(root *cobra.Command, args []string) bool {
 		rest = append(rest, a)
 	}
 	if !asked {
-		return false
-	}
-	cmd, _, err := root.Find(rest)
-	if err != nil || cmd == nil {
-		cmd = root
+		return false, nil
 	}
 	if asJSON {
 		globalJSON = true
+	}
+	cmd, err := resolveUsageTarget(root, rest)
+	if err != nil {
+		return true, err
+	}
+	if asJSON {
 		if err := emitFlagUsageDocument(cmd); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
-		return true
+		return true, nil
 	}
 	writeCompactUsage(os.Stdout, cmd)
-	return true
+	return true, nil
+}
+
+// resolveUsageTarget finds the command --usage describes, or the unknown
+// command error for a path that names none.
+func resolveUsageTarget(root *cobra.Command, args []string) (*cobra.Command, error) {
+	cmd, rest, err := root.Find(args)
+	if err != nil || cmd == nil {
+		word := firstPositional(args)
+		return nil, unknownSubcommandError(root, word, nearestSubcommand(root, word, true))
+	}
+	// A group given a word it does not know: the group's own Args say whether
+	// the word is a filter it accepts or a subcommand that does not exist.
+	if word := firstPositional(rest); word != "" && cmd.HasSubCommands() && cmd.Args != nil {
+		if err := cmd.Args(cmd, []string{word}); err != nil {
+			return nil, err
+		}
+	}
+	return cmd, nil
+}
+
+// firstPositional is the first token that is not a flag, "" when there is none.
+func firstPositional(args []string) string {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			return a
+		}
+	}
+	return ""
 }
 
 // emitFlagUsageDocument writes `schema flags <command> -j` for cmd.
