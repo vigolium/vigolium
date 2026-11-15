@@ -27,11 +27,21 @@ var scopeSetCmd = &cobra.Command{
 }
 
 func init() {
-	scopeSetCmd.Flags().StringVar(&scopeSetProject, "project", "", "Write the rule to this project's config overlay instead of the global config")
+	scopeSetCmd.Flags().StringVar(&scopeSetProject, "project", "", "Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix)")
 	scopeCmd.AddCommand(scopeSetCmd)
 }
 
 func runScopeSet(cmd *cobra.Command, args []string) error {
+	// An overlay is written only for a project that exists: writing one for a
+	// typo created ~/.vigolium/projects/<typo>/ that no scan would ever read.
+	if scopeSetProject != "" {
+		resolved, err := resolveProjectRefArg(cmd.Context(), scopeSetProject)
+		if err != nil {
+			return err
+		}
+		scopeSetProject = resolved
+	}
+
 	key := "scope." + args[0]
 	var value string
 	switch {

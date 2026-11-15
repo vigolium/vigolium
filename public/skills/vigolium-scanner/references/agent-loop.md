@@ -53,7 +53,10 @@ Scoping: `--project-uuid <uuid>`, `--project-name <name>`,
 `VIGOLIUM_PROJECT_UUID=<uuid>`, or `VIGOLIUM_PROJECT_NAME=<name>`. Every
 envelope's `project_source` (`flag`, `env`, `active_file`, `default`) says
 which one applied; `active_file` means another shell's `project use` scoped
-this command, so pin a project instead.
+this command, so pin a project instead. A project that does not exist is
+`project_not_found` (exit 1), never an empty result; `--project-uuid` also
+takes an exact name or a unique 8+ character UUID prefix. A standalone source
+(`-S`, `--glob-db`) has no project registry, so there it is only a filter.
 
 ## Token discipline
 

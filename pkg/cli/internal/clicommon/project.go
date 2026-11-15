@@ -2,10 +2,13 @@ package clicommon
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/vigolium/vigolium/internal/config"
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/database"
 )
 
@@ -59,6 +62,19 @@ func ResolvedProjectUUID() (string, bool) {
 	return resolvedProjectUUID, resolvedProjectUUID != ""
 }
 
+// ResolveOption tunes ResolveProjectUUID.
+type ResolveOption func(*resolveOptions)
+
+type resolveOptions struct{ verify bool }
+
+// VerifyProjectExists makes ResolveProjectUUID check the resolved project
+// against the store getDB opens (and resolve a --project-uuid that is a name
+// or a unique UUID prefix). Off for a source with no project registry (a
+// standalone export, a scratch database), where every project is "missing".
+func VerifyProjectExists(on bool) ResolveOption {
+	return func(o *resolveOptions) { o.verify = on }
+}
+
 // ResolveProjectUUID returns the effective project UUID, resolved once per
 // process. Resolution order:
 //  1. projectUUID (from --project-uuid / VIGOLIUM_PROJECT_UUID)
@@ -67,15 +83,29 @@ func ResolvedProjectUUID() (string, bool) {
 //  3. ~/.vigolium/active-project file (set by `vigolium project use`)
 //  4. database.DefaultProjectUUID
 //
+// With VerifyProjectExists(true), a project other than the default must exist:
+// a missing one is a project_not_found error (exit 1) instead of a scope that
+// silently matches nothing and writes into a project nothing lists. The
+// --project-uuid value is then a reference: an exact UUID, an exact name, or a
+// unique UUID prefix of 8+ characters. When the database cannot be opened the
+// check is skipped; a command that needs the store fails on its own open.
+//
 // getDB is supplied by the caller so this package needs no knowledge of the
 // CLI's global flag state.
-func ResolveProjectUUID(getDB func() (*database.DB, error), projectUUID, projectName string) (string, error) {
+func ResolveProjectUUID(getDB func() (*database.DB, error), projectUUID, projectName string, opts ...ResolveOption) (string, error) {
+	var o resolveOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
 	resolveProjectOnce.Do(func() {
 		resolveProjectDone = true
 		switch {
 		case projectUUID != "":
 			resolvedProjectUUID = projectUUID
 			resolvedProjectBranch = BranchSelection
+			if o.verify {
+				resolvedProjectUUID, resolveProjectErr = verifyProjectRef(getDB, projectUUID, "--project-uuid")
+			}
 		case projectName != "":
 			db, err := getDB()
 			if err != nil {
@@ -85,6 +115,11 @@ func ResolveProjectUUID(getDB func() (*database.DB, error), projectUUID, project
 			repo := database.NewRepository(db)
 			project, err := repo.GetProjectByName(context.Background(), projectName)
 			if err != nil {
+				if strings.Contains(err.Error(), "no project found") {
+					resolveProjectErr = NewCodedError(apicontract.CodeProjectNotFound,
+						fmt.Errorf("%w (list projects with `vigolium project list`, create one with `vigolium project create %s`)", err, projectName))
+					return
+				}
 				resolveProjectErr = err
 				return
 			}
@@ -94,6 +129,9 @@ func ResolveProjectUUID(getDB func() (*database.DB, error), projectUUID, project
 			if persisted, err := config.ReadActiveProject(); err == nil && persisted != "" {
 				resolvedProjectUUID = persisted
 				resolvedProjectBranch = BranchActiveFile
+				if o.verify {
+					resolvedProjectUUID, resolveProjectErr = verifyProjectRef(getDB, persisted, "the active project (~/.vigolium/active-project, set by `vigolium project use`)")
+				}
 			} else {
 				resolvedProjectUUID = database.DefaultProjectUUID
 				resolvedProjectBranch = BranchDefault
@@ -101,6 +139,33 @@ func ResolveProjectUUID(getDB func() (*database.DB, error), projectUUID, project
 		}
 	})
 	return resolvedProjectUUID, resolveProjectErr
+}
+
+// verifyProjectRef resolves ref to an existing project's UUID. The default
+// project always passes; so does any ref when the store cannot be opened.
+func verifyProjectRef(getDB func() (*database.DB, error), ref, source string) (string, error) {
+	if ref == database.DefaultProjectUUID {
+		return ref, nil
+	}
+	db, err := getDB()
+	if err != nil {
+		return ref, nil
+	}
+	p, err := database.NewRepository(db).ResolveProjectRef(context.Background(), ref)
+	switch {
+	case err == nil:
+		return p.UUID, nil
+	case errors.Is(err, database.ErrProjectRefAmbiguous):
+		return ref, UsageErrorf("%s: %v", source, err)
+	case errors.Is(err, database.ErrProjectNotFound):
+		return ref, CodedErrorf(apicontract.CodeProjectNotFound,
+			"%s %q: no such project (list them with `vigolium project list`; create one with `vigolium project create <name> --project-uuid <uuid>`)",
+			source, ref)
+	default:
+		// A store without a projects table (an old or foreign file) cannot
+		// answer; do not turn that into a missing project.
+		return ref, nil
+	}
 }
 
 // ResetProjectResolutionForTest clears the once-per-process resolution so a

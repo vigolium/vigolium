@@ -184,7 +184,7 @@ and wins for that command — read it instead of the row here.
 | `--offline` | - | bool | `false` | Keep off every network path that is not the target: no OAST callbacks, third-party lookups (npm registry), nuclei template clone/update, browser download or update check (also settings key offline) |
 | `--pretty` | - | bool | `false` | Indent -j/--json output for reading (default: compact, one line). Also $VIGOLIUM_JSON_PRETTY=1. --watch stays one compact document per line |
 | `--project-name` | - | string | - | Project name to scope all operations to (must match exactly one project). Also honors $VIGOLIUM_PROJECT_NAME |
-| `--project-uuid` | - | string | - | Project UUID to scope all operations to (defaults to the default project). Also honors $VIGOLIUM_PROJECT_UUID |
+| `--project-uuid` | - | string | - | Project to scope all operations to: a UUID, an exact name, or a unique 8+ char UUID prefix of an existing project (defaults to the default project; an unknown one is project_not_found). Also honors $VIGOLIUM_PROJECT_UUID |
 | `--proxy` | - | string | - | Route all requests through this proxy (HTTP/SOCKS5 URL) |
 | `--read-only` | - | bool | `false` | Open the database without modifying it (no directory creation, no journal-mode change, no WAL checkpoint). Read commands only; use it when the source file is evidence |
 | `--scan-uuid` | - | string | - | Pin scan UUID for this session (use to sync results across nodes; defaults to a freshly-minted UUID) |
@@ -2411,7 +2411,7 @@ Set a scope rule
 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
-| `--project` | - | string | - | Write the rule to this project's config overlay instead of the global config |
+| `--project` | - | string | - | Write the rule to this project's config overlay instead of the global config (an existing project: UUID, name or unique 8+ char UUID prefix) |
 
 ## vigolium scope view
 

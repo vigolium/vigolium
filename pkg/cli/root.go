@@ -395,7 +395,7 @@ func init() {
 	pf.StringArrayVar(&globalExtScripts, "ext", nil, "Load JavaScript extension script (repeatable)")
 	pf.StringVar(&globalExtDir, "ext-dir", "", "Override extension scripts directory")
 	pf.BoolVar(&globalExtAllowFailures, "ext-allow-failures", false, "Scan even when an extension named with --ext fails to load (default: abort before any traffic, exit 2 extension_load_failed)")
-	pf.StringVar(&globalProjectUUID, "project-uuid", "", "Project UUID to scope all operations to (defaults to the default project). Also honors $VIGOLIUM_PROJECT_UUID")
+	pf.StringVar(&globalProjectUUID, "project-uuid", "", "Project to scope all operations to: a UUID, an exact name, or a unique 8+ char UUID prefix of an existing project (defaults to the default project; an unknown one is project_not_found). Also honors $VIGOLIUM_PROJECT_UUID")
 	pf.StringVar(&globalProjectName, "project-name", "", "Project name to scope all operations to (must match exactly one project). Also honors $VIGOLIUM_PROJECT_NAME")
 }
 

@@ -22,7 +22,45 @@ import (
 // process from the --project-uuid / --project-name global flags. See
 // clicommon.ResolveProjectUUID for the full resolution order.
 func resolveProjectUUID() (string, error) {
-	return clicommon.ResolveProjectUUID(getDB, globalProjectUUID, globalProjectName)
+	return clicommon.ResolveProjectUUID(getDB, globalProjectUUID, globalProjectName,
+		clicommon.VerifyProjectExists(projectExistenceCheckApplies()))
+}
+
+// resolveProjectRefArg resolves a project named on the command line (a UUID,
+// an exact name, or a unique 8+ character UUID prefix) to an existing
+// project's UUID: project_not_found (exit 1) when none matches, a usage error
+// when the reference is ambiguous. The default project always resolves.
+func resolveProjectRefArg(ctx context.Context, ref string) (string, error) {
+	if ref == database.DefaultProjectUUID {
+		return ref, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	db, err := getDB()
+	if err != nil {
+		return "", fmt.Errorf("open the database to look up project %q: %w", ref, err)
+	}
+	p, err := database.NewRepository(db).ResolveProjectRef(ctx, ref)
+	switch {
+	case err == nil:
+		return p.UUID, nil
+	case errors.Is(err, database.ErrProjectRefAmbiguous):
+		return "", usageErrorf("%v", err)
+	case errors.Is(err, database.ErrProjectNotFound):
+		return "", codedErrorf(apicontract.CodeProjectNotFound,
+			"project %q not found (list them with `vigolium project list`; create one with `vigolium project create <name>`)", ref)
+	default:
+		return "", err
+	}
+}
+
+// projectExistenceCheckApplies reports whether the selected project can be
+// checked against the store: not for a standalone source (-S, --glob-db, a
+// VIGOLIUM_DB_PATH pin) or a --db-isolate scratch database, which carry no
+// project registry of their own.
+func projectExistenceCheckApplies() bool {
+	return !statelessReadRequested() && !globalDBIsolate
 }
 
 // openProjectRepo opens the database, ensures the schema exists and seeds the
@@ -229,10 +267,9 @@ var projectListCmd = &cobra.Command{
 			return nil
 		}
 
-		active, err := resolveProjectUUID()
-		if err != nil {
-			return err
-		}
+		// The marker is decoration: a stale active-project file must not stop
+		// the one command that lists what to switch to.
+		active, _ := resolveProjectUUID()
 
 		tbl := terminal.NewTable("", "UUID", "NAME", "DESCRIPTION", "DEFAULT TARGET")
 		for _, p := range projects {
@@ -547,12 +584,15 @@ var projectConfigCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		defer syncLogger()
 
-		projectUUID, err := resolveProjectUUID()
+		var projectUUID string
+		var err error
+		if len(args) > 0 {
+			projectUUID, err = resolveProjectRefArg(cmd.Context(), args[0])
+		} else {
+			projectUUID, err = resolveProjectUUID()
+		}
 		if err != nil {
 			return err
-		}
-		if len(args) > 0 {
-			projectUUID = args[0]
 		}
 
 		configPath := config.ProjectConfigPath(projectUUID)
