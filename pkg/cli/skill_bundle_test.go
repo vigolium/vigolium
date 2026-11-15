@@ -133,7 +133,7 @@ const referenceLineBudget = 500
 
 var referenceLineBudgets = map[string]int{
 	"agent-loop.md":  300,
-	"invariants.md":  600,
+	"invariants.md":  650,
 	"auth.md":        600,
 	"agent-modes.md": 1160,
 	"extensions.md":  1080,

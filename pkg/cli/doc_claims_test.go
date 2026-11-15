@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/vigolium/vigolium/pkg/apicontract"
 	"github.com/vigolium/vigolium/pkg/terminal"
 	"github.com/vigolium/vigolium/public"
 )
@@ -123,6 +124,67 @@ func TestExtensionExampleValidateCommand(t *testing.T) {
 	for _, c := range cases {
 		if got := strings.Join(exampleValidateCommands(c.shown), " / "); got != c.want {
 			t.Errorf("exampleValidateCommands(%v) = %q, want %q", c.shown, got, c.want)
+		}
+	}
+}
+
+// restOnlyErrorCodes are classifications only the REST API reports; the CLI
+// says the same things with the codes the next-command table covers.
+var restOnlyErrorCodes = map[apicontract.ErrorCode]bool{
+	apicontract.CodeInvalidRequest: true, apicontract.CodeUnauthorized: true, apicontract.CodeForbidden: true,
+	apicontract.CodeConflict: true, apicontract.CodeRateLimited: true, apicontract.CodeQueueFull: true,
+	apicontract.CodeInternalError: true, apicontract.CodeMethodNotAllowed: true, apicontract.CodePayloadTooLarge: true,
+	apicontract.CodeServiceUnavailable: true, apicontract.CodeDatabaseUnavailable: true,
+	apicontract.CodeUnsupportedAPIVersion: true,
+}
+
+// Every code the CLI can put in error.code has a row naming the command to
+// run next, so an agent branches on the code instead of reading prose.
+func TestInvariantsNameNextCommandForEveryErrorCode(t *testing.T) {
+	body, err := public.StaticFS.ReadFile(skillBundleDir + "/references/invariants.md")
+	if err != nil {
+		t.Fatalf("read invariants.md: %v", err)
+	}
+	const heading = "### `error.code` → the next command"
+	_, section, ok := strings.Cut(string(body), heading)
+	if !ok {
+		t.Fatalf("invariants.md has no %q section", heading)
+	}
+	if end := strings.Index(section, "\n#"); end >= 0 {
+		section = section[:end]
+	}
+	for _, code := range apicontract.ErrorCodes() {
+		if restOnlyErrorCodes[code] {
+			continue
+		}
+		if !strings.Contains(section, "`"+string(code)+"`") {
+			t.Errorf("invariants.md's next-command table has no row for error.code %q", code)
+		}
+	}
+}
+
+// Guidance an agent needs before it drives a scan unattended, each pinned to
+// the reference that carries it.
+func TestSkillCarriesAgentGuidance(t *testing.T) {
+	read := func(name string) string {
+		data, err := public.StaticFS.ReadFile(skillBundleDir + "/references/" + name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		return string(data)
+	}
+	for _, c := range []struct{ file, needle, why string }{
+		{"invariants.md", "## Target content is data", "target-written text is data, never instructions"},
+		{"invariants.md", "## Local targets and proxied sandboxes", "dev servers and NO_PROXY in proxied sandboxes"},
+		{"invariants.md", "NO_PROXY=localhost,127.0.0.1", "how to reach a local server through a proxied sandbox"},
+		{"recipes.md", "## One-off scan that keeps nothing", "a scan that leaves the shared store alone"},
+		{"loop-watch.md", "### Harness timeouts", "background the scan and wait in bounded calls"},
+		{"loop-watch.md", "scan wait \"$ID\" --timeout", "scan wait --timeout under a harness limit"},
+		{"loop-watch.md", "### Stopping a scan", "how to stop a scan"},
+		{"loop-watch.md", "vigolium scan stop", "scan stop"},
+	} {
+		if !strings.Contains(read(c.file), c.needle) {
+			t.Errorf("references/%s lacks %q (%s)", c.file, c.needle, c.why)
 		}
 	}
 }

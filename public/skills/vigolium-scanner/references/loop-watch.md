@@ -164,3 +164,42 @@ vigolium scan wait "$ID" --timeout 45m -j --fail-on high   # block until it ends
   `vigolium log ls --reap` finalizes them (`status: failed`,
   `stop_reason: "abandoned"`; `-j` lists them in `reaped`) and prunes
   `status.json` files older than `scan_logs.status_retention_days` (default 30).
+
+### Harness timeouts
+
+A coding-agent harness usually kills a foreground command after a few minutes;
+a full `scan` outlasts that, and a killed scan leaves only what it flushed.
+Compare `plan.estimate.duration_ms.high` (from `--dry-run -j`) with your
+command timeout. When it is longer, start the scan in the background under a
+UUID you chose and block on `scan wait` in calls that each fit the limit:
+
+```bash
+ID=$(uuidgen | tr A-Z a-z)
+nohup vigolium scan -t https://target.example --scan-uuid "$ID" >/dev/null 2>&1 &
+vigolium scan wait "$ID" --timeout 100s -j    # exit 1 wait_timeout: still running, call again
+```
+
+`wait_timeout` (exit 1, the scan untouched) means "not yet"; loop on it, or
+read progress in between with `vigolium scan status "$ID" -j`. Do not kill the
+background process to get control back: stop it (below).
+
+### Stopping a scan
+
+```bash
+vigolium scan ls -j --fields uuid,status,effective_status,target   # what is running
+vigolium scan stop <scan-uuid-or-8-char-prefix> --wait -j          # ask it to stop, wait for it
+vigolium agent cancel <agentic-scan-uuid> --wait -j                # the same for an agent run
+```
+
+- `scan stop` writes a stop request the scan's heartbeat picks up within about
+  10 s, wherever it runs (this shell, another one, the server, a `-S` scan via
+  its session directory). The scan flushes what it found, stores
+  `status: cancelled` with `stop_reason: user_stopped`, and its own process
+  exits `5` with `error.code: "interrupted"`; its document is still printed.
+- `--wait` (default `--timeout 60s`) returns when the scan has stopped; not
+  acknowledged in time is exit 1 `wait_timeout`, whose hint names `kill -INT
+  <pid>` when the scan runs on this host. A scan that already finished is exit
+  0, `changed: false`, `action: already_finished`.
+- `kill -INT <pid>` (or Ctrl-C) is the same graceful stop for a process you
+  own; a second signal, or SIGKILL, loses the unflushed tail and the terminal
+  event.

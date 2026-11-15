@@ -33,6 +33,24 @@ Check `completeness` before step 4: a `partial` head makes "not new" weaker
 evidence. `vigolium scan diff previous latest -j` gives the same comparison
 with `fixed` / `not_reobserved` and a `comparable` verdict.
 
+## One-off scan that keeps nothing
+
+For a quick look at a target that should leave no trace in the shared store:
+`-S` scans into a temporary database that is discarded at exit (kept only on a
+failed export, or with `--keep-db-on-error`). Everything you need comes back in
+the one document; ask for an artifact with `--format`/`-o` if you want a copy.
+
+```bash
+vigolium scan -t https://target.example -S --dry-run -j | jq .plan.estimate   # sends nothing
+vigolium scan -t https://target.example -S -j --compact > scan.json           # persisted: false
+jq '{status, completeness, counts_by_severity, items: [.items[] | {finding_hash, severity, module_id, url}]}' scan.json
+vigolium scan-url https://target.example/api/item?id=1 -S -j -m sqli,xss       # one request, input only
+```
+
+Unpersisted findings have no `id`: cite `finding_hash`. To keep the run as a
+file instead, `-S --format sqlite -o run` writes `run.sqlite`, which every read
+takes with `--db run.sqlite`.
+
 ## Spec scan with auth
 
 ```bash
