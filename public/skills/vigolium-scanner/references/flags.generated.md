@@ -19,6 +19,7 @@ run `vigolium <command> -h`.
 - [vigolium agent](#vigolium-agent)
 - [vigolium agent audit](#vigolium-agent-audit)
 - [vigolium agent autopilot](#vigolium-agent-autopilot)
+- [vigolium agent cancel](#vigolium-agent-cancel)
 - [vigolium agent olium](#vigolium-agent-olium)
 - [vigolium agent query](#vigolium-agent-query)
 - [vigolium agent session](#vigolium-agent-session)
@@ -217,10 +218,12 @@ Run audit and/or piolium back-to-back as a unified security audit
 | `--clean-raw` | - | bool | `false` | [audit] Remove <source>/vigolium-results/ from the source tree after the run (the session copy is always kept). Inverts the default --keep-raw retention of the source-folder copy. No effect on the piolium leg. |
 | `--commit-depth` | - | int | `1` | git clone --depth value when --source is a git URL (default 1; use 0 for full history; overrides --intensity) |
 | `--driver` | - | string | `auto` | Audit driver: auto (run audit; fall back to piolium only when audit cannot start - claude/codex CLI missing, binary not embedded, or no audit-supported mode in the chain), both (audit then piolium), audit, or piolium (default auto) |
+| `--dry-run` | - | bool | `false` | Print the resolved drivers, mode chain, source and agent without cloning the source, launching a driver or calling a provider |
 | `--intensity` | - | string | `balanced` | Audit intensity preset: quick, balanced, or deep |
 | `--interactive` | `-i` | bool | `false` | Drop into the coding agent with the audit harness installed and drive the audit yourself (audit-only; the embedded vigolium-audit binary's -i). Skips NDJSON streaming, the AgenticScan row, and findings auto-import — results land in <source>/vigolium-results/; import them afterward with 'vigolium import'. Not valid with --driver=piolium. |
 | `--keep-raw` | - | bool | `true` | [audit] Keep raw scanner output, draft findings, and intermediate workspaces under <source>/vigolium-results/ for manual review (overrides audit's deep/confirm auto-prune). On by default; the source-folder copy is also retained. Pass --clean-raw to remove it from the source tree. No effect on the piolium leg. |
 | `--list-modes` | - | bool | `false` | List the available audit modes (audit's mode graph: phases, time estimate, descriptions) and exit |
+| `--max-duration` | - | duration | `0s` | Maximum wall-clock duration for the whole audit (e.g. 2h; 0 = no limit). Reaching it stops the drivers: status timed_out, exit 5 |
 | `--mode` | - | string | - | Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, audit=reinvest/refresh/mock/diff/status |
 | `--modes` | - | string | - | Run a chain of modes back-to-back (comma-separated, e.g. deep,refresh,confirm). Overrides --mode/--intensity. Stops on the first non-complete mode. audit runs the chain natively (--modes); piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg. |
 | `--no-dedup` | - | bool | `false` | Skip the post-pass project-wide findings dedup that runs after the audit completes |
@@ -305,6 +308,17 @@ Agentic scan: autonomous AI-driven vulnerability scanning
 | `--triage` | - | bool | `false` | After the scan completes, run an AI triage pass over the findings (confirm real issues vs false positives, written back to finding status) |
 | `--upload-results` | - | bool | `false` | Upload scan results to cloud storage after completion (requires storage config) |
 | `--verbose` | `-v` | bool | `false` | **(overrides the global `--verbose`)** Show a per-tool head/tail preview of each tool result alongside the standard one-liner |
+
+## vigolium agent cancel
+
+Usage: `vigolium agent cancel <run-uuid|prefix>`
+
+Ask a running agent run (query, autopilot, swarm, audit, triage) to stop
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--timeout` | - | duration | `1m0s` | With --wait, how long to wait |
+| `--wait` | - | bool | `false` | Wait until the run has finished |
 
 ## vigolium agent olium
 
@@ -503,10 +517,12 @@ Run a unified security audit (alias for `vigolium agent audit`)
 | `--clean-raw` | - | bool | `false` | [audit] Remove <source>/vigolium-results/ from the source tree after the run (the session copy is always kept). Inverts the default --keep-raw retention of the source-folder copy. No effect on the piolium leg. |
 | `--commit-depth` | - | int | `1` | git clone --depth value when --source is a git URL (default 1; use 0 for full history; overrides --intensity) |
 | `--driver` | - | string | `auto` | Audit driver: auto (run audit; fall back to piolium only when audit cannot start - claude/codex CLI missing, binary not embedded, or no audit-supported mode in the chain), both (audit then piolium), audit, or piolium (default auto) |
+| `--dry-run` | - | bool | `false` | Print the resolved drivers, mode chain, source and agent without cloning the source, launching a driver or calling a provider |
 | `--intensity` | - | string | `balanced` | Audit intensity preset: quick, balanced, or deep |
 | `--interactive` | `-i` | bool | `false` | Drop into the coding agent with the audit harness installed and drive the audit yourself (audit-only; the embedded vigolium-audit binary's -i). Skips NDJSON streaming, the AgenticScan row, and findings auto-import — results land in <source>/vigolium-results/; import them afterward with 'vigolium import'. Not valid with --driver=piolium. |
 | `--keep-raw` | - | bool | `true` | [audit] Keep raw scanner output, draft findings, and intermediate workspaces under <source>/vigolium-results/ for manual review (overrides audit's deep/confirm auto-prune). On by default; the source-folder copy is also retained. Pass --clean-raw to remove it from the source tree. No effect on the piolium leg. |
 | `--list-modes` | - | bool | `false` | List the available audit modes (audit's mode graph: phases, time estimate, descriptions) and exit |
+| `--max-duration` | - | duration | `0s` | Maximum wall-clock duration for the whole audit (e.g. 2h; 0 = no limit). Reaching it stops the drivers: status timed_out, exit 5 |
 | `--mode` | - | string | - | Audit mode override (overrides --intensity). Shared modes: lite, balanced, deep, revisit, confirm, merge. Driver-specific: piolium=longshot/smoke/diff/status, audit=reinvest/refresh/mock/diff/status |
 | `--modes` | - | string | - | Run a chain of modes back-to-back (comma-separated, e.g. deep,refresh,confirm). Overrides --mode/--intensity. Stops on the first non-complete mode. audit runs the chain natively (--modes); piolium chains via sequential runs collapsed into one row; with driver=auto/both, modes a driver can't run are skipped on that driver's leg. |
 | `--no-dedup` | - | bool | `false` | Skip the post-pass project-wide findings dedup that runs after the audit completes |

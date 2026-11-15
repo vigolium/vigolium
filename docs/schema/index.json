@@ -1,5 +1,11 @@
 [
   {
+    "name": "agent cancel",
+    "kind": "command",
+    "envelope_kind": "mutation",
+    "description": "The agent run a cancel was asked of: action cancel_requested (the request was written on its row and/or session sentinel) or already_finished (changed false). --wait adds acknowledged."
+  },
+  {
     "name": "db clean",
     "kind": "command",
     "envelope_kind": "mutation",

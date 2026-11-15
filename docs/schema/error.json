@@ -119,6 +119,9 @@
     "soft_fail": {
       "type": "boolean"
     },
+    "agentic_scan_uuid": {
+      "type": "string"
+    },
     "generated_at": {
       "type": "string"
     },
