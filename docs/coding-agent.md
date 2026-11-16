@@ -412,15 +412,19 @@ duplicates the rows on the wire and exists only for consumers still migrating.
   run), `action` (`"compact"`, `"push_to_burp"`, …) and `dry_run: true` on a dry
   run. Commands not yet on the envelope have no `kind`.
 - `items` is always an array: `[]` when empty, never `null`, never an object.
-- `redacted` is always present. It is `true` when credential header values,
-  cookie values and sensitive query parameters in the document's raw views
-  (record and finding requests/responses, `replay`, `fuzz --dry-run`,
-  `traffic headers`, `--curl`) were masked as `<redacted>`: by default under
-  `-j` when a coding-agent variable is set (`CLAUDECODE`,
-  `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `GEMINI_CLI`,
-  `VIGOLIUM_AGENT`; CI variables do not turn it on), or with `--redact`.
-  `--no-redact` turns it off. Bodies are kept, and the database, `export`,
-  `--format jsonl` streams and `db export` stay raw.
+- `redacted` is always present. It is `true` when a credential-bearing view in
+  this document was produced masked: credential header values, cookie values
+  and sensitive query parameters in raw views (record and finding
+  requests/responses, `replay`, `fuzz --dry-run`, `traffic headers`, `--curl`),
+  `kit cookies` values, or `auth show`/`auth list` secrets. A document with no
+  such view says `false` whatever the mode, so `version -j` under a coding agent
+  is `redacted: false`. The -j mode is on by default when a coding-agent
+  variable is set (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`,
+  `CURSOR_AGENT`, `GEMINI_CLI`, `VIGOLIUM_AGENT`; CI variables do not turn it
+  on). `VIGOLIUM_REDACT=1|0` turns it on or off for every subprocess and beats
+  detection (an unparseable value is exit 2); `--redact` / `--no-redact` beat
+  both. Bodies are kept, and the database, `export`, `--format jsonl` streams and
+  `db export` stay raw.
 - Finding rows carry `finding_hash`, the finding's stable identity (the dedup
   key, and what SARIF fingerprints use); `--fields` accepts it.
 - `project_scoped` says whether a project filter was applied at all, so "no
@@ -482,7 +486,8 @@ row name, or flattens a single object back to the top level, for one release.
 |---|---|---|---|---|
 | `module ls` (`module`, `-M`) | read | modules | `active_count`, `passive_count` | `modules` |
 | `doctor` | read | `[report]` | `status` (copied up; the re-checked verdict under `--fix`), `fixes`, `updated` | `.` (`report` under `--fix`) |
-| `version` | read | `[{version, commit, db_schema_version, …}]` | — | `.` |
+| `version` | read | `[{version, commit, db_schema_version, features, …}]`; `features` are stable kebab-case capability names (`no-redact`, `redact-env`, `require-scope`, `schema-traits`, `kit-cookies`, …) to gate on instead of the version | — | `.` |
+| `schema commands` | read | `[{command, kind, db, reads_store, mutates, writes_global, sends_traffic, read_only_flag, value_flags}]` | `global_value_flags` (the root's) | — |
 | `skills list` | read | skills | `installed`: `[{name, agent, scope, path, version, status}]` per install location (`./.claude/skills`, `~/.claude/skills`, `./.agents/skills`, `~/.agents/skills`), `status` one of `current`, `stale`, `modified`, `missing` | `skills` |
 | `skills get` | read | `[{name, description, embed_path, content, references?}]`; `--ref <file>` (or `<skill>/references/<file>.md`): `[{name, path, content}]` per reference; `--list-refs`: `[{name, path, bytes, lines}]` | — | — (was raw markdown; still is without `-j`) |
 | `kit secret-scan` | read | matches | `files_scanned`, `count` | `matches` |
@@ -492,6 +497,7 @@ row name, or flattens a single object back to the top level, for one release.
 | `kit payload` | read | payloads (class names with `--list`) | `classes`, `count` | `payloads` / `classes` |
 | `kit js-beautify`, `kit jwt-crack` | read | `[result]` | — | `.` |
 | `kit tmp-clean` | mutation | `[result]` | — | `.` |
+| `kit unlock-walk` | read | `[{origin, landing, routes, routes_skipped?, stubs_never_hit, writes_allowed, totals, stored, store_skip?}]`; each route `{route, url, navigation, final_url, redirected, title?, text_sample?, requests[{method, url, type, status, record_uuid}], aborted_writes, stubs_hit, error?}` | — | `.` |
 | `js` | read | `[{value}]`, the return value as JSON | — | — (was the raw value; still is without `-j`) |
 | `extensions eval <code>` | read | `[{value}]`, as `js` (with `--record-uuid` it prints the `extensions run` document) | — | — |
 | `extensions example` | read | `[{key, lang, type, title, filename, save_as, code}]` (no `code` under `--list`) | `filter`, `lang`, `list_only` | `examples` |
@@ -1044,13 +1050,36 @@ Exit codes:
 |------|---------|
 | `0` | success |
 | `1` | the work failed; `error.code` says how (`source_missing`, `export_failed`, `no_targets_in_scope`, `no_targets_reachable`, …) |
-| `2` | usage error — bad flag, bad value, rejected combination, a search that matched nothing (`module enable`), or a mutation that needed `--force` and had no terminal to ask. `error.code: "usage_error"`, except a scan whose `--ext` extension failed to load before any request: `extension_load_failed` (`--ext-allow-failures` to scan without it), and a send to a host the configured scope refuses: `out_of_scope` (`fuzz`, `dns`, `replay` single and bulk, `traffic --replay`, `kit param-mine`, `finding verify`; nothing is sent, `--ignore-scope` on each overrides it) |
-| `3` | `--fail-on-match` / `--fail-on-crack` matched (`fuzz`, `kit secret-scan`, `kit jwt-crack`) |
+| `2` | usage error — bad flag, bad value, rejected combination, a search that matched nothing (`module enable`), or a mutation that needed `--force` and had no terminal to ask. `error.code: "usage_error"`, except a scan whose `--ext` extension failed to load before any request: `extension_load_failed` (`--ext-allow-failures` to scan without it), and a send to a host or path the configured scope refuses — or, with `--require-scope` / `VIGOLIUM_REQUIRE_SCOPE=1`, any send when the scope names no hosts: `out_of_scope` (`fuzz`, `dns`, `replay` single and bulk, `traffic --replay`, `kit param-mine`, `kit unlock-walk`, `finding verify`; nothing is sent, `--ignore-scope` on each overrides it) |
+| `3` | `--fail-on-match` / `--fail-on-crack` matched (`fuzz`, `kit secret-scan`, `kit jwt-crack`), or `kit cookies --require-match` found nothing, or `kit cookies -o` kept an existing file because nothing matched |
 | `4` | the `--fail-on <severity>` (or `scan diff --fail-on-new <severity>`) gate tripped |
 | `5` | incomplete — the work ran but did not finish. `error.code` is `interrupted`, `timed_out`, `budget_exhausted` or `partial`. `interrupted`: a scan stopped by SIGINT/SIGTERM or `scan stop` after flushing what it had. The agent runs (`agent autopilot`/`swarm`/`audit`: a `--max-duration` stop, a `--max-commands`/`--token-budget`/`--max-cost-usd` stop, an audit in which some drivers failed; `agent query`/`triage` past `--max-duration`) — see [AI / agentic scans](#ai--agentic-scans). A native scan that is merely partial exits `0` unless `--fail-on` (which implies it) or `--fail-on-partial` is given (see [Partial scans](#partial-scans)) |
 
 `error.code` is a closed set shared with the REST API (`pkg/apicontract`):
 values are added, never re-worded, so branch on the code rather than the message.
+
+`kit cookies --with-storage` also reads local and session storage. A store that
+will not open is recorded per store as `storage_problem` and warned about, never
+raised as the command's error: the cookies were already read and a locked
+LevelDB says nothing about them. IndexedDB is never parsed — it is listed under
+`unreadable`, and `--clone-profile` is the output that carries it (a failed
+clone is `export_failed`, like any other requested artifact).
+
+Two codes exist specifically because their failure is invisible otherwise.
+`kit cookies` reads the local browser's encrypted stores, where the key is
+fetched lazily and an undecryptable row is skipped — so a refused key and a
+domain with no cookies produce the same empty result. `keyring_denied` means the
+OS would not release the key, the macOS prompt went unanswered for 2 minutes,
+or `--no-prompt` refused to raise it (run `vigolium kit cookies doctor` in a
+desktop session and answer "Allow" — not "Always Allow", which lets every local
+process read the key — then retry); `browser_encryption_unsupported` means the
+profile uses Chrome 127+ App-Bound Encryption and no other process can read it,
+so there is nothing to retry and a clone would copy the same unreadable values.
+Treat an empty cookie result as inconclusive until the code says otherwise. A
+failed or empty read never replaces an existing `-o` file (`output_kept`, exit
+3 for an empty one). Under `-j` redaction the cookie and storage values are
+masked and `--stdout` is refused without `--reveal`: write the session with
+`--as … -o <file>`.
 
 `3`, `4` and `5` are *completed results*, not failures: the output was written before
 the code was chosen. `ok` follows the exit code: `true` on `0`, `3` and `4`,

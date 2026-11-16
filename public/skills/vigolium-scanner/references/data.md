@@ -1255,6 +1255,7 @@ vigolium params --host api.example.com
 vigolium params --type integer,uuid,sequential_id -j    # IDOR candidates
 vigolium params --endpoint <endpoint-id> --show-values
 vigolium params --location query,json --min-occurrences 3
+vigolium params --paths --method POST,PUT -j             # JSON body shapes per operation
 ```
 
 - One row per (endpoint, location, name); `endpoint_id` is the `endpoints` id.
@@ -1270,6 +1271,9 @@ vigolium params --location query,json --min-occurrences 3
 - Filters: everything `endpoints` takes, plus `--endpoint <id|template>`,
   `--location <list>`, `--type <value types>` (dominant type; an unknown name is
   a usage error listing the set) and `--min-occurrences N`.
+- `--paths`: JSON body shapes per operation, never values — `method`, `template`, `key_path`
+  (`user.name`; arrays share their path), `json_type`/`json_types`, `sample_count` of
+  `operation_records` (fewer = optional key); `records_without_paths` counts older rows.
 
 ## hosts
 

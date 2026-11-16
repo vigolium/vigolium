@@ -24,9 +24,12 @@ not repeated here: the CLI says it, with exit `2`.
   `CURSOR_AGENT`, `GEMINI_CLI`, `VIGOLIUM_AGENT`; CI variables do not count)
   every `-j` document masks credential header values, cookie values and
   sensitive query parameters in its raw views (records, findings, `replay`,
-  `fuzz --dry-run`, `traffic headers`, `--curl`), and says so: `redacted:
-  true`. `--no-redact` shows them, `--redact` forces masking anywhere. Bodies
-  are kept; the database and exports (`export`, `--format jsonl`, `db export`)
+  `fuzz --dry-run`, `traffic headers`, `--curl`, `kit cookies` values), and
+  says so: `redacted: true` — on the documents that had such a view; a document
+  with none (`version`, `schema`) says `false`. `VIGOLIUM_REDACT=0|1` sets the
+  mode for every subprocess and beats detection (`VIGOLIUM_AGENT=0` does not
+  opt out: another marker still counts); `--no-redact` / `--redact` beat both.
+  Bodies are kept; the database and exports (`export`, `--format jsonl`, `db export`)
   stay raw, and `replay -u <uuid>` re-sends the stored bytes, so nothing you
   do next needs the secret in your context.
 
@@ -168,10 +171,27 @@ Shows it: `vigolium scan -t https://target.example --fail-on high; echo $?`
 - A UUID in the target position of `scan` is refused (exit 2): it is a
   mistyped subcommand (`scan staus <uuid>`).
 - Scope admission applies on every scan path and to every hand send:
-  `replay`, `traffic --replay`, `fuzz`, `dns`, `kit param-mine` and `finding
-  verify` refuse an out-of-scope host before the first request (exit 2
-  `out_of_scope`; a bulk replay refuses the whole batch). `--ignore-scope` opts
-  out for one run; `vigolium scope check <url>` says which rule decides.
+  `replay`, `traffic --replay`, `fuzz`, `dns`, `kit param-mine`,
+  `kit unlock-walk` and `finding verify` refuse an out-of-scope host or path (`scope.host` and `scope.path`
+  rules) before the first request (exit 2 `out_of_scope`; a bulk replay
+  refuses the whole batch). The scope is the one the invocation loads:
+  `--config <file>` when given, else the discovered config, plus the project
+  overlay. A scope that names no hosts admits every host, unless
+  `--require-scope` (or `VIGOLIUM_REQUIRE_SCOPE=1`) makes it `out_of_scope`.
+  `--ignore-scope` opts out for one run; `vigolium scope check <url>` says
+  which rule decides.
+- `VIGOLIUM_RATE_CEILING=<requests/second>` (feature `rate-ceiling`) caps every
+  rate the invocation would use, whatever set it: `--rate-limit`/`-r`
+  (including the unset default and an unlimited `0`), `fuzz -r`, `kit
+  param-mine --rate-limit`, `finding verify --rate-limit`, every
+  `scanning_pace` rate, and `--concurrency`/`--max-per-host` as whole numbers
+  (at least 1). Values at or below it are untouched. Each lowered dial is
+  printed once on stderr and a scan carries a `rate_ceiling` caveat; a value
+  that is not a positive number is exit 2.
+- Ingested and bridged bodies are stored decoded (feature
+  `ingest-decoded-bodies`): a `traffic -j` row with `response_decoded_from`
+  holds the decoded body without `Content-Encoding`; the field names the wire
+  coding.
 - `scan-url`, `scan-request` and `run -t` attack only their input; stored
   records of the same host join only with `--include-stored`. `scan -t` keeps
   including them (`--input-only` turns that off). The plan's
@@ -212,7 +232,11 @@ Shows it: `vigolium scan -t https://target.example -m xss --module-tag spring --
 - Every record-UUID flag and argument takes a full UUID or a unique prefix of at
   least 8 characters (`uuid_short`). An exact id wins; a prefix resolves inside
   the current project only; several matches fail `ambiguous_id` listing up to 5.
-- `vigolium hosts`, `schema storage` and `schema flags` only read. `vigolium dns`
+- `vigolium hosts`, `schema storage`, `schema flags` and `schema commands`
+  only read. `schema commands -j` lists, per command, `db`, `mutates`,
+  `writes_global` (changes state shared across engagements: config, scope,
+  skills, another run's session — `scan stop` is one), `sends_traffic` and the
+  flags that take a value; `version -j` lists `features[]` to gate on. `vigolium dns`
   and `vigolium fingerprint` send (DNS to the resolver; reads to the origin).
 - A UUID as the positional term of `traffic` searches text, not identity.
   `--url` is exact equality; the positional term is a substring search.
@@ -385,6 +409,8 @@ Branch on the code, then run the command in the right column (read
 | `out_of_scope` | 2 | same as above; nothing was sent |
 | `no_targets_reachable` | 1 | `vigolium doctor --for scan -j` (proxy, `NO_PROXY`), then a plain request to the target ([local targets](#local-targets-and-proxied-sandboxes)) |
 | `scan_abandoned` | 1 | the process died: `vigolium scan status <uuid> -j`, then rescan |
+| `scan_running` | 1 | `--resume-scan` named a scan still being written: `vigolium scan wait <uuid> --timeout 30m -j`, or `vigolium scan stop <uuid> --wait`, then resume; nothing was sent |
+| `resume_mismatch` | 1 | `--resume-scan` with different targets, scope or modules (`error.message` names which, stored vs requested): repeat the original targets and flags, start a fresh scan, or add `--force`; nothing was sent |
 | `wait_timeout` | 1 | the scan is still running: `vigolium scan wait <uuid> --timeout 30m -j` again, or `vigolium scan stop <uuid>` |
 | `interrupted` | 5 | what ran is stored: `vigolium finding --scan-uuid <uuid> -j`; rescan to finish |
 | `partial` | 5 | read `reasons[]` / `phase_outcomes`; rerun the phase that was cut (`vigolium run <phase> -t <url>`) |
@@ -398,6 +424,8 @@ Branch on the code, then run the command in the right column (read
 | `lint_failed` | 1 | the document lists each issue with its line: fix, then `ext lint` / `auth lint` again |
 | `extension_load_failed` | 2 | `vigolium ext lint <file>`; or `--ext-allow-failures` to scan without it |
 | `provider_missing` / `preflight_failed` / `provider_unreachable` | 1 | `vigolium doctor --for agent -j` names the provider, the endpoint and the variable it read |
+| `keyring_denied` | 1 | the OS keyring refused the browser's key, the prompt went unanswered, or `--no-prompt` refused to raise it (an empty result is not "no cookies"): run `vigolium kit cookies doctor` in a desktop session, answer "Allow" (not "Always Allow"), then retry |
+| `browser_encryption_unsupported` | 1 | the profile uses App-Bound Encryption no other process can undo, and a `--clone-profile` copy would carry the same unreadable values: log in through a driven browser instead |
 | `not_ready` | 1 | `vigolium doctor --fix --dry-run -j`, then `vigolium doctor --fix` |
 | `storage_disabled` | 1 | cloud storage is off: `vigolium config set storage.enabled true` (plus its credentials) |
 | `proxy_auth_required` | — | (server ingest proxy) send its token |

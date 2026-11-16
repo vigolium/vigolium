@@ -1,6 +1,6 @@
 # Recipes
 
-> **Related:** [agent-loop.md](agent-loop.md) · [scanning.md](scanning.md) · [auth.md](auth.md) · [agent-modes.md](agent-modes.md) · [extensions.md](extensions.md)
+> **Related:** [agent-loop.md](agent-loop.md) · [scanning.md](scanning.md) · [auth.md](auth.md) · [agent-modes.md](agent-modes.md) · [extensions.md](extensions.md) · [kit.md](kit.md)
 
 Multi-step workflows beyond the four in `SKILL.md` (CI gate, triage loop,
 authenticated scan, parallel fan-out). Single commands are in the SKILL.md
@@ -50,6 +50,65 @@ vigolium scan-url https://target.example/api/item?id=1 -S -j -m sqli,xss       #
 Unpersisted findings have no `id`: cite `finding_hash`. To keep the run as a
 file instead, `-S --format sqlite -o run` writes `run.sqlite`, which every read
 takes with `--db run.sqlite`.
+
+## Borrow the operator's browser session for your own Playwright
+
+When you need to drive a browser against a logged-in app, take the session the
+local browser already has instead of scripting a login. Nothing here is
+vigolium-specific past the first command — the artifacts are Playwright's own.
+
+```bash
+# 0. Will this work here at all? Names the blocker if not. On macOS answer
+#    the keychain prompt with "Allow" (this read only): "Always Allow" lets
+#    every local process read the browser's key, and every cookie.
+vigolium kit cookies doctor -j
+
+# 1. Is the session actually there? Values are redacted, so this is safe to
+#    print. Check EXPIRES: "session" cookies may already be dead.
+vigolium kit cookies app.target.example --with-storage
+
+# 2. Take it, into 0600 files: both are live credentials. Under a coding
+#    agent this is the only way out for the values (-j masks them, --stdout
+#    is refused); load the files, do not print them.
+vigolium kit cookies app.target.example --with-storage \
+    --as playwright -o state.json
+vigolium kit cookies app.target.example --with-storage \
+    --as playwright-init -o session-init.js
+```
+
+```js
+// 3. Use it. The init script restores sessionStorage, which a storageState
+//    has no field for.
+const ctx = await browser.newContext({ storageState: 'state.json' });
+await ctx.addInitScript({ path: 'session-init.js' });
+const page = await ctx.newPage();
+await page.goto('https://app.target.example/');
+```
+
+**If the app still shows a login page**, read `unreadable` in the `-j` output:
+an origin with IndexedDB keeps its session somewhere no export can carry
+(Firebase Auth and several SPA auth libraries do). Clone the profile instead —
+it carries IndexedDB because the browser reads its own files:
+
+```bash
+vigolium kit cookies app.target.example --clone-profile ./agent-profile
+```
+
+```js
+const ctx = await chromium.launchPersistentContext('./agent-profile', { headless: false });
+```
+
+The clone is scoped to the origins asked for — every other site's cookies and
+storage are deleted from it and the stores compacted — and it rewrites two
+things so a launched browser can use it: cookie values become plaintext (an
+automation launch has no OS keyring key and **deletes** rows it cannot decrypt)
+and session cookies get a 12h expiry (a browser discards cookies with no expiry
+at startup). Both are reported. sessionStorage still needs the init script: a
+launch starts fresh per-tab namespaces.
+
+Pick by where the session lives: `--as playwright` for cookies and
+localStorage, which is most apps and the lighter artifact; `--clone-profile`
+when IndexedDB is in play. Details and every caveat: [cookies.md](cookies.md).
 
 ## Spec scan with auth
 

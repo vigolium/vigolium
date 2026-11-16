@@ -4,129 +4,152 @@ All notable changes to this project will be documented in this file.
 
 ## [v0.5.7] - 2026-11-15
 
-Scans that stay in scope, find more and say what they did not cover; a CLI a coding agent can drive by its exit code and `-j` documents; and a skill that describes all of it.
-
 ### Security
 
-- `--redirect-mode` defaults to `in-scope` (was `any`; `same-apex` when no scope is set), a hop to another host never carries session or `-H` headers, and raw requests never follow redirects.
-- The browser crawl injects session headers only on in-scope requests (CDP Fetch) instead of on every third-party script, CDN and analytics request the page made.
-- A scan of a spec or capture (`-i`), `ingest --scan-on-receive` and REST ingest derive scope from the input's primary host; third-party hosts are stored as context, not attacked. Scope path rules ignore the query and fragment and `*` crosses `/`. `--scope-origin` is validated (exit 2), an unknown scope mode fails closed, and a relaxed keyword needs 4+ characters.
-- Every sender (`replay`, `traffic --replay`, `fuzz`, `dns`, `kit param-mine`, `finding verify`) checks the active project's scope (overlay and `--scope-origin` included) before its first request: exit 2 `out_of_scope`. `--ignore-scope` overrides.
-- Nothing goes to a third party by default: `dependency-confusion` registry lookups are opt-in (`dynamic_assessment.external_lookups`, sent through the scan proxy), DNS has no public fallback, a private OAST server's callbacks never fall back to the public one (`oast.fallback_to_default` now `false`), and `--offline` keeps a run off every path that is not the target (OAST, lookups, template and browser downloads, update checks).
-- Reports (HTML, PDF, SARIF, Markdown) and notifications redact credential headers, cookie values and sensitive query parameters (`output.redact_evidence`, `--no-redact`); notifications fire only for new findings.
-- Under `-j` with a coding-agent variable set (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `GEMINI_CLI`, `VIGOLIUM_AGENT`; CI variables do not count), raw request/response views mask credential headers, cookies and sensitive query parameters, and every envelope says `redacted`. `--redact` / `--no-redact` override. Bodies, the database and exports stay raw.
-- Config writers (`config set`/`unset`, `module enable`/`disable`, `scope set`/`add`/`rm`, project overlays, the server's config and scope handlers) edit the YAML in place: `${VAR}` placeholders and comments survive and no expanded secret (`VIGOLIUM_DB_PASSWORD`, storage keys, OAST token) is written to disk. Booleans and integers are parsed strictly (exit 2) and the stored value is echoed.
-- `GET /api/config` masks every string credential, including `external_harvester.api_keys.*`, cookies, passwords and webhook URLs; `?show_sensitive=true` unmasks for admin tokens only (rotate keys if viewer tokens were shared).
-- The REST generic DB API is scoped by project (`all_projects` is admin-only; another project's row is 404), and OAST session keys are redacted from it and from SQLite exports.
-- Extensions: the sandbox root defaults to the working directory, `vigolium.http.*` is scope-checked like module traffic (`extensions.allow_out_of_scope`), and the per-call timeout is configurable; `max_memory_mb` was never enforced and now warns.
-- `agent audit --source` extracts archives inside `os.Root`, skipping escaping symlinks and capping modes at `0755`.
-- `server --no-auth` on a non-loopback `--host` (including `$VIGOLIUM_SERVER_HOST=0.0.0.0`) is refused unless `--allow-unauthenticated-bind`.
-- `auth load` prints sensitive header values and tokens as `<redacted>` and refuses a session file with lint errors (`lint_failed`; `--force` overrides).
+- `--redirect-mode` defaults to `in-scope`; a cross-host hop never carries session or credential headers, and raw requests never follow redirects.
+- One shared credential classifier strips credentials on cross-host redirects, the anonymous requester view and unauthenticated module probes.
+- The browser crawl injects session headers only on in-scope requests.
+- `-i` scans, `ingest --scan-on-receive` and REST ingest derive scope from the input's primary host; third-party hosts are stored, not attacked.
+- Scope path rules ignore query and fragment, `*` crosses `/`, and an unknown scope mode fails closed.
+- Every sender (`replay`, `fuzz`, `dns`, `kit param-mine`, `finding verify`) checks scope before its first request (`out_of_scope`; `--ignore-scope` overrides).
+- `--require-scope` (`VIGOLIUM_REQUIRE_SCOPE=1`) refuses a scope that names no hosts.
+- `scan-url` and `scan-request` honour `--offline` for OAST.
+- Nothing goes to a third party by default: registry lookups are opt-in, DNS has no public fallback, `oast.fallback_to_default` is `false`.
+- Reports and notifications redact credentials (`output.redact_evidence`, `--no-redact`); notifications fire only for new findings.
+- Under `-j` in a coding agent, raw request/response views mask credentials (`VIGOLIUM_REDACT`, `--redact`/`--no-redact`; envelope `redacted`).
+- Config writers edit YAML in place, keeping `${VAR}` placeholders and comments and never writing expanded secrets.
+- `GET /api/config` masks every string credential; `?show_sensitive=true` is admin-only.
+- The REST generic DB API is project-scoped and redacts OAST session keys.
+- Extensions: the sandbox root defaults to the working directory and `vigolium.http.*` is scope-checked.
+- `agent audit --source` extracts archives inside `os.Root`, skipping escaping symlinks.
+- `server --no-auth` on a non-loopback host needs `--allow-unauthenticated-bind`.
+- `auth load` redacts sensitive values and refuses a session file with lint errors (`--force` overrides).
 
 ### New Vulnerability Checks
 
-- `xss-light-body-params` tests reflected XSS in form, JSON, XML and multipart body values; a breakout on a non-navigable request is Suspect/Tentative. Stored XSS re-reads up to three candidate pages after a write (the submit URL, an in-scope Referer, the collection URL).
-- `blind-xss-oast` plants OAST script tags (or your `oast.blind_xss_src`) in stored body inputs and logged headers when `oast.enabled_blind_xss` is on; a browser fetch of the script is High/Firm with the rendering page, any other callback Suspect/Tentative.
-- `sqli-time-blind`'s default tier uses valid MySQL comment grammar (`-- -`) and adds comment-free MySQL, PostgreSQL and AND-guarded Oracle forms.
-- Parameter names (`xss-light`, `reflected-ssti`, `sqli-error-based`) and the entire body (`insecure-deserialization`, `xxe-generic`, `prototype-pollution`) are insertion points; a payload inside base64-wrapped JSON (URL-safe and unpadded too) is re-encoded the same way; pre-encoded traversal, CRLF, header and SMTP injection payloads reach the server as written.
+- `xss-light-body-params` tests reflected XSS in form, JSON, XML and multipart bodies; stored XSS re-reads up to three candidate pages.
+- `blind-xss-oast` plants OAST script tags in stored inputs and logged headers (`oast.enabled_blind_xss`).
+- `sqli-time-blind` uses valid MySQL comment grammar and adds comment-free MySQL, PostgreSQL and Oracle forms.
+- Parameter names and whole bodies are insertion points; base64-wrapped JSON is re-encoded; pre-encoded payloads are sent as written.
+- `lfi-generic` proves code execution through `data://`, `expect://` and `php://input` with a computed product (Critical/Certain, `code_injection`).
+- `aspnet-viewstate-detect` cracks a legacy ViewState MAC offline against published machineKeys (Critical/Certain, `deserialization`).
 
 ### Added
 
-- Verbs: `vigolium status`, `scan ls`, `scan stop <uuid|prefix> [--wait]` (also for `-S` and server-run scans), `agent cancel`, `finding show`, `config get`, `config unset`, `config env`, `config ls --effective`, `scope add`/`rm`/`check`, `project current`/`rename`, `auth show`/`rm`, `module show`, `server status`/`stop`, `oast poll`, `skills uninstall`, `skills get --ref <file>` / `--list-refs`.
-- `--safe` on `scan`, `run`, `scan-url` and `scan-request`: GET/HEAD only, no form submission, uploads or logins in the browser, no risky payloads or intrusive templates, low pace, a 15m budget. `scope.methods` alone sets a method allow-list for module, discovery, browser and nuclei traffic.
-- `--max-time` (alias `--scanning-max-duration`); every scan is bounded by `scanning_pace.scan_max_duration` (default 1h).
-- `--baseline <export.jsonl|store.sqlite>` and `--ignore-file` (default `.vigolium-ignore.yaml`, entries `{hash, reason, expires}`): `--fail-on` and `scan diff` count only new, un-ignored findings, `scan diff` accepts an export as its base, and `-j` adds `baseline{new,unchanged,fixed,ignored}`.
-- `--resume-scan <uuid>` continues a curtailed scan from its per-record coverage ledger.
-- `--header-fuzz gated|all` (`dynamic-assessment.header_points`): by default noise headers are not fuzzed and logged, negotiation and routing headers are tested once per host, only for the classes they can sink.
-- OAST sessions stay open after a scan (`oast.keep_session`, never with `-S`); `vigolium oast poll [--scan X|--open] [--close]` and the server (every `oast.session_poll_interval` minutes) file late callbacks.
-- `--dry-run` on `db reset`, `project delete`, `module enable`/`disable`, `finding load`, `finding mark`, `import`, `ingest`, `skills install`/`uninstall`, `scope set`, `auth load`, `config set`, `replay`, `scan-url`, `scan-request` and `agent audit`; `agent autopilot`/`swarm --dry-run` call no provider and send nothing.
-- `replay --once`, `--save`/`--no-save` (source `replay`), `--baseline`, `--all-matches`, `--keep-host`, `--excerpt-bytes`; `fuzz --save[=all]` (source `fuzz`), `-n`, `--all-results`, `--allow-baseline-error`, `sent_total`; `scan --record-uuid`; `--include-stored` / `--input-only`; `--no-auth`; `--ignore-scope` on every sender; `init --with-deps`.
-- `server -j` / `--events ndjson` print one `server.ready` line once both listeners are bound; a pidfile under `~/.vigolium/server/`; `/health` reports `pid`.
-- Envelope fields: `error {code, message, exit_code, hint?, did_you_mean?, usage_argv?}` beside any document that ends non-zero, `next[] {argv, why, sends_traffic}`, `sends_traffic`, `redacted`. Plan fields: `proxy`, `estimate.duration_ms`, `execution_path`, `targets.stored_records`, `scope.rules`. Scan documents add `artifacts[{format,path,bytes}]`, `caveats` and `scope_dropped` per rule class.
-- Error codes `out_of_scope`, `interrupted`, `provider_unreachable`, `storage_disabled`, `config_invalid`, `finding_not_found` / `scan_not_found` / `project_not_found` on the CLI paths that used generic ones.
-- Generic shaping (`--fields`, `--compact`, `--max-output-bytes`, `-n/--offset`) on every read that has rows; `module ls` rows carry `tier` and `risk_high`.
-- Shared spellings as aliases: `--header-search`/`--body-search` on reads, `-u/--record-uuid` for a stored record, `--data` on `scan-url`, `--method` on `fuzz`, `--max-time` on the agent runs, `js-beautify` and `scan wait`, `-o/--output` on `server ca print` and `skills gen-flags`.
-- `kit oast new` falls back to `$VIGOLIUM_OAST_TOKEN` when `--token` is empty.
-- `build/Dockerfile.scan` (non-root, Chromium, pinned templates, state in `/tmp`) and a composite GitHub `action.yml`.
-- The skill: `agent-loop.md` is split into one `loop-*.md` file per step, `invariants.md` holds the `-j` envelope, an `error.code` → next-command table and the exit codes, and the references cover untrusted target content, a one-off `-S` scan, harness timeouts, stopping a scan, local dev servers and proxied sandboxes. The e2e suite runs every documented read-only example against a seeded store and evaluates its `jq` paths.
+- Verbs: `status`, `scan ls|stop`, `agent cancel`, `finding show`, `config get|unset|env`, `scope add|rm|check`, `project current|rename`, `auth show|rm`, `module show`, `server status|stop`, `oast poll`, `skills uninstall`.
+- `--safe` on scans: GET/HEAD only, no forms, uploads or logins, no risky payloads, low pace, a 15m budget; `scope.methods` sets a method allow-list.
+- `--max-time`; every scan is bounded by `scanning_pace.scan_max_duration` (default 1h).
+- `--baseline` and `--ignore-file` (`.vigolium-ignore.yaml`): `--fail-on` and `scan diff` count only new, un-ignored findings.
+- `--resume-scan <uuid>` continues a curtailed scan from its coverage ledger.
+- `--header-fuzz gated|all` fuzzes only headers that can sink a class by default.
+- OAST sessions stay open after a scan; `oast poll` and the server file late callbacks.
+- `--dry-run` on every mutating or sending command; `agent autopilot|swarm --dry-run` call no provider.
+- New flags on `replay` (`--once`, `--save`, `--baseline`, `--all-matches`), `fuzz` (`--save`, `-n`, `--all-results`) and scans (`--include-stored`, `--input-only`, `--no-auth`).
+- `server -j` / `--events ndjson` print `server.ready` once listeners are bound; `/health` reports `pid`.
+- Envelope fields `error`, `next[]`, `sends_traffic`, `redacted`; plan and scan documents add `proxy`, `estimate`, `artifacts`, `caveats`, `scope_dropped`.
+- Error codes `out_of_scope`, `interrupted`, `provider_unreachable`, `storage_disabled`, `config_invalid` and `*_not_found`.
+- `--fields`, `--compact`, `--max-output-bytes` and `-n/--offset` on every read with rows.
+- `vuln_class` on every finding and module row (OAST callbacks file under the class their payload was minted for).
+- `scan.finished` carries `scope_dropped`, `skipped_controls`, `oast_sessions_kept`, `exit_code` and `error_code`.
+- Shared flag spellings as aliases across commands (`--header-search`, `-u/--record-uuid`, `--data`, `--method`, `--max-time`, `-o`).
+- `kit oast new` falls back to `$VIGOLIUM_OAST_TOKEN`.
+- `vigolium kit cookies <domain>` exports this machine's browser cookies and storage without printing values into agent transcripts.
+- `vigolium schema commands` lists each command's traits; `version` lists `features[]` (`Features:` line) to gate on.
+- `build/Dockerfile.scan` and a composite GitHub `action.yml`.
+- The skill splits into per-step `loop-*.md` files plus `invariants.md`, and covers `kit cookies` and `kit unlock-walk`.
+- `VIGOLIUM_RATE_CEILING` caps every send rate and concurrency dial.
+- `vigolium params --paths` lists JSON request-body key paths and types per operation.
+- `vigolium kit unlock-walk --profile` walks SPA routes on forged client state and stores the real requests they send.
+- `vigolium kit viewstate-crack` checks a ViewState's legacy MAC offline against published and supplied keys.
+- `kit js-beautify --extract` routes carry `meta`, `loader` and named guards.
+- REST finding objects carry `vuln_class` and `claimed_severity`; a re-detection updates both.
+- `test/e2e-expect` lab and live end-to-end expectation kit (`make test-e2e-expect`).
 
 ### Changed
 
-- `ok` is true exactly when the exit code is 0, 3 or 4. A command that produced its document and then failed prints it once with `ok: false` and `error`; there is no second document.
-- A scan that did not cover its input says so: a phase blocked by a WAF (`edge_blocked`), a browser that never started (`browser_unavailable`), dropped feedback or a phase deadline is `partial`, listed as caveats under the finished banner, in `-j` and on `scan.finished`. `--fail-on-partial` (implied by `--fail-on`) exits 5; precedence is error 1 > gate 4 > incomplete 5. A `-P` run with a failed or interrupted child exits 5, resumes past out-of-order completions, and `--db-isolate` keeps failed children's logs in `<output>.failed/`.
-- Ctrl-C: the first is acknowledged, the second hurries the scan and flushes findings and reports (up to 10s), the third exits at once. An interrupted scan (signal or `scan stop`) exits 5 with `error.code: "interrupted"` and is stored `cancelled`.
-- The completion summary adds a findings table (up to 10 rows) and `Report:`/`Stored:`/`Next:` lines; a foreground scan on a terminal prints a progress line every 15s.
-- Finding identity v2 keys on location and insertion point, not description. Schema v6 re-keys existing findings keeping their triage and adds `last_seen_at`; a re-detected fixed finding reopens; SARIF carries `vigoliumFindingHash/v2`; old hashes still work for `finding mark`/`verify` and `--fail-on`. Older binaries cannot open a v6 store.
-- `--fail-on`, the summary, the scan document and reports count only findings observed in this scan. `--max-findings-per-module` defaults to 50 distinct findings (drops are counted). A Tentative finding is at most Suspect; the module's claim stays in `claimed_severity`.
-- `--intensity` is the public dial; `--strategy`/`--scanning-profile` move to an "Advanced presets" help group, and the resolved profile (or `--safe`) caps both the module tier and per-phase concurrency.
-- Pacing: a 429/503 with `Retry-After` pauses and halves the host and the request is retried transparently; client timeouts count as host distress; a slow host no longer starves the others (per-host scheduling); a module call timeout adapts to observed latency (p99 × 3, 30s–300s), and a timed-out call's late findings are kept. A single loopback or private target is paced from its first request, and three connection resets in a row arm back-off on any host.
-- Time and request budget: `scanning_pace.reserve` keeps half of the remaining scan time for dynamic assessment and 10% for the known-issue scan; discovery spends at most 40% of `--max-requests` (`request_share`) and is bounded by `discovery.phase_max_duration`. Assessment runs in-band, boolean and passive modules before timing, OAST, browser and heavy ones.
-- Fewer wasted requests: one reflection canary per insertion point gates the template-injection family; timing and boolean baselines are shared per record; `jwt-weak-secret` skips HMAC variants that cannot match and files one finding per token; modules are skipped for a stack only on a positive identification, seeded from stored fingerprints.
-- Known-issue scan: templates install from the release archive over HTTPS (no git), pinned by `known_issue_scan.templates_version` + `templates_sha256`; `doctor` reports stale templates and `doctor --fix --only nuclei` refreshes them. Nuclei runs at its own 20 rps unless set, honours path scope and `--max-requests`, runs path-independent templates once per origin plus up to 20 ranked directory prefixes, skips product templates no fingerprint supports (`known_issue_scan.tech_selection`) and drops matches that repeat a native finding. The secret scan runs first, concurrently, and `secret_detect` stays in dynamic assessment.
-- Discovery: soft-404 baselines are learned per directory with the extension (about 48 warm-up requests instead of 160) and ignore hard misses and throttled answers; 401/403 records are kept per path (`discovery.auth_wall_cap`, default 25 per host); backup variants are templates over each discovered file (`{f}~`, `{n}.bak`, `.{f}.swp`, about 40 defaults); the short file list × confirmed extensions runs in every recursed directory; wordlist case is kept until the host proves case-insensitive; an extensionless 200 gets a directory probe; a same-host redirect is recorded with its 3xx and its target crawled; the port sweep retries https on 497; `discovery.extract_words` is on at `--intensity deep`. Parameter mining keeps a confirmation reserve and reports cut-short candidates as `params_unconfirmed`.
-- Browser crawl: re-applies live session credentials and detects a lost session (`auth_lost`); never clicks logout, delete, deactivate, unsubscribe or similar controls (`spidering.deny_click_pattern`, `exclude_selectors`); explores in-scope popups; crawls two hosts at once and blocks fonts, media and third-party images.
-- Discovery submits HTML forms only through the replay-safety gate (`form_safety`; withheld forms are stored as request stubs), and a request is retried only when it was never written to the wire.
-- Scan logins are verified with the session's `check` block: an unverified login warns, marks the phase `auth_unverified`, and stops the scan under `reauth.on_failure: abort`; a session that does not change the first target's answer warns.
-- Ingest: OpenAPI operations become testable records (typed path parameters, 3.1 multi-types, `+json`/`+xml` media types); Burp XML import fails on corrupt input, counts skipped items and keeps recorded responses; bodies are parsed by structured suffix or sniffed when the type is missing.
-- `scan-url`, `scan-request` and `run -t` attack only their input; `--include-stored` adds the host's stored records. `scan -t` keeps including them and states the count (`--input-only` turns it off). A bare `vigolium scan` with no target is a usage error on a terminal too (`--all-records`).
-- `-S` on `scan`, `run`, `scan-url` and `scan-request` writes nothing to `$HOME`.
-- Environment proxies are picked by target scheme (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`) and honour `NO_PROXY`; loopback is not bypassed on its own. The plan, the banner, `status`, `doctor` and the unreachable error name the resolved proxy and its source. `--proxy` still proxies everything.
-- A `query` / `query_argv` hint is always a read that sends nothing and repeats the source's `--db`; a follow-up that sends moves to `next[]`.
-- `fuzz` needs an explicit position (a marker, or `--fuzz`/`--point`/`--fuzz-header`, not both), defaults to `--rate-limit 100` and `--max-requests 10000` (a bigger plan is exit 2), skips headers the request does not carry unless `--fuzz headers:synthetic`, plans cases lazily, calibrates per position, and aborts when every baseline send fails.
-- `replay -i` sends a supplied request once (`--baseline` for the diff); URL-shaped positionals are refused (exit 2 naming `-i`); a bulk replay matching several records needs `--all-matches`.
-- Unknown subcommands, flags, enum values and near-miss verbs (`scan stauts`, `scan ps`) are exit 2 with `did_you_mean`; group commands reject unknown words; argument-count errors are usage errors.
-- `--compact` also trims the envelope (`query`, `generated_at`, `db_path`) and empties a scan document's `plan`, keeping schema-required keys as `null`; the output budget empties bulky context before cutting findings, and only a paging read that sends nothing advertises `next_offset`.
-- `doctor` prints the verdict first with what still works (`capabilities {scan, spidering, known_issue_scan, out_of_band, agent, audit}`), then one line per check (`-v` for detail). `doctor -j` lists flat `items` (`id`, `group`, `status`, `message`, `affects`, `fix_argv`, and `source` on a failing check); `--json-legacy-keys` keeps the nested report. `--for scan|agent|server` picks the set (scan adds proxy, disk, fd limit and stale templates; `-t` adds DNS/TCP/TLS); `--only` works without `--fix`; `--fix --dry-run` lists each install with method, destination and size; vendor installers run only when named in `--only`, with `--yes`, or after a terminal confirm. An endpoint-based agent provider is `unverified`, and `--for agent` probes it.
-- `init` is idempotent (schema, seed, missing presets and skills, dependency check every run); `--force` backs up to `~/.vigolium/backup-<ts>/`; `--offline` skips downloads; a failed dependency install exits `not_ready`. Help states the downloads (Chrome for Testing ~150 MB, nuclei-templates ~100 MB); without a terminal it skips them and prints the command (`--with-deps` downloads anyway).
-- An unreadable config file is fatal (`config_invalid`, naming the path and `config validate`) except for `doctor`, `config validate|clean|ls`, `version` and `help`.
-- `module disable` writes a deny-list; a broad term needs `--force`.
-- Agent commands fail at once with `provider_unreachable` when the provider refuses the connection; a TUI or picker without a terminal is a usage error naming the non-interactive form.
-- `skills install -j` items carry `status_after`, and `--agent`/`--scope` are validated even with `--dir`. `init` names the built-in AI agent's skills apart from the coding-agent skill.
-- `vigolium export` exports the active project by default (`--all-projects` for the whole store), report metadata included.
-- `import` of a JSONL export stores its `scan` and `oast_interaction` rows (re-homed into the active project, deduplicated); `scope` rows load only with `--include-scopes` or into a `-S`/`--glob-db` scratch store; `-j` reports `imported_by_type`, `duplicates_by_type` and `skipped_types`. A multi-source import continues past a failing source, lists each in `sources[]`, and exits 1 naming the failures (`--glob-strict` stops at the first); a SQLite file that is not a vigolium store is `source_incompatible`.
-- `db export --format jsonl` (the default) writes the `{"type","data"}` lines `export` writes and `import` reads; the old nuclei-style output is `--format nuclei`; `--table http_records|findings` picks line types.
-- `finding load` reads `export`/`db export` JSONL and `finding -j` documents, keeps `url`, `hostname` and `matched_at`, rejects an unknown severity (`input_unparsed`), and counts agent findings that differ only by URL separately.
-- `ingest` reports the detected format, labels fetched records `ingest-cli`, keeps a HAR entry's `time` as `response_time_ms`, streams piped stdin to disk, and sets `changed` from rows actually written (`records_written`).
-- `traffic -j` rows carry `sent_at` (UTC). `hosts`, `log ls`, `db stats` and `export` accept `--from/--to` (`--since/--until`); a time without a zone is local and results print in UTC.
-- `--host` on `traffic`, `finding`, `db list|export|stats|clean`, `inventory`, `hosts` and bulk `replay` accepts a bare host, `host:port`, an origin or a bracketed IPv6 address.
-- `--glob-db` reads and multi-source `import` no longer leave `-wal`/`-shm` files beside their sources, and a glob never matches a sidecar.
-- `db ls`, `log ls`, `scan diff` and `db stats` honour `--format tsv` (`--no-header`); `log <prefix>` resolves an 8+ character session prefix; `db reset --dry-run` lists the files it would delete; `db stats` reads like `traffic`; `--db` naming a non-SQLite file fails with a hint to pass `-S`.
-- `config ls` shows the active project's settings (global plus overlay), lists every settable key, and `-j` values are typed (`value`, `display`, `default`, `type`, `source`: `default`, `file`, `env:NAME`, `project`, `flag`). Only string credentials are redacted, not booleans like `disable_secret_scan`. Config writers warn when an edit re-encodes the whole file.
-- `scope view` reads the active project's overlay and labels each value's source; `scope set` honours `--project-uuid`/`--project-name`.
-- `project use` accepts a name or a unique 8+ character UUID prefix; an unknown one is `project_not_found` with a `project create` hint. `project use --print-env` pins one shell without writing `active-project`.
-- Server: reaps abandoned scans in every project at start and every 5 minutes, starts a project's scan-on-receive runner on its first ingested record, and reports `pausing` until a paused scan's workers have stopped.
+- Ingested and bridged traffic is stored with its body decoded (`gzip`, `x-gzip`, `deflate`, `br`, `zstd`; any case).
+- `ok` is true exactly when the exit code is 0, 3 or 4; a failed command prints one document with `error`.
+- A scan that did not cover its input is `partial` with caveats; `--fail-on-partial` exits 5.
+- Ctrl-C escalates: acknowledge, then hurry and flush, then exit; an interrupted scan exits 5 and is stored `cancelled`.
+- The completion summary adds a findings table and `Report:`/`Stored:`/`Next:` lines.
+- Finding identity v2 keys on location and insertion point (schema v6; older binaries cannot open it).
+- Gates, summaries and reports count only findings observed in this scan; Tentative findings are capped at Suspect.
+- `--intensity` is the public dial; `--strategy`/`--scanning-profile` move to Advanced presets.
+- Pacing honours `Retry-After`, schedules per host and adapts module timeouts to observed latency.
+- Time and request budgets reserve shares for later phases; discovery spends at most 40% of `--max-requests`.
+- Fewer wasted requests: shared baselines, reflection-canary gating, stack skips only on positive identification.
+- Known-issue scan installs pinned templates from the release archive and selects product templates by fingerprint.
+- Discovery learns soft-404 per directory, keeps 401/403 records and templates backup variants over found files.
+- Browser crawl re-applies sessions, detects `auth_lost`, never clicks destructive or commit controls, and reports `skipped_controls`.
+- Discovery submits forms only through the replay-safety gate; a request retries only if never written.
+- Scan logins are verified with the session's `check` block (`auth_unverified`).
+- Ingest turns OpenAPI operations into testable records; Burp XML import fails on corrupt input.
+- `scan-url`, `scan-request` and `run -t` attack only their input (`--include-stored` adds stored records).
+- `-S` scans write nothing to `$HOME`.
+- Environment proxies are chosen by scheme and honour `NO_PROXY`; the resolved proxy is reported.
+- `query` hints are always read-only; follow-ups that send move to `next[]`.
+- `fuzz` needs an explicit position and defaults to `--rate-limit 100` and `--max-requests 10000`.
+- `replay -i` sends once; URL positionals and multi-record matches without `--all-matches` are refused.
+- Unknown commands, flags and values are exit 2 with `did_you_mean`.
+- `--compact` also trims the envelope; the output budget drops context before findings.
+- `doctor` leads with a verdict and capabilities; `-j` lists flat `items`; `--for scan|agent|server`.
+- `init` is idempotent, backs up on `--force` and states download sizes.
+- An unreadable config file is fatal (`config_invalid`).
+- `module disable` writes a deny-list; broad terms need `--force`.
+- Agent commands fail fast with `provider_unreachable`; a TUI without a terminal is a usage error.
+- `skills install -j` items carry `status_after`.
+- `export` exports the active project by default (`--all-projects`).
+- `import` of JSONL stores scans and OAST interactions, continues past failing sources and reports per-type counts.
+- `db export --format jsonl` writes the same lines as `export`; the old output is `--format nuclei`.
+- `finding load` reads export and `finding -j` documents and rejects unknown severities.
+- `ingest` reports the detected format, keeps HAR timings and streams stdin to disk.
+- `traffic -j` rows carry `sent_at`; `hosts`, `log ls`, `db stats` and `export` accept `--from/--to`.
+- `--host` accepts a bare host, `host:port`, an origin or a bracketed IPv6 address.
+- `--glob-db` and multi-source `import` leave no `-wal`/`-shm` files.
+- `db ls`, `log ls`, `scan diff` and `db stats` honour `--format tsv`.
+- `config ls` shows the active project's typed settings with their source.
+- `scope view` reads the project overlay; `scope set` honours project flags.
+- `project use` accepts a name or UUID prefix; `--print-env` pins one shell.
+- Server reaps abandoned scans every 5 minutes and reports `pausing` until workers stop.
 
 ### Removed
 
-- `--ci-output-format`: hidden, and using it is exit 2 naming `-j` (the scan document) and `--format jsonl` (the findings stream).
+- `--ci-output-format` is hidden and exits 2.
 
 ### Fixed
 
-- `scan-url` and `scan-request` apply `--rate-limit` (they printed it and ignored it).
-- Module-owned headers survive session headers and `-H`; a raw response body that was already gunzipped no longer keeps its `Content-Encoding`.
-- `idor-detection` and `authz-compare` charge their per-host budget only for probed points, so sixty non-ID parameters no longer use it up before the ID.
-- Run-once host checks re-run after a transient failure, and 38 passive modules no longer mark a host seen before they match.
-- Discovered requests are no longer dropped when the feedback queue is full for 100ms.
-- Scan-on-receive no longer skips records ingested in the same second, and finding-evidence records are no longer assessed as traffic.
-- A host scope filter with many hosts no longer exceeds SQLite's expression depth.
+- `aspnet-viewstate-detect` no longer reports unencrypted `/wEP`/`/wEQ` ViewStates as encrypted.
+- The browser crawl's method allow-list installs on current Chrome.
+- `doctor --only` runs only the named checks.
+- `schema commands` marks argv shims, `ingest`, `server` and `olium` as `sends_traffic`.
+- The executor counts an item before acknowledging it.
+- `scan-url` and `scan-request` apply `--rate-limit`.
+- Module-owned headers survive session headers and `-H`; a gunzipped body drops `Content-Encoding`.
+- `idor-detection` and `authz-compare` charge their budget only for probed points.
+- Run-once host checks re-run after a transient failure.
+- Discovered requests are no longer dropped when the feedback queue is full.
+- Scan-on-receive no longer skips same-second records or assesses finding evidence.
+- Large host scope filters no longer exceed SQLite's expression depth.
 - `info-disclosure-detect` reports a Server banner once per host.
-- A scan under memory pressure no longer panics resizing the response-buffer pool.
-- `xss-light` no longer analyses a pooled response body another request may be overwriting.
+- A CDN 403/503 is an edge block only when its body carries the block page.
+- Memory pressure no longer panics the response-buffer pool.
+- `xss-light` no longer reads a pooled body another request may overwrite.
 - `status` counts confirmed findings like project stats.
-- `log ls --from/--to` no longer misses ranges older than the newest 200 runs.
+- `log ls --from/--to` no longer misses older runs.
 - `replay` with a malformed `--proxy` is a usage error.
 - `agent cancel --wait --timeout 0` and `server stop --timeout 0` wait indefinitely.
-- `vigolium init` on an existing config still installs missing core deps (chromium, nuclei-templates).
-- REST background scans and agent runs no longer drift to another project via a reused `X-Project-UUID` buffer.
+- `init` on an existing config still installs missing core deps.
+- REST background scans and agent runs no longer drift to another project.
 - A failed Nuclei or secret-scan leg marks `known-issue-scan` as `failed`.
-- `ingest --server` stops on malformed nuclei JSON, fails on unreadable inputs, and treats `--rate-limit 0` as unlimited.
-- A cancelled agent tool batch no longer breaks later requests in the same session.
-- `server` binds both listeners before announcing them; a bind failure exits 1.
-- `ingest` from stdin honours `-I` and file-format detection.
-- `db clean --severity` deletes findings only, and every dry run reports per-table counts.
-- A scan with no target (`--all-records`) no longer panics on a nil admission.
-- Printed tips and skill, help and docs examples that had rotted (`jq '.records[]'`, a non-existent `jwt-none` preset, `ext lint` for an auth file, `--ci-output-format`).
+- `ingest --server` stops on malformed JSON and treats `--rate-limit 0` as unlimited.
+- A cancelled agent tool batch no longer breaks the session.
+- `server` binds both listeners before announcing them.
+- `ingest` from stdin honours `-I` and format detection.
+- `db clean --severity` deletes findings only.
+- `--all-records` scans no longer panic on a nil admission.
+- Rotted tips and examples in help, skill and docs.
 - `make test-race` has a 30m timeout.
+- `fuzz --max-redirs` is applied.
 
 ## [v0.5.6] - 2026-10-25
 

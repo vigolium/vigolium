@@ -84,6 +84,9 @@ run `vigolium <command> -h`.
 - [vigolium js](#vigolium-js)
 - [vigolium katana](#vigolium-katana)
 - [vigolium kit](#vigolium-kit)
+- [vigolium kit cookies](#vigolium-kit-cookies)
+- [vigolium kit cookies doctor](#vigolium-kit-cookies-doctor)
+- [vigolium kit cookies profiles](#vigolium-kit-cookies-profiles)
 - [vigolium kit harvest](#vigolium-kit-harvest)
 - [vigolium kit js-beautify](#vigolium-kit-js-beautify)
 - [vigolium kit jwt-crack](#vigolium-kit-jwt-crack)
@@ -94,6 +97,8 @@ run `vigolium <command> -h`.
 - [vigolium kit payload](#vigolium-kit-payload)
 - [vigolium kit secret-scan](#vigolium-kit-secret-scan)
 - [vigolium kit tmp-clean](#vigolium-kit-tmp-clean)
+- [vigolium kit unlock-walk](#vigolium-kit-unlock-walk)
+- [vigolium kit viewstate-crack](#vigolium-kit-viewstate-crack)
 - [vigolium kit wordlist](#vigolium-kit-wordlist)
 - [vigolium log](#vigolium-log)
 - [vigolium log ls](#vigolium-log-ls)
@@ -130,6 +135,7 @@ run `vigolium <command> -h`.
 - [vigolium schema](#vigolium-schema)
 - [vigolium schema all](#vigolium-schema-all)
 - [vigolium schema command](#vigolium-schema-command)
+- [vigolium schema commands](#vigolium-schema-commands)
 - [vigolium schema error](#vigolium-schema-error)
 - [vigolium schema event](#vigolium-schema-event)
 - [vigolium schema flags](#vigolium-schema-flags)
@@ -199,14 +205,14 @@ and wins for that command — read it instead of the row here.
 | `--log-file` | - | string | - | Write all log output to this file (JSON format) |
 | `--mem-limit` | - | string | - | Soft heap ceiling (GOMEMLIMIT) for scans: empty = auto (1/3 of RAM, scaled down by -P/--parallel so all children stay under ⅔ of RAM), 'off' to disable, or an explicit size/percent like 6GiB or 50%. An existing GOMEMLIMIT env var overrides this. |
 | `--no-color` | - | bool | `false` | Disable ANSI color in all output (same as --color=never; also honored via the NO_COLOR env var) |
-| `--no-redact` | - | bool | `false` | With -j: print credentials in raw request/response views even when a coding agent is detected |
+| `--no-redact` | - | bool | `false` | With -j: print credentials in raw request/response views even when a coding agent is detected (VIGOLIUM_REDACT=0 does the same for every subprocess) |
 | `--offline` | - | bool | `false` | Keep off every network path that is not the target: no OAST callbacks, third-party lookups (npm registry), nuclei template clone/update, browser download or update check (also settings key offline) |
 | `--pretty` | - | bool | `false` | Indent -j/--json output for reading (default: compact, one line). Also $VIGOLIUM_JSON_PRETTY=1. --watch stays one compact document per line |
 | `--project-name` | - | string | - | Project name to scope all operations to (must match exactly one project). Also honors $VIGOLIUM_PROJECT_NAME |
 | `--project-uuid` | - | string | - | Project to scope all operations to: a UUID, an exact name, or a unique 8+ char UUID prefix of an existing project (defaults to the default project; an unknown one is project_not_found). Also honors $VIGOLIUM_PROJECT_UUID |
 | `--proxy` | - | string | - | Route all requests through this proxy (HTTP/SOCKS5 URL) |
 | `--read-only` | - | bool | `false` | Open the database without modifying it (no directory creation, no journal-mode change, no WAL checkpoint). Read commands only; use it when the source file is evidence |
-| `--redact` | - | bool | `false` | With -j: mask credential header values, cookie values and sensitive query parameters in raw request/response views (on by default when a coding-agent variable such as CLAUDECODE is set; exports and the database stay raw) |
+| `--redact` | - | bool | `false` | With -j: mask credential header values, cookie values and sensitive query parameters in raw request/response views (on by default when a coding-agent variable such as CLAUDECODE is set, or with VIGOLIUM_REDACT=1; exports and the database stay raw) |
 | `--scan-uuid` | - | string | - | Pin scan UUID for this session (use to sync results across nodes; defaults to a freshly-minted UUID) |
 | `--silent` | - | bool | `false` | Suppress all output except findings |
 | `--skip-dependency-check` | - | bool | `false` | Skip the first-run dependency check and stamp ~/.vigolium/initialized (the check only prints a notice; chromium and nuclei templates are fetched by the phase that needs them) |
@@ -949,6 +955,7 @@ Resolve names (A, AAAA, CNAME, MX, NS, TXT, SOA, CAA) and store the answers
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--no-header` | - | bool | `false` | With --format tsv, omit the header line |
 | `--no-store` | - | bool | `false` | Print the answers without storing them |
+| `--require-scope` | - | bool | `false` | Refuse to send (out_of_scope) when the configured scope names no hosts, instead of admitting every host (also VIGOLIUM_REQUIRE_SCOPE=1) |
 | `--resolver` | - | stringArray | - | Resolver host[:port] to ask (repeatable; default the system resolver) |
 | `--target` | `-t` | stringArray | - | Name or URL to resolve (repeatable) |
 | `--target-file` | `-T` | stringArray | - | File of names or URLs, one per line (repeatable) |
@@ -969,7 +976,7 @@ Check system readiness and diagnose configuration issues
 | `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
 | `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
-| `--only` | - | stringSlice | - | Show (and with --fix, repair) only these checks: a check id or fix key (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill,oast,agent,proxy,…) |
+| `--only` | - | stringSlice | - | Run (and with --fix, repair) only these checks: a check id or fix key (nuclei,chrome,bun,claude,agent-browser,pi,piolium,skill,oast,agent,proxy,…) |
 | `--stateless` | `-S` | bool | `false` | With --for scan: the scan will use a temporary database, so the database check is skipped |
 | `--strict` | - | bool | `false` | Exit 1 when the verdict is degraded, not only when it is not_ready |
 | `--target` | `-t` | string | - | With --for scan: also check DNS, TCP and TLS reachability of this URL |
@@ -1324,6 +1331,7 @@ Re-run a finding's module against its target and record whether it reproduces
 | `--no-write` | - | bool | `false` | Run the verification but do not store the verdict |
 | `--rate-limit` | - | float64 | `0` | Max requests/second across the verification (0 = unlimited; fractions allowed) |
 | `--refetch` | - | bool | `false` | Passive findings: fetch a fresh response instead of re-analyzing the stored one |
+| `--require-scope` | - | bool | `false` | Refuse to send (out_of_scope) when the configured scope names no hosts, instead of admitting every host (also VIGOLIUM_REQUIRE_SCOPE=1) |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Verify every finding of this scan (UUID, 8+ char prefix, latest, previous) |
 | `--stateless` | `-S` | bool | `false` | Use the standalone .sqlite named by --db with project scoping off |
 | `--timeout` | - | duration | `2m0s` | Time limit for verifying one finding (one request is capped at 15s) |
@@ -1420,7 +1428,7 @@ Fingerprint origins with a bounded set of reads and store the result as host fac
 | `--require-auth` | - | bool | `false` | Fail a target's spidering instead of crawling anonymously when configured authentication (session cookies/auth headers) cannot be applied to the browser (sets spidering.require_auth) |
 | `--required-only` | - | bool | `false` | Parse only required fields from input format (ignore optional) |
 | `--resume` | - | bool | `false` | Resume a prior -S -T --split-by-host -P run from its progress manifest (<output>.progress.json): skip targets that already completed cleanly and scan only the remainder. Run bare ('vigolium scan --resume', no other flags) to auto-discover the *.progress.json in the current directory and relaunch the saved run from it (pass -o <prefix> to disambiguate when several exist) |
-| `--resume-scan` | - | string | - | Resume a previous scan by UUID: reuse its scan row and cursor and skip the records/modules its coverage ledger records as done |
+| `--resume-scan` | - | string | - | Resume a previous scan by UUID: reuse its scan row and cursor and skip the records/modules its coverage ledger records as done. Refused before anything is sent when the scan does not exist (scan_not_found), is still running (scan_running), or its targets, scope or modules differ from this run's (resume_mismatch; --force resumes anyway) |
 | `--retries` | - | int | `1` | Number of retry attempts for failed requests |
 | `--safe` | - | bool | `false` | Bounded, non-mutating scan: GET/HEAD traffic only, no form submission/uploads/login attempts in the browser, no risky payloads or intrusive templates, low pace, 15m total budget (typed flags still win) |
 | `--scanning-profile` | - | string | - | Advanced: scanning profile name or YAML file path (pace, discovery depth, templates); --intensity picks this for you |
@@ -1530,6 +1538,7 @@ Inject payloads into a request and report per-payload response anomalies
 | `--record-uuid` | `-u` | string | - | Use a stored HTTP record (UUID or unique 8+ char prefix) as the request to fuzz |
 | `--referer` | - | string | - | Referer header, curl's -e |
 | `--request` | `-X` | string | - | HTTP method override (default: the source request's, or GET) (alias: --method) |
+| `--require-scope` | - | bool | `false` | Refuse to send (out_of_scope) when the configured scope names no hosts, instead of admitting every host (also VIGOLIUM_REQUIRE_SCOPE=1) |
 | `--resolve` | - | stringArray | - | Pin a host to an address, curl's --resolve host:port:addr (repeatable) |
 | `--save` | - | string | - | Store payload exchanges (source "fuzz"): --save keeps the ones the run kept (matched/anomalous), --save=all every one (capped at 1000) |
 | `--send-timeout` | - | duration | `0s` | With --send-via-burp: per-request response timeout (<=2m; default uses the bridge's 30s) |
@@ -1691,9 +1700,69 @@ _No command-specific flags._
 
 ## vigolium kit
 
-Standalone security utilities (harvest, js-beautify, jwt-crack, oast, param-mine, payload, secret-scan, tmp-clean, wordlist)
+Standalone security utilities (cookies, harvest, js-beautify, jwt-crack, oast, param-mine, payload, secret-scan, tmp-clean, unlock-walk, viewstate-crack, wordlist)
 
 _No command-specific flags._
+
+## vigolium kit cookies
+
+Usage: `vigolium kit cookies [domain...]`
+
+Read cookies for a domain out of this machine's own browser profiles
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--apex` | - | bool | `false` | Shorthand for --scope apex: widen each domain to its registrable domain |
+| `--as` | - | string | - | Write values in this format: json, jsonl, playwright, playwright-init, netscape, header |
+| `--browser` | - | stringSlice | - | Only these browsers (comma-separated): brave, chrome, chromium, edge, firefox, opera, safari |
+| `--clone-profile` | - | string | - | Write a scoped browser-profile clone to this directory — the only export that carries IndexedDB (open it with Playwright's launchPersistentContext) |
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--include-expired` | - | bool | `false` | Keep cookies whose expiry has already passed |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--name` | - | stringSlice | - | Only cookies with these names |
+| `--no-prompt` | - | bool | `false` | Never raise an OS approval prompt: a store whose key needs one (the macOS login keychain) fails keyring_denied instead |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
+| `--output` | `-o` | string | - | Write --as output to this file, mode 0600 |
+| `--profile` | - | stringSlice | - | Only these profiles, by label ("Work") or directory ("Profile 3") |
+| `--require-match` | - | bool | `false` | Exit 3 when no cookie matched (for agent gating) |
+| `--reveal` | - | bool | `false` | Show cookie and storage values: in the human listing, in -j under a coding agent, and allow --stdout under one |
+| `--same-site` | - | string | - | Force the SameSite attribute on export: strict, lax, none |
+| `--scope` | - | string | `host` | Domain scope: host, subdomains, apex |
+| `--stdout` | - | bool | `false` | Write --as output to stdout instead of a file |
+| `--user-data-dir` | - | stringSlice | - | Extra Chromium user-data directories to read (Chrome for Testing, Chrome Beta, a Playwright profile) |
+| `--with-storage` | - | bool | `false` | Also read each matching origin's localStorage and sessionStorage (Chromium profiles). Reported by -j, --as json/jsonl (both), --as playwright (localStorage only) and --as playwright-init (sessionStorage only) |
+| `--yes` | - | bool | `false` | Skip the first-run notice about approval prompts and endpoint-security alerts |
+
+## vigolium kit cookies doctor
+
+Check whether cookies can be read here, and say what is blocking it
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--browser` | - | stringSlice | - | Only these browsers (comma-separated) |
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
+| `--skip-keyring-probe` | - | bool | `false` | Do not ask the OS keyring for a key, so no approval prompt is raised (reports access as untested) |
+| `--user-data-dir` | - | stringSlice | - | Extra Chromium user-data directories to inspect |
+
+## vigolium kit cookies profiles
+
+List the browser profiles on this machine and their cookie stores
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--browser` | - | stringSlice | - | Only these browsers (comma-separated) |
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
+| `--user-data-dir` | - | stringSlice | - | Extra Chromium user-data directories to inspect |
 
 ## vigolium kit harvest
 
@@ -1788,6 +1857,7 @@ Discover hidden parameters an endpoint accepts (Arjun-style)
 | `--no-builtin` | - | bool | `false` | Use only the -w wordlists, not the built-in list |
 | `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 | `--rate-limit` | - | int | `20` | Maximum requests per second (0 = unlimited) |
+| `--require-scope` | - | bool | `false` | Refuse to send (out_of_scope) when the configured scope names no hosts, instead of admitting every host (also VIGOLIUM_REQUIRE_SCOPE=1) |
 | `--target` | `-t` | string | - | Endpoint URL to mine (or pass it as the argument) |
 | `--timeout` | - | duration | `15s` | Per-request timeout |
 | `--wordlist` | `-w` | stringArray | - | File of parameter names, one per line, tried before the built-in list (repeatable) |
@@ -1828,6 +1898,32 @@ Remove vigolium scratch left in the system temp directory
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--max-age` | - | duration | `6h0m0s` | Only remove scratch untouched for at least this long (0 removes everything not held by a running scan) |
+
+## vigolium kit unlock-walk
+
+Usage: `vigolium kit unlock-walk --profile <file|->`
+
+Walk a single-page app's routes on forged client state
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--allow-writes` | - | bool | `false` | Let in-scope requests with a state-changing method (POST, PUT, PATCH, DELETE, …) reach the target instead of failing them in the browser |
+| `--ignore-scope` | - | bool | `false` | Walk an origin outside the configured host scope |
+| `--origin` | - | string | - | Refuse the profile unless its origin is exactly this one (pins the origin on the command line) |
+| `--profile` | - | string | - | Unlock profile JSON file, or - for stdin (required) |
+| `--require-scope` | - | bool | `false` | Refuse to send (out_of_scope) when the configured scope names no hosts, instead of admitting every host (also VIGOLIUM_REQUIRE_SCOPE=1) |
+
+## vigolium kit viewstate-crack
+
+Usage: `vigolium kit viewstate-crack [viewstate|-]`
+
+Check an ASP.NET ViewState's MAC against published machineKeys
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--fail-on-crack` | - | bool | `false` | Exit 3 when a key reproduces the MAC (for CI/agent gating) |
+| `--generator` | `-g` | string | - | The page's __VIEWSTATEGENERATOR value (eight hex digits); required |
+| `--validation-key` | - | stringArray | - | Additional machineKey validationKey to try, as hex (repeatable) |
 
 ## vigolium kit wordlist
 
@@ -2052,6 +2148,7 @@ List parameters per endpoint with value-type histograms, from stored traffic
 | `--offset` | - | int | `0` | Number of parameters to skip (for pagination) |
 | `--output` | `-o` | string | - | With --json: write the result document to this file and print a receipt instead; '-' forces stdout |
 | `--path` | - | string | - | Filter by URL path pattern (wildcard supported) |
+| `--paths` | - | bool | `false` | List JSON request-body key paths per operation (method + template) with their JSON types and sample counts, never values; --min-occurrences applies to sample_count |
 | `--remark` | - | stringArray | - | Keep records carrying a remark containing this text (repeatable, AND-combined; e.g. --remark jstangle: for JS-derived records, --remark jstangle:not_found) |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Only records first stored by this scan (http_records.scan_uuid; records deduplicated against an earlier scan keep that scan's uuid) |
 | `--show-values` | - | bool | `false` | Print sample values unredacted (cookies, headers and secret-looking names are redacted by default) |
@@ -2195,6 +2292,7 @@ Re-send a stored or supplied HTTP request and diff baseline vs replay
 | `--raw-request-file` | - | string | - | Read --raw-request from a file |
 | `--record-uuid` | `-u` | string | - | Stored HTTP record UUID (or unique 8+ char prefix) to use as baseline |
 | `--repeater-tab` | - | string | - | Repeater tab name for --to-repeater (default: vigolium) |
+| `--require-scope` | - | bool | `false` | Refuse to send (out_of_scope) when the configured scope names no hosts, instead of admitting every host (also VIGOLIUM_REQUIRE_SCOPE=1) |
 | `--save` | - | bool | `false` | Store the exchange sent (source "replay") and report its saved_record_uuid. On by default for a single replay; bulk replay stores only with --save |
 | `--save-to-burp` | - | bool | `false` | Add each replayed request and its fresh response to Burp's Target Site map |
 | `--search` | - | stringArray | - | Bulk: search across URL, path, and the raw request/response (headers + body); repeatable, AND-combined |
@@ -2308,7 +2406,7 @@ Run a single native scan phase (alias for scan --only <phase>)
 | `--require-auth` | - | bool | `false` | Fail a target's spidering instead of crawling anonymously when configured authentication (session cookies/auth headers) cannot be applied to the browser (sets spidering.require_auth) |
 | `--required-only` | - | bool | `false` | Parse only required fields from input format (ignore optional) |
 | `--resume` | - | bool | `false` | Resume a prior -S -T --split-by-host -P run from its progress manifest (<output>.progress.json): skip targets that already completed cleanly and scan only the remainder. Run bare ('vigolium scan --resume', no other flags) to auto-discover the *.progress.json in the current directory and relaunch the saved run from it (pass -o <prefix> to disambiguate when several exist) |
-| `--resume-scan` | - | string | - | Resume a previous scan by UUID: reuse its scan row and cursor and skip the records/modules its coverage ledger records as done |
+| `--resume-scan` | - | string | - | Resume a previous scan by UUID: reuse its scan row and cursor and skip the records/modules its coverage ledger records as done. Refused before anything is sent when the scan does not exist (scan_not_found), is still running (scan_running), or its targets, scope or modules differ from this run's (resume_mismatch; --force resumes anyway) |
 | `--retries` | - | int | `1` | Number of retry attempts for failed requests |
 | `--safe` | - | bool | `false` | Bounded, non-mutating scan: GET/HEAD traffic only, no form submission/uploads/login attempts in the browser, no risky payloads or intrusive templates, low pace, 15m total budget (typed flags still win) |
 | `--scanning-profile` | - | string | - | Advanced: scanning profile name or YAML file path (pace, discovery depth, templates); --intensity picks this for you |
@@ -2428,7 +2526,7 @@ Run a native scan — deterministic multi-phase vulnerability scanning
 | `--require-auth` | - | bool | `false` | Fail a target's spidering instead of crawling anonymously when configured authentication (session cookies/auth headers) cannot be applied to the browser (sets spidering.require_auth) |
 | `--required-only` | - | bool | `false` | Parse only required fields from input format (ignore optional) |
 | `--resume` | - | bool | `false` | Resume a prior -S -T --split-by-host -P run from its progress manifest (<output>.progress.json): skip targets that already completed cleanly and scan only the remainder. Run bare ('vigolium scan --resume', no other flags) to auto-discover the *.progress.json in the current directory and relaunch the saved run from it (pass -o <prefix> to disambiguate when several exist) |
-| `--resume-scan` | - | string | - | Resume a previous scan by UUID: reuse its scan row and cursor and skip the records/modules its coverage ledger records as done |
+| `--resume-scan` | - | string | - | Resume a previous scan by UUID: reuse its scan row and cursor and skip the records/modules its coverage ledger records as done. Refused before anything is sent when the scan does not exist (scan_not_found), is still running (scan_running), or its targets, scope or modules differ from this run's (resume_mismatch; --force resumes anyway) |
 | `--retries` | - | int | `1` | Number of retry attempts for failed requests |
 | `--safe` | - | bool | `false` | Bounded, non-mutating scan: GET/HEAD traffic only, no form submission/uploads/login attempts in the browser, no risky payloads or intrusive templates, low pace, 15m total budget (typed flags still win) |
 | `--scanning-profile` | - | string | - | Advanced: scanning profile name or YAML file path (pace, discovery depth, templates); --intensity picks this for you |
@@ -2698,6 +2796,20 @@ Usage: `vigolium schema command <name>`
 Print one command's -j document schema
 
 _No command-specific flags._
+
+## vigolium schema commands
+
+Usage: `vigolium schema commands [command]`
+
+List every command's traits: store use, global writes, traffic, value-taking flags
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--compact` | - | bool | `false` | With --json, drop the bulky keys of each row and of the envelope (plan, query, generated_at, db_path) |
+| `--fields` | - | stringSlice | - | Restrict --json items to these keys (comma-separated). An unknown name is an error, not a silent drop |
+| `--limit` | `-n` | int | `0` | With --json, return at most N rows (0 = all; follow output_budget.next_offset with --offset) |
+| `--max-output-bytes` | - | int | `0` | With --json, cap the result document at N bytes by dropping whole trailing items (0 = unlimited). The document stays valid JSON and gains an output_budget object naming how many items were returned, how many were omitted, and the next --offset |
+| `--offset` | - | int | `0` | With --json, skip the first N rows (follow output_budget.next_offset) |
 
 ## vigolium schema error
 
@@ -3147,6 +3259,7 @@ Browse or replay HTTP traffic (alias: db ls --table http_records)
 | `--raw` | - | bool | `false` | Show full raw HTTP request and response |
 | `--redact-auth` | - | bool | `false` | With --curl: replace Authorization/Cookie/API-key header values with <redacted> |
 | `--replay` | - | bool | `false` | Re-send the matched requests and compare original vs new response (instead of listing) |
+| `--require-scope` | - | bool | `false` | Refuse to send (out_of_scope) when the configured scope names no hosts, instead of admitting every host (also VIGOLIUM_REQUIRE_SCOPE=1) |
 | `--save-to-burp` | - | bool | `false` | Copy the database records selected by the active filters into Burp's Target Site map |
 | `--save-to-vigolium-db` | - | bool | `false` | Persist the live Burp records selected by the active filters into the database |
 | `--scan-uuid` | - | string | - | **(overrides the global `--scan-uuid`)** Only records first stored by this scan (http_records.scan_uuid; a record deduplicated against an earlier scan keeps that scan's uuid) |

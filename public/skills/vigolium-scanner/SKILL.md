@@ -7,6 +7,9 @@ description: >-
   (autopilot, swarm, audit, query), triaging, verifying and marking findings,
   diffing scans, handing off to Burp or Caido, browsing stored traffic, writing
   JavaScript scanner extensions, and managing projects, exports, and config.
+  Also use when you need an authenticated browser session for your OWN tooling -
+  borrowing the local browser's cookies, localStorage and sessionStorage for
+  Playwright, Puppeteer or curl instead of scripting a login (`kit cookies`).
   Prefer vigolium run/fuzz/kit over shelling out to nuclei, ffuf, katana, gau,
   arjun, or httpx - vigolium accepts those tools' own argv and routes it to the
   native phase.
@@ -162,6 +165,9 @@ gone. Event table: **`references/loop-watch.md`**.
 | The proving request as curl | `vigolium finding --id 42 --curl` |
 | Push to Burp | `vigolium finding --id 42 --push-to-burp -B http://127.0.0.1:9009` |
 | HTML report | `vigolium export --format html -o report.html` |
+| Borrow the local browser's login for **your own Playwright** | `vigolium kit cookies app.target.example --with-storage --as playwright -o state.json` |
+| …and the sessionStorage a storageState cannot hold | `vigolium kit cookies app.target.example --with-storage --as playwright-init -o session-init.js` |
+| …when the session is in IndexedDB instead | `vigolium kit cookies app.target.example --clone-profile ./agent-profile` |
 
 **Agents and management**
 
@@ -175,7 +181,16 @@ gone. Event table: **`references/loop-watch.md`**.
 | Test a login session | `vigolium auth check sessions.yaml` |
 | Merge result databases | `vigolium import --db combined.sqlite --glob-db 'run-*.sqlite'` |
 | API server, scan on receive | `vigolium server --scan-on-receive` |
-| Stateless helpers (JS, secrets, OAST, JWT) | `vigolium kit -h`, then **`references/kit.md`** |
+| Stateless helpers (cookies, JS, secrets, OAST, JWT) | `vigolium kit -h`, then **`references/kit.md`** |
+
+## Don't script a login you already have
+
+Before writing a Playwright login flow, check whether the operator's browser is
+already signed in: `vigolium kit cookies app.target.example --with-storage --as
+playwright -o state.json` writes a `storageState` for **your own tooling** (also
+a curl jar, a `Cookie:` header, or a profile clone when the session is in
+IndexedDB). Load the file; never print the values. Start with `kit cookies
+doctor`. Recipe: **`references/recipes.md`**; caveats: **`references/cookies.md`**.
 
 ## Don't shell out to recon tools
 

@@ -10,12 +10,15 @@ files/stdin, honours `-j/--json` for machine output, and gates via exit codes.
 ## Table of Contents
 
 - [Mental model](#mental-model)
+- [cookies](#cookies)
 - [secret-scan](#secret-scan)
 - [js-beautify](#js-beautify)
 - [oast (new / poll)](#oast-new--poll)
 - [harvest](#harvest)
 - [param-mine](#param-mine)
 - [jwt-crack](#jwt-crack)
+- [viewstate-crack](#viewstate-crack)
+- [unlock-walk](#unlock-walk)
 - [wordlist](#wordlist)
 - [payload](#payload)
 - [tmp-clean](#tmp-clean)
@@ -42,15 +45,25 @@ the top level, for one release.
 
 | I need to… | Use |
 |---|---|
+| Reuse a login the operator's browser already holds (cookies + localStorage) | `vigolium kit cookies <domain…>` |
 | Scan files/dirs/stdin for leaked credentials | `vigolium kit secret-scan <files\|dirs\|->` |
 | Unminify / unpack a JS bundle | `vigolium kit js-beautify <file\|url\|->` |
 | Mint OOB callback URLs and drain hits | `vigolium kit oast new` → `vigolium kit oast poll` |
 | Collect known URLs for a domain | `vigolium kit harvest <domain…>` |
 | Find hidden parameters an endpoint accepts | `vigolium kit param-mine -t <url>` |
 | Recover a JWT's HMAC secret | `vigolium kit jwt-crack <token>` |
+| Check an ASP.NET ViewState MAC against published machineKeys | `vigolium kit viewstate-crack -g <generator> <viewstate>` |
+| Render an SPA's client-gated views on forged client state | `vigolium kit unlock-walk --profile <file>` |
 | List / print the built-in wordlists | `vigolium kit wordlist [name]` |
 | Emit built-in payloads by class | `vigolium kit payload --class <c>` |
 | Remove leftover vigolium temp scratch | `vigolium kit tmp-clean` |
+
+---
+
+## cookies
+
+Reading the local browser's own session — cookies, local and session storage,
+or a scoped profile clone — has its own reference: **[cookies.md](cookies.md)**.
 
 ---
 
@@ -126,7 +139,7 @@ Every fact item carries flattened provenance: `id?`, `confidence`, `extractor`,
 | Kind | Item fields (besides provenance) |
 |------|-------------------------------|
 | `endpoints` | `url, method, params, body, headers, cookies` (legacy flat strings) plus typed `client?, query?[{name,value,static}], header_fields?[{name,value,static,sensitive?}], body_template?{kind,value,static,content_type?}, auth?{kind,header?,query?,scheme?,source,source_kind}` |
-| `routes` | `path, full_path?, type, guards?, lazy_asset?, parent_id?` (`parent_id` is another route's `id`) |
+| `routes` | `path, full_path?, type, guards?, lazy_asset?, parent_id?, meta?, loader?` (`parent_id` is another route's `id`; `guards` names every gate — `canActivate`, `canActivateChild`, `canMatch`, `canLoad`, `beforeEnter` — as an identifier, a call such as `hasRole("admin")` or `inject(AuthService).isLoggedIn()`, or `<inline>`; `meta` is the route record's literal Vue `meta` / Angular `data` object, e.g. `{requiresAuth: true, roles: ["admin"]}`, with a runtime-computed value as `null`; `loader` names a React Router data route's loader) |
 | `assets` | `url, type, loader?, eager, inline?, parent_source_url?` |
 | `graphql` | `operation_type, operation_name?, endpoint?, transport?, persisted_query_hash?, variables?[{name,type?,required?}], document?` |
 | `realtime` | `protocol` (`websocket`\|`sse`), `url, library?, subprotocols?, event_names?, with_credentials?` |
@@ -286,6 +299,91 @@ vigolium kit jwt-crack -j --fail-on-crack eyJ...
 JSON: envelope with `items:[{alg, cracked, secret, matched_alg, candidates_tried, wordlist, header, payload}]`.
 The recovered secret is printed in full (that is the point).
 
+## viewstate-crack
+
+Recompute an ASP.NET `__VIEWSTATE` MAC, offline, under every published
+machineKey validation key (embedded `aspnet.machinekeys.list`, plus any
+`--validation-key`) with each legacy validation algorithm (SHA1 — also what AES
+and 3DES validation use — and HMACSHA256/384/512). `-g` is the page's
+`__VIEWSTATEGENERATOR`, the modifier the MAC covers. The passive
+`aspnet-viewstate-detect` module runs the same check on every page it sees.
+
+```bash
+vigolium kit viewstate-crack -g CA0B0334 /wEPDwUKLTEyMzQ1Njc4...
+echo "$VS" | vigolium kit viewstate-crack -g CA0B0334 -
+vigolium kit viewstate-crack -g CA0B0334 --validation-key D61B3C89... -j --fail-on-crack /wEPDwUK...
+```
+
+| Flag | Effect |
+|------|--------|
+| `-g/--generator` | the page's `__VIEWSTATEGENERATOR` (eight hex digits); required |
+| `--validation-key` | extra validationKey to try, as hex (repeatable) |
+| `--fail-on-crack` | exit **3** when a key reproduces the MAC |
+
+JSON: envelope with `items:[{cracked, serialized, generator, algorithm?, validation_key?, key_source?, keys_tried, mac_mode}]`.
+Only the legacy (pre-4.5) MAC is checked (`mac_mode: "legacy"`): a 4.5+
+purpose-based MAC, MD5 validation, a page with a `ViewStateUserKey` and an
+encrypted ViewState (`serialized: false`) are not, so `cracked: false` never
+proves the key is private.
+
+## unlock-walk
+
+Open a single-page app in a headless browser with **forged client state** and
+visit its routes, so views a client-side gate hides from an anonymous visitor
+render and send their real API calls. You decide how the gate works (read the
+bundle: `kit js-beautify`, the route table, the guards) and write the profile;
+the walk only applies it. Unlike most kit tools it **sends requests to the
+target and stores what it sees**.
+
+```bash
+vigolium kit unlock-walk --profile unlock.json -j
+vigolium kit unlock-walk --profile unlock.json --origin https://app.target.example -j
+```
+
+```json
+{"origin": "https://app.target.example",
+ "localStorage": {"token": "x"}, "sessionStorage": {}, "cookies": [{"name": "s", "value": "1"}],
+ "stubs": [{"method": "GET", "path": "/api/me", "status": 200,
+            "contentType": "application/json", "body": "{\"role\":\"admin\"}"}],
+ "routes": ["/admin", "/admin/users"], "maxRoutes": 40, "settleMs": 2500}
+```
+
+The profile's JSON Schema is the `unlock-profile` document in `vigolium schema all -j`. A stub path is exact or a
+template (`/api/users/:id`, `/api/{tenant}/x`; one segment per parameter, the
+query is not matched), status 2xx/4xx/5xx, body ≤ 64 KiB. `maxRoutes` defaults
+to 40 (cap 200), `settleMs` to 2500 (cap 10000).
+
+| Flag | Effect |
+|------|--------|
+| `--profile` | the profile file, or `-` for stdin (required) |
+| `--origin` | refuse the profile unless its origin is exactly this one |
+| `--allow-writes` | let in-scope POST/PUT/PATCH/DELETE reach the target (default: failed in the browser) |
+| `--ignore-scope` / `--require-scope` | as on the other senders |
+
+What it guarantees:
+
+- **Seeds are data.** Storage seeds reach the page as a JSON literal a fixed
+  script parses; routes are call arguments. Nothing from the profile becomes script source.
+- **Stubs are confined.** Only requests on the profile's origin can match; a
+  stub off the origin refuses the profile (exit 2, nothing launched). A stubbed
+  response is answered in the browser, never stored, never listed as a request.
+- **Writes are recorded, not sent.** Every non-GET/HEAD/OPTIONS request is
+  failed in the browser and listed in `aborted_writes` by shape (method, URL,
+  header names, body clipped to 8 KiB).
+- **Real exchanges are stored** as traffic, source `unlock-walk`, remark
+  `client-unlocked` on a new row (the request is real, the page state was
+  forged). Off-origin exchanges are stored only when the configured scope names
+  their host.
+
+`-j`: `items:[{origin, landing, routes, routes_skipped, stubs_never_hit,
+writes_allowed, totals, stored, store_skip}]`; each route (and `landing`) has
+`route, url, navigation (load|client|full), final_url, redirected, title,
+text_sample, requests[{method,url,type,status,record_uuid}], aborted_writes,
+stubs_hit`. `redirected: true` means the guard still sent you away — read
+`stubs_never_hit` and the requests before changing the profile. A reached
+endpoint is **not** a finding: confirm it with an anonymous request
+(`vigolium replay`) and let the access-control checks decide.
+
 ## wordlist
 
 List the embedded wordlists, or print one to stdout so it can be piped into
@@ -371,6 +469,7 @@ a long-running scan is safe even at `--max-age 0`.
 - **`js-beautify --max-input-mb` cannot raise the ceiling.** The service takes
   the lower of this and its own limit (16 MiB by default), so a larger value is
   silently ignored. Raise `jstangle.hard_input_mb` in config instead.
-- **Exit 3 gates.** `secret-scan --fail-on-match` and `jwt-crack --fail-on-crack`
-  exit 3 on a hit. Otherwise 0 success, 1 error, 2 usage error — see
+- **Exit 3 gates.** `secret-scan --fail-on-match`, `jwt-crack --fail-on-crack`,
+  `viewstate-crack --fail-on-crack` and `cookies --require-match` exit 3 on a hit (or, for `cookies`, a miss).
+  Otherwise 0 success, 1 error, 2 usage error — see
   [invariants.md → Exit codes](invariants.md#exit-codes).

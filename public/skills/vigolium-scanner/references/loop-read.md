@@ -63,9 +63,42 @@ Finding output shape:
 { "schema_version": 2, "command": "finding", "kind": "read", "ok": true,
   "project_uuid": "…", "total": 39, "offset": 0, "limit": 100,
   "items": [ { "id": 2, "finding_hash": "…", "severity": "high", "module_id": "…",
-               "url": "…", "status": "draft", "matched_at": ["…"],
+               "vuln_class": "sqli", "url": "…", "status": "draft", "matched_at": ["…"],
                "response_evidence": "…<match>…" } ] }
 ```
+
+`vuln_class` is the finding's exact class, the routing key: one stable
+snake_case name per kind of bug, declared per module (`module ls -j` rows carry
+the same field; `multiple` there means each finding names its own). Route on it,
+not on `module_id` substrings: `xss_blind` (an out-of-band script fetch, proven
+by the callback) is not `xss_reflected` (proven by the response) or
+`xss_stored`/`xss_dom`. Vocabulary: `sqli`, `nosqli`, `cmdi`, `code_injection`,
+`ssti`, `ssrf`, `xxe`, `lfi`, `ldap_injection`, `xpath_injection`,
+`ssi_injection`, `esi_injection`, `smtp_header_injection`, `crlf_injection`,
+`host_header_injection`, `deserialization`, `prototype_pollution`,
+`file_upload`, `mass_assignment`, `csv_injection`, `prompt_injection`, `rce`,
+`xss_reflected`, `xss_stored`, `xss_blind`, `xss_dom`, `csti`,
+`client_prototype_pollution`, `dom_clobbering`, `client_path_traversal`,
+`css_injection`, `jsonp_callback`, `open_redirect`, `clickjacking`,
+`reverse_tabnabbing`, `postmessage`, `idor`, `bfla`, `auth_bypass`,
+`acl_bypass`, `default_credentials`, `jwt`, `session_management`,
+`oauth_misconfig`, `saml`, `csrf`, `cswsh`, `cors_misconfig`,
+`rate_limit_bypass`, `user_enumeration`, `password_reset_poisoning`,
+`business_logic`, `request_smuggling`, `cache_poisoning`, `cache_deception`,
+`subdomain_takeover`, `bucket_takeover`, `cloud_storage_exposure`,
+`padding_oracle`, `race_condition`, `dos`, `dns_rebinding`, `proxy_trust`,
+`transport_security`, `security_headers`, `cookie_security`, `weak_crypto`,
+`supply_chain`, `info_disclosure`, `data_exposure`, `sensitive_file`,
+`source_disclosure`, `source_map_exposure`, `secret_exposure`,
+`directory_listing`, `debug_exposure`, `admin_exposure`, `api_docs_exposure`,
+`exposed_service`, `misconfiguration`, `outdated_component`, `fingerprint`,
+`signal` (an analysis lead, not a bug), `multiple` (module rows only). Absent
+on a known-issue template or imported finding. Add-only: ignore a value you do
+not know.
+
+`claimed_severity` appears when the stored `severity` is lower than the module
+asked for: a Tentative finding files at most `suspect`, and the claim (`high`,
+…) stays here. Weigh it as the module's opinion, never as proof.
 
 ## Reading exports without a database
 

@@ -1,6 +1,17 @@
 # Session / Auth Configuration
 
-> **Related:** [scanning.md](scanning.md) for where `--auth-file` applies · [agent-modes.md](agent-modes.md) for agent-generated sessions
+> **Related:** [scanning.md](scanning.md) for where `--auth-file` applies · [agent-modes.md](agent-modes.md) for agent-generated sessions · [cookies.md](cookies.md) to borrow a session the local browser already holds
+
+## Before writing a login config
+
+If the operator's own browser is already signed in to the target, `vigolium kit
+cookies app.target.example --with-storage --as playwright -o state.json` takes
+that session (also a curl jar or a `Cookie:` header) with no credential, MFA
+prompt or flow to maintain — for your own tooling as well as vigolium's. Load
+the file; under a coding agent the values never reach the transcript. See
+[cookies.md](cookies.md). Prefer a scripted session config when the scan must
+**re-authenticate**: a borrowed cookie expires and cannot be renewed, while a
+`login:` block logs in again mid-scan.
 
 Session configuration enables authenticated scanning across all agent modes and standalone scans. Pipeline Phase 0 (source analysis) can auto-generate this configuration, or it can be provided manually via the repeatable `--auth-file` and `--auth` flags.
 
