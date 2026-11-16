@@ -10,11 +10,18 @@ import (
 	"github.com/vigolium/vigolium/pkg/dedup"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
+	"github.com/vigolium/vigolium/pkg/modules/shared/viewstateutil"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
+	"github.com/vigolium/vigolium/pkg/vulnclass"
 )
 
 var viewstateValueRe = regexp.MustCompile(`name="__VIEWSTATE"[^>]*value="([^"]*)"`)
+
+// viewstateGeneratorRe reads the __VIEWSTATEGENERATOR hidden field: the page's
+// client-state identifier as eight hex digits (Page.cs renders it with "X8"),
+// the modifier the legacy ViewState MAC covers.
+var viewstateGeneratorRe = regexp.MustCompile(`name="__VIEWSTATEGENERATOR"[^>]*value="([0-9A-Fa-f]{8})"`)
 
 type Module struct {
 	modkit.BasePassiveModule
@@ -57,10 +64,6 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 
 	host := urlx.Host
 	diskSet := m.ds.Get(scanCtx.DedupMgr())
-	if diskSet != nil && diskSet.Contains(host) {
-		return nil, nil
-	}
-
 	body := ctx.Response().BodyToString()
 
 	// Check for ViewState presence
@@ -68,23 +71,45 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 		return nil, nil
 	}
 
+	// The known-key check keeps its own per-host claim: the host claim below
+	// is taken by the first page with any configuration finding, and a later
+	// page may be the first whose ViewState can be checked.
+	keyClaim := "known-key:" + host
+	checkKey := diskSet == nil || !diskSet.Contains(keyClaim)
+	checkHost := diskSet == nil || !diskSet.Contains(host)
+	if !checkKey && !checkHost {
+		return nil, nil
+	}
+
+	// Extract the ViewState value once for both checks.
+	vsMatch := viewstateValueRe.FindStringSubmatch(body)
+
+	var keyResults []*output.ResultEvent
+	if checkKey && len(vsMatch) > 1 {
+		if ev := m.knownKeyFinding(ctx, body, vsMatch[1], host, urlx.String()); ev != nil {
+			if diskSet == nil || diskSet.ClaimOnMatch(keyClaim) {
+				keyResults = append(keyResults, ev)
+			}
+		}
+	}
+
+	if !checkHost {
+		return keyResults, nil
+	}
+
 	var results []*output.ResultEvent
 
-	// Extract ViewState value
-	vsMatch := viewstateValueRe.FindStringSubmatch(body)
 	if len(vsMatch) > 1 {
 		vsValue := vsMatch[1]
 		vsLen := len(vsValue)
 
-		// Check if ViewState is unencrypted
-		// Encrypted ViewState typically starts with /wEP (base64 for encrypted prefix)
+		// Unencrypted ViewState is the plain ObjectStateFormatter stream: it opens
+		// with the formatter header 0xFF 0x01 whatever type token follows (/wEP is
+		// a Pair, /wEQ a Triplet, /wEW an array). Ciphertext carries no header.
 		if vsLen > 0 {
 			decoded, err := base64.StdEncoding.DecodeString(vsValue)
 			if err == nil && len(decoded) > 2 {
-				// Check for encryption: encrypted ViewState starts with bytes 0xFF 0x01 0x10 (base64: /wEQ)
-				// or the purpose-prefixed format. Unencrypted starts with 0xFF 0x01 followed by serialized data
-				isEncrypted := strings.HasPrefix(vsValue, "/wEP") || strings.HasPrefix(vsValue, "/wEQ")
-				if !isEncrypted && vsLen > 20 {
+				if viewstateutil.IsSerialized(decoded) && vsLen > 20 {
 					results = append(results, &output.ResultEvent{
 						ModuleID: ModuleID,
 						Host:     host,
@@ -178,7 +203,85 @@ func (m *Module) ScanPerRequest(ctx *httpmsg.HttpRequestResponse, scanCtx *modki
 	// Claim the host only now that it matched: a host whose
 	// first response showed nothing stays open for later responses.
 	if len(results) > 0 && diskSet != nil && !diskSet.ClaimOnMatch(host) {
-		return nil, nil
+		return keyResults, nil
 	}
-	return results, nil
+	return append(keyResults, results...), nil
+}
+
+// knownKeyFinding recomputes the page's legacy ViewState MAC (vs is the
+// __VIEWSTATE value) under every published key, offline. It needs an
+// unencrypted ViewState carrying a MAC and the __VIEWSTATEGENERATOR modifier;
+// anything else is not checkable and yields nil. The embedded key list is a
+// handful of keys, so the check costs a few HMACs over the ViewState and is
+// not memoised.
+func (m *Module) knownKeyFinding(ctx *httpmsg.HttpRequestResponse, body, vs, host, pageURL string) *output.ResultEvent {
+	// An encrypted ViewState carries no ObjectStateFormatter header: skip it
+	// before decoding the whole value.
+	if !viewstateutil.HasSerializedHeader(vs) {
+		return nil
+	}
+	gen := viewstateGeneratorRe.FindStringSubmatch(body)
+	if len(gen) < 2 {
+		return nil
+	}
+	keys, err := viewstateutil.PublishedKeys()
+	if err != nil || len(keys) == 0 {
+		return nil
+	}
+	decoded, err := viewstateutil.DecodeViewState(vs)
+	if err != nil {
+		return nil
+	}
+	modifier, err := viewstateutil.GeneratorModifier(gen[1])
+	if err != nil {
+		return nil
+	}
+	match, ok := viewstateutil.CrackLegacy(decoded, modifier, keys)
+	if !ok {
+		return nil
+	}
+	keyHex := match.Key.Hex()
+	return &output.ResultEvent{
+		ModuleID:      ModuleID,
+		RecordKind:    output.RecordKindFinding,
+		EvidenceGrade: output.EvidenceGradeImpact,
+		VulnClass:     string(vulnclass.Deserialization),
+		Host:          host,
+		URL:           pageURL,
+		Matched:       pageURL,
+		Request:       string(ctx.Request().Raw()),
+		Response:      string(ctx.Response().Raw()),
+		ExtractedResults: []string{
+			fmt.Sprintf("Validation algorithm: %s (legacy, pre-4.5 MAC)", match.Algorithm),
+			fmt.Sprintf("__VIEWSTATEGENERATOR: %s", strings.ToUpper(gen[1])),
+			fmt.Sprintf("Published validationKey: %s… (%d bytes)", keyHex[:16], len(match.Key.ValidationKey)),
+			"Key source: " + match.Key.Source,
+		},
+		Info: output.Info{
+			Name: "ASP.NET ViewState Signed with a Published machineKey",
+			Description: fmt.Sprintf("The page's __VIEWSTATE MAC recomputes, offline, under a publicly documented validationKey "+
+				"(%s) with %s in the legacy (pre-4.5) MAC mode. Anyone holding that key can sign a ViewState the server "+
+				"accepts, and a forged ViewState is deserialized by ObjectStateFormatter, which leads to remote code "+
+				"execution. The check covers only the legacy MAC with the __VIEWSTATEGENERATOR modifier; a 4.5+ "+
+				"purpose-based MAC, MD5 validation, a ViewStateUserKey or an encrypted ViewState is not tested, so a "+
+				"page without this finding is not shown to use a private key.", match.Key.Source, match.Algorithm),
+			Severity:   severity.Critical,
+			Confidence: severity.Certain,
+			Tags:       []string{"aspnet", "viewstate", "machinekey", "deserialization", "rce"},
+			Reference: []string{
+				"https://learn.microsoft.com/en-us/previous-versions/dotnet/netframework-4.0/w8h3skw9(v=vs.100)",
+				"https://support.microsoft.com/en-us/topic/resolving-view-state-message-authentication-code-mac-errors-6c0e9fd3-f8a8-c953-8fbe-ce840446a9f3",
+			},
+		},
+		Metadata: map[string]any{
+			"validation_algorithm":       match.Algorithm,
+			"key_source":                 match.Key.Source,
+			"viewstate_generator":        strings.ToUpper(gen[1]),
+			"mac_mode":                   "legacy",
+			"signature_verified":         true,
+			"purpose_based_mac_tested":   false,
+			"server_acceptance_tested":   false,
+			"view_state_user_key_tested": false,
+		},
+	}
 }

@@ -1,0 +1,6 @@
+# Published ASP.NET machineKey validation keys, checked offline against a page's
+# __VIEWSTATE MAC by aspnet-viewstate-detect and `kit viewstate-crack`.
+# Format: <validationKey hex> <source>. Every key is quoted from the source it
+# names; provenance is in THIRD_PARTY_NOTICES.md. Add only keys with a citable
+# public source.
+D61B3C89CB33A2F1422FF158AFF7320E8DB8CB5CDA1742572A487D94018787EF42682B202B746511891C1BAF47F8D25C07F6C39A104696DB51F17C529AD3CABE Microsoft Docs "Walkthrough: Encrypting Configuration Information Using Protected Configuration" (dtkwfdky) example
