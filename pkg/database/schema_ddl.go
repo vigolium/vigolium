@@ -266,6 +266,7 @@ var schemaTables = []string{
 		has_response {{BOOL}} NOT NULL DEFAULT {{FALSE}},
 		response_title TEXT,
 		response_location TEXT,
+		response_decoded_from TEXT,
 		parameters {{JSON}},
 		sent_at {{TIMESTAMP}} NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		received_at {{TIMESTAMP}},
@@ -323,6 +324,8 @@ var schemaTables = []string{
 		remediation TEXT,
 		cwe_id TEXT,
 		cvss_score {{FLOAT}} DEFAULT 0,
+		vuln_class TEXT,
+		claimed_severity TEXT,
 		source_file TEXT,
 		repo_name TEXT,
 		matched_at {{JSON}},
@@ -974,6 +977,17 @@ var columnMigrations = []columnMigration{
 	{"scans", "stop_requested_at", "{{TIMESTAMP}}"},
 	{"scans", "stop_requested_by", "TEXT"},
 	{"agentic_scans", "cancel_requested_at", "{{TIMESTAMP}}"},
+	// Finding classification (additive, no version bump: nullable, no
+	// backfill). vuln_class is the reported class (pkg/vulnclass);
+	// claimed_severity the module's own severity when the emit-time rule
+	// filed the finding lower. NULL on older rows; readers fall back to the
+	// module's declared class for vuln_class.
+	{"findings", "vuln_class", "TEXT"},
+	{"findings", "claimed_severity", "TEXT"},
+	// Ingested bodies decoded at storage (response_decode.go): the
+	// content-coding the wire carried. NULL means stored as received; schema
+	// v6's one-time backfill decodes ingested rows written before it.
+	{"http_records", "response_decoded_from", "TEXT"},
 }
 
 func init() {

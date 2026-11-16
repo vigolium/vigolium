@@ -924,6 +924,10 @@ func (db *DB) renderDDL(tmpl string) string {
 //	   scan_record_progress / scans.coverage_modules, scans.module_stats,
 //	   oast_sessions and the drop of idx_records_project_risk_score (covered
 //	   by idx_records_project_risk_order) ride the same version.
+//	   One-time, bounded backfills ride it too: ingested bodies still in their
+//	   wire coding are decoded in place (http_records.response_decoded_from,
+//	   response_decode.go) and JSON body parameters get their key path
+//	   (parameters[].metadata, params_paths.go).
 //	   Later additive, nullable columns arrived without a bump (column
 //	   migrations run on every open): scans.stop_requested_at/by and
 //	   agentic_scans.cancel_requested_at (stop requests, stop_requests.go).
@@ -938,6 +942,14 @@ const legacyBackfillsVersion = 1
 // observation per existing finding; a store at or past it was written by a
 // binary that records observations on every save.
 const observationsBackfillVersion = 3
+
+// ingestDecodeBackfillVersion is the version whose open decodes ingested
+// bodies stored in their wire coding (backfillDecodedResponses) and records
+// JSON parameter key paths (backfillJSONParamPaths). v6 had not shipped when
+// both were added, so they ride its migration instead of a version of their
+// own; a store a development build already stamped v6 keeps its older rows
+// as they are, and new rows are written decoded and with paths.
+const ingestDecodeBackfillVersion = 6
 
 // CurrentSchemaVersion exposes the schema revision this binary expects, so a
 // consumer can fail loudly on drift at startup (`vigolium version --json`)
@@ -1154,6 +1166,27 @@ func (db *DB) CreateSchema(ctx context.Context) error {
 			"UPDATE http_records SET source = ? WHERE source = ?", RecordSourceFinding, legacyKISEvidenceSource)
 		db.execBestEffort(ctx, "drop superseded index idx_records_project_risk_score",
 			"DROP INDEX IF EXISTS idx_records_project_risk_score")
+	}
+
+	// Schema v6: decode ingested bodies stored in their wire coding. Bounded
+	// and best effort (decodedBackfillMaxRows): a row left encoded reads
+	// exactly as before, and a re-import decodes it.
+	if storedVersion < ingestDecodeBackfillVersion {
+		if n, err := db.backfillDecodedResponses(ctx); err != nil {
+			zap.L().Warn("backfill of decoded ingested bodies stopped early", zap.Int("decoded", n), zap.Error(err))
+		} else if n > 0 {
+			zap.L().Info("decoded stored ingested bodies", zap.Int("records", n))
+		}
+	}
+
+	// Schema v6: give JSON parameters stored without one their key path
+	// (params --paths). Bounded and best effort like the decode above.
+	if storedVersion < ingestDecodeBackfillVersion {
+		if n, err := db.backfillJSONParamPaths(ctx); err != nil {
+			zap.L().Warn("backfill of JSON parameter key paths stopped early", zap.Int("records", n), zap.Error(err))
+		} else if n > 0 {
+			zap.L().Info("recorded JSON parameter key paths", zap.Int("records", n))
+		}
 	}
 
 	// Record the version so the next open can skip the gated work above. Done last

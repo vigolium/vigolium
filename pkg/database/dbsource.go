@@ -38,7 +38,18 @@ const (
 	RecordSourceParamMining   = "param-mining" // request carrying a hidden parameter the param-mining phase confirmed
 	RecordSourceReplay        = "replay"       // an exchange sent by hand with `vigolium replay` (saved by default)
 	RecordSourceFuzz          = "fuzz"         // a payload exchange `vigolium fuzz --save` kept
+	// RecordSourceUnlockWalk marks a real exchange `vigolium kit unlock-walk`
+	// observed while the page ran on forged client state; such a row also
+	// carries RecordRemarkClientUnlocked.
+	RecordSourceUnlockWalk = "unlock-walk"
 )
+
+// RecordRemarkClientUnlocked is the remark on a NEW record an unlock walk
+// stored: the request is real, the page state that produced it (storage
+// seeds, cookies, stubbed bootstrap responses) was forged. A row that already
+// existed keeps its own remarks, since the same exchange was observed without
+// forgery before.
+const RecordRemarkClientUnlocked = "client-unlocked"
 
 // legacyKISEvidenceSource is the label known-issue-scan evidence was stored
 // under before it used RecordSourceFinding. Read only by the one-time relabel
@@ -62,7 +73,7 @@ var KnownRecordSources = []string{
 	RecordSourceIngestServer, RecordSourceIngestContext, RecordSourceIngestProxy, RecordSourceIngestCLI,
 	RecordSourceScanner, RecordSourceProbe, RecordSourceFingerprint, RecordSourceHarvest,
 	RecordSourceFinding, RecordSourceBurp, RecordSourceCaido, RecordSourceParamMining,
-	RecordSourceReplay, RecordSourceFuzz,
+	RecordSourceReplay, RecordSourceFuzz, RecordSourceUnlockWalk,
 	RecordKindCandidate, RecordKindObservation, legacyKISEvidenceSource, "seed",
 }
 

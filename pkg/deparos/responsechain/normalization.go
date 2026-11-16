@@ -8,15 +8,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/andybalholm/brotli"
-	"github.com/klauspost/compress/gzip"
-	"github.com/klauspost/compress/zlib"
-	"github.com/klauspost/compress/zstd"
 	"github.com/pkg/errors"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
 
 	stringsutil "github.com/projectdiscovery/utils/strings"
+
+	"github.com/vigolium/vigolium/pkg/contentcoding"
 )
 
 const (
@@ -144,26 +142,10 @@ func readNNormalizeRespBody(rc *ResponseChain, body *bytes.Buffer) (err error) {
 	return nil
 }
 
-// wrapDecodeReader wraps a decompression reader around the response body if it's compressed
-// using gzip or deflate.
-func wrapDecodeReader(resp *http.Response) (rc io.ReadCloser, err error) {
-	switch resp.Header.Get("Content-Encoding") {
-	case "gzip":
-		rc, err = gzip.NewReader(resp.Body)
-	case "deflate":
-		rc, err = zlib.NewReader(resp.Body)
-	case "br":
-		rc = io.NopCloser(brotli.NewReader(resp.Body))
-	case "zstd":
-		var zstdReader *zstd.Decoder
-		zstdReader, err = zstd.NewReader(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-		rc = io.NopCloser(zstdReader)
-	default:
-		rc = resp.Body
-	}
+// wrapDecodeReader wraps a decompression reader around the response body when
+// it carries a content-coding (pkg/contentcoding: gzip, deflate, br, zstd).
+func wrapDecodeReader(resp *http.Response) (io.ReadCloser, error) {
+	rc, err := contentcoding.NewReader(resp.Header.Get("Content-Encoding"), resp.Body)
 	if err != nil {
 		return nil, err
 	}

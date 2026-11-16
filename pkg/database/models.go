@@ -319,6 +319,13 @@ type HTTPRecord struct {
 	// redirectLocationsAreBackfilled for how the read path handles that.
 	ResponseLocation string `bun:"response_location,nullzero" json:"response_location,omitempty"`
 
+	// ResponseDecodedFrom is the content-coding the wire carried ("gzip",
+	// "br", …) when the store removed it (response_decode.go): raw_response
+	// then holds the decoded body, without its Content-Encoding header and
+	// with Content-Length set to the decoded size. Empty means raw_response is
+	// stored exactly as received.
+	ResponseDecodedFrom string `bun:"response_decoded_from,nullzero" json:"response_decoded_from,omitempty"`
+
 	// Parameters (JSON array, replaces http_parameters table)
 	Parameters []EmbeddedParam `bun:"parameters,type:jsonb,nullzero" json:"parameters,omitempty"`
 
@@ -478,7 +485,14 @@ type EmbeddedParam struct {
 	NameEnd    int    `json:"name_end,omitempty"`
 	ValueStart int    `json:"value_start,omitempty"`
 	ValueEnd   int    `json:"value_end,omitempty"`
-	Metadata   string `json:"metadata,omitempty"`
+	// Metadata is a JSON body value's key path: object keys joined with
+	// ".", array elements sharing their array's path ("items.id" for every
+	// id in {"items":[{"id":1},{"id":2}]}). Empty for other locations, and
+	// on a JSON parameter stored before paths were recorded.
+	Metadata string `json:"metadata,omitempty"`
+	// JSONType is a JSON body value's type: string, number, boolean or null
+	// (empty when the token is none of them, or for other locations).
+	JSONType string `json:"json_type,omitempty"`
 	// Hidden marks a parameter no observed request carried: the param-mining
 	// phase found the endpoint acting on it (see pkg/parammine).
 	Hidden bool `json:"hidden,omitempty"`
@@ -527,6 +541,15 @@ type Finding struct {
 	// Classification
 	CWEID     string  `bun:"cwe_id,nullzero" json:"cwe_id,omitempty"`
 	CVSSScore float64 `bun:"cvss_score,default:0" json:"cvss_score"`
+	// VulnClass is the reported vulnerability class (pkg/vulnclass): the
+	// result's own class, else the module's declared one. NULL on a row
+	// written before the column, and on a finding with no declared class
+	// (a known-issue template, an import).
+	VulnClass string `bun:"vuln_class,nullzero" json:"vuln_class,omitempty"`
+	// ClaimedSeverity is the severity the module asked for when the emit-time
+	// rule filed it lower (a Tentative finding caps at suspect); NULL when the
+	// stored severity is the module's own.
+	ClaimedSeverity string `bun:"claimed_severity,nullzero" json:"claimed_severity,omitempty"`
 
 	// Source info (for audit findings)
 	SourceFile string `bun:"source_file,nullzero" json:"source_file,omitempty"`

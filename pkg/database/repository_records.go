@@ -2,9 +2,7 @@ package database
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +16,6 @@ import (
 
 	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
-	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"go.uber.org/zap"
 )
 
@@ -297,6 +294,7 @@ func (r *Repository) UpsertSnapshotRecord(ctx context.Context, httpRR *httpmsg.H
 		Set("response_content_type = ?", record.ResponseContentType).
 		Set("response_content_length = ?", record.ResponseContentLength).
 		Set("raw_response = ?", record.RawResponse).
+		Set("response_decoded_from = NULLIF(?, '')", record.ResponseDecodedFrom).
 		Set("response_hash = ?", record.ResponseHash).
 		Set("response_norm_hash = ?", record.ResponseNormHash).
 		Set("response_words = ?", record.ResponseWords).
@@ -1001,8 +999,8 @@ func (r *Repository) UpdateRecordAnnotations(ctx context.Context, uuid string, r
 //
 // rawResponse must be a complete HTTP response (status line + headers + body).
 // Used by the passive js-beautify module to overwrite a minified JS body with
-// its beautified form in place. The derivation mirrors Record.FromRequestResponse
-// so a rewritten record hashes identically to one ingested with the new body.
+// its beautified form in place. The derivation is deriveResponseColumns, as at
+// ingest, so a rewritten record hashes identically to one ingested with the new body.
 // (Distinct from UpdateRecordResponse, which is the replay feature's full
 // response-field swap.)
 func (r *Repository) OverwriteRecordResponseBody(ctx context.Context, uuid string, rawResponse []byte) error {
@@ -1020,21 +1018,17 @@ func (r *Repository) OverwriteRecordResponseBody(ctx context.Context, uuid strin
 	}
 	rec := recs[0]
 
-	resp := httpmsg.NewHttpResponse(rawResponse)
-	body := resp.Body()
-
-	respHash := sha256.Sum256(rawResponse)
-	normHash := modkit.NormalizedBodyHash(string(body), rec.Path, rec.URL)
-	words := countResponseWords(body, resp.Headers())
+	// No content type: response_title is not one of the columns this rewrites.
+	cols := deriveResponseColumns(httpmsg.NewHttpResponse(rawResponse), "", rec.Path, rec.URL)
 
 	result, err := r.db.NewUpdate().
 		Model((*HTTPRecord)(nil)).
 		Where("uuid = ?", uuid).
 		Set("raw_response = ?", rawResponse).
-		Set("response_hash = ?", hex.EncodeToString(respHash[:])).
-		Set("response_norm_hash = ?", normHash).
-		Set("response_words = ?", words).
-		Set("response_content_length = ?", int64(len(body))).
+		Set("response_hash = ?", cols.Hash).
+		Set("response_norm_hash = ?", cols.NormHash).
+		Set("response_words = ?", cols.Words).
+		Set("response_content_length = ?", cols.ContentLength).
 		Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("OverwriteRecordResponseBody: update failed: %w", err)

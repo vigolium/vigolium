@@ -17,6 +17,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/modules/modkit"
 	"github.com/vigolium/vigolium/pkg/output"
+	"github.com/vigolium/vigolium/pkg/vulnclass"
 	"golang.org/x/net/html"
 	"golang.org/x/sync/singleflight"
 )
@@ -490,12 +491,18 @@ func (r *HTTPRecord) EnrichFromHttpRequestResponse(ctx *httpmsg.HttpRequestRespo
 	// Response (if available)
 	if ctx.HasResponse() {
 		resp := ctx.Response()
+		// An ingested body still in its wire coding is stored decoded, and
+		// every column below is derived from the stored bytes
+		// (response_decode.go).
+		if raw, coding, ok := decodeStoredResponse(resp); ok {
+			resp = httpmsg.NewHttpResponseWithDuration(raw, resp.Duration())
+			r.ResponseDecodedFrom = coding
+		}
 		r.HasResponse = true
 		r.StatusCode = resp.StatusCode()
 		r.ResponseHTTPVersion = extractResponseHTTPVersion(resp.Raw())
 
 		r.ResponseContentType = resp.Header("Content-Type")
-		r.ResponseContentLength = int64(len(resp.Body()))
 		r.RawResponse = bytes.Clone(resp.Raw())
 
 		// The redirect destination, parsed once here rather than re-read out of
@@ -506,23 +513,12 @@ func (r *HTTPRecord) EnrichFromHttpRequestResponse(ctx *httpmsg.HttpRequestRespo
 			r.ResponseLocation = strings.TrimSpace(resp.Header("Location"))
 		}
 
-		respBody := resp.Body()
-		if strings.Contains(strings.ToLower(r.ResponseContentType), "html") {
-			r.ResponseTitle = extractHTMLTitle(respBody)
-		}
-		r.ResponseWords = countResponseWords(respBody, resp.Headers())
-
-		respHash := sha256.Sum256(r.RawResponse)
-		r.ResponseHash = hex.EncodeToString(respHash[:])
-
-		// Reflected-URL-robust signature: strip the request path/URL the response
-		// may echo back (e.g. an error page that mirrors the requested URI) and
-		// collapse dynamic runs, so probes that differ only by the reflected target
-		// dedup together instead of surviving as N near-identical records.
-		// BodyToString is memoized on the response, and the passive stage has
-		// usually materialized it already — string(respBody) would copy the whole
-		// body again for an identical value, and so an identical hash.
-		r.ResponseNormHash = modkit.NormalizedBodyHash(resp.BodyToString(), r.Path, r.URL)
+		cols := deriveResponseColumns(resp, r.ResponseContentType, r.Path, r.URL)
+		r.ResponseTitle = cols.Title
+		r.ResponseWords = cols.Words
+		r.ResponseHash = cols.Hash
+		r.ResponseNormHash = cols.NormHash
+		r.ResponseContentLength = cols.ContentLength
 
 		// Zero stays zero and means "not measured"; see httpmsg.MeasuredMillis,
 		// which owns that rule for every column that stores it.
@@ -534,24 +530,76 @@ func (r *HTTPRecord) EnrichFromHttpRequestResponse(ctx *httpmsg.HttpRequestRespo
 	// Parameters
 	params, err := req.Parameters()
 	if err == nil && len(params) > 0 {
-		r.Parameters = make([]EmbeddedParam, 0, len(params))
-		for _, p := range params {
-			r.Parameters = append(r.Parameters, EmbeddedParam{
-				Name:       p.Name(),
-				Value:      p.Value(),
-				Type:       ParameterTypeFromParamType(p.Type()),
-				NameStart:  p.NameStart(),
-				NameEnd:    p.NameEnd(),
-				ValueStart: p.ValueStart(),
-				ValueEnd:   p.ValueEnd(),
-			})
-		}
+		r.Parameters = embeddedParams(params)
 	}
 
 	// Timestamps
 	r.SentAt = time.Now()
 
 	return nil
+}
+
+// responseColumns are the http_records columns derived from a stored response.
+type responseColumns struct {
+	Hash          string // response_hash: sha256 of the stored raw bytes
+	NormHash      string // response_norm_hash
+	Words         int64  // response_words
+	ContentLength int64  // response_content_length: the stored body's length
+	Title         string // response_title; "" unless contentType names HTML
+}
+
+// deriveResponseColumns computes the response-derived columns from resp, the
+// response exactly as it is stored. It is the one derivation behind
+// EnrichFromHttpRequestResponse, the decoded-response backfill and
+// OverwriteRecordResponseBody, so a record rewritten by any of them hashes as
+// one ingested with the same bytes would. path and url feed the normalized
+// hash; the title is only extracted when contentType names HTML.
+func deriveResponseColumns(resp *httpmsg.HttpResponse, contentType, path, url string) responseColumns {
+	body := resp.Body()
+	sum := sha256.Sum256(resp.Raw())
+	c := responseColumns{
+		Hash:  hex.EncodeToString(sum[:]),
+		Words: countResponseWords(body, resp.Headers()),
+		// Reflected-URL-robust signature: strip the request path/URL the
+		// response may echo back (e.g. an error page that mirrors the requested
+		// URI) and collapse dynamic runs, so probes that differ only by the
+		// reflected target dedup together instead of surviving as N
+		// near-identical records. BodyToString is memoized on the response, and
+		// the passive stage has usually materialized it already — string(body)
+		// would copy the whole body again for an identical value, and so an
+		// identical hash.
+		NormHash:      modkit.NormalizedBodyHash(resp.BodyToString(), path, url),
+		ContentLength: int64(len(body)),
+	}
+	if strings.Contains(strings.ToLower(contentType), "html") {
+		c.Title = extractHTMLTitle(body)
+	}
+	return c
+}
+
+// embeddedParams converts parsed request parameters to their stored form.
+func embeddedParams(params []*httpmsg.Param) []EmbeddedParam {
+	out := make([]EmbeddedParam, 0, len(params))
+	for _, p := range params {
+		ep := EmbeddedParam{
+			Name:       p.Name(),
+			Value:      p.Value(),
+			Type:       ParameterTypeFromParamType(p.Type()),
+			NameStart:  p.NameStart(),
+			NameEnd:    p.NameEnd(),
+			ValueStart: p.ValueStart(),
+			ValueEnd:   p.ValueEnd(),
+		}
+		// A JSON body value keeps where it sits (its dotted key path, the
+		// parser's Param.Metadata) and its JSON type, which `params --paths`
+		// aggregates into the operation's body shape.
+		if p.Type() == httpmsg.ParamJSON {
+			ep.Metadata = p.Metadata()
+			ep.JSONType = JSONTypeName(p.JSONType())
+		}
+		out = append(out, ep)
+	}
+	return out
 }
 
 // FromResultEvent converts output.ResultEvent to Finding
@@ -604,6 +652,13 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 	// column — which exists and is rendered in reports — was never populated from
 	// native results. Surface it so console/JSON/HTML/DB/API all carry it.
 	f.CWEID = cweFromMetadata(event.Metadata)
+	// The reported class: the result's own (an OAST callback names the class
+	// its payload was minted for), else the module's declared one.
+	f.VulnClass = string(vulnclass.ForFinding(vulnclass.Class(event.VulnClass), event.ModuleID))
+	// The severity the module asked for when the emit-time rule filed the
+	// finding lower (core.clampTentativeSeverity), so a reader can weigh the
+	// module's claim without the stored severity overstating the proof.
+	f.ClaimedSeverity = claimedSeverityFromMetadata(event.Metadata, f.Severity)
 
 	// Replay context for `finding verify` (see output.ResultEvent).
 	f.OriginRecordUUID = event.OriginRecordUUID
@@ -620,6 +675,21 @@ func (f *Finding) FromResultEvent(event *output.ResultEvent) error {
 	f.Status = StatusTriaged
 
 	return nil
+}
+
+// claimedSeverityFromMetadata returns Metadata["claimed_severity"] when it
+// names a severity other than the stored one, "" otherwise: a claim equal to
+// the stored severity says nothing.
+func claimedSeverityFromMetadata(meta map[string]interface{}, stored string) string {
+	v, ok := meta["claimed_severity"].(string)
+	if !ok {
+		return ""
+	}
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" || strings.EqualFold(v, stored) {
+		return ""
+	}
+	return v
 }
 
 // cweFromMetadata extracts a CWE identifier from a ResultEvent's metadata map.
