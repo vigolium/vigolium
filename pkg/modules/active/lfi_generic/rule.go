@@ -5,14 +5,13 @@ import (
 	"strings"
 )
 
-// injectionMarker is the unique sentinel embedded (base64-encoded) in the
-// data:// wrapper payload — it decodes to `<?php echo "vigolium-test"; ?>`.
-// A genuine data:// include echoes the marker back as *plaintext*; just as
-// importantly, it lets corroboration steps recognise — and discard — our own
-// payload when a target merely *reflects* the request body (e.g. Salesforce
-// Aura endpoints echo aura.context). Without this guard the reflected base64
-// decodes straight back to the PHP snippet above and masquerades as a real
-// php://filter source read.
+// injectionMarker is the sentinel carried in a comment of the PHP the data://
+// and php://input execution probes include (phpEchoProduct). It lets
+// corroboration steps recognise — and discard — our own payload when a target
+// merely *reflects* the request (e.g. Salesforce Aura endpoints echo
+// aura.context): without it the reflected base64 decodes straight back to PHP
+// and masquerades as a php://filter source read. It is never evidence on its
+// own; execution is proven by the probe's computed product.
 const injectionMarker = "vigolium-test"
 
 type rule struct {

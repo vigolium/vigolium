@@ -36,7 +36,7 @@ var phpOpenTags = []string{"<?php", "<?=", "<?\n", "<?\r", "<?\t", "<? "}
 // pages (GitHub Pages) that embed base64 data-URI logos. The reflection guards
 // additionally kill the Salesforce-Aura class of false positive: endpoints that
 // echo the request body (aura.context) bounce our data:// payload — which
-// base64-encodes `<?php echo "vigolium-test"; ?>` — straight back, where a naive
+// base64-encodes PHP carrying injectionMarker — straight back, where a naive
 // decode looks identical to a successful source read.
 func confirmPHPFilterBase64(data, baseline, payload string) bool {
 	for _, run := range base64RunRe.FindAllString(data, -1) {

@@ -17,6 +17,8 @@ type Module struct {
 	modkit.BaseActiveModule
 	rules []*rule
 	rhm   dedup.Lazy[dedup.RequestHashManager]
+	// operands draws the per-request operands of the execution probes.
+	operands operandSource
 }
 
 func New() *Module {
@@ -32,8 +34,9 @@ func New() *Module {
 			modkit.ScanScopeInsertionPoint,
 			modkit.AllParamTypes,
 		),
-		rules: getRules(),
-		rhm:   dedup.LazyDefaultRHM("lfi_generic"),
+		rules:    getRules(),
+		rhm:      dedup.LazyDefaultRHM("lfi_generic"),
+		operands: randomOperands,
 	}
 	m.ModuleTags = ModuleTags
 	return m
@@ -131,17 +134,95 @@ func (m *Module) ScanPerInsertionPoint(
 						ev.Matched = fileURL
 					}
 					ev.Info = modkit.DocrootFetchInfo(payload)
+					resp.Close()
+					return append(results, ev), nil
 				}
-				results = append(results, ev)
 				resp.Close()
-				return results, nil // Found LFI, skip remaining payloads for this IP
+				// A confirmed read proves an include-shaped sink; the execution
+				// probes decide whether it also runs code, which outranks the read.
+				if exec, _ := m.probeExecution(ctx, ip, httpClient, urlx.String(), origBody); exec != nil {
+					return append(results, exec), nil
+				}
+				return append(results, ev), nil // Found LFI, skip remaining payloads for this IP
 			}
 
 			resp.Close()
 		}
 	}
 
+	// No file read confirmed: the execution probes still run, since an include
+	// that evaluates wrappers can sit behind a path the read payloads miss.
+	exec, read := m.probeExecution(ctx, ip, httpClient, urlx.String(), origBody)
+	if exec != nil {
+		return append(results, exec), nil
+	}
+	if read != nil {
+		return append(results, read), nil
+	}
 	return results, nil
+}
+
+// probeExecution sends the execution probes in order and returns the first
+// confirmed execution as a finding. read is a data:// probe that came back as
+// text (a wrapper read, reported as the module's file-read finding) when no
+// probe executed. An unresponsive host ends the probes early.
+func (m *Module) probeExecution(
+	ctx *httpmsg.HttpRequestResponse,
+	ip httpmsg.InsertionPoint,
+	httpClient *http.Requester,
+	targetURL, origBody string,
+) (exec, read *output.ResultEvent) {
+	origReqBody := ""
+	if ctx.Request() != nil {
+		origReqBody = string(ctx.Request().Body())
+	}
+	probeBody := httpmsg.NewHttpRequest(httpmsg.BuildPayload(ip, []byte("php://input"), false)).Body()
+	// php://input reads the request body, so it is only sent when the
+	// insertion point is not itself in the body.
+	withInput := string(probeBody) == origReqBody
+
+	for _, p := range newExecProbes(m.operands, withInput) {
+		fuzzedRaw := httpmsg.BuildPayload(ip, []byte(p.payload), false)
+		if p.body != nil {
+			fuzzedRaw = httpmsg.NewHttpRequest(fuzzedRaw).WithBody(p.body).Raw()
+		}
+		resp, _, err := httpClient.Execute(httpmsg.NewRequestResponseRaw(fuzzedRaw, ctx.Service()), http.Options{})
+		if err != nil {
+			if errors.Is(err, hosterrors.ErrUnresponsiveHost) {
+				return nil, read
+			}
+			continue
+		}
+		if r := resp.Response(); r != nil && r.StatusCode >= 400 {
+			resp.Close()
+			continue
+		}
+		body := resp.Body().String()
+		request := string(fuzzedRaw)
+		executed := confirmExecution(body, origBody, request, p.product)
+		if !executed && (read != nil || !confirmWrapperText(body, origBody, request, p)) {
+			resp.Close()
+			continue
+		}
+		// Only a match pays for the full response copy.
+		ev := &output.ResultEvent{
+			URL:              targetURL,
+			Request:          request,
+			Response:         resp.FullResponseString(),
+			FuzzingParameter: ip.Name(),
+			ExtractedResults: []string{p.payload},
+		}
+		resp.Close()
+		if !executed {
+			read = ev
+			continue
+		}
+		ev.ExtractedResults = append(ev.ExtractedResults, p.product)
+		ev.Info = execFindingInfo(p)
+		ev.VulnClass = execVulnClass
+		return ev, nil
+	}
+	return nil, read
 }
 
 // https://github.com/projectdiscovery/nuclei-templates/blob/main/dast/vulnerabilities/lfi/lfi-keyed.yaml
@@ -230,18 +311,15 @@ func getRules() []*rule {
 			"php://filter/convert.base64-encode/resource=index.php",
 			"php://filter/convert.base64-encode/resource=../index.php",
 			"php://filter/convert.base64-encode/resource=../../index.php",
-			// data:// wrapper: executes the embedded PHP, echoing the marker.
-			// Decodes to: <?php echo "vigolium-test"; ?>
-			"data://text/plain;base64,PD9waHAgZWNobyAidmlnb2xpdW0tdGVzdCI7ID8+",
-			"expect://id",
-			"php://input",
 		},
 		// The convert.base64-encode reads are confirmed by decoding the returned
 		// blob and requiring real PHP source (see confirmPHPFilterBase64), not by
 		// a bare base64 charset regex — that fired on incidental base64 (data-URI
-		// images) in ordinary CDN/static 404 pages.
+		// images) in ordinary CDN/static 404 pages. The data://, expect:// and
+		// php://input wrappers are execution probes (exec_probe.go), sent with
+		// per-request operands rather than as fixed payloads.
 		[]*regexp.Regexp{},
-		[]string{"vigolium-test"},
+		[]string{},
 	).withConfirm(confirmPHPFilterBase64)
 	rules = append(rules, phpWrapperRule)
 	/* ------------------------------------------------------------------------- */

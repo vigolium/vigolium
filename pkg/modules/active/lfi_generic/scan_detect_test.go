@@ -134,9 +134,9 @@ func TestScanPerInsertionPoint_NoFPOnEmbeddedBase64(t *testing.T) {
 
 // TestScanPerInsertionPoint_NoFPOnReflectedRequest reproduces the reported
 // Salesforce-Aura false positive: the endpoint echoes the request parameter
-// back in its (200) response. The data:// wrapper payload base64-encodes
-// `<?php echo "vigolium-test"; ?>`, so its reflection decodes straight back to
-// PHP — but no file was ever read, so it must NOT be flagged.
+// back in its (200) response. The data:// probe base64-encodes PHP, so its
+// reflection decodes straight back to PHP — but no file was ever read and no
+// code ran, so it must NOT be flagged.
 func TestScanPerInsertionPoint_NoFPOnReflectedRequest(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
