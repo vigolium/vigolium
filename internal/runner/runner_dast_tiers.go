@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"sort"
 	"time"
@@ -204,20 +203,12 @@ func mergeModuleMetrics(a, b map[string]stats.ModuleStatsSnapshot) map[string]st
 }
 
 // resumeScanRow re-opens an existing scan row for --resume-scan: it must exist
-// in this scan's project; its status goes back to running.
+// in this scan's project (lookupResumeScan); its status goes back to running.
 func (r *Runner) resumeScanRow(ctx context.Context, scanUUID string) error {
-	scan, err := r.repository.GetScanByUUID(ctx, scanUUID)
-	if err != nil || scan == nil {
-		return fmt.Errorf("--resume-scan %s: scan not found", scanUUID)
+	if _, err := r.lookupResumeScan(ctx, scanUUID); err != nil {
+		return err
 	}
-	project := r.options.ProjectUUID
-	if project == "" {
-		project = database.DefaultProjectUUID
-	}
-	if scan.ProjectUUID != "" && scan.ProjectUUID != project {
-		return fmt.Errorf("--resume-scan %s: scan belongs to another project", scanUUID)
-	}
-	_, err = r.repository.DB().NewUpdate().Model((*database.Scan)(nil)).
+	_, err := r.repository.DB().NewUpdate().Model((*database.Scan)(nil)).
 		Set("status = ?", "running").
 		Set("updated_at = CURRENT_TIMESTAMP").
 		Where("uuid = ?", scanUUID).

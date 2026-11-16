@@ -296,6 +296,39 @@ func (m *ScopeMatcher) HostInScope(host string) bool {
 	return m.hostInScope(host)
 }
 
+// hostIncludeNamesHosts reports whether an include list admits only the
+// hosts it names: non-empty, and without a "*" (which admits every host
+// whatever else is listed, as globMatch does).
+func hostIncludeNamesHosts(include []string) bool {
+	named := false
+	for _, p := range include {
+		switch strings.TrimSpace(p) {
+		case "*":
+			return false
+		case "":
+		default:
+			named = true
+		}
+	}
+	return named
+}
+
+// RestrictsHosts reports whether the scope names which hosts are allowed: a
+// scope.host.include other than "*", or CLI targets under an origin mode other
+// than "all". An exclude-only or empty host rule admits every host it does not
+// name, so it is not a scope a fail-closed caller can rely on (--require-scope).
+//
+// Nil-safe: no matcher restricts nothing.
+func (m *ScopeMatcher) RestrictsHosts() bool {
+	if m == nil {
+		return false
+	}
+	if hostIncludeNamesHosts(m.cfg.Host.Include) {
+		return true
+	}
+	return m.originMode != "" && m.originMode != "all" && len(m.originIndex.exactHosts) > 0
+}
+
 // ExplicitlyExcluded reports whether host or path matches an operator-written
 // exclude pattern — scope.host.exclude or scope.path.exclude — and nothing else.
 //
@@ -500,10 +533,16 @@ func (m *ScopeMatcher) InScopeRequest(host, path, reqContentType, reqRaw string)
 }
 
 // InScopeTarget is InScopeRequest without the static-file carve-out: the host
-// and path rules only. For a caller that asks for a static asset on purpose
-// (the fingerprint phase's favicon), where the carve-out's "never worth a
-// request" does not hold.
+// and path rules only (the query is ignored). For a caller that asks for a
+// static asset on purpose (the fingerprint phase's favicon, the senders'
+// scope gate), where the carve-out's "never worth a request" does not hold.
+// RejectDetail names the rule that refused a pair it rejects.
+//
+// Nil-safe: no matcher admits every target.
 func (m *ScopeMatcher) InScopeTarget(host, path string) bool {
+	if m == nil {
+		return true
+	}
 	return m.hostInScope(host) && matchPathGlob(path, m.cfg.Path)
 }
 

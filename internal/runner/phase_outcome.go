@@ -445,27 +445,34 @@ func DirectTargetTally(target string, rep core.ExecutionReport, failures []core.
 }
 
 // reserveAfter is the share of the scan's remaining time a phase must leave
-// for the phases after it: the configured reserves of dynamic
-// assessment and known-issue scan for every phase before the assessment, the
-// known-issue reserve for the assessment, nothing for the last phase.
+// for the phases planned after it: the sum of the configured reserves
+// (scanning_pace.reserve) of every ENABLED step that follows phase in
+// BuildNativeScanPlan, capped at 0.95. A phase reserves nothing for a phase the
+// run will not execute: `--only discovery,spidering` plans no assessment, so
+// its crawl gets the whole budget rather than leaving the assessment's share
+// unspent and reporting phase_deadline on a run that had time left. A phase
+// the plan does not name (no current phase) keeps every enabled step's reserve.
 func (r *Runner) reserveAfter(phase string) float64 {
+	if r.options == nil {
+		return 0
+	}
 	pace := config.DefaultScanningPaceConfig()
 	if r.settings != nil {
 		pace = &r.settings.ScanningPace
 	}
-	da := pace.ReserveFraction(string(PhaseDynamicAssessment))
-	kis := pace.ReserveFraction(string(PhaseKnownIssueScan))
-	if r.options == nil || !r.options.KnownIssueScanEnabled {
-		kis = 0
+	steps := BuildNativeScanPlan(r.options).Steps
+	after := steps
+	for i, step := range steps {
+		if string(step.Phase) == phase {
+			after = steps[i+1:]
+			break
+		}
 	}
 	var share float64
-	switch NativePhase(phase) {
-	case PhaseKnownIssueScan:
-		return 0
-	case PhaseDynamicAssessment:
-		share = kis
-	default:
-		share = da + kis
+	for _, step := range after {
+		if step.Enabled && string(step.Phase) != phase {
+			share += pace.ReserveFraction(string(step.Phase))
+		}
 	}
 	if share >= 0.95 {
 		share = 0.95

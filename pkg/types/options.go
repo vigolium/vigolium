@@ -527,6 +527,11 @@ type Options struct {
 	// existing row, keeping its cursor and skipping what its coverage ledger
 	// records as done. Distinct from --resume (parallel manifest).
 	ResumeScanUUID string
+	// ResumeForce (--force with --resume-scan) resumes a scan whose targets,
+	// scope or module selection differ from this invocation's, which is
+	// otherwise refused (resume_mismatch). It never lifts the refusal of a
+	// scan that is still running.
+	ResumeForce bool
 
 	// HeaderFuzz is --header-fuzz: "all" tests every header insertion point
 	// with every module, per path (no header gate); "gated" forces the gate;

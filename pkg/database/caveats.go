@@ -19,6 +19,23 @@ type Caveat struct {
 	Modules []string `json:"modules,omitempty"`
 	Count   int64    `json:"count,omitempty"`
 	Message string   `json:"message"`
+	// Done/Total/Unit say how far a curtailed phase got (phase_deadline,
+	// scan_budget, request_budget, cancelled, input_incomplete): the phase's
+	// last work-item reading. Absent when the phase counts no work items.
+	Done  *int64 `json:"done,omitempty"`
+	Total *int64 `json:"total,omitempty"`
+	Unit  string `json:"unit,omitempty"`
+}
+
+// curtailmentReasons are the reasons that cut a phase short of its input; a
+// caveat for one carries the phase's progress.
+var curtailmentReasons = map[string]bool{
+	ReasonPhaseDeadline:   true,
+	ReasonScanBudget:      true,
+	ReasonRequestBudget:   true,
+	ReasonCancelled:       true,
+	ReasonUserStopped:     true,
+	ReasonInputIncomplete: true,
 }
 
 // CaveatModuleErrors is the caveat code for modules that errored during the
@@ -47,6 +64,7 @@ var caveatMessages = map[string]string{
 	LimitFindingsPerModule:   "findings past --max-findings-per-module were not reported",
 	LimitHostRequestBudget:   "hosts used their whole --max-requests-per-host",
 	CaveatModuleErrors:       "modules errored; their checks may be incomplete",
+	LimitRateCeiling:         "VIGOLIUM_RATE_CEILING held a rate or concurrency below what the scan was configured for (each lowered dial is printed on stderr)",
 }
 
 // CoverageCaveats turns a scan's outcome into the caveats a reader should see
@@ -72,6 +90,14 @@ func CoverageCaveats(c ScanCompletion, moduleErrors map[string]int64) []Caveat {
 				}
 			case ReasonFeedbackDropped:
 				cv.Count = p.Counts[ReasonFeedbackDropped]
+			}
+			if curtailmentReasons[reason] && p.Progress != nil {
+				done := p.Progress.Done
+				cv.Done, cv.Unit = &done, p.Progress.Unit
+				if p.Progress.Total != nil {
+					total := *p.Progress.Total
+					cv.Total = &total
+				}
 			}
 			cv.Message = caveatMessage(reason)
 			out = append(out, cv)

@@ -3,6 +3,8 @@ package database
 import (
 	"sort"
 	"unicode/utf8"
+
+	"github.com/vigolium/vigolium/pkg/scanevents"
 )
 
 // PersistenceOutcome is what a writer can say, after shutdown, about writes it
@@ -128,6 +130,7 @@ const (
 	LimitResponsesWhileLoggedOut = "responses_while_logged_out" // responses observed while the session was logged out
 	LimitFindingsPerModule       = "findings_per_module"        // --max-findings-per-module dropped findings (see PhaseOutcome.FindingsCapped)
 	LimitThrottled               = "throttled"                  // a host throttled (429/503 Retry-After) module traffic
+	LimitRateCeiling             = "rate_ceiling"               // VIGOLIUM_RATE_CEILING lowered a rate or concurrency dial (a phase note)
 )
 
 // OutcomeCodes lists every reason and limit code exactly once. It exists so a
@@ -176,6 +179,7 @@ var OutcomeCodes = []string{
 	LimitResponsesWhileLoggedOut,
 	LimitFindingsPerModule,
 	LimitThrottled,
+	LimitRateCeiling,
 }
 
 // ResolvePhaseState turns the three things a phase tracker observes into a state.
@@ -236,6 +240,41 @@ type PhaseOutcome struct {
 	// BlockedHosts are the hosts a WAF/CDN edge blocked during the phase,
 	// sorted; set alongside the edge_blocked reason.
 	BlockedHosts []string `json:"blocked_hosts,omitempty"`
+	// Progress is the phase's last work-item reading (the numbers its final
+	// phase.progress carried): how far a curtailed phase got. Absent on a
+	// phase with no work-item count.
+	Progress *PhaseProgress `json:"progress,omitempty"`
+	// SkippedControls samples, by name, the click candidates the browser
+	// crawl's destructive-click guard refused (bounded by
+	// scanevents.MaxSkippedControlSample); Counts["skipped_controls"] is the
+	// exact total.
+	SkippedControls []scanevents.SkippedControl `json:"skipped_controls,omitempty"`
+}
+
+// CountSkippedControls is the PhaseOutcome.Counts key for the click
+// candidates the destructive-click guard refused.
+const CountSkippedControls = "skipped_controls"
+
+// SkippedControls sums the skipped-control count across a scan's phases and
+// merges their samples (scanevents.AppendSkippedControls: deduplicated,
+// bounded). Zero and nil when no phase skipped one.
+func SkippedControls(phases []PhaseOutcome) (int64, []scanevents.SkippedControl) {
+	var n int64
+	var sample []scanevents.SkippedControl
+	for _, p := range phases {
+		n += p.Counts[CountSkippedControls]
+		sample = scanevents.AppendSkippedControls(sample, p.SkippedControls...)
+	}
+	return n, sample
+}
+
+// PhaseProgress is a work-item reading: Done items of Total, counted in Unit
+// ("records", "targets", "endpoints"). Total is nil while the phase knew no
+// bound.
+type PhaseProgress struct {
+	Done  int64  `json:"done"`
+	Total *int64 `json:"total,omitempty"`
+	Unit  string `json:"unit,omitempty"`
 }
 
 // BenignSkip reports whether this phase was skipped for having nothing to do,

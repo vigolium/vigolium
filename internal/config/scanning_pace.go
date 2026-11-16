@@ -46,9 +46,10 @@ type ScanningPaceConfig struct {
 	// rescale the per-phase budgets: it is the cap they share.
 	ScanMaxDuration string `yaml:"scan_max_duration,omitempty"`
 	// Reserve keeps a share of the scan's total time budget
-	// (--scanning-max-duration) for later phases: before dynamic
-	// assessment starts, an earlier phase's deadline is capped so the sum of the
-	// reserves of the phases still to come stays unspent. Keys are phase ids
+	// (--scanning-max-duration) for later phases: a phase's deadline is capped
+	// so the sum of the reserves of the phases the run plans after it stays
+	// unspent. A phase the run does not plan (`--only discovery,spidering`
+	// plans no assessment) reserves nothing. Keys are phase ids
 	// with "_" or "-" (dynamic_assessment, known_issue_scan); values 0..1.
 	// Only applies when the scan has a total budget.
 	Reserve map[string]float64 `yaml:"reserve,omitempty"`
@@ -279,7 +280,13 @@ const (
 // the number buildDeparosConfig hands the engine.
 //
 // Nil-safe on both arguments.
+//
+// VIGOLIUM_RATE_CEILING caps the answer, and turns "unpaced" into the ceiling.
 func (c *ScanningPaceConfig) DiscoveryRateLimit(opts *types.Options) int {
+	return CeilIntRate("discovery rate_limit", c.discoveryRateLimit(opts))
+}
+
+func (c *ScanningPaceConfig) discoveryRateLimit(opts *types.Options) int {
 	if c != nil && c.Discovery.RateLimit > 0 {
 		return c.Discovery.RateLimit
 	}
@@ -302,7 +309,13 @@ const KnownIssueScanDefaultRateLimit = 20
 // the phase's own 20 rps, which made the conservative default dead code.
 //
 // Nil-safe on both arguments.
+//
+// VIGOLIUM_RATE_CEILING caps the answer.
 func (c *ScanningPaceConfig) KnownIssueScanRateLimit(opts *types.Options) int {
+	return CeilIntRate("known-issue-scan rate_limit", c.knownIssueScanRateLimit(opts))
+}
+
+func (c *ScanningPaceConfig) knownIssueScanRateLimit(opts *types.Options) int {
 	if c != nil && c.KnownIssueScan.RateLimit > 0 {
 		return c.KnownIssueScan.RateLimit
 	}
@@ -333,8 +346,30 @@ func PhasePaceSupports(phase, field string) bool {
 }
 
 // ResolvePhase merges common values with per-phase overrides for the named phase.
-// Non-zero per-phase values win over common values.
+// Non-zero per-phase values win over common values. VIGOLIUM_RATE_CEILING caps
+// the three dials of the result (a concurrency_factor above 1 included).
 func (c *ScanningPaceConfig) ResolvePhase(phase string) ResolvedPhasePace {
+	resolved := c.resolvePhase(phase)
+	if ceil := ActiveRateCeiling(); ceil.Set() {
+		resolved.RateLimit = ceilPhaseDial(ceil, phase, PaceFieldRateLimit, resolved.RateLimit)
+		resolved.Concurrency = ceilPhaseDial(ceil, phase, PaceFieldConcurrency, resolved.Concurrency)
+		resolved.MaxPerHost = ceilPhaseDial(ceil, phase, PaceFieldMaxPerHost, resolved.MaxPerHost)
+	}
+	return resolved
+}
+
+// ceilPhaseDial clamps one resolved phase dial. The clamp is reported only for
+// a dial the phase enforces: lowering a number the phase never applies (the
+// crawler's rate) changes nothing a reader needs told.
+func ceilPhaseDial(c RateCeiling, phase, field string, v int) int {
+	out := c.IntRate(v)
+	if out != v && PhasePaceSupports(phase, field) {
+		noteRateClamp(c, phase+" "+field, float64(v), float64(out))
+	}
+	return out
+}
+
+func (c *ScanningPaceConfig) resolvePhase(phase string) ResolvedPhasePace {
 	var pp PhasePace
 	if section := c.Section(phase); section != nil {
 		pp = *section

@@ -55,3 +55,40 @@ func TestReserveAfter(t *testing.T) {
 		t.Errorf("without KIS, discovery reserves %v, want 0.5", got)
 	}
 }
+
+// A run that plans no assessment reserves nothing for one: `--only
+// discovery,spidering` gives the crawl the whole budget instead of capping
+// spidering at half and discovery at half of the rest.
+func TestReserveAfterOnlyCountsPlannedPhases(t *testing.T) {
+	settings := &config.Settings{ScanningPace: *config.DefaultScanningPaceConfig()}
+	opts := &types.Options{OnlyPhase: "discovery,spidering"}
+	if err := ApplyNativePhaseSelection(opts, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !opts.SkipDynamicAssessment {
+		t.Fatal("--only discovery,spidering must skip the assessment")
+	}
+	r := &Runner{options: opts, settings: settings}
+	for _, phase := range []NativePhase{PhaseSpidering, PhaseDiscovery, PhaseTargetedReSpider} {
+		if got := r.reserveAfter(string(phase)); got != 0 {
+			t.Errorf("reserveAfter(%s) = %v with no assessment planned, want 0", phase, got)
+		}
+	}
+
+	// A known-issue scan still planned after the crawl keeps its own share.
+	opts.KnownIssueScanEnabled = true
+	if got := r.reserveAfter(string(PhaseDiscovery)); got < 0.1-1e-9 || got > 0.1+1e-9 {
+		t.Errorf("DA skipped, KIS planned: discovery reserves %v, want 0.1", got)
+	}
+
+	// The deadline the phase actually gets reflects it: with no later phase
+	// planned, a phase under a total budget is not capped below that budget.
+	opts.KnownIssueScanEnabled = false
+	parent, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ctx, c := phaseDeadlineReserved(parent, 0, r.reserveAfter(string(PhaseSpidering)))
+	defer c()
+	if dl, _ := ctx.Deadline(); time.Until(dl) < 9*time.Second {
+		t.Fatalf("spidering with nothing planned after it got %v of a 10s budget", time.Until(dl))
+	}
+}

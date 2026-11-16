@@ -3,12 +3,14 @@ package runner
 import (
 	"context"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/vigolium/vigolium/internal/config"
 	"github.com/vigolium/vigolium/pkg/core"
 	"github.com/vigolium/vigolium/pkg/database"
 	"github.com/vigolium/vigolium/pkg/http"
@@ -43,6 +45,10 @@ const progressInterval = 5 * time.Second
 // the same way as one that does not, and nothing on the request hot path has to
 // know the event stream exists.
 type phaseTracker struct {
+	// skippedControls is the named sample behind Counts["skipped_controls"]
+	// (noteSkippedControls), guarded by mu.
+	skippedControls []scanevents.SkippedControl
+
 	phase     string
 	start     time.Time
 	requester *http.Requester
@@ -503,6 +509,20 @@ func (t *phaseTracker) noteCaveat(code string) {
 	addCode(&t.notes, code)
 }
 
+// noteRateCeiling notes rate_ceiling on t when VIGOLIUM_RATE_CEILING lowered a
+// dial since the last phase took note: the clamps made while the scan was
+// resolved land on its first phase, a phase's own (its resolved rate) on that
+// phase. One note per phase however many dials, the dials themselves are on
+// stderr (config.RateClamps).
+func (r *Runner) noteRateCeiling(t *phaseTracker) {
+	clamps := config.RateClamps()
+	if len(clamps) <= r.rateClampsNoted {
+		return
+	}
+	r.rateClampsNoted = len(clamps)
+	t.noteCaveat(database.LimitRateCeiling)
+}
+
 // noteLimit records that a configured bound was reached. Separate from a reason
 // on purpose: a target that used its whole time budget behaved exactly as
 // configured, and folding that into "partial" would mark every properly
@@ -596,6 +616,24 @@ func (t *phaseTracker) noteExecution(rep core.ExecutionReport) {
 	// so the latest one is the phase's.
 	t.setFindingsCapped(rep.FindingsCapped)
 	t.ledger.addExecution(rep)
+}
+
+// noteSkippedControls records controls the browser crawl's destructive-click
+// guard refused: n is the exact count (Counts["skipped_controls"]), sample
+// the named ones, kept up to scanevents.MaxSkippedControlSample per phase.
+func (t *phaseTracker) noteSkippedControls(n int64, sample []scanevents.SkippedControl) {
+	if t == nil || (n == 0 && len(sample) == 0) {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if n > 0 {
+		if t.counts == nil {
+			t.counts = make(map[string]int64)
+		}
+		t.counts[database.CountSkippedControls] += n
+	}
+	t.skippedControls = scanevents.AppendSkippedControls(t.skippedControls, sample...)
 }
 
 // addCount adds n to a phase-specific tally in PhaseOutcome.Counts.
@@ -699,6 +737,8 @@ func (t *phaseTracker) finish(ctx context.Context, err error) database.PhaseOutc
 // without the emission side effects (and so the lock is held for exactly as long
 // as the copy takes).
 func (t *phaseTracker) outcome() database.PhaseOutcome {
+	// Read before taking the lock: progressSnapshot takes it itself.
+	progress := t.progressSnapshot()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -727,6 +767,12 @@ func (t *phaseTracker) outcome() database.PhaseOutcome {
 	}
 	if len(t.findingsCapped) > 0 {
 		out.FindingsCapped = maps.Clone(t.findingsCapped)
+	}
+	if progress != nil {
+		out.Progress = &database.PhaseProgress{Done: progress.Done, Total: progress.Total, Unit: progress.Unit}
+	}
+	if len(t.skippedControls) > 0 {
+		out.SkippedControls = slices.Clone(t.skippedControls)
 	}
 	return out
 }

@@ -43,7 +43,10 @@ const secretScanBatchSize = 500
 type Runner struct {
 	// seededRecords collects the records this run's inputs landed on, for a
 	// scan that excludes stored records.
-	seededRecords     runRecords
+	seededRecords runRecords
+	// rateClampsNoted counts the config.RateClamps already turned into a
+	// rate_ceiling phase note (noteRateCeiling). Phases run one at a time.
+	rateClampsNoted   int
 	output            output.Writer
 	options           *types.Options
 	settings          *config.Settings
@@ -360,6 +363,9 @@ func parseVariables(variables []string) map[string]string {
 // Used by server mode to provide queue-based input.
 func NewWithInputSource(options *types.Options, inputSource source.InputSource) (*Runner, error) {
 	normalizeTargetSchemes(options)
+	// Every scan path builds its Runner here, so VIGOLIUM_RATE_CEILING holds
+	// even for a caller that skipped the shared resolution.
+	config.CeilOptionsPace(options)
 
 	if err := network.Init(options); err != nil {
 		return nil, errors.Wrap(err, "failed to initialize network")
@@ -500,7 +506,13 @@ func (r *Runner) SetRepository(repo *database.Repository) {
 }
 
 // SetSettings sets the configuration settings for notifications and other YAML-based config
+//
+// VIGOLIUM_RATE_CEILING is applied to s's scanning_pace here, the one place a
+// runner receives settings.
 func (r *Runner) SetSettings(s *config.Settings) {
+	if s != nil {
+		s.ScanningPace.CeilPace()
+	}
 	r.settings = s
 }
 

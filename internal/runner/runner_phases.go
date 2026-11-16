@@ -91,6 +91,12 @@ func (r *Runner) RunNativeScan() (err error) {
 	// coverage ledger); buildInfrastructure adopts options.ScanUUID.
 	if r.options.ResumeScanUUID != "" {
 		r.options.ScanUUID = r.options.ResumeScanUUID
+		// Validated before anything is built: a resume that cannot proceed
+		// (no such scan, another project, different targets/scope/modules)
+		// must not log in, register OAST or send a request first.
+		if err := r.checkResume(ctx); err != nil {
+			return err
+		}
 	}
 
 	// Scope admission over the CLI targets, before anything is built: when
@@ -631,6 +637,7 @@ func (r *Runner) executeNativePhase(ctx context.Context, infra *phaseInfra, phas
 		// Probes the breaker refused never reach the executor's own skip
 		// count; without this a phase whose host went down mid-way read clean.
 		tracker.noteGateRefusals(breaker, refusedBefore)
+		r.noteRateCeiling(tracker)
 		r.currentPhase.Store((*phaseTracker)(nil))
 		r.scanOutcome.append(tracker.finish(ctx, err))
 		liveness.PhaseEnded(string(phase), tracker.extraSentSoFar())

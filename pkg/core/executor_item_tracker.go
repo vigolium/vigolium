@@ -92,10 +92,12 @@ func (t *itemTracker) complete() {
 		}
 		t.pooledBuf = nil
 		e.writeProgress(t)
-		e.finishItem(t.ctx, t.item, t.panicked.Load())
+		// Count before the ack: Execute can return as soon as the last item is
+		// acknowledged, so a count taken after it may be read short.
 		if e.statsTracker != nil {
 			e.statsTracker.Increment()
 		}
+		e.finishItem(t.ctx, t.item, t.panicked.Load())
 		e.pool.inFlight.Add(-1)
 		if t.holdsSlot {
 			<-e.pool.itemSlots

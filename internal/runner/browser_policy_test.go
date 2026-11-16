@@ -362,3 +362,23 @@ func TestResolveBrowserPolicy_DeniedSubmitsWithdrawLoginDefault(t *testing.T) {
 		t.Error("an explicit login_attempts=true must survive denied submits")
 	}
 }
+
+// spidering.deny_click_extra and exclude_selectors_extra reach the crawl on
+// top of the operator's own keys, never instead of them.
+func TestBuildSpiderConfig_CarriesWidenOnlyExtras(t *testing.T) {
+	sp := *config.DefaultSpideringConfig()
+	sp.ExcludeSelectors = []string{"#danger-zone"}
+	sp.ExcludeSelectorsExtra = []string{".pay-button", " "}
+	sp.DenyClickExtra = []string{"redeem", "wire"}
+	r := &Runner{options: &types.Options{}}
+	cfg := r.buildSpiderConfig("https://example.com/", sp, 0, &phaseInfra{})
+	if !slices.Equal(cfg.ExcludeSelectors, []string{"#danger-zone", ".pay-button"}) {
+		t.Errorf("ExcludeSelectors = %q, want the operator's plus the extra", cfg.ExcludeSelectors)
+	}
+	if cfg.DenyClickExtra != "(?:redeem)|(?:wire)" {
+		t.Errorf("DenyClickExtra = %q", cfg.DenyClickExtra)
+	}
+	if cfg.DenyClickPattern != nil {
+		t.Error("extras must not replace the built-in deny pattern")
+	}
+}

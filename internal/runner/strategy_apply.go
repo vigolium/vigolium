@@ -285,6 +285,10 @@ func ApplyScanPace(settings *config.Settings, opts *types.Options, explicit Expl
 	if err := pace.Validate(); err != nil {
 		return fmt.Errorf("invalid scanning_pace configuration: %w", err)
 	}
+	// VIGOLIUM_RATE_CEILING: clamp the config's dials before they fold into
+	// Options, and Options after, so neither source can exceed it.
+	pace.CeilPace()
+	defer config.CeilOptionsPace(opts)
 	if !explicit.Concurrency && pace.Concurrency > 0 {
 		opts.Concurrency = pace.Concurrency
 	}

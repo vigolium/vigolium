@@ -233,6 +233,7 @@ func (r *Runner) crawlReSpiderPerSeed(ctx context.Context, chosen []respiderSeed
 			continue
 		}
 		res.crawled++
+		r.noteSkippedControls(oc.res)
 		res.records += oc.res.RecordsSaved
 		if r.applyReSpiderSSO(oc.res, s.hostKey, ssoSkip) {
 			res.ssoHit++
@@ -302,6 +303,7 @@ func (r *Runner) crawlReSpiderHostGroup(ctx context.Context, group []respiderSee
 			break
 		}
 		result := oc.res
+		r.noteSkippedControls(result)
 		res.crawled++
 		res.records += result.RecordsSaved
 		if result.OffHostRedirect && result.LandingIsLogin {

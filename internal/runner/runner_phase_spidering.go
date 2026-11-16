@@ -234,6 +234,16 @@ func dumpWedgedGoroutines(what, subject string, budget time.Duration) {
 	zap.L().Warn(what + " watchdog goroutine dump follows:\n" + string(buf[:n]))
 }
 
+// noteSkippedControls records, on the running phase, the controls a crawl's
+// destructive-click guard refused, so the scan row, the -j document and
+// scan.finished can say what the crawl did not click.
+func (r *Runner) noteSkippedControls(res *spitolas.SpiderResult) {
+	if res == nil || (res.SkippedDestructive == 0 && len(res.SkippedControls) == 0) {
+		return
+	}
+	r.currentPhase.Load().noteSkippedControls(res.SkippedDestructive, res.SkippedControls)
+}
+
 // runSpiderWatchdog runs spitolas.RunSpider (and closes rw) under a hard
 // watchdog: it always returns within budget + spideringTeardownGrace. If the run
 // wedges past that, it logs a full goroutine dump (so the stuck call site is
@@ -463,7 +473,8 @@ func (r *Runner) buildSpiderConfig(target string, settingsCfg config.SpideringCo
 		// at any intensity. See resolveAccountActions.
 		Policy:                  &policy,
 		DenyClickPattern:        settingsCfg.Interaction.DenyClickPattern,
-		ExcludeSelectors:        settingsCfg.ExcludeSelectors,
+		DenyClickExtra:          settingsCfg.DenyClickExtraPattern(),
+		ExcludeSelectors:        settingsCfg.EffectiveExcludeSelectors(),
 		MethodAllowed:           r.browserMethodFilter(),
 		AuthMonitor:             r.liveSessionMonitor(infra),
 		BrowserCompat:           &compat,
@@ -868,6 +879,7 @@ func (r *Runner) runSpideringPhase(ctx context.Context, infra *phaseInfra) error
 				continue
 			}
 			result := oc.res
+			r.noteSkippedControls(result)
 
 			gr.states += result.StatesDiscovered
 			gr.actions += result.ActionsExecuted

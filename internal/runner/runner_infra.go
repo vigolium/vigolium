@@ -408,7 +408,14 @@ func (r *Runner) newScanRecordWriter() *database.RecordWriter {
 
 // offline reports whether this run is --offline (flag or settings key).
 func (r *Runner) offline() bool {
-	return r.options.Offline || (r.settings != nil && r.settings.Offline)
+	return Offline(r.options.Offline, r.settings)
+}
+
+// Offline reports whether a run is --offline: the flag (flag) or the settings
+// key offline. The one rule every scan path (the Runner, the direct scan
+// path) decides it by.
+func Offline(flag bool, settings *config.Settings) bool {
+	return flag || (settings != nil && settings.Offline)
 }
 
 // applyOffline turns off every non-target network path for the run:

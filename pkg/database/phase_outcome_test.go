@@ -204,6 +204,7 @@ func TestOutcomeCodeValuesAreStable(t *testing.T) {
 		"user_stopped":               ReasonUserStopped,
 		"findings_per_module":        LimitFindingsPerModule,
 		"throttled":                  LimitThrottled,
+		"rate_ceiling":               LimitRateCeiling,
 	}
 	for literal, constant := range want {
 		if literal != constant {
