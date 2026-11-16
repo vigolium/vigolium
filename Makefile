@@ -2,7 +2,7 @@
 # Phony targets defined in their own sections below (declared here so a stray
 # same-named file can never shadow them).
 .PHONY: all build-linux build-darwin build-windows deps-chrome-cft sync-platform sync-skills \
-	test-canary-postgres test-pg-full test-e2e-autonomous test-e2e-scorecard \
+	test-canary-postgres test-pg-full test-e2e-autonomous test-e2e-scorecard test-e2e-expect test-e2e-expect-lab test-e2e-expect-live e2e-expect-lab \
 	access-lab-up access-lab-down access-lab-logs access-lab-status schema \
 	setup-agent-codex test-smoke-autopilot test-smoke-autopilot-rest test-smoke-autopilot-prior test-smoke-autopilot-ginandjuice \
 	test-smoke-autopilot-crapi test-smoke-autopilot-juiceshop
@@ -211,7 +211,7 @@ test-browser-conformance: install-gotestsum
 # Run E2E tests (requires Docker)
 test-e2e: install-gotestsum
 	@echo "$(PREFIX) Running E2E tests (requires Docker)..."
-	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 60m ./test/e2e/...
+	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 90m ./test/e2e/... ./test/e2e-expect/...
 
 # Run API E2E tests only (server endpoint tests, no Docker needed)
 test-e2e-api: install-gotestsum
@@ -245,6 +245,31 @@ test-e2e-postgres: install-gotestsum
 test-canary: install-gotestsum
 	@echo "$(PREFIX) Running canary tests (requires Docker)..."
 	$(TESTCMD) $(TESTFLAGS) -tags=canary -timeout 60m ./test/e2e/...
+
+# Expectation e2e kit (test/e2e-expect). Two halves, both under the e2e tag:
+#   lab  — scan/fuzz/probe/lifecycle against an in-process lab of planted bugs,
+#          benign twins and hostile servers, asserting on findings AND on what
+#          each server saw on the wire (scope, pace, budgets, hangs, leaks).
+#   live — TestLive_*: native scans, module-scoped and stateless scans, and
+#          `vigolium run <phase>` against Docker targets (Juice Shop, VAmPI).
+# Known defects live in knownDefects (scan_test.go); golden results in
+# test/e2e-expect/testdata/expect.json (regenerate: E2E_EXPECT_ARGS='-args -update-expect').
+# E2E_EXPECT_BIN=bin/vigolium reuses a built binary for the CLI scenarios.
+test-e2e-expect: install-gotestsum
+	@echo "$(PREFIX) Running expectation e2e kit (lab + live Docker targets)..."
+	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 90m ./test/e2e-expect/... $(E2E_EXPECT_ARGS)
+
+test-e2e-expect-lab: install-gotestsum
+	@echo "$(PREFIX) Running expectation e2e kit, lab half (no Docker)..."
+	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 30m -short ./test/e2e-expect/... $(E2E_EXPECT_ARGS)
+
+test-e2e-expect-live: install-gotestsum
+	@echo "$(PREFIX) Running expectation e2e kit, live half (requires Docker)..."
+	$(TESTCMD) $(TESTFLAGS) -tags=e2e -timeout 90m -run 'TestLive_' ./test/e2e-expect/... $(E2E_EXPECT_ARGS)
+
+# Serve the expectation lab standalone for hands-on testing (Ctrl-C prints the ledger).
+e2e-expect-lab:
+	go run ./test/tools/lab $(LAB_ARGS)
 
 # Run canary tests against PostgreSQL (requires 'make postgres-up' first).
 # Per-test: drops+recreates the shared PG schema for isolation.
@@ -1737,6 +1762,10 @@ help:
 	@echo "    make test-e2e-postgres  Run PostgreSQL E2E tests (requires make postgres-up)"
 	@echo "    make test-pg-full     Full PG validation cycle: e2e + canary (auto up/down)"
 	@echo "    make test-canary      Run canary tests: DVWA, VAmPI, Juice Shop (Docker)"
+	@echo "    make test-e2e-expect  Expectation kit: lab (hostile, no Docker) + live Docker targets"
+	@echo "    make test-e2e-expect-lab   Expectation kit, lab half only (no Docker)"
+	@echo "    make test-e2e-expect-live  Expectation kit, live Docker targets only"
+	@echo "    make e2e-expect-lab   Serve the expectation lab standalone (LAB_ARGS='-port-base 18000 -log')"
 	@echo "    make test-e2e-vampi   Run VAmPI canary tests only (SQLi)"
 	@echo "    make test-e2e-dvwa    Run DVWA canary tests only (XSS, SQLi, LFI)"
 	@echo "    make test-e2e-juiceshop  Run Juice Shop canary tests only"
