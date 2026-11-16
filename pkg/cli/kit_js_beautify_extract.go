@@ -120,6 +120,12 @@ type kitRoute struct {
 	Guards    []string `json:"guards,omitempty"`
 	LazyAsset string   `json:"lazy_asset,omitempty"`
 	ParentID  string   `json:"parent_id,omitempty"`
+	// Meta is the route record's literal metadata (Vue `meta`, Angular
+	// `data`): what a gate checks, e.g. requiresAuth or roles. A value the
+	// bundle computes at runtime is null.
+	Meta map[string]any `json:"meta,omitempty"`
+	// Loader names a React Router data route's loader, or "<inline>".
+	Loader string `json:"loader,omitempty"`
 }
 
 // kitAsset is a script-referenced asset: lazy chunk, worker, source map, ...
@@ -277,6 +283,8 @@ func kitBeautifyRoutes(res *jstangle.ScanResult) []kitRoute {
 			Type:        fact.RouteType,
 			Guards:      fact.Guards,
 			ParentID:    fact.ParentID,
+			Meta:        fact.Meta,
+			Loader:      fact.Loader,
 		}
 		if fact.FullPath != nil {
 			route.FullPath = fact.FullPath.Rendered

@@ -39,6 +39,7 @@ export type FeatureCapability =
   | 'facts.httpRequest.urlModel'
   | 'facts.httpRequest.queryFromUrl'
   | 'facts.clientRoute.fullPath'
+  | 'facts.clientRoute.meta'
   | 'completion.truncated'
   | 'loader.webpack-chunk'
   | 'loader.vite-preload';
@@ -309,13 +310,31 @@ export interface EventSourceFact {
   provenance: Provenance;
 }
 
+/** A literal route-metadata value; null stands for any non-literal value. */
+export type RouteMetaValue = string | number | boolean | null | RouteMetaValue[] | { [key: string]: RouteMetaValue };
+
+export type ClientRouteMeta = { [key: string]: RouteMetaValue };
+
 export interface ClientRouteFact {
   kind: 'clientRoute';
   id: string;
   path: ValueTemplate;
   routeType: 'page' | 'api' | 'redirect' | 'lazy' | 'unknown';
+  /**
+   * Gates on the route record (`canActivate`, `canActivateChild`, `canMatch`,
+   * `canLoad`, `beforeEnter`): a guard's identifier, a guard factory's call
+   * (`hasRole("admin")`), a functional guard's single call
+   * (`inject(AuthService).isLoggedIn()`), or `<inline>`.
+   */
   guards?: string[];
   lazyAsset?: ValueTemplate;
+  /**
+   * The literal metadata object on the route record: Vue Router `meta`, else
+   * Angular `data`. Bounded in depth and size; non-literal values are null.
+   */
+  meta?: ClientRouteMeta;
+  /** React Router data-route `loader`: its function name, or `<inline>`. */
+  loader?: string;
   /**
    * Absolute route: parent paths joined, leading `/`, `//` collapsed. Not
    * static (variable `parent`) when the parent lives in another module.

@@ -35,13 +35,13 @@ describe('capabilities', () => {
     for (const feature of [
       'facts.pathLiteral', 'facts.httpRequest.auth', 'facts.httpRequest.callSite',
       'facts.httpRequest.suppressed', 'facts.httpRequest.urlModel', 'facts.clientRoute.fullPath',
-      'completion.truncated', 'pathLiterals',
+      'facts.clientRoute.meta', 'completion.truncated', 'pathLiterals',
     ]) {
       expect(caps.capabilities).toContain(feature);
     }
     expect(caps.schemaVersions.pathLiteral).toBe(1);
     expect(caps.schemaVersions.httpRequest).toBe(3);
-    expect(caps.schemaVersions.clientRoute).toBe(3);
+    expect(caps.schemaVersions.clientRoute).toBe(4);
   });
 });
 

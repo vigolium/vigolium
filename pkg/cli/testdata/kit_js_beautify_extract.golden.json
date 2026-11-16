@@ -68,7 +68,15 @@
         "AuthGuard"
       ],
       "lazy_asset": "./users.chunk.js",
-      "parent_id": "route-1"
+      "parent_id": "route-1",
+      "meta": {
+        "check": null,
+        "requiresAuth": true,
+        "roles": [
+          "admin"
+        ]
+      },
+      "loader": "usersLoader"
     }
   ],
   "assets": [
@@ -206,4 +214,3 @@
     "httpRequest": 7
   }
 }
-

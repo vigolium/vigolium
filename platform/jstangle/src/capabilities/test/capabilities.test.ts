@@ -69,6 +69,59 @@ describe('protocol and browser capability packs', () => {
     expect(result.clientRoutes.find((route) => route.path.rendered === '/admin')?.lazyAsset?.rendered).toBe('./admin.routes.js');
   });
 
+  test('emits literal route meta, every gating key and React Router data routes', async () => {
+    const result = await jstangle(`
+      const adminMeta = { requiresAuth: !0, roles: ['admin', 'ops'] };
+      const vueRoutes = [
+        {path:'/settings', component: Settings, meta: { requiresAuth: true, permission: 'settings.write', level: 3,
+          nested: { a: { b: { c: { d: 1 } } } }, check: currentUser.role, title: \`Settings\`, hidden: !1, cleared: void 0 }},
+        {path:'/admin', component: Admin, meta: adminMeta, beforeEnter: requireAdmin},
+        {path:'/inline', component: Inline, beforeEnter: (to, from, next) => { if (!store.user) next('/login'); else next(); }},
+        {path:'/both', component: Both, beforeEnter: [requireLogin, requireAdmin]},
+      ];
+      const ngRoutes = [
+        {path:'/reports', component: Reports, data: { roles: ['auditor'] }, canActivate: [() => inject(AuthService).isLoggedIn(), hasRole('auditor')], canMatch: [featureGuard]},
+        {path:'/billing', loadChildren: () => import('./billing.js'), canLoad: [BillingGuard], canActivateChild: [ChildGuard.check], canDeactivate: [UnsavedGuard]},
+      ];
+      const dataRoutes = [
+        {path:'/invoices', loader: invoicesLoader, Component: Invoices},
+        {path:'/team', lazy: () => import('./team.js')},
+        {path:'/inline-loader', loader: async ({ params }) => { const r = await fetch('/api/x'); return r.json(); }},
+      ];
+    `, { profile: 'discovery' });
+    const route = (path: string) => result.clientRoutes.find((item) => item.path.rendered === path);
+
+    expect(route('/settings')?.meta).toEqual({
+      requiresAuth: true, permission: 'settings.write', level: 3,
+      nested: { a: { b: { c: null } } }, check: null, title: 'Settings', hidden: false, cleared: null,
+    });
+    expect(route('/admin')?.meta).toEqual({ requiresAuth: true, roles: ['admin', 'ops'] });
+    expect(route('/admin')?.guards).toEqual(['requireAdmin']);
+    expect(route('/inline')?.guards).toEqual(['<inline>']);
+    expect(route('/both')?.guards).toEqual(['requireLogin', 'requireAdmin']);
+
+    expect(route('/reports')?.meta).toEqual({ roles: ['auditor'] });
+    expect(route('/reports')?.guards).toEqual(['inject(AuthService).isLoggedIn()', 'hasRole("auditor")', 'featureGuard']);
+    expect(route('/billing')?.guards).toEqual(['ChildGuard.check', 'BillingGuard']);
+    expect(route('/billing')?.meta).toBeUndefined();
+
+    expect(route('/invoices')).toMatchObject({ loader: 'invoicesLoader', routeType: 'page' });
+    expect(route('/team')).toMatchObject({ routeType: 'lazy', lazyAsset: { rendered: './team.js' } });
+    expect(route('/inline-loader')?.loader).toBe('<inline>');
+  });
+
+  test('bounds route meta and keeps non-route data objects out', async () => {
+    const keys = Array.from({ length: 40 }, (_, index) => `k${index}: ${index}`).join(', ');
+    const result = await jstangle(`
+      const routes = [{path:'/big', component: Big, meta: { long: '${'x'.repeat(600)}', ${keys} }}];
+      const chart = {path:'/not-a-route', data: { roles: ['x'] }};
+    `, { profile: 'discovery' });
+    const big = result.clientRoutes.find((item) => item.path.rendered === '/big');
+    expect(Object.keys(big?.meta ?? {})).toHaveLength(32);
+    expect(big?.meta?.long).toBeNull();
+    expect(result.clientRoutes.map((item) => item.path.rendered)).not.toContain('/not-a-route');
+  });
+
   test('extracts Next, SvelteKit, middleware, and Ionic route signals', async () => {
 	const result = await jstangle(`
 	  self.__BUILD_MANIFEST = {'/dashboard':['static/chunks/dashboard.js']};

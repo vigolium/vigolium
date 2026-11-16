@@ -50,6 +50,8 @@ func kitAllKindsResult() *jstangle.ScanResult {
 		Kind: "clientRoute", ID: "route-2", Path: kitStatic("users/:id"), RouteType: "angular",
 		Guards: []string{"AuthGuard"}, LazyAsset: &jstangle.ValueTemplate{Rendered: "./users.chunk.js"},
 		FullPath: &jstangle.ValueTemplate{Rendered: "/admin/users/:id"}, ParentID: "route-1",
+		Meta:       map[string]any{"requiresAuth": true, "roles": []any{"admin"}, "check": nil},
+		Loader:     "usersLoader",
 		Provenance: kitProv("angular-router", "high", "./src/app.routes.ts", 12, 4),
 	}
 	completion := &jstangle.ScanCompletion{Status: "partial", ReasonCode: "request_cap"}

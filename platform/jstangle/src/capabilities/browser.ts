@@ -7,10 +7,12 @@ import type { AnalysisContext } from '../context';
 import type {
   BodyTemplate,
   ClientRouteFact,
+  ClientRouteMeta,
   Confidence,
   EventSourceFact,
   HeaderTemplate,
   Provenance,
+  RouteMetaValue,
   ValueTemplate,
   WebSocketFact,
 } from '../protocol';
@@ -147,16 +149,181 @@ function routeShape(node: t.ObjectExpression): RouteShape | undefined {
   }
   const pathProperty = properties.get('path') ?? properties.get('id');
   if (!pathProperty) return undefined;
-  const hasRouterSignal = ['component', 'element', 'children', 'loadChildren', 'loadComponent', 'redirectTo', 'beforeEnter', 'canActivate']
-    .some((name) => properties.has(name)) ||
+  // React Router data routes declare `Component`, `loader` or `lazy` and may
+  // carry no `element`.
+  const hasRouterSignal = [
+    'component', 'element', 'children', 'loadChildren', 'loadComponent', 'redirectTo',
+    ...ROUTE_GUARD_KEYS, 'Component', 'loader', 'lazy',
+  ].some((name) => properties.has(name)) ||
     (properties.has('id') && ['pattern', 'page', 'endpoint'].some((name) => properties.has(name)));
   if (!hasRouterSignal) return undefined;
   const raw = stringValue(pathProperty.value);
   if (raw === undefined || raw === '*' || raw === '**') return undefined;
   let routeType: ClientRouteFact['routeType'] = raw.startsWith('/api/') ? 'api' : 'page';
   if (properties.has('redirectTo')) routeType = 'redirect';
-  if (properties.has('loadChildren') || properties.has('loadComponent')) routeType = 'lazy';
+  if (properties.has('loadChildren') || properties.has('loadComponent') || properties.has('lazy')) routeType = 'lazy';
   return { raw, routeType, properties };
+}
+
+/**
+ * Route-record keys that gate navigation: Angular `canActivate`,
+ * `canActivateChild`, `canMatch` and `canLoad`, Vue Router `beforeEnter`.
+ * `canDeactivate` is left out: it guards leaving a view, not reaching it.
+ */
+const ROUTE_GUARD_KEYS = ['canActivate', 'canActivateChild', 'canMatch', 'canLoad', 'beforeEnter'];
+
+/** Placeholder for a guard or loader written as an anonymous function. */
+const INLINE_FUNCTION = '<inline>';
+const MAX_REFERENCE_LENGTH = 120;
+
+/**
+ * Renders a call chain as written, arguments included when they are
+ * identifiers or literals: `inject(AuthService).isLoggedIn`,
+ * `hasRole("admin")`. Undefined for any other shape.
+ */
+function callChainName(node: t.Node, depth = 0): string | undefined {
+  if (depth > 6) return undefined;
+  if (t.isIdentifier(node)) return node.name;
+  if (t.isThisExpression(node)) return 'this';
+  if ((t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) && !node.computed && t.isIdentifier(node.property)) {
+    const object = callChainName(node.object as t.Node, depth + 1);
+    return object ? `${object}.${node.property.name}` : undefined;
+  }
+  if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
+    const callee = callChainName(node.callee as t.Node, depth + 1);
+    if (!callee) return undefined;
+    const args = node.arguments.map((argument) => {
+      if (t.isIdentifier(argument)) return argument.name;
+      if (t.isStringLiteral(argument) || t.isNumericLiteral(argument) || t.isBooleanLiteral(argument)) {
+        return JSON.stringify(argument.value);
+      }
+      return '…';
+    });
+    return `${callee}(${args.join(', ')})`;
+  }
+  if (t.isAwaitExpression(node) || t.isUnaryExpression(node)) return callChainName(node.argument, depth + 1);
+  return undefined;
+}
+
+function boundedReference(name: string): string {
+  return name.length > MAX_REFERENCE_LENGTH ? `${name.slice(0, MAX_REFERENCE_LENGTH - 1)}…` : name;
+}
+
+/**
+ * Names a guard or loader reference. A named function is its identifier
+ * (or dotted member), an injection token its string; a call such as a guard factory is its call chain; an
+ * anonymous function whose body is a single call is that call (an Angular
+ * functional guard `() => inject(Auth).check()`), any other anonymous
+ * function is `<inline>`.
+ */
+function functionReference(node: t.Node): string | undefined {
+  if (t.isIdentifier(node)) return node.name;
+  // Angular's deprecated string-token guards: `canActivate: ['authToken']`.
+  if (t.isStringLiteral(node)) return node.value ? boundedReference(node.value) : undefined;
+  if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
+    const name = memberName(node);
+    return name ? boundedReference(name) : undefined;
+  }
+  if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
+    const name = callChainName(node);
+    return name ? boundedReference(name) : INLINE_FUNCTION;
+  }
+  if (t.isArrowFunctionExpression(node) || t.isFunctionExpression(node)) {
+    let expression: t.Node | undefined;
+    if (t.isExpression(node.body)) expression = node.body;
+    else if (node.body.body.length === 1 && t.isReturnStatement(node.body.body[0])) expression = node.body.body[0].argument ?? undefined;
+    const name = expression && (t.isCallExpression(expression) || t.isOptionalCallExpression(expression) || t.isAwaitExpression(expression))
+      ? callChainName(expression)
+      : undefined;
+    return name ? boundedReference(name) : INLINE_FUNCTION;
+  }
+  return undefined;
+}
+
+/** Guard names from every gating key of a route record, in key order, deduplicated. */
+function routeGuards(properties: Map<string, t.ObjectProperty>): string[] {
+  const guards: string[] = [];
+  for (const key of ROUTE_GUARD_KEYS) {
+    const property = properties.get(key);
+    if (!property) continue;
+    const elements = t.isArrayExpression(property.value) ? property.value.elements : [property.value];
+    for (const element of elements) {
+      if (!element || t.isSpreadElement(element)) continue;
+      const name = functionReference(element);
+      if (name && !guards.includes(name)) guards.push(name);
+    }
+  }
+  return guards;
+}
+
+// Bounds on the emitted metadata object, so a route record holding a large
+// table cannot inflate every route fact.
+const MAX_META_DEPTH = 4;
+const MAX_META_KEYS = 32;
+const MAX_META_ITEMS = 32;
+const MAX_META_STRING = 512;
+
+/**
+ * The literal value of `node`, or null when it is not a literal. Minified
+ * `!0`, `!1` and `void 0` are the literals `true`, `false` and null: a
+ * minifier emits them for the constants a developer wrote.
+ */
+function metaValue(node: t.Node, depth: number): RouteMetaValue {
+  if (t.isStringLiteral(node)) return node.value.length <= MAX_META_STRING ? node.value : null;
+  if (t.isTemplateLiteral(node) && node.expressions.length === 0) {
+    const value = node.quasis[0]?.value.cooked ?? '';
+    return value.length <= MAX_META_STRING ? value : null;
+  }
+  if (t.isNumericLiteral(node)) return node.value;
+  if (t.isBooleanLiteral(node)) return node.value;
+  if (t.isNullLiteral(node)) return null;
+  if (t.isUnaryExpression(node)) {
+    if (node.operator === '!' && t.isNumericLiteral(node.argument)) return !node.argument.value;
+    if (node.operator === '-' && t.isNumericLiteral(node.argument)) return -node.argument.value;
+    return null;
+  }
+  if (depth >= MAX_META_DEPTH) return null;
+  if (t.isArrayExpression(node)) {
+    return node.elements.slice(0, MAX_META_ITEMS).map((element) =>
+      element && !t.isSpreadElement(element) ? metaValue(element, depth + 1) : null);
+  }
+  if (t.isObjectExpression(node)) return metaObject(node, depth + 1);
+  return null;
+}
+
+function metaObject(node: t.ObjectExpression, depth: number): ClientRouteMeta {
+  const out: ClientRouteMeta = {};
+  let keys = 0;
+  for (const property of node.properties) {
+    if (keys >= MAX_META_KEYS) break;
+    if (!t.isObjectProperty(property) && !t.isObjectMethod(property)) continue;
+    if (property.computed) continue;
+    const key = property.key;
+    const name = t.isIdentifier(key) ? key.name : t.isStringLiteral(key) ? key.value : t.isNumericLiteral(key) ? String(key.value) : '';
+    if (!name) continue;
+    out[name] = t.isObjectProperty(property) ? metaValue(property.value, depth) : null;
+    keys++;
+  }
+  return out;
+}
+
+/**
+ * The literal metadata object of a route record: Vue Router `meta`, else
+ * Angular `data`. A value naming a `const` object in scope is followed once.
+ */
+function routeMeta(path: NodePath, properties: Map<string, t.ObjectProperty>): ClientRouteMeta | undefined {
+  const property = properties.get('meta') ?? properties.get('data');
+  if (!property) return undefined;
+  let value: t.Node = property.value;
+  if (t.isIdentifier(value)) {
+    const binding = path.scope.getBinding(value.name);
+    const init = binding?.kind === 'const' && binding.path.isVariableDeclarator() ? binding.path.node.init : undefined;
+    if (!init) return undefined;
+    value = init;
+  }
+  if (!t.isObjectExpression(value)) return undefined;
+  const meta = metaObject(value, 1);
+  return Object.keys(meta).length ? meta : undefined;
 }
 
 interface RouteLineage {
@@ -256,11 +423,11 @@ function routeObject(
   if (!shape || !shape.raw) return undefined;
   const { raw: rendered, routeType, properties } = shape;
   const lineage = routeLineage(path, shape, memo);
-  const guardProperty = properties.get('canActivate') ?? properties.get('beforeEnter');
-  const guards = guardProperty && t.isArrayExpression(guardProperty.value)
-    ? guardProperty.value.elements.flatMap((element) => element && t.isIdentifier(element) ? [element.name] : [])
-    : [];
-  const lazyProperty = properties.get('loadChildren') ?? properties.get('loadComponent');
+  const guards = routeGuards(properties);
+  const meta = routeMeta(path, properties);
+  const loaderProperty = properties.get('loader');
+  const loader = loaderProperty ? functionReference(loaderProperty.value) : undefined;
+  const lazyProperty = properties.get('loadChildren') ?? properties.get('loadComponent') ?? properties.get('lazy');
   let lazyAsset: ValueTemplate | undefined;
   if (lazyProperty) {
     const generated = generate(lazyProperty.value);
@@ -270,6 +437,7 @@ function routeObject(
   return {
     kind: 'clientRoute', id: lineage.id, path: valueTemplate(rendered), routeType,
     ...(guards.length ? { guards } : {}), ...(lazyAsset ? { lazyAsset } : {}),
+    ...(meta ? { meta } : {}), ...(loader ? { loader } : {}),
     fullPath: valueTemplate(lineage.full),
     ...(lineage.parentId ? { parentId: lineage.parentId } : {}),
     provenance: locationProvenance(path, context, 'router-config', 'high'),

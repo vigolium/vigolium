@@ -166,7 +166,10 @@ const (
 	CapabilityRequestCallSite   = "facts.httpRequest.callSite"
 	CapabilityRequestSuppressed = "facts.httpRequest.suppressed"
 	CapabilityRouteFullPath     = "facts.clientRoute.fullPath"
-	CapabilityTruncationCounts  = "completion.truncated"
+	// CapabilityRouteMeta: ClientRouteFact.Meta and Loader, and guards from
+	// every gating key.
+	CapabilityRouteMeta        = "facts.clientRoute.meta"
+	CapabilityTruncationCounts = "completion.truncated"
 	// Helper release 2: runtime chunk loaders (AssetReferenceFact.Loader).
 	CapabilityWebpackChunkLoader = "loader.webpack-chunk"
 	CapabilityVitePreloadLoader  = "loader.vite-preload"
@@ -418,17 +421,26 @@ type EventSourceFact struct {
 // ClientRouteFact is a typed client-side navigation candidate. Routes are
 // deliberately distinct from replayable HTTP request templates.
 type ClientRouteFact struct {
-	Kind      string         `json:"kind"`
-	ID        string         `json:"id"`
-	Path      ValueTemplate  `json:"path"`
-	RouteType string         `json:"routeType"`
+	Kind      string        `json:"kind"`
+	ID        string        `json:"id"`
+	Path      ValueTemplate `json:"path"`
+	RouteType string        `json:"routeType"`
+	// Guards are the route record's gates (canActivate, canActivateChild,
+	// canMatch, canLoad, beforeEnter): an identifier, a guard factory's call,
+	// a functional guard's single call, or "<inline>".
 	Guards    []string       `json:"guards,omitempty"`
 	LazyAsset *ValueTemplate `json:"lazyAsset,omitempty"`
 	// FullPath is the absolute route with parent paths joined. It is not
 	// static (variable "parent") when the parent route lives in another module.
-	FullPath   *ValueTemplate `json:"fullPath,omitempty"`
-	ParentID   string         `json:"parentId,omitempty"`
-	Provenance Provenance     `json:"provenance"`
+	FullPath *ValueTemplate `json:"fullPath,omitempty"`
+	ParentID string         `json:"parentId,omitempty"`
+	// Meta is the literal metadata object on the route record (Vue Router
+	// `meta`, else Angular `data`), bounded by the helper; a non-literal value
+	// is null. Advertised as CapabilityRouteMeta.
+	Meta map[string]any `json:"meta,omitempty"`
+	// Loader names a React Router data route's loader function, or "<inline>".
+	Loader     string     `json:"loader,omitempty"`
+	Provenance Provenance `json:"provenance"`
 }
 
 // RoutePath is the most absolute form of the route the helper reported:

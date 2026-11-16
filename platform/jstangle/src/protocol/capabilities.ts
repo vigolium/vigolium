@@ -63,8 +63,8 @@ export function getCapabilities(): CapabilitiesRecord {
       graphqlOperation: 2,
       websocket: 2,
       eventSource: 2,
-      // 3: optional fullPath and parentId.
-      clientRoute: 3,
+      // 3: optional fullPath and parentId. 4: optional meta and loader.
+      clientRoute: 4,
       browserSecurityFlow: 2,
       pathLiteral: 1,
       artifact: 1,
@@ -91,6 +91,7 @@ export function getCapabilities(): CapabilitiesRecord {
       'facts.httpRequest.urlModel',
       'facts.httpRequest.queryFromUrl',
       'facts.clientRoute.fullPath',
+      'facts.clientRoute.meta',
       'completion.truncated',
       'loader.webpack-chunk',
       'loader.vite-preload',

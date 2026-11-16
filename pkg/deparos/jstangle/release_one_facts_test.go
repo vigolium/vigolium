@@ -192,3 +192,31 @@ func TestCheapFallbackUnderCapReportsNoTruncation(t *testing.T) {
 		t.Fatalf("unexpected truncation: %+v %+v", result.Completion.Counts, result.Diagnostics)
 	}
 }
+
+// A helper advertising facts.clientRoute.meta reports the route record's
+// literal metadata (non-literal values null) and a data route's loader.
+func TestAppendAnalysisRecordDecodesRouteMeta(t *testing.T) {
+	record := `{"kind":"clientRoute","id":"route-9","path":{"rendered":"/admin","static":true,"variables":[]},"routeType":"page","guards":["inject(AuthService).isLoggedIn()","<inline>"],"meta":{"requiresAuth":true,"roles":["admin","ops"],"level":3,"check":null,"nested":{"a":"b"}},"loader":"adminLoader","provenance":{"extractor":"router-config","confidence":"high"}}`
+	result := &ScanResult{}
+	appendAnalysisRecord(result, json.RawMessage(record))
+	if result.UnknownRecords != 0 || result.MalformedRecords != 0 || len(result.ClientRoutes) != 1 {
+		t.Fatalf("unknown=%d malformed=%d routes=%d", result.UnknownRecords, result.MalformedRecords, len(result.ClientRoutes))
+	}
+	route := result.ClientRoutes[0]
+	if route.Meta["requiresAuth"] != true || route.Meta["level"] != float64(3) {
+		t.Fatalf("meta literals not decoded: %+v", route.Meta)
+	}
+	if roles, _ := route.Meta["roles"].([]any); len(roles) != 2 || roles[0] != "admin" {
+		t.Fatalf("meta roles not decoded: %+v", route.Meta["roles"])
+	}
+	if v, ok := route.Meta["check"]; !ok || v != nil {
+		t.Fatalf("a non-literal meta value stays a null key: %+v", route.Meta)
+	}
+	if route.Loader != "adminLoader" || len(route.Guards) != 2 || route.Guards[1] != "<inline>" {
+		t.Fatalf("loader/guards not decoded: %+v", route)
+	}
+	caps := &Capabilities{Capabilities: []string{CapabilityRouteMeta}}
+	if !caps.Has(CapabilityRouteMeta) {
+		t.Fatal("route meta capability not advertised")
+	}
+}
