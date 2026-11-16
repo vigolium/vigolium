@@ -23,9 +23,51 @@ func TestIsEdgeBlockedResponse(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "cloudflare challenge 403 by server header",
-			raw:  "HTTP/1.1 403 Forbidden\r\nServer: cloudflare\r\n\r\nattention required",
+			name: "cloudflare 1020 block page",
+			raw:  "HTTP/1.1 403 Forbidden\r\nServer: cloudflare\r\nContent-Type: text/html\r\n\r\n<title>Attention Required! | Cloudflare</title><div id=\"cf-error-details\">Sorry, you have been blocked</div>",
 			want: true,
+		},
+		{
+			name: "cloudflare plain-text edge error",
+			raw:  "HTTP/1.1 403 Forbidden\r\nServer: cloudflare\r\nContent-Type: text/plain\r\n\r\nerror code: 1020",
+			want: true,
+		},
+		{
+			// The regression: Cloudflare names itself on every proxied response,
+			// so an application's own authz 403 behind it is the application.
+			name: "app authz 403 behind cloudflare is not an edge block",
+			raw:  "HTTP/1.1 403 Forbidden\r\nServer: cloudflare\r\nCf-Ray: 8a1b2c3d4e5f-AMS\r\nContent-Type: application/json\r\n\r\n{\"error\":\"forbidden\",\"message\":\"you do not own this order\"}",
+			want: false,
+		},
+		{
+			name: "app 503 behind cloudflare is not an edge block",
+			raw:  "HTTP/1.1 503 Service Unavailable\r\nServer: cloudflare\r\nContent-Type: application/json\r\n\r\n{\"error\":\"maintenance\"}",
+			want: false,
+		},
+		{
+			name: "app authz 403 behind akamai is not an edge block",
+			raw:  "HTTP/1.1 403 Forbidden\r\nServer: AkamaiGHost\r\nContent-Type: application/json\r\n\r\n{\"error\":\"insufficient_scope\"}",
+			want: false,
+		},
+		{
+			name: "app authz 403 behind cloudfront is not an edge block",
+			raw:  "HTTP/1.1 403 Forbidden\r\nServer: CloudFront\r\nX-Cache: Error from cloudfront\r\nContent-Type: application/json\r\n\r\n{\"message\":\"User is not authorized\"}",
+			want: false,
+		},
+		{
+			name: "app authz 403 behind an ELB is not an edge block",
+			raw:  "HTTP/1.1 403 Forbidden\r\nServer: awselb/2.0\r\nContent-Type: application/json\r\n\r\n{\"error\":\"forbidden\"}",
+			want: false,
+		},
+		{
+			name: "ELB/WAF default 403 template",
+			raw:  "HTTP/1.1 403 Forbidden\r\nServer: awselb/2.0\r\nContent-Type: text/html\r\n\r\n<html>\r\n<head><title>403 Forbidden</title></head>\r\n<body>\r\n<center><h1>403 Forbidden</h1></center>\r\n</body>\r\n</html>",
+			want: true,
+		},
+		{
+			name: "incapsula 403 needs its incident page",
+			raw:  "HTTP/1.1 403 Forbidden\r\nX-CDN: Incapsula\r\nContent-Type: application/json\r\n\r\n{\"error\":\"forbidden\"}",
+			want: false,
 		},
 		{
 			name: "cloudflare challenge 200 by cf-mitigated",
@@ -60,9 +102,26 @@ func TestIsEdgeBlockedResponse(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "akamai 403",
-			raw:  "HTTP/1.1 403 Forbidden\r\nServer: AkamaiGHost\r\n\r\nAccess Denied",
+			name: "akamai access denied page",
+			raw:  "HTTP/1.1 403 Forbidden\r\nServer: AkamaiGHost\r\n\r\n<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY><H1>Access Denied</H1>Reference&#32;&#35;18&#46;2f1c1702&#46;1700000000&#46;1a2b3c<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net</BODY></HTML>",
 			want: true,
+		},
+		{
+			name: "cloudfront 502 error page is the edge",
+			raw:  "HTTP/1.1 502 Bad Gateway\r\nServer: CloudFront\r\nContent-Type: text/html\r\n\r\n<H1>502 ERROR</H1>The request could not be satisfied.",
+			want: true,
+		},
+		{
+			// Vendor block-page markers count only beside the vendor's header:
+			// without it, "The request could not be satisfied" is app text.
+			name: "cloudfront marker without a cloudfront header is not an edge block",
+			raw:  "HTTP/1.1 403 Forbidden\r\nServer: nginx\r\n\r\nThe request could not be satisfied.",
+			want: false,
+		},
+		{
+			name: "akamai Reference # on a 200 order page is not an edge block",
+			raw:  "HTTP/1.1 200 OK\r\nServer: AkamaiGHost\r\n\r\nOrder Reference #18.2f1c confirmed",
+			want: false,
 		},
 		{
 			name: "rate limited 429",

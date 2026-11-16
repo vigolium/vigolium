@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	httpUtils "github.com/projectdiscovery/utils/http"
@@ -144,4 +145,31 @@ func (n *blockNotifier) report(host string, resp *httpUtils.ResponseChain) {
 		return
 	}
 	n.reportBlock(host, classifyWAFBlock(resp), responseChainStatus(resp))
+}
+
+// A CDN in the path is not a block: an application's own 403 behind
+// Cloudflare (Server and Cf-Ray ride on every proxied response) must not count
+// toward BlockCounts, or the scan's edge_blocked caveat fires on every
+// authorization check behind a CDN.
+func TestClassifyWAFBlock_AppForbiddenBehindCDNIsNotABlock(t *testing.T) {
+	app := buildChain(t, 403, http.Header{
+		"Server":       {"cloudflare"},
+		"Cf-Ray":       {"8a1b2c3d4e5f-AMS"},
+		"Content-Type": {"application/json"},
+	}, `{"error":"insufficient_scope"}`)
+	defer app.Close()
+	if got := classifyWAFBlock(app); got != nil {
+		t.Fatalf("app 403 behind Cloudflare classified as a block: %+v", got)
+	}
+
+	n := &blockNotifier{seen: make(map[string]struct{})}
+	n.reportBlock("example.com", classifyWAFBlock(app), 403)
+	edge := cloudflareBlockChain(t)
+	defer edge.Close()
+	n.reportBlock("edge.example.com", classifyWAFBlock(edge), 403)
+	counts := map[string]int64{}
+	n.counts.Range(func(k, v any) bool { counts[k.(string)] = v.(*atomic.Int64).Load(); return true })
+	if counts["example.com"] != 0 || counts["edge.example.com"] != 1 {
+		t.Fatalf("block counts = %v, want only edge.example.com", counts)
+	}
 }

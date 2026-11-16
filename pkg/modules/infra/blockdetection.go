@@ -2,10 +2,10 @@ package infra
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 
 	httputil "github.com/projectdiscovery/utils/http"
+	"github.com/vigolium/vigolium/pkg/deparos/waf"
 )
 
 var (
@@ -30,8 +30,9 @@ var (
 // carries "challenges.cloudflare.com" but none of these, so it is not flagged.
 //
 // Exported because modkit's edge-block detector (IsEdgeBlockedResponse) reuses
-// the same set plus CloudFront error-page markers — keeping one source of truth
-// so a new challenge string is added in one place, not two.
+// the same set — one source of truth, so a new challenge string is added in one
+// place, not two. Per-vendor block-page markers, which count only beside that
+// vendor's presence header, live in waf.EdgeBlockPage's table.
 var ChallengeBodyMarkers = [][]byte{
 	[]byte("_cf_chl_opt"),                               // Cloudflare challenge opt object (window._cf_chl_opt)
 	[]byte("/cdn-cgi/challenge-platform/"),              // Cloudflare challenge orchestration script
@@ -104,7 +105,8 @@ func IsBlockedResponse(resp *httputil.ResponseChain) bool {
 
 // IsBlockedOrThrottled reports whether resp came from a rate limiter or a
 // WAF/CDN edge rather than the application: the vendor-aware block detector
-// (Cloudflare, Akamai, CloudFront, Incapsula, AWS ELB) plus the throttling and
+// (a Cloudflare, Akamai, CloudFront, Incapsula or AWS ELB block page, a
+// challenge interstitial, Cf-Mitigated, 429) plus the throttling and
 // edge-block statuses 408, 425, 429 and 451. Such a response never exercised the
 // route, so its body (often an error page reflecting the requested path) cannot
 // confirm exposure.
@@ -166,28 +168,18 @@ func (v *BlockDetectionValidator) Validate(resp *httputil.ResponseChain) error {
 
 	header := resp.Response().Header
 	statusCode := resp.Response().StatusCode
-	serverHeaderValue := header.Get("Server")
-	cdnHeaderValue := header.Get("X-CDN")
 
 	switch statusCode {
 	case 429:
 		return ErrRateLimited
-	case 403:
-		switch {
-		case strings.HasPrefix(serverHeaderValue, "cloudflare"):
-			return ErrCloudflareCaptcha
-		case strings.HasPrefix(serverHeaderValue, "AkamaiGHost"):
-			return ErrAkamaiIPBlocked
-		case serverHeaderValue == "CloudFront":
-			return ErrCloudFrontError
-		case cdnHeaderValue == "Incapsula":
-			return ErrIncapsulaError
-		case strings.HasPrefix(serverHeaderValue, "awselb/"):
-			return ErrAwsElbError
-		}
-	case 503:
-		if strings.HasPrefix(serverHeaderValue, "cloudflare") {
-			return ErrCloudflareCaptcha
+	case 403, 503:
+		// A vendor's presence header rides on every response its edge proxies,
+		// so on a 403/503 it says only that the edge is in the path: an
+		// application's own authorization 403 behind a CDN is the application
+		// answering. The edge answered only when the body is that vendor's own
+		// block page (waf.EdgeBlockPage, the shared marker table).
+		if vendor := waf.EdgeBlockPage(header.Get, scanBody(resp)); vendor != "" {
+			return edgeVendorErrors[vendor]
 		}
 	}
 
@@ -207,17 +199,33 @@ func (v *BlockDetectionValidator) Validate(resp *httputil.ResponseChain) error {
 	return nil
 }
 
+// edgeVendorErrors maps an edge vendor waf.EdgeBlockPage names to the error
+// Validate returns for its block page.
+var edgeVendorErrors = map[string]error{
+	"cloudflare": ErrCloudflareCaptcha,
+	"akamai":     ErrAkamaiIPBlocked,
+	"cloudfront": ErrCloudFrontError,
+	"imperva":    ErrIncapsulaError,
+	"awselb":     ErrAwsElbError,
+}
+
 // bodyHasChallengeMarker reports whether the (capped) response body contains an
-// interstitial WAF/CDN challenge marker. The body slice is read in place and not
-// retained, so it stays valid for the lifetime of this call.
+// interstitial WAF/CDN challenge marker.
 func bodyHasChallengeMarker(resp *httputil.ResponseChain) bool {
+	return challengeBodyMatcher.MatchAny(scanBody(resp))
+}
+
+// scanBody is the leading challengeBodyScanLimit bytes of the response body,
+// read in place and not retained, so it stays valid for the lifetime of the
+// caller's call.
+func scanBody(resp *httputil.ResponseChain) []byte {
 	body := resp.Body()
 	if body == nil || body.Len() == 0 {
-		return false
+		return nil
 	}
 	b := body.Bytes()
 	if len(b) > challengeBodyScanLimit {
 		b = b[:challengeBodyScanLimit]
 	}
-	return challengeBodyMatcher.MatchAny(b)
+	return b
 }

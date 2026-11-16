@@ -60,3 +60,21 @@ func TestHeaderValueAndHeaderMap(t *testing.T) {
 		t.Errorf("StartLine = %q", StartLine("GET /x?token=abc&id=1 HTTP/1.1"))
 	}
 }
+
+func TestIsSensitiveHeader(t *testing.T) {
+	for _, name := range []string{
+		"Authorization", "Cookie", "X-API-Key", "Api-Key", "X-Session-Token", "X-Client-Secret",
+		"X-Signature", "X-Auth", "Api-Secret", "X-Request-Session-Id", " x-amz-security-token ",
+	} {
+		if !IsSensitiveHeader(name) {
+			t.Errorf("IsSensitiveHeader(%q) = false, want true", name)
+		}
+	}
+	for _, name := range []string{
+		"", "Content-Type", "Accept", "Access-Control-Allow-Credentials", "X-Trace", "X-Bug-Bounty", "User-Agent",
+	} {
+		if IsSensitiveHeader(name) {
+			t.Errorf("IsSensitiveHeader(%q) = true, want false", name)
+		}
+	}
+}

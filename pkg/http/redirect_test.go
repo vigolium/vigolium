@@ -390,5 +390,5 @@ func TestAuthWallStopKeepsTheRedirectResponse(t *testing.T) {
 
 // makeRedirectFunc is makeScopedRedirectFunc with no scope known.
 func makeRedirectFunc(mode string, maxRedirects int) func(*http.Request, []*http.Request) error {
-	return makeScopedRedirectFunc(mode, maxRedirects, nil)
+	return makeScopedRedirectFunc(mode, maxRedirects, nil, nil)
 }

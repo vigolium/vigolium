@@ -84,10 +84,25 @@ func headerEnd(raw string) int {
 }
 
 func isSensitiveHeader(lname string, extra map[string]struct{}) bool {
-	if _, ok := HeaderNames[lname]; ok {
+	if _, ok := extra[lname]; ok {
 		return true
 	}
-	if _, ok := extra[lname]; ok {
+	return IsSensitiveHeader(lname)
+}
+
+// IsSensitiveHeader reports whether a request or response header name carries
+// a credential: an entry of HeaderNames, a name ending in a credential suffix
+// (-key, -token, -secret, -session-id, -signature), or one IsSensitiveName
+// flags. Shape headers that merely contain a keyword (Content-Type,
+// Access-Control-Allow-Credentials) are never credentials. It is the one header
+// classifier: log and artifact redaction, the anonymous requester view, the
+// modules' credential strip and the redirect-hop forwarding rule all ask it.
+func IsSensitiveHeader(name string) bool {
+	lname := strings.ToLower(strings.TrimSpace(name))
+	if lname == "" {
+		return false
+	}
+	if _, ok := HeaderNames[lname]; ok {
 		return true
 	}
 	switch lname {

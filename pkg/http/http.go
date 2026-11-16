@@ -23,6 +23,7 @@ import (
 	"github.com/projectdiscovery/rawhttp"
 	"github.com/projectdiscovery/retryablehttp-go"
 	httpUtils "github.com/projectdiscovery/utils/http"
+	"github.com/vigolium/vigolium/internal/redact"
 	"github.com/vigolium/vigolium/pkg/authentication"
 	"github.com/vigolium/vigolium/pkg/core/egress"
 	"github.com/vigolium/vigolium/pkg/core/hosterrors"
@@ -934,7 +935,7 @@ func NewRequester(options *types.Options, services *services.Services) (*Request
 		Transport:     sharedTransport,
 		Timeout:       timeout,
 		Jar:           jar,
-		CheckRedirect: gateRedirects(makeScopedRedirectFunc(redirectMode, maxRedir, services.HopScopeFunc), gate, sent),
+		CheckRedirect: gateRedirects(makeScopedRedirectFunc(redirectMode, maxRedir, services.HopScopeFunc, operatorHopHeaders(options.Headers)), gate, sent),
 	}, retryOpts)
 
 	// Client without redirects
@@ -1248,29 +1249,16 @@ func cloneRetryClientWithJar(src *retryablehttp.Client, jar http.CookieJar, opts
 }
 
 // stripCredentialHeaderMap returns a copy of the header map with credential-bearing
-// entries (per credentialHeaderName) removed.
+// entries (per redact.IsSensitiveHeader) removed.
 func stripCredentialHeaderMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for name, value := range in {
-		if credentialHeaderName(name) {
+		if redact.IsSensitiveHeader(name) {
 			continue
 		}
 		out[name] = value
 	}
 	return out
-}
-
-func credentialHeaderName(name string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(name))
-	switch normalized {
-	case "authorization", "proxy-authorization", "cookie", "x-api-key", "api-key",
-		"x-api-token", "x-auth-token", "x-access-token", "x-session-token":
-		return true
-	}
-	return strings.Contains(normalized, "credential") ||
-		strings.HasSuffix(normalized, "-token") ||
-		strings.HasSuffix(normalized, "-api-key") ||
-		strings.HasSuffix(normalized, "-session-id")
 }
 
 // Execute sends HTTP request with rate limiting, host error tracking,

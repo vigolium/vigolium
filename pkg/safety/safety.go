@@ -14,12 +14,31 @@ import (
 // source is valid in both Go RE2 and JavaScript (use JSRegexLiteral).
 const LogoutPattern = `log\s*out|sign\s*out|logout|signout|log[-_\s]?off|sign[-_\s]?off|end\s*session`
 
+// IrreversibleActionPattern matches controls that commit something the
+// target cannot take back, or that reaches people outside the test: paying
+// ("Pay now", "Place order", "Buy now", "Purchase", "Confirm payment"),
+// moving money ("Transfer funds", "Wire transfer", "Send money"), inviting
+// someone ("Invite", "Send invitation"), approving and publishing.
+//
+// Narrow on purpose: navigation that only renders a page stays clickable, so
+// "Checkout", "Cart", "Payment methods" and a bare "Send" are not matched (a
+// cart or checkout page is surface the crawl should map; the control that
+// commits on it is what this stops). Word-bounded where a bare word would
+// match inside another ("payment", "unpublish", "invitations").
+const IrreversibleActionPattern = `pay[-_\s]?now|\bpay\b|place[-_\s]?(?:your[-_\s]?)?order|buy[-_\s]?now|\bpurchase\b` +
+	`|confirm[-_\s]?(?:order|payment|purchase|transfer)|complete[-_\s]?(?:order|payment|purchase)` +
+	`|transfer[-_\s]?(?:funds|money)|wire[-_\s]?transfer|send[-_\s]?(?:money|payment|funds|invit\w*)` +
+	`|\binvite\b|\bapprove\b|\bpublish\b`
+
 // DestructivePattern matches names that end the session or mutate state
 // irreversibly: logout, delete, destroy, remove, deactivate, unsubscribe,
-// close/cancel account. "remove" is anchored on a non-letter so "removed" in a
-// path segment like /removed-items is still matched but "unremovable" is not.
+// close/cancel account, and the commit actions of IrreversibleActionPattern.
+// "remove" is anchored on a non-letter so "removed" in a path segment like
+// /removed-items is still matched but "unremovable" is not. Valid in both Go
+// RE2 and JavaScript.
 const DestructivePattern = LogoutPattern +
-	`|delete|destroy|(?:^|[^a-z])remove|deactivate|unsubscribe|close[-_\s]?account|cancel[-_\s]?account|terminate[-_\s]?account`
+	`|delete|destroy|(?:^|[^a-z])remove|deactivate|unsubscribe|close[-_\s]?account|cancel[-_\s]?account|terminate[-_\s]?account` +
+	`|` + IrreversibleActionPattern
 
 // DestructiveNameRe is DestructivePattern compiled case-insensitively.
 var DestructiveNameRe = regexp.MustCompile(`(?i)` + DestructivePattern)

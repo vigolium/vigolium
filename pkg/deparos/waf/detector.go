@@ -26,6 +26,11 @@ type Rule struct {
 
 	// BodyChecks are slower body-based detection checks.
 	BodyChecks []BodyCheck
+
+	// Edges are the edge vendors (edgeBlockPages) whose own block page is a
+	// strong signal for this rule once the vendor's presence headers identify
+	// it in the path. The markers live in the shared table, not here.
+	Edges []string
 }
 
 // HeaderCheck defines a header-based detection rule.
@@ -44,6 +49,14 @@ type HeaderCheck struct {
 
 	// Exists checks if header is present (value doesn't matter).
 	Exists bool
+
+	// Presence marks a header the edge stamps on every response it proxies
+	// (Server: cloudflare, Cf-Ray, X-Amz-Cf-Id, X-Iinfo, …). It says the edge
+	// is in the path, not that the edge answered, so on a status the
+	// application also uses (403, 503, …) it corroborates like a weak body
+	// check and never matches alone. On a status only an edge emits — 429 and
+	// Cloudflare's 52x origin errors (edgeAuthoredStatus) — it is strong.
+	Presence bool
 }
 
 // BodyCheck defines a body-based detection rule.
@@ -145,19 +158,27 @@ func (d *detector) matchRule(rule Rule, header http.Header, body, lowerBody []by
 	// kind of signal that on its own reliably attributes a response to this WAF.
 	strongMatched := false
 
-	// Check headers first (faster). Header matches are always strong.
+	// Check headers first (faster). A Presence header on a status the
+	// application also answers with only corroborates; every other header
+	// match is strong.
+	var weakIndicators []string
 	for _, check := range rule.HeaderChecks {
-		if indicator := matchHeader(header, check); indicator != "" {
-			indicators = append(indicators, indicator)
-			strongMatched = true
+		indicator := matchHeader(header, check)
+		if indicator == "" {
+			continue
 		}
+		if check.Presence && !edgeAuthoredStatus(statusCode) {
+			weakIndicators = append(weakIndicators, indicator)
+			continue
+		}
+		indicators = append(indicators, indicator)
+		strongMatched = true
 	}
 
 	// Check body patterns. Weak body matches (generic phrases shared with plain
 	// application responses) are held aside and only counted once a strong signal
 	// corroborates them, so e.g. Azure's bare "The request is blocked" can't alone
 	// brand an ordinary 403 as WAF traffic.
-	var weakIndicators []string
 	for _, check := range rule.BodyChecks {
 		indicator := matchBody(body, lowerBody, check)
 		if indicator == "" {
@@ -168,6 +189,19 @@ func (d *detector) matchRule(rule Rule, header http.Header, body, lowerBody []by
 		} else {
 			indicators = append(indicators, indicator)
 			strongMatched = true
+		}
+	}
+
+	// The vendor's own block page (the shared edgeBlockPages table), attributed
+	// by its presence headers, is strong.
+	if len(rule.Edges) > 0 && len(body) > 0 {
+		h := newEdgeHeaders(header.Get)
+		for _, vendor := range rule.Edges {
+			if edgeBlockPageOf(h, vendor, body) {
+				indicators = append(indicators, "body: "+vendor+" block page")
+				strongMatched = true
+				break
+			}
 		}
 	}
 
@@ -264,6 +298,13 @@ func IsBlockStatusCode(code int) bool {
 	return false
 }
 
+// edgeAuthoredStatus reports whether code is one only an edge emits for itself
+// — a throttle (429) or a Cloudflare origin-error page (520-530) — so the
+// edge's presence header on it attributes the response to the edge.
+func edgeAuthoredStatus(code int) bool {
+	return code == 429 || (code >= 520 && code <= 530)
+}
+
 // containsInt checks if slice contains value.
 func containsInt(slice []int, val int) bool {
 	for _, v := range slice {
@@ -333,20 +374,19 @@ func cloudflareRule() Rule {
 		Priority:    1,
 		StatusCodes: []int{403, 429, 503, 520, 521, 522, 523, 524, 525, 526, 527, 530},
 		HeaderChecks: []HeaderCheck{
-			{Header: "Server", Contains: "cloudflare"},
-			{Header: "Cf-Ray", Exists: true},
+			{Header: "Server", Contains: "cloudflare", Presence: true},
+			{Header: "Cf-Ray", Exists: true, Presence: true},
 			{Header: "Cf-Mitigated", Exists: true},
 		},
 		BodyChecks: []BodyCheck{
-			{Contains: "Attention Required! | Cloudflare"},
 			{Contains: "Access denied | Cloudflare"},
 			{Contains: "cf-error-code"},
 			{Contains: "Just a moment..."},
 			{Contains: "challenges.cloudflare.com"},
-			{Contains: "Cloudflare Ray ID"},
 			{Contains: "_cf_chl_opt"},
 			{Pattern: regexp.MustCompile(`(?i)error code:?\s*10[0-9]{2}`)}, // 1010, 1015, 1020, etc.
 		},
+		Edges: []string{"cloudflare"},
 	}
 }
 
@@ -356,17 +396,19 @@ func akamaiRule() Rule {
 		Priority:    2,
 		StatusCodes: []int{403, 429},
 		HeaderChecks: []HeaderCheck{
-			{Header: "Server", Contains: "AkamaiGHost"},
-			{Header: "X-Akamai-Transformed", Exists: true},
-			{Header: "Akamai-Origin-Hop", Exists: true},
+			{Header: "Server", Contains: "AkamaiGHost", Presence: true},
+			{Header: "X-Akamai-Transformed", Exists: true, Presence: true},
+			{Header: "Akamai-Origin-Hop", Exists: true, Presence: true},
 		},
 		BodyChecks: []BodyCheck{
-			{Contains: "Access Denied"},
+			// Generic phrase: an application's own 403 says it too.
+			{Contains: "Access Denied", Weak: true},
 			{Contains: "Your access to this service has been temporarily limited"},
 			{Contains: "ak_bmsc"},
 			{Contains: "_abck"},
 			{Pattern: regexp.MustCompile(`Reference\s*#?\s*[0-9]+\.[0-9a-f]+`)},
 		},
+		Edges: []string{"akamai"},
 	}
 }
 
@@ -377,7 +419,7 @@ func awsWAFRule() Rule {
 		StatusCodes: []int{403, 429, 405},
 		HeaderChecks: []HeaderCheck{
 			{Header: "X-Amzn-Waf-Action", Exists: true},
-			{Header: "X-Amz-Cf-Id", Exists: true},
+			{Header: "X-Amz-Cf-Id", Exists: true, Presence: true},
 		},
 		BodyChecks: []BodyCheck{
 			{Contains: "awswaf"},
@@ -386,6 +428,7 @@ func awsWAFRule() Rule {
 			{Contains: "captcha.awswaf.com"},
 			{Contains: "window.gokuProps"},
 		},
+		Edges: []string{"cloudfront", "awselb"},
 	}
 }
 
@@ -413,18 +456,18 @@ func impervaRule() Rule {
 		Priority:    5,
 		StatusCodes: []int{403, 429},
 		HeaderChecks: []HeaderCheck{
-			{Header: "X-Iinfo", Exists: true},
-			{Header: "X-CDN", Contains: "Incapsula"},
-			{Header: "X-CDN", Contains: "Imperva"},
+			{Header: "X-Iinfo", Exists: true, Presence: true},
+			{Header: "X-CDN", Contains: "Incapsula", Presence: true},
+			{Header: "X-CDN", Contains: "Imperva", Presence: true},
 		},
 		BodyChecks: []BodyCheck{
-			{Contains: "Incapsula incident ID"},
 			{Contains: "Request unsuccessful"},
 			{Contains: "_Incapsula_"},
 			{Contains: "visid_incap_"},
 			{Contains: "Powered by Incapsula"},
 			{Pattern: regexp.MustCompile(`Incapsula incident ID:\s*[0-9]+-[0-9]+`)},
 		},
+		Edges: []string{"imperva"},
 	}
 }
 

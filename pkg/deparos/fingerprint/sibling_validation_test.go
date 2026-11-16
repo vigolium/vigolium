@@ -96,5 +96,6 @@ func TestIsThrottledResponse(t *testing.T) {
 	assert.False(t, IsThrottledResponse(403, http.Header{}, []byte("forbidden")))
 	cf := http.Header{"Server": {"cloudflare"}, "Cf-Ray": {"abc"}}
 	assert.True(t, IsThrottledResponse(403, cf, []byte("Attention Required! | Cloudflare")))
+	assert.False(t, IsThrottledResponse(403, cf, []byte(`{"error":"denied"}`)), "an application 403 behind a CDN answers about the path")
 	assert.False(t, IsThrottledResponse(403, http.Header{}, []byte("Access Denied")), "a body phrase alone is not an edge block")
 }

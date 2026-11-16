@@ -26,14 +26,16 @@ func IsHardMissStatus(status int) bool {
 //
 // Deliberately narrower than the scan requester's block classifier
 // (pkg/http.IsBlockedResponse): body phrases alone ("Access Denied",
-// "Forbidden") are ordinary application answers too, so an edge block here
-// needs a vendor HEADER on a block status, and the body is not consulted.
-func IsThrottledResponse(status int, header http.Header, _ []byte) bool {
+// "Forbidden") are ordinary application answers too, so the generic rule does
+// not count here. A vendor's presence header alone does not either (the WAF
+// classifier needs its block page beside it on a 403/503), so an application's
+// own 403 behind a CDN is still an answer about the path.
+func IsThrottledResponse(status int, header http.Header, body []byte) bool {
 	switch status {
 	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
 		return true
 	}
 	// ClassifyParts gates on waf.IsBlockStatusCode itself.
-	block := waf.ClassifyParts(status, header, nil)
+	block := waf.ClassifyParts(status, header, body)
 	return block != nil && block.WAFType != "generic"
 }

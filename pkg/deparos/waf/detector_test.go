@@ -56,15 +56,46 @@ func TestDetector_NonBlockingStatusCodes(t *testing.T) {
 func TestDetector_Cloudflare(t *testing.T) {
 	detector := NewDetector()
 
-	t.Run("detects by cf-ray header", func(t *testing.T) {
+	// Cloudflare stamps Server and Cf-Ray on every response it proxies: on a
+	// 403/503 they say the edge is in the path, not that it answered.
+	t.Run("presence headers alone on a 403 are not a block", func(t *testing.T) {
+		for _, status := range []int{403, 503} {
+			rc := createTestResponseChain(status, http.Header{
+				"Cf-Ray": []string{"abc123-IAD"},
+				"Server": []string{"cloudflare"},
+			}, `{"error":"you do not own this order"}`)
+			result := detector.Detect(rc)
+			rc.Close()
+			assert.Nil(t, result, "status %d", status)
+		}
+	})
+
+	t.Run("detects its block page behind the presence headers", func(t *testing.T) {
 		rc := createTestResponseChain(403, http.Header{
 			"Cf-Ray": []string{"abc123-IAD"},
 			"Server": []string{"cloudflare"},
-		}, "")
+		}, `<div class="cf-wrapper"><div id="cf-error-details">Sorry, you have been blocked</div></div>`)
 		defer rc.Close()
 		result := detector.Detect(rc)
 		require.NotNil(t, result)
 		assert.True(t, result.IsBlocked)
+		assert.Equal(t, "cloudflare", result.WAFType)
+		assert.Contains(t, result.Indicators, "body: cloudflare block page")
+	})
+
+	t.Run("cf-mitigated alone is a block", func(t *testing.T) {
+		rc := createTestResponseChain(403, http.Header{"Cf-Mitigated": []string{"challenge"}}, "")
+		defer rc.Close()
+		result := detector.Detect(rc)
+		require.NotNil(t, result)
+		assert.Equal(t, "cloudflare", result.WAFType)
+	})
+
+	t.Run("presence header on an edge-authored 52x is a block", func(t *testing.T) {
+		rc := createTestResponseChain(522, http.Header{"Server": []string{"cloudflare"}}, "")
+		defer rc.Close()
+		result := detector.Detect(rc)
+		require.NotNil(t, result)
 		assert.Equal(t, "cloudflare", result.WAFType)
 	})
 
@@ -104,14 +135,21 @@ func TestDetector_Cloudflare(t *testing.T) {
 func TestDetector_Akamai(t *testing.T) {
 	detector := NewDetector()
 
-	t.Run("detects by server header", func(t *testing.T) {
+	t.Run("server header alone on a 403 is not a block", func(t *testing.T) {
 		rc := createTestResponseChain(403, http.Header{
 			"Server": []string{"AkamaiGHost"},
-		}, "")
+		}, `{"error":"insufficient_scope"}`)
+		defer rc.Close()
+		assert.Nil(t, detector.Detect(rc))
+	})
+
+	t.Run("detects its access denied page behind the server header", func(t *testing.T) {
+		rc := createTestResponseChain(403, http.Header{
+			"Server": []string{"AkamaiGHost"},
+		}, `<H1>Access Denied</H1>Reference&#32;&#35;18&#46;2f1c1702<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net`)
 		defer rc.Close()
 		result := detector.Detect(rc)
 		require.NotNil(t, result)
-		assert.True(t, result.IsBlocked)
 		assert.Equal(t, "akamai", result.WAFType)
 	})
 
@@ -124,8 +162,8 @@ func TestDetector_Akamai(t *testing.T) {
 		assert.Equal(t, "akamai", result.WAFType)
 	})
 
-	t.Run("detects by x-akamai-transformed header", func(t *testing.T) {
-		rc := createTestResponseChain(403, http.Header{
+	t.Run("x-akamai-transformed on a 429 is a block", func(t *testing.T) {
+		rc := createTestResponseChain(429, http.Header{
 			"X-Akamai-Transformed": []string{"9 12345 0 pmb=mRUM"},
 		}, "")
 		defer rc.Close()
@@ -198,15 +236,12 @@ func TestDetector_F5BigIP(t *testing.T) {
 func TestDetector_Imperva(t *testing.T) {
 	detector := NewDetector()
 
-	t.Run("detects by x-iinfo header", func(t *testing.T) {
+	t.Run("x-iinfo alone on a 403 is not a block", func(t *testing.T) {
 		rc := createTestResponseChain(403, http.Header{
 			"X-Iinfo": []string{"10-12345678-12345678 NNNY RT(1234567890123 0) q(0 0 0 0) r(0 0)"},
 		}, "")
 		defer rc.Close()
-		result := detector.Detect(rc)
-		require.NotNil(t, result)
-		assert.True(t, result.IsBlocked)
-		assert.Equal(t, "imperva", result.WAFType)
+		assert.Nil(t, detector.Detect(rc))
 	})
 
 	t.Run("detects by incident ID in body", func(t *testing.T) {
@@ -218,10 +253,10 @@ func TestDetector_Imperva(t *testing.T) {
 		assert.Equal(t, "imperva", result.WAFType)
 	})
 
-	t.Run("detects by x-cdn header", func(t *testing.T) {
+	t.Run("detects its resource page behind the x-cdn header", func(t *testing.T) {
 		rc := createTestResponseChain(403, http.Header{
 			"X-Cdn": []string{"Incapsula CDN"},
-		}, "")
+		}, `<script src="/_Incapsula_Resource?SWJIYLWA=5074a744"></script>`)
 		defer rc.Close()
 		result := detector.Detect(rc)
 		require.NotNil(t, result)
@@ -529,15 +564,25 @@ func TestDetector_Indicators(t *testing.T) {
 func TestDetector_PriorityOrder(t *testing.T) {
 	detector := NewDetector()
 
-	// Test that Cloudflare is detected before generic when both match
+	// Cloudflare is detected before generic when both match.
 	rc := createTestResponseChain(403, http.Header{
 		"Server": []string{"cloudflare"},
-	}, `<html><body>Access Denied</body></html>`) // Matches generic too
+	}, `<html><title>Attention Required! | Cloudflare</title><body>Access Denied</body></html>`) // Matches generic too
 	defer rc.Close()
 
 	result := detector.Detect(rc)
 	require.NotNil(t, result)
 	assert.Equal(t, "cloudflare", result.WAFType, "Cloudflare should be detected before generic")
+
+	// A generic phrase behind Cloudflare's presence header is not Cloudflare's
+	// (nor Akamai's, whose "Access Denied" is a weak check): it falls to generic.
+	rc2 := createTestResponseChain(403, http.Header{
+		"Server": []string{"cloudflare"},
+	}, `<html><body>Access Denied</body></html>`)
+	defer rc2.Close()
+	result = detector.Detect(rc2)
+	require.NotNil(t, result)
+	assert.Equal(t, "generic", result.WAFType)
 }
 
 func TestIsBlockingStatusCode(t *testing.T) {

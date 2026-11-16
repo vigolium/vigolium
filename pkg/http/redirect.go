@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vigolium/vigolium/internal/redact"
 	"github.com/vigolium/vigolium/pkg/authsig"
 	"github.com/vigolium/vigolium/pkg/httpmsg"
 	"github.com/vigolium/vigolium/pkg/reconsig"
@@ -85,27 +86,46 @@ func ResolveRedirectMode(options *types.Options) string {
 	}
 }
 
-// crossHostKeepHeaders are the only request headers that survive a redirect
-// hop to a different host:port. Everything else — session and -H
-// credentials, API keys, module-owned headers, tracing ids — stays with the
-// host it was meant for. Go itself strips only Authorization and Cookie, and
-// only across domains, which would let `-H "X-API-Key: …"` reach any Location.
+// crossHostKeepHeaders are the request headers that survive every redirect
+// hop to a different host:port. Everything else — session and credential
+// headers, API keys, module-owned headers, tracing ids — stays with the host it
+// was meant for. Go itself strips only Authorization and Cookie, and only
+// across domains, which would let `-H "X-API-Key: …"` reach any Location.
 var crossHostKeepHeaders = map[string]bool{
 	"User-Agent":     true,
 	"Content-Type":   true,
 	"Content-Length": true,
 }
 
-// stripCrossHostHeaders drops every header except crossHostKeepHeaders and
-// Accept* from a hop request.
-func stripCrossHostHeaders(h http.Header) {
+// stripCrossHostHeaders drops every header except crossHostKeepHeaders,
+// Accept* and keep (canonical names) from a hop request.
+func stripCrossHostHeaders(h http.Header, keep map[string]bool) {
 	for name := range h {
 		canon := http.CanonicalHeaderKey(name)
-		if crossHostKeepHeaders[canon] || strings.HasPrefix(canon, "Accept") {
+		if crossHostKeepHeaders[canon] || strings.HasPrefix(canon, "Accept") || keep[canon] {
 			continue
 		}
 		delete(h, name)
 	}
+}
+
+// operatorHopHeaders are the operator's -H header names (canonical) that may
+// follow a redirect to another host the scope admits: every -H header that is
+// not a credential (redact.IsSensitiveHeader). A program's identification header
+// (X-Bug-Bounty, X-HackerOne-Research) is a rule of engagement on every
+// in-scope host the scan reaches, and dropping it on a www. or http→https hop
+// sends unidentified traffic; a credential typed with -H (Authorization,
+// Cookie, X-API-Key, X-Client-Secret, X-Signature, *-token) is still bound to
+// the origin it was given for.
+func operatorHopHeaders(headers []string) map[string]bool {
+	out := map[string]bool{}
+	for name := range parseHeaders(headers) {
+		if name == "" || redact.IsSensitiveHeader(name) {
+			continue
+		}
+		out[http.CanonicalHeaderKey(name)] = true
+	}
+	return out
 }
 
 // makeScopedRedirectFunc builds the http.Client CheckRedirect policy for mode,
@@ -118,10 +138,13 @@ func stripCrossHostHeaders(h http.Header) {
 // to the one before it.
 //
 // scope is read per hop (the runner installs it on Services after the
-// requester is built); a nil getter or a nil result means "no scope known", under which
-// in-scope degrades to same-apex. A followed hop to a different host:port has
-// its headers stripped to crossHostKeepHeaders in every mode.
-func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(host string) bool) func(*http.Request, []*http.Request) error {
+// requester is built); a nil getter or a nil result means "no scope known",
+// under which in-scope degrades to same-apex. A followed hop to a different
+// host:port has its headers stripped to crossHostKeepHeaders in every mode,
+// except that operatorHeaders (operatorHopHeaders: non-credential -H names)
+// also survive when the scope admits the hop host. Without a scope nothing
+// admits a host, so they are stripped.
+func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(host string) bool, operatorHeaders map[string]bool) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= maxRedirects {
 			return http.ErrUseLastResponse
@@ -134,6 +157,14 @@ func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(hos
 		if stopsAtAuthWall(via[0].URL, req.URL) {
 			return http.ErrUseLastResponse
 		}
+		// The scope is consulted only where an answer changes the outcome: the
+		// in-scope mode's host rule, and a cross-host hop that has operator
+		// headers to keep.
+		crossHost := httpmsg.URLHostPort(req.URL) != httpmsg.URLHostPort(via[0].URL)
+		var inScope func(string) bool
+		if scope != nil && (mode == RedirectModeInScope || (crossHost && len(operatorHeaders) > 0)) {
+			inScope = scope()
+		}
 		switch mode {
 		case RedirectModeSameHost:
 			if req.URL.Host != via[0].URL.Host {
@@ -144,10 +175,6 @@ func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(hos
 				return http.ErrUseLastResponse
 			}
 		case RedirectModeInScope:
-			var inScope func(string) bool
-			if scope != nil {
-				inScope = scope()
-			}
 			if inScope != nil {
 				if !inScope(req.URL.Hostname()) {
 					return http.ErrUseLastResponse
@@ -156,8 +183,14 @@ func makeScopedRedirectFunc(mode string, maxRedirects int, scope func() func(hos
 				return http.ErrUseLastResponse
 			}
 		}
-		if httpmsg.URLHostPort(req.URL) != httpmsg.URLHostPort(via[0].URL) {
-			stripCrossHostHeaders(req.Header)
+		if crossHost {
+			var keep map[string]bool
+			// The in-scope mode already admitted this host above; any other
+			// mode asks the scope here, and only when there is something to keep.
+			if inScope != nil && (mode == RedirectModeInScope || inScope(req.URL.Hostname())) {
+				keep = operatorHeaders
+			}
+			stripCrossHostHeaders(req.Header, keep)
 		}
 		return nil
 	}

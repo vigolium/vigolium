@@ -242,9 +242,14 @@ func TestIsResponsive(t *testing.T) {
 		{"500 with java stack trace", 500, nil, javaTrace, true},
 		{"404 with java stack trace", 404, nil, javaTrace, true},
 		// The edge is talking, not the application. A trace in a blocked body
-		// (a challenge page quoting one) must not rescue it.
+		// (a block page quoting one) must not rescue it.
 		{"cloudflare 403", 403, map[string]string{"Server": "cloudflare"}, "blocked", false},
-		{"cloudflare 403 with trace", 403, map[string]string{"Server": "cloudflare"}, javaTrace, false},
+		{"cloudflare block page with trace", 403, map[string]string{"Server": "cloudflare"}, "<div id=\"cf-error-details\">" + javaTrace, false},
+		// Cloudflare names itself on every response it proxies: a 403 whose body
+		// is the application's own stack trace is the application talking.
+		{"app 403 with trace behind cloudflare", 403, map[string]string{"Server": "cloudflare"}, javaTrace, true},
+		{"app 500 with trace behind akamai", 500, map[string]string{"Server": "AkamaiGHost"}, javaTrace, true},
+		{"akamai block page with trace", 403, map[string]string{"Server": "AkamaiGHost"}, "errors.edgesuite.net\n" + javaTrace, false},
 		{"challenged 200", 200, map[string]string{"Cf-Mitigated": "challenge"}, "<html>jschl</html>", false},
 		{"app 403", 403, nil, "denied", false},
 	}

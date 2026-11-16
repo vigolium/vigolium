@@ -10,11 +10,16 @@ import (
 	"github.com/vigolium/vigolium/pkg/types"
 )
 
-func TestCredentialHeaderNameDoesNotDropUnrelatedAuthWords(t *testing.T) {
+// The anonymous view strips every header the shared classifier
+// (redact.IsSensitiveHeader) flags, including the -secret/-signature and auth
+// shapes, and keeps request-shape headers.
+func TestStripCredentialHeaderMapUsesSharedClassifier(t *testing.T) {
 	t.Parallel()
-	assert.False(t, credentialHeaderName("X-Author-Name"))
-	assert.False(t, credentialHeaderName("Authentication-Info-Preference"))
-	assert.True(t, credentialHeaderName("X-Session-Token"))
+	got := stripCredentialHeaderMap(map[string]string{
+		"X-Session-Token": "t", "X-Client-Secret": "s", "X-Signature": "sig", "X-Auth": "a",
+		"Api-Secret": "s", "Content-Type": "application/json", "X-Trace": "keep",
+	})
+	assert.Equal(t, map[string]string{"Content-Type": "application/json", "X-Trace": "keep"}, got)
 }
 
 // TestCloneWithoutCredentials_SharesTransportIsolatesCreds verifies the anonymous

@@ -46,8 +46,15 @@ import (
 // real Requester:
 //
 //	func TestMain(m *testing.M) { modtest.VerifyNoLeaks(m) }
-func VerifyNoLeaks(m *testing.M) {
-	goleak.VerifyTestMain(m,
+//
+// extra adds a suite's own ignores on top of the standard list.
+func VerifyNoLeaks(m *testing.M, extra ...goleak.Option) {
+	goleak.VerifyTestMain(m, append(leakIgnores(), extra...)...)
+}
+
+// leakIgnores is the standard ignore list for process-lifetime infra goroutines.
+func leakIgnores() []goleak.Option {
+	return []goleak.Option{
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 		goleak.IgnoreTopFunction("github.com/vigolium/vigolium/pkg/core/network.StartActiveMemGuardian.func1"),
 		goleak.IgnoreAnyFunction("github.com/vigolium/vigolium/pkg/core/network.runGuardian"),
@@ -57,7 +64,7 @@ func VerifyNoLeaks(m *testing.M) {
 		goleak.IgnoreAnyFunction("github.com/syndtr/goleveldb/leveldb.(*DB).compactionError"),
 		goleak.IgnoreAnyFunction("github.com/syndtr/goleveldb/leveldb.(*session).refLoop"),
 		goleak.IgnoreAnyFunction("github.com/syndtr/goleveldb/leveldb/util.(*BufferPool).drain"),
-	)
+	}
 }
 
 // Requester returns an *http.Requester wired to the shared loopback dialer,

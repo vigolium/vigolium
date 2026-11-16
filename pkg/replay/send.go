@@ -163,23 +163,25 @@ func sendRawHTTPWith(ctx context.Context, client *gohttp.Client, raw []byte, t s
 		req.Header.Set("User-Agent", defaultUserAgent)
 	}
 
-	// One client per send: it counts the redirects it follows, and an exact
-	// send uses a transport that adds no Accept-Encoding.
+	// One client per send, a copy of the caller's: it counts the redirects it
+	// follows, and an exact send uses a transport that adds no
+	// Accept-Encoding. The caller's redirect policy (fuzz --max-redirs) still
+	// decides when to stop, the replay default when it has none.
 	hops := 0
-	sendClient := &gohttp.Client{
-		Timeout:   client.Timeout,
-		Transport: client.Transport,
-		Jar:       client.Jar,
-		CheckRedirect: func(_ *gohttp.Request, via []*gohttp.Request) error {
-			if noRedirects {
-				return gohttp.ErrUseLastResponse
-			}
-			if len(via) >= maxReplayRedirects {
-				return fmt.Errorf("stopped after %d redirects", maxReplayRedirects)
-			}
-			hops = len(via)
-			return nil
-		},
+	policy := client.CheckRedirect
+	if policy == nil {
+		policy = RedirectLimit(maxReplayRedirects)
+	}
+	sendClient := *client
+	sendClient.CheckRedirect = func(next *gohttp.Request, via []*gohttp.Request) error {
+		if noRedirects {
+			return gohttp.ErrUseLastResponse
+		}
+		if err := policy(next, via); err != nil {
+			return err
+		}
+		hops = len(via)
+		return nil
 	}
 	if t.exact {
 		sendClient.Transport = uncompressedTransport(client.Transport)
@@ -232,6 +234,17 @@ func sendRawHTTPWith(ctx context.Context, client *gohttp.Client, raw []byte, t s
 // maxReplayRedirects is how many redirects a replay follows (net/http's own
 // default).
 const maxReplayRedirects = 10
+
+// RedirectLimit is a CheckRedirect policy that stops after n requests in a
+// redirect chain (net/http's counting: the first request included).
+func RedirectLimit(n int) func(*gohttp.Request, []*gohttp.Request) error {
+	return func(_ *gohttp.Request, via []*gohttp.Request) error {
+		if len(via) >= n {
+			return fmt.Errorf("stopped after %d redirects", n)
+		}
+		return nil
+	}
+}
 
 // uncompressedTransport is rt with DisableCompression set, so the transport
 // adds no Accept-Encoding. rt is returned unchanged when it is not an

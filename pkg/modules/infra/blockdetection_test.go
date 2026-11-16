@@ -62,11 +62,49 @@ func TestValidate_ChallengeAndBlockPages(t *testing.T) {
 			wantBlock: true,
 		},
 		{
-			name:      "403 cloudflare captcha by server header",
+			// Cloudflare names itself on every response it proxies: an
+			// application's own 403/503 behind it is the application answering.
+			name:      "403 behind cloudflare without its block page",
+			status:    403,
+			header:    http.Header{"Server": {"cloudflare"}, "Cf-Ray": {"8a1b2c3d4e5f-AMS"}},
+			body:      `{"error":"forbidden"}`,
+			wantBlock: false,
+		},
+		{
+			name:      "503 behind cloudflare without its block page",
+			status:    503,
+			header:    http.Header{"Server": {"cloudflare"}},
+			body:      `{"error":"maintenance"}`,
+			wantBlock: false,
+		},
+		{
+			name:      "403 behind akamai without its block page",
+			status:    403,
+			header:    http.Header{"Server": {"AkamaiGHost"}},
+			body:      `{"error":"insufficient_scope"}`,
+			wantBlock: false,
+		},
+		{
+			name:      "403 cloudflare block page",
 			status:    403,
 			header:    http.Header{"Server": {"cloudflare"}},
-			body:      "blocked",
+			body:      `<title>Attention Required! | Cloudflare</title><div id="cf-error-details">`,
 			wantBlock: true,
+		},
+		{
+			name:      "403 ELB default template",
+			status:    403,
+			header:    http.Header{"Server": {"awselb/2.0"}},
+			body:      "<html><center><h1>403 Forbidden</h1></center></html>",
+			wantBlock: true,
+		},
+		{
+			// The same template without the ELB header is nginx's own 403.
+			name:      "403 nginx default page is not an edge block",
+			status:    403,
+			header:    http.Header{"Server": {"nginx"}},
+			body:      "<html><center><h1>403 Forbidden</h1></center></html>",
+			wantBlock: false,
 		},
 		{
 			name:      "200 challenge via Cf-Mitigated header",
@@ -180,6 +218,16 @@ func TestIsBlockedOrThrottled(t *testing.T) {
 	challenge := fillResponseChain(t, 200, http.Header{"Cf-Mitigated": {"challenge"}}, "<html>Just a moment...</html>")
 	if !IsBlockedOrThrottled(challenge) {
 		t.Error("Cloudflare challenge page on 200 should count as blocked")
+	}
+	// A CDN in the path is not a block: the application's own 403 behind
+	// Cloudflare reaches the module; Cloudflare's block page does not.
+	appBehindCDN := fillResponseChain(t, 403, http.Header{"Server": {"cloudflare"}, "Cf-Ray": {"8a1b-AMS"}}, `{"error":"forbidden"}`)
+	if IsBlockedOrThrottled(appBehindCDN) {
+		t.Error("application 403 behind Cloudflare counted as an edge block")
+	}
+	edgePage := fillResponseChain(t, 403, http.Header{"Server": {"cloudflare"}}, "error code: 1020")
+	if !IsBlockedOrThrottled(edgePage) {
+		t.Error("Cloudflare 1020 block page should count as blocked")
 	}
 	if IsBlockedOrThrottled(nil) {
 		t.Error("IsBlockedOrThrottled(nil) = true, want false")

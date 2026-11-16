@@ -1,6 +1,7 @@
 package waf
 
 import (
+	"bytes"
 	"net/http"
 	"strings"
 )
@@ -22,36 +23,150 @@ func EdgeFront(header http.Header) string {
 	if len(header) == 0 {
 		return ""
 	}
-	// Fetch + lowercase the Server value once (several vendors key on it) rather than
-	// re-Get/re-lowercase it per case as the switch falls through.
-	server := strings.ToLower(header.Get("Server"))
-	switch {
-	case headerHas(header, "Cf-Ray"), headerHas(header, "Cf-Mitigated"), strings.Contains(server, "cloudflare"):
-		return "cloudflare"
-	case headerHas(header, "X-Amz-Cf-Id"), headerContains(header, "Via", "cloudfront"):
-		return "cloudfront"
-	case headerHas(header, "X-Akamai-Transformed"), headerHas(header, "Akamai-Origin-Hop"), strings.Contains(server, "akamaighost"):
-		return "akamai"
-	case headerHas(header, "X-Iinfo"), headerContains(header, "X-Cdn", "incapsula"), headerContains(header, "X-Cdn", "imperva"):
-		return "imperva"
-	case headerHas(header, "X-Sucuri-Id"), headerHas(header, "X-Sucuri-Cache"), strings.Contains(server, "sucuri"):
-		return "sucuri"
-	case headerHas(header, "X-Azure-Ref"):
-		return "azure_frontdoor"
+	h := newEdgeHeaders(header.Get)
+	for _, vendor := range edgeFrontVendors {
+		if h.identifies(vendor) {
+			return vendor
+		}
 	}
 	return ""
 }
 
-// headerHas reports whether the response carries a non-empty value for the named
-// header (http.Header canonicalizes the key on lookup). These fingerprint headers
-// always carry a value, so a non-empty Get is a sound presence check.
-func headerHas(h http.Header, key string) bool {
-	return h.Get(key) != ""
+// edgeFrontVendors are the edges EdgeFront paces, in match order.
+var edgeFrontVendors = []string{"cloudflare", "cloudfront", "akamai", "imperva", "sucuri", "azure_frontdoor"}
+
+// edgeHeaders is a response's header getter with the Server value fetched and
+// lowercased once, since several vendors key on it.
+type edgeHeaders struct {
+	get    func(string) string
+	server string
 }
 
-// headerContains reports whether the named header's value contains sub
+func newEdgeHeaders(get func(string) string) edgeHeaders {
+	return edgeHeaders{get: get, server: strings.ToLower(get("Server"))}
+}
+
+// identifies reports whether the headers name vendor's edge in the path. These
+// are presence headers: they ride on every response the edge proxies, so they
+// say only that the edge is there, never that it answered.
+func (h edgeHeaders) identifies(vendor string) bool {
+	switch vendor {
+	case "cloudflare":
+		return h.has("Cf-Ray") || h.has("Cf-Mitigated") || strings.Contains(h.server, "cloudflare")
+	case "cloudfront":
+		return h.has("X-Amz-Cf-Id") || h.contains("Via", "cloudfront") || h.server == "cloudfront"
+	case "akamai":
+		return h.has("X-Akamai-Transformed") || h.has("Akamai-Origin-Hop") || strings.Contains(h.server, "akamaighost")
+	case "imperva":
+		return h.has("X-Iinfo") || h.contains("X-Cdn", "incapsula") || h.contains("X-Cdn", "imperva")
+	case "sucuri":
+		return h.has("X-Sucuri-Id") || h.has("X-Sucuri-Cache") || strings.Contains(h.server, "sucuri")
+	case "azure_frontdoor":
+		return h.has("X-Azure-Ref")
+	case "awselb":
+		return strings.HasPrefix(h.server, "awselb/")
+	}
+	return false
+}
+
+// has reports whether the response carries a non-empty value for the named
+// header. These fingerprint headers always carry a value, so a non-empty get is
+// a sound presence check.
+func (h edgeHeaders) has(key string) bool {
+	return h.get(key) != ""
+}
+
+// contains reports whether the named header's value contains sub
 // (case-insensitive). sub must already be lowercase.
-func headerContains(h http.Header, key, sub string) bool {
-	v := h.Get(key)
+func (h edgeHeaders) contains(key, sub string) bool {
+	v := h.get(key)
 	return v != "" && strings.Contains(strings.ToLower(v), sub)
+}
+
+// edgeBlockPages are the block-page signatures of edges whose presence headers
+// ride on every response they proxy. It is the one table of vendor block-page
+// markers: modkit.IsEdgeBlockedResponse, infra's block detector and the
+// detector rules here (Rule.Edges) all read it, through EdgeBlockPage and
+// edgeBlockPageOf.
+//
+// A marker counts only when the headers also identify its vendor
+// (edgeHeaders.identifies): some are generic on their own — the AWS ELB
+// template is nginx's default 403 page, and "Reference #" appears on order
+// pages — and the vendor header is what attributes them. Each is a fixed string
+// the vendor's own block template emits (Cloudflare's 1xxx error page, Akamai's
+// "Access Denied … Reference #" page and its errors.edgesuite.net link, the
+// CloudFront error page, the AWS WAF/ELB default template, Imperva's incident
+// page): exact template text, not inference, which is why a pattern is the
+// right tool here.
+var edgeBlockPages = []struct {
+	vendor  string
+	markers [][]byte
+}{
+	{"cloudflare", [][]byte{
+		[]byte("cf-error-details"),
+		[]byte("Cloudflare Ray ID"),
+		[]byte("cf-wrapper"),
+		[]byte("Attention Required! | Cloudflare"),
+		[]byte("Sorry, you have been blocked"),
+		[]byte("error code: 10"), // Cloudflare's plain-text 1xxx edge errors (1006, 1010, 1020, …)
+	}},
+	{"akamai", [][]byte{
+		[]byte("errors.edgesuite.net"),
+		[]byte("Reference&#32;&#35;"),
+		[]byte("Reference #"),
+	}},
+	{"cloudfront", [][]byte{
+		[]byte("Generated by cloudfront"),
+		[]byte("The request could not be satisfied"),
+	}},
+	{"awselb", [][]byte{
+		// The ELB/ALB-generated (WAF or fixed-response) 403/503 template.
+		[]byte("<center><h1>403 Forbidden</h1></center>"),
+		[]byte("<center><h1>503 Service Temporarily Unavailable</h1></center>"),
+	}},
+	{"imperva", [][]byte{
+		[]byte("Incapsula incident ID"),
+		[]byte("_Incapsula_Resource"),
+	}},
+}
+
+// EdgeBlockPage names the edge whose own block page body is — its headers
+// identify the vendor in the path and the body carries one of that vendor's
+// block-page markers — or "" for none. get is a header getter
+// (http.Header.Get, httpmsg's HttpResponse.Header). The status is the caller's
+// gate: a vendor header alone on a 403/503 says the edge is in the path, not
+// that it blocked.
+func EdgeBlockPage(get func(string) string, body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	h := newEdgeHeaders(get)
+	for _, page := range edgeBlockPages {
+		if h.identifies(page.vendor) && containsAnyMarker(body, page.markers) {
+			return page.vendor
+		}
+	}
+	return ""
+}
+
+// edgeBlockPageOf reports whether body is vendor's own block page under h.
+func edgeBlockPageOf(h edgeHeaders, vendor string, body []byte) bool {
+	if len(body) == 0 || !h.identifies(vendor) {
+		return false
+	}
+	for _, page := range edgeBlockPages {
+		if page.vendor == vendor {
+			return containsAnyMarker(body, page.markers)
+		}
+	}
+	return false
+}
+
+func containsAnyMarker(body []byte, markers [][]byte) bool {
+	for _, m := range markers {
+		if bytes.Contains(body, m) {
+			return true
+		}
+	}
+	return false
 }

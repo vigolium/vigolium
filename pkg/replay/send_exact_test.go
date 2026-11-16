@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -84,5 +85,27 @@ func TestFindingEvidenceIdenticalIsReproduced(t *testing.T) {
 	}
 	if res.Diff == nil || !strings.Contains(res.Diff.Interpretation, "reproduced") {
 		t.Errorf("interpretation = %+v", res.Diff)
+	}
+}
+
+// The caller's CheckRedirect (fuzz --max-redirs) bounds the per-send client:
+// a redirect loop stops at its limit, not at the replay default of 10.
+func TestSendRawHonorsClientRedirectLimit(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Redirect(w, r, "/loop", http.StatusFound)
+	}))
+	defer srv.Close()
+	host, port := splitAddr(t, srv.Listener.Addr().String())
+	client := NewDefaultClient(nil, 5*time.Second)
+	client.CheckRedirect = RedirectLimit(2)
+	raw := []byte("GET /loop HTTP/1.1\r\nHost: " + srv.Listener.Addr().String() + "\r\n\r\n")
+	sum := sendRawHTTPWith(context.Background(), client, raw, sendTarget{scheme: "http", hostname: host, port: port}, false, 0)
+	if !strings.Contains(sum.Error, "stopped after 2 redirects") {
+		t.Fatalf("want the caller's redirect limit to stop the loop, got error %q", sum.Error)
+	}
+	if got := hits.Load(); got != 2 {
+		t.Fatalf("server saw %d requests, want 2 (net/http counts the first request in via)", got)
 	}
 }

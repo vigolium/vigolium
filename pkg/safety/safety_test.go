@@ -13,6 +13,19 @@ func TestDestructiveAndLogout(t *testing.T) {
 			t.Errorf("%q should not be destructive", s)
 		}
 	}
+	// Commit actions are destructive; the navigation that leads to them is not.
+	for _, s := range []string{"Pay now", "pay", "/billing/pay", "Place order", "Place your order", "Buy now", "Purchase",
+		"Confirm payment", "Complete purchase", "Transfer funds", "Wire transfer", "Send money", "Send invitation",
+		"Invite", "Approve", "Publish"} {
+		if !IsDestructiveName(s) {
+			t.Errorf("%q should be destructive (an irreversible commit)", s)
+		}
+	}
+	for _, s := range []string{"Checkout", "/cart", "Payment methods", "/payments/history", "Send", "Invitations", "Unpublish", "Approved items", "Paypal"} {
+		if IsDestructiveName(s) {
+			t.Errorf("%q should not be destructive (navigation, not a commit)", s)
+		}
+	}
 	if !IsLogoutName("Sign out") || IsLogoutName("Delete") {
 		t.Error("logout subset wrong")
 	}
