@@ -20,6 +20,7 @@ import (
 	"github.com/vigolium/vigolium/pkg/oast/oastclass"
 	"github.com/vigolium/vigolium/pkg/output"
 	"github.com/vigolium/vigolium/pkg/types/severity"
+	"github.com/vigolium/vigolium/pkg/vulnclass"
 	"go.uber.org/zap"
 )
 
@@ -456,9 +457,13 @@ func (s *Service) reportCorrelated(interaction *server.Interaction, nonce string
 		},
 		FuzzingParameter: pctx.ParameterName,
 		MatcherStatus:    true,
-		ModuleType:       database.ModuleTypeOAST,
-		FindingSource:    database.FindingSourceOAST,
-		ModuleShort:      "Out-of-band interaction detected via OAST callback",
+		// The class the payload was minted for decides what the callback
+		// proves (a blind-XSS script fetch is xss_blind, not the planting
+		// module's other classes); "" leaves the module's declared class.
+		VulnClass:     string(vulnclass.FromOAST(pctx.class())),
+		ModuleType:    database.ModuleTypeOAST,
+		FindingSource: database.FindingSourceOAST,
+		ModuleShort:   "Out-of-band interaction detected via OAST callback",
 		// Identify the finding by its emission key — the callback nonce for high-signal
 		// interactions (each distinct payload host is its own finding, re-callbacks
 		// dedup), or module+host+injection-point for low-signal Info interactions (all

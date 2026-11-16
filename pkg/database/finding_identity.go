@@ -165,6 +165,14 @@ func recordRedetectionTx(idb bun.IDB, existingID int64, existingStatus string, l
 		if latest.Description != "" {
 			q = q.Set("description = ?", latest.Description)
 		}
+		// The claim travels with the severity it qualifies: a re-detection
+		// filed at the module's own severity clears an earlier claim.
+		if latest.Severity != "" {
+			q = q.Set("claimed_severity = ?", nullIfEmpty(latest.ClaimedSeverity))
+		}
+		if latest.VulnClass != "" {
+			q = q.Set("vuln_class = ?", latest.VulnClass)
+		}
 	}
 	if existingStatus != StatusFixed {
 		return q, nil

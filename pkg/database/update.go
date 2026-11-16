@@ -34,6 +34,8 @@ func (r *Repository) UpdateRecordResponse(ctx context.Context, uuid string, upda
 		Set("response_content_type = ?", update.ResponseContentType).
 		Set("response_content_length = ?", update.ResponseContentLength).
 		Set("raw_response = ?", update.RawResponse).
+		// The caller's bytes are stored as given, so nothing was decoded.
+		Set("response_decoded_from = NULL").
 		Set("response_hash = ?", update.ResponseHash).
 		Set("response_time_ms = ?", update.ResponseTimeMs).
 		// Derived from the bytes being written rather than taken from the caller,
@@ -89,6 +91,7 @@ func (r *Repository) BackfillRecordResponse(ctx context.Context, uuid string, rr
 		Set("response_content_type = ?", rec.ResponseContentType).
 		Set("response_content_length = ?", rec.ResponseContentLength).
 		Set("raw_response = ?", rec.RawResponse).
+		Set("response_decoded_from = NULLIF(?, '')", rec.ResponseDecodedFrom).
 		Set("response_hash = ?", rec.ResponseHash).
 		Set("response_norm_hash = ?", rec.ResponseNormHash).
 		Set("response_words = ?", rec.ResponseWords).
