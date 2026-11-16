@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/spitolas.UnlockProfile",
+  "$defs": {
+    "spitolas.UnlockCookie": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ]
+    },
+    "spitolas.UnlockProfile": {
+      "properties": {
+        "origin": {
+          "type": "string"
+        },
+        "localStorage": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "sessionStorage": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "cookies": {
+          "items": {
+            "$ref": "#/$defs/spitolas.UnlockCookie"
+          },
+          "type": "array"
+        },
+        "stubs": {
+          "items": {
+            "$ref": "#/$defs/spitolas.UnlockStub"
+          },
+          "type": "array"
+        },
+        "routes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "maxRoutes": {
+          "type": "integer"
+        },
+        "settleMs": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "origin"
+      ]
+    },
+    "spitolas.UnlockStub": {
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer"
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "method",
+        "path",
+        "status"
+      ]
+    }
+  },
+  "title": "vigolium unlock-profile",
+  "description": "The kit unlock-walk --profile input: origin, localStorage/sessionStorage seeds, cookies, response stubs (same-origin, 2xx/4xx/5xx, body up to 64 KiB) and routes (maxRoutes default 40, at most 200; settleMs default 2500, at most 10000)."
+}

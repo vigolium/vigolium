@@ -275,6 +275,74 @@ func applyReadiness(res *ProbeResult, cfg ProbeConfig, waitErr error, waited tim
 	return nil
 }
 
+// probeBrowserOptions are the launch settings shared by the one-tab browser
+// runs (ProbeURL, UnlockWalk).
+type probeBrowserOptions struct {
+	URL                string
+	Headed             bool
+	Stealth            string // "" takes DefaultProbeStealth
+	ProxyURL           string // "" takes DefaultProbeProxy
+	ProxyAllowLoopback bool
+	BrowserPath        string
+	BrowserEngine      string
+	NavTimeout         time.Duration // from probeNavTimeout
+}
+
+// probeNavTimeout is d, or 30s when d is unset.
+func probeNavTimeout(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 30 * time.Second
+	}
+	return d
+}
+
+// launchProbeBrowser starts a single-browser session for o. The caller closes
+// it. ctx is bound onto every page the browser creates so the caller's
+// deadline/cancellation reaches rod's per-operation CDP calls (NavigateCtx,
+// raw RodPage escape hatches), not just loop-level checks. Capture runs on the
+// raw browser (RodBrowser), so it is unaffected and keeps flushing.
+func launchProbeBrowser(ctx context.Context, o probeBrowserOptions) (*browser.Browser, error) {
+	if o.ProxyURL == "" {
+		o.ProxyURL = DefaultProbeProxy()
+	}
+	if o.Stealth == "" {
+		o.Stealth = DefaultProbeStealth()
+	}
+	crawlerCfg, err := config.New(o.URL)
+	if err != nil {
+		return nil, fmt.Errorf("build config: %w", err)
+	}
+	crawlerCfg.BrowserCount = 1
+	crawlerCfg.MaxDepth = 0
+	crawlerCfg.MaxStates = 1
+	crawlerCfg.Silent = true
+	// Env override: VIGOLIUM_BROWSER_HEADED falls back to headed so the
+	// operator can see the window.
+	crawlerCfg.Headless = !o.Headed && !utils.EnvTruthy(EnvBrowserHeaded)
+	if o.BrowserPath != "" {
+		crawlerCfg.BrowserPath = o.BrowserPath
+	}
+	if o.BrowserEngine != "" {
+		crawlerCfg.BrowserEngine = o.BrowserEngine
+	}
+	if err := config.ValidateStealth(o.Stealth); err != nil {
+		return nil, err
+	}
+	crawlerCfg.Stealth = o.Stealth
+	if o.ProxyURL != "" {
+		crawlerCfg.ProxyURL = o.ProxyURL
+		crawlerCfg.ProxyAllowLoopback = o.ProxyAllowLoopback
+	}
+	crawlerCfg.PageLoadTimeout = o.NavTimeout
+
+	br, err := browser.NewWithContext(ctx, crawlerCfg)
+	if err != nil {
+		return nil, fmt.Errorf("launch browser: %w", err)
+	}
+	br.SetCrawlContext(ctx)
+	return br, nil
+}
+
 // ProbeURL launches a single-page browser session and returns any dialog
 // events that fired during navigation. Each call spins up a fresh browser
 // process; callers are responsible for budgeting concurrency.
@@ -282,60 +350,21 @@ func ProbeURL(ctx context.Context, cfg ProbeConfig) (res *ProbeResult, err error
 	if cfg.URL == "" {
 		return nil, errors.New("ProbeURL: URL is required")
 	}
-	if cfg.ProxyURL == "" {
-		cfg.ProxyURL = DefaultProbeProxy()
-	}
-	if cfg.Stealth == "" {
-		cfg.Stealth = DefaultProbeStealth()
-	}
-
-	crawlerCfg, err := config.New(cfg.URL)
+	navTimeout := probeNavTimeout(cfg.NavTimeout)
+	br, err := launchProbeBrowser(ctx, probeBrowserOptions{
+		URL:                cfg.URL,
+		Headed:             cfg.Headed,
+		Stealth:            cfg.Stealth,
+		ProxyURL:           cfg.ProxyURL,
+		ProxyAllowLoopback: cfg.ProxyAllowLoopback,
+		BrowserPath:        cfg.BrowserPath,
+		BrowserEngine:      cfg.BrowserEngine,
+		NavTimeout:         navTimeout,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("ProbeURL: build config: %w", err)
-	}
-
-	crawlerCfg.BrowserCount = 1
-	crawlerCfg.MaxDepth = 0
-	crawlerCfg.MaxStates = 1
-	crawlerCfg.Silent = true
-	// Env override: when VIGOLIUM_BROWSER_HEADED is set and the caller
-	// didn't explicitly set Headed, fall back to headed so the operator
-	// can see the window.
-	headed := cfg.Headed || utils.EnvTruthy(EnvBrowserHeaded)
-	crawlerCfg.Headless = !headed
-	if cfg.BrowserPath != "" {
-		crawlerCfg.BrowserPath = cfg.BrowserPath
-	}
-	if cfg.BrowserEngine != "" {
-		crawlerCfg.BrowserEngine = cfg.BrowserEngine
-	}
-	crawlerCfg.Stealth = cfg.Stealth
-	if err := config.ValidateStealth(cfg.Stealth); err != nil {
 		return nil, fmt.Errorf("ProbeURL: %w", err)
 	}
-	if cfg.ProxyURL != "" {
-		crawlerCfg.ProxyURL = cfg.ProxyURL
-		crawlerCfg.ProxyAllowLoopback = cfg.ProxyAllowLoopback
-	}
-
-	navTimeout := cfg.NavTimeout
-	if navTimeout <= 0 {
-		navTimeout = 30 * time.Second
-	}
-	crawlerCfg.PageLoadTimeout = navTimeout
-
-	br, err := browser.NewWithContext(ctx, crawlerCfg)
-	if err != nil {
-		return nil, fmt.Errorf("ProbeURL: launch browser: %w", err)
-	}
 	defer func() { _ = br.Close() }()
-
-	// Bind the probe context onto every page this browser creates so the caller's
-	// deadline/cancellation reaches rod's per-operation CDP calls — including the
-	// raw page.RodPage().SetExtraHeaders escape hatch below and NavigateCtx — not
-	// just the loop-level checks. Capture runs on the raw browser (RodBrowser), so
-	// it is unaffected and keeps flushing.
-	br.SetCrawlContext(ctx)
 
 	// Optional network capture: spin up a CDP-level recorder and let it
 	// run for the lifetime of this probe. Records flow through the
