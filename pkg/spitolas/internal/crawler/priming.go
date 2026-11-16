@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 
 	"github.com/vigolium/vigolium/pkg/safety"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/browser"
@@ -19,12 +20,14 @@ import (
 var destructivePathRe = safety.DestructiveNameRe
 
 // filterDestructiveURLs returns urls with any whose path reads as destructive
-// removed. A URL that fails to parse is kept — it was already same-origin-validated
-// by the discovery script that produced it.
-func filterDestructiveURLs(urls []string) []string {
+// (the shared pattern, or extra: spidering.deny_click_extra, nil when unset)
+// removed. A URL that fails to parse is kept — it was already
+// same-origin-validated by the discovery script that produced it.
+func filterDestructiveURLs(urls []string, extra *regexp.Regexp) []string {
 	kept := make([]string, 0, len(urls))
 	for _, raw := range urls {
-		if u, err := url.Parse(raw); err == nil && destructivePathRe.MatchString(u.Path) {
+		if u, err := url.Parse(raw); err == nil &&
+			(destructivePathRe.MatchString(u.Path) || (extra != nil && extra.MatchString(u.Path))) {
 			continue
 		}
 		kept = append(kept, raw)
@@ -128,7 +131,7 @@ func (c *Crawler) fetchURLsInPage(ctx context.Context, page *browser.Page, urls 
 // Scope denials are counted in Stats.AuxFetchesDenied. Without a custom scope
 // (CrawlScope nil) only wall hosts are refused, as before.
 func (c *Crawler) admissibleFetchURLs(urls []string) ([]string, int) {
-	urls = filterDestructiveURLs(urls)
+	urls = filterDestructiveURLs(urls, c.extractor.DenyClickExtra())
 	kept := make([]string, 0, len(urls))
 	denied := 0
 	for _, raw := range urls {

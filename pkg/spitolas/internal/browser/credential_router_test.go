@@ -105,3 +105,80 @@ func TestCredentialRouter_ThirdPartyGetsNoHeader(t *testing.T) {
 		t.Errorf("third-party request carried X-Api-Key = %q", v)
 	}
 }
+
+// A method policy installs on a real Chrome and fails the page's fetch
+// write before it leaves the browser. Every resource type in the Fetch.enable
+// filter must be one Chrome accepts there: one unknown type refuses the whole
+// call, and the caller only logs that refusal, so the crawl ran with no
+// method policy at all.
+func TestCredentialRouter_MethodPolicyBlocksWrites(t *testing.T) {
+	if testing.Short() {
+		t.Skip("launches a real browser")
+	}
+	var mu sync.Mutex
+	var posts, reads int
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost:
+			mu.Lock()
+			posts++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/read":
+			mu.Lock()
+			reads++
+			mu.Unlock()
+			_, _ = w.Write([]byte("ok"))
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<!doctype html><html><body><script>
+fetch('/write', {method: 'POST', body: 'x'}).catch(() => {});
+fetch('/read').catch(() => {});
+</script></body></html>`))
+		}
+	}))
+	defer app.Close()
+
+	cfg, err := config.New(app.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Headless = true
+	b, err := New(cfg)
+	if err != nil {
+		t.Skipf("no usable browser in this environment: %v", err)
+	}
+	defer func() { _ = b.Close() }()
+	page, err := b.NewPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnly := func(method string) bool {
+		return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
+	}
+	if err := page.InstallCredentialRouter(nil, nil, readOnly, nil); err != nil {
+		t.Fatalf("InstallCredentialRouter with a method policy: %v", err)
+	}
+	if err := page.Navigate(app.URL + "/"); err != nil {
+		t.Fatalf("Navigate: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		done := reads > 0
+		mu.Unlock()
+		if done {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if reads == 0 {
+		t.Fatal("the read was never sent")
+	}
+	if posts != 0 {
+		t.Fatalf("the server received %d POST(s) under a read-only method policy", posts)
+	}
+}

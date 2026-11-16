@@ -146,6 +146,21 @@ func (c *Crawler) selectUnsubmittedForms(in []string, max int) []string {
 var enumeratePostFormsScript = strings.Replace(enumeratePostFormsScriptSrc,
 	"__DESTRUCTIVE_RE__", safety.JSRegexLiteral(safety.DestructivePattern), 1)
 
+// postFormsScript is enumeratePostFormsScript, its destructive pattern
+// widened by spidering.deny_click_extra when set; built once per crawl. An
+// extra JavaScript cannot parse makes the enumeration fail, so no POST form is
+// submitted: the failure is on the safe side.
+func (c *Crawler) postFormsScript() string {
+	c.postFormsJSOnce.Do(func() {
+		c.postFormsJS = enumeratePostFormsScript
+		if extra := strings.TrimSpace(c.config.DenyClickExtra); extra != "" {
+			c.postFormsJS = strings.Replace(enumeratePostFormsScriptSrc,
+				"__DESTRUCTIVE_RE__", safety.JSRegexLiteral(safety.DestructivePattern+"|"+extra), 1)
+		}
+	})
+	return c.postFormsJS
+}
+
 const enumeratePostFormsScriptSrc = `(() => {
   const out = [];
   let forms;
@@ -404,7 +419,7 @@ func (c *Crawler) submitPostForms(ctx context.Context, page *browser.Page, alrea
 		c.fillFormsIfPresent(page, "")
 	}
 
-	raw, err := page.Eval(enumeratePostFormsScript)
+	raw, err := page.Eval(c.postFormsScript())
 	if err != nil {
 		zap.L().Debug("POST-form enumeration failed", zap.Error(err))
 		return

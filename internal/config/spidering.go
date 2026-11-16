@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -26,6 +27,19 @@ type SpideringConfig struct {
 	// ExcludeSelectors are CSS selectors the crawl never clicks (an element
 	// matching one, or inside one, is dropped from the candidates).
 	ExcludeSelectors []string `yaml:"exclude_selectors,omitempty"`
+	// ExcludeSelectorsExtra are more selectors the crawl never clicks, added
+	// to exclude_selectors rather than replacing them: a caller layering its
+	// own rules of engagement (a coding agent, a per-engagement config) widens
+	// the exclusion without restating, or being able to drop, the operator's.
+	ExcludeSelectorsExtra []string `yaml:"exclude_selectors_extra,omitempty"`
+	// DenyClickExtra are more case-insensitive regexes for the destructive
+	// click guard, ORed with interaction.deny_click_pattern (the built-in
+	// pattern when that is unset). Widen-only: they apply even when
+	// deny_click_pattern is "" (guard off), and they also keep the crawl from
+	// submitting a POST form whose controls match and from priming a URL whose
+	// path matches. Each entry must compile (RE2, which JavaScript also
+	// accepts for plain words and alternations).
+	DenyClickExtra []string `yaml:"deny_click_extra,omitempty"`
 
 	// MaxListenerProbeNodes caps, per crawl state, the listener-bearing nodes
 	// the CDP listener pass turns into click candidates (each costs several CDP
@@ -120,6 +134,34 @@ func (c *SpideringConfig) ExtraSeedsCap() int {
 	return c.MaxExtraSeeds
 }
 
+// DenyClickExtraPattern joins spidering.deny_click_extra into one
+// alternation ("" when empty), each entry grouped so its own alternation
+// cannot leak into its neighbour.
+func (c *SpideringConfig) DenyClickExtraPattern() string {
+	var parts []string
+	for _, p := range c.DenyClickExtra {
+		if p = strings.TrimSpace(p); p != "" {
+			parts = append(parts, "(?:"+p+")")
+		}
+	}
+	return strings.Join(parts, "|")
+}
+
+// EffectiveExcludeSelectors is exclude_selectors plus exclude_selectors_extra.
+func (c *SpideringConfig) EffectiveExcludeSelectors() []string {
+	if len(c.ExcludeSelectorsExtra) == 0 {
+		return c.ExcludeSelectors
+	}
+	out := make([]string, 0, len(c.ExcludeSelectors)+len(c.ExcludeSelectorsExtra))
+	out = append(out, c.ExcludeSelectors...)
+	for _, s := range c.ExcludeSelectorsExtra {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // SpideringInteractionConfig is what the browser crawl is permitted to change.
 // Pointer-valued so "unset" is distinguishable from "false": unset falls back to
 // the default (or a legacy key), an explicit value always wins. The keys match
@@ -135,8 +177,10 @@ type SpideringInteractionConfig struct {
 	// DenyClickPattern is a case-insensitive regex; a click candidate whose
 	// text, href, aria-label, title or value matches it is never clicked.
 	// Unset = the built-in destructive pattern (log out, sign out,
-	// delete, remove, deactivate, unsubscribe, close/cancel account); "" turns
-	// the guard off. Not a permission category, so it is not in the policy
+	// delete, remove, deactivate, unsubscribe, close/cancel account, and
+	// commit actions: pay, place order, purchase, transfer funds, invite,
+	// approve, publish); "" turns the guard off (spidering.deny_click_extra
+	// still applies). Not a permission category, so it is not in the policy
 	// report.
 	DenyClickPattern *string `yaml:"deny_click_pattern,omitempty"`
 }
@@ -267,6 +311,22 @@ func (c *SpideringConfig) Validate() error {
 	}
 	if d := c.IdentityEmailDomain; d != "" && (strings.ContainsAny(d, "@/: \t") || !strings.Contains(d, ".")) {
 		return fmt.Errorf("spidering.identity_email_domain must be a bare domain such as example.com, got: %q", d)
+	}
+	for i, p := range c.DenyClickExtra {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
+		re, err := regexp.Compile("(?i)" + p)
+		if err != nil {
+			return fmt.Errorf("spidering.deny_click_extra[%d] is not a valid regex (%q): %v", i, p, err)
+		}
+		// A pattern that matches the empty string matches every control's
+		// text, so the crawl would refuse to click anything and the POST-form
+		// and URL primers would drop everything. It is checked here, with the
+		// RE2 engine the click guard runs it on.
+		if re.MatchString("") {
+			return fmt.Errorf("spidering.deny_click_extra[%d] (%q) matches the empty string, so it would refuse every control: name the terms to refuse", i, p)
+		}
 	}
 	if d := c.Interaction.Dialogs; d != "" && !slices.Contains(SpideringDialogPolicies, d) {
 		return fmt.Errorf("spidering.interaction.dialogs must be one of %s, got: %s", strings.Join(SpideringDialogPolicies, ", "), d)

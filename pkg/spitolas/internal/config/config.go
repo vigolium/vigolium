@@ -206,6 +206,10 @@ type Config struct {
 	// default is pkg/safety's destructive pattern (log out, delete, remove,
 	// deactivate, unsubscribe, close account, …).
 	DenyClickPattern string
+	// DenyClickExtra is more deny regex (spidering.deny_click_extra, joined),
+	// applied whatever DenyClickPattern is: it only ever widens the guard. It
+	// also widens the POST-form and URL-primer destructive filters.
+	DenyClickExtra string
 	// MethodAllowed, when set, is the scan's traffic policy: the
 	// browser fails any request whose method it refuses (BlockedByClient).
 	MethodAllowed func(method string) bool

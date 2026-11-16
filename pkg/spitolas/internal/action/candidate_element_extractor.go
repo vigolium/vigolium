@@ -15,6 +15,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/browser"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
 )
@@ -79,9 +80,13 @@ type CandidateElementExtractor struct {
 	clickOnceSeen  *clickOnceMemory
 	clickOnceMutex sync.RWMutex
 	// denyClick drops click candidates that read as destructive;
-	// nil disables. skippedDestructive counts them, shared by ForTab copies.
+	// nil disables. denyExtra is spidering.deny_click_extra, applied whatever
+	// denyClick is (widen-only). skippedDestructive counts the refusals and
+	// skipped samples them by name; both are shared by ForTab copies.
 	denyClick          *regexp.Regexp
+	denyExtra          *regexp.Regexp
 	skippedDestructive *atomic.Int64
+	skipped            *skippedControlLedger
 	// denyLogout drops logout controls even when the deny pattern is off.
 	denyLogout bool
 
@@ -125,8 +130,10 @@ func NewCandidateElementExtractor(cfg *config.Config) *CandidateElementExtractor
 		baseURL:             cfg.URL,
 
 		maxListenerProbeNodes: cfg.MaxListenerProbeNodes,
-		denyClick:             compileDenyClick(cfg.DenyClickPattern),
+		denyClick:             compileDenyClick("spidering.interaction.deny_click_pattern", cfg.DenyClickPattern),
+		denyExtra:             compileDenyClick("spidering.deny_click_extra", cfg.DenyClickExtra),
 		skippedDestructive:    &atomic.Int64{},
+		skipped:               &skippedControlLedger{},
 		// An authenticated crawl never clicks a logout control, whatever
 		// deny_click_pattern says.
 		denyLogout: len(cfg.ExtraHeaders) > 0 || len(cfg.InitialCookies) > 0 || cfg.AuthMonitor != nil,
@@ -160,27 +167,42 @@ func denyAttrValues(attrs string) []string {
 	return out
 }
 
-// compileDenyClick compiles the deny-click pattern case-insensitively; empty
-// or invalid disables the guard (an invalid operator pattern is logged).
-func compileDenyClick(pattern string) *regexp.Regexp {
+// compileDenyClick compiles a deny-click pattern (the setting named key)
+// case-insensitively; empty or invalid disables it (an invalid operator
+// pattern is logged; config validation rejects one first).
+func compileDenyClick(key, pattern string) *regexp.Regexp {
 	pattern = strings.TrimSpace(pattern)
 	if pattern == "" {
 		return nil
 	}
 	re, err := regexp.Compile("(?i)" + pattern)
 	if err != nil {
-		zap.L().Warn("Invalid spidering.interaction.deny_click_pattern; destructive-click guard disabled",
+		zap.L().Warn("Invalid "+key+"; that part of the destructive-click guard is disabled",
 			zap.String("pattern", pattern), zap.Error(err))
 		return nil
 	}
 	return re
 }
 
+// DenyClickExtra is spidering.deny_click_extra as the click guard compiled it
+// (case-insensitive), nil when unset or invalid. The crawl's URL primers reuse
+// it, so the clicks and the primers treat one pattern — valid or not — the
+// same way.
+func (e *CandidateElementExtractor) DenyClickExtra() *regexp.Regexp {
+	if e == nil {
+		return nil
+	}
+	return e.denyExtra
+}
+
 // deniedByPattern reports whether a click candidate reads as destructive —
-// its text, href, aria-label, title or value matches the deny pattern — and
-// counts it. Hover candidates only reveal menus and are exempt.
-func (e *CandidateElementExtractor) deniedByPattern(c *CandidateElement) bool {
-	if (e.denyClick == nil && !e.denyLogout) || c == nil || c.EventType == EventTypeHover {
+// its text, href, aria-label, title or value matches the deny pattern, the
+// operator's extra terms, or (authenticated crawl) the logout pattern — and
+// records it: counted always, sampled by name while the sample has room.
+// pageURL is where the candidate was seen (resolved lazily, only for a
+// sampled refusal). Hover candidates only reveal menus and are exempt.
+func (e *CandidateElementExtractor) deniedByPattern(c *CandidateElement, pageURL func() string) bool {
+	if (e.denyClick == nil && e.denyExtra == nil && !e.denyLogout) || c == nil || c.EventType == EventTypeHover {
 		return false
 	}
 	fields := []string{c.Text, c.Href}
@@ -189,14 +211,74 @@ func (e *CandidateElementExtractor) deniedByPattern(c *CandidateElement) bool {
 		if f == "" {
 			continue
 		}
-		if (e.denyClick != nil && e.denyClick.MatchString(f)) || (e.denyLogout && safety.LogoutRe.MatchString(f)) {
-			if e.skippedDestructive != nil {
-				e.skippedDestructive.Add(1)
-			}
-			return true
+		var reason, match string
+		if m, ok := firstMatch(e.denyClick, f); ok {
+			reason, match = "deny_click", m
+		} else if m, ok := firstMatch(e.denyExtra, f); ok {
+			reason, match = "deny_click_extra", m
+		} else if m, ok := firstMatch(e.logoutRe(), f); ok {
+			reason, match = "logout", m
+		} else {
+			continue
 		}
+		if e.skippedDestructive != nil {
+			e.skippedDestructive.Add(1)
+		}
+		if !e.skipped.full() {
+			sc := scanevents.SkippedControl{Label: controlLabel(c), Reason: reason, Match: strings.TrimSpace(match)}
+			if c.Identification != nil {
+				sc.Selector = c.Identification.Value
+			}
+			if pageURL != nil {
+				sc.URL = pageURL()
+			}
+			e.skipped.add(sc)
+		}
+		return true
 	}
 	return false
+}
+
+// firstMatch is re's leftmost match in s, with one FindStringIndex pass; ok is
+// false when re is nil or does not match.
+func firstMatch(re *regexp.Regexp, s string) (match string, ok bool) {
+	if re == nil {
+		return "", false
+	}
+	loc := re.FindStringIndex(s)
+	if loc == nil {
+		return "", false
+	}
+	return s[loc[0]:loc[1]], true
+}
+
+// logoutRe is the logout guard's pattern when the guard is on, else nil.
+func (e *CandidateElementExtractor) logoutRe() *regexp.Regexp {
+	if !e.denyLogout {
+		return nil
+	}
+	return safety.LogoutRe
+}
+
+// pageURLOf resolves page's URL at most once, on first call: a refusal that
+// is only counted never pays the CDP round trip.
+func pageURLOf(page *browser.Page) func() string {
+	return sync.OnceValue(func() string {
+		if page == nil {
+			return ""
+		}
+		u, _ := page.URL()
+		return u
+	})
+}
+
+// SkippedControls is the bounded sample of refused click candidates (at most
+// scanevents.MaxSkippedControlSample, deduplicated).
+func (e *CandidateElementExtractor) SkippedControls() []scanevents.SkippedControl {
+	if e == nil {
+		return nil
+	}
+	return e.skipped.snapshot()
 }
 
 // SkippedDestructive is how many click candidates the deny pattern dropped.
@@ -352,7 +434,9 @@ func (e *CandidateElementExtractor) ForTab() *CandidateElementExtractor {
 		clickOnce:             e.clickOnce,
 		clickOnceSeen:         e.clickOnceSeen,
 		denyClick:             e.denyClick,
+		denyExtra:             e.denyExtra,
 		skippedDestructive:    e.skippedDestructive,
+		skipped:               e.skipped,
 		denyLogout:            e.denyLogout,
 	}
 }
@@ -578,6 +662,7 @@ func shuffleCandidates(candidates []*CandidateElement) {
 
 // extractBySelectors extracts candidate elements using CSS selectors.
 func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, snap *browser.PierceSnapshot, seen map[string]bool, framePath string) ([]*CandidateElement, error) {
+	pageURL := pageURLOf(page)
 	candidates := make([]*CandidateElement, 0)
 
 	for _, selector := range e.clickSelectors {
@@ -619,7 +704,7 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, snap 
 			}
 
 			candidate := e.createCandidateElement(elem, xpath, framePath, href, EventTypeClick)
-			if e.deniedByPattern(candidate) {
+			if e.deniedByPattern(candidate, pageURL) {
 				continue
 			}
 
@@ -671,7 +756,7 @@ func (e *CandidateElementExtractor) extractBySelectors(page *browser.Page, snap 
 
 		candidate := e.createCandidateElement(elem, idValue, framePath, href, EventTypeClick)
 		candidate.Identification = NewIdentification(HowLocator, idValue)
-		if e.deniedByPattern(candidate) {
+		if e.deniedByPattern(candidate, pageURL) {
 			continue
 		}
 
@@ -757,6 +842,7 @@ func (e *CandidateElementExtractor) extractHoverMenus(page *browser.Page, seen m
 // CandidateElements with the given event type. Shared by the CDP-listener,
 // semantic/delegated, and hover-menu passes.
 func (e *CandidateElementExtractor) buildCandidatesFromResults(page *browser.Page, results []ClickableResult, seen map[string]bool, framePath string, eventType EventType) []*CandidateElement {
+	pageURL := pageURLOf(page)
 	candidates := make([]*CandidateElement, 0)
 
 	for _, result := range results {
@@ -837,7 +923,7 @@ func (e *CandidateElementExtractor) buildCandidatesFromResults(page *browser.Pag
 		if how != HowXPath {
 			candidate.Identification = NewIdentification(how, xpath)
 		}
-		if e.deniedByPattern(candidate) {
+		if e.deniedByPattern(candidate, pageURL) {
 			continue
 		}
 

@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/action"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/browser"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/condition"
@@ -35,10 +36,13 @@ type Crawler struct {
 	// extractor and formHandler are the first tab's (primary's); the other
 	// tabs get their own (see newTabWorker), sharing the crawl-wide memory
 	// each keeps — the clickOnce set and the fill context.
-	extractor   *action.CandidateElementExtractor
-	comparator  *state.Comparator
-	formHandler *form.Handler
-	fragManager *fragment.Manager
+	extractor *action.CandidateElementExtractor
+	// postFormsJS is postFormsScript's result, built once.
+	postFormsJS     string
+	postFormsJSOnce sync.Once
+	comparator      *state.Comparator
+	formHandler     *form.Handler
+	fragManager     *fragment.Manager
 
 	// primary is the first tab: the page initializeIndexState opens, which
 	// also runs the single-threaded steps around the crawl loop (seeding,
@@ -247,6 +251,9 @@ type Stats struct {
 	// SkippedDestructive counts click candidates the destructive-click guard
 	// dropped (spidering.interaction.deny_click_pattern).
 	SkippedDestructive int64
+	// SkippedControls is a bounded sample of those refusals by name
+	// (scanevents.MaxSkippedControlSample).
+	SkippedControls []scanevents.SkippedControl
 	// BodiesFailed counts captured responses whose body fetch failed;
 	// they were stored provisionally, upgradeable by a later copy.
 	BodiesFailed int
@@ -806,6 +813,7 @@ func (c *Crawler) buildResult(ctx context.Context) *Result {
 	res.Stats.ConsecutiveFailures = int(c.consecutiveFails.Load())
 	if c.extractor != nil {
 		res.Stats.SkippedDestructive = c.extractor.SkippedDestructive()
+		res.Stats.SkippedControls = c.extractor.SkippedControls()
 	}
 
 	return res

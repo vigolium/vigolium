@@ -20,6 +20,9 @@ type credentialRouter struct {
 	// firstParty, when set, turns resource blocking on: fonts and
 	// media are failed, and images whose URL it rejects (third-party).
 	firstParty func(url string) bool
+	// interceptor, when set, decides every request it pauses before the
+	// policies above (InstallInterceptor).
+	interceptor *Interceptor
 }
 
 // CredentialHostPatterns are the Fetch URL patterns covering host and its
@@ -46,9 +49,10 @@ func CredentialHostPatterns(host string) []string {
 //
 // patterns narrows which requests are paused for the headers ("*" when
 // empty); a method policy also pauses every request type that can carry a
-// write method (methodPolicyResourceTypes). Responses
-// are never fulfilled by the router (no rod LoadResponse): requests continue
-// to the network untouched apart from headers.
+// write method (methodPolicyResourceTypes). The credential policy never
+// fulfils a response (no rod LoadResponse): requests continue to the network
+// untouched apart from headers. Only an Interceptor (InstallInterceptor)
+// answers a request itself.
 //
 // Calling it again replaces the credential policy (headers, allow, method
 // filter) on the already-running interceptor, so a re-login can re-apply
@@ -91,15 +95,24 @@ func (p *Page) currentRouter() *credentialRouter {
 
 // methodPolicyResourceTypes are the request types a page can send with a
 // method other than GET: navigations and form posts, XHR/fetch, beacons, CSP
-// reports, CORS preflights, and the unclassified rest.
+// reports, and the unclassified rest. Preflight is not one of them: a CORS
+// preflight is always OPTIONS, and Chrome refuses the type in a Fetch.enable
+// filter ("Unknown resource type in fetch filter"), which fails the whole
+// call and leaves the page with no interceptor at all.
 var methodPolicyResourceTypes = []proto.NetworkResourceType{
 	proto.NetworkResourceTypeDocument,
 	proto.NetworkResourceTypeXHR,
 	proto.NetworkResourceTypeFetch,
 	proto.NetworkResourceTypePing,
 	proto.NetworkResourceTypeCSPViolationReport,
-	proto.NetworkResourceTypePreflight,
 	proto.NetworkResourceTypeOther,
+}
+
+// WriteCapableResourceTypes returns a copy of the request types that can
+// carry a method other than GET (methodPolicyResourceTypes), for an
+// Interceptor that must see every write a page sends.
+func WriteCapableResourceTypes() []proto.NetworkResourceType {
+	return append([]proto.NetworkResourceType(nil), methodPolicyResourceTypes...)
 }
 
 // enableInterception (re)issues Fetch.enable with the union of the patterns
@@ -133,6 +146,14 @@ func (p *Page) enableInterception(r *credentialRouter) error {
 		add("*", proto.NetworkResourceTypeMedia)
 		add("*", proto.NetworkResourceTypeImage)
 	}
+	if ic := r.interceptor; ic != nil && !pausesAll {
+		for _, pat := range ic.Patterns {
+			add(pat, "")
+		}
+		for _, rt := range ic.Types {
+			add("*", rt)
+		}
+	}
 	if len(reqPatterns) == 0 {
 		return (proto.FetchDisable{}).Call(p.boundedPage(0))
 	}
@@ -157,6 +178,11 @@ func (p *Page) routePaused(e *proto.FetchRequestPaused) {
 	fail := func() {
 		if err := (proto.FetchFailRequest{RequestID: e.RequestID, ErrorReason: proto.NetworkErrorReasonBlockedByClient}).Call(page); err != nil {
 			zap.L().Debug("browser interceptor: fail request", zap.Error(err))
+		}
+	}
+	if r != nil && r.interceptor != nil && e.Request != nil {
+		if p.answerIntercepted(r.interceptor, e, page) {
+			return
 		}
 	}
 	if r != nil && e.Request != nil {

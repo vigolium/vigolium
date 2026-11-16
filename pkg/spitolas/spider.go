@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vigolium/vigolium/pkg/httpmsg"
+	"github.com/vigolium/vigolium/pkg/scanevents"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/config"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/crawler"
 	"github.com/vigolium/vigolium/pkg/spitolas/internal/network"
@@ -102,6 +103,10 @@ type SpiderConfig struct {
 	// DenyClickPattern overrides the destructive-click guard's regex:
 	// nil keeps the built-in destructive pattern, a pointer to "" disables it.
 	DenyClickPattern *string
+	// DenyClickExtra widens the guard (spidering.deny_click_extra, joined into
+	// one alternation): applied whatever DenyClickPattern is, and to POST-form
+	// submission and URL priming too.
+	DenyClickExtra string
 	// ExcludeSelectors are CSS selectors the crawl never clicks.
 	ExcludeSelectors []string
 	// AuthMonitor is the scan's live session: the crawl re-applies
@@ -170,6 +175,11 @@ func (cfg SpiderConfig) requestCounters() network.RequestCounters {
 
 // SpiderResult contains the results of a spidering run.
 type SpiderResult struct {
+	// SkippedDestructive counts the click candidates the destructive-click
+	// guard refused; SkippedControls samples them by name (bounded).
+	SkippedDestructive int64
+	SkippedControls    []scanevents.SkippedControl
+
 	StatesDiscovered int
 	ActionsExecuted  int
 	ActionsFailed    int
@@ -378,6 +388,7 @@ func buildCrawlerConfig(cfg SpiderConfig) (*config.Config, error) {
 	if cfg.DenyClickPattern != nil {
 		crawlerCfg.DenyClickPattern = *cfg.DenyClickPattern
 	}
+	crawlerCfg.DenyClickExtra = cfg.DenyClickExtra
 	crawlerCfg.ExcludeSelectors = append(crawlerCfg.ExcludeSelectors, cfg.ExcludeSelectors...)
 	crawlerCfg.MethodAllowed = cfg.MethodAllowed
 	crawlerCfg.AuthMonitor = cfg.AuthMonitor
@@ -489,6 +500,9 @@ func spiderResultFromCrawl(result *crawler.Result, recordsSaved int) *SpiderResu
 		CredentialOriginsDenied: result.Stats.CredentialOriginsDenied,
 		CredentialHostsDenied:   result.Stats.CredentialHostsDenied,
 		AuxFetchesDenied:        result.Stats.AuxFetchesDenied,
+
+		SkippedDestructive: result.Stats.SkippedDestructive,
+		SkippedControls:    result.Stats.SkippedControls,
 	}
 }
 

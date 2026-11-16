@@ -223,6 +223,25 @@ type Event struct {
 	// Flushed is false on the scan.finished a forced exit writes (second or
 	// third Ctrl-C) when the findings and reports may not have been written.
 	Flushed *bool `json:"flushed,omitempty"`
+	// ScopeDropped counts, per scope rule class, the records scope rules
+	// refused during the scan (scan.finished; the -j document's
+	// scope_dropped).
+	ScopeDropped map[string]int64 `json:"scope_dropped,omitempty"`
+	// SkippedControls is what the browser crawl did not click because the
+	// destructive-click guard refused it: the exact count and a bounded
+	// sample by name (scan.finished).
+	SkippedControls *SkippedControls `json:"skipped_controls,omitempty"`
+	// OASTSessionsKept are the interactsh sessions the scan left open
+	// (oast.keep_session) for late callbacks: `vigolium oast poll --scan
+	// <uuid> [--close]` collects and closes them (scan.finished).
+	OASTSessionsKept []OASTSession `json:"oast_sessions_kept,omitempty"`
+	// ExitCode is the status this invocation exits with as of the scan's end
+	// (the gates --fail-on, --fail-on-partial and an interrupt included;
+	// --soft-fail is not applied, as on the error envelope's exit_code).
+	// ErrorCode is its stable code (apicontract) when it is not 0
+	// (scan.finished).
+	ExitCode  *int   `json:"exit_code,omitempty"`
+	ErrorCode string `json:"error_code,omitempty"`
 	// Egress lists which outbound paths go through the shared rate/host gate and
 	// which do not, with the reason (scan.started).
 	Egress *Egress `json:"egress,omitempty"`
@@ -517,6 +536,13 @@ func Int64(v int64) *int64 { return &v }
 // Int is the *int counterpart of Int64, for the target counters.
 func Int(v int) *int { return &v }
 
+// OASTSession is one kept interactsh session: ID is the oast_sessions row id
+// (`oast poll`'s session_id), Server the interactsh server URL.
+type OASTSession struct {
+	ID     int64  `json:"id"`
+	Server string `json:"server"`
+}
+
 // Caveat is one coverage caveat on scan.finished; the same shape as
 // database.Caveat (kept here so this package stays free of the store).
 type Caveat struct {
@@ -526,4 +552,7 @@ type Caveat struct {
 	Modules []string `json:"modules,omitempty"`
 	Count   int64    `json:"count,omitempty"`
 	Message string   `json:"message"`
+	Done    *int64   `json:"done,omitempty"`
+	Total   *int64   `json:"total,omitempty"`
+	Unit    string   `json:"unit,omitempty"`
 }
